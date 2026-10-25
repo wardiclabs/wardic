@@ -313,3 +313,72 @@ Following from these:
 
 Each is inside its own run-to-run spread (`flip` ranged 1.56–1.72 on main and 1.55–1.81 here). The renderer reads four more keys per projected element per frame, and the engine one more accessor where it reads the own scale.
 
+
+## Amendment (#383, 2026-10-25): one depth order, cached
+
+The engine's top-down walks each sorted the nodes by depth on every call:
+- `deriveAll` sorted its leads, and `deriveCarried` its followers, every frame;
+- `deriveGroup` sorted on every Measure pass's seed frame;
+- the Measure pass sorted a copy of every node on every pass;
+- `deriveSubtree` sorted at every drag start.
+
+#377's `Graph` probe found the per-frame sort, and #383 measured it in the engine. Grilled 2026-10-25 (Q1, Q2).
+
+**Decision:**
+- **One depth order for every top-down walk.** It's ancestors first and stable in the node set's order, kept until it goes stale: after `computeTree` sets the depths, or when a node is added or removed (`addNode`, `deleteNode`). A rebuild makes a new array and never changes one in place, so a pass holding one keeps it whole.
+- **No walk sorts any more.** `deriveCarried`'s followers arrive in depth order, because both of its callers collect them walking it.
+- **`deriveAll`'s leads and followers are two scratch arrays,** emptied before and after each frame, so a frame allocates neither (ADR-0025).
+- **The order can't change what's drawn.** A stable sort of the set, filtered, gives the same order as the set's filter, sorted. And depth only changes in `computeTree`, so the order is exactly as fresh as the depths.
+- **The Measure pass's loops turned out not to rely on ancestors-first order.** Every scroll sample is read before any fold, and a restart reads the boxes as the pass began (#146). They read the depth order anyway, which costs nothing now. The pass's comment said otherwise and is corrected.
+- **Rejected:**
+  - Effect's `Graph` for the order (#377, Q3);
+  - reusing the scratch arrays and keeping the sort;
+  - landing a projection benchmark first. It's filed as #385: `bench:solid` has no `layout` page and `bench:core` no projection workload.
+
+**Measured** with CDP CPU profiles (50 µs sampling). `performance.now()` is 100 µs-coarse in a page that isn't cross-origin isolated, too coarse for a sort.
+- **The page:** 1,331 `layout` wards (a root, 10 lists of 99 items, a badge in every third) on Solid 2's production build. Each scene is 8 `animateLayout`s, ~223 ticks.
+- **The runs:** main and this branch interleaved in two rounds, after three rounds of today against a prototype. Probe and analysis in `.tmp/383/`.
+
+| `deriveAll`, per 8 animations | main | cached order |
+|---|---|---|
+| everything moves (the root's padding) | 105.7, 88.2 ms | 74.8, 74.5 ms |
+| …classifying and sorting, the rest after `derive` | 15.0, 15.1 ms | 3.7, 3.4 ms |
+| one list reorders | 18.9, 14.7 ms | 13.1, 12.8 ms |
+| …classifying and sorting | 6.6, 6.6 ms | 5.0, 4.1 ms |
+| one item moves | 13.1, 10.9 ms | 9.8, 9.1 ms |
+| …classifying and sorting | 5.7, 4.4 ms | 3.3, 3.7 ms |
+
+- V8 counts the builtin sort in its caller's self time.
+- **What this establishes:** the work the change removes, classifying and sorting, drops by about 50 µs per tick page-wide (~12 ms over ~223 ticks), and by 1–2 ms over the smaller scenes' 8 animations.
+- `derive` itself also read faster page-wide in some rounds, though its code is unchanged. The tick probe below doesn't show that, so it was most likely noise in the profiles.
+
+**The whole tick** (#27's probe, `.tmp/363/`):
+- **How:** production bundles of main and this branch, N = 1,000, 9 reps interleaved, the median rAF callback over a 60-frame animation.
+- **Built from two copies side by side in `.tmp/`.** Main from a `.tmp` copy against the branch from `packages/` made bundles 7 KB apart: Rollup tree-shook dead Effect helpers differently by location. Side by side, they differ by the change's 14 bytes.
+
+| workload | main | this branch | the runs' spread |
+|---|---|---|---|
+| `glued` | 1.17 ms | 1.20 ms (+3%) | 0.92–1.25 |
+| `delay` | 1.27 ms | 1.22 ms (−4%) | 1.14–1.32 |
+| `flip` | 1.69 ms | 1.65 ms (−3%) | 1.43–1.81 |
+| `scaled` | 2.07 ms | 2.11 ms (+2%) | 1.96–2.35 |
+| `held` | 1.15 ms | 1.11 ms (−3%) | 0.94–1.26 |
+
+Each is inside its own spread. The ~50 µs the profiles show is 2–4% of these ticks, under this probe's resolution. The change's other gain is that a frame no longer allocates its leads and followers (ADR-0025).
+
+**Tests:** `packages/dom/test/projection-depth-order.browser.test.ts`:
+- DO1: a node disposed mid-flight is never derived again.
+- DO2: a node moved three levels deeper is derived after its new ancestors. Its painted size stays its own in the Measure pass's seed frame and every frame after, while the root scales.
+- DO3: a parent and child moved in one pass write the same frames, registered parent first or child first, to floating-point rounding.
+
+**Mutation-checked** with 9 single-point mutations (`.tmp/383/mutate.py`). Four were killed:
+- `computeTree` leaving the order (DO2);
+- a removal leaving it (DO1);
+- `deriveAll` in set order (DO2, XF3b);
+- `deriveGroup` in set order (DO2's seed frame).
+
+Five survive, equivalent:
+- **An addition leaving the order:** every addition is followed by `computeTree` before anything reads it (a register's Measure pass at the end of its task, `computeTree` straight after a re-introduce).
+- **The Measure pass in set order:** its loops don't rely on order (above).
+- **`deriveSubtree` without its root:** a grab doesn't jump (ADR-0016, *Amendment (velocity family)*, decision 4), so the root's delta at the grab is its last one.
+- **The scratch arrays not emptied before, or after:** the first matters only after a throw, the second only holds a disposed node a frame longer.

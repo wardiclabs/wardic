@@ -1441,6 +1441,23 @@ export const makeProjectionSystem = (
   // {@link onPassEnd}'s listeners, run at the end of each Measure pass.
   const passEndListeners = new Set<() => void>()
   const nodes = new Set<NodeState>()
+  // The nodes in depth order, ancestors first, stable in `nodes`' order (#383): every top-down walk
+  // (the derives each frame, the Measure pass, a drag start's subtree) reads it in place of sorting.
+  // It's rebuilt only when stale: after `computeTree`, which sets the depths, or a node added or
+  // removed. A rebuild makes a new array and never changes one in place, so a pass holding one keeps
+  // it whole.
+  let byDepth: ReadonlyArray<NodeState> = []
+  let byDepthStale = true
+  /** Add a node to the tree: its depth order goes stale (#383). */
+  const addNode = (node: NodeState): void => {
+    nodes.add(node)
+    byDepthStale = true
+  }
+  /** Remove a node from the tree: its depth order goes stale (#383). */
+  const deleteNode = (node: NodeState): void => {
+    nodes.delete(node)
+    byDepthStale = true
+  }
   const active = new Set<NodeState>()
   // Element -> node, for the DOM-ancestry parent walk.
   const elementToNode = new Map<HTMLElement, NodeState>()
@@ -2245,9 +2262,12 @@ export const makeProjectionSystem = (
    * Follower holds its last hidden-locked `@projection` write in the gate).
    */
   const deriveAll = (): void => {
-    const leads: Array<NodeState> = []
-    const followers: Array<NodeState> = []
-    for (const n of nodes) {
+    const leads = FRAME_LEADS
+    const followers = FRAME_FOLLOWERS
+    // Emptied before too: a frame a throw cut short leaves none of its nodes to the next.
+    leads.length = 0
+    followers.length = 0
+    for (const n of inDepthOrder()) {
       if (isFollower(n)) {
         if (isMovingFollower(n)) followers.push(n)
         continue
@@ -2258,17 +2278,19 @@ export const makeProjectionSystem = (
       }
       if (active.has(n) || hasActiveAncestor(n)) leads.push(n)
     }
-    leads.sort((a, b) => a.depth - b.depth)
     for (const node of leads) derive(node)
     deriveCarried(followers)
+    // Emptied after, so a disposed node isn't held until the next frame.
+    leads.length = 0
+    followers.length = 0
   }
 
   /**
    * The Followers, and what they carry, derived top-down (#5, #169): a twin or a layout node inside
-   * a Follower reads its container's fresh lock. Per frame.
+   * a Follower reads its container's fresh lock. Per frame. They come in depth order (#383): both
+   * callers collect them walking {@link inDepthOrder}.
    */
-  const deriveCarried = (followers: Array<NodeState>): void => {
-    followers.sort((a, b) => a.depth - b.depth)
+  const deriveCarried = (followers: ReadonlyArray<NodeState>): void => {
     for (const node of followers) {
       if (isFollower(node)) {
         deriveFollower(node)
@@ -2338,7 +2360,7 @@ export const makeProjectionSystem = (
     if (group.size === 0) return
     const leads: Array<NodeState> = []
     const followers: Array<NodeState> = []
-    for (const n of nodes) {
+    for (const n of inDepthOrder()) {
       if (isFollower(n)) {
         const lead = stackLeadOf(n)
         if (Predicate.isNotUndefined(lead) && active.has(lead) && group.has(lead)) followers.push(n)
@@ -2352,13 +2374,30 @@ export const makeProjectionSystem = (
       }
       if (group.has(n) && (active.has(n) || hasActiveAncestor(n))) leads.push(n)
     }
-    leads.sort((a, b) => a.depth - b.depth)
     for (const node of leads) derive(node)
     deriveCarried(followers)
   }
 
-  /** Recompute parent links + depth for every node by walking DOM ancestry. */
+  /** Ancestors first: a node's depth, smaller first. */
+  const depthFirst = (a: NodeState, b: NodeState): number => a.depth - b.depth
+
+  /** The nodes in depth order ({@link byDepth}), rebuilt first if stale (#383). */
+  const inDepthOrder = (): ReadonlyArray<NodeState> => {
+    if (byDepthStale) {
+      byDepth = [...nodes].sort(depthFirst)
+      byDepthStale = false
+    }
+    return byDepth
+  }
+
+  // A frame's leads and followers in {@link deriveAll}: the same two arrays each frame, emptied after
+  // (#383, ADR-0025: the per-frame path allocates nothing).
+  const FRAME_LEADS: Array<NodeState> = []
+  const FRAME_FOLLOWERS: Array<NodeState> = []
+
+  /** Recompute parent links + depth for every node by walking DOM ancestry; the depth order goes stale. */
   const computeTree = (): void => {
+    byDepthStale = true
     for (const node of nodes) {
       let el: HTMLElement | null = node.element.parentElement
       let parent: NodeState | undefined
@@ -2985,11 +3024,11 @@ export const makeProjectionSystem = (
    */
   const runMeasurePass = (seeded: Set<NodeState>, dragBlocked: Set<NodeState>, blocked: boolean, versioned: boolean): void => {
     // Parent links + depth FIRST (DOM-ancestry only, box-independent): the scroll
-    // fold walks the ancestor chain, and the depth order makes every phase below
-    // ancestors-first, so each scroll container's offset is sampled before a
-    // descendant folds it in (ADR-0012).
+    // fold walks the ancestor chain (ADR-0012). Every phase below runs ancestors-first,
+    // in the depth order (#383), though none relies on it today: every scroll sample is
+    // read before any fold, and a restart reads the boxes as the pass began (#146).
     computeTree()
-    const ordered = [...nodes].sort((a, b) => a.depth - b.depth)
+    const ordered = inDepthOrder()
     // The nodes this round (re)seeded or whose box changed under their descendants.
     const changed = new Set<NodeState>()
     const start = (node: NodeState): void => {
@@ -3744,10 +3783,8 @@ export const makeProjectionSystem = (
    * drag start's cleanup, see `dragStart`).
    */
   const deriveSubtree = (root: NodeState): void => {
-    const subtree: Array<NodeState> = [root]
-    for (const n of nodes) if (!isFollower(n) && isDescendantOf(n, root)) subtree.push(n)
-    subtree.sort((a, b) => a.depth - b.depth)
-    for (const n of subtree) derive(n)
+    derive(root)
+    for (const n of inDepthOrder()) if (!isFollower(n) && isDescendantOf(n, root)) derive(n)
   }
 
   /**
@@ -4165,7 +4202,7 @@ export const makeProjectionSystem = (
       }
     }
     active.delete(node)
-    nodes.delete(node)
+    deleteNode(node)
     painted.delete(node)
     // What it carried and brought back with it goes with it (#169).
     const within: Array<NodeState> = []
@@ -4302,7 +4339,7 @@ export const makeProjectionSystem = (
     if (Predicate.isUndefined(stack)) return false
     const follower = makeLeavingNode(el, layoutId, last, onDone, undefined, undefined)
     recent.reintroduced = true
-    nodes.add(follower)
+    addNode(follower)
     elementToNode.set(el, follower)
     stack.splice(stack.length - 1, 0, follower) // insert below the Lead
     reintroduceWithin(el)
@@ -4351,7 +4388,7 @@ export const makeProjectionSystem = (
       if (Bool.not(active.has(lead))) return
       const twin = makeLeavingNode(inner, held.layoutId, last, () => undefined, undefined, chainOf(held))
       recent.reintroduced = true
-      nodes.add(twin)
+      addNode(twin)
       elementToNode.set(inner, twin)
       stack.splice(stack.length - 1, 0, twin)
       twins.push(twin)
@@ -4372,7 +4409,7 @@ export const makeProjectionSystem = (
       if (Bool.not(container.contains(inner))) return
       recent.reintroduced = true
       const carried = makeLeavingNode(inner, undefined, last, undefined, recent.layoutAnchor, undefined)
-      nodes.add(carried)
+      addNode(carried)
       elementToNode.set(inner, carried)
     })
 
@@ -4673,7 +4710,7 @@ export const makeProjectionSystem = (
       releasing: false,
       release: undefined,
     }
-    nodes.add(node)
+    addNode(node)
     elementToNode.set(node.element, node)
     debug("register", {
       id: opts.id,
@@ -4856,7 +4893,7 @@ export const makeProjectionSystem = (
         UndefinedOr.map(watched, (w) => w.unobserve(node.element))
         elementToNode.delete(node.element)
         active.delete(node)
-        nodes.delete(node)
+        deleteNode(node)
         painted.delete(node)
         // Stack relegation / promotion (ADR-0010): a leaving Lead promotes the new
         // newest node, animating it FROM the leaver's box (un-hide + move home).
@@ -4899,6 +4936,8 @@ export const makeProjectionSystem = (
     pageSizes.clear()
     active.clear()
     nodes.clear()
+    byDepth = []
+    byDepthStale = true
     elementToNode.clear()
     passEndListeners.clear()
     // The provider and its app are gone: nothing is called back (#191).
