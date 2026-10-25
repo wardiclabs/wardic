@@ -248,3 +248,32 @@ Three survive, equivalent through today's code:
 Measured by the probes (Solid 2's production build, 1,000 elements), a free `drag` now keeps ~7.2 KB more than a plain ward, from ~18 KB. That's above Q1's 4–5 KB estimate: the rest is the drag track's own closures and their contexts, with no fiber or continuation left. Its extra mount cost is ~18 µs per element, from ~34 (56.4 against 74.2 ms per 1,000; plain 38.5).
 
 `bench:core` isn't run: no per-frame path changed (a release's frames are the same Machine runs).
+
+### Built: PR 3, a Reorder item's input on watches
+
+- **solid, `reorder-input.ts` (new, Solid-free):** `watchItemInput(el, driver, fork, onDefect)` watches an item's keys, blurs and presses for its driver while a Scope is open (`InputFeed.watch`, three watches). It replaces the two bindings' copies of `runItemInput`, each a fiber forking three Stream loops.
+  - Keys are told inside their dispatch, so the reorder's `handle()` (the page's `preventDefault`) counts, as before.
+  - A blur is judged one scheduler hop on (#318 PR 2's `Effect.yieldNow`). `fork` runs that hop on the provider runtime, so it happens only when a blur does. A blur whose judging fails is reported (`wardic.reorder: judging an item's blur failed`).
+- **Solid 1:** each item runs it with `runWatch`, in the effect that follows its element, so a Scope per element closes when the element changes or the item goes.
+- **Solid 2:** a ward's internal `onMount` hook is now also handed a watch runner for the mount's watch Scope, with the ward's `onDefect`. The item's input shares that Scope with its gestures and its drag track, so it has no Scope of its own.
+
+### Tests (PR 3)
+
+- **WC3, both bindings:** every listener a Reorder item's input and drag add to it is removed at the unmount.
+- **KB5** (`reorder-keyboard`) adds a right button's down on a lifted item: not the Primary pointer's press, it leaves the item lifted.
+- **Unchanged in what they assert:** every Reorder suite in both bindings (pointer, keyboard, hold, end, headless, engine). The keyboard suites hold the blur's hop: without it, every keyboard move drops its lift (#318 PR 2).
+
+**Mutation-checked** with 8 single-point mutations (`.tmp/379/mutate-pr3.py`). Seven were killed:
+- the blur's hop removed, and the blur judged inside its event;
+- keys not told, and presses not told;
+- any down a press (KB5's new right button);
+- Solid 1's input Scope never closed, and Solid 2's input outside the ward's Scope (WC3).
+
+One survives, equivalent: a blur whose judging fails goes unreported. The driver is Wardic's own and doesn't throw there.
+
+**Cost (PR 3):** `bench:solid` against main (8c80180) gated, exit 0, with its control at −1.5%. No timed task moved beyond noise:
+
+| | reorder item, kept per element | since #379 began (PR #380's A/A) | hover + press | bytes |
+|---|---|---|---|---|
+| Solid 1 | 35.36 → 26.99 KB, −23.7% [−23.8% – −23.7%] | 45.78 → 26.99 KB, −41.0% | −0.0% | +0.2% |
+| Solid 2 | 34.52 → 26.06 KB, −24.5% [−24.5% – −24.5%] | 45.00 → 26.06 KB, −42.1% | +0.0% | +0.4% |
