@@ -101,8 +101,9 @@ export interface AnimatePresenceProps {
  * `<AnimatePresence>` — wraps its children (a conditional one, or a `<For>`'s) and
  * animates each one's exit before it's removed. Must be used inside a `<WardicProvider>`
  * (it drives the exit on the provider runtime) and may wrap any control flow
- * (e.g. `<Show>`); the leaving child must be a `wardic.*` element / `createWard`
- * spine under this presence so it registers an exit record.
+ * (e.g. `<Show>`). A leaving child runs its own `exit` if it's a `wardic.*` element or a
+ * `createWard` spine, and the exits of the Wardic elements inside it either way, staying until
+ * they've ended; a plain child with nothing inside it to wait for goes at once (#392).
  */
 export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   const runtime = useWardicRuntime()
