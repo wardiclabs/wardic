@@ -22,6 +22,8 @@
  * `?kind=retained` (#318): N `wardic.div`s with `whileHover` and `whileTap`, so each starts its hover
  * and press recognizers at mount, animated to rest. It runs no rounds: the runner mounts and unmounts
  * it through `__wardicRetained` and reads the heap kept per element between, after forced GCs.
+ * `?kind=retained-reorder` (#379) is the same for N `Reorder.Item`s in one `Reorder.Group`: each a
+ * draggable layout node with its drag track and its keyboard, blur and press input, animated to rest.
  *
  * `?kind=live` and `?kind=live-plain` (`--live`, #130): N `wardic.div`s whose `opacity` is a Live
  * value (one signal, in `style`), against N plain `div`s whose style binds the same signal. Per round:
@@ -31,7 +33,7 @@
  * unmount.
  */
 import { DomLive } from "@wardic/dom"
-import { wardic, WardicProvider } from "@wardic/solid"
+import { Reorder, wardic, WardicProvider } from "@wardic/solid"
 import { createSignal, For, Show } from "solid-js"
 import { render } from "solid-js/web"
 import * as Bool from "effect/Boolean"
@@ -100,7 +102,16 @@ const Retained = () => (
     </Show>
   </WardicProvider>
 )
-const pages = { plain: Plain, wardic: Wardic, live: Live, "live-plain": LivePlain, retained: Retained } as const
+const RetainedReorder = () => (
+  <WardicProvider env={DomLive}>
+    <Show when={shown()}>
+      <Reorder.Group values={items} onReorder={() => undefined}>
+        <For each={items}>{(item) => <Reorder.Item value={item} class="b" initial={{ opacity: 0 }} animate={{ opacity: 1 }} />}</For>
+      </Reorder.Group>
+    </Show>
+  </WardicProvider>
+)
+const pages = { plain: Plain, wardic: Wardic, live: Live, "live-plain": LivePlain, retained: Retained, "retained-reorder": RetainedReorder } as const
 render(() => {
   const Page = pages[kind as keyof typeof pages]
   return <Page />
@@ -219,7 +230,7 @@ const liveRound = async (): Promise<LiveRound> => {
   return { mount, set: mid(sets), frame: mid(frameTimes), unmount }
 }
 
-/** `?kind=retained`'s mount, settled at rest, and its unmount, for the runner's heap readings (#318). */
+/** `?kind=retained`'s and `?kind=retained-reorder`'s mount, settled at rest, and unmount, for the runner's heap readings (#318, #379). */
 export interface RetainedPage {
   readonly mount: () => Promise<void>
   readonly unmount: () => Promise<void>

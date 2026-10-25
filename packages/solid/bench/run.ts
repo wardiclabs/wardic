@@ -34,12 +34,16 @@
  *   heap profiler, objects freed by either GC counted: what a side allocates per element per round,
  *   its tasks and the frames between them together. It fails as a task does (+5% median, 25th
  *   percentile above 0), so what the GC per task leaves out of the times is still held.
- * - **Retained gate** (#318): `--retained-reps` paired `retained` pages per side and binding, each N
- *   `wardic.div`s with `whileHover` and `whileTap` (their hover and press recognizers started at
- *   mount), mounted, settled at rest and unmounted three times. The heap is read after two full GCs
- *   (CDP's `HeapProfiler.collectGarbage`, then `Runtime.getHeapUsage`) before each mount, at rest, and
- *   after the unmount. What a side keeps per element, the median of its cycles, fails as a task does.
- *   What an unmount leaves is reported, not gated: about 0, and a ratio of two zeros is noise.
+ * - **Retained gate** (#318): `--retained-reps` paired pages per side, binding and kind, each mounted,
+ *   settled at rest and unmounted three times. The kinds:
+ *   - `retained`: N `wardic.div`s with `whileHover` and `whileTap` (their hover and press recognizers
+ *     started at mount);
+ *   - `retained-reorder` (#379): N `Reorder.Item`s in one `Reorder.Group`, each a draggable layout
+ *     node with its drag track and its keyboard, blur and press input.
+ *   The heap is read after two full GCs (CDP's `HeapProfiler.collectGarbage`, then
+ *   `Runtime.getHeapUsage`) before each mount, at rest, and after the unmount. What a side keeps per
+ *   element, the median of its cycles, fails as a task does. What an unmount leaves is reported, not
+ *   gated: about 0, and a ratio of two zeros is noise.
  *
  * Runs on the bench server, after `wardic-quiet`, not in CI. Exits 0 when every task passes, 1
  * when one fails, and 2 when the run is too noisy.
@@ -102,7 +106,10 @@ if (Bool.not(["1", "2", "both"].includes(bindingArg))) throw new Error(`bench:so
 /** A build: a side's Solid 1 page (`base`, `head`) or its Solid 2 page (`v2Base`, `v2Head`). */
 type Side = "base" | "head" | "v2Base" | "v2Head"
 const isV2 = (side: Side): boolean => Bool.or(side === "v2Base", side === "v2Head")
-type Kind = "wardic" | "plain" | "live" | "live-plain" | "retained"
+/** The retained gate's pages (#318, #379). */
+const RETAINED_KINDS = ["retained", "retained-reorder"] as const
+type RetainedKind = (typeof RETAINED_KINDS)[number]
+type Kind = "wardic" | "plain" | "live" | "live-plain" | RetainedKind
 const TASKS = ["mount", "retarget", "restRetarget", "unmount"] as const
 
 const commitOf = (ref: string): string =>
@@ -309,7 +316,7 @@ const allocatedPage = async (side: Side): Promise<number> => {
   return bytesOf(profile.head as HeapNode) / (rounds * n)
 }
 
-/** Mount and unmount cycles on each `retained` page: the median of them is the page's (#318). */
+/** Mount and unmount cycles on each retained page: the median of them is the page's (#318). */
 const RETAINED_CYCLES = 3
 
 /** The heap the page's JS holds after two full GCs, in bytes. */
@@ -319,16 +326,16 @@ const heldBy = async (cdp: CDPSession): Promise<number> => {
   return (await cdp.send("Runtime.getHeapUsage")).usedSize
 }
 
-/** What one `retained` page of `side`'s build keeps (#318), in bytes per element. */
+/** What one retained page of `side`'s build keeps (#318, #379), in bytes per element. */
 interface Retained {
-  /** Mounted, at rest: its wards, their recognizers and everything they hold. */
+  /** Mounted, at rest: its wards, their gestures and everything they hold. */
   readonly kept: number
   /** After the unmount, against before the mount. */
   readonly left: number
 }
 
-const retainedPage = async (side: Side): Promise<Retained> => {
-  const { page, errors } = await openPage(side, "retained")
+const retainedPage = async (side: Side, kind: RetainedKind): Promise<Retained> => {
+  const { page, errors } = await openPage(side, kind)
   const cdp = await page.context().newCDPSession(page)
   const call = (name: "mount" | "unmount"): Promise<void> =>
     page.evaluate((m) => (globalThis as unknown as { __wardicRetained: Record<string, () => Promise<void>> }).__wardicRetained[m]!(), name)
@@ -342,7 +349,7 @@ const retainedPage = async (side: Side): Promise<Retained> => {
     cycles.push({ kept: (mounted - before) / n, left: (after - before) / n })
   }
   await page.close()
-  if (errors.length > 0) throw new Error(`bench:solid: ${side} retained: ${errors.join("; ")}`)
+  if (errors.length > 0) throw new Error(`bench:solid: ${side} ${kind}: ${errors.join("; ")}`)
   return { kept: median(cycles.map((c) => c.kept)), left: median(cycles.map((c) => c.left)) }
 }
 
@@ -441,10 +448,16 @@ for (let r = 0; r < allocReps; r++) {
   for (const binding of bindings) for (const side of order) allocated[binding][side].push(await allocatedPage(SIDES[binding][side]))
   process.stderr.write(`bytes ${r + 1}/${allocReps}\r`)
 }
-const retained: Record<Binding, Record<"base" | "head", Array<Retained>>> = { solid1: { base: [], head: [] }, solid2: { base: [], head: [] } }
+const emptyRetained = (): Record<RetainedKind, Record<"base" | "head", Array<Retained>>> => ({
+  retained: { base: [], head: [] },
+  "retained-reorder": { base: [], head: [] },
+})
+const retained: Record<Binding, Record<RetainedKind, Record<"base" | "head", Array<Retained>>>> = { solid1: emptyRetained(), solid2: emptyRetained() }
 for (let r = 0; r < retainedReps; r++) {
   const order = orderOf(r)
-  for (const binding of bindings) for (const side of order) retained[binding][side].push(await retainedPage(SIDES[binding][side]))
+  for (const binding of bindings) {
+    for (const kind of RETAINED_KINDS) for (const side of order) retained[binding][kind][side].push(await retainedPage(SIDES[binding][side], kind))
+  }
   process.stderr.write(`retained ${r + 1}/${retainedReps}\r`)
 }
 await browser.close()
@@ -458,6 +471,11 @@ const control = median(controlRatios)
 const noisy = Math.abs(control - 1) > NOISE
 console.log(`control (${n * CONTROL_SCALE} plain divs, all four tasks, warm): ${percent(control)} [${percent(quantile(controlRatios, 0.25))} – ${percent(quantile(controlRatios, 0.75))}]${when(noisy, "  too noisy: rerun on a quiet host")}\n`)
 
+/** The retained table's rows: a ward with `whileHover` and `whileTap`, and a Reorder item. */
+const RETAINED_ROWS: ReadonlyArray<readonly [RetainedKind, string]> = [
+  ["retained", "hover + press"],
+  ["retained-reorder", "reorder item"],
+]
 const TITLES: Record<Binding, string> = { solid1: "Solid 1 (@wardic/solid)", solid2: "Solid 2 (@wardic/solid/unstable/v2)" }
 let failed = false
 for (const binding of bindings) {
@@ -488,19 +506,24 @@ for (const binding of bindings) {
     `  ${"bytes".padEnd(14)}${(median(bytes.base) / 1024).toFixed(1).padEnd(10)}${(median(bytes.head) / 1024).toFixed(1).padEnd(10)}` +
       `${percent(quantile(allocRatios, 0.5))} [${percent(quantile(allocRatios, 0.25))} – ${percent(quantile(allocRatios, 0.75))}]${when(allocFails, "  FAIL")}\n`,
   )
-  const held = retained[binding]
-  const keptRatios = held.head.map((h, r) => h.kept / held.base[r]!.kept)
-  const keptFails = quantile(keptRatios, 0.5) > GATE && quantile(keptRatios, 0.25) > 1
-  failed ||= keptFails
-  console.log("retained (KB per element, a ward with whileHover and whileTap at rest; head / base paired per rep: median [p25 – p75])")
+  console.log("retained (KB per element at rest; head / base paired per rep: median [p25 – p75])")
   console.log(`  ${"".padEnd(14)}${"base".padEnd(10)}${"head".padEnd(10)}change`)
-  console.log(
-    `  ${"kept".padEnd(14)}${(median(held.base.map((h) => h.kept)) / 1024).toFixed(2).padEnd(10)}${(median(held.head.map((h) => h.kept)) / 1024).toFixed(2).padEnd(10)}` +
-      `${percent(quantile(keptRatios, 0.5))} [${percent(quantile(keptRatios, 0.25))} – ${percent(quantile(keptRatios, 0.75))}]${when(keptFails, "  FAIL")}`,
-  )
-  console.log(
-    `  ${"after unmount".padEnd(14)}${(median(held.base.map((h) => h.left)) / 1024).toFixed(2).padEnd(10)}${(median(held.head.map((h) => h.left)) / 1024).toFixed(2).padEnd(10)}not gated\n`,
-  )
+  for (const [kind, label] of RETAINED_ROWS) {
+    const held = retained[binding][kind]
+    const keptRatios = held.head.map((h, r) => h.kept / held.base[r]!.kept)
+    const keptFails = quantile(keptRatios, 0.5) > GATE && quantile(keptRatios, 0.25) > 1
+    failed ||= keptFails
+    console.log(
+      `  ${label.padEnd(14)}${(median(held.base.map((h) => h.kept)) / 1024).toFixed(2).padEnd(10)}${(median(held.head.map((h) => h.kept)) / 1024).toFixed(2).padEnd(10)}` +
+        `${percent(quantile(keptRatios, 0.5))} [${percent(quantile(keptRatios, 0.25))} – ${percent(quantile(keptRatios, 0.75))}]${when(keptFails, "  FAIL")}`,
+    )
+  }
+  console.log("\nleft after the unmount (KB per element, median across reps), not gated: about 0")
+  for (const [kind, label] of RETAINED_ROWS) {
+    const held = retained[binding][kind]
+    console.log(`  ${label.padEnd(14)}${(median(held.base.map((h) => h.left)) / 1024).toFixed(2).padEnd(10)}${(median(held.head.map((h) => h.left)) / 1024).toFixed(2)}`)
+  }
+  console.log("")
 }
 
 if (noisy) process.exit(2)
