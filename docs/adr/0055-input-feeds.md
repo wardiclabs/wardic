@@ -105,3 +105,66 @@ Stated:
 | Solid 2 | 35.42 → 26.13 KB, −26.3% [−26.4% – −26.3%] | −1.0% to +2.5% | +0.5% |
 
 `bench:core` isn't run: no per-frame path changed, and its workloads take no input.
+
+## Built: PR 3, gesture watches
+
+- **core, `Recognizer`:** hover, press, focus, in view and pan are **watches**. Each is a scoped Effect: `watchHover(target, handlers)`, `watchPress`, `watchFocus(target, options, handlers)`, `watchInView(target, options, handlers)` and `watchPan`, with `Recognizer.Handlers<A> = { on, onDefect?, onEnd? }`. A watch:
+  - reads its services, then subscribes its fold to the target's feed with `acquireRelease`. The Scope's finalizer unsubscribes. It has no fiber, no Stream and no queue.
+  - runs the fold and `on` inside the feed's emit, so inside the platform's dispatch;
+  - keeps its span for as long as the Scope is open (`Effect.withSpanScoped`, with no call-site stack, ADR-0040), and logs `<span>: watch` once, at the start, as the Streams logged `subscribe`;
+  - hands a throw from the fold or `on` to `onDefect` as a die, then goes on with the next event. With no `onDefect`, the throw goes up the dispatch. Core reports nothing (ADR-0030, decision 4);
+  - with `once` (in view), stops its subscription at the first entry, even when the feed delivers it while starting;
+  - tells `onEnd` when the feed runs out (a test's script);
+  - for pan, holds the started pan's count in the **Drag activity** from its `"start"` to its `"end"`, and gives it back when the Scope closes mid-pan (a finalizer that runs after the feed stops).
+- **core, the Streams** (`hover`, `hoverEvents`, `press`, `pressEvents`, `focus`, `inView`, `inViewEvents`, `pan`): each is built over its watch with `Stream.callback`. A value is offered and flushed inside the dispatch (ADR-0032), the Stream ends with the feed, and `once` ends it after the first entry. Their values are unchanged. `drag` keeps its Stream pipeline (Q2).
+- **solid (Solid 1):**
+  - `runWatch(runtime, watch)` runs a watch in a Scope of its own, closed with the owner. A throw is logged at Error and reported (`wardic.runWatch: a gesture handler failed`), as `runScoped`'s fiber failures are. It starts nothing on a server, and while hydrating it starts at mount (ADR-0021, decisions 8 and 9).
+  - `watchToSignal(watchOf, initial)` is a watch's values as an `Accessor`.
+  - a ward's hover, press, in view and focus layers, its pan, and `createHover`, `createPress`, `createFocus` and `createInView` all run on watches. A throw out of a signal's write (a consumer's effect: Solid 1 runs it inside the write) is reported, and the watch goes on.
+- **solid (Solid 2):**
+  - a mounted ward has one `Scope` for its watches, made at its first watch and closed at its dispose. A ward with no gesture makes none: the first `bench:solid` run, with a Scope per ward, failed the gate on unmount (+6.8%) and mount (+1.3%);
+  - its sensors (`createHover`, `createPress`, `createFocus`, `createInView`) run a watch in a Scope per attached element.
+  - Its gesture API (`next`, `each`, `when`, `with`, the `while*` layers, `wardRef`) is unchanged, as stated in Q1.
+
+**Measured per watch** (heap snapshots of 1,000 Solid 2 wards on Solid's production build, `.tmp/318/pr3/`): a press watch beside a hover one keeps 1.84 KB. The pointer feed is shared, so that's the watch alone. Of it:
+- its span is 0.26 KB (1.58 KB with no span);
+- `withSpanScoped` first captured a call-site stack, 0.9 KB more per watch. `eslint.config.js`'s `SPANS` rule (ADR-0040) didn't know `withSpanScoped`; it does now.
+
+## Tests (PR 3)
+
+- `packages/test/test/watches.test.ts`:
+  - WT1: heard inside the push;
+  - WT2: the Scope's close unsubscribes;
+  - WT3: a throw goes to `onDefect` and the watch goes on, while another watch on the target hears every event;
+  - WT4: with no `onDefect`, the throw goes up the push;
+  - WT5: an event a handler causes runs nested inside it: a press's handler that focuses sees the focus watch first, as stated in Q1;
+  - WT6: in view with `once`;
+  - WT7: the pan's count given back at the close;
+  - WT8: `onEnd`, and the Streams end.
+- `packages/solid/test/watch-cleanup.browser.test.tsx` and `test/v2/watch-cleanup.browser.test.tsx`, WC1: every listener a ward's hover, press and focus watches add to its element is removed at the unmount. Counted on `EventTarget.prototype` (`test/listener-counts.ts`).
+- `error-reporting.browser.test.tsx`: a gesture watch whose signal write throws (a consumer's effect) is logged at Error, reported once, and still hears the leave.
+- The existing suites pass unchanged in what they assert: the Stream recognizers' (C1–C27, the state recognizers, pointer rules, pan, in view), and every browser suite in both bindings.
+
+**Mutation-checked** with 13 single-point mutations (`.tmp/318/mutate-pr3.py`). Eleven were killed:
+- no defect catch;
+- the Scope's close ignored;
+- `once` never stopping;
+- `onEnd` ignored;
+- transitions told at every event;
+- states skipping the first report;
+- the pan's count kept at the close;
+- Solid 2's mount Scope and sensor Scope never closed;
+- Solid 1's `runWatch` never closed, and reporting nothing.
+
+Two survive, both equivalent through the public API:
+- *Solid 1's `runWatch` with no hydration hold:* hydration renders and mounts in one synchronous call, so no event can reach the element between them.
+- *Solid 2's ward passing no `onDefect`:* nothing an app writes runs inside a Solid 2 ward's handler. Its signal writes defer their effects, and its lifecycle hands events to `next`, `each` and `when` readers, which resume later.
+
+**Cost (PR 3):** `bench:solid` against main (0c6c896) gated, exit 0, with its control at −0.1%. No timed task moved beyond noise; Solid 2's unmount is −2.7% [−4.1% – −1.2%].
+
+| | kept per element (a ward with `whileHover` and `whileTap`) | since #318 began (PR 1's A/A) | bytes |
+|---|---|---|---|
+| Solid 1 | 28.88 → 17.23 KB, −40.3% [−40.4% – −40.3%] | 38.01 → 17.23 KB, −54.7% | +0.4% |
+| Solid 2 | 26.12 → 16.74 KB, −35.9% [−36.0% – −35.9%] | 35.42 → 16.74 KB, −52.7% | +0.3% |
+
+`bench:core` isn't run: no per-frame path changed, and its workloads take no input.

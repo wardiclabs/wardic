@@ -2,14 +2,14 @@ import { cleanup, render } from "@solidjs/testing-library"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import { DomLive } from "@wardic/dom"
 import * as Report from "@wardic/dom/Report"
-import { AnimatePresence, useWardicFiber, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
+import { AnimatePresence, createHover, useWardicFiber, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
 import { DevTools } from "effect/devtools"
 import * as Effect from "effect/Effect"
 import * as ErrorReporter from "effect/ErrorReporter"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as References from "effect/References"
-import { createSignal, Show } from "solid-js"
+import { createEffect, createSignal, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { BROKEN, envWith, errorsNamed, type Logged } from "./report-env.ts"
 import { opacityOf, raf, retryGesture, until } from "./browser-helpers.ts"
@@ -238,6 +238,38 @@ describe("each boundary logs a failure at Error and reports it once", () => {
     expect(calls, "told at every move").toBeGreaterThan(5)
     expect(el.style.transform, "the drag goes on").toContain("translateX(80px)")
     expect(reports).toEqual(["the app's onDrag broke at 1", "the app's onDrag broke at 5", "the app's onDragEnd broke"])
+  })
+
+  it("a gesture watch (#318): a throw out of its signal's write, a consumer's effect, is logged at Error with its cause, reported once, and the watch goes on", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    const seen: Array<boolean> = []
+    let el!: HTMLDivElement
+    const Sensor = () => {
+      el = (<div data-sensor style={{ width: "40px", height: "40px", "margin-top": "60px", "margin-left": "60px" }} />) as HTMLDivElement
+      const hovered = createHover(el)
+      // Solid 1 runs this inside the watch's write: its throw comes up through the pointer event's dispatch.
+      createEffect(() => {
+        seen.push(hovered())
+        if (hovered()) throw new Error("the app's effect broke")
+      })
+      return el
+    }
+    render(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <Sensor />
+      </WardicProvider>
+    ))
+    const enter = () => el.dispatchEvent(new PointerEvent("pointerenter", { pointerId: 1, pointerType: "mouse", isPrimary: true }))
+    const leave = () => el.dispatchEvent(new PointerEvent("pointerleave", { pointerId: 1, pointerType: "mouse", isPrimary: true }))
+    await retryGesture(enter, leave, () => reports.length > 0)
+    leave()
+    await until(() => seen.at(-1) === false && seen.length > 2)
+    const failed = errorsNamed(logs, "wardic.runWatch: a gesture handler failed")
+    expect(failed).toHaveLength(1)
+    expect(failed[0]!.cause).toContain("the app's effect broke")
+    expect(reports).toEqual(["the app's effect broke"])
+    expect(seen, "the leave still heard").toEqual([false, true, false])
   })
 
   it("runScoped, through useWardicFiber: logged at Error with its cause, and reported", async () => {

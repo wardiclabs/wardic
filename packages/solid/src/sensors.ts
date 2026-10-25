@@ -20,7 +20,7 @@ import { constFalse } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createComputed, createSignal, getOwner, runWithOwner, untrack } from "solid-js"
-import { fromAtom, streamToSignal } from "./bridge.ts"
+import { fromAtom, streamToSignal, watchToSignal } from "./bridge.ts"
 import { type CreateDragOptions, dragSamples } from "./drag-samples.ts"
 import { useWardicRuntime } from "./provider.tsx"
 import { isServer } from "./server.ts"
@@ -29,16 +29,18 @@ export type { CreateDragOptions } from "./drag-samples.ts"
 
 /**
  * `true` while the pointer is inside `target`, `false` once it leaves. Wraps the
- * core `hover` recognizer; `false` until the first transition.
+ * core hover watch (#318); `false` until the first transition.
  */
-export const createHover = (target: unknown): Accessor<boolean> => streamToSignal(Recognizer.hover(target), false)
+export const createHover = (target: unknown): Accessor<boolean> =>
+  watchToSignal<boolean>(({ on, onDefect }) => Recognizer.watchHover(target, { on: (transition) => on(transition.active), onDefect }), false)
 
 /**
  * `true` while the pointer is held down on `target`, `false` once released or
- * cancelled. Wraps the core `press` recognizer; `false` until the first
+ * cancelled. Wraps the core press watch (#318); `false` until the first
  * transition.
  */
-export const createPress = (target: unknown): Accessor<boolean> => streamToSignal(Recognizer.press(target), false)
+export const createPress = (target: unknown): Accessor<boolean> =>
+  watchToSignal<boolean>(({ on, onDefect }) => Recognizer.watchPress(target, { on: (press) => on(press.phase === "start"), onDefect }), false)
 
 /** Whether an element's config wants each of its gesture recognizers (#87, #273). */
 export interface Wants<C> {
@@ -49,7 +51,7 @@ export interface Wants<C> {
   readonly pan: (config: C) => boolean
 }
 
-/** Each gesture recognizer's start: the layers' state signals, and pan's fiber (it sets no layer). */
+/** Each gesture recognizer's start: the layers' state signals, and pan's watch (it sets no layer). */
 export interface Starts {
   readonly hover: () => Accessor<boolean>
   readonly press: () => Accessor<boolean>
@@ -121,20 +123,21 @@ export const createWhenWanted = <C,>(config: Accessor<C>, wants: Wants<C>, start
 }
 
 /**
- * `true` while `target` is focused, `false` once blurred. Wraps the core `focus`
- * recognizer; `false` until the first transition.
+ * `true` while `target` is focused, `false` once blurred. Wraps the core focus
+ * watch (#318); `false` until the first transition.
  */
-export const createFocus = (target: unknown): Accessor<boolean> => streamToSignal(Recognizer.focus(target), false)
+export const createFocus = (target: unknown): Accessor<boolean> => watchToSignal<boolean>((handlers) => Recognizer.watchFocus(target, {}, handlers), false)
 
 /**
  * `true` while `target` intersects the viewport, `false` otherwise. Wraps the
- * core `inView` recognizer (`{ once: true }` settles after the first `true`);
- * `false` until the first emission.
+ * core in-view watch (#318; `{ once: true }` settles after the first `true`);
+ * `false` until the first entry.
  */
 export const createInView = (
   target: unknown,
   options?: { readonly once?: boolean },
-): Accessor<boolean> => streamToSignal(Recognizer.inView(target, options), false)
+): Accessor<boolean> =>
+  watchToSignal<boolean>(({ on, onDefect }) => Recognizer.watchInView(target, { ...options }, { on: (transition) => on(transition.active), onDefect }), false)
 
 /**
  * Latest `Drag.Sample` from a drag gesture on `target`, or `null` before the first sample.

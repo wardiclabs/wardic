@@ -9,7 +9,8 @@
  * ```
  *
  * Each wraps a core recognizer (ADR-0006): attached, it runs on the provider's runtime until the
- * sensor's owner is disposed or it's given another element. Its value starts at its rest (`false`,
+ * sensor's owner is disposed or it's given another element. Hover, press, focus and in view are
+ * watches (#318, ADR-0055), in a Scope with no fiber; a drag is a Stream on a fiber. Its value starts at its rest (`false`,
  * or `null` for a drag) and stays there on a server, where no ref is called. `createReducedMotion`
  * takes no element: it follows the Probe's preference.
  *
@@ -18,8 +19,12 @@
 import type * as Drag from "@wardic/core/Drag"
 import * as Probe from "@wardic/core/Probe"
 import * as Recognizer from "@wardic/core/Recognizer"
+import * as Report from "@wardic/dom/Report"
+import type * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
+import * as Scope from "effect/Scope"
 import * as Predicate from "effect/Predicate"
 import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -72,18 +77,63 @@ const sensorOf = <A>(streamOf: (target: Element) => Stream.Stream<A, never, Ward
   }) as Sensor<A>
 }
 
-/** `true` while the pointer is over the element, `false` once it leaves (the core `hover` recognizer). */
-export const createHover = (): Sensor<boolean> => sensorOf(Recognizer.hover, false)
+/**
+ * A sensor of a watch's values (#318, ADR-0055), at `initial` until its first: attached, the watch
+ * runs in a Scope of its own, closed when the sensor is given another element or its owner is
+ * disposed. Call within an owner.
+ */
+const watchSensorOf = <A>(
+  watchOf: (target: Element, handlers: Recognizer.Handlers<A>) => Effect.Effect<void, never, Scope.Scope | WardicServices>,
+  initial: A,
+): Sensor<A> => {
+  // A server never calls a ref: the sensor rests where it starts.
+  if (isServer) return ((): A => initial) as Sensor<A>
+  const runtime = useWardicRuntime()
+  const [value, setValue] = createSignal<A>(initial as Exclude<A, Function>)
+  // The element it's attached to, and its watch's Scope there.
+  let attached: { readonly element: Element; readonly scope: Scope.Closeable } | undefined
+  const detach = (): void => {
+    UndefinedOr.map(attached, ({ scope }) => runtime.runSync(Scope.close(scope, Exit.void)))
+    attached = undefined
+  }
+  onCleanup(detach)
+  const onDefect = (cause: Cause.Cause<never>): void => {
+    runtime.runFork(Report.failure("wardic.sensor: a gesture handler failed", cause))
+  }
+  const attach = (element: Element): void => {
+    if (Predicate.isNotUndefined(attached) && attached.element === element) return
+    detach()
+    const scope = Scope.makeUnsafe()
+    runtime.runSync(watchOf(element, { on: (next) => setValue(() => next as Exclude<A, Function>), onDefect }).pipe(Scope.provide(scope)))
+    attached = { element, scope }
+  }
+  // eslint-disable-next-line solid/reactivity -- the sensor: a ref Solid calls with its element, and an accessor its caller reads where it tracks
+  return ((element?: unknown): A | undefined => {
+    if (isElement(element)) {
+      attach(element)
+      return undefined
+    }
+    return value()
+  }) as Sensor<A>
+}
 
-/** `true` while the pointer is held down on the element, `false` once released or cancelled (the core `press` recognizer). */
-export const createPress = (): Sensor<boolean> => sensorOf(Recognizer.press, false)
+/** `true` while the pointer is over the element, `false` once it leaves (the core hover watch). */
+export const createHover = (): Sensor<boolean> =>
+  watchSensorOf<boolean>((target, { on, onDefect }) => Recognizer.watchHover(target, { on: (transition) => on(transition.active), onDefect }), false)
 
-/** `true` while the element is focused, `false` once blurred (the core `focus` recognizer). */
-export const createFocus = (): Sensor<boolean> => sensorOf(Recognizer.focus, false)
+/** `true` while the pointer is held down on the element, `false` once released or cancelled (the core press watch). */
+export const createPress = (): Sensor<boolean> =>
+  watchSensorOf<boolean>((target, { on, onDefect }) => Recognizer.watchPress(target, { on: (press) => on(press.phase === "start"), onDefect }), false)
 
-/** `true` while the element intersects the viewport (the core `inView` recognizer); `{ once: true }` settles at the first `true`. */
+/** `true` while the element is focused, `false` once blurred (the core focus watch). */
+export const createFocus = (): Sensor<boolean> => watchSensorOf<boolean>((target, handlers) => Recognizer.watchFocus(target, {}, handlers), false)
+
+/** `true` while the element intersects the viewport (the core in-view watch); `{ once: true }` settles at the first `true`. */
 export const createInView = (options?: { readonly once?: boolean }): Sensor<boolean> =>
-  sensorOf((target) => Recognizer.inView(target, options), false)
+  watchSensorOf<boolean>(
+    (target, { on, onDefect }) => Recognizer.watchInView(target, { ...options }, { on: (transition) => on(transition.active), onDefect }),
+    false,
+  )
 
 /**
  * The latest sample of a drag gesture on the element, `null` before the first: the core `drag`

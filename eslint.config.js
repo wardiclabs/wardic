@@ -87,8 +87,8 @@ const SPANS = [
     "Effect.fn captures a call-site stack at its definition and at every call: use Effect.gen with Effect.withSpan",
   ),
   restrictSpan(
-    "CallExpression[callee.object.name=/^(Effect|Stream)$/][callee.property.name='withSpan']:not(:has(Property[key.name='captureStackTrace']))",
-    "A Wardic span captures no call-site stack: pass captureStackTrace: false (pipeable Effect.withSpan: its third argument)",
+    "CallExpression[callee.object.name=/^(Effect|Stream)$/][callee.property.name=/^(withSpan|withSpanScoped)$/]:not(:has(Property[key.name='captureStackTrace']))",
+    "A Wardic span captures no call-site stack: pass captureStackTrace: false (pipeable Effect.withSpan: its third argument; Effect.withSpanScoped: its options)",
   ),
 ]
 

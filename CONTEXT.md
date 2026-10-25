@@ -147,7 +147,7 @@ _Avoid_: registered child, orchestrated child.
 ### Interaction
 
 **Recognizer**:
-A core combinator that interprets raw `InputSource` (or `Probe`) events into a portable interaction signal — the *recognition* half of a gesture. Which value or variant to apply in response is the binding's concern, not the recognizer's. Like every Primitive it's a function returning a Stream with its service deps in `R` (e.g. `drag(target): Stream<…, never, InputSource>` — velocity is computed from pointer-event timeStamps, so `drag` needs no `Clock`; `Clock` enters only at a Fling, where `inertia` ticks).
+A core combinator that interprets raw `InputSource` (or `Probe`) events into a portable interaction signal — the *recognition* half of a gesture. Which value or variant to apply in response is the binding's concern, not the recognizer's. Like every Primitive it's a function returning a Stream with its service deps in `R` (e.g. `drag(target): Stream<…, never, InputSource>` — velocity is computed from pointer-event timeStamps, so `drag` needs no `Clock`; `Clock` enters only at a Fling, where `inertia` ticks). Every recognizer but `drag` is also a **watch** (#318): a callback told inside each event's dispatch while a Scope is open, with no fiber of its own. Its Stream is built over the watch, and a binding runs the watch.
 _Avoid_: gesture (names the whole feature, not the core piece), handler, listener.
 
 **State recognizer**:
