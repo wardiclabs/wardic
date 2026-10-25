@@ -431,6 +431,15 @@ button {
   opacity: 0.45;
 }
 
+/* On a phone the hero is the screen's width: an aurora bleeding past its sides scrolled the page
+   sideways (#388). It still bleeds above and below. */
+@media (max-width: 640px) {
+  .hero::before {
+    left: 0;
+    right: 0;
+  }
+}
+
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) .hero::before {
     opacity: 0.45;
@@ -2056,6 +2065,261 @@ button.product-card:hover .photo {
   .saved-actions {
     grid-column: 1 / -1;
     justify-content: flex-start;
+  }
+}
+
+/* --- Live values: a magnifier, a reading bar, a lookbook, a story, cards with a light (#388) -- */
+
+.magnifier {
+  display: grid;
+  gap: var(--space-3);
+  justify-items: center;
+}
+
+/* The photo the lens moves over: no page scroll under a finger, so a drag moves the lens. */
+.magnifier-photo {
+  position: relative;
+  width: min(420px, 100%);
+  aspect-ratio: 909 / 1024;
+  border-radius: var(--radius-l);
+  background: var(--tile);
+  overflow: hidden;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.magnifier-photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  user-select: none;
+}
+
+/* Centred on its x and y: Wardic writes them, and the custom properties place the photo inside. */
+.lens {
+  position: absolute;
+  left: -80px;
+  top: -80px;
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  border: 3px solid var(--surface);
+  box-shadow: var(--shadow-l);
+  background-color: var(--tile);
+  background-repeat: no-repeat;
+  background-size: var(--inside-size) auto;
+  background-position: var(--inside-x) var(--inside-y);
+  pointer-events: none;
+}
+
+.reading {
+  display: grid;
+  gap: var(--space-2);
+}
+
+.reading-head {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: var(--space-2);
+  font-size: var(--text-s);
+}
+
+/* Scaled across from its left edge by the scroll's progress. */
+.reading-bar {
+  height: 4px;
+  border-radius: 999px;
+  background: var(--accent);
+  transform-origin: left center;
+}
+
+.reading-panel {
+  height: 360px;
+  overflow: auto;
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--paper);
+  overscroll-behavior: contain;
+}
+
+.reading-panel section {
+  display: grid;
+  gap: var(--space-3);
+  max-width: 62ch;
+  margin-bottom: var(--space-6);
+}
+
+.reading-panel h3 {
+  font-size: var(--text-l);
+}
+
+/*
+ * The lookbook: banners in a scrolling panel, each photo taller than its banner so it can drift. The
+ * panel is positioned: a target's place in it is measured along its offset parents (Motion's too).
+ */
+.lookbook {
+  position: relative;
+  height: 440px;
+  overflow: auto;
+  display: grid;
+  gap: var(--space-4);
+  padding: var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--paper);
+  overscroll-behavior: contain;
+}
+
+.lookbook-banner {
+  position: relative;
+  height: 300px;
+  border-radius: var(--radius-m);
+  background: var(--tile);
+  overflow: hidden;
+}
+
+.lookbook-photo {
+  position: absolute;
+  left: 0;
+  top: -15%;
+  width: 100%;
+  height: 130%;
+  object-fit: cover;
+}
+
+.lookbook-words {
+  position: absolute;
+  left: var(--space-4);
+  bottom: var(--space-4);
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-m);
+  background: color-mix(in srgb, var(--surface) 88%, transparent);
+  backdrop-filter: blur(6px);
+  box-shadow: var(--shadow-m);
+}
+
+.lookbook-words h3 {
+  font-size: var(--text-xl);
+}
+
+/* The story: chapters in a scrolling panel, each revealed as it comes into view. */
+.story {
+  height: 420px;
+  overflow: auto;
+  display: grid;
+  gap: var(--space-8);
+  padding: var(--space-5) var(--space-5) 200px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--paper);
+  overscroll-behavior: contain;
+}
+
+.chapter {
+  display: grid;
+  grid-template-columns: 160px minmax(0, 1fr);
+  align-items: center;
+  gap: var(--space-5);
+}
+
+.chapter img {
+  width: 160px;
+  height: 160px;
+  border-radius: var(--radius-m);
+  object-fit: cover;
+  background: var(--tile);
+}
+
+.chapter h3 {
+  font-size: var(--text-l);
+}
+
+.chapter p {
+  margin-top: var(--space-2);
+  color: var(--muted);
+  max-width: 52ch;
+}
+
+/* Cards with a light: the grid gives them depth to tilt in; the light is a gradient where the pointer is. */
+.spot-grid {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-5);
+  perspective: 900px;
+}
+
+.spot-card {
+  position: relative;
+  display: grid;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-l);
+  background: var(--paper);
+  box-shadow: var(--shadow-m);
+  overflow: hidden;
+}
+
+.spot-card::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  /* Nord's frost, so it shows over a pale photo as well as a dark card. */
+  background: radial-gradient(circle at var(--light-x, 50%) var(--light-y, 50%), color-mix(in srgb, #88c0d0 55%, transparent), transparent 50%);
+  opacity: var(--light, 0);
+}
+
+.spot-card .photo {
+  aspect-ratio: 1;
+  border-radius: var(--radius-m);
+  background: var(--tile);
+  overflow: hidden;
+}
+
+.spot-card .photo img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.spot-card .line {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.spot-card .name {
+  font-weight: 600;
+}
+
+.spot-card .price {
+  color: var(--muted);
+}
+
+@media (max-width: 640px) {
+  .chapter {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .chapter img {
+    width: 100%;
+    height: auto;
+    aspect-ratio: 4 / 3;
+  }
+
+  .spot-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .lookbook-banner {
+    height: 240px;
   }
 }
 
