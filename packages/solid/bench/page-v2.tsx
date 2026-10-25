@@ -1,11 +1,12 @@
 /**
  * `bench:solid --v2`'s page (#209): `page.tsx`'s `wardic` page on the Solid 2 binding,
  * `@wardic/solid/unstable/v2`, the same N `wardic.div`s and the same rounds, built with Solid 2's
- * compile. The runner pairs it with `page.tsx` on the same head. `?kind=retained` (#318) is `page.tsx`'s,
- * on this binding: wards with `whileHover` and `whileTap`, for the runner's heap readings.
+ * compile. The runner pairs it with `page.tsx` on the same head. `?kind=retained` (#318) and
+ * `?kind=retained-reorder` (#379) are `page.tsx`'s, on this binding: wards with `whileHover` and
+ * `whileTap`, and `Reorder.Item`s in one `Reorder.Group`, for the runner's heap readings.
  */
 import { DomLive } from "@wardic/dom"
-import { wardic, WardicProvider } from "@wardic/solid/unstable/v2"
+import { Reorder, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 import { render } from "@solidjs/web"
 import { createSignal, flush, For, Show } from "solid-js"
 
@@ -55,7 +56,16 @@ const Retained = () => (
     </Show>
   </WardicProvider>
 )
-const pages = { wardic: Wardic, retained: Retained } as const
+const RetainedReorder = () => (
+  <WardicProvider env={DomLive}>
+    <Show when={shown()}>
+      <Reorder.Group values={items} onReorder={() => undefined}>
+        <For each={items}>{(item) => <Reorder.Item value={item} class="b" initial={{ opacity: 0 }} animate={{ opacity: 1 }} />}</For>
+      </Reorder.Group>
+    </Show>
+  </WardicProvider>
+)
+const pages = { wardic: Wardic, retained: Retained, "retained-reorder": RetainedReorder } as const
 render(() => {
   const Page = pages[kind as keyof typeof pages]
   return <Page />
@@ -133,7 +143,7 @@ const round = async () => {
   return { mount, firstFrame, retarget, restRetarget, unmount }
 }
 
-/** `?kind=retained`'s mount, settled at rest, and its unmount, for the runner's heap readings (#318). */
+/** `?kind=retained`'s and `?kind=retained-reorder`'s mount, settled at rest, and unmount, for the runner's heap readings (#318, #379). */
 ;(globalThis as unknown as { __wardicRetained: unknown }).__wardicRetained = {
   mount: async () => {
     setShown(true)

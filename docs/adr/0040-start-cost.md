@@ -166,3 +166,23 @@ The first full A/A (main `10b7d6f` against the same code, 11 reps, 3 for bytes a
 - Solid 1: kept 38.01 against 38.03 KB per element, +0.1% [−0.1% – +0.1%]. Warm tasks were within −0.2% and +1.3%, and bytes −0.3%;
 - Solid 2: kept 35.44 against 35.45 KB, +0.0% [−0.1% – +0.0%]. Warm tasks were within −1.3% and +1.6%, and bytes −0.2%;
 - after unmount, 0.12–0.20 KB per element on every side.
+
+## Amendment (#379, 2026-10-25): a Reorder item on the retained gate
+
+#379 moves drag and the Reorder items' input onto Effect-scoped watches, as #318 moved the other recognizers. The `retained` page has no draggable element, so the gate couldn't see it. Grilled 2026-10-25 (Q3): a Reorder page, landed first with an A/A baseline, as #318's was.
+
+- **A `retained-reorder` page on each binding:** N `Reorder.Item`s in one `Reorder.Group`, animated to rest. Each is a draggable layout node with its drag track and its keyboard, blur and press input, so the page covers both of #379's changes in the heaviest real case.
+- **Measured and gated as the `retained` page:** the same reps and cycles, kept per element failing as a task does. The table has a row per page (`hover + press`, `reorder item`), and what each leaves after the unmount is reported below it, not gated.
+- **Rejected:**
+  - adding the page with the drag change;
+  - a free-drag page as well: more bench time for the same drag track;
+  - no new page.
+
+The first full A/A (main `3f65f74` against the same code, 11 reps, 3 for bytes and kept) gated, exit 0, with the control at +0.2% [−0.9% – +0.9%]:
+
+| | hover + press | reorder item | warm tasks | bytes |
+|---|---|---|---|---|
+| Solid 1 | 17.23 against 17.24 KB, +0.1% | 45.79 against 45.79 KB, +0.0% | −0.6% to +1.2% | +0.1% |
+| Solid 2 | 16.74 against 16.74 KB, −0.0% | 45.03 against 45.03 KB, +0.0% | −1.1% to +0.9% | +0.3% |
+
+After the unmount, 0.10–0.23 KB per element was left on every side.
