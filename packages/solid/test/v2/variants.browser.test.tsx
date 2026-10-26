@@ -7,6 +7,10 @@
 // - VB1–VB5: through `wardic.*`: Variant children start from the ancestor's `initial` name and enter
 //   staggered; an element without variants takes no slot; `inherit={false}` keeps a child still;
 //   children follow back and forth; a plain element in between passes the names through.
+// - VB6–VB8 (#398, the plain variant node): a parent that names variants with none of its own hands
+//   its names down (Motion's `initial="hidden" animate="visible"` list); `inherit={false}` on an
+//   element with no variants keeps its children out; a kept ward with no variants passes its
+//   parent's names through its `.Provider`.
 import { DomLive } from "@wardic/dom"
 import { ward, wardic, WardicProvider, type WardicTransition } from "@wardic/solid/unstable/v2"
 import * as Bool from "effect/Boolean"
@@ -240,6 +244,73 @@ describe("variant inheritance through wardic.* (#50)", () => {
       </WardicProvider>
     ))
     expect(op(item)).toBe(0)
+    await raf()
+    setShown(true)
+    flush()
+    await until(() => op(item) >= 0.99)
+    expect(op(item)).toBeGreaterThan(0.99)
+  })
+  it("VB6: a parent naming variants with none of its own hands its names to its Variant children (#398)", async () => {
+    const items: Array<HTMLElement> = []
+    const [shown, setShown] = createSignal(false)
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.ul initial="hidden" animate={shownOf(shown())} transition={TWEEN}>
+          <For each={[0, 1]}>{(i) => <wardic.li ref={(el: HTMLElement) => (items[i] = el)} variants={VARIANTS} />}</For>
+        </wardic.ul>
+      </WardicProvider>
+    ))
+    expect(settledAt(items, 0), "they start from the parent's initial name").toBe(true)
+    await raf()
+    setShown(true)
+    flush()
+    await until(() => settledAt(items, 1))
+    expect(settledAt(items, 1), "and follow its animate name").toBe(true)
+  })
+
+  it("VB7: inherit={false} on an element with no variants keeps its Variant children out (#398)", async () => {
+    let item!: HTMLElement
+    let sibling!: HTMLElement
+    const [shown, setShown] = createSignal(false)
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.ul initial="hidden" animate={shownOf(shown())} variants={VARIANTS} transition={TWEEN}>
+          <wardic.div inherit={false}>
+            <wardic.li ref={(el: HTMLElement) => (item = el)} variants={VARIANTS} />
+          </wardic.div>
+          <wardic.li ref={(el: HTMLElement) => (sibling = el)} variants={VARIANTS} />
+        </wardic.ul>
+      </WardicProvider>
+    ))
+    await raf()
+    setShown(true)
+    flush()
+    await until(() => op(sibling) >= 0.99)
+    expect(op(sibling)).toBeGreaterThan(0.99)
+    expect(item.style.opacity, "the child under inherit={false} stays still").toBe("")
+  })
+
+  it("VB8: a kept ward with no variants passes its parent's names through its .Provider (#398)", async () => {
+    let item!: HTMLElement
+    const [shown, setShown] = createSignal(false)
+    const Between = (props: { readonly children: unknown }) => {
+      const box = ward({ animate: { x: 0 } })
+      return (
+        <div {...box}>
+          <box.Provider>{props.children as never}</box.Provider>
+        </div>
+      )
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.ul initial="hidden" animate={shownOf(shown())} variants={VARIANTS} transition={TWEEN}>
+          <Between>
+            <wardic.li ref={(el: HTMLElement) => (item = el)} variants={VARIANTS} />
+          </Between>
+        </wardic.ul>
+      </WardicProvider>
+    ))
+    expect(op(item), "it starts from the outer initial name").toBe(0)
     await raf()
     setShown(true)
     flush()

@@ -60,8 +60,8 @@ import { watchItemInput } from "../../reorder-input.ts"
 import { changesContext } from "../../variant-tree.ts"
 import { configView, type PerKey } from "./config-view.ts"
 import { useWardicProjection, useWardicRuntime } from "./provider.tsx"
-import { type AnyWard, type Ward, type WardConfig, wardConfigView, type WardOptions, type WardShare, type WardStyle, wardWith } from "./ward.tsx"
-import { drivenWard, givenOf, handOver, type NoMotionProps, refsOf, refuseBeside, wardic, type WardicMotion, type WardRefCallback } from "./wardic.tsx"
+import { type AnyWard, type Ward, type WardConfig, type WardConfigValues, wardConfigView, type WardOptions, type WardShare, type WardStyle, wardWith } from "./ward.tsx"
+import { drivenWard, type GivenWard, givenOf, handOver, listOf, refsOf, sets, setKeysOf, wardic, type WardicBeside, type WardicMotion, type WardRefCallback, type WardSetKey } from "./wardic.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
 import { eachOf, neverLands, NO_EVENTS, serverWhen, Waiters, whenOf } from "./waiters.ts"
 
@@ -94,7 +94,17 @@ export type ReorderGroupConfig<V> = PerKey<ReorderGroupConfigValues<V>, "onReord
 /** A group's config read per key (#259). */
 const GROUP_VIEW = configView<ReorderGroupConfigValues<unknown>>(["values", "onReorder", "axis", "keyboard", "announcements", "instructions", "style"], ["onReorder"])
 /** A group's config as a view of `config`. */
-const groupViewOf = <V,>(config: ReorderGroupConfig<V>): ReorderGroupConfigValues<V> => GROUP_VIEW.of(config) as ReorderGroupConfigValues<V>
+const groupViewOf = <V,>(config: ReorderGroupConfig<V>, beside: object): ReorderGroupConfigValues<V> => GROUP_VIEW.of(config, beside) as ReorderGroupConfigValues<V>
+
+/**
+ * A group's config as made, and the layer a `Reorder.Group` it's given to lays its element's props in
+ * (#398): empty until then, each key it fixes read through the element's prop.
+ */
+interface GroupLayer {
+  readonly config: object
+  readonly beside: object
+}
+const GROUP_LAYERS = new WeakMap<object, GroupLayer>()
 
 /**
  * A **Reorder group**'s events (#257 item 3), as a ward's are (ADR-0046): `list.next(name)` and
@@ -272,10 +282,11 @@ const refCarrying = <G,>(attach: (element: HTMLElement) => void, props: Property
  */
 export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> {
   if (Predicate.isFunction(config)) throw new Error(WHOLE_GROUP_ACCESSOR)
-  const view = groupViewOf(config)
+  const beside = {}
+  const view = groupViewOf(config, beside)
   const cfg = (): ReorderGroupConfigValues<V> => view
   const runtime = useWardicRuntime()
-  if (isServer) return serverReorderGroup(cfg)
+  if (isServer) return layered(serverReorderGroup(cfg), config, beside)
   const [detected, setDetected] = createSignal<CoreReorder.Axis>("y")
   // Its events (#257 item 3), ended with it.
   const events = new Waiters<ReorderGroupEvents<V>>(GROUP_GONE)
@@ -312,7 +323,8 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> 
   // The app's axis, else the detected one. When the app's is cleared, detected here, from the boxes the
   // engine holds, so the items' touch-action follows in the same flush (#257's audit: an effect that
   // detected it wrote a signal the items read a flush late, EFFECT_RELAY_TEAR). A Measure pass's change
-  // comes through `onAxis`.
+  // comes through `onAxis`. Lazy: read first by an item, so a given group's `axis` beside it, laid
+  // over its config by the `Reorder.Group` the items render in, is the one it tracks (#398).
   const axis: Accessor<CoreReorder.Axis> = createMemo(
     () =>
       UndefinedOr.match(cfg().axis, {
@@ -322,7 +334,7 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> 
           return controller.detect()
         },
       }),
-    CLIENT_ONLY,
+    AXIS_MEMO,
   )
 
   // A `values` change re-measures, so the items animate to their new slots whoever reordered them.
@@ -339,7 +351,7 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> 
     if (element.style.getPropertyValue("overflow-anchor") === "") element.style.setProperty("overflow-anchor", "none")
     controller.attach(element)
   }
-  return refCarrying<ReorderGroup<V>>(
+  return layered(refCarrying<ReorderGroup<V>>(
     attach,
     { style: { get: () => groupStyleOf(cfg().style), enumerable: true } },
     {
@@ -359,7 +371,34 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> 
       controller,
       ...keyboardOf(cfg),
     },
-  )
+  ), config, beside)
+}
+
+/** The group's axis memo's options: client-only, and lazy (#398). */
+const AXIS_MEMO = { ...CLIENT_ONLY, lazy: true } as const
+
+/** `group`, its config and its layer kept for a `Reorder.Group` it's given to (#398). */
+const layered = <G extends object,>(group: G, config: object, beside: object): G => {
+  GROUP_LAYERS.set(group, { config, beside })
+  return group
+}
+
+/**
+ * A given group's element props (#398): each config key its `Reorder.Group` sets, laid over the
+ * group's config, read through the element's prop. A key the group's config sets too is an error.
+ */
+const besideGroup = (local: object, group: object): void => {
+  const layer = UndefinedOr.getOrThrow(GROUP_LAYERS.get(group))
+  const given = setKeysOf(local, GROUP_CONFIG)
+  const twice = setKeysOf(layer.config, given)
+  if (twice.length > 0) {
+    throw new Error(
+      `Reorder.Group: ${listOf(twice)} set both in the group given to groupRef and on the element (#398). ` +
+        "Set each key in one place: in reorderGroup({ … }), or on the element.",
+    )
+  }
+  Arr.forEach(given, (key) =>
+    Object.defineProperty(layer.beside, key, { enumerable: true, configurable: true, get: () => (local as Readonly<Record<string, unknown>>)[key] }))
 }
 
 /** Close `scope` with the owner. */
@@ -511,7 +550,9 @@ export type ReorderElementTag = keyof JSX.IntrinsicElements
 
 /**
  * `Reorder.Group`'s group (#349): its config as props, with `groupRef` handing the group out, or a
- * group made with {@link reorderGroup} given to `groupRef`, with no config beside it.
+ * group made with {@link reorderGroup} given to `groupRef`, the config props it doesn't set beside it
+ * (#398). A key its config sets too is an error at setup; in the types only for `values` and
+ * `onReorder`, which every group sets: a group's type doesn't carry its config.
  */
 export type ReorderGroupOf<V> =
   | {
@@ -528,14 +569,17 @@ export type ReorderGroupOf<V> =
     readonly groupRef?: GroupRefCallback<V> | undefined
   }
   | {
-    /** A group made with {@link reorderGroup}, which the component renders (#349): its config is where it was made. */
+    /**
+     * A group made with {@link reorderGroup}, which the component renders (#349), the config props it
+     * doesn't set beside it (#398): never its `values` or `onReorder` (a group is made with them).
+     */
     readonly groupRef: AnyReorderGroup<V>
     readonly values?: never
     readonly onReorder?: never
-    readonly axis?: never
-    readonly keyboard?: never
-    readonly announcements?: never
-    readonly instructions?: never
+    readonly axis?: CoreReorder.Axis | undefined
+    readonly keyboard?: boolean | undefined
+    readonly announcements?: Partial<CoreReorder.Announcements<V>> | undefined
+    readonly instructions?: string | undefined
   }
 
 /** A function `groupRef` hands the component's group (#257): never a group, which it would take in (#349). */
@@ -558,18 +602,25 @@ type ItemMotionProps = Omit<WardicMotionProps, "layout" | "layoutId" | "drag">
 /**
  * `Reorder.Item`'s item (#349): its `value` (static), its `layout` mode and its motion props, with
  * `wardRef` handing its ward out, or an item made with {@link reorderItem} given to `wardRef`, in the
- * group around it, with none of them beside it.
+ * group around it, `C` its config (#398): beside it go the keys it doesn't set, as beside a ward, its
+ * `value` never (an item is made with one).
  */
-export type ReorderItemOf<V> =
+export type ReorderItemOf<V, C = {}> =
   | (ItemMotionProps & { readonly value: V; readonly layout?: ReorderItemLayout; readonly wardRef?: WardRefCallback | undefined })
-  | (NoMotionProps & { readonly wardRef: AnyReorderItem<V>; readonly value?: never; readonly tabindex?: never; readonly "aria-describedby"?: never })
+  | (WardicBeside<C, ItemMotionProps> & {
+    readonly wardRef: AnyReorderItem<V> & GivenWard<C>
+    readonly value?: never
+    readonly layout?: "layout" extends WardSetKey<C> ? never : ReorderItemLayout
+    readonly tabindex?: "tabindex" extends WardSetKey<C> ? never : number
+    readonly "aria-describedby"?: "aria-describedby" extends WardSetKey<C> ? never : string
+  })
 
 /**
  * `Reorder.Item`'s props: its item ({@link ReorderItemOf}), `as` (the tag, `"li"` by default,
  * static), and the tag's own props.
  */
-export type ReorderItemComponentProps<V, Tag extends ReorderElementTag = "li"> =
-  & ReorderItemOf<V>
+export type ReorderItemComponentProps<V, Tag extends ReorderElementTag = "li", C = {}> =
+  & ReorderItemOf<V, C>
   & { readonly as?: Tag }
   & Omit<JSX.IntrinsicElements[Tag], "style">
   & { readonly style?: WardStyle | string | undefined }
@@ -604,9 +655,9 @@ interface ItemLocal<V> {
 
 const GROUP_OWN = ["values", "onReorder", "axis", "keyboard", "announcements", "instructions", "as", "ref", "style", "children", "groupRef"] as const
 const ITEM_OWN = [...MOTION_PROPS, "value", "as", "ref", "style", "children", "tabindex", "aria-describedby", "wardRef"] as const
-/** A given group's config, refused beside it (#349's Q1). */
+/** A group's config keys: beside a given group, each it doesn't set (#398). */
 const GROUP_CONFIG = ["values", "onReorder", "axis", "keyboard", "announcements", "instructions"] as const
-/** A given item's config, refused beside it (#349's Q1): its motion props and its own keys. */
+/** An item's config keys, its motion props and its own: beside a given item, each it doesn't set (#398). */
 const ITEM_CONFIG = [...MOTION_PROPS, "value", "tabindex", "aria-describedby"] as const
 /** A `<Reorder>` item's keyboard reorder attributes (ADR-0037), which a given item's element carries (#349). */
 const KEYBOARD_ATTRIBUTES = ["tabindex", "aria-describedby"] as const
@@ -639,7 +690,7 @@ function Group<V, Tag extends ReorderElementTag = "ul">(props: ReorderGroupCompo
       return made
     },
     onDefined: (group) => {
-      refuseBeside("Reorder.Group", local, GROUP_CONFIG)
+      besideGroup(local, group)
       return group
     },
   })
@@ -664,7 +715,7 @@ function Group<V, Tag extends ReorderElementTag = "ul">(props: ReorderGroupCompo
  * {@link reorderItem}. Its element is driven by a ward of the component's, and carries the item's
  * keyboard reorder attributes.
  */
-const givenItem = <V,>(list: ReorderGroup<V>, local: ItemLocal<V>, share: WardShare, tag: string): { readonly row: Ward; readonly keys: object } => {
+const givenItem = <V,>(list: ReorderGroup<V>, local: ItemLocal<V>, share: WardShare, tag: string): { readonly row: Ward; readonly keys: object; readonly setup: WardConfigValues } => {
   if (Predicate.isUndefined(share.internal.group)) {
     throw new Error("Reorder.Item: the ward in wardRef isn't a Reorder item (#349). Make it with reorderItem(list, { value }), list the group it's in.")
   }
@@ -672,12 +723,21 @@ const givenItem = <V,>(list: ReorderGroup<V>, local: ItemLocal<V>, share: WardSh
     throw new Error("Reorder.Item: the item in wardRef is another group's (#349). Make it with reorderItem(list, …), list the Reorder.Group it renders in.")
   }
   const item = untrack(() => local.wardRef) as object
-  const row = drivenWard("Reorder.Item", local, share, { tag }, ITEM_CONFIG)
+  const { ward: row, setup } = drivenWard("Reorder.Item", local, share, { tag }, ITEM_CONFIG)
+  // Its keyboard attributes: the item's, or the element's where it sets one the item doesn't (#398).
   const keys = Object.defineProperties(
     {},
-    Object.fromEntries(Arr.map(KEYBOARD_ATTRIBUTES, (key) => [key, UndefinedOr.getOrThrow(Object.getOwnPropertyDescriptor(item, key))])),
+    Object.fromEntries(
+      Arr.map(KEYBOARD_ATTRIBUTES, (key) => [
+        key,
+        Bool.match(sets(local, key), {
+          onTrue: (): PropertyDescriptor => ({ enumerable: true, get: () => (local as unknown as Readonly<Record<string, unknown>>)[key] }),
+          onFalse: () => UndefinedOr.getOrThrow(Object.getOwnPropertyDescriptor(item, key)),
+        }),
+      ]),
+    ),
   )
-  return { row, keys }
+  return { row, keys, setup }
 }
 
 /**
@@ -685,7 +745,7 @@ const givenItem = <V,>(list: ReorderGroup<V>, local: ItemLocal<V>, share: WardSh
  * or given to `wardRef` (#349), rendered as `as` (`"li"` by default). Outside a group it throws, as
  * Motion's does.
  */
-function Item<V, Tag extends ReorderElementTag = "li">(props: ReorderItemComponentProps<V, Tag>): JSX.Element {
+function Item<V, Tag extends ReorderElementTag = "li", C = {}>(props: ReorderItemComponentProps<V, Tag, C>): JSX.Element {
   const list = useContext(GroupContext) as ReorderGroup<V> | null
   if (Predicate.isNull(list)) throw new Error("Reorder.Item must be a child of Reorder.Group")
   const local = props as unknown as ItemLocal<V> & WardicMotionProps
@@ -701,6 +761,7 @@ function Item<V, Tag extends ReorderElementTag = "li">(props: ReorderItemCompone
       handOver(local, row)
       return {
         row,
+        setup: undefined,
         render: (): JSX.Element => (
           <Element {...rest} {...row} ref={refsOf(local, [row])}>
             {local.children}
@@ -709,9 +770,10 @@ function Item<V, Tag extends ReorderElementTag = "li">(props: ReorderItemCompone
       }
     },
     onDefined: (share) => {
-      const { row, keys } = givenItem(list, local, share, tag)
+      const { row, keys, setup } = givenItem(list, local, share, tag)
       return {
         row,
+        setup,
         render: (): JSX.Element => (
           <Element {...rest} {...row.with({ style: local.style })} {...keys} ref={refsOf(local, [row])}>
             {local.children}
@@ -722,7 +784,7 @@ function Item<V, Tag extends ReorderElementTag = "li">(props: ReorderItemCompone
   })
   // An item that changes what its children read renders its variant context's Provider around them
   // (#50), as every Wardic element does; any other renders none.
-  const config = UndefinedOr.match(given, { onUndefined: () => wardConfigView(local as unknown as WardConfig), onDefined: (share) => share.setup })
+  const config = UndefinedOr.match(element.setup, { onUndefined: () => wardConfigView(local as unknown as WardConfig), onDefined: identity })
   return Bool.match(untrack(() => changesContext(config)), {
     onFalse: element.render,
     onTrue: () => <element.row.Provider>{element.render()}</element.row.Provider>,

@@ -373,7 +373,7 @@ Every Wardic component takes one: `wardic.<tag>`, `wardic.create(Component)`, `R
 
 **Decisions:**
 1. **One prop, both ways** (the user's): `wardRef` hands a function the component's own ward, as before, and drives a ward given to it. Solid 2 only: Solid 1 keeps `createWard`'s spread.
-2. **Motion props beside a given ward are refused** (Q1): every one, not only the keys the ward sets. A given ward is configured where it's made, and several keys are fixed then anyway (`drag`, `layout`, the gestures it listens for, its exit record).
+2. **Motion props beside a given ward are refused** (Q1): every one, not only the keys the ward sets. *Reversed by Amendment (#398): they go beside it, and only a key set in both places is an error.* A given ward is configured where it's made, and several keys are fixed then anyway (`drag`, `layout`, the gestures it listens for, its exit record).
    - It's a type error, and an error at setup naming the props.
    - `style` and `ref` go beside it, by `ward.with()`'s rules (#264): the style over the config's, key by key; the ref beside the ward's.
    - Rejected: dropping them with a dev warning; laying them over the ward's config.
@@ -558,3 +558,94 @@ A ward told a hover's start and end (`hoverStart`, `hoverEnd`, Motion's), but no
   - `hover` before `hoverStart`;
   - `hover` starting no recognizer.
 
+## Amendment (#398, 2026-10-26): a ward that only listens
+
+*Amendment (#349)*'s decision 2 refused every motion prop beside a ward given to `wardRef`. The user wants the ward made above the markup to hold only what's needed to hear its element: its gestures, its landings, its values. The element keeps its own motion: `variants`, `initial`, `animate`, `while*`, `style`. They had read #349's Q1 as refusing only a key set in both places; the record and the code refused them all. Grilled 2026-10-26 (#398).
+
+**What changed since #349:** a given ward is never mounted itself. Each element gets a driving ward, made in the component on the given ward's config, and that's where the keys are fixed for that element anyway. The element's own props can be read there too.
+
+**Decisions** (reversing #349's decision 2):
+1. **Motion props go beside a given ward, and a key set in both places is an error** (Q1, A): at setup, naming the keys and both places, in every build.
+   - Rejected: a development warning with one side winning; the element's prop winning silently.
+2. **A duplicate is a type error too** (Q8, A), with TypeScript's plain message on the attribute.
+   - How: `wardic.<tag>`'s props are one object generic over the given ward's config `C`, with no union. A key `C` sets is `never` on the element.
+   - A wide `Ward`, whose keys are all optional, sets none the types know of; the setup check still catches its duplicates.
+   - `wardRef={(w) => …}` still infers `w`. Typechecking costs about 33 µs per element.
+   - Rejected: a message-string type (editors offer it as a completion); runtime only.
+3. **`ward()` takes no config** (Q2, A). It's a pure listener on a plain element (`<div {...card}>`), and the listening handle for a `wardic.*` one.
+4. **One rule for every `wardRef` and `groupRef`** (Q3, A): `Reorder.Item` with `reorderItem(list, { value })`, and `Reorder.Group` with `reorderGroup(…)`.
+   - An item is made with its `value`, and a group with its `values` and `onReorder`, so those beside them are always duplicates, in the types as well.
+   - A group's type doesn't carry its config, so its other duplicates (`axis`, `keyboard`, `announcements`, `instructions`) are errors at setup only.
+5. **`style` keeps its key-by-key merge** (Q4, A), the element's over the ward's (#264). It's the one key that combines rather than conflicts.
+6. **What goes where is a convention, not enforced** (Q6, B). With `wardRef`, the ward holds what changes what it can hear: `drag` and its options, `layout` / `layoutId`, `viewport`. The element holds what shapes the motion. A spread keeps everything in the ward, where it's the element's whole motion.
+7. **A Listening ward leaves the variant tree to its element** (Q7, A).
+   - A ward **carries its variants** when its config sets `variants` or `inherit`. Otherwise it's a **Listening ward** (CONTEXT.md), even with an `animate` name, which then resolves against the element's variants.
+   - A Listening ward's element builds its own variant node from the merged config, in the element's context, and joins the parent it renders in.
+   - A ward that carries its variants keeps #349's shared node, made where the ward is made.
+   - Rejected: always building the node at the element (it reverses GW5's made order and GW5b's `{ parent: card }`); variant keys refused on the element.
+8. **A Listening ward made with `{ parent }`** (Q9, A) builds its element's node under the chosen parent, wherever the element renders (#349's portal case).
+9. **`ward(…, { parent: card })` throws when `card` is a Listening ward** (Q10, A). It has no node to register with until its element mounts. The error names the ways out: render the child inside `card`'s element, or put the variants in `card`'s `ward({ … })`.
+   - Rejected: registering at the element's mount (mount order, not made order); falling back silently to the child's context.
+10. **A ward that carries its variants keeps its node's keys** (Q11, A): `variants`, `inherit`, `initial`, `animate`, `transition`, `custom` and the five `while*` names.
+    - On the element they're an error, at setup and in the types, saying the ward carries its variants.
+    - Every other key may go on the element: `style`, `exit`, `drag*`, `layout*`, `viewport`.
+    - Rejected: a node reading a merged view (parts of it are fixed at creation); an element-side key making the driving ward build its own node (breaks GW5b).
+
+**Defaults:**
+- the duplicate check reads each side once, at setup, untracked, as the refusal did;
+- Solid 2 only;
+- a server renders the merged config;
+- a given ward's `read`, `atom`, `settled`, `next` and `when` follow its driver, whatever set the key.
+
+**Built:**
+- **The element's props over the ward's config.** `drivenWard` (`unstable/v2/wardic.tsx`):
+  - finds the motion props the element sets (`besideOf`);
+  - throws on a duplicate, or on a node key beside a ward that carries its variants;
+  - builds the driving ward with them as fixed keys over the given ward's config (`fixedOf`), one getter per key reading the element's prop, so a changed prop retargets as the element's own would;
+  - hands the component the setup config, the ward's with the element's props over it, read once: its Starting style and the variant context its children get.
+- **The variant node.** `WardShare.carries` records whether the ward carries its variants.
+  - A driving ward for one that does takes the shared node and its parent, as before.
+  - One for a Listening ward builds its own, in the element's context or under the chosen `{ parent }`.
+  - `ward(…, { parent })` naming a Listening ward throws.
+- **`ward()`** is an overload, not an optional `config`: a default for `C` left an accessor's literal untyped (`transition: () => ({ type: "tween" })` read `type` as `string`).
+- **Types:**
+  - `WardicMotion<C>` is `wardRef` (a `WardRefCallback` or a `GivenWard<C>`) and `WardicBeside<C>`.
+  - `WardSetKey<C>` is the keys `C` sets: its required ones.
+  - `WardicComponent<Tag>` and `WardicWrapped<P>` are generic over `C`.
+  - `NoMotionProps` and `refuseBeside` are gone.
+  - `ReorderItemOf<V, C>`'s given branch is `WardicBeside<C, ItemMotionProps>`, with its `layout`, `tabindex` and `aria-describedby`.
+- **Reorder.**
+  - A given item's element props go over its config as a ward's do. Its keyboard attributes are the element's where it sets them.
+  - A given group's element props go into a layer under the group's view, laid by `Reorder.Group` before its items render.
+  - The group's axis memo is lazy, so its first read, an item's, tracks the element's `axis`. A Solid 2 memo otherwise computes as it's made, before the layer.
+- **The setup path**, after measuring the first build (below):
+  - **A plain variant node.** An element with no `variants` and no names of its own joins nothing and provides nothing (`plainNode` in `unstable/v2/variant-node.ts`). Its node is now one small object, with no closures; most elements are one. Its `canStart` had made two match objects on every call.
+  - **One `untrack` for the keys.** `setKeysOf` reads every motion key on a given ward's element under one `untrack`. #349's refusal made a closure and an `untrack` per key, about 1.5 KB per element per round.
+  - **Plain checks.** `ward()`, `nodeFor` and `drivenWard` use `if`s, not match objects (#349's lesson), and a driving ward gets `fixed` only when its element sets a key.
+
+**Pinned by:**
+- `test/v2/listening-ward.browser.test.tsx`, LW1–LW12 and LW5b:
+  - the element's props move a `ward()`, reactively, merged with the ward's config, its style over the ward's;
+  - the variant tree: the parent it renders in, a Variant parent by its props, `{ parent }`, the `{ parent: card }` error;
+  - a ward that carries its variants: a node key on the element is an error, its `exit` and `style` aren't;
+  - a given group's `axis` and `keyboard`, a given item's motion and `tabindex`;
+  - `ward()` spread as a listener;
+  - the types.
+- `test/v2/given-ward.browser.test.tsx`, GW4, rewritten for duplicates, each a type error too;
+- `test/v2/server.ssr.test.tsx`: SV21, now a duplicate, and SV23, a Listening ward's server render;
+- `test/v2/wardic.hydrate.browser.test.tsx`, KH15 (`KListening`);
+- `test/v2/variants.browser.test.tsx`, VB6–VB8, for the plain variant node:
+  - a parent that names variants with none of its own hands its names down (Motion's `initial="hidden" animate="visible"` list);
+  - `inherit={false}` on an element with no variants keeps its children out;
+  - a kept ward with no variants passes its parent's names through its `.Provider`.
+
+**Mutation-checked** with 16 single-point mutations (`.tmp/398/mutate.py`). The 15 left on the final code all fail the tests meant for them.
+- M10, the setup config ignoring the element's props, at first survived. Only a Listening ward's element that is a Variant parent by its own props shows it, and LW5b and SV23's case were added for it.
+- M11, `checkParent` returning early for a Listening ward, was an equivalent mutant: `isVariantChild` already returns there, for a config with no `variants`. The check was taken out.
+- M13–M15, on the plain node, survived the whole Solid 2 suite at first: what a node without variants passes through, a parent with names only, and `inherit={false}` with no variants. Main's node behaved the same, also untested. VB6–VB8 were added for them.
+
+**Cost** (`bench:solid --binding 2`, N = 1,000, 11 paired reps against main; the page's `wardic.div`s as given, through a copy of `page-v2.tsx`; the controls −0.2% to +0.9%):
+- **The first build** raised a given ward's bytes per element per round by 1.1% (148.0 to 149.7 KB, IQR +1.0% to +1.1%), with mount +1.7% (IQR −0.7% to +3.0%). The bench's page has no `variants`, so its wards are Listening wards. A heap-sampling probe (`.tmp/398/alloc`) put the bytes in the driving ward's second variant node (about 970 B), then in `drivenWard`'s match objects, then `besideOf`, `ward()` and `nodeFor`. That's the setup path *Built* above trims.
+- **After it**, with given wards (`ward({ initial, animate })` given to `wardic.div`), bytes fell 2.3% (148.0 to 144.5 KB, IQR −2.7% to −2.3%). The timings were mount −0.8%, Retarget +0.2%, at-rest Retarget −2.3% and unmount −0.5%, each IQR spanning zero but at-rest Retarget's.
+- **The plain page** (`wardic.div`s with their own props) gains from the plain node. Bytes fell 1.6% (127.1 to 125.2 KB, IQR −1.8% to −1.6%), and the retained hover-and-press ward 1.0%. Mount was −2.1% (IQR −3.4% to −0.8%), Retarget −0.8%, at-rest Retarget −1.2%, and unmount +2.5% (IQR +0.6% to +2.8%; −2.7% on the first run, and −1.8% cold).
+- **A Listening ward** (`ward()` given to a `wardic.div` that holds the same props) mounts in the same 49.7 ms as the given form. It allocates 140.3 KB per element per round against 144.5, but those are separate runs, unpaired: the given form's `animate` is an accessor in the ward's config, and the listening form's is the element's prop.

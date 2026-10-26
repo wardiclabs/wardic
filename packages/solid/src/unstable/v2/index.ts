@@ -62,7 +62,19 @@ export type {
  * `wardic.<tag>` and `wardic.create(tag | Component)` (ADR-0008): Motion's components, with the
  * element's own props and the motion props; a `wardic.create(Component)` component forwards its `ref`.
  */
-export { type NoMotionProps, type Wardic, type WardicMotion, type WardicProps, type WardicWrappable, type WardRefCallback, wardic } from "./wardic.tsx"
+export {
+  type GivenWard,
+  type Wardic,
+  type WardicBeside,
+  type WardicComponent,
+  type WardicMotion,
+  type WardicProps,
+  type WardicWrappable,
+  type WardicWrapped,
+  type WardNodeKey,
+  type WardRefCallback,
+  wardic,
+} from "./wardic.tsx"
 export type { WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
 
 /**

@@ -7,8 +7,10 @@
 // - GW2: `card.read(key)` and `card.atom(key)`, asked before the element mounts, follow it.
 // - GW3: `style` goes over the config's, key by key, `ref` gets the element, the element's own props
 //   pass through.
-// - GW4: a motion prop beside a given ward is an error naming it, on `wardic.*`, `wardic.create` and
-//   `Reorder.Item`, and a group's config beside a given group on `Reorder.Group` (a type error too).
+// - GW4 (#398): a key set both in a given ward and on its element is an error naming it, on `wardic.*`,
+//   `wardic.create` and `Reorder.Item` (its `value`), a type error too; a group's config key on a given
+//   group's `Reorder.Group` too (at setup: a group's type doesn't carry its config). One set in one
+//   place only goes (`listening-ward.browser.test.tsx`).
 // - GW5: `ward(config, { parent })`: a ward made beside its parent inherits its variant name and
 //   joins its stagger, in the order the children were made; a parent's `when: "beforeChildren"` holds
 //   it until the parent, driven by its component, has landed.
@@ -161,40 +163,40 @@ describe("a ward given to a Wardic component's wardRef (#349)", () => {
     expect(got).toBe(box)
   })
 
-  it("GW4: a motion prop beside a given ward is an error naming it; a group's config beside a given group too", async () => {
-    const beside = await caught(() => {
+  it("GW4: a key set both in a given ward and on its element is an error naming it; a group's config key too", async () => {
+    const twice = await caught(() => {
       const card = ward({ animate: { opacity: 1 } })
-      // @ts-expect-error -- a motion prop beside a given ward (#349)
+      // @ts-expect-error -- `animate` set both in the given ward and on the element (#398)
       return <wardic.div wardRef={card} animate={{ x: 0 }} whileHover={{ scale: 1.1 }} />
     })
-    expect(beside).toContain("wardic.div: `animate`, `whileHover` given beside a ward made outside it")
+    expect(twice).toContain("wardic.div: `animate` set both in the ward given to wardRef and on the element")
 
     const Plain = wardic.create((props: { ref?: (el: HTMLElement) => void }) => <div ref={props.ref} />)
     const wrapped = await caught(() => {
-      const card = ward({ animate: { opacity: 1 } })
-      // @ts-expect-error -- a motion prop beside a given ward (#349)
+      const card = ward({ initial: { opacity: 1 } })
+      // @ts-expect-error -- `initial` set both in the given ward and on the element (#398)
       return <Plain wardRef={card} initial={{ opacity: 0 }} />
     })
-    expect(wrapped).toContain("`initial` given beside a ward made outside it")
+    expect(wrapped).toContain("`initial` set both in the ward given to wardRef and on the element")
 
     const item = await caught(() => {
       const list = reorderGroup({ values: ["a"], onReorder: () => {} })
       const row = reorderItem(list, { value: "a" })
       return (
         <Reorder.Group groupRef={list}>
-          {/* @ts-expect-error -- an item's own config beside a given item (#349) */}
+          {/* @ts-expect-error -- an item is made with its value (#398) */}
           <Reorder.Item wardRef={row} value="a" />
         </Reorder.Group>
       )
     })
-    expect(item).toContain("Reorder.Item: `value` given beside a ward made outside it")
+    expect(item).toContain("Reorder.Item: `value` set both in the ward given to wardRef and on the element")
 
     const group = await caught(() => {
       const list = reorderGroup({ values: ["a"], onReorder: () => {} })
-      // @ts-expect-error -- a group's config beside a given group (#349)
+      // @ts-expect-error -- a group is made with its values (#398)
       return <Reorder.Group groupRef={list} values={["a"]} />
     })
-    expect(group).toContain("Reorder.Group: `values` given beside a ward made outside it")
+    expect(group).toContain("Reorder.Group: `values` set both in the group given to groupRef and on the element")
     expect(unhandled).toEqual([])
   })
 

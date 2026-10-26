@@ -386,8 +386,12 @@ _Avoid_: computed value (a DOM term), initial value (`initial` is a prop).
 ### Binding
 
 **Ward**:
-One element's motion binding: its config, its Recognizers, its Override stack, its Legs and its Snapshot, however a binding attaches it. Solid's binding has three ways to put one on an element: a `wardic.*` component, `createWard`'s spread, and the `use:wardic` directive. Solid 2's has two: a `wardic.*` component, and `ward(config)`, a ref carrying its props, spread when it's kept or given to `ref`. A ward made with `ward(config)` can also be given to any Wardic component, `Reorder.Item` too, through its `wardRef`: the component then drives its element with that ward (#349).
+One element's motion binding: its config, its Recognizers, its Override stack, its Legs and its Snapshot, however a binding attaches it. Solid's binding has three ways to put one on an element: a `wardic.*` component, `createWard`'s spread, and the `use:wardic` directive. Solid 2's has two: a `wardic.*` component, and `ward(config)`, a ref carrying its props, spread when it's kept or given to `ref`. A ward made with `ward(config)` can also be given to any Wardic component, `Reorder.Item` too, through its `wardRef`: the component then drives its element with that ward, the element's own motion props laid over its config (#349, #398).
 _Avoid_: motion component (Motion's), controller, spine (the code that runs it).
+
+**Listening ward**:
+A **Ward** given to a Wardic component's `wardRef` whose config carries no variants (sets neither `variants` nor `inherit`): the element's own props set its motion and its place in the variant tree, and the ward is what its gestures, landings and values are heard through. `ward()`, with no config, is one. A ward whose config sets `variants` or `inherit` **carries its variants**: its variant node is made where the ward is made, and the keys that node reads stay in its config (#398).
+_Avoid_: empty ward, headless ward, event ward.
 
 **Wardic element**:
 An element with a **Ward** on it.

@@ -32,9 +32,14 @@
 //   component's tag); under `<AnimatePresence initial={false}>` it starts at `animate` (the
 //   component's presence); a `parent` given, it starts from the parent's `initial` name, even
 //   rendered outside the parent's element.
-// - SV21 (#349): a motion prop beside a given ward throws on a server too.
+// - SV21 (#349, #398): a key set both in a given ward and on its element throws on a server too.
 // - SV22 (#355): `when(name)` read by an effect, on a ward, a Reorder group and a presence handle,
 //   renders under no `<Loading>`: the server runs the effect's compute, never its function.
+// - SV23 (#398): a Listening ward given to `wardRef` renders the Starting style of its element's
+//   motion props, merged with its config: the element's `initial`, the ward's `style` under the
+//   element's; its element's `variants` start from the parent it renders in, or the one it was made
+//   with; its element's names pass down to its children; a given item's element props render on its
+//   element.
 import * as Renderer from "@wardic/core/Renderer"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import {
@@ -51,7 +56,9 @@ import {
   createTime,
   createTransform,
   createVelocity,
+  Reorder,
   reorderGroup,
+  reorderItem,
   ward,
   wardic,
 } from "@wardic/solid/unstable/v2"
@@ -417,13 +424,13 @@ describe("ward(config) and wardic.* on a server (ADR-0021)", () => {
     expectStartingStyle(named(serve(() => <Apart />), "p")[0], { opacity: 0 })
   })
 
-  it("SV21: a motion prop beside a given ward throws on a server too (#349)", () => {
+  it("SV21: a key set both in a given ward and on its element throws on a server too (#349, #398)", () => {
     const Card = () => {
       const card = ward({ animate: { opacity: 1 } })
-      // @ts-expect-error -- a motion prop beside a given ward (#349)
+      // @ts-expect-error -- `animate` set twice (#398)
       return <wardic.div wardRef={card} animate={{ opacity: 0 }} />
     }
-    expect(() => serve(() => <Card />)).toThrow("wardic.div: `animate` given beside a ward made outside it")
+    expect(() => serve(() => <Card />)).toThrow("wardic.div: `animate` set both in the ward given to wardRef and on the element")
   })
 
   it("SV22: when(name) read by effects renders under no <Loading>, and no effect runs (#355)", () => {
@@ -446,5 +453,65 @@ describe("ward(config) and wardic.* on a server (ADR-0021)", () => {
     const html = serve(() => <Card />)
     expect(named(html, "div")[0]?.attrs.class).toBe("card")
     expect(ran, "no effect ran on the server").toBe(0)
+  })
+
+  it("SV23: a Listening ward renders its element's motion props, merged with its config (#398)", () => {
+    const Card = () => {
+      const card = ward({ style: { color: "red", width: "10px" } })
+      return <wardic.div wardRef={card} initial={{ opacity: 0, x: 20 }} animate={{ opacity: 1, x: 0 }} style={{ width: "40px" }} />
+    }
+    const [div] = named(serve(() => <Card />), "div")
+    expectStartingStyle(div, { opacity: 0, x: 20 })
+    expect(div?.style.width, "the element's style over the ward's").toBe("40px")
+    expect(div?.style.color).toBe("red")
+
+    const VARIANTS = { hidden: { opacity: 0 }, shown: { opacity: 1 } }
+    const Row = () => {
+      const row = ward()
+      return <wardic.li wardRef={row} variants={VARIANTS} />
+    }
+    const List = () => (
+      <wardic.ul initial="hidden" animate="shown" variants={VARIANTS}>
+        <Row />
+      </wardic.ul>
+    )
+    expectStartingStyle(named(serve(() => <List />), "li")[0], { opacity: 0 })
+
+    // A Variant parent by its element's props.
+    const Parent = () => {
+      const list = ward()
+      return (
+        <wardic.ul wardRef={list} initial="hidden" animate="shown" variants={VARIANTS}>
+          <wardic.li variants={VARIANTS} />
+        </wardic.ul>
+      )
+    }
+    expectStartingStyle(named(serve(() => <Parent />), "li")[0], { opacity: 0 })
+
+    // A chosen parent, its element rendered outside the parent's.
+    const Apart = () => {
+      const list = ward({ initial: "hidden", animate: "shown", variants: VARIANTS })
+      const tip = ward(undefined, { parent: list })
+      return (
+        <>
+          <wardic.ul wardRef={list} />
+          <wardic.p wardRef={tip} variants={VARIANTS} />
+        </>
+      )
+    }
+    expectStartingStyle(named(serve(() => <Apart />), "p")[0], { opacity: 0 })
+
+    const Rows = () => {
+      const list = reorderGroup({ values: ["a"], onReorder: () => {} })
+      const item = reorderItem(list, { value: "a" })
+      return (
+        <Reorder.Group groupRef={list} axis="x">
+          <Reorder.Item wardRef={item} initial={{ opacity: 0.25 }} tabindex={-1} />
+        </Reorder.Group>
+      )
+    }
+    const [li] = named(serve(() => <Rows />), "li")
+    expectStartingStyle(li, { opacity: 0.25 })
+    expect(li?.attrs.tabindex).toBe("-1")
   })
 })
