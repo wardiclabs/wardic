@@ -344,6 +344,9 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps, AnyW
    * - `"hoverStart"`, `"hoverEnd"`, `"pressStart"`, `"tap"`, `"tapCancel"`: Motion's hover and tap
    *   events, with the pointer's `point` in the viewport. A press a drag took over is neither a
    *   tap nor a cancel.
+   * - `"hover"` (#397): the pointer over the element while it's hovered, its start (after
+   *   `"hoverStart"`) and each move, as `"drag"` is a drag's. Wardic's own: Motion's hover has only
+   *   a start and an end.
    * - `"dragStart"`, `"drag"` (its start and each move), `"dragEnd"`: a drag's, with its `point`,
    *   `offset`, `delta` and `velocity`; `"dragTransitionEnd"`, its release at rest. A ward that
    *   doesn't drag never has one.
@@ -844,6 +847,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
             setGesture(m.element, "hovered", transition.active)
             lifecycle.hovered(transition)
           },
+          // Each move while it's hovered, for `hover` (#397): told only to a `next` or `when` that asked.
+          onMove: (event) => lifecycle.hoverMoved(event),
           onDefect,
         }),
       )

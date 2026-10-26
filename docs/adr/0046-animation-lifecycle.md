@@ -505,3 +505,49 @@ createEffect(presence.when("exitComplete"), () => trigger.focus())
 - M5, a stop that removes nothing, survives: a stopped listener feeds a `from()` stream that's already closed, so nothing shows. The removal is kept so listeners don't pile up on a ward that outlives the effects reading it.
 
 **Cost** (`bench:solid --binding 2`, N = 1,000, against main): `when` is one more method on each ward, and the listeners cost nothing until something listens. Mount +1.4% (IQR +0.4% to +1.8%), Retarget +0.8%, at-rest Retarget +0.3%, unmount −1.5%, bytes per element −0.1%. The plain-div control was flagged as noisy (+9.1%), so these say "within a couple of percent", not more.
+
+## Amendment (#397, 2026-10-26): `hover`, each move while a ward is hovered
+
+A ward told a hover's start and end (`hoverStart`, `hoverEnd`, Motion's), but not the moves in between. Following the pointer over an element, as the storefront's spotlight cards do, took the element's own DOM `onPointerMove` beside the ward's events. The user wanted all of a ward's logic above the markup, heard through the ward. Grilled 2026-10-26 (#397).
+
+**Scope (the user's): Solid 2 only.** Solid 1 has no `onHover` callback or config key, so there's no new config key for every element to pay.
+
+**Decisions:**
+1. **The name is `"hover"`** (Q1, A): it sits between `hoverStart` and `hoverEnd`, as `drag` does between `dragStart`/`dragEnd` and `pan` between `panStart`/`panEnd` (Motion's `onDrag` / `onPan` naming).
+   - Rejected: `"hoverMove"` (breaks the pattern); `"pointerMove"` (reads as the DOM event, which fires for touch and off-hover too).
+2. **Its start and each move after** (Q2, A), as `drag` and `pan` are. At the entry, `hoverStart` is told first, then `hover` at the same point; then `hover` at each move until `hoverEnd`. One effect over `when("hover")` places from the entry on.
+   - Rejected: moves only (the entry would need its own `hoverStart` effect).
+3. **It carries `{ point }`** (Q3, A): `WardPointInfo`, the pointer in the viewport, as `hoverStart` and the tap events carry (Motion's `EventInfo`), built only when something listens.
+   - Rejected: a place on the element as well (a new shape, and a layout read per move); drag-like info (`delta`, `offset`, `velocity`).
+4. **Wardic's own.** Motion's hover has only a start and an end (`motion-dom/src/node/types.ts:427–436` at `16c6122`); a move there is the element's `onPointerMove`.
+
+**Defaults, from hover's own rules:**
+- **Touch never hovers,** so a finger tells nothing.
+- **Only moves over the element:** between its `hoverStart` and `hoverEnd`, on the element's own feed. A held pointer that has left, whose end waits for its release (ADR-0019), isn't over the element, and tells nothing.
+- **One per `pointermove` the element gets** (Chromium aligns mouse moves to frames). `when` runs its effect once a flush, with the latest; `next` and `each` see each.
+
+**Built:**
+- **Core's `watchHover`** takes an `onMove` beside `on` (`Recognizer.HoverHandlers`, ADR-0055 *Note (#397)*). With one, its handler tells each `move` on the target while the hover fold's `inside` holds, from a mouse or a pen. Without one, the handler is the old transitions-only one. The feed already carried the moves, and the fold already read them for a lost release, so nothing new listens.
+- **The Solid 2 ward** always passes `onMove`, to the lifecycle's `hoverMoved`, which tells `hover` only once a `next` or a `when` has asked for events. `hovered` tells `hover` after `hoverStart` at the start. `hover` wants the hover recognizer (`GESTURE_OF`), so `when("hover")` alone starts it.
+- **Cost:** 20,000 `pointermove`s over a hovered `whileHover` ward with no `hover` reader took 2.51 and 2.55 µs a move on the branch, against 2.61 µs on main (medians of 9, Chromium). Nothing per frame or per element changed.
+- **The storefront's spotlight** (Solid 2) reads `card.when("hover")` and `card.when("hoverEnd")` and has no `onPointerMove`.
+
+**Pinned by:**
+- `packages/test/test/watches.test.ts` WT13–WT15:
+  - each move over the target while the hover is on, none before the enter or after the leave;
+  - touch moves nothing, even while a mouse hovers;
+  - a held pointer that left tells no move while its leave waits.
+- `test/v2/gesture-events.browser.test.tsx`:
+  - GX19: `next("hover")` alone starts the recognizer, resolves at the enter, then at each move, none after the leave;
+  - GX20: `hoverStart` before `hover`;
+  - GX21: touch tells none.
+- `test/v2/when.browser.test.tsx` WN9: an effect over `when("hover")` on a ward given to `wardRef` beside `whileHover`.
+- **Mutation-checked** with 7 single-point mutations (`.tmp/397/mutate.py`), all caught:
+  - moves told before the enter;
+  - moves off the target told;
+  - touch moves told;
+  - no `hover` at the start;
+  - moves not wired in the ward;
+  - `hover` before `hoverStart`;
+  - `hover` starting no recognizer.
+

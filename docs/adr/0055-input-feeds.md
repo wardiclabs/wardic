@@ -277,3 +277,8 @@ One survives, equivalent: a blur whose judging fails goes unreported. The driver
 |---|---|---|---|---|
 | Solid 1 | 35.36 → 26.99 KB, −23.7% [−23.8% – −23.7%] | 45.78 → 26.99 KB, −41.0% | −0.0% | +0.2% |
 | Solid 2 | 34.52 → 26.06 KB, −24.5% [−24.5% – −24.5%] | 45.00 → 26.06 KB, −42.1% | +0.0% | +0.4% |
+
+## Note (#397, 2026-10-26): `watchHover` tells the moves too, when asked
+
+`watchHover(target, { on, onMove })`: with `onMove`, the handler also tells each `move` on the target while the hover fold's `inside` holds. Touch is skipped, as the fold skips it, and so is a held pointer's page-wide move after its leave. It's the same subscription and fold: the target's pointer feed already carried the moves, and the fold already read them for a lost release. Without `onMove`, the handler is `transitionsOf`'s, as before. The Solid 2 ward's `hover` event reads it (ADR-0046 *Amendment (#397)*). Pinned by WT13–WT15.
+

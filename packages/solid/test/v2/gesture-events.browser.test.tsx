@@ -30,6 +30,10 @@
 //   and `next("viewportLeave")`, each resolving with `undefined`.
 // - GX17 (#273): `whileFocus` at a keyboard's focus.
 // - GX18 (#273): `next("viewportEnter")` alone starts the in-view recognizer, on a ward with no `whileInView`.
+// - GX19 (#397): `next("hover")` alone starts the hover recognizer: it resolves at the enter, with its
+//   point, then at each move over the element; after the leave a move tells nothing.
+// - GX20 (#397): at the enter, `hoverStart` is told before `hover`.
+// - GX21 (#397): touch never hovers: a finger's enter and moves tell no `hover`.
 import { DomLive } from "@wardic/dom"
 import { Reorder, type Ward, ward, type WardConfig, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
@@ -530,5 +534,51 @@ describe("a ward's in-view and focus layers on Solid 2 (#273)", () => {
     for (let i = 0; i < 3; i++) await raf()
     window.scrollTo(0, 1900)
     expect(await settledWithin(entered, 30), "entered").toBe(true)
+  })
+
+  it("GX19: next(\"hover\") alone starts the recognizer, and resolves at the enter, then at each move; none after the leave", async () => {
+    let el!: HTMLElement
+    const { card } = mountCard({ style: BOX }, (card) => <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />)
+    await raf()
+    const entered = await retrying(card.next("hover"), () => pointer(el, "pointerenter", 130, 140))
+    expect(entered, "its start, at the enter's point").toEqual({ point: { x: 130, y: 140 } })
+    const moved = card.next("hover")
+    pointer(el, "pointermove", 150, 145)
+    expect(await moved, "a move over it").toEqual({ point: { x: 150, y: 145 } })
+    pointer(el, "pointerleave", 300, 310)
+    const after = card.next("hover")
+    pointer(el, "pointermove", 160, 150)
+    expect(await settledWithin(after, 10), "nothing once it left").toBe(false)
+  })
+
+  it("GX20: at the enter, hoverStart is told before hover", async () => {
+    let el!: HTMLElement
+    const { card } = mountCard({ style: BOX }, (card) => <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />)
+    await raf()
+    // Both recognizer wants first, so one enter is heard by both waits.
+    await retrying(card.next("hoverStart"), () => pointer(el, "pointerenter", 130, 140))
+    pointer(el, "pointerleave", 300, 310)
+    const order: Array<string> = []
+    const start = card.next("hoverStart").then(() => order.push("hoverStart"))
+    const hover = card.next("hover").then(() => order.push("hover"))
+    pointer(el, "pointerenter", 131, 141)
+    await Promise.all([start, hover])
+    expect(order).toEqual(["hoverStart", "hover"])
+  })
+
+  it("GX21: touch never hovers: a finger's enter and moves tell no hover", async () => {
+    let el!: HTMLElement
+    const { card } = mountCard({ style: BOX }, (card) => <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />)
+    await raf()
+    // The recognizer started, by a mouse's hover come and gone.
+    await retrying(card.next("hoverStart"), () => pointer(el, "pointerenter", 130, 140))
+    pointer(el, "pointerleave", 300, 310)
+    const touched = card.next("hover")
+    const finger = (type: string, x: number, y: number): void => {
+      el.dispatchEvent(new PointerEvent(type, { pointerId: 2, pointerType: "touch", isPrimary: true, clientX: x, clientY: y, buttons: 1, bubbles: true }))
+    }
+    finger("pointerenter", 130, 140)
+    finger("pointermove", 140, 145)
+    expect(await settledWithin(touched, 10), "a finger hovers nothing").toBe(false)
   })
 })

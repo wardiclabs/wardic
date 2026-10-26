@@ -18,6 +18,7 @@ import * as Predicate from "effect/Predicate"
 import * as Queue from "effect/Queue"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
+import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Drag from "./Drag.ts"
 import * as DragActivity from "./DragActivity.ts"
 import * as InputFeed from "./InputFeed.ts"
@@ -205,17 +206,55 @@ export const hoverEvents = (target: unknown): Stream.Stream<Transition, never, I
   streamOf<Transition, InputSource.InputSource>((handlers) => watchHover(target, handlers))
 
 /**
- * Watch hover on `target` (#318, ADR-0055): `handlers.on` told each transition, {@link hoverEvents}',
- * inside the pointer event's dispatch, while the Scope is open. No fiber and no Stream: a scoped
- * subscription to the target's pointer feed. A throw from `on` goes to `handlers.onDefect`. Tier 2,
- * for bindings.
+ * {@link watchHover}'s handlers (#397): `on` told each transition, and `onMove`, when given, each move
+ * of the pointer over the target while the hover is on. That's Wardic's own: Motion's hover has only a
+ * start and an end. Touch never hovers, and a held pointer whose leave waits for its release isn't
+ * over the target, so neither moves it.
  */
-export const watchHover = (target: unknown, handlers: InputFeed.Handlers<Transition>): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> =>
+export interface HoverHandlers extends InputFeed.Handlers<Transition> {
+  readonly onMove?: ((event: InputSource.PointerLikeEvent) => void) | undefined
+}
+
+/**
+ * Watch hover on `target` (#318, ADR-0055): `handlers.on` told each transition, {@link hoverEvents}',
+ * and `handlers.onMove` each move over it while the hover is on (#397), inside the pointer event's
+ * dispatch, while the Scope is open. No fiber and no Stream: a scoped subscription to the target's
+ * pointer feed. A throw from either goes to `handlers.onDefect`. Tier 2, for bindings.
+ */
+export const watchHover = (target: unknown, handlers: HoverHandlers): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> =>
   Effect.gen(function* () {
     const input = yield* InputSource.InputSource
     const activity = yield* DragActivity.DragActivity
-    yield* watchFeed("wardic.hover", {}, input.pointer(target), transitionsOf(hoverFold(activity), transitionOf, handlers.on, false), handlers)
+    const fold = hoverFold(activity)
+    const handle = UndefinedOr.match(handlers.onMove, {
+      onUndefined: () => transitionsOf(fold, transitionOf, handlers.on, false),
+      onDefined: (onMove) => hoverHandleOf(fold, handlers.on, onMove),
+    })
+    yield* watchFeed("wardic.hover", {}, input.pointer(target), handle, handlers)
   })
+
+/** Whether `event` moves a pointer over the target while `state`'s hover is on (#397). */
+const movesOver = (state: HoverState, event: InputSource.PointerLikeEvent): boolean =>
+  Bool.and(Bool.and(state.inside, event.type === "move"), Bool.and(event.onTarget, event.kind !== "touch"))
+
+/** Hover's transitions, as {@link transitionsOf}'s, and each move over the target between them (#397). */
+const hoverHandleOf =
+  (fold: Fold<HoverState, InputSource.PointerLikeEvent>, on: (transition: Transition) => void, onMove: (event: InputSource.PointerLikeEvent) => void) =>
+  (): ((event: InputSource.PointerLikeEvent) => boolean) => {
+    const state = MutableRef.make(fold.initial)
+    return (event) => {
+      const was = MutableRef.get(state)
+      const next = fold.step(was, event)
+      MutableRef.set(state, next)
+      const active = fold.active(next)
+      if (active !== fold.active(was)) {
+        on({ active, event })
+        return true
+      }
+      if (movesOver(next, event)) onMove(event)
+      return true
+    }
+  }
 
 /** A transition of the state it changed to (#257). */
 const transitionOf = (_next: unknown, event: InputSource.PointerLikeEvent, active: boolean): Transition => ({ active, event })

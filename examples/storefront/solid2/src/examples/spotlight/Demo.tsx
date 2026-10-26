@@ -65,9 +65,10 @@ function SpotCard(props: { readonly product: Product }) {
     whileHover: "lit",
     style: { rotateX, rotateY, "--light-x": lightX, "--light-y": lightY },
   })
-  // Its hover, through `when` (#355): the light starts where the pointer came in, and when the
-  // pointer leaves, the card eases back flat.
-  createEffect(card.when("hoverStart"), (start) => place(start.point))
+  // Its hover, through `when` (#355): the pointer over the card, from where it came in and at each
+  // move (#397), places the light and the tilt; when it leaves, the card eases back flat. Touch never
+  // hovers, so a finger moves nothing.
+  createEffect(card.when("hover"), (move) => place(move.point))
   createEffect(card.when("hoverEnd"), () => {
     setAcross(0)
     setDown(0)
@@ -80,11 +81,6 @@ function SpotCard(props: { readonly product: Product }) {
         class="spot-card"
         ref={el}
         wardRef={card}
-        // The moves in between: a ward tells a hover's start and end, as Motion does, not each move.
-        // Touch never hovers, so a finger moves nothing.
-        onPointerMove={(event) => {
-          if (event.pointerType !== "touch") place({ x: event.clientX, y: event.clientY })
-        }}
       >
         <div class="photo">
           <img src={photo.small} srcset={srcsetOf(photo)} sizes="(max-width: 640px) 100vw, 240px" width={photo.width} height={photo.height} alt={props.product.name} />

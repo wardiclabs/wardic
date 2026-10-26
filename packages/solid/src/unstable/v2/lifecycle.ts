@@ -25,6 +25,7 @@ import * as Predicate from "effect/Predicate"
 import { constUndefined, identity } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Drag from "@wardic/core/Drag"
+import type * as InputSource from "@wardic/core/InputSource"
 import type * as Recognizer from "@wardic/core/Recognizer"
 import { type Accessor, createMemo, createSignal, type Owner, runWithOwner } from "solid-js"
 import type { WardicAnimationDefinition, WardicValues } from "../../config.ts"
@@ -75,6 +76,12 @@ export interface WardEvents {
   readonly settled: WardSettled
   /** The pointer came over the element (Motion's `onHoverStart`); touch never hovers. */
   readonly hoverStart: WardPointInfo
+  /**
+   * The pointer over the element while it's hovered (#397): its start, told after `hoverStart` at the
+   * same point, then each move until `hoverEnd`, as `drag` is a drag's. Wardic's own: Motion's hover
+   * has only a start and an end.
+   */
+  readonly hover: WardPointInfo
   /** It left, or a press held on it while it left was let go (Motion's `onHoverEnd`). */
   readonly hoverEnd: WardPointInfo
   /** A press began on the element (Motion's `onTapStart`). */
@@ -150,6 +157,7 @@ export type WantedGesture = "hover" | "press" | "pan" | "inView"
 /** The gesture whose recognizer an event needs: `next("tap")` needs the press one running. */
 const GESTURE_OF: Partial<Record<WardEvent, WantedGesture>> = {
   hoverStart: "hover",
+  hover: "hover",
   hoverEnd: "hover",
   pressStart: "press",
   tap: "press",
@@ -294,10 +302,22 @@ export class Lifecycle implements AnimationHooks {
     UndefinedOr.map(this.events, (events) => events.fail("settled", error))
   }
 
-  /** A hover's start or end (#257). */
+  /** A hover's start or end (#257): its start is the first `hover` too (#397). */
   hovered(transition: Recognizer.Transition): void {
     if (Predicate.isUndefined(this.events)) return
-    this.tell(Bool.match(transition.active, { onTrue: (): WardEvent => "hoverStart", onFalse: () => "hoverEnd" }), () => pointInfoOf(transition.event))
+    const info = () => pointInfoOf(transition.event)
+    if (transition.active) {
+      this.tell("hoverStart", info)
+      this.tell("hover", info)
+      return
+    }
+    this.tell("hoverEnd", info)
+  }
+
+  /** A move of the pointer over the element while it's hovered (#397). */
+  hoverMoved(event: InputSource.PointerLikeEvent): void {
+    if (Predicate.isUndefined(this.events)) return
+    this.tell("hover", () => pointInfoOf(event))
   }
 
   /** A press's start or end (#257): a press a drag took over tells nothing. */

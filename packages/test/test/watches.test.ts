@@ -19,6 +19,11 @@
 // - WT11: closing the Scope mid-gesture gives the claim back.
 // - WT12: a gesture another target's claim refuses tells nothing, its end included; `claim: false`
 //   is never refused and only counts.
+// - WT13: `watchHover`'s `onMove` (#397) hears each move over the target while the hover is on,
+//   inside the push: none before the enter or after the leave; the transitions as before.
+// - WT14: touch moves nothing, even while a mouse hovers the target.
+// - WT15: a held pointer that leaves: its moves off the target tell nothing while its leave waits
+//   for the release.
 import * as DragActivity from "@wardic/core/DragActivity"
 import * as InputSource from "@wardic/core/InputSource"
 import * as Recognizer from "@wardic/core/Recognizer"
@@ -255,3 +260,56 @@ it.effect("WT12: a gesture another target's claim refuses tells nothing, its end
     }).pipe(Effect.provide(input.layer))
   }))
 
+/** A mouse's event with no button pressed, at `x`, over the target unless said. */
+const hovering = (type: InputSource.PointerLikeEvent["type"], x: number, more: Partial<InputSource.PointerLikeEvent> = {}): InputSource.PointerLikeEvent =>
+  InputSource.makePointerLikeEvent({ type, x, pressed: false, ...more })
+
+it.effect("WT13: watchHover's onMove hears each move over the target while the hover is on", () =>
+  Effect.gen(function* () {
+    const input = yield* TestInput.pushable()
+    const heard: Array<string> = []
+    yield* Effect.gen(function* () {
+      yield* opened(Recognizer.watchHover("el", { on: (t) => heard.push(`hover ${t.active}`), onMove: (e) => heard.push(`move ${e.x}`) }))
+      yield* input.push(hovering("move", 1))
+      yield* input.push(hovering("enter", 2))
+      yield* input.push(hovering("move", 3))
+      expect(heard, "heard inside the push").toEqual(["hover true", "move 3"])
+      yield* input.push(hovering("move", 4))
+      yield* input.push(hovering("leave", 5))
+      yield* input.push(hovering("move", 6))
+      expect(heard, "none before the enter or after the leave").toEqual(["hover true", "move 3", "move 4", "hover false"])
+    }).pipe(Effect.provide(input.layer))
+  }))
+
+it.effect("WT14: touch moves nothing, even while a mouse hovers", () =>
+  Effect.gen(function* () {
+    const input = yield* TestInput.pushable()
+    const moves: Array<number> = []
+    yield* Effect.gen(function* () {
+      yield* opened(Recognizer.watchHover("el", { on: () => {}, onMove: (e) => moves.push(e.x) }))
+      yield* input.push(hovering("enter", 1, { kind: "touch", pointerId: 2 }))
+      yield* input.push(hovering("move", 2, { kind: "touch", pointerId: 2 }))
+      expect(moves, "a finger hovers nothing").toEqual([])
+      yield* input.push(hovering("enter", 3))
+      yield* input.push(hovering("move", 4, { kind: "touch", pointerId: 2 }))
+      yield* input.push(hovering("move", 5))
+      expect(moves, "only the mouse's move").toEqual([5])
+    }).pipe(Effect.provide(input.layer))
+  }))
+
+it.effect("WT15: a held pointer that leaves tells no move while its leave waits for the release", () =>
+  Effect.gen(function* () {
+    const input = yield* TestInput.pushable()
+    const heard: Array<string> = []
+    yield* Effect.gen(function* () {
+      yield* opened(Recognizer.watchHover("el", { on: (t) => heard.push(`hover ${t.active}`), onMove: (e) => heard.push(`move ${e.x}`) }))
+      yield* input.push(hovering("enter", 1))
+      yield* input.push(hovering("down", 2, { pressed: true }))
+      yield* input.push(hovering("move", 3, { pressed: true }))
+      yield* input.push(hovering("leave", 4, { pressed: true }))
+      yield* input.push(hovering("move", 5, { pressed: true, onTarget: false }))
+      expect(heard, "the hover still on, off the target").toEqual(["hover true", "move 3"])
+      yield* input.push(hovering("up", 6, { onTarget: false }))
+      expect(heard).toEqual(["hover true", "move 3", "hover false"])
+    }).pipe(Effect.provide(input.layer))
+  }))
