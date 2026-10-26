@@ -278,9 +278,10 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       "A product photo hides what makes a glazed piece worth buying: where its colours run into each other. A magnifier lets you look closer without leaving the page. A lens glued to the pointer jitters with every twitch of the hand; on a spring, it glides after the pointer and settles where you stop.",
       "The pointer's place over the photo is two plain signals. `createSpring` follows each with a spring on the frame loop, idle while it rests, and the lens takes the springs as its `x` and `y` in `style`: live values, which Wardic writes each frame. `createTransform` maps the same springs to where the photo inside the lens sits, as two custom properties the stylesheet's `background-position` reads, so the lens always shows what's under its centre.",
       "The lens grows in under hover or a press: the photo names a variant, and the lens, a Variant child, follows it.",
+      "The photo hears the pointer from Wardic. On Solid 2, its ward only listens (`ward()`), given to the photo through `wardRef`; the photo keeps its own variants, `whileHover` and `whileTap`. An effect over `look.when(\"hover\")` hears a mouse, from where it came in and at each move, and effects over `look.when(\"pressStart\")` and `look.when(\"pan\")` hear a finger, which never hovers: each with the photo it's over (`element`, so no `ref`). On Solid 1, the photo's own `onPointerMove` and `onPointerDown` do the same.",
     ],
     reducedMotion: "The lens doesn't glide: it's where the pointer is. A live value is yours, so Wardic's reduced motion leaves it alone; the demo `jump`s its springs to the pointer instead.",
-    uses: ["createSpring", "createTransform", "live values in style", "whileHover", "whileTap"],
+    uses: ["createSpring", "createTransform", "live values in style", "whileHover", "whileTap", "when(\"hover\"), when(\"pan\") (Solid 2)"],
     motion: {
       file: "magnifier.tsx",
       note: "Motion's `useSpring` and `useTransform` are `createSpring` and `createTransform`, made in the component's body. Motion would join the two values into one `background-position` with `useMotionTemplate`; Wardic has no template helper, so each value maps to a custom property of its own, and the stylesheet joins them.",
