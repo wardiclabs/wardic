@@ -1,8 +1,9 @@
 /** The shop's frame (#296): its header, with the visitor's switches and the store's, and its footer. */
 import { A, createAsync, useAction } from "@solidjs/router"
 import { COG, ICON, turnOf } from "@wardic/example-storefront-shared/micro"
-import { wardic } from "@wardic/solid"
-import { createSignal, type JSX, Show, Suspense } from "solid-js"
+import { AnimatePresence, wardic } from "@wardic/solid"
+import { createSignal, For, type JSX, Show, Suspense } from "solid-js"
+import { type Arrival, arrivalId, arrivals, landed } from "~/lib/arrivals.ts"
 import { type Theme, usePreferences } from "~/lib/preferences.tsx"
 import { cart, saveSettings, settings } from "~/lib/store.ts"
 
@@ -80,7 +81,28 @@ function CartButton() {
           )}
         </Show>
       </Suspense>
+      <AnimatePresence>
+        <For each={arrivals()}>{(piece) => <CartArrival piece={piece} />}</For>
+      </AnimatePresence>
     </IconLink>
+  )
+}
+
+/**
+ * A piece moved to the cart from Saved for later: its photo's twin, sharing its row photo's
+ * `layoutId`, so Wardic flies it here from the row it left. Landed, it shrinks into the icon.
+ */
+function CartArrival(props: { readonly piece: Arrival }) {
+  return (
+    <wardic.img
+      class="cart-arrival"
+      layoutId={arrivalId(props.piece.id)}
+      src={props.piece.src}
+      alt=""
+      transition={{ layout: { type: "tween", duration: 0.6, ease: [0.45, 0, 0.55, 1] } }}
+      exit={{ scale: 0.3, opacity: 0, transition: { type: "tween", duration: 0.25 } }}
+      onLayoutAnimationComplete={() => landed(props.piece.id)}
+    />
   )
 }
 
@@ -93,7 +115,10 @@ export function Shell(props: { readonly children: JSX.Element }) {
       <header class="site-header">
         <div class="page">
           <A class="brand" href="/">
-            Wardic Northlight <small>Solid 1</small>
+            Wardic Northlight
+            <span class="badges">
+              <span class="badge badge-binding">Solid 1</span>
+            </span>
           </A>
           <nav class="site-nav" aria-label="Main">
             <A href="/" end>

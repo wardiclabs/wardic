@@ -20,6 +20,9 @@
   --accent-soft: #dbe6f1;
   --ok: #3b6630;
   --danger: #a8424c;
+  /* A warning, Nord's yellow: the Solid 2 binding's "Unstable" badge. */
+  --warn: #8a6100;
+  --warn-soft: #f6e7c4;
   --aurora: #8fbcbb, #88c0d0, #81a1c1, #b48ead;
   --glow: rgb(94 129 172 / 0.28);
   --shadow-s: 0 1px 2px rgb(46 52 64 / 0.06), 0 1px 1px rgb(46 52 64 / 0.04);
@@ -62,6 +65,8 @@
   --accent-soft: #3e5363;
   --ok: #cfe0bf;
   --danger: #eba3aa;
+  --warn: #ebcb8b;
+  --warn-soft: #4a4536;
   --aurora: #8fbcbb, #88c0d0, #81a1c1, #b48ead;
   --glow: rgb(136 192 208 / 0.35);
   --shadow-s: 0 1px 2px rgb(0 0 0 / 0.3);
@@ -83,6 +88,8 @@
     --accent-soft: #3e5363;
     --ok: #cfe0bf;
     --danger: #eba3aa;
+    --warn: #ebcb8b;
+    --warn-soft: #4a4536;
     --aurora: #8fbcbb, #88c0d0, #81a1c1, #b48ead;
     --glow: rgb(136 192 208 / 0.35);
     --shadow-s: 0 1px 2px rgb(0 0 0 / 0.3);
@@ -295,6 +302,59 @@ button {
   color: var(--muted);
 }
 
+/* Which Wardic binding the app runs on, and, for Solid 2's, that it's unstable. */
+.badges {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: var(--font-sans);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  line-height: 1.5;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.badge-binding {
+  background: var(--accent);
+  color: var(--accent-ink);
+}
+
+.badge-unstable {
+  background: var(--warn-soft);
+  color: var(--warn);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--warn) 45%, transparent);
+}
+
+.brand .badges {
+  align-self: center;
+}
+
+.hero-badges {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.hero-badges .badge {
+  font-size: 0.8rem;
+}
+
+.unstable-note {
+  max-width: 62ch;
+  font-size: var(--text-s);
+  color: var(--muted);
+}
+
 .site-nav {
   display: flex;
   gap: var(--space-4);
@@ -359,7 +419,8 @@ button {
 }
 
 @media (max-width: 560px) {
-  .brand small {
+  .brand small,
+  .brand .badges {
     display: none;
   }
 
@@ -2052,10 +2113,12 @@ button.product-card:hover .photo {
 }
 
 /* The copy of a photo that flies to the cart, above everything. */
-.flying-photo {
-  position: fixed;
-  z-index: 60;
-  margin: 0;
+/* A saved piece's photo, flown into the cart button by its layoutId (Saved for later). */
+.cart-arrival {
+  position: absolute;
+  inset: 3px;
+  width: calc(100% - 6px);
+  height: calc(100% - 6px);
   border-radius: var(--radius-s);
   object-fit: cover;
   box-shadow: var(--shadow-m);

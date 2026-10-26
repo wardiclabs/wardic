@@ -3,8 +3,9 @@ import { revalidate } from "@solidjs/router"
 import type { JSX } from "@solidjs/web"
 import type { Settings } from "@wardic/example-storefront-shared/server"
 import { COG, ICON, turnOf } from "@wardic/example-storefront-shared/micro"
-import { wardic } from "@wardic/solid/unstable/v2"
-import { action, createMemo, createSignal, Loading, Show } from "solid-js"
+import { AnimatePresence, ward, wardic } from "@wardic/solid/unstable/v2"
+import { action, createEffect, createMemo, createSignal, For, Loading, Show } from "solid-js"
+import { type Arrival, arrivalId, arrivals, landed } from "~/lib/arrivals.ts"
 import { type Theme, usePreferences } from "~/lib/preferences.tsx"
 import { cart, settings } from "~/lib/store.ts"
 import { setSettings } from "~/server/store.ts"
@@ -95,7 +96,30 @@ function CartButton() {
           )}
         </Show>
       </Loading>
+      <AnimatePresence>
+        <For each={arrivals()}>{(piece) => <CartArrival piece={piece} />}</For>
+      </AnimatePresence>
     </wardic.a>
+  )
+}
+
+/**
+ * A piece moved to the cart from Saved for later: its photo's twin, sharing its row photo's
+ * `layoutId`, so Wardic flies it here from the row it left. Landed, it shrinks into the icon.
+ */
+function CartArrival(props: { readonly piece: Arrival }) {
+  // Its ward holds what it hears, its layout (#398): its landing lets it go.
+  const flight = ward({ layoutId: arrivalId(props.piece.id) })
+  createEffect(flight.when("layoutComplete"), () => landed(props.piece.id))
+  return (
+    <wardic.img
+      class="cart-arrival"
+      wardRef={flight}
+      src={props.piece.src}
+      alt=""
+      transition={{ layout: { type: "tween", duration: 0.6, ease: [0.45, 0, 0.55, 1] } }}
+      exit={{ scale: 0.3, opacity: 0, transition: { type: "tween", duration: 0.25 } }}
+    />
   )
 }
 
@@ -108,7 +132,13 @@ export function Shell(props: { readonly children: JSX.Element }) {
       <header class="site-header">
         <div class="page">
           <a class="brand" href="/">
-            Wardic Northlight <small>Solid 2</small>
+            Wardic Northlight
+            <span class="badges">
+              <span class="badge badge-binding">Solid 2</span>
+              <span class="badge badge-unstable" title="@wardic/solid/unstable/v2: Wardic for Solid 2's release candidate. Any release may change it.">
+                Unstable
+              </span>
+            </span>
           </a>
           <nav class="site-nav" aria-label="Main">
             <a href="/" >

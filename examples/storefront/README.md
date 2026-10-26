@@ -25,7 +25,7 @@ A made-up ceramics and glass shop whose every feature is a Wardic example: the d
 | Presence | "Added to cart", in toasts that make room | `<AnimatePresence mode="popLayout">` over `layout` toasts: a leaving one is popped out of the stack, and the others close the gap as it fades |
 | Presence | A photo gallery that slides the way you go | `<AnimatePresence custom>` with variants as functions: the leaving photo reads the latest direction from the presence; no distance under reduced motion |
 | Presence | A quick view whose list leaves before it | `<AnimatePresence propagate>` inside the dialog: its suggestions run their exits when the dialog leaves, and it waits for them |
-| Presence | Saved for later, moved to the cart | `usePresence` (Solid 2: the handle's `next("leave")`) for an exit of your own: a copy of the photo flies to the header's cart |
+| Presence | Saved for later, moved to the cart | a `layoutId` twin in the header's cart button: the photo flies from its row into the cart; the move is optimistic, the row back if the store refuses (Solid 1: by hand; Solid 2: an optimistic store) |
 | Live values | A closer look at the glaze | a magnifier: `createSpring` follows the pointer, `createTransform` maps it to custom properties the lens reads |
 | Live values | A reading bar for the studio's story | `createScroll` of a panel, its progress as a bar's `scaleX` and, through `createTransform`, the minutes left |
 | Live values | A lookbook with depth | `createScroll` with a `target` and an `offset` per banner: the photo and the words drift opposite ways |

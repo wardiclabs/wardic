@@ -3,33 +3,43 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, usePresence, wardic } from "@wardic/solid"
-import { createSignal, For, Show } from "solid-js"
-import { usePreferences } from "~/lib/preferences.tsx"
+import { AnimatePresence, wardic } from "@wardic/solid"
+import { batch, createSignal, For, Show } from "solid-js"
+import { arrivalId, arrive, recall } from "~/lib/arrivals.ts"
+import { useReducedMotion } from "~/lib/preferences.tsx"
 import { addToCart } from "~/lib/store.ts"
-
-/** Why a row leaves: moved to the cart, its photo flies there; removed, it fades. */
-type Leaving = "cart" | "remove"
 
 const SAVED = PRODUCTS.filter((product) => ["bottle-vase", "tulip-bowl", "painted-jug", "cut-carafe"].includes(product.id))
 
 export default function SavedForLater() {
   const add = useAction(addToCart)
   const [saved, setSaved] = createSignal<ReadonlyArray<Product>>(SAVED)
-  // Each row reads it as it leaves, through the presence's `custom`.
-  const [leaving, setLeaving] = createSignal<Leaving>("remove")
   const [failure, setFailure] = createSignal<string>()
+  // The system's setting, or the header's switch.
+  const reduced = useReducedMotion()
 
-  const take = (piece: Product, why: Leaving) => {
-    setLeaving(why)
-    setSaved(saved().filter((one) => one.id !== piece.id))
-  }
+  const take = (piece: Product) => setSaved((list) => list.filter((one) => one.id !== piece.id))
+  // Back in its place: the saved pieces in their order, it among them.
+  const putBack = (piece: Product) => setSaved((list) => SAVED.filter((one) => one.id === piece.id || list.some((kept) => kept.id === one.id)))
+  // A click takes its row out at once, its photo's twin appearing in the cart button in the same update,
+  // so Wardic flies it there (under reduced motion, nothing flies); if the store refuses, the row comes
+  // back. Solid 2 has optimistic writes for this; here it's by hand. A piece already on its way, its
+  // leaving row clicked again, is left alone.
   const moveToCart = async (piece: Product) => {
+    if (!saved().some((one) => one.id === piece.id)) return
     setFailure(undefined)
+    batch(() => {
+      if (!reduced()) arrive({ id: piece.id, src: photoOf(piece.id).small })
+      take(piece)
+    })
     try {
       await add(piece.id, 1)
-      take(piece, "cart")
     } catch (error) {
+      // Refused: its row back, and its twin leaving the cart button, its photo flying back.
+      batch(() => {
+        recall(piece.id)
+        putBack(piece)
+      })
       setFailure(`${piece.name} wasn't moved: ${messageOf(error)}`)
     }
   }
@@ -38,8 +48,8 @@ export default function SavedForLater() {
     <div class="saved">
       <ul class="saved-list">
         {/* popLayout: a leaving row steps out of the list at once, and the rows below close the gap while it goes. */}
-        <AnimatePresence mode="popLayout" custom={leaving()}>
-          <For each={saved()}>{(piece) => <SavedRow piece={piece} onMove={() => void moveToCart(piece)} onRemove={() => take(piece, "remove")} />}</For>
+        <AnimatePresence mode="popLayout">
+          <For each={saved()}>{(piece) => <SavedRow piece={piece} onMove={() => void moveToCart(piece)} onRemove={() => take(piece)} />}</For>
         </AnimatePresence>
       </ul>
       <Show when={saved().length === 0}>
@@ -62,23 +72,13 @@ export default function SavedForLater() {
 }
 
 function SavedRow(props: { readonly piece: Product; readonly onMove: () => void; readonly onRemove: () => void }) {
-  const preferences = usePreferences()
-  let row!: HTMLLIElement
-  // The row's exit is its own: once it has left, the presence keeps it on the page until
-  // `safeToRemove`. By then the row's own code has gone, so its way out is plain Web Animations.
-  usePresence(
-    () => row,
-    (safeToRemove, why: Leaving) => {
-      const reduced = matchMedia("(prefers-reduced-motion: reduce)").matches || preferences.reduceMotion()
-      leave(row, why, reduced).then(safeToRemove, safeToRemove)
-    },
-  )
   const photo = photoOf(props.piece.id)
   return (
-    <wardic.li ref={row} class="saved-row" layout>
-      <div class="photo">
+    // It fades as it leaves, either way. Moved to the cart, its photo's twin there flies from its own.
+    <wardic.li class="saved-row" layout exit={{ opacity: 0, transition: { type: "tween", duration: 0.22, ease: "easeOut" } }}>
+      <wardic.div class="photo" layoutId={arrivalId(props.piece.id)}>
         <img src={photo.small} srcset={srcsetOf(photo)} sizes="72px" width={photo.width} height={photo.height} alt={props.piece.name} />
-      </div>
+      </wardic.div>
       <div class="saved-text">
         <span class="name">{props.piece.name}</span>
         <span class="price">{formatPrice(props.piece.price)}</span>
@@ -92,40 +92,6 @@ function SavedRow(props: { readonly piece: Product; readonly onMove: () => void;
         </button>
       </div>
     </wardic.li>
-  )
-}
-
-/** A row's way out: it fades, and moved to the cart, a copy of its photo flies there. Reduced, it only fades. */
-function leave(row: HTMLElement, why: Leaving, reduced: boolean): Promise<unknown> {
-  const fade = row.animate([{ opacity: 1 }, { opacity: 0 }], { duration: 220, easing: "ease-out", fill: "forwards" }).finished
-  const photo = row.querySelector("img")
-  const cart = document.querySelector(".cart-button")
-  if (why === "remove" || reduced || photo === null || cart === null) return fade
-  return Promise.all([fade, flyTo(photo, cart)])
-}
-
-/** A copy of the photo, in an arc from where it is to the cart, shrinking as it goes. */
-function flyTo(photo: HTMLImageElement, cart: Element): Promise<void> {
-  const from = photo.getBoundingClientRect()
-  const to = cart.getBoundingClientRect()
-  const dx = to.left + to.width / 2 - (from.left + from.width / 2)
-  const dy = to.top + to.height / 2 - (from.top + from.height / 2)
-  const copy = photo.cloneNode() as HTMLImageElement
-  copy.className = "flying-photo"
-  copy.alt = ""
-  Object.assign(copy.style, { left: `${from.left}px`, top: `${from.top}px`, width: `${from.width}px`, height: `${from.height}px` })
-  document.body.append(copy)
-  const flight = copy.animate(
-    [
-      { transform: "translate(0, 0) scale(1)", opacity: 1 },
-      { transform: `translate(${dx * 0.3}px, ${dy * 0.3 - 48}px) scale(0.85)`, opacity: 1, offset: 0.3 },
-      { transform: `translate(${dx}px, ${dy}px) scale(0.2)`, opacity: 0.4 },
-    ],
-    { duration: 700, easing: "cubic-bezier(0.45, 0, 0.55, 1)" },
-  )
-  return flight.finished.then(
-    () => copy.remove(),
-    () => copy.remove(),
   )
 }
 
