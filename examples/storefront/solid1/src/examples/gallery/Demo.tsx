@@ -18,6 +18,17 @@ const glide = {
   opacity: { type: "tween", duration: 0.2 },
 } as const
 
+// A swipe, as Motion's slideshow judges one: the release's distance times its speed, across. A
+// throw to the left goes forward, to the right back; anything softer springs back to the centre.
+const SWIPE = 10_000
+const swipeOf = (offset: number, velocity: number) => Math.abs(offset) * velocity
+const stepOf = (offset: number, velocity: number) => {
+  const swipe = swipeOf(offset, velocity)
+  if (swipe < -SWIPE) return 1
+  if (swipe > SWIPE) return -1
+  return 0
+}
+
 const PIECES = ["lagoon-vase", "moon-vase", "bottle-vase", "tulip-bowl", "blossom-jar"].map((id) => {
   const piece = PRODUCTS.find((product) => product.id === id)
   if (piece === undefined) throw new Error(`No product "${id}"`)
@@ -60,6 +71,15 @@ export default function Gallery() {
               return (
                 <wardic.img
                   class="gallery-photo"
+                  // Dragged across, held at the centre and followed all the way: a swipe steps, its
+                  // photo going on out the way it was thrown.
+                  drag="x"
+                  dragConstraints={{ left: 0, right: 0 }}
+                  dragElastic={1}
+                  onDragEnd={(_event, { offset, velocity }) => {
+                    const step = stepOf(offset.x, velocity.x)
+                    if (step !== 0) go(at() + step)
+                  }}
                   custom={way()}
                   variants={slide}
                   initial="enter"
@@ -72,6 +92,7 @@ export default function Gallery() {
                   width={photo.width}
                   height={photo.height}
                   alt={piece.name}
+                  draggable={false}
                 />
               )
             }}

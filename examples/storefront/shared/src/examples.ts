@@ -220,14 +220,15 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     id: "gallery",
     area: "presence",
     title: "A photo gallery that slides the way you go",
-    summary: "Step through the collection's photos: each comes in from the side you're heading to, and the last one leaves by the other.",
+    summary: "Swipe or step through the collection's photos: each comes in from the side you're heading to, and the last one leaves by the other.",
     why: [
       "A gallery says which way you went by where the photos go: forward, the next one comes in from the right and the last one leaves to the left; back, the other way round. The direction belongs to the change, not to either photo.",
       "Both photos read it from variants that are functions: `enter` and `exit` take the direction and say where to start or end. The new photo resolves `enter` with its own `custom`. The leaving photo can't: it has already left, and takes no new props. It resolves `exit` with the presence's `custom` instead, read as it leaves, so it's always the latest.",
-      "Use the arrows, the thumbnails, or the left and right arrow keys once the photo has focus.",
+      "Swipe the photo, or use the arrows, the thumbnails, or the left and right arrow keys once the photo has focus.",
+      "A swipe is a drag across, held at the centre (`dragConstraints` of 0 each way) but followed all the way (`dragElastic: 1`). At the release, its distance times its speed says whether it was a swipe, as Motion's slideshow judges one. A swipe steps, and its photo goes on out the way it was thrown: the exit's `x` takes over from the drag's spring back. Anything softer springs back to the centre. On Solid 2 the photo's ward holds the drag, made once and given to each photo in turn, and an effect over `swipe.when(\"dragEnd\")` hears each release; on Solid 1 it's the photo's `onDragEnd`.",
     ],
     reducedMotion: "The photos cross-fade in place. The demo gives the slide no distance under reduced motion (the system's setting through `createReducedMotion`, or the header's switch): left to Wardic's rule, which snaps a positional value to its target, a leaving photo would jump aside at once and fade there.",
-    uses: ["AnimatePresence custom", "variants as functions", "custom", "exit", "createReducedMotion"],
+    uses: ["AnimatePresence custom", "variants as functions", "custom", "exit", "drag=\"x\"", "dragConstraints", "dragElastic", "createReducedMotion"],
     motion: {
       file: "gallery.tsx",
       note: "Motion changes the photo by giving it a new `key`: React unmounts the old element, which `AnimatePresence` keeps for its exit, and mounts a new one. Solid has no keys on elements: `<Show when={…} keyed>` makes a new photo each time the piece shown changes, and the presence takes the old one out the same way.",
