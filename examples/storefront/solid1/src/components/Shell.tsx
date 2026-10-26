@@ -115,7 +115,10 @@ export function Shell(props: { readonly children: JSX.Element }) {
       <header class="site-header">
         <div class="page">
           <A class="brand" href="/">
-            Wardic Northlight <small>Solid 1</small>
+            Wardic Northlight
+            <span class="badges">
+              <span class="badge badge-binding">Solid 1</span>
+            </span>
           </A>
           <nav class="site-nav" aria-label="Main">
             <A href="/" end>
