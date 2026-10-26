@@ -12,7 +12,8 @@
 // - WN7: a ward given to a component's `wardRef` (#349) hears its element through `when`.
 // - WN8: the effect's owner disposed, `when` stops listening: a later release reaches no effect.
 // - WN9 (#397): an effect over `card.when("hover")`, on a ward given to `wardRef` beside `whileHover`'s
-//   one recognizer, hears the start and each move a frame apart, and nothing after the leave.
+//   one recognizer, hears the start and each move a frame apart, each with the element it drives, and
+//   nothing after the leave.
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, createPresence, type Ward, ward, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
@@ -267,13 +268,15 @@ describe("when(name) (#355)", () => {
 
   it("WN9: an effect over card.when(\"hover\") hears the start and each move, and nothing after the leave", async () => {
     const heard: Array<number> = []
+    const on: Array<Element> = []
     let card!: Ward
     const { host } = mount(() => (
       <WardicProvider env={DomLive}>
         {(() => {
           card = ward({ initial: { opacity: 0.5 }, animate: { opacity: 0.5 }, whileHover: { opacity: 1 } })
-          createEffect(card.when("hover"), (move) => {
-            heard.push(Math.round(move.point.x))
+          createEffect(card.when("hover"), ({ point, element }) => {
+            heard.push(Math.round(point.x))
+            on.push(element)
           })
           return <wardic.div data-k="card" wardRef={card} style={BOX} />
         })()}
@@ -290,6 +293,7 @@ describe("when(name) (#355)", () => {
       await frames(2)
     }
     expect(heard, "the start, then each move").toEqual([5, 10, 20, 30].map((dx) => Math.round(box.left + dx)))
+    expect(on.every((element) => element === el), "each with the element the given ward drives, no ref needed").toBe(true)
     pointer(el, "pointerleave", box.left - 20, y)
     pointer(el, "pointermove", box.left + 40, y)
     await frames(3)

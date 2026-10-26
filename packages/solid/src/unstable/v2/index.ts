@@ -35,7 +35,7 @@ export {
   type WardWithProps,
   ward,
 } from "./ward.tsx"
-export type { WardDragInfo, WardEvent, WardEvents, WardGestures, WardPoint, WardPointInfo, WardSettled } from "./lifecycle.ts"
+export type { WardDragInfo, WardElement, WardEvent, WardEvents, WardGestures, WardPoint, WardPointInfo, WardSettled } from "./lifecycle.ts"
 export type { WardicAnimationDefinition } from "../../config.ts"
 export type { AnimatedKey, WardKey, WardValueOf } from "../../ward-keys.ts"
 

@@ -520,6 +520,11 @@ A ward told a hover's start and end (`hoverStart`, `hoverEnd`, Motion's), but no
 3. **It carries `{ point }`** (Q3, A): `WardPointInfo`, the pointer in the viewport, as `hoverStart` and the tap events carry (Motion's `EventInfo`), built only when something listens.
    - Rejected: a place on the element as well (a new shape, and a layout read per move); drag-like info (`delta`, `offset`, `velocity`).
 4. **Wardic's own.** Motion's hover has only a start and an end (`motion-dom/src/node/types.ts:427–436` at `16c6122`); a move there is the element's `onPointerMove`.
+5. **Every Solid 2 gesture event carries its element** (Q4, the user's; A): `{ point, element }` on `hover`, `hoverStart`/`hoverEnd`, `pressStart`/`tap`/`tapCancel`, `panSessionStart`, and the drag and pan events (`WardPointInfo`, `WardDragInfo`, `WardElement`). It's the ward's element, or, for a ward given to `wardRef`, the element it drives: Motion's `event.currentTarget`, since Solid 2's events have no DOM event. A reader needs no `ref`: `createEffect(card.when("hover"), ({ point, element }) => place(point, element))`.
+   - The user asked for `(move, element) => …`. A second argument can't come through: Solid's `createEffect` calls `effect(value, prev)`, and a `next` promise has one value. A callback API (`card.on(name, fn)`) is what decision 1 left out of Solid 2.
+   - It's named `element`, not `target`: a DOM `target` is the innermost child, such as the card's image.
+   - Solid 1's callbacks get the DOM event already, so their `info` stays `{ point }`.
+   - Rejected: `card.element()`, an accessor (`undefined` before mount, so every use needs a guard); both; `element` on `hover` only.
 
 **Defaults, from hover's own rules:**
 - **Touch never hovers,** so a finger tells nothing.
@@ -530,7 +535,8 @@ A ward told a hover's start and end (`hoverStart`, `hoverEnd`, Motion's), but no
 - **Core's `watchHover`** takes an `onMove` beside `on` (`Recognizer.HoverHandlers`, ADR-0055 *Note (#397)*). With one, its handler tells each `move` on the target while the hover fold's `inside` holds, from a mouse or a pen. Without one, the handler is the old transitions-only one. The feed already carried the moves, and the fold already read them for a lost release, so nothing new listens.
 - **The Solid 2 ward** always passes `onMove`, to the lifecycle's `hoverMoved`, which tells `hover` only once a `next` or a `when` has asked for events. `hovered` tells `hover` after `hoverStart` at the start. `hover` wants the hover recognizer (`GESTURE_OF`), so `when("hover")` alone starts it.
 - **Cost:** 20,000 `pointermove`s over a hovered `whileHover` ward with no `hover` reader took 2.51 and 2.55 µs a move on the branch, against 2.61 µs on main (medians of 9, Chromium). Nothing per frame or per element changed.
-- **The storefront's spotlight** (Solid 2) reads `card.when("hover")` and `card.when("hoverEnd")` and has no `onPointerMove`.
+- **The element** (decision 5): the lifecycle's `hovered`, `hoverMoved`, `pressed`, `dragged` and `panned` take the element the ward's recognizers and drag track run on (the mount's), and each event's info is built with it.
+- **The storefront's spotlight** (Solid 2) reads `card.when("hover")` and `card.when("hoverEnd")`, and has no `onPointerMove` and no `ref`: `({ point, element }) => place(point, element)`.
 
 **Pinned by:**
 - `packages/test/test/watches.test.ts` WT13–WT15:
@@ -541,7 +547,8 @@ A ward told a hover's start and end (`hoverStart`, `hoverEnd`, Motion's), but no
   - GX19: `next("hover")` alone starts the recognizer, resolves at the enter, then at each move, none after the leave;
   - GX20: `hoverStart` before `hover`;
   - GX21: touch tells none.
-- `test/v2/when.browser.test.tsx` WN9: an effect over `when("hover")` on a ward given to `wardRef` beside `whileHover`.
+- `test/v2/when.browser.test.tsx` WN9: an effect over `when("hover")` on a ward given to `wardRef` beside `whileHover`, each with the element it drives.
+- **The element on each event** (decision 5): GX1–GX3, GX5, GX12, GX13 and GX19 expect `element`, and LF4 hands the lifecycle one. Five single-point mutations, each handing `document.body` to one kind of event (hover start and end, hover moves, press, drag, pan), are all caught (`.tmp/397/mutate-element.py`).
 - **Mutation-checked** with 7 single-point mutations (`.tmp/397/mutate.py`), all caught:
   - moves told before the enter;
   - moves off the target told;

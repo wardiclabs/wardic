@@ -76,22 +76,23 @@ describe("a ward's lifecycle (#257)", () => {
     dispose()
   })
 
-  it("LF4: a gesture's event at its viewport point, less the scroll counted; a dragged press and a drag's move tell nothing", async () => {
+  it("LF4: a gesture's event at its viewport point, less the scroll counted, with its element (#397); a dragged press and a drag's move tell nothing", async () => {
     const { lifecycle, dispose } = lifecycleIn()
+    const el = document.createElement("div")
     const scrolled = InputSource.makePointerLikeEvent({ type: "up", x: 40, y: 260, scroll: { x: 0, y: 200 } })
     const tap = lifecycle.wait("tap")
     const cancel = lifecycle.wait("tapCancel")
-    lifecycle.pressed({ phase: "dragged", event: scrolled })
-    lifecycle.pressed({ phase: "tap", event: scrolled })
-    expect(await tap).toEqual({ point: { x: 40, y: 60 } })
+    lifecycle.pressed({ phase: "dragged", event: scrolled }, el)
+    lifecycle.pressed({ phase: "tap", event: scrolled }, el)
+    expect(await tap).toEqual({ point: { x: 40, y: 60 }, element: el })
     const hoverEnd = lifecycle.wait("hoverEnd")
-    lifecycle.hovered({ active: false, event: scrolled })
-    expect(await hoverEnd).toEqual({ point: { x: 40, y: 60 } })
+    lifecycle.hovered({ active: false, event: scrolled }, el)
+    expect(await hoverEnd).toEqual({ point: { x: 40, y: 60 }, element: el })
     const dragEnd = lifecycle.wait("dragEnd")
     const sample = { point: { x: 40, y: 260 }, offset: { x: 5, y: 210 }, delta: { x: 1, y: 2 }, velocity: { x: 3, y: 4 }, timeStamp: 0, scroll: { x: 0, y: 200 }, axis: "xy" as const }
-    lifecycle.dragged({ ...sample, phase: "move", point: { x: 0, y: 0 } }, false)
-    lifecycle.dragged({ ...sample, phase: "end" }, false)
-    expect(await dragEnd).toEqual({ point: { x: 40, y: 60 }, offset: { x: 5, y: 210 }, delta: { x: 1, y: 2 }, velocity: { x: 3, y: 4 } })
+    lifecycle.dragged({ ...sample, phase: "move", point: { x: 0, y: 0 } }, false, el)
+    lifecycle.dragged({ ...sample, phase: "end" }, false, el)
+    expect(await dragEnd).toEqual({ point: { x: 40, y: 60 }, offset: { x: 5, y: 210 }, delta: { x: 1, y: 2 }, velocity: { x: 3, y: 4 }, element: el })
     // The dragged press told neither: the cancel waits on, until the disposal.
     dispose()
     expect(await cancel.then(() => "resolved", (error: unknown) => (error as DOMException).name)).toBe("AbortError")
