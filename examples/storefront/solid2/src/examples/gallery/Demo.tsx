@@ -1,7 +1,7 @@
 import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
-import { AnimatePresence, wardic } from "@wardic/solid/unstable/v2"
-import { createSignal, For, Show } from "solid-js"
+import { AnimatePresence, ward, wardic } from "@wardic/solid/unstable/v2"
+import { createEffect, createSignal, For, Show } from "solid-js"
 import { useReducedMotion } from "~/lib/preferences.tsx"
 
 // The photo coming in arrives from the side you're heading to, and the one leaving goes out the
@@ -17,6 +17,17 @@ const glide = {
   x: { type: "spring", stiffness: 300, damping: 32 },
   opacity: { type: "tween", duration: 0.2 },
 } as const
+
+// A swipe, as Motion's slideshow judges one: the release's distance times its speed, across. A
+// throw to the left goes forward, to the right back; anything softer springs back to the centre.
+const SWIPE = 10_000
+const swipeOf = (offset: number, velocity: number) => Math.abs(offset) * velocity
+const stepOf = (offset: number, velocity: number) => {
+  const swipe = swipeOf(offset, velocity)
+  if (swipe < -SWIPE) return 1
+  if (swipe > SWIPE) return -1
+  return 0
+}
 
 const PIECES = ["lagoon-vase", "moon-vase", "bottle-vase", "tulip-bowl", "blossom-jar"].map((id) => {
   const piece = PRODUCTS.find((product) => product.id === id)
@@ -38,6 +49,15 @@ export default function Gallery() {
     setDirection(Math.sign(to - at()))
     setAt((to + PIECES.length) % PIECES.length)
   }
+  // The photo's ward, made once and given to each photo in turn (#349); one leaving under the
+  // presence doesn't count. It holds what it hears, the drag: across, held at the centre, followed
+  // all the way (#398). Each release, through `when` (#355): a swipe steps, its photo going on out
+  // the way it was thrown.
+  const swipe = ward({ drag: "x", dragConstraints: { left: 0, right: 0 }, dragElastic: 1 })
+  createEffect(swipe.when("dragEnd"), ({ offset, velocity }) => {
+    const step = stepOf(offset.x, velocity.x)
+    if (step !== 0) go(at() + step)
+  })
 
   return (
     <div class="gallery">
@@ -60,6 +80,7 @@ export default function Gallery() {
               return (
                 <wardic.img
                   class="gallery-photo"
+                  wardRef={swipe}
                   custom={way()}
                   variants={slide}
                   initial="enter"
@@ -72,6 +93,7 @@ export default function Gallery() {
                   width={photo.width}
                   height={photo.height}
                   alt={piece.name}
+                  draggable={false}
                 />
               )
             }}

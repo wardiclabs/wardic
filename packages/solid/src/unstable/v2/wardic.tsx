@@ -20,21 +20,23 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { dynamic, type JSX } from "@solidjs/web"
 import { type Component, omit, onSettled, runWithOwner, untrack } from "solid-js"
 import { MOTION_PROPS_V2 as MOTION_PROPS, type WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
 import { changesContext, isVariantChild } from "../../variant-tree.ts"
-import { type AnyWard, shareOf, type Ward, WARD, type WardConfig, type WardConfigValues, wardConfigView, type WardInternals, type WardShare, type WardStyle, wardWith } from "./ward.tsx"
+import { type AnyWard, shareOf, type Ward, WARD, type WardConfig, type WardConfigValues, wardConfigView, type WardInternals, type WardRead, type WardShare, type WardStyle, wardWith } from "./ward.tsx"
 import { useVariantContext } from "./variant-node.ts"
 
 /**
  * Props for a `wardic.<tag>` element: the tag's own props and its motion ({@link WardicMotion}), with
- * a `style` that takes the transform keys and Live values too ({@link WardStyle}, #130).
+ * a `style` that takes the transform keys and Live values too ({@link WardStyle}, #130). `C` is the
+ * config of a ward given to its `wardRef` (#398), `{}` with none.
  */
-export type WardicProps<Tag extends keyof JSX.IntrinsicElements> =
+export type WardicProps<Tag extends keyof JSX.IntrinsicElements, C = {}> =
   & Omit<JSX.IntrinsicElements[Tag], "style">
   & { readonly style?: WardStyle | string | undefined }
-  & WardicMotion
+  & WardicMotion<C>
 
 /**
  * A component's ward, handed over (#257, ADR-0046): `wardRef={(card) => …}` gets the ward the
@@ -44,18 +46,47 @@ export type WardicProps<Tag extends keyof JSX.IntrinsicElements> =
  */
 export type WardRefCallback = ((ward: Ward) => void) & { readonly [WARD]?: never }
 
-/** The motion props, none of them given: what goes beside a ward given to `wardRef` (#349). */
-export type NoMotionProps = { readonly [K in keyof WardicMotionProps]?: never }
+/** The keys a given ward's variant node reads (#398's Q11): a ward that carries its variants keeps them. */
+export type WardNodeKey = "variants" | "inherit" | "initial" | "animate" | "transition" | "custom" | "whileHover" | "whileTap" | "whileFocus" | "whileDrag" | "whileInView"
 
 /**
- * A Wardic component's motion (#349): its motion props, with `wardRef` handing its own ward out
- * ({@link WardRefCallback}), or a ward made outside it given to `wardRef`, which the component drives
- * its element with. A given ward's config is where it was made, so no motion prop goes beside it;
- * `style` and `ref` do, by `ward.with()`'s rules.
+ * The keys a ward's config `C` sets (#398): its required ones. A config written at `ward({ … })` has
+ * each key it sets required; a wide `Ward`'s (`WardConfig`'s) are all optional, so it sets none the
+ * types know of, and the check falls to setup.
  */
-export type WardicMotion =
-  | (WardicMotionProps & { readonly wardRef?: WardRefCallback | undefined })
-  | (NoMotionProps & { readonly wardRef: AnyWard })
+export type WardSetKey<C> = { readonly [K in keyof C]-?: {} extends Pick<C, K> ? never : K }[keyof C]
+
+/** Whether a ward's config `C` carries its variants (#398): it sets `variants` or `inherit`. */
+type CarriesVariants<C> = "variants" extends WardSetKey<C> ? true : "inherit" extends WardSetKey<C> ? true : false
+
+/**
+ * The motion props `P` beside a ward given to `wardRef` (#398), its config `C`: each but the keys `C`
+ * sets ({@link WardSetKey}, Q1), and, when `C` carries its variants, the keys its variant node reads
+ * (Q11). With no ward given, `C` is `{}`, and every one goes.
+ */
+export type WardicBeside<C, P = WardicMotionProps> = {
+  readonly [K in keyof P]?: K extends WardSetKey<C> ? never : CarriesVariants<C> extends true ? (K extends WardNodeKey ? never : P[K]) : P[K]
+}
+
+/**
+ * A ward given to `wardRef` (#349), its config's type `C` carried with no call signature, so a
+ * callback's `(card) => …` keeps its contextual type.
+ */
+export type GivenWard<C> = AnyWard & { readonly read: WardRead<C> }
+
+/**
+ * A Wardic component's motion (#349, #398): its motion props, with `wardRef` handing its own ward out
+ * ({@link WardRefCallback}), or taking a ward made outside it ({@link GivenWard}), which the component
+ * drives its element with. Beside a given ward go the motion props it doesn't set
+ * ({@link WardicBeside}), each laid over its config; `style` and `ref` by `ward.with()`'s rules.
+ */
+export type WardicMotion<C = {}> = { readonly wardRef?: WardRefCallback | GivenWard<C> | undefined } & WardicBeside<C>
+
+/** A `wardic.<tag>` component (#398): generic over the config `C` of a ward given to its `wardRef`, `{}` with none. */
+export type WardicComponent<Tag extends keyof JSX.IntrinsicElements> = <C = {}>(props: WardicProps<Tag, C>) => JSX.Element
+
+/** `wardic.create(Component)`'s component (#398): the component's props and its motion, generic as {@link WardicComponent}. */
+export type WardicWrapped<P> = <C = {}>(props: P & { readonly style?: WardStyle | string | undefined } & WardicMotion<C>) => JSX.Element
 
 /** A component's `wardRef`, read as its props hold it. */
 interface WardRefIn {
@@ -71,20 +102,72 @@ export const handOver = (props: WardRefIn, ward: Ward): void => {
 /** The ward given to the props' `wardRef` (#349), or `undefined` for a function or none: read once, untracked, as `ref` is. */
 export const givenOf = (props: WardRefIn): WardShare | undefined => shareOf(untrack(() => props.wardRef))
 
-/** `keys` given beside a ward given to `wardRef` (#349's Q1): its config is where it was made. */
-export const refuseBeside = (name: string, props: object, keys: ReadonlyArray<string>): void => {
-  const given = Arr.filter(keys, (key) => Predicate.isNotUndefined(untrack(() => (props as Readonly<Record<string, unknown>>)[key])))
-  if (given.length === 0) return
-  throw new Error(
-    `${name}: ${Arr.map(given, (key) => `\`${key}\``).join(", ")} given beside a ward made outside it, in wardRef (#349). ` +
-      "A given ward's config is where it was made: put it in ward({ … }). Only style and ref go beside it.",
-  )
+/** Whether `source` sets `key`: a value, or an accessor of one, read once, untracked, as `ref` is. */
+export const sets = (source: object, key: string): boolean => Predicate.isNotUndefined(untrack(() => (source as Readonly<Record<string, unknown>>)[key]))
+
+/** The keys among `keys` that `source` sets, read once, untracked, under one `untrack` (#398). */
+export const setKeysOf = (source: object, keys: ReadonlyArray<string>): ReadonlyArray<string> =>
+  untrack(() => Arr.filter(keys, (key) => Predicate.isNotUndefined((source as Readonly<Record<string, unknown>>)[key])))
+
+/** Keys, as an error names them. */
+export const listOf = (keys: ReadonlyArray<string>): string => Arr.map(keys, (key) => `\`${key}\``).join(", ")
+
+/**
+ * The keys a given ward's variant node reads (#398's Q11): its node is made where the ward is made,
+ * so with its variants in the ward, these stay there too.
+ */
+const NODE_KEYS: ReadonlySet<string> = new Set(["variants", "inherit", "initial", "animate", "transition", "custom", "whileHover", "whileTap", "whileFocus", "whileDrag", "whileInView"])
+
+/**
+ * The element's motion props beside a ward given to `wardRef` (#398): the `keys` it sets, read once,
+ * untracked, as `ref` is. A key the ward's config sets too is an error naming it (Q1); so is one the
+ * ward's variant node reads, when the ward carries its variants (Q11).
+ */
+export const besideOf = (name: string, props: object, share: WardShare, keys: ReadonlyArray<string>): ReadonlyArray<string> => {
+  const beside = setKeysOf(props, keys)
+  if (beside.length === 0) return beside
+  const twice = setKeysOf(share.config, beside)
+  if (twice.length > 0) {
+    throw new Error(
+      `${name}: ${listOf(twice)} set both in the ward given to wardRef and on the element (#398). ` +
+        "Set each key in one place: in ward({ … }), or on the element.",
+    )
+  }
+  if (share.carries) {
+    const carried = Arr.filter(beside, (key) => NODE_KEYS.has(key))
+    if (carried.length > 0) {
+      throw new Error(
+        `${name}: the ward given to wardRef carries its variants (\`variants\` or \`inherit\` in its ward({ … })), so ${listOf(carried)} ` +
+          "go there too: its variant node, made where the ward is made, reads them (#398). Or leave the variants to the element: " +
+          "a ward with neither only listens, and its element's props set its motion.",
+      )
+    }
+  }
+  return beside
 }
+
+/**
+ * The element's props `keys` as fixed values over a given ward's config (#398), each read through its
+ * prop, so tracked where it's read, as the element's own props are; over `under`'s (a Reorder item's).
+ */
+export const fixedOf = (props: object, keys: ReadonlyArray<string>, under: object | undefined): object => {
+  const fixed = {}
+  UndefinedOr.map(under, (values) => Object.defineProperties(fixed, Object.getOwnPropertyDescriptors(values)))
+  Arr.forEach(keys, (key) => Object.defineProperty(fixed, key, { enumerable: true, get: () => (props as Readonly<Record<string, unknown>>)[key] }))
+  return fixed
+}
+
+/** A given ward's config at setup, with the element's props `keys` over it, read once, untracked (#398). */
+const setupWith = (setup: WardConfigValues, props: object, keys: ReadonlyArray<string>): WardConfigValues =>
+  Arr.reduce(keys, { ...setup } as Record<string, unknown>, (config, key) => {
+    config[key] = untrack(() => (props as Readonly<Record<string, unknown>>)[key])
+    return config
+  }) as WardConfigValues
 
 /**
  * A given ward made under a variant parent other than its element's, which it would inherit from
  * (#349's Q4): made with no `parent`, it inherits from where it was made, which the element's
- * children don't.
+ * children don't. A Listening ward's element joins where it renders (#398), so it has nothing to check.
  */
 const checkParent = (name: string, share: WardShare): void => {
   if (share.chosen) return
@@ -97,17 +180,27 @@ const checkParent = (name: string, share: WardShare): void => {
   )
 }
 
+/** A driving ward, and its config at setup: the given ward's, the element's props over it (#398). */
+export interface Driven {
+  readonly ward: Ward
+  readonly setup: WardConfigValues
+}
+
 /**
  * The ward a component drives its element with, for a ward given to `wardRef` (#349): one of its
  * own, on the given ward's config, variant node and lifecycle, under the component's presence, with
- * the component's `internal` (its tag). The given ward follows it while its element is mounted.
+ * the component's `internal` (its tag). The given ward follows it while its element is mounted. The
+ * element's motion props among `keys` go over the ward's config (#398): a Listening ward's element
+ * builds its own variant node from them.
  */
-export const drivenWard = (name: string, props: object, share: WardShare, internal: WardInternals, refused: ReadonlyArray<string>): Ward => {
-  refuseBeside(name, props, refused)
+export const drivenWard = (name: string, props: object, share: WardShare, internal: WardInternals, keys: ReadonlyArray<string>): Driven => {
+  const beside = besideOf(name, props, share, keys)
   checkParent(name, share)
-  return wardWith(share.config, { ...share.internal, ...internal, name, share })
+  // Plain checks: a match's objects would cost every given ward's element (#349).
+  if (beside.length === 0) return { ward: wardWith(share.config, { ...share.internal, ...internal, name, share }), setup: share.setup }
+  const fixed = fixedOf(props, beside, share.internal.fixed) as WardInternals["fixed"]
+  return { ward: wardWith(share.config, { ...share.internal, ...internal, name, share, fixed }), setup: setupWith(share.setup, props, beside) }
 }
-
 
 /**
  * What `wardic.create(Component)` requires of a component: it forwards `ref` to its single root
@@ -159,9 +252,9 @@ export const refsOf = (props: { readonly ref?: unknown }, own: ReadonlyArray<(el
  *   the gate commits; it also gets `style`, which it may apply for its Starting style on a server.
  *   A component that never forwards its ref is a clear error once it has settled.
  */
-export function create<Tag extends keyof JSX.IntrinsicElements>(tag: Tag): Component<WardicProps<Tag>>
-export function create<P>(component: Component<P & WardicWrappable>): Component<P & { readonly style?: WardStyle | string | undefined } & WardicMotion>
-export function create(tag: string): Component<WardicProps<keyof JSX.IntrinsicElements>>
+export function create<Tag extends keyof JSX.IntrinsicElements>(tag: Tag): WardicComponent<Tag>
+export function create<P>(component: Component<P & WardicWrappable>): WardicWrapped<P>
+export function create(tag: string): WardicComponent<keyof JSX.IntrinsicElements>
 export function create(arg: string | Component<Record<string, unknown>>): AnyComponent {
   return Bool.match(Predicate.isString(arg), {
     onTrue: () => tagComponent(arg as string),
@@ -181,8 +274,8 @@ const tagComponent = (tag: string): Component<Record<string, unknown>> => {
     const wardRef = untrack(() => own.wardRef)
     const given = shareOf(wardRef)
     if (Predicate.isNotUndefined(given)) {
-      const driving = drivenWard(name, own, given, { tag }, MOTION_PROPS)
-      return withProvider(driving, given.setup, () => <Element {...rest} {...driving.with({ style: own.style })} ref={refsOf(own, [driving])} />)
+      const { ward: driving, setup } = drivenWard(name, own, given, { tag }, MOTION_PROPS)
+      return withProvider(driving, setup, () => <Element {...rest} {...driving.with({ style: own.style })} ref={refsOf(own, [driving])} />)
     }
     const ward = wardWith(own as WardConfig, { tag })
     if (Predicate.isFunction(wardRef)) wardRef(ward)
@@ -215,8 +308,8 @@ const wrapComponent = (Wrapped: Component<Record<string, unknown>>): Component<R
     const wardRef = untrack(() => own.wardRef)
     const given = shareOf(wardRef)
     if (Predicate.isNotUndefined(given)) {
-      const driving = drivenWard(name, own, given, { defaultsOnElement: true }, MOTION_PROPS)
-      return withProvider(driving, given.setup, () => <Element {...rest} {...driving.with({ style: own.style })} ref={refsOf(own, [driving, seen])} />)
+      const { ward: driving, setup } = drivenWard(name, own, given, { defaultsOnElement: true }, MOTION_PROPS)
+      return withProvider(driving, setup, () => <Element {...rest} {...driving.with({ style: own.style })} ref={refsOf(own, [driving, seen])} />)
     }
     const ward = wardWith(own as WardConfig, { defaultsOnElement: true })
     if (Predicate.isFunction(wardRef)) wardRef(ward)
@@ -226,7 +319,7 @@ const wrapComponent = (Wrapped: Component<Record<string, unknown>>): Component<R
 
 /** `wardic`: `wardic.create`, and `wardic.<tag>`, a component for that element (one per tag). */
 export type Wardic = { readonly create: typeof create } & {
-  readonly [Tag in keyof JSX.IntrinsicElements]: Component<WardicProps<Tag>>
+  readonly [Tag in keyof JSX.IntrinsicElements]: WardicComponent<Tag>
 }
 
 const cache = new Map<string, AnyComponent>()

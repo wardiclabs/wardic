@@ -39,6 +39,7 @@ import {
   handedDown,
   hasOwnVariants,
   inheritedContext,
+  namesOwnVariants,
   initialNameOf,
   nameOf,
   ownOrInherited,
@@ -319,6 +320,7 @@ const bindOf = (own: OwnOrchestration | undefined): ((states: Accessor<GestureSt
  * (`useVariantContext()`). Call within a Solid owner.
  */
 export const createVariantNode = (cfg: Accessor<VariantConfig>, config: VariantConfig, parent: WardicVariantContextValue | undefined): VariantNode => {
+  if (Bool.and(Predicate.isUndefined(config.variants), Bool.not(namesOwnVariants(config)))) return plainNode(config, parent)
   const inherited = inheritedContext(config, parent)
   // A Variant child registers with the ancestor it joins, for its stagger slot and its `when`.
   const joined = UndefinedOr.map(inherited, (context) => ({ context, registration: context.register() }))
@@ -353,6 +355,25 @@ export const createVariantNode = (cfg: Accessor<VariantConfig>, config: VariantC
     names: namesOf(joined, own),
   }
 }
+
+/**
+ * The node of an element with no variants and no names of its own (#398): it joins nothing and
+ * provides nothing, so all it holds is the context it passes through. Most elements are one, and
+ * each Listening ward's driving ward makes one: no closures per element.
+ */
+const plainNode = (config: VariantConfig, parent: WardicVariantContextValue | undefined): VariantNode => {
+  if (Bool.or(config.inherit === false, Predicate.isUndefined(parent))) return PLAIN_NODE
+  return { ...PLAIN_NODE, provided: parent }
+}
+const PLAIN_NODE: VariantNode = Object.freeze({
+  provided: undefined,
+  inherited: undefined,
+  extraDelay: undefined,
+  canStart: constTrue,
+  onFrame: constVoid,
+  bindGestures: undefined,
+  names: undefined,
+})
 
 /**
  * Its spine's per-name orchestration (#297's PR 2): a name's keys start once its provider's

@@ -415,6 +415,40 @@ export const KGiven = (): JSX.Element =>
     )
   })
 
+/**
+ * Listening wards given to `wardRef` (#398): the element's motion props beside them, a Variant child
+ * building its own node in the parent it renders in, one made with a `parent`, and a given group and
+ * item with their element props.
+ */
+export const KListening = (): JSX.Element =>
+  keyed(() => {
+    const VARIANTS = { a: { opacity: 0.5 }, b: { opacity: 1 } }
+    const card = ward()
+    const row = ward()
+    const list = ward({ initial: "a", animate: "b", variants: VARIANTS })
+    const tip = ward(undefined, { parent: list })
+    const [items, setItems] = createSignal(["a", "b"])
+    const group = reorderGroup({ values: items, onReorder: setItems })
+    return (
+      <>
+        <wardic.div wardRef={card} initial={{ opacity: 0 }} animate={{ opacity: 1 }} style={{ width: "10px" }}>card</wardic.div>
+        <wardic.ul initial="a" animate="b" variants={VARIANTS}>
+          <wardic.li wardRef={row} variants={VARIANTS}>row</wardic.li>
+        </wardic.ul>
+        <wardic.ul wardRef={list} />
+        <wardic.p wardRef={tip} variants={VARIANTS}>tip</wardic.p>
+        <Reorder.Group groupRef={group} axis="y">
+          <For each={items()}>
+            {(value) => {
+              const item = reorderItem(group, { value })
+              return <Reorder.Item wardRef={item} initial={{ opacity: 0.5 }} animate={{ opacity: 1 }}>{value}</Reorder.Item>
+            }}
+          </For>
+        </Reorder.Group>
+      </>
+    )
+  })
+
 /** Two regions under `<Reveal>` (#257 item 13, AH13): the second's data first, an Appear element in it. */
 export const A9 = (): JSX.Element => {
   const later = <A,>(ms: number, value: A): Promise<A> => new Promise((resolve) => setTimeout(() => resolve(value), ms))

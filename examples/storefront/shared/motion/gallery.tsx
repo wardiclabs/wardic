@@ -14,6 +14,17 @@ const glide = {
   opacity: { type: "tween", duration: 0.2 },
 } as const
 
+// A swipe, as Motion's slideshow judges one: the release's distance times its speed, across. A
+// throw to the left goes forward, to the right back; anything softer springs back to the centre.
+const SWIPE = 10_000
+const swipeOf = (offset: number, velocity: number) => Math.abs(offset) * velocity
+const stepOf = (offset: number, velocity: number) => {
+  const swipe = swipeOf(offset, velocity)
+  if (swipe < -SWIPE) return 1
+  if (swipe > SWIPE) return -1
+  return 0
+}
+
 interface Photo {
   readonly src: string
   readonly name: string
@@ -41,8 +52,16 @@ export function Gallery({ photos }: { readonly photos: ReadonlyArray<Photo> }) {
               animate="center"
               exit="exit"
               transition={glide}
+              drag="x"
+              dragConstraints={{ left: 0, right: 0 }}
+              dragElastic={1}
+              onDragEnd={(_event, { offset, velocity }) => {
+                const step = stepOf(offset.x, velocity.x)
+                if (step !== 0) go(at + step)
+              }}
               src={photo.src}
               alt={photo.name}
+              draggable={false}
             />
           )}
         </AnimatePresence>

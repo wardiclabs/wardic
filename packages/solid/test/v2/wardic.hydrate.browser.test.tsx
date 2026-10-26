@@ -8,7 +8,7 @@
 // - WH2: the server's first request (making it), hydrated by a page that made it before: the same.
 //
 // Every helper and component with a server branch takes the ids on a server that it takes on the
-// client (KH1–KH14): each fixture is one of them, then a sibling component whose key follows the ids
+// client (KH1–KH15): each fixture is one of them, then a sibling component whose key follows the ids
 // it took. `<AnimatePresence>`'s server branch didn't call `onSettled`, which takes an id on both.
 import { wardic } from "@wardic/solid/unstable/v2"
 import { commands } from "vitest/browser"
@@ -72,6 +72,7 @@ describe("each helper's hydration ids", () => {
     ["KH12", "wardic.create(Component)", "KCreate"],
     ["KH13", "wards given to wardRef and groupRef (#349)", "KGiven"],
     ["KH14", "when(name) on a ward, a group and a presence handle (#355)", "KWhen"],
+    ["KH15", "Listening wards given to wardRef, their element's props beside them (#398)", "KListening"],
   ] as const
   for (const [id, what, name] of cases) {
     it(`${id}: ${what} take the same ids on both sides`, async () => {

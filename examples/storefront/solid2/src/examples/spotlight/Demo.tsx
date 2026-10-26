@@ -2,7 +2,7 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { createSpring, createTransform, type WardElement, type WardPoint, ward, wardic } from "@wardic/solid/unstable/v2"
+import { createSpring, createTransform, ward, wardic } from "@wardic/solid/unstable/v2"
 import { createEffect, createSignal, For } from "solid-js"
 import { useReducedMotion } from "~/lib/preferences.tsx"
 
@@ -42,9 +42,15 @@ function SpotCard(props: { readonly product: Product }) {
   const lightX = createTransform(springAcross, [-1, 1], ["0%", "100%"])
   const lightY = createTransform(springDown, [-1, 1], ["0%", "100%"])
 
-  // A point in the viewport, as a place on the card it's over.
-  const place = (point: WardPoint, card: WardElement) => {
-    const box = card.getBoundingClientRect()
+  // The card's ward, made here beside the effects that read it, and given to its element (#349). It
+  // only listens: the card's own props light it and tilt it (#398).
+  const card = ward()
+  // Its hover, through `when` (#355): the pointer over the card, from where it came in and at each
+  // move, with the card it's over (#397), places the light and the tilt; when it leaves, the card
+  // eases back flat. Touch never hovers, so a finger moves nothing.
+  createEffect(card.when("hover"), ({ point, element }) => {
+    // The point in the viewport, as a place on the card: -1 to 1 across and down.
+    const box = element.getBoundingClientRect()
     const atAcross = ((point.x - box.left) / box.width) * 2 - 1
     const atDown = ((point.y - box.top) / box.height) * 2 - 1
     setAcross(atAcross)
@@ -54,20 +60,7 @@ function SpotCard(props: { readonly product: Product }) {
       springAcross.jump(atAcross)
       springDown.jump(atDown)
     }
-  }
-
-  // The card's ward, made here beside the effects that read it, and given to its element (#349).
-  const card = ward({
-    variants: lighting,
-    initial: "rest",
-    animate: "rest",
-    whileHover: "lit",
-    style: { rotateX, rotateY, "--light-x": lightX, "--light-y": lightY },
   })
-  // Its hover, through `when` (#355): the pointer over the card, from where it came in and at each
-  // move, with the card it's over (#397), places the light and the tilt; when it leaves, the card
-  // eases back flat. Touch never hovers, so a finger moves nothing.
-  createEffect(card.when("hover"), ({ point, element }) => place(point, element))
   createEffect(card.when("hoverEnd"), () => {
     setAcross(0)
     setDown(0)
@@ -79,6 +72,11 @@ function SpotCard(props: { readonly product: Product }) {
       <wardic.article
         class="spot-card"
         wardRef={card}
+        variants={lighting}
+        initial="rest"
+        animate="rest"
+        whileHover="lit"
+        style={{ rotateX, rotateY, "--light-x": lightX, "--light-y": lightY }}
       >
         <div class="photo">
           <img src={photo.small} srcset={srcsetOf(photo)} sizes="(max-width: 640px) 100vw, 240px" width={photo.width} height={photo.height} alt={props.product.name} />

@@ -70,15 +70,9 @@ function NoticeRow(props: { notice: Accessor<Notice>; list: SourceAccessor<Reado
   const [undoable, setUndoable] = createOptimistic(false)
   // The side it leaves by, once the store has it: its row then goes, and the card stays off.
   const [gone, setGone] = createSignal<Side>("right")
-  // The card's ward, made here with what reads it (`next`, `each`), and given to its element (#349).
-  const card = ward({
-    drag: "x",
-    dragSnapToOrigin: true,
-    variants: sides,
-    initial: "shown",
-    animate: () => variantOf(out()),
-    exit: () => gone(),
-  })
+  // The card's ward, made here with what reads it (`next`, `when`), and given to its element (#349).
+  // It holds what it hears, the drag; the card's own props say where it flies (#398).
+  const card = ward({ drag: "x", dragSnapToOrigin: true })
 
   // A gesture, its animation and a request, as one sequence: the request goes only once the card
   // has landed off to the side and the undo window has passed. An undo, or a store that refuses,
@@ -119,7 +113,15 @@ function NoticeRow(props: { notice: Accessor<Notice>; list: SourceAccessor<Reado
           </wardic.p>
         </Show>
       </AnimatePresence>
-      <wardic.article class={["notice", { out: out() !== undefined }]} data-kind={props.notice().kind} wardRef={card}>
+      <wardic.article
+        class={["notice", { out: out() !== undefined }]}
+        data-kind={props.notice().kind}
+        wardRef={card}
+        variants={sides}
+        initial="shown"
+        animate={variantOf(out())}
+        exit={gone()}
+      >
         <strong>{props.notice().title}</strong>
         <span class="muted">{props.notice().body}</span>
       </wardic.article>

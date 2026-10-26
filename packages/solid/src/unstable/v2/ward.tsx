@@ -458,6 +458,12 @@ export interface WardShare {
   readonly parent: WardicVariantContextValue | undefined
   /** Whether its parent was given (`ward(config, { parent })`). */
   readonly chosen: boolean
+  /**
+   * Whether it carries its variants (#398): its config sets `variants` or `inherit`. One that doesn't
+   * is a **Listening ward**: the element it's given to builds its own variant node from its own
+   * props, where it renders or under the chosen parent.
+   */
+  readonly carries: boolean
   /** What its `.Provider` hands down: a child's `parent` given as this ward. */
   readonly provided: WardicVariantContextValue | undefined
   /** Its variant node, on the client: a driving ward's. */
@@ -502,6 +508,12 @@ const stillOn = (other: HTMLElement | undefined, el: HTMLElement | undefined): b
 const nameOf = (internal: WardInternals): string => UndefinedOr.match(internal.name, { onUndefined: () => "ward(config)", onDefined: identity })
 
 const NO_INTERNALS: WardInternals = {}
+/** A ward's internals from `ward()`'s options: its chosen parent, if any. */
+const internalsOf = (options: WardOptions | undefined): WardInternals => {
+  if (Predicate.isUndefined(options)) return NO_INTERNALS
+  if (Predicate.isUndefined(options.parent)) return NO_INTERNALS
+  return { parent: options.parent }
+}
 
 /**
  * Which gesture layers are on, and on which element: one value, so the target memo reads one signal
@@ -525,38 +537,68 @@ const isElement = (value: unknown): value is HTMLElement => Predicate.hasPropert
 /** A context value as Solid 2's context takes it: `null` for none. */
 const contextOf = (value: WardicVariantContextValue | undefined): WardicVariantContextValue | null => Option.getOrNull(Option.fromUndefinedOr(value))
 
+/** No config: a ward that only listens (#398), `ward()`. */
+const NO_CONFIG: WardConfig = {}
+
 /**
  * A ward: `config` read per key (#259), each key a value, or an accessor of it, a getter, a store's
  * property or a component's prop (`ward(props)`). Call it where you'd make a signal, in a component
  * or a root, under a `WardicProvider`. Its config's type is kept, so `read` and `atom` complete the
- * keys it animates.
+ * keys it animates. With no config (#398), it listens: spread on a plain element, its gestures'
+ * events with no motion; given to a Wardic component's `wardRef`, the element's own props set it.
  */
-export function ward<const C extends WardConfig>(config: WardChecked<C>, options?: WardOptions): Ward<C> {
-  return wardWith(
-    config,
-    UndefinedOr.match(UndefinedOr.map(options, (o) => o.parent), { onUndefined: () => NO_INTERNALS, onDefined: (parent): WardInternals => ({ parent }) }),
-  ) as Ward<C>
+export function ward<const C extends WardConfig>(config: WardChecked<C>, options?: WardOptions): Ward<C>
+export function ward(): Ward<{}>
+export function ward(config: undefined, options: WardOptions): Ward<{}>
+// Overloads, not an optional `config` (#398): a default for `C` left an accessor's literal untyped
+// (`transition: () => ({ type: "tween" })` read `type` as a string), as `C` fell back to it.
+export function ward(config?: WardConfig, options?: WardOptions): Ward {
+  // Plain checks: every ward is made through here, and a match's objects would cost each (#349).
+  if (Predicate.isUndefined(config)) return wardWith(NO_CONFIG, internalsOf(options))
+  return wardWith(config, internalsOf(options))
 }
+
+/** Whether a config carries its variants (#398): it sets `variants` or `inherit`. */
+const carriesVariants = (config: WardConfigValues): boolean => Bool.or(Predicate.isNotUndefined(config.variants), Predicate.isNotUndefined(config.inherit))
+
+/** A child made with `{ parent }` naming a Listening ward (#398's Q10). */
+const LISTENING_PARENT =
+  "ward(config, { parent }): the parent given carries no variants (no `variants` or `inherit` in its ward({ … })): it only listens, " +
+  "and its element's props hold its variants, so a child can't join it by `{ parent }` (#398). Render the child inside that " +
+  "ward's element, where it joins through the tree, or put the variants in the parent's ward({ … })."
 
 /**
  * The variant context a ward is made under (#349): a driving ward's given ward's, else its given
- * parent's, else the one around it.
+ * parent's, else the one around it. A driving ward for a Listening ward (#398) takes the one around
+ * its element instead, unless the ward's parent was chosen: its element builds its own node there.
  */
 const variantParentOf = (internal: WardInternals): WardicVariantContextValue | undefined => {
   const share = internal.share
-  if (Predicate.isNotUndefined(share)) return share.parent
+  if (Predicate.isNotUndefined(share)) {
+    if (Bool.or(share.carries, share.chosen)) return share.parent
+    return useVariantContext()
+  }
   const parent = shareOf(internal.parent)
-  if (Predicate.isNotUndefined(parent)) return parent.provided
+  if (Predicate.isNotUndefined(parent)) {
+    if (Bool.not(parent.carries)) throw new Error(LISTENING_PARENT)
+    return parent.provided
+  }
   return useVariantContext()
 }
 
-/** A ward's variant node: a driving ward's is its given ward's (#349), any other its own, made now. */
+/**
+ * A ward's variant node: a driving ward's is its given ward's (#349), unless that ward listens
+ * (#398), when its element builds its own from its props; any other ward's is its own, made now.
+ */
 const nodeFor = (share: WardShare | undefined, cfg: () => WardConfigValues, config: WardConfigValues, parent: WardicVariantContextValue | undefined): VariantNode => {
-  const shared = UndefinedOr.map(share, nodeOfShare)
-  if (Predicate.isNotUndefined(shared)) return shared
+  if (Predicate.isNotUndefined(share)) {
+    const node = share.node
+    if (Predicate.isNotUndefined(node)) {
+      if (share.carries) return node
+    }
+  }
   return createVariantNode(cfg, config, parent)
 }
-const nodeOfShare = (share: WardShare): VariantNode | undefined => share.node
 
 /** A ward's lifecycle: a driving ward's is its given ward's (#349), any other its own, made now. */
 const lifecycleFor = (share: WardShare | undefined, owner: Owner | null, want: () => void): Lifecycle => {
@@ -1245,7 +1287,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         UndefinedOr.map(driven, (atom) => registry().set(atom, undefined))
       }
     }
-    shared = { config, setup: initialConfig, internal, parent, chosen: Predicate.isNotUndefined(internal.parent), provided: node.provided, node, lifecycle, drive }
+    shared = { config, setup: initialConfig, internal, parent, chosen: Predicate.isNotUndefined(internal.parent), carries: carriesVariants(initialConfig), provided: node.provided, node, lifecycle, drive }
     return shared
   }
 
@@ -1400,6 +1442,7 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
     internal,
     parent,
     chosen: Predicate.isNotUndefined(internal.parent),
+    carries: carriesVariants(atSetup),
     provided: appear.provided,
     node: undefined,
     lifecycle: undefined,
