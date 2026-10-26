@@ -440,6 +440,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   const pending = new Map<HTMLElement, number>()
   // The handed-back twins of a leaving child, by it: the call that drops them, for an interrupted exit.
   const handovers = new Map<HTMLElement, () => void>()
+  // What lets go of the twins each leaving child keeps for a late take-over (#402): called as it goes.
+  const lates = new Map<HTMLElement, () => void>()
   // The unregistration of each exit's values with the projection.
   const exitValues = new Map<HTMLElement, () => void>()
   // The Wardic elements exiting inside each leaving child (#290), dropped with it.
@@ -578,6 +580,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     })
     pending.delete(el)
     handovers.delete(el)
+    UndefinedOr.map(lates.get(el), (forget) => forget())
+    lates.delete(el)
     places.delete(el)
     // A popped leaver is out of the flow: its going moves nothing.
     const moves = Bool.and(el.isConnected, Bool.not(pops.delete(el)))
@@ -641,8 +645,29 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       pending.set(el, 2 + holds)
       debug("leave: hands back its twins")
     }
+    // The twins nobody took over stay a later twin's to take over while it's on the page (#402).
+    lates.set(el, projection.keepLeaving(el, (dropLate) => takenLate(el, dropLate)))
     tellLeave(el, inside, true)
     driveExit(el, rec, custom)
+  }
+
+  // A twin in a leaving child taken over late (ADR-0010 *Amendment (#402)*): one more of its parts,
+  // ended with that handover, and dropped with its others by an interrupted exit. Its own exit runs on:
+  // the handover draws the twin over it.
+  const takenLate = (el: HTMLElement, drop: () => void): (() => void) => {
+    const left = pending.get(el)
+    if (Predicate.isUndefined(left)) {
+      drop()
+      return constVoid
+    }
+    pending.set(el, left + 1)
+    const before = handovers.get(el)
+    handovers.set(el, () => {
+      UndefinedOr.map(before, (dropBefore) => dropBefore())
+      drop()
+    })
+    debug("leave: a twin taken over late")
+    return () => partDone(el)
   }
 
   /**

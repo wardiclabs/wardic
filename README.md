@@ -159,6 +159,8 @@ An animation that changes some keys leaves the others running, as Motion's does.
 
 Layout animations leave out the scroll of every scrolling element around them, with no `layoutScroll`, and inside a `position: fixed` element they leave out the page's scroll, with no `layoutRoot`. A `layoutId` pair across those meets where each one paints: a card in a scrolled page opening into a fixed detail view, or a twin inside a scrolled list and one outside it (ADR-0012, *Amendment (#331)*).
 
+A `layoutId` twin that mounts while its other twin is still leaving under `<AnimatePresence>` flies from it, as Motion's does: the leaving one rides along, fading from where its exit had it, and goes once the handover ends. On Solid 2, an update that waits on data elsewhere (a count in a `<Loading>` that the same action refetches) keeps the page as it was until it lands; a twin registering then still flies from the one it replaces (ADR-0010, *Amendment (#402)*).
+
 | Motion | Wardic |
 |---|---|
 | `motion.div` | `wardic.div` |
