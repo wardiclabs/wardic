@@ -104,10 +104,24 @@ const quietOf = (page: Page): (() => Promise<void>) => {
 }
 
 /**
- * One of an example's steps: a click on a selector, or `drag:<selector>:<dx>:<dy>`, a press on its
- * centre, a slow move by (dx, dy), and a release.
+ * One of an example's steps: a click on a selector; `drag:<selector>:<dx>:<dy>`, a press on its
+ * centre, a slow move by (dx, dy), and a release; or `scroll:<selector>:<dy>`, the element scrolled
+ * by dy over a dozen frames (#388), not waited on: a scroll-linked value moves with the scroll, so
+ * the watch has to see it while it runs.
  */
 const act = async (page: Page, step: string): Promise<void> => {
+  const scroll = /^scroll:(.+):(-?\d+)$/.exec(step)
+  if (scroll !== null) {
+    return page.locator(scroll[1]!).evaluate((el, dy) => {
+      let left = 12
+      const next = (): void => {
+        el.scrollBy(0, dy / 12)
+        left -= 1
+        if (left > 0) requestAnimationFrame(next)
+      }
+      requestAnimationFrame(next)
+    }, Number(scroll[2]))
+  }
   const drag = /^drag:(.+):(-?\d+):(-?\d+)$/.exec(step)
   if (drag === null) return page.click(step)
   const box = await page.locator(drag[1]!).boundingBox()

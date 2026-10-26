@@ -26,6 +26,11 @@ A made-up ceramics and glass shop whose every feature is a Wardic example: the d
 | Presence | A photo gallery that slides the way you go | `<AnimatePresence custom>` with variants as functions: the leaving photo reads the latest direction from the presence; no distance under reduced motion |
 | Presence | A quick view whose list leaves before it | `<AnimatePresence propagate>` inside the dialog: its suggestions run their exits when the dialog leaves, and it waits for them |
 | Presence | Saved for later, moved to the cart | `usePresence` (Solid 2: the handle's `next("leave")`) for an exit of your own: a copy of the photo flies to the header's cart |
+| Live values | A closer look at the glaze | a magnifier: `createSpring` follows the pointer, `createTransform` maps it to custom properties the lens reads |
+| Live values | A reading bar for the studio's story | `createScroll` of a panel, its progress as a bar's `scaleX` and, through `createTransform`, the minutes left |
+| Live values | A lookbook with depth | `createScroll` with a `target` and an `offset` per banner: the photo and the words drift opposite ways |
+| Live values | The studio's story, revealed as you read | `whileInView` with `viewport` (`root`, `amount`, `once`), staggered Variant children |
+| Live values | Cards that catch the light | `createSpring`s of the pointer, mapped to a tilt and to where a light sits; the light comes on by a variant on a custom property; the hover heard through `card.when("hoverStart")` / `("hoverEnd")` (Solid 1: `onHoverStart` / `onHoverEnd`) |
 | Server rendering | A banner that arrives before the JavaScript | `initial` / `animate` with a stagger, played from the first paint by the server's CSS (Appear animations), taken over by the JavaScript where the CSS has got to |
 
 ## Run it
@@ -70,7 +75,7 @@ Each page's screenshot lands in the app's `.smoke/`.
 
 ## Add an example
 
-1. Its words go in `shared/src/examples.ts`: its area, title, "why", what reduced motion does, the selector the smoke test watches, and the clicks it makes first, if any (a selector, or `drag:<selector>:<dx>:<dy>`).
+1. Its words go in `shared/src/examples.ts`: its area, title, "why", what reduced motion does, the selector the smoke test watches, and what it does first, if anything (a selector to click, `drag:<selector>:<dx>:<dy>`, or `scroll:<selector>:<dy>`).
 2. Its demo goes in each app's `src/examples/<id>/Demo.tsx`. That file is what the page shows as the code, so keep it about the pattern.
 3. Its route goes in `src/routes/<area>/<id>.tsx`, which renders `<ExamplePage id="<id>" demo={Demo} />`.
 4. If porting it from Motion isn't mechanical, its Motion version goes in `shared/motion/<id>.tsx` (React, `motion/react`), with the example's `motion` field naming it and saying what differs. The page shows it under "Coming from Motion". The shared package's `typecheck` checks it against `motion`, React and their types, which are its dev dependencies only.

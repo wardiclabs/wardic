@@ -107,6 +107,36 @@ declare module "virtual:file-routes" {
       $$route?: undefined;
     },
     {
+      path: "/live/magnifier";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/live/magnifier")>;
+      $$route?: undefined;
+    },
+    {
+      path: "/live/parallax";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/live/parallax")>;
+      $$route?: undefined;
+    },
+    {
+      path: "/live/reading-progress";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/live/reading-progress")>;
+      $$route?: undefined;
+    },
+    {
+      path: "/live/reveals";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/live/reveals")>;
+      $$route?: undefined;
+    },
+    {
+      path: "/live/spotlight";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/live/spotlight")>;
+      $$route?: undefined;
+    },
+    {
       path: "/presence/gallery";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/presence/gallery")>;
@@ -158,10 +188,42 @@ declare module "virtual:file-routes" {
       children?: undefined;
     },
     {
+      path: "/live/reveals";
+      id: "/live/reveals";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/live/reveals")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
       path: "/layout/browse";
       id: "/layout/browse";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/layout/browse")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/live/parallax";
+      id: "/live/parallax";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/live/parallax")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/live/magnifier";
+      id: "/live/magnifier";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/live/magnifier")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/live/spotlight";
+      id: "/live/spotlight";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/live/spotlight")>;
       $$route?: undefined;
       children?: undefined;
     },
@@ -250,6 +312,14 @@ declare module "virtual:file-routes" {
       id: "/layout/product-detail";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/layout/product-detail")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/live/reading-progress";
+      id: "/live/reading-progress";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/live/reading-progress")>;
       $$route?: undefined;
       children?: undefined;
     },

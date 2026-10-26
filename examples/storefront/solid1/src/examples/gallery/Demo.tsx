@@ -1,8 +1,8 @@
 import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
-import { AnimatePresence, createReducedMotion, wardic } from "@wardic/solid"
+import { AnimatePresence, wardic } from "@wardic/solid"
 import { createSignal, For, Show } from "solid-js"
-import { usePreferences } from "~/lib/preferences.tsx"
+import { useReducedMotion } from "~/lib/preferences.tsx"
 
 // The photo coming in arrives from the side you're heading to, and the one leaving goes out the
 // other side. Both read which way you went: the new photo from its own `custom`, the leaving one
@@ -31,9 +31,8 @@ export default function Gallery() {
   // Under reduced motion the photos cross-fade in place: the slide has no distance. (Left to the
   // rule for positional values, a leaving photo would jump aside at once and fade there.) The
   // system's setting, or the header's switch.
-  const reduced = createReducedMotion()
-  const preferences = usePreferences()
-  const way = () => direction() * Number(!(reduced() || preferences.reduceMotion()))
+  const reduced = useReducedMotion()
+  const way = () => direction() * Number(!reduced())
   const go = (to: number) => {
     if (to === at()) return
     setDirection(Math.sign(to - at()))

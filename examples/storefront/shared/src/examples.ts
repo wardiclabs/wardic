@@ -36,9 +36,10 @@ export interface Example {
    */
   readonly motion?: { readonly file: string; readonly note: string } | undefined
   /**
-   * What the smoke test clicks once the page has loaded, before it watches: a selector inside the
-   * demo, or several in turn, for one that waits for the visitor. Absent for one that moves as it
-   * loads.
+   * What the smoke test does once the page has loaded, before it watches, for one that waits for the
+   * visitor: a selector inside the demo to click, `drag:<selector>:<dx>:<dy>`, or
+   * `scroll:<selector>:<dy>` (scrolled by dy over a dozen frames), or several in turn. Absent for one that
+   * moves as it loads.
    */
   readonly interact?: string | ReadonlyArray<string> | undefined
   /** What the smoke test watches move, then settle: a selector inside the demo. */
@@ -267,6 +268,82 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     },
     interact: ".saved-row:first-child .button.accent",
     watch: ".saved-row:nth-child(2)",
+  },
+  {
+    id: "magnifier",
+    area: "live",
+    title: "A closer look at the glaze",
+    summary: "Hover over the vase and a lens follows your pointer, gliding after it and settling where you stop.",
+    why: [
+      "A product photo hides what makes a glazed piece worth buying: where its colours run into each other. A magnifier lets you look closer without leaving the page. A lens glued to the pointer jitters with every twitch of the hand; on a spring, it glides after the pointer and settles where you stop.",
+      "The pointer's place over the photo is two plain signals. `createSpring` follows each with a spring on the frame loop, idle while it rests, and the lens takes the springs as its `x` and `y` in `style`: live values, which Wardic writes each frame. `createTransform` maps the same springs to where the photo inside the lens sits, as two custom properties the stylesheet's `background-position` reads, so the lens always shows what's under its centre.",
+      "The lens grows in under hover or a press: the photo names a variant, and the lens, a Variant child, follows it.",
+    ],
+    reducedMotion: "The lens doesn't glide: it's where the pointer is. A live value is yours, so Wardic's reduced motion leaves it alone; the demo `jump`s its springs to the pointer instead.",
+    uses: ["createSpring", "createTransform", "live values in style", "whileHover", "whileTap"],
+    motion: {
+      file: "magnifier.tsx",
+      note: "Motion's `useSpring` and `useTransform` are `createSpring` and `createTransform`, made in the component's body. Motion would join the two values into one `background-position` with `useMotionTemplate`; Wardic has no template helper, so each value maps to a custom property of its own, and the stylesheet joins them.",
+    },
+    interact: ".magnifier-photo",
+    watch: ".lens",
+  },
+  {
+    id: "reading-progress",
+    area: "live",
+    title: "A reading bar for the studio's story",
+    summary: "Scroll through how the Lagoon glaze is made, and a bar along the top fills as you read, the minutes left beside it.",
+    why: [
+      "A long read is easier to start when you can see how long it is, and easier to finish when you can see how far you've come. A bar that fills as you scroll says both at a glance, and the minutes left say it in words.",
+      "`createScroll` gives the panel's scroll as live values: how far it's scrolled, and the progress through its range, from 0 to 1, set within the scroll's own event. The bar takes the progress as its `scaleX`, drawn from its left edge, and follows the scroll frame by frame. `createTransform` maps the same progress to the minutes left. Leave out `container`, and it's the page's scroll.",
+    ],
+    reducedMotion: "Nothing changes: the bar is where the scroll is, not an animation of its own.",
+    uses: ["createScroll", "createTransform", "scaleX in style"],
+    interact: "scroll:.reading-panel:600",
+    watch: ".reading-bar",
+  },
+  {
+    id: "parallax",
+    area: "live",
+    title: "A lookbook with depth",
+    summary: "Scroll the lookbook and each collection's photo drifts slower than its banner and its words faster, as if they sat at different depths.",
+    why: [
+      "A lookbook is for browsing, and depth makes it feel like a place: as you move, near things pass faster than far ones. Each banner's photo moves a little slower than the banner, and its words a little faster, so the photo reads as behind and the words in front.",
+      "Each banner asks `createScroll` for its own progress through the panel: with a `target` and Motion's `offset`, `[\"start end\", \"end start\"]`, it's 0 as the banner's top comes in at the bottom and 1 as its bottom leaves at the top. `createTransform` maps that to a few dozen pixels of `y` for the photo and for the words, one each way.",
+      "A parallax is motion of your own, so reduced motion is yours to apply: Wardic snaps the animations it runs, and a live value follows what moves it. The demo's transforms give 0 under it.",
+    ],
+    reducedMotion: "Nothing drifts: the photos and words scroll with their banners.",
+    uses: ["createScroll with target and offset", "createTransform", "y in style"],
+    interact: "scroll:.lookbook:240",
+    watch: ".lookbook-banner:first-child .lookbook-photo",
+  },
+  {
+    id: "reveals",
+    area: "live",
+    title: "The studio's story, revealed as you read",
+    summary: "Each chapter of the studio's story rises into place as it scrolls into view, its photo first and its words after.",
+    why: [
+      "Content that arrives as you reach it rewards the scroll: each chapter comes as you get to it rather than all at once at the top, and the eye lands on it as it moves.",
+      "Each chapter takes `whileInView`, a variant it names while it's in view, with `viewport` saying what in view means here: a third of it showing (`amount`) in the story's panel (`root`), and `once`, so scrolling back up doesn't hide it again. Its photo and words are Variant children, staggered by the chapter's transition.",
+    ],
+    reducedMotion: "Chapters fade in as they come into view, without rising.",
+    uses: ["whileInView", "viewport: root, amount, once", "variants", "staggerChildren"],
+    watch: ".chapter:first-child h3",
+  },
+  {
+    id: "spotlight",
+    area: "live",
+    title: "Cards that catch the light",
+    summary: "Move over a piece and its card tilts toward your pointer, with a soft light under it that follows.",
+    why: [
+      "A card that answers the pointer feels like an object: tilting toward where you point, with a light where your pointer is, it invites a closer look without a single extra control.",
+      "The pointer's place over the card, from -1 to 1 each way, is two signals that two `createSpring`s follow, so the card eases toward the pointer and back to rest when it leaves. `createTransform` maps the springs twice: to `rotateX` and `rotateY` in the card's `style`, and to where its light sits, as custom properties the stylesheet's radial gradient reads. The light comes on through a variant that animates a custom property of its own, `--light`, from 0 to 1 under hover.",
+      "The card hears its hover from Wardic. On Solid 2, its ward is made beside the effects that read it and given to the element through `wardRef`: an effect over `card.when(\"hoverStart\")` puts the light where the pointer came in, and one over `card.when(\"hoverEnd\")` sends the card back flat. On Solid 1 those are the element's `onHoverStart` and `onHoverEnd`. A ward tells a hover's start and end, as Motion does, not each move, so the moves in between are the element's own `pointermove`. Touch never hovers, so on a phone the cards stay still.",
+    ],
+    reducedMotion: "The cards don't tilt, and the light is where the pointer is, without the spring. It still comes on and goes off.",
+    uses: ["createSpring", "createTransform", "custom properties in style and variants", "whileHover", "when(\"hoverStart\") (Solid 2)"],
+    interact: "drag:.spot-grid li:first-child .spot-card:60:40",
+    watch: ".spot-grid li:first-child .spot-card",
   },
   {
     id: "before-hydration",

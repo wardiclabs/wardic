@@ -3,7 +3,8 @@
  * `reducedMotion` so anyone can see the reduced version of every demo. Kept for the visit
  * (`sessionStorage`), read after hydration so the server's markup and the first client render agree.
  */
-import { createContext, createSignal, type JSX, onMount, useContext } from "solid-js"
+import { createReducedMotion } from "@wardic/solid"
+import { type Accessor, createContext, createSignal, type JSX, onMount, useContext } from "solid-js"
 
 export type Theme = "system" | "light" | "dark"
 
@@ -67,4 +68,15 @@ export const usePreferences = (): Preferences => {
   const preferences = useContext(PreferencesContext)
   if (preferences === undefined) throw new Error("usePreferences outside <PreferencesProvider>")
   return preferences
+}
+
+/**
+ * Whether to reduce motion (#388): the system's setting, through `createReducedMotion`, or the
+ * header's switch. Wardic's own animations follow both by themselves, through the provider. Read this
+ * for motion that's yours: a live value's spring, a scroll's parallax, a Web Animation.
+ */
+export const useReducedMotion = (): Accessor<boolean> => {
+  const system = createReducedMotion()
+  const preferences = usePreferences()
+  return () => system() || preferences.reduceMotion()
 }
