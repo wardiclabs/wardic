@@ -318,6 +318,8 @@ function ScrollLinked() {
 
 A scroll's values are set within its own event, so what you derive from them paints in the frame of the scroll. Velocity reads 0 once its value stops, and time keeps the frame loop running while it exists.
 
+A `target`'s place in its `container` is measured as Motion measures it, along its chain of offset parents. Unlike Motion, the container doesn't need a position: a `position: static` one reads just as a `relative` one would. Motion reads it short, and warns you to position the container (#395).
+
 ### Server rendering and Appear animations
 
 A server render gives every element its starting style (its `initial`), and the client hydrates it with no flash. An element whose whole mount animation the server knows (static `initial` and `animate`, every key starting from `initial`) also plays it from first paint: the server samples it from the same springs and tweens the client runs into a CSS `@keyframes` rule in the page's head, and the element runs it before any JavaScript does. At hydration the engine takes it over where the CSS has got to, velocity included; with JavaScript off, it plays to its end and holds. Variant staggers, `when`, repeats and reduced motion (`prefers-reduced-motion`) carry over.

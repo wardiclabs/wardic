@@ -245,3 +245,43 @@ Decided 2026-10-19 (#240, Q1 A: measure first; Q2 A: defer). Decision 1 of the *
 - `skipInitialAnimation` ignored, or every change a jump (LV15, LF18);
 - Solid 1's helpers not carrying their Atom, or not taking a carried one (LF17);
 - a server's spring giving the user's own accessor a `jump` (SL7).
+
+## Amendment (#395, 2026-10-26): a target in a static container
+
+A `createScroll` with a `container` and a `target` measured where the target sits along its offset chain, as Motion's `calcInset` does (`insetOf` in `@wardic/dom`'s `internal/scroll.ts`). A `position: static` container is no offset parent, so the chain passed it, and the inset came out too large by the container's own offset. The progress read low, silently. The storefront's lookbook (#388) read 0 where 0.145 was due, so its parallax moved 4.5 px over a 400 px scroll instead of 49 px. Grilled 2026-10-26 (#395).
+
+**Motion** (13.4.0, `scrollInfo`; `on-scroll-handler.ts:43–55` at `16c6122`) reads the same wrong progress. In development it warns once: *"Please ensure that the container has a non-static position…"*.
+
+**The probe** (`.tmp/395/probe.ts`, Chromium 147 and Firefox 148, identical): a static panel, a positioned control, a positioned wrapper, static ancestors, and `<body>` as the offset parent.
+- Inside a static container, `offsetTop` doesn't change with the container's scroll.
+- The chain overshoots by the container's offset: 514 against a true 344.
+- Taking that offset, and the container's border, off where the chain leaves the container gives the true inset in every layout.
+
+**Decision** (Q1: A): **Wardic measures a static container correctly, and warns of nothing.** A static container reads what a positioned one gives, in both bindings, since `createScroll` reads `@wardic/dom`'s scroll source. That's a deliberate divergence from Motion, which reads wrong and warns. Code from Motion that already sets `position: relative` sees no change.
+- Rejected: B, Motion's warning only, with the progress still wrong; C, both, warning of nothing wrong.
+
+**Built:**
+- `insetOf` checks each element the chain arrives at. Outside the container, the chain has passed it: `fromContainer` takes off the container's own offset to that element (`offsetTo`, along the container's chain) and its border (`clientTop` / `clientLeft`).
+- The check sits in the function's early-return guard, not in a match at each step. As a match, it made a positioned container's read per scroll event 9% slower: 8.2 to 9.0 µs, in a temporary browser test of 20,000 reads with a target three wrappers deep. Now it reads in the same 8.2 µs as on main. A static one reads in 10.5 µs, where main took 11.5 µs to read it wrong.
+- **A chain that ends** (`null`) isn't counted as leaving. A fixed target measures from the viewport, and the page's targets from the document, as in Motion, in any container. A page exemption, written first, was then dead code and was taken out (M5).
+
+**Pinned by** `packages/dom/test/scroll.browser.test.ts` **PS12** (Chromium; run once in Firefox too). For each layout, a static container reads the progress the same layout gives with `position: relative`:
+- the target straight in it, as in the issue;
+- the target in a positioned wrapper;
+- static ancestors in between;
+- `<body>` as the offset parent;
+- a table cell, with a positioned target, whose chain leaves at an ancestor above the container's own offset parent;
+- a fixed target;
+- the x axis;
+- an SVG shape.
+
+The positioned control's own progress is pinned to the box geometry, and so is the fixed target's (from the viewport). The page keeps its document offsets: a border on `<html>` isn't taken off.
+
+**Mutation-checked** (`.tmp/395/mutate.py`). The six on the final code all fail PS12:
+- no correction;
+- either border kept;
+- the container's offset taken one step only;
+- a correction inside the container;
+- a chain's end corrected.
+
+On the way, M7 found that correcting a chain's end made a fixed target read differently in a static container than in a positioned one; it now reads the same in both.

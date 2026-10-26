@@ -18,6 +18,12 @@
 // - PS11: a child added after the reader started is watched, a removed one changes the range, a
 //   reader whose target is a child leaves it watched as it goes, the last reader out disconnects both
 //   observers, and an idle container is never read.
+// - PS12 (#395): a target in a `position: static` container reads the progress the same layout gives
+//   with a positioned one: straight in it, in a positioned wrapper, under static ancestors, with
+//   `<body>` the offset parent, in a table cell (a positioned target's chain leaves at an ancestor
+//   above the container's own offset parent), a fixed target (from the viewport in either, Motion's),
+//   on x, and an SVG shape. The positioned one's own is
+//   pinned to the box; the page keeps its document offsets, a border on `<html>` not taken off.
 import * as Probe from "@wardic/core/Probe"
 import { expect, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -42,6 +48,53 @@ const scene = () => {
   box.append(column)
   document.body.append(box)
   return { box, target, remove: () => box.remove() }
+}
+
+/**
+ * #395's layouts, each with its container at `position`: a 200 × 100 box with a 7px border and 11px
+ * padding, 333px of content above an 80px target (on x, beside it), the box 150px into a parent.
+ */
+const STATIC_LAYOUTS: Record<string, { readonly axis: "x" | "y"; readonly html: (position: string) => string }> = {
+  "straight in it": {
+    axis: "y",
+    html: (position) =>
+      `<main style="position: relative; padding: 5px"><div data-box style="position: ${position}; width: 200px; height: 100px; overflow: auto; border: 7px solid; padding: 11px; margin-top: 150px"><div style="height: 333px"></div><div data-target style="height: 80px"></div><div style="height: 600px"></div></div></main>`,
+  },
+  "in a positioned wrapper": {
+    axis: "y",
+    html: (position) =>
+      `<main style="position: relative; padding: 5px"><div data-box style="position: ${position}; width: 200px; height: 100px; overflow: auto; border: 7px solid; padding: 11px; margin-top: 150px"><div style="height: 333px"></div><div style="position: relative; margin-top: 40px; padding-top: 9px"><div data-target style="height: 80px"></div></div><div style="height: 600px"></div></div></main>`,
+  },
+  "under static ancestors": {
+    axis: "y",
+    html: (position) =>
+      `<main style="position: relative; padding: 5px"><div style="padding: 23px; border: 3px solid"><div style="margin-left: 17px"><div data-box style="position: ${position}; width: 200px; height: 100px; overflow: auto; border: 7px solid; padding: 11px; margin-top: 150px"><div style="height: 333px"></div><div data-target style="height: 80px"></div><div style="height: 600px"></div></div></div></div></main>`,
+  },
+  "with <body> the offset parent": {
+    axis: "y",
+    html: (position) =>
+      `<div style="padding: 13px"><div data-box style="position: ${position}; width: 200px; height: 100px; overflow: auto; border: 7px solid; padding: 11px; margin-top: 150px"><div style="height: 333px"></div><div data-target style="height: 80px"></div><div style="height: 600px"></div></div></div>`,
+  },
+  "in a table cell, the target in a positioned wrapper": {
+    axis: "y",
+    html: (position) =>
+      `<main style="position: relative; padding: 5px"><table style="border-spacing: 6px; margin-top: 30px"><tr><td style="padding: 9px"><div data-box style="position: ${position}; width: 200px; height: 100px; overflow: auto; border: 7px solid; padding: 11px; margin-top: 150px"><div style="height: 333px"></div><div style="position: relative; padding-top: 9px"><div data-target style="height: 80px"></div></div><div style="height: 600px"></div></div></td></tr></table></main>`,
+  },
+  "a fixed target, measured from the viewport in either": {
+    axis: "y",
+    html: (position) =>
+      `<main style="position: relative; padding: 5px"><div data-box style="position: ${position}; width: 200px; height: 100px; overflow: auto; border: 7px solid; padding: 11px; margin-top: 150px"><div style="height: 333px"></div><div data-target style="position: fixed; top: 50px; left: 0; width: 50px; height: 80px"></div><div style="height: 600px"></div></div></main>`,
+  },
+  "on x": {
+    axis: "x",
+    html: (position) =>
+      `<main style="position: relative; padding: 5px"><div data-box style="position: ${position}; display: flex; width: 100px; height: 200px; overflow: auto; border: 7px solid; padding: 11px; margin-left: 150px"><div style="flex: none; width: 333px"></div><div data-target style="flex: none; width: 80px"></div><div style="flex: none; width: 600px"></div></div></main>`,
+  },
+  "an SVG shape": {
+    axis: "y",
+    html: (position) =>
+      `<main style="position: relative; padding: 5px"><div data-box style="position: ${position}; width: 200px; height: 100px; overflow: auto; border: 7px solid; padding: 11px; margin-top: 150px"><div style="height: 333px"></div><div><svg width="100" height="200" style="display: block"><rect data-target y="40" width="50" height="80"></rect></svg></div><div style="height: 600px"></div></div></main>`,
+  },
 }
 
 /** `n` animation frames: a ResizeObserver delivers in the frame after a change's layout. */
@@ -358,5 +411,63 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
       ResizeObserver.prototype.disconnect = resizeDisconnect
       MutationObserver.prototype.disconnect = mutationDisconnect
       s.remove()
+    }))
+
+  it.effect("PS12: a target in a static container reads the progress a positioned one gives (#395)", () =>
+    Effect.gen(function* () {
+      const probe = yield* Probe.Probe
+      const registry = yield* AtomRegistry.AtomRegistry
+      const through: ScrollOffset.ScrollOffset = ["start end", "end start"]
+      /** The progress at each of `at` with the layout's container at `position`. */
+      const progressOf = (layout: (typeof STATIC_LAYOUTS)[string], position: string, at: ReadonlyArray<number>) =>
+        Effect.gen(function* () {
+          const host = document.createElement("div")
+          host.innerHTML = layout.html(position)
+          document.body.append(host)
+          const box = host.querySelector<HTMLElement>("[data-box]")
+          const target = host.querySelector("[data-target]")
+          if (box === null || target === null) return yield* Effect.die("no box or target")
+          const scope = yield* Scope.make()
+          const atom = yield* probe.scroll({ container: box, target, offset: through, axis: layout.axis }).pipe(Scope.provide(scope))
+          const read = at.map((to) => {
+            if (layout.axis === "x") box.scrollLeft = to
+            else box.scrollTop = to
+            box.dispatchEvent(new Event("scroll"))
+            return registry.get(atom)[layout.axis].progress
+          })
+          yield* Scope.close(scope, Exit.void)
+          host.remove()
+          return read
+        })
+      const at = [0, 150, 300]
+      // The positioned box's own, pinned: the target is 11 + 333 = 344 into the box's padding edge, and
+      // the box shows 122 (100 and its padding), so "start end" → "end start" runs 222 → 424.
+      expect(yield* progressOf(STATIC_LAYOUTS["straight in it"]!, "relative", at)).toEqual([0, 0, (300 - 222) / 202])
+      // A fixed target, from the viewport (Motion's): 50 down it, so "start end" → "end start" runs −72 → 130.
+      expect(yield* progressOf(STATIC_LAYOUTS["a fixed target, measured from the viewport in either"]!, "relative", at)).toEqual([72 / 202, 1, 1])
+      for (const [name, layout] of Object.entries(STATIC_LAYOUTS)) {
+        const positioned = yield* progressOf(layout, "relative", at)
+        const still = yield* progressOf(layout, "static", at)
+        expect(positioned.some((p) => p > 0 && p < 1), `${name}: a scroll through the target`).toBe(true)
+        expect(still, `${name}: static reads as positioned`).toEqual(positioned)
+      }
+      // The page keeps its document offsets: a border on <html> isn't taken off, as it would be a box's.
+      document.documentElement.style.border = "5px solid"
+      const target = document.createElement("div")
+      target.style.cssText = "margin-top: 1500px; height: 80px"
+      const tail = document.createElement("div")
+      tail.style.cssText = "height: 3000px"
+      document.body.append(target, tail)
+      const scope = yield* Scope.make()
+      const atom = yield* probe.scroll({ target, offset: ["start start", "end start"] }).pipe(Scope.provide(scope))
+      const top = target.getBoundingClientRect().top + window.scrollY
+      window.scrollTo(0, Math.round(top + 40))
+      window.dispatchEvent(new Event("scroll"))
+      expect(registry.get(atom).y.progress, "the page's target from its document top").toBeCloseTo((window.scrollY - top) / 80, 9)
+      window.scrollTo(0, 0)
+      yield* Scope.close(scope, Exit.void)
+      target.remove()
+      tail.remove()
+      document.documentElement.style.border = ""
     }))
 })
