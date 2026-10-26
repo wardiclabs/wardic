@@ -12,6 +12,8 @@ export const products = query((category?: string) => Server.listProducts(categor
 
 export const product = query((id: string) => Server.getProduct(id), "product")
 
+export const stock = query((when: "now" | "delivery") => Server.getStock(when), "stock")
+
 export const cart = query(() => Server.getCart(), "cart")
 
 /** Add to the cart; the header's count and any open cart read it again. */

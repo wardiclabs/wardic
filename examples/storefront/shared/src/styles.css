@@ -538,8 +538,10 @@ button {
   gap: var(--space-4);
 }
 
+/* A card as tall as its row's tallest: its summary keeps its height, and its tags sit at the bottom. */
 .example-card {
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: var(--space-2);
   padding: var(--space-5);
   border: 1px solid var(--line);
@@ -557,6 +559,10 @@ button {
   font-size: var(--text-l);
 }
 
+.example-card .tags {
+  margin-top: auto;
+}
+
 .example-card .soon {
   color: var(--muted);
   font-size: var(--text-s);
@@ -565,6 +571,9 @@ button {
 .tags {
   display: flex;
   flex-wrap: wrap;
+  /* Each tag its own height, however tall the list is made. */
+  align-items: flex-start;
+  align-content: flex-start;
   gap: var(--space-1);
   margin: 0;
   padding: 0;
@@ -573,7 +582,8 @@ button {
 
 .tags li {
   padding: 2px 8px;
-  border-radius: 999px;
+  /* A pill on one line (23px tall), a rounded box when a long tag wraps. */
+  border-radius: 12px;
   background: var(--accent-soft);
   color: var(--accent);
   font-family: var(--font-mono);
@@ -1743,6 +1753,99 @@ button.product-card:hover .photo {
   border: 1px dashed var(--danger);
   border-radius: var(--radius-m);
   color: var(--danger);
+}
+
+/* --- Entrances: stock that fills in as it arrives (#390) ------------------------------------ */
+
+.stock {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.stock-status {
+  margin: 0;
+  min-height: 1.5em;
+  font-size: var(--text-s);
+}
+
+.stock-list {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.stock-row {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 11rem) minmax(0, 1fr) 6.5rem;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+}
+
+.stock-row img {
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-s);
+  object-fit: cover;
+}
+
+.stock-row .name {
+  overflow: hidden;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.meter {
+  height: 10px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--tile);
+}
+
+.meter-fill {
+  display: block;
+  height: 100%;
+  border-radius: 999px;
+  background: var(--accent);
+  transform-origin: left center;
+}
+
+.stock-label {
+  color: var(--muted);
+  font-size: var(--text-s);
+  font-variant-numeric: tabular-nums;
+}
+
+.stock-skeleton-photo {
+  width: 48px;
+  height: 48px;
+}
+
+.stock-skeleton-line {
+  grid-column: 2 / -1;
+  height: 14px;
+}
+
+@media (max-width: 560px) {
+  .stock-row {
+    grid-template-columns: 40px minmax(0, 1fr) auto;
+  }
+
+  .stock-row img,
+  .stock-skeleton-photo {
+    width: 40px;
+    height: 40px;
+  }
+
+  .stock-row .meter {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
 }
 
 /* --- Presence: a shelf of pieces, toasts, a gallery, a quick view, saved for later (#388) ---- */

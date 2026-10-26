@@ -13,6 +13,7 @@ A made-up ceramics and glass shop whose every feature is a Wardic example: the d
 | Area | Example | Shows |
 |---|---|---|
 | Entrances | The product grid | `variants`, `staggerChildren` |
+| Entrances | Stock that fills in as it arrives | `animate` read from the store's count: the meters wait for it, then fill; each says when it has settled (Solid 1: `<Suspense>` with a transition, `onAnimationComplete`; Solid 2: `<Loading>`, `isPending(() => bar.settled())`) |
 | Layout | A product opens into its detail view | `layoutId` twins between a scrolled page and a `position: fixed` view, `layout="position"` |
 | Layout | Filter the shop, switch the view | `layout` with `<AnimatePresence mode="popLayout">`, a grid ↔ list switch |
 | Layout | Tabs on a product page | a `layoutId` indicator, `<AnimatePresence mode="wait">` |

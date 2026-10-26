@@ -22,6 +22,7 @@ export {
   getOrders,
   getProduct,
   getSettings,
+  getStock,
   getWishlist,
   InvalidArguments,
   listProducts,
