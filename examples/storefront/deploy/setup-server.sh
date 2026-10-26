@@ -19,7 +19,10 @@ command -v docker >/dev/null || curl -fsSL https://get.docker.com | sh
 id deploy >/dev/null 2>&1 || adduser --disabled-password --gecos "" deploy
 usermod -aG sudo,docker deploy
 install -d -m 700 -o deploy -g deploy /home/deploy/.ssh
-install -m 600 -o deploy -g deploy /root/.ssh/authorized_keys /home/deploy/.ssh/authorized_keys
+# Ending in a newline, so a key appended later gets a line of its own (Hostinger writes root's without one).
+sed -e '$a\' /root/.ssh/authorized_keys > /home/deploy/.ssh/authorized_keys
+chown deploy:deploy /home/deploy/.ssh/authorized_keys
+chmod 600 /home/deploy/.ssh/authorized_keys
 echo "deploy ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/90-deploy
 chmod 440 /etc/sudoers.d/90-deploy
 
