@@ -157,15 +157,20 @@ const progressThrough = (stops: ReadonlyArray<number>, current: number): number 
   })
 }
 
-/** Where `element` sits in `container`: Motion's `calcInset`, the offset chain up to it, SVG included. */
+/**
+ * Where `element` sits in `container`: Motion's `calcInset`, the offset chain up to it, SVG included.
+ * A `position: static` container is no offset parent, so the chain passes it (#395): where it has
+ * left the container, the container's own offset to the same parent comes off ({@link fromContainer}).
+ * A chain that ends instead measures from the document, or for a fixed target the viewport, in any
+ * container, as Motion's does: the page's own chain ends so, and stays as it is.
+ */
 const insetOf = (element: Element | null, container: Element, x: number, y: number): Point => {
   if (Bool.or(element === null, element === container)) return { x, y }
   const current = element as Element
+  // Checked as the chain arrives, not with a match at each step: a read per scroll event allocates nothing more.
+  if (Bool.not(container.contains(current))) return fromContainer(container, current, x, y)
   return Match.value(current).pipe(
-    Match.when(
-      (e: Element): e is HTMLElement => e instanceof HTMLElement,
-      (e) => insetOf(e.offsetParent, container, x + e.offsetLeft, y + e.offsetTop),
-    ),
+    Match.when(isHTMLElement, (e) => insetOf(e.offsetParent, container, x + e.offsetLeft, y + e.offsetTop)),
     Match.when(
       (e: Element) => e.tagName === "svg",
       (e) =>
@@ -187,6 +192,29 @@ const insetOf = (element: Element | null, container: Element, x: number, y: numb
     ),
     Match.orElse(() => ({ x, y })),
   )
+}
+
+const isHTMLElement = (e: Element): e is HTMLElement => e instanceof HTMLElement
+
+/**
+ * `x`, `y` from `parent`, where the offset chain left `container`, made `container`'s: its own offset
+ * to `parent` and its border taken off (#395). A static container's descendants measure from its
+ * nearest positioned ancestor (or `<body>`, or a table cell), as it does itself, and an `offsetTop`
+ * ignores its scroll, as a positioned container's descendants' do: this is the inset a positioned one
+ * gives.
+ */
+const fromContainer = (container: Element, parent: Element, x: number, y: number): Point => {
+  const own = offsetTo(container, parent, 0, 0)
+  return { x: x - own.x - container.clientLeft, y: y - own.y - container.clientTop }
+}
+
+/** `element`'s offset along its offset chain up to `ancestor` (its end, for `null`). */
+const offsetTo = (element: Element | null, ancestor: Element | null, x: number, y: number): Point => {
+  if (element === ancestor) return { x, y }
+  return Option.match(Option.filter(Option.fromNullOr(element), isHTMLElement), {
+    onNone: () => ({ x, y }),
+    onSome: (e) => offsetTo(e.offsetParent, ancestor, x + e.offsetLeft, y + e.offsetTop),
+  })
 }
 
 /** A target's size: an SVG shape's box, else its client size (Motion's `getTargetSize`). */
