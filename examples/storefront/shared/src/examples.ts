@@ -328,6 +328,9 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "Nothing changes: the bar is where the scroll is, not an animation of its own.",
     uses: ["createScroll", "createTransform", "scaleX in style"],
+    motion: {
+      note: "Motion's `useScroll` and `useTransform` are `createScroll` and `createTransform`, made in the component's body, and the panel is a ref. Motion renders a motion value as text, `<motion.span>{label}</motion.span>`, so React doesn't render the component again as the minutes change; Solid reads them in the markup, and only that text changes.",
+    },
     interact: "scroll:.reading-panel:600",
     watch: ".reading-bar",
   },
@@ -371,6 +374,9 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "The cards don't tilt, and the light is where the pointer is, without the spring. It still comes on and goes off.",
     uses: ["createSpring", "createTransform", "custom properties in style and variants", "whileHover", "when(\"hover\") (Solid\u00a02)"],
+    motion: {
+      note: "Motion's version hears the pointer through the card's `onPointerMove`, skipping a finger by its `pointerType`, and eases it back with `onHoverEnd`. Solid 2 hears it through the card's ward, `when(\"hover\")` with the point and the card, and `when(\"hoverEnd\")`; Solid 1 through `onHoverStart` and `onHoverEnd` and the element's `pointermove`. The springs and transforms are the same, and the light's place is a custom property in both, though Motion's `style` type doesn't name custom properties: its version casts.",
+    },
     interact: "drag:.spot-grid li:first-child .spot-card:60:40",
     watch: ".spot-grid li:first-child .spot-card",
   },

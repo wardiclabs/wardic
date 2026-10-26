@@ -1,16 +1,18 @@
 /**
  * The showcase's smoke test (#296 Q6, #366 Q9): `bun ../shared/src/smoke.ts <app>` from an app's
  * directory, after its build. It serves the production build (`vite preview` for the Solid apps,
- * `next start` for Motion's), opens the gallery and each example's route in Chromium (in Motion's
- * app, each example it has so far), and checks, for each:
+ * `next start` for Motion's), opens the gallery and each example's route in Chromium, and checks,
+ * for each:
  *
  * - it answers 200, with nothing logged as an error or a warning, no uncaught error, and no
  *   hydration mismatch;
  * - its demo moves, then settles: the example's `watch` element changes its computed opacity or
  *   transform after load (after a click on its `interact` element, for a demo that waits for the
  *   visitor), then holds still for 15 frames, within 5 s;
- * - in a Solid app, for an example the Next.js app has: the code's Motion tab shows Motion's files in
- *   place of the demo's, and links to it running (#366).
+ * - in a Solid app: the code's Motion tab shows Motion's files in place of the demo's, and links to
+ *   it running (#366).
+ *
+ * And that every example has its Motion version, in the Next.js app (#366 Q9).
  *
  * And that the store answers the browser itself, not only the server render: the visitor's cookie
  * is kept, and the header's store settings, fetched when the panel opens, load.
@@ -35,11 +37,14 @@ const base = `http://127.0.0.1:${config.port}`
 const shots = join(process.cwd(), ".smoke")
 mkdirSync(shots, { recursive: true })
 
-/** Whether the Next.js app has an example in Motion so far (#366 Q10): a folder in its `src/examples/`. */
+/** Whether the Next.js app has an example in Motion (#366): its folder in `src/examples/`. */
 const nextHas = (id: string): boolean => existsSync(join(process.cwd(), "..", "next", "src", "examples", id, "Demo.tsx"))
 
-/** The examples this app has: every one in a Solid app; in Motion's, those it has so far. */
-const examples = EXAMPLES.filter((example) => app !== "next" || nextHas(example.id))
+/** Every example has its Motion version (#366 Q9): one missing fails every app's run, named. */
+const completeness: Result = {
+  route: "every example in Motion (the Next.js app)",
+  problems: EXAMPLES.filter((example) => !nextHas(example.id)).map((example) => `${routeOf(example)} has no Motion version: next/src/examples/${example.id}/Demo.tsx`),
+}
 
 /** The app's own server for its build: its own Vite (`npx vite` from the app picks the repo root's older one), or Next.js. */
 const command: ReadonlyArray<string> =
@@ -250,7 +255,7 @@ const checkNavigation = async (page: Page): Promise<ReadonlyArray<Result>> => {
   const quiet = quietOf(page)
   await page.goto(base + "/", { waitUntil: "commit" })
   await quiet()
-  for (const example of examples) {
+  for (const example of EXAMPLES) {
     const route = routeOf(example)
     problems.length = 0
     documents = 0
@@ -269,14 +274,14 @@ const checkNavigation = async (page: Page): Promise<ReadonlyArray<Result>> => {
 
 await ready()
 const browser = await chromium.launch()
-const results: Array<Result> = []
+const results: Array<Result> = [completeness]
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
   results.push(await check(await context.newPage(), "/", undefined, undefined))
   const storeContext = await browser.newContext()
   results.push(await checkStore(storeContext, await storeContext.newPage()))
   await storeContext.close()
-  for (const example of examples) results.push(await check(await context.newPage(), routeOf(example), example.watch, example.interact, app !== "next" && nextHas(example.id)))
+  for (const example of EXAMPLES) results.push(await check(await context.newPage(), routeOf(example), example.watch, example.interact, app !== "next"))
   results.push(...(await checkNavigation(await context.newPage())))
 } finally {
   await browser.close()

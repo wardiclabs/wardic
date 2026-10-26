@@ -1,12 +1,10 @@
-/** The gallery (#296 Q3): each area, with the examples this app has in Motion so far. */
-import { AREAS, EXAMPLES, routeOf } from "@wardic/example-storefront-shared/examples"
+/** The gallery (#296 Q3): each area, with its examples, in Motion. */
+import { AREAS, examplesIn, routeOf } from "@wardic/example-storefront-shared/examples"
 import { ExampleCard } from "~/components/ExampleCard.tsx"
 import { summaryOf } from "~/components/ExamplePage.tsx"
-import { hasDemo } from "~/examples/index.ts"
 
 export default function Home() {
-  const here = EXAMPLES.filter((example) => hasDemo(example.id))
-  const areas = AREAS.map((area) => ({ area, examples: here.filter((example) => example.area === area.id) })).filter((one) => one.examples.length > 0)
+  const areas = AREAS.map((area) => ({ area, examples: examplesIn(area.id) }))
   return (
     <main className="page">
       <section className="hero">
@@ -19,11 +17,6 @@ export default function Home() {
           Each of Wardic&apos;s examples, written with <code>motion/react</code> on Next.js (App Router), running here. Every example&apos;s page in the Solid apps
           shows this code beside Wardic&apos;s, and links here to try it.
         </p>
-        {here.length < EXAMPLES.length && (
-          <p className="muted">
-            {here.length} of the {EXAMPLES.length} examples so far.
-          </p>
-        )}
       </section>
       {areas.map(({ area, examples }) => (
         <section key={area.id} className="area" aria-labelledby={`area-${area.id}`}>
