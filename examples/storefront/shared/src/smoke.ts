@@ -33,7 +33,13 @@ import { EXAMPLES, routeOf } from "./examples.ts"
 const app = process.argv[2] ?? ""
 if (!(app in APPS)) throw new Error(`smoke: an app is solid1, solid2 or next, not "${app}"`)
 const config = APPS[app as AppId]
-const base = `http://127.0.0.1:${config.port}`
+/**
+ * A deployment to check instead of this app's build (examples/storefront/deploy): its address, as
+ * `STOREFRONT_SMOKE_URL`, and, for a Solid app, where its Motion tab should link, as
+ * `STOREFRONT_NEXT_URL`. Nothing is started then.
+ */
+const deployed = process.env.STOREFRONT_SMOKE_URL
+const base = deployed ?? `http://127.0.0.1:${config.port}`
 const shots = join(process.cwd(), ".smoke")
 mkdirSync(shots, { recursive: true })
 
@@ -51,9 +57,9 @@ const command: ReadonlyArray<string> =
   app === "next"
     ? [join(process.cwd(), "node_modules", ".bin", "next"), "start", "--hostname", "127.0.0.1", "--port", String(config.port)]
     : [join(process.cwd(), "node_modules", ".bin", "vite"), "preview", "--host", "127.0.0.1", "--port", String(config.port), "--strictPort"]
-const server = spawn(command[0]!, command.slice(1), { stdio: "pipe", env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" } })
+const server = deployed === undefined ? spawn(command[0]!, command.slice(1), { stdio: "pipe", env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" } }) : undefined
 const stop = (): void => {
-  server.kill("SIGTERM")
+  server?.kill("SIGTERM")
 }
 process.on("exit", stop)
 
@@ -173,7 +179,8 @@ const checkTabs = async (page: Page, route: string, problems: Array<string>): Pr
   if (!(await shown(".code-pane-motion")) || (await shown(".code-pane-solid"))) problems.push("the Motion tab didn't show Motion's code in place of the demo's")
   if ((await page.locator(".code-pane-motion .code-file").count()) === 0) problems.push("the Motion tab has no files")
   const run = await page.getAttribute(".code-run", "href")
-  if (run === null || !run.endsWith(`:${APPS.next.port}${route}`)) problems.push(`the Motion tab's link goes to ${run}, not ${route} in the Next.js app`)
+  const expected = (process.env.STOREFRONT_NEXT_URL ?? `:${APPS.next.port}`) + route
+  if (run === null || !run.endsWith(expected)) problems.push(`the Motion tab's link goes to ${run}, not ${expected}`)
 }
 
 const check = async (page: Page, route: string, watch: string | undefined, interact: string | ReadonlyArray<string> | undefined, tabs = false): Promise<Result> => {

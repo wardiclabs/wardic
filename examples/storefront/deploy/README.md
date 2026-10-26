@@ -49,6 +49,13 @@ examples/storefront/deploy/deploy.sh
 
 It copies the source to the server (the repo is private: the server has no git access of its own), builds the image there, and restarts the apps whose image changed. Caddy keeps its certificates in a volume across deploys.
 
+Then check it from outside: the smoke test runs against a deployment when `STOREFRONT_SMOKE_URL` names it (and `STOREFRONT_NEXT_URL` where a Solid app's Motion tab should link), starting nothing itself:
+
+```sh
+cd examples/storefront/solid2   # or solid1, or next (its address: motion.<domain>)
+STOREFRONT_SMOKE_URL=https://solid2.<domain> STOREFRONT_NEXT_URL=https://motion.<domain> bun ../shared/src/smoke.ts solid2
+```
+
 On the server, in `~/wardic/examples/storefront/deploy`:
 - `docker compose ps`, `docker compose logs -f next`: what's running, and what it says;
 - `docker compose restart solid2`: one app again;
