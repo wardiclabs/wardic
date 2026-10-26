@@ -1,0 +1,14 @@
+# The storefront's image (examples/storefront/deploy) builds from the repo's source alone: what's
+# installed, built or scratch here stays out.
+**/node_modules
+.git
+.tmp
+.reference
+.direnv
+**/dist
+**/.next
+**/.smoke
+**/.output
+**/.vinxi
+**/*.log
+examples/storefront/deploy/.env

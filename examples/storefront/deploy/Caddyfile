@@ -1,0 +1,24 @@
+# The storefront demo's edge (#366): HTTPS for the domain and its three subdomains, certificates
+# from Let's Encrypt, each app proxied from the compose network. A live feed (Solid 2's `live()`,
+# the Next.js app's server-sent events) is flushed as it streams.
+
+# The landing page: which app to open. A template, so its links name the host it was asked for.
+{$STOREFRONT_DOMAIN} {
+	root * /srv/landing
+	templates
+	file_server
+}
+
+solid1.{$STOREFRONT_DOMAIN} {
+	# Its `vite preview` answers uncompressed (solid1/vite.config.ts): compressed here. It has no live feed.
+	encode zstd gzip
+	reverse_proxy solid1:4101
+}
+
+solid2.{$STOREFRONT_DOMAIN} {
+	reverse_proxy solid2:4102
+}
+
+motion.{$STOREFRONT_DOMAIN} {
+	reverse_proxy next:4103
+}

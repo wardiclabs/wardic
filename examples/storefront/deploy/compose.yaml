@@ -1,0 +1,61 @@
+# The storefront demo (#366): the three apps from one image, behind Caddy, which serves each on its
+# own subdomain of STOREFRONT_DOMAIN with HTTPS, and a landing page on the domain itself. Set
+# STOREFRONT_DOMAIN in `.env` beside this file (not in git). Only Caddy publishes ports.
+#
+#   docker compose --profile build build image   # build the apps' image (one build, not three)
+#   docker compose up -d --remove-orphans          # start, or restart what changed
+name: storefront
+
+x-app: &app
+  image: storefront-app:latest
+  pull_policy: never
+  restart: unless-stopped
+  environment:
+    # Each app's links to the others (shared/src/apps.ts).
+    STOREFRONT_SOLID1_URL: https://solid1.${STOREFRONT_DOMAIN:?set STOREFRONT_DOMAIN in .env}
+    STOREFRONT_SOLID2_URL: https://solid2.${STOREFRONT_DOMAIN}
+    STOREFRONT_NEXT_URL: https://motion.${STOREFRONT_DOMAIN}
+    # `vite preview` answers only the hosts it knows: the domain's subdomains.
+    __VITE_ADDITIONAL_SERVER_ALLOWED_HOSTS: .${STOREFRONT_DOMAIN}
+    NEXT_TELEMETRY_DISABLED: "1"
+
+services:
+  # Builds the image the apps run; only with `--profile build`.
+  image:
+    build:
+      context: ../../..
+      dockerfile: examples/storefront/deploy/Dockerfile
+    image: storefront-app:latest
+    profiles: [build]
+
+  solid1:
+    <<: *app
+    working_dir: /app/examples/storefront/solid1
+    command: [node_modules/.bin/vite, preview, --host, 0.0.0.0, --port, "4101", --strictPort]
+
+  solid2:
+    <<: *app
+    working_dir: /app/examples/storefront/solid2
+    command: [node_modules/.bin/vite, preview, --host, 0.0.0.0, --port, "4102", --strictPort]
+
+  next:
+    <<: *app
+    working_dir: /app/examples/storefront/next
+    command: [node_modules/.bin/next, start, --hostname, 0.0.0.0, --port, "4103"]
+
+  caddy:
+    image: caddy:2.11.7
+    restart: unless-stopped
+    ports: ["80:80", "443:443", "443:443/udp"]
+    environment:
+      STOREFRONT_DOMAIN: ${STOREFRONT_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./landing:/srv/landing:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on: [solid1, solid2, next]
+
+volumes:
+  caddy_data:
+  caddy_config:
