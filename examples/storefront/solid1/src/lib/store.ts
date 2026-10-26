@@ -62,6 +62,4 @@ export const saveSettings = action(async (next: Settings) => {
   return reload({ revalidate: settings.key })
 }, "save-settings")
 
-export const highlighted = query((exampleId: string) => Server.highlightedSource(exampleId), "highlighted")
-
-export const highlightedMotion = query((file: string) => Server.highlightedMotion(file), "highlighted-motion")
+export const highlighted = query((exampleId: string) => Server.highlightedCode(exampleId), "highlighted")

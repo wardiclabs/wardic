@@ -328,6 +328,12 @@ button {
   color: var(--accent-ink);
 }
 
+.badge-motion {
+  background: var(--tile);
+  color: var(--ink);
+  box-shadow: inset 0 0 0 1px var(--line);
+}
+
 .badge-unstable {
   background: var(--warn-soft);
   color: var(--warn);
@@ -684,24 +690,73 @@ button {
   min-width: 0;
 }
 
-.code-tabs {
+.code-head {
   display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+/*
+ * The code's tabs (#366 Q2): the app's own Solid and Motion's, as radios, so they switch with no
+ * JavaScript, and the arrow keys move between them.
+ */
+.code-tabs {
+  position: relative;
+  display: flex;
+  flex-wrap: wrap;
   gap: var(--space-2);
 }
 
-.code-tabs button {
+.code-tabs input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+.code-tabs label {
   padding: 6px 14px;
   border: 1px solid var(--line);
   border-radius: 999px;
-  background: transparent;
   font-size: var(--text-s);
   cursor: pointer;
 }
 
-.code-tabs button[aria-selected="true"] {
+.code-tabs input:checked + label {
   background: var(--ink);
   color: var(--paper);
   border-color: var(--ink);
+}
+
+.code-tabs input:focus-visible + label {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.code-pane {
+  display: grid;
+  gap: var(--space-3);
+  min-width: 0;
+}
+
+.code:has(.code-tab-motion:checked) .code-pane-solid,
+.code:has(.code-tab-solid:checked) .code-pane-motion {
+  display: none;
+}
+
+/* Motion's code, and where it runs. */
+.code-run {
+  justify-self: start;
+  font-size: var(--text-s);
+}
+
+/* On Motion's page, the same example in the Solid apps. */
+.other-apps {
+  font-size: var(--text-s);
 }
 
 .motion-note {

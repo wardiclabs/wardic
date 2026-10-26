@@ -1,6 +1,7 @@
 /**
  * An example's page (#296 Q3): the live demo, a line on what reduced motion does to it, why it's
- * worth reaching for, then its code, a server component highlighted on the server.
+ * worth reaching for, then its code, a server component highlighted on the server, beside Motion's
+ * version where the Next.js app has it (#366).
  */
 import { Dynamic, dynamic } from "@solidjs/web"
 import { AREAS, exampleById } from "@wardic/example-storefront-shared/examples"
@@ -8,7 +9,7 @@ import { codeParts } from "@wardic/example-storefront-shared/format"
 import { BACK } from "@wardic/example-storefront-shared/micro"
 import { wardic } from "@wardic/solid/unstable/v2"
 import { type Component, createSignal, For, Loading, Show } from "solid-js"
-import { codeFile, motionFile } from "~/server/code.tsx"
+import { codeFiles } from "~/server/code.tsx"
 
 /** Text with `backticked` code. */
 export function Prose(props: { readonly text: string }) {
@@ -23,30 +24,22 @@ export function Prose(props: { readonly text: string }) {
   )
 }
 
-function CodePanel(props: { readonly id: string }) {
+/** The demo's code and Motion's, with what differs between them above (#366 Q2). */
+function CodePanel(props: { readonly id: string; readonly note: string | undefined }) {
   // A server component: the server function returns a template, and `dynamic` renders it here.
-  const CodeFile = dynamic(() => codeFile(props.id))
+  const CodeFiles = dynamic(() => codeFiles(props.id))
   return (
     <section class="code" aria-labelledby="code-title">
       <h2 id="code-title">The code</h2>
+      <Show when={props.note}>
+        {(note) => (
+          <p class="motion-note">
+            <Prose text={note()} />
+          </p>
+        )}
+      </Show>
       <Loading fallback={<pre class="muted">Highlighting…</pre>}>
-        <CodeFile />
-      </Loading>
-    </section>
-  )
-}
-
-/** Where porting from Motion isn't mechanical (#296 Q4): what differs, and Motion's version, a server component too. */
-function MotionPanel(props: { readonly file: string; readonly note: string }) {
-  const MotionFile = dynamic(() => motionFile(props.file))
-  return (
-    <section class="code" aria-labelledby="motion-title">
-      <h2 id="motion-title">Coming from Motion</h2>
-      <p class="motion-note">
-        <Prose text={props.note} />
-      </p>
-      <Loading fallback={<pre class="muted">Highlighting…</pre>}>
-        <MotionFile />
+        <CodeFiles />
       </Loading>
     </section>
   )
@@ -108,8 +101,7 @@ export function ExamplePage(props: { readonly id: string; readonly demo: Compone
           )}
         </For>
       </section>
-      <CodePanel id={props.id} />
-      <Show when={example.motion}>{(motion) => <MotionPanel file={motion().file} note={motion().note} />}</Show>
+      <CodePanel id={props.id} note={example.motion?.note} />
     </main>
   )
 }

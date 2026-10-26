@@ -36,19 +36,37 @@ export interface Photo {
   readonly height: number
 }
 
+/**
+ * An imported image's URL. Vite imports one as its URL; Next.js (#366) as an object holding it, with
+ * its size.
+ */
+type Asset = string | { readonly src: string }
+
+const urlOf = (asset: Asset): string => {
+  if (typeof asset === "string") return asset
+  return asset.src
+}
+
+const photoFrom = (small: Asset, large: Asset, width: number, height: number): Photo => ({
+  small: urlOf(small),
+  large: urlOf(large),
+  width,
+  height,
+})
+
 const PHOTOS: Readonly<Record<string, Photo>> = {
-  "blossom-jar": { small: blossomJarSmall, large: blossomJarLarge, width: 1024, height: 1024 },
-  "bottle-vase": { small: bottleVaseSmall, large: bottleVaseLarge, width: 819, height: 1024 },
-  "celadon-bowl": { small: celadonBowlSmall, large: celadonBowlLarge, width: 1024, height: 774 },
-  "celadon-dish": { small: celadonDishSmall, large: celadonDishLarge, width: 1024, height: 1024 },
-  "cut-carafe": { small: cutCarafeSmall, large: cutCarafeLarge, width: 761, height: 1024 },
-  "lagoon-vase": { small: lagoonVaseSmall, large: lagoonVaseLarge, width: 909, height: 1024 },
-  "moon-vase": { small: moonVaseSmall, large: moonVaseLarge, width: 1024, height: 958 },
-  "painted-jug": { small: paintedJugSmall, large: paintedJugLarge, width: 1024, height: 921 },
-  "poppy-plate": { small: poppyPlateSmall, large: poppyPlateLarge, width: 1024, height: 1024 },
-  "slip-dish": { small: slipDishSmall, large: slipDishLarge, width: 1024, height: 1024 },
-  "tulip-bowl": { small: tulipBowlSmall, large: tulipBowlLarge, width: 1024, height: 666 },
-  "white-bowl": { small: whiteBowlSmall, large: whiteBowlLarge, width: 1024, height: 651 },
+  "blossom-jar": photoFrom(blossomJarSmall, blossomJarLarge, 1024, 1024),
+  "bottle-vase": photoFrom(bottleVaseSmall, bottleVaseLarge, 819, 1024),
+  "celadon-bowl": photoFrom(celadonBowlSmall, celadonBowlLarge, 1024, 774),
+  "celadon-dish": photoFrom(celadonDishSmall, celadonDishLarge, 1024, 1024),
+  "cut-carafe": photoFrom(cutCarafeSmall, cutCarafeLarge, 761, 1024),
+  "lagoon-vase": photoFrom(lagoonVaseSmall, lagoonVaseLarge, 909, 1024),
+  "moon-vase": photoFrom(moonVaseSmall, moonVaseLarge, 1024, 958),
+  "painted-jug": photoFrom(paintedJugSmall, paintedJugLarge, 1024, 921),
+  "poppy-plate": photoFrom(poppyPlateSmall, poppyPlateLarge, 1024, 1024),
+  "slip-dish": photoFrom(slipDishSmall, slipDishLarge, 1024, 1024),
+  "tulip-bowl": photoFrom(tulipBowlSmall, tulipBowlLarge, 1024, 666),
+  "white-bowl": photoFrom(whiteBowlSmall, whiteBowlLarge, 1024, 651),
 }
 
 /** A product's photo, by its id. */

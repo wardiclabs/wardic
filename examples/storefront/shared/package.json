@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "What the storefront showcase's two apps share (#296): the catalog and its photos, the stylesheet, the examples' registry, the store in Effect, the Motion snippets and the smoke runner.",
+  "description": "What the storefront showcase's apps share (#296, #366): the catalog and its photos, the stylesheet, the examples' registry, the apps' addresses, the store in Effect and the smoke runner.",
   "exports": {
     "./catalog": "./src/catalog.ts",
     "./images": "./src/images.ts",
@@ -13,18 +13,17 @@
     "./format": "./src/format.ts",
     "./micro": "./src/micro.ts",
     "./hydration": "./src/hydration.ts",
-    "./stories": "./src/stories.ts"
+    "./stories": "./src/stories.ts",
+    "./apps": "./src/apps.ts",
+    "./code": "./src/code.ts"
   },
   "scripts": {
-    "typecheck": "../../../node_modules/typescript-7/bin/tsc --noEmit && ../../../node_modules/typescript-7/bin/tsc --noEmit -p motion"
+    "typecheck": "../../../node_modules/typescript-7/bin/tsc --noEmit"
   },
   "dependencies": {
     "effect": "4.0.5"
   },
   "devDependencies": {
-    "@types/react": "19.3.0",
-    "motion": "14.6.0",
-    "react": "19.3.1",
     "vite": "8.3.4"
   }
 }

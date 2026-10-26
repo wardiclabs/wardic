@@ -1,13 +1,16 @@
 /**
- * The showcase's smoke test (#296 Q6): `bun ../shared/src/smoke.ts <app>` from an app's directory,
- * after `vite build`. It serves the production build with `vite preview`, opens the gallery and each
- * example's route in Chromium, and checks, for each:
+ * The showcase's smoke test (#296 Q6, #366 Q9): `bun ../shared/src/smoke.ts <app>` from an app's
+ * directory, after its build. It serves the production build (`vite preview` for the Solid apps,
+ * `next start` for Motion's), opens the gallery and each example's route in Chromium (in Motion's
+ * app, each example it has so far), and checks, for each:
  *
  * - it answers 200, with nothing logged as an error or a warning, no uncaught error, and no
  *   hydration mismatch;
  * - its demo moves, then settles: the example's `watch` element changes its computed opacity or
  *   transform after load (after a click on its `interact` element, for a demo that waits for the
- *   visitor), then holds still for 15 frames, within 5 s.
+ *   visitor), then holds still for 15 frames, within 5 s;
+ * - in a Solid app, for an example the Next.js app has: the code's Motion tab shows Motion's files in
+ *   place of the demo's, and links to it running (#366).
  *
  * And that the store answers the browser itself, not only the server render: the visitor's cookie
  * is kept, and the header's store settings, fetched when the panel opens, load.
@@ -19,23 +22,31 @@
  * Each page's screenshot lands in `<app>/.smoke/`, for a person to look at. Exits 1 on any failure.
  */
 import { spawn } from "node:child_process"
-import { mkdirSync } from "node:fs"
+import { existsSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { type BrowserContext, chromium, type ConsoleMessage, type Page, type Request } from "playwright"
+import { APPS, type AppId } from "./apps.ts"
 import { EXAMPLES, routeOf } from "./examples.ts"
 
-const APPS: Readonly<Record<string, { readonly port: number }>> = { solid1: { port: 4101 }, solid2: { port: 4102 } }
-
 const app = process.argv[2] ?? ""
-const config = APPS[app]
-if (config === undefined) throw new Error(`smoke: an app is solid1 or solid2, not "${app}"`)
+if (!(app in APPS)) throw new Error(`smoke: an app is solid1, solid2 or next, not "${app}"`)
+const config = APPS[app as AppId]
 const base = `http://127.0.0.1:${config.port}`
 const shots = join(process.cwd(), ".smoke")
 mkdirSync(shots, { recursive: true })
 
-// The app's own Vite: `npx vite` from the app picks the repo root's older one.
-const vite = join(process.cwd(), "node_modules", ".bin", "vite")
-const server = spawn(vite, ["preview", "--host", "127.0.0.1", "--port", String(config.port), "--strictPort"], { stdio: "pipe" })
+/** Whether the Next.js app has an example in Motion so far (#366 Q10): a folder in its `src/examples/`. */
+const nextHas = (id: string): boolean => existsSync(join(process.cwd(), "..", "next", "src", "examples", id, "Demo.tsx"))
+
+/** The examples this app has: every one in a Solid app; in Motion's, those it has so far. */
+const examples = EXAMPLES.filter((example) => app !== "next" || nextHas(example.id))
+
+/** The app's own server for its build: its own Vite (`npx vite` from the app picks the repo root's older one), or Next.js. */
+const command: ReadonlyArray<string> =
+  app === "next"
+    ? [join(process.cwd(), "node_modules", ".bin", "next"), "start", "--hostname", "127.0.0.1", "--port", String(config.port)]
+    : [join(process.cwd(), "node_modules", ".bin", "vite"), "preview", "--host", "127.0.0.1", "--port", String(config.port), "--strictPort"]
+const server = spawn(command[0]!, command.slice(1), { stdio: "pipe", env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" } })
 const stop = (): void => {
   server.kill("SIGTERM")
 }
@@ -81,14 +92,19 @@ const sampleFrames = (page: Page, selector: string, ms: number): Promise<Readonl
   )
 
 /**
+ * A live feed's request: Solid 2's `live()`, under `/_server/live/`, or the Motion app's server-sent
+ * events (`/api/wishlist`). It stays open for as long as the page shows it.
+ */
+const isFeed = (request: Request): boolean => request.url().includes("/_server/live/") || request.url().includes("/api/wishlist")
+
+/**
  * Waits for `page` to have loaded and its network to go quiet: no request open for half a second.
- * As Playwright's `networkidle`, but a live feed (Solid 2's `live()`, under `/_server/live/`) stays
- * open for as long as the page shows it, so it doesn't count.
+ * As Playwright's `networkidle`, but a live feed doesn't count.
  */
 const quietOf = (page: Page): (() => Promise<void>) => {
   const open = new Set<Request>()
   page.on("request", (request) => {
-    if (!request.url().includes("/_server/live/")) open.add(request)
+    if (!isFeed(request)) open.add(request)
   })
   page.on("requestfinished", (request) => open.delete(request))
   page.on("requestfailed", (request) => open.delete(request))
@@ -138,7 +154,22 @@ interface Result {
   readonly problems: ReadonlyArray<string>
 }
 
-const check = async (page: Page, route: string, watch: string | undefined, interact: string | ReadonlyArray<string> | undefined): Promise<Result> => {
+/**
+ * The code's tabs on a Solid app's page (#366 Q2), for an example the Next.js app has: the Motion tab
+ * shows Motion's files in place of the demo's, and its link goes to the example in the Next.js app.
+ */
+const checkTabs = async (page: Page, route: string, problems: Array<string>): Promise<void> => {
+  if ((await page.locator("label[for=code-motion]").count()) === 0) return void problems.push("no Motion tab beside the code")
+  const shown = (selector: string): Promise<boolean> => page.$eval(selector, (el) => getComputedStyle(el).display !== "none")
+  if (await shown(".code-pane-motion")) problems.push("Motion's code shows before its tab is chosen")
+  await page.click("label[for=code-motion]")
+  if (!(await shown(".code-pane-motion")) || (await shown(".code-pane-solid"))) problems.push("the Motion tab didn't show Motion's code in place of the demo's")
+  if ((await page.locator(".code-pane-motion .code-file").count()) === 0) problems.push("the Motion tab has no files")
+  const run = await page.getAttribute(".code-run", "href")
+  if (run === null || !run.endsWith(`:${APPS.next.port}${route}`)) problems.push(`the Motion tab's link goes to ${run}, not ${route} in the Next.js app`)
+}
+
+const check = async (page: Page, route: string, watch: string | undefined, interact: string | ReadonlyArray<string> | undefined, tabs = false): Promise<Result> => {
   const problems: Array<string> = []
   const onConsole = (message: ConsoleMessage): void => {
     if (failing(message)) problems.push(`console ${message.type()}: ${message.text().slice(0, 200)}`)
@@ -165,6 +196,7 @@ const check = async (page: Page, route: string, watch: string | undefined, inter
   }
   await quiet()
   await page.screenshot({ path: join(shots, `${route.replaceAll("/", "_") || "_"}.png`), fullPage: true })
+  if (tabs) await checkTabs(page, route, problems)
   page.off("console", onConsole)
   page.off("pageerror", onError)
   return { route, problems }
@@ -216,7 +248,7 @@ const checkNavigation = async (page: Page): Promise<ReadonlyArray<Result>> => {
   const quiet = quietOf(page)
   await page.goto(base + "/", { waitUntil: "commit" })
   await quiet()
-  for (const example of EXAMPLES) {
+  for (const example of examples) {
     const route = routeOf(example)
     problems.length = 0
     documents = 0
@@ -242,7 +274,7 @@ try {
   const storeContext = await browser.newContext()
   results.push(await checkStore(storeContext, await storeContext.newPage()))
   await storeContext.close()
-  for (const example of EXAMPLES) results.push(await check(await context.newPage(), routeOf(example), example.watch, example.interact))
+  for (const example of examples) results.push(await check(await context.newPage(), routeOf(example), example.watch, example.interact, app !== "next" && nextHas(example.id)))
   results.push(...(await checkNavigation(await context.newPage())))
 } finally {
   await browser.close()

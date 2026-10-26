@@ -1,6 +1,7 @@
 /**
  * An example's page (#296 Q3): the live demo, a line on what reduced motion does to it, why it's
- * worth reaching for, then its code, highlighted on the server.
+ * worth reaching for, then its code, highlighted on the server, beside Motion's version where the
+ * Next.js app has it (#366).
  */
 import { A, createAsync } from "@solidjs/router"
 import { AREAS, exampleById } from "@wardic/example-storefront-shared/examples"
@@ -9,7 +10,8 @@ import { codeParts } from "@wardic/example-storefront-shared/format"
 import { type Component, createSignal, For, Show, Suspense } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { wardic } from "@wardic/solid"
-import { highlighted, highlightedMotion } from "~/lib/store.ts"
+import type { Highlighted } from "~/lib/server.ts"
+import { highlighted } from "~/lib/store.ts"
 
 /** The crumbs' link home: its hover's name passes to its arrow, which nudges toward where it goes (#365). */
 const BackLink = wardic.create(A)
@@ -27,36 +29,54 @@ export function Prose(props: { readonly text: string }) {
   )
 }
 
-function CodePanel(props: { readonly id: string }) {
-  const html = createAsync(() => highlighted(props.id))
+function CodeFile(props: { readonly file: Highlighted }) {
   return (
-    <section class="code" aria-labelledby="code-title">
-      <h2 id="code-title">The code</h2>
-      <div class="code-file">
-        <header>examples/{props.id}/Demo.tsx</header>
-        <Suspense fallback={<pre>Highlighting…</pre>}>
-          <div innerHTML={html()} />
-        </Suspense>
-      </div>
-    </section>
+    <div class="code-file">
+      <header>{props.file.path}</header>
+      <div innerHTML={props.file.html} />
+    </div>
   )
 }
 
-/** Where porting from Motion isn't mechanical (#296 Q4): what differs, and Motion's version. */
-function MotionPanel(props: { readonly file: string; readonly note: string }) {
-  const html = createAsync(() => highlightedMotion(props.file))
+/**
+ * The demo's code and, where the Next.js app has it, Motion's beside it in a tab (#366 Q2), with
+ * what differs between them above.
+ */
+function CodePanel(props: { readonly id: string; readonly note: string | undefined }) {
+  const code = createAsync(() => highlighted(props.id))
   return (
-    <section class="code" aria-labelledby="motion-title">
-      <h2 id="motion-title">Coming from Motion</h2>
-      <p class="motion-note">
-        <Prose text={props.note} />
-      </p>
-      <div class="code-file">
-        <header>Motion (React): {props.file}</header>
-        <Suspense fallback={<pre>Highlighting…</pre>}>
-          <div innerHTML={html()} />
-        </Suspense>
-      </div>
+    <section class="code" aria-labelledby="code-title">
+      <h2 id="code-title">The code</h2>
+      <Show when={props.note}>
+        {(note) => (
+          <p class="motion-note">
+            <Prose text={note()} />
+          </p>
+        )}
+      </Show>
+      <Suspense fallback={<pre class="muted">Highlighting…</pre>}>
+        <Show when={code()}>
+          {(code) => (
+            <Show when={code().motion.length > 0} fallback={<CodeFile file={code().solid} />}>
+              <div class="code-tabs" role="radiogroup" aria-label="The code in">
+                <input type="radio" class="code-tab-solid" name="code" id="code-solid" checked />
+                <label for="code-solid">Solid 1</label>
+                <input type="radio" class="code-tab-motion" name="code" id="code-motion" />
+                <label for="code-motion">Motion · Next.js</label>
+              </div>
+              <div class="code-pane code-pane-solid">
+                <CodeFile file={code().solid} />
+              </div>
+              <div class="code-pane code-pane-motion">
+                <For each={code().motion}>{(file) => <CodeFile file={file} />}</For>
+                <a class="code-run" href={code().run}>
+                  Run Motion's version →
+                </a>
+              </div>
+            </Show>
+          )}
+        </Show>
+      </Suspense>
     </section>
   )
 }
@@ -111,8 +131,7 @@ export function ExamplePage(props: { readonly id: string; readonly demo: Compone
           )}
         </For>
       </section>
-      <CodePanel id={props.id} />
-      <Show when={example.motion}>{(motion) => <MotionPanel file={motion().file} note={motion().note} />}</Show>
+      <CodePanel id={props.id} note={example.motion?.note} />
     </main>
   )
 }
