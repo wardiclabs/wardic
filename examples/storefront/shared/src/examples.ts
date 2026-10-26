@@ -338,9 +338,10 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     why: [
       "A card that answers the pointer feels like an object: tilting toward where you point, with a light where your pointer is, it invites a closer look without a single extra control.",
       "The pointer's place over the card, from -1 to 1 each way, is two signals that two `createSpring`s follow, so the card eases toward the pointer and back to rest when it leaves. `createTransform` maps the springs twice: to `rotateX` and `rotateY` in the card's `style`, and to where its light sits, as custom properties the stylesheet's radial gradient reads. The light comes on through a variant that animates a custom property of its own, `--light`, from 0 to 1 under hover.",
+      "The card hears its hover from Wardic. On Solid 2, its ward is made beside the effects that read it and given to the element through `wardRef`: an effect over `card.when(\"hoverStart\")` puts the light where the pointer came in, and one over `card.when(\"hoverEnd\")` sends the card back flat. On Solid 1 those are the element's `onHoverStart` and `onHoverEnd`. A ward tells a hover's start and end, as Motion does, not each move, so the moves in between are the element's own `pointermove`. Touch never hovers, so on a phone the cards stay still.",
     ],
     reducedMotion: "The cards don't tilt, and the light is where the pointer is, without the spring. It still comes on and goes off.",
-    uses: ["createSpring", "createTransform", "custom properties in style and variants", "whileHover"],
+    uses: ["createSpring", "createTransform", "custom properties in style and variants", "whileHover", "when(\"hoverStart\") (Solid 2)"],
     interact: "drag:.spot-grid li:first-child .spot-card:60:40",
     watch: ".spot-grid li:first-child .spot-card",
   },

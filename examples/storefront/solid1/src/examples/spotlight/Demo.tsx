@@ -2,7 +2,7 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { createSpring, createTransform, wardic } from "@wardic/solid"
+import { createSpring, createTransform, wardic, type WardicPoint } from "@wardic/solid"
 import { createSignal, For } from "solid-js"
 import { useReducedMotion } from "~/lib/preferences.tsx"
 
@@ -42,10 +42,12 @@ function SpotCard(props: { readonly product: Product }) {
   const lightX = createTransform(springAcross, [-1, 1], ["0%", "100%"])
   const lightY = createTransform(springDown, [-1, 1], ["0%", "100%"])
 
-  const follow = (event: PointerEvent) => {
-    const box = (event.currentTarget as HTMLElement).getBoundingClientRect()
-    const atAcross = ((event.clientX - box.left) / box.width) * 2 - 1
-    const atDown = ((event.clientY - box.top) / box.height) * 2 - 1
+  let el!: HTMLElement
+  // A point in the viewport, as a place on the card.
+  const place = (point: WardicPoint) => {
+    const box = el.getBoundingClientRect()
+    const atAcross = ((point.x - box.left) / box.width) * 2 - 1
+    const atDown = ((point.y - box.top) / box.height) * 2 - 1
     setAcross(atAcross)
     setDown(atDown)
     // Under reduced motion the light doesn't glide either: it's where the pointer is.
@@ -53,10 +55,6 @@ function SpotCard(props: { readonly product: Product }) {
       springAcross.jump(atAcross)
       springDown.jump(atDown)
     }
-  }
-  const leave = () => {
-    setAcross(0)
-    setDown(0)
   }
 
   const photo = photoOf(props.product.id)
@@ -68,9 +66,20 @@ function SpotCard(props: { readonly product: Product }) {
         initial="rest"
         animate="rest"
         whileHover="lit"
-        onPointerMove={follow}
-        onPointerLeave={leave}
         style={{ rotateX, rotateY, "--light-x": lightX, "--light-y": lightY }}
+        ref={el}
+        // Its hover: the light starts where the pointer came in, and when the pointer leaves, the
+        // card eases back flat.
+        onHoverStart={(_event, start) => place(start.point)}
+        onHoverEnd={() => {
+          setAcross(0)
+          setDown(0)
+        }}
+        // The moves in between: a hover tells its start and end, as Motion's does, not each move.
+        // Touch never hovers, so a finger moves nothing.
+        onPointerMove={(event) => {
+          if (event.pointerType !== "touch") place({ x: event.clientX, y: event.clientY })
+        }}
       >
         <div class="photo">
           <img src={photo.small} srcset={srcsetOf(photo)} sizes="(max-width: 640px) 100vw, 240px" width={photo.width} height={photo.height} alt={props.product.name} />
