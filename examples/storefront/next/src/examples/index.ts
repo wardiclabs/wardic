@@ -10,14 +10,19 @@ import CartDrawer from "./cart-drawer/Demo.tsx"
 import DeliveryFaq from "./delivery-faq/Demo.tsx"
 import Gallery from "./gallery/Demo.tsx"
 import Magnifier from "./magnifier/Demo.tsx"
+import Notifications from "./notifications/Demo.tsx"
 import OrderHistory from "./order-history/Demo.tsx"
 import ProductDetail from "./product-detail/Demo.tsx"
+import ProductGrid from "./product-grid/Demo.tsx"
 import ProductTabs from "./product-tabs/Demo.tsx"
+import QuickView from "./quick-view/Demo.tsx"
 import SavedForLater from "./saved/Demo.tsx"
 import Stock from "./stock/Demo.tsx"
+import Toasts from "./toasts/Demo.tsx"
 import SharedWishlist from "./wishlist/Demo.tsx"
 
 export const DEMOS: Readonly<Record<string, ComponentType>> = {
+  "product-grid": ProductGrid,
   stock: Stock,
   "product-detail": ProductDetail,
   browse: Browse,
@@ -26,8 +31,11 @@ export const DEMOS: Readonly<Record<string, ComponentType>> = {
   "delivery-faq": DeliveryFaq,
   "cart-drawer": CartDrawer,
   "order-history": OrderHistory,
+  notifications: Notifications,
   wishlist: SharedWishlist,
+  toasts: Toasts,
   gallery: Gallery,
+  "quick-view": QuickView,
   saved: SavedForLater,
   magnifier: Magnifier,
   "before-hydration": BeforeHydration,
