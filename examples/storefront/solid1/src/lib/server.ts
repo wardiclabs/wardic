@@ -28,6 +28,10 @@ export async function getProduct(id: string) {
   return Store.runFor(visitor(), Store.getProduct(id))
 }
 
+export async function getStock(when: "now" | "delivery") {
+  return Store.runFor(visitor(), Store.getStock(when))
+}
+
 export async function getCart() {
   return Store.runFor(visitor(), Store.getCart)
 }

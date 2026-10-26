@@ -415,6 +415,27 @@ export const getProduct = (id: unknown) =>
     }),
   )
 
+/** When the stock is counted (#390): now, or after the next delivery. */
+const StockWhen = Schema.Literals(["now", "delivery"])
+
+/** A piece's stock after the next delivery: up by its own amount, one to three. */
+const afterDelivery = (product: Product): number => product.stock + 1 + (hashOf(product.id) % 3)
+
+/** Each piece's stock by id (#390), now or after the next delivery. */
+export const getStock = (when: unknown) =>
+  call(
+    Effect.gen(function* () {
+      const at = yield* decoded(StockWhen, when)
+      const catalog = yield* Catalog
+      const all = yield* catalog.all
+      const count = (product: Product): number => {
+        if (at === "now") return product.stock
+        return afterDelivery(product)
+      }
+      return Object.fromEntries(Arr.map(all, (product) => [product.id, count(product)] as const)) as Readonly<Record<string, number>>
+    }),
+  )
+
 /** The visitor's cart. */
 export const getCart = call(Carts.use((carts) => carts.get))
 

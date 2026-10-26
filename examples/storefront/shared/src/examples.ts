@@ -61,6 +61,25 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     watch: ".product-card",
   },
   {
+    id: "stock",
+    area: "entrances",
+    title: "Stock that fills in as it arrives",
+    summary: "Each piece's stock meter fills in once the store's count arrives, and says when it has settled. Switch to after the delivery and they fill up from where they are.",
+    why: [
+      "A meter that fills to its level says more than a number alone, and one that waits for the real count before it fills never shows a guess. Switch to after the next delivery and each bar grows from where it was, so you see what the delivery brings.",
+      "On Solid 2 the count is an async memo over the store's server function, and each bar's `animate` reads it. Under `<Loading>` the meters wait as a skeleton until the first count lands, then fill from `initial`. A later count keeps the bars where they are until it lands, with no flash of the skeleton, and `isPending` says the store is being checked. The label beside each bar reads the bar's ward: `isPending(() => bar.settled())` holds while its animation runs (\"filling…\"), and the count shows once it has landed.",
+      "On Solid 1, `createAsync` reads the count under `<Suspense>`, a switch runs in a transition so the bars stay while the next count loads, and each bar says when it's done through `onAnimationStart` and `onAnimationComplete`, setting a signal. Solid 2 reads both from what it already has: the wait is the memo's, and \"animating\" is `settled()` pending. Try the header's delay to watch the wait.",
+    ],
+    reducedMotion: "The bars are at their level at once, Wardic's reduced motion snapping their scale, and each label shows its count straight away.",
+    uses: ["animate from async data", "<Loading> (Solid 2)", "settled() and isPending (Solid 2)", "onAnimationComplete (Solid 1)"],
+    motion: {
+      file: "stock.tsx",
+      note: "Motion has no async values. React's `<Suspense>` waits for the count with `use(promise)`, a transition keeps the bars on a switch, and each bar's \"filling…\" is a `useState` set from `onAnimationStart` and `onAnimationComplete`, as on Solid 1. Solid 2 reads both from what it already has: the memo's pending count, and the ward's `settled()`.",
+    },
+    interact: ".stock .segmented button:nth-child(2)",
+    watch: ".stock-row:first-child .meter-fill",
+  },
+  {
     id: "product-detail",
     area: "layout",
     title: "A product opens into its detail view",

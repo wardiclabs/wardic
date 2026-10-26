@@ -11,6 +11,8 @@ export const products = query(Server.listProducts, "products")
 
 export const product = query(Server.getProduct, "product")
 
+export const stock = query(Server.getStock, "stock")
+
 export const cart = query(Server.getCart, "cart")
 
 export const orders = query(Server.getOrders, "orders")
