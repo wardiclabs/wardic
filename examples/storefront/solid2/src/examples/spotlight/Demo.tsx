@@ -2,7 +2,7 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { createSpring, createTransform, type WardPoint, ward, wardic } from "@wardic/solid/unstable/v2"
+import { createSpring, createTransform, type WardElement, type WardPoint, ward, wardic } from "@wardic/solid/unstable/v2"
 import { createEffect, createSignal, For } from "solid-js"
 import { useReducedMotion } from "~/lib/preferences.tsx"
 
@@ -27,7 +27,6 @@ export default function Spotlight() {
 
 function SpotCard(props: { readonly product: Product }) {
   const reduced = useReducedMotion()
-  let el!: HTMLElement
   // Where the pointer is over the card, from -1 to 1 across and down: 0, 0 at its centre.
   const [across, setAcross] = createSignal(0)
   const [down, setDown] = createSignal(0)
@@ -43,9 +42,9 @@ function SpotCard(props: { readonly product: Product }) {
   const lightX = createTransform(springAcross, [-1, 1], ["0%", "100%"])
   const lightY = createTransform(springDown, [-1, 1], ["0%", "100%"])
 
-  // A point in the viewport, as a place on the card.
-  const place = (point: WardPoint) => {
-    const box = el.getBoundingClientRect()
+  // A point in the viewport, as a place on the card it's over.
+  const place = (point: WardPoint, card: WardElement) => {
+    const box = card.getBoundingClientRect()
     const atAcross = ((point.x - box.left) / box.width) * 2 - 1
     const atDown = ((point.y - box.top) / box.height) * 2 - 1
     setAcross(atAcross)
@@ -65,9 +64,10 @@ function SpotCard(props: { readonly product: Product }) {
     whileHover: "lit",
     style: { rotateX, rotateY, "--light-x": lightX, "--light-y": lightY },
   })
-  // Its hover, through `when` (#355): the light starts where the pointer came in, and when the
-  // pointer leaves, the card eases back flat.
-  createEffect(card.when("hoverStart"), (start) => place(start.point))
+  // Its hover, through `when` (#355): the pointer over the card, from where it came in and at each
+  // move, with the card it's over (#397), places the light and the tilt; when it leaves, the card
+  // eases back flat. Touch never hovers, so a finger moves nothing.
+  createEffect(card.when("hover"), ({ point, element }) => place(point, element))
   createEffect(card.when("hoverEnd"), () => {
     setAcross(0)
     setDown(0)
@@ -78,13 +78,7 @@ function SpotCard(props: { readonly product: Product }) {
     <li>
       <wardic.article
         class="spot-card"
-        ref={el}
         wardRef={card}
-        // The moves in between: a ward tells a hover's start and end, as Motion does, not each move.
-        // Touch never hovers, so a finger moves nothing.
-        onPointerMove={(event) => {
-          if (event.pointerType !== "touch") place({ x: event.clientX, y: event.clientY })
-        }}
       >
         <div class="photo">
           <img src={photo.small} srcset={srcsetOf(photo)} sizes="(max-width: 640px) 100vw, 240px" width={photo.width} height={photo.height} alt={props.product.name} />

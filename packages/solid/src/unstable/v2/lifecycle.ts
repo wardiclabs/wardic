@@ -25,6 +25,7 @@ import * as Predicate from "effect/Predicate"
 import { constUndefined, identity } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Drag from "@wardic/core/Drag"
+import type * as InputSource from "@wardic/core/InputSource"
 import type * as Recognizer from "@wardic/core/Recognizer"
 import { type Accessor, createMemo, createSignal, type Owner, runWithOwner } from "solid-js"
 import type { WardicAnimationDefinition, WardicValues } from "../../config.ts"
@@ -60,14 +61,27 @@ export interface WardSettled {
 /** A point in the viewport, as `clientX` / `clientY` and `getBoundingClientRect()` measure (#257). */
 export type WardPoint = WardicPoint
 
-/** A hover's or a press's event (#257, Motion's `EventInfo` / `TapInfo`): where the pointer was, in the viewport. */
-export type WardPointInfo = WardicPointInfo
+/**
+ * The element a gesture's event happened on (#397): the ward's, or, for a ward given to `wardRef`,
+ * the element it drives. Motion's `event.currentTarget`: Solid 2's events have no DOM event.
+ */
+export type WardElement = HTMLElement | SVGElement
 
 /**
- * A drag's event (#257, Motion's `PanInfo`): where the pointer was, in the viewport, and the drag's
- * `offset`, `delta` and `velocity` (`gesture-info.ts`).
+ * A hover's or a press's event (#257, Motion's `EventInfo` / `TapInfo`): where the pointer was, in
+ * the viewport, and the element it was on (#397).
  */
-export type WardDragInfo = WardicDragInfo
+export interface WardPointInfo extends WardicPointInfo {
+  readonly element: WardElement
+}
+
+/**
+ * A drag's event (#257, Motion's `PanInfo`): where the pointer was, in the viewport, the drag's
+ * `offset`, `delta` and `velocity` (`gesture-info.ts`), and the element dragged (#397).
+ */
+export interface WardDragInfo extends WardicDragInfo {
+  readonly element: WardElement
+}
 
 /** What each of `next(name)`'s names resolves to (#257). */
 export interface WardEvents {
@@ -75,6 +89,12 @@ export interface WardEvents {
   readonly settled: WardSettled
   /** The pointer came over the element (Motion's `onHoverStart`); touch never hovers. */
   readonly hoverStart: WardPointInfo
+  /**
+   * The pointer over the element while it's hovered (#397): its start, told after `hoverStart` at the
+   * same point, then each move until `hoverEnd`, as `drag` is a drag's. Wardic's own: Motion's hover
+   * has only a start and an end.
+   */
+  readonly hover: WardPointInfo
   /** It left, or a press held on it while it left was let go (Motion's `onHoverEnd`). */
   readonly hoverEnd: WardPointInfo
   /** A press began on the element (Motion's `onTapStart`). */
@@ -150,6 +170,7 @@ export type WantedGesture = "hover" | "press" | "pan" | "inView"
 /** The gesture whose recognizer an event needs: `next("tap")` needs the press one running. */
 const GESTURE_OF: Partial<Record<WardEvent, WantedGesture>> = {
   hoverStart: "hover",
+  hover: "hover",
   hoverEnd: "hover",
   pressStart: "press",
   tap: "press",
@@ -294,37 +315,49 @@ export class Lifecycle implements AnimationHooks {
     UndefinedOr.map(this.events, (events) => events.fail("settled", error))
   }
 
-  /** A hover's start or end (#257). */
-  hovered(transition: Recognizer.Transition): void {
+  /** A hover's start or end on `element` (#257): its start is the first `hover` too (#397). */
+  hovered(transition: Recognizer.Transition, element: WardElement): void {
     if (Predicate.isUndefined(this.events)) return
-    this.tell(Bool.match(transition.active, { onTrue: (): WardEvent => "hoverStart", onFalse: () => "hoverEnd" }), () => pointInfoOf(transition.event))
+    const info = (): WardPointInfo => ({ ...pointInfoOf(transition.event), element })
+    if (transition.active) {
+      this.tell("hoverStart", info)
+      this.tell("hover", info)
+      return
+    }
+    this.tell("hoverEnd", info)
+  }
+
+  /** A move of the pointer over `element` while it's hovered (#397). */
+  hoverMoved(event: InputSource.PointerLikeEvent, element: WardElement): void {
+    if (Predicate.isUndefined(this.events)) return
+    this.tell("hover", () => ({ ...pointInfoOf(event), element }))
   }
 
   /** A press's start or end (#257): a press a drag took over tells nothing. */
-  pressed(press: Recognizer.PressEvent): void {
+  pressed(press: Recognizer.PressEvent, element: WardElement): void {
     if (Predicate.isUndefined(this.events)) return
     const name = PRESS_EVENT[press.phase]
     if (Predicate.isUndefined(name)) return
-    this.tell(name, () => pointInfoOf(press.event))
+    this.tell(name, () => ({ ...pointInfoOf(press.event), element }))
   }
 
   /**
    * A drag's sample (#257, #273): its start, each move (its start among them) and its end are told;
    * a direction-locked one's (`locked`) lock first, at its start.
    */
-  dragged(sample: Drag.Sample, locked: boolean): void {
+  dragged(sample: Drag.Sample, locked: boolean, element: WardElement): void {
     if (Bool.and(locked, sample.phase === "start")) this.tell("directionLock", () => sample.axis as "x" | "y")
-    this.moved(DRAG_EVENT[sample.phase], "drag", sample)
+    this.moved(DRAG_EVENT[sample.phase], "drag", sample, element)
   }
 
   /** A pan's sample (#273): its session's start, then as a drag's. */
-  panned(sample: Recognizer.PanSample): void {
+  panned(sample: Recognizer.PanSample, element: WardElement): void {
     if (Predicate.isUndefined(this.events)) return
     if (sample.phase === "session") {
-      this.tell("panSessionStart", () => pointOfSample(sample))
+      this.tell("panSessionStart", () => ({ ...pointOfSample(sample), element }))
       return
     }
-    this.moved(PAN_EVENT[sample.phase], "pan", sample as Drag.Sample)
+    this.moved(PAN_EVENT[sample.phase], "pan", sample as Drag.Sample, element)
   }
 
   /** The drag's release came to rest on its own (#273). */
@@ -348,9 +381,9 @@ export class Lifecycle implements AnimationHooks {
   }
 
   /** A drag's or a pan's sample past a pan's session's start: its start's or end's event (`named`), then `every` at its start and each move. */
-  private moved(named: MovementEvent | undefined, every: "drag" | "pan", sample: Drag.Sample): void {
+  private moved(named: MovementEvent | undefined, every: "drag" | "pan", sample: Drag.Sample, element: WardElement): void {
     if (Predicate.isUndefined(this.events)) return
-    const info = (): WardDragInfo => dragInfoOf(sample)
+    const info = (): WardDragInfo => ({ ...dragInfoOf(sample), element })
     if (Predicate.isNotUndefined(named)) this.tell(named, info)
     if (sample.phase !== "end") this.tell(every, info)
   }

@@ -344,6 +344,9 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps, AnyW
    * - `"hoverStart"`, `"hoverEnd"`, `"pressStart"`, `"tap"`, `"tapCancel"`: Motion's hover and tap
    *   events, with the pointer's `point` in the viewport. A press a drag took over is neither a
    *   tap nor a cancel.
+   * - `"hover"` (#397): the pointer over the element while it's hovered, its start (after
+   *   `"hoverStart"`) and each move, as `"drag"` is a drag's. Wardic's own: Motion's hover has only
+   *   a start and an end.
    * - `"dragStart"`, `"drag"` (its start and each move), `"dragEnd"`: a drag's, with its `point`,
    *   `offset`, `delta` and `velocity`; `"dragTransitionEnd"`, its release at rest. A ward that
    *   doesn't drag never has one.
@@ -842,8 +845,10 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         Recognizer.watchHover(m.element, {
           on: (transition) => {
             setGesture(m.element, "hovered", transition.active)
-            lifecycle.hovered(transition)
+            lifecycle.hovered(transition, m.element)
           },
+          // Each move while it's hovered, for `hover` (#397): told only to a `next` or `when` that asked.
+          onMove: (event) => lifecycle.hoverMoved(event, m.element),
           onDefect,
         }),
       )
@@ -854,7 +859,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         Recognizer.watchPress(m.element, {
           on: (press) => {
             setGesture(m.element, "pressed", press.phase === "start")
-            lifecycle.pressed(press)
+            lifecycle.pressed(press, m.element)
           },
           onDefect,
         }),
@@ -863,7 +868,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     // A pan sets no layer: only a `next` wants it (#273).
     if (Bool.and(lifecycle.wantsPan, Bool.not(m.pan))) {
       m.pan = true
-      m.watch(Recognizer.watchPan(m.element, { on: (sample) => lifecycle.panned(sample), onDefect }))
+      m.watch(Recognizer.watchPan(m.element, { on: (sample) => lifecycle.panned(sample, m.element), onDefect }))
     }
     // In view as its `viewport` says, read when it starts (#273).
     if (Bool.and(Bool.or(untrack(wantsInView), lifecycle.wantsInView), Bool.not(m.inView))) {
@@ -1024,10 +1029,10 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         // Its samples to a `<Reorder>` item's group, and to the lifecycle for `next("dragStart")` (#257)
         // and, with a direction lock, `next("directionLock")` (#273).
         onSample: UndefinedOr.match(internal.onDragSample, {
-          onUndefined: () => (sample: Drag.Sample) => lifecycle.dragged(sample, locked),
+          onUndefined: () => (sample: Drag.Sample) => lifecycle.dragged(sample, locked, el),
           onDefined: (onSample) => (sample: Drag.Sample) => {
             onSample(sample)
-            lifecycle.dragged(sample, locked)
+            lifecycle.dragged(sample, locked, el)
           },
         }),
         // Its release at rest, for `next("dragTransitionEnd")` (#273).

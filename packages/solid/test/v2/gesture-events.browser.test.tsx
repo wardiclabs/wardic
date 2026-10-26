@@ -3,7 +3,8 @@
 // component's ward to its user.
 //
 // - GX1: `next("hoverStart")` on a ward with no `whileHover` starts the hover recognizer, and
-//   resolves at the enter with its point; `next("hoverEnd")` at the leave.
+//   resolves at the enter with its point; `next("hoverEnd")` at the leave. Every gesture event below
+//   carries the element it was on, `element` (#397).
 // - GX2: a press: `pressStart` at the down, `tap` at a release on a child of the element.
 // - GX3: a release elsewhere on the page is a `tapCancel`, with where it landed.
 // - GX4: a press a drag took over is neither a tap nor a cancel; the drag's end comes.
@@ -30,6 +31,10 @@
 //   and `next("viewportLeave")`, each resolving with `undefined`.
 // - GX17 (#273): `whileFocus` at a keyboard's focus.
 // - GX18 (#273): `next("viewportEnter")` alone starts the in-view recognizer, on a ward with no `whileInView`.
+// - GX19 (#397): `next("hover")` alone starts the hover recognizer: it resolves at the enter, with its
+//   point, then at each move over the element; after the leave a move tells nothing.
+// - GX20 (#397): at the enter, `hoverStart` is told before `hover`.
+// - GX21 (#397): touch never hovers: a finger's enter and moves tell no `hover`.
 import { DomLive } from "@wardic/dom"
 import { Reorder, type Ward, ward, type WardConfig, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
@@ -95,10 +100,10 @@ describe("a ward's gesture events on Solid 2 (#257)", () => {
     const { card } = mountCard({ style: BOX }, (card) => <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />)
     await raf()
     const entered = await retrying(card.next("hoverStart"), () => pointer(el, "pointerenter", 130, 140))
-    expect(entered).toEqual({ point: { x: 130, y: 140 } })
+    expect(entered).toEqual({ point: { x: 130, y: 140 }, element: el })
     const left = card.next("hoverEnd")
     pointer(el, "pointerleave", 300, 310)
-    expect(await left).toEqual({ point: { x: 300, y: 310 } })
+    expect(await left).toEqual({ point: { x: 300, y: 310 }, element: el })
   })
 
   it("GX2: pressStart at the down, tap at a release on a child of the element", async () => {
@@ -114,10 +119,10 @@ describe("a ward's gesture events on Solid 2 (#257)", () => {
     const started = await retrying(card.next("pressStart"), () => {
       pointer(el, "pointerdown", 130, 140, 1)
     })
-    expect(started).toEqual({ point: { x: 130, y: 140 } })
+    expect(started).toEqual({ point: { x: 130, y: 140 }, element: el })
     const tapped = card.next("tap")
     pointer(child, "pointerup", 132, 142)
-    expect(await tapped).toEqual({ point: { x: 132, y: 142 } })
+    expect(await tapped).toEqual({ point: { x: 132, y: 142 }, element: el })
   })
 
   it("GX3: a release elsewhere on the page is a tapCancel, with where it landed", async () => {
@@ -128,7 +133,7 @@ describe("a ward's gesture events on Solid 2 (#257)", () => {
     const tapped = card.next("tap")
     const cancelled = card.next("tapCancel")
     pointer(document.body, "pointerup", 400, 20)
-    expect(await cancelled).toEqual({ point: { x: 400, y: 20 } })
+    expect(await cancelled).toEqual({ point: { x: 400, y: 20 }, element: el })
     expect(await settledWithin(tapped, 2), "no tap").toBe(false)
   })
 
@@ -165,7 +170,8 @@ describe("a ward's gesture events on Solid 2 (#257)", () => {
     const end = await ended
     expect(end.point).toEqual({ x: 170, y: 172 })
     expect(end.offset).toEqual({ x: 40, y: 32 })
-    expect(Object.keys(end).sort()).toEqual(["delta", "offset", "point", "velocity"])
+    expect(Object.keys(end).sort()).toEqual(["delta", "element", "offset", "point", "velocity"])
+    expect(end.element, "the element dragged (#397)").toBe(el)
   })
 
   it("GX6: a ward that doesn't drag never has a dragEnd: it rejects with an AbortError at unmount", async () => {
@@ -371,7 +377,7 @@ describe("a ward's pan on Solid 2 (#273)", () => {
       pointer(el, "pointerdown", 130, 140, 1)
       pointer(document.body, "pointerup", 130, 140)
     })
-    expect(session).toEqual({ point: { x: 130, y: 140 } })
+    expect(session).toEqual({ point: { x: 130, y: 140 }, element: el })
     const started = card.next("panStart")
     const ended = card.next("panEnd")
     const pans: Array<number> = []
@@ -421,7 +427,7 @@ describe("a ward's pan on Solid 2 (#273)", () => {
     // A press with no pan still taps.
     pointer(el, "pointerdown", 130, 140, 1)
     pointer(el, "pointerup", 130, 140)
-    expect(await tapped).toEqual({ point: { x: 130, y: 140 } })
+    expect(await tapped).toEqual({ point: { x: 130, y: 140 }, element: el })
   })
 })
 
@@ -530,5 +536,51 @@ describe("a ward's in-view and focus layers on Solid 2 (#273)", () => {
     for (let i = 0; i < 3; i++) await raf()
     window.scrollTo(0, 1900)
     expect(await settledWithin(entered, 30), "entered").toBe(true)
+  })
+
+  it("GX19: next(\"hover\") alone starts the recognizer, and resolves at the enter, then at each move; none after the leave", async () => {
+    let el!: HTMLElement
+    const { card } = mountCard({ style: BOX }, (card) => <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />)
+    await raf()
+    const entered = await retrying(card.next("hover"), () => pointer(el, "pointerenter", 130, 140))
+    expect(entered, "its start, at the enter's point").toEqual({ point: { x: 130, y: 140 }, element: el })
+    const moved = card.next("hover")
+    pointer(el, "pointermove", 150, 145)
+    expect(await moved, "a move over it").toEqual({ point: { x: 150, y: 145 }, element: el })
+    pointer(el, "pointerleave", 300, 310)
+    const after = card.next("hover")
+    pointer(el, "pointermove", 160, 150)
+    expect(await settledWithin(after, 10), "nothing once it left").toBe(false)
+  })
+
+  it("GX20: at the enter, hoverStart is told before hover", async () => {
+    let el!: HTMLElement
+    const { card } = mountCard({ style: BOX }, (card) => <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />)
+    await raf()
+    // Both recognizer wants first, so one enter is heard by both waits.
+    await retrying(card.next("hoverStart"), () => pointer(el, "pointerenter", 130, 140))
+    pointer(el, "pointerleave", 300, 310)
+    const order: Array<string> = []
+    const start = card.next("hoverStart").then(() => order.push("hoverStart"))
+    const hover = card.next("hover").then(() => order.push("hover"))
+    pointer(el, "pointerenter", 131, 141)
+    await Promise.all([start, hover])
+    expect(order).toEqual(["hoverStart", "hover"])
+  })
+
+  it("GX21: touch never hovers: a finger's enter and moves tell no hover", async () => {
+    let el!: HTMLElement
+    const { card } = mountCard({ style: BOX }, (card) => <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />)
+    await raf()
+    // The recognizer started, by a mouse's hover come and gone.
+    await retrying(card.next("hoverStart"), () => pointer(el, "pointerenter", 130, 140))
+    pointer(el, "pointerleave", 300, 310)
+    const touched = card.next("hover")
+    const finger = (type: string, x: number, y: number): void => {
+      el.dispatchEvent(new PointerEvent(type, { pointerId: 2, pointerType: "touch", isPrimary: true, clientX: x, clientY: y, buttons: 1, bubbles: true }))
+    }
+    finger("pointerenter", 130, 140)
+    finger("pointermove", 140, 145)
+    expect(await settledWithin(touched, 10), "a finger hovers nothing").toBe(false)
   })
 })

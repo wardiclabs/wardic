@@ -30,7 +30,7 @@ A made-up ceramics and glass shop whose every feature is a Wardic example: the d
 | Live values | A reading bar for the studio's story | `createScroll` of a panel, its progress as a bar's `scaleX` and, through `createTransform`, the minutes left |
 | Live values | A lookbook with depth | `createScroll` with a `target` and an `offset` per banner: the photo and the words drift opposite ways |
 | Live values | The studio's story, revealed as you read | `whileInView` with `viewport` (`root`, `amount`, `once`), staggered Variant children |
-| Live values | Cards that catch the light | `createSpring`s of the pointer, mapped to a tilt and to where a light sits; the light comes on by a variant on a custom property; the hover heard through `card.when("hoverStart")` / `("hoverEnd")` (Solid 1: `onHoverStart` / `onHoverEnd`) |
+| Live values | Cards that catch the light | `createSpring`s of the pointer, mapped to a tilt and to where a light sits; the light comes on by a variant on a custom property; the hover heard through `card.when("hover")` / `("hoverEnd")` (Solid 1: `onHoverStart` / `onHoverEnd` and the element's `pointermove`) |
 | Server rendering | A banner that arrives before the JavaScript | `initial` / `animate` with a stagger, played from the first paint by the server's CSS (Appear animations), taken over by the JavaScript where the CSS has got to |
 
 ## Run it
