@@ -269,6 +269,9 @@ const runStreamed = async (
   /** Land `writes`, in order, as the stream would. */
   const land = (writes: ReadonlyArray<string>): void => {
     for (const write of writes) {
+      // Stamped as it starts to land: what it reveals can start no sooner, and its scripts take about
+      // a millisecond, in which a frame may start what they place (AH13 failed by that, 3 runs in 12).
+      landedAt.push(performance.now())
       const box = document.createElement("div")
       box.innerHTML = write
       for (const node of [...box.children]) {
@@ -276,7 +279,6 @@ const runStreamed = async (
         landed.push(node)
       }
       runScripts(document.body)
-      landedAt.push(performance.now())
     }
   }
   // One time for every late write, or one each.
@@ -572,7 +574,7 @@ describe("Appear animations on Solid 2, server render to hydration (#48, ADR-004
     expect(early.every((f) => f.drawn["fast"] === undefined), "the held element isn't on the page").toBe(true)
     // Its CSS animation starts at the reveal, and plays from 0 to 1, through the Handoff.
     expect(r.startOf["fast"], "it played its CSS").toBeDefined()
-    expect(r.startOf["fast"]!, "from the reveal, not the chunk's arrival").toBeGreaterThanOrEqual(revealed - 1)
+    expect(r.startOf["fast"]!, "from the reveal, not the chunk's arrival").toBeGreaterThanOrEqual(revealed)
     const shown = r.frames.filter((f) => f.drawn["fast"] !== undefined)
     expect(shown[0]!.drawn["fast"]!.opacity, "its first frame on the page: near its start").toBeLessThan(0.2)
     expect(shown.some((f) => f.drawn["fast"]!.opacity > 0.3 && f.drawn["fast"]!.opacity < 0.8), "it moved on the page").toBe(true)
