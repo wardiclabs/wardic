@@ -54,6 +54,10 @@ The header's switches:
 
 Any page takes `?hydrate=2000`, to hydrate that many milliseconds late as a slow network would, or `?hydrate=off`, to never hydrate, as with JavaScript off: what plays before the JavaScript then shows on its own. Solid 1's `src/entry-client.tsx` waits before it mounts; Solid 2's `src/client-setup.ts` is the plugin's `start.clientSetup`, which its generated entry awaits before `hydrate()`. (Solid 2's start mode takes an authored client entry only with an authored server entry beside it.) Next.js hydrates once its `beforeInteractive` scripts have loaded: its proxy hands the root layout the page's `?hydrate=`, and the layout adds one from `/hold-hydration`, which answers that late, or never.
 
+## Deploy it
+
+[`deploy/`](deploy) runs the three apps on one VPS behind Caddy, each on its own subdomain with HTTPS, and a landing page on the domain: a Docker image, a compose file, a one-time server setup, and a deploy script. Its README has the steps.
+
 ## The store
 
 The shop's data is served by server functions over one store, written in Effect (`shared/src/server`):
