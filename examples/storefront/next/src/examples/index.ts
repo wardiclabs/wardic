@@ -3,16 +3,28 @@
  * in the folder is what the Solid apps show beside their own code, in the "Motion · Next.js" tab.
  */
 import type { ComponentType } from "react"
+import AddToCart from "./add-to-cart/Demo.tsx"
 import BeforeHydration from "./before-hydration/Demo.tsx"
+import Browse from "./browse/Demo.tsx"
+import CartDrawer from "./cart-drawer/Demo.tsx"
+import DeliveryFaq from "./delivery-faq/Demo.tsx"
 import Gallery from "./gallery/Demo.tsx"
 import Magnifier from "./magnifier/Demo.tsx"
 import OrderHistory from "./order-history/Demo.tsx"
+import ProductDetail from "./product-detail/Demo.tsx"
+import ProductTabs from "./product-tabs/Demo.tsx"
 import SavedForLater from "./saved/Demo.tsx"
 import Stock from "./stock/Demo.tsx"
 import SharedWishlist from "./wishlist/Demo.tsx"
 
 export const DEMOS: Readonly<Record<string, ComponentType>> = {
   stock: Stock,
+  "product-detail": ProductDetail,
+  browse: Browse,
+  "product-tabs": ProductTabs,
+  "add-to-cart": AddToCart,
+  "delivery-faq": DeliveryFaq,
+  "cart-drawer": CartDrawer,
   "order-history": OrderHistory,
   wishlist: SharedWishlist,
   gallery: Gallery,

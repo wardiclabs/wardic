@@ -159,6 +159,8 @@ interface Result {
  * shows Motion's files in place of the demo's, and its link goes to the example in the Next.js app.
  */
 const checkTabs = async (page: Page, route: string, problems: Array<string>): Promise<void> => {
+  // From a fresh load: what the demo opened (a dialog, a drawer) may cover the page.
+  await page.goto(base + route, { waitUntil: "load" })
   if ((await page.locator("label[for=code-motion]").count()) === 0) return void problems.push("no Motion tab beside the code")
   const shown = (selector: string): Promise<boolean> => page.$eval(selector, (el) => getComputedStyle(el).display !== "none")
   if (await shown(".code-pane-motion")) problems.push("Motion's code shows before its tab is chosen")

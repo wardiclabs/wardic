@@ -134,6 +134,9 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "The button changes width at once, and \"View cart\" fades in without sliding.",
     uses: ["layout", "layout=\"position\"", "AnimatePresence"],
+    motion: {
+      note: "React 19's `useOptimistic` is Solid 2's `createOptimistic`: \"Adding…\" shows at once inside the transition, and goes when it ends, the store answered or not (Solid 1 reads the router's `useSubmission`). The write is a server action that calls `refresh()`, which renders the page's server components again: the piece is read again along with the cart, where Solid revalidates the cart's query alone.",
+    },
     interact: ".buy",
     watch: ".buy",
   },
@@ -163,6 +166,9 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "The drawer appears in place and the lines close up at once; the fades stay.",
     uses: ["layout", "AnimatePresence mode=\"popLayout\"", "optimistic updates"],
+    motion: {
+      note: "React 19's `useOptimistic` lays the changes on their way over the store's lines, as Solid 2's optimistic store does (Solid 1 reads the router's pending submissions). Motion's version needs a `LayoutGroup` around the drawer's body: when \"Your cart is empty\" goes at the end of its fade, nothing there renders again, and Motion measures a layout element as it renders, so the suggestions would jump up into its space; Wardic sees their box change, and glides them. And a change is a server action that calls `refresh()`, which reads the cart again with everything else on the page.",
+    },
     interact: [".open-cart", ".suggestion"],
     // The line that suggestion adds: the cart may hold lines from the pages before.
     watch: ".cart-line:last-child",

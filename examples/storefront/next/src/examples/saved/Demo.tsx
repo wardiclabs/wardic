@@ -70,12 +70,11 @@ export default function SavedForLater() {
   )
 }
 
-function SavedRow({ piece, onMove, onRemove, ref }: { readonly piece: Product; readonly onMove: () => void; readonly onRemove: () => void; readonly ref?: React.Ref<HTMLLIElement> }) {
+function SavedRow({ piece, onMove, onRemove }: { readonly piece: Product; readonly onMove: () => void; readonly onRemove: () => void }) {
   const photo = photoOf(piece.id)
   return (
     // It fades as it leaves, either way. Moved to the cart, its photo's twin there flies from its own.
-    // (`popLayout` measures a leaving child through its ref: a component passes it on.)
-    <motion.li ref={ref} className="saved-row" layout exit={{ opacity: 0, transition: { type: "tween", duration: 0.22, ease: "easeOut" } }}>
+    <motion.li className="saved-row" layout exit={{ opacity: 0, transition: { type: "tween", duration: 0.22, ease: "easeOut" } }}>
       <motion.div className="photo" layoutId={arrivalId(piece.id)}>
         <img src={photo.small} srcSet={srcsetOf(photo)} sizes="72px" width={photo.width} height={photo.height} alt={piece.name} />
       </motion.div>
