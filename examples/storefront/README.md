@@ -67,9 +67,10 @@ Its tests (`shared/test`) run with the repo's `bun run test`.
 
 ## Check it
 
-`bun run test:storefront`, from the root, builds the three apps and smoke-tests each production build. It opens every example's route in Chromium (in the Next.js app, every example it has so far) and checks:
+`bun run test:storefront`, from the root, builds the three apps and smoke-tests each production build. It fails if an example has no Motion version in the Next.js app. It opens every example's route in Chromium and checks:
 - the page answers with no error or warning logged, and no hydration mismatch;
 - the demo moves, then settles, after the clicks or drags the example asks for (`interact`) when it waits for the visitor. A live feed's open connection doesn't count against the network going quiet.
+- in a Solid app, the code's "Motion · Next.js" tab shows Motion's files in place of the demo's, and links to the example running in the Next.js app.
 
 It also reaches each example as a visitor does, from the gallery by its link, so the router renders it in the browser and its server functions are called from there; each must render its demo with nothing logged.
 
