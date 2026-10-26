@@ -504,3 +504,75 @@ A keyed presence child back while its leaver exits takes over from it (ADR-0048,
 *Amendment (#181)* hands back the twins inside "a leaving presence child that isn't a twin". In the code, that was a Wardic child only: a plain child (not a Wardic element) left at once, its twins with it, so their other twins popped in at full size.
 
 Since ADR-0048's *Plain leaving children (#392)*, a plain leaving child with a twin inside it hands it back too, and stays until the handover ends. That's what CONTEXT.md's **Crossfade** already said ("whatever the child is"), and what Motion's presence child does. The handover itself is unchanged.
+
+## Amendment (#402, 2026-10-26): a twin that comes after its partner started leaving
+
+A `layoutId` twin registering after its partner started leaving found nothing to fly from, unless both were in one task. A disposed twin's record and Switch seed lasted to the end of their task (*Amendment (#13)*, *Amendment (#221)*). That's enough in React, which commits an update whole. Solid 2 can split one, and so can a twin simply mounted a moment later. Found moving the storefront's Saved for later onto a `layoutId` flight into the header's cart button. Grilled 2026-10-26 (#402, Q1–Q3).
+
+**Two cases:**
+- **A twin mounted while its partner exits.** A partner with a 0.5 s exit, its twin mounted at once, 100 ms and 300 ms later (`.tmp/402/motion`, framer-motion 13.4.0, React 19). Motion flies each time: its exiting element stays in its `layoutId` stack until it's removed. The twin flies from it, fading in (0.42 → 1 within about 140 ms), and the partner is drawn with it at every frame, fading from its exit's opacity (0.65 → 0) until it's removed. Wardic flew only at once.
+- **A Solid 2 update held by an async read elsewhere.** In the storefront, the click's `action` refetched the cart, whose count reads it in a `<Loading>` beside the arrivals.
+  - Solid 2 disposed the row's ward at the click, and kept the old page on screen, the row on it at every frame, while the count loaded.
+  - When the update landed (167 ms later), the arrival registered *before* the presence started the row's exit.
+  - The row's record had expired with the click's task, so the arrival appeared in the button, never landed, and stayed there.
+
+**Decisions:**
+1. **A twin takes over late from a partner still leaving under its presence** (Q1: A), as Motion's does. It's #170's rule ("from where the twin paints"), applied later.
+   - Rejected: B, a grace period for a partner already off the page (Motion has none; React never splits a commit); C, a fix in the binding (Solid 2 decides what waits).
+2. **The partner joins the flight** (Q2: A). It's drawn with its new Lead (*Amendment (#8)*) and fades from its opacity at the take-over to 0 over the handover. It goes once its exit and the handover have both ended.
+   - Rejected: B, the partner finishing its own exit in place while the twin flies alone.
+3. **A leaver lasts past its task while its element is on the page** (Q3: A). That covers a Solid 2 hold, which keeps the old page, and a presence exit, which puts the element back.
+   - It ends at the end of the first task that finds it off the page, or at once when its presence removes it for good.
+   - A leaver goes off the page for a moment within a task: in the held update's commit, Solid removes the row, then its presence puts it back. So the check runs at a task's end, never inline.
+   - Removal for good ends it at once, so a child `mode="wait"` lets in next still enters in place (WT11).
+   - Rejected: B, the end-of-task rule with only decision 1, which leaves the held update broken.
+
+**Built** (`@wardic/dom`'s `internal/projection.ts`, and the presence in `@wardic/solid`'s `presence-controller.ts`, for both bindings):
+- **The record.**
+  - `Leaver.pastTask` marks one kept past its task.
+  - The `wardic.projection.leaversHold` step (`holdUntilTaskEnd`) keeps this task's leavers still on the page (`staysOn`) and expires the rest, as before. It drops the ones kept earlier that are now off the page, with their seeds (`dropSeedOf`), and is annotated with `kept` and `offPage`.
+  - Anything that reads the leavers (`register`, `handleLeave`, `handBackWithin`, a presence letting go) schedules that step while one is kept (`touchLeavers`).
+- **`keepLeaving(el, taken)`** is new on the ProjectionSystem. The presence calls it as a child leaves with nobody to take its twins over, and calls what it returns as it removes the child for good.
+  - A twin registering while that child is on the page, with no live twin in its stack, brings a twin kept inside it back (`takeOverLate`). That twin returns as a leaving Follower below the new node, following the child's exit as it draws it (as *Amendment (#181)*'s hand-back does), with its fade starting at its opacity now.
+  - The new node's first measure then takes the existing crossfade branch: from where the Follower paints, fading in from 0.
+  - `taken(drop)` tells the presence. It adds the handover as one of the child's parts, ended when the handover ends and dropped by an interrupted exit.
+  - The child's own exit runs on under the handover. When the child is the twin itself, the handover's writes land after the exit's every frame, so it's the handover's fade that shows (P2 below).
+  - It comes back only when no twin in its stack is live. A live twin is what a new one crossfades from, and it's also whoever took the kept twin's seed.
+- **A first measure that takes over nothing** (a blocked pass, no box) ends the leaving Followers below it at once (`finishLeavingBelow`), so a presence never waits on a handover that won't run.
+- **The storefront** (#402's branch `feat/saved-fly-to-cart`) needs nothing of its own: the arrival in the cart button flies from the row's photo as the held update lands.
+
+**Pinned by:**
+- `packages/dom/test/projection-leavers.browser.test.ts`:
+  - LV2 now: a task later, off the page, it finds nothing; still on the page, found.
+  - LV4: past its task and on the page, it seeds a twin; once a task ends with it off the page, it's gone.
+  - LV5: off the page a moment within a task, it still seeds a twin registering in between.
+  - LV6: the late take-over through `keepLeaving`: where it starts, the Follower drawn with its Lead and fading from 0.5 to 0, and the presence's part ended.
+  - LV7: a presence's removal for good ends its records at once.
+  - LV8: a kept twin doesn't come back over a live one; the new twin crossfades from the live twin.
+  - LV9: a late take-over whose new twin's first pass is drag-blocked runs no handover, and the presence's part ends at once.
+- `packages/solid/test/v2/late-twins.browser.test.tsx`:
+  - LT1: a twin mounted 120 ms into a 0.5 s exit flies, its partner riding and fading until the handover ends.
+  - LT2: the storefront's held update, `action` and `<Loading>`; it flies from the photo, and its ward hears `layoutComplete`.
+  - LT3: a late twin inside a plain leaving child; the child stays until its exit and the handover end.
+  - LT4: a twin after its partner has gone enters in place.
+- `packages/solid/test/presence-late-twin.browser.test.tsx`: LT1 and LT4 on Solid 1.
+- WT11 (`presence-wait.browser.test.tsx`) is unchanged and passes again once removal for good ends the records.
+
+**Mutation-checked** (`.tmp/402/mutate.py`): 14 single-point mutations, across the engine and the presence.
+- The 11 on the final code all fail the tests meant for them:
+  - nothing kept past its task;
+  - a kept leaver never leaving when off the page, or never checked by a registration;
+  - a removal for good keeping the records;
+  - no late take-over, or one over a live twin;
+  - the Follower fading from 1;
+  - a blocked first pass keeping its Followers;
+  - no presence part for the handover;
+  - no child kept, or never let go.
+- E6 (over a live twin) and E8 (a blocked first pass) survived at first; LV8 and LV9 were added for them.
+- Three were equivalent, and their code was taken out:
+  - P2, the presence interrupting a child's own exit when the child is the twin: the trace was the same frame for frame;
+  - E9, a twin whose seed another took counting as late: that twin is live, and the guard covers it;
+  - E10, the take-over dropping the kept twin's seed: registration takes it a moment later.
+
+**Cost:** nothing per frame. A registration checks whether any leaver is kept past its task, one look over a map that's empty but for a leaving moment, and schedules one end-of-task step if so. A kept leaver costs a map entry, its element held while it's on the page.
+

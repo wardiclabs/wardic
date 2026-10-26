@@ -1000,6 +1000,15 @@ export interface ProjectionSystem {
    */
   readonly handBackWithin: (el: HTMLElement, onDone: () => void) => Option.Option<() => void>
   /**
+   * A presence child leaving with nobody to take its twins over (ADR-0010 *Amendment (#402)*): the
+   * twins it held as it went, inside it or it a twin itself, stay a later twin's to take over while
+   * it's on the page, until the returned call: the presence removing it, which ends their records at
+   * once (a held leaver otherwise lasts until a task ends with it off the page). A twin that registers
+   * meanwhile brings one back as its leaving Follower, as if it were live in its stack, and tells the
+   * presence through `taken` ({@link LateTaken}), which holds the child for that handover.
+   */
+  readonly keepLeaving: (el: HTMLElement, taken: LateTaken) => () => void
+  /**
    * Register an element's values (ADR-0012, *Amendment (#137)*): a binding hands every element's,
    * read from what it last wrote, so a `layoutId` twin's flight follows the translate and scale
    * Wardic animates on its ancestors each frame, an element that isn't a projection node included.
@@ -1259,6 +1268,8 @@ interface Leaver {
   /** What only a `layoutId` node has (ADR-0010); `undefined` for a plain layout node. */
   readonly twin: TwinLeaver | undefined
   reintroduced: boolean
+  /** Kept past its task, its element still on the page (ADR-0010 *Amendment (#402)*). */
+  pastTask: boolean
 }
 
 /** A leaver's twin part (ADR-0010). */
@@ -1288,6 +1299,13 @@ interface HeldSeed {
   readonly blend: Blend
   consumed: boolean
 }
+
+/**
+ * A late take-over of a twin inside a leaving presence child, told to its presence (ADR-0010
+ * *Amendment (#402)*), with `drop` to end the handover at once. Returns what ends it as one of the
+ * child's parts.
+ */
+export type LateTaken = (drop: () => void) => () => void
 
 /**
  * A twin's look as it was drawn when a handover began (ADR-0010 *Amendment (#166)*): its border
@@ -1487,6 +1505,10 @@ export const makeProjectionSystem = (
   // keyed by element identity / string: nothing here is Effect-hashed.
   const leavers = new Map<HTMLElement, Leaver>()
   const seeds = new Map<string, HeldSeed>()
+  // The presence children still leaving whose twins nobody took over (ADR-0010 *Amendment (#402)*): a
+  // twin that registers while one is on the page takes over from a twin held inside it, as from one
+  // live in its stack.
+  const stillLeaving = new Map<HTMLElement, LateTaken>()
   let leaversHeld = false
   // The end-of-task hold fibers. A `FiberSet` (a native `Set`, reference identity)
   // inside a Scope the system owns: disposing the system closes it, interrupting any
@@ -2870,14 +2892,124 @@ export const makeProjectionSystem = (
    */
   const hold = (leaver: Leaver): void => {
     leavers.set(leaver.element, leaver)
+    holdUntilTaskEnd()
+  }
+
+  /**
+   * One `wardic.projection.leaversHold` step at this task's end: the leavers held in it expire, but
+   * one still on the page, kept past its task (ADR-0010 *Amendment (#402)*): a Solid 2 update can keep
+   * the page as it was until it lands, its twin registering then, and a presence's exit puts it back.
+   * One kept earlier goes once a task ends with it off the page: in a task, it may be off it a moment,
+   * between Solid's removal and its presence putting it back.
+   */
+  const holdUntilTaskEnd = (): void => {
     if (leaversHeld) return
     leaversHeld = true
     endOfTask("wardic.projection.leaversHold", {}, () => {
-      const held = Array.from(leavers.values())
-      leavers.clear()
       leaversHeld = false
-      return outcomeOf(held)
+      const all = Array.from(leavers.values())
+      const held = Arr.filter(all, (leaver) => Bool.not(leaver.pastTask))
+      const kept = Arr.filter(held, staysOn)
+      const gone = Arr.filter(held, (leaver) => Bool.not(staysOn(leaver)))
+      Arr.forEach(gone, (leaver) => leavers.delete(leaver.element))
+      Arr.forEach(kept, (leaver) => {
+        leaver.pastTask = true
+      })
+      const off = Arr.filter(all, (leaver) => Bool.and(leaver.pastTask, Bool.not(leaver.element.isConnected)))
+      Arr.forEach(off, (leaver) => {
+        leavers.delete(leaver.element)
+        UndefinedOr.map(leaver.twin, dropSeedOf)
+      })
+      return { ...outcomeOf(gone), held: held.length, kept: kept.length, offPage: off.length }
     })
+  }
+
+  /** Something that reads the leavers happened (#402): with any kept past its task, check them at this task's end. */
+  const touchLeavers = (): void => {
+    if (Iter.some(leavers.values(), (leaver) => leaver.pastTask)) holdUntilTaskEnd()
+  }
+
+  /** Whether a leaver stays past its task: its element on the page, and nobody brought it back. */
+  const staysOn = (leaver: Leaver): boolean => Bool.and(leaver.element.isConnected, Bool.not(leaver.reintroduced))
+
+  /** A held twin's Switch seed, dropped if it still holds its `layoutId`'s slot. */
+  const dropSeedOf = (twin: TwinLeaver): void =>
+    Match.value(twin.seed).pipe(
+      Match.when(Match.undefined, constVoid),
+      Match.when("handed-off", constVoid),
+      Match.orElse((held) => {
+        if (seeds.get(twin.layoutId) === held) seeds.delete(twin.layoutId)
+      }),
+    )
+
+  /** The presence child still leaving that `element` is, or is inside, with its `taken`. */
+  const leavingChildOf = (element: HTMLElement): Option.Option<readonly [HTMLElement, LateTaken]> =>
+    Iter.findFirst(stillLeaving, ([child]) => child.contains(element))
+
+  /** A twin with `layoutId` kept past its task inside a presence child still leaving (#402), nobody's yet. */
+  const lateTwinOf = (layoutId: string): Option.Option<readonly [Leaver, TwinLeaver, LastPass, HTMLElement, LateTaken]> =>
+    Option.flatMap(
+      Iter.findFirst(leavers.values(), (leaver) =>
+        Arr.every(
+          [
+            leaver.pastTask,
+            Bool.not(leaver.reintroduced),
+            leaver.element.isConnected,
+            Predicate.isNotUndefined(leaver.last),
+            UndefinedOr.match(leaver.twin, { onUndefined: constFalse, onDefined: (twin) => twin.layoutId === layoutId }),
+          ],
+          identity,
+        )),
+      (leaver) =>
+        Option.map(leavingChildOf(leaver.element), ([child, taken]) =>
+          [leaver, UndefinedOr.getOrThrow(leaver.twin), UndefinedOr.getOrThrow(leaver.last), child, taken] as const),
+    )
+
+  /**
+   * A twin still leaving under its presence, its task gone by (#402), brought back below `node` in its
+   * stack, when no twin there is live (one that took its seed would be): `node`'s first measure takes
+   * over from where it paints, as from a live twin, and it fades out from its opacity now as `node`
+   * fades in. Its presence holds its child for the handover; the child's own exit runs on under it,
+   * the handover drawing the twin. The seed it may hold is `node`'s to take, as registration does.
+   */
+  const takeOverLate = (node: NodeState, layoutId: string, stack: Array<NodeState>): void => {
+    if (stillLeaving.size === 0) return
+    if (stack.length > 0) return
+    Option.map(lateTwinOf(layoutId), ([leaver, twin, last, child, taken]) => {
+      if (leaver.element === node.element) return
+      leaver.reintroduced = true
+      const self = leaver.element === child
+      // Inside its child, it follows the child's own exit as it draws it, as a twin it hands back does (#181).
+      const chain = Bool.match(self, {
+        onTrue: (): ReadonlyArray<PaintLink> | undefined => undefined,
+        onFalse: () =>
+          UndefinedOr.map(twin.chain, (links) =>
+            UndefinedOr.match(wrapperLinkOf(child, twin.shift), { onUndefined: () => links, onDefined: (link) => withLink(links, link, child) }),
+          ),
+      })
+      const follower = makeLeavingNode(leaver.element, layoutId, last, undefined, undefined, chain)
+      follower.fade = Number(getComputedStyle(leaver.element).opacity)
+      addNode(follower)
+      elementToNode.set(leaver.element, follower)
+      stack.push(follower)
+      debug("takeOverLate", { layoutId, self })
+      follower.onLeaveDone = taken(() => {
+        if (Bool.not(follower.leaving)) return
+        follower.onLeaveDone = undefined
+        finishLeaver(follower)
+      })
+    })
+  }
+
+  /**
+   * A first-measured `node` that took over nothing, its pass blocked or its box none (#402): the
+   * leaving Followers below it, brought back for a handover that won't run, go now.
+   */
+  const finishLeavingBelow = (node: NodeState): void => {
+    if (Predicate.isUndefined(node.layoutId)) return
+    const stack = stacks.get(node.layoutId)
+    if (Predicate.isUndefined(stack)) return
+    for (const f of [...stack]) if (f.leaving) finishLeaver(f)
   }
 
   /**
@@ -2887,7 +3019,7 @@ export const makeProjectionSystem = (
   const holdNode = (node: NodeState): void => {
     const last = lastPassOf(node)
     if (Predicate.isUndefined(last)) return
-    hold({ element: node.element, last, layoutAnchor: node.layoutAnchor, twin: undefined, reintroduced: false })
+    hold({ element: node.element, last, layoutAnchor: node.layoutAnchor, twin: undefined, reintroduced: false, pastTask: false })
   }
 
   /**
@@ -2905,7 +3037,7 @@ export const makeProjectionSystem = (
     node.leftLook = look
     const seed = UndefinedOr.map(seedBox, (box) => seedOf(node, layoutId, box, look))
     if (Predicate.isUndefined(last) && Predicate.isUndefined(seedBox)) return
-    hold({ element: node.element, last, layoutAnchor: node.layoutAnchor, twin: { layoutId, chain: node.paintChain, shift, seed }, reintroduced: false })
+    hold({ element: node.element, last, layoutAnchor: node.layoutAnchor, twin: { layoutId, chain: node.paintChain, shift, seed }, reintroduced: false, pastTask: false })
   }
 
   /**
@@ -3220,6 +3352,7 @@ export const makeProjectionSystem = (
       // the viewport's origin, which a scroll would read as a move. It never animates or carries a
       // delta, and what it holds projects as if it weren't there.
       if (isBoxless(node)) {
+        if (Predicate.isUndefined(node.retained)) finishLeavingBelow(node)
         dropBox(node)
         continue
       }
@@ -3294,6 +3427,7 @@ export const makeProjectionSystem = (
       // caused doesn't animate (Motion's `updateBlockedByResize`: it measures every node
       // and notifies none, create-projection-node.ts:728-748 at 16c6122).
       if (blocked || inDraggedTree(node)) {
+        if (Predicate.isUndefined(prev)) finishLeavingBelow(node)
         if (slotOnly(node, prev, newBox)) {
           changed.add(node)
           if (inDraggedTree(node)) dragBlocked.add(node)
@@ -4293,6 +4427,7 @@ export const makeProjectionSystem = (
   })
 
   const doHandleLeave = (el: HTMLElement, onDone: () => void): boolean => {
+    touchLeavers()
     const live = elementToNode.get(el)
     const recent = leavers.get(el)
     // A live node's layoutId, else the one a leaver held as a twin.
@@ -4461,6 +4596,7 @@ export const makeProjectionSystem = (
    * `undefined` when it held none.
    */
   const doHandBackWithin = (el: HTMLElement, onDone: () => void): (() => void) | undefined => {
+    touchLeavers()
     if (elementToNode.has(el)) return undefined
     if (isHeldTwin(el)) return undefined
     const twins = reintroduceTwinsWithin(el, (held) =>
@@ -4506,6 +4642,20 @@ export const makeProjectionSystem = (
         Effect.withSpan("wardic.projection.handBackWithin", undefined, { captureStackTrace: false }),
       ),
     )
+
+  const keepLeaving: ProjectionSystem["keepLeaving"] = (el, taken) => {
+    stillLeaving.set(el, taken)
+    return () => {
+      stillLeaving.delete(el)
+      // Its presence removes it for good: what it held is gone now, not at a task's end, so a twin
+      // its presence lets in next (`mode="wait"`) enters in its place (ADR-0010 *Amendment (#402)*).
+      Arr.forEach(Array.from(leavers.values()), (leaver) => {
+        if (Bool.not(el.contains(leaver.element))) return
+        leavers.delete(leaver.element)
+        UndefinedOr.map(leaver.twin, dropSeedOf)
+      })
+    }
+  }
 
   // As it paints, as a connected twin's Switch seed is read (#170), in the Root frame (#286).
   const rootBoxOf: ProjectionSystem["rootBoxOf"] = (el) => {
@@ -4643,6 +4793,7 @@ export const makeProjectionSystem = (
   }
 
   const register: ProjectionSystem["register"] = (opts) => {
+    touchLeavers()
     // Read at each release, in `dragEnd` (ADR-0016, *Amendment (#140)*): kept off the node's state, which every frame reads.
     const dragTransition = UndefinedOr.match(opts.dragTransition, { onUndefined: () => NO_DRAG_TRANSITION, onDefined: identity })
     const node: NodeState = {
@@ -4726,6 +4877,8 @@ export const makeProjectionSystem = (
         stack = []
         stacks.set(node.layoutId, stack)
       }
+      // A twin still leaving under its presence, its task gone by (#402): below this one.
+      takeOverLate(node, node.layoutId, stack)
       stack.push(node)
       // Take the Switch seed a twin disposed earlier in this task left behind.
       const held = seeds.get(node.layoutId)
@@ -4954,7 +5107,7 @@ export const makeProjectionSystem = (
     }
   }
 
-  const system: ProjectionSystem = { register, notify: scheduleMeasure, animateLayout, handleLeave, handBackWithin, dispose, registerValues, rootBoxOf, dropLeaver }
+  const system: ProjectionSystem = { register, notify: scheduleMeasure, animateLayout, handleLeave, handBackWithin, keepLeaving, dispose, registerValues, rootBoxOf, dropLeaver }
   passEnds.set(system, passEndListeners)
   return system
 }

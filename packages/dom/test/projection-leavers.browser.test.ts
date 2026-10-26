@@ -7,9 +7,23 @@
 //   leaver's box. (Solid's register-then-dispose test measures the enterer while its twin is still
 //   live, so it crossfades instead and never reaches the hand-off.)
 // - LV2: a leaver lasts until the end of its task: a `handleLeave` in that task re-introduces it,
-//   one a task later finds nothing.
+//   one a task later finds nothing once it's off the page; still on it, it's found (#402).
 // - LV3: a twin inside a re-introduced leaver whose own Lead isn't in a handover is left alone: it
 //   doesn't come back as a node the leaver carries, as a plain layout node beside it does (#169).
+// - LV4 (#402): past its task, a leaver still on the page (a Solid 2 update holding the page) seeds
+//   a twin registering then; once a task ends with it off the page, it's gone.
+// - LV5 (#402): off the page a moment within a task (Solid's removal, then its presence putting it
+//   back), it still seeds a twin registering in between.
+// - LV6 (#402): a twin registering while its leaver's presence child is still leaving, nobody having
+//   taken it over, takes over from it late: told to the presence, it starts where the leaver paints,
+//   the leaver comes back as its Follower, drawn where it is and fading from its opacity then to 0,
+//   and the presence's part ends with the handover.
+// - LV7 (#402): its presence removing the child for good ends its records at once: a twin it lets in
+//   next (`mode="wait"`) enters in its place.
+// - LV8 (#402): a kept leaver doesn't come back over a twin live in its stack: the new twin crossfades
+//   from the live one.
+// - LV9 (#402): a late take-over whose new twin's first pass is blocked (inside a dragged node) runs no
+//   handover: the Follower goes at once, ending the presence's part.
 import { describe, expect, it } from "@effect/vitest"
 import * as Projection from "@wardic/core/Projection"
 import { afterEach, beforeEach } from "vitest"
@@ -97,9 +111,19 @@ describe("a just-disposed layout node, held until the end of its task (#221)", (
     const later = makeEngine(makeSink().sink)
     const b = await pair(later, "b")
     b.bigHandle.dispose()
+    b.big.remove()
     await endOfTask()
-    expect(later.system.handleLeave(b.big, () => {}), "a task later: the leaver has expired").toBe(false)
+    b.root.append(b.big)
+    expect(later.system.handleLeave(b.big, () => {}), "a task later, off the page at its end: expired").toBe(false)
     later.dispose()
+    clearStages()
+
+    const onPage = makeEngine(makeSink().sink)
+    const c = await pair(onPage, "c")
+    c.bigHandle.dispose()
+    await endOfTask()
+    expect(onPage.system.handleLeave(c.big, () => {}), "a task later, still on the page (#402): found").toBe(true)
+    onPage.dispose()
   })
 
   it("LV3: a twin inside a re-introduced leaver, whose Lead isn't in a handover, isn't carried; a plain layout node beside it is", async () => {
@@ -139,6 +163,179 @@ describe("a just-disposed layout node, held until the end of its task (#221)", (
     // A node the leaver carries is written every frame (`none` at rest in it); one left alone, never.
     expect(innerStyles.every((t) => t === ""), "the inner twin is never written: its Lead isn't in a handover").toBe(true)
     expect(plainStyles.every((t) => t !== ""), "the plain layout node is carried").toBe(true)
+    e.dispose()
+  })
+
+  it("LV4: past its task, a leaver still on the page seeds a twin registering then; off the page at a task's end, it's gone (#402)", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const root = stage()
+    const leaver = makeBox(root, 40, 60, 120, 80)
+    const leaverHandle = register(e, "leaver", leaver, { layoutId: "s" })
+    await settle()
+    const leaverBox = drawnOf(leaver)
+    leaverHandle.dispose()
+    // A Solid 2 update holds the page as it was: the leaver stays on it, tasks go by.
+    await endOfTask()
+    await endOfTask()
+    const enterer = makeBox(root, 400, 300, 120, 80)
+    register(e, "enterer", enterer, { layoutId: "s" })
+    await endOfTask()
+    expect(apart(paintedOf(sk, "enterer", enterer), leaverBox), "its first frame at the leaver's box, px").toBeLessThan(1)
+    e.dispose()
+    clearStages()
+
+    const sk2 = makeSink()
+    const gone = makeEngine(sk2.sink)
+    const root2 = stage()
+    const leaver2 = makeBox(root2, 40, 60, 120, 80)
+    const leaver2Handle = register(gone, "leaver", leaver2, { layoutId: "s" })
+    await settle()
+    leaver2Handle.dispose()
+    await endOfTask()
+    // Off the page, then a task ends (something reading the leavers ran in it).
+    leaver2.remove()
+    register(gone, "other", makeBox(root2, 0, 0, 10, 10))
+    await endOfTask()
+    const enterer2 = makeBox(root2, 400, 300, 120, 80)
+    register(gone, "enterer", enterer2, { layoutId: "s" })
+    await endOfTask()
+    expect(apart(paintedOf(sk2, "enterer", enterer2), drawnOf(enterer2)), "it enters in its place, px").toBeLessThan(1)
+    gone.dispose()
+  })
+
+  it("LV5: off the page a moment within a task, a kept leaver still seeds a twin registering in between (#402)", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const root = stage()
+    const leaver = makeBox(root, 40, 60, 120, 80)
+    const leaverHandle = register(e, "leaver", leaver, { layoutId: "s" })
+    await settle()
+    const leaverBox = drawnOf(leaver)
+    leaverHandle.dispose()
+    await endOfTask()
+    // The held update lands: Solid takes the leaver off the page, its twin registers, its presence puts it back.
+    leaver.remove()
+    const enterer = makeBox(root, 400, 300, 120, 80)
+    register(e, "enterer", enterer, { layoutId: "s" })
+    root.append(leaver)
+    await endOfTask()
+    expect(apart(paintedOf(sk, "enterer", enterer), leaverBox), "its first frame at the leaver's box, px").toBeLessThan(1)
+    e.dispose()
+  })
+
+  it("LV6: a twin registering while its leaver's presence child is still leaving takes over from it late, the leaver its fading Follower (#402)", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const root = stage()
+    const leaver = makeBox(root, 40, 60, 120, 80)
+    const leaverHandle = register(e, "leaver", leaver, { layoutId: "s" })
+    await settle()
+    const leaverBox = drawnOf(leaver)
+    leaverHandle.dispose()
+    // Its presence ran its own exit, nobody to take it over: it's half faded when the twin comes.
+    let taken = 0
+    let ended = 0
+    const forget = e.system.keepLeaving(leaver, () => {
+      taken++
+      return () => {
+        ended++
+      }
+    })
+    leaver.style.opacity = "0.5"
+    await endOfTask()
+    await endOfTask()
+    const enterer = makeBox(root, 400, 300, 120, 80)
+    register(e, "enterer", enterer, { layoutId: "s" })
+    expect(taken, "told to the presence").toBe(1)
+    await endOfTask()
+    expect(apart(paintedOf(sk, "enterer", enterer), leaverBox), "the twin starts where the leaver paints, px").toBeLessThan(1)
+    const fades: Array<number> = []
+    const offs: Array<number> = []
+    for (let i = 0; i < 40; i++) {
+      fireFrame()
+      fades.push(Number(leaver.style.opacity))
+      offs.push(apart(drawnOf(leaver), paintedOf(sk, "enterer", enterer)))
+    }
+    expect(fades[0], "the leaver fades from where it was").toBeGreaterThan(0.3)
+    expect(fades[0]).toBeLessThanOrEqual(0.5)
+    expect(Math.min(...fades), "to nothing").toBeLessThan(0.02)
+    expect(Math.max(...offs), "drawn where its Lead is, px").toBeLessThan(1.5)
+    for (let i = 0; i < 120; i++) fireFrame()
+    expect(ended, "the handover's end ends the presence's part").toBe(1)
+    forget()
+    e.dispose()
+  })
+
+  it("LV7: its presence removing the child for good ends its records at once: the twin let in next enters in place (#402)", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const root = stage()
+    const leaver = makeBox(root, 40, 60, 120, 80)
+    const leaverHandle = register(e, "leaver", leaver, { layoutId: "s" })
+    await settle()
+    leaverHandle.dispose()
+    const forget = e.system.keepLeaving(leaver, () => () => {})
+    await endOfTask()
+    // `mode="wait"`: the exit ends, the presence removes the child and lets the next one in, in one task.
+    forget()
+    leaver.remove()
+    const enterer = makeBox(root, 400, 300, 120, 80)
+    register(e, "enterer", enterer, { layoutId: "s" })
+    await endOfTask()
+    expect(apart(paintedOf(sk, "enterer", enterer), drawnOf(enterer)), "it enters in its place, px").toBeLessThan(1)
+    e.dispose()
+  })
+
+  it("LV8: a kept leaver doesn't come back over a twin live in its stack: the new twin crossfades from the live one (#402)", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const root = stage()
+    // A plain child holding a twin, then the twin's live other twin, its Lead, at rest elsewhere.
+    const row = makeBox(root, 20, 40, 240, 120)
+    const leaver = makeBox(row, 10, 10, 120, 80)
+    const leaverHandle = register(e, "leaver", leaver, { layoutId: "s" })
+    await settle()
+    const live = makeBox(root, 600, 400, 60, 40)
+    register(e, "live", live, { layoutId: "s" })
+    await settle()
+    // The row leaves, nobody taking its twin over at that moment: its presence keeps it.
+    leaverHandle.dispose()
+    const forget = e.system.keepLeaving(row, () => () => {})
+    await endOfTask()
+    await endOfTask()
+    const enterer = makeBox(root, 400, 300, 120, 80)
+    register(e, "enterer", enterer, { layoutId: "s" })
+    await endOfTask()
+    expect(apart(paintedOf(sk, "enterer", enterer), drawnOf(live)), "it starts at the live twin, px").toBeLessThan(1)
+    forget()
+    e.dispose()
+  })
+
+  it("LV9: a late take-over whose new twin's first pass is blocked runs no handover: the presence's part ends at once (#402)", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const root = stage()
+    const leaver = makeBox(root, 40, 60, 120, 80)
+    const leaverHandle = register(e, "leaver", leaver, { layoutId: "s" })
+    const card = makeBox(root, 300, 300, 200, 200)
+    const cardHandle = register(e, "card", card)
+    await settle()
+    leaverHandle.dispose()
+    let ended = 0
+    const forget = e.system.keepLeaving(leaver, () => () => {
+      ended++
+    })
+    await endOfTask()
+    await endOfTask()
+    // The new twin registers inside a node being dragged: its first pass is drag-blocked.
+    cardHandle.dragStart()
+    const enterer = makeBox(card, 10, 10, 60, 40)
+    register(e, "enterer", enterer, { layoutId: "s" })
+    await endOfTask()
+    fireFrame()
+    expect(ended, "no handover runs: the presence's part ends").toBe(1)
+    forget()
     e.dispose()
   })
 })
