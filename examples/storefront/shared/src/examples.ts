@@ -31,10 +31,11 @@ export interface Example {
   /** The props and helpers it shows, for the gallery's card. */
   readonly uses: ReadonlyArray<string>
   /**
-   * Where porting from Motion isn't mechanical (#296 Q4): the Motion snippet's file in
-   * `motion/`, and a line on what changes. Absent when only `motion.` becomes `wardic.`.
+   * Motion's version (#366), where there's something to say about it: what differs from Wardic's,
+   * shown above the code in every app; and, where this example's `summary` doesn't hold for Motion,
+   * Motion's own, for its page in the Next.js app. Its code is that app's `src/examples/<id>/`.
    */
-  readonly motion?: { readonly file: string; readonly note: string } | undefined
+  readonly motion?: { readonly note: string; readonly summary?: string | undefined } | undefined
   /**
    * What the smoke test does once the page has loaded, before it watches, for one that waits for the
    * visitor: a selector inside the demo to click, `drag:<selector>:<dx>:<dy>`, or
@@ -73,8 +74,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     reducedMotion: "The bars are at their level at once, Wardic's reduced motion snapping their scale, and each label shows its count straight away.",
     uses: ["animate from async data", "<Loading> (Solid\u00a02)", "settled() and isPending (Solid\u00a02)", "onAnimationComplete (Solid\u00a01)"],
     motion: {
-      file: "stock.tsx",
-      note: "Motion has no async values. React's `<Suspense>` waits for the count with `use(promise)`, a transition keeps the bars on a switch, and each bar's \"filling…\" is a `useState` set from `onAnimationStart` and `onAnimationComplete`, as on Solid 1. Solid 2 reads both from what it already has: the memo's pending count, and the ward's `settled()`.",
+      note: "Motion has no async values. Its version reads the count as React does: the page's server component starts the read, and the bars' client component waits for it with `use(promise)` under `<Suspense>`. A switch is a transition, with a promise kept for each `when`, as `use` needs the same one each render. Each bar's \"filling…\" is state set from `onAnimationStart` and `onAnimationComplete`, as on Solid 1; Solid 2 reads both from what it already has, the memo's pending count and the ward's `settled()`. And Motion starts each fill once React has hydrated the rows, where Wardic starts it as they stream in, from the CSS it writes into them.",
     },
     interact: ".stock .segmented button:nth-child(2)",
     watch: ".stock-row:first-child .meter-fill",
@@ -180,8 +180,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     reducedMotion: "Orders re-sort, open and close at once; their pieces still fade.",
     uses: ["layout", "layout=\"position\"", "useAnimateLayout", "a scrolling container"],
     motion: {
-      file: "order-history.tsx",
-      note: "Motion measures every layout element each time React renders it, so a re-sort needs nothing but the new order. Solid doesn't render a list again to move its rows, so Wardic is told about a change that moves elements without resizing any: wrap it in `animateLayout`.",
+      note: "Motion measures every layout element each time React renders it, so a re-sort needs nothing but the new order. Solid doesn't render a list again to move its rows, so Wardic is told about a change that moves elements without resizing any: wrap it in `animateLayout`, whose promise settles once they've all landed. Motion tells each row's layout animation starting and ending, so its list counts the rows on their way to know when it's done. And Motion needs `layoutScroll` on the scrolling panel, or a row opened lower down moves by however far the panel has scrolled; Wardic finds the scrolling containers itself.",
     },
     interact: ".order:nth-child(2) .order-summary",
     watch: ".order:nth-child(2)",
@@ -214,8 +213,8 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     reducedMotion: "The piece you hold still follows your hand; the others move to their new places at once, and so does the drop.",
     uses: ["Reorder.Group", "Reorder.Item", "live() and the group's holds (Solid\u00a02)", "a group given to groupRef (Solid\u00a02)"],
     motion: {
-      file: "wishlist.tsx",
-      note: "Motion's `Reorder.Group` tells each step of a drag (`onReorder`), not its end, so a Motion list saves from each item's `onDragEnd` and keeps where the drag began itself. Wardic's group also tells `onReorderEnd`: once a gesture, only when the order changed, with the piece and where it went, and for a keyboard reorder too. The Solid 1 app saves with it. The Solid 2 app hears it through `list.when(\"reorderEnd\")`, with the group's `holdStart` and `holdEnd`, which keep the piece in your hand, dragged or lifted, while other people's moves arrive.",
+      note: "Motion's `Reorder.Group` tells each step of a drag (`onReorder`), not its start or end, so its list holds the piece in your hand from each item's `onDragStart` to its `onDragEnd`, and saves from `onDragEnd` when the order changed. Wardic's group tells `holdStart`, `onReorderEnd` (once a gesture, only when the order changed) and `holdEnd`, for a keyboard lift too: Motion's `Reorder` has no keys. And Next.js has no live server function: Motion's list is shared through a route handler that streams the store's changes as server-sent events, which the page reads with an `EventSource`, where Solid 2 has `live()`. Solid 1's list is the visitor's own.",
+      summary: "Drag a piece up or down and the others make way; let go and the new order is saved. The list is shared, and other people's moves glide in live.",
     },
     interact: ['drag:.wish[data-id="moon-vase"]:0:130'],
     watch: '.wish[data-id="tulip-bowl"]',
@@ -249,8 +248,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     reducedMotion: "The photos cross-fade in place. The demo gives the slide no distance under reduced motion (the system's setting through `createReducedMotion`, or the header's switch): left to Wardic's rule, which snaps a positional value to its target, a leaving photo would jump aside at once and fade there.",
     uses: ["AnimatePresence custom", "variants as functions", "custom", "exit", "drag=\"x\"", "dragConstraints", "dragElastic", "createReducedMotion"],
     motion: {
-      file: "gallery.tsx",
-      note: "Motion changes the photo by giving it a new `key`: React unmounts the old element, which `AnimatePresence` keeps for its exit, and mounts a new one. Solid has no keys on elements: `<Show when={…} keyed>` makes a new photo each time the piece shown changes, and the presence takes the old one out the same way.",
+      note: "Motion changes the photo by giving it a new `key`: React unmounts the old element, which `AnimatePresence` keeps for its exit, and mounts a new one. Solid has no keys on elements: `<Show when={…} keyed>` makes a new photo each time the piece shown changes, and the presence takes the old one out the same way. The swipe is the same test on the drag's release, from the photo's `onDragEnd` (Solid 1's too); Solid 2 gives each photo in turn one ward that holds the drag, and hears its releases through `when(\"dragEnd\")`.",
     },
     interact: ".gallery-next",
     watch: ".gallery-photo",
@@ -283,8 +281,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     reducedMotion: "Nothing flies: a row moved to the cart or removed fades, and the rows below move up at once.",
     uses: ["layoutId", "AnimatePresence mode=\"popLayout\"", "exit", "createOptimisticStore (Solid 2)"],
     motion: {
-      file: "saved.tsx",
-      note: "Motion's flight is the same `layoutId` pair, and React 19's `useOptimistic` is Solid 2's `createOptimisticStore`: the row leaves inside a transition and comes back if it throws. The header's twin needs the pieces in flight shared with the page, here an `arrivals` prop; Wardic's app shares a signal. One difference: React keeps the leaving row rendering, so its photo is a live twin when the new one mounts. Solid 2's optimistic list keeps it too, while Solid 1 has disposed it, so Wardic flies the twin from where it was; Solid 2's crossfades from the leaving photo as Motion's does.",
+      note: "Motion's flight is the same `layoutId` pair, and React 19's `useOptimistic` is Solid 2's `createOptimisticStore`: the row leaves inside a transition and comes back if the store refuses it. The header's twin needs the pieces in flight shared with the page: a small store outside React, read with `useSyncExternalStore`, where Wardic's apps share a signal. React keeps a leaving row rendered until its exit ends, so its photo is still there when the twin mounts, and Motion crossfades the two as the photo flies; Solid 2's optimistic list keeps the row too, and does the same. Solid 1 has disposed of it by then, so Wardic flies the twin from where the photo was, at full opacity.",
     },
     interact: ".saved-row:first-child .button.accent",
     watch: ".saved-row:nth-child(2)",
@@ -303,8 +300,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     reducedMotion: "The lens doesn't glide: it's where the pointer is. A live value is yours, so Wardic's reduced motion leaves it alone; the demo `jump`s its springs to the pointer instead.",
     uses: ["createSpring", "createTransform", "live values in style", "whileHover", "whileTap", "when(\"hover\"), when(\"pan\") (Solid\u00a02)"],
     motion: {
-      file: "magnifier.tsx",
-      note: "Motion's `useSpring` and `useTransform` are `createSpring` and `createTransform`, made in the component's body. Motion would join the two values into one `background-position` with `useMotionTemplate`; Wardic has no template helper, so each value maps to a custom property of its own, and the stylesheet joins them.",
+      note: "Motion's `useSpring` and `useTransform` are `createSpring` and `createTransform`, made in the component's body. Motion joins the two values into one `background-position` with `useMotionTemplate`; Wardic has no template helper, so each maps to a custom property, and the stylesheet joins them. Motion's version hears the pointer through the photo's `onPointerMove` and `onPointerDown`, a finger's too, where Solid 2 hears it through the photo's ward: `when(\"hover\")`, and `when(\"pressStart\")` and `when(\"pan\")` for a finger.",
     },
     interact: ".magnifier-photo",
     watch: ".lens",
@@ -379,8 +375,8 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     reducedMotion: "The photo and lines still fade in one after another, but nothing rises or settles. Before the JavaScript, the page's CSS follows your system's reduced-motion setting; the header's switch counts once the JavaScript has run.",
     uses: ["initial", "animate", "variants", "staggerChildren", "server-rendered CSS"],
     motion: {
-      file: "before-hydration.tsx",
-      note: "The code is the same; what the server sends isn't. Motion renders `initial` and waits for React: until the JavaScript has loaded and hydrated, the banner is at `opacity: 0`, and with the JavaScript off it stays that way. Motion's nearest is its optimised appear animations (`startOptimizedAppearAnimation`), which need an inline script of your own to start them, and do nothing without JavaScript.",
+      note: "The code is the same; what the server sends isn't. Motion renders each element at its `initial` on the server, and starts the entrance once React has hydrated the page: until the JavaScript has loaded, the banner is blank, and with no JavaScript it stays that way. Try the links on Motion's page: held back 2 s, its banner starts at 2 s. Motion's nearest is its optimised appear animations (`startOptimizedAppearAnimation`), made for Framer's sites, which need an inline script of your own to start them, and do nothing without JavaScript.",
+      summary: "The season's banner, rendered on the server: Motion starts its entrance once React has hydrated the page, so it waits for the JavaScript, and never plays without it.",
     },
     watch: ".season-copy h2",
   },

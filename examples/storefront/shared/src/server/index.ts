@@ -38,8 +38,23 @@ export {
   wishlistChanges,
 } from "./store.ts"
 
-/** The store, built once per server process, shared by every visitor of it. */
-const runtime = ManagedRuntime.make(StoreLive)
+const RUNTIME = Symbol.for("@wardic/example-storefront/runtime")
+
+/**
+ * The store, built once per server process, shared by every visitor of it. Kept on `globalThis`: a
+ * bundler can load this module more than once in one process (Next.js gives its route handlers and
+ * its pages copies of their own, #366), and each copy would otherwise build a store of its own.
+ */
+const runtimeOnce = (): ManagedRuntime.ManagedRuntime<Store, never> => {
+  const holder = globalThis as { [RUNTIME]?: ManagedRuntime.ManagedRuntime<Store, never> }
+  const known = holder[RUNTIME]
+  if (known !== undefined) return known
+  const made = ManagedRuntime.make(StoreLive)
+  holder[RUNTIME] = made
+  return made
+}
+
+const runtime = runtimeOnce()
 
 /** What a visitor reads when a call fails. */
 const messageOf: (error: StoreError) => string = Match.type<StoreError>().pipe(

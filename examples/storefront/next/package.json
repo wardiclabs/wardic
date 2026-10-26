@@ -1,0 +1,31 @@
+{
+  "name": "@wardic/example-storefront-next",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "The storefront showcase's Motion side (#366): every example on Next.js (App Router), React 19 and motion/react, so each Wardic example's page shows the Motion version beside it, and it runs.",
+  "scripts": {
+    "dev": "next dev --port 3103",
+    "build": "next build",
+    "start": "next start --port 4103",
+    "typecheck": "next typegen && ../../../node_modules/typescript-7/bin/tsc --noEmit",
+    "smoke": "next build && bun ../shared/src/smoke.ts next"
+  },
+  "dependencies": {
+    "@wardic/example-storefront-shared": "workspace:*",
+    "effect": "4.0.5",
+    "motion": "14.6.0",
+    "next": "16.4.3",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "shiki": "4.3.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.7.0",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0"
+  },
+  "engines": {
+    "node": ">=24"
+  }
+}

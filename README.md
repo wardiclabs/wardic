@@ -198,6 +198,7 @@ A `layoutId` twin that mounts while its other twin is still leaving under `<Anim
 | `whileFocus` | the same: a keyboard's focus (`:focus-visible`), not a pointer's click |
 | `onPanSessionStart`, `onPanStart`, `onPan`, `onPanEnd`: `(event, info) => …` | the same, at the event, `point` in the viewport; a pan that has started counts as a drag, so the press it took over isn't a tap, as Motion's would be (ADR-0047); set `touch-action` for touch, as with Motion; on Solid 2, `next(name)` |
 | a motion value that `drag` or `animate` writes into | `ward.value("x")`, the element's output |
+| `<MotionConfig reducedMotion="always">` | `<WardicProvider reducedMotion="always">`, followed as it changes: an element already on the page takes a new setting at its next animation, where Motion reads it once, as each element mounts (#366) |
 | Framer's optimised appear animations (`startOptimizedAppearAnimation`) | on by default for a server render: `<WardicProvider appear={false}>` or an element's `appear={false}` turns it off |
 
 One difference in how a value you move works: Wardic never writes into it. It's an input the element follows, and what Wardic shows comes out through the element's output, `ward.value(key)` (see *Live values* below).
