@@ -59,6 +59,9 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "The cards fade in, still one after another, but don't rise: movement is dropped, opacity stays. Under the pointer they don't lift and their photos don't grow.",
     uses: ["variants", "staggerChildren", "initial", "animate", "whileHover"],
+    motion: {
+      note: "Motion's card can't name its hover in `whileHover`: a variant name there makes the card a variant controller of its own, which stops following the grid's `initial` and `animate`, so it would neither enter nor stagger. Its card lifts by a target, `whileHover={{ y: -4 }}`, which keeps it in the grid's tree, and its photo hears the hover through `onHoverStart` and `onHoverEnd`, as state. Wardic passes the grid's names down past a card's own `whileHover`, and the hover's name on to its photo. And Motion starts the entrance once React has hydrated the grid, where Wardic starts it as the grid streams in, from the CSS it writes into it.",
+    },
     watch: ".product-card",
   },
   {
@@ -203,6 +206,9 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     ],
     reducedMotion: "The card still follows your finger; a throw sends it off at once, and the rows below move up at once.",
     uses: ["drag=\"x\"", "dragSnapToOrigin", "AnimatePresence mode=\"popLayout\"", "next(\"settled\") in an action (Solid\u00a02)", "ward() given to wardRef (Solid\u00a02)"],
+    motion: {
+      note: "Motion has no `next(\"settled\")`. Its card says the throw has landed through `onAnimationComplete`, by the variant's name, which offers \"Undo\" and starts a timer; the request goes when the timer ends, as a server action that refreshes the page, and the row leaves with the list read again. Undo, or a refusal, clears the timer and flies the card back. On Solid 2 the throw, its landing, the undo window and the request are one `action`. The throw takes over from `dragSnapToOrigin`'s spring back in both.",
+    },
     interact: ['drag:.notice-row[data-id="shipped"] .notice:220:0'],
     watch: '.notice-row[data-id="shipped"] .notice',
   },

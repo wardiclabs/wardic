@@ -64,11 +64,15 @@ export async function getNotices() {
 }
 
 export async function dismissNotice(id: string) {
-  return Store.runFor(await visitor(), Store.dismissNotice(id))
+  const notices = await Store.runFor(await visitor(), Store.dismissNotice(id))
+  refresh()
+  return notices
 }
 
 export async function restoreNotices() {
-  return Store.runFor(await visitor(), Store.restoreNotices)
+  const notices = await Store.runFor(await visitor(), Store.restoreNotices)
+  refresh()
+  return notices
 }
 
 export async function getSettings() {
