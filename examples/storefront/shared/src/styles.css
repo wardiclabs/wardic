@@ -2052,10 +2052,12 @@ button.product-card:hover .photo {
 }
 
 /* The copy of a photo that flies to the cart, above everything. */
-.flying-photo {
-  position: fixed;
-  z-index: 60;
-  margin: 0;
+/* A saved piece's photo, flown into the cart button by its layoutId (Saved for later). */
+.cart-arrival {
+  position: absolute;
+  inset: 3px;
+  width: calc(100% - 6px);
+  height: calc(100% - 6px);
   border-radius: var(--radius-s);
   object-fit: cover;
   box-shadow: var(--shadow-m);
