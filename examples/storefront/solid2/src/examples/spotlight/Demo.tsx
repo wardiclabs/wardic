@@ -56,14 +56,9 @@ function SpotCard(props: { readonly product: Product }) {
     }
   }
 
-  // The card's ward, made here beside the effects that read it, and given to its element (#349).
-  const card = ward({
-    variants: lighting,
-    initial: "rest",
-    animate: "rest",
-    whileHover: "lit",
-    style: { rotateX, rotateY, "--light-x": lightX, "--light-y": lightY },
-  })
+  // The card's ward, made here beside the effects that read it, and given to its element (#349). It
+  // only listens: the card's own props light it and tilt it (#398).
+  const card = ward()
   // Its hover, through `when` (#355): the pointer over the card, from where it came in and at each
   // move, with the card it's over (#397), places the light and the tilt; when it leaves, the card
   // eases back flat. Touch never hovers, so a finger moves nothing.
@@ -79,6 +74,11 @@ function SpotCard(props: { readonly product: Product }) {
       <wardic.article
         class="spot-card"
         wardRef={card}
+        variants={lighting}
+        initial="rest"
+        animate="rest"
+        whileHover="lit"
+        style={{ rotateX, rotateY, "--light-x": lightX, "--light-y": lightY }}
       >
         <div class="photo">
           <img src={photo.small} srcset={srcsetOf(photo)} sizes="(max-width: 640px) 100vw, 240px" width={photo.width} height={photo.height} alt={props.product.name} />

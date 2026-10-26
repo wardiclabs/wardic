@@ -16,7 +16,8 @@
  * - **The pair** (Motion's `parallel-calls-intersecting`). Two calls in one click: one grows A,
  *   which pushes B down; the other shifts B right. B is watched for that run.
  * - **The callbacks**, as Solid 2 hears them (#257, ADR-0046): every tile counts its layout
- *   animations' starts and landings for the run, through `wardRef` and `card.when("layoutStart")` /
+ *   animations' starts and landings for the run, through a ward of its own made beside the effects
+ *   that hear it, given to its `wardRef` (#349, #398), and `card.when("layoutStart")` /
  *   `card.when("layoutComplete")` (#355), and a declared run awaits `animateLayout`'s promise (Solid 1's
  *   card uses the props and `onSettled`, ADR-0039). The `callbacks` line under the buttons shows
  *   them, judged on as many completes as starts and the settling after the last complete, and each
@@ -25,7 +26,7 @@
  *
  * @module
  */
-import { useAnimateLayout, type Ward, wardic } from "@wardic/solid/unstable/v2"
+import { useAnimateLayout, ward, wardic } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
 import { createEffect, createSignal, For, Show } from "solid-js"
 import type { ScenarioDef } from "../scenarios/types.ts"
@@ -115,15 +116,23 @@ const View: ScenarioDef["View"] = (props) => {
     const t = tally()
     if (t !== undefined) props.ctx.mark(`settled: ${t.starts} starts, ${t.completes} completes`)
   }
-  /** A tile's ward: each of its layout animations' starts and landings counted, by an effect on each (#355). */
-  const hear = (card: Ward): void => {
+  /**
+   * A tile's ward, made beside what hears it and given to the tile (#349): each of its layout
+   * animations' starts and landings counted, by an effect on each (#355). It holds what it hears, its
+   * `layout`; the tile keeps the rest (#398).
+   */
+  const heard = () => {
+    const card = ward({ layout: true })
     createEffect(card.when("layoutStart"), () => {
       onStart()
     })
     createEffect(card.when("layoutComplete"), () => {
       onComplete()
     })
+    return card
   }
+  const growCard = heard()
+  const shiftCard = heard()
 
   /** The row, one place on: A moves 100 px or more each time. */
   const rotated = (): Array<string> => [...items().slice(1), items()[0]!]
@@ -172,32 +181,33 @@ const View: ScenarioDef["View"] = (props) => {
           <div data-panel style={panelStyle(tall())} />
           <div style={ROW}>
             <For each={items()}>
-              {(value) => (
-                <wardic.div
-                  ref={(el: HTMLElement) => {
-                    if (value !== "A") return
-                    rowA = el
-                    props.ctx.watch(el)
-                  }}
-                  data-item={value}
-                  layout
-                  layoutDependency={dep()}
-                  wardRef={hear}
-                  style={tile(ACCENT)}
-                >
-                  {value}
-                </wardic.div>
-              )}
+              {(value) => {
+                const card = heard()
+                return (
+                  <wardic.div
+                    ref={(el: HTMLElement) => {
+                      if (value !== "A") return
+                      rowA = el
+                      props.ctx.watch(el)
+                    }}
+                    data-item={value}
+                    layoutDependency={dep()}
+                    wardRef={card}
+                    style={tile(ACCENT)}
+                  >
+                    {value}
+                  </wardic.div>
+                )
+              }}
             </For>
           </div>
-          <wardic.div data-pair="grow" layout wardRef={hear} style={tile(ALT, { height: grown() ? "80px" : "40px" })}>
+          <wardic.div data-pair="grow" wardRef={growCard} style={tile(ALT, { height: grown() ? "80px" : "40px" })}>
             grow
           </wardic.div>
           <wardic.div
             ref={(el: HTMLElement) => (pairB = el)}
             data-pair="shift"
-            layout
-            wardRef={hear}
+            wardRef={shiftCard}
             style={tile(ALT, { "margin-left": shifted() ? "120px" : "0px" })}
           >
             shift
