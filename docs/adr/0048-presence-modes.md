@@ -388,8 +388,44 @@ Motion keys a presence's children with React's `key` (`AnimatePresence/index.tsx
   - the quick view's frame is a plain `div` again;
   - the product detail now closes with Motion's crossfade: the card is in by about 150 ms, the detail out by about 360 ms and removed at about 470–500 ms, in both apps.
 
+## A leaver's layout nodes (grilled 2026-10-27, #407)
+
+**The gap.** Found by #366's storefront questions (`/layout/delivery-faq`). Each answer is a `layout="position"` child of a `layout` card, under `popLayout`. Closing one shrinks the card by a layout animation that starts at `scaleY(2.15)`, and pops the answer out of the flow to fade over 0.1 s.
+- **Solid disposes a leaver's layout nodes at the leave.** The projection brought them back only inside a leaving twin (ADR-0010 *Amendment (#169)*). So nothing projected a plain one while it exited, and the card's scale stretched it: 66 px drawn 141 px tall, its offset in the card scaled too.
+- **Motion keeps an exiting subtree mounted,** so its `layout` nodes go on counter-scaling (`scaleY(0.46)`).
+
+**The containing block changes, in both.** The card isn't positioned, so the popped answer's `top` is measured from an outer offset parent. Once the card takes a transform, it becomes the answer's containing block, and the same `top` places the answer 290 px lower (Wardic) or 226 px lower (Motion). That's inside the card's `overflow: hidden`, which clips it from the first frame. So in all three apps the answer vanished at once instead of fading, and #407's "falls over the questions below" doesn't happen there.
+
+Read after each paint (`.tmp/407/frames.ts`):
+
+| | The card as it is | The card `position: relative` |
+|---|---|---|
+| Motion 14.6 | y 727, 66 px tall, none of it shown | y 501, 66 px tall, fading where it was |
+| Wardic, before | y 790, 141 px tall, none of it shown | y 567, 141 px tall, none of it shown |
+
+Motion's `PopChild` pins as Wardic does: offsets from `offsetParent`, measured before the change (`getSnapshotBeforeUpdate`). Nothing follows an ancestor that becomes the containing block later. *Pop layout*'s "a leaver under a Wardic element's transform is pinned in place" holds only for an ancestor already transformed at the pop.
+
+1. **Motion's parity** (Q1: A). A leaving child's layout nodes with no `layoutId`, it included, come back as nodes it carries while it exits, in every mode. They go when the presence removes it.
+   - Under an ancestor's layout animation, each is corrected as a live one would be: the answer is drawn at its own size where it was.
+   - Its exit's own values are drawn on the correction, as Motion's projection composes `latestValues`. So an `x` exit still moves it.
+   - **The containing block stays the author's,** as in Motion. A popped leaver whose `layout` ancestor animates is placed against that ancestor only while it has a transform. Giving the ancestor a `position` keeps the leaver in place throughout. The storefront's question and order cards now have one (`position: relative`), so all three apps fade the answer where it was.
+   - Rejected:
+     - B, also drawing it where it was under a static ancestor. Either the projection shifts a carried leaver by its containing block's offset whenever it draws an ancestor with a transform (layout leavers and Wardic's own transforms only), or the presence holds the nearest Wardic ancestor as the containing block (`will-change: transform` inline) while the leaver exits (a style on the author's element, its other absolute descendants re-anchored meanwhile). Motion does neither;
+     - C, A with a dev warning for a popped leaver whose nearest `layout` ancestor is static and lies between it and its offset parent.
+
+## Built (#407)
+
+- **`keepLeaving(el, taken)`** (`@wardic/dom`'s `internal/projection.ts`) runs for every child that leaves running its exit. It now also brings back the layout nodes held this task inside `el`, `el` included, that aren't twins and that nothing brought back already (`reintroduceNodesWithin`, #169's, now returning them).
+  - Each is a leaving node at its last pass's box, with its `layoutAnchor`, derived under its live ancestors.
+  - The call `keepLeaving` returns finishes them (`finishLeaver`): the presence calls it as it removes the child, or as an exit is interrupted.
+- **A carried leaving node's write** (`withExitValues`) puts the element's registered values (`registerValues`: its exit's `drawn`) under the projection's patch. `project` weaves their translate, scale and rotation into the projection's transform and copies the rest, its opacity included. A leaving Follower's write is as before: its handover draws over its exit (ADR-0010 *Amendment (#402)*).
+- **In `sync` and `wait`,** a leaver stays in the flow, so a change around it can move it. Its node then slides at its own size from its last box to the new one. Before, it was squashed: a 60 px leaver drawn 30 px tall as its card grew from 60 to 120 px.
+  - It slides on the default layout transition: a held leaver doesn't keep its element's `transition`, nor do #169's.
+- **The storefront:** `.faq-item` and `.order` are `position: relative`.
+
 ## Consequences
 
+- **#407: a behaviour change.** A `layout` element in a leaving child is now corrected for its ancestors' layout animations until the child is removed, its exit drawn on the correction, where it was stretched. With no ancestor animating nothing changes: a carried node is derived only under an active one. Each leave costs one walk of the task's held leavers.
 - **#392: a behaviour change.** A plain presence child with Wardic elements inside it now waits for their exits and their twins' handovers, where it went at once. Exits that never ran now play, and a twin inside one now crossfades back to its other twin. A plain child with nothing inside it to wait for is unchanged. A leaver's parts are found in a walk of its own elements, linear in a mass removal (decision 3 of *Plain leaving children*).
 - **#286 PR 2:** `ProjectionSystem.rootBoxOf` and `dropLeaver`, and `RegisterNodeOptions.enteredFrom` and `fadeFrom`. A layout node registers through one more guard; nothing else changes without a take-over. On `bench:solid` (N = 1,000, against main `8b8417b`, control −1.5%): Solid 1's Retarget −1.8% warm, mount +0.1%, bytes +0.0%; Solid 2's Retarget +1.2% warm, mount −0.3%, bytes −0.2%.
 - **#286 PR 1:** `key` on both bindings' Wardic elements and `use:wardic`. Without a key, nothing changes. Under a presence, each Wardic element's ref tells the presence it was made (a WeakMap entry), and each mount asks for a seed (a WeakMap lookup). Outside a presence, nothing is made or asked: on `bench:solid` (N = 1,000, no presence on the page, against main `b85b742`, control +0.7%), Solid 1's Retarget read −0.7% warm and −4.5% cold, mount −0.6%, bytes −0.1%; Solid 2's Retarget +0.6% warm, mount −0.1%, bytes −0.1%.
@@ -405,6 +441,25 @@ Motion keys a presence's children with React's `key` (`AnimatePresence/index.tsx
 
 ## Pinned by
 
+- **#407, solid (Solid 1):** `test/presence-pop.browser.test.tsx` PL14–PL18, in a positioned `layout` card with `layout="position"` answers:
+  - PL14: popped out of the shrinking card, drawn where it was at its own size every frame of its exit;
+  - PL15: an `x` exit drawn on the correction;
+  - PL16: the card landing first, the leaver at its own box with no transform left (a guard: it passes on `main`);
+  - PL17: `sync`, a child entering before it: its own size from where it was to its new place;
+  - PL18: `sync`, leaving while the card already grows, with no Measure pass at the leave: corrected from the next frame.
+- **#407, solid (Solid 2):** `test/v2/presence-pop.browser.test.tsx` PP3, PL14's case under the diagnostics gate.
+- **#407, dom:** `test/projection-leavers.browser.test.ts`:
+  - LV10: `keepLeaving` brings a leaver's own node back under its parent's animation, at its own box, its registered values on the correction, and the call it returns ends it;
+  - LV11: a Follower taken over late isn't moved by its exit's values.
+- **#407 mutation-checked** (`.tmp/407/mutate.py`): seven single-point mutations, six caught:
+  - nothing brought back (LV10, PL14, PL15, PL17, PP3);
+  - the returned call leaving them in the engine (LV10);
+  - no exit values on the correction (LV10, PL15);
+  - a Follower's exit values on its handover (LV11);
+  - no tree or derive at the leave (PL18);
+  - only the nodes inside the leaver, not its own (LV10, PL14, PL15, PL17, PP3).
+
+  One is equivalent: the exit's values over the projection's keys. The patch holds only `@projection` and the scale-corrected keys, and a carried node keeps its own shape, so at a unit scale there are none to overlap. The patch goes on top, as the gate merges a live node's projection after its own values.
 - **#392, solid (Solid 1):** `test/presence-plain.browser.test.tsx` PN1–PN9:
   - a Wardic element inside a plain child runs its exit, the child staying until it ends, `onExitComplete` after;
   - with no exit inside it, it goes at once;

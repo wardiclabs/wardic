@@ -1006,6 +1006,10 @@ export interface ProjectionSystem {
    * once (a held leaver otherwise lasts until a task ends with it off the page). A twin that registers
    * meanwhile brings one back as its leaving Follower, as if it were live in its stack, and tells the
    * presence through `taken` ({@link LateTaken}), which holds the child for that handover.
+   *
+   * Its layout nodes with no `layoutId`, it included, come back as nodes it carries (ADR-0048 *A
+   * leaver's layout nodes (#407)*): corrected for an ancestor's layout animation while it exits, its
+   * exit's own values drawn on the correction, and gone with the returned call.
    */
   readonly keepLeaving: (el: HTMLElement, taken: LateTaken) => () => void
   /**
@@ -1652,12 +1656,25 @@ export const makeProjectionSystem = (
     if (inStep && Predicate.isUndefined(corrected) && !node.leaving && Predicate.isNotUndefined(last) && drawsSame(last, value)) return
     node.lastWritten = value
     const patch = projectionPatchOf(value, corrected)
-    // A leaving Follower is driven directly: its gate registration is gone.
+    // A leaving node is driven directly: its gate registration is gone.
     if (node.leaving) {
-      renderer.commit(node.element, renderer.project(patch))
+      renderer.commit(node.element, renderer.project(withExitValues(node, patch)))
       return
     }
     sink.write(node.id, patch)
+  }
+
+  /**
+   * A carried leaving node's patch with what its exit draws (#407), as the gate weaves a live node's
+   * own values and Motion's projection its `latestValues`: its translate, scale and rotation drawn on
+   * the correction, its other keys as they are. A Follower's handover draws over its exit (ADR-0010
+   * *Amendment (#402)*), so its patch, like one with no values, is as it was. Per frame: early returns.
+   */
+  const withExitValues = (node: NodeState, patch: Record<string, unknown>): Record<string, unknown> => {
+    if (Predicate.isNotUndefined(node.layoutId)) return patch
+    const read = elementValues.get(node.element)
+    if (Predicate.isUndefined(read)) return patch
+    return { ...read(), ...patch }
   }
 
   /** Read this element's non-trivial scale-correction bases (ADR-0011), measure phase. */
@@ -4532,10 +4549,11 @@ export const makeProjectionSystem = (
   }
 
   /**
-   * The layout nodes with no `layoutId` inside `container` re-introduced as nodes it carries (#169),
-   * derived under it each frame and finished with it.
+   * The layout nodes with no `layoutId` inside `container`, it included, re-introduced as nodes it
+   * carries (#169), derived under it each frame and finished with it. The ones that came back.
    */
-  const reintroduceNodesWithin = (container: HTMLElement): void =>
+  const reintroduceNodesWithin = (container: HTMLElement): Array<NodeState> => {
+    const carried: Array<NodeState> = []
     Arr.forEach(Array.from(leavers), ([inner, recent]) => {
       const last = recent.last
       if (Predicate.isNotUndefined(recent.twin)) return
@@ -4543,10 +4561,13 @@ export const makeProjectionSystem = (
       if (recent.reintroduced) return
       if (Bool.not(container.contains(inner))) return
       recent.reintroduced = true
-      const carried = makeLeavingNode(inner, undefined, last, undefined, recent.layoutAnchor, undefined)
-      addNode(carried)
-      elementToNode.set(inner, carried)
+      const node = makeLeavingNode(inner, undefined, last, undefined, recent.layoutAnchor, undefined)
+      addNode(node)
+      elementToNode.set(inner, node)
+      carried.push(node)
     })
+    return carried
+  }
 
   /**
    * A leaving wrapper as a link of the twins it hands back (ADR-0010 *Amendment (#181)*): its origin
@@ -4645,7 +4666,19 @@ export const makeProjectionSystem = (
 
   const keepLeaving: ProjectionSystem["keepLeaving"] = (el, taken) => {
     stillLeaving.set(el, taken)
+    // Its plain layout nodes, it included, carried while it exits (#407), as a leaving twin carries
+    // its own (#169): Motion's exiting subtree goes on projecting, so a `layout` node in it stays
+    // corrected for an ancestor's layout animation, as it pops out of a card that shrinks.
+    touchLeavers()
+    const carried = reintroduceNodesWithin(el)
+    if (Arr.isArrayNonEmpty(carried)) {
+      computeTree()
+      deriveAll()
+    }
     return () => {
+      Arr.forEach(carried, (node) => {
+        if (node.leaving) finishLeaver(node)
+      })
       stillLeaving.delete(el)
       // Its presence removes it for good: what it held is gone now, not at a task's end, so a twin
       // its presence lets in next (`mode="wait"`) enters in its place (ADR-0010 *Amendment (#402)*).

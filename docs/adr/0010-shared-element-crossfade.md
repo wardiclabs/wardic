@@ -505,6 +505,12 @@ A keyed presence child back while its leaver exits takes over from it (ADR-0048,
 
 Since ADR-0048's *Plain leaving children (#392)*, a plain leaving child with a twin inside it hands it back too, and stays until the handover ends. That's what CONTEXT.md's **Crossfade** already said ("whatever the child is"), and what Motion's presence child does. The handover itself is unchanged.
 
+## Note (#407, 2026-10-27): every leaving child carries its layout nodes
+
+*Amendment (#169)* brought a leaver's plain layout nodes back only inside a leaving twin, as nodes it carries. A leaving child that isn't a twin left its own `layout` nodes disposed, outside the twins it hands back (*Amendment (#181)*): nothing projected them while it exited, so an ancestor's layout animation stretched them.
+
+Since ADR-0048's *A leaver's layout nodes (#407)*, `keepLeaving` brings them back for every child leaving under its presence, it included: carried under their live ancestors, its exit's values drawn on the correction, and gone with the child. A leaving Follower still draws its handover over its exit.
+
 ## Amendment (#402, 2026-10-26): a twin that comes after its partner started leaving
 
 A `layoutId` twin registering after its partner started leaving found nothing to fly from, unless both were in one task. A disposed twin's record and Switch seed lasted to the end of their task (*Amendment (#13)*, *Amendment (#221)*). That's enough in React, which commits an update whole. Solid 2 can split one, and so can a twin simply mounted a moment later. Found moving the storefront's Saved for later onto a `layoutId` flight into the header's cart button. Grilled 2026-10-26 (#402, Q1–Q3).
