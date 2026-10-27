@@ -24,6 +24,11 @@
 //   from the live one.
 // - LV9 (#402): a late take-over whose new twin's first pass is blocked (inside a dragged node) runs no
 //   handover: the Follower goes at once, ending the presence's part.
+// - LV10 (#407): a leaving presence child's own layout node, no `layoutId`, comes back through
+//   `keepLeaving` as a node it carries: under its parent's layout animation it's drawn at its own box,
+//   its exit's values (`registerValues`) on the correction, and the returned call ends it.
+// - LV11 (#407): a Follower's exit values aren't drawn on its handover: a leaver whose exit moved it,
+//   taken over late, is drawn where its Lead is.
 import { describe, expect, it } from "@effect/vitest"
 import * as Projection from "@wardic/core/Projection"
 import { afterEach, beforeEach } from "vitest"
@@ -335,6 +340,74 @@ describe("a just-disposed layout node, held until the end of its task (#221)", (
     await endOfTask()
     fireFrame()
     expect(ended, "no handover runs: the presence's part ends").toBe(1)
+    forget()
+    e.dispose()
+  })
+
+  it("LV10: a leaving child's own layout node comes back through keepLeaving: carried at its own box, its exit's values on the correction, ended by the returned call (#407)", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const root = stage()
+    const card = makeBox(root, 20, 40, 200, 160)
+    register(e, "card", card)
+    const answer = makeBox(card, 0, 60, 120, 60)
+    const answerHandle = register(e, "answer", answer)
+    await settle()
+    const was = drawnOf(answer)
+    // The answer leaves and its card shrinks: Solid disposes its node, its presence keeps it, pops it,
+    // runs its exit (an `x` here) and tells the projection.
+    answerHandle.dispose()
+    const forget = e.system.keepLeaving(answer, () => () => {})
+    let x = 0
+    e.system.registerValues(answer, () => ({ x }))
+    card.style.height = "60px"
+    e.system.notify()
+    await endOfTask()
+    // The card is drawn through the fake sink, the answer straight onto the page: its painted box is
+    // the page's through the card's last delta.
+    const seen = Array.from({ length: 12 }, (_, i) => {
+      x = i * 2
+      fireFrame()
+      const delta = sk.of("card").at(-1)?.value.delta as Projection.Delta
+      return { x, scale: delta.y.scale, painted: Projection.applyTreeDeltas(drawnOf(answer), [delta]).box }
+    })
+    expect(seen[0].scale, "the card shrinking").toBeGreaterThan(1.5)
+    for (const [i, s] of seen.entries()) {
+      expect(s.painted.y.max - s.painted.y.min, `frame ${i}: its own height`).toBeCloseTo(60, 1)
+      expect(s.painted.y.min, `frame ${i}: where it was`).toBeCloseTo(was.y.min, 1)
+      expect(s.painted.x.min, `frame ${i}: moved by its exit`).toBeCloseTo(was.x.min + s.x, 1)
+    }
+    // Its presence removes it for good: the engine no longer draws it.
+    forget()
+    answer.style.transform = ""
+    const cardWrites = sk.of("card").length
+    for (let i = 0; i < 5; i++) fireFrame()
+    expect(sk.of("card").length, "the card still shrinking").toBeGreaterThan(cardWrites)
+    expect(answer.style.transform, "not written once ended").toBe("")
+    e.dispose()
+  })
+
+  it("LV11: a Follower's exit values aren't drawn on its handover: a leaver whose exit moved it, taken over late, is drawn on its Lead (#407)", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const root = stage()
+    const leaver = makeBox(root, 40, 60, 120, 80)
+    const leaverHandle = register(e, "leaver", leaver, { layoutId: "s" })
+    await settle()
+    leaverHandle.dispose()
+    const forget = e.system.keepLeaving(leaver, () => () => {})
+    // Its exit moves it 40 px right: what the presence registers as it draws it.
+    e.system.registerValues(leaver, () => ({ x: 40 }))
+    await endOfTask()
+    await endOfTask()
+    const enterer = makeBox(root, 400, 300, 120, 80)
+    register(e, "enterer", enterer, { layoutId: "s" })
+    await endOfTask()
+    const offs = Array.from({ length: 20 }, () => {
+      fireFrame()
+      return apart(drawnOf(leaver), paintedOf(sk, "enterer", enterer))
+    })
+    expect(Math.max(...offs), "drawn where its Lead is, px").toBeLessThan(1.5)
     forget()
     e.dispose()
   })

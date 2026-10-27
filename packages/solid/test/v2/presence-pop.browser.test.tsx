@@ -3,9 +3,11 @@
 //
 // - PP1: a leaver is popped out of the flow where it was, and a `layout` sibling slides into its space.
 // - PP2: `sync` (the gap fix): once the leaver is removed, a `layout` sibling slides into the gap.
+// - PP3 (#407): a `layout="position"` leaver popped out of a shrinking positioned `layout` card, as the
+//   storefront's questions, is drawn where it was, at its own size, every frame of its exit.
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, type PresenceMode, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
-import { createSignal, flush, For } from "solid-js"
+import { createSignal, flush, For, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
@@ -86,5 +88,40 @@ describe('AnimatePresence mode="popLayout" on Solid 2 (#277)', () => {
     await until(() => !b.isConnected, 3000)
     const sawMid = await slides(c, cWas, bTop, () => Math.abs(c.getBoundingClientRect().top - bTop) < 0.5)
     expect(sawMid, "c slid into the gap").toBe(true)
+  })
+
+  it("PP3: a layout leaver popped out of a shrinking card is drawn where it was, at its own size, every frame (#407)", async () => {
+    const [open, setOpen] = createSignal(true)
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div data-card layout transition={{ type: "tween", duration: 0.5 }} style={{ position: "relative", width: "200px" }}>
+          <div style={{ height: "40px" }}>question</div>
+          <AnimatePresence mode="popLayout" initial={false}>
+            <Show when={open()}>
+              <wardic.div data-answer layout="position" exit={{ opacity: 0 }} transition={{ type: "tween", duration: 0.4 }} style={{ width: "120px", height: "60px" }}>
+                answer
+              </wardic.div>
+            </Show>
+          </AnimatePresence>
+        </wardic.div>
+      </WardicProvider>
+    ))
+    await frames(5)
+    const card = host.querySelector<HTMLElement>("[data-card]")!
+    const answer = host.querySelector<HTMLElement>("[data-answer]")!
+    const was = answer.getBoundingClientRect()
+    setOpen(false)
+    flush()
+    let shrinking = 0
+    await until(() => {
+      if (!answer.isConnected) return true
+      if (getComputedStyle(card).transform !== "none") shrinking++
+      const now = answer.getBoundingClientRect()
+      expect(now.height, "its own size").toBeCloseTo(was.height, 0)
+      expect(now.top, "where it was").toBeCloseTo(was.top, 0)
+      return false
+    }, 3000)
+    expect(shrinking, "frames the card shrank around it").toBeGreaterThan(5)
+    expect(answer.isConnected, "gone at its exit's end").toBe(false)
   })
 })

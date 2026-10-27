@@ -19,10 +19,23 @@
 //   projection; no layout node of the leaver's does).
 // - PL12: right to left inside a positioned container with a border: popped in place.
 // - PL13: a leaver whose stylesheet sets its position and size `!important` is popped in place all the same.
+//
+// A leaver's layout nodes go on projecting while it exits (#407, ADR-0048 *Amendment (#407)*), in a
+// positioned `layout` card that shrinks or grows around it, as the storefront's questions do:
+// - PL14: a `layout="position"` leaver popped out of a shrinking card is drawn where it was, at its own
+//   size, every frame of its exit. Before, the card's scale stretched it (66 px drawn 141 px tall).
+// - PL15: its exit's own translate is drawn on the correction.
+// - PL16: the card landing first, it rests at its own box for the rest of its exit.
+// - PL17: `sync` too: a child entering before it grows the card, and the leaver keeps its own size,
+//   from where it was to its new place. Before, the card's scale squashed it.
+// - PL18: `sync`, a child leaving while its card is already growing (no Measure pass at the leave):
+//   corrected from the next frame on, not left with its last correction as the card's scale moves on.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { AnimatePresence, wardic, WardicProvider } from "@wardic/solid"
+import { AnimatePresence, wardic, WardicProvider, type WardicTransition, type WardicValues } from "@wardic/solid"
+import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal, For, type JSX, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { raf, until } from "./browser-helpers.ts"
@@ -76,6 +89,46 @@ const mountList = (start: ReadonlyArray<string>, options: ListOptions = {}) => {
   const node = (item: string): HTMLElement => container.querySelector<HTMLElement>(`[data-item="${item}"]`)!
   return { setItems, node }
 }
+
+interface CardOptions {
+  readonly mode: "sync" | "popLayout"
+  readonly card: WardicTransition
+  readonly exit: WardicValues
+  readonly answer: WardicTransition
+  /** A spacer's height under the answers, to grow the card with nothing above them moving. */
+  readonly spacer?: () => number
+}
+
+/**
+ * A positioned `layout` card, as the storefront's questions (#407): a 40px question, then a presence of
+ * 60px `layout="position"` answers, each with `exit` on the `answer` transition.
+ */
+const mountCard = (start: ReadonlyArray<string>, options: CardOptions) => {
+  const [answers, setAnswers] = createSignal<ReadonlyArray<string>>(start)
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      <wardic.div data-card layout transition={options.card} style={{ position: "relative", width: "200px" }}>
+        <div style={{ height: "40px" }}>question</div>
+        <AnimatePresence mode={options.mode} initial={false}>
+          <For each={answers()}>
+            {(answer) => (
+              <wardic.div data-item={answer} layout="position" exit={options.exit} transition={options.answer} style={{ width: "120px", height: "60px" }}>
+                {answer}
+              </wardic.div>
+            )}
+          </For>
+        </AnimatePresence>
+        <div style={{ height: `${UndefinedOr.match(options.spacer, { onUndefined: () => 0, onDefined: (spacer) => spacer() })}px` }} />
+      </wardic.div>
+    </WardicProvider>
+  ))
+  const node = (answer: string): HTMLElement => container.querySelector<HTMLElement>(`[data-item="${answer}"]`)!
+  const card = container.querySelector<HTMLElement>("[data-card]")!
+  return { setAnswers, node, card }
+}
+
+/** Whether `el` has a transform: a `layout` card animating has one, and has `none` at rest. */
+const transformed = (el: HTMLElement): boolean => getComputedStyle(el).transform !== "none"
 
 /** Where `el` is drawn, rounded to a tenth of a pixel. */
 const rectOf = (el: HTMLElement) => {
@@ -284,6 +337,100 @@ describe('AnimatePresence mode="popLayout" on Solid 1 (#277)', () => {
       expect(rectOf(b)).toEqual(bWas)
     } finally {
       sheet.remove()
+    }
+  })
+
+  it("PL14: a layout leaver popped out of a shrinking card is drawn where it was, at its own size, every frame", async () => {
+    const t = mountCard(["a"], { mode: "popLayout", card: { type: "tween", duration: 0.5 }, exit: { opacity: 0 }, answer: { type: "tween", duration: 0.4 } })
+    await frames(5)
+    const a = t.node("a")
+    const was = rectOf(a)
+    t.setAnswers([])
+    let shrinking = 0
+    await until(() => {
+      if (Bool.not(a.isConnected)) return true
+      if (transformed(t.card)) shrinking++
+      const now = rectOf(a)
+      expect(now.height, "its own size").toBeCloseTo(was.height, 0)
+      expect(now.top, "where it was").toBeCloseTo(was.top, 0)
+      expect(now.left).toBeCloseTo(was.left, 0)
+      return false
+    }, 3000)
+    expect(shrinking, "frames the card shrank around it").toBeGreaterThan(5)
+    expect(a.isConnected, "gone at its exit's end").toBe(false)
+  })
+
+  it("PL15: its exit's own translate is drawn on the correction", async () => {
+    const t = mountCard(["a"], { mode: "popLayout", card: { type: "tween", duration: 1 }, exit: { x: 100 }, answer: { type: "tween", duration: 1, ease: "linear" } })
+    await frames(5)
+    const a = t.node("a")
+    const was = rectOf(a)
+    t.setAnswers([])
+    const lefts: Array<number> = []
+    for (let i = 0; i < 10; i++) {
+      await raf()
+      const now = rectOf(a)
+      expect(transformed(t.card), `frame ${i}: the card shrinking`).toBe(true)
+      expect(now.height, `frame ${i}: its own size`).toBeCloseTo(was.height, 0)
+      expect(now.top, `frame ${i}: where it was`).toBeCloseTo(was.top, 0)
+      lefts.push(now.left - was.left)
+    }
+    expect(lefts.at(-1), "moved by its exit, px").toBeGreaterThan(5)
+    expect(Arr.every(Arr.zip(lefts, Arr.drop(lefts, 1)), ([before, after]) => after >= before), "moving one way").toBe(true)
+  })
+
+  it("PL16: the card landing first, the leaver rests at its own box for the rest of its exit", async () => {
+    const t = mountCard(["a"], { mode: "popLayout", card: { type: "tween", duration: 0.15 }, exit: { opacity: 0 }, answer: { type: "tween", duration: 1 } })
+    await frames(5)
+    const a = t.node("a")
+    const was = rectOf(a)
+    t.setAnswers([])
+    await raf()
+    expect(transformed(t.card), "the card shrinking").toBe(true)
+    await until(() => Bool.not(transformed(t.card)), 3000)
+    await frames(3)
+    expect(a.isConnected, "still exiting").toBe(true)
+    expect(rectOf(a), "its own box").toEqual(was)
+    expect(transformed(a), "nothing left of the card's correction").toBe(false)
+  })
+
+  it("PL17: sync: a child entering before the leaver grows the card, and the leaver keeps its own size", async () => {
+    const t = mountCard(["b"], { mode: "sync", card: { type: "tween", duration: 1, ease: "linear" }, exit: { opacity: 0 }, answer: { type: "tween", duration: 1 } })
+    await frames(5)
+    const b = t.node("b")
+    const was = rectOf(b)
+    t.setAnswers(["a"])
+    await raf()
+    expect(rectOf(b).top, "its first frame where it was").toBeCloseTo(was.top, 0)
+    const heights: Array<number> = []
+    await until(() => {
+      if (Bool.not(transformed(t.card))) return true
+      if (Bool.not(b.isConnected)) return true
+      heights.push(rectOf(b).height)
+      return Math.abs(rectOf(b).top - (was.top + was.height)) < 0.5
+    }, 3000)
+    expect(heights.length, "frames the card grew around it").toBeGreaterThan(5)
+    expect(Arr.every(heights, (height) => Math.abs(height - was.height) < 0.5), `its own size: ${heights.join(", ")}`).toBe(true)
+    expect(rectOf(b).top, "at its new place, under the child that entered").toBeCloseTo(was.top + was.height, 0)
+  })
+
+  it("PL18: sync: a child leaving while its card is already growing is corrected from the next frame on", async () => {
+    const [spacer, setSpacer] = createSignal(0)
+    const t = mountCard(["a"], { mode: "sync", card: { type: "tween", duration: 1, ease: "linear" }, exit: { opacity: 0 }, answer: { type: "tween", duration: 1 }, spacer })
+    await frames(5)
+    const a = t.node("a")
+    const was = rectOf(a)
+    setSpacer(60)
+    await frames(5)
+    expect(transformed(t.card), "the card growing").toBe(true)
+    expect(rectOf(a).height, "corrected while live").toBeCloseTo(was.height, 0)
+    t.setAnswers([])
+    for (let i = 0; i < 10; i++) {
+      await raf()
+      const now = rectOf(a)
+      expect(transformed(t.card), `frame ${i}: the card still growing`).toBe(true)
+      expect(now.height, `frame ${i}: its own size`).toBeCloseTo(was.height, 0)
+      expect(now.top, `frame ${i}: where it was`).toBeCloseTo(was.top, 0)
     }
   })
 })
