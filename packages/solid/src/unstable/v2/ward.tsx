@@ -745,6 +745,17 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
 
   const snapshot = snapshotOf(start)
   const reuse = makeReuse()
+  // Where its element starts (#414): the ward's start, or a fresh one for an element given after the
+  // last one left the page, as a mount after the first render's (no presence holds its `initial`
+  // back). Its Snapshot goes back to it, and its Starting style comes back on until its first commit.
+  let begun = start
+  const beginFresh = (): void => {
+    // The config now, a plain copy read untracked, as setup reads it: this runs in the mount effect.
+    begun = startOf(WARD_VIEW.setupOf(view).config, node.inherited, false, untrack)
+    snapshot.values = { ...begun.initialValues }
+    snapshot.velocities = {}
+    elementStyle.restart(Svg.splitPatchForTag(internal.tag, project(drawnAtRest(begun.initialValues, layoutNode))).style)
+  }
   const configNow = (): WardConfigValues => view
   const styleNow = (): WardStyle | string | undefined => untrack(userStyle)
 
@@ -935,6 +946,9 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   // The last two elements given to its ref, for a second one still on the page as it mounts (#349's Q5).
   let refdLast: HTMLElement | undefined
   let refdBefore: HTMLElement | undefined
+  // One given after the last one left the page, which enters fresh (#414). Read as the ref is called,
+  // before Solid inserts it: one replacing the last in the same update finds it still on the page.
+  let fresh: HTMLElement | undefined
   // Inside a child `mode="wait"` holds off the page (#277, ADR-0048), it mounts once the child is on
   // it: `shown` ticks then, and the mount effect, which reads `ticked`, runs again. Only under a
   // presence: with none, its compute calls a no-op and makes nothing. `held` cancels the wait.
@@ -1001,7 +1015,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     const links = startLinksOf(el, styleNow, live)
     // Its exit record, under an <AnimatePresence>: the presence removes it once the exit settles.
     const presenceRecord = UndefinedOr.map(presence, (registrar) => {
-      const record = presenceRecordOf(el, start, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(initialConfig), snapshot)
+      const record = presenceRecordOf(el, begun, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(initialConfig), snapshot)
       registrar.register(record)
       return record
     })
@@ -1095,7 +1109,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       reducedMotion,
       positionalKeys,
       defaultTransition,
-      start,
+      start: begun,
       snapshot,
       reuse,
       links,
@@ -1183,6 +1197,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         if (heldBack(el)) return
         // A new element starts with no gesture on, read from its gesture state (#257's audit).
         unmount()
+        // One that came after the last left the page enters fresh (#414).
+        if (el === fresh) beginFresh()
         // Its config is read at mount (its layout node's options, its `onUpdate`, its spine's) through
         // the per-key view (#259): untracked, so said, as the Retarget below.
         mounted = untrack(() => mount(el))
@@ -1294,7 +1310,13 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const setMade = madeWith(presence, setElement, initialConfig)
   const self = ((value?: unknown): Ward | undefined => {
     if (isElement(value)) {
-      if (Bool.and(Predicate.isNotUndefined(refdLast), refdLast !== value)) refdBefore = refdLast
+      const last = refdLast
+      if (Predicate.isNotUndefined(last)) {
+        if (last !== value) {
+          refdBefore = last
+          if (Bool.not(last.isConnected)) fresh = value
+        }
+      }
       refdLast = value
       setMade(value)
       return undefined

@@ -206,3 +206,7 @@ ADR-0044 decides it, on decision 1's opening: still no runtime on a server, and 
 - **A qualifying element's mount animation plays from first paint:** its inline style names `animation: var(--wardic-aN)`, and the head's `<style>` holds the rule and the custom property. That is the **Appear animation**. With no rule, an element keeps its Starting style until mount, as before.
 - **The Hydration hold still holds the element's own style;** the CSS animation draws over it until the **Handoff**, which decision 6's switch (`beforeFirstCommit`) carries out: the first commit writes the engine's frame and removes the CSS animation in one task.
 - **"Deferred: server-live resume (#48)"** is closed by it: the gap before hydration was the problem, and no server engine is needed.
+
+## Note (#414, 2026-10-27): the ref is checked against what the component renders
+
+`wardic.create(Component)`'s one requirement, forwarding the ref, still holds, but it's checked against what the component renders: a component that renders an element and forwards its ref to none of it throws, and one that has rendered nothing yet is waited on, its element driven when it comes. Before, it threw at mount whenever the ref hadn't been called, so a component library's part that renders only while shown (Kobalte's `Tabs.Content`) threw. See ADR-0046 *Amendment (#414)*. The server render is unchanged: the wrap passes its Starting style in `style`, as decision 6 says.

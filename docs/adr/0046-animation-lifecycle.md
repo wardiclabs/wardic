@@ -649,3 +649,71 @@ A ward told a hover's start and end (`hoverStart`, `hoverEnd`, Motion's), but no
 - **After it**, with given wards (`ward({ initial, animate })` given to `wardic.div`), bytes fell 2.3% (148.0 to 144.5 KB, IQR −2.7% to −2.3%). The timings were mount −0.8%, Retarget +0.2%, at-rest Retarget −2.3% and unmount −0.5%, each IQR spanning zero but at-rest Retarget's.
 - **The plain page** (`wardic.div`s with their own props) gains from the plain node. Bytes fell 1.6% (127.1 to 125.2 KB, IQR −1.8% to −1.6%), and the retained hover-and-press ward 1.0%. Mount was −2.1% (IQR −3.4% to −0.8%), Retarget −0.8%, at-rest Retarget −1.2%, and unmount +2.5% (IQR +0.6% to +2.8%; −2.7% on the first run, and −1.8% cold).
 - **A Listening ward** (`ward()` given to a `wardic.div` that holds the same props) mounts in the same 49.7 ms as the given form. It allocates 140.3 KB per element per round against 144.5, but those are separate runs, unpaired: the given form's `animate` is an accessor in the ward's config, and the listening form's is the element's prop.
+
+## Amendment (#414, 2026-10-27): an element that comes late, or comes back
+
+A component library's part often renders nothing while it isn't shown: Kobalte's `Tabs.Content` renders its panel inside a `<Show>` of its tab's selection, and its dialog content, popover content and select list behind their open state. Wrapped in `wardic.create`, an unselected panel threw ADR-0008's "did not forward its ref" at mount. Its ref hadn't been called yet: the check, `onMount` on Solid 1 and `onSettled` on Solid 2 (ADR-0045, decision 9), read "not yet" as "never". Found by #387's storefront tabs, which `forceMount`ed their panels to get past it.
+
+**Probed** (Chromium, the check switched off), a wrapped component whose element comes after mount, then a new element once the first has gone:
+
+| | Wardic, Solid 1 and Solid 2 | Motion 14.6, `motion.create` |
+|---|---|---|
+| The element comes after mount | enters from `initial` (opacity 0 → 1, x 40 → 0) | stays at `initial`, invisible, until the target changes |
+| A new element, after the first has gone | drawn at the ward's current values | stays at `initial` until the target changes |
+
+A ward spread on an element (`{...card()}`, `{...card}`) did as a wrap did. So the throw was all that stood in a late element's way. Motion has no check and no warning.
+
+Grilled 2026-10-27 (Q1–Q3, each A):
+
+1. **The check is narrowed** (Q1: A). It throws only when the component rendered an element and the ref reached none of what it rendered: the forgotten ref it's there for, now worded so ("rendered an element but did not forward its ref to it"). A component that has rendered nothing yet is waited on, and its element is driven when it comes.
+   - The wrap resolves what its component renders (`children()`) and checks it in an effect, each time it changes, inside the wrap's Provider (#50). A tag (`wardic.div`) renders its own element, and isn't checked.
+   - On Solid 2 the output is resolved on the server too, so a server's hydration ids are the browser's, and checked only in the browser.
+   - One edge still throws: a component that renders a fallback element first and its ref'd element later.
+   - Rejected: B, keeping the check with a better message; C, dropping it, as Motion has none.
+2. **An element that comes after the last one left the page enters fresh** (Q2: B), as a mount does: from `initial` to `animate`, or at `animate` under `initial={false}`. Its start is worked out again from the config then, with no presence holding its `initial` back: it isn't the presence's first render. So `wardic.create(Tabs.Content)` with an `initial` and an `animate` fades a panel in each time its tab is chosen, with no `forceMount`, as Radix and Motion's `asChild` does.
+   - Fresh or not is read as the new element's ref is called, before Solid inserts it: if the last element is still on the page, it carries on from where the ward is. In a keyed `<Show>`'s swap, Solid creates the new element before it removes the old one (probed), so a swap within one update carries on.
+   - Rejected: A, the new element at the ward's current values (as before).
+3. **Every ward follows it** (Q3: A): a `wardic.create` wrap, a ward spread on an element, and a ward given to `wardRef` (decision 4 of *Amendment (#349)* already said so for that one).
+   - Rejected: B, wraps only.
+
+**Built**, in `@wardic/solid`, both bindings alike:
+- **The check:** Solid 1's `forwardingOf` (`src/wardic.tsx`, in place of `refOf`'s `onMount`) and Solid 2's `wrapComponent` (`src/unstable/v2/wardic.tsx`, in place of `onSettled`): what the wrap renders, through `children()`, and an effect over its elements. The ref notes the element it reached.
+- **A fresh entry:**
+  - The ward's ref (Solid 1's `refElement` in `createWardWith`; Solid 2's `self`) marks an element given while the last one is off the page.
+  - The mount: Solid 1's `runSpine` takes `entersFresh` and `restartStyle` (`beginOf`); Solid 2's mount effect calls `beginFresh`. For a fresh element, a new `Start` (`startOf`, the config now, no presence block), the Snapshot reset to it, and that start given to the element's presence record and spine.
+  - `createElementStyle` gains `restart(starting)`: the Starting style back on the element's `style` until the gate's next first commit (one a registration, `beforeFirstCommit`), so the element paints at its start before its first frame.
+- **The storefront** (#387): the details tabs' panels are `wardic.create(Tabs.Content)` with `initial` and `animate`, and no `forceMount`. The stylesheet's rule hiding the unselected panels went with it.
+
+**Cost** (`bench:solid`, N = 1,000, 11 paired reps against `main`; the control +0.5%): every gate passed.
+- **Solid 1:**
+  - warm mount −0.3%, Retarget +1.4%, at-rest Retarget +0.1%, unmount +1.1%, each IQR spanning zero;
+  - bytes +0.8% (128.0 to 128.9 KB per element per round);
+  - retained hover-and-press ward +1.2% (17.23 to 17.44 KB): the ref, the fresh check and the restart each ward keeps.
+- **Solid 2:**
+  - warm mount −0.8%, Retarget +2.0%, at-rest Retarget +0.9%, unmount +0.9%, each IQR spanning zero; cold mount +4.6%, not gated;
+  - bytes +0.5% (125.0 to 125.6 KB);
+  - retained +0.4%.
+
+**Pinned by:**
+- `test/late-elements.browser.test.tsx` (Solid 1), LE1–LE6:
+  - a wrap that renders nothing at mount, waited on, its element entering from `initial`;
+  - an element after the last one left, entering fresh, drawn at `initial` before its first frame;
+  - a keyed swap within one update carrying on;
+  - `initial={false}`, starting at `animate`;
+  - a spread ward's returning element entering fresh;
+  - an element rendered without the ref, throwing at mount and when it comes later.
+- `test/v2/late-elements.browser.test.tsx` (Solid 2), LE7–LE12, the same, under the diagnostics gate.
+- The existing ref-error tests (Solid 1's CS5 and the wrap's ADR-0008 test; Solid 2's ER1 and WCC3), and KH12–KH13 for the server's hydration ids.
+
+**Mutation-checked** (`.tmp/414/mutate.py`): sixteen single-point mutations, eight a binding, each caught:
+- the check throwing for nothing rendered (LE1, LE7);
+- never throwing (CS5, ER1, WCC3, LE6, LE12);
+- running once (LE6);
+- checked on the server (KH12, KH13);
+- nothing entering fresh (LE2, LE5, LE8, LE11);
+- fresh with the last still on the page (LE3, LE9);
+- no Starting style back (LE2, LE8);
+- no Snapshot reset (LE5, LE11);
+- a fresh start at `animate` (LE2, LE8).
+
+**A flaky test, fixed on the way:** `test/v2/listening-ward.browser.test.tsx` LW1 failed in a full run, after `reorder-keyboard`, on `main` too. The real mouse the browser files park at (5, 5) sat over its card, mounted at (0, 0), and Chrome's hover came at about 2 ms or 160 ms, racing the card's first landing at about 160 ms. Its `mountUi` mounts below the parked mouse now.

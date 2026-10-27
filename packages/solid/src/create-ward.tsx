@@ -99,6 +99,7 @@ import {
   serverStartingStyle,
   snapshotOf,
   startLinksOf,
+  type Start,
   startOf,
   warnDroppedTransform,
   withOnUpdate,
@@ -317,6 +318,13 @@ export interface RunSpineOptions {
    * on).
    */
   readonly defaultsInProps?: boolean | undefined
+  /**
+   * Whether `element` comes after the last element this ward drove left the page (#414): it enters
+   * fresh, as a mount does. Omitted where a ward only ever has one element (the directives).
+   */
+  readonly entersFresh?: ((element: HTMLElement) => boolean) | undefined
+  /** Put the Starting style for `start` back on the element's `style` until its first commit (#414). */
+  readonly restartStyle?: ((start: Start) => void) | undefined
 }
 
 /**
@@ -346,7 +354,7 @@ const heldBack = (presence: PresenceContextValue | undefined, element: HTMLEleme
 }
 
 export function runSpine(opts: RunSpineOptions): void {
-  const { bindGestures, byName, canStart, cfg, defaultsInProps, el, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, runtime, styleOf, tag } = opts
+  const { bindGestures, byName, canStart, cfg, defaultsInProps, el, entersFresh, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, restartStyle, runtime, styleOf, tag } = opts
 
   // The nearest <AnimatePresence>, or undefined at the root (ADR-0007). When
   // present, this spine publishes its live value-map (`snapshot`) + exit target
@@ -368,6 +376,18 @@ export function runSpine(opts: RunSpineOptions): void {
   const start = startOf(untrack(cfg), parent, presenceBlocksInitial(presence), untrack)
   const snapshot = snapshotOf(start)
   const reuse = makeReuse()
+  // Where an element starts (#414): the ward's start, or, for one that comes after the last left the
+  // page, a fresh one, as a mount after the first render's (no presence holds its `initial` back).
+  // Its Snapshot goes back to it, and its Starting style comes back on until its first commit.
+  const beginOf = (element: HTMLElement): Start => {
+    if (Predicate.isUndefined(entersFresh)) return start
+    if (Bool.not(entersFresh(element))) return start
+    const fresh = startOf(untrack(cfg), parent, false, untrack)
+    snapshot.values = { ...fresh.initialValues }
+    snapshot.velocities = {}
+    if (Predicate.isNotUndefined(restartStyle)) restartStyle(fresh)
+    return fresh
+  }
   // The config and the user's style, as the spine reads them: untracked.
   const configNow = (): WardConfig => untrack(cfg)
   const styleNow = UndefinedOr.map(styleOf, (of) => () => untrack(of))
@@ -395,6 +415,8 @@ export function runSpine(opts: RunSpineOptions): void {
       if (Predicate.isUndefined(element)) return
       // Held off the page: nothing starts until it's on it.
       if (heldBack(presence, element, shown)) return
+      // Its start: the ward's, or a fresh one when it comes after the last element left (#414).
+      const begin = beginOf(element)
 
       // Register the element with the caller-supplied sink (ADR-0006): each
       // flushed frame's Patch is committed onto it (ADR-0034). An element with `onUpdate` at mount
@@ -449,7 +471,7 @@ export function runSpine(opts: RunSpineOptions): void {
       let taken: PresenceSeed | undefined
       if (Predicate.isNotUndefined(presence)) {
         const exitConfig = { current: exitConfigOf(untrack(cfg), parent) }
-        const rec = presenceRecordOf(element, start, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(untrack(cfg)), snapshot)
+        const rec = presenceRecordOf(element, begin, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(untrack(cfg)), snapshot)
         presenceRec = rec
         presence.register(rec)
         taken = presenceSeedOf(presence, element)
@@ -608,7 +630,7 @@ export function runSpine(opts: RunSpineOptions): void {
         return resolutionOf(
           cfg(),
           parent,
-          start.initialLink,
+          begin.initialLink,
           {
             inView: stateOf(layers.inView),
             focused: stateOf(layers.focus),
@@ -640,7 +662,7 @@ export function runSpine(opts: RunSpineOptions): void {
         reducedMotion,
         positionalKeys,
         defaultTransition,
-        start,
+        start: begin,
         snapshot,
         reuse,
         links,
@@ -781,7 +803,17 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   // The element, available only after ref-mount. The spine is gated on it. Under a presence, it's
   // told as it's made (#286): its `key`, and whether it's a twin. With none, nothing is made here.
   const [el, setEl] = createSignal<HTMLElement>()
-  const setElement = madeWith(presence, setEl, initialConfig)
+  // The last element its ref was given, and one given after that one left the page, which enters
+  // fresh (#414). Read as the ref is called, before Solid inserts the element: one replacing the last
+  // in the same update finds it still on the page, and carries on.
+  let refd: HTMLElement | undefined
+  let fresh: HTMLElement | undefined
+  const refElement = (element: HTMLElement): void => {
+    if (Predicate.isNotUndefined(refd) && refd !== element && Bool.not(refd.isConnected)) fresh = element
+    refd = element
+    setEl(element)
+  }
+  const setElement = madeWith(presence, refElement, initialConfig)
 
   // Run the shared spine: the gate commits each flushed Patch onto this element
   // (ADR-0006, ADR-0034), and the sink's hooks switch its `style`. Its variant node
@@ -810,6 +842,8 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
     defaultsInProps: internal.defaultsOnElement !== true,
     hydrating,
     tag: internal.tag,
+    entersFresh: (element) => element === fresh,
+    restartStyle: (start) => elementStyle.restart(Svg.splitPatchForTag(internal.tag, project(drawnAtRest(start.initialValues, layoutNode))).style),
   })
 
   // `<ward.Provider>` publishes what this instance hands its children (#50): its own

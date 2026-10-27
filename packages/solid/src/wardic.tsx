@@ -40,7 +40,7 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { $PROXY, type Accessor, type Component, createComponent, type JSX, onMount, splitProps, untrack } from "solid-js"
+import { $PROXY, type Accessor, children, type Component, createComponent, createEffect, type JSX, splitProps, untrack } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { wardicDirective } from "./directive.ts"
 import { isServer } from "./server.ts"
@@ -143,7 +143,8 @@ const wardComponent =
     // tracked by ward()'s reactive style getter and re-merged on change. Reading
     // it into a `const` here would freeze it at its initial value. `ref` is wired
     // once at mount (refs don't change), so it stays a one-time read.
-    const ref = refOf(component, (refStyle as { ref?: (el: HTMLElement) => void }).ref)
+    const forwarding = forwardingOf(component, (refStyle as { ref?: (el: HTMLElement) => void }).ref)
+    const ref = forwarding.ref
     const userProps: WardUserProps = {
       ...UndefinedOr.match(ref, { onUndefined: () => ({}), onDefined: (defined) => ({ ref: defined }) }),
       get style() {
@@ -155,32 +156,53 @@ const wardComponent =
     // around them (#50); any other renders none (`changesContext`, decided once, as on a server).
     const element = (): JSX.Element => <Dynamic component={component} {...rest} {...ward(userProps)} />
     return Bool.match(changesContext(untrack(cfg)), {
-      onFalse: element,
-      onTrue: () => <ward.Provider>{element()}</ward.Provider>,
+      onFalse: () => forwarding.render(element),
+      onTrue: () => <ward.Provider>{forwarding.render(element)}</ward.Provider>,
     })
   }
 
-/**
- * The user's ref, and, for a wrapped component, the check that it forwarded the Ward's (ADR-0008):
- * one that never forwards `props.ref` leaves the gate no element to commit to, a clear error once
- * mounted.
- */
-const refOf = (component: Rendered, userRef: ((el: HTMLElement) => void) | undefined): ((el: HTMLElement) => void) | undefined => {
-  if (Predicate.isString(component)) return userRef
-  let forwarded = false
-  onMount(() => {
-    if (forwarded) return
-    const name = component.name || "anonymous component"
-    throw new Error(
-      `wardic.create(${name}): the wrapped component did not forward its ref. ` +
-        "The component must forward props.ref to a single root DOM element " +
-        "(e.g. <div ref={props.ref}>...</div>). Element-only motion is wired through the ref.",
-    )
-  })
-  return mergeRefs(userRef, () => {
-    forwarded = true
-  })
+/** The user's ref, merged with what checks the Ward's, and how the element renders. */
+interface Forwarding {
+  readonly ref: ((el: HTMLElement) => void) | undefined
+  readonly render: (element: () => JSX.Element) => JSX.Element
 }
+
+/** A tag's: the user's ref, and its element as it is. */
+const ownElement = (element: () => JSX.Element): JSX.Element => element()
+
+/**
+ * The user's ref, and, for a wrapped component, the check that it forwards the Ward's (ADR-0008,
+ * narrowed by #414): one that renders an element and forwards its ref to none of what it renders
+ * leaves the gate no element to commit to, a clear error. One that renders nothing yet (a component
+ * library's part that shows only while open or selected) is waited on: its element is driven when it
+ * comes. Checked each time what it renders changes, inside the wrap's Provider (#50).
+ */
+const forwardingOf = (component: Rendered, userRef: ((el: HTMLElement) => void) | undefined): Forwarding => {
+  if (Predicate.isString(component)) return { ref: userRef, render: ownElement }
+  let reached: HTMLElement | undefined
+  const ref = mergeRefs(userRef, (el: HTMLElement) => {
+    reached = el
+  })
+  const render = (element: () => JSX.Element): JSX.Element => {
+    const rendered = children(element)
+    createEffect(() => {
+      const elements = Arr.filter(rendered.toArray(), isElement)
+      if (Arr.isArrayEmpty(elements)) return
+      if (Arr.some(elements, (inside) => Predicate.isNotUndefined(reached) && inside.contains(reached))) return
+      const name = component.name || "anonymous component"
+      throw new Error(
+        `wardic.create(${name}): the wrapped component rendered an element but did not forward its ref to it. ` +
+          "The component must forward props.ref to a single root DOM element " +
+          "(e.g. <div ref={props.ref}>...</div>). Element-only motion is wired through the ref.",
+      )
+    })
+    return rendered as unknown as JSX.Element
+  }
+  return { ref, render }
+}
+
+/** Whether a rendered node is an element. */
+const isElement = (node: unknown): node is Element => node instanceof Element
 
 /** The motion props, as a set for the server path's one pass. */
 const MOTION_KEYS: ReadonlySet<string> = new Set(MOTION_PROPS)

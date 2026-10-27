@@ -10,7 +10,8 @@
  *
  * The gate switches it through the sink's hooks, outside its commits: `beforeFirstCommit`, and
  * `onHeld` whenever the keys it holds change. Only a change to a key the element's own style
- * sets re-runs `style`, so a frame never does.
+ * sets re-runs `style`, so a frame never does. A ward's element that comes after the last one left
+ * the page enters fresh (#414): `restart` puts a Starting style back on until its first commit.
  *
  * The user's routed keys (#130, ADR-0043: its Live values and transform keys) are never Solid's:
  * the Starting style carries their values, and from mount the gate holds them. Each style the
@@ -53,12 +54,19 @@ export interface ElementStyle {
   readonly style: (user: object | string | undefined) => Style.Style
   /** The hooks the element's flush sink carries. */
   readonly hooks: Required<Pick<FlushGate.Sink, "beforeFirstCommit" | "onHeld">>
+  /**
+   * Put `starting` on as the Starting style again, until the gate's next first commit: a new
+   * element entering fresh (#414), its sink registered after this call.
+   */
+  readonly restart: (starting: Renderer.Patch) => void
 }
 
 /** An element's `style`, switched by its flush sink's hooks. Call within a Solid owner. */
 export const createElementStyle = (options: ElementStyleOptions): ElementStyle => {
-  const { userStyle, starting, startingWith, live, defaults, base = constUndefined, reactivity } = options
+  const { userStyle, startingWith, live, defaults, base = constUndefined, reactivity } = options
   const { untrack } = reactivity
+  // The Starting style: the element's first, or a fresh entry's (#414).
+  let starting = options.starting
   // Whether the gate has committed: `style` re-runs once, at the first commit.
   let committed = false
   // Every key the gate holds, current whenever `style` runs. A change that touches the
@@ -94,5 +102,11 @@ export const createElementStyle = (options: ElementStyleOptions): ElementStyle =
     changed.notify()
   }
 
-  return { style, hooks: { beforeFirstCommit, onHeld } }
+  const restart = (next: Renderer.Patch): void => {
+    starting = next
+    committed = false
+    changed.notify()
+  }
+
+  return { style, hooks: { beforeFirstCommit, onHeld }, restart }
 }
