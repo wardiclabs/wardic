@@ -21,7 +21,7 @@ import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { dynamic, type JSX } from "@solidjs/web"
+import { type ComponentProps, dynamic, type JSX, type ValidComponent } from "@solidjs/web"
 import { type Component, omit, onSettled, runWithOwner, untrack } from "solid-js"
 import { MOTION_PROPS_V2 as MOTION_PROPS, type WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
 import { changesContext, isVariantChild } from "../../variant-tree.ts"
@@ -204,7 +204,9 @@ export const drivenWard = (name: string, props: object, share: WardShare, intern
 
 /**
  * What `wardic.create(Component)` requires of a component: it forwards `ref` to its single root
- * element (`<div ref={props.ref}>`). The ref is an array: the user's, then the ward's.
+ * element (`<div ref={props.ref}>`). The ref is an array: the user's, then the ward's. Checked once
+ * the component has settled, not by `create`'s type: a component library's part declares the ref of
+ * the element it renders (`Ref<HTMLDivElement>`), which a `Ref<HTMLElement>` isn't (#387).
  */
 export type WardicWrappable = { readonly ref?: JSX.Ref<HTMLElement> }
 
@@ -250,10 +252,12 @@ export const refsOf = (props: { readonly ref?: unknown }, own: ReadonlyArray<(el
  *   first render (a server's included, ADR-0021).
  * - `create(Component)`: the component must forward `props.ref` to its single root element, where
  *   the gate commits; it also gets `style`, which it may apply for its Starting style on a server.
- *   A component that never forwards its ref is a clear error once it has settled.
+ *   A component that never forwards its ref is a clear error once it has settled. Its props are its
+ *   own (`ComponentProps`), so a part generic over what it renders, as a component library's are
+ *   (Kobalte's `Dialog.Content`), keeps them (#387).
  */
 export function create<Tag extends keyof JSX.IntrinsicElements>(tag: Tag): WardicComponent<Tag>
-export function create<P>(component: Component<P & WardicWrappable>): WardicWrapped<P>
+export function create<C extends Exclude<ValidComponent, string>>(component: C): WardicWrapped<ComponentProps<C>>
 export function create(tag: string): WardicComponent<keyof JSX.IntrinsicElements>
 export function create(arg: string | Component<Record<string, unknown>>): AnyComponent {
   return Bool.match(Predicate.isString(arg), {

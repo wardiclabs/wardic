@@ -1,7 +1,7 @@
 /** The gallery (#296 Q3): each area, with its examples, in Motion. */
 import { AREAS, examplesIn, routeOf } from "@wardic/example-storefront-shared/examples"
 import { ExampleCard } from "~/components/ExampleCard.tsx"
-import { summaryOf } from "~/components/ExamplePage.tsx"
+import { summaryOf, titleOf } from "~/components/ExamplePage.tsx"
 
 export default function Home() {
   const areas = AREAS.map((area) => ({ area, examples: examplesIn(area.id) }))
@@ -26,7 +26,7 @@ export default function Home() {
           </div>
           <div className="example-cards">
             {examples.map((example) => (
-              <ExampleCard key={example.id} href={routeOf(example)} title={example.title} summary={summaryOf(example)} />
+              <ExampleCard key={example.id} href={routeOf(example)} title={titleOf(example)} summary={summaryOf(example)} />
             ))}
           </div>
         </section>
