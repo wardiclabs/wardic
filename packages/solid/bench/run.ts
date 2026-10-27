@@ -42,8 +42,10 @@
  *     node with its drag track and its keyboard, blur and press input.
  *   The heap is read after two full GCs (CDP's `HeapProfiler.collectGarbage`, then
  *   `Runtime.getHeapUsage`) before each mount, at rest, and after the unmount. What a side keeps per
- *   element, the median of its cycles, fails as a task does. What an unmount leaves is reported, not
- *   gated: about 0, and a ratio of two zeros is noise.
+ *   element, the median of its cycles, fails as a task does. What an unmount leaves is about 0, and a
+ *   ratio of two zeros is noise, so it's gated against a ceiling instead (#418): the head's median
+ *   cycle fails above 1 KB per element, a leak already on the base included. Solid 2's Reorder items
+ *   left 8.7 KB each for two days, reported and unread.
  *
  * - **Layout gate** (#385): the `layout` page, #383's tree of 1,331 `layout` wards, per side and
  *   binding with the others, paired. Per scene (page, list, item, scaled; see `page.tsx`), the
@@ -359,6 +361,9 @@ const allocatedLayoutPage = async (side: Side): Promise<number> => {
 /** Mount and unmount cycles on each retained page: the median of them is the page's (#318). */
 const RETAINED_CYCLES = 3
 
+/** The most an unmount may leave per element, in bytes: every page leaves 0.1–0.3 KB (#418). */
+const LEFT_CEILING = 1024
+
 /** The heap the page's JS holds after two full GCs, in bytes. */
 const heldBy = async (cdp: CDPSession): Promise<number> => {
   await cdp.send("HeapProfiler.collectGarbage")
@@ -563,10 +568,13 @@ for (const binding of bindings) {
         `${percent(quantile(keptRatios, 0.5))} [${percent(quantile(keptRatios, 0.25))} – ${percent(quantile(keptRatios, 0.75))}]${when(keptFails, "  FAIL")}`,
     )
   }
-  console.log("\nleft after the unmount (KB per element, median across reps), not gated: about 0")
+  console.log(`\nleft after the unmount (KB per element, median across reps), gated: the head at most ${(LEFT_CEILING / 1024).toFixed(0)} KB`)
   for (const [kind, label] of RETAINED_ROWS) {
     const held = retained[binding][kind]
-    console.log(`  ${label.padEnd(14)}${(median(held.base.map((h) => h.left)) / 1024).toFixed(2).padEnd(10)}${(median(held.head.map((h) => h.left)) / 1024).toFixed(2)}`)
+    const left = median(held.head.map((h) => h.left))
+    const leftFails = left > LEFT_CEILING
+    failed ||= leftFails
+    console.log(`  ${label.padEnd(14)}${(median(held.base.map((h) => h.left)) / 1024).toFixed(2).padEnd(10)}${(left / 1024).toFixed(2)}${when(leftFails, "  FAIL")}`)
   }
   // The projection engine's page (#385): each scene's Measure pass and frames, warm, and the bytes per frame.
   const layout = layoutRuns[binding]

@@ -1351,6 +1351,9 @@ const NO_ANIMATE_LAYOUT_OPTIONS: AnimateLayoutOptions = {}
 /** The origin point: no scroll to add. */
 const ZERO_POINT: Point.Point = { x: 0, y: 0 }
 
+/** No nodes: the depth order before its first build, and once dropped (#418). */
+const NO_NODES: ReadonlyArray<NodeState> = []
+
 /** A container whose scroll is folded out of a node's box, and its scroll at that pass. */
 interface FoldedContainer {
   readonly element: HTMLElement
@@ -1467,8 +1470,9 @@ export const makeProjectionSystem = (
   // (the derives each frame, the Measure pass, a drag start's subtree) reads it in place of sorting.
   // It's rebuilt only when stale: after `computeTree`, which sets the depths, or a node added or
   // removed. A rebuild makes a new array and never changes one in place, so a pass holding one keeps
-  // it whole.
-  let byDepth: ReadonlyArray<NodeState> = []
+  // it whole. A removal drops it at once: stale, it's never read again, and it would keep every node
+  // it listed, and their wards, until the next rebuild, which may never come (#418).
+  let byDepth: ReadonlyArray<NodeState> = NO_NODES
   let byDepthStale = true
   /** Add a node to the tree: its depth order goes stale (#383). */
   const addNode = (node: NodeState): void => {
@@ -1478,6 +1482,7 @@ export const makeProjectionSystem = (
   /** Remove a node from the tree: its depth order goes stale (#383). */
   const deleteNode = (node: NodeState): void => {
     nodes.delete(node)
+    byDepth = NO_NODES
     byDepthStale = true
   }
   const active = new Set<NodeState>()
@@ -4825,6 +4830,11 @@ export const makeProjectionSystem = (
     if (Arr.some(entries, pageMoved)) refresh()
   }
 
+  // The viewport's listener, made here, once: one made in `register` would close over that
+  // registration's scope, its node among it, and the subscription, which lasts as long as the
+  // system, would keep that node and its ward's whole Solid tree after they unmount (#418).
+  const onViewport = (viewport: Probe.Viewport): void => onResize(viewport.width)
+
   const register: ProjectionSystem["register"] = (opts) => {
     touchLeavers()
     // Read at each release, in `dragEnd` (ADR-0016, *Amendment (#140)*): kept off the node's state, which every frame reads.
@@ -4938,7 +4948,7 @@ export const makeProjectionSystem = (
       const probe = runtime.runSync(Probe.Probe)
       const registry = runtime.runSync(AtomRegistry.AtomRegistry)
       lastWidth = registry.get(probe.viewport).width
-      stopViewport = registry.subscribe(probe.viewport, (viewport) => onResize(viewport.width))
+      stopViewport = registry.subscribe(probe.viewport, onViewport)
     }
     UndefinedOr.map(watched, (w) => w.observe(node.element))
     // Seed retained + write the identity projection on the next frame.
@@ -5122,7 +5132,7 @@ export const makeProjectionSystem = (
     pageSizes.clear()
     active.clear()
     nodes.clear()
-    byDepth = []
+    byDepth = NO_NODES
     byDepthStale = true
     elementToNode.clear()
     passEndListeners.clear()

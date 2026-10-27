@@ -238,3 +238,39 @@ The projection engine (`@wardic/dom`'s `internal/projection.ts`, every `layout`,
   - Each `animateLayout` call's Measure pass over 1,331 nodes costs about 4 ms.
 - **The page scene's frame is the noisiest gate:** about 1 ms a frame, with an IQR near ±5%. It held the A/A (Solid 2's median +4.8%, its 25th percentile below 0), but it's the gate likeliest to fail on noise alone. A failure there should be rerun before it's believed.
 - **The run took 1,217 s, about 20.3 minutes,** where it took about 12.5 before. That's about 8 minutes for the layout page, not the 4 the grill estimated: about 28 frames a scene, four scenes, four rounds, 44 pages and 12 for bytes.
+
+## Amendment (#418, 2026-10-27): what an unmount leaves is gated
+
+**The leak.** #320's bench run showed Solid 2's Reorder items leaving 8.67 KB each on the heap after their unmount, where #379's amendment had found 0.10–0.23 KB on every side. The row was reported but not gated, so it went unread for two days.
+
+**The cause, in dom's projection engine.** It held unmounted layout nodes, so every layout node was affected, not only Reorder items. A node reaches its ward, and on Solid 2 the owner tree reaches every ward mounted with it.
+1. **The viewport's listener** (ADR-0018, *Amendment (#45)*) was made inside the first node's registration. V8 gives a scope's closures one context, so the listener kept that registration's node, for as long as the subscription lasted: the provider's life.
+2. **The cached depth order** (ADR-0009, *Amendment (#383)*) kept the last generation's nodes after they were removed, until a pass rebuilt it. With every node gone, no pass comes.
+
+**Per cycle.** The first holder kept the first generation for good, and the second kept the latest. So the first cycle and the second each left a generation, and the bench's median of three cycles picked the second. A probe on Solid's production build (`.tmp/418`) recorded the KB per element left by each of five cycles, at 1,000 elements:
+
+| | before | after |
+|---|---|---|
+| Reorder item | 18.36, 8.79, 0.27, −0.02, 0.14 | 3.05, 0.26, 0.08, 0.05, 0.02 |
+| `layout` ward | 12.12, 6.34, 0.07, 0.05, 0.03 | 0.18, 0.08, 0.02, 0.03, 0.03 |
+| `drag` ward | 0.06, 0.11, 0.02, 0.12, 0.00 | 0.23, −0.07, 0.03, 0.13, 0.02 |
+
+The first cycle's remainder is compiled code, made once for the page: the snapshot holds no ward.
+
+**Fixed:** the listener is made once at the system's scope, and a removal drops the depth order (both Notes (#418)).
+
+**Guarded twice** (grilled 2026-10-27, Q1 A):
+- **dom's GC tests:**
+  - A `collectGarbage` browser command (two full GCs through CDP) lets a test read a `WeakRef` to an unregistered node's element after a GC (`test/projection-unregistered.browser.test.ts`).
+  - UR1 pins the listener: the first node, unregistered while another stays.
+  - UR2 pins the depth order: every node unregistered, with no pass after.
+  - Each fails with its fix reverted.
+- **The leftover row is gated:**
+  - The head's median cycle fails above 1 KB per element (`LEFT_CEILING`), on either binding.
+  - It's a ceiling, not a ratio: a ratio of two zeros is noise, and a leak already on the base fails too.
+  - Every page leaves 0.1–0.3 KB with the fix.
+
+**The leak also hid in the kept row.** What a page keeps is the heap at rest minus the heap before that cycle's mount. On main, a mount let the depth order drop the generation it had held, so the kept figure lost one held generation. A Reorder item read 21.72 KB on Solid 1 and 19.54 KB on Solid 2 on main. #379's last PR had recorded 26.99 and 26.06 KB on 2026-10-25, before #383 landed (ADR-0055). With the fix, the head reads 27.19 and 26.00 KB.
+- **The PR's own run** (`bench:solid` against main, both bindings, control +0.5%) fails the kept gate for that row: +25.2% on Solid 1, +33.0% on Solid 2. That's the base's undercount, not a change in what an item keeps. The hover + press row has no layout node and read the same (+0.0%, +0.3%).
+- **Every other gate passed.** The leftover row's head read 0.13 KB on Solid 1 and 0.17 KB on Solid 2, against main's 0.24 and 8.67.
+- **Kept figures recorded after #383** read low by up to that much for layout pages. #320's −1.2% for a Reorder item is one of them.

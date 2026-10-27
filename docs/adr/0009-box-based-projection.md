@@ -382,3 +382,7 @@ Five survive, equivalent:
 - **The Measure pass in set order:** its loops don't rely on order (above).
 - **`deriveSubtree` without its root:** a grab doesn't jump (ADR-0016, *Amendment (velocity family)*, decision 4), so the root's delta at the grab is its last one.
 - **The scratch arrays not emptied before, or after:** the first matters only after a throw, the second only holds a disposed node a frame longer.
+
+## Note (#418, 2026-10-27): a removal drops the depth order
+
+*Amendment (#383)*'s depth order goes stale when a node is removed, and it's rebuilt at the next read. Until then the stale array kept every node it listed, and each node's ward. When every node had unmounted, no pass came to rebuild it, so the last generation stayed for as long as the provider did: on Solid 2, about 6 KB per layout node. A removal now drops the array (`NO_NODES`). Stale, it's never read again. A rebuild still never changes an array in place, so a pass holding one keeps it whole. UR2 pins it (ADR-0040, *Amendment (#418)*).
