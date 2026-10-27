@@ -1320,6 +1320,9 @@ button.product-card:hover .photo {
 }
 
 .faq-item {
+  /* Positioned, so a closing answer popped out of the flow (popLayout) is placed against its card
+     at rest and while the card's layout transform animates alike, and fades where it was (#407). */
+  position: relative;
   border-radius: var(--radius-m);
   background: var(--paper);
   box-shadow: var(--shadow-s);
@@ -1562,6 +1565,8 @@ button.product-card:hover .photo {
 }
 
 .order {
+  /* Positioned for its popped lines, as a question's card is (#407). */
+  position: relative;
   border-radius: var(--radius-m);
   background: var(--surface);
   box-shadow: var(--shadow-s);
