@@ -773,6 +773,6 @@ The full report is on #320. It found four things:
 - **AN5:** dom's split.
 - **Through the gate:** every Reorder test, and AC1–AC3, AC8 and AC9.
 
-**Left as a lead:** a class change on a Reorder item re-runs the item's and its group's mount effect, though no target changed. It's on main too, and #320 didn't take it further.
+**Not a lead, as first recorded:** a class change on a ward re-runs only its element's effect, on every ward form (checked 2026-10-27). That's `wardic.div`, a spread ward and a Reorder item, for `class` and for a `data-` attribute. No mount effect and no target memo re-runs. The four mount-effect runs first read as the class change's were the mount's own second run, as each element arrived. They were counted because DG3's attribution window opened before the mount. A `costs()` window judging one change opens right before it.
 
 Solid 1's Reorder item still writes its `describedBy` from an effect after the mount, as Solid 2's did. Solid 1 reports no such diagnostic, and this issue was Solid 2's.
