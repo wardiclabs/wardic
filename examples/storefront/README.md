@@ -36,7 +36,7 @@ A made-up ceramics and glass shop whose every feature is a Wardic example: the d
 | Server rendering | A banner that arrives before the JavaScript | `initial` / `animate` with a stagger, played from the first paint by the server's CSS (Appear animations), taken over by the JavaScript where the CSS has got to |
 | With a component library | A size guide in Kobalte's dialog | `wardic.create` over Kobalte's `Dialog.Overlay` and `Dialog.Content`, `forceMount` with `<AnimatePresence>`: Kobalte keeps focus, Escape and the scroll lock (Motion: Radix's `Dialog` through `asChild`) |
 | With a component library | Sort the shop with Kobalte's select | `wardic.create(Select.Content)` growing from the edge Kobalte opens it from (`--kb-select-content-transform-origin`); `layout` cards re-sorted through `animateLayout` (Motion: Radix's `Select`) |
-| With a component library | A piece's details in Kobalte's tabs | a `layoutId` underline inside Kobalte's triggers, its panels `forceMount`ed and faded in by a variant (Motion: Radix's `Tabs`) |
+| With a component library | A piece's details in Kobalte's tabs | a `layoutId` underline inside Kobalte's triggers; each panel a `wardic.create(Tabs.Content)` that fades in whenever Kobalte shows it (Motion: Radix's `Tabs`) |
 
 ## Run it
 

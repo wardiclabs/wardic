@@ -6,13 +6,16 @@ import { wardic } from "@wardic/solid"
 import { createSignal, For, Show, Suspense } from "solid-js"
 import { product } from "~/lib/store.ts"
 
-// Kobalte's panel, taking Wardic's motion props: the ward goes on the element it renders.
+// Kobalte's panel, taking Wardic's motion props: the ward goes on the element it renders. Kobalte
+// renders a panel only while its tab is chosen, and each time it does, the panel's element enters
+// afresh, from `initial`.
 const Panel = wardic.create(Tabs.Content)
 
-// A panel fades up in as its tab is chosen; the others wait, hidden, at the start of it.
-const panel = {
-  hidden: { opacity: 0, y: 6 },
-  shown: { opacity: 1, y: 0 },
+// A panel fades up in each time its tab is chosen.
+const fadeIn = {
+  initial: { opacity: 0, y: 6 },
+  animate: { opacity: 1, y: 0 },
+  transition: { type: "tween", duration: 0.2 },
 } as const
 
 // The piece's details, in its catalog's order: its size, its material, its care.
@@ -21,10 +24,6 @@ const TABS = ["Size", "Material", "Care"]
 export default function DetailsTabs() {
   const piece = createAsync(() => product("moon-vase"))
   const [tab, setTab] = createSignal("Size")
-  const stateOf = (name: string) => {
-    if (tab() === name) return "shown"
-    return "hidden"
-  }
   const photo = photoOf("moon-vase")
   return (
     <Suspense fallback={<p class="muted">Loading the piece…</p>}>
@@ -52,11 +51,9 @@ export default function DetailsTabs() {
                     )}
                   </For>
                 </Tabs.List>
-                {/* forceMount: Kobalte keeps every panel on the page, marking the chosen one
-                    `data-selected` (the stylesheet hides the rest), so each is there to fade in. */}
                 <For each={TABS}>
                   {(name, index) => (
-                    <Panel class="tab-panel" value={name} forceMount variants={panel} initial={false} animate={stateOf(name)} transition={{ type: "tween", duration: 0.2 }}>
+                    <Panel class="tab-panel" value={name} {...fadeIn}>
                       {shown().details[index()]}
                     </Panel>
                   )}

@@ -2771,9 +2771,3 @@ button.product-card:hover .photo {
   color: var(--accent);
   font-weight: 600;
 }
-
-/* A piece's details: Kobalte's panels are all on the page (forceMount), the chosen one marked
-   `data-selected`; Radix's active one is `data-state="active"`, and the rest aren't there. */
-.details-tabs [role="tabpanel"]:not([data-selected]):not([data-state="active"]) {
-  display: none;
-}
