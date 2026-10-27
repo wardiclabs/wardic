@@ -682,7 +682,7 @@ Grilled 2026-10-27 (Q1–Q3, each A):
   - The ward's ref (Solid 1's `refElement` in `createWardWith`; Solid 2's `self`) marks an element given while the last one is off the page.
   - The mount: Solid 1's `runSpine` takes `entersFresh` and `restartStyle` (`beginOf`); Solid 2's mount effect calls `beginFresh`. For a fresh element, a new `Start` (`startOf`, the config now, no presence block), the Snapshot reset to it, and that start given to the element's presence record and spine.
   - `createElementStyle` gains `restart(starting)`: the Starting style back on the element's `style` until the gate's next first commit (one a registration, `beforeFirstCommit`), so the element paints at its start before its first frame.
-- **The storefront** (#387): the details tabs' panels are `wardic.create(Tabs.Content)` with `initial` and `animate`, and no `forceMount`. The stylesheet's rule hiding the unselected panels went with it.
+- **The storefront** (#387): the details tabs' panels are `wardic.create(Tabs.Content)` with `initial` and `animate`, and no `forceMount`. The stylesheet still hides a panel that isn't selected: Kobalte 2.0's presence (`@solid-primitives/presence`, even at `transitionDuration: 0`) unmounts the last panel in a `setTimeout`, a task after the next one mounts, and a frame Chrome painted in between showed the next panel under the last (found by hand on the Solid 2 app). Kobalte 0.13 swaps them in one task.
 
 **Cost** (`bench:solid`, N = 1,000, 11 paired reps against `main`; the control +0.5%): every gate passed.
 - **Solid 1:**

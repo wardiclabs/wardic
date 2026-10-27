@@ -2771,3 +2771,11 @@ button.product-card:hover .photo {
   color: var(--accent);
   font-weight: 600;
 }
+
+/* A piece's details: one panel, the chosen one. Kobalte 2.0's presence (the Solid 2 app) keeps the
+   last panel on the page a task after the next one comes, no longer `data-selected`: hidden, so the
+   next takes its place at once rather than coming in under it. Radix marks its own
+   `data-state="active"`. */
+.details-tabs [role="tabpanel"]:not([data-selected]):not([data-state="active"]) {
+  display: none;
+}
