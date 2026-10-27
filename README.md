@@ -121,7 +121,7 @@ function App() {
 }
 ```
 
-`wardic.create()` works for HTML element strings or any Solid component that forwards refs.
+`wardic.create()` works for HTML element strings or any Solid component that forwards refs. A component that renders nothing yet, as a component library's part does while it isn't shown (Kobalte's `Tabs.Content`), is waited on, and its element enters from `initial` when it comes, and again each time it comes back.
 
 On an element you don't render through Wardic, the `use:wardic` directive puts a ward on it, client-only (no Starting style on a server render). Import `wardic` for it to resolve:
 

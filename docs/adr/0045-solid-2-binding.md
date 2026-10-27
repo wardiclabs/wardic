@@ -673,3 +673,7 @@ The storefront's Solid 2 wishlist (#296) worked around the first two.
   - the v2 browser, hydration and SSR suites, unchanged and all passing;
   - `bench:solid --binding 2`, rc.18 against rc.15 (11 paired reps, 1,000 elements): warm mount −0.2%, Retarget +1.9%, at-rest Retarget −1.4%, unmount −1.5%, bytes −0.3%; no gate failure;
   - `examples/solid2-start` built and every route loaded with nothing logged.
+
+## Note (#414, 2026-10-27): `wardic.create`'s ref check
+
+Decision 9's ref-forwarding error, thrown from `onSettled`, is now an effect over what the wrapped component renders, resolved through `children()`: it throws when the component rendered an element and its ref reached none of it, and waits while it renders nothing. The output is resolved on the server too, so the hydration ids match, and checked only in the browser. A ward's element that comes after the last one left the page enters fresh. See ADR-0046 *Amendment (#414)*.

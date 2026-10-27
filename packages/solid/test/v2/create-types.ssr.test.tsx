@@ -13,6 +13,10 @@ import { describe, it } from "vitest"
 /** `make()`'s JSX, type-checked only: the function is never called. */
 const typed = (make: () => JSX.Element): void => void make
 
+// The wraps, made only inside `typed`: the components are declared, with nothing to wrap at run time.
+const wrapPanel = () => wardic.create(Panel)
+const wrapBadge = () => wardic.create(Badge)
+
 /** A component library's polymorphic props: the rendered element's, overridden by the part's own. */
 type PolymorphicProps<T extends ValidComponent, P> = Omit<ComponentProps<T>, keyof P> & P & { readonly as?: T }
 
@@ -29,22 +33,35 @@ declare function Badge(props: { readonly label: string; readonly ref?: JSX.Ref<H
 
 describe("wardic.create's props on Solid 2 (#387)", () => {
   it("CT1: a component generic over what it renders keeps its own props", () => {
-    const WardicPanel = wardic.create(Panel)
-    typed(() => (
-      <WardicPanel tone="calm" role="dialog" onDismiss={() => {}} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
-        Its children
-      </WardicPanel>
-    ))
-    // @ts-expect-error a tone it doesn't take
-    typed(() => <WardicPanel tone="shouting" />)
-    // @ts-expect-error a mistyped motion value
-    typed(() => <WardicPanel animate={{ opacty: 1 }} />)
+    typed(() => {
+      const WardicPanel = wrapPanel()
+      return (
+        <WardicPanel tone="calm" role="dialog" onDismiss={() => {}} initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+          Its children
+        </WardicPanel>
+      )
+    })
+    typed(() => {
+      const WardicPanel = wrapPanel()
+      // @ts-expect-error a tone it doesn't take
+      return <WardicPanel tone="shouting" />
+    })
+    typed(() => {
+      const WardicPanel = wrapPanel()
+      // @ts-expect-error a mistyped motion value
+      return <WardicPanel animate={{ opacty: 1 }} />
+    })
   })
 
   it("CT2: a plain component keeps its props, a required one required", () => {
-    const WardicBadge = wardic.create(Badge)
-    typed(() => <WardicBadge label="New" animate={{ scale: 1 }} />)
-    // @ts-expect-error its required label
-    typed(() => <WardicBadge animate={{ scale: 1 }} />)
+    typed(() => {
+      const WardicBadge = wrapBadge()
+      return <WardicBadge label="New" animate={{ scale: 1 }} />
+    })
+    typed(() => {
+      const WardicBadge = wrapBadge()
+      // @ts-expect-error its required label
+      return <WardicBadge animate={{ scale: 1 }} />
+    })
   })
 })

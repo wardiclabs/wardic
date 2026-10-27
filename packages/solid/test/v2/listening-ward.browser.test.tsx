@@ -46,11 +46,15 @@ const pointer = (target: EventTarget, type: string, x: number, y: number): void 
   target.dispatchEvent(new PointerEvent(type, { pointerId: 1, pointerType: "mouse", isPrimary: true, clientX: x, clientY: y, bubbles: true }))
 }
 
-/** Mount `ui` under a provider. */
+/**
+ * Mount `ui` under a provider, below the real mouse the browser files park at (5, 5): these tests
+ * drive hover with their own events, and a card mounted under the parked mouse took a real hover,
+ * at about 2 ms or about 160 ms, racing LW1's first landing (on `main` too).
+ */
 const mountUi = (ui: () => JSX.Element) =>
   mount(() => (
     <WardicProvider env={DomLive}>
-      {ui()}
+      <div style={{ "padding-top": "60px" }}>{ui()}</div>
     </WardicProvider>
   ))
 

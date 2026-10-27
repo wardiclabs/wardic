@@ -21,11 +21,12 @@ import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { type ComponentProps, dynamic, type JSX, type ValidComponent } from "@solidjs/web"
-import { type Component, omit, onSettled, runWithOwner, untrack } from "solid-js"
+import { type ComponentProps, dynamic, isServer, type JSX, type ValidComponent } from "@solidjs/web"
+import { children, type Component, createEffect, omit, runWithOwner, untrack } from "solid-js"
 import { MOTION_PROPS_V2 as MOTION_PROPS, type WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
 import { changesContext, isVariantChild } from "../../variant-tree.ts"
 import { type AnyWard, shareOf, type Ward, WARD, type WardConfig, type WardConfigValues, wardConfigView, type WardInternals, type WardRead, type WardShare, type WardStyle, wardWith } from "./ward.tsx"
+import { CLIENT_ONLY } from "./solid-reactivity.ts"
 import { useVariantContext } from "./variant-node.ts"
 
 /**
@@ -294,32 +295,49 @@ const wrapComponent = (Wrapped: Component<Record<string, unknown>>): Component<R
   return (props) => {
     const own = props as WardicMotionProps & RefStyle & WardRefIn
     const rest = omit(props, ...PASSED_OVER)
-    // ADR-0008's ref-forwarding contract: a component that never forwards its ref leaves the ward no
-    // element to drive. Fail loudly, once it has settled.
-    let forwarded = false
-    const seen = (): void => {
-      forwarded = true
+    // ADR-0008's ref-forwarding contract, narrowed by #414: a component that renders an element and
+    // forwards its ref to none of what it renders leaves the ward no element to drive, and fails
+    // loudly. One that renders nothing yet (a component library's part that shows only while open or
+    // selected) is waited on: its element is driven when it comes. Checked each time what it renders
+    // changes, inside the ward's Provider (#50).
+    let reached: HTMLElement | undefined
+    const seen = (element: HTMLElement): void => {
+      reached = element
     }
-    onSettled(() => {
-      if (forwarded) return
-      throw new Error(
-        `${name}: the wrapped component did not forward its ref. ` +
-          "The component must forward props.ref to a single root DOM element " +
-          "(e.g. <div ref={props.ref}>...</div>). Element-only motion is wired through the ref.",
+    const checked = (element: () => JSX.Element): JSX.Element => {
+      // Resolved on both sides, so a server's hydration ids are the browser's; checked in the browser.
+      const rendered = children(element)
+      if (isServer) return rendered as unknown as JSX.Element
+      createEffect(
+        () => Arr.filter(rendered.toArray(), isElement),
+        (elements) => {
+          if (Arr.isArrayEmpty(elements)) return
+          if (Arr.some(elements, (inside) => Predicate.isNotUndefined(reached) && inside.contains(reached))) return
+          throw new Error(
+            `${name}: the wrapped component rendered an element but did not forward its ref to it. ` +
+              "The component must forward props.ref to a single root DOM element " +
+              "(e.g. <div ref={props.ref}>...</div>). Element-only motion is wired through the ref.",
+          )
+        },
+        CLIENT_ONLY,
       )
-    })
+      return rendered as unknown as JSX.Element
+    }
     // A ward given to `wardRef` (#349), as `wardic.<tag>` takes one.
     const wardRef = untrack(() => own.wardRef)
     const given = shareOf(wardRef)
     if (Predicate.isNotUndefined(given)) {
       const { ward: driving, setup } = drivenWard(name, own, given, { defaultsOnElement: true }, MOTION_PROPS)
-      return withProvider(driving, setup, () => <Element {...rest} {...driving.with({ style: own.style })} ref={refsOf(own, [driving, seen])} />)
+      return withProvider(driving, setup, () => checked(() => <Element {...rest} {...driving.with({ style: own.style })} ref={refsOf(own, [driving, seen])} />))
     }
     const ward = wardWith(own as WardConfig, { defaultsOnElement: true })
     if (Predicate.isFunction(wardRef)) wardRef(ward)
-    return withProvider(ward, wardConfigView(own as WardConfig), () => <Element {...rest} {...ward} ref={refsOf(own, [ward, seen])} />)
+    return withProvider(ward, wardConfigView(own as WardConfig), () => checked(() => <Element {...rest} {...ward} ref={refsOf(own, [ward, seen])} />))
   }
 }
+
+/** Whether a rendered node is an element. */
+const isElement = (node: unknown): node is Element => node instanceof Element
 
 /** `wardic`: `wardic.create`, and `wardic.<tag>`, a component for that element (one per tag). */
 export type Wardic = { readonly create: typeof create } & {
