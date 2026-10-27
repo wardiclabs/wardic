@@ -229,3 +229,9 @@ Pinned by:
 - **Mutations:** 10 single-point mutations of the engine's side, all caught: no refresh, no echo record, either guard, out-of-flow or empty boxes counting, no removal refresh, an unblocked refresh, a node's resize refreshing, and the page checked first. Two of the shared helper's, caught by `scroll.browser.test.ts` (PS9, PS11).
 - `test/projection-resize-block.browser.test.ts` takes its viewport helper from `test/viewport.ts`, which PG8 and PG9 share.
 - **The lab:** free play's first run after the other cards reads clean on both builds (it moved 20 px).
+
+## Note (#418, 2026-10-27): the viewport's listener is made once
+
+*Amendment (#45)*'s viewport subscription is made at the first registration and lasts as long as the system. Its listener, `(viewport) => onResize(viewport.width)`, was made inside `register`. V8 gives a scope's closures one context, so the listener kept that registration's `node`, and with it the node's ward and, on Solid 2, every ward mounted with it, after they unmounted. The listener is now made once, at the system's scope (`onViewport`), and closes over nothing a registration made. UR1 pins it (ADR-0040, *Amendment (#418)*).
+
+**For the engine's code:** a closure stored somewhere that outlives the call it's made in (a subscription, an observer, a system-wide set) has to be made outside `register` and outside any per-node scope.
