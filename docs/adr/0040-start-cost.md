@@ -186,3 +186,55 @@ The first full A/A (main `3f65f74` against the same code, 11 reps, 3 for bytes a
 | Solid 2 | 16.74 against 16.74 KB, −0.0% | 45.03 against 45.03 KB, +0.0% | −1.1% to +0.9% | +0.3% |
 
 After the unmount, 0.10–0.23 KB per element was left on every side.
+
+## Amendment (#385, 2026-10-27): a layout page, for the projection engine
+
+The projection engine (`@wardic/dom`'s `internal/projection.ts`, every `layout`, `layoutId` and Reorder animation) had no benchmark: `bench:core` has no projection workload, and `bench:solid`'s pages used no `layout`. #383's numbers came from an ad-hoc probe. Grilled 2026-10-27 (Q1–Q5).
+
+**A premise corrected first:** `bench:solid` already serves its pages cross-origin isolated (COOP/COEP, checked at load), so `performance.now()` there is 5 µs. #383 needed CPU profiles only because its probe ran in a vitest page without those headers.
+
+1. **Timed in the page** (Q1: A).
+   - **The measure:** each scene's `animateLayout` call, timed as a task after a paint, a GC first. Its Measure pass runs synchronously inside it (ADR-0038).
+   - **The frames:** each frame's rAF callbacks, summed per frame until the scene lands. That's the coordinator's step and the gate's flush. The page wraps `requestAnimationFrame` before Wardic's Clock reads it (its Layer builds at the first mount); the page's own waits keep the real one.
+   - This needs no CDP, and works on the minified bundles both sides ship.
+   - Rejected: B, a CPU profile split by function (the names are minified away); C, A with B on demand.
+2. **What gates** (Q2: C). Per scene, the measure and the frames' median, warm, each failing as a task does. Bytes per frame gate too: `--alloc-reps` layout pages under the heap profiler, sampled from once the tree has mounted, so they count the `animateLayout` calls and the frames together. How many frames each scene took is reported.
+   - Rejected: A, the times only; B, one total per scene.
+3. **The scenes** (Q3: A). #383's tree, 1,331 `layout` wards (a root, 10 lists of 99 items, a badge in every third item), mounted once, with four scenes a round:
+   - **page:** the root's padding, so everything moves;
+   - **list:** one list reversed;
+   - **item:** one item's `left`;
+   - **scaled:** the root's width doubled, #27's `scaled`. The tree's widths are in percent, so every node scales, and its radius and shadow are scale-corrected.
+   - Rejected: B, the tree only; C, the tree and all five of #27's workloads.
+4. **Both bindings** (Q4: A): `page.tsx` and `page-v2.tsx`, each head against base. Solid 1's scenes land at `animateLayout`'s `onSettled`, Solid 2's at its promise.
+   - Rejected: B, Solid 1 only.
+5. **Every run** (Q5: A).
+   - Rejected: B, behind `--layout`; C, fewer reps.
+
+**Both sides are built the same way.** #383 found bundles 7 KB apart when one side was built from a `.tmp` copy and the other from `packages/`. `bench:solid` already copies each side's packages into `.tmp/bench-solid/<side>`, the head from the working tree and the base from `git archive`, and runs the head's own pages on both.
+
+**The first full A/A** (main `cf640c3` against the same packages, 11 reps, 3 for bytes) gated, exit 0, with the control at −1.4% [−4.5% – +0.1%]:
+
+| Solid 1 | base | head | change |
+|---|---|---|---|
+| page measure / frame | 4.570 / 1.050 ms | 4.565 / 1.055 ms | +0.3% / +1.9% [−5.4% – +4.3%] |
+| list measure / frame | 3.945 / 0.370 ms | 3.935 / 0.360 ms | −0.3% / −1.4% |
+| item measure / frame | 3.845 / 0.295 ms | 3.840 / 0.290 ms | +0.0% / −1.7% |
+| scaled measure / frame | 3.765 / 5.785 ms | 3.745 / 5.715 ms | −0.7% / −1.2% |
+| KB per frame | 1,376.0 | 1,380.2 | +0.3% |
+
+| Solid 2 | base | head | change |
+|---|---|---|---|
+| page measure / frame | 4.550 / 1.040 ms | 4.590 / 1.055 ms | −0.3% / +4.8% [−4.8% – +5.6%] |
+| list measure / frame | 3.995 / 0.365 ms | 3.995 / 0.365 ms | +0.5% / +1.4% |
+| item measure / frame | 3.865 / 0.275 ms | 3.875 / 0.275 ms | −0.4% / −1.8% |
+| scaled measure / frame | 3.770 / 5.460 ms | 3.770 / 5.475 ms | −0.3% / −0.3% |
+| KB per frame | 1,384.6 | 1,378.2 | −0.5% |
+
+- **Frames to land:** 28 for page, list and item, and 25 for scaled, on every side.
+- **What the numbers show:**
+  - A one-list or one-item scene still costs about 0.3 ms a frame: the engine walks the whole tree each tick, as #383 found.
+  - The scaled scene, every node corrected, costs about 5.5 ms a frame.
+  - Each `animateLayout` call's Measure pass over 1,331 nodes costs about 4 ms.
+- **The page scene's frame is the noisiest gate:** about 1 ms a frame, with an IQR near ±5%. It held the A/A (Solid 2's median +4.8%, its 25th percentile below 0), but it's the gate likeliest to fail on noise alone. A failure there should be rerun before it's believed.
+- **The run took 1,217 s, about 20.3 minutes,** where it took about 12.5 before. That's about 8 minutes for the layout page, not the 4 the grill estimated: about 28 frames a scene, four scenes, four rounds, 44 pages and 12 for bytes.

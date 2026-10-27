@@ -31,9 +31,19 @@
  * JS (the followers' writes into the gate, or Solid's style writes), and **frame**, from the next
  * frame's first rAF callback to just after its paint (the gate's commit, then rendering), then the
  * unmount.
+ *
+ * `?kind=layout` (#385): the projection engine's page, #383's tree of 1,331 `layout` wards (a root,
+ * 10 lists of 99 items, a badge in every third item), mounted once. Per round, four scenes, each one
+ * `animateLayout` run to its landing: **page** (the root's padding: everything moves), **list** (one
+ * list reversed), **item** (one item's `left`) and **scaled** (the root's width doubled: every node
+ * scales, and its radius and shadow are scale-corrected, #27's `scaled`). Each scene's **measure** is
+ * the `animateLayout` call, its Measure pass synchronous inside it (ADR-0038); its **frame** is the
+ * median of its frames' rAF callbacks, summed per frame until it lands (the coordinator's step and
+ * the gate's flush), timed by a `requestAnimationFrame` this page wraps before Wardic's Clock reads
+ * it. Its **frames** are how many there were.
  */
 import { DomLive } from "@wardic/dom"
-import { Reorder, wardic, WardicProvider } from "@wardic/solid"
+import { type AnimateLayout, Reorder, useAnimateLayout, wardic, WardicProvider } from "@wardic/solid"
 import { createSignal, For, Show } from "solid-js"
 import { render } from "solid-js/web"
 import * as Bool from "effect/Boolean"
@@ -57,8 +67,34 @@ const [live, setLive] = createSignal(0.5)
 const items = Array.from({ length: n }, (_, i) => i)
 
 const style = document.createElement("style")
-style.textContent = ".b{display:inline-block;width:8px;height:8px}"
+style.textContent =
+  ".b{display:inline-block;width:8px;height:8px}" +
+  // The layout page's tree: widths in percent, so doubling the root's scales every node.
+  ".root{width:400px}.root.wide{width:800px}.root.padded{padding:16px}" +
+  ".list{display:flex;flex-wrap:wrap;width:100%;margin:0;padding:0;list-style:none}" +
+  ".item{position:relative;width:9%;height:8px;margin:1px;border-radius:2px;box-shadow:0 1px 1px rgb(0 0 0 / 0.2);background:#888}" +
+  ".item.shifted{left:24px}.badge{display:block;width:50%;height:4px;border-radius:2px;background:#222}"
 document.head.append(style)
+
+/** `text` when `cond` holds, else nothing. */
+const when = (cond: boolean, text: string): string => Bool.match(cond, { onTrue: () => text, onFalse: () => "" })
+
+// `?kind=layout` times each frame's rAF callbacks (#385): Wardic's Clock and gate read
+// `requestAnimationFrame` when their Layer builds, at the first mount, so they get this one. Each
+// frame's callbacks are summed by its timestamp while a scene runs. The page's own waits use `realRaf`.
+let timing = false
+const frameJs = new Map<number, number>()
+if (kind === "layout") {
+  window.requestAnimationFrame = (callback: FrameRequestCallback): number =>
+    realRaf((time) => {
+      const t0 = performance.now()
+      try {
+        callback(time)
+      } finally {
+        if (timing) frameJs.set(time, (frameJs.get(time) ?? 0) + performance.now() - t0)
+      }
+    })
+}
 const host = document.createElement("div")
 document.body.append(host)
 const Wardic = () => (
@@ -111,7 +147,50 @@ const RetainedReorder = () => (
     </Show>
   </WardicProvider>
 )
-const pages = { plain: Plain, wardic: Wardic, live: Live, "live-plain": LivePlain, retained: Retained, "retained-reorder": RetainedReorder } as const
+// `?kind=layout` (#385): #383's tree, its scenes' four switches, and the hook its scenes call.
+const LISTS = Array.from({ length: 10 }, (_, i) => i)
+const ITEMS = Array.from({ length: 99 }, (_, i) => i)
+const [padded, setPadded] = createSignal(false)
+const [reversed, setReversed] = createSignal(false)
+const [shifted, setShifted] = createSignal(false)
+const [wide, setWide] = createSignal(false)
+let animateLayout: AnimateLayout | undefined
+const orderOf = (list: number): ReadonlyArray<number> => {
+  if (list === 0 && reversed()) return [...ITEMS].reverse()
+  return ITEMS
+}
+const rootClass = (): string => `root${when(wide(), " wide")}${when(padded(), " padded")}`
+const itemClass = (list: number, item: number): string => `item${when(list === 5 && item === 0 && shifted(), " shifted")}`
+const LayoutTree = () => {
+  animateLayout = useAnimateLayout()
+  return (
+    <wardic.div class={rootClass()} layout>
+      <For each={LISTS}>
+        {(list) => (
+          <wardic.ul class="list" layout>
+            <For each={orderOf(list)}>
+              {(item) => (
+                <wardic.li class={itemClass(list, item)} layout>
+                  <Show when={item % 3 === 0}>
+                    <wardic.span class="badge" layout />
+                  </Show>
+                </wardic.li>
+              )}
+            </For>
+          </wardic.ul>
+        )}
+      </For>
+    </wardic.div>
+  )
+}
+const Layout = () => (
+  <WardicProvider env={DomLive}>
+    <Show when={shown()}>
+      <LayoutTree />
+    </Show>
+  </WardicProvider>
+)
+const pages = { plain: Plain, wardic: Wardic, live: Live, "live-plain": LivePlain, retained: Retained, "retained-reorder": RetainedReorder, layout: Layout } as const
 render(() => {
   const Page = pages[kind as keyof typeof pages]
   return <Page />
@@ -230,6 +309,63 @@ const liveRound = async (): Promise<LiveRound> => {
   return { mount, set: mid(sets), frame: mid(frameTimes), unmount }
 }
 
+/** The layout page's scenes (#385), in each round's order. */
+export const SCENES = ["page", "list", "item", "scaled"] as const
+export type Scene = (typeof SCENES)[number]
+/** One scene: its `animateLayout` call and its frames' median, in ms, and how many frames it took. */
+export interface LayoutScene {
+  readonly measure: number
+  readonly frame: number
+  readonly frames: number
+}
+export type LayoutRound = Readonly<Record<Scene, LayoutScene>>
+
+const switches: Readonly<Record<Scene, () => void>> = {
+  page: () => setPadded(!padded()),
+  list: () => setReversed(!reversed()),
+  item: () => setShifted(!shifted()),
+  scaled: () => setWide(!wide()),
+}
+const median = (xs: ReadonlyArray<number>): number => [...xs].sort((a, b) => a - b)[Math.floor((xs.length - 1) / 2)]!
+const layoutNodes = (): number => host.querySelectorAll(".root, .list, .item, .badge").length
+
+/** Mount the tree once, landed and idle, before the rounds (and before the runner's heap sampling). */
+const mountLayout = async (): Promise<void> => {
+  if (shown()) return
+  setShown(true)
+  if (layoutNodes() !== 1331) throw new Error(`bench:solid: the layout page has ${layoutNodes()} nodes, not 1,331`)
+  await frames(10)
+}
+;(globalThis as unknown as { __wardicLayoutMount: () => Promise<void> }).__wardicLayoutMount = mountLayout
+
+/** One scene, from a task after a paint: its `animateLayout` call, then its frames until it lands. */
+const scene = async (which: Scene): Promise<LayoutScene> => {
+  const run = animateLayout
+  if (run === undefined) throw new Error("bench:solid: the layout page isn't mounted")
+  await afterPaint()
+  frameJs.clear()
+  let landed = false
+  timing = true
+  const measure = timed(() =>
+    run(switches[which], {
+      onSettled: () => {
+        landed = true
+      },
+    }),
+  )
+  await until(() => landed)
+  timing = false
+  const times = [...frameJs.values()]
+  if (times.length < 5) throw new Error(`bench:solid: the layout scene ${which} ran ${times.length} frames`)
+  return { measure, frame: median(times), frames: times.length }
+}
+
+const layoutRound = async (): Promise<LayoutRound> => {
+  const out: Partial<Record<Scene, LayoutScene>> = {}
+  for (const which of SCENES) out[which] = await scene(which)
+  return out as LayoutRound
+}
+
 /** `?kind=retained`'s and `?kind=retained-reorder`'s mount, settled at rest, and unmount, for the runner's heap readings (#318, #379). */
 export interface RetainedPage {
   readonly mount: () => Promise<void>
@@ -249,9 +385,14 @@ const retained: RetainedPage = {
 }
 ;(globalThis as unknown as { __wardicRetained: RetainedPage }).__wardicRetained = retained
 
-;(globalThis as unknown as { __wardicBenchSolid: unknown }).__wardicBenchSolid = async (rounds: number): Promise<ReadonlyArray<Round | LiveRound>> => {
+;(globalThis as unknown as { __wardicBenchSolid: unknown }).__wardicBenchSolid = async (rounds: number): Promise<ReadonlyArray<Round | LiveRound | LayoutRound>> => {
   await frames(5)
-  const out: Array<Round | LiveRound> = []
+  const out: Array<Round | LiveRound | LayoutRound> = []
+  if (kind === "layout") {
+    await mountLayout()
+    for (let i = 0; i < rounds; i++) out.push(await layoutRound())
+    return out
+  }
   const one = Bool.match(kind.startsWith("live"), { onTrue: () => liveRound, onFalse: () => round })
   for (let i = 0; i < rounds; i++) out.push(await one())
   return out
