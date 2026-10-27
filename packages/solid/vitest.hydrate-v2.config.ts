@@ -2,6 +2,7 @@ import { playwright } from "@vitest/browser-playwright"
 import { defineConfig } from "vitest/config"
 import type { BrowserCommand } from "vitest/node"
 import { solid2 } from "./vite.solid2.ts"
+import { sourceNames } from "./vite.source-names.ts"
 import { BROWSER_COMMANDS, PREBUNDLED } from "./vitest.browser.config.ts"
 
 // Server render → hydration tests for the Solid 2 binding (#209 PR 4a, ADR-0021, ADR-0045), as
@@ -78,7 +79,7 @@ const serverStream2: BrowserCommand<[file: string, exportName: string, renderId:
 
 export default defineConfig({
   root: import.meta.dirname,
-  plugins: [solid2({ hydratable: true })],
+  plugins: [sourceNames(), solid2({ hydratable: true })],
   resolve: { conditions: ["development", "browser"], dedupe: ["effect"] },
   // The @wardic packages ship TypeScript and JSX source, and Solid 2 resolves through the plugin:
   // bundle them for the server load too.

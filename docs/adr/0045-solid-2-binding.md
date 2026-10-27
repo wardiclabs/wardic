@@ -705,3 +705,74 @@ Item 2's other two internal uses were probed in Chromium on Solid 2's production
 - **dom's controller's search runs once a gesture,** at a lift and at a drag's start and end, not per move.
 - **The search isn't worth an index:** under 1 µs per pointer move, beside the Measure pass a reorder brings (about 4 ms over 1,331 nodes on `bench:solid`'s layout page, ADR-0040 *Amendment (#385)*).
 - **Fixed:** core `Reorder.make`'s doc said a sample "allocates nothing but a new order on a reorder". In fact each sample allocates the measured order, an entry per item. Making that build cheaper was offered and declined: it's about 12 µs a move at 1,000 items.
+
+## #320: Solid's attribution engine over the binding (2026-10-27)
+
+#320 ran Solid 2's attribution engine over the binding, to find wasted work that `bench:solid` only measures from outside.
+
+**The probe** (`.tmp/320`):
+- **Build:** Solid's *observe* build, which keeps attribution and drops the dev checks, in Chromium.
+- **Names:** every computation in `src/unstable/v2` named `file:line variable` by a Vite step.
+- **Workloads:**
+  - `bench:solid`'s 1,000 wards, through mount, both Retargets and unmount;
+  - a Live opacity on 1,000 elements, set every frame;
+  - 1,000 Reorder items;
+  - #385's 1,331-node layout tree, through two scenes;
+  - 100 `layoutId` pairs.
+- **Read per phase:** `costs()`, `graphSize()` and `OBSERVE.diagnostics`.
+
+The full report is on #320. It found four things:
+
+1. **The test gate missed every relay across more than one effect.** Solid prints `EFFECT_WRITES_OWN_SOURCE` only for one effect writing its own source (`warn`). A relay across several effects, a relay's tear (`EFFECT_RELAY_TEAR`) and the other `info` codes are emitted on `OBSERVE.diagnostics` alone, in rc.15 as in rc.18. `diagnostics-setup.ts` read the console. Read from the channel, 73 of the 407 browser tests had made a code unseen.
+2. **A Reorder item's mount relayed through four effects:**
+   1. the spread's ref wrote `element`;
+   2. the mount effect's `onMount` wrote `document`;
+   3. an effect wrote the instructions' id;
+   4. the spread ran again for `aria-describedby`.
+
+   Each flush showed the item without its `aria-describedby`. At 1,000 items, the spread's second run cost 8.6 ms of a 146 ms mount in the observe build.
+3. **A ward's mount effect read its target before its element existed.** Its compute read `element()`, `target()`, `open()` and `ticked()`, and its apply returned with no element. So:
+   - each mount resolved the target twice, the second time to the same value, because `gestures()` read the element too: 3.4 ms of a 94 ms mount at 1,000 wards;
+   - an async config's reveal tore (AC1–AC3, AC8, AC9).
+4. **Nothing else was wasted:**
+   - a Live value's watch costs about 0.5 µs a change;
+   - each element's style re-runs once, at the gate's first commit (ADR-0034);
+   - a layout scene re-runs only its moved nodes' triggers;
+   - no hot-scope or graph-growth code came up.
+
+**Decisions** (Q1–Q4, each A):
+- **Q1, the gate reads the channel.** It subscribes to `OBSERVE.diagnostics` and fails on every code at any severity, except the timing and size heuristics. A test that triggers a code on purpose names it, with its reason, through `allowDiagnostic` (`test/v2/diagnostics.ts`), and `swallow` names its code too. They are:
+  - `OPTIMISTIC_REVERTED`, where an optimistic write fails or is undone: swipe-dismiss, OA2, RE5;
+  - AC3's `ASYNC_OUTSIDE_LOADING_BOUNDARY`;
+  - LE11's `EFFECT_WRITES_OWN_SOURCE`. A returning element enters fresh once its ref has set it while the last one is off the page, a DOM fact, so its restart re-runs the spread's style once. That relay can't be derived.
+- **Q2, the fixes go in with the gate, which they would fail.**
+  - **A Reorder item derives its `aria-describedby`:** a memo over the document (the page's, until the element's own replaces it) and the text. The id comes from dom's new `DomAnnouncer.instructionsIdOf`, which reserves it with no element, and an effect that writes nothing adds the element with `showInstructions`. `instructionsId` is both, for Solid 1.
+  - **The mount effect reads `element()` first,** and nothing else until there is one. `gestures()` reads the element only once a gesture state is recorded, which matters for a ward whose async keys are read with the target while it renders, before its element.
+- **Q3, names in test runs only.** `vite.source-names.ts` names each `createMemo`, `createEffect`, `createSignal`… in `src/unstable/v2` by its source `file:line` and variable, for the Solid 2 browser and hydration projects. A gate failure then reads `"div.spread" → "ward.tsx:1187" → "reorder.tsx:511"`, not `"effect" → "effect"`. The source is unchanged, and nothing ships. Solid's own `transformSourceNames` names only a primitive assigned to a variable, and most of the binding's effects are bare calls.
+- **Q4:** #418, Solid 2's Reorder items leaving 8.67 KB each after unmount, is the next issue.
+
+**Production check** (`bench:solid --binding 2`, 11 paired reps, 1,000 elements). This was the prototypes against main, with the control at +1.2%. No gate failed:
+
+| | base | head | change |
+|---|---|---|---|
+| warm mount | 37.2 ms | 36.0 ms | −3.8% [−5.9% – −2.7%] |
+| warm unmount | 7.1 ms | 6.9 ms | −2.9% |
+| warm Retarget / at-rest Retarget | 16.7 / 14.7 ms | 16.7 / 14.8 ms | −0.8% / +0.6% |
+| bytes per element per round | 125.6 KB | 123.7 KB | −1.9% |
+| retained, Reorder item | 19.53 KB | 19.29 KB | −1.2% |
+
+**The final code** (`bench:solid`, both bindings, against main, control +0.5%) passed every gate:
+- **Solid 2:** warm mount −3.0% [−3.5% – −1.7%], bytes −1.7%. The Reorder item's retained heap is +0.3%, not the prototype's −1.2%. It keeps an effect per item that adds the instructions element outside the render, where the prototype added it while rendering, which a hydrating page can't take.
+- **Solid 1:** unchanged (warm mount −0.3%, bytes −0.6%).
+
+**Pinned:**
+- **DG1–DG3** (`test/v2/attribution.browser.test.tsx`):
+  - DG1: the gate sees a two-effect relay that Solid doesn't print;
+  - DG2: no target re-run at mount, with a Retarget as the control;
+  - DG3: no second run of a Reorder item's element effect at mount, with a class change as the control.
+- **AN5:** dom's split.
+- **Through the gate:** every Reorder test, and AC1–AC3, AC8 and AC9.
+
+**Left as a lead:** a class change on a Reorder item re-runs the item's and its group's mount effect, though no target changed. It's on main too, and #320 didn't take it further.
+
+Solid 1's Reorder item still writes its `describedBy` from an effect after the mount, as Solid 2's did. Solid 1 reports no such diagnostic, and this issue was Solid 2's.

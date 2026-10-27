@@ -798,9 +798,11 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   }
   // The layers on the element mounted now: a state recorded on one the ward has left reads as none, so
   // a move resets nothing by writing (#257's audit: the reset, written in the mount's effect, fed the
-  // target memo and re-ran the effect, EFFECT_WRITES_OWN_SOURCE).
+  // target memo and re-ran the effect, EFFECT_WRITES_OWN_SOURCE). With none recorded there's nothing
+  // to compare, so the element isn't read: its arrival doesn't re-run the target memo (#320).
   const gestures = (): Gestures => {
     const g = gestureState()
+    if (g === NO_GESTURES) return g
     if (g.element === element()) return g
     return NO_GESTURES
   }
@@ -1183,11 +1185,18 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const open = createMemo(() => node.canStart(), CLIENT_ONLY)
 
   // Mount, then Retarget on each change of the target or of the `when` gate: both are read here,
-  // so a gate's flip re-runs it and releases a held Retarget.
+  // so a gate's flip re-runs it and releases a held Retarget. Only once the ref has given the
+  // element (#320): until then the effect reads nothing else, so the target is first resolved with
+  // its element, once, and a config that lands before the element (an async one) doesn't run it.
   createEffect(
-    () => ({ el: element(), resolution: target(), open: open(), shown: ticked() }),
-    ({ el, resolution }) => {
-      if (Predicate.isUndefined(el)) return
+    () => {
+      const el = element()
+      if (Predicate.isUndefined(el)) return undefined
+      return { el, resolution: target(), open: open(), shown: ticked() }
+    },
+    (mounting) => {
+      if (Predicate.isUndefined(mounting)) return
+      const { el, resolution } = mounting
       if (Predicate.isUndefined(mounted) || mounted.element !== el) {
         // Another element it was spread on, or the one it's on, still on the page: a ward drives one
         // element at a time (#349's Q5). One the page has let go of is left behind.

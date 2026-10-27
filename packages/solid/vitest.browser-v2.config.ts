@@ -1,6 +1,7 @@
 import { playwright } from "@vitest/browser-playwright"
 import { configDefaults, defineConfig } from "vitest/config"
 import { solid2 } from "./vite.solid2.ts"
+import { sourceNames } from "./vite.source-names.ts"
 import { BROWSER_COMMANDS, PREBUNDLED } from "./vitest.browser.config.ts"
 
 // Real-browser tests for the Solid 2 binding, `@wardic/solid/unstable/v2` (#209): Solid 2's DOM
@@ -8,7 +9,7 @@ import { BROWSER_COMMANDS, PREBUNDLED } from "./vitest.browser.config.ts"
 // `solid-js` resolves to Solid 2 (vite.solid2.ts). Files are `test/v2/**/*.browser.test.tsx`.
 export default defineConfig({
   root: import.meta.dirname,
-  plugins: [solid2()],
+  plugins: [sourceNames(), solid2()],
   resolve: { conditions: ["development", "browser"] },
   optimizeDeps: { include: [...PREBUNDLED], exclude: ["solid-js-2", "@solidjs/web", "@solidjs/signals"] },
   test: {

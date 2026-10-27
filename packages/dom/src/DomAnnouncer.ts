@@ -8,6 +8,8 @@ export {
   ANNOUNCER_ATTRIBUTE as ATTRIBUTE,
   documentOf,
   instructionsId,
+  instructionsIdOf,
+  showInstructions,
   prepareAnnouncer as prepare,
   announceIn,
 } from "./internal/announcer.ts"
