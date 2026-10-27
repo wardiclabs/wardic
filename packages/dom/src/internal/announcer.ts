@@ -11,7 +11,8 @@
  * it when its element attaches), and an announcement adds it too if nothing did.
  *
  * {@link instructionsId} gives the id of a hidden element holding a group's instructions, one per
- * distinct text per document, for its items' `aria-describedby`.
+ * distinct text per document, for its items' `aria-describedby`. {@link instructionsIdOf} gives the
+ * id alone, and {@link showInstructions} adds its element.
  *
  * Client-only (ADR-0021, decision 7): building the layer on a server fails with the client-only error.
  *
@@ -76,36 +77,44 @@ export const announceIn = (doc: Document, message: string): void => {
   region.textContent = Bool.match(region.textContent === message, { onTrue: () => `${message}\u00A0`, onFalse: () => message })
 }
 
-/** Each document's instructions elements, by text. */
+/** Each document's instructions ids, by text. */
 const instructions = new WeakMap<Document, Map<string, string>>()
 let nextInstructions = 1
 
 /**
- * The id of `doc`'s hidden element holding `text`, added on first use: one per distinct text, for
- * the `aria-describedby` of every item that shows it.
+ * The id of `doc`'s hidden element holding `text`, one per distinct text, for the
+ * `aria-describedby` of every item that shows it. Given here, with no element added: a binding
+ * derives it while it renders, and adds the element with {@link showInstructions} in an effect
+ * (#320).
  */
-export const instructionsId = (doc: Document, text: string): string => {
+export const instructionsIdOf = (doc: Document, text: string): string => {
   const byText = Option.getOrElse(Option.fromUndefinedOr(instructions.get(doc)), () => {
     const added = new Map<string, string>()
     instructions.set(doc, added)
     return added
   })
-  return Option.getOrElse(
-    Option.filter(Option.fromUndefinedOr(byText.get(text)), (id) => Predicate.isNotNull(doc.getElementById(id))),
-    () => addInstructions(doc, byText, text),
-  )
+  return Option.getOrElse(Option.fromUndefinedOr(byText.get(text)), () => {
+    const id = `wardic-instructions-${nextInstructions++}`
+    byText.set(text, id)
+    return id
+  })
 }
 
-/** Add `doc`'s hidden element holding `text`, and keep its id under `text`. */
-const addInstructions = (doc: Document, byText: Map<string, string>, text: string): string => {
-  const id = `wardic-instructions-${nextInstructions++}`
+/** Add `doc`'s hidden element holding `text`, under {@link instructionsIdOf}'s id, unless it's there. */
+export const showInstructions = (doc: Document, text: string): void => {
+  const id = instructionsIdOf(doc, text)
+  if (Predicate.isNotNull(doc.getElementById(id))) return
   const el = doc.createElement("div")
   el.id = id
   el.hidden = true
   el.textContent = text
   doc.body.appendChild(el)
-  byText.set(text, id)
-  return id
+}
+
+/** {@link instructionsIdOf}, with its element added now: added again if it was removed. */
+export const instructionsId = (doc: Document, text: string): string => {
+  showInstructions(doc, text)
+  return instructionsIdOf(doc, text)
 }
 
 /** Core's `Announcer` on the page's `document` (see the module doc). */

@@ -21,8 +21,9 @@ import * as Bool from "effect/Boolean"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { JSX } from "@solidjs/web"
 import { action, createEffect, createMemo, createOptimistic, createSignal, For, Loading, refresh, Show, type SourceAccessor } from "solid-js"
-import { describe, expect, it } from "vitest"
+import { beforeEach, describe, expect, it } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
+import { allowDiagnostic } from "./diagnostics.ts"
 import { mount } from "./mount.tsx"
 
 type Side = "left" | "right"
@@ -156,6 +157,10 @@ const opacity = (el: HTMLElement | null): number => Number(el?.style.opacity)
 const xOf = (el: HTMLElement): number => new DOMMatrix(getComputedStyle(el).transform).m41
 
 describe("a swipe-to-dismiss card, the request after the fly-out (#257)", () => {
+  beforeEach(() => {
+    allowDiagnostic("OPTIMISTIC_REVERTED", "the pattern's optimistic side and undo button revert whichever way its action ends")
+  })
+
   it("SC1: the request only once the card has landed off screen; the card leaves with no flash back", async () => {
     const api = makeApi("ok")
     const { card, host } = mountList(api)

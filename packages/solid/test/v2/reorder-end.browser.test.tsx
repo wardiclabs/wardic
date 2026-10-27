@@ -21,6 +21,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { commands } from "vitest/browser"
 import "../browser-commands.ts"
 import { raf } from "../browser-helpers.ts"
+import { allowDiagnostic } from "./diagnostics.ts"
 import { mount } from "./mount.tsx"
 import { add, centreOf, glide, mountReorder, mouse, resetScene, settle, wait } from "./reorder-scene.tsx"
 
@@ -119,6 +120,7 @@ const ITEM = { height: "40px", "margin-bottom": "8px", background: "#9cf" } as c
 
 describe("reorderEnd's save pattern on Solid 2 (#257 item 3)", () => {
   it("RE5: an optimistic save at each reorderEnd; a failed one puts the order back, gliding, and shows its error", async () => {
+    allowDiagnostic("OPTIMISTIC_REVERTED", "a failed save puts the optimistic order back")
     // A fake server: its order, and a save that fails while `fail` is set.
     let server: Array<Task> = ["a", "b", "c", "d"].map((id) => ({ id, title: id.toUpperCase() }))
     let fail = true

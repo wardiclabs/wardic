@@ -15,6 +15,7 @@ import { ward, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 import { createSignal, Errored, flush, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
+import { allowDiagnostic } from "./diagnostics.ts"
 import { mount } from "./mount.tsx"
 
 const frames = async (n: number): Promise<void> => {
@@ -135,6 +136,9 @@ describe("a ward's element that comes after mount, or comes back, on Solid 2 (#4
   })
 
   it("LE11: a ward spread on an element that goes and comes back enters fresh too", async () => {
+    // A returning element enters fresh once its ref has set it and the last one is off the page, a
+    // DOM fact, so its restart re-runs the spread's style once: a relay the style can't derive (#320).
+    allowDiagnostic("EFFECT_WRITES_OWN_SOURCE", "a returning element's restart re-runs the spread's style")
     const [shown, setShown] = createSignal(true)
     const Host = () => {
       const card = ward(ENTER)

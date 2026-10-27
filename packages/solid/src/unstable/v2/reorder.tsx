@@ -505,14 +505,15 @@ const reorderItemWith = <V,>(list: ReorderGroup<V>, config: ReorderItemConfig<V>
   const driver = list.controller.item(value, () => Option.fromUndefinedOr(element), setLifted)
   // An item unmounted mid-gesture gets no end sample: its disposal ends the gesture (and a lift).
   onCleanup(driver.dispose)
-  // The instructions' id, once the element's document is known, and again when the text changes.
-  const [document, setDocument] = createSignal<Document | undefined>(undefined)
-  const [describedBy, setDescribedBy] = createSignal<string | undefined>(undefined)
+  // The instructions' id (ADR-0037), derived, so the element is rendered with its `aria-describedby`:
+  // the page's document's, until the element's own replaces it (an iframe's). An effect adds the
+  // instructions element, writing nothing. An effect that wrote the id after the mount relayed
+  // through four effects, each flush showing the item without it (#320).
+  const [document, setDocument] = createSignal<Document>(globalThis.document)
+  const describedBy = createMemo(() => DomAnnouncer.instructionsIdOf(document(), list.instructions()), CLIENT_ONLY)
   createEffect(
     () => ({ doc: document(), text: list.instructions() }),
-    ({ doc, text }) => {
-      UndefinedOr.map(doc, (d) => setDescribedBy(DomAnnouncer.instructionsId(d, text)))
-    },
+    ({ doc, text }) => DomAnnouncer.showInstructions(doc, text),
     CLIENT_ONLY,
   )
   const row = wardWith(wardConfig, {

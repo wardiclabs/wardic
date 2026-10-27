@@ -14,6 +14,7 @@ import { AnimatePresence, wardic, WardicProvider } from "@wardic/solid/unstable/
 import { action, createOptimisticStore, For, Loading, refresh, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
+import { allowDiagnostic } from "./diagnostics.ts"
 import { mount } from "./mount.tsx"
 
 interface Row {
@@ -68,6 +69,7 @@ describe("a ward an optimistic write makes inside an action (#337)", () => {
   })
 
   it("OA2: refused, the overlay drops, and the row exits and goes", async () => {
+    allowDiagnostic("OPTIMISTIC_REVERTED", "the action is refused, so its optimistic row reverts")
     const { host, add } = mountRows(false, true)
     await later(50, null)
     void add("a")
