@@ -45,6 +45,12 @@
  *   element, the median of its cycles, fails as a task does. What an unmount leaves is reported, not
  *   gated: about 0, and a ratio of two zeros is noise.
  *
+ * - **Layout gate** (#385): the `layout` page, #383's tree of 1,331 `layout` wards, per side and
+ *   binding with the others, paired. Per scene (page, list, item, scaled; see `page.tsx`), the
+ *   `animateLayout` call (its Measure pass) and its frames' median fail as a task does, and so does
+ *   what the scenes allocate per frame, from `--alloc-reps` pages under the heap profiler, sampled
+ *   after the tree has mounted. How many frames each scene took is reported.
+ *
  * Runs on the bench server, after `wardic-quiet`, not in CI. Exits 0 when every task passes, 1
  * when one fails, and 2 when the run is too noisy.
  *
@@ -71,7 +77,7 @@ import { solid2 } from "../vite.solid2.ts"
 import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
-import type { LiveRound, Round } from "./page.tsx"
+import type { LayoutRound, LiveRound, Round, Scene } from "./page.tsx"
 
 const GATE = 1.05
 const NOISE = 0.05
@@ -109,7 +115,10 @@ const isV2 = (side: Side): boolean => Bool.or(side === "v2Base", side === "v2Hea
 /** The retained gate's pages (#318, #379). */
 const RETAINED_KINDS = ["retained", "retained-reorder"] as const
 type RetainedKind = (typeof RETAINED_KINDS)[number]
-type Kind = "wardic" | "plain" | "live" | "live-plain" | RetainedKind
+type Kind = "wardic" | "plain" | "live" | "live-plain" | "layout" | RetainedKind
+/** The layout page's scenes, in `page.tsx`'s order (#385): the page isn't imported for its values. */
+const SCENES: ReadonlyArray<Scene> = ["page", "list", "item", "scaled"]
+const SCENE_TASKS = ["measure", "frame"] as const
 const TASKS = ["mount", "retarget", "restRetarget", "unmount"] as const
 
 const commitOf = (ref: string): string =>
@@ -316,6 +325,37 @@ const allocatedPage = async (side: Side): Promise<number> => {
   return bytesOf(profile.head as HeapNode) / (rounds * n)
 }
 
+/** One `layout` page of `side`'s build (#385): its rounds. */
+const layoutPage = async (side: Side): Promise<ReadonlyArray<LayoutRound>> => {
+  const { page, errors } = await openPage(side, "layout")
+  const out = (await runRounds(page)) as unknown as ReadonlyArray<LayoutRound>
+  await page.close()
+  if (errors.length > 0) throw new Error(`bench:solid: ${side} layout: ${errors.join("; ")}`)
+  return out
+}
+
+/**
+ * What one `layout` page of `side`'s build allocates over its scenes (#385), in bytes per frame:
+ * sampled from once the tree has mounted, the `animateLayout` calls and the frames together.
+ */
+const allocatedLayoutPage = async (side: Side): Promise<number> => {
+  const { page, errors } = await openPage(side, "layout")
+  await page.evaluate(() => (globalThis as unknown as { __wardicLayoutMount: () => Promise<void> }).__wardicLayoutMount())
+  const cdp = await page.context().newCDPSession(page)
+  await cdp.send("HeapProfiler.enable")
+  await cdp.send("HeapProfiler.startSampling", {
+    samplingInterval: ALLOC_INTERVAL,
+    includeObjectsCollectedByMajorGC: true,
+    includeObjectsCollectedByMinorGC: true,
+  })
+  const out = (await runRounds(page)) as unknown as ReadonlyArray<LayoutRound>
+  const { profile } = await cdp.send("HeapProfiler.stopSampling")
+  await page.close()
+  if (errors.length > 0) throw new Error(`bench:solid: ${side} layout allocation: ${errors.join("; ")}`)
+  const frames = out.reduce((sum, round) => SCENES.reduce((inner, scene) => inner + round[scene].frames, sum), 0)
+  return bytesOf(profile.head as HeapNode) / frames
+}
+
 /** Mount and unmount cycles on each retained page: the median of them is the page's (#318). */
 const RETAINED_CYCLES = 3
 
@@ -435,17 +475,22 @@ type Binding = keyof typeof SIDES
 const bindings: ReadonlyArray<Binding> = Arr.filter(["solid1", "solid2"] as const, (b) => Bool.match(b === "solid1", { onTrue: () => runSolid1, onFalse: () => runSolid2 }))
 const emptySides = (): Record<"base" | "head", Array<ReadonlyArray<Round>>> => ({ base: [], head: [] })
 const runs: Record<Binding | "plain", Record<"base" | "head", Array<ReadonlyArray<Round>>>> = { solid1: emptySides(), solid2: emptySides(), plain: emptySides() }
+const emptyLayout = (): Record<"base" | "head", Array<ReadonlyArray<LayoutRound>>> => ({ base: [], head: [] })
+const layoutRuns: Record<Binding, Record<"base" | "head", Array<ReadonlyArray<LayoutRound>>>> = { solid1: emptyLayout(), solid2: emptyLayout() }
 for (let r = 0; r < reps; r++) {
   const order = orderOf(r)
   for (const binding of bindings) for (const side of order) runs[binding][side].push(await runPage(SIDES[binding][side], "wardic"))
+  for (const binding of bindings) for (const side of order) layoutRuns[binding][side].push(await layoutPage(SIDES[binding][side]))
   // The noise control: plain divs on Solid 1's compile, whichever bindings run.
   for (const side of order) runs.plain[side].push(await runPage(side, "plain"))
   process.stderr.write(`rep ${r + 1}/${reps}\r`)
 }
 const allocated: Record<Binding, Record<"base" | "head", Array<number>>> = { solid1: { base: [], head: [] }, solid2: { base: [], head: [] } }
+const layoutAllocated: Record<Binding, Record<"base" | "head", Array<number>>> = { solid1: { base: [], head: [] }, solid2: { base: [], head: [] } }
 for (let r = 0; r < allocReps; r++) {
   const order = orderOf(r)
   for (const binding of bindings) for (const side of order) allocated[binding][side].push(await allocatedPage(SIDES[binding][side]))
+  for (const binding of bindings) for (const side of order) layoutAllocated[binding][side].push(await allocatedLayoutPage(SIDES[binding][side]))
   process.stderr.write(`bytes ${r + 1}/${allocReps}\r`)
 }
 const emptyRetained = (): Record<RetainedKind, Record<"base" | "head", Array<Retained>>> => ({
@@ -523,6 +568,35 @@ for (const binding of bindings) {
     const held = retained[binding][kind]
     console.log(`  ${label.padEnd(14)}${(median(held.base.map((h) => h.left)) / 1024).toFixed(2).padEnd(10)}${(median(held.head.map((h) => h.left)) / 1024).toFixed(2)}`)
   }
+  // The projection engine's page (#385): each scene's Measure pass and frames, warm, and the bytes per frame.
+  const layout = layoutRuns[binding]
+  const sceneWarm = (page: ReadonlyArray<LayoutRound>, scene: Scene, task: (typeof SCENE_TASKS)[number] | "frames"): number =>
+    median(page.slice(1).map((round) => round[scene][task]))
+  console.log("\nlayout (1,331 layout wards; ms, warm, median across reps; head / base paired per rep: median [p25 – p75])")
+  console.log(`  ${"scene".padEnd(18)}${"base".padEnd(10)}${"head".padEnd(10)}change`)
+  for (const scene of SCENES) {
+    for (const task of SCENE_TASKS) {
+      const ratios = layout.head.map((page, r) => sceneWarm(page, scene, task) / sceneWarm(layout.base[r]!, scene, task))
+      const fails = quantile(ratios, 0.5) > GATE && quantile(ratios, 0.25) > 1
+      failed ||= fails
+      console.log(
+        `  ${`${scene} ${task}`.padEnd(18)}${median(layout.base.map((page) => sceneWarm(page, scene, task))).toFixed(3).padEnd(10)}` +
+          `${median(layout.head.map((page) => sceneWarm(page, scene, task))).toFixed(3).padEnd(10)}` +
+          `${percent(quantile(ratios, 0.5))} [${percent(quantile(ratios, 0.25))} – ${percent(quantile(ratios, 0.75))}]${when(fails, "  FAIL")}`,
+      )
+    }
+  }
+  const layoutBytes = layoutAllocated[binding]
+  const layoutByteRatios = layoutBytes.head.map((b, r) => b / layoutBytes.base[r]!)
+  const layoutBytesFail = quantile(layoutByteRatios, 0.5) > GATE && quantile(layoutByteRatios, 0.25) > 1
+  failed ||= layoutBytesFail
+  console.log(
+    `  ${"KB per frame".padEnd(18)}${(median(layoutBytes.base) / 1024).toFixed(2).padEnd(10)}${(median(layoutBytes.head) / 1024).toFixed(2).padEnd(10)}` +
+      `${percent(quantile(layoutByteRatios, 0.5))} [${percent(quantile(layoutByteRatios, 0.25))} – ${percent(quantile(layoutByteRatios, 0.75))}]${when(layoutBytesFail, "  FAIL")}`,
+  )
+  console.log(
+    `  frames to land, not gated: ${SCENES.map((scene) => `${scene} ${median(layout.base.map((page) => sceneWarm(page, scene, "frames")))} / ${median(layout.head.map((page) => sceneWarm(page, scene, "frames")))}`).join(", ")}`,
+  )
   console.log("")
 }
 
