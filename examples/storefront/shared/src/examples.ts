@@ -12,6 +12,7 @@ export const AREAS = [
   { id: "presence", title: "Presence", blurb: "Things that leave as nicely as they arrive." },
   { id: "live", title: "Live values", blurb: "Values that follow the pointer, the scroll or each other." },
   { id: "server", title: "Server rendering", blurb: "Animations that play before the JavaScript has loaded." },
+  { id: "library", title: "With a component library", blurb: "A library's dialogs, selects and tabs: its keyboard and accessibility, Wardic's motion." },
 ] as const
 
 export type AreaId = (typeof AREAS)[number]["id"]
@@ -397,6 +398,60 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       summary: "The season's banner, rendered on the server: Motion starts its entrance once React has hydrated the page, so it waits for the JavaScript, and never plays without it.",
     },
     watch: ".season-copy h2",
+  },
+  {
+    id: "size-guide",
+    area: "library",
+    title: "A size guide in Kobalte's dialog",
+    summary: "Open the size guide: the shop dims and the guide rises in. Escape, a click outside or ✕ takes it away as smoothly.",
+    why: [
+      "A dialog's hard part isn't its motion. It's moving focus in and back out, keeping Tab inside, closing on Escape, hiding the page from screen readers, and stopping the page scrolling underneath. A component library does all of that, and on Solid that's Kobalte. The guide is Kobalte's `Dialog`; its motion is Wardic's.",
+      "`wardic.create(Dialog.Overlay)` and `wardic.create(Dialog.Content)` give Kobalte's parts the motion props. Wardic puts its ward on the element each part renders, through the ref Kobalte forwards. Kobalte's own presence waits only for CSS animations, so the dialog is `forceMount`ed, and Wardic's `<AnimatePresence>`, around a `<Show>` of the open state, keeps the parts on the page while they leave. Kobalte still hands focus back to the button the moment it closes.",
+      "On Solid 2 it's Kobalte 2.0, still an alpha: the console shows its own development warnings.",
+    ],
+    reducedMotion: "The guide and the shade fade in and out; the guide doesn't rise.",
+    uses: ["wardic.create(Component)", "Kobalte's Dialog, forceMount", "AnimatePresence", "exit"],
+    motion: {
+      note: "Motion's version is Radix's `Dialog`, whose API Kobalte follows. Radix renders into Motion's elements through `asChild`, with each part `forceMount`ed inside Motion's `<AnimatePresence>`. Kobalte's parts take the motion props through `wardic.create`, and its `forceMount` is on the dialog itself.",
+    },
+    interact: ".size-guide-button",
+    watch: ".size-guide",
+  },
+  {
+    id: "sort-by",
+    area: "library",
+    title: "Sort the shop with Kobalte's select",
+    summary: "Pick an order: the list grows out of its button, and the pieces slide to their new places.",
+    why: [
+      "A select is a list that opens from a button, which the keyboard must reach and walk, with the chosen option announced. Kobalte's `Select` does that, and places the list against its button. Wardic grows the list from the edge it opens from: Kobalte writes that edge into `--kb-select-content-transform-origin`, and the list's `transform-origin` reads it. So it grows down from the button, or up when there's no room below.",
+      "`wardic.create(Select.Content)` gives Kobalte's list the motion props, and `forceMount` with Wardic's `<AnimatePresence>` lets it shrink back before it goes. Choosing an order re-sorts the pieces, each a `layout` card. A re-sort moves them without resizing any, so it's declared to Wardic with `animateLayout`, and they slide to their places as the list closes.",
+      "On Solid 2 it's Kobalte 2.0, still an alpha: the console shows its own development warnings.",
+    ],
+    reducedMotion: "The list fades in and out without growing, and the pieces move to their places at once.",
+    uses: ["wardic.create(Component)", "Kobalte's Select, forceMount", "transform-origin from the library", "layout", "animateLayout"],
+    motion: {
+      note: "Motion's version is Radix's `Select`, its list placed against the button (`position=\"popper\"`) and growing from `--radix-select-content-transform-origin`. Its content takes Motion's element through `asChild`, `forceMount`ed inside `<AnimatePresence>`. Motion measures its `layout` cards as React renders them, so the re-sort needs no `animateLayout`.",
+    },
+    interact: ".select-trigger",
+    watch: ".select-list",
+  },
+  {
+    id: "details-tabs",
+    area: "library",
+    title: "A piece's details in Kobalte's tabs",
+    summary: "Switch between a piece's size, material and care: the underline slides to the tab, whether you click or use the arrow keys.",
+    why: [
+      "Tabs need more than buttons: arrow keys between them, Home and End, one tab in the Tab order, and `aria-selected` and `aria-controls` kept right. Kobalte's `Tabs` does all of it. How the selection looks is left to you, and here that's Wardic's: one underline with a `layoutId`, drawn inside whichever of Kobalte's triggers is selected, slides from tab to tab however the selection changed.",
+      "Tabs on a product page builds the same underline on buttons of its own. Here the panels are Kobalte's too: it swaps them as the tab changes, and each new one fades in, a `wardic.create(Tabs.Content)`.",
+      "On Solid 2 it's Kobalte 2.0, still an alpha: the console shows its own development warnings.",
+    ],
+    reducedMotion: "The underline moves to its tab at once, and the panels still fade in.",
+    uses: ["layoutId inside a library's parts", "Kobalte's Tabs", "wardic.create(Component)"],
+    motion: {
+      note: "Motion's version is Radix's `Tabs`, with the same underline: a `motion.span` with a `layoutId`, inside the selected trigger. Radix's panel takes Motion's element through `asChild`.",
+    },
+    interact: ".details-tabs .tab:nth-child(2)",
+    watch: ".details-tabs .tab-indicator",
   },
 ]
 

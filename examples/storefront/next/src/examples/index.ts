@@ -8,6 +8,7 @@ import BeforeHydration from "./before-hydration/Demo.tsx"
 import Browse from "./browse/Demo.tsx"
 import CartDrawer from "./cart-drawer/Demo.tsx"
 import DeliveryFaq from "./delivery-faq/Demo.tsx"
+import DetailsTabs from "./details-tabs/Demo.tsx"
 import Gallery from "./gallery/Demo.tsx"
 import Magnifier from "./magnifier/Demo.tsx"
 import Notifications from "./notifications/Demo.tsx"
@@ -20,6 +21,8 @@ import QuickView from "./quick-view/Demo.tsx"
 import ReadingProgress from "./reading-progress/Demo.tsx"
 import Reveals from "./reveals/Demo.tsx"
 import SavedForLater from "./saved/Demo.tsx"
+import SizeGuide from "./size-guide/Demo.tsx"
+import SortBy from "./sort-by/Demo.tsx"
 import Spotlight from "./spotlight/Demo.tsx"
 import Stock from "./stock/Demo.tsx"
 import Toasts from "./toasts/Demo.tsx"
@@ -47,4 +50,7 @@ export const DEMOS: Readonly<Record<string, ComponentType>> = {
   reveals: Reveals,
   spotlight: Spotlight,
   "before-hydration": BeforeHydration,
+  "size-guide": SizeGuide,
+  "sort-by": SortBy,
+  "details-tabs": DetailsTabs,
 }

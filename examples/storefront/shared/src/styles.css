@@ -2654,3 +2654,126 @@ button.product-card:hover .photo {
 .glyph {
   display: inline-block;
 }
+
+/* --- With a component library (#387): Kobalte's parts, and Radix's in Motion's app ---------- */
+
+/* The size guide: the library's dialog, centred over the shade by its margins rather than a
+   transform, so the rise and the scale Wardic draws are its only transform. */
+.size-guide {
+  position: fixed;
+  inset: 0;
+  z-index: 41;
+  display: grid;
+  gap: var(--space-3);
+  width: min(520px, calc(100% - 2 * var(--space-4)));
+  height: fit-content;
+  max-height: calc(100% - 2 * var(--space-5));
+  margin: auto;
+  overflow: auto;
+  padding: var(--space-5);
+  border-radius: var(--radius-l);
+  background: var(--surface);
+  box-shadow: var(--shadow-l);
+}
+
+.size-guide header {
+  display: flex;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+}
+
+.size-guide h2 {
+  font-size: var(--text-l);
+}
+
+.size-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-s);
+}
+
+.size-table th,
+.size-table td {
+  padding: var(--space-2) 0;
+  border-bottom: 1px solid var(--line);
+  text-align: left;
+}
+
+.size-table th {
+  font-weight: 600;
+}
+
+.size-table td {
+  color: var(--muted);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Sort by: the select's button and its list. Its items are marked by the library: Kobalte's
+   `data-selected`, Radix's `data-state="checked"`, and `data-highlighted` in both. */
+.sort-head {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: var(--space-4);
+}
+
+.select-trigger {
+  display: inline-flex;
+  gap: var(--space-2);
+  align-items: center;
+  padding: 6px 14px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-s);
+  cursor: pointer;
+}
+
+.select-list {
+  z-index: 50;
+  min-width: 13rem;
+  padding: var(--space-1);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+  box-shadow: var(--shadow-m);
+}
+
+.select-list ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.select-item {
+  display: flex;
+  gap: var(--space-3);
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--radius-s);
+  font-size: var(--text-s);
+  cursor: pointer;
+  outline: none;
+}
+
+.select-item[data-highlighted] {
+  background: var(--tile);
+}
+
+.select-item[data-selected],
+.select-item[data-state="checked"] {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+/* A piece's details: Kobalte's panels are all on the page (forceMount), the chosen one marked
+   `data-selected`; Radix's active one is `data-state="active"`, and the rest aren't there. */
+.details-tabs [role="tabpanel"]:not([data-selected]):not([data-state="active"]) {
+  display: none;
+}

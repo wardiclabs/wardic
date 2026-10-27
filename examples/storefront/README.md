@@ -4,9 +4,9 @@ A made-up ceramics and glass shop whose every feature is a Wardic example: the d
 
 | App | Stack | Shows |
 |---|---|---|
-| [`solid1`](solid1) | SolidStart 2.1 on Solid 1.9, `@wardic/solid` | Solid 1 patterns: `createAsync` over Solid Router's `query`, `action`, `<Suspense>` |
-| [`solid2`](solid2) | Solid 2 on `@solidjs/vite-plugin` (`start: true`, `ssr: true`, `serverFunctions: { components: true }`), `@wardic/solid/unstable/v2` | Solid 2 patterns: async memos under `<Loading>`, server components, and the binding's async values |
-| [`next`](next) | Next.js 16 (App Router) on React 19, `motion/react` | Each example as Motion would write it: server components that start the store's reads, client components that read them with `use()`, server actions, and server-sent events for the shared wishlist |
+| [`solid1`](solid1) | SolidStart 2.1 on Solid 1.9, `@wardic/solid`, Kobalte 0.13 | Solid 1 patterns: `createAsync` over Solid Router's `query`, `action`, `<Suspense>` |
+| [`solid2`](solid2) | Solid 2 on `@solidjs/vite-plugin` (`start: true`, `ssr: true`, `serverFunctions: { components: true }`), `@wardic/solid/unstable/v2`, Kobalte 2.0 (an alpha) | Solid 2 patterns: async memos under `<Loading>`, server components, and the binding's async values |
+| [`next`](next) | Next.js 16 (App Router) on React 19, `motion/react`, Radix | Each example as Motion would write it: server components that start the store's reads, client components that read them with `use()`, server actions, and server-sent events for the shared wishlist |
 | [`shared`](shared) | | What all three use: the catalog and photos, the stylesheet, the examples' words, the store, the apps' addresses, the smoke test |
 
 ## The examples
@@ -34,6 +34,9 @@ A made-up ceramics and glass shop whose every feature is a Wardic example: the d
 | Live values | The studio's story, revealed as you read | `whileInView` with `viewport` (`root`, `amount`, `once`), staggered Variant children |
 | Live values | Cards that catch the light | `createSpring`s of the pointer, mapped to a tilt and to where a light sits; the light comes on by a variant on a custom property; the hover heard through `card.when("hover")` / `("hoverEnd")` (Solid 1: `onHoverStart` / `onHoverEnd` and the element's `pointermove`) |
 | Server rendering | A banner that arrives before the JavaScript | `initial` / `animate` with a stagger, played from the first paint by the server's CSS (Appear animations), taken over by the JavaScript where the CSS has got to |
+| With a component library | A size guide in Kobalte's dialog | `wardic.create` over Kobalte's `Dialog.Overlay` and `Dialog.Content`, `forceMount` with `<AnimatePresence>`: Kobalte keeps focus, Escape and the scroll lock (Motion: Radix's `Dialog` through `asChild`) |
+| With a component library | Sort the shop with Kobalte's select | `wardic.create(Select.Content)` growing from the edge Kobalte opens it from (`--kb-select-content-transform-origin`); `layout` cards re-sorted through `animateLayout` (Motion: Radix's `Select`) |
+| With a component library | A piece's details in Kobalte's tabs | a `layoutId` underline inside Kobalte's triggers, its panels `forceMount`ed and faded in by a variant (Motion: Radix's `Tabs`) |
 
 ## Run it
 

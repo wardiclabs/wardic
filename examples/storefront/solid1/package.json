@@ -12,6 +12,7 @@
     "smoke": "vite build && bun ../shared/src/smoke.ts solid1"
   },
   "dependencies": {
+    "@kobalte/core": "0.13.14",
     "@solidjs/router": "1.0.0",
     "@solidjs/start": "2.1.0",
     "@wardic/core": "workspace:*",

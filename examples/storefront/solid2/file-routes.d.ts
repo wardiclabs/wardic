@@ -113,6 +113,24 @@ declare module "virtual:file-routes" {
       $$route?: undefined;
     },
     {
+      path: "/library/details-tabs";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/library/details-tabs")>;
+      $$route?: undefined;
+    },
+    {
+      path: "/library/size-guide";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/library/size-guide")>;
+      $$route?: undefined;
+    },
+    {
+      path: "/library/sort-by";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/library/sort-by")>;
+      $$route?: undefined;
+    },
+    {
       path: "/live/magnifier";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/live/magnifier")>;
@@ -250,6 +268,14 @@ declare module "virtual:file-routes" {
       children?: undefined;
     },
     {
+      path: "/library/sort-by";
+      id: "/library/sort-by";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/library/sort-by")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
       path: "/presence/toasts";
       id: "/presence/toasts";
       page: true;
@@ -290,6 +316,14 @@ declare module "virtual:file-routes" {
       children?: undefined;
     },
     {
+      path: "/library/size-guide";
+      id: "/library/size-guide";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/library/size-guide")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
       path: "/layout/delivery-faq";
       id: "/layout/delivery-faq";
       page: true;
@@ -318,6 +352,14 @@ declare module "virtual:file-routes" {
       id: "/layout/order-history";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/layout/order-history")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/library/details-tabs";
+      id: "/library/details-tabs";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/library/details-tabs")>;
       $$route?: undefined;
       children?: undefined;
     },
