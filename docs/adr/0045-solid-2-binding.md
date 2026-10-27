@@ -463,7 +463,7 @@ Item 2 asked whether `createProjection`, Solid 2's derived store, should replace
 - **Why:** the same-frame rule (PR 3b). A value derived from a ward's paints in the ward's frame only on its Atom: `read(key)` gives an accessor that carries it, and a `style` given one follows the Atom, set where the gate writes. A projection's property is read through Solid, which shows a change at its flush, after the gate's write, so whatever is derived from `card.values.x` would paint a frame late. A property can't carry an Atom as an accessor does.
 - **The issue's three internal uses stay probes, not API:** the resolved target compared by value (`sameResolution`) as a projection's diff, `live-style.ts`'s `split` / `reconcile` of the user's style, and Reorder's `values` indexed by value. Each is taken up only if a probe shows it's cheaper or simpler than what's there.
   - **The first was probed, and found #325.** A diff of changed keys was meant to tell the spine which keys to Retarget. It showed the spine restarted every key it resolved, where Motion keeps an unchanged key's animation running. The spine now compares each key's target against its running Leg's itself, so the diff wasn't needed, and `sameResolution` stays the target memo's equality (ADR-0005, *Amendment (#325)*).
-  - **The other two weren't probed before #257 closed:** #327.
+  - **The other two were probed in #327, and neither is taken up:** see *Note (#327)*.
 
 ## #257 item 11: the copies into Atoms stay effects (2026-10-23)
 
@@ -677,3 +677,31 @@ The storefront's Solid 2 wishlist (#296) worked around the first two.
 ## Note (#414, 2026-10-27): `wardic.create`'s ref check
 
 Decision 9's ref-forwarding error, thrown from `onSettled`, is now an effect over what the wrapped component renders, resolved through `children()`: it throws when the component rendered an element and its ref reached none of it, and waits while it renders nothing. The output is resolved on the server too, so the hydration ids match, and checked only in the browser. A ward's element that comes after the last one left the page enters fresh. See ADR-0046 *Amendment (#414)*.
+
+## Note (#327, 2026-10-27): the last two projection probes
+
+Item 2's other two internal uses were probed in Chromium on Solid 2's production build (`.tmp/327`). Neither is cheaper, so both stay as they are.
+
+**1. The user's style, split by key.** A `createProjection` per element, so that only the keys that changed are written, against `live-style.ts`'s `split` and `reconcile`:
+- **The page:** 1,000 elements, each with a six-key style: a Live `x` and a plain `scale` (both routed), and four plain keys. One plain key changes per update. Medians of 12 paired runs:
+
+  | | mount | one key changed |
+  |---|---|---|
+  | `split` + `reconcile` (kept) | 3.0 ms | 1.5 ms |
+  | the derive returns a fresh split, which the projection reconciles | 7.9 ms | 5.8 ms |
+  | the derive writes its draft key by key, with no pass for removed keys, and `style` is given the store | 11.2 ms | 6.1 ms |
+  | the derive writes its draft key by key and deletes removed keys, and `style` is given a spread of the store | 19.1 ms | 12.8 ms |
+  | the whole `wardic.div`, for scale | 25.0 ms | 4.3 ms |
+
+- **Both did the same work:** the new colour painted, and no routed key was told again, since its source hadn't changed.
+- **The best projection costs more than the whole `wardic.div` update.** A style the user gives is a new object at every change, so the derive still reads every key, and a store adds its proxy and per-key tracking on top.
+- **It would also be Solid 2 only:** `live-style.ts` is shared by both bindings, and Solid 1 has no projection.
+
+**2. Reorder's lookups by value.** Core's drag sample, on 1,000 items in a column, with the dragged item in the middle (500) or at the end (999), a sample that doesn't reorder:
+- **A sample costs about 17 µs.** Core's linear search (`indexOf` before `check`) is 0.5 µs of it at 500, and 0.95 µs at 999.
+- **Most of the sample is building the measured order** (`measure`: an entry per item with a box, each sample): 11–12 µs.
+- **A `Map` from value to index** would answer in about 0.01 µs, but rebuilding it costs about 17 µs at every reorder, which changes `values`.
+  - Nothing smaller can be kept, since the index `check` needs is in the measured order, which skips unmeasured items.
+- **dom's controller's search runs once a gesture,** at a lift and at a drag's start and end, not per move.
+- **The search isn't worth an index:** under 1 µs per pointer move, beside the Measure pass a reorder brings (about 4 ms over 1,331 nodes on `bench:solid`'s layout page, ADR-0040 *Amendment (#385)*).
+- **Fixed:** core `Reorder.make`'s doc said a sample "allocates nothing but a new order on a reorder". In fact each sample allocates the measured order, an entry per item. Making that build cheaper was offered and declined: it's about 12 µs a move at 1,000 items.

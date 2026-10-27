@@ -406,7 +406,8 @@ const Proto = {
  * back; Motion waits for React's next commit (its guard is set at Group.tsx:158 and
  * cleared by an effect at :172-174). The registry is a plain `Map` keyed by value.
  *
- * Per sample it allocates nothing but a new order on a reorder.
+ * Each sample builds the measured order (an entry per item with a box), and a new order on a
+ * reorder: about 17 µs a sample on 1,000 items in Chromium, 11–12 of them that build (#327).
  */
 export const make = <V>(options: GroupOptions<V>): Group<V> =>
   Object.assign(Object.create(Proto), {
