@@ -12,7 +12,7 @@ export const AREAS = [
   { id: "presence", title: "Presence", blurb: "Things that leave as nicely as they arrive." },
   { id: "live", title: "Live values", blurb: "Values that follow the pointer, the scroll or each other." },
   { id: "server", title: "Server rendering", blurb: "Animations that play before the JavaScript has loaded." },
-  { id: "library", title: "With a component library", blurb: "A library's dialogs, selects and tabs: its keyboard and accessibility, Wardic's motion." },
+  { id: "library", title: "With a component library", blurb: "Dialogs, selects and tabs from a component library: its keyboard and accessibility, animated." },
 ] as const
 
 export type AreaId = (typeof AREAS)[number]["id"]
@@ -33,10 +33,11 @@ export interface Example {
   readonly uses: ReadonlyArray<string>
   /**
    * Motion's version (#366), where there's something to say about it: what differs from Wardic's,
-   * shown above the code in every app; and, where this example's `summary` doesn't hold for Motion,
-   * Motion's own, for its page in the Next.js app. Its code is that app's `src/examples/<id>/`.
+   * shown above the code in every app; and, where this example's `title` or `summary` doesn't hold
+   * for Motion, Motion's own, for its page and its card in the Next.js app (a title naming the
+   * component library Wardic's is built on, #387). Its code is that app's `src/examples/<id>/`.
    */
-  readonly motion?: { readonly note: string; readonly summary?: string | undefined } | undefined
+  readonly motion?: { readonly note: string; readonly title?: string | undefined; readonly summary?: string | undefined } | undefined
   /**
    * What the smoke test does once the page has loaded, before it watches, for one that waits for the
    * visitor: a selector inside the demo to click, `drag:<selector>:<dx>:<dy>`, or
@@ -412,6 +413,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     reducedMotion: "The guide and the shade fade in and out; the guide doesn't rise.",
     uses: ["wardic.create(Component)", "Kobalte's Dialog, forceMount", "AnimatePresence", "exit"],
     motion: {
+      title: "A size guide in Radix's dialog",
       note: "Motion's version is Radix's `Dialog`, whose API Kobalte follows. Radix renders into Motion's elements through `asChild`, with each part `forceMount`ed inside Motion's `<AnimatePresence>`. Kobalte's parts take the motion props through `wardic.create`, and its `forceMount` is on the dialog itself.",
     },
     interact: ".size-guide-button",
@@ -430,6 +432,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     reducedMotion: "The list fades in and out without growing, and the pieces move to their places at once.",
     uses: ["wardic.create(Component)", "Kobalte's Select, forceMount", "transform-origin from the library", "layout", "animateLayout"],
     motion: {
+      title: "Sort the shop with Radix's select",
       note: "Motion's version is Radix's `Select`, its list placed against the button (`position=\"popper\"`) and growing from `--radix-select-content-transform-origin`. Its content takes Motion's element through `asChild`, `forceMount`ed inside `<AnimatePresence>`. Motion measures its `layout` cards as React renders them, so the re-sort needs no `animateLayout`.",
     },
     interact: ".select-trigger",
@@ -448,6 +451,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     reducedMotion: "The underline moves to its tab at once, and the panels still fade in.",
     uses: ["layoutId inside a library's parts", "Kobalte's Tabs", "wardic.create(Component)"],
     motion: {
+      title: "A piece's details in Radix's tabs",
       note: "Motion's version is Radix's `Tabs`, with the same underline: a `motion.span` with a `layoutId`, inside the selected trigger. Radix's panel takes Motion's element through `asChild`.",
     },
     interact: ".details-tabs .tab:nth-child(2)",

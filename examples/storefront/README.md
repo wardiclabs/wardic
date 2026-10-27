@@ -91,7 +91,7 @@ Each page's screenshot lands in the app's `.smoke/`.
 2. Its demo goes in each app's `src/examples/<id>/Demo.tsx`. That file is what the page shows as the code, so keep it about the pattern.
 3. Its route goes in `src/routes/<area>/<id>.tsx`, which renders `<ExamplePage id="<id>" demo={Demo} />`.
 4. Its Motion version goes in the Next.js app's `src/examples/<id>/`, as Motion and Next.js would write it: a `Demo.tsx`, a client component, or a server component that starts the store's reads and hands them to a `"use client"` part beside it. It's listed in `src/examples/index.ts`, and the app routes it at the same `/<area>/<id>`. Every file in the folder is what the Solid apps' pages show in their "Motion · Next.js" tab, so it keeps the Solid demo's class names, and the stylesheet and the smoke test work on it unchanged.
-5. Where there's something to say about Motion's version, the example's `motion` field says it: a `note` on what differs, shown above the code's tabs in all three apps, and a `summary` of its own where the example's doesn't hold for Motion.
+5. Where there's something to say about Motion's version, the example's `motion` field says it: a `note` on what differs, shown above the code's tabs in all three apps, and a `title` or `summary` of its own where the example's doesn't hold for Motion (one naming the component library Wardic's is built on, say).
 
 ## The photos
 

@@ -12,6 +12,9 @@ import { BackLink } from "./BackLink.tsx"
 import { CodeFiles } from "./CodeFiles.tsx"
 import { DemoFrame } from "./DemoFrame.tsx"
 
+/** An example's title, Motion's own where the example's doesn't hold for it (#387). */
+export const titleOf = (example: Example): string => example.motion?.title ?? example.title
+
 /** An example's summary, Motion's own where the example's doesn't hold for it. */
 export const summaryOf = (example: Example): string => example.motion?.summary ?? example.summary
 
@@ -36,7 +39,7 @@ export async function ExamplePage({ example, demo: Demo }: { readonly example: E
           <p className="eyebrow">{area.title}</p>
           <span className="badge badge-motion">Motion · Next.js</span>
         </div>
-        <h1>{example.title}</h1>
+        <h1>{titleOf(example)}</h1>
         <p className="muted">{summaryOf(example)}</p>
         <p className="other-apps">
           With Wardic:{" "}
