@@ -13,6 +13,8 @@
  *   one `springBlend` leg on the same spring (ADR-0024, D5). It takes two stops: Keyframes of more
  *   are Motion's error, and land on their last stop.
  * - **Keyframes of two stops** run as a target does, from their first stop ({@link keyframesFrom}).
+ * - **A Measured pair** (#430, `@wardic/dom/MeasuredPair`) runs in a leg of its own, between its ends
+ *   in px, measured at the end of the task, and lands on its target as given.
  * - **Reduced motion** (ADR-0029): when it applies, the positional keys snap in a leg of their own,
  *   after the delay their transition gives, to where their leg would have ended.
  * - **A return to a moving Live value** (#130, ADR-0043 decision 6) runs a leg of its own per key,
@@ -30,6 +32,7 @@ import * as Machine from "@wardic/core/Machine"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Spring from "@wardic/core/Spring"
 import * as Values from "@wardic/core/Values"
+import type * as MeasuredPair from "@wardic/dom/MeasuredPair"
 import type * as Style from "@wardic/dom/Style"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
@@ -416,6 +419,7 @@ const hasKeys: Predicate.Predicate<Values.Values> = Predicate.not(Rec.isEmptyRec
  * @param velocities each key's velocity now: a spring starts from it
  * @param follow the returns that follow a moving Live value (#130), given only when the Retarget returns a key
  * @param stops each key's Keyframes of more than two stops (#429, {@link keyframesFrom}), `from` at their first
+ * @param measured each key's Measured pair (#430), measured at the end of the task
  */
 export const legsOf = (
   from: Values.Values,
@@ -427,12 +431,13 @@ export const legsOf = (
   velocities: Readonly<Record<string, number>>,
   follow?: Follows | undefined,
   stops?: StopsByKey | undefined,
+  measured?: MeasuredPairs | undefined,
 ): ReadonlyArray<Leg> => {
   // Each key on its own transition (#301): with entries, the keys go by the transition each runs on.
   const entries = entriesOf(given)
-  if (Predicate.isUndefined(entries)) return legsOn(from, to, given, reducedMotion, positionalKeys, defaults, velocities, follow, stops)
+  if (Predicate.isUndefined(entries)) return legsOn(from, to, given, reducedMotion, positionalKeys, defaults, velocities, follow, stops, measured)
   // With no value's entry (`layout` and `default` alone), every key runs on one transition.
-  if (Bool.not(entries.byValue)) return legsOn(from, to, forKey(entries, "default"), reducedMotion, positionalKeys, defaults, velocities, follow, stops)
+  if (Bool.not(entries.byValue)) return legsOn(from, to, forKey(entries, "default"), reducedMotion, positionalKeys, defaults, velocities, follow, stops, measured)
   const byTransition = new Map<WardicTransition, Record<string, number | string>>()
   Arr.forEach(Rec.keys(to), (key) => {
     const runsOn = forKey(entries, key)
@@ -443,11 +448,73 @@ export const legsOf = (
     }
     byTransition.set(runsOn, { [key]: to[key] as number | string })
   })
-  return Arr.flatMap(Arr.fromIterable(byTransition), ([runsOn, keys]) => legsOn(from, keys, runsOn, reducedMotion, positionalKeys, defaults, velocities, follow, stops))
+  return Arr.flatMap(Arr.fromIterable(byTransition), ([runsOn, keys]) => legsOn(from, keys, runsOn, reducedMotion, positionalKeys, defaults, velocities, follow, stops, measured))
 }
 
 /** No legs: a Retarget with no key. */
 const NO_LEGS: ReadonlyArray<Leg> = []
+
+/** Each key's Measured pair (#430), by its key. */
+export type MeasuredPairs = Readonly<Record<string, MeasuredPair.MeasuredPair>>
+
+/** Whether any key of `values` is a Measured pair (#430): per Retarget, so nothing made. */
+const anyMeasured = (values: Values.Values, measured: MeasuredPairs | undefined): boolean => {
+  if (Predicate.isUndefined(measured)) return false
+  return Rec.some(values, (_, key) => Object.hasOwn(measured, key))
+}
+
+/**
+ * Measured pairs' leg (#430): their ends in px, read at its first step, which comes a tick after the
+ * end-of-task batch that measures them. A tween runs a 0 → 1 progress (`keyframes`' options, so
+ * `times`, an `ease` per Segment and the Modifiers apply), a spring the px. Its last frame writes each
+ * target as given (`"auto"`, `"50%"`), as Motion's `finalKeyframe`, or each start as given when a turned
+ * `repeat` ends it there. A pair its batch couldn't read switches, as a Discrete pair does.
+ */
+const measuredLegOf = (pairs: MeasuredPairs, transition: Run): Blend => {
+  const to = Rec.map(pairs, (pair) => pair.to)
+  return { _tag: "Blend", to, machine: () => Effect.succeed(measuredMachine(pairs, to, transition)) }
+}
+
+/** {@link measuredLegOf}'s machine: its step made at the first step, once the pairs are measured. */
+const measuredMachine = (pairs: MeasuredPairs, to: Values.Values, transition: Run): Machine.Machine<Frame.Frame<Values.Values>> =>
+  Machine.make({
+    settles: Bool.or(transition.type === "spring", Number.isFinite(UndefinedOr.match((transition as Machine.Modifiers).repeat, { onUndefined: () => 0, onDefined: identity }))),
+    span: { name: "wardic.measured", attributes: { keys: Rec.keys(pairs).length } },
+    start: () => {
+      let step: ((dt: number) => Frame.Frame<Values.Values>) | undefined
+      return (dt) => {
+        if (Predicate.isUndefined(step)) step = measuredStep(pairs, to, transition)
+        return step(dt)
+      }
+    },
+  })
+
+/** Whether a pair's batch read both its ends. */
+const isMeasured = (pair: MeasuredPair.MeasuredPair): boolean => Bool.and(Number.isFinite(pair.fromPx), Number.isFinite(pair.toPx))
+
+/** {@link measuredMachine}'s step, its pairs measured. Per frame: one Frame a step. */
+const measuredStep = (pairs: MeasuredPairs, to: Values.Values, transition: Run): ((dt: number) => Frame.Frame<Values.Values>) => {
+  if (Bool.not(Rec.every(pairs, isMeasured))) return () => ({ value: to, done: true })
+  const fromPx = Rec.map(pairs, (pair) => pair.fromPx as number)
+  const toPx = Rec.map(pairs, (pair) => pair.toPx as number)
+  if (transition.type === "spring") {
+    const spring = Machine.springValues(toPx, transition as Machine.SpringOptions, fromPx, {}).start()
+    return (dt) => {
+      const frame = spring(dt)
+      if (frame.done) return { value: to, done: true }
+      return { value: frame.value, done: false }
+    }
+  }
+  const options = transition as Machine.KeyframesOptions
+  const progress = Machine.keyframes([0, 1], options).start()
+  // A turned `repeat` can end it at its start (`ReducedMotion.endOf`): the starts as given then.
+  const end = Bool.match(ReducedMotion.endOf(false, true, options), { onTrue: () => to, onFalse: () => Rec.map(pairs, (pair) => pair.from) })
+  return (dt) => {
+    const frame = progress(dt)
+    if (frame.done) return { value: end, done: true }
+    return { value: Rec.map(fromPx, (start, key) => start + (UndefinedOr.getOrThrow(toPx[key]) - start) * frame.value), done: false }
+  }
+}
 
 /** No values: the failed leg of Keyframes on a spring draws none (#429). */
 const NO_VALUES: Values.Values = {}
@@ -485,15 +552,16 @@ const legsOn = (
   velocities: Readonly<Record<string, number>>,
   follow: Follows | undefined,
   stops: StopsByKey | undefined,
+  measured: MeasuredPairs | undefined,
 ): ReadonlyArray<Leg> => {
   const run = runOf(given)
-  if (Predicate.isNotUndefined(run)) return legsWith(from, to, run, reducedMotion, positionalKeys, velocities, follow, stops)
+  if (Predicate.isNotUndefined(run)) return legsWith(from, to, run, reducedMotion, positionalKeys, velocities, follow, stops, measured)
   const keys = Rec.keys(to)
   if (keys.length === 0) return NO_LEGS
   // Nearly always one Default transition for every key (a fade, a move): no grouping.
   const first = defaultFor(defaults, UndefinedOr.getOrThrow(keys[0]), to, stops)
   if (Arr.every(keys, (key) => defaultFor(defaults, key, to, stops) === first)) {
-    return legsWith(from, to, carried(first, given), reducedMotion, positionalKeys, velocities, follow, stops)
+    return legsWith(from, to, carried(first, given), reducedMotion, positionalKeys, velocities, follow, stops, measured)
   }
   const byDefault = new Map<DefaultTransition.Transition | DefaultTransition.KeyframesTransition, Record<string, number | string>>()
   Arr.forEach(keys, (key) => {
@@ -505,7 +573,7 @@ const legsOn = (
     }
     byDefault.set(runsOn, { [key]: to[key] as number | string })
   })
-  return Arr.flatMap(Arr.fromIterable(byDefault), ([runsOn, grouped]) => legsWith(from, grouped, carried(runsOn, given), reducedMotion, positionalKeys, velocities, follow, stops))
+  return Arr.flatMap(Arr.fromIterable(byDefault), ([runsOn, grouped]) => legsWith(from, grouped, carried(runsOn, given), reducedMotion, positionalKeys, velocities, follow, stops, measured))
 }
 
 /**
@@ -544,6 +612,7 @@ const legsWith = (
   velocities: Readonly<Record<string, number>>,
   follow: Follows | undefined,
   stops: StopsByKey | undefined,
+  measured: MeasuredPairs | undefined,
 ): ReadonlyArray<Leg> => {
   const useTween = transition.type === "tween"
   // Reduced motion (ADR-0029): the positional keys snap to where their leg would end, holding
@@ -562,6 +631,14 @@ const legsWith = (
   if (following) fixed = Rec.filter(rest, (_, key) => Bool.not(Arr.contains(followingKeys, key)))
   // Built a leg at a time, once a Retarget (#69's PR 2: a Retarget is per element, so no spreads).
   const legs: Array<Leg> = []
+  // Measured pairs (#430): a leg of their own, between their ends in px, on this transition.
+  const measuring = anyMeasured(fixed, measured)
+  if (measuring) {
+    const kept = fixed
+    const pairs = Rec.filter(measured as MeasuredPairs, (_, key) => Object.hasOwn(kept, key))
+    legs.push(measuredLegOf(pairs, transition))
+    fixed = Rec.filter(kept, (_, key) => Bool.not(Object.hasOwn(pairs, key)))
+  }
   if (useTween) {
     // Its options as they are: a missing `duration` is core's 0.3 s, and the rest still apply (#107).
     const options = transition as Machine.KeyframesOptions
@@ -584,8 +661,8 @@ const legsWith = (
           ),
       })
     })
-    // With every key snapped or following, there's nothing left to tween.
-    if (Bool.or(Bool.and(!snapping, !following), hasKeys(fixed))) {
+    // With every key snapped, following or measured, there's nothing left to tween.
+    if (Bool.or(Bool.and(Bool.and(!snapping, !following), !measuring), hasKeys(fixed))) {
       // A key's Keyframes, or `times` or an `ease` per Segment, run every key through `keyframesValues`
       // (#429), on one run, a target as its two stops.
       if (Bool.or(anyKeyframed(fixed, stops), keyframedOptions(options))) {

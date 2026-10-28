@@ -117,8 +117,12 @@ How an `ease` names its Easing, as Motion's do: one of Motion's names (`"easeOut
 _Avoid_: easing type, timing function (CSS's word).
 
 **Discrete pair**:
-A `from`/`to` pair no Interpolator can blend (`"auto"` → `"none"`, two complex values with different counts of colours, a path into a longer one, two lengths in different units like `"10px"` → `"1em"`). It switches to its target at its leg's first frame; a `display` or `visibility` pair turning to `none` or `hidden` switches at the leg's last frame instead (ADR-0024).
+A `from`/`to` pair no Interpolator can blend (`"auto"` → `"none"`, two complex values with different counts of colours, a path into a longer one, two lengths in different units like `"10px"` → `"1em"`). It switches to its target at its leg's first frame; a `display` or `visibility` pair turning to `none` or `hidden` switches at the leg's last frame instead (ADR-0024). A positional key's pair is a **Measured pair** instead (#430).
 _Avoid_: instant animation (Motion's), snap.
+
+**Measured pair**:
+A positional key's `from`/`to` pair whose ends differ in type (`"auto"`, `"50%"` against a length in px, a `calc()` on one side), on `width`, `height`, `top`, `left`, `right`, `bottom`, `x` or `y` (#430, Motion's). Both ends are measured in px before the next paint, its leg runs between them, and it lands on its target as given, so `auto` follows its content afterwards. Keyframes of more than two stops that mix types stay a **Discrete pair**.
+_Avoid_: auto animation, unit conversion.
 
 **Variable value**:
 A value that is wholly a reference to a custom property, `var(--name)`, with or without a fallback. It stands for that property's value on the element: its Environment resolves it against the element, once, when a leg starts, and the leg blends what it resolved to. The leg's last frame writes the reference itself, so at rest the element follows the property again. A `var()` inside a larger value (a shadow, a `calc()`) isn't one: it stays part of that value's text.
