@@ -21,6 +21,7 @@ import type * as InputFeed from "@wardic/core/InputFeed"
 import * as Probe from "@wardic/core/Probe"
 import * as Recognizer from "@wardic/core/Recognizer"
 import * as Report from "@wardic/dom/Report"
+import { watchPressOn } from "../../press.ts"
 import type * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -91,9 +92,13 @@ const watchSensorOf = <A>(
 export const createHover = (): Sensor<boolean> =>
   watchSensorOf<boolean>((target, { on, onDefect }) => Recognizer.watchHover(target, { on: (transition) => on(transition.active), onDefect }), false)
 
-/** `true` while the pointer is held down on the element, `false` once released or cancelled (the core press watch). */
+/**
+ * `true` while the pointer is held down on the element, or a **Keyboard press** holds Enter or Space
+ * on it (#427, the element made focusable for one), `false` once released or cancelled (the core
+ * press watch).
+ */
 export const createPress = (): Sensor<boolean> =>
-  watchSensorOf<boolean>((target, { on, onDefect }) => Recognizer.watchPress(target, { on: (press) => on(press.phase === "start"), onDefect }), false)
+  watchSensorOf<boolean>((target, { on, onDefect }) => watchPressOn(target, { on: (press) => on(press.phase === "start"), onDefect }), false)
 
 /** `true` while the element is focused, `false` once blurred (the core focus watch). */
 export const createFocus = (): Sensor<boolean> => watchSensorOf<boolean>((target, handlers) => Recognizer.watchFocus(target, {}, handlers), false)

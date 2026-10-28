@@ -8,6 +8,7 @@
  */
 import type * as Drag from "@wardic/core/Drag"
 import type * as InputSource from "@wardic/core/InputSource"
+import type * as Recognizer from "@wardic/core/Recognizer"
 
 /** A point in the viewport. */
 export interface WardicPoint {
@@ -31,6 +32,31 @@ export interface WardicDragInfo {
   readonly offset: WardicPoint
   readonly delta: WardicPoint
   readonly velocity: WardicPoint
+}
+
+/** How a press was made (#427): by a pointer, or a **Keyboard press**. */
+export type WardicPressInput = "pointer" | "keyboard"
+
+/**
+ * A press's event (#257, #427): where it was, in the viewport, and how it was made. A **Keyboard
+ * press**'s point is its element's centre, measured at the key, so code that places something at a
+ * press works for one.
+ */
+export interface WardicPressInfo extends WardicPointInfo {
+  readonly input: WardicPressInput
+}
+
+/**
+ * The platform's event a press's callback hears (#427): a pointer's; a **Keyboard press**'s key, or
+ * the blur that cancelled it.
+ */
+export type WardicPressEvent = PointerEvent | KeyboardEvent | FocusEvent
+
+/** A press's info (#427): a pointer's point less the scroll its hold counted into it, or a **Keyboard press**'s element's centre. */
+export const pressInfoOf = (press: Recognizer.PressEvent, element: Element): WardicPressInfo => {
+  if (press.input === "pointer") return { point: { x: press.event.x - press.event.scroll.x, y: press.event.y - press.event.scroll.y }, input: "pointer" }
+  const box = element.getBoundingClientRect()
+  return { point: { x: box.left + box.width / 2, y: box.top + box.height / 2 }, input: "keyboard" }
 }
 
 /** A hover's or a press's info: its event's point less the scroll its hold counted into it. */

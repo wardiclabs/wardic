@@ -66,7 +66,7 @@ const r = (n: number): number => Math.round(n)
 const at = (p: Pt): string => `${r(p.x)},${r(p.y)}`
 
 /** A call: its name, the event's type and whether the browser made it, and the info's point. */
-const seen = (name: string, event: PointerEvent, info: WardicPointInfo): string => `${name} ${event.type} ${event.isTrusted} ${at(info.point)}`
+const seen = (name: string, event: Event, info: WardicPointInfo): string => `${name} ${event.type} ${event.isTrusted} ${at(info.point)}`
 
 /** A drag call: {@link seen}, and the info's offset and delta on x. */
 const seenDrag = (name: string, event: PointerEvent, info: WardicDragInfo): string =>

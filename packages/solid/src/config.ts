@@ -10,7 +10,7 @@ import type * as Machine from "@wardic/core/Machine"
 import type * as Stagger from "@wardic/core/Stagger"
 import type * as CSS from "csstype"
 import type { WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
-import type { WardicDragInfo, WardicPointInfo } from "./gesture-info.ts"
+import type { WardicDragInfo, WardicPointInfo, WardicPressEvent, WardicPressInfo } from "./gesture-info.ts"
 
 /** Motion's `viewport` (#273, ADR-0047): see `WardConfig.viewport`. */
 export interface WardicViewport {
@@ -510,12 +510,18 @@ export interface WardConfig {
   readonly onHoverStart?: (event: PointerEvent, info: WardicPointInfo) => void
   /** It left, or a press held on it while it left was let go. */
   readonly onHoverEnd?: (event: PointerEvent, info: WardicPointInfo) => void
-  /** A press began on the element: a primary pointer's down, with no drag active. */
-  readonly onTapStart?: (event: PointerEvent, info: WardicPointInfo) => void
-  /** That press ended in a release on the element or inside it. */
-  readonly onTap?: (event: PointerEvent, info: WardicPointInfo) => void
-  /** It ended elsewhere, or was cancelled. A press a drag took over is neither a tap nor a cancel. */
-  readonly onTapCancel?: (event: PointerEvent, info: WardicPointInfo) => void
+  /**
+   * A press began on the element: a primary pointer's down, with no drag active, or Enter or Space
+   * going down while it has focus (a **Keyboard press**, #427: `info.input` says which).
+   */
+  readonly onTapStart?: (event: WardicPressEvent, info: WardicPressInfo) => void
+  /** That press ended in a release on the element or inside it, or its key coming up. */
+  readonly onTap?: (event: WardicPressEvent, info: WardicPressInfo) => void
+  /**
+   * It ended elsewhere, or was cancelled; a key's, when the element lost focus. A press a drag took
+   * over is neither a tap nor a cancel.
+   */
+  readonly onTapCancel?: (event: WardicPressEvent, info: WardicPressInfo) => void
   /** A drag of the element started, past its threshold. */
   readonly onDragStart?: (event: PointerEvent, info: WardicDragInfo) => void
   /** That drag moved: its start, and each move after. */

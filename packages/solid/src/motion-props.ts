@@ -10,7 +10,7 @@ import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
 import type { WardConfig, WardicAnimationDefinition, WardicDragTransition, WardicTransition, WardicVariant, WardicVariantLabels, WardicVariants, WardicViewport } from "./config.ts"
 import type { WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
-import type { WardicDragInfo, WardicPointInfo } from "./gesture-info.ts"
+import type { WardicDragInfo, WardicPointInfo, WardicPressEvent, WardicPressInfo } from "./gesture-info.ts"
 import type { Accessor } from "./reactivity.ts"
 
 /** Motion's gesture callbacks (#273): Solid 1's, which most elements don't take. */
@@ -229,9 +229,9 @@ export interface WardicMotionProps {
   /** Motion's gesture callbacks (#273; see `WardConfig`): `(event, info)`, at the event, `point` in the viewport. */
   readonly onHoverStart?: (event: PointerEvent, info: WardicPointInfo) => void
   readonly onHoverEnd?: (event: PointerEvent, info: WardicPointInfo) => void
-  readonly onTapStart?: (event: PointerEvent, info: WardicPointInfo) => void
-  readonly onTap?: (event: PointerEvent, info: WardicPointInfo) => void
-  readonly onTapCancel?: (event: PointerEvent, info: WardicPointInfo) => void
+  readonly onTapStart?: (event: WardicPressEvent, info: WardicPressInfo) => void
+  readonly onTap?: (event: WardicPressEvent, info: WardicPressInfo) => void
+  readonly onTapCancel?: (event: WardicPressEvent, info: WardicPressInfo) => void
   readonly onDragStart?: (event: PointerEvent, info: WardicDragInfo) => void
   readonly onDrag?: (event: PointerEvent, info: WardicDragInfo) => void
   readonly onDragEnd?: (event: PointerEvent, info: WardicDragInfo) => void

@@ -119,10 +119,10 @@ describe("a ward's gesture events on Solid 2 (#257)", () => {
     const started = await retrying(card.next("pressStart"), () => {
       pointer(el, "pointerdown", 130, 140, 1)
     })
-    expect(started).toEqual({ point: { x: 130, y: 140 }, element: el })
+    expect(started).toEqual({ point: { x: 130, y: 140 }, input: "pointer", element: el })
     const tapped = card.next("tap")
     pointer(child, "pointerup", 132, 142)
-    expect(await tapped).toEqual({ point: { x: 132, y: 142 }, element: el })
+    expect(await tapped).toEqual({ point: { x: 132, y: 142 }, input: "pointer", element: el })
   })
 
   it("GX3: a release elsewhere on the page is a tapCancel, with where it landed", async () => {
@@ -133,7 +133,7 @@ describe("a ward's gesture events on Solid 2 (#257)", () => {
     const tapped = card.next("tap")
     const cancelled = card.next("tapCancel")
     pointer(document.body, "pointerup", 400, 20)
-    expect(await cancelled).toEqual({ point: { x: 400, y: 20 }, element: el })
+    expect(await cancelled).toEqual({ point: { x: 400, y: 20 }, input: "pointer", element: el })
     expect(await settledWithin(tapped, 2), "no tap").toBe(false)
   })
 
@@ -427,7 +427,7 @@ describe("a ward's pan on Solid 2 (#273)", () => {
     // A press with no pan still taps.
     pointer(el, "pointerdown", 130, 140, 1)
     pointer(el, "pointerup", 130, 140)
-    expect(await tapped).toEqual({ point: { x: 130, y: 140 }, element: el })
+    expect(await tapped).toEqual({ point: { x: 130, y: 140 }, input: "pointer", element: el })
   })
 })
 

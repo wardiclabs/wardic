@@ -131,6 +131,14 @@ export const isPrimaryPointer = (event: PointerLikeEvent): boolean =>
 export type Key = "space" | "enter" | "escape" | "left" | "right" | "up" | "down" | "home" | "end" | "other"
 
 /**
+ * What the target itself does with a key, unless something takes it (#427): `"type"`, the key goes
+ * into text the target edits; `"activate"`, the target has its own action for it; `"none"`, the
+ * target has nothing of its own for it, though its Environment may. Each Environment says it of its
+ * own targets, so core knows none of their kinds.
+ */
+export type KeyAction = "type" | "activate" | "none"
+
+/**
  * A key going down or up at a target, or inside it (ADR-0037). `fromTarget`: the key came from the
  * target itself, not from something inside it (a text field, a button). `handled`: a handler that
  * ran before this one (the app's) already took the key, as the Environment sees it once those have
@@ -146,11 +154,17 @@ export interface KeyboardLikeEvent {
   readonly fromTarget: boolean
   readonly handled: boolean
   readonly handle: () => void
+  /** What the key's own target does with it (#427): a **Keyboard press** on Space takes the key only where its target does nothing. */
+  readonly action: KeyAction
+  /** The platform's own event (#427), opaque to core, as a pointer event's `raw` is: a binding hands it to an app's callback. */
+  readonly raw?: unknown
 }
 
 export interface FocusLikeEvent {
   readonly type: "focus" | "blur"
   readonly timeStamp: number
+  /** The platform's own event (#427), opaque to core: a blur that cancels a **Keyboard press** hands it to an app's callback. */
+  readonly raw?: unknown
   /**
    * Whether the Environment shows this focus (#273): the DOM's `:focus-visible`, a keyboard's focus
    * rather than a pointer's click. Absent: shown. `Recognizer.focus`'s `visible` counts only these.

@@ -43,7 +43,7 @@ export type { Shape as FlushGate, Sink as FlushSink } from "@wardic/dom/FlushGat
  * `AtomRegistry`).
  */
 export { fromAtom, streamToSignal } from "./bridge.ts"
-export type { WardicDragInfo, WardicPoint, WardicPointInfo } from "./gesture-info.ts"
+export type { WardicDragInfo, WardicPoint, WardicPointInfo, WardicPressEvent, WardicPressInfo, WardicPressInput } from "./gesture-info.ts"
 export type { WardicBoundingBox, WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
 
 /**

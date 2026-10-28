@@ -258,6 +258,7 @@ const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTML
     onDragSample: driver.onSample,
     onLayoutHandle: (handle) => onCleanup(driver.register(handle)),
     raiseWhileDragged: true,
+    keysTaken: true,
     lifted,
     baseStyle: () => ({ "touch-action": Style.reorderTouchAction(group.axis()) }),
   }

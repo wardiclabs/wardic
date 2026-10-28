@@ -109,3 +109,7 @@ So the web's default instructions end with "Some screen readers need focus mode 
     - keys during a pointer drag;
   - `test/reorder.ssr.test.tsx` SS7 (the server's `tabindex`).
 - **Lab:** `test/reorder-run.test.ts` KR1–KR4.
+
+## Note (#427, 2026-10-28): a Reorder item's keys aren't a press
+
+Enter and Space now press any focused Wardic element (ADR-0056, keyboard presses). A Reorder item's are its keyboard reorder's: its press recognizer hears no keys (`keysTaken`), so a lift is no press, `whileTap` stays off through it, and a drop is no tap.

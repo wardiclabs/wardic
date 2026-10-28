@@ -7,6 +7,7 @@ export {
   InputDomLive as layer,
   keyOf,
   kindOf,
+  makeFocusable,
   buttonOf,
   toPointer,
 } from "./internal/input.ts"

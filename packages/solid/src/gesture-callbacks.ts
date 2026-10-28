@@ -21,7 +21,7 @@ import * as Match from "effect/Match"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardConfig, WardicViewport } from "./config.ts"
-import { dragInfoOf, pointInfoOf, pointOfSample } from "./gesture-info.ts"
+import { dragInfoOf, pointInfoOf, pointOfSample, pressInfoOf, type WardicPressEvent } from "./gesture-info.ts"
 import type { WardicRuntime } from "./runtime.ts"
 
 /**
@@ -83,7 +83,7 @@ export const inViewOptionsOf = (viewport: WardicViewport | undefined): Recognize
 /** What tells an element's gestures to its config's callbacks. */
 export interface GestureCallbacks {
   readonly hovered: (transition: Recognizer.Transition) => void
-  readonly pressed: (press: Recognizer.PressEvent) => void
+  readonly pressed: (press: Recognizer.PressEvent, element: Element) => void
   readonly dragged: (sample: Drag.Sample) => void
   /** The drag's release came to rest on its own. */
   readonly released: () => void
@@ -156,10 +156,10 @@ export const gestureCallbacksOf = (runtime: WardicRuntime, id: string, config: (
       const name = Bool.match(transition.active, { onTrue: () => "onHoverStart" as const, onFalse: () => "onHoverEnd" as const })
       call(name, config()[name], transition.event.raw as PointerEvent, pointInfoOf(transition.event))
     },
-    pressed: (press) => {
+    pressed: (press, element) => {
       const name = PRESS_CALLBACK[press.phase]
       if (Predicate.isUndefined(name)) return
-      call(name, config()[name], press.event.raw as PointerEvent, pointInfoOf(press.event))
+      call(name, config()[name], press.event.raw as WardicPressEvent, pressInfoOf(press, element))
     },
     dragged: (sample) => {
       // A direction-locked drag's lock, at its start, before `onDragStart` (Motion's order).

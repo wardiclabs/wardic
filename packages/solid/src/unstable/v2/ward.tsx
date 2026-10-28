@@ -47,6 +47,7 @@
 import type * as Drag from "@wardic/core/Drag"
 import type * as InputFeed from "@wardic/core/InputFeed"
 import * as Recognizer from "@wardic/core/Recognizer"
+import { watchPressOn } from "../../press.ts"
 import * as Report from "@wardic/dom/Report"
 import * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
@@ -419,6 +420,8 @@ export interface WardInternals {
   readonly onLayoutHandle?: ((handle: ProjectionSystem.NodeHandle) => () => void) | undefined
   /** A `<Reorder>` item's: its node raised while dragged. */
   readonly raiseWhileDragged?: boolean | undefined
+  /** A `<Reorder>` item's: its Enter and Space are its **Keyboard reorder**'s (ADR-0037), so its press hears no keys (#427). */
+  readonly keysTaken?: boolean | undefined
   /** A `<Reorder>` item's: whether a **Keyboard reorder** has it lifted (ADR-0037), which turns its `whileDrag` on. */
   readonly lifted?: Accessor<boolean> | undefined
   /** A `<Reorder>` item's base style (its `touch-action`), under the user's style, over the drag defaults. */
@@ -911,13 +914,17 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     if (Bool.and(Bool.or(untrack(wantsPress), lifecycle.wantsPress), Bool.not(m.press))) {
       m.press = true
       m.watch(
-        Recognizer.watchPress(m.element, {
-          on: (press) => {
-            setGesture(m.element, "pressed", press.phase === "start")
-            lifecycle.pressed(press, m.element)
+        watchPressOn(
+          m.element,
+          {
+            on: (press) => {
+              setGesture(m.element, "pressed", press.phase === "start")
+              lifecycle.pressed(press, m.element)
+            },
+            onDefect,
           },
-          onDefect,
-        }),
+          internal.keysTaken === true,
+        ),
       )
     }
     // A pan sets no layer: only a `next` wants it (#273).
