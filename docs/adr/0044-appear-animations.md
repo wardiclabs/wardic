@@ -271,3 +271,7 @@ This amends ADR-0003 and ADR-0021.
 - **The hand check:** `/appear` gained a list its shell leads, its items streamed `?data=<ms>` after. On a production build, headless (`.tmp/245/drive-stream.ts`, `.tmp/245/trace-late.ts`):
   - the chunk before the JS (`?data=300&hydrate=1500`), reduced motion too: every item OK, no chunk style left, the list's children only its items;
   - after the JS (`?data=1200`): the style landed in the list and was moved before the chunk hydrated, and the items faded in staggered.
+
+## Note (#448, 2026-10-28): a key already at its target isn't sampled
+
+The client's first Retarget starts no Leg for a key already at its target (ADR-0005, *Amendment (#448)*), so the server leaves one out too: a key whose `initial`, coerced to its target's shape, is its target isn't in the rule, and an element whose every key is there has none, as one whose `initial` equalled its `animate` had none before. The two specs stay one, and the Handoff matches (`keyOf`). An `auto` already at its target no longer stops the rule. Pinned by AR21 and AH13.

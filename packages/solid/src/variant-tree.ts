@@ -355,6 +355,25 @@ export const startsAtAnimate = (
 ): boolean => presenceBlocks || initialOf(config, inherited) === false
 
 /**
+ * Whether an element's mount tells nothing (#448, Motion's `animation-state.ts`): it
+ * {@link startsAtAnimate}, or its `initial` (own, else inherited) is the same name, list or values map
+ * as its `animate` (own, else inherited). Its first Retarget, landing with nothing to animate, is told
+ * to no one. Read once, untracked.
+ */
+export const startsQuiet = (
+  config: VariantConfig,
+  inherited: WardicVariantContextValue | undefined,
+  presenceBlocks: boolean,
+  untrack: Reactivity["untrack"],
+): boolean => {
+  if (startsAtAnimate(config, inherited, presenceBlocks)) return true
+  const initial = initialOf(config, inherited)
+  if (Predicate.isUndefined(initial)) return false
+  // The same map is the same entry, as the same name or list is.
+  return sameLabels(initial as WardicVariantLabels, animateOf(config, inherited, untrack) as WardicVariantLabels)
+}
+
+/**
  * The values an element starts from, its Starting style's input (ADR-0003): its `initial` (own, else
  * inherited, #50), or, when it {@link startsAtAnimate}, its `animate` (own, else inherited), as
  * Motion's `initial={false}` (#134). Read once: an inherited name is read through `untrack`.

@@ -4,10 +4,12 @@
 // - SE1: before the first landing `settled()` is `undefined`, read under `<Loading>` with no fallback
 //   shown; the entrance is pending from the first frame, then lands with its definition, target and
 //   gestures, the element at its value.
-// - SE2: a variant change: pending while it runs, the last landing kept meanwhile, then the variant's name.
+// - SE2: a variant change: pending while it runs, the last landing kept meanwhile, then the variant's
+//   name. A mount whose `initial` is its `animate`'s name lands nothing (#448): `undefined`, not pending.
 // - SE3: `next("settled")` waits for the next landing after the call: a Retarget the next interrupts
 //   doesn't land it, the next one does.
-// - SE4: a hover's landing has the hover on and its values; the return's has none.
+// - SE4: a hover's landing has the hover on and its values; the return's has none. The mount, at its
+//   `animate`, lands nothing (#448).
 // - SE5: a pending `next` rejects with an `AbortError` at the ward's disposal; one asked after, at once.
 // - SE6: a Retarget with nothing to animate lands at once: never pending, `next` resolved.
 // - SE7: a first read during the entrance isn't pending: `<Loading>` shows its content, then the read
@@ -99,18 +101,21 @@ describe("a ward's landings on Solid 2 (#257)", () => {
         </Loading>
       </>
     ))
-    await card.next("settled")
-    await raf()
-    expect(host.querySelector("p")!.textContent).toBe('"shut" idle')
+    for (let i = 0; i < 4; i++) await raf()
+    expect(host.querySelector("p")!.textContent, "a mount at its animate lands nothing").toBe("undefined idle")
     setOpen(true)
-    flush()
-    await raf()
-    expect(host.querySelector("p")!.textContent, "the last landing kept while it runs").toBe('"shut" pending')
     const landing = await card.next("settled")
     expect(landing.definition).toBe("open")
     expect(landing.target).toEqual({ opacity: 1 })
     await raf()
     expect(host.querySelector("p")!.textContent).toBe('"open" idle')
+    setOpen(false)
+    flush()
+    await raf()
+    expect(host.querySelector("p")!.textContent, "the last landing kept while it runs").toBe('"open" pending')
+    expect((await card.next("settled")).definition).toBe("shut")
+    await raf()
+    expect(host.querySelector("p")!.textContent).toBe('"shut" idle')
   })
 
   it("SE3: next waits for the next landing after the call: an interrupted Retarget doesn't land it", async () => {
@@ -129,7 +134,8 @@ describe("a ward's landings on Solid 2 (#257)", () => {
       { variants: { rest: { opacity: 0.2 } }, initial: "rest", animate: "rest", whileHover: { opacity: 1 }, transition: TWEEN, style: BOX },
       (card) => <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />,
     )
-    expect((await card.next("settled")).definition).toBe("rest")
+    for (let i = 0; i < 4; i++) await raf()
+    expect(card.settled(), "the mount, at its animate, lands nothing").toBeUndefined()
     const hovered = card.next("settled")
     // The recognizer attaches its listener asynchronously: re-dispatch until the hover's Retarget starts.
     let landing: WardSettled | undefined

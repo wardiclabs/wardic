@@ -233,6 +233,10 @@ export const unplayable = (initial: Values.Values, to: Values.Values): Option.Op
 /** Whether a value is one the DOM reads from the element: `auto`, or a custom property. */
 const readsElement = (value: number | string): boolean => Predicate.isString(value) && /\bauto\b|var\(/.test(value)
 
+/** Whether an `initial` value, coerced to its target's shape, is that target: its key starts no leg (#448). */
+const atTarget = (start: number | string | undefined, target: number | string): boolean =>
+  Option.exists(OwnValues.valueLike(start, target), (like) => like === target)
+
 // --- The server --------------------------------------------------------------------------------
 
 /** A variant parent's orchestration, on a server: its children in render order, its stagger and `when`. */
@@ -566,12 +570,16 @@ export const enterServer = (
   readonly late: boolean
   readonly chunkRoot: boolean
 } => {
-  // Its starts and targets once, both plays sharing them (and so their key's text, `keyOf`).
-  const mount = Option.flatMap(el.to, (to) =>
-    Bool.match(Rec.isEmptyRecord(Rec.filter(to, (target, key) => Bool.not(el.initial[key] === target))), {
+  // Its starts and targets once, both plays sharing them (and so their key's text, `keyOf`). A key
+  // already at its target, coerced to its shape, is left out, as the client's first Retarget starts
+  // it no leg (#448).
+  const mount = Option.flatMap(el.to, (to) => {
+    const moving = Rec.filter(to, (target, key) => Bool.not(atTarget(el.initial[key], target)))
+    return Bool.match(Rec.isEmptyRecord(moving), {
       onTrue: () => Option.none(),
-      onFalse: () => Option.some(playable(el, to)),
-    }))
+      onFalse: () => Option.some(playable(el, moving)),
+    })
+  })
   const play = (reduced: boolean): Option.Option<Result.Result<MountAnimation, string>> =>
     Option.map(mount, (prepared) => Result.map(prepared, ({ from, to }): MountAnimation => ({ tag: el.tag, from, to, transition: el.transition, reduced, layout: el.layout })))
   const { entry, animation: inline, late, chunkRoot } = appear.enter({ normal: play(false), reduced: play(true) }, el.group)

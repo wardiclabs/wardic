@@ -2,18 +2,20 @@
 // frames: each Retarget's start, and its landing, with Motion's `definition`.
 //
 // - AC1: the entrance at mount starts and completes, with the target values as its definition.
-// - AC2: a variant's animation hands over the variant's name.
+// - AC2: a variant's animation hands over the variant's name. A mount whose `initial` is its `animate`'s
+//   name tells nothing (#448, Motion's).
 // - AC3: an animation the next Retarget interrupts doesn't complete; the next one does.
 // - AC4: a change that resolves the same target (a `style` change) starts nothing.
 // - AC5: a gesture layer's animation counts: a hover's start and landing, with its target values.
 // - AC6: a callback that throws is reported, and the element animates on and completes.
 // - AC7: through `createWard`'s accessor config, the same.
 // - AC8: a Retarget to where the element already is (a variant with the same values) starts and
-//   completes too, as Motion's does.
+//   completes too, at once, as Motion's does (#448): it starts no leg.
 // - AC9: a spring's Retarget of two legs (a number and a colour) completes once, when the later lands.
 // - AC10: a Retarget with nothing to animate (an empty variant, on a spring) starts and completes at once.
 // - AC11: over a variant, a hover's definition is its target values, and so is the return: the
-//   variant didn't change (Motion's fallback animation for the keys the hover leaves).
+//   variant didn't change (Motion's fallback animation for the keys the hover leaves). The mount, at
+//   its `animate`, tells nothing (#448).
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { createWard, wardic, WardicProvider, type WardicAnimationDefinition, type WardicTransition } from "@wardic/solid"
@@ -32,6 +34,10 @@ const CLEAR = { "margin-top": "120px", "margin-left": "120px" } as const
 const BOX = { width: "40px", height: "40px", background: "teal", ...CLEAR } as const
 
 const opacityOf = (el: HTMLElement | undefined): number => Number(el?.style.opacity)
+
+const frames = async (n: number): Promise<void> => {
+  for (let i = 0; i < n; i++) await raf()
+}
 
 /** A log of the calls, each with its definition. */
 const recorder = () => {
@@ -82,11 +88,14 @@ it("AC2: a variant's animation hands over the variant's name", async () => {
       />
     </WardicProvider>
   ))
-  await until(() => log.calls.length === 2, 2000)
-  expect(log.calls).toEqual(['start "shut"', 'complete "shut"'])
+  await frames(20)
+  expect(log.calls, "a mount at its animate tells nothing").toEqual([])
   setOpen(true)
+  await until(() => log.calls.length === 2, 2000)
+  expect(log.calls).toEqual(['start "open"', 'complete "open"'])
+  setOpen(false)
   await until(() => log.calls.length === 4, 2000)
-  expect(log.calls.slice(2)).toEqual(['start "open"', 'complete "open"'])
+  expect(log.calls.slice(2)).toEqual(['start "shut"', 'complete "shut"'])
 })
 
 it("AC3: an animation the next Retarget interrupts doesn't complete; the next one does", async () => {
@@ -213,17 +222,18 @@ it("AC8: a Retarget to where the element already is starts and completes too", a
         variants={{ a: { opacity: 1 }, b: { opacity: 1 } }}
         initial="a"
         animate={name()}
-        transition={TWEEN}
+        transition={{ type: "tween", duration: 1 }}
         onAnimationStart={log.start}
         onAnimationComplete={log.complete}
         style={BOX}
       />
     </WardicProvider>
   ))
-  await until(() => log.calls.length === 2, 2000)
+  await frames(4)
+  expect(log.calls, "the mount, at its animate, tells nothing").toEqual([])
   setName("b")
-  await until(() => log.calls.length === 4, 2000)
-  expect(log.calls).toEqual(['start "a"', 'complete "a"', 'start "b"', 'complete "b"'])
+  await frames(2)
+  expect(log.calls, "at once, not after the second").toEqual(['start "b"', 'complete "b"'])
 })
 
 it("AC9: a spring's Retarget of two legs (a number and a colour) completes once, when the later lands", async () => {
@@ -295,13 +305,14 @@ it("AC11: over a variant, a hover's definition is its values, and so is the retu
       />
     </WardicProvider>
   ))
-  await until(() => log.calls.length === 2, 2000)
+  await frames(4)
+  expect(log.calls, "the mount, at its animate, tells nothing").toEqual([])
   await until(() => {
     el.dispatchEvent(new PointerEvent("pointerenter", { pointerId: 1, bubbles: true }))
-    return log.calls.length > 2
+    return log.calls.length > 0
   }, 2000)
-  await until(() => log.calls.length === 4, 2000)
+  await until(() => log.calls.length === 2, 2000)
   el.dispatchEvent(new PointerEvent("pointerleave", { pointerId: 1, bubbles: true }))
-  await until(() => log.calls.length === 6, 2000)
-  expect(log.calls).toEqual(['start "rest"', 'complete "rest"', 'start {"opacity":1}', 'complete {"opacity":1}', 'start {"opacity":0.2}', 'complete {"opacity":0.2}'])
+  await until(() => log.calls.length === 4, 2000)
+  expect(log.calls).toEqual(['start {"opacity":1}', 'complete {"opacity":1}', 'start {"opacity":0.2}', 'complete {"opacity":0.2}'])
 })

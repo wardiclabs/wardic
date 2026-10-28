@@ -63,7 +63,7 @@ import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
 import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "./presence-record.ts"
 import type { DragTrack } from "./drag-track.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
-import { delayedBy, type Follows, type Leg, legsOf, startingAt } from "./retarget-legs.ts"
+import { delayedBy, type Follows, type Leg, legsOf, startingAt, transitionForKey } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import {
   changesContext,
@@ -87,6 +87,7 @@ import {
   type ServerVariantNode,
   startingValuesOf,
   startsAtAnimate,
+  startsQuiet,
   type WardicVariantContextValue,
 } from "./variant-tree.ts"
 import { type Entry, mergedOf, type NamedTarget, NO_VARIANT_STATE, resolveTarget, resolveTargets, sameLabels, type Target, transitionOfTarget, type VariantState } from "./variant-target.ts"
@@ -209,6 +210,32 @@ const keysByLayerOf = (
   })
   return groups
 }
+
+/**
+ * The transition `key` animates on in a Retarget: its group's (#277, #297), else the Retarget's one,
+ * with no stagger (#448 reads its fields, not its delay).
+ */
+const keyTransitionOf = (
+  resolution: Resolution,
+  groups: ReadonlyArray<ReadonlySet<string>> | undefined,
+  key: string,
+  transition: WardicTransition | undefined,
+  element: WardicTransition | undefined,
+): WardicTransition | undefined => {
+  if (Predicate.isUndefined(groups)) return transition
+  return groupTransitionOf(resolution, groups, Option.getOrElse(Arr.findFirstIndex(groups, (group) => group.has(key)), () => -1), transition, element, undefined, identity)
+}
+
+/** Whether `given` gives `key` a velocity (#448, Motion's `valueTransition.velocity`): it kicks the key, so it animates though at its target. */
+const givesVelocity = (given: WardicTransition | undefined, key: string): boolean => {
+  const own = transitionForKey(given, key) as { readonly velocity?: unknown } | undefined
+  if (Predicate.isUndefined(own)) return false
+  return Bool.and(Predicate.isNumber(own.velocity), own.velocity !== 0)
+}
+
+/** A key's velocity in the Snapshot, 0 with none (#448). */
+const velocityOf = (snapshot: { readonly velocities: Readonly<Record<string, number>> }, key: string): number =>
+  UndefinedOr.match(snapshot.velocities[key], { onUndefined: () => 0, onDefined: identity })
 
 /** `t`'s keys in the `i`th group, or all of them when there are no groups. */
 const pickKeys = (t: Values.Values, groups: ReadonlyArray<ReadonlySet<string>> | undefined, i: number): Values.Values => {
@@ -1049,6 +1076,13 @@ export interface Start {
   readonly initialLink: Values.Values
   /** When it started at `animate`, those values, which come after `style` (Motion's `baseTarget`, ADR-0022). */
   readonly startedLink: Values.Values
+  /**
+   * Whether its mount tells nothing (#448, Motion's `animation-state.ts`): it starts at its `animate`
+   * (`initial={false}`, or an `<AnimatePresence initial={false}>`'s first render), or its `initial` is
+   * the same name, list or values map as its `animate`, each its own or inherited. Its first Retarget,
+   * landing with nothing to animate, is told to no one.
+   */
+  readonly quiet: boolean
 }
 
 /**
@@ -1065,6 +1099,7 @@ export const startOf = (
   const startedAtAnimate = startsAtAnimate(config, parent, presenceBlocks)
   const initialValues = startingValuesOf(config, parent, presenceBlocks, untrack)
   return {
+    quiet: startsQuiet(config, parent, presenceBlocks, untrack),
     initialValues,
     initialLink: Bool.match(startedAtAnimate, { onTrue: () => ({}), onFalse: () => initialValues }),
     startedLink: Bool.match(startedAtAnimate, { onTrue: () => initialValues, onFalse: () => ({}) }),
@@ -1250,6 +1285,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   const { initialLink, initialValues, startedLink } = start
   const { linksFor, ownValue, startLinkOf } = links
   let handoff = options.handoff
+  // Its mount tells nothing when it starts at its `animate` (#448): on until its first Retarget.
+  let quiet = start.quiet
   // Its Variable values (#55, ADR-0035 *Amendment (#55)*): the Key rule bound to this element,
   // added to each leg it starts, so a `var()` end blends what it resolves to here.
   const elementRules = [Variables.values(element)]
@@ -1555,6 +1592,32 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     const landing: Landing = { report, settled: legDone, failed: legFailed }
     current = landing
 
+    // The Retarget's transitions, read before its keys: a key already there asks its own for a
+    // velocity (#448).
+    const elementTransition = ownOrInherited(c.transition, parent)
+    // The base target's own transition (#277): the keys its layer drives animate on it.
+    const baseTransition = transitionOfTarget(resolution.transition, elementTransition)
+    // Fold the per-child stagger delay (ADR-0007) into the effective
+    // transition.delay = base.delay + computedDelay. extraDelay() is read
+    // at Retarget time so a re-snapshot before this start is reflected. Each name's keys take that
+    // name's delay (#297): the base's, its first name's.
+    const layers = resolution.layers
+    const extra = extraOf(extraDelay, layers[0])
+    const transition = staggeredOf(baseTransition, extra, options.reuse)
+    // With a layer's own transition (#277, #291), each key animates on its layer's: the base's keys
+    // on the base target's, each active gesture's on its target's, else the element's, as Motion's
+    // each animation type runs on its own.
+    // A list's names (#297) split them too, each name's at its own delay; a list's returns run on the
+    // element's transition, in a group of their own, last.
+    // Guards, not matches: per Retarget, per element. A list's work (#297) is done apart, for a list:
+    // the Retarget's other calls keep their inlining (docs/agents/effect-first.md).
+    const listed = Array.isArray(resolution.variant)
+    // A list's names each wait for their own `when` (#297's PR 2): the layers whose gate is shut now.
+    let shut: ReadonlyArray<boolean> | undefined
+    if (listed) shut = shutOf(layers, byName)
+    // Every key the Retarget resolves goes in its layer's group, the ones that stay too (#325): a
+    // name's settle waits for them.
+    const groups = keysByLayerOf(t, layers, extraDelay, extra, listed, shut)
     // Per key (#325, Motion's): a key whose running leg heads where this Retarget resolves it runs
     // on, counted toward this landing; one whose last leg landed there stays; every other's leg
     // gives it up, and it starts from its Snapshot value, coerced to its target's shape (ADR-0024,
@@ -1567,12 +1630,16 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // a lookup. A transform key reads nothing.
     let stays: Set<string> | undefined
     let carried: Array<Running> | undefined
+    let there: Record<string, number | string> | undefined
     const started: Record<string, string> = {}
     Arr.forEach(Rec.keys(t), (key) => {
       if (Bool.not(Object.hasOwn(initialValues, key))) ownValue(key)
       const like = t[key]
       const owner = owners.get(key)
+      // A leg drawing it toward another target: it's moving, so it's never already there (#448).
+      let drawn = false
       if (Predicate.isNotUndefined(owner)) {
+        drawn = Bool.not(owner.done)
         if (owner.targets[key] === like) {
           if (Predicate.isUndefined(stays)) stays = new Set()
           stays.add(key)
@@ -1587,21 +1654,34 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         }
         giveUp(key, owner)
       }
+      // Guards, not a match: per key, per Retarget, and a key with a value builds nothing.
       const coerced = OwnValues.valueLike(snapshot.values[key], like)
-      if (Option.isSome(coerced)) {
-        snapshot.values[key] = coerced.value
-        return
+      if (Option.isSome(coerced)) snapshot.values[key] = coerced.value
+      if (Option.isNone(coerced)) {
+        Option.match(Option.filter(startLinkOf(key, like), (s) => isSameKind(s.value, like)), {
+          onSome: (s) => {
+            snapshot.values[key] = s.value
+            started[key] = s.source
+          },
+          onNone: () => {
+            snapshot.values[key] = like
+            started[key] = "target"
+          },
+        })
       }
-      Option.match(Option.filter(startLinkOf(key, like), (s) => isSameKind(s.value, like)), {
-        onSome: (s) => {
-          snapshot.values[key] = s.value
-          started[key] = s.source
-        },
-        onNone: () => {
-          snapshot.values[key] = like
-          started[key] = "target"
-        },
-      })
+      // Already there (#448, Motion's `visual-element-target.ts`): a key at its target, coerced to its
+      // shape, with no leg drawing it, at rest and given no velocity by its transition, starts none.
+      // It stays, as a carried key does, and is written once more (below), as Motion sets it on the
+      // next frame. One that started at its target had no value to show, so its leg writes it, as
+      // Motion's does for a value it has none of.
+      const still = Bool.and(Bool.and(Bool.not(drawn), started[key] !== "target"), Bool.and(snapshot.values[key] === like, velocityOf(snapshot, key) === 0))
+      // Its transition asked last, for a key already there alone: per key, per Retarget.
+      if (still && Bool.not(givesVelocity(keyTransitionOf(resolution, groups, key, transition, elementTransition), key))) {
+        if (Predicate.isUndefined(stays)) stays = new Set()
+        stays.add(key)
+        if (Predicate.isUndefined(there)) there = {}
+        there[key] = like
+      }
     })
     // A key no longer resolved (one the drag holds, or one with no Base value) is given up: it stays
     // where it is.
@@ -1614,6 +1694,10 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       const kept = stays
       fresh = Rec.filter(t, (_, key) => Bool.not(kept.has(key)))
     }
+    // A mount that starts at its `animate`, with nothing to animate, tells no one (#448, Motion's):
+    // no start, no landing, and no list's names. It starts no leg, so it lands at once.
+    const silent = Bool.and(quiet, Bool.and(Rec.isEmptyRecord(fresh), Predicate.isUndefined(carried)))
+    quiet = false
     // A key only a Transition end sets (#428) starts no leg of its own: its layer's end leg holds it
     // where it is, and sets it once the layer's animated keys land.
     const ends = resolution.ends
@@ -1681,16 +1765,6 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       running.fiber = fiber
       FiberSet.addUnsafe(legFibers, fiber)
     }
-    const elementTransition = ownOrInherited(c.transition, parent)
-    // The base target's own transition (#277): the keys its layer drives animate on it.
-    const baseTransition = transitionOfTarget(resolution.transition, elementTransition)
-    // Fold the per-child stagger delay (ADR-0007) into the effective
-    // transition.delay = base.delay + computedDelay. extraDelay() is read
-    // at Retarget time so a re-snapshot before this start is reflected. Each name's keys take that
-    // name's delay (#297): the base's, its first name's.
-    const layers = resolution.layers
-    const extra = extraOf(extraDelay, layers[0])
-    const transition = staggeredOf(baseTransition, extra, options.reuse)
     // The legs (#48, ADR-0044 decision 8): one pure builder, which a server render's Appear
     // animation samples too, so the two can't drift. Built here; each leg's machine is built
     // in its own fiber, so a transition core rejects (#66, ADR-0025 *Amendment (#66)*) fails
@@ -1704,21 +1778,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       follow = { keysOf: (rest) => followingOf(routes, rest, returning), targetOf: (key, start) => liveTargetOf(routes, key, start) }
     }
     const reduce = options.reducedMotion()
-    // With a layer's own transition (#277, #291), each key animates on its layer's: the base's keys
-    // on the base target's, each active gesture's on its target's, else the element's, as Motion's
-    // each animation type runs on its own.
-    // A list's names (#297) split them too, each name's at its own delay; a list's returns run on the
-    // element's transition, in a group of their own, last.
-    // Guards, not matches: per Retarget, per element. A list's work (#297) is done apart, for a list:
-    // the Retarget's other calls keep their inlining (docs/agents/effect-first.md).
-    const listed = Array.isArray(resolution.variant)
-    // A list's names each wait for their own `when` (#297's PR 2): the layers whose gate is shut now.
-    let shut: ReadonlyArray<boolean> | undefined
-    if (listed) shut = shutOf(layers, byName)
-    // Every key the Retarget resolves goes in its layer's group, the ones that stay too (#325): a
-    // name's settle waits for them.
-    const groups = keysByLayerOf(t, layers, extraDelay, extra, listed, shut)
-    const told = namesToldOf(animation, resolution, lastResolution)
+    let told: ToldNames | undefined
+    if (Bool.not(silent)) told = namesToldOf(animation, resolution, lastResolution)
     // Every key on one transition when they aren't split, as before; else each group's legs, tagged.
     // A key that stays starts none, and no keys make no leg (#325).
     let retargetLegs: ReadonlyArray<Leg> = NO_LEGS
@@ -1881,6 +1942,14 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         )
       })
     }
+    // The keys already there (#448), written with each key the Retarget moves at where it starts, as
+    // its leg's first frame writes it: the element's first commit, which takes its Starting style off,
+    // holds every key, whatever frame the legs first draw in (a gated name's draws later).
+    if (Predicate.isNotUndefined(there)) {
+      const written = { ...from, ...there }
+      gate.write(id, written)
+      recordFrame(written)
+    }
     // The Retarget started, its legs on their way (#257); with none, its own or carried, it landed
     // at once (#325): its returns settle, and the element reports settled at the gate's next flush,
     // after the effects that start its orchestration's wait (ADR-0007).
@@ -1897,10 +1966,11 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         })
       }
     }
-    if (Predicate.isNotUndefined(animation)) {
-      animation.started(resolution, previous, c)
+    if (Bool.and(Predicate.isNotUndefined(animation), Bool.not(silent))) {
+      const hooks = animation as AnimationHooks
+      hooks.started(resolution, previous, c)
       startedTold = true
-      if (landed) animation.settled(resolution, previous, c)
+      if (landed) hooks.settled(resolution, previous, c)
       UndefinedOr.map(failedEarly, (early) => tellFailed(early.error))
     }
   }

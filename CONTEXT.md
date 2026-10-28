@@ -71,7 +71,7 @@ Replacing a running Primitive with a fresh one seeded from its last Frame, for e
 _Avoid_: restart, cancel, interrupt (those name a mechanism, not the intent).
 
 **Carried key**:
-A key a Retarget resolves to the same target as its running **Leg**: the Leg runs on, unrestarted, and the Retarget lands once it has (#325, Motion's per-key rule). A key whose last Leg landed at that target starts none, and stays where it is.
+A key a Retarget resolves to the same target as its running **Leg**: the Leg runs on, unrestarted, and the Retarget lands once it has (#325, Motion's per-key rule). A key whose last Leg landed at that target starts none, and stays where it is. So does a key already at its target with nothing moving it (#448).
 _Avoid_: protected key (Motion's name for it), kept key.
 
 **Superseded**:
