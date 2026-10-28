@@ -375,9 +375,11 @@ export class Lifecycle implements AnimationHooks {
 
   /**
    * A drag's sample (#257, #273): its start, each move (its start among them) and its end are told;
-   * a direction-locked one's (`locked`) lock first, at its start.
+   * a direction-locked one's (`locked`) lock first, at its start. An end its controls cancelled
+   * (#431) isn't, as Motion's `cancel` tells no `onDragEnd`.
    */
   dragged(sample: Drag.Sample, locked: boolean, element: WardElement): void {
+    if (sample.cancelled === true) return
     if (Bool.and(locked, sample.phase === "start")) this.tell("directionLock", () => sample.axis as "x" | "y")
     this.moved(DRAG_EVENT[sample.phase], "drag", sample, element)
   }

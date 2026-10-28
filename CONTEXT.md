@@ -210,6 +210,10 @@ _Avoid_: drag lock (that's a **Drag claim**), dragging (a projection node's flag
 A target's hold on the page's drag axes, each claimed on its own: the axis of an `x` or `y` drag, or both for a free one. It's taken at the drag's start and kept until that gesture ends or the drag is interrupted, and every drag subscription on one target shares it. A drag that needs an axis another target holds is refused for its whole gesture, so of nested draggables the innermost drags, unless they drag on different axes (ADR-0019, *Amendment (#29)*).
 _Avoid_: drag lock (Motion's name), axis lock (a drag kept to one axis), pointer capture.
 
+**Drag controls**:
+A drag's start from outside its element (#431, Motion's `useDragControls`): controls made apart and given to one element or more, whose `start(event)` begins each one's drag from a pointer that went down elsewhere, a handle or a track, which the drag then follows as if it had pressed the element. `stop()` ends a drag as a release would; `cancel()` ends it where it is. With `dragListener={false}`, an element's own presses start none. A drag the controls start takes its **Drag claim** as any drag does.
+_Avoid_: drag handle (one use of them), drag trigger.
+
 **Reorder group**:
 The items a drag can reorder, and the rules that do it. Core's `Reorder.Group` (built by `Reorder.make`) holds each item's box, read from its projection handle at each drag sample, and decides each **Crossover**. `@wardic/dom`'s controller wires it to the items' drags, Auto-scroll and the axis. The binding owns the `values` array, `onReorder`, the elements and JSX. After a reorder it makes no further one until a Measure pass has measured the new order (ADR-0020).
 _Avoid_: sortable, list (the element), reorder context.

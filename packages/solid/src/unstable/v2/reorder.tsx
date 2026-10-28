@@ -490,7 +490,12 @@ const reorderItemWith = <V,>(list: ReorderGroup<V>, config: ReorderItemConfig<V>
   const cfg = (): ReorderItemOwn<V> => own
   const fixed = { layout: (): ReorderItemLayout => itemLayoutOf(own.layout) }
   const wardConfig = config as unknown as WardConfig
-  const touchAction = (): object => ({ "touch-action": Style.reorderTouchAction(list.axis()) })
+  // Its group's axis's `touch-action`, under its style: none when its own presses don't drag it
+  // (`dragListener={false}`, #431), as with its other drag defaults, so a list dragged by handles scrolls by touch.
+  const touchAction = Bool.match(untrack(() => wardConfig.dragListener) !== false, {
+    onTrue: () => (): object => ({ "touch-action": Style.reorderTouchAction(list.axis()) }),
+    onFalse: constUndefined,
+  })
   // On a server the item renders the drag defaults with its group's touch-action, and joins no
   // controller (ADR-0021); the instructions element exists on the client only.
   if (isServer) {

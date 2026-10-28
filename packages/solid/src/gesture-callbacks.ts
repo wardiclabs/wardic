@@ -162,6 +162,8 @@ export const gestureCallbacksOf = (runtime: WardicRuntime, id: string, config: (
       call(name, config()[name], press.event.raw as WardicPressEvent, pressInfoOf(press, element))
     },
     dragged: (sample) => {
+      // A drag its controls cancelled (#431) ends untold, as Motion's `cancel` tells no `onDragEnd`.
+      if (sample.cancelled === true) return
       // A direction-locked drag's lock, at its start, before `onDragStart` (Motion's order).
       if (sample.phase === "start") {
         const c = config()

@@ -293,6 +293,7 @@ const scrolledInput = () => {
       }),
     keyboard: () => InputFeed.empty,
     focus: () => InputFeed.empty,
+    adoptPointer: () => undefined,
   })
   return {
     layer,

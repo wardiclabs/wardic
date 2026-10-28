@@ -10,7 +10,7 @@
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
-import { constant, constFalse, constTrue, constVoid, type LazyArg } from "effect/Function"
+import { constant, constFalse, constTrue, constVoid, identity, type LazyArg } from "effect/Function"
 import * as Match from "effect/Match"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
@@ -176,6 +176,8 @@ const hoverFold = (activity: DragActivity.Shape): Fold<HoverState, InputSource.P
       Match.when({ type: "leave" }, () =>
         Bool.match(s.inside, { onTrue: () => ({ ...s, inside: false, deferred: Predicate.isNotNull(s.held) }), onFalse: () => s }),
       ),
+      // An adopted down's pointer went down elsewhere (#431): it holds nothing here.
+      Match.when({ adopted: true }, () => s),
       Match.when({ type: "down" }, (down) =>
         Option.match(Option.fromNullOr(s.held), { onNone: () => ({ ...s, held: down.pointerId }), onSome: () => s }),
       ),
@@ -291,6 +293,8 @@ const isPressed = (s: PressState): boolean => Bool.or(Predicate.isNotNull(s.owne
 const pointerStep = (activity: DragActivity.Shape) => (s: PressState, e: InputSource.PointerLikeEvent): PressState =>
   Match.value(e).pipe(
     Match.when(Predicate.not(InputSource.isPrimaryPointer), () => s),
+    // An adopted down's pointer went down elsewhere (#431): it presses nothing here.
+    Match.when({ adopted: true }, () => s),
     Match.when({ type: "down" }, (down) =>
       Bool.match(Bool.or(isPressed(s), activity.isDragActive()), {
         onTrue: () => s,
@@ -608,19 +612,25 @@ const VELOCITY_WINDOW_MS = 100
 interface DragState {
   readonly phase: "idle" | "active"
   readonly ownerId: number | null
+  /** How far (px) the gesture moves from its origin before it starts, read at its down (#431). */
+  readonly threshold: number
   readonly origin: Point.Point
   readonly last: Point.Point
   /** The scroll counted into `last` (#257): a sample at `last` carries it. */
   readonly lastScroll: Point.Point
+  /** The platform event `last` came with (#431): a gesture ended from outside its pointer carries it. */
+  readonly lastRaw: unknown
   readonly history: ReadonlyArray<Velocity.TimedPoint>
 }
 
 const initState: DragState = {
   phase: "idle",
   ownerId: null,
+  threshold: THRESHOLD,
   origin: { x: 0, y: 0 },
   last: { x: 0, y: 0 },
   lastScroll: InputSource.NO_SCROLL,
+  lastRaw: undefined,
   history: [],
 }
 
@@ -685,13 +695,15 @@ const staleEnd = (state: DragState, rule: StaleRule, timeStamp: number, raw: unk
     },
   })
 
-/** A gesture claimed by `event`, a down. */
-const claimedBy = (event: InputSource.PointerLikeEvent, point: Point.Point): DragState => ({
+/** A gesture claimed by `event`, a down, which starts once it moves `threshold` px. */
+const claimedBy = (event: InputSource.PointerLikeEvent, point: Point.Point, threshold: number): DragState => ({
   phase: "idle",
   ownerId: event.pointerId,
+  threshold,
   origin: point,
   last: point,
   lastScroll: event.scroll,
+  lastRaw: event.raw,
   history: [{ x: point.x, y: point.y, timeStamp: event.timeStamp }],
 })
 
@@ -704,15 +716,35 @@ const ignored = (state: DragState): Step => [state, NO_SAMPLES]
 /** The event's pointer position. */
 const pointOf = (event: InputSource.PointerLikeEvent): Point.Point => ({ x: event.x, y: event.y })
 
-/** A down: it claims a free gesture; the owner's second down ends its lost one (rule B). */
-const onDown = (state: DragState, event: InputSource.PointerLikeEvent): Step => {
+/**
+ * Which downs a fold claims a gesture from, and how far (px) each gesture moves before it starts
+ * (#431): a drag's own presses unless it doesn't listen to them, and the downs it adopted; a pan's
+ * own presses alone.
+ */
+interface Downs {
+  readonly claims: (down: InputSource.PointerLikeEvent) => boolean
+  readonly thresholdOf: (down: InputSource.PointerLikeEvent) => number
+}
+
+/** Whether `down` was adopted (#431, `InputSource.adoptPointer`). */
+const isAdopted = (down: InputSource.PointerLikeEvent): boolean => down.adopted === true
+
+/** A pan's downs: the target's own presses, each starting past the threshold. */
+const OWN_DOWNS: Downs = { claims: (down) => Bool.not(isAdopted(down)), thresholdOf: () => THRESHOLD }
+
+/**
+ * A down: one it claims claims a free gesture, and the owner's second down ends its lost one (rule B);
+ * one it doesn't claim is left out, as the same press adopted after its own down is (#431).
+ */
+const onDown = (state: DragState, event: InputSource.PointerLikeEvent, downs: Downs): Step => {
+  if (Bool.not(downs.claims(event))) return ignored(state)
   const point = pointOf(event)
   return Option.match(Option.fromNullOr(state.ownerId), {
-    onNone: () => [claimedBy(event, point), NO_SAMPLES],
+    onNone: () => [claimedBy(event, point, downs.thresholdOf(event)), NO_SAMPLES],
     onSome: (owner) =>
       Bool.match(event.pointerId === owner, {
         // Rule B: the owner went down again, so its release was lost.
-        onTrue: () => [claimedBy(event, point), staleEnd(state, "second down", event.timeStamp, event.raw)],
+        onTrue: () => [claimedBy(event, point, downs.thresholdOf(event)), staleEnd(state, "second down", event.timeStamp, event.raw)],
         // Another pointer while one owns the gesture — ignore.
         onFalse: () => ignored(state),
       }),
@@ -763,11 +795,11 @@ const onRelease = (state: DragState, event: InputSource.PointerLikeEvent): Step 
     },
   })
 
-/** Whether a gesture moved from `origin` to `point` has started: a rule of {@link stepOf}. */
-type Starts = (origin: Point.Point, point: Point.Point) => boolean
+/** Whether `state`'s gesture, moved to `point`, has started: a rule of {@link stepOf}. */
+type Starts = (state: DragState, point: Point.Point) => boolean
 
-/** A drag's: past the threshold, in any direction. */
-const pastThreshold: Starts = (origin, point) => dist(origin, point) > THRESHOLD
+/** A drag's: past its threshold, in any direction. */
+const pastThreshold: Starts = (state, point) => dist(state.origin, point) > state.threshold
 
 /**
  * Motion's direction lock threshold (`getCurrentDirection`'s `lockThreshold`, px): a direction-locked
@@ -782,8 +814,9 @@ const lockOf = (offset: Point.Point): "x" | "y" | undefined => {
   return undefined
 }
 
-/** A direction-locked drag's: past the lock threshold on one axis. */
-const locks: Starts = (origin, point) => Predicate.isNotUndefined(lockOf({ x: point.x - origin.x, y: point.y - origin.y }))
+/** A direction-locked drag's: past its threshold, and past the lock threshold on one axis. */
+const locks: Starts = (state, point) =>
+  Bool.and(pastThreshold(state, point), Predicate.isNotUndefined(lockOf({ x: point.x - state.origin.x, y: point.y - state.origin.y })))
 
 /** The owner's move: before the gesture `starts` it primes the history; starting emits "start"; then every move emits. */
 const onMove = (state: DragState, event: InputSource.PointerLikeEvent, starts: Starts): Step => {
@@ -792,6 +825,7 @@ const onMove = (state: DragState, event: InputSource.PointerLikeEvent, starts: S
   const offset: Point.Point = { x: point.x - state.origin.x, y: point.y - state.origin.y }
   const delta: Point.Point = { x: point.x - state.last.x, y: point.y - state.last.y }
   const lastScroll = event.scroll
+  const lastRaw = event.raw
   const sample = (phase: Drag.Sample["phase"]): Drag.Sample => ({
     point,
     offset,
@@ -805,18 +839,43 @@ const onMove = (state: DragState, event: InputSource.PointerLikeEvent, starts: S
   })
   return Match.value(state.phase).pipe(
     Match.when("idle", (): Step =>
-      Bool.match(starts(state.origin, point), {
+      Bool.match(starts(state, point), {
         // Starting promotes the gesture and emits "start".
-        onTrue: (): Step => [{ ...state, phase: "active", last: point, lastScroll, history }, [sample("start")]],
+        onTrue: (): Step => [{ ...state, phase: "active", last: point, lastScroll, lastRaw, history }, [sample("start")]],
         // Not yet: keep origin fixed, advance last/history so velocity is primed, but suppress output.
-        onFalse: (): Step => [{ ...state, last: point, lastScroll, history }, NO_SAMPLES],
+        onFalse: (): Step => [{ ...state, last: point, lastScroll, lastRaw, history }, NO_SAMPLES],
       }),
     ),
     // Active: every move emits.
-    Match.when("active", (): Step => [{ ...state, last: point, lastScroll, history }, [sample("move")]]),
+    Match.when("active", (): Step => [{ ...state, last: point, lastScroll, lastRaw, history }, [sample("move")]]),
     Match.exhaustive,
   )
 }
+
+/**
+ * The gesture ended from outside its pointer (#431, Motion's drag controls): an `"end"` at its last
+ * point, with that event's time and platform event, as a cancel's. `stop`'s has the moves' velocity,
+ * a release; `cancel`'s none, marked `cancelled`. A gesture that hasn't started resets with no sample,
+ * as a tap does. Either way its pointer's later events are left out, until a down claims again.
+ */
+const endedFromOutside = (state: DragState, cancelled: boolean): Step =>
+  Bool.match(state.phase === "active", {
+    onFalse: (): Step => [initState, NO_SAMPLES],
+    onTrue: (): Step => {
+      const end: Drag.Sample = {
+        point: state.last,
+        offset: { x: state.last.x - state.origin.x, y: state.last.y - state.origin.y },
+        delta: { x: 0, y: 0 },
+        velocity: Bool.match(cancelled, { onTrue: () => ({ x: 0, y: 0 }), onFalse: () => windowVelocity(state.history) }),
+        phase: "end",
+        timeStamp: Option.match(Arr.last(state.history), { onNone: () => 0, onSome: (p) => p.timeStamp }),
+        scroll: state.lastScroll,
+        raw: state.lastRaw,
+        axis: "xy",
+      }
+      return [initState, [Bool.match(cancelled, { onTrue: (): Drag.Sample => ({ ...end, cancelled: true }), onFalse: () => end })]]
+    },
+  })
 
 /** An event from the gesture's owner, other than a down. */
 const onOwner = (state: DragState, event: InputSource.PointerLikeEvent, starts: Starts): Step =>
@@ -833,7 +892,7 @@ const onOwner = (state: DragState, event: InputSource.PointerLikeEvent, starts: 
 
 /**
  * A fold of one pointer event into the drag state, emitting zero or more samples, for a gesture
- * that `starts` as it says.
+ * that `starts` as it says, from the `downs` it claims (#431).
  *
  * Only the **Primary pointer** counts (Motion's `InputSource.isPrimaryPointer`): a right-click or a
  * second finger is ignored. Zero-or-more output: activation/sub-threshold/non-owner
@@ -843,22 +902,19 @@ const onOwner = (state: DragState, event: InputSource.PointerLikeEvent, starts: 
  * claims the new gesture): see {@link staleEnd}. Runs once per pointer event, not per frame
  * (ADR-0025); no logging here.
  */
-const stepOf = (starts: Starts) => (state: DragState, event: InputSource.PointerLikeEvent): Step =>
+const stepOf = (starts: Starts, downs: Downs) => (state: DragState, event: InputSource.PointerLikeEvent): Step =>
   Match.value(event).pipe(
     Match.when(Predicate.not(InputSource.isPrimaryPointer), () => ignored(state)),
     // --- Activation: a "down" claims the gesture. ---
-    Match.when({ type: "down" }, (down) => onDown(state, down)),
+    Match.when({ type: "down" }, (down) => onDown(state, down, downs)),
     // No owner yet, or an event from a non-owning pointer — ignore.
     Match.orElse((e) =>
       Bool.match(e.pointerId === state.ownerId, { onTrue: () => onOwner(state, e, starts), onFalse: () => ignored(state) }),
     ),
   )
 
-/** A drag's (and a pan's) fold: it starts past the threshold. */
-const step = stepOf(pastThreshold)
-
-/** A direction-locked drag's fold: it starts past the lock threshold on one axis (#273). */
-const lockedStep = stepOf(locks)
+/** A pan's fold: its own presses, each starting past the threshold. */
+const panFold = stepOf(pastThreshold, OWN_DOWNS)
 
 /** `drag`'s options (ADR-0019, *Amendment (#29)*). */
 export interface DragOptions {
@@ -882,7 +938,39 @@ export interface DragOptions {
    * locks after.
    */
   readonly lock?: boolean | undefined
+  /**
+   * `false`: a press on the target starts no gesture, only a down it adopted does (#431, **Drag
+   * controls**, Motion's `dragListener={false}`). Default `true`: both do.
+   */
+  readonly listen?: boolean | undefined
+  /**
+   * How far (px) a gesture from `down` moves before it starts, read at the down (#431, Motion's
+   * `distanceThreshold`): `undefined`, or none given, is 3. A direction lock still waits for its 10 px
+   * on one axis.
+   */
+  readonly threshold?: ((down: InputSource.PointerLikeEvent) => number | undefined) | undefined
 }
+
+/**
+ * A drag's watch (#431): its gesture ended from outside its pointer, as Motion's drag controls' `stop`
+ * and `cancel` end theirs. Each tells its `"end"` inside the call, and does nothing when no gesture
+ * has started.
+ */
+export interface WatchedDrag {
+  /** End the gesture as its pointer's release would: an `"end"` at its last point, with its moves' velocity. */
+  readonly stop: () => void
+  /** End the gesture where it is: an `"end"` with no velocity, marked `cancelled`. */
+  readonly cancel: () => void
+}
+
+/** A drag's downs (#431): its own presses unless it doesn't `listen`, and those it adopted; each gesture's threshold its `threshold`'s, else 3. */
+const dragDownsOf = (listen: boolean, threshold: DragOptions["threshold"]): Downs => ({
+  claims: Bool.match(listen, { onTrue: () => constTrue, onFalse: () => isAdopted }),
+  thresholdOf: UndefinedOr.match(threshold, {
+    onUndefined: () => () => THRESHOLD,
+    onDefined: (of) => (down: InputSource.PointerLikeEvent) => UndefinedOr.match(of(down), { onUndefined: () => THRESHOLD, onDefined: identity }),
+  }),
+})
 
 /** `sample` kept to `axis`, and carrying it: a one-axis drag's off-axis offset, delta and velocity zeroed. */
 const keepTo = (sample: Drag.Sample, axis: Drag.Axis): Drag.Sample =>
@@ -946,15 +1034,19 @@ export const drag = (target: unknown, options: DragOptions = {}): Stream.Stream<
  * `Velocity.trailing`), on every sample; the `"end"` sample counts the release point too
  * (ADR-0004, *Amendment (#139)*). It's read from event `timeStamp`s, so the recognizer needs
  * no `Clock` — only `InputSource`.
+ *
+ * A down the target adopted (#431, `InputSource.adoptPointer`) starts a gesture as its own press does,
+ * past its `threshold`; with `listen: false` only those do. The watch it returns ends a gesture from
+ * outside its pointer ({@link WatchedDrag}), and does nothing once the Scope has closed.
  */
 export const watchDrag = (
   target: unknown,
-  { axis = "xy", claim = true, lock = false }: DragOptions,
+  { axis = "xy", claim = true, lock = false, listen = true, threshold }: DragOptions,
   handlers: InputFeed.Handlers<Drag.Sample>,
-): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> => {
+): Effect.Effect<WatchedDrag, never, Scope.Scope | InputSource.InputSource> => {
   const attributes = { threshold: THRESHOLD, velocityWindowMs: VELOCITY_WINDOW_MS }
   const axisAt = axisAtOf(axis)
-  const fold = Bool.match(lock, { onTrue: () => lockedStep, onFalse: () => step })
+  const fold = stepOf(Bool.match(lock, { onTrue: () => locks, onFalse: () => pastThreshold }), dragDownsOf(listen, threshold))
   const on = handlers.on
   return Effect.gen(function* () {
     const input = yield* InputSource.InputSource
@@ -1009,23 +1101,37 @@ export const watchDrag = (
       if (told) on(keepTo(sample, MutableRef.get(gestureAxis)))
     }
 
+    // The gesture's state, which a pointer event or an end from outside (#431) folds.
+    const state = MutableRef.make(initState)
+    const closed = MutableRef.make(false)
+    /** The gesture ended from outside its pointer (#431): its `"end"` told, unless the Scope has closed. */
+    const endFromOutside = (cancelled: boolean) => (): void => {
+      if (MutableRef.get(closed)) return
+      const [next, samples] = endedFromOutside(MutableRef.get(state), cancelled)
+      MutableRef.set(state, next)
+      Arr.forEach(samples, admit)
+    }
+
     // Added first, so it runs last: after the feed has stopped.
-    yield* Effect.addFinalizer(() => Effect.sync(release))
+    yield* Effect.addFinalizer(() =>
+      Effect.sync(() => {
+        MutableRef.set(closed, true)
+        release()
+      })
+    )
     yield* watchFeed(
       "wardic.drag",
       attributes,
       input.pointer(target),
-      () => {
-        const state = MutableRef.make(initState)
-        return (event) => {
-          const [next, samples] = fold(MutableRef.get(state), event)
-          MutableRef.set(state, next)
-          Arr.forEach(samples, admit)
-          return true
-        }
+      () => (event) => {
+        const [next, samples] = fold(MutableRef.get(state), event)
+        MutableRef.set(state, next)
+        Arr.forEach(samples, admit)
+        return true
       },
       handlers,
     )
+    return { stop: endFromOutside(false), cancel: endFromOutside(true) }
   })
 }
 
@@ -1060,7 +1166,7 @@ const sessionOf = (down: InputSource.PointerLikeEvent): PanSample => ({
  * the gesture, or one that isn't primary) starts none.
  */
 const panStep = (state: DragState, event: InputSource.PointerLikeEvent): PanStep => {
-  const [next, samples] = step(state, event)
+  const [next, samples] = panFold(state, event)
   if (event.type !== "down") return [next, samples]
   if (next === state) return [next, samples]
   return [next, Arr.append(samples, sessionOf(event))]

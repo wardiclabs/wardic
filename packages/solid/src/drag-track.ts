@@ -35,6 +35,16 @@
  * which removes it from the loop at once. A response that fails is reported, and the next event's
  * runs (ADR-0055 *Amendment (#379)*, Q4).
  *
+ * **Drag controls** (#431, Motion's `useDragControls`) given to the element start its drag from a
+ * pointer pressed elsewhere: the track hands it to the element's pointer feed
+ * (`InputSource.adoptPointer`), whose adopted down the recognizer starts from as from a press on the
+ * element, and its grab stops a running release. `snapToCursor` moves the element's centre under the
+ * pointer there and then; `distanceThreshold` is that gesture's threshold. Their `stop` ends the drag
+ * as a release would; `cancel` ends it where it is, with no release and no `onDragEnd`. With
+ * `listen: false` (Motion's `dragListener={false}`) the element's own presses neither drag it nor stop
+ * its release. The track subscribes to the controls while its watch Scope is open, so an element an
+ * `<AnimatePresence>` is taking out (disposed) starts none, as Motion's doesn't.
+ *
  * The samples subscribe before the grabs, so one event's samples reach the track
  * before its grab: a Stale gesture's "end" (ADR-0019, rule B) starts its release and
  * the grab of the same down stops it before its first frame, on every Environment.
@@ -69,6 +79,7 @@ import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { DragContainer } from "./drag-constraints.ts"
 import type { WardicServices } from "./runtime.ts"
+import { subscribeDragControls, type WardicDragControls } from "./drag-controls.ts"
 import { DEFAULT_DRAG_ELASTIC, dragTransitionOf, elasticOf } from "./drag-transition.ts"
 
 
@@ -112,6 +123,11 @@ export interface DragTrackConfig {
   readonly directionLock?: boolean | undefined
   /** What the release runs on: the element's drag transition, resolved ({@link dragTransitionOf}). */
   readonly transition: ProjectionSystem.DragTransition
+  /**
+   * Motion's `dragListener` (#431): `false`, the element's own presses start no drag and stop no
+   * release; only its **Drag controls**' starts do. Default `true`.
+   */
+  readonly listen?: boolean | undefined
 }
 
 /** Options for {@link driveDragTrack}. */
@@ -178,6 +194,11 @@ export interface DragTrackOptions {
    * `scalePositionWithinConstraints`). A container not there at a drag's start leaves it unconstrained.
    */
   readonly container?: DragContainer | undefined
+  /**
+   * The **Drag controls** given to the element (#431, Motion's `dragControls`): the track subscribes to
+   * them while its watch Scope is open.
+   */
+  readonly controls?: WardicDragControls | undefined
 }
 
 /** A drag config's axis as core's: `true` (free) is `"xy"`. */
@@ -204,6 +225,11 @@ interface DragTrackState {
   readonly releasing: boolean
   /** A grab stopped that release (#279): a press that ends with no drag starts it again, from rest. */
   readonly stopped: boolean
+  /**
+   * A layout node's snap to the cursor at its controls' start (#431): its drag offset, the projection's
+   * drag begun there, until the gesture starts from it or the press ends with none.
+   */
+  readonly snapped: Point.Point | undefined
 }
 
 /** The track's one cell, written by its handlers and by its release's sink, never at once. */
@@ -337,6 +363,9 @@ const isGrab: Predicate.Predicate<InputSource.PointerLikeEvent> = Predicate.and(
   InputSource.isPrimaryPointer,
 )
 
+/** A down the element adopted from its **Drag controls** (#431). */
+const isAdopted: Predicate.Predicate<InputSource.PointerLikeEvent> = (e) => e.adopted === true
+
 /**
  * The end of a Primary pointer's press: its up, its cancel, or a move with no button pressed
  * (its release was lost, ADR-0019). A press with no drag lets a projection node's stopped
@@ -355,28 +384,33 @@ const reportSample = (opts: DragTrackOptions, sample: Drag.Sample): void =>
 /**
  * Where a drag starts from (ADR-0004, ADR-0016): wherever a plain element rests (the snapshot's
  * x/y); a projection node's slot, the origin, since its drag offset moves its projection target
- * from its slot, and its own x/y are drawn on top of that (#363).
+ * from its slot, and its own x/y are drawn on top of that (#363), or where a snap to the cursor put
+ * it (#431).
  */
-const startOf = (opts: DragTrackOptions): Point.Point =>
-  UndefinedOr.match(opts.projection, { onUndefined: () => snapshotPos(opts.snapshot), onDefined: () => ORIGIN })
+const startOf = (opts: DragTrackOptions, st: DragTrackState): Point.Point =>
+  UndefinedOr.match(opts.projection, {
+    onUndefined: () => snapshotPos(opts.snapshot),
+    onDefined: () => UndefinedOr.match(st.snapped, { onUndefined: () => ORIGIN, onDefined: identity }),
+  })
 
 /**
  * Follow the pointer for a "start" or "move" sample: absolute position = base + drag
  * offset, kept within the constraints. A "start" rebases to where the drag starts from
  * ({@link startOf}); for a projection node, the origin, and the "start" begins the
- * projection's drag first, so `dragStart` runs before the first `dragMove`.
+ * projection's drag first, so `dragStart` runs before the first `dragMove`, unless a snap to the
+ * cursor began it (#431).
  */
 const follow = (sample: Drag.Sample, state: TrackState, opts: DragTrackOptions): void => {
   const st = MutableRef.get(state)
   const starts = sample.phase === "start"
-  const base = Bool.match(starts, { onTrue: () => startOf(opts), onFalse: () => st.base })
+  const base = Bool.match(starts, { onTrue: () => startOf(opts, st), onFalse: () => st.base })
   // The axes the gesture moves on, as the recognizer read them at its start: a `<Reorder>` item's
   // group decides them per gesture (D5), a direction lock at its lock (#273).
   const axis = Bool.match(starts, { onTrue: () => sample.axis, onFalse: () => st.axis })
   const p = constrainedTo({ x: base.x + sample.offset.x, y: base.y + sample.offset.y }, axis, st.bounds, opts.config)
-  MutableRef.set(state, { ...st, base, position: p, axis })
+  MutableRef.set(state, { ...st, base, position: p, axis, snapped: undefined })
   opts.setDragging(true)
-  if (starts) UndefinedOr.match(opts.projection, { onUndefined: constVoid, onDefined: (projection) => projection.dragStart() })
+  if (Bool.and(starts, Predicate.isUndefined(st.snapped))) UndefinedOr.match(opts.projection, { onUndefined: constVoid, onDefined: (projection) => projection.dragStart() })
   directSet(opts, p)
   reportSample(opts, sample)
 }
@@ -529,6 +563,7 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
     bounds: config.constraints,
     releasing: false,
     stopped: false,
+    snapped: undefined,
   })
   // The running release's takeover (#340): done by `takeRelease`, from outside the track's responses.
   let taken: Deferred.Deferred<void> = Deferred.makeUnsafe<void>()
@@ -625,6 +660,48 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
         onDefined: (at) => () => toDragAxis(at()),
       })
       const { propagation = false } = config
+      const listens = config.listen !== false
+
+      // --- Drag controls (#431) ------------------------------------------------------------------
+      // The threshold of the gesture an adopted down claims: its controls' `distanceThreshold`, set for
+      // the length of the start that adopts it. Any other down's is the recognizer's own.
+      let adoptedThreshold: number | undefined = undefined
+      const threshold = (down: InputSource.PointerLikeEvent): number | undefined => {
+        if (down.adopted === true) return adoptedThreshold
+        return undefined
+      }
+      /** A layout node's snap to the cursor ended with no drag: its drag ended at rest, back to its slot. Whether there was one. */
+      const unsnap = (projection: ProjectionSystem.DragHandle): boolean => {
+        if (Predicate.isUndefined(MutableRef.get(state).snapped)) return false
+        MutableRef.update(state, (s) => ({ ...s, snapped: undefined }))
+        projection.dragEnd(ORIGIN)
+        return true
+      }
+      /**
+       * Snap the element's centre under `down`'s point (#431, Motion's `snapToCursor`), on the axes it
+       * drags, measured from its box now: a plain element's x/y moved by the difference, a layout node's
+       * projection drag begun at it.
+       */
+      const snapTo = (down: InputSource.PointerLikeEvent): void => {
+        const box = element.getBoundingClientRect()
+        const axis = UndefinedOr.match(axisAt, { onUndefined: () => toDragAxis(config.axis), onDefined: (at) => toDragAxis(at()) })
+        const by = onAxes({ x: down.x - (box.left + box.width / 2), y: down.y - (box.top + box.height / 2) }, axis)
+        UndefinedOr.match(opts.projection, {
+          onUndefined: () => {
+            const from = snapshotPos(opts.snapshot)
+            const to = { x: from.x + by.x, y: from.y + by.y }
+            MutableRef.update(state, (s) => ({ ...s, position: to }))
+            directSet(opts, to)
+          },
+          onDefined: (projection) => {
+            const was = MutableRef.get(state).snapped
+            const at = UndefinedOr.match(was, { onUndefined: () => by, onDefined: (prev) => ({ x: prev.x + by.x, y: prev.y + by.y }) })
+            if (Predicate.isUndefined(was)) projection.dragStart()
+            projection.dragMove(at)
+            MutableRef.update(state, (s) => ({ ...s, snapped: at }))
+          },
+        })
+      }
 
       /** A free drag's release from `position` with `velocity`, run in `releasing` (#279: recorded as running). */
       const startRelease = (position: Point.Point, velocity: Point.Point): Effect.Effect<void, never, FrameLoop.FrameLoop> =>
@@ -660,7 +737,12 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
               FiberHandle.clear(releasing).pipe(Effect.andThen(measureAtStart), Effect.andThen(Effect.sync(() => follow(sample, state, opts))))),
             Match.when("move", () =>
               FiberHandle.clear(releasing).pipe(Effect.andThen(Effect.sync(() => follow(sample, state, opts))))),
-            Match.when("end", () => releaseFrom(sample).pipe(Effect.andThen(Effect.sync(() => reportSample(opts, sample))))),
+            // A cancelled end (#431) stays where it is: no release, `x`/`y` handed back.
+            Match.when("end", () =>
+              Bool.match(sample.cancelled === true, {
+                onTrue: () => Effect.sync(() => UndefinedOr.match(opts.projection, { onUndefined: () => opts.setDragging(false), onDefined: constVoid })),
+                onFalse: () => releaseFrom(sample),
+              }).pipe(Effect.andThen(Effect.sync(() => reportSample(opts, sample))))),
             Match.exhaustive,
           )
         })
@@ -698,11 +780,16 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
       })
       // The samples subscribe first, so a drag's own up has ended its gesture by now: only a
       // press that never dragged finds no gesture held.
+      // A layout node a snap to the cursor moved (#431) goes back to its slot instead.
       const onPressEnd: Effect.Effect<void, never, FrameLoop.FrameLoop> = Effect.suspend(() => {
         if (MutableRef.get(state).held) return Effect.void
         return UndefinedOr.match(opts.projection, {
           onUndefined: () => resumeFree,
-          onDefined: (projection) => Effect.sync(() => projection.resumeRelease()),
+          onDefined: (projection) =>
+            Effect.sync(() => {
+              if (unsnap(projection)) return
+              projection.resumeRelease()
+            }),
         })
       })
 
@@ -716,17 +803,44 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
       // Subscribed in this order, so the samples hear an event before the grabs. The constraints
       // bound the element's x/y, so they're applied where the gesture's offset meets its base, in
       // `follow` and at the release (ADR-0016, *Amendment (#140)*).
-      yield* Recognizer.watchDrag(element, { axis, claim: Bool.not(propagation), lock: config.directionLock === true }, {
+      const drag = yield* Recognizer.watchDrag(element, { axis, claim: Bool.not(propagation), lock: config.directionLock === true, listen: listens, threshold }, {
         on: (sample) => respond(onSample(sample)),
         onDefect,
       })
+      // A down grabs when the drag listens to it (#431): with `listen: false`, only an adopted one.
+      const grabs = Bool.match(listens, { onTrue: () => isGrab, onFalse: () => Predicate.and(isGrab, isAdopted) })
       yield* InputFeed.watch(input.pointer(element), {
         on: (event) => {
-          if (isGrab(event)) return respond(onGrab)
+          if (grabs(event)) return respond(onGrab)
           if (isPressEnd(event)) respond(onPressEnd)
         },
         onDefect,
       })
+
+      // Its controls, subscribed until the Scope closes (#431). A start adopts the pointer, whose down
+      // the recognizer claims and the grabs stop a release at, inside the call; then the snap.
+      if (Predicate.isNotUndefined(opts.controls)) {
+        /** A layout node's snap that no gesture took, ended once its controls end the drag. */
+        const unsnapped = (): void => UndefinedOr.match(opts.projection, { onUndefined: constVoid, onDefined: (projection) => void unsnap(projection) })
+        const unsubscribe = subscribeDragControls(opts.controls, {
+          start: (event, options) => {
+            adoptedThreshold = options.distanceThreshold
+            const down = input.adoptPointer(element, event)
+            adoptedThreshold = undefined
+            if (Predicate.isUndefined(down)) return
+            if (options.snapToCursor === true) snapTo(down)
+          },
+          stop: () => {
+            drag.stop()
+            unsnapped()
+          },
+          cancel: () => {
+            drag.cancel()
+            unsnapped()
+          },
+        })
+        yield* Effect.addFinalizer(() => Effect.sync(unsubscribe))
+      }
     }),
   )
 

@@ -116,6 +116,8 @@ export {
 export { fromAtom, streamToSignal } from "./bridge.ts"
 export type { WardicDragTransition } from "../../config.ts"
 export type { WardicBoundingBox, WardicDragConstraints, WardicMeasureDragConstraints } from "../../drag-constraints.ts"
+// Drag controls (#431, Motion's `useDragControls`): a drag started from a handle or a track.
+export { createDragControls, type WardicDragControls, type WardicDragControlsOptions } from "../../drag-controls.ts"
 
 
 /**

@@ -2475,6 +2475,15 @@ export const dragAxisOf = (config: WardConfig, internal: DragInternals = NO_DRAG
   )
 
 /**
+ * A drag element's defaults (ADR-0019 *Amendment (Reorder)*): its axis's, unless its own presses don't
+ * drag it (`dragListener={false}`, #431), as Motion's come with its listener.
+ */
+export const dragDefaultsOf = (config: WardConfig, internal: DragInternals = NO_DRAG_INTERNALS): Style.DragDefaults | undefined => {
+  if (config.dragListener === false) return undefined
+  return UndefinedOr.map(dragAxisOf(config, internal), Style.dragDefaults)
+}
+
+/**
  * Set each of a drag element's defaults its inline style doesn't already set, and
  * `draggable="false"` unless it has the attribute (the commit-sink paths, at mount).
  */

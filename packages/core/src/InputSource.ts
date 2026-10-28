@@ -12,6 +12,7 @@ import * as Match from "effect/Match"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import * as UndefinedOr from "effect/UndefinedOr"
 import * as InputFeed from "./InputFeed.ts"
 import * as Outbox from "./internal/outbox.ts"
 import type * as Point from "./Point.ts"
@@ -62,6 +63,13 @@ export interface PointerLikeEvent {
    * before it has moved (Motion's `lastMoveEvent`): never an enter's or a leave's.
    */
   readonly raw?: unknown
+  /**
+   * A down the target adopted (#431, **Drag controls**): its pointer went down elsewhere, a handle
+   * or a track, and was handed to the target by `InputSource.adoptPointer`, whose feed holds it
+   * from there as if it had gone down on the target. Only a drag starts from it: a press, a hover
+   * or a pan leaves it out. Absent on every other event, the adopted pointer's later ones included.
+   */
+  readonly adopted?: boolean
 }
 
 /** No scroll counted: shared, so an event not held allocates nothing for it. */
@@ -200,6 +208,14 @@ export class InputSource extends Context.Service<InputSource, {
    * transitions, regardless of the underlying DOM/native focus model.
    */
   readonly focus: (target: unknown) => InputFeed.InputFeed<FocusLikeEvent>
+  /**
+   * Hand `raw`, the platform's event of a pointer pressed elsewhere, to `target` (#431, **Drag
+   * controls**): delivered on `pointer(target)` as an `adopted` down at its point, inside this call,
+   * and held from there as a down on the target is, so its moves, release and cancel reach the
+   * target's feed wherever they land. The down as delivered, or `undefined`, delivering nothing, when
+   * `raw` isn't a pressed pointer's event.
+   */
+  readonly adoptPointer: (target: unknown, raw: unknown) => PointerLikeEvent | undefined
 }>()("@wardic/InputSource") {}
 
 /**
@@ -217,6 +233,10 @@ export class InputSource extends Context.Service<InputSource, {
  *   scheduler hop, loses the first 8–32 ms of input in a browser). A platform that
  *   already keeps a held pointer on its target (native touch, AppKit drags) leaves it
  *   out, and the target's events pass through.
+ * - `adopted` (#431): the downs `InputSource.adoptPointer` hands the target, of pointers
+ *   pressed elsewhere. Each is held as a down on the target is, from inside that call, and
+ *   delivered marked `adopted`; its pointer's later events are forwarded as any held
+ *   pointer's.
  *
  * While a pointer is held, the helper forwards its global moves, release and cancel,
  * and drops a target event that is the same platform event (`raw`) as the last global
@@ -272,6 +292,11 @@ export type ScrollFeed = (emit: (source: unknown, position: Point.Point, timeSta
 export interface HeldPointerOptions {
   /** The pointer events on the target itself. */
   readonly target: PointerFeed
+  /**
+   * The downs handed to the target from elsewhere (#431, `InputSource.adoptPointer`): each held as a
+   * down on the target is, and delivered `adopted`. Its other events are left out.
+   */
+  readonly adopted?: PointerFeed | undefined
   /** Page-wide pointer events, subscribed only while a pointer is held. */
   readonly global?: PointerFeed | undefined
   /** Scroll positions, subscribed only while a pointer is held: a scroll moves a held pointer. */
@@ -455,8 +480,12 @@ export const heldPointer = (options: HeldPointerOptions): InputFeed.InputFeed<Po
     )
   }
 
-  /** A down on the target holds its pointer; a second down for a held pointer (its release was lost) keeps the one hold, from this down. */
-  const hold = (down: PointerLikeEvent): void => {
+  /**
+   * A down on the target holds its pointer; a second down for a held pointer (its release was lost,
+   * or the same press adopted too, #431) keeps the one hold, from this down. `delivered` is the down
+   * as the feed tells it: an adopted one's is marked, and its later events aren't.
+   */
+  const hold = (down: PointerLikeEvent, delivered: PointerLikeEvent = down): void => {
     const first = held.size === 0
     Option.match(Option.fromUndefinedOr(held.get(down.pointerId)), {
       onNone: () => {
@@ -470,7 +499,13 @@ export const heldPointer = (options: HeldPointerOptions): InputFeed.InputFeed<Po
       },
     })
     if (first) startFeeds()
-    outbox.push(down)
+    outbox.push(delivered)
+  }
+
+  /** A down handed to the target from elsewhere (#431): held as the target's own are, delivered `adopted`. */
+  const fromAdopted = (event: PointerLikeEvent): void => {
+    if (event.type !== "down") return
+    hold(event, { ...event, adopted: true })
   }
 
   const fromTarget = (event: PointerLikeEvent, raw: unknown): void => {
@@ -493,8 +528,10 @@ export const heldPointer = (options: HeldPointerOptions): InputFeed.InputFeed<Po
   }
 
   const stopTarget = options.target(flushed(fromTarget))
+  const stopAdopted = UndefinedOr.match(options.adopted, { onUndefined: () => constVoid, onDefined: (adopted) => adopted(flushed(fromAdopted)) })
   return (): void => {
     stopTarget()
+    stopAdopted()
     stopFeeds()
   }
 }

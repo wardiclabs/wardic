@@ -38,6 +38,17 @@ const emulateReducedMotion: BrowserCommand<[reduce: boolean]> = async (ctx, redu
   await ctx.page.emulateMedia({ reducedMotion: reduce ? "reduce" : "no-preference" })
 }
 
+/**
+ * Two full garbage collections, through Chromium's DevTools protocol, as @wardic/dom's (#418): for a
+ * test of what a binding lets go of, read through a `WeakRef` afterwards (#431).
+ */
+const collectGarbage: BrowserCommand<[]> = async (ctx) => {
+  const cdp: CDPSession = await ctx.page.context().newCDPSession(ctx.page)
+  await cdp.send("HeapProfiler.collectGarbage")
+  await cdp.send("HeapProfiler.collectGarbage")
+  await cdp.detach()
+}
+
 /** One line to the test runner's stdout, so a browser test can leave numbers in a CI log (#206). */
 const report: BrowserCommand<[line: string]> = (_ctx, line) => {
   process.stdout.write(`[report] ${line}\n`)
@@ -136,8 +147,8 @@ export const PREBUNDLED: ReadonlyArray<string> = [
       "effect/reactivity",
 ]
 
-/** The real-input commands, shared with the Solid 2 project (#209). */
-export const BROWSER_COMMANDS = { emulateReducedMotion, realKey, realMouse, realTouch, report }
+/** The real-input commands, and the garbage collection, shared with the Solid 2 project (#209). */
+export const BROWSER_COMMANDS = { collectGarbage, emulateReducedMotion, realKey, realMouse, realTouch, report }
 
 export default defineConfig({
   // Run via `--config` (not as a project), so anchor the root at this package so
