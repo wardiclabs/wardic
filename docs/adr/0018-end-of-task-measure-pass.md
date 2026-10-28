@@ -230,6 +230,46 @@ Pinned by:
 - `test/projection-resize-block.browser.test.ts` takes its viewport helper from `test/viewport.ts`, which PG8 and PG9 share.
 - **The lab:** free play's first run after the other cards reads clean on both builds (it moved 20 px).
 
+## Amendment (#453, 2026-10-28): a node's own size is no layout change
+
+**What happened.** A `layout` element animating its own size fought its projection. Each frame's new height reached the shared observer as a size the engine hadn't measured (*Amendment (#21)*), and the pass it queued read the new box as a layout change and animated the node from its box before. Probed in Chromium on `main` (`b643931`), a 0.5 s height tween from 40 to 200 px:
+- at frame 30, the style height was 200px, but the painted box 78.5px, `scale(1, 0.393)`;
+- a quarter of a second after the tween landed, the node was still scaling up.
+
+The same element without `layout` painted its style every frame. Found grilling #430, whose `height: "auto"` accordion often puts `layout` on its panel.
+
+**Motion** measures a layout node at a re-render (`willUpdate` / `didUpdate`), never on a resize, so `layout` and `animate={{ height }}` on one element run side by side: the height animates as a style.
+
+**Decided (#430's Q4 A).** A layout node's own size legs are its own:
+- **What counts as its own:** a delivery's entry is a node's **own resize** when the size keys Wardic draws on it (`width`, `height`, their `min-` and `max-`, padding, border widths) aren't those of its last Measurement. Each Measurement records them (`NodeState.drawnSize`), read from the values the binding registers (*ADR-0012, Amendment (#137)*). A node never measured has none, so its first delivery is as before.
+- **Every unmeasured size its own:** the page refreshes (*Amendment (#261)*), now, inside the delivery. Every node takes the slot-only update and nothing starts, so a layout sibling the leg moves goes with the flow, as it does in Motion.
+- **Beside a real resize:** the pass runs as before, and the own-sized nodes take the slot-only update in it (`ownSized`), as a drag-blocked node does; the other node's real resize animates.
+- **Cost:** a node animating its own size refreshes the page each frame it draws, where `main` ran an animating pass each frame.
+- **Read only where it can matter:** a node's size keys are read at its first Measurement, and at each later one only while it draws any. A node that draws none, nearly every one, costs a string comparison per pass. Its keys are read in full only when the observer reports it resized. The keys are walked from the node's own values, not looked up one by one.
+  - *A limit:* a node with no size key at its first Measurement that gains one later has its first reported resize read as its own, so that resize doesn't animate. Every resize after is read against its keys.
+
+**Rejected:** fixing it inside #430's PR; leaving it, documented.
+
+Pinned by `packages/solid/test/layout-own-size.browser.test.tsx`:
+- OS1: the element's painted box is its style height every frame, with no scale;
+- OS2: a layout sibling it pushes down never takes a transform;
+- OS3: in one delivery with another node's content growth, the own-sized node draws its height and the other animates.
+
+**Measured** with `bench:solid` against `main` (`b643931`, 11 paired reps, 1,331 layout wards for the layout scenes):
+
+| warm Measure pass, vs `main` | Solid 1 | Solid 2 |
+|---|---|---|
+| page | −0.4% | +1.2% |
+| list | +0.3% | +0.1% |
+| item | +0.0% | −0.6% |
+| scaled | −0.4% | +0.4% |
+
+The noise control was +0.4%; element timings, bytes and retained memory are flat. Two first versions failed the gate:
+- **Sixteen lookups:** reading every size key of every node on every pass slowed the Measure pass 5–12% in every scene (Solid 2's page scene +11.6%).
+- **Walking each node's own keys:** cut that to 2.6–4.7%, and Solid 2's page scene still failed at +9.8%.
+
+**Mutations** (`.tmp/453/mutate.py`): five, all caught. They cover no own resize (`main`'s behaviour), own resizes running an animating pass, a pass not taking them slot-only, a mixed delivery refreshing too, and the drawn size never recorded. Two first survived OS3, whose growth landed a frame before the leg drew. It now grows in a frame the leg draws.
+
 ## Note (#418, 2026-10-27): the viewport's listener is made once
 
 *Amendment (#45)*'s viewport subscription is made at the first registration and lasts as long as the system. Its listener, `(viewport) => onResize(viewport.width)`, was made inside `register`. V8 gives a scope's closures one context, so the listener kept that registration's `node`, and with it the node's ward and, on Solid 2, every ward mounted with it, after they unmounted. The listener is now made once, at the system's scope (`onViewport`), and closes over nothing a registration made. UR1 pins it (ADR-0040, *Amendment (#418)*).

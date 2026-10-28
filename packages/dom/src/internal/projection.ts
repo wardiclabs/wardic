@@ -1206,6 +1206,12 @@ interface NodeState {
   readonly layoutAnchor: Point.Point | false | undefined
   /** Last measured untransformed box (the FLIP "First"); `undefined` until first measure. */
   retained: Box.Box | undefined
+  /**
+   * Its own size keys as Wardic drew them at its last Measurement (#453, {@link SIZE_KEYS}): a resize
+   * they account for is the node's own, no layout change. `undefined` until first measure; `""` for a
+   * node that drew none then, which reads them again only when the observer reports it resized.
+   */
+  drawnSize: string | undefined
   /** Where the element appears at progress 0 (the box it animates FROM). */
   origin: Box.Box | undefined
   /** The element's real (current measured) box — the delta source + progress-1 target. */
@@ -1373,6 +1379,29 @@ const NO_OWN_ROTATE = (): number => 0
 const NO_OWN_OPACITY = (): number => 1
 /** No drag transition of its own: a node releases on Motion's, {@link DEFAULT_DRAG_TRANSITION} (ADR-0016, *Amendment (#140)*). */
 const NO_DRAG_TRANSITION = (): Option.Option<DragTransition> => Option.none()
+/**
+ * The keys that size an element's border box, as a binding draws them (#453): a resize they account
+ * for is the node's own. Motion's positional size keys and what adds to them.
+ */
+const SIZE_KEYS: ReadonlySet<string> = new Set([
+  "width",
+  "height",
+  "min-width",
+  "min-height",
+  "max-width",
+  "max-height",
+  "padding",
+  "padding-top",
+  "padding-right",
+  "padding-bottom",
+  "padding-left",
+  "border-width",
+  "border-top-width",
+  "border-right-width",
+  "border-bottom-width",
+  "border-left-width",
+])
+
 /** What the shared ResizeObserver watches: the border box, which the engine measures (#21). */
 const BORDER_BOX: ResizeObserverOptions = { box: "border-box" }
 
@@ -2527,6 +2556,25 @@ export const makeProjectionSystem = (
 
   /** Every element's values, as its binding last wrote them (ADR-0012, *Amendment (#137)*). */
   const elementValues = new WeakMap<Element, () => Readonly<Record<string, unknown>>>()
+
+  /**
+   * `el`'s own size keys as its binding last wrote them (#453): each of {@link SIZE_KEYS} it draws,
+   * as text, `""` for none, so the common case builds nothing.
+   */
+  const drawnSizeOf = (el: Element): string => {
+    const read = elementValues.get(el)
+    if (Predicate.isUndefined(read)) return ""
+    const values = read()
+    let text = ""
+    // Its own few keys walked, not every size key looked up.
+    for (const key in values) {
+      if (SIZE_KEYS.has(key)) text += `${key}:${String(values[key])};`
+    }
+    return text
+  }
+
+  /** The nodes a delivery found resized by their own size keys (#453): the next pass takes each one's size as it is. */
+  const ownSized = new Set<NodeState>()
   /** The elements this pass found moving nodes with a transform a running transition holds: not mapped. */
   const passUnheld = new Set<Element>()
 
@@ -3422,6 +3470,10 @@ export const makeProjectionSystem = (
       const prev = node.retained
       const newBox = boxThisPass(node, moved[i], viewportBoxes[i], documentScroll)
       node.retained = newBox
+      // Its own size keys (#453): read at its first Measurement, and at each after while it draws
+      // any. A node that draws none, nearly every one, reads nothing more per pass (#453's bench: a
+      // read per node per pass slowed every layout scene's Measure pass by 3–12%).
+      if (node.drawnSize !== "") node.drawnSize = drawnSizeOf(node.element)
       if (versioned) node.layoutVersion++
       // A Switch seed only ever serves a node's first measure (ADR-0010 *Amendment
       // (#13)*); take it now, whichever branch below handles the node.
@@ -3484,7 +3536,11 @@ export const makeProjectionSystem = (
       // change gives every node the same slot-only update, so the reflow the resize
       // caused doesn't animate (Motion's `updateBlockedByResize`: it measures every node
       // and notifies none, create-projection-node.ts:728-748 at 16c6122).
-      if (blocked || inDraggedTree(node)) {
+      //
+      // OWN-SIZED (#453): a node whose own size keys Wardic drew since its last Measurement (a
+      // `height` leg) takes the same slot-only update: its new size is its own, no layout change, as
+      // Motion's projection never sees one (it measures at a re-render, not on a resize).
+      if (blocked || inDraggedTree(node) || ownSized.has(node)) {
         if (Predicate.isUndefined(prev)) finishLeavingBelow(node)
         if (slotOnly(node, prev, newBox)) {
           changed.add(node)
@@ -3666,6 +3722,8 @@ export const makeProjectionSystem = (
       } while (triggeredDuringPass && rounds < MAX_ROUNDS)
     } finally {
       inPass = false
+      // The nodes whose own size this pass took (#453): the next delivery finds its own.
+      ownSized.clear()
     }
     for (const listener of passEndListeners) {
       try {
@@ -4446,6 +4504,7 @@ export const makeProjectionSystem = (
     paintChain: chain,
     seenBox: undefined,
     retained: recent.box,
+    drawnSize: undefined,
     origin: undefined,
     layoutBox: recent.box,
     flight: undefined,
@@ -4853,13 +4912,35 @@ export const makeProjectionSystem = (
   }
 
   /**
+   * Whether `entry`'s resize is its node's own (#453): the node's size keys as Wardic draws them now
+   * aren't those of its last Measurement, so its legs drew the new size. Not for a node never measured.
+   */
+  const ownResize = (entry: ResizeObserverEntry): boolean => {
+    const node = elementToNode.get(entry.target as HTMLElement)
+    if (Predicate.isUndefined(node)) return false
+    if (Predicate.isUndefined(node.drawnSize)) return false
+    return drawnSizeOf(entry.target) !== node.drawnSize
+  }
+
+  /**
    * The shared observer's delivery (#21, ADR-0018 *Amendment (#21)*): a Measure pass only when an
    * entry reports a size the engine hasn't measured. Its first delivery for a node just mounted, and
-   * its echo of a size a triggered pass already read, run none.
+   * its echo of a size a triggered pass already read, run none. A node's own resize (#453), its legs
+   * drawing its size, is no layout change: when every unmeasured size is one, the page refreshes (#261),
+   * nothing animating, as Motion's projection never sees it; beside a real resize, the pass gives those
+   * nodes a slot-only update.
    */
   const onObserved = (entries: ReadonlyArray<ResizeObserverEntry>): void => {
     // A node's own resize runs a pass, which reads the page as well.
-    if (Bool.not(Arr.every(entries, alreadyMeasured))) {
+    const unmeasured = Arr.filter(entries, Predicate.not(alreadyMeasured))
+    if (Arr.isArrayNonEmpty(unmeasured)) {
+      const own = Arr.filter(unmeasured, ownResize)
+      Arr.forEach(own, (entry) => UndefinedOr.map(elementToNode.get(entry.target as HTMLElement), (node) => ownSized.add(node)))
+      if (own.length === unmeasured.length) {
+        // Its sizes taken as they are; a pass already due takes them so too.
+        refresh()
+        return
+      }
       scheduleMeasure()
       return
     }
@@ -4904,6 +4985,7 @@ export const makeProjectionSystem = (
       unpaintDelta: undefined,
       seenBox: undefined,
       retained: undefined,
+      drawnSize: undefined,
       origin: undefined,
       layoutBox: undefined,
       flight: undefined,
