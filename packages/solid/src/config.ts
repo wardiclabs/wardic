@@ -194,11 +194,23 @@ export type WardicValueEntries<K extends string> = { readonly default?: WardicVa
 export type WardicVariantTransition = WardicTransition & WardicInherit
 
 /**
- * A target, as a variant, `animate` or `exit` gives it (#277, Motion's `TargetAndTransition`): its
- * values, and optionally the transition the animation to it runs on, as an object. A plain
- * {@link WardicValues} map fits too, its CSS `transition` string a value as any other.
+ * A target's **Transition end** (#428, Motion's `transitionEnd`): values set at once, with no
+ * animation, once the keys the target animates have landed, `{ opacity: 0, transitionEnd: { display:
+ * "none" } }`. Its keys are the target's, so they return to their base when it's no longer active;
+ * a target interrupted before it lands never sets them; the target an element renders first sets its
+ * own at once, on a server too.
  */
-export type WardicVariant = WardicValues | (Omit<WardicValues, "transition"> & { readonly transition?: WardicVariantTransition })
+export type WardicTransitionEnd = Omit<WardicValues, "transition">
+
+/**
+ * A target, as a variant, `animate` or `exit` gives it (#277, Motion's `TargetAndTransition`): its
+ * values, optionally the transition the animation to it runs on, as an object, and its Transition end
+ * ({@link WardicTransitionEnd}, #428). A plain {@link WardicValues} map fits too, its CSS `transition`
+ * string a value as any other.
+ */
+export type WardicVariant =
+  | (WardicValues & { readonly transitionEnd?: WardicTransitionEnd })
+  | (Omit<WardicValues, "transition"> & { readonly transition?: WardicVariantTransition; readonly transitionEnd?: WardicTransitionEnd })
 
 /**
  * Variant names (#297, Motion's `VariantLabels`): one name, or a list of them. A list merges its

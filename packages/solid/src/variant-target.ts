@@ -27,10 +27,14 @@ export interface VariantState {
 /** No values yet: a server render's, and the Starting style's. */
 export const NO_VARIANT_STATE: VariantState = { values: {}, velocities: {} }
 
-/** A target resolved (#277): its values, clean for core, and its own transition, if it has one. */
+/**
+ * A target resolved (#277): its values, clean for core, its own transition, if it has one, and its
+ * **Transition end** (#428), the values set once its keys land, if it has one.
+ */
 export interface Target {
   readonly values: Values.Values
   readonly transition: WardicVariantTransition | undefined
+  readonly transitionEnd: Values.Values | undefined
 }
 
 /** A variant prop's entry: a target, a name, a list of names (#297), or nothing. */
@@ -123,22 +127,36 @@ export const mergedOf = (targets: ReadonlyArray<Target>): Target =>
       onUndefined: () => merged.transition,
       onDefined: (own) => UndefinedOr.match(merged.transition, { onUndefined: () => own, onDefined: (before) => ({ ...before, ...own }) as WardicVariantTransition }),
     }),
+    transitionEnd: UndefinedOr.match(target.transitionEnd, {
+      onUndefined: () => merged.transitionEnd,
+      onDefined: (own) => UndefinedOr.match(merged.transitionEnd, { onUndefined: () => own, onDefined: (before) => ({ ...before, ...own }) }),
+    }),
   }))
 
 /** Nothing resolved. */
-const NO_TARGET: Target = { values: {}, transition: undefined }
+const NO_TARGET: Target = { values: {}, transition: undefined, transitionEnd: undefined }
 
 /** One name or values map resolved ({@link resolveTarget}). */
 const resolveOne = (entry: WardicVariant | string | undefined, variants: WardicVariants | undefined, custom: unknown, state: VariantState): Target => {
   const definition = calledOf(namedOf(calledOf(namedOf(entry, variants), custom, state), variants), custom, state)
   if (Bool.or(Predicate.isUndefined(definition), Bool.or(Predicate.isString(definition), Predicate.isFunction(definition)))) {
-    return { values: {}, transition: undefined }
+    return NO_TARGET
   }
-  // Its own transition is an object; a CSS `transition` string stays a value, as it was.
-  const target = definition as { readonly transition?: unknown }
-  if (Bool.not(Predicate.isObject(target.transition))) return { values: Style.toValues(target), transition: undefined }
+  // Its own transition is an object; a CSS `transition` string stays a value, as it was. Its
+  // Transition end (#428) is an object too, which `toValues` leaves out of its values.
+  const target = definition as { readonly transition?: unknown; readonly transitionEnd?: unknown }
+  const transitionEnd = transitionEndOf(target.transitionEnd)
+  if (Bool.not(Predicate.isObject(target.transition))) return { values: Style.toValues(target), transition: undefined, transitionEnd }
   const { transition, ...values } = target
-  return { values: Style.toValues(values), transition: transition as WardicVariantTransition }
+  return { values: Style.toValues(values), transition: transition as WardicVariantTransition, transitionEnd }
+}
+
+/** A target's Transition end (#428), clean for core: none for anything but a values map, or an empty one. */
+const transitionEndOf = (given: unknown): Values.Values | undefined => {
+  if (Bool.not(Predicate.isObject(given))) return undefined
+  const values = Style.toValues(given as object)
+  if (Rec.isEmptyRecord(values)) return undefined
+  return values
 }
 
 /**

@@ -18,6 +18,8 @@
 //   it doesn't know; a config typed wide passes.
 // - IK7: `wardic.create(tag)` is `wardic.<tag>`; `wardic.create(Component)` keeps its component's props
 //   and takes every name.
+// - IK8 (#428): a Transition end on any target, its names checked; a key only a Transition end sets
+//   takes no transition entry, and a Transition end widens nothing.
 import * as Bool from "effect/Boolean"
 import { createWard, type WardConfig, wardic, type WardicVariant } from "@wardic/solid"
 import { describe, it } from "vitest"
@@ -223,5 +225,39 @@ describe("a Wardic element's keys, inferred from its targets (#305)", () => {
     typed(() => <Card title="a" animate={{ opacity: 1 }} transition={{ scale: FAST }} />)
     // @ts-expect-error the component's own props are checked
     typed(() => <Card animate={{ opacity: 1 }} />)
+  })
+
+  it("IK8: a Transition end on any target, its names checked, its keys no transition's", () => {
+    typed(() => (
+      <wardic.div
+        initial={{ opacity: 0, transitionEnd: { display: "none" } }}
+        animate={{ opacity: 1, transitionEnd: { display: "block" } }}
+        exit={{ opacity: 0, transitionEnd: { visibility: "hidden" } }}
+        whileHover={{ scale: 1.05, transitionEnd: { cursor: "grab" } }}
+        variants={{ shown: { opacity: 1, transitionEnd: { "--shown": "yes" } } }}
+        transition={{ opacity: FAST, scale: FAST }}
+      />
+    ))
+    typed(() => createWard({ animate: { opacity: 0, transitionEnd: { display: "none" } }, transition: { opacity: FAST } }))
+    // @ts-expect-error no value has this name, in a Transition end
+    typed(() => <wardic.div animate={{ opacity: 0, transitionEnd: { dispaly: "none" } }} />)
+    typed(() => (
+      <wardic.div
+        animate={{ opacity: 0, transitionEnd: { display: "none" } }}
+        transition={{
+          // @ts-expect-error a key only the Transition end sets never runs on a transition
+          display: FAST,
+        }}
+      />
+    ))
+    typed(() => (
+      <wardic.div
+        animate={{ opacity: 0, transitionEnd: { display: "none" } }}
+        transition={{
+          // @ts-expect-error a Transition end widens nothing: scale is still no key of the element's
+          scale: FAST,
+        }}
+      />
+    ))
   })
 })

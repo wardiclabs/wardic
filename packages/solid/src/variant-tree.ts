@@ -27,9 +27,9 @@ import { constTrue, constUndefined, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { AppearGroup } from "./appear.ts"
-import type { WardicTransition, WardicVariantLabels } from "./config.ts"
+import type { WardicTransition, WardicVariantLabels, WardicVariants } from "./config.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
-import { isLabels, labelsOf, sameLabels, startingVariantsOf } from "./variant-target.ts"
+import { type Entry, isLabels, labelsOf, NO_VARIANT_STATE, resolveTarget, sameLabels, startingVariantsOf } from "./variant-target.ts"
 
 /**
  * The handle a child receives from {@link WardicVariantContextValue.register}
@@ -364,16 +364,24 @@ export const startingValuesOf = (
   inherited: WardicVariantContextValue | undefined,
   presenceBlocks: boolean,
   untrack: Reactivity["untrack"],
-): Values.Values =>
-  Style.resolveInitial({
-    initial: Bool.match(startsAtAnimate(config, inherited, presenceBlocks), {
-      onTrue: () => false as const,
-      onFalse: () => initialOf(config, inherited),
-    }),
-    animate: animateOf(config, inherited, untrack),
+): Values.Values => {
+  const atAnimate = startsAtAnimate(config, inherited, presenceBlocks)
+  const animate = animateOf(config, inherited, untrack)
+  const initial = initialOf(config, inherited)
+  const values = Style.resolveInitial({
+    initial: Bool.match(atAnimate, { onTrue: () => false as const, onFalse: () => initial }),
+    animate,
     // Dynamic variants resolved first (#277): dom's Starting style reads values maps only.
     variants: startingVariantsOf(config.variants, config.custom) as Readonly<Record<string, object | undefined>> | undefined,
   })
+  // The first target's Transition end (#428, Motion's `makeLatestValues`): set at once, so a server
+  // renders it, and a hydration finds it.
+  const first = Bool.match(atAnimate, { onTrue: () => animate, onFalse: () => initial })
+  if (Bool.or(Predicate.isUndefined(first), first === false)) return values
+  const end = resolveTarget(first as Entry, config.variants as WardicVariants | undefined, config.custom, NO_VARIANT_STATE).transitionEnd
+  if (Predicate.isUndefined(end)) return values
+  return { ...values, ...end }
+}
 
 /**
  * A name an element hands its children (Motion's `getCurrentTreeVariants`): `own` if it names its own

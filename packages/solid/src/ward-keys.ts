@@ -68,8 +68,12 @@ type MotionLayers<C> =
 type Layers<C> = MotionLayers<C> | MapOf<C extends { readonly style?: infer V } ? V : never>
 
 /** The keys of each member of a union. */
-// A target's own `transition` (#277) is how it animates, not a key it animates.
-type KeysOf<U> = U extends unknown ? Exclude<keyof U & string, "transition"> : never
+// A target's own `transition` (#277) is how it animates, not a key it animates; its `transitionEnd`
+// (#428) holds keys, not a value.
+type KeysOf<U> = U extends unknown ? Exclude<keyof U & string, "transition" | "transitionEnd"> : never
+
+/** Each member's Transition end's keys (#428): keys a ward reads, though no transition drives them. */
+type EndKeysOf<U> = U extends { readonly transitionEnd?: infer E } ? KeysOf<MapOf<E>> : never
 
 /** A config's `drag`, through its accessor. */
 type DragOf<C> = C extends { readonly drag: infer D } ? Unwrap<D> : never
@@ -86,8 +90,8 @@ type DragKeys<C> = [DragOf<C>] extends [never]
         ? "x" | "y"
         : never
 
-/** The keys a config animates. */
-export type AnimatedKey<C> = KeysOf<Layers<C>> | DragKeys<C>
+/** The keys a config animates, and the ones its targets' Transition ends set (#428). */
+export type AnimatedKey<C> = KeysOf<Layers<C>> | EndKeysOf<MotionLayers<C>> | DragKeys<C>
 
 /**
  * The keys a config's transitions drive (#305's Q2): {@link AnimatedKey}'s but `style`'s. Wardic never
@@ -171,11 +175,11 @@ type CheckedTarget<T> = T extends (...args: never) => unknown
   : T extends object
     ? T extends ReadonlyArray<unknown>
       ? T
-      : Omit<WardicValues, "transition"> & { readonly transition?: CheckedTransition<RawOf<T, "transition">, WardicValueEntries<KeysOf<T>>, KeysOf<T>> } & NoStray<T>
+      : Omit<WardicValues, "transition"> & { readonly transition?: CheckedTransition<RawOf<T, "transition">, WardicValueEntries<KeysOf<T>>, KeysOf<T>> } & CheckedEnd<T> & NoStray<T>
     : T
 
 /** `initial`, checked (#305's Q4): its values' names. A variant name, a list of them or `false` as it is. */
-type CheckedInitial<T> = T extends object ? (T extends ReadonlyArray<unknown> ? T : Omit<WardicValues, "transition"> & NoStray<T>) : T
+type CheckedInitial<T> = T extends object ? (T extends ReadonlyArray<unknown> ? T : Omit<WardicValues, "transition"> & CheckedEnd<T> & NoStray<T>) : T
 
 /** What a name in a values map that isn't a value meets: an error naming it, an object, as {@link NotHere}'s. */
 type NotAValue<P extends string> = { readonly "is not a value Wardic animates": P }
@@ -187,8 +191,11 @@ type NotAValue<P extends string> = { readonly "is not a value Wardic animates": 
 type NoStray<T> = T extends object
   ? IsWide<keyof T & string> extends true
     ? unknown
-    : { readonly [P in Exclude<keyof T & string, WardicValueKey | "transition">]: NotAValue<P> }
+    : { readonly [P in Exclude<keyof T & string, WardicValueKey | "transition" | "transitionEnd">]: NotAValue<P> }
   : unknown
+
+/** A target's Transition end, checked (#428): a values map whose names are values. */
+type CheckedEnd<T> = { readonly transitionEnd?: Omit<WardicValues, "transition"> & NoStray<RawOf<T, "transitionEnd">> }
 
 /** The config props that take a target. */
 type TargetProp = "animate" | "exit" | "whileHover" | "whileTap" | "whileDrag" | "whileFocus" | "whileInView"
@@ -249,8 +256,11 @@ export type WardCheckedConfig<C, W> = C & {
 
 // --- A Wardic element's keys, inferred (#305, ADR-0049) -------------------------------------------
 
-/** A name a target sets: a value's, or its own `transition`. */
-export type TargetKey = WardicValueKey | "transition"
+/** A name a target sets: a value's, its own `transition`, or its `transitionEnd` (#428). */
+export type TargetKey = WardicValueKey | "transition" | "transitionEnd"
+
+/** The value names among a target's names: not its `transition` or its `transitionEnd`. */
+type ValueNameOf<K> = Exclude<K, "transition" | "transitionEnd">
 
 /**
  * The names `K` a values map sets, inferred from it. One that isn't a value fails `K`'s constraint, so
@@ -266,6 +276,7 @@ type NamesOf<K extends string> = { readonly [P in K]?: unknown }
 export type InferredTarget<K extends TargetKey, E extends string> =
   & Omit<WardicValues, "transition">
   & { readonly transition?: (WardicTransitionWith<WardicValueEntries<E>> & WardicInherit) | WardicValues["transition"] }
+  & { readonly transitionEnd?: Omit<WardicValues, "transition"> }
   & NamesOf<K>
 
 /** The keys a drag `D` moves. */
@@ -288,7 +299,7 @@ type JoinedBy<N extends string, LI, LA> = [N] extends [never] ? (true extends Gi
  * The keys the element animates: its targets' names, its drag axis's, and `X`, those it animates
  * through a ward given to it (#398). A key only `style` sets never runs on a transition (Q2).
  */
-type InferredKey<K extends TargetKey, D, X extends string> = Exclude<K, "transition"> | DragMoves<D> | X
+type InferredKey<K extends TargetKey, D, X extends string> = ValueNameOf<K> | DragMoves<D> | X
 
 /** The props {@link InferredMotion} types again. */
 type InferredProp = "initial" | "animate" | "exit" | "whileHover" | "whileTap" | "whileDrag" | "whileFocus" | "whileInView" | "variants" | "transition" | "drag"
@@ -305,15 +316,15 @@ type InferredProp = "initial" | "animate" | "exit" | "whileHover" | "whileTap" |
 export type InferredMotion<M, K extends TargetKey, N extends string, LI extends WardicVariantLabels, LA extends WardicVariantLabels, D extends boolean | "x" | "y", X extends string = never> =
   & Omit<M, InferredProp>
   & {
-    readonly initial?: InferredTarget<K, NoInfer<Exclude<K, "transition">>> | LI | false
-    readonly animate?: InferredTarget<K, NoInfer<Exclude<K, "transition">>> | LA
-    readonly exit?: InferredTarget<K, NoInfer<Exclude<K, "transition">>> | WardicVariantLabels
-    readonly whileHover?: InferredTarget<K, NoInfer<Exclude<K, "transition">>> | WardicVariantLabels
-    readonly whileTap?: InferredTarget<K, NoInfer<Exclude<K, "transition">>> | WardicVariantLabels
-    readonly whileDrag?: InferredTarget<K, NoInfer<Exclude<K, "transition">>> | WardicVariantLabels
-    readonly whileFocus?: InferredTarget<K, NoInfer<Exclude<K, "transition">>> | WardicVariantLabels
-    readonly whileInView?: InferredTarget<K, NoInfer<Exclude<K, "transition">>> | WardicVariantLabels
-    readonly variants?: { readonly [V in N]: InferredTarget<K, NoInfer<Exclude<K, "transition">>> | WardicVariantResolver }
+    readonly initial?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | LI | false
+    readonly animate?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | LA
+    readonly exit?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
+    readonly whileHover?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
+    readonly whileTap?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
+    readonly whileDrag?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
+    readonly whileFocus?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
+    readonly whileInView?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
+    readonly variants?: { readonly [V in N]: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantResolver }
     readonly drag?: D
     readonly transition?: NoInfer<
       true extends JoinedBy<N, LI, LA> | ([InferredKey<K, D, X>] extends [never] ? true : false)
