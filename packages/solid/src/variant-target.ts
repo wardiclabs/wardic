@@ -168,12 +168,15 @@ const resolveOne = (entry: WardicVariant | string | undefined, variants: WardicV
   // Transition end (#428) is an object too, which `toValues` leaves out of its values.
   const target = definition as { readonly transition?: unknown; readonly transitionEnd?: unknown }
   const transitionEnd = transitionEndOf(target.transitionEnd)
-  // A key's Keyframes (#429) rest at their last stop: its value, beside its stops.
+  // A key's Keyframes (#429) rest at their last stop: its value, beside its stops, both found in one
+  // pass over its keys (#452).
   if (Bool.not(Predicate.isObject(target.transition))) {
-    return { values: Style.valuesAt(target, "last"), transition: undefined, transitionEnd, keyframes: Style.keyframesOf(target) }
+    const split = Style.splitValues(target, "last")
+    return { values: split.values, transition: undefined, transitionEnd, keyframes: split.keyframes }
   }
   const { transition, ...values } = target
-  return { values: Style.valuesAt(values, "last"), transition: transition as WardicVariantTransition, transitionEnd, keyframes: Style.keyframesOf(values) }
+  const split = Style.splitValues(values, "last")
+  return { values: split.values, transition: transition as WardicVariantTransition, transitionEnd, keyframes: split.keyframes }
 }
 
 /** A target's Transition end (#428), clean for core: none for anything but a values map, or an empty one. */

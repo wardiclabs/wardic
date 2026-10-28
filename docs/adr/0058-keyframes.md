@@ -136,3 +136,19 @@ Node allocates 0.85 MB a frame for it, against `animateRepeat/loop`'s 0.80: the 
 Retained memory and the layout scenes are flat.
 
 The bytes aren't attributed, as `.tmp/87/alloc.ts`' page copy is stale (#448). One candidate: a target's resolution now asks twice whether it has Keyframes, once each in `Style.valuesAt` and `Style.keyframesOf`, and Effect's `Record.some` builds an `Object.keys` array each time.
+
+## Note (#452, 2026-10-28): the Keyframes checks, attributed and cut
+
+PR 2's `bench:solid` showed +2.3% bytes per element on a workload with no Keyframes. With the allocation probe working again, the bytes were attributed. Probed with V8's sampling heap profiler at the bench's 4,096 B interval, on the bench's own page, 4 pages of 4 rounds: `main` before #451 (`8343627`) allocated 134,993 B per element per round, and `main` after it 138,161 B, +3,168 B. By the nearest binding frame:
+- **A target's resolution** (`resolveOne`), +1,058 B: `Style.valuesAt` and `Style.keyframesOf` each asked `Record.some` whether a target had Keyframes, and each `Record.some` builds its keys' array. The Starting style's `startingValuesOf` added +172 B the same way.
+- **`keyframedOptions`**, +453 B: asked on every tween Retarget.
+- **The Override stack's Keyframes:** `keyframesNowOf`, `sameKeyframesAt` and the spine's `hasKeyframes` together, about +580 B. Most of it is the extra field on each Layer and Resolution.
+
+**Changed:**
+- **dom finds a target's values and its Keyframes in one pass over its keys,** the one `toValues` already makes. Its filter keeps the numbers and strings and sets each Keyframes value aside, in a module-level slot read and cleared at once. `Style.splitValues` returns both. `valuesAt` and `keyframesOf` are built on it, and `resolveOne` calls it once.
+- **`keyframedOptions` is worked out once per options object,** in a `WeakMap`, as `runOf`'s Run is.
+- **`sameKeyframesAt`, the spine's `hasKeyframes` and the per-key checks** are guards, the common case (no Keyframes) first.
+
+After: 136,247 B, +1,254 B (+0.9%) against `main` before #451. `bench:solid` against `main` after it (`f146203`, 11 paired reps, noise control +1.8%) passed on both bindings. Bytes per element were −1.7% on Solid 1 and −1.5% on Solid 2, where #451 had added +2.3% and +2.2%. Warm Retarget was −0.4% and −1.7%; the layout scenes were flat. The rest is mostly the one field more on each Target, Layer and Resolution, and the `SplitValues` pair. Giving those objects two shapes, with and without Keyframes, would make every read site polymorphic. A version that moved the tween's Keyframes branch out of `legsWith` only moved its bytes, and was dropped.
+
+**The probe** (`.tmp/452`): it builds the bench's own `page.tsx`, from any checkout (`ROOT=<worktree>`), so it can't go stale as `.tmp/87`'s copy did. It launches Chromium with `--expose-gc`, which the page requires, and samples at the bench's 4,096 B. At `.tmp/87`'s 256 B the profiler slowed the page past its "mid-flight at the Retarget" check, which is why that probe failed on `main` too. `diff.py` compares two runs by function.

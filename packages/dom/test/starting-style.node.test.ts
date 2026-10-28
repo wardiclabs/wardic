@@ -28,7 +28,7 @@ describe("Starting style helpers (ADR-0021)", () => {
     expect(Style.toValues(undefined)).toEqual({})
   })
 
-  it("ST1b (#429): Keyframes read at a stop: valuesAt's first or last, keyframesOf's the lists an animation can take", () => {
+  it("ST1b (#429, #452): Keyframes read at a stop: valuesAt's first or last, keyframesOf's the lists an animation can take, splitValues' both in one pass", () => {
     const target = { opacity: [null, 1, 0.5], x: [10, 20], scale: [null, null], color: "red", odd: [0, {}], gone: undefined }
     expect(Style.valuesAt(target, "last"), "the last stop that isn't null").toEqual({ opacity: 0.5, x: 20, color: "red" })
     expect(Style.valuesAt(target, "first"), "the first, null dropped").toEqual({ x: 10, color: "red" })
@@ -39,6 +39,10 @@ describe("Starting style helpers (ADR-0021)", () => {
     expect(Style.resolveInitial({ initial: { x: [30, 90] } }), "initial's first stop").toEqual({ x: 30 })
     expect(Style.resolveInitial({ initial: false, animate: { x: [0, 100, 40] } }), "initial={false}: animate's last").toEqual({ x: 40 })
     expect(Style.resolveInitial({ initial: "a", variants: { a: { x: [5, 6] } } }), "a name's, first").toEqual({ x: 5 })
+    // Both in one pass (#452), and nothing set aside carried into the next call.
+    expect(Style.splitValues(target, "last")).toEqual({ values: { opacity: 0.5, x: 20, color: "red" }, keyframes: { opacity: [null, 1, 0.5], x: [10, 20] } })
+    expect(Style.splitValues({ opacity: 1 }, "last"), "none set aside").toEqual({ values: { opacity: 1 }, keyframes: undefined })
+    expect(Style.splitValues(undefined, "first")).toEqual({ values: {}, keyframes: undefined })
   })
 
   it("ST2: resolveInitial with no initial is empty", () => {

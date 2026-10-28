@@ -796,8 +796,11 @@ interface Resolved {
   readonly keyframes: KeyframesNow | undefined
 }
 
-/** Whether a layer is on with Keyframes (#429). */
-const hasKeyframes = (layer: Layer): boolean => Bool.and(layer.active, Predicate.isNotUndefined(layer.keyframes))
+/** Whether a layer is on with Keyframes (#429). Per layer, per Retarget (#452): guards, nothing built. */
+const hasKeyframes = (layer: Layer): boolean => {
+  if (Predicate.isUndefined(layer.keyframes)) return false
+  return layer.active
+}
 
 /**
  * Each resolved key's Keyframes (#429): the stops of the layer that drives it, when that layer gives
@@ -844,10 +847,11 @@ const keyframesAtOf = (keyframes: KeyframesNow | undefined, key: string): Keyfra
 
 /** Whether a key's Keyframes are the same (#429, {@link KeyframesAt}): its stops, its layer and that layer's name. */
 export const sameKeyframesAt = (a: KeyframesAt | undefined, b: KeyframesAt | undefined): boolean => {
-  if (Bool.or(Predicate.isUndefined(a), Predicate.isUndefined(b))) return a === b
-  const x = a as KeyframesAt
-  const y = b as KeyframesAt
-  return Bool.and(Bool.and(x.layer === y.layer, x.name === y.name), sameStops(x.stops, y.stops))
+  // Per key, per Retarget (#452): guards, the common case (neither) first.
+  if (a === b) return true
+  if (Predicate.isUndefined(a)) return false
+  if (Predicate.isUndefined(b)) return false
+  return Bool.and(Bool.and(a.layer === b.layer, a.name === b.name), sameStops(a.stops, b.stops))
 }
 
 /** Whether two resolutions' Keyframes are the same, key by key (#429): `undefined` on both, the common case, at once. */
@@ -1731,7 +1735,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       let drawn = false
       if (Predicate.isNotUndefined(owner)) {
         drawn = Bool.not(owner.done)
-        if (Bool.and(owner.targets[key] === like, sameKeyframesAt(keyframesAtOf(owner.resolution.keyframes, key), stops))) {
+        if (owner.targets[key] === like && sameKeyframesAt(keyframesAtOf(owner.resolution.keyframes, key), stops)) {
           if (Predicate.isUndefined(stays)) stays = new Set()
           stays.add(key)
           if (Bool.or(owner.done, owner.landing === landing)) return
@@ -1765,12 +1769,9 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       // It stays, as a carried key does, and is written once more (below), as Motion sets it on the
       // next frame. One that started at its target had no value to show, so its leg writes it, as
       // Motion's does for a value it has none of. Keyframes are never there (#429): they play.
-      const still = Bool.and(
-        Bool.and(Bool.and(Bool.not(drawn), Predicate.isUndefined(stops)), started[key] !== "target"),
-        Bool.and(snapshot.values[key] === like, velocityOf(snapshot, key) === 0),
-      )
+      const still = Bool.and(Bool.and(Bool.not(drawn), started[key] !== "target"), Bool.and(snapshot.values[key] === like, velocityOf(snapshot, key) === 0))
       // Its transition asked last, for a key already there alone: per key, per Retarget.
-      if (still && Bool.not(givesVelocity(keyTransitionOf(resolution, groups, key, transition, elementTransition), key))) {
+      if (still && Predicate.isUndefined(stops) && Bool.not(givesVelocity(keyTransitionOf(resolution, groups, key, transition, elementTransition), key))) {
         if (Predicate.isUndefined(stays)) stays = new Set()
         stays.add(key)
         if (Predicate.isUndefined(there)) there = {}
@@ -1778,7 +1779,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       }
       // A quiet mount's Keyframes (#429): Motion animates nothing at a first render that starts at its
       // `animate`, so they stay where they start, `animate`'s last stop with `initial={false}`.
-      if (Bool.and(quiet, Predicate.isNotUndefined(stops))) {
+      if (quiet && Predicate.isNotUndefined(stops)) {
         if (Predicate.isUndefined(stays)) stays = new Set()
         stays.add(key)
         if (Predicate.isUndefined(there)) there = {}
