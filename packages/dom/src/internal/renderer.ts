@@ -383,8 +383,9 @@ export const project = (values: Record<string, unknown>): Renderer.Patch => {
     // A dragged node's raise (ADR-0016 *Amendment (Reorder)*): kebab-case, as the
     // scale correctors' keys are, so the commit's `setProperty` takes it.
     if (Predicate.isNotUndefined(projection.raise)) patch["z-index"] = projection.raise
-    // A Follower takes no pointer input (ADR-0010, *Amendment (#165)*; Motion's): a Lead's
-    // write leaves the key out, and the gate gives the element its own value back.
+    // A Follower takes no pointer input (`Projection`'s `passesPointer`, ADR-0010, *Amendment
+    // (#165)*; Motion's): `pointer-events: none`. A Lead's write leaves the key out, and the gate
+    // gives the element its own value back.
     if (projection.passesPointer === true) patch["pointer-events"] = "none"
     return patch
   }

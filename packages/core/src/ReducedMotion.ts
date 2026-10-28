@@ -57,9 +57,8 @@ export const isTransform = (key: string): boolean => Option.isSome(BaseValue.tra
 /**
  * An Environment's **Positional keys** (CONTEXT.md; ADR-0029, ADR-0036): which keys move or resize
  * its elements, which reduced motion Snaps. Core names only the transforms ({@link transformsOnly});
- * an Environment adds its own box keys (the DOM's `width`, `height`, `top`, `left`, `right`,
- * `bottom`: `@wardic/dom`'s `PositionalKeysDomLive`). A binding reads it once, as it reads the Probe,
- * and passes it to {@link split}.
+ * an Environment adds its own box keys (the DOM's: `@wardic/dom`'s `PositionalKeysDomLive`). A
+ * binding reads it once, as it reads the Probe, and passes it to {@link split}.
  */
 export class PositionalKeys extends Context.Service<PositionalKeys, {
   /** Whether reduced motion Snaps `key`. */
