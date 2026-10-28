@@ -776,3 +776,27 @@ The full report is on #320. It found four things:
 **Not a lead, as first recorded:** a class change on a ward re-runs only its element's effect, on every ward form (checked 2026-10-27). That's `wardic.div`, a spread ward and a Reorder item, for `class` and for a `data-` attribute. No mount effect and no target memo re-runs. The four mount-effect runs first read as the class change's were the mount's own second run, as each element arrived. They were counted because DG3's attribution window opened before the mount. A `costs()` window judging one change opens right before it.
 
 Solid 1's Reorder item still writes its `describedBy` from an effect after the mount, as Solid 2's did. Solid 1 reports no such diagnostic, and this issue was Solid 2's.
+
+## Note (#422, 2026-10-28): rc.19
+
+Bumped per decision 9:
+- `solid-js`, `@solidjs/web` and `@solidjs/babel-plugin` are pinned at 2.0.0-rc.19 in dev, and the peer floor is `^2.0.0-rc.19`;
+- the examples move to rc.19 too. `@solidjs/router` 2.0.0-next.42 and `@solidjs/vite-plugin` 3.0.0-next.51 are still the latest.
+
+rc.18 to rc.19 changed nothing in Wardic. What it changes beside it:
+- **Focus survives a move** (solidjs/solid#3997). Where the browser has `Element.moveBefore()`, list reconciliation moves the focused node with it. dom's `keepFocus` (ADR-0037) refocuses a lifted item only when a move took its focus, so in Chromium it now does nothing. It stays for Solid 1 and for browsers without `moveBefore`.
+- **Delegated events:** Solid's delegated dispatch removes its `currentTarget` and `target` overrides from the native event once its walk ends. A native listener later in the same dispatch, as Wardic's gesture listeners are, no longer sees them.
+- **`latest()`:** a render effect that reads `latest(s)` before an async value has ever shown holds its mount whatever order it reads in. The async config (#257 item 1) and the in-flight setup read (#335) use `latest()`.
+- **Holds** (solidjs/solid#4283): two mounts made in separate flushes under one boundary keep their holds independent.
+- **Memory:** retired roots are released after disposal.
+- **New:** `onFlush(fn)` runs `fn` once right after the pending flush, before paint. Wardic doesn't use it yet.
+- **Streaming and hydration:** many fixes around `<Errored>` and `<Loading>`, for apps such as the storefront's Solid 2 app.
+
+**Checked:**
+- the Solid 2 browser, hydration and server-render suites, unchanged and all passing under #320's diagnostics gate;
+- the storefront's three apps: every route, 51 of 51 each;
+- `examples/solid2-start` built, and every route loaded with nothing logged;
+- `bench:solid --binding 2`, rc.19 against rc.18 (11 paired reps, 1,000 elements, control −0.1%), with no gate failing:
+  - warm mount −0.7%, Retarget +3.3% [+0.4% – +3.7%], at-rest Retarget −0.5%, unmount +2.0%;
+  - bytes −0.1%, and retained flat (the Reorder item 26.00 KB on both sides);
+  - the layout page within noise, and about 0.17 KB left after an unmount.
