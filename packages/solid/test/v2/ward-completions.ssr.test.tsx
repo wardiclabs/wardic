@@ -11,12 +11,8 @@
 //   inside it: before #301's PR 2 only the config's keys completed.
 // - WC5 (#306): inside `style` and `viewport`, as an accessor or a value. Checked against
 //   `WardConfig` itself, which the config is also bound by, TS read their types as `any`.
-import * as path from "node:path"
-import ts from "typescript"
 import { beforeAll, describe, expect, it } from "vitest"
-
-const ROOT = path.resolve(import.meta.dirname, "../..")
-const FILE = path.join(ROOT, "test/v2/__ward-completions__.tsx")
+import { completionsIn } from "../language-service.ts"
 
 const SOURCE = `import { ward } from "@wardic/solid/unstable/v2"
 export const element = () => ward({ initial: { opacity: 0 }, animate: { x: 10 }, transition: { type: "tween", /*WC1*/ } })
@@ -28,43 +24,11 @@ export const style = () => ward({ style: { /*WC5a*/ }, viewport: { /*WC5b*/ } })
 export const accessors = () => ward({ style: () => ({ /*WC5c*/ }), viewport: () => ({ /*WC5d*/ }) })
 `
 
-let service: ts.LanguageService
+let offered: (marker: string) => ReadonlyArray<string>
 
 beforeAll(() => {
-  const config = ts.getParsedCommandLineOfConfigFile(path.join(ROOT, "tsconfig.v2.json"), {}, { ...ts.sys, onUnRecoverableConfigFileDiagnostic: () => {} })
-  if (config === undefined) throw new Error("tsconfig.v2.json didn't parse")
-  const rootNames = [FILE, path.join(ROOT, "babel-modules.d.ts")]
-  service = ts.createLanguageService(
-    {
-      getScriptFileNames: () => rootNames,
-      getScriptVersion: () => "1",
-      getScriptSnapshot: (file) => {
-        if (file === FILE) return ts.ScriptSnapshot.fromString(SOURCE)
-        if (!ts.sys.fileExists(file)) return undefined
-        return ts.ScriptSnapshot.fromString(ts.sys.readFile(file) ?? "")
-      },
-      getCurrentDirectory: () => ROOT,
-      getCompilationSettings: () => config.options,
-      getDefaultLibFileName: (options) => ts.getDefaultLibFilePath(options),
-      fileExists: (file) => file === FILE || ts.sys.fileExists(file),
-      readFile: (file) => {
-        if (file === FILE) return SOURCE
-        return ts.sys.readFile(file)
-      },
-      readDirectory: ts.sys.readDirectory,
-      directoryExists: ts.sys.directoryExists,
-      getDirectories: ts.sys.getDirectories,
-    },
-    ts.createDocumentRegistry(),
-  )
-}, 60_000)
-
-/** The names offered at `marker`. */
-const offered = (marker: string): ReadonlyArray<string> => {
-  const at = SOURCE.indexOf(marker)
-  expect(at, marker).toBeGreaterThan(0)
-  return (service.getCompletionsAtPosition(FILE, at, {})?.entries ?? []).map((entry) => entry.name.replace(/^"(.*)"$/, "$1"))
-}
+  offered = completionsIn("tsconfig.v2.json", "test/v2/__ward-completions__.tsx", SOURCE)
+})
 
 describe("completion inside a ward's transitions (#301)", () => {
   it("WC1: the element's transition offers the keys it animates, default and layout", () => {

@@ -3,8 +3,8 @@
 // a provider). Each `@ts-expect-error` is an entry the config's types reject.
 //
 // - TK1: the element's `transition` takes entries for the keys the element animates (any layer, its
-//   `style`, its drag axis), `default` and `layout`; another value's name is an error, as is a
-//   mistyped option.
+//   drag axis), `default` and `layout`; another value's name is an error, as is a mistyped option, and
+//   a key only `style` sets, which never runs on a transition (#305's Q2).
 // - TK2: an element Variant children can join (`variants`, or a name in `initial` or `animate`) takes
 //   every value's name in its `transition`: they inherit it, and may animate keys it doesn't.
 // - TK3: a target's own transition (`animate`'s, a variant's, a gesture's, `exit`'s) takes the keys
@@ -14,6 +14,9 @@
 // - TK6: a callback's parameters keep their types beside the checks, and every other key takes what
 //   it took, a value or an accessor: `layoutDependency` any value (a draft gave it `never`).
 // - TK7: a wrapper hands its config on as `ward<C>(config)`.
+// - TK8 (#305's Q4): a name in a values map that isn't a value is an error, in a target, a variant or
+//   `initial`, as a value or an accessor; `style` isn't checked (left: its check broke completion in a
+//   `style` accessor).
 import { ward, type WardChecked, type WardConfig, type WardicVariants } from "@wardic/solid/unstable/v2"
 import { describe, expectTypeOf, it } from "vitest"
 
@@ -31,7 +34,17 @@ describe("a ward's transitions, checked against the keys each drives (#301)", ()
         whileHover: { scale: 1.1 },
         style: { color: "red" },
         drag: "y",
-        transition: { ...FAST, opacity: FAST, x: FAST, scale: FAST, color: FAST, y: FAST, default: { stiffness: 300 }, layout: FAST },
+        transition: { ...FAST, opacity: FAST, x: FAST, scale: FAST, y: FAST, default: { stiffness: 300 }, layout: FAST },
+      }),
+    )
+    typed(() =>
+      ward({
+        animate: { opacity: 1 },
+        style: { color: "red" },
+        transition: {
+          // @ts-expect-error a key only `style` sets never runs on a transition (#305's Q2)
+          color: FAST,
+        },
       }),
     )
     typed(() =>
@@ -140,5 +153,25 @@ describe("a ward's transitions, checked against the keys each drives (#301)", ()
         },
       }),
     )
+  })
+
+  it("TK8: a name in a values map that isn't a value is an error (#305)", () => {
+    typed(() => ward({ initial: { opacity: 0 }, animate: { opacity: 1, "--accent": "red" }, variants: { shown: { x: 1 } }, whileHover: { scale: 1.1 } }))
+    typed(() => ward({ initial: false, animate: "shown", variants: { shown: { opacity: 1 } } }))
+    typed(() => ward({ initial: ["a", "b"], variants: { a: { opacity: 0 }, b: { x: 1 } } }))
+    // @ts-expect-error no value has this name
+    typed(() => ward({ animate: { opacty: 1 } }))
+    // @ts-expect-error no value has this name, beside one that has
+    typed(() => ward({ animate: { opacity: 1, opacty: 1 } }))
+    // @ts-expect-error no value has this name
+    typed(() => ward({ initial: { opacty: 0 }, animate: { opacity: 1 } }))
+    // @ts-expect-error no value has this name
+    typed(() => ward({ variants: { shown: { opacty: 1 } }, animate: "shown" }))
+    // @ts-expect-error no value has this name
+    typed(() => ward({ animate: { opacity: 1 }, whileTap: { scal: 0.9 } }))
+    // @ts-expect-error no value has this name, in an accessor
+    typed(() => ward({ animate: () => ({ opacity: 1, opacty: 1 }) }))
+    // Left: `style` isn't checked.
+    typed(() => ward({ animate: { opacity: 1 }, style: { colr: "red" } }))
   })
 })

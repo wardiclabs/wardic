@@ -168,6 +168,7 @@ export {
  */
 export {
   type Wardic,
+  type WardicComponent,
   type WardicMotionProps,
   type WardicProps,
   wardic,
