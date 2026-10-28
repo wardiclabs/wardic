@@ -39,6 +39,9 @@ import type * as Point from "./Point.ts"
  *   opaque to core: a binding hands it to an app's drag callback.
  * - `axis`: the axes the gesture moves on, read at its start (#273): its drag's axis, or a
  *   direction-locked drag's lock. A pan's are both.
+ * - `cancelled`: an `"end"` its watch's `cancel` gave (#431, Motion's drag controls'
+ *   `cancel`): the gesture ended where it is, which a binding releases with no Fling and
+ *   tells no app. Absent on every other sample.
  */
 export interface Sample {
   readonly point: Point.Point
@@ -50,6 +53,7 @@ export interface Sample {
   readonly scroll: Point.Point
   readonly raw?: unknown
   readonly axis: Axis
+  readonly cancelled?: boolean
 }
 
 /**

@@ -198,3 +198,9 @@ While I was dragged, Motion's O kept its `whileHover` and its `whileTap` (the pr
 - **The layout lab** (`.tmp/73-proto/drive.ts`, headless Chromium, k = 5, cold and warm, main against this change): identical.
   - Drag scenarios 11–14 (40 runs each): 0 frames behind, 0 release held, every run settled.
   - Scenarios 1–10: the same held frames, first steps and verdicts.
+
+## Amendment (#431, 2026-10-28): a target adopts a pointer pressed elsewhere
+
+**Drag controls** (ADR-0060) start a drag from a handle or a track: a pointer that went down off the target. `InputSource.adoptPointer(target, raw)` hands it over. Its down reaches `pointer(target)` inside the call, marked `adopted`, and from there it's a Held pointer like one that went down on the target: its moves, release and cancel reach the target's feed wherever they land, until its release, its cancel or a move with no button pressed. `heldPointer` takes these downs as an `adopted` feed, so a press that also reaches the target (a handle inside it) keeps the one hold.
+
+Only a drag starts from an adopted down. A press, a hover and a pan leave it out: the pointer didn't press the target. A drag's watch can also end its gesture from outside its pointer (`stop`, `cancel`), after which that pointer's later events are left out.

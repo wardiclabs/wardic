@@ -24,6 +24,12 @@
  * element, and it allows one capturer per pointer, which nested draggables (#29) would
  * fight over.
  *
+ * `adoptPointer(target, raw)` (#431, **Drag controls**) hands a pointer that went down elsewhere,
+ * a handle or a track, to `target`: its `PointerEvent` (a `pointerdown`, or any other with a button
+ * pressed) is delivered on `pointer(target)` as an adopted down, inside the call, and held from
+ * there as the target's own downs are. Each target's adopted feed is one more listener in its
+ * shared lookup, not a DOM listener: nothing listens for it until the call.
+ *
  * A scroll moves a Held pointer (ADR-0019, *Amendment (Reorder)*): while one is held,
  * the target's scroll feed reports the scroll of each of its scrollable ancestors and
  * of its window, and `InputSource.heldPointer` turns each change into a move of the pointer
@@ -42,7 +48,7 @@ import type * as Point from "@wardic/core/Point"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
-import { constTrue, identity } from "effect/Function"
+import { constTrue, constVoid, identity } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
@@ -153,6 +159,45 @@ const asKey = (target: unknown): Option.Option<object> => Option.liftPredicate(t
 /** Whether `target` is an element (by `nodeType`, so an iframe's elements count too). */
 const isElement = (target: unknown): target is Element =>
   Predicate.isObjectOrArray(target) && (target as { readonly nodeType?: number }).nodeType === 1
+
+/** Each target's adopted-down listeners (#431), while its pointer feed is subscribed. */
+const adopters = new WeakMap<object, Set<(event: InputSource.PointerLikeEvent, raw: unknown) => void>>()
+
+/** The downs adopted for `target` (#431): `heldPointer`'s `adopted` feed. */
+const adoptedFeedOf = (target: unknown): InputSource.PointerFeed => (emit) => {
+  const key = asKey(target)
+  if (Option.isNone(key)) return constVoid
+  const listeners = Option.getOrElse(Option.fromUndefinedOr(adopters.get(key.value)), () => new Set<(event: InputSource.PointerLikeEvent, raw: unknown) => void>())
+  listeners.add(emit)
+  adopters.set(key.value, listeners)
+  return () => {
+    listeners.delete(emit)
+    if (listeners.size === 0) adopters.delete(key.value)
+  }
+}
+
+/** Whether `raw` is a `PointerEvent` with a button pressed: one a target can adopt (#431). */
+const isPressedPointer = (raw: unknown): raw is PointerEvent =>
+  Bool.and(Predicate.hasProperty(raw, "pointerId"), Predicate.hasProperty(raw, "buttons")) && (raw as PointerEvent).buttons !== 0
+
+/**
+ * Hand `raw` to `target`'s pointer feed as an adopted down (#431): at its viewport point, on the target
+ * if it landed there. `undefined`, delivering nothing, for what isn't a pressed pointer's event.
+ */
+const adoptPointer = (target: unknown, raw: unknown): InputSource.PointerLikeEvent | undefined => {
+  if (isPressedPointer(raw)) return adopt(target, raw)
+  return undefined
+}
+
+/** {@link adoptPointer} of a pressed pointer's event. */
+const adopt = (target: unknown, raw: PointerEvent): InputSource.PointerLikeEvent => {
+  const down = toPointer("down", raw, landedOn(target)(raw))
+  Option.match(Option.flatMap(asKey(target), (key) => Option.fromUndefinedOr(adopters.get(key))), {
+    onNone: constVoid,
+    onSome: (listeners) => Arr.forEach(Arr.fromIterable(listeners), (emit) => emit(down, raw)),
+  })
+  return { ...down, adopted: true }
+}
 
 const CAPTURE_PASSIVE: AddEventListenerOptions = { capture: true, passive: true }
 const PASSIVE: AddEventListenerOptions = { passive: true }
@@ -394,6 +439,7 @@ const make = Effect.gen(function* () {
   const pointer = InputFeed.byTarget((target) =>
     InputSource.heldPointer({
       target: feedOf(target as EventTarget, POINTER_EVENTS),
+      adopted: adoptedFeedOf(target),
       global: feedOf(windowOf(target), HELD_POINTER_EVENTS, CAPTURE_PASSIVE, landedOn(target)),
       scroll: scrollFeedOf(target),
     })
@@ -405,6 +451,7 @@ const make = Effect.gen(function* () {
     pointer,
     focus,
     keyboard,
+    adoptPointer,
   })
 })
 

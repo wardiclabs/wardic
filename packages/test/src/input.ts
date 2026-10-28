@@ -1,5 +1,7 @@
 import * as InputSource from "@wardic/core/InputSource"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
+import * as Predicate from "effect/Predicate"
 import * as Layer from "effect/Layer"
 import * as Feeds from "./feeds.ts"
 
@@ -11,7 +13,8 @@ import * as Feeds from "./feeds.ts"
  * pointer events for back-compat; focus and key events are optional, defaulting to empty so existing
  * call sites emit nothing on them. Each script plays whole when its feed is subscribed, so scripts of
  * two kinds don't interleave: a test that needs them to pushes them ({@link pushable}). Called with no
- * args it yields an InputSource that emits nothing — for tests that don't exercise gestures.
+ * args it yields an InputSource that emits nothing — for tests that don't exercise gestures. It adopts
+ * no pointer (#431): `adoptPointer` delivers nothing.
  */
 export const layer = (
   pointerEvents: ReadonlyArray<InputSource.PointerLikeEvent> = [],
@@ -22,6 +25,7 @@ export const layer = (
     pointer: () => Feeds.script(pointerEvents),
     keyboard: () => Feeds.script(keyEvents),
     focus: () => Feeds.script(focusEvents),
+    adoptPointer: () => undefined,
   })
 
 /**
@@ -51,6 +55,10 @@ export const layer = (
  * Returns `pushFocus` and `pushKey` alongside `push` so focus/blur transitions and keys (#427) can be
  * driven on the same schedule; `focus(target)` and `keyboard(target)` mirror `pointer(target)`, each
  * with its own hub.
+ *
+ * `adoptPointer(target, raw)` (#431) takes a pointer event as its `raw`: a pressed one is pushed on
+ * the pointer hub as an adopted down, inside the call, as the DOM's is. The hub holds no pointer, so
+ * the test pushes that pointer's later events itself.
  */
 export const pushable = (): Effect.Effect<{
   readonly layer: Layer.Layer<InputSource.InputSource>
@@ -67,9 +75,21 @@ export const pushable = (): Effect.Effect<{
         pointer: () => pointer.feed,
         keyboard: () => keys.feed,
         focus: () => focus.feed,
+        adoptPointer: (_target, raw) => {
+          if (isPressedPointer(raw)) {
+            const down: InputSource.PointerLikeEvent = { ...raw, type: "down", adopted: true }
+            Effect.runSync(pointer.push(down))
+            return down
+          }
+          return undefined
+        },
       }),
       push: pointer.push,
       pushFocus: focus.push,
       pushKey: keys.push,
     }
   })
+
+/** Whether `raw` is a pointer event with a button pressed: one the pushable InputSource adopts (#431). */
+const isPressedPointer = (raw: unknown): raw is InputSource.PointerLikeEvent =>
+  Bool.and(Predicate.hasProperty(raw, "pointerId"), Predicate.hasProperty(raw, "pressed")) && (raw as InputSource.PointerLikeEvent).pressed

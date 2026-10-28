@@ -240,7 +240,15 @@ type ItemGroup<V> = {
   readonly instructions: Accessor<string>
 }
 
-const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTMLElement | undefined>, runtime: WardicRuntime): SpineInternals => {
+/**
+ * An item's `touch-action`, its group's axis's, under its style: none when its own presses don't drag
+ * it (`dragListener={false}`, #431), as with its other drag defaults, so a list dragged by its handles
+ * scrolls by touch.
+ */
+const touchActionOf = <V,>(group: ItemGroup<V>, listens: boolean): SpineInternals["baseStyle"] =>
+  Bool.match(listens, { onTrue: () => () => ({ "touch-action": Style.reorderTouchAction(group.axis()) }), onFalse: constUndefined })
+
+const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTMLElement | undefined>, runtime: WardicRuntime, listens: boolean): SpineInternals => {
   // A keyboard lift turns the item's `whileDrag` on (ADR-0037).
   const [lifted, setLifted] = createSignal(false)
   const driver = group.controller.item(value, () => Option.fromUndefinedOr(element()), setLifted)
@@ -260,7 +268,7 @@ const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTML
     raiseWhileDragged: true,
     keysTaken: true,
     lifted,
-    baseStyle: () => ({ "touch-action": Style.reorderTouchAction(group.axis()) }),
+    baseStyle: touchActionOf(group, listens),
   }
 }
 
@@ -313,12 +321,13 @@ export type ReorderItemWard = ((userProps?: ReorderItemUserProps) => ReorderItem
 export function createReorderItem<V>(group: ReorderGroup<V>, config: ReorderItemConfig<V> | Accessor<ReorderItemConfig<V>>): ReorderItemWard {
   const cfg: Accessor<ReorderItemConfig<V>> = accessorOf(config)
   const value = untrack(cfg).value
+  const listens = untrack(cfg).dragListener !== false
   const [element, setElement] = createSignal<HTMLElement>()
   // On a server the item renders the drag defaults with its group's touch-action and
   // joins no controller (ADR-0021).
   const internals: SpineInternals = Bool.match(isServer, {
-    onTrue: (): SpineInternals => ({ dragAxis: () => true, baseStyle: () => ({ "touch-action": Style.reorderTouchAction(group.axis()) }) }),
-    onFalse: () => itemInternals(group, value, element, useWardicRuntime()),
+    onTrue: (): SpineInternals => ({ dragAxis: () => true, baseStyle: touchActionOf(group, listens) }),
+    onFalse: () => itemInternals(group, value, element, useWardicRuntime(), listens),
   })
   const ward = createWardWith(() => ({ ...withoutValue(cfg()), layout: itemLayoutOf(cfg().layout) }), internals)
   // The instructions element exists on the client only, so `aria-describedby` waits for the mount.
@@ -428,7 +437,7 @@ export function reorderItem(el: HTMLElement, value: Accessor<ReorderItemDirectiv
     bindGestures: node.bindGestures,
     onFrame: node.onFrame,
     makeSink: (element) => ({ target: element }),
-    internal: itemInternals(group, first.value, () => el, runtime),
+    internal: itemInternals(group, first.value, () => el, runtime, first.dragListener !== false),
   })
 }
 

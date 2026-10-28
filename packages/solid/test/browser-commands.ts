@@ -34,6 +34,8 @@ declare module "vitest/browser" {
     realKey: (type: "press" | "down" | "up", key: string) => Promise<void>
     /** One line to the test runner's stdout, so a browser test can leave numbers in a CI log (#206). */
     report: (line: string) => Promise<void>
+    /** Two full garbage collections (Chromium's DevTools protocol), before reading a `WeakRef` (#431). */
+    collectGarbage: () => Promise<void>
     /** Real Playwright mouse input at a client point in the test iframe. */
     realMouse: (type: "move" | "down" | "up", x: number, y: number, options?: RealMouseOptions) => Promise<void>
     /**

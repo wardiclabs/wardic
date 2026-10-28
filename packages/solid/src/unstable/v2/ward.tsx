@@ -98,6 +98,7 @@ import {
   appearEntryOf,
   applyDragDefaults,
   dragAxisOf,
+  dragDefaultsOf,
   drawnAtRest,
   type ElementSpine,
   flagStartingStyle,
@@ -203,6 +204,8 @@ const WARD_KEYS = [
   "dragTransition",
   "dragPropagation",
   "dragDirectionLock",
+  "dragControls",
+  "dragListener",
   "onMeasureDragConstraints",
   "transition",
   "exit",
@@ -733,7 +736,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   // Its drag axis and a drag element's defaults (ADR-0004, ADR-0019 *Amendment (Reorder)*), under
   // the user's style: `drag` is read once, as on the Solid 1 binding.
   const dragAxis = dragAxisOf(initialConfig, internal)
-  const dragDefaults = UndefinedOr.map(dragAxis, Style.dragDefaults)
+  const dragDefaults = dragDefaultsOf(initialConfig, internal)
 
   // Its routed `style` keys (#130, ADR-0043), and its `style`, switched by the gate's hooks.
   const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: () => warnDroppedTransform(runtime, id), reactivity })
@@ -1101,8 +1104,10 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
           propagation: initialConfig.dragPropagation,
           directionLock: initialConfig.dragDirectionLock,
           transition: dragTransition,
+          listen: initialConfig.dragListener,
         },
         container: constraints.container,
+        controls: initialConfig.dragControls,
         ...UndefinedOr.match(layout, { onUndefined: () => ({}), onDefined: (projectionNode) => ({ projection: projectionNode }) }),
         ...UndefinedOr.match(internal.dragAxis, { onUndefined: () => ({}), onDefined: (axisAt) => ({ axisAt }) }),
         // Its samples to a `<Reorder>` item's group, and to the lifecycle for `next("dragStart")` (#257)
@@ -1471,7 +1476,7 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
   // Its routed keys' values join the Starting style, under `initial`'s (#130); a `<Reorder>` item's
   // base style, a drag element's defaults, then its Appear slot go under the user's style. A user
   // style with its own `animation` keeps it, over the slot, and the slot is left undefined.
-  const dragDefaults = UndefinedOr.map(dragAxisOf(c, internal), Style.dragDefaults)
+  const dragDefaults = dragDefaultsOf(c, internal)
   // The element's style for its user style: the config's, or a `.with()` style over it (#264).
   const styleFor = (user: WardStyle | string | undefined): JSX.CSSProperties => {
     const parts = split(user)

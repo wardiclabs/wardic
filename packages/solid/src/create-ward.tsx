@@ -82,6 +82,7 @@ import {
   animationCallbacks,
   applyDragDefaults,
   dragAxisOf,
+  dragDefaultsOf,
   drawnAtRest,
   flagStartingStyle,
   isLayoutNode,
@@ -453,8 +454,7 @@ export function runSpine(opts: RunSpineOptions): void {
           write(untrack(base) as Record<string, unknown> | undefined)
           createEffect(on(base, (style) => write(style as Record<string, unknown> | undefined), { defer: true }))
         }
-        const dragAxis = dragAxisOf(untrack(cfg), internal)
-        if (Predicate.isNotUndefined(dragAxis)) applyDragDefaults(element, Style.dragDefaults(dragAxis))
+        UndefinedOr.map(dragDefaultsOf(untrack(cfg), internal), (defaults) => applyDragDefaults(element, defaults))
       }
 
       // Base values (ADR-0022): a key with no value starts from its `style` value, else its Own
@@ -544,6 +544,7 @@ export function runSpine(opts: RunSpineOptions): void {
           propagation: c0d.dragPropagation,
           directionLock: c0d.dragDirectionLock,
           transition: dragTransition,
+          listen: c0d.dragListener,
         }
         dragTrack = runDragTrack({
           runtime,
@@ -555,6 +556,7 @@ export function runSpine(opts: RunSpineOptions): void {
           setDragging,
           config: trackConfig,
           container: constraints.container,
+          controls: c0d.dragControls,
           // ADR-0016: a drag on a LAYOUT node feeds the projection, not its own x/y
           // (drawn on top, #363), so the dragged item follows the pointer and FLIPs to
           // its slot on release. Free drag (no handle) is unchanged.
@@ -801,8 +803,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
 
   // A drag element's defaults (ADR-0019 *Amendment (Reorder)*), under the user's
   // style: `drag` is static, so they're chosen once.
-  const dragAxis = dragAxisOf(untrack(cfg), internal)
-  const dragDefaults = UndefinedOr.map(dragAxis, Style.dragDefaults)
+  const dragDefaults = dragDefaultsOf(untrack(cfg), internal)
   const baseStyle = internal.baseStyle
 
   // The props `ward(userProps)` was last called with: their `style` is this element's style
@@ -932,8 +933,7 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
   const node = serverVariantNode(c, useVariantContext())
   const layoutNode = isLayoutNode(c)
   const seed = Style.starting(internal.tag, drawnAtRest(startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack), layoutNode))
-  const dragAxis = dragAxisOf(c, internal)
-  const dragDefaults = UndefinedOr.map(dragAxis, Style.dragDefaults)
+  const dragDefaults = dragDefaultsOf(c, internal)
   const initialValues = startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack)
   // Its Appear animation (#48, ADR-0044): its slot in the render's, and the group its Variant
   // children join when it leads one.

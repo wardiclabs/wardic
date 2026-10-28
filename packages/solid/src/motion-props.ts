@@ -10,6 +10,7 @@ import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
 import type { WardConfig, WardicAnimationDefinition, WardicDragTransition, WardicTransition, WardicVariant, WardicVariantLabels, WardicVariants, WardicViewport } from "./config.ts"
 import type { WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
+import type { WardicDragControls } from "./drag-controls.ts"
 import type { WardicDragInfo, WardicPointInfo, WardicPressEvent, WardicPressInfo } from "./gesture-info.ts"
 import type { Accessor } from "./reactivity.ts"
 
@@ -35,10 +36,21 @@ const GESTURE_CALLBACKS = [
 
 /**
  * The keys most elements don't take, which a config with fixed keys reads only when given (#273): the
- * gesture callbacks, `dragDirectionLock`, `onMeasureDragConstraints`, `whileInView`, `whileFocus`,
- * `viewport` and `custom` (#277).
+ * gesture callbacks, `dragDirectionLock`, `dragControls` and `dragListener` (#431),
+ * `onMeasureDragConstraints`, `whileInView`, `whileFocus`, `viewport` and `custom` (#277).
  */
-const RARE_KEYS = [...GESTURE_CALLBACKS, "dragDirectionLock", "onMeasureDragConstraints", "whileInView", "whileFocus", "viewport", "custom", "key"] as const
+const RARE_KEYS = [
+  ...GESTURE_CALLBACKS,
+  "dragDirectionLock",
+  "dragControls",
+  "dragListener",
+  "onMeasureDragConstraints",
+  "whileInView",
+  "whileFocus",
+  "viewport",
+  "custom",
+  "key",
+] as const
 
 /** One of {@link RARE_KEYS}. */
 type RareKey = (typeof RARE_KEYS)[number]
@@ -73,6 +85,8 @@ export const MOTION_PROPS = [
   "dragTransition",
   "dragPropagation",
   "dragDirectionLock",
+  "dragControls",
+  "dragListener",
   "onMeasureDragConstraints",
   "layout",
   "layoutDependency",
@@ -192,6 +206,10 @@ export interface WardicMotionProps {
   readonly dragPropagation?: boolean
   /** Motion's `dragDirectionLock` (#273; see `WardConfig`): each drag starts at its lock, on that axis alone. */
   readonly dragDirectionLock?: boolean
+  /** Motion's `dragControls` (#431; see `WardConfig`): controls from `createDragControls()` that start this element's drag from elsewhere. */
+  readonly dragControls?: WardicDragControls
+  /** Motion's `dragListener` (#431; see `WardConfig`): `false`, only its `dragControls` start its drag. */
+  readonly dragListener?: boolean
   /**
    * Enable layout FLIP (ADR-0005). Under a `<LayoutGroup>` sibling reflow is
    * animated too; standalone, only this element's own size/`layoutDependency`

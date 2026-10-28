@@ -45,6 +45,8 @@ export type { Shape as FlushGate, Sink as FlushSink } from "@wardic/dom/FlushGat
 export { fromAtom, streamToSignal } from "./bridge.ts"
 export type { WardicDragInfo, WardicPoint, WardicPointInfo, WardicPressEvent, WardicPressInfo, WardicPressInput } from "./gesture-info.ts"
 export type { WardicBoundingBox, WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
+// Drag controls (#431, Motion's `useDragControls`): a drag started from a handle or a track.
+export { createDragControls, type WardicDragControls, type WardicDragControlsOptions } from "./drag-controls.ts"
 
 /**
  * Low-level sensor hooks: `createHover` / `createPress` / `createFocus` /

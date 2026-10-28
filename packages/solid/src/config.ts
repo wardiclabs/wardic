@@ -10,6 +10,7 @@ import type * as Machine from "@wardic/core/Machine"
 import type * as Stagger from "@wardic/core/Stagger"
 import type * as CSS from "csstype"
 import type { WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
+import type { WardicDragControls } from "./drag-controls.ts"
 import type { WardicDragInfo, WardicPointInfo, WardicPressEvent, WardicPressInfo } from "./gesture-info.ts"
 
 /** Motion's `viewport` (#273, ADR-0047): see `WardConfig.viewport`. */
@@ -457,6 +458,19 @@ export interface WardConfig {
    * axes, and locks after. Static config (LOW-3): read ONCE at mount.
    */
   readonly dragDirectionLock?: boolean
+  /**
+   * Motion's `dragControls` (#431): **Drag controls** from `createDragControls()`, whose `start(event)`
+   * begins this element's drag from a pointer pressed elsewhere (a handle, a track), as if it had
+   * pressed the element. Only when `drag` is on. Static config (LOW-3): read ONCE at mount.
+   */
+  readonly dragControls?: WardicDragControls
+  /**
+   * Motion's `dragListener` (#431): `false`, a press on the element doesn't drag it, nor stop its
+   * release; only its {@link dragControls} do, and it gets none of the drag defaults (`touch-action`,
+   * no text selection, `draggable="false"`), as Motion's go with its listener: a list whose items drag
+   * by a handle still scrolls by touch. Default `true`. Static config (LOW-3): read ONCE at mount.
+   */
+  readonly dragListener?: boolean
   /** Primitive selector + options (default spring). */
   readonly transition?: WardicTransition
   /**
