@@ -1,0 +1,1045 @@
+---
+name: reactivity-diagnostics
+description: Map a Solid 2.0 dev diagnostic code (STRICT_READ_UNTRACKED, REACTIVE_WRITE_IN_OWNED_SCOPE, LOADING_ON_OUTSIDE_HOLD, HOT_SCOPE_*, ...) to its repair. Use when a Solid console warning, test failure or @solidjs/diagnostics artifact reports a [CODE].
+---
+
+<!-- Copied from solid-js@2.0.0-rc.19 by scripts/sync-agent-skills.ts: run `bun run skills` after a bump, and don't edit this copy. -->
+
+# Repairing Solid reactivity from diagnostic codes
+
+Solid's dev builds emit structured diagnostics with stable codes. When you see
+a code — in the console, in a test failure, or in a captured artifact from
+`@solidjs/diagnostics` — this guide maps it to the repair. Each entry says
+what the runtime observed and what to change. Do not suppress a diagnostic
+you do not understand; every one of these is a real defect or a real cost.
+
+Severity `error` codes indicate broken behavior; `warn` codes indicate code
+that works but is structurally wrong or expensive.
+
+## Locating a finding
+
+Every console report is one entry: the message, then an `in` line naming the
+owners that enclose the subject, root first — component roots as `<Name>`,
+computations by their `name` option or the `effect`/`computed` default:
+
+```
+[HOT_SCOPE_TIME] effect "effect" spent 12.4ms of compute inside one 1000ms window ...
+  in <App> › <TodoList> › <TodoRow> › effect
+  at src/components/TodoRow.tsx:18:3
+```
+
+Read it as the component tree down to the scope. In captured artifacts the
+same chain is `event.ownerPath` (a string array). No `in` line means the
+subject has no named owner — a top-level scope, or an unowned primitive,
+which for the `NO_OWNER_*` codes is the finding itself. Naming your memos and
+effects (`{ name }`) turns the trailing `effect` into something you can grep.
+
+The `at` line is the source location (`file:line:col`, relative to the
+project root) of the innermost located node — the binding, memo, effect,
+signal or store the finding is about, else the JSX site of the nearest
+enclosing component. It is written by the compiler's `sourceNames`
+`locations` kind (on in a dev build; an opt-in for `observe` builds) and is
+absent when the build did not write one. In a browser it prints as the dev
+server's URL (`at http://localhost:5173/src/components/TodoRow.tsx:18:3`),
+which Chrome and Firefox link to the Sources panel; on the server it is the
+bare path. In captured artifacts the same string is `event.loc`.
+
+In a browser, a report about a compiled JSX binding effect (an attribute,
+class, style, or insert) also carries the element it writes as a second
+console argument — hover to highlight it on the page, click to jump to it in
+the Elements panel. That is the fastest way from a `HOT_SCOPE_*` warning to
+"which row on screen." Why-chains (`attribution.enable()` from `solid-js/attribution`) print as
+collapsed console groups: one headline per run, the causes inside.
+
+The first report of each code ends with a two-line footer: for a human, the
+code's page on the docs site (what the finding means and how to fix it); for
+an agent, a pointer here — the installed copy (`node_modules/solid-js/skills/...`)
+for tooling in the repo, and the same file on GitHub — anchored to the code's
+section.
+
+With attribution enabled, every root write also carries WHO performed it
+(`ChangeRecord.origin`): the user event and element (`click on button#next
+"Next →"`), the effect or action it ran inside (`effect "syncTitle"`,
+`action "save"`), the async landing, or `outside the reactive system`
+(timers, sockets, post-`await` code in an action — the documented escape).
+Why-chains print it after the write; re-runs and holds expose the
+interaction they trace back to (`event.interaction`, `hold.interaction`), so
+a cost or a wait can be read as "what did the user do to pay for this."
+
+## Tracking mistakes (reads in the wrong place)
+
+### STRICT_READ_UNTRACKED
+
+A reactive value was read outside any tracking scope (e.g. destructured props
+or a signal called in the component body). The read got the current value
+once and will never update. Move the read into a tracking scope: JSX, a
+memo, or an effect's compute function. If you intentionally want a one-time
+snapshot, wrap the read in `untrack()` to say so explicitly.
+
+### PENDING_ASYNC_UNTRACKED_READ
+
+Same shape as above but the value was a pending async computation, so there
+is nothing to read yet at all. Async values must be read where tracking can
+suspend and resume: JSX, a memo, or an effect's compute function.
+
+### UNTRACKED_READ_AFTER_AWAIT
+
+An async computation read a signal, memo, or store property for the first
+time after an `await`. Only reads before the first `await` are tracked, so
+the computation keeps its old result when that value changes. Read the value
+before the first `await` (capture it in a local), or wrap the read in
+`untrack()` if a one-time value is intended. Dev-only and V8-only (Chromium
+browsers, Node, Deno, Bun); Firefox and Safari never report it, so treat it
+as complementary to lint — it follows the read into helpers, `.then`
+callbacks, and awaited utilities that lint cannot see. `async function*`
+bodies are not covered. Warns once per computation per signal/memo and once
+per store; a read inside an effect callback, cleanup, or `action()` body
+that the continuation itself triggered is not blamed on it.
+
+### PENDING_ASYNC_FORBIDDEN_SCOPE
+
+A pending async value was read inside `createTrackedEffect` or `onSettled`,
+which cannot suspend — it throws. Use `createEffect` (separate compute and
+effect phases) which is async-aware: put the async read in the compute
+function.
+
+## Write/imperative-code placement mistakes
+
+### REACTIVE_WRITE_IN_OWNED_SCOPE
+
+A signal/store write (or `refresh()`) executed during an owned scope — a
+component body or a computation. Pure scopes must not cause state changes.
+Move the write to an event handler or effect phase. If the write is genuinely
+intentional initialization, pass the `ownedWrite` option on the setter call.
+
+### ASYNC_STORE_SETTER
+
+A store setter callback returned a Promise — `setStore(async d => …)`, or a
+sync arrow whose helper is async. A store setter is a synchronous
+transaction: the draft closes when the callback returns, so only the writes
+before the first `await` were in it; the rest are lost. Move the async
+orchestration into an `action()` and call the setter synchronously from
+inside it (`yield` to re-enter the transaction after an `await`). Signals
+are not subject to this rule — a signal may hold a promise as its value.
+
+### STORE_WRITE_OUTSIDE_SETTER
+
+A store proxy was written, deleted from, or had a property defined on it
+outside its setter — `store.n = 5`, `store.items.push(x)`,
+`delete store.user` — and the write was ignored. Stores are read-only outside
+the setter's draft; nothing changed and nothing re-ran. Repair: make the
+write inside the setter, `setStore(s => { s.n = 5 })` (nested paths and
+array methods work on the draft: `s.items.push(x)`, `delete s.user`). Once
+per store object and key; `data.operation` is `set`, `defineProperty` or
+`deleteProperty`.
+
+### ACTION_CALLED_IN_OWNED_SCOPE
+
+An action was invoked during a component body or computation. Actions are
+imperative entry points — call them from event handlers or other imperative
+code.
+
+### FLUSH_IN_EFFECT_CALLBACK
+
+`flush()` was called inside an effect callback, where it is a no-op (the
+flush running effects is already in progress). Writes made there are handled
+in the same flush's continuation. If you truly need a drain afterwards,
+defer it: `queueMicrotask(() => flush())`. Usually the right fix is deleting
+the call.
+
+### FLUSH_IN_ACTION
+
+`flush()` was called inside an action body (the synchronous slice between
+`yield`s). Thrown in DEV; in prod the drain is skipped. An action's writes are
+held by its transaction until the action settles, so a flush can't reveal them
+— imperative reads in the body seeing committed (pre-action) values is the
+intended semantics, not staleness to work around. Draining there would also
+detach the writes that follow from the transaction, committing them mid-action.
+Delete the call; observe results after the action resolves.
+
+## Ownership/lifecycle mistakes (leaks)
+
+### NO_OWNER_EFFECT / NO_OWNER_BOUNDARY
+
+#### NO_OWNER_EFFECT
+
+An effect was created outside any reactive context (no root, no component).
+Create it under a component or `createRoot`, or use `runWithOwner` to attach
+it to an existing owner so it can be disposed.
+
+#### NO_OWNER_BOUNDARY
+
+A boundary was created outside any reactive context. Like an unowned effect,
+it needs an owner to dispose it. Create it under a component or `createRoot`,
+or attach it to an existing owner with `runWithOwner`.
+
+### NO_OWNER_CLEANUP
+
+`onCleanup` was called outside a reactive context; the callback will never
+run. Same fix: register it under an owner.
+
+### CLEANUP_IN_FORBIDDEN_SCOPE
+
+`onCleanup` inside `createTrackedEffect` or `onSettled` is not supported —
+return a cleanup function from the callback instead.
+
+### SETTLED_CLEANUP_UNOWNED
+
+`onSettled` returned a cleanup while running in an unowned scope, so the
+cleanup cannot be honored. Throws in dev; in production the cleanup is
+dropped. Call the setup helper from an owned scope (the
+component body), not from an event handler, tracked effect, or another
+`onSettled`.
+
+### ON_FLUSH_IN_OWNED_SCOPE
+
+`onFlush` was called in a component body or a computation; it is meant for
+event handlers and effect callbacks. Use `onSettled` for work after a
+component's first stable render, and keep side effects out of computations.
+
+### RUN_WITH_DISPOSED_OWNER
+
+`runWithOwner` received an owner that was already disposed; anything created
+inside leaks. This usually means a stale owner captured across an await or
+stored past its lifetime — re-capture the owner at call time or guard with
+`isDisposed()`.
+
+## API misuse
+
+### MISSING_EFFECT_FN
+
+`createEffect(compute)` with a single argument is not supported. Split the
+work: `createEffect(() => signal(), value => doWork(value))`. For a derived
+value use `createMemo`; for a one-shot side effect just call the function.
+
+### PRIMITIVE_IN_EFFECT_CALLBACK
+
+A memo, effect, or root was created without an owner inside an effect
+callback or its cleanup. The effect phase has no ambient owner, so those
+computations cannot be disposed or held by a parent. Create them in the
+compute phase, or attach them to an existing owner with `runWithOwner`.
+Creating a signal alone does not trigger this error.
+
+### PRIMITIVE_IN_FORBIDDEN_SCOPE
+
+Reactive primitives cannot be created inside `createTrackedEffect` or
+owner-backed `onSettled`. Hoist the primitive to the component body.
+
+### INVALID_REFRESH_TARGET
+
+`refresh()` expects a Solid source accessor or refreshable store — not a
+wrapper function or a derived property read. Pass the original source.
+
+### INVALID_AFFECTS_TARGET
+
+`affects()` expects a Solid source accessor or store node, with at most one
+optional key (keys only valid on store targets). Fix the target or drop the
+extra keys.
+
+### SYNC_NODE_RECEIVED_ASYNC
+
+A computed/effect created with `sync: true` returned a Promise or
+AsyncIterable; the value would be stored as-is, never awaited, in
+production. Remove `sync: true` to use async-aware behavior, or unwrap
+before returning.
+
+## Loading boundaries
+
+### ASYNC_OUTSIDE_LOADING_BOUNDARY
+
+On the client, an async value was read outside a Loading boundary during
+mounting. The root mount waits until the pending async work settles. Put the
+pending content inside `<Loading>` and provide a fallback if the page should
+show something while it waits.
+
+During SSR, reading a source declared with `ssrSource: "client"` outside
+`<Loading>` throws an error because the server cannot run that source.
+Wrap the read in `<Loading>` to provide a fallback, or declare
+`loadingValue`/`seedLoadingValue` to render a provisional value.
+
+### LOADING_ON_OUTSIDE_HOLD
+
+`on` re-armed a Loading boundary, but a source it is waiting on is also read
+outside the boundary and holds the frame. The frame waits for that same
+source, so the fallback cannot appear. Move the outside read under the boundary.
+If the fallback should appear immediately beside the held frame, use a
+`latest()` read in `on`.
+
+## Hard failures
+
+### REACTIVITY_HALTED
+
+An earlier uncaught error halted the reactive system; subsequent updates are
+ignored. Do not treat this code as the bug — find the original error above
+it (or add an error boundary with `<Errored>`) and fix
+that. The `in <App> › …` line under the message (repeated on the "Update
+ignored" notice) is the owner path of the computation the error escaped from:
+start there.
+
+### SETTLE_WALK_UNINITIALIZED_SOURCE
+
+The runtime tried to settle a source before it produced a value or an
+error. Waking its parked readers at that point would expose its initial
+value instead of settled data. This is an internal consistency check,
+reported in development. Keep the full diagnostic and reduce the async
+sequence to a reproduction when reporting it; adding `flush()` or silencing
+the diagnostic does not repair the missing value.
+
+### INVARIANT_VIOLATION
+
+The reactive system contradicted itself — an internal bug, not user error.
+Report it upstream with a reproduction; do not work around it silently.
+
+## Performance pathologies (from the attribution engine)
+
+These fire only while attribution is enabled and describe cost, not
+incorrect behavior. The numbers in the message are measurements, not
+guesses.
+
+### HUGE_FAN_OUT
+
+One value has very many subscribers, so a single change re-runs all of them
+(`data.count`). Always on from 2000; while attribution is enabled the same
+code fires from `fanOut` (default 250) on a stamped root write, and
+`data.write` says which — a `write`, a `refresh`, or an `async` landing.
+Classic signature: every row of a list comparing against one selected id.
+Invert the question: keep the answer in a store used as a map keyed by id
+(`selected[row.id]` instead of `row.id === selectedId()`), so each consumer
+reads its own key and only the keys that flipped update. When that map is
+derived from other state, `createProjection` builds it.
+
+### HUGE_FAN_IN / WIDE_SCOPE_DEPS
+
+#### HUGE_FAN_IN
+
+The always-on backstop: one computation tracked 2000 or more sources in a
+single pass, so it re-runs when any of them change. The message names the
+computation and the count (`data: { count }`); it does NOT list the sources.
+To see which sources, enable the attribution engine and read
+[WIDE_SCOPE_DEPS](#wide_scope_deps), which fires earlier (200 sources)
+and names up to 12 of them. The repair is the same: narrow the reads or
+split the derivation into smaller memos that each track only what they need.
+
+#### WIDE_SCOPE_DEPS
+
+Attribution engine cost checks only: a scope is subscribed to 200 or more
+sources (it re-warns on 50% further growth). HMR plumbing sources are not
+counted, and in dev the renderer's insert child-resolution pass (which tracks
+each row's resolved child) is not judged — `HUGE_FAN_IN` still is. The
+message lists up to 12 of them — start there, and narrow the reads or split
+the scope as described under [HUGE_FAN_IN](#huge_fan_in).
+
+### GRAPH_GROWTH
+
+The live graph, counted when each navigation settles, got bigger on every
+one of the last `data.history.length` visits to `data.route`, and so did the
+part of it that outlived each of those navigations (`data.survived`, beside
+`data.history`: what was alive as this or an earlier navigation began and
+still is) — something each visit creates is never disposed. A page that is
+merely bigger on one visit than the last does not report: its content is new
+at each arrival, so it is not in `data.survived`. Long-lived module state (a
+global store, the HMR registry signal of each component in dev) counts the
+same at every settle once a navigation has met it, so it never climbs. Navigations that only change a
+route's params or query continue the visit and are not compared. This is the
+leak a heap snapshot finds; the engine finds it by measuring the reactive
+graph as each navigation opens and at its settle. `data.grew` says which
+measure climbed, and that names
+the leak: `owners` is an undisposed root or a Portal mounted per visit;
+`computations` with `owners` flat is an effect or memo created with no
+owner, kept alive only by the sources it reads; `edges` alone is a
+subscription per visit to something long-lived. The count is the whole
+app's, so `data.routes` names every route seen while it climbed; the
+culprit is on one of them. Look for, in order:
+
+- A `createRoot()` in an effect, an event handler, or a module-level helper
+  whose disposer is dropped. Return it from `onSettled` (the component's
+  setup-and-teardown), or call it in `onCleanup`.
+- A subscription registered outside the owner that should tear it down — an
+  `addEventListener`, an observer, a store subscription — made in a plain
+  function rather than under the component. Move it under the owner and
+  pair it with `onCleanup`.
+- A `Portal`, a panel or a modal mounted on each visit into a long-lived
+  root, never removed when the route leaves.
+- A cache (entities kept by key, each under its own root) that only ever
+  adds. Its entries outlive every navigation, so to the walk it is the same
+  growth as a leak, and it is: memory that never comes back. Bound it or
+  evict entries no visit still reads; an evicting cache stays quiet.
+
+Do NOT reach for `dispose()` on the app root or a periodic sweep; the fix is
+ownership — create the thing under the owner whose lifetime it should share.
+`graphSize()` from `solid-js/attribution` gives the count on demand;
+`OBSERVE.records.subscribe("graph", …)` gives it at every navigation's settle.
+
+The initial route declaration (`initial: true`) emits a `graph` record but is
+excluded from growth comparisons because it settles before route content
+mounts. Later visits to that route count as usual.
+
+### HOT_SCOPE_RERUNS
+
+A scope re-ran far more often than any UI cadence justifies — a hot signal
+(often per-frame or per-event) is leaking into it. The message names the
+latest cause; either move that read out of the scope or derive a slower
+value (e.g. a memo with an equality gate) between them.
+
+### HOT_SCOPE_FANOUT
+
+Many scopes went hot from ONE root cause (named in the message) — the
+aggregate form of HOT_SCOPE_RERUNS, emitted so a single culprit doesn't
+produce one warning per victim. Fix the cause, not the scopes: if consumers
+ask keyed questions of it (every row vs. one selected id), invert it into a
+store used as a map keyed by id; if it's a per-frame value, gate it behind a
+slower derivation.
+
+### HOT_SCOPE_TIME
+
+A scope's summed compute time blew its per-window budget — a
+few-but-expensive scope that run counts miss. Profile what it computes;
+usually the fix is memoizing sub-derivations or moving work off the reactive
+path.
+
+### UNSTABLE_MEMO_OUTPUT
+
+A memo keeps producing referentially-new but shallowly-equivalent
+objects/arrays, so its equality gate never closes and every subscriber
+re-runs on every upstream change. Return stable references or pass an
+`equals` option.
+
+### WASTED_RECOMPUTE
+
+The mirror of `UNSTABLE_MEMO_OUTPUT`: this scope's equality gate closes
+almost every time. `data.wasted` of `data.runs` runs in the window produced
+the same value as before — the scope re-ran because an input changed, did
+its work, compared equal, and told nobody. The compute (`data.wastedMs`)
+bought nothing. `data.causes` names the input that keeps triggering it.
+Fix upstream, where the change originates:
+
+- Read a narrower slice: `user().name` re-runs on every `user` write; if
+  `user` is a store, `user.name` re-runs only when the name changes. For a
+  signal holding an object, derive the field first —
+  `const name = createMemo(() => user().name)` — and read the memo.
+- Put an equality boundary on the source: an `equals` option that compares
+  the part that matters, so writes that do not change it never notify.
+- If the scope is expensive and the input legitimately churns, split it:
+  a cheap memo that extracts what it needs, feeding the expensive one.
+
+Do NOT add an `equals` to the wasted scope itself — its gate already
+closes; the cost is the run before the gate. The run is the problem, so
+stop the notification that starts it. Held and overlay runs are never
+counted here; see `costs().scopes[].wastedMs` for the total per scope.
+
+### ASYNC_WATERFALL
+
+Async flights ran in sequence when they might have run in parallel: each
+named flight provably could not start until the previous one resolved, and
+each took real time (the per-link durations are in the message/data). Read
+the chain from `attribution.history("waterfall")` if you need more than the
+warning shows. (The server's `<Loading>` boundary counterpart is
+`SSR_BOUNDARY_WATERFALL`, below.) Repairs, in order of preference:
+
+1. If a later request does not need the earlier response, derive both from
+   the same inputs so they start together (in one scope, read ALL async
+   sources before using any — a not-ready throw at the first read stops the
+   later ones from even starting).
+2. If the dependency is intrinsic, preload the dependent data (route
+   preloaders, hover preloads) or join the requests server-side.
+3. False positive only if the work was ALREADY started by a layer the graph
+   cannot see (a preloader or request cache handing out wrapper promises):
+   that layer should call `attribution.markFlight(promise, startedAt)` (from `solid-js/attribution`)
+   on what it hands out; the chain then breaks on origin proof. Depth-2
+   chains are `info` severity for exactly this reason — treat them as leads,
+   not verdicts.
+
+### EFFECT_WRITES_OWN_SOURCE
+
+An effect re-ran because of a write it made itself: its callback wrote a
+value that its own inputs depend on (directly, or through the memos the
+message names), so the flush settled in two passes and the screen rendered
+the pre-write value in between. The effect converged — an infinite loop
+throws on its own — which is exactly why nothing else reports it. Typical
+shapes: clamping (`if (page() > max()) setPage(max())`), resetting one
+signal when another changes, filling a default, normalizing input. The
+written value is a function of what the effect reads, so it is a memo:
+`const page = createMemo(() => Math.min(rawPage(), max()))`, or normalize
+where the source is _written_ (in the setter/handler) instead of correcting
+it afterwards. The `info` form names a cycle relayed across several effects
+(`A` writes `x`, `B` reads `x` and writes `y`, `A` reads `y`) — same repair:
+derive every relayed value from the original inputs and drop the writes.
+The walk follows graph edges only; a write fed back through untracked
+indirection is not claimed.
+
+### EFFECT_RELAY_TEAR
+
+Derived state kept in sync by an effect: `createEffect(() => f(a()), v =>
+setS(v))`. The message names a reader that ran twice for ONE write of `a` —
+once in the flush where `a` changed (against the stale `S`), once after the
+effect's write landed — so its first frame was inconsistent. That double run
+is proven from the cause chain; the rest of the message is confidence:
+
+- "The written value is the effect's compute output" — by Solid's contract
+  the compute half is a pure function of its tracked reads, so the value is
+  derivable. Repair: `const s = createMemo(() => f(a()))`, delete the
+  effect and the signal. This form warns on its own once it has repeated
+  (`data.copy: true`), even with no double-running reader — everything
+  reading the copy paints a flush behind everything reading the source.
+- "The written value is `a` itself" (`data.passthrough`) — the prop-to-state
+  port. Repair: read `a` where `S` was read; a memo only if a stable
+  derivation is genuinely needed.
+- "Nothing else writes `S`" (`data.soleWriter`, `copy` false) — derived
+  state if the value is computed from what the effect reads: same memo
+  repair. If the effect measures (layout, `Date.now()`, a ref), the tear is
+  the cost of measuring.
+- "`S` has other writers — editable state reset from a source" (`copy` true,
+  `soleWriter` false; `info` until it repeats) — the controlled-input shape.
+  If resetting local editable state when the source changes is the intent,
+  the tear is its cost; if `S` only ever mirrors the source, drop the copy.
+- Neither — the written value is not the compute output and the signal has
+  other writers. If the effect reads something outside the graph, the tear
+  is the cost of measuring and the finding is a fact to accept; if the value
+  is computed from what the effect reads, it is still a memo.
+
+An effect whose apply half takes no argument (`createEffect(open, () =>
+setFlipped(measure()))`) is reading something other than its compute output,
+so a matching write is never taken as a copy and its tears stay `info`
+however often they repeat: the cost of measuring. One that takes the value
+(`v => setS(v)`, `v => setLabel(v ? "Close" : "Open")`) is judged as above
+and warns once it has repeated, a measurement included (`i =>
+setLeft(offsets[i])` with stable layout): drop the parameter if the write
+does not use it. Do not defer the write to a microtask to quiet it; that
+only hides the cause chain.
+
+### IMMUTABLE_UPDATE_IN_STORE
+
+A store setter replaced a container with a fresh object/array whose leaves are
+mostly the same values: `draft.user = { ...draft.user, name }`,
+`draft.items = [...draft.items, x]`, `draft.items = draft.items.filter(…)`.
+The store tracks leaves; a fresh container makes every reader of the
+container's path (anything under `user`) re-run for the one leaf that moved.
+Repair: mutate the draft — `draft.user.name = name`, `draft.items.push(x)`,
+`draft.items.splice(i, 1)` — so only readers of the touched key or index
+re-run. Data arriving from outside (a fetch result for the same records)
+merges with `reconcile(data, "id")(draft.items)`, which keeps identity for
+records that did not change. Once per store path; `data.unchanged/total`
+says how much of the container was carried over.
+
+### UNSTABLE_LIST_IDENTITY
+
+A `mapArray`/`<For>` update disposed and recreated most rows while the
+entering items were field-for-field equivalent to the ones they replaced:
+a re-fetch (or a spread-copy, see above) handed back fresh objects for the
+same records, and identity keying treated each as a new row — DOM, state,
+focus, and scroll position thrown away and rebuilt. Repairs: key the list by
+a stable field (`<For each={rows()} keyed={r => r.id}>`), or merge the
+data into a store with `reconcile(data, "id")` so the same records keep the
+same identity. If a key function is already in use (`data.keyed: true`) it
+is returning unstable keys (the object itself, or something that changes
+with the fetch) — return the stable field. Once per list.
+
+## Responsiveness (from the attribution engine)
+
+The runtime did the correct thing; the user saw nothing while it did. These
+fire only while attribution is enabled.
+
+### SILENT_HOLD
+
+A write landed on async work, so the runtime held it (and everything derived
+from it) until the data came back — that hold is correct; it is what keeps the
+screen from tearing. But for the whole wait nothing on screen acknowledged it:
+no `isPending()`/`latest()` reader downstream of the write or its blocker, no
+optimistic value, no `affects()` mark, and no effect ran at all. From the
+user's side the click was dead for the duration in the message — which, when
+the write came from a JSX event handler, starts with what they did (`click on
+button#next "Next →" wrote "page" (1 → 2)`) and is measured from that event.
+The fix is ALWAYS to add feedback, never to remove the hold:
+
+- Show the wait: read `isPending(() => blocker())` (the blocker is named in
+  the message) or `isPending(() => derivedFromIt())` in the affected UI and
+  render a busy state from it.
+- Reveal the input immediately: `latest(source)` shows the NEW value of the
+  held write (a page number, a filter, a query string) while the data catches
+  up, so the control the user touched reflects the touch.
+- Predict the outcome: `createOptimistic`/`createOptimisticStore` written
+  alongside the real write (or inside the action) shows the expected result
+  now and reverts on failure. For actions this is the primary repair — the
+  message says "an action held" when the hold came from one.
+- Do NOT: move the write off the async path, wrap it in `untrack`, or split
+  the read so the write commits "faster" — that trades the hold for a torn
+  screen (old data under new controls).
+
+Thresholds sit at the strict end of the band on purpose: the engine measures
+to the commit, not the paint, so every number is a floor on what the user
+saw. From `holds.infoMs` (default 100ms — past "feels instant") the event is
+`info`-severity, structured channel only; from `holds.warnMs` (default 200ms —
+the INP "good" ceiling) it reaches the console. `attribution.history("hold")`
+lists every hold (acknowledged or not) with what was held, what blocked it,
+and which affordances answered it; each carries the engine's verdicts as
+`silent`/`long` fields. When the silent hold's tail also crossed
+the long-hold threshold (`data.long: true`) the message carries the
+`LONG_HOLD` repair as well — the fallback is the honest UI at that length.
+
+### LONG_HOLD
+
+The hold WAS acknowledged — an `isPending()` spinner, a `latest()` header, an
+optimistic value — and still ran on: the time from the user's last input to
+the commit (`data.tailMs`; `holdMs` is the whole wait when input kept
+arriving) reached `longHolds.infoMs` (default 500ms), `warn` from
+`longHolds.warnMs` (default 1000ms, where the user loses the thread). A hold
+is the stale-while-revalidate tool: right when the old screen stays useful
+for the wait (tab switch, sort toggle, a fast page turn). At this length the
+old screen has stopped being useful and started being a lie; "loading" glued
+over it reads as broken. Show a fallback instead:
+
+- Put the reader behind a `Loading` boundary keyed on what changed:
+  `<Loading on={page()} fallback={<Skeleton />}>`. With `on`, the write
+  commits at once and the fallback shows where the data lands. Without it a
+  boundary that has already revealed keeps the old content — that IS the
+  hold, so wrapping alone changes nothing.
+- A boundary that has not revealed yet (a fresh route segment, a keyed
+  subtree) takes the wait the same way; `on` is the switch for one that has.
+- If the data itself is the problem, preload it (`markFlight` the kickoff so
+  it is not misread as a waterfall) or cache it so the tail never gets there.
+
+Do NOT remove the acknowledgement to "fix" this, and do not move the write
+off the async path. The measure is the tail, not the lifetime, so a hold
+that keeps taking input (typing) is judged by each wait, not by the sum.
+`feedback().sources[].long`/`longMs` counts these at the table level,
+acknowledged or not.
+
+### UNTRACKED_ASYNC_HANDLER
+
+The dead click that is not a hold. The handler was `async` and awaited
+something — `onClick={async () => setResult(await save())}` — but wrote
+nothing before its first `await`. No hold opened (there was no write to
+hold), so `SILENT_HOLD` could not see the wait, yet from the user's side the
+click did nothing for `data.continuationMs` (handler return → the promise
+settling). The interaction record stayed open for the wait, so
+`attribution.history("interaction")` shows it with `continuationMs` set. Same
+thresholds as `SILENT_HOLD` (`holds.infoMs`/`warnMs`; off with `holds:
+false`); the wait is capped at 10s for a promise that never settles
+(`data.capped`). Two repairs, in order of preference:
+
+- Make the async work an action: `const save = action(function* () { const
+r = yield api.save(); setResult(r); })` and call `save()` from the handler.
+  An action's steps stay attributed to the click across yields, its writes
+  are held while it runs, and that hold is judged — so if the screen still
+  shows nothing you get `SILENT_HOLD` with the action repair (an optimistic
+  value, an `isPending()` reader), which is the real fix.
+- Or acknowledge before awaiting: write a `createOptimistic(false)` "saving"
+  flag (or `setSaving(true)` on a signal the UI reads) as the handler's first
+  line. Any root write before the `await` clears this finding; whether the
+  screen then shows the wait is the hold's question.
+
+Do NOT: keep the plain `await` and add a `try/finally` — nothing reactive
+learns about the wait either way. The finding names the interaction
+(`click on button#save`), not a node; there is no scope to name because no
+scope ran.
+
+### ABANDONED_FLIGHTS
+
+One async source started flight after flight and threw most of the answers
+away: `data.abandoned` flights in `data.windowMs` were each superseded by the
+next before landing. This is the search-as-you-type shape — every keystroke
+re-asks, and only the last answer is used — and it costs a request per
+input plus a hold that keeps extending. Repairs, in order:
+
+- Put a debounced or equality-gated derivation between the input and the
+  fetch: the memo the fetch reads changes only when the query has settled
+  (a `createMemo` over a debounced signal, or one that returns the previous
+  value when the trimmed query is equal), so the flight starts once.
+- Key the fetch on what actually changes (the parsed filter, not the raw
+  text) so equal inputs do not re-ask.
+- If several readers legitimately start the same request, `markFlight` the
+  shared preload so the engine sees one flight rather than N.
+
+Do NOT "fix" it by caching the promise in a signal outside the graph; the
+hold and the acknowledgement machinery stop seeing the wait.
+
+### FALLBACK_FLASH
+
+A `Loading` fallback appeared and vanished inside 150ms
+(`data.shownMs`): the data was nearly there, and the spinner read as a
+flicker. This is the other end of `SILENT_HOLD` — too much feedback for too
+little wait — and it is `info`, a count to read (`feedback().fallbacks[]
+.flashes` has the total per boundary). Repairs:
+
+- Preload or cache the data so it is present before the boundary asks
+  (`markFlight` a preload started on hover or route match).
+- Lift the read above the boundary when the parent already waits, so the
+  child boundary never shows.
+- For a boundary that has revealed once, let a later update hold instead
+  of re-showing the fallback — that is the default; a flash on update means
+  `on` is keyed to something that changes more often than the data.
+
+Do NOT add a minimum-display timer to the fallback; that trades a flicker
+for a wait.
+
+### STACKED_HOLDS
+
+`data.interactions` interactions were waiting in the same hold when it
+committed: the person clicked or typed again while the first answer was in
+the air, and the runtime folded every repeat into one wait on the same
+source (`data.blockers`). The pile is the symptom; the hold's own verdict is
+the cause — check the `SILENT_HOLD`/`LONG_HOLD` entry for the same hold
+first. Then stop the repeats at the control:
+
+- Read `isPending(() => blocker())` where the control renders and disable or
+  dim it while the flight is out, so a second click is not possible.
+- For typed input, debounce so a burst of keystrokes is one write.
+- Show progress (`latest()` of the input, an optimistic value) so the
+  person does not click again because nothing moved.
+
+Do NOT block input by removing the hold or making the write synchronous; the
+repeats are a reaction to silence, and the hold is what keeps the screen
+consistent while the answer arrives.
+
+### OPTIMISTIC_REVERTED
+
+An optimistic value the screen showed was replaced by a different one: the
+person saw the guess, then the correction. `data.how` says which road:
+`reverted` — the action ended without the guess coming true and the value
+snapped back to what it covered; `superseded` — the real value landed and
+differed from the guess (the server counted differently, rejected part of
+the input). Both are the runtime doing exactly what optimistic UI promises,
+which is why this is `info` and never reaches the console; it is a count to
+read, not a warning to silence. Read it two ways:
+
+- One source, many reverts: the failure is common and the UI is hiding it.
+  Show the failure where the value renders — catch in the action and write
+  an error the UI reads, or put the reader behind an `Errored` boundary — so
+  the snap-back is explained rather than silent.
+- One source, many supersessions: the guess is systematically wrong for this
+  input (it ignores what the server adds or normalizes). Guess less: write
+  only the part of the value the client can know, or none, and read
+  `isPending()` for the rest.
+
+Do NOT "fix" a revert by writing the guess to the authoritative signal so it
+cannot revert — that is not optimistic UI, it is lying to the user about what
+happened. The runtime's own optimistic nodes — the `isPending()`/`latest()`
+companions that acknowledge a hold — are never reported; only values you
+wrote optimistically are. Optimistic stores are not covered yet; a store-path revert shows
+up only as the reader's re-run.
+
+### Where to start: `feedback()`
+
+Before chasing individual `SILENT_HOLD` events, read the ranked tables — the
+same fold over holds and re-runs that `costs()` is over scopes and writes.
+Both are named exports (`import { feedback, costs } from "solid-js/attribution"`),
+not methods of `attribution`: importing one is what turns its accounting on,
+so a records-only consumer never ships the tables. A captured artifact has
+them as `artifact.attribution.feedback` / `.costs` already.
+
+- `sources` — one row per set of async sources that held writes, ranked by
+  silent time. `holds`, `heldMs`, `worstMs`, `silent`/`silentMs`,
+  `acknowledgedBy` (which affordance answered, in how many holds),
+  `latestOnly` (answered only by `latest()`: the input showed, nothing said
+  "loading" — fine for short waits, a second UX problem for long ones),
+  `interactions` (which user events were held here), `writes`, `actions`. A
+  row like `posts: 6 holds, 4 silent, acknowledgedBy isPending:posts ×2` says
+  the affordance exists on one screen and is missing on another — add it
+  where the silent holds happen; do not touch the screen that already works.
+- `interactions` — one row per user event (type + target; repeated dispatches
+  fold together), ranked by total cost. `runs`/`selfMs`/`worstDispatchMs` is
+  the synchronous re-run work one dispatch caused (the long-flush hazard —
+  fix with `costs()`: fan-out, waste, unstable memos); `holds`/`heldMs`/
+  `silentMs`/`worstHoldMs` is the time its writes spent held (the silent-hold
+  hazard — fix with the affordances above). Two INP failure modes, one row.
+  On `sources`, `long`/`longMs` counts holds whose tail ran past
+  `longHolds.infoMs`, acknowledged or not: the spinner is not the whole
+  answer there — a `Loading` keyed with `on`, a preload, a cache, or a faster
+  source is (see `LONG_HOLD`).
+- `navigations` — one row per route pattern (`/users/:id`), present when the
+  router declares its navigations via `OBSERVE.attribution.withOrigin`:
+  `navigations` settled, `settledMs`/`worstMs`, the `held` subset with
+  `heldMs` and how many were `silent`, `superseded` (the user navigated
+  again before it landed), and `redirected` (a guard or loader sent it
+  elsewhere; the row is the route it ended up on). A route that is held and
+  silent needs the affordances above where the route's data renders; a route
+  with many superseded navigations is one users give up on — make its data
+  fast or preload it on hover/intent; a route that is always `redirected`
+  into is paying a hop the link could skip. `attribution.history("navigation")`
+  lists each navigation with its `outcome`, its `redirects` (the abandoned
+  destinations) and, when held, the `HoldEvent` itself. The first entry is
+  the route the document arrived on when the router declares it (`initial:
+true` on the ref, around its initial match): `initial: true`, `writes: 0`,
+  `at` the time origin — a declaration of the route, not a wait, and not a
+  row in this table. On the server the same declaration is `RenderEvent.route`
+  on the request's `"render"` record.
+- `flights` — one row per async source: `flights` started, `landed`,
+  `abandoned` (superseded by a newer flight before landing), `landedMs`,
+  `worstMs`. A source with many abandoned flights is re-asking on every
+  keystroke; put a debounced or equality-gated derivation between the input
+  and the fetch so only settled inputs ask.
+- `fallbacks` — one row per loading boundary (named by owner path): `shows`,
+  `shownMs`, `worstMs`, and `flashes` (shows under 150ms — a spinner that
+  appeared and vanished, the other end of the SILENT_HOLD spectrum). Remove a
+  flash by preloading, caching, or lifting the fetch above the boundary so
+  the wait never reaches it; do not add artificial delay.
+
+Every hold, flight and show counts here at any duration; `SILENT_HOLD` and
+`LONG_HOLD` are the thresholded verdicts over the hold records.
+
+## Server rendering
+
+The server runtime reports on the same channel, with the same `in <App> ›
+<Page>` line. Two groups. **Findings** (`SSR_RENDER_ERROR_CONTAINED`,
+`SSR_SUBTREE_ABANDONED`, `SSR_STREAM_ABANDONED`, `LATE_HEADER_WRITE`,
+`DYNAMIC_ASYNC_COMPONENT`, `ASYNC_MEMO_ELEMENT`, `SERVER_ERROR_SANITIZED`,
+`FRAME_MARKER_CORRUPTED`)
+are facts about a render
+that exist in observe builds too — an APM sees them in production; in dev
+they print. **Checks** (the rest, `SSR_BOUNDARY_WATERFALL` and
+`SSR_CLIENT_CONTENT_MASKED` included) are dev-only guidance. A captured
+artifact from a server render carries both.
+
+### SSR_RENDER_ERROR_CONTAINED
+
+A component threw during a server render and a boundary routed the error;
+`data.handling` says how. `fallback` — an `<Errored>` rendered its fallback
+(the response was a 200 showing the fallback; if this fires on every request
+the fallback is the page). `client` — the enclosing `<Loading>` fragment
+rejected and the client re-rendered the subtree after hydration (the user
+paid a client render and a flash). `failed` — nothing contained it and the
+request failed. In every case the repair is the error in `data.error`, in the
+component `ownerPath` names; then consider whether an `<Errored>` closer to
+the throw would contain it more narrowly.
+
+### SSR_SUBTREE_ABANDONED
+
+A fragment failed with descendants still pending, and their work (fetches,
+serialized values — the counts are in `data`) was thrown away; the client
+rebuilds the subtree. Find the failure (`data.error`), and give the failing
+read its own `<Loading>` so its siblings ship independently.
+
+### SSR_STREAM_ABANDONED
+
+The client went away (`data.reason: "consumer"`), the sink failed
+(`"sink"`), or the request's `signal` aborted (`"signal"` — `renderToStream`'s
+`signal` option, how a frame-stream response learns its reader is gone) while
+`data.pendingFragments` were still rendering; the render was torn down. Not an app bug. At volume it is the cost of renders nobody waited
+for: make the pending data faster or move it behind navigation.
+
+### LATE_HEADER_WRITE
+
+A response header was written after the head was sent; the write was
+dropped (dev throws instead). `data.method`/`data.name` say which. Move the
+write before the first flush — before any `<Loading>` fallback can ship — or
+before the handler returns; a cookie set from inside a late-streaming
+component never reaches the browser.
+
+### DYNAMIC_ASYNC_COMPONENT
+
+An async `dynamic()` source resolved to a client component function. The
+instance memo serializes its landing for the client to adopt (#3666) and a
+function has no encoding, so the memo rejects with this message in every
+tier (the nearest `<Errored>` / `onError` contains it) instead of leaving
+the client pending or re-running the source under the boundary — the
+phantom-fallback bug the adoption fixed. `data.component` names the
+function. Move the async upstream (a `createAsync`/`createMemo` the source
+reads synchronously) or use `lazy()` for code; a server component or a tag
+name may stay async.
+
+### ASYNC_MEMO_ELEMENT
+
+An async memo (or async iterable source) resolved, on the server, to rendered
+output — JSX, a component's result, a `<Loading>`/`<Errored>` boundary. The
+memo serializes its landing for the client to adopt, and an element has no
+encoding (a boundary's accessor fails in the serializer and the client memo
+waits forever; a template object arrives as data the client cannot insert),
+so the memo rejects with this message in every tier and its boundary
+contains it: the nearest `<Errored>` renders its fallback, with none the
+`<Loading>` fragment rejects and the client renders the subtree. Return data
+from the async memo and render the JSX from it in the component. Content
+that never hydrates (`<NoHydration>`) is untouched.
+
+### SERVER_ERROR_SANITIZED
+
+The production wire replaced an error with the generic `Error`; `data.error`
+is the original, `data.wire` what the client got, and `data.source` says
+which road:
+
+- `"server-function"` (`error`): a server function threw. Fix the failure it
+  names. If the client is meant to see this error, brand it with
+  `markSafeError` or map it in `wrapInvocation`; do not turn sanitization
+  off.
+- `"ssr"` (`info`): a render failure reached the client — an `<Errored>`
+  record, a rejected async source in the stream, a fragment's rejection, a
+  frame's error chunk. Advisory: the failure itself is the
+  `SSR_RENDER_ERROR_CONTAINED` finding beside it — fix that. If the client is
+  meant to see this error, brand it with `markSafeError`; do not turn
+  sanitization off. A fallback that prints `err().message` shows "Internal
+  Server Error" in production by design.
+
+To _report_ these failures from a production build (no `OBSERVE`), register
+the server error hook — `configureServerErrors({ onError })` from
+`@solidjs/web` — which hears every handled failure once, and may return the
+value the client should see instead.
+
+### FRAME_MARKER_CORRUPTED
+
+(Client.) A frame's slot start marker has no end marker among its siblings:
+invalid HTML nesting split the range when the browser parsed it (a block
+element inside `<p>`, a `<tr>` outside a table), or a CDN/minifier stripped
+the comment. Fix the nesting in the server component's markup; serve frame
+documents with `Cache-Control: no-transform`.
+
+### SERVER_WRITE
+
+A signal, store or optimistic setter ran during a server render. Server
+render is pure — state enters through async sources, never setters — so the
+write landed as inert data and will throw in a later release. Derive the
+state (`createStore(fn, seed)`, a memo over the promise); if the write bridges
+a subscription, make the subscription the async source itself.
+
+### REVEAL_IN_RENDER_TO_STRING
+
+Nested `<Reveal>` with `collapsed`/`together` needs a stream to coordinate
+on; `renderToString` has none. Use `renderToStream`, or drop the ordering.
+
+### SSR_BOUNDARY_WATERFALL
+
+A `<Loading>` boundary rendered in `data.passes` passes — discovery, then
+one per wait — and each pass past the first is a read that could only start
+once the previous pass's async answered: `passes - 1` sequential waits,
+`data.sequentialMs` end to end. It applies the client's origin rule: a wait
+whose work had all started before the previous wait landed is parallel, not
+a link, and is left out (`data.parallelWaits`). That is how nested route
+levels read: the router starts every matched level's `lazy()` import and
+preload together, and the boundary only meets each level a pass later. The
+start comes from a `markFlight` stamp (`lazy()` stamps its import, Solid
+Router's `query()` its fetches); an unstamped promise counts as starting when
+the boundary meets it. As on the client, a layer that hands out work it
+started earlier without stamping it (a request cache's wrapper promise) can
+still read as a chain; it should call `OBSERVE.attribution.markFlight` on
+what it hands out. The same repairs apply, in the same order:
+derive both reads from the same inputs so they start together (read ALL
+async sources before using any), or, if the dependency is intrinsic, preload
+the dependent data or join the requests. Two waits are `info` — a lead;
+three or more `warn`. The boundary is `data.boundary`; a
+captured artifact has its record in `artifact.records.boundary` (same
+`id`) and the server-function calls under it in `artifact.records.invocation`
+(`boundary` field).
+
+### SSR_CLIENT_CONTENT_MASKED
+
+A `<Loading>` boundary's content turned out to be client-only (a
+`ssrSource: "client"` read) but only after `data.passes - 1` real server
+waits: an async read on an earlier pass masked it. The server did the work
+(`data.durationMs`), streamed the fallback, then handed the whole subtree to
+the client anyway — the work was discarded and the user saw the fallback
+for the wait, then a client render. Give the client-only read its own
+`<Loading>` so it hands off with the shell while the async data streams, or
+read it before the async data so the boundary hands off on its first pass
+(no finding for that case).
+
+### SSR_UNDECLARED_LIVE_SOURCE
+
+A server component rendered into a document read an async iterable that
+was still producing `data.afterMs` (5s) later: an undeclared unbounded
+source pumps into the document and holds it open for as long as it
+produces. Declare the server function `live(...)` — the document then takes
+each source's first value and closes it, and the client connects for the
+rest after hydration — or bound the source. Frame-stream renders (a live
+connection) are never judged.
+
+### SSR_LIVE_HOLE_LATCHED
+
+A live markup hole (or attribute) in a server component shipped its markers
+and then stopped updating: re-running it created a reactive scope still
+waiting on async work (`data.cause: "owners"`), so the runtime closed it and
+the client keeps the markup it last received. Scopes that finish
+synchronously (a nested `<For>`, a condition memo such as `{m.usage && …}`,
+a component) are fine: each re-run gets a throwaway scope, and slot calls
+(client components placed in the markup) re-run with the hole. The usual
+cause is a memo over a fetch or a stream created inside the markup that
+re-renders, which would restart on every re-run. Create the async source in
+the component body instead. An attribute whose expression calls a slot
+closes too (`"records"`): a slot places a client component in content, not
+in a tag. The finding is located by the component the hole is in.
+
+### LAZY_ASSET_UNMAPPED
+
+A `lazy()` component's client chunk could not be resolved for the page
+(`data.reason`: the resolver threw, or the module has no `$$moduleUrl`), so it
+is not preloaded and loads late during hydration. This is bundler-plugin
+configuration — the plugin injects `$$moduleUrl` and provides the resolver;
+check the module is under its scope.
+
+### PRELOAD_DESCRIPTOR_INVALID
+
+A `registerAsset("preload")` descriptor broke a field rule (`data.field`
+names it — a missing `as`, a non-string `href`, a malformed `imagesrcset`)
+and the link was dropped or the field ignored. Fix the descriptor at its
+source; the values are usually the bundler manifest's.
+
+### HEAD_TAG_INVALID
+
+A `useHead` registration the render could not honor; `data.reason` names the
+rule. `non-head-tag`/`invalid-attribute`: only head elements and their
+attributes; `props-error`/`group-error`: the props function threw — fix the
+throw; `after-shell-flush`: register the tag before the first flush (above
+the `<Loading>` whose fallback shipped); `outside-render`: call `useHead` from
+a component body; `duplicate-title`: one `<title>` per group, the last wins.
+
+### UNRECOGNIZED_INSERT_VALUE
+
+A value the renderer cannot render (a plain object, a symbol —
+`data.type`) sat at an insert position and was skipped, on either platform.
+Usually a component function inserted where its call was meant, or an object
+where one of its properties was.
+
+### UNSCOPED_HOLE_ALLOCATED_IDS
+
+A JSX hole was handed a **function** (`data.name`) instead of a value —
+`const renderHead = () => props.header; <div>{renderHead}</div>` — and
+calling it built hydratable content. The compiler scopes every hole that
+could build JSX so server and client agree on hydration ids, but a bare
+identifier bound to a function is a value to the compiler and a thunk to the
+runtime: unscoped, its content takes ids from the enclosing counter where
+each side happens to evaluate it — the client at the statement, the server in
+the walk after the scoped holes that follow it reserved theirs — and the keys
+of its content and of the holes after it permute: detached copies on
+hydration, dead handlers. A function hole with nothing scoped after it lands
+on the same ids both sides and is silent; the finding is the shift. The
+server reports it structurally (`data.registered` ≠ `data.before`, the
+counter's next id when the hole was registered vs. evaluated; `data.after`
+after it ran), the client when the content it built in place
+(`data.before` → `data.after`) missed a server-rendered key. Once per site.
+`JSX.Element` excludes functions, so this shape is reached only from
+JavaScript or through a cast. Fix: call the function at the hole
+(`{renderHead()}` — a call hole is scoped on both sides) or assign the built
+value first and insert that.
+
+### LOWERCASE_EVENT_ATTRIBUTE
+
+A function was set on an attribute whose name starts with `on` but is not an
+event handler (`data.name`): a lowercase `onclick`, or a leftover 1.x
+`on:click` passed through a spread (on a native element it is a compile
+error). In 2.0 only `on` + an uppercase letter binds an event; anything
+else is a plain attribute, so the function was stringified into it and never
+runs. Once per attribute name. Fix: use the camelCase handler
+(`data.handler` — `onclick={save}` → `onClick={save}`); keep a lowercase name
+only for a string inline-handler attribute.
+
+### UNCOMMITTED_INPUT_OVERWRITTEN
+
+A stateful property binding (`value`/`checked` on an input, `value` on a
+textarea, `selected` on an option, `muted` on media) re-wrote the value it
+wrote last time over an edit the user made and never committed to the bound
+signal — the typed text (or toggled box) is lost. The binding shares its
+template's grouped effect, so any other dynamic attribute in the same template
+changing re-runs it; so does a spread re-run or an `equals: false` source
+firing an equal value. Typical cause: `value={props.name} onChange={commit}`
+with no draft signal. Once per element and property; the write still happens.
+Fix: write the signal on every edit (`onInput={e =>
+setDraft(e.currentTarget.value)}`, commit the draft separately), use
+`defaultValue`/`defaultChecked` for an uncontrolled element, or reject an edit
+by writing the accepted value back in the handler (`e.currentTarget.value =
+next`) instead of re-asserting an equal value through the signal.
+
+## Verifying a fix
+
+If you are working with `@solidjs/diagnostics`, re-run the capture after the
+repair: the code should disappear from `artifact.diagnostics`; for the
+performance codes, `expectRerunBudget`/`expectNoWaste` should now pass; for
+`SILENT_HOLD`, `expectNoSilentHolds` (budget `maxSilentHoldMs: 0`) should —
+and it checks every hold, not only the ones long enough to have warned. See
+the `agent-loops` skill in `@solidjs/diagnostics` for the full loop.
