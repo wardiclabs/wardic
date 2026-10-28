@@ -42,6 +42,18 @@ export const A3 = (): JSX.Element =>
     />
   ))
 
+/** A tween beside a key already at its target (#448): the rule moves `x` alone, `opacity` held at its 0.5. */
+export const A9 = (): JSX.Element =>
+  page(() => (
+    <wardic.div
+      data-k="half"
+      style={{ width: "40px", height: "40px" }}
+      initial={{ opacity: 0.5, x: 0 }}
+      animate={{ opacity: 0.5, x: 200 }}
+      transition={{ type: "tween", duration: 1.2 }}
+    />
+  ))
+
 /** A parent that fades in before its child rises (`when: "beforeChildren"`). */
 export const A4 = (): JSX.Element => {
   const child = { hidden: { opacity: 0, y: 20 }, shown: { opacity: 1, y: 0 } }

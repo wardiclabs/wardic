@@ -39,6 +39,9 @@
 //   hold both: an entry that repeats under own fields that don't, and own fields that repeat beside
 //   an entry that doesn't, or beside `default` driving every key. A `layout` entry alone leaves the
 //   cycle playing.
+// - AR21 (#448): a key already at its target, coerced to its shape, is left out of the rule, as the
+//   client starts it no leg: one at `1` beside a key that moves, `"0px"` against `0`, and an `auto` the
+//   DOM would read, which no longer stops the rule. An element whose every key is there has none.
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
@@ -522,6 +525,26 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     expect(animationOf("own"), "own fields that repeat beside an entry: no rule").toBe("")
     expect(animationOf("default"), "own fields that repeat, every key on default: no rule").toBe("")
     expect(animationOf("layout"), "a layout entry alone: the cycle plays").toMatch(/ 0\.6s linear 0s infinite /)
+  })
+
+  it("AR21: a key already at its target is left out of the rule; an element with every key there has none (#448)", () => {
+    const html = page(() => (
+      <>
+        <wardic.div data-k="still" initial={{ opacity: 1, y: 20 }} animate={{ opacity: 1, y: 0 }} />
+        <wardic.div data-k="coerced" initial={{ x: "0px", opacity: 0 }} animate={{ x: 0, opacity: 1 }} />
+        <wardic.div data-k="auto" initial={{ height: "auto", opacity: 0 }} animate={{ height: "auto", opacity: 1 }} />
+        <wardic.div data-k="there" initial={{ x: "0px", opacity: 1 }} animate={{ x: 0, opacity: 1 }} />
+      </>
+    ))
+    const css = headCss(html)
+    const ruleOf = (k: string): string => {
+      const name = timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation)).normal.split(" ")[0] ?? ""
+      return new RegExp(`@keyframes ${name}\\{0%\\{([^}]*)\\}`).exec(css)?.[1] ?? ""
+    }
+    expect(ruleOf("still"), "y alone").toBe("transform:translateY(20px)")
+    expect(ruleOf("coerced"), "opacity alone").toBe("opacity:0")
+    expect(ruleOf("auto"), "opacity alone, the auto left out").toBe("opacity:0")
+    expect(tagsOf(html).find((t) => t.attrs["data-k"] === "there")?.style.animation, "every key there: none").toBeUndefined()
   })
 })
 

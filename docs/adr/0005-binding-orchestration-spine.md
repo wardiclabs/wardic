@@ -161,3 +161,72 @@ KC1–KC6, KC8 and KC9 fail on main on Solid 2, and KC1 and KC5 on Solid 1. KC7 
 The two that survive are guards no test reaches:
 - **A Leg's interrupt when its token didn't reach it.** Counted across the carried-keys, stagger, list, base-value and frame-loop suites, it never fired: a Superseded Leg exits inline (ADR-0027, *Amendment (#200)*).
 - **A landing's check that it's still the last Retarget's.**
+
+## Amendment (#448, 2026-10-28): a key already at its target starts no Leg
+
+Found building #428 (#447). A Retarget started a Leg for every key whose target changed, unless a running Leg already headed there (#325). It never asked whether the key was already at its target, so a key that was there ran a Leg from its value to itself for its transition's whole duration. Measured on Solid 1: a plain `animate={{ opacity: 1 }}` on an element already at opacity 1 told `onAnimationStart` at mount and `onAnimationComplete` about 290 ms later, and `initial={false}` did the same. The landing came a duration late, a target change in that time waited for it (#325's carry), so did a Transition end (#428's TE6 waited 500 ms for it), and a `beforeChildren` parent held its children for it.
+
+**Motion** (`.reference/motion` at `16c6122`):
+- `motion-dom/src/animation/interfaces/visual-element-target.ts:98-112` skips a value whose current value is its target, that isn't animating, with no `velocity` in its transition, and sets it once more on the next frame (`frame.update(() => value.set(valueTarget))`). A value with no current value isn't skipped.
+- `motion-dom/src/render/utils/animation-state.ts:439-445` animates nothing at the first render when `initial === false || initial === animate`.
+
+**Grilled 2026-10-28:**
+1. **Motion's rule, everywhere (Q1: A).** A Retarget starts no Leg for a key when its Snapshot value, coerced to its target's shape (ADR-0024), equals the target and no Leg draws it. It stays, as a Carried key does (CONTEXT.md), at a mount (`initial={false}`, or an `animate` the element already shows), for a `style` value equal to `animate`'s, and for a variant change that leaves a key in place.
+   - Rejected: B, only at mount; C, leaving it.
+2. **A mount that starts at its `animate` tells nothing (Q2: A),** as Motion's. That's `initial={false}`, an `<AnimatePresence initial={false}>`'s first render, or an `initial` that is the same name, list or values map as `animate`. Solid 1 tells no `onAnimationStart` or `onAnimationComplete`; on Solid 2, `settled()` stays `undefined` and `next("settled")` waits, both until the first real animation (ADR-0046, *Note (#448)*). Later changes are told as before.
+   - Rejected: B, landing at once, told.
+
+**Defaults, as posted on #448:** strict comparison after the coercion, so `"0px"` equals `0` (Motion's `===` would animate it), and `"#000"` against `"black"` still animates, as Motion's does. A Retarget whose every key is already there lands at once and tells its start and landing, a Transition end applies with no wait, and a `beforeChildren` parent with nothing to move releases its children at once. The server's Appear sampling (ADR-0044) leaves out a key already at its target.
+
+**Settled in the build:**
+- **A key with nothing to start from isn't already there.** One that starts at its target because no link has a value (ADR-0022, D3) still runs its Leg, which writes it, as Motion animates a value it has none of. Skipped, it would have been written at once and landed at once, where Motion's runs its duration.
+- **Velocity, two ways.** A key isn't skipped when its transition gives it a `velocity` (Motion's `valueTransition.velocity`: it kicks the key, which moves and comes back), its own entry's included (#301). Nor when its Snapshot velocity isn't 0: a drag's release taken over by a new target (#340) leaves its velocity there with no spine Leg drawing the key.
+- **The quiet mount reads inherited entries.** `initial` and `animate` are each the element's own, else its Variant parent's, so the children of a parent that starts at its `animate` are quiet too, as Motion's children aren't animated by a parent that animates nothing.
+- **A quiet mount's list tells no name either.** Its names' settles (#297) are left out with its start and landing.
+
+**Built** (`spine.ts`, `variant-tree.ts`, `appear.ts`):
+- **The per-key pass** (*Per key (#325)*) asks, for a key no Leg draws, at rest, that didn't start at its target: is its Snapshot value its target? Then it stays. Its transition is asked last, for those keys alone (`keyTransitionOf`, `givesVelocity`), so the Retarget's transitions and groups are now worked out before the pass, not after it.
+- **Written once more.** The keys already there are written through the gate in one write, with each key the Retarget moves at where it starts, after the Legs are on the loop. Written alone, they made the element's first commit, which takes its Starting style off (ADR-0034), before a staggered list name's Legs drew: a child's `opacity: 0` left the style for one Refresh frame, at full opacity (VL6). A Leg writes its start at its first frame anyway, so a key with nothing to start from shows nothing sooner.
+- **The quiet mount.** `Start.quiet` (`startsQuiet` in `variant-tree.ts`) is read once at setup. The first Retarget is silent when it's quiet and starts no Leg and carries none: no `started`, no `settled`, no names. `quiet` goes off after the first Retarget, whatever it did.
+- **Appear** (`enterServer`): a key whose `initial`, coerced to its target's shape, is its target is left out before the rule is sampled, so the server's spec is the client's first Retarget's and the Handoff matches (`keyOf`). An `auto` already at its target no longer stops the rule.
+
+**Measured** (`bench:solid`, the bench box after `wardic-quiet`, against main `bff42d1`, 11 paired reps). The final build passed the gate on both bindings, the noise control at −0.4%. Warm:
+
+| head / base | mount | Retarget | at-rest Retarget | unmount | bytes / element |
+|---|---|---|---|---|---|
+| Solid 1 | +2.0% | +1.0% | +2.9% | +1.3% | +1.4% |
+| Solid 2 | +2.6% | +3.6% | +1.9% | +0.2% | +1.9% |
+
+- What a ward keeps at rest moved +0.1%, what an unmount leaves stayed under 0.2 KB, and the layout scenes stayed within ±4%, each landing in as many frames.
+- The bench's workload has no key already at its target, so these numbers are only the cost: the per-key checks, the transitions now worked out before the pass, and the quiet mount's read at setup. That's about 0.2 to 0.6 ms per 1,000 elements on a Retarget.
+- The run before, with the Snapshot's start read through an `Option.match`, read bytes +2.2% and +1.8%. The guards that replaced it build nothing for a key that has a value. What's left wasn't attributed: `.tmp/87/alloc.ts`'s copy of the page no longer runs, on main either.
+
+**Changed tests:**
+- `animation-callbacks.browser.test.tsx`: AC2 and AC11 mount at their `animate` and tell nothing; AC2 checks the open and the shut after it. AC8's change to a variant with the same values tells its start and landing within two frames on a 1 s tween.
+- `v2/settled.browser.test.tsx`: SE2 and SE4 mount at their `animate`, so `settled()` is `undefined` until the first change.
+- `transition-end.browser.test.tsx`: TE6 no longer waits 500 ms for its mount's Leg.
+
+**Pinned by:**
+- `at-target.browser.test.tsx` (Solid 1):
+  - **TH1:** a mount already at its `animate`, and one whose `style` is its `animate`'s, start and complete at once on a 1 s tween.
+  - **TH2:** `initial={false}` tells nothing, drawn at its `animate`; a later change is told.
+  - **TH3:** the same map or names as `animate` tells nothing; an equal copy is told at once.
+  - **TH4:** a variant change leaving a key in place: its 3 s transition doesn't hold the landing.
+  - **TH5:** a key a Leg draws, set back to where it still is, runs a Leg of its own.
+  - **TH6:** a `beforeChildren` parent with nothing to move releases its children at once.
+  - **TH9:** a key with nothing to start from runs its Leg its duration, and is written.
+  - **TH10:** a key its transition's own entry gives a velocity is kicked, and comes back.
+- `v2/at-target.browser.test.tsx` (Solid 2): **TH7**, `initial: false` lands nothing and `next` waits for the first real animation; **TH8**, a change to the same values lands within two frames.
+- `appear.ssr.test.tsx` **AR21:** a key already at its target is left out of the rule: one at `1`, `"0px"` against `0`, and an `auto`; an element with every key there has no rule.
+- `appear.hydrate.browser.test.tsx` **AH13:** such an element is handed off mid-flight with the Handoff matched, its moving key on its machine and the other at its value throughout.
+
+**Mutation-checked** (`.tmp/448/mutate.py`): fourteen single-point mutations, thirteen caught:
+- no key already there (TH1–TH3, TE6, TH7, TH8);
+- a drawn key taken as there (TH5), or one with nothing to start from (TH9);
+- the keys there never written (OT2, OT8), or written alone (VL6);
+- a given velocity ignored (TH10), or read off the own fields alone (TH10);
+- a quiet mount told (TH2–TH4, AC2, AC8, AC11, TH7, SE2), or its names told (TH3);
+- quiet only with `initial={false}` (TH3, AC2, AC8, AC11, SE2), or quiet for every Retarget (AC8, TH8);
+- the server keeping keys at their target (AR21, AH13), or comparing them uncoerced (AR21).
+
+The one that survives is the Snapshot velocity guard: no test reaches a key that a release left moving exactly at its new target.

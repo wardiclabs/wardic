@@ -13,7 +13,8 @@
 //   reopening mid-fade never hides it, nor does a new target with none.
 // - TE5: the target an element renders first sets its Transition end at once (Q3): `initial`'s, and
 //   `animate`'s with `initial={false}`, before any frame.
-// - TE6: a target with nothing to animate sets its Transition end at once.
+// - TE6: a target with nothing to animate sets its Transition end at once: right after mount too, its
+//   keys already where they are (#448).
 // - TE7: a key a target both animates and sets in its Transition end animates, then takes the end's
 //   value.
 // - TE8: a target's Transition end still applies when its keys land after a later Retarget carried
@@ -172,8 +173,7 @@ describe("a target's Transition end on Solid 1 (#428)", () => {
         animate={Bool.match(ended(), { onTrue: () => ({ opacity: 1, transitionEnd: { visibility: "hidden" } }), onFalse: () => ({ opacity: 1 }) })}
       />
     ))
-    // At rest first: its mount's leg, `opacity` from 1 to 1, runs its duration.
-    await wait(500)
+    // Right after mount: its `opacity`, already at 1, has no leg to wait for (#448).
     setEnded(true)
     await frames(3)
     expect(getComputedStyle(el).visibility).toBe("hidden")
