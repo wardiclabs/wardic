@@ -717,3 +717,7 @@ Grilled 2026-10-27 (Q1–Q3, each A):
 - a fresh start at `animate` (LE2, LE8).
 
 **A flaky test, fixed on the way:** `test/v2/listening-ward.browser.test.tsx` LW1 failed in a full run, after `reorder-keyboard`, on `main` too. The real mouse the browser files park at (5, 5) sat over its card, mounted at (0, 0), and Chrome's hover came at about 2 ms or 160 ms, racing the card's first landing at about 160 ms. Its `mountUi` mounts below the parked mouse now.
+
+## Note (#427, 2026-10-28): `tapped()`, a press as an async value
+
+A press is now an async value beside a landing: `card.tapped()` is the last tap, pending while a press is held, so `isPending(() => card.tapped())` is "pressed". It's built as `settled()` is, from counts and references made into a memo at its first read. See ADR-0056, *Built (PR 2)*.

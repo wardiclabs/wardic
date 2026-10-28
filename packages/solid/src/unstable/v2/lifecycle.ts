@@ -14,6 +14,11 @@
  *   read, so a read of it in JSX goes to the reader's `<Errored>`. The next Retarget clears it,
  *   pending, and its landing is read again. It's logged and reported apart (ADR-0030), whoever reads it.
  *
+ * - `tapped()` (#427, ADR-0056): the last tap, as `settled()` is the last landing: `undefined`
+ *   before the first, pending while a press is held, from a pointer or a key, so
+ *   `isPending(() => card.tapped())` is "pressed". A tap resolves it; a cancel, or a press a drag took
+ *   over, keeps the last tap. Its first read asks for the press, as `next("tap")` does.
+ *
  * One object a ward, the spine's hooks itself. Nothing Solid is made until `settled` is first read,
  * and nothing is allocated for a start or a landing until someone asks: until then they're counts
  * and references.
@@ -244,6 +249,17 @@ export class Lifecycle implements AnimationHooks {
   private waiting: ((landing: WardSettled | Failure) => void) | undefined = undefined
   // The last Retarget's failure, until the next starts (#257 item 4).
   private failure: Failure | undefined = undefined
+  // `tapped()` (#427): the presses started and ended, counted; the last tap's press and element, kept
+  // as references until it's asked for, and its info, built then; and, made at the first read, the
+  // setter of the count it tracks, its memo, and its pending read's resolver.
+  private pressStarts = 0
+  private pressEnds = 0
+  private tapPress: Recognizer.PressEvent | undefined = undefined
+  private tapElement: WardElement | undefined = undefined
+  private lastTap: WardPressInfo | undefined = undefined
+  private setPresses: ((count: number) => void) | undefined = undefined
+  private tapMemo: Accessor<WardPressInfo | undefined> | undefined = undefined
+  private tapWaiting: ((tap: WardPressInfo | undefined) => void) | undefined = undefined
   // The `next(name)` calls waiting, made at the first; and whether the ward is gone.
   private events: Waiters<WardEvents> | undefined = undefined
   private disposed = false
@@ -350,6 +366,7 @@ export class Lifecycle implements AnimationHooks {
 
   /** A press's start or end (#257): a press a drag took over tells nothing. */
   pressed(press: Recognizer.PressEvent, element: WardElement): void {
+    this.pressNow(press, element)
     if (Predicate.isUndefined(this.events)) return
     const name = PRESS_EVENT[press.phase]
     if (Predicate.isUndefined(name)) return
@@ -406,6 +423,71 @@ export class Lifecycle implements AnimationHooks {
   /** Resolve the `next(name)` calls waiting, with `value()`, made once there are any. */
   private tell<E extends WardEvent>(name: E, value: () => WardEvents[E]): void {
     UndefinedOr.map(this.events, (events) => events.tell(name, value))
+  }
+
+  /**
+   * A press for `tapped()` (#427): its start counted, and pending from there; its end counted, a tap's
+   * kept as references, and the pending read resolved with the last tap. Once `tapped()` has been read,
+   * its memo pends at each press's start, read or not, so a tap's info is built here, at the tap: a
+   * keyboard press's centre is measured at the key. Before, nothing is allocated for a tap.
+   */
+  private pressNow(press: Recognizer.PressEvent, element: WardElement): void {
+    if (press.phase === "start") {
+      this.pressStarts++
+      this.tellPresses()
+      return
+    }
+    this.pressEnds = this.pressStarts
+    if (press.phase === "tap") {
+      this.tapPress = press
+      this.tapElement = element
+      this.lastTap = undefined
+    }
+    this.tellPresses()
+    const resolve = this.tapWaiting
+    if (Predicate.isUndefined(resolve)) return
+    this.tapWaiting = undefined
+    resolve(this.lastTapNow())
+  }
+
+  /** `tapped()`'s count set to the presses started: its read pends while one is held. */
+  private readonly tellPresses = (): void => {
+    UndefinedOr.map(this.setPresses, (set) => set(this.pressStarts))
+  }
+
+  /** The last tap's info, built from its references the first time it's asked for. */
+  private lastTapNow(): WardPressInfo | undefined {
+    if (Bool.or(Predicate.isNotUndefined(this.lastTap), Predicate.isUndefined(this.tapPress))) return this.lastTap
+    const element = this.tapElement as WardElement
+    this.lastTap = { ...pressInfoOf(this.tapPress as Recognizer.PressEvent, element), element }
+    return this.lastTap
+  }
+
+  /**
+   * `tapped()` (#427): the last tap, made reactive at the first read, which also asks for the press,
+   * as `next("tap")` does, so the ward runs its recognizer.
+   */
+  tapped(): WardPressInfo | undefined {
+    if (Predicate.isUndefined(this.tapMemo)) {
+      this.tapMemo = runWithOwner(this.owner, () => this.makeTapMemo())
+      this.wanted("press")
+    }
+    return (this.tapMemo as Accessor<WardPressInfo | undefined>)()
+  }
+
+  // The count of presses it tracks starts at the ended count, so its first read is never pending. A
+  // press held at that read is set from a microtask, as `settled()`'s Retarget in flight is.
+  private makeTapMemo(): Accessor<WardPressInfo | undefined> {
+    const [count, set] = createSignal(this.pressEnds)
+    this.setPresses = set
+    const memo = createMemo((): WardPressInfo | undefined | PromiseLike<WardPressInfo | undefined> => {
+      if (count() === this.pressEnds) return this.lastTapNow()
+      return new Promise<WardPressInfo | undefined>((resolve) => {
+        this.tapWaiting = resolve
+      })
+    }, CLIENT_ONLY)
+    if (this.pressStarts !== this.pressEnds) queueMicrotask(this.tellPresses)
+    return memo
   }
 
   /** The last landing, for {@link tell}. */

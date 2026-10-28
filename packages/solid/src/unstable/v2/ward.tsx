@@ -138,7 +138,7 @@ import {
 } from "./provider.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
 import { configView, type Fixed, type PerKey, type PerKeyApart } from "./config-view.ts"
-import { Lifecycle, type WardEvent, type WardEvents, type WardSettled } from "./lifecycle.ts"
+import { Lifecycle, type WardEvent, type WardEvents, type WardPressInfo, type WardSettled } from "./lifecycle.ts"
 import { neverLands, NO_EVENTS, serverWhen } from "./waiters.ts"
 import { usePresenceContext } from "./presence.tsx"
 import { createVariantNode, useVariantContext, type VariantNode, WardicVariantContext } from "./variant-node.ts"
@@ -337,6 +337,20 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps, AnyW
    * `onAnimationStart` / `onAnimationComplete` have no place here.
    */
   readonly settled: Accessor<WardSettled | undefined>
+  /**
+   * The element's last tap (#427, ADR-0056), as an async value, as {@link settled} is its last
+   * landing: `undefined` before the first, ready from its first read, and pending while a press is
+   * held, from a pointer or a key (a **Keyboard press**), keeping the last tap meanwhile. So
+   * `isPending(() => card.tapped())` is "pressed". A tap resolves it to the tap's event (its `point`,
+   * its `input`, its element); a cancel, or a press a drag took over, keeps the last tap. Its first read
+   * asks for the press, as `next("tap")` does: the ward runs its recognizer, and its element is made
+   * focusable.
+   *
+   * ```tsx
+   * <button {...send}>{isPending(() => send.tapped()) ? "Release to send" : "Send"}</button>
+   * ```
+   */
+  readonly tapped: Accessor<WardPressInfo | undefined>
   /**
    * A promise of the element's next `name` after the call (#257, ADR-0046), to `await` in a handler
    * or an action:
@@ -1349,6 +1363,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     read: { value: read },
     atom: { value: atomOf },
     settled: { value: () => lifecycle.read() },
+    tapped: { value: () => lifecycle.tapped() },
     next: { value: <E extends WardEvent>(name: E) => lifecycle.wait(name) },
     each: { value: <E extends WardEvent>(name: E) => lifecycle.each(name) },
     when: { value: <E extends WardEvent>(name: E) => lifecycle.when(name) },
@@ -1496,6 +1511,8 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
     atom: { value: (): Atom.Atom<unknown> => NO_OUTPUT },
     // Nothing animates on a server: nothing has landed, and nothing will.
     settled: { value: constUndefined },
+    // Nothing is pressed on a server either.
+    tapped: { value: constUndefined },
     next: { value: neverLands },
     each: { value: () => NO_EVENTS },
     when: { value: serverWhen },
