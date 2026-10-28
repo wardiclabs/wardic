@@ -93,7 +93,8 @@ Core already had what a keyboard press needs: the keyboard and focus Input feeds
   - KB7: `next("pressStart")` and `next("tap")` from the keyboard, and `whileTap`;
   - KB8: a press event asked for makes the element focusable;
   - KB9: a blur's cancel;
-  - KB10: a Reorder item.
+  - KB10: a Reorder item;
+  - KB11: an effect over `when("tap")` hears Enter's and Space's taps, and asking makes the element focusable.
 
 **Mutation-checked:** twenty single-point mutations, each caught by the tests meant for it:
 - core:

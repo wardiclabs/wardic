@@ -7,10 +7,13 @@
 // - KB9: a blur cancels a keyboard press: `next("tapCancel")` resolves with the keyboard's input.
 // - KB10: a Reorder item's Enter and Space are the reorder's: the lift is no press, and the item's
 //   `whileTap` stays off.
+// - KB11: `when("tap")` hears a keyboard tap as a pointer's: an effect over it, on a ward with no
+//   `whileTap`, makes its element focusable and runs at each tap, Enter's and Space's, with their
+//   input.
 import type { JSX } from "@solidjs/web"
 import { DomLive } from "@wardic/dom"
 import { Reorder, type Ward, ward, WardicProvider, type WardPressInfo } from "@wardic/solid/unstable/v2"
-import { createSignal, For } from "solid-js"
+import { createEffect, createRoot, createSignal, For } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { userEvent } from "vitest/browser"
 import { raf, until } from "../browser-helpers.ts"
@@ -147,5 +150,25 @@ describe("keyboard presses on Solid 2 (#427)", () => {
     await frames(4)
     expect(scaleOf(items.a!), "no whileTap").toBeCloseTo(1, 3)
     expect(presses, "no press").toEqual([])
+  })
+
+  it("KB11: when(\"tap\") hears a keyboard tap: the effect makes the element focusable and runs at each tap", async () => {
+    const heard: Array<string> = []
+    const { el, card } = await mountWard(() => ward({ animate: { opacity: 1 } }))
+    const dispose = createRoot((done) => {
+      createEffect(card.when("tap"), (tap) => {
+        heard.push(seen(tap, el))
+      })
+      return done
+    })
+    await frames(2)
+    expect(el.getAttribute("tabindex"), "asked for, so made focusable").toBe("0")
+    el.focus()
+    await userEvent.keyboard("{Enter}")
+    await until(() => heard.length === 1, 1000)
+    await userEvent.keyboard("[Space]")
+    await until(() => heard.length === 2, 1000)
+    dispose()
+    expect(heard).toEqual([`keyboard ${centre(el)} true`, `keyboard ${centre(el)} true`])
   })
 })
