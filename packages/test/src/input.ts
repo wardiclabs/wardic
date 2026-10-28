@@ -5,20 +5,22 @@ import * as Feeds from "./feeds.ts"
 
 /**
  * An InputSource that replays fixed scripts of events, as **Input feeds** that end after their
- * script (#318: a Stream over one ends too). `pointer(target)` replays the same `pointerEvents`
- * and `focus(target)` the same `focusEvents` to each subscriber (both ignore `target` — tests
- * address a single surface), while `keyboard(target)` ends at once. The first positional arg is pointer events for back-compat; focus
- * events are an optional second arg, defaulting to empty so existing one-arg call
- * sites emit nothing on focus. Called with no args it yields an InputSource that
- * emits nothing — for tests that don't exercise gestures.
+ * script (#318: a Stream over one ends too). `pointer(target)` replays the same `pointerEvents`,
+ * `focus(target)` the same `focusEvents` and `keyboard(target)` the same `keyEvents` to each
+ * subscriber (each ignores `target` — tests address a single surface). The first positional arg is
+ * pointer events for back-compat; focus and key events are optional, defaulting to empty so existing
+ * call sites emit nothing on them. Each script plays whole when its feed is subscribed, so scripts of
+ * two kinds don't interleave: a test that needs them to pushes them ({@link pushable}). Called with no
+ * args it yields an InputSource that emits nothing — for tests that don't exercise gestures.
  */
 export const layer = (
   pointerEvents: ReadonlyArray<InputSource.PointerLikeEvent> = [],
   focusEvents: ReadonlyArray<InputSource.FocusLikeEvent> = [],
+  keyEvents: ReadonlyArray<InputSource.KeyboardLikeEvent> = [],
 ): Layer.Layer<InputSource.InputSource> =>
   Layer.succeed(InputSource.InputSource, {
     pointer: () => Feeds.script(pointerEvents),
-    keyboard: () => Feeds.script([]),
+    keyboard: () => Feeds.script(keyEvents),
     focus: () => Feeds.script(focusEvents),
   })
 
@@ -46,24 +48,28 @@ export const layer = (
  * yield* Stream.runForEach(drag(undefined), …).pipe(Effect.fork…)  // subscribe
  * yield* input.push(ev("down", 0, 0, 0))
  *
- * Returns `pushFocus` alongside `push` so focus/blur transitions can be driven on
- * the same schedule; `focus(target)` mirrors `pointer(target)` with its own hub.
+ * Returns `pushFocus` and `pushKey` alongside `push` so focus/blur transitions and keys (#427) can be
+ * driven on the same schedule; `focus(target)` and `keyboard(target)` mirror `pointer(target)`, each
+ * with its own hub.
  */
 export const pushable = (): Effect.Effect<{
   readonly layer: Layer.Layer<InputSource.InputSource>
   readonly push: (event: InputSource.PointerLikeEvent) => Effect.Effect<void>
   readonly pushFocus: (event: InputSource.FocusLikeEvent) => Effect.Effect<void>
+  readonly pushKey: (event: InputSource.KeyboardLikeEvent) => Effect.Effect<void>
 }> =>
   Effect.sync(() => {
     const pointer = Feeds.hub<InputSource.PointerLikeEvent>()
     const focus = Feeds.hub<InputSource.FocusLikeEvent>()
+    const keys = Feeds.hub<InputSource.KeyboardLikeEvent>()
     return {
       layer: Layer.succeed(InputSource.InputSource, {
         pointer: () => pointer.feed,
-        keyboard: () => Feeds.script([]),
+        keyboard: () => keys.feed,
         focus: () => focus.feed,
       }),
       push: pointer.push,
       pushFocus: focus.push,
+      pushKey: keys.push,
     }
   })

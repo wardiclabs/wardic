@@ -229,7 +229,7 @@ const scrollFeedOf = (target: unknown): InputSource.ScrollFeed => (emit) => {
 }
 
 const toFocus = (type: InputSource.FocusLikeEvent["type"]) =>
-  (ev: FocusEvent): InputSource.FocusLikeEvent => ({ type, timeStamp: ev.timeStamp, visible: focusVisible(ev.target) })
+  (ev: FocusEvent): InputSource.FocusLikeEvent => ({ type, timeStamp: ev.timeStamp, visible: focusVisible(ev.target), raw: ev })
 
 /**
  * Whether a focus shows (#273, Motion's `whileFocus`): its target matches `:focus-visible`, which a
@@ -260,16 +260,88 @@ export const keyOf = (key: string): InputSource.Key =>
     Match.orElse((): InputSource.Key => "other"),
   )
 
+/** The `<input>` types that act on a key themselves (#427): every other type is typed into. */
+const ACTING_INPUTS: ReadonlySet<string> = new Set(["button", "submit", "reset", "image", "checkbox", "radio", "color", "file", "range"])
+
+/** Elements that act on Enter and Space themselves (#427): a button's click, a disclosure's toggle, a list's opening. */
+const ACTING_ELEMENTS: ReadonlySet<string> = new Set(["BUTTON", "SUMMARY", "SELECT"])
+
+/** What an element does with Enter and Space itself (#427), as a pair: an editable region types both. */
+interface KeyActions {
+  readonly enter: InputSource.KeyAction
+  readonly space: InputSource.KeyAction
+}
+const TYPES_BOTH: KeyActions = { enter: "type", space: "type" }
+const ACTS_ON_BOTH: KeyActions = { enter: "activate", space: "activate" }
+/** A text field: Space is typed, Enter submits its form. */
+const TEXT_FIELD: KeyActions = { enter: "activate", space: "type" }
+/** A link: Enter follows it, Space scrolls the page. */
+const LINK: KeyActions = { enter: "activate", space: "none" }
+const ACTS_ON_NEITHER: KeyActions = { enter: "none", space: "none" }
+
+/** What `el` does with Enter and Space itself (#427), from what it is. */
+const keyActionsOf = (el: Element): KeyActions => {
+  if (Bool.or((el as HTMLElement).isContentEditable === true, el.tagName === "TEXTAREA")) return TYPES_BOTH
+  if (el.tagName === "INPUT") return Bool.match(ACTING_INPUTS.has((el as HTMLInputElement).type), { onTrue: () => ACTS_ON_BOTH, onFalse: () => TEXT_FIELD })
+  if (ACTING_ELEMENTS.has(el.tagName)) return ACTS_ON_BOTH
+  if (Bool.and(el.tagName === "A", el.hasAttribute("href"))) return LINK
+  return ACTS_ON_NEITHER
+}
+
+/**
+ * What a key's own target does with it (#427, core's `KeyAction`): Enter's and Space's, from the
+ * element they came from; nothing for any other key, which no **Keyboard press** reads.
+ */
+const keyActionOf = (key: InputSource.Key, at: EventTarget | null): InputSource.KeyAction =>
+  Match.value(key).pipe(
+    Match.when("enter", () => Option.match(elementOf(at), { onNone: (): InputSource.KeyAction => "none", onSome: (el) => keyActionsOf(el).enter })),
+    Match.when("space", () => Option.match(elementOf(at), { onNone: (): InputSource.KeyAction => "none", onSome: (el) => keyActionsOf(el).space })),
+    Match.orElse((): InputSource.KeyAction => "none"),
+  )
+
+/** `at` as an element, if it is one. */
+const elementOf = (at: EventTarget | null): Option.Option<Element> =>
+  Option.filter(Option.fromNullishOr(at), (t): t is Element => Predicate.hasProperty(t, "tagName")) as Option.Option<Element>
+
+/** The HTML elements that take the keyboard's focus of themselves (#427): a link only with its `href`. */
+const FOCUSABLE_ELEMENTS: ReadonlySet<string> = new Set(["BUTTON", "INPUT", "SELECT", "TEXTAREA", "SUMMARY", "IFRAME"])
+
+/** Whether `el` takes focus of itself: a control, a link, an editable region, or one given a `tabindex`. */
+const takesFocus = (el: HTMLElement): boolean =>
+  Bool.some([
+    FOCUSABLE_ELEMENTS.has(el.tagName),
+    Bool.and(Bool.or(el.tagName === "A", el.tagName === "AREA"), el.hasAttribute("href")),
+    el.isContentEditable,
+    el.hasAttribute("tabindex"),
+  ])
+
+/**
+ * Make a pressable element focusable (#427, Motion's press): an HTML element that doesn't take focus
+ * of itself, with no `tabindex`, gets `tabindex="0"`, so its **Keyboard press** can start. An SVG
+ * element, or one already focusable, is left as it is. Called at mount, on the client.
+ */
+export const makeFocusable = (target: unknown): void => {
+  if (Bool.not(Predicate.hasProperty(target, "isContentEditable"))) return
+  const el = target as HTMLElement
+  if (takesFocus(el)) return
+  el.tabIndex = 0
+}
+
 /** A key as the engine's portable event: core's key name, and the page's `preventDefault` as `handled`/`handle()`. */
-const toKeyboard = (type: InputSource.KeyboardLikeEvent["type"], ev: KeyboardEvent, target: unknown): InputSource.KeyboardLikeEvent => ({
-  type,
-  key: keyOf(ev.key),
-  repeat: ev.repeat,
-  timeStamp: ev.timeStamp,
-  fromTarget: ev.target === target,
-  handled: ev.defaultPrevented,
-  handle: () => ev.preventDefault(),
-})
+const toKeyboard = (type: InputSource.KeyboardLikeEvent["type"], ev: KeyboardEvent, target: unknown): InputSource.KeyboardLikeEvent => {
+  const key = keyOf(ev.key)
+  return {
+    type,
+    key,
+    repeat: ev.repeat,
+    timeStamp: ev.timeStamp,
+    fromTarget: ev.target === target,
+    handled: ev.defaultPrevented,
+    handle: () => ev.preventDefault(),
+    action: keyActionOf(key, ev.target),
+    raw: ev,
+  }
+}
 
 /** A `keydown` or `keyup` as the engine's portable phase. */
 const keyTypeOf = (ev: Event): InputSource.KeyboardLikeEvent["type"] =>

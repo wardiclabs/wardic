@@ -6,7 +6,7 @@ import * as Fiber from "effect/Fiber"
 import * as Match from "effect/Match"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
-import { InputDomLive, keyOf } from "../src/internal/input.ts"
+import { InputDomLive, keyOf, makeFocusable } from "../src/internal/input.ts"
 
 /** Hand the scheduler a fixed budget of turns so async steps settle. */
 const drain = Effect.forEach(Array.from({ length: 16 }), () => Effect.yieldNow, { discard: true })
@@ -143,6 +143,99 @@ layer(InputDomLive)("InputDomLive", (it) => {
       yield* sub.close
       el.remove()
     }))
+
+  it.effect("KA1: a key says what its own target does with Enter and Space (#427), and carries the DOM's event", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource.InputSource
+      const host = document.createElement("div")
+      const make = (html: string): HTMLElement => {
+        const wrap = document.createElement("div")
+        wrap.innerHTML = html
+        host.appendChild(wrap)
+        return wrap.firstElementChild as HTMLElement
+      }
+      const targets: ReadonlyArray<readonly [string, HTMLElement]> = [
+        ["div", make("<div tabindex='0'></div>")],
+        ["button", make("<button>b</button>")],
+        ["checkbox", make("<input type='checkbox'>")],
+        ["text field", make("<input type='text'>")],
+        ["textarea", make("<textarea></textarea>")],
+        ["select", make("<select><option>a</option></select>")],
+        ["summary", make("<details><summary>s</summary></details>").firstElementChild as HTMLElement],
+        ["link", make("<a href='#x'>a</a>")],
+        ["anchor with no href", make("<a>a</a>")],
+        ["editable", make("<div contenteditable='true'></div>")],
+      ]
+      document.body.appendChild(host)
+      const seen: Array<string> = []
+      const raws: Array<unknown> = []
+      const fiber = yield* Effect.forkChild(
+        Stream.runForEach(InputFeed.toStream(input.keyboard(host)), (e) =>
+          Effect.sync(() => {
+            seen.push(`${e.key} ${e.action}`)
+            raws.push(e.raw)
+          })),
+      )
+      yield* drain
+      const sent: Array<KeyboardEvent> = []
+      for (const [, el] of targets) {
+        for (const key of ["Enter", " "]) {
+          const ev = new KeyboardEvent("keydown", { key, bubbles: true })
+          sent.push(ev)
+          el.dispatchEvent(ev)
+        }
+      }
+      yield* drain
+      const at = (i: number): string => `${targets[i]![0]}: ${seen[2 * i]}, ${seen[2 * i + 1]}`
+      expect(targets.map((_, i) => at(i))).toEqual([
+        "div: enter none, space none",
+        "button: enter activate, space activate",
+        "checkbox: enter activate, space activate",
+        "text field: enter activate, space type",
+        "textarea: enter type, space type",
+        "select: enter activate, space activate",
+        "summary: enter activate, space activate",
+        "link: enter activate, space none",
+        "anchor with no href: enter none, space none",
+        "editable: enter type, space type",
+      ])
+      expect(raws, "each key's own event").toEqual(sent)
+      yield* Fiber.interrupt(fiber)
+      host.remove()
+    }))
+
+  it("KA2: makeFocusable gives tabindex 0 to an HTML element that doesn't take focus, and leaves the rest (#427)", () => {
+    const html = (markup: string): Element => {
+      const wrap = document.createElement("div")
+      wrap.innerHTML = markup
+      return wrap.firstElementChild!
+    }
+    const cases: ReadonlyArray<readonly [string, Element]> = [
+      ["div", html("<div></div>")],
+      ["li", html("<ul><li></li></ul>").firstElementChild!],
+      ["anchor with no href", html("<a>a</a>")],
+      ["button", html("<button></button>")],
+      ["link", html("<a href='#x'>a</a>")],
+      ["input", html("<input>")],
+      ["editable", html("<div contenteditable='true'></div>")],
+      ["given tabindex -1", html("<div tabindex='-1'></div>")],
+      ["svg", document.createElementNS("http://www.w3.org/2000/svg", "rect")],
+    ]
+    for (const [, el] of cases) document.body.appendChild(el)
+    for (const [, el] of cases) makeFocusable(el)
+    expect(cases.map(([name, el]) => `${name}: ${el.getAttribute("tabindex")}`)).toEqual([
+      "div: 0",
+      "li: 0",
+      "anchor with no href: 0",
+      "button: null",
+      "link: null",
+      "input: null",
+      "editable: null",
+      "given tabindex -1: -1",
+      "svg: null",
+    ])
+    for (const [, el] of cases) el.remove()
+  })
 
   it("keyOf names the browser's keys in core's names, and every other key other (#43)", () => {
     const keys = [" ", "Enter", "Escape", "ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "a", "Tab", "Spacebar", "Esc", "PageDown"]

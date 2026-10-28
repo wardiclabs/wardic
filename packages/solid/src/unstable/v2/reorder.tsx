@@ -525,6 +525,7 @@ const reorderItemWith = <V,>(list: ReorderGroup<V>, config: ReorderItemConfig<V>
     onDragSample: driver.onSample,
     onLayoutHandle: driver.register,
     raiseWhileDragged: true,
+    keysTaken: true,
     lifted,
     baseStyle: touchAction,
     onMount: (el, watch) => {

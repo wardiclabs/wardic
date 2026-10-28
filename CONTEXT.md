@@ -150,8 +150,12 @@ _Avoid_: registered child, orchestrated child.
 A core combinator that interprets raw `InputSource` (or `Probe`) events into a portable interaction signal — the *recognition* half of a gesture. Which value or variant to apply in response is the binding's concern, not the recognizer's. Like every Primitive it's a function returning a Stream with its service deps in `R` (e.g. `drag(target): Stream<…, never, InputSource>` — velocity is computed from pointer-event timeStamps, so `drag` needs no `Clock`; `Clock` enters only at a Fling, where `inertia` ticks). Every recognizer is also a **watch** (#318, #379): a callback told inside each event's dispatch while a Scope is open, with no fiber of its own. Its Stream is built over the watch, and a binding runs the watch.
 _Avoid_: gesture (names the whole feature, not the core piece), handler, listener.
 
+**Keyboard press**:
+A press made from the keyboard on the focused element itself (#427): Enter or Space goes down to start it, and it taps when the key comes back up; a blur cancels it. It is a press like a pointer's, with `whileTap` on through the hold, and its events say they came from the keyboard and give the element's centre as their point. A key the page or a **Keyboard reorder** has already taken starts none, and an element with a press that can't take focus is made focusable, as Motion's are.
+_Avoid_: keyboard tap (a tap is only a press's end), key click.
+
 **State recognizer**:
-A Recognizer that emits a `Stream<boolean>` — active / inactive — for the binary gestures `hover`, `press`, `focus`, `inView`. The binding toggles a variant on the boolean. `press` listens to the **Primary pointer** only. `hover` ignores touch, starts no hover during **Drag activity**, and holds a leave until the release of a pointer pressed on its target (ADR-0019).
+A Recognizer that emits a `Stream<boolean>` — active / inactive — for the binary gestures `hover`, `press`, `focus`, `inView`. The binding toggles a variant on the boolean. `press` listens to the **Primary pointer**, and to a **Keyboard press** on its target. `hover` ignores touch, starts no hover during **Drag activity**, and holds a leave until the release of a pointer pressed on its target (ADR-0019).
 _Avoid_: binary recognizer, flag.
 
 **Sample recognizer**:

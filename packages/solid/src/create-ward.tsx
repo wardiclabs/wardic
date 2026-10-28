@@ -29,6 +29,7 @@
  */
 import type * as Drag from "@wardic/core/Drag"
 import * as Recognizer from "@wardic/core/Recognizer"
+import { watchPressOn } from "./press.ts"
 import * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
@@ -233,6 +234,8 @@ export interface SpineInternals {
   readonly onDragSample?: ((sample: Drag.Sample) => void) | undefined
   readonly onLayoutHandle?: ((handle: ProjectionSystem.NodeHandle) => void) | undefined
   readonly raiseWhileDragged?: boolean | undefined
+  /** A `<Reorder>` item's: its Enter and Space are its **Keyboard reorder**'s (ADR-0037), so its press hears no keys (#427). */
+  readonly keysTaken?: boolean | undefined
   readonly lifted?: Accessor<boolean> | undefined
   readonly baseStyle?: (() => JSX.CSSProperties | undefined) | undefined
 }
@@ -593,13 +596,17 @@ export function runSpine(opts: RunSpineOptions): void {
         press: () =>
           watchToSignal<boolean>(
             ({ on, onDefect }) =>
-              Recognizer.watchPress(element, {
-                on: (press) => {
-                  gesturesOf().pressed(press)
-                  on(press.phase === "start")
+              watchPressOn(
+                element,
+                {
+                  on: (press) => {
+                    gesturesOf().pressed(press, element)
+                    on(press.phase === "start")
+                  },
+                  onDefect,
                 },
-                onDefect,
-              }),
+                internal.keysTaken === true,
+              ),
             false,
           ),
         // In view as its `viewport` says, read when it starts; each transition told to the viewport callbacks.

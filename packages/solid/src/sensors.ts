@@ -23,6 +23,7 @@ import { type Accessor, createComputed, createSignal, getOwner, runWithOwner, un
 import { fromAtom, watchToSignal } from "./bridge.ts"
 import { type CreateDragOptions, watchDragSamples } from "./drag-samples.ts"
 import { useWardicRuntime } from "./provider.tsx"
+import { watchPressOn } from "./press.ts"
 import { isServer } from "./server.ts"
 
 export type { CreateDragOptions } from "./drag-samples.ts"
@@ -35,12 +36,12 @@ export const createHover = (target: unknown): Accessor<boolean> =>
   watchToSignal<boolean>(({ on, onDefect }) => Recognizer.watchHover(target, { on: (transition) => on(transition.active), onDefect }), false)
 
 /**
- * `true` while the pointer is held down on `target`, `false` once released or
- * cancelled. Wraps the core press watch (#318); `false` until the first
- * transition.
+ * `true` while the pointer is held down on `target`, or a **Keyboard press** holds Enter or Space on
+ * it (#427, `target` made focusable for one), `false` once released or cancelled. Wraps the core
+ * press watch (#318); `false` until the first transition.
  */
 export const createPress = (target: unknown): Accessor<boolean> =>
-  watchToSignal<boolean>(({ on, onDefect }) => Recognizer.watchPress(target, { on: (press) => on(press.phase === "start"), onDefect }), false)
+  watchToSignal<boolean>(({ on, onDefect }) => watchPressOn(target, { on: (press) => on(press.phase === "start"), onDefect }), false)
 
 /** Whether an element's config wants each of its gesture recognizers (#87, #273). */
 export interface Wants<C> {

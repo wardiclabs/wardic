@@ -29,7 +29,7 @@ import type * as InputSource from "@wardic/core/InputSource"
 import type * as Recognizer from "@wardic/core/Recognizer"
 import { type Accessor, createMemo, createSignal, type Owner, runWithOwner } from "solid-js"
 import type { WardicAnimationDefinition, WardicValues } from "../../config.ts"
-import { dragInfoOf, pointInfoOf, pointOfSample, type WardicDragInfo, type WardicPoint, type WardicPointInfo } from "../../gesture-info.ts"
+import { dragInfoOf, pointInfoOf, pointOfSample, pressInfoOf, type WardicDragInfo, type WardicPoint, type WardicPointInfo, type WardicPressInfo } from "../../gesture-info.ts"
 import { type AnimationHooks, definitionOf, type Resolution } from "../../spine.ts"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
 import { eachOf, type Listener, Waiters, whenOf } from "./waiters.ts"
@@ -76,6 +76,15 @@ export interface WardPointInfo extends WardicPointInfo {
 }
 
 /**
+ * A press's event (#257, #427): where it was, in the viewport, how it was made (`input: "pointer" |
+ * "keyboard"`), and the element it was on. A **Keyboard press**'s point is the element's centre,
+ * measured at the key.
+ */
+export interface WardPressInfo extends WardicPressInfo {
+  readonly element: WardElement
+}
+
+/**
  * A drag's event (#257, Motion's `PanInfo`): where the pointer was, in the viewport, the drag's
  * `offset`, `delta` and `velocity` (`gesture-info.ts`), and the element dragged (#397).
  */
@@ -97,12 +106,18 @@ export interface WardEvents {
   readonly hover: WardPointInfo
   /** It left, or a press held on it while it left was let go (Motion's `onHoverEnd`). */
   readonly hoverEnd: WardPointInfo
-  /** A press began on the element (Motion's `onTapStart`). */
-  readonly pressStart: WardPointInfo
-  /** That press ended in a release on the element or inside it (Motion's `onTap`). */
-  readonly tap: WardPointInfo
-  /** It ended elsewhere, or was cancelled (Motion's `onTapCancel`). A press a drag took over is neither. */
-  readonly tapCancel: WardPointInfo
+  /**
+   * A press began on the element (Motion's `onTapStart`): a primary pointer's down, or Enter or Space
+   * going down while it has focus (a **Keyboard press**, #427).
+   */
+  readonly pressStart: WardPressInfo
+  /** That press ended in a release on the element or inside it, or its key coming up (Motion's `onTap`). */
+  readonly tap: WardPressInfo
+  /**
+   * It ended elsewhere, or was cancelled; a key's, when the element lost focus (Motion's
+   * `onTapCancel`). A press a drag took over is neither.
+   */
+  readonly tapCancel: WardPressInfo
   /** A drag of the element started, past its threshold (Motion's `onDragStart`). */
   readonly dragStart: WardDragInfo
   /**
@@ -338,7 +353,7 @@ export class Lifecycle implements AnimationHooks {
     if (Predicate.isUndefined(this.events)) return
     const name = PRESS_EVENT[press.phase]
     if (Predicate.isUndefined(name)) return
-    this.tell(name, () => ({ ...pointInfoOf(press.event), element }))
+    this.tell(name, () => ({ ...pressInfoOf(press, element), element }))
   }
 
   /**
