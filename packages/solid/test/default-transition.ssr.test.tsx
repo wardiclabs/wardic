@@ -39,7 +39,7 @@ import { type Leg, legsOf, runOf } from "../src/retarget-legs.ts"
 const F = 1 / 60
 
 /** The DOM's Default transition and Positional keys. */
-const DOM: DefaultTransition.DefaultTransition["Service"] = { transitionFor: DomDefaultTransition.transitionFor }
+const DOM: DefaultTransition.DefaultTransition["Service"] = { transitionFor: DomDefaultTransition.transitionFor, keyframes: DomDefaultTransition.keyframes }
 const POSITIONAL: ReducedMotion.PositionalKeys["Service"] = { isPositional: DomPositionalKeys.isPositional }
 
 /** Core's, for an Environment with no opinion. */

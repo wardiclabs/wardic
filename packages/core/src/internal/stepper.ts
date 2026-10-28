@@ -8,6 +8,7 @@
  * machine resolves its options once, when it's built (`resolveTween`, `resolveDecay`), and steps
  * with the resolved form, which reads plain fields.
  */
+import * as Arr from "effect/Array"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
 import * as Easing from "../Easing.ts"
@@ -152,44 +153,97 @@ export interface Sample {
 }
 
 /**
- * Where a run from `from` to `to` is `t` seconds in, by Motion's `JSAnimation` iteration math
- * (motion-dom 13.3.0): every pass and every gap is a stretch of one time, so a pass starts the
- * moment the one before it ends, wherever that falls in a tick (#226). A gap holds where its pass
- * ended. Per frame (ADR-0025): arithmetic and statement `if`s.
+ * Where a run is in its pass (#429): how far into it, in seconds, whether its time runs backwards,
+ * and whether it reads its stops from last to first. Written in place, once a frame, by
+ * {@link passAt}.
  */
-export const runAt = (t: number, from: number, to: number, run: ResolvedRun): Sample => {
-  const duration = run.tween.duration
-  const cycle = run.cycle
-  const total = run.total
-  const time = Math.min(t, total)
-  let pass = Math.floor(time / cycle)
-  let within = Math.max(0, time - pass * cycle)
-  // A pass's end is its own, not the start of the next.
-  if (within === 0 && pass > 0) {
-    pass--
-    within = cycle
-  }
-  const s = Math.min(within / duration, 1)
-  const done = t >= total
-  if (pass % 2 === 1 && run.reverses) return { value: Scalar.lerp(from, to, run.tween.ease(1 - s)), done }
-  if (pass % 2 === 1 && run.mirrors) return { value: Scalar.lerp(to, from, run.tween.ease(s)), done }
-  return { value: Scalar.lerp(from, to, run.tween.ease(s)), done }
+export interface Pass {
+  /** Seconds into the pass, at most its duration: a gap after it holds at its end. */
+  within: number
+  /** Its time runs backwards: a `"reverse"` pass. */
+  reversed: boolean
+  /** It reads its stops from last to first: a `"mirror"` pass, or every pass with `reverse`. */
+  flipped: boolean
 }
 
 /**
- * Where keyframes through `stops` (two or more) are `t` seconds into `total`, each Segment `segment`
- * seconds long (at least `Number.EPSILON`) and eased whole, on its own easing from `eases` (one per
- * Segment, wrapping round when there are fewer, as Motion's `getEasingForSegment`; #360): Motion's
- * keyframes, evenly spaced. One time across every Segment, so the next starts the moment one ends
- * (#226). Per frame (ADR-0025).
+ * Where a run is `t` seconds in, by Motion's `JSAnimation` iteration math (motion-dom 13.3.0): every
+ * pass and every gap is a stretch of one time, so a pass starts the moment the one before it ends,
+ * wherever that falls in a tick (#226). A gap holds where its pass ended. Every other pass is
+ * turned by its `repeatType`, and `flip` (`reverse`) reads every pass's stops from last to first,
+ * Motion's mirrored generator (#429). Written into `pass`; whether the run has ended. Per frame
+ * (ADR-0025): arithmetic and statement `if`s.
  */
-export const keyframesAt = (t: number, stops: ReadonlyArray<number>, segment: number, total: number, eases: ReadonlyArray<Easing.Easing>): Sample => {
-  const last = stops.length - 1
+export const passAt = (t: number, run: ResolvedRun, flip: boolean, pass: Pass): boolean => {
+  const cycle = run.cycle
+  const total = run.total
   const time = Math.min(t, total)
-  const i = Math.min(Math.floor(time / segment), last - 1)
-  const s = Math.min(Math.max((time - i * segment) / segment, 0), 1)
-  const ease = eases[i % eases.length]
-  return { value: Scalar.lerp(stops[i], stops[i + 1], ease(s)), done: t >= total }
+  let n = Math.floor(time / cycle)
+  let within = Math.max(0, time - n * cycle)
+  // A pass's end is its own, not the start of the next.
+  if (within === 0 && n > 0) {
+    n--
+    within = cycle
+  }
+  const odd = n % 2 === 1
+  pass.within = Math.min(within, run.tween.duration)
+  pass.reversed = odd && run.reverses
+  pass.flipped = flip !== (odd && run.mirrors)
+  return t >= total
+}
+
+/** {@link runAt}'s pass, written in place: it's read right after, and never across a call. */
+const RUN_PASS: Pass = { within: 0, reversed: false, flipped: false }
+
+/**
+ * Where a run from `from` to `to` is `t` seconds in ({@link passAt}): a reversed pass eases back
+ * along its curve, a mirrored one runs from `to` to `from` on the same easing. Per frame (ADR-0025).
+ */
+export const runAt = (t: number, from: number, to: number, run: ResolvedRun): Sample => {
+  const done = passAt(t, run, false, RUN_PASS)
+  let s = RUN_PASS.within / run.tween.duration
+  if (RUN_PASS.reversed) s = 1 - s
+  const eased = run.tween.ease(s)
+  if (RUN_PASS.flipped) return { value: Scalar.lerp(to, from, eased), done }
+  return { value: Scalar.lerp(from, to, eased), done }
+}
+
+/** Seconds into a pass of `duration`, in the direction it runs: from its end, in a reversed pass. */
+export const timeIn = (pass: Pass, duration: number): number => {
+  if (pass.reversed) return duration - pass.within
+  return pass.within
+}
+
+/**
+ * Each stop's time in a pass of `duration` seconds (#429): its place in `times` when there's one per
+ * stop, as Motion's `keyframes` takes them (`convertOffsetToTimes`), else evenly spaced (Motion's
+ * `defaultOffset`), each a whole number of Segments in. `count` is two or more.
+ */
+export const stopTimesOf = (count: number, times: ReadonlyArray<number> | undefined, duration: number): ReadonlyArray<number> => {
+  if (Predicate.isNotUndefined(times) && times.length === count) return Arr.map(times, (time) => time * duration)
+  return Arr.makeBy(count, (i) => (i * duration) / (count - 1))
+}
+
+/**
+ * The Segment a pass `time` seconds in is in, by its stops' times: the first whose end it hasn't
+ * reached, else the last (Motion's `interpolate`). Per frame (ADR-0025).
+ */
+export const segmentAt = (time: number, stopTimes: ReadonlyArray<number>): number => {
+  const last = stopTimes.length - 2
+  let i = 0
+  while (i < last && time >= stopTimes[i + 1]) i++
+  return i
+}
+
+/**
+ * How far through Segment `i` a pass `time` seconds in is, 0 to 1; all the way through one with no
+ * length (Motion's `progress`). Per frame (ADR-0025).
+ */
+export const segmentProgress = (time: number, stopTimes: ReadonlyArray<number>, i: number): number => {
+  const start = stopTimes[i]
+  const length = stopTimes[i + 1] - start
+  if (length === 0) return 1
+  return Scalar.clamp((time - start) / length, 0, 1)
 }
 
 // --- Decay -------------------------------------------------------------------

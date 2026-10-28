@@ -60,7 +60,7 @@ export type WardicRuntime = ManagedRuntime.ManagedRuntime<WardicServices, never>
 export const SERVER_POSITIONAL_KEYS: ReducedMotion.PositionalKeys["Service"] = { isPositional: ReducedMotion.isTransform }
 
 /** A server render's Default transition: it runs no animation (its Appear animations read the DOM's, #48). */
-export const SERVER_DEFAULT_TRANSITION: DefaultTransition.DefaultTransition["Service"] = { transitionFor: () => DefaultTransition.ONE_SPRING }
+export const SERVER_DEFAULT_TRANSITION: DefaultTransition.DefaultTransition["Service"] = { transitionFor: () => DefaultTransition.ONE_SPRING, keyframes: DefaultTransition.ONE_TWEEN }
 
 /**
  * The value a `WardicProvider` carries down the tree: the single Effect runtime

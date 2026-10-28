@@ -71,7 +71,7 @@ Replacing a running Primitive with a fresh one seeded from its last Frame, for e
 _Avoid_: restart, cancel, interrupt (those name a mechanism, not the intent).
 
 **Carried key**:
-A key a Retarget resolves to the same target as its running **Leg**: the Leg runs on, unrestarted, and the Retarget lands once it has (#325, Motion's per-key rule). A key whose last Leg landed at that target starts none, and stays where it is. So does a key already at its target with nothing moving it (#448).
+A key a Retarget resolves to the same target as its running **Leg**: the Leg runs on, unrestarted, and the Retarget lands once it has (#325, Motion's per-key rule). A key whose last Leg landed at that target starts none, and stays where it is. So does a key already at its target with nothing moving it (#448). **Keyframes** are the same target when every stop is (#429).
 _Avoid_: protected key (Motion's name for it), kept key.
 
 **Superseded**:
@@ -91,7 +91,7 @@ One value's own transition, inside an element's, a variant's, a gesture target's
 _Avoid_: per-key transition, override (that's the **Override stack**'s word).
 
 **Default transition**:
-What a key runs on when its transition isn't defined: none given, or one with only orchestration (`delay`, `staggerChildren`, `when` and the rest), as Motion's `isTransitionDefined` has it. Its **Environment** picks it, by key and target (the DOM's, Motion's: a spring for a transform, a stiffer one for a scale, critically damped toward 0, and a 0.3 s ease for the rest); an Environment with no opinion runs every key on one spring (#357).
+What a key runs on when its transition isn't defined: none given, or one with only orchestration (`delay`, `staggerChildren`, `when` and the rest), as Motion's `isTransitionDefined` has it. Its **Environment** picks it, by key and target (the DOM's, Motion's: a spring for a transform, a stiffer one for a scale, critically damped toward 0, and a 0.3 s ease for the rest); an Environment with no opinion runs every key on one spring (#357). A key through more than two **Keyframes** stops runs on the Environment's one keyframes default (the DOM's, Motion's 0.8 s tween; #429).
 _Avoid_: fallback transition, implicit transition.
 
 ### Value blending
@@ -139,6 +139,10 @@ _Avoid_: zero value (a zero with a unit is one kind of empty end).
 **Transition end**:
 A target's values set at once, with no animation, once the keys that target animates have landed (#428, Motion's `transitionEnd`): `{ opacity: 0, transitionEnd: { display: "none" } }` hides the element after it fades. Its keys belong to the target's entry in the **Override stack**, so they return to their **Base value** when that entry goes inactive, and a target interrupted before it lands never sets them. The first frame's target sets its own at once. A landing includes them.
 _Avoid_: end values, final values (a keyframe's last value is its final value).
+
+**Keyframes**:
+A target value given as a list of stops the key passes through in order (#429, Motion's): `scale: [null, 1.2, 1]`. A first `null` stop is where the key is now; a later one repeats the stop before it. An explicit first stop is jumped to when its Leg starts. Keyframes are never already at their target. Equal Keyframes, stop by stop, are a **Carried key**; they play again from their first stop when a gesture's entry over the key in the **Override stack** goes inactive, or a variant change resolves them again. An `initial` given Keyframes starts at its first stop, or at its `animate`'s last when the mount starts there.
+_Avoid_: steps, waypoints, sequence (Motion's name for a timeline of several animations).
 
 **Override stack**:
 An ordered set of partial, optionally-active value-maps that resolve to a single target — for each key, the topmost *active* entry wins. This is how stacked gesture states combine (base `animate`, then `whileHover`, `whileTap`, `whileDrag`…). Core ships the pure resolution mechanism (`Override.resolve`); the binding owns the named priority order and the variant names. The resolved target feeds `springValues` / `animateValues`.

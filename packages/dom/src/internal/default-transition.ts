@@ -7,8 +7,10 @@
  * - anything else (opacity, colours, a box's size, a filter): a 0.3 s tween on
  *   `cubic-bezier(0.25, 0.1, 0.35, 1)`, "a slightly shallower version of the browser's default ease".
  *
- * Motion's 0.8 s keyframes default, for more than two keyframes, has nothing to apply to: a Wardic
- * target is one value. `DomLive` provides the Layer.
+ * - more than two keyframes (#429): Motion's `keyframesTransition`, a 0.8 s tween, each Segment on
+ *   `easeOut`, the `ease` Motion's `animateMotionValue` gives every value before its default.
+ *
+ * `DomLive` provides the Layer.
  *
  * @module
  */
@@ -29,6 +31,9 @@ const SCALE: DefaultTransition.Transition = { type: "spring", stiffness: 550, da
 /** Every other key's: Motion's `ease`. */
 const EASE: DefaultTransition.Transition = { type: "tween", duration: 0.3, ease: [0.25, 0.1, 0.35, 1] }
 
+/** More than two keyframes' (#429): Motion's `keyframesTransition`, on its `animateMotionValue`'s `easeOut`. */
+export const keyframes: DefaultTransition.KeyframesTransition = { type: "tween", duration: 0.8, ease: "easeOut" }
+
 /** A transform's: a scale's, by its target, or the rest's. */
 const transformFor = (key: string, target: number | string): DefaultTransition.Transition =>
   Bool.match(key.startsWith("scale"), {
@@ -41,4 +46,4 @@ export const transitionFor = (key: string, target: number | string): DefaultTran
   Bool.match(ReducedMotion.isTransform(key), { onTrue: () => transformFor(key, target), onFalse: () => EASE })
 
 /** The DOM Environment's `DefaultTransition.DefaultTransition`. */
-export const DefaultTransitionDomLive: Layer.Layer<DefaultTransition.DefaultTransition> = Layer.succeed(DefaultTransition.DefaultTransition, { transitionFor })
+export const DefaultTransitionDomLive: Layer.Layer<DefaultTransition.DefaultTransition> = Layer.succeed(DefaultTransition.DefaultTransition, { transitionFor, keyframes })

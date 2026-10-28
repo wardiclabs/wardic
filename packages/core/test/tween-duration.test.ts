@@ -38,7 +38,14 @@ describe("a missing duration is 0.3 s, and the other options still apply", () =>
   it("keyframes: the default spread over its segments, and in its span", () => {
     const stops = [0, 8, 4, 16]
     expect(framesOf(Machine.keyframes(stops, { delay: 0.1 }))).toEqual(framesOf(Machine.keyframes(stops, { duration: 0.3, delay: 0.1 })))
-    expect(Machine.keyframes(stops, {}).span.attributes).toEqual({ stops: 4, duration: 0.3 })
+    expect(Machine.keyframes(stops, {}).span.attributes).toEqual({ stops: 4, duration: 0.3, repeat: 0, repeatDelay: 0, repeatType: "loop", reverse: false })
+  })
+
+  it("keyframes and keyframesValues, with repeat, repeatType and repeatDelay (#429)", () => {
+    expect(framesOf(Machine.keyframes([0, 8, 4, 16], MODIFIERS))).toEqual(framesOf(Machine.keyframes([0, 8, 4, 16], { duration: 0.3, ...MODIFIERS })))
+    const build = (options: Machine.KeyframesOptions) =>
+      Effect.runSync(Effect.provide(Machine.keyframesValues({ x: [0, 8, 16], width: ["0px", "16px"] }, options), InterpolatorRegistry.layer))
+    expect(framesOf(build(MODIFIERS))).toEqual(framesOf(build({ duration: 0.3, ...MODIFIERS })))
   })
 
   it("animateValues", () => {

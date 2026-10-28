@@ -172,7 +172,7 @@ const keyOfLeg = (leg: Leg): Option.Option<string> =>
 const DOM_POSITIONAL: ReducedMotion.PositionalKeys["Service"] = { isPositional: DomPositionalKeys.isPositional }
 
 /** The DOM's Default transition, which a key with no transition defined samples as the client runs it (ADR-0051). */
-const DOM_DEFAULTS: DefaultTransition.DefaultTransition["Service"] = { transitionFor: DomDefaultTransition.transitionFor }
+const DOM_DEFAULTS: DefaultTransition.DefaultTransition["Service"] = { transitionFor: DomDefaultTransition.transitionFor, keyframes: DomDefaultTransition.keyframes }
 
 /**
  * Whether a value's own transition drives one of its keys while anything repeats for ever (#301): one
