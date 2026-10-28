@@ -389,3 +389,28 @@ Grilled 2026-10-17 (A, A, A, A):
     - dropping the DOM-element test.
 - **Recorded as this amendment,** with a line in the glossary's Shared source entry.
 
+## Amendment (#384, 2026-10-28): the projection system is an `Inspectable`, its tree as plain data
+
+#384 gives the layout lab a picture of the projection tree. The engine holds its nodes in its own scope, so it has to hand them out. Grilled 2026-10-28, Q1–Q4 each A.
+
+- **Q1: `toJSON()` on the service.** `ProjectionSystem`'s service implements Effect's `Inspectable`, as core's Reorder group does.
+  - **What it gives:** `toJSON()` returns `ProjectionSystem.Snapshot`, `{ _id: "ProjectionSystem", nodes }`, in registration order. Each `NodeSnapshot` has:
+    - its id and tag, and its `layoutId`;
+    - its parent's id, by the last Measure pass's DOM ancestry;
+    - `layoutRoot`;
+    - its twin's part, Lead or Follower, and a Follower's Lead's id;
+    - whether it's animating, dragging, releasing or leaving.
+  - **What it doesn't:** it holds no element and no box, so it serializes as written, and `console.log(system)` shows it.
+  - **A diagnostic read:** it changes nothing. It doesn't rebuild the depth order (#383); it walks the node set.
+  - **Cost:** +466 bytes minified and +138 bytes gzipped, measured for an app that imports `DomLive` and `ProjectionSystem.layer` (112,630 → 112,768 bytes gzipped, Effect included).
+  - **Rejected:** B, a named `snapshot()` method; C, lab-only access to `internal/`.
+- **Effect's `Graph` stays out of the library (#377):** `toJSON()` gives data, and the lab builds the `Graph`.
+- **How the lab reaches it:** through the binding's existing `useWardicRuntime()`, read with a cast. The provider's runtime is built with the engine over the Environment, and `WardicRuntime`'s type lists the Environment's services only. Neither binding gained API.
+  - The issue's plan was a capture Layer in the lab's Environment. It can't see the engine, which the binding builds on top of that Environment.
+- **The lab's side (Q2–Q4)** is in its README, *Projection tree*:
+  - it records a snapshot after each painted frame while Wardic's Clock runs, and draws only after a recording ends (Q2);
+  - Mermaid is a lab-only dependency, loaded the first time the panel draws (Q3);
+  - both lab builds have the panel (Q4).
+- **Pinned:**
+  - SN1–SN3 (`packages/dom/test/projection-snapshot.browser.test.ts`): the parents, tags, `layoutRoot`, a Lead and its Follower; the flags through a layout change, a drag and its release; `String(system)`;
+  - TR1–TR4 (`examples/layout-lab/test/tree.test.ts`): the labels, the Mermaid text, the separate trees and what a recording changed, and the cycle check.

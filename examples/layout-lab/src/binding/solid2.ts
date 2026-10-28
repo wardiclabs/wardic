@@ -6,7 +6,7 @@
  * @module
  */
 import type { LabBinding } from "../lab/lab.ts"
-export { wardic, type WardicEnv, WardicProvider } from "@wardic/solid/unstable/v2"
+export { useWardicRuntime, wardic, type WardicEnv, WardicProvider } from "@wardic/solid/unstable/v2"
 export { type JSX, render } from "@solidjs/web"
 
 /** Solid 2 has no `batch`: writes batch until its flush. A call, so the shared UI reads the same. */
