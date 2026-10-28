@@ -110,8 +110,9 @@ const NUMERIC = /^\s*-?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?(px)?\s*$/i
  *
  * - a numeric target takes a finite number, or a plain-number or `px` string, parsed
  *   (`"0.5"` → 0.5, `"120px"` → 120); anything else misses (`auto`, `50%`, `1em`, a colour),
- *   so the key starts at its target and doesn't return. Motion converts units by measuring
- *   the element; Wardic doesn't.
+ *   so the key starts at its target and doesn't return. On a positional key, a miss of another
+ *   type (`auto`, `50%`) is a **Measured pair** instead (#430, `measured-pairs.ts`): its binding
+ *   keeps the start, and both ends are measured in px, as Motion's are.
  * - a string target takes a string as is, or a finite number as a string, except a length
  *   in another unit than the target's (`"120px"` for `"0%"`): the unit interpolator dies on
  *   that pair, so it misses, as a numeric target misses `50%`.

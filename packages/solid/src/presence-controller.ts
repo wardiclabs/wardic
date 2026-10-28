@@ -32,6 +32,7 @@ import * as Machine from "@wardic/core/Machine"
 import * as Stagger from "@wardic/core/Stagger"
 import * as Velocity from "@wardic/core/Velocity"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
+import * as MeasuredPair from "@wardic/dom/MeasuredPair"
 import * as Report from "@wardic/dom/Report"
 import * as Variables from "@wardic/dom/Variables"
 import * as Arr from "effect/Array"
@@ -46,7 +47,7 @@ import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicTransition, WardicVariantLabels } from "./config.ts"
 import type { ExitGroup, PresenceContextValue, PresenceExit, PresenceRecord, PresenceSeed, PresenceTree, PresenceWatch } from "./presence-record.ts"
-import { delayedBy, keyframesFrom, type Leg, legsOf, type StopsByKey } from "./retarget-legs.ts"
+import { delayedBy, keyframesFrom, type Leg, legsOf, type MeasuredPairs, type StopsByKey } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import { staggerOf } from "./variant-tree.ts"
 
@@ -200,6 +201,22 @@ interface PreparedExit {
   readonly stops: StopsByKey | undefined
   readonly commitFrame: FrameLoop.Sink<Frame.Frame<Values.Values>>
   readonly velocities: Record<string, number>
+}
+
+/**
+ * An exit's Measured pairs (#430): each key whose start and target differ in type, asked of the
+ * end-of-task batch. `undefined` with none, nearly every exit.
+ */
+const exitMeasuredOf = (element: HTMLElement, from: Values.Values, to: Values.Values): MeasuredPairs | undefined => {
+  const pairs = Rec.filter(to, (target, key) => Bool.and(Object.hasOwn(from, key), keepsMeasured(key, from[key], target)))
+  if (Rec.isEmptyRecord(pairs)) return undefined
+  return MeasuredPair.measure(element, Rec.map(pairs, (target, key) => ({ from: UndefinedOr.getOrThrow(from[key]), to: target })), from)
+}
+
+/** Whether a start and a target make a Measured pair (#430). */
+const keepsMeasured = (key: string, start: number | string | undefined, target: number | string): boolean => {
+  if (Predicate.isUndefined(start)) return false
+  return MeasuredPair.isMeasuredPair(key, start, target)
 }
 
 /** An exit's name when it's one name, for its delay; `undefined` for a list or a values map. */
@@ -835,12 +852,15 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // A list's exit by name (#297): each name's keys on its own transition, at its own delay; one
     // name's alone when its `when` orders it (#297's PR 2).
     const reduce = reducedMotion()
+    // Measured pairs (#430): an exit from `auto` to 0 measures both ends, as a Retarget does, unless
+    // reduced motion snaps them.
+    const measured = Bool.match(reduce, { onTrue: constUndefined, onFalse: () => exitMeasuredOf(el, from, to) })
     const legs = UndefinedOr.match(exit.groups, {
-      onUndefined: () => legsOf(from, to, delayedBy(exit.transition, delay(singleNameOf(exit.name))), reduce, positionalKeys, defaultTransition, NO_VELOCITIES, undefined, stops),
+      onUndefined: () => legsOf(from, to, delayedBy(exit.transition, delay(singleNameOf(exit.name))), reduce, positionalKeys, defaultTransition, NO_VELOCITIES, undefined, stops, measured),
       onDefined: (groups) =>
         Arr.flatMap(
           Arr.filter(groups, (group) => Bool.or(Predicate.isUndefined(only), group.name === only)),
-          (group: ExitGroup) => legsOf(from, group.values, delayedBy(group.transition, delay(group.name)), reduce, positionalKeys, defaultTransition, NO_VELOCITIES, undefined, stops),
+          (group: ExitGroup) => legsOf(from, group.values, delayedBy(group.transition, delay(group.name)), reduce, positionalKeys, defaultTransition, NO_VELOCITIES, undefined, stops, measured),
         ),
     })
     return Effect.all(Arr.map(legs, (leg) => exitRunOf(leg, el, commitFrame, velocities)), { concurrency: "unbounded", discard: true })

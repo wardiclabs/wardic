@@ -105,3 +105,7 @@ This amends ADR-0005 (the Snapshot and the spring's string leg), ADR-0015 (a mis
 
 - **One place.** Decision 3's fallback was in the registry, the `unit` interpolator and the `complex` interpolator. With interpolators as codecs (ADR-0026), a Discrete pair is decided once, in `resolve`: when no entry decodes both endpoints, or an entry decodes both and its `blend` returns `None`. It still switches at the first frame past 0.
 - **Incompatible units.** Two lengths in different units (`"10px"` → `"1em"`) are a Discrete pair, with a warning at `resolve`. `resolve` died on them before, which failed the element's whole leg. Decision 1's `valueLike` already treated "a length in another unit" as a value it can't coerce.
+
+## Note (#430, 2026-10-28): a positional key's pair is measured
+
+A pair of two types on a positional key (`width`, `height`, `top`, `left`, `right`, `bottom`, `x`, `y`), such as `auto` against px or `50%` against px, is no longer a Discrete pair. It's a **Measured pair** (ADR-0059): both ends are measured in px at the end of the task, its leg runs between them, and it lands on its target as given, as Motion's do. Every other key's pair of two units, and Keyframes of more than two stops that mix types, still switch as decided here.

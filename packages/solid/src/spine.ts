@@ -30,6 +30,7 @@ import * as Appear from "@wardic/dom/Appear"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as OwnValues from "@wardic/dom/OwnValues"
 import * as Report from "@wardic/dom/Report"
+import * as MeasuredPair from "@wardic/dom/MeasuredPair"
 import * as Style from "@wardic/dom/Style"
 import * as Variables from "@wardic/dom/Variables"
 import * as Arr from "effect/Array"
@@ -63,7 +64,7 @@ import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
 import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "./presence-record.ts"
 import type { DragTrack } from "./drag-track.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
-import { delayedBy, type Follows, keyframesFrom, type Leg, legsOf, startingAt, type StopsByKey, transitionForKey } from "./retarget-legs.ts"
+import { delayedBy, type Follows, keyframesFrom, type Leg, legsOf, type MeasuredPairs, startingAt, type StopsByKey, transitionForKey } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import {
   changesContext,
@@ -616,6 +617,7 @@ const splitLegsOf = (
   velocities: Readonly<Record<string, number>>,
   follow: Follows | undefined,
   stops: StopsByKey | undefined,
+  measured: MeasuredPairs | undefined,
 ): SplitLegs => {
   let returnsAt = 0
   if (listed) returnsAt = resolution.layers.length
@@ -627,7 +629,7 @@ const splitLegsOf = (
     if (Rec.isEmptyRecord(picked)) return
     let followed: Follows | undefined
     if (i === returnsAt) followed = follow
-    const groupLegs = legsOf(from, picked, groupTransitionOf(resolution, groups, i, transition, element, extraDelay, reuse), reduce, positionalKeys, defaultTransition, velocities, followed, stops)
+    const groupLegs = legsOf(from, picked, groupTransitionOf(resolution, groups, i, transition, element, extraDelay, reuse), reduce, positionalKeys, defaultTransition, velocities, followed, stops, measured)
     Arr.forEach(groupLegs, (built) => {
       legs.push(built)
       tags.push(i)
@@ -838,6 +840,35 @@ export const sameResolution = (a: Resolution, b: Resolution): boolean =>
 
 /** Two lists of stops equal stop by stop (#429, Motion's `shallowCompare`). */
 const sameStops = (a: Style.Stops, b: Style.Stops): boolean => Bool.or(a === b, Bool.and(a.length === b.length, Arr.every(a, (stop, i) => stop === b[i])))
+
+/**
+ * Whether a start that can't take its target's shape stays as it is (#430): it makes a Measured pair
+ * with it, so its leg measures both ends rather than starting at the target.
+ */
+const keepsStart = (key: string, start: number | string | undefined, target: number | string): boolean => {
+  if (Predicate.isUndefined(start)) return false
+  return MeasuredPair.isMeasuredPair(key, start, target)
+}
+
+/** The keys that may be Measured pairs (#430): those found, and each Keyframes key, its start now its first stop. */
+const measuringOf = (found: ReadonlyArray<string> | undefined, keyframes: KeyframesNow | undefined): ReadonlyArray<string> =>
+  Arr.appendAll(UndefinedOr.match(found, { onUndefined: (): ReadonlyArray<string> => [], onDefined: identity }), UndefinedOr.match(keyframes, { onUndefined: (): ReadonlyArray<string> => [], onDefined: Rec.keys }))
+
+/**
+ * A Retarget's Measured pairs (#430): each of `keys` whose start and target are one, asked of the
+ * end-of-task batch with the values the element draws now. `undefined` with none.
+ */
+const measuredOf = (element: HTMLElement, keys: ReadonlyArray<string>, from: Values.Values, to: Values.Values, values: Values.Values): MeasuredPairs | undefined => {
+  const pairs: Record<string, { readonly from: number | string; readonly to: number | string }> = {}
+  Arr.forEach(keys, (key) => {
+    const start = from[key]
+    const target = to[key]
+    if (Bool.or(Predicate.isUndefined(start), Predicate.isUndefined(target))) return
+    if (MeasuredPair.isMeasuredPair(key, start as number | string, target as number | string)) pairs[key] = { from: start as number | string, to: target as number | string }
+  })
+  if (Rec.isEmptyRecord(pairs)) return undefined
+  return MeasuredPair.measure(element, pairs, values)
+}
 
 /** A key's Keyframes in `keyframes` (#429): per key, per Retarget, so a guard, nothing made. */
 const keyframesAtOf = (keyframes: KeyframesNow | undefined, key: string): KeyframesAt | undefined => {
@@ -1726,6 +1757,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     const started: Record<string, string> = {}
     // Each key's Keyframes (#429), when any layer gives some: a key's carries on only toward the same.
     const keyframesNow = resolution.keyframes
+    // The keys whose two ends may be a Measured pair (#430), found in the pass below.
+    let measuring: Array<string> | undefined
     Arr.forEach(Rec.keys(t), (key) => {
       if (Bool.not(Object.hasOwn(initialValues, key))) ownValue(key)
       const like = t[key]
@@ -1752,7 +1785,9 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       // Guards, not a match: per key, per Retarget, and a key with a value builds nothing.
       const coerced = OwnValues.valueLike(snapshot.values[key], like)
       if (Option.isSome(coerced)) snapshot.values[key] = coerced.value
-      if (Option.isNone(coerced)) {
+      // A start of another type than its target's, on a positional key, stays as it is: a Measured
+      // pair (#430), measured at the end of the task.
+      if (Bool.and(Option.isNone(coerced), Bool.not(keepsStart(key, snapshot.values[key], like)))) {
         Option.match(Option.filter(startLinkOf(key, like), (s) => isSameKind(s.value, like)), {
           onSome: (s) => {
             snapshot.values[key] = s.value
@@ -1763,6 +1798,12 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
             started[key] = "target"
           },
         })
+      }
+      // A Measured pair (#430): its two ends of different types, found in this pass, so a Retarget
+      // with none builds nothing for them.
+      if (MeasuredPair.isMeasuredPair(key, UndefinedOr.getOrThrow(snapshot.values[key]), like)) {
+        if (Predicate.isUndefined(measuring)) measuring = []
+        measuring.push(key)
       }
       // Already there (#448, Motion's `visual-element-target.ts`): a key at its target, coerced to its
       // shape, with no leg drawing it, at rest and given no velocity by its transition, starts none.
@@ -1889,6 +1930,12 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       follow = { keysOf: (rest) => followingOf(routes, rest, returning), targetOf: (key, start) => liveTargetOf(routes, key, start) }
     }
     const reduce = options.reducedMotion()
+    // Measured pairs (#430), asked of the end-of-task batch, unless reduced motion snaps them: the keys
+    // found above, and those Keyframes of two stops start from their first.
+    let measured: MeasuredPairs | undefined
+    if (Bool.and(Bool.not(reduce), Bool.or(Predicate.isNotUndefined(measuring), Predicate.isNotUndefined(keyframesNow)))) {
+      measured = measuredOf(element, measuringOf(measuring, keyframesNow), from, fresh, snapshot.values)
+    }
     let told: ToldNames | undefined
     if (Bool.not(silent)) told = namesToldOf(animation, resolution, lastResolution)
     // Every key on one transition when they aren't split, as before; else each group's legs, tagged.
@@ -1896,10 +1943,10 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     let retargetLegs: ReadonlyArray<Leg> = NO_LEGS
     let legGroups: ReadonlyArray<number> | undefined
     if (Bool.and(Predicate.isUndefined(groups), hasKeys(fresh))) {
-      retargetLegs = legsOf(from, fresh, transition, reduce, positionalKeys, defaultTransition, snapshot.velocities, follow, manyStops)
+      retargetLegs = legsOf(from, fresh, transition, reduce, positionalKeys, defaultTransition, snapshot.velocities, follow, manyStops, measured)
     }
     if (Predicate.isNotUndefined(groups)) {
-      const split = splitLegsOf(fresh, from, groups, resolution, listed, transition, elementTransition, extraDelay, options.reuse, reduce, positionalKeys, defaultTransition, snapshot.velocities, follow, manyStops)
+      const split = splitLegsOf(fresh, from, groups, resolution, listed, transition, elementTransition, extraDelay, options.reuse, reduce, positionalKeys, defaultTransition, snapshot.velocities, follow, manyStops, measured)
       retargetLegs = split.legs
       legGroups = split.tags
     }
