@@ -131,10 +131,10 @@ export const isPrimaryPointer = (event: PointerLikeEvent): boolean =>
 export type Key = "space" | "enter" | "escape" | "left" | "right" | "up" | "down" | "home" | "end" | "other"
 
 /**
- * What the target itself does with a key, unless something takes it (#427): `"type"`, the key is
- * typed into text the target edits (a text field, an editable region); `"activate"`, the target acts
- * on it (a button's click, a checkbox's toggle); `"none"`, nothing of its own (the page may scroll).
- * Each Environment says it of its own targets, so core needs no platform's element kinds.
+ * What the target itself does with a key, unless something takes it (#427): `"type"`, the key goes
+ * into text the target edits; `"activate"`, the target has its own action for it; `"none"`, the
+ * target has nothing of its own for it, though its Environment may. Each Environment says it of its
+ * own targets, so core knows none of their kinds.
  */
 export type KeyAction = "type" | "activate" | "none"
 

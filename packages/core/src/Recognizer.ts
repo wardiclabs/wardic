@@ -457,9 +457,9 @@ const blurPressOf = (next: PressState, event: InputSource.FocusLikeEvent): Press
 })
 
 /**
- * Space's down starting a **Keyboard press** is taken where its target does nothing with it (#427):
- * the page would scroll. A target that acts on it (a button, whose click Space's taken down would
- * stop) keeps it.
+ * Space's down starting a **Keyboard press** is taken where its target does nothing with it (#427),
+ * so the Environment's own response to it doesn't run beside the press. A target with its own action
+ * for it keeps it, so that action still runs: taking the key could stop it.
  */
 const takeSpace = (event: InputSource.KeyboardLikeEvent, told: PressEvent): void => {
   if (Bool.and(told.phase === "start", Bool.and(event.key === "space", event.action === "none"))) event.handle()
