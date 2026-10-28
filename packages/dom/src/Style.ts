@@ -8,6 +8,8 @@ export {
   resolveInitial,
   type InitialConfig,
   keyframesOf,
+  splitValues,
+  type SplitValues,
   type StopAt,
   type Stops,
   toValues,

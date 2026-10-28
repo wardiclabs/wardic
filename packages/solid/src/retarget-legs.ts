@@ -294,9 +294,20 @@ const springStopsError = (stops: StopsByKey): Error =>
       `Run them on a tween: transition: { ${Arr.map(Rec.keys(stops), (key) => `${JSON.stringify(key)}: { type: "tween" }`).join(", ")} }.`,
   )
 
-/** Whether a tween's options need `keyframesValues` (#429): `times`, or an `ease` per Segment, which `animateValues` doesn't take. */
-const keyframedOptions = (options: Machine.KeyframesOptions): boolean =>
-  Bool.or(Predicate.isNotUndefined(options.times), Bool.and(Array.isArray(options.ease), Bool.not(Easing.isBezier(options.ease as Easing.Definition))))
+/** Each tween's answer to {@link keyframedOptions}, by its options: one object each, as {@link RUNS}' (#452). */
+const KEYFRAMED = new WeakMap<object, boolean>()
+
+/**
+ * Whether a tween's options need `keyframesValues` (#429): `times`, or an `ease` per Segment, which
+ * `animateValues` doesn't take. Worked out once per options object (#452): every tween Retarget asks.
+ */
+const keyframedOptions = (options: Machine.KeyframesOptions): boolean => {
+  const known = KEYFRAMED.get(options)
+  if (Predicate.isNotUndefined(known)) return known
+  const keyframed = Bool.or(Predicate.isNotUndefined(options.times), Bool.and(Array.isArray(options.ease), Bool.not(Easing.isBezier(options.ease as Easing.Definition))))
+  KEYFRAMED.set(options, keyframed)
+  return keyframed
+}
 
 /**
  * The spring fields: one of them, with no `type`, makes a transition a spring, a value's or a layout

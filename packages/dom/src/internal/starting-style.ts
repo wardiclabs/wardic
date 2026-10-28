@@ -56,24 +56,6 @@ const isStop = Predicate.or(isAnimatable, Predicate.isNull)
 const stopOf = (stops: ReadonlyArray<unknown>, at: StopAt): unknown =>
   Bool.match(at === "first", { onTrue: () => stops[0], onFalse: () => Option.getOrUndefined(Arr.findLast(stops, Predicate.isNotNull)) })
 
-/**
- * A values map with only the keys an animation can take, each **Keyframes** value read at one of its
- * stops (#429): `initial`'s first, a target's last. A Keyframes value with no such stop drops out, as
- * does an array {@link keyframesOf} doesn't take, and anything that isn't a number or a string. {@link toValues} itself when none is a Keyframes
- * value: nothing more made.
- */
-export const valuesAt = (v: object | undefined, at: StopAt): Values.Values => {
-  if (Bool.not(hasKeyframes(v))) return toValues(v)
-  return toValues(Rec.map(v as Readonly<Record<string, unknown>>, (value) =>
-    Bool.match(isStops(value), { onTrue: () => stopOf(value as Stops, at), onFalse: () => value })))
-}
-
-/** Whether a values map has a **Keyframes** value: an array, which no other value is. */
-const hasKeyframes = (v: object | undefined): boolean => {
-  if (Predicate.isUndefined(v)) return false
-  return Rec.some(v as Readonly<Record<string, unknown>>, Array.isArray)
-}
-
 /** Whether a value is Keyframes an animation can take (#429): an array of stops, one of them not `null`. */
 const isStops = (value: unknown): value is Stops => {
   if (Bool.not(Array.isArray(value))) return false
@@ -82,14 +64,85 @@ const isStops = (value: unknown): value is Stops => {
 }
 
 /**
+ * The Keyframes {@link keepAnimatable} set aside while it filtered a values map (#452): written by it,
+ * read and cleared right after, never across a call. A target with none leaves it `undefined`.
+ */
+let setAside: Record<string, Stops> | undefined
+
+/**
+ * A values map's filter (#452): a value an animation can take stays, and Keyframes go aside, into
+ * {@link setAside}, so one pass over the keys finds both. Built once, at module load.
+ */
+const keepAnimatable = (value: unknown, key: string): boolean => {
+  if (Bool.not(Array.isArray(value))) return isAnimatable(value)
+  if (isStops(value)) {
+    if (Predicate.isUndefined(setAside)) setAside = {}
+    setAside[key] = value
+  }
+  return false
+}
+
+/** A values map's numbers and strings, its Keyframes set aside (#452, {@link keepAnimatable}): {@link toValues}' one pass. */
+const filtered = (v: object | undefined): Values.Values => {
+  setAside = undefined
+  return UndefinedOr.match(v, {
+    onUndefined: (): Values.Values => ({}),
+    // `keepAnimatable` keeps numbers and strings alone, as `isAnimatable` does.
+    onDefined: (values) => Rec.filter(values as Readonly<Record<string, unknown>>, keepAnimatable) as Values.Values,
+  })
+}
+
+/** The Keyframes the last {@link filtered} set aside, taken: `undefined` with none. */
+const takeSetAside = (): Readonly<Record<string, Stops>> | undefined => {
+  const taken = setAside
+  setAside = undefined
+  return taken
+}
+
+/** `values` with each of `keyframes` at one of its stops (#429), one with no such stop left out. */
+const withStops = (values: Values.Values, keyframes: Readonly<Record<string, Stops>>, at: StopAt): Values.Values => ({
+  ...values,
+  ...toValues(Rec.map(keyframes, (stops) => stopOf(stops, at))),
+})
+
+/** A values map's own values and its Keyframes (#452): {@link splitValues}' result. */
+export interface SplitValues {
+  /** Its numbers and strings, each Keyframes value at one of its stops. */
+  readonly values: Values.Values
+  /** Its Keyframes, `undefined` with none. */
+  readonly keyframes: Readonly<Record<string, Stops>> | undefined
+}
+
+/**
+ * A values map's values, each **Keyframes** value read at one of its stops (#429), and its Keyframes,
+ * in one pass over its keys (#452): a target's resolution reads both, and a target with no Keyframes
+ * makes nothing {@link toValues} doesn't.
+ */
+export const splitValues = (v: object | undefined, at: StopAt): SplitValues => {
+  const values = filtered(v)
+  const keyframes = takeSetAside()
+  if (Predicate.isUndefined(keyframes)) return { values, keyframes: undefined }
+  return { values: withStops(values, keyframes, at), keyframes }
+}
+
+/**
+ * A values map with only the keys an animation can take, each **Keyframes** value read at one of its
+ * stops (#429): `initial`'s first, a target's last. A Keyframes value with no such stop drops out, as
+ * does an array {@link keyframesOf} doesn't take, and anything that isn't a number or a string. One
+ * pass over its keys, as {@link toValues}' (#452).
+ */
+export const valuesAt = (v: object | undefined, at: StopAt): Values.Values => {
+  const values = filtered(v)
+  const keyframes = takeSetAside()
+  if (Predicate.isUndefined(keyframes)) return values
+  return withStops(values, keyframes, at)
+}
+
+/**
  * A values map's **Keyframes** values (#429): each array of stops an animation can take, with a stop
  * that isn't `null`; `undefined` when it has none, so a target without any makes nothing.
  */
-export const keyframesOf = (v: object | undefined): Readonly<Record<string, Stops>> | undefined => {
-  if (Bool.not(hasKeyframes(v))) return undefined
-  const kept = Rec.filter(v as Readonly<Record<string, unknown>>, isStops)
-  return Bool.match(Rec.isEmptyRecord(kept), { onTrue: () => undefined, onFalse: () => kept as Readonly<Record<string, Stops>> })
-}
+export const keyframesOf = (v: object | undefined): Readonly<Record<string, Stops>> | undefined => splitValues(v, "last").keyframes
 
 /**
  * The part of an element's config its Starting style is resolved from. Values maps are
