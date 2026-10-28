@@ -28,14 +28,23 @@ export interface VariantState {
 export const NO_VARIANT_STATE: VariantState = { values: {}, velocities: {} }
 
 /**
- * A target resolved (#277): its values, clean for core, its own transition, if it has one, and its
- * **Transition end** (#428), the values set once its keys land, if it has one.
+ * A target resolved (#277): its values, clean for core, its own transition, if it has one, its
+ * **Transition end** (#428), the values set once its keys land, if it has one, and its Keyframes (#429).
  */
 export interface Target {
   readonly values: Values.Values
   readonly transition: WardicVariantTransition | undefined
   readonly transitionEnd: Values.Values | undefined
+  /**
+   * Its **Keyframes** (#429): each such key's stops, its value in `values` the last stop it rests at,
+   * so the Override stack, a Base value and a Transition end read it as any target's. `undefined` with
+   * none.
+   */
+  readonly keyframes: Keyframes | undefined
 }
+
+/** A target's **Keyframes** (#429): each such key's stops. */
+export type Keyframes = Readonly<Record<string, Style.Stops>>
 
 /** A variant prop's entry: a target, a name, a list of names (#297), or nothing. */
 export type Entry = WardicVariant | WardicVariantLabels | undefined
@@ -94,8 +103,9 @@ const namedOf = (definition: Definition, variants: WardicVariants | undefined): 
  * Resolve a target (#277): a values map, or a variant name, against `variants`, Motion's
  * `resolveVariantFromProps`. A name's entry is looked up, a resolver is called with `custom` and the
  * element's `state`, and a resolver that returns a name is followed once more. Its values go through
- * `Style.toValues`, so `Override.resolve` and `Values.split` never see an `undefined` value; its
- * `transition` is split off.
+ * `Style.valuesAt`, so `Override.resolve` and `Values.split` never see an `undefined` value, nor an
+ * array: a key's Keyframes (#429) are split off, its value their last stop; its `transition` is split
+ * off too.
  */
 export const resolveTarget = (entry: Entry, variants: WardicVariants | undefined, custom: unknown, state: VariantState): Target => {
   if (Array.isArray(entry)) return mergedOf(resolveTargets(entry, variants, custom, state))
@@ -123,6 +133,7 @@ export const resolveTargets = (entry: Entry, variants: WardicVariants | undefine
 export const mergedOf = (targets: ReadonlyArray<Target>): Target =>
   Arr.reduce(targets, NO_TARGET, (merged, target): Target => ({
     values: { ...merged.values, ...target.values },
+    keyframes: keyframesOver(target, merged.keyframes),
     transition: UndefinedOr.match(target.transition, {
       onUndefined: () => merged.transition,
       onDefined: (own) => UndefinedOr.match(merged.transition, { onUndefined: () => own, onDefined: (before) => ({ ...before, ...own }) as WardicVariantTransition }),
@@ -133,8 +144,19 @@ export const mergedOf = (targets: ReadonlyArray<Target>): Target =>
     }),
   }))
 
+/**
+ * `target`'s Keyframes over `before` (#429): a later name's own, and `before`'s for the keys it doesn't
+ * set, so a key it sets to one value is no longer Keyframes. `undefined` when neither has any.
+ */
+const keyframesOver = (target: Target, before: Keyframes | undefined): Keyframes | undefined => {
+  if (Predicate.isUndefined(before)) return target.keyframes
+  const kept = Rec.filter(before, (_, key) => Bool.not(Object.hasOwn(target.values, key)))
+  const over: Keyframes = { ...kept, ...target.keyframes }
+  return Bool.match(Rec.isEmptyRecord(over), { onTrue: () => undefined, onFalse: () => over })
+}
+
 /** Nothing resolved. */
-const NO_TARGET: Target = { values: {}, transition: undefined, transitionEnd: undefined }
+export const NO_TARGET: Target = { values: {}, transition: undefined, transitionEnd: undefined, keyframes: undefined }
 
 /** One name or values map resolved ({@link resolveTarget}). */
 const resolveOne = (entry: WardicVariant | string | undefined, variants: WardicVariants | undefined, custom: unknown, state: VariantState): Target => {
@@ -146,9 +168,12 @@ const resolveOne = (entry: WardicVariant | string | undefined, variants: WardicV
   // Transition end (#428) is an object too, which `toValues` leaves out of its values.
   const target = definition as { readonly transition?: unknown; readonly transitionEnd?: unknown }
   const transitionEnd = transitionEndOf(target.transitionEnd)
-  if (Bool.not(Predicate.isObject(target.transition))) return { values: Style.toValues(target), transition: undefined, transitionEnd }
+  // A key's Keyframes (#429) rest at their last stop: its value, beside its stops.
+  if (Bool.not(Predicate.isObject(target.transition))) {
+    return { values: Style.valuesAt(target, "last"), transition: undefined, transitionEnd, keyframes: Style.keyframesOf(target) }
+  }
   const { transition, ...values } = target
-  return { values: Style.toValues(values), transition: transition as WardicVariantTransition, transitionEnd }
+  return { values: Style.valuesAt(values, "last"), transition: transition as WardicVariantTransition, transitionEnd, keyframes: Style.keyframesOf(values) }
 }
 
 /** A target's Transition end (#428), clean for core: none for anything but a values map, or an empty one. */

@@ -17,6 +17,8 @@
 // - TK8 (#305's Q4): a name in a values map that isn't a value is an error, in a target, a variant or
 //   `initial`, as a value or an accessor; `style` isn't checked (left: its check broke completion in a
 //   `style` accessor).
+// - TK10 (#429): Keyframes on a ward's targets, a value or an accessor, a tween's `times` and an
+//   `ease` per Segment, their keys the ward's.
 // - TK9 (#428): a Transition end on a ward's targets, its names checked as a values map's, and a key
 //   only a Transition end sets takes no entry in the element's transition.
 import { ward, type WardChecked, type WardConfig, type WardicVariants } from "@wardic/solid/unstable/v2"
@@ -189,6 +191,20 @@ describe("a ward's transitions, checked against the keys each drives (#301)", ()
         transition: {
           // @ts-expect-error a key only the Transition end sets never runs on a transition
           display: FAST,
+        },
+      }),
+    )
+  })
+
+  it("TK10: Keyframes on a ward's targets, their keys the ward's", () => {
+    typed(() => ward({ initial: { scale: [0.6, 1] }, animate: { scale: [null, 1.15, 1] }, whileTap: { rotate: [0, -6, 6, 0] }, transition: { scale: { type: "tween", times: [0, 0.3, 1] }, rotate: FAST } }))
+    typed(() => ward({ animate: () => ({ x: [0, 100, 0] }), transition: { x: { type: "tween", ease: ["easeIn", "easeOut"] } } }))
+    typed(() =>
+      ward({
+        animate: { x: [0, 100, 0] },
+        transition: {
+          // @ts-expect-error Keyframes' keys are the ward's, and no other
+          scale: FAST,
         },
       }),
     )

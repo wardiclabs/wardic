@@ -19,6 +19,7 @@ import type {
   WardicInherit,
   WardicOrchestration,
   WardicReducedMotion,
+  WardicTargetValues,
   WardicTransformShorthands,
   WardicTransition,
   WardicTransitionWith,
@@ -166,7 +167,7 @@ type CheckedTransition<Raw, E, K extends string> =
 type RawOf<C, K extends string> = K extends keyof C ? C[K] : undefined
 
 /**
- * A target, checked: its values as any target's, and its own transition (#277) with entries for the
+ * A target, checked: its values as any target's, Keyframes among them (#429), and its own transition (#277) with entries for the
  * keys it sets (Q2) and `default`, no `layout`. A dynamic variant is a resolver as ever, a variant
  * name or `false` as it is.
  */
@@ -175,11 +176,11 @@ type CheckedTarget<T> = T extends (...args: never) => unknown
   : T extends object
     ? T extends ReadonlyArray<unknown>
       ? T
-      : Omit<WardicValues, "transition"> & { readonly transition?: CheckedTransition<RawOf<T, "transition">, WardicValueEntries<KeysOf<T>>, KeysOf<T>> } & CheckedEnd<T> & NoStray<T>
+      : Omit<WardicTargetValues, "transition"> & { readonly transition?: CheckedTransition<RawOf<T, "transition">, WardicValueEntries<KeysOf<T>>, KeysOf<T>> } & CheckedEnd<T> & NoStray<T>
     : T
 
 /** `initial`, checked (#305's Q4): its values' names. A variant name, a list of them or `false` as it is. */
-type CheckedInitial<T> = T extends object ? (T extends ReadonlyArray<unknown> ? T : Omit<WardicValues, "transition"> & CheckedEnd<T> & NoStray<T>) : T
+type CheckedInitial<T> = T extends object ? (T extends ReadonlyArray<unknown> ? T : Omit<WardicTargetValues, "transition"> & CheckedEnd<T> & NoStray<T>) : T
 
 /** What a name in a values map that isn't a value meets: an error naming it, an object, as {@link NotHere}'s. */
 type NotAValue<P extends string> = { readonly "is not a value Wardic animates": P }
@@ -274,7 +275,7 @@ type NamesOf<K extends string> = { readonly [P in K]?: unknown }
  * whole, so an editor completes every value's name inside it while `K` is being inferred.
  */
 export type InferredTarget<K extends TargetKey, E extends string> =
-  & Omit<WardicValues, "transition">
+  & Omit<WardicTargetValues, "transition">
   & { readonly transition?: (WardicTransitionWith<WardicValueEntries<E>> & WardicInherit) | WardicValues["transition"] }
   & { readonly transitionEnd?: Omit<WardicValues, "transition"> }
   & NamesOf<K>

@@ -63,7 +63,7 @@ import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
 import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "./presence-record.ts"
 import type { DragTrack } from "./drag-track.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
-import { delayedBy, type Follows, type Leg, legsOf, startingAt, transitionForKey } from "./retarget-legs.ts"
+import { delayedBy, type Follows, keyframesFrom, type Leg, legsOf, startingAt, type StopsByKey, transitionForKey } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import {
   changesContext,
@@ -90,7 +90,7 @@ import {
   startsQuiet,
   type WardicVariantContextValue,
 } from "./variant-tree.ts"
-import { type Entry, mergedOf, type NamedTarget, NO_VARIANT_STATE, resolveTarget, resolveTargets, sameLabels, type Target, transitionOfTarget, type VariantState } from "./variant-target.ts"
+import { type Entry, type Keyframes, mergedOf, type NamedTarget, NO_VARIANT_STATE, resolveTarget, resolveTargets, sameLabels, type Target, transitionOfTarget, type VariantState } from "./variant-target.ts"
 
 export { NO_VARIANT_STATE, resolveTarget, type Target, transitionOfTarget, type VariantState } from "./variant-target.ts"
 
@@ -157,10 +157,11 @@ export const exitTargetOf = (config: ExitConfig, presenceCustom: unknown, state:
       transition: transitionOfTarget(merged.transition, config.transition),
       name,
       groups: exitGroupsOf(targets, config.transition),
+      keyframes: merged.keyframes,
     }
   }
   const target = resolveTarget(entry, config.variants, custom, state)
-  return { values: target.values, transition: transitionOfTarget(target.transition, config.transition), name }
+  return { values: target.values, transition: transitionOfTarget(target.transition, config.transition), name, keyframes: target.keyframes }
 }
 
 /** A list's exit groups (#297): each name, with the keys it's the last to set, on its own transition else `element`. */
@@ -307,7 +308,25 @@ export interface Resolution {
   readonly names: GestureNames
   /** Its layers' **Transition ends** (#428), when any active one has one. */
   readonly ends: Ends | undefined
+  /** Each key's **Keyframes**, as the layer that drives it gives them (#429), when any active layer has some. */
+  readonly keyframes: KeyframesNow | undefined
 }
+
+/**
+ * A key's **Keyframes** as a Retarget resolves them (#429): their stops, and the layer that drives the
+ * key, by its place in the Override stack and the variant name it resolved. Two are the same when all
+ * three are, Motion's rule for when Keyframes play again (`animation-state.ts`): an equal list, stop by
+ * stop, that a re-render makes runs on, where new stops, another layer driving the key (a hover over it
+ * ending) or a new name for its layer (`variantDidChange`) plays them again from their first stop.
+ */
+export interface KeyframesAt {
+  readonly stops: Style.Stops
+  readonly layer: number
+  readonly name: string | undefined
+}
+
+/** Each key's {@link KeyframesAt}. */
+export type KeyframesNow = Readonly<Record<string, KeyframesAt>>
 
 /**
  * A resolution's **Transition ends** (#428): each key only a layer's Transition end sets, with the
@@ -331,10 +350,12 @@ export interface Layer {
   readonly name: string | undefined
   /** Its target's **Transition end** (#428): its keys are the layer's, set once its animated keys land. */
   readonly ends: Values.Values
+  /** Its target's **Keyframes** (#429): each such key's stops, its value in `values` their last. */
+  readonly keyframes: Keyframes | undefined
 }
 
 /** A gesture layer that's off: nothing is resolved for it. */
-const OFF: Layer = { active: false, values: {}, transition: undefined, name: undefined, ends: {} }
+const OFF: Layer = { active: false, values: {}, transition: undefined, name: undefined, ends: {}, keyframes: undefined }
 
 /**
  * A gesture's layer (#291), while it's on (its own, or its provider's): its own `while*` (a target, or
@@ -594,6 +615,7 @@ const splitLegsOf = (
   defaultTransition: DefaultTransition.DefaultTransition["Service"],
   velocities: Readonly<Record<string, number>>,
   follow: Follows | undefined,
+  stops: StopsByKey | undefined,
 ): SplitLegs => {
   let returnsAt = 0
   if (listed) returnsAt = resolution.layers.length
@@ -605,7 +627,7 @@ const splitLegsOf = (
     if (Rec.isEmptyRecord(picked)) return
     let followed: Follows | undefined
     if (i === returnsAt) followed = follow
-    const groupLegs = legsOf(from, picked, groupTransitionOf(resolution, groups, i, transition, element, extraDelay, reuse), reduce, positionalKeys, defaultTransition, velocities, followed)
+    const groupLegs = legsOf(from, picked, groupTransitionOf(resolution, groups, i, transition, element, extraDelay, reuse), reduce, positionalKeys, defaultTransition, velocities, followed, stops)
     Arr.forEach(groupLegs, (built) => {
       legs.push(built)
       tags.push(i)
@@ -717,10 +739,17 @@ const gatedBy = <R,>(
 const hasOwnTransition = (layer: Layer): boolean => Bool.and(layer.active, Predicate.isNotUndefined(layer.transition))
 
 /** A target as an active layer, with the name it resolved. */
-const layerOf = (target: Target, name: string | undefined): Layer => ({ active: true, values: target.values, transition: target.transition, name, ends: endsOfTarget(target) })
+const layerOf = (target: Target, name: string | undefined): Layer => ({
+  active: true,
+  values: target.values,
+  transition: target.transition,
+  name,
+  ends: endsOfTarget(target),
+  keyframes: target.keyframes,
+})
 
 /** A list's target as an active layer (#297). */
-const namedLayerOf = (target: NamedTarget): Layer => ({ active: true, values: target.values, transition: target.transition, name: target.name, ends: endsOfTarget(target) })
+const namedLayerOf = (target: NamedTarget): Layer => layerOf(target, target.name)
 
 /** A target's Transition end as a layer's (#428): none shared, so the common case allocates nothing. */
 const endsOfTarget = (target: Target): Values.Values => UndefinedOr.match(target.transitionEnd, { onUndefined: () => NO_VALUES, onDefined: identity })
@@ -738,8 +767,11 @@ const driverOf = (layers: ReadonlyArray<Layer>, key: string): number =>
  * a key only an end sets is the layer's (Motion's `{ ...target, ...transitionEnd }`), and the ends
  * each layer drives.
  */
-const resolvedOf = (layers: ReadonlyArray<Layer>): { readonly resolved: Values.Values; readonly ends: Ends | undefined } => {
-  if (Bool.not(Arr.some(layers, hasEnds))) return { resolved: Override.resolve(layers), ends: undefined }
+const resolvedOf = (layers: ReadonlyArray<Layer>): Resolved => {
+  if (Bool.not(Arr.some(layers, hasEnds))) {
+    const resolved = Override.resolve(layers)
+    return { resolved, ends: undefined, keyframes: keyframesNowOf(layers, resolved) }
+  }
   const merged = Arr.map(layers, (layer): Layer => Bool.match(hasEnds(layer), { onTrue: () => ({ ...layer, values: { ...layer.ends, ...layer.values } }), onFalse: () => layer }))
   const resolved = Override.resolve(merged)
   const endOnly = new Map<string, number>()
@@ -754,7 +786,36 @@ const resolvedOf = (layers: ReadonlyArray<Layer>): { readonly resolved: Values.V
     into[key] = driving.ends[key] as number | string
     byLayer[at] = into
   })
-  return { resolved, ends: { endOnly, byLayer } }
+  return { resolved, ends: { endOnly, byLayer }, keyframes: keyframesNowOf(layers, resolved) }
+}
+
+/** The Override stack resolved: each key's value, its layers' Transition ends (#428) and Keyframes (#429). */
+interface Resolved {
+  readonly resolved: Values.Values
+  readonly ends: Ends | undefined
+  readonly keyframes: KeyframesNow | undefined
+}
+
+/** Whether a layer is on with Keyframes (#429). */
+const hasKeyframes = (layer: Layer): boolean => Bool.and(layer.active, Predicate.isNotUndefined(layer.keyframes))
+
+/**
+ * Each resolved key's Keyframes (#429): the stops of the layer that drives it, when that layer gives
+ * it Keyframes. `undefined`, with nothing made, when no active layer has any: every element's common
+ * case.
+ */
+const keyframesNowOf = (layers: ReadonlyArray<Layer>, resolved: Values.Values): KeyframesNow | undefined => {
+  if (Bool.not(Arr.some(layers, hasKeyframes))) return undefined
+  const now: Record<string, KeyframesAt> = {}
+  Arr.forEach(Rec.keys(resolved), (key) => {
+    const at = driverOf(layers, key)
+    const layer = layers[at]
+    if (Predicate.isUndefined(layer)) return
+    const stops = UndefinedOr.map((layer as Layer).keyframes, (byKey) => byKey[key])
+    if (Bool.or(Predicate.isUndefined(stops), Bool.not(Object.hasOwn((layer as Layer).values, key)))) return
+    now[key] = { stops: stops as Style.Stops, layer: at, name: (layer as Layer).name }
+  })
+  return Bool.match(Rec.isEmptyRecord(now), { onTrue: constUndefined, onFalse: (): KeyframesNow => now })
 }
 
 
@@ -769,7 +830,34 @@ const sameValues: Equivalence.Equivalence<Values.Values> = Rec.makeEquivalence(E
  * compares with it, so a `style` or `transition` change in a ward's config doesn't Retarget.
  */
 export const sameResolution = (a: Resolution, b: Resolution): boolean =>
-  Bool.every([a.dragging === b.dragging, sameLabels(a.variant, b.variant)]) && sameValues(a.resolved, b.resolved) && sameValues(a.base, b.base)
+  Bool.every([a.dragging === b.dragging, sameLabels(a.variant, b.variant)]) && sameValues(a.resolved, b.resolved) && sameValues(a.base, b.base) &&
+  sameKeyframesNow(a.keyframes, b.keyframes)
+
+/** Two lists of stops equal stop by stop (#429, Motion's `shallowCompare`). */
+const sameStops = (a: Style.Stops, b: Style.Stops): boolean => Bool.or(a === b, Bool.and(a.length === b.length, Arr.every(a, (stop, i) => stop === b[i])))
+
+/** A key's Keyframes in `keyframes` (#429): per key, per Retarget, so a guard, nothing made. */
+const keyframesAtOf = (keyframes: KeyframesNow | undefined, key: string): KeyframesAt | undefined => {
+  if (Predicate.isUndefined(keyframes)) return undefined
+  return keyframes[key]
+}
+
+/** Whether a key's Keyframes are the same (#429, {@link KeyframesAt}): its stops, its layer and that layer's name. */
+export const sameKeyframesAt = (a: KeyframesAt | undefined, b: KeyframesAt | undefined): boolean => {
+  if (Bool.or(Predicate.isUndefined(a), Predicate.isUndefined(b))) return a === b
+  const x = a as KeyframesAt
+  const y = b as KeyframesAt
+  return Bool.and(Bool.and(x.layer === y.layer, x.name === y.name), sameStops(x.stops, y.stops))
+}
+
+/** Whether two resolutions' Keyframes are the same, key by key (#429): `undefined` on both, the common case, at once. */
+const sameKeyframesNow = (a: KeyframesNow | undefined, b: KeyframesNow | undefined): boolean => {
+  if (Bool.or(Predicate.isUndefined(a), Predicate.isUndefined(b))) return a === b
+  const x = a as KeyframesNow
+  const y = b as KeyframesNow
+  const keys = Rec.keys(x)
+  return Bool.and(keys.length === Rec.keys(y).length, Arr.every(keys, (key) => sameKeyframesAt(x[key], y[key])))
+}
 
 /** Whether `resolution` is `last` with only its `dragging` handed back (#340). */
 const handsBackOnly = (resolution: Resolution, last: Resolution | undefined): boolean =>
@@ -1015,19 +1103,19 @@ export const resolutionOf = (
     onUndefined: (): Target =>
       UndefinedOr.match(variant, {
         onDefined: (inheritedName) => resolveTarget(inheritedName, variants, c.custom, state),
-        onUndefined: (): Target => ({ values: initialLink, transition: undefined, transitionEnd: undefined }),
+        onUndefined: (): Target => ({ values: initialLink, transition: undefined, transitionEnd: undefined, keyframes: undefined }),
       }),
   })
   const base = target.values
-  const baseLayer: Layer = { active: true, values: base, transition: target.transition, name: variant as string | undefined, ends: endsOfTarget(target) }
+  const baseLayer: Layer = layerOf(target, variant as string | undefined)
   // A Variant child's gestures are on while its provider's are (#291, Motion's `setActive`), each on
   // its own `while*`, else the label the provider hands down. With no provider, its own: nothing made.
   // The common case: nothing handed down and no gesture on. The base layer alone, and nothing else
   // made or called, at every element's mount and Retarget.
   if (Bool.and(handDownFrom(parent) === NO_HAND_DOWN, Bool.not(anyOn(active)))) {
     const alone: ReadonlyArray<Layer> = [baseLayer]
-    const { resolved, ends } = resolvedOf(alone)
-    return { resolved, base, dragging: active.dragging, variant, active, transition: target.transition, layers: alone, names: NO_GESTURE_NAMES, ends }
+    const { resolved, ends, keyframes } = resolvedOf(alone)
+    return { resolved, base, dragging: active.dragging, variant, active, transition: target.transition, layers: alone, names: NO_GESTURE_NAMES, ends, keyframes }
   }
   return withGestures(c, parent, [baseLayer], base, variant, active, target.transition, state)
 }
@@ -1050,8 +1138,8 @@ const withGestures = (
   const variants = c.variants
   const above = handDownFrom(parent)
   if (Bool.and(above === NO_HAND_DOWN, Bool.not(anyOn(active)))) {
-    const { resolved, ends } = resolvedOf(layers)
-    return { resolved, base, dragging: active.dragging, variant, active, transition, layers, names: NO_GESTURE_NAMES, ends }
+    const { resolved, ends, keyframes } = resolvedOf(layers)
+    return { resolved, base, dragging: active.dragging, variant, active, transition, layers, names: NO_GESTURE_NAMES, ends, keyframes }
   }
   const on = gesturesOnOf(active, above)
   const labels = above.names
@@ -1063,9 +1151,9 @@ const withGestures = (
   // NOT stripped, so e.g. `scale: 1.1` animates while held and returns
   // after release.
   gestureLayersInto(layers, c.whileDrag, on.dragged, labels.dragged, variants, c.custom, state)
-  const { resolved, ends } = resolvedOf(layers)
+  const { resolved, ends, keyframes } = resolvedOf(layers)
   const names = activeNamesFor(c, on, labels)
-  return { resolved, base, dragging: active.dragging, variant, active, transition, layers, names, ends }
+  return { resolved, base, dragging: active.dragging, variant, active, transition, layers, names, ends, keyframes }
 }
 
 /** The values an element starts from, read once at setup (ADR-0003, #134). */
@@ -1632,15 +1720,18 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     let carried: Array<Running> | undefined
     let there: Record<string, number | string> | undefined
     const started: Record<string, string> = {}
+    // Each key's Keyframes (#429), when any layer gives some: a key's carries on only toward the same.
+    const keyframesNow = resolution.keyframes
     Arr.forEach(Rec.keys(t), (key) => {
       if (Bool.not(Object.hasOwn(initialValues, key))) ownValue(key)
       const like = t[key]
       const owner = owners.get(key)
+      const stops = keyframesAtOf(keyframesNow, key)
       // A leg drawing it toward another target: it's moving, so it's never already there (#448).
       let drawn = false
       if (Predicate.isNotUndefined(owner)) {
         drawn = Bool.not(owner.done)
-        if (owner.targets[key] === like) {
+        if (Bool.and(owner.targets[key] === like, sameKeyframesAt(keyframesAtOf(owner.resolution.keyframes, key), stops))) {
           if (Predicate.isUndefined(stays)) stays = new Set()
           stays.add(key)
           if (Bool.or(owner.done, owner.landing === landing)) return
@@ -1673,14 +1764,25 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       // shape, with no leg drawing it, at rest and given no velocity by its transition, starts none.
       // It stays, as a carried key does, and is written once more (below), as Motion sets it on the
       // next frame. One that started at its target had no value to show, so its leg writes it, as
-      // Motion's does for a value it has none of.
-      const still = Bool.and(Bool.and(Bool.not(drawn), started[key] !== "target"), Bool.and(snapshot.values[key] === like, velocityOf(snapshot, key) === 0))
+      // Motion's does for a value it has none of. Keyframes are never there (#429): they play.
+      const still = Bool.and(
+        Bool.and(Bool.and(Bool.not(drawn), Predicate.isUndefined(stops)), started[key] !== "target"),
+        Bool.and(snapshot.values[key] === like, velocityOf(snapshot, key) === 0),
+      )
       // Its transition asked last, for a key already there alone: per key, per Retarget.
       if (still && Bool.not(givesVelocity(keyTransitionOf(resolution, groups, key, transition, elementTransition), key))) {
         if (Predicate.isUndefined(stays)) stays = new Set()
         stays.add(key)
         if (Predicate.isUndefined(there)) there = {}
         there[key] = like
+      }
+      // A quiet mount's Keyframes (#429): Motion animates nothing at a first render that starts at its
+      // `animate`, so they stay where they start, `animate`'s last stop with `initial={false}`.
+      if (Bool.and(quiet, Predicate.isNotUndefined(stops))) {
+        if (Predicate.isUndefined(stays)) stays = new Set()
+        stays.add(key)
+        if (Predicate.isUndefined(there)) there = {}
+        there[key] = UndefinedOr.getOrThrow(snapshot.values[key])
       }
     })
     // A key no longer resolved (one the drag holds, or one with no Base value) is given up: it stays
@@ -1707,7 +1809,15 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       freshEnds = Rec.filter(fresh, (_, key) => endOnly.has(key))
       if (hasKeys(freshEnds)) fresh = Rec.filter(fresh, (_, key) => Bool.not(endOnly.has(key)))
     }
-    const from: Values.Values = Rec.map(fresh, (_, key) => UndefinedOr.getOrThrow(snapshot.values[key]))
+    let from: Values.Values = Rec.map(fresh, (_, key) => UndefinedOr.getOrThrow(snapshot.values[key]))
+    // Keyframes (#429) start at their first stop, a `null` one where the key is; those of more than
+    // two stops run through them.
+    let manyStops: StopsByKey | undefined
+    if (Predicate.isNotUndefined(keyframesNow)) {
+      const begun = keyframesFrom(from, fresh, Rec.map(keyframesNow, (at) => at.stops))
+      from = begun.from
+      manyStops = begun.stops
+    }
     // Each leg: the base-value log at the head of the first, and, once the leg's run
     // settles, a count toward this landing, so the per-frame handlers stay as they were.
     let pendingLog = Bool.match(returns.length > 0 || Bool.not(Rec.isEmptyRecord(started)), {
@@ -1784,9 +1894,11 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // A key that stays starts none, and no keys make no leg (#325).
     let retargetLegs: ReadonlyArray<Leg> = NO_LEGS
     let legGroups: ReadonlyArray<number> | undefined
-    if (Bool.and(Predicate.isUndefined(groups), hasKeys(fresh))) retargetLegs = legsOf(from, fresh, transition, reduce, positionalKeys, defaultTransition, snapshot.velocities, follow)
+    if (Bool.and(Predicate.isUndefined(groups), hasKeys(fresh))) {
+      retargetLegs = legsOf(from, fresh, transition, reduce, positionalKeys, defaultTransition, snapshot.velocities, follow, manyStops)
+    }
     if (Predicate.isNotUndefined(groups)) {
-      const split = splitLegsOf(fresh, from, groups, resolution, listed, transition, elementTransition, extraDelay, options.reuse, reduce, positionalKeys, defaultTransition, snapshot.velocities, follow)
+      const split = splitLegsOf(fresh, from, groups, resolution, listed, transition, elementTransition, extraDelay, options.reuse, reduce, positionalKeys, defaultTransition, snapshot.velocities, follow, manyStops)
       retargetLegs = split.legs
       legGroups = split.tags
     }
@@ -1795,7 +1907,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     if (Predicate.isNotUndefined(handoff)) {
       const taken = handoff
       handoff = undefined
-      checkHandoff(runtime, id, taken, { tag, from, to: fresh, transition: baseTransition, reduced: reduce, layout: isLayoutNode(c) })
+      checkHandoff(runtime, id, taken, { tag, from, to: fresh, transition: baseTransition, reduced: reduce, layout: isLayoutNode(c), stops: manyStops })
       const at = startAtOf(taken, baseTransition, delayOf(transition))
       retargetLegs = Arr.map(retargetLegs, (one) => startingAt(one, at))
     }
@@ -2218,6 +2330,7 @@ export const appearEntryOf = (
   tag: string | undefined,
   initialValues: Values.Values,
   node: ServerVariantNode,
+  quiet: boolean,
 ): ServerAppearOf =>
   UndefinedOr.match(state, {
     onUndefined: () => NO_APPEAR_ENTRY(node.provided),
@@ -2230,6 +2343,8 @@ export const appearEntryOf = (
         tag,
         initial: initialValues,
         to: Option.map(target, (t) => t.values),
+        keyframes: Option.getOrUndefined(Option.flatMap(target, (t) => Option.fromUndefinedOr(t.keyframes))),
+        quiet,
         transition: transitionOfTarget(own, ownOrInherited(c.transition, node.inherited)),
         layout: isLayoutNode(c),
         group: Option.flatMap(Option.fromUndefinedOr(node.inherited), (inherited) => Option.fromUndefinedOr(inherited.appearGroup)),

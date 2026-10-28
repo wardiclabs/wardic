@@ -46,7 +46,7 @@ import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicTransition, WardicVariantLabels } from "./config.ts"
 import type { ExitGroup, PresenceContextValue, PresenceExit, PresenceRecord, PresenceSeed, PresenceTree, PresenceWatch } from "./presence-record.ts"
-import { delayedBy, type Leg, legsOf } from "./retarget-legs.ts"
+import { delayedBy, keyframesFrom, type Leg, legsOf, type StopsByKey } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import { staggerOf } from "./variant-tree.ts"
 
@@ -196,6 +196,8 @@ const NO_DELAY: DelayOf = () => 0
 interface PreparedExit {
   readonly el: HTMLElement
   readonly from: Values.Values
+  /** Its Keyframes of more than two stops (#429), `from` at their first. */
+  readonly stops: StopsByKey | undefined
   readonly commitFrame: FrameLoop.Sink<Frame.Frame<Values.Values>>
   readonly velocities: Record<string, number>
 }
@@ -829,16 +831,16 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   const exitOf = (rec: PresenceRecord, exit: PresenceExit, delay: DelayOf, only?: string): Effect.Effect<unknown, never, WardicServices> => {
     const to = exit.values
     if (isEmpty(to)) return Effect.void
-    const { from, commitFrame, velocities, el } = preparedOf(rec, exit)
+    const { from, stops, commitFrame, velocities, el } = preparedOf(rec, exit)
     // A list's exit by name (#297): each name's keys on its own transition, at its own delay; one
     // name's alone when its `when` orders it (#297's PR 2).
     const reduce = reducedMotion()
     const legs = UndefinedOr.match(exit.groups, {
-      onUndefined: () => legsOf(from, to, delayedBy(exit.transition, delay(singleNameOf(exit.name))), reduce, positionalKeys, defaultTransition, NO_VELOCITIES),
+      onUndefined: () => legsOf(from, to, delayedBy(exit.transition, delay(singleNameOf(exit.name))), reduce, positionalKeys, defaultTransition, NO_VELOCITIES, undefined, stops),
       onDefined: (groups) =>
         Arr.flatMap(
           Arr.filter(groups, (group) => Bool.or(Predicate.isUndefined(only), group.name === only)),
-          (group: ExitGroup) => legsOf(from, group.values, delayedBy(group.transition, delay(group.name)), reduce, positionalKeys, defaultTransition, NO_VELOCITIES),
+          (group: ExitGroup) => legsOf(from, group.values, delayedBy(group.transition, delay(group.name)), reduce, positionalKeys, defaultTransition, NO_VELOCITIES, undefined, stops),
         ),
     })
     return Effect.all(Arr.map(legs, (leg) => exitRunOf(leg, el, commitFrame, velocities)), { concurrency: "unbounded", discard: true })
@@ -861,10 +863,15 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
         onUndefined: () => target,
         onDefined: identity,
       })
-    const from: Values.Values = {
+    const seeded: Values.Values = {
       ...snapshot,
       ...Rec.map(Rec.filter(to, (_, key) => Predicate.isUndefined(snapshot[key])), (target, key) => startOf(key, target)),
     }
+    // Its Keyframes (#429) start at their first stop, a `null` one where the key is.
+    const { from, stops } = UndefinedOr.match(exit.keyframes, {
+      onUndefined: () => ({ from: seeded, stops: undefined }),
+      onDefined: (keyframes) => keyframesFrom(seeded, to, keyframes),
+    })
     // The merged latest value-map, so each committed frame carries every key.
     const latest: Values.Values = { ...from }
     // What the exit has drawn, for the projection (ADR-0010 *Amendment (#181)*): the twins handed back
@@ -881,7 +888,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       Object.assign(drawn, latest)
       return undefined
     }
-    const made: PreparedExit = { el, from, commitFrame, velocities }
+    const made: PreparedExit = { el, from, stops, commitFrame, velocities }
     prepared.set(exit, made)
     return made
   }

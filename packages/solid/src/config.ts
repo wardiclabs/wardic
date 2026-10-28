@@ -98,6 +98,24 @@ export type WardicValues =
   & WardicSvgAttributes
 
 /**
+ * A **Keyframes** value (#429, Motion's): the stops a key passes through in order, as
+ * `animate={{ scale: [1, 1.2, 1] }}`. A first `null` is where the key is now; a later one repeats the
+ * stop before it. An explicit first stop is jumped to as its animation starts. More than two stops run
+ * on a tween (Motion's 0.8 s one with no transition defined; `times` places them, `ease` may be one per
+ * Segment): a spring takes two.
+ */
+export type WardicKeyframes<V> = ReadonlyArray<V | null>
+
+/**
+ * A target's values (#429): {@link WardicValues}, each a value or its {@link WardicKeyframes}. Every
+ * target takes them (`animate`, `exit`, each `while*`, a variant); `initial` reads one at its first
+ * stop. `style` and a Transition end take one value, as does CSS's own `transition` string.
+ */
+export type WardicTargetValues = {
+  readonly [K in keyof WardicValues]?: K extends "transition" ? WardicValues[K] : WardicValues[K] | WardicKeyframes<Exclude<WardicValues[K], undefined>>
+}
+
+/**
  * Variant-orchestration fields (ADR-0007, step 21b), shared by both transition
  * arms. They only take effect on the parent that renders `ward.Provider`; a
  * child inherits them as the default transition but reads orchestration off the
@@ -140,7 +158,8 @@ export interface WardicReducedMotion {
  * 10 / 1, a tween's easing Motion's `easeOut`. A spring set by time (#359: a `duration`, `bounce` or
  * `visualDuration`, and no stiffness, damping or mass) is solved to its physics instead, as Motion's
  * (`Machine.SpringOptions`). `"tween"` routes every key
- * through `animateValues` (duration-based, no velocity). Both arms also carry the
+ * through `animateValues` (duration-based, no velocity), and a key's Keyframes through
+ * `keyframesValues`, with `times` and an `ease` per Segment (#429). Both arms also carry the
  * optional {@link WardicOrchestration} fields, {@link WardicReducedMotion}'s opt-out, and
  * {@link WardicTransitionEntries}: a value's own transition (#301).
  * `from` is the stagger's origin on both: a spring's own `from` was never a transition's (each
@@ -154,7 +173,7 @@ export type WardicTransition = WardicTransitionWith<WardicTransitionEntries>
  */
 export type WardicTransitionWith<E> =
   | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicOrchestration & WardicReducedMotion & E)
-  | ({ readonly type?: "tween" } & Machine.AnimateOptions & WardicOrchestration & WardicReducedMotion & E)
+  | ({ readonly type?: "tween" } & Machine.KeyframesOptions & WardicOrchestration & WardicReducedMotion & E)
 
 /**
  * One value's own transition (#301, Motion's `ValueTransition`): a spring or a tween, as a
@@ -164,7 +183,7 @@ export type WardicTransitionWith<E> =
  */
 export type WardicValueTransition =
   | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicReducedMotion & WardicInherit)
-  | ({ readonly type?: "tween" } & Machine.AnimateOptions & WardicReducedMotion & WardicInherit)
+  | ({ readonly type?: "tween" } & Machine.KeyframesOptions & WardicReducedMotion & WardicInherit)
 
 /** An entry's or a target's `inherit` (#277, #301, Motion's): laid over the transition it would replace. */
 export interface WardicInherit {
@@ -204,13 +223,13 @@ export type WardicTransitionEnd = Omit<WardicValues, "transition">
 
 /**
  * A target, as a variant, `animate` or `exit` gives it (#277, Motion's `TargetAndTransition`): its
- * values, optionally the transition the animation to it runs on, as an object, and its Transition end
- * ({@link WardicTransitionEnd}, #428). A plain {@link WardicValues} map fits too, its CSS `transition`
- * string a value as any other.
+ * values, each a value or its Keyframes (#429, {@link WardicTargetValues}), optionally the transition
+ * the animation to it runs on, as an object, and its Transition end ({@link WardicTransitionEnd},
+ * #428). A plain {@link WardicValues} map fits too, its CSS `transition` string a value as any other.
  */
 export type WardicVariant =
-  | (WardicValues & { readonly transitionEnd?: WardicTransitionEnd })
-  | (Omit<WardicValues, "transition"> & { readonly transition?: WardicVariantTransition; readonly transitionEnd?: WardicTransitionEnd })
+  | (WardicTargetValues & { readonly transitionEnd?: WardicTransitionEnd })
+  | (Omit<WardicTargetValues, "transition"> & { readonly transition?: WardicVariantTransition; readonly transitionEnd?: WardicTransitionEnd })
 
 /**
  * Variant names (#297, Motion's `VariantLabels`): one name, or a list of them. A list merges its

@@ -63,7 +63,7 @@ import { dragTransitionOf, type DragTrack, type DragTrackConfig, runDragTrack } 
 import { createElementStyle } from "./element-style.ts"
 import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegistryOf, split } from "./live-style.ts"
 import { createVariantNode } from "./variant-node.ts"
-import { type GestureStates, type NameOrchestration, type ServerVariantNode, serverVariantNode, startingValuesOf } from "./variant-tree.ts"
+import { type GestureStates, type NameOrchestration, type ServerVariantNode, serverVariantNode, startingValuesOf, startsQuiet } from "./variant-tree.ts"
 import { useLayoutMember } from "./layout.tsx"
 import { layoutOptionsOf, wantsLayoutNode } from "./layout-member.ts"
 import { trackConstraintsOf } from "./drag-constraints.ts"
@@ -937,7 +937,7 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
   const initialValues = startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack)
   // Its Appear animation (#48, ADR-0044): its slot in the render's, and the group its Variant
   // children join when it leads one.
-  const appear = serverAppearOf(c, internal.tag, initialValues, node)
+  const appear = serverAppearOf(c, internal.tag, initialValues, node, startsQuiet(c, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack))
   const Provider: Component<{ readonly children?: JSX.Element }> = (props) => (
     <WardicVariantContext.Provider value={appear.provided}>{props.children}</WardicVariantContext.Provider>
   )
@@ -995,8 +995,8 @@ const SERVER_APPEAR = Symbol("wardic.serverAppear")
 export const serverAppearOfWard = (ward: Ward): ServerAppearOf | undefined => (ward as Ward & { readonly [SERVER_APPEAR]?: ServerAppearOf })[SERVER_APPEAR]
 
 /** {@link appearEntryOf} with this provider's Appear state (#48, ADR-0044). */
-export const serverAppearOf = (c: WardConfig, tag: string | undefined, initialValues: Values.Values, node: ServerVariantNode): ServerAppearOf =>
-  appearEntryOf(useWardicAppear(), c, tag, initialValues, node)
+export const serverAppearOf = (c: WardConfig, tag: string | undefined, initialValues: Values.Values, node: ServerVariantNode, quiet: boolean): ServerAppearOf =>
+  appearEntryOf(useWardicAppear(), c, tag, initialValues, node, quiet)
 
 /** A style value read on a server: an Atom through a server's own registry, an accessor called (#130). */
 const readServerStyle = (value: unknown): unknown => readLive(value, serverRegistryOf, untrack)

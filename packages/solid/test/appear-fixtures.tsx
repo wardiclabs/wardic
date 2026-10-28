@@ -54,6 +54,18 @@ export const A9 = (): JSX.Element =>
     />
   ))
 
+/** Keyframes (#429): a first `null` stop from `initial`, through 200, to 80. */
+export const A10 = (): JSX.Element =>
+  page(() => (
+    <wardic.div
+      data-k="stops"
+      style={{ width: "40px", height: "40px" }}
+      initial={{ x: 0 }}
+      animate={{ x: [null, 200, 80] }}
+      transition={{ type: "tween", duration: 1.2, ease: "linear" }}
+    />
+  ))
+
 /** A parent that fades in before its child rises (`when: "beforeChildren"`). */
 export const A4 = (): JSX.Element => {
   const child = { hidden: { opacity: 0, y: 20 }, shown: { opacity: 1, y: 0 } }
