@@ -99,8 +99,8 @@ export interface Value {
   /**
    * Present on a Follower (ADR-0010, *Amendment (#165)*): pointer input passes through it to
    * what's beneath, so a Follower locked onto its Lead's box never takes the Lead's input,
-   * fading out or hidden at rest (Motion's). The DOM's renderer writes `pointer-events: none`.
-   * Absent on a Lead, so the element's own value shows.
+   * fading out or hidden at rest (Motion's). How a renderer lets it through is its Environment's
+   * (the DOM's: `@wardic/dom`'s renderer). Absent on a Lead, so the element's own value shows.
    */
   readonly passesPointer?: true
 }
