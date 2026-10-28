@@ -50,6 +50,8 @@ export type {
   WardicTransitionEntries,
   WardicValueKey,
   WardicValueTransition,
+  WardicKeyframes,
+  WardicTargetValues,
   WardicValues,
   WardicVariant,
   WardicVariantLabels,

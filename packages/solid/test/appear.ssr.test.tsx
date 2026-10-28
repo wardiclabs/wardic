@@ -39,6 +39,10 @@
 //   hold both: an entry that repeats under own fields that don't, and own fields that repeat beside
 //   an entry that doesn't, or beside `default` driving every key. A `layout` entry alone leaves the
 //   cycle playing.
+// - AR22 (#429): Keyframes play on the server: the rule goes through every stop, a first `null` one
+//   from `initial`; Keyframes whose last stop is `initial`'s still play, and two that differ only in
+//   their middle stop get two rules; an `initial` with Keyframes renders its first stop, and
+//   `initial={false}` the last of `animate`'s, with no rule.
 // - AR21 (#448): a key already at its target, coerced to its shape, is left out of the rule, as the
 //   client starts it no leg: one at `1` beside a key that moves, `"0px"` against `0`, and an `auto` the
 //   DOM would read, which no longer stops the rule. An element whose every key is there has none.
@@ -545,6 +549,39 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     expect(ruleOf("coerced"), "opacity alone").toBe("opacity:0")
     expect(ruleOf("auto"), "opacity alone, the auto left out").toBe("opacity:0")
     expect(tagsOf(html).find((t) => t.attrs["data-k"] === "there")?.style.animation, "every key there: none").toBeUndefined()
+  })
+
+  it("AR22: Keyframes play on the server; initial's render its first stop, initial={false} animate's last (#429)", () => {
+    const LINEAR_1S = { type: "tween", duration: 1, ease: "linear" } as const
+    const html = page(() => (
+      <>
+        <wardic.div data-k="stops" initial={{ opacity: 0 }} animate={{ opacity: [0, 1, 0.5] }} transition={LINEAR_1S} />
+        <wardic.div data-k="null" initial={{ x: 20 }} animate={{ x: [null, 100, 0] }} transition={LINEAR_1S} />
+        <wardic.div data-k="first" initial={{ x: [30, 90] }} animate={{ x: 0 }} />
+        <wardic.div data-k="last" initial={false} animate={{ x: [0, 100, 40] }} />
+        <wardic.div data-k="pulse" initial={{ opacity: 1 }} animate={{ opacity: [1, 0.2, 1] }} transition={LINEAR_1S} />
+        <wardic.div data-k="low" initial={{ opacity: 0 }} animate={{ opacity: [0, 0.3, 1] }} transition={LINEAR_1S} />
+        <wardic.div data-k="high" initial={{ opacity: 0 }} animate={{ opacity: [0, 0.7, 1] }} transition={LINEAR_1S} />
+      </>
+    ))
+    const css = headCss(html)
+    const tag = (k: string) => tagsOf(html).find((t) => t.attrs["data-k"] === k)
+    const ruleOf = (k: string): string => {
+      const name = timing(css, propertyOf(tag(k)?.style.animation)).normal.split(" ")[0] ?? ""
+      return new RegExp(`@keyframes ${name}\\{(.*?\\})\\}`).exec(css)?.[1] ?? ""
+    }
+    expect(ruleOf("stops"), "from its first stop").toMatch(/^0%\{opacity:0\}/)
+    expect(ruleOf("stops"), "through its middle one").toContain("{opacity:1}")
+    expect(ruleOf("stops"), "to its last").toMatch(/100%\{opacity:0\.5\}$/)
+    expect(ruleOf("null"), "a null first stop from initial").toMatch(/^0%\{transform:translateX\(20px\)\}/)
+    expect(ruleOf("null")).toContain("{transform:translateX(100px)}")
+    expect(ruleOf("null"), "to its last, at rest").toMatch(/100%\{transform:none\}$/)
+    expect(tag("first")?.style.transform, "initial's first stop").toBe("translateX(30px)")
+    expect(tag("last")?.style.transform, "animate's last stop").toBe("translateX(40px)")
+    expect(tag("last")?.style.animation, "and nothing plays").toBeUndefined()
+    expect(ruleOf("pulse"), "its last stop initial's, still played").toContain("{opacity:0.2}")
+    expect(ruleOf("low"), "its own middle stop").toContain("{opacity:0.3}")
+    expect(ruleOf("high"), "its own middle stop, a rule of its own").toContain("{opacity:0.7}")
   })
 })
 

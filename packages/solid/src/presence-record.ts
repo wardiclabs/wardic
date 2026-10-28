@@ -6,6 +6,7 @@
  */
 import type * as Box from "@wardic/core/Box"
 import type * as Values from "@wardic/core/Values"
+import type * as Style from "@wardic/dom/Style"
 import type { WardicTransition, WardicVariantLabels } from "./config.ts"
 import { constFalse } from "effect/Function"
 import * as Predicate from "effect/Predicate"
@@ -73,6 +74,8 @@ export interface PresenceExit {
    * name has one, keys or none. Left out for a single name or a values map: the whole exit is one.
    */
   readonly groups?: ReadonlyArray<ExitGroup> | undefined
+  /** Its Keyframes (#429): each such key's stops, its value in `values` their last. Left out with none. */
+  readonly keyframes?: Readonly<Record<string, Style.Stops>> | undefined
 }
 
 /** One name of a list's exit (#297): its keys, and the transition they and its orchestration run on. */

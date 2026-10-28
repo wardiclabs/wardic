@@ -29,7 +29,8 @@ import { ownOrInherited, type WardicVariantContextValue } from "./variant-tree.t
  */
 const asLayoutTransition = (t: WardicTransition): ProjectionSystem.LayoutTransition =>
   UndefinedOr.match(runOf(t), {
-    onDefined: (run): ProjectionSystem.LayoutTransition => run,
+    // A layout tween takes one `ease`: a list of them (#429) is a Keyframes tween's, which core's layout tween rejects.
+    onDefined: (run): ProjectionSystem.LayoutTransition => run as ProjectionSystem.LayoutTransition,
     onUndefined: () =>
       UndefinedOr.match(t.delay, { onUndefined: () => ProjectionSystem.DEFAULT_LAYOUT_TRANSITION, onDefined: (delay): ProjectionSystem.LayoutTransition => ({ ...ProjectionSystem.DEFAULT_LAYOUT_TRANSITION, delay }) }),
   })

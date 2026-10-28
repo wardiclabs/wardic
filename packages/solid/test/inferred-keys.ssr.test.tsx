@@ -20,6 +20,9 @@
 //   and takes every name.
 // - IK8 (#428): a Transition end on any target, its names checked; a key only a Transition end sets
 //   takes no transition entry, and a Transition end widens nothing.
+// - IK9 (#429): Keyframes on every target, `null` among their stops, their keys the element's, and a
+//   tween's `times` and an `ease` per Segment; none in `style` or a Transition end, and a stop of the
+//   wrong kind is an error.
 import * as Bool from "effect/Boolean"
 import { createWard, type WardConfig, wardic, type WardicVariant } from "@wardic/solid"
 import { describe, it } from "vitest"
@@ -255,6 +258,35 @@ describe("a Wardic element's keys, inferred from its targets (#305)", () => {
         animate={{ opacity: 0, transitionEnd: { display: "none" } }}
         transition={{
           // @ts-expect-error a Transition end widens nothing: scale is still no key of the element's
+          scale: FAST,
+        }}
+      />
+    ))
+  })
+
+  it("IK9: Keyframes on every target, their keys the element's; none in style or a Transition end", () => {
+    typed(() => (
+      <wardic.div
+        initial={{ scale: [0.6, 1] }}
+        animate={{ scale: [null, 1.15, 1], "background-color": ["#bf616a", "#a3be8c"] }}
+        exit={{ opacity: [1, 0.4, 0] }}
+        whileHover={{ rotate: [0, -6, 6, 0] }}
+        variants={{ shake: { x: [0, -8, 8, 0], transition: { x: { type: "tween", times: [0, 0.2, 0.8, 1] } } } }}
+        transition={{ scale: { type: "tween", duration: 0.8, times: [0, 0.3, 1], ease: ["easeOut", "easeIn"], repeat: Infinity }, rotate: FAST }}
+      />
+    ))
+    typed(() => createWard({ animate: { x: [0, 100, 0] }, transition: { x: { type: "tween", ease: ["easeIn", "easeOut"] } } }))
+    // @ts-expect-error style takes one value a key, as Motion's does
+    typed(() => <wardic.div style={{ opacity: [0, 1] }} />)
+    // @ts-expect-error a Transition end takes one value a key
+    typed(() => <wardic.div animate={{ opacity: 0, transitionEnd: { opacity: [0, 1] } }} />)
+    // @ts-expect-error a stop of the wrong kind: an object
+    typed(() => <wardic.div animate={{ opacity: [0, { a: 1 }] }} />)
+    typed(() => (
+      <wardic.div
+        animate={{ x: [0, 100, 0] }}
+        transition={{
+          // @ts-expect-error Keyframes' keys are the element's, and no other
           scale: FAST,
         }}
       />

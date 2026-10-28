@@ -6,9 +6,13 @@
  *
  * - **Which transition** (ADR-0051, #357): a key runs on the transition it resolves to (#301), as
  *   Motion's: with none defined there, on its Environment's Default transition for it ({@link runOf}).
- * - **A tween** runs every key, numbers and strings, in one `animateValues` leg.
+ * - **A tween** runs every key, numbers and strings, in one `animateValues` leg; with a key's
+ *   Keyframes among them (#429, ADR-0058), or `times` or an `ease` per Segment, in one
+ *   `keyframesValues` leg.
  * - **A spring** runs the numbers in one `springValues` leg, carrying velocity, and the strings in
- *   one `springBlend` leg on the same spring (ADR-0024, D5).
+ *   one `springBlend` leg on the same spring (ADR-0024, D5). It takes two stops: Keyframes of more
+ *   are Motion's error, and land on their last stop.
+ * - **Keyframes of two stops** run as a target does, from their first stop ({@link keyframesFrom}).
  * - **Reduced motion** (ADR-0029): when it applies, the positional keys snap in a leg of their own,
  *   after the delay their transition gives, to where their leg would have ended.
  * - **A return to a moving Live value** (#130, ADR-0043 decision 6) runs a leg of its own per key,
@@ -26,6 +30,7 @@ import * as Machine from "@wardic/core/Machine"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Spring from "@wardic/core/Spring"
 import * as Values from "@wardic/core/Values"
+import type * as Style from "@wardic/dom/Style"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
@@ -234,7 +239,64 @@ const delayIn = (transition: WardicTransition | undefined): number =>
  * A transition as its legs run it: a spring or a tween, Motion's fields filled in (ADR-0051), with
  * its reduced-motion opt-out.
  */
-export type Run = DefaultTransition.Transition & { readonly respectReducedMotion?: boolean }
+export type Run = (DefaultTransition.Transition | DefaultTransition.KeyframesTransition) & { readonly respectReducedMotion?: boolean }
+
+/** Each key's stops past its first two (#429): the Keyframes a tween runs through `keyframesValues`. */
+export type StopsByKey = Readonly<Record<string, ReadonlyArray<number | string>>>
+
+/** Where a Retarget's keys start, and each one's stops, its Keyframes resolved ({@link keyframesFrom}). */
+export interface KeyframesStart {
+  readonly from: Values.Values
+  readonly stops: StopsByKey | undefined
+}
+
+/**
+ * Where a target's keys start with its **Keyframes** resolved (#429, Motion's): a first `null` stop is
+ * where the key is (`from`), each later one the stop before (`fillWildcards`), and an explicit first
+ * stop is where it starts, jumped to. `stops` holds the keys with more than two: a key with two runs
+ * as a target does, from its first, so a spring takes it with the key's velocity, as Motion's.
+ *
+ * @param from each key's start
+ * @param to each key's target, its Keyframes' last stop
+ * @param keyframes each Keyframes key's stops; only the keys `to` has are read
+ */
+export const keyframesFrom = (from: Values.Values, to: Values.Values, keyframes: Readonly<Record<string, Style.Stops>>): KeyframesStart => {
+  const started: Record<string, number | string> = { ...from }
+  let many: Record<string, ReadonlyArray<number | string>> | undefined
+  Arr.forEach(Rec.keys(keyframes), (key) => {
+    if (Bool.not(Object.hasOwn(to, key))) return
+    const filled = filledStops(UndefinedOr.getOrThrow(keyframes[key]), UndefinedOr.getOrThrow(from[key]))
+    started[key] = UndefinedOr.getOrThrow(filled[0])
+    if (filled.length < 3) return
+    if (Predicate.isUndefined(many)) many = {}
+    many[key] = filled
+  })
+  return { from: started, stops: many }
+}
+
+/** Stops with each `null` filled (#429, Motion's `fillWildcards`): the first with `start`, a later one with the stop before. */
+const filledStops = (stops: Style.Stops, start: number | string): ReadonlyArray<number | string> => {
+  let before = start
+  return Arr.map(stops, (stop) => {
+    if (Predicate.isNotNull(stop)) before = stop
+    return before
+  })
+}
+
+/**
+ * Why Keyframes of more than two stops can't run on a spring (#429): Motion's development error
+ * ("Only two keyframes currently supported with spring and inertia animations"), naming each key, its
+ * stops and the fix.
+ */
+const springStopsError = (stops: StopsByKey): Error =>
+  new Error(
+    `wardic: ${Arr.map(Rec.toEntries(stops), ([key, list]) => `"${key}" has ${list.length} keyframes`).join(", ")}, and a spring takes two, as Motion's does (#429). ` +
+      `Run them on a tween: transition: { ${Arr.map(Rec.keys(stops), (key) => `${JSON.stringify(key)}: { type: "tween" }`).join(", ")} }.`,
+  )
+
+/** Whether a tween's options need `keyframesValues` (#429): `times`, or an `ease` per Segment, which `animateValues` doesn't take. */
+const keyframedOptions = (options: Machine.KeyframesOptions): boolean =>
+  Bool.or(Predicate.isNotUndefined(options.times), Bool.and(Array.isArray(options.ease), Bool.not(Easing.isBezier(options.ease as Easing.Definition))))
 
 /**
  * The spring fields: one of them, with no `type`, makes a transition a spring, a value's or a layout
@@ -342,6 +404,7 @@ const hasKeys: Predicate.Predicate<Values.Values> = Predicate.not(Rec.isEmptyRec
  * @param defaults what a key with no transition defined runs on: the Environment's (ADR-0051)
  * @param velocities each key's velocity now: a spring starts from it
  * @param follow the returns that follow a moving Live value (#130), given only when the Retarget returns a key
+ * @param stops each key's Keyframes of more than two stops (#429, {@link keyframesFrom}), `from` at their first
  */
 export const legsOf = (
   from: Values.Values,
@@ -352,12 +415,13 @@ export const legsOf = (
   defaults: DefaultTransition.DefaultTransition["Service"],
   velocities: Readonly<Record<string, number>>,
   follow?: Follows | undefined,
+  stops?: StopsByKey | undefined,
 ): ReadonlyArray<Leg> => {
   // Each key on its own transition (#301): with entries, the keys go by the transition each runs on.
   const entries = entriesOf(given)
-  if (Predicate.isUndefined(entries)) return legsOn(from, to, given, reducedMotion, positionalKeys, defaults, velocities, follow)
+  if (Predicate.isUndefined(entries)) return legsOn(from, to, given, reducedMotion, positionalKeys, defaults, velocities, follow, stops)
   // With no value's entry (`layout` and `default` alone), every key runs on one transition.
-  if (Bool.not(entries.byValue)) return legsOn(from, to, forKey(entries, "default"), reducedMotion, positionalKeys, defaults, velocities, follow)
+  if (Bool.not(entries.byValue)) return legsOn(from, to, forKey(entries, "default"), reducedMotion, positionalKeys, defaults, velocities, follow, stops)
   const byTransition = new Map<WardicTransition, Record<string, number | string>>()
   Arr.forEach(Rec.keys(to), (key) => {
     const runsOn = forKey(entries, key)
@@ -368,11 +432,33 @@ export const legsOf = (
     }
     byTransition.set(runsOn, { [key]: to[key] as number | string })
   })
-  return Arr.flatMap(Arr.fromIterable(byTransition), ([runsOn, keys]) => legsOn(from, keys, runsOn, reducedMotion, positionalKeys, defaults, velocities, follow))
+  return Arr.flatMap(Arr.fromIterable(byTransition), ([runsOn, keys]) => legsOn(from, keys, runsOn, reducedMotion, positionalKeys, defaults, velocities, follow, stops))
 }
 
 /** No legs: a Retarget with no key. */
 const NO_LEGS: ReadonlyArray<Leg> = []
+
+/** No values: the failed leg of Keyframes on a spring draws none (#429). */
+const NO_VALUES: Values.Values = {}
+
+/** Whether `key` has Keyframes of more than two stops in `stops` (#429): none without any. */
+const hasStops = (stops: StopsByKey | undefined, key: string): boolean => {
+  if (Predicate.isUndefined(stops)) return false
+  return Object.hasOwn(stops, key)
+}
+
+/** Whether any key of `values` has Keyframes of more than two stops (#429): per Retarget, so nothing made. */
+const anyKeyframed = (values: Values.Values, stops: StopsByKey | undefined): boolean => {
+  if (Predicate.isUndefined(stops)) return false
+  return Rec.some(values, (_, key) => Object.hasOwn(stops, key))
+}
+
+/** Each key's stops (#429): its Keyframes', or its start and target. */
+const stopsFor = (from: Values.Values, to: Values.Values, stops: StopsByKey | undefined): StopsByKey =>
+  Rec.map(to, (target, key): ReadonlyArray<number | string> => {
+    if (hasStops(stops, key)) return (stops as StopsByKey)[key] as ReadonlyArray<number | string>
+    return [UndefinedOr.getOrThrow(from[key]), target]
+  })
 
 /**
  * {@link legsOf} on one transition: as it runs, or, when it defines none, each key on its Default
@@ -387,19 +473,20 @@ const legsOn = (
   defaults: DefaultTransition.DefaultTransition["Service"],
   velocities: Readonly<Record<string, number>>,
   follow: Follows | undefined,
+  stops: StopsByKey | undefined,
 ): ReadonlyArray<Leg> => {
   const run = runOf(given)
-  if (Predicate.isNotUndefined(run)) return legsWith(from, to, run, reducedMotion, positionalKeys, velocities, follow)
+  if (Predicate.isNotUndefined(run)) return legsWith(from, to, run, reducedMotion, positionalKeys, velocities, follow, stops)
   const keys = Rec.keys(to)
   if (keys.length === 0) return NO_LEGS
   // Nearly always one Default transition for every key (a fade, a move): no grouping.
-  const first = defaults.transitionFor(UndefinedOr.getOrThrow(keys[0]), to[UndefinedOr.getOrThrow(keys[0])] as number | string)
-  if (Arr.every(keys, (key) => defaults.transitionFor(key, to[key] as number | string) === first)) {
-    return legsWith(from, to, carried(first, given), reducedMotion, positionalKeys, velocities, follow)
+  const first = defaultFor(defaults, UndefinedOr.getOrThrow(keys[0]), to, stops)
+  if (Arr.every(keys, (key) => defaultFor(defaults, key, to, stops) === first)) {
+    return legsWith(from, to, carried(first, given), reducedMotion, positionalKeys, velocities, follow, stops)
   }
-  const byDefault = new Map<DefaultTransition.Transition, Record<string, number | string>>()
+  const byDefault = new Map<DefaultTransition.Transition | DefaultTransition.KeyframesTransition, Record<string, number | string>>()
   Arr.forEach(keys, (key) => {
-    const runsOn = defaults.transitionFor(key, to[key] as number | string)
+    const runsOn = defaultFor(defaults, key, to, stops)
     const grouped = byDefault.get(runsOn)
     if (Predicate.isNotUndefined(grouped)) {
       grouped[key] = to[key] as number | string
@@ -407,7 +494,21 @@ const legsOn = (
     }
     byDefault.set(runsOn, { [key]: to[key] as number | string })
   })
-  return Arr.flatMap(Arr.fromIterable(byDefault), ([runsOn, grouped]) => legsWith(from, grouped, carried(runsOn, given), reducedMotion, positionalKeys, velocities, follow))
+  return Arr.flatMap(Arr.fromIterable(byDefault), ([runsOn, grouped]) => legsWith(from, grouped, carried(runsOn, given), reducedMotion, positionalKeys, velocities, follow, stops))
+}
+
+/**
+ * The Default transition `key` runs on (ADR-0051): its Environment's for it, toward its target, or,
+ * through Keyframes of more than two stops, its Environment's keyframes one (#429, Motion's).
+ */
+const defaultFor = (
+  defaults: DefaultTransition.DefaultTransition["Service"],
+  key: string,
+  to: Values.Values,
+  stops: StopsByKey | undefined,
+): DefaultTransition.Transition | DefaultTransition.KeyframesTransition => {
+  if (hasStops(stops, key)) return defaults.keyframes
+  return defaults.transitionFor(key, to[key] as number | string)
 }
 
 /**
@@ -415,7 +516,7 @@ const legsOn = (
  * stagger's among it, ADR-0007) and its reduced-motion opt-out. The Default transition itself when
  * it says neither, as nearly every element's (it has no transition).
  */
-const carried = (runsOn: DefaultTransition.Transition, given: WardicTransition | undefined): Run => {
+const carried = (runsOn: DefaultTransition.Transition | DefaultTransition.KeyframesTransition, given: WardicTransition | undefined): Run => {
   if (Predicate.isUndefined(given)) return runsOn
   const { delay, respectReducedMotion } = given
   if (Bool.and(Predicate.isUndefined(delay), Predicate.isUndefined(respectReducedMotion))) return runsOn
@@ -431,6 +532,7 @@ const legsWith = (
   positionalKeys: ReducedMotion.PositionalKeys["Service"],
   velocities: Readonly<Record<string, number>>,
   follow: Follows | undefined,
+  stops: StopsByKey | undefined,
 ): ReadonlyArray<Leg> => {
   const useTween = transition.type === "tween"
   // Reduced motion (ADR-0029): the positional keys snap to where their leg would end, holding
@@ -451,10 +553,11 @@ const legsWith = (
   const legs: Array<Leg> = []
   if (useTween) {
     // Its options as they are: a missing `duration` is core's 0.3 s, and the rest still apply (#107).
-    const options = transition as Machine.AnimateOptions
-    // A tween's snap lands where the tween would end: `repeat` and `reverse` can end it at `from`.
+    const options = transition as Machine.KeyframesOptions
+    // A tween's snap lands where the tween would end: `repeat` and `reverse` can end it at `from`, a
+    // Keyframes key's first stop (#429). Its delay alone is read: an `ease` per Segment isn't a tween's.
     if (snapping) {
-      legs.push(snapLeg(from, positional, Rec.map(positional, (to, key) => ReducedMotion.endOf(UndefinedOr.getOrThrow(from[key]), to, options)), () => Machine.resolveTween(options).delay))
+      legs.push(snapLeg(from, positional, Rec.map(positional, (to, key) => ReducedMotion.endOf(UndefinedOr.getOrThrow(from[key]), to, options)), () => Machine.resolveTween(Rec.filter({ delay: options.delay }, Predicate.isNotUndefined)).delay))
     }
     // A following return eases toward where its Live value is each frame, so it lands on it.
     if (following) Arr.forEach(followingKeys, (key) => {
@@ -465,20 +568,36 @@ const legsWith = (
         key,
         to: { [key]: UndefinedOr.getOrThrow(rest[key]) },
         machine: () =>
-          Machine.animate(0, 1, options).pipe(
+          Machine.animate(0, 1, options as Machine.AnimateOptions).pipe(
             Machine.map((progress) => ({ value: start + (target() - start) * progress.value, done: progress.done })),
           ),
       })
     })
     // With every key snapped or following, there's nothing left to tween.
     if (Bool.or(Bool.and(!snapping, !following), hasKeys(fixed))) {
-      legs.push({ _tag: "Blend", to: fixed, machine: () => Machine.animateValues(Values.pick(from, fixed), fixed, options) })
+      // A key's Keyframes, or `times` or an `ease` per Segment, run every key through `keyframesValues`
+      // (#429), on one run, a target as its two stops.
+      if (Bool.or(anyKeyframed(fixed, stops), keyframedOptions(options))) {
+        legs.push({ _tag: "Blend", to: fixed, machine: () => Machine.keyframesValues(stopsFor(from, fixed, stops), options) })
+        return legs
+      }
+      legs.push({ _tag: "Blend", to: fixed, machine: () => Machine.animateValues(Values.pick(from, fixed), fixed, options as Machine.AnimateOptions) })
     }
     return legs
   }
   // Spring (default): numeric keys via springValues (velocity-carrying Retarget); any string/colour
   // keys via springBlend, the same spring on a 0→100 progress (ADR-0024, D5).
   const springOpts = transition as Machine.SpringOptions
+  // Keyframes of more than two stops on a spring (#429): Motion's error, a leg that fails as it's
+  // built, and each such key snapped to its last stop.
+  if (anyKeyframed(fixed, stops)) {
+    const kept = fixed
+    const many = Rec.filter(stops as StopsByKey, (_, key) => Object.hasOwn(kept, key))
+    const ends = Rec.filter(kept, (_, key) => Object.hasOwn(many, key))
+    legs.push(snapLeg(from, ends, ends, () => Spring.resolve(springOpts).delay))
+    legs.push({ _tag: "Blend", to: NO_VALUES, machine: () => Effect.die(springStopsError(many)) })
+    fixed = Rec.filter(kept, (_, key) => Bool.not(Object.hasOwn(many, key)))
+  }
   const { numbers: numeric, strings } = Values.split(fixed)
   // A spring settles at its target: the snap lands there.
   if (snapping) legs.push(snapLeg(from, positional, positional, () => Spring.resolve(springOpts).delay))

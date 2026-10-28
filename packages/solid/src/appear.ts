@@ -36,7 +36,8 @@ import * as Rec from "effect/Record"
 import * as Result from "effect/Result"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicTransition } from "./config.ts"
-import { entriesOf, type Leg, legsOf, runOf, transitionForKey } from "./retarget-legs.ts"
+import { entriesOf, type KeyframesStart, keyframesFrom, type Leg, legsOf, runOf, type StopsByKey, transitionForKey } from "./retarget-legs.ts"
+import type { Keyframes } from "./variant-target.ts"
 
 // --- The mount animation, on both sides -------------------------------------------------------
 
@@ -57,6 +58,8 @@ export interface MountAnimation {
    * it, its own translate on top (#363). Part of its rule's name (`Appear.Spec.projected`).
    */
   readonly layout: boolean
+  /** Each key's Keyframes of more than two stops (#429), `from` at their first: part of its key. Left out with none. */
+  readonly stops?: StopsByKey | undefined
 }
 
 /** What stands in for a function with no easing name: canonical text holding it is no key. */
@@ -90,7 +93,7 @@ const baseKeys = new WeakMap<Values.Values, Option.Option<string>>()
  */
 export const keyOf = (m: MountAnimation): Option.Option<string> => {
   const base = Option.getOrElse(Option.fromUndefinedOr(baseKeys.get(m.from)), () => {
-    const computed = canonical({ from: m.from, to: m.to, transition: UndefinedOr.match(m.transition, { onUndefined: () => null, onDefined: (t: WardicTransition) => t }) })
+    const computed = canonical({ from: m.from, to: m.to, transition: UndefinedOr.match(m.transition, { onUndefined: () => null, onDefined: (t: WardicTransition) => t }), stops: m.stops })
     baseKeys.set(m.from, computed)
     return computed
   })
@@ -202,8 +205,8 @@ export const specOf = (m: MountAnimation): Result.Result<Appear.Spec, string> =>
         projected: m.layout,
         machine: () =>
           Bool.match(repeatsForever(m.transition), {
-            onTrue: () => Machine.holdAfter(together(legsOf(m.from, m.to, transition, m.reduced, DOM_POSITIONAL, DOM_DEFAULTS, {})), repeatDelay),
-            onFalse: () => together(legsOf(m.from, m.to, transition, m.reduced, DOM_POSITIONAL, DOM_DEFAULTS, {})),
+            onTrue: () => Machine.holdAfter(together(legsOf(m.from, m.to, transition, m.reduced, DOM_POSITIONAL, DOM_DEFAULTS, {}, undefined, m.stops)), repeatDelay),
+            onFalse: () => together(legsOf(m.from, m.to, transition, m.reduced, DOM_POSITIONAL, DOM_DEFAULTS, {}, undefined, m.stops)),
           }),
       })
     },
@@ -543,6 +546,10 @@ export interface ServerElement {
   readonly initial: Values.Values
   /** Its targets at mount: `animate`, or an inherited variant name resolved against its `variants`; `None` with neither. */
   readonly to: Option.Option<Values.Values>
+  /** Its targets' Keyframes (#429), each such key's value in `to` their last stop; `undefined` with none. */
+  readonly keyframes: Keyframes | undefined
+  /** Whether its mount starts at its `animate` (#448, `startsQuiet`): nothing plays, its Keyframes included (#429). */
+  readonly quiet: boolean
   /** Its own transition, else the one it inherits (ADR-0007). */
   readonly transition: WardicTransition | undefined
   /** Whether it's a layout node (`layout` or `layoutId`): drawn through its projection at rest (#245). */
@@ -572,16 +579,19 @@ export const enterServer = (
 } => {
   // Its starts and targets once, both plays sharing them (and so their key's text, `keyOf`). A key
   // already at its target, coerced to its shape, is left out, as the client's first Retarget starts
-  // it no leg (#448).
+  // it no leg (#448); a Keyframes key never is, and starts at its first stop, unless the mount starts
+  // at its `animate`, when nothing plays (#429, Motion's).
   const mount = Option.flatMap(el.to, (to) => {
-    const moving = Rec.filter(to, (target, key) => Bool.not(atTarget(el.initial[key], target)))
+    const moving = Rec.filter(to, (target, key) =>
+      Bool.match(hasStops(el.keyframes, key), { onTrue: () => Bool.not(el.quiet), onFalse: () => Bool.not(atTarget(el.initial[key], target)) }))
     return Bool.match(Rec.isEmptyRecord(moving), {
       onTrue: () => Option.none(),
-      onFalse: () => Option.some(playable(el, moving)),
+      onFalse: () => Option.some(Result.map(playable(el, moving), (prepared): KeyframesStart & { readonly to: Values.Values } => startedOf(prepared, el.keyframes))),
     })
   })
   const play = (reduced: boolean): Option.Option<Result.Result<MountAnimation, string>> =>
-    Option.map(mount, (prepared) => Result.map(prepared, ({ from, to }): MountAnimation => ({ tag: el.tag, from, to, transition: el.transition, reduced, layout: el.layout })))
+    Option.map(mount, (prepared) =>
+      Result.map(prepared, ({ from, to, stops }): MountAnimation => ({ tag: el.tag, from, to, transition: el.transition, reduced, layout: el.layout, stops })))
   const { entry, animation: inline, late, chunkRoot } = appear.enter({ normal: play(false), reduced: play(true) }, el.group)
   return {
     late,
@@ -593,6 +603,19 @@ export const enterServer = (
     },
   }
 }
+
+/** Whether `key` has Keyframes in `keyframes` (#429). */
+const hasStops = (keyframes: Keyframes | undefined, key: string): boolean => {
+  if (Predicate.isUndefined(keyframes)) return false
+  return Object.hasOwn(keyframes, key)
+}
+
+/** A mount's starts with its Keyframes resolved (#429, `keyframesFrom`), as the client's first Retarget resolves them. */
+const startedOf = (prepared: { readonly from: Values.Values; readonly to: Values.Values }, keyframes: Keyframes | undefined): KeyframesStart & { readonly to: Values.Values } =>
+  UndefinedOr.match(keyframes, {
+    onUndefined: () => ({ from: prepared.from, to: prepared.to, stops: undefined }),
+    onDefined: (byKey) => ({ ...keyframesFrom(prepared.from, prepared.to, byKey), to: prepared.to }),
+  })
 
 /** An element's starts and targets, or why its mount animation can't play before hydration (decision 4). */
 const playable = (el: ServerElement, to: Values.Values): Result.Result<{ readonly from: Values.Values; readonly to: Values.Values }, string> => playableMatch({ el, to })

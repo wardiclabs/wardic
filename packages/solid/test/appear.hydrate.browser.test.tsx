@@ -30,6 +30,8 @@
 // - AH13 (#448): a key already at its target, left out of the rule, beside one that moves: handed
 //   off mid-flight, the client's spec the server's (its first Retarget starts the key no leg), the
 //   moving key on its machine and the other at its value throughout.
+// - AH14 (#429): Keyframes, a first `null` stop from `initial`: handed off mid-flight, the client's
+//   spec the server's, on `keyframesValues`' machine throughout, landing on the last stop.
 import * as Easing from "@wardic/core/Easing"
 import * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
@@ -47,7 +49,7 @@ import { type JSX, sharedConfig } from "solid-js"
 import { hydrate } from "solid-js/web"
 import { commands } from "vitest/browser"
 import { afterEach, describe, expect, it } from "vitest"
-import { A1, A2, A3, A4, A5, A6, A7, A8, A9, setAppearEnv } from "./appear-fixtures.tsx"
+import { A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, setAppearEnv } from "./appear-fixtures.tsx"
 import "./browser-commands.ts"
 
 const FILE = "./test/appear-fixtures.tsx"
@@ -511,6 +513,19 @@ describe("Appear animations, server render to hydration (#48, ADR-0044)", () => 
     expect(logs.filter((m) => m.includes("another mount animation")), "the Handoff matched").toEqual([])
     expect(followsMachine(r, "half", (s) => ({ opacity: 0.5, x: machineAt(machine, s).x as number }))).toBeGreaterThan(30)
     expect(r.frames.at(-1)!.drawn.half!.x).toBeCloseTo(200, 1)
+  })
+
+  it("AH14: Keyframes handed off mid-flight, on their machine throughout (#429)", async () => {
+    const machine = Effect.runSync(Effect.provide(Machine.keyframesValues({ x: [0, 200, 80] }, { ease: Easing.linear, duration: 1.2 }), DomInterpolators.layer))
+    const logs: Array<string> = []
+    setAppearEnv(
+      Layer.mergeAll(DomLive, Logger.layer([Logger.map(Logger.formatStructured, (s) => void logs.push(String(s.message)))]), Layer.succeed(References.MinimumLogLevel, "Debug")),
+    )
+    cleanups.push(() => setAppearEnv(DomLive))
+    const r = await run("A10", A10, { hydrateAfter: 400, forMs: 1600 })
+    expect(logs.filter((m) => m.includes("another mount animation")), "the Handoff matched").toEqual([])
+    expect(followsMachine(r, "stops", (s) => ({ x: machineAt(machine, s).x as number }))).toBeGreaterThan(30)
+    expect(r.frames.at(-1)!.drawn.stops!.x).toBeCloseTo(80, 1)
   })
 
   it("AH12: a list's items streamed in a chunk that lands before the JS: played from the landing, handed off, the chunk's style adopted (#245)", async () => {

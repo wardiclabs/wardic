@@ -39,6 +39,58 @@ export const toValues = (v: object | undefined): Values.Values =>
 /** Whether a value is one an animation can take: a number or a string. */
 const isAnimatable = Predicate.or(Predicate.isNumber, Predicate.isString)
 
+/** A **Keyframes** value's stops (#429, Motion's): each a value, or `null` for where the key is (first) or the stop before (later). */
+export type Stops = ReadonlyArray<number | string | null>
+
+/** Where a **Keyframes** value is read (#429): `initial`'s at its first stop, a target's at its last. */
+export type StopAt = "first" | "last"
+
+/** Whether a stop is one an animation can take, or `null`. */
+const isStop = Predicate.or(isAnimatable, Predicate.isNull)
+
+/**
+ * A Keyframes value's stop (#429): its first, as Motion's `initial` reads it (`use-visual-state.ts`),
+ * or its last that isn't `null`, where it rests (Motion's final keyframe, `fill-wildcards.ts`'s).
+ * `null` or `undefined` when it has none.
+ */
+const stopOf = (stops: ReadonlyArray<unknown>, at: StopAt): unknown =>
+  Bool.match(at === "first", { onTrue: () => stops[0], onFalse: () => Option.getOrUndefined(Arr.findLast(stops, Predicate.isNotNull)) })
+
+/**
+ * A values map with only the keys an animation can take, each **Keyframes** value read at one of its
+ * stops (#429): `initial`'s first, a target's last. A Keyframes value with no such stop drops out, as
+ * does an array {@link keyframesOf} doesn't take, and anything that isn't a number or a string. {@link toValues} itself when none is a Keyframes
+ * value: nothing more made.
+ */
+export const valuesAt = (v: object | undefined, at: StopAt): Values.Values => {
+  if (Bool.not(hasKeyframes(v))) return toValues(v)
+  return toValues(Rec.map(v as Readonly<Record<string, unknown>>, (value) =>
+    Bool.match(isStops(value), { onTrue: () => stopOf(value as Stops, at), onFalse: () => value })))
+}
+
+/** Whether a values map has a **Keyframes** value: an array, which no other value is. */
+const hasKeyframes = (v: object | undefined): boolean => {
+  if (Predicate.isUndefined(v)) return false
+  return Rec.some(v as Readonly<Record<string, unknown>>, Array.isArray)
+}
+
+/** Whether a value is Keyframes an animation can take (#429): an array of stops, one of them not `null`. */
+const isStops = (value: unknown): value is Stops => {
+  if (Bool.not(Array.isArray(value))) return false
+  const stops = value as ReadonlyArray<unknown>
+  return Bool.and(Arr.every(stops, isStop), Arr.some(stops, Predicate.isNotNull))
+}
+
+/**
+ * A values map's **Keyframes** values (#429): each array of stops an animation can take, with a stop
+ * that isn't `null`; `undefined` when it has none, so a target without any makes nothing.
+ */
+export const keyframesOf = (v: object | undefined): Readonly<Record<string, Stops>> | undefined => {
+  if (Bool.not(hasKeyframes(v))) return undefined
+  const kept = Rec.filter(v as Readonly<Record<string, unknown>>, isStops)
+  return Bool.match(Rec.isEmptyRecord(kept), { onTrue: () => undefined, onFalse: () => kept as Readonly<Record<string, Stops>> })
+}
+
 /**
  * The part of an element's config its Starting style is resolved from. Values maps are
  * typed `object` so a binding's own value types (interfaces) fit as they are.
@@ -55,10 +107,11 @@ export interface InitialConfig {
   readonly variants?: Readonly<Record<string, object | undefined>> | undefined
 }
 
-/** One values entry and the variants a name in it would name. */
+/** One values entry, the variants a name in it would name, and the stop its Keyframes values are read at (#429). */
 interface Entry {
   readonly entry: object | string | ReadonlyArray<string> | undefined
   readonly variants: InitialConfig["variants"]
+  readonly at: StopAt
 }
 
 /** Whether an entry is a list of names (#297): an array, which a values map never is. */
@@ -70,11 +123,11 @@ const isList = (entry: unknown): entry is ReadonlyArray<string> => Array.isArray
  */
 const entryOf: (entry: Entry) => Values.Values = Match.type<Entry>().pipe(
   Match.when({ entry: Match.undefined }, (): Values.Values => ({})),
-  Match.when({ entry: Match.string }, ({ entry, variants }) => toValues(UndefinedOr.map(variants, (byName) => byName[entry]))),
+  Match.when({ entry: Match.string }, ({ entry, variants, at }) => valuesAt(UndefinedOr.map(variants, (byName) => byName[entry]), at)),
   // A list's names merged in order, a later one's winning a key both set (#297, Motion's).
-  Match.when({ entry: isList }, ({ entry, variants }) =>
-    Arr.reduce(entry, {} as Values.Values, (merged, name) => ({ ...merged, ...toValues(UndefinedOr.map(variants, (byName) => byName[name])) }))),
-  Match.orElse(({ entry }) => toValues(entry as object)),
+  Match.when({ entry: isList }, ({ entry, variants, at }) =>
+    Arr.reduce(entry, {} as Values.Values, (merged, name) => ({ ...merged, ...valuesAt(UndefinedOr.map(variants, (byName) => byName[name]), at) }))),
+  Match.orElse(({ entry, at }) => valuesAt(entry as object, at)),
 )
 
 /**
@@ -82,11 +135,12 @@ const entryOf: (entry: Entry) => Values.Values = Match.type<Entry>().pipe(
  * `initial` names (an unknown name is empty), or nothing. With `initial: false`, its
  * `animate`, resolved the same way, so it starts at its target and nothing animates at
  * mount (#134, Motion's). Read once, at setup: the Starting style is a seed, never a
- * live target.
+ * live target. A **Keyframes** value starts at its first stop, or, with `initial: false`, at
+ * `animate`'s last, where the animation it skips would end (#429, Motion's `use-visual-state.ts`).
  */
 export const resolveInitial: (config: InitialConfig) => Values.Values = Match.type<InitialConfig>().pipe(
-  Match.when({ initial: false }, (config) => entryOf({ entry: config.animate, variants: config.variants })),
-  Match.orElse((config) => entryOf({ entry: config.initial as object | string | ReadonlyArray<string> | undefined, variants: config.variants })),
+  Match.when({ initial: false }, (config) => entryOf({ entry: config.animate, variants: config.variants, at: "last" })),
+  Match.orElse((config) => entryOf({ entry: config.initial as object | string | ReadonlyArray<string> | undefined, variants: config.variants, at: "first" })),
 )
 
 /**

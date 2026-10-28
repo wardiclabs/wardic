@@ -1,5 +1,6 @@
 // The Starting style's helpers (ADR-0021): the framework-free half every binding uses to
 // render an element before its first Frame, on a server and on the client alike.
+// Keyframes (#429) are read at their first stop for `initial`, at their last for a target (ST1b).
 // `toValues`, `resolveInitial` and the merge `Style.over` does moved here from @wardic/solid's
 // use-wardic.tsx with their behaviour unchanged; `startingStyle` projects with the DOM's
 // pure `project` and routes an SVG element's keys by its tag (ADR-0014), since a server
@@ -25,6 +26,19 @@ describe("Starting style helpers (ADR-0021)", () => {
       "--x": "1px",
     })
     expect(Style.toValues(undefined)).toEqual({})
+  })
+
+  it("ST1b (#429): Keyframes read at a stop: valuesAt's first or last, keyframesOf's the lists an animation can take", () => {
+    const target = { opacity: [null, 1, 0.5], x: [10, 20], scale: [null, null], color: "red", odd: [0, {}], gone: undefined }
+    expect(Style.valuesAt(target, "last"), "the last stop that isn't null").toEqual({ opacity: 0.5, x: 20, color: "red" })
+    expect(Style.valuesAt(target, "first"), "the first, null dropped").toEqual({ x: 10, color: "red" })
+    expect(Style.valuesAt({ opacity: 1 }, "last"), "none: toValues").toEqual({ opacity: 1 })
+    expect(Style.keyframesOf(target), "with a stop that isn't null, of numbers and strings").toEqual({ opacity: [null, 1, 0.5], x: [10, 20] })
+    expect(Style.keyframesOf({ opacity: 1 }), "none").toBeUndefined()
+    expect(Style.keyframesOf({ scale: [null] }), "none an animation can take").toBeUndefined()
+    expect(Style.resolveInitial({ initial: { x: [30, 90] } }), "initial's first stop").toEqual({ x: 30 })
+    expect(Style.resolveInitial({ initial: false, animate: { x: [0, 100, 40] } }), "initial={false}: animate's last").toEqual({ x: 40 })
+    expect(Style.resolveInitial({ initial: "a", variants: { a: { x: [5, 6] } } }), "a name's, first").toEqual({ x: 5 })
   })
 
   it("ST2: resolveInitial with no initial is empty", () => {
