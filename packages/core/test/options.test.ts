@@ -100,7 +100,16 @@ describe("TweenOptions: a non-negative, finite duration and delay, an Easing def
   ])
   accepts(Machine.resolveTween, [{ ease: "easeOut" }, { ease: "anticipate" }, { ease: [0.25, 0.1, 0.35, 1] }, { ease: Easing.easeOutCubic }])
   rejects((bag) => Machine.tween(0, 1, bag), [["duration", { duration: -1 }]])
-  rejects((bag) => Machine.keyframes([0, 1, 0], bag), [["delay", { delay: Number.NaN }]])
+  rejects((bag) => Machine.keyframes([0, 1, 0], bag), [
+    ["delay", { delay: Number.NaN }],
+    // Each stop's place (#429): from 0 to 1, in order; the repeat modifiers as animate's.
+    ["times", { times: [0, 1.5, 1] }],
+    ["times", { times: [0, 0.6, 0.4] }],
+    ["times", { times: [0, Number.NaN, 1] }],
+    ["repeat", { repeat: 1.5 }],
+    ["repeatType", { repeatType: "bounce" }],
+  ])
+  accepts((bag) => Machine.keyframes([0, 1, 0], bag), [{ times: [0, 0.5, 0.5] }, { times: [0, 1] }, { repeat: Infinity, repeatType: "mirror" }])
 
   it("fills in its defaults: 0.3 s, no delay, linear; a zero duration still divides, and keeps its 0", () => {
     expect(Machine.resolveTween({})).toEqual({ delay: 0, duration: 0.3, seconds: 0.3, ease: Easing.linear })

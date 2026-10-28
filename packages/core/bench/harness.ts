@@ -67,12 +67,16 @@ const NO_MEM: Mem = { gc: () => {}, allocated: () => 0 }
 interface StreamWorkload {
   readonly name: string
   readonly make: (core: Core, i: number) => Stream.Stream<{ readonly done: boolean }, never, any>
+  /** Whether `core` has what it runs: a workload a base lacks is left out, and reported as new (`rows.ts`). */
+  readonly runsOn?: (core: Core) => boolean
 }
 
 /** Every element on one Frame loop (ADR-0027): each a run of its Primitive's machine. */
 interface LoopWorkload {
   readonly name: string
   readonly machine: (core: Core, i: number) => Effect.Effect<CoreModule.Machine.Machine<CoreModule.Frame.Frame<unknown>>, never, any>
+  /** As {@link StreamWorkload}'s. */
+  readonly runsOn?: (core: Core) => boolean
 }
 
 /** A machine built with a service (`animateValues`, `springBlend`), as a Stream. */
@@ -149,6 +153,31 @@ const REPEAT = (core: Core, i: number) => ({
  */
 const REPEAT_DELAY = (core: Core, i: number) => ({ ...REPEAT(core, i), repeatDelay: 0.1 })
 
+/** The string workloads' keys through three stops each (#429): from, a stop between, and to. */
+const KEYFRAMES = (i: number) => {
+  const from = STRING_FROM(i)
+  return {
+    "background-color": [from["background-color"], "#808080", STRING_TO["background-color"]],
+    width: [from.width, "100px", STRING_TO.width],
+    "pointer-events": [from["pointer-events"], "auto", STRING_TO["pointer-events"]],
+    opacity: [from.opacity, 0.5, STRING_TO.opacity],
+  }
+}
+
+/**
+ * `keyframesValues`' bag (#429): a stop placed off the even spacing, an `ease` per Segment, and
+ * `animateRepeat`'s infinite mirrored repeat and spread `delay`, so each element's Segments and
+ * turns fall on different frames inside the measured window.
+ */
+const KEYFRAMES_REPEAT = (core: Core, i: number): CoreModule.Machine.KeyframesOptions => ({
+  ...REPEAT(core, i),
+  times: [0, 0.3, 1],
+  ease: [core.Easing.easeInOutCubic, core.Easing.easeOutCubic],
+})
+
+/** Whether `core` has `keyframesValues` (#429). */
+const hasKeyframesValues = (core: Core): boolean => "keyframesValues" in core.Machine
+
 let chaseTarget = 0
 
 /**
@@ -187,7 +216,12 @@ const WORKLOADS: ReadonlyArray<Workload> = [
     name: "animateRepeatDelay",
     make: (core, i) => streamOf(core, core.Machine.animateValues(STRING_FROM(i), STRING_TO, REPEAT_DELAY(core, i))),
   },
-  // The same seven, on the Frame loop.
+  {
+    name: "keyframesValues",
+    make: (core, i) => streamOf(core, core.Machine.keyframesValues(KEYFRAMES(i), KEYFRAMES_REPEAT(core, i))),
+    runsOn: hasKeyframesValues,
+  },
+  // The same eight, on the Frame loop.
   { name: "springValues/loop", machine: (core, i) => Effect.succeed(core.Machine.springValues(...SPRING(i))) },
   {
     name: "animateValues/loop",
@@ -204,6 +238,11 @@ const WORKLOADS: ReadonlyArray<Workload> = [
   {
     name: "animateRepeatDelay/loop",
     machine: (core, i) => core.Machine.animateValues(STRING_FROM(i), STRING_TO, REPEAT_DELAY(core, i)),
+  },
+  {
+    name: "keyframesValues/loop",
+    machine: (core, i) => core.Machine.keyframesValues(KEYFRAMES(i), KEYFRAMES_REPEAT(core, i)),
+    runsOn: hasKeyframesValues,
   },
 ]
 
@@ -380,6 +419,7 @@ export const register = (core: Core): void => {
   ): Promise<Record<string, WorkloadResult>> => {
     const out: Record<string, WorkloadResult> = {}
     for (const workload of WORKLOADS) {
+      if (workload.runsOn !== undefined && !workload.runsOn(core)) continue
       const times: Array<number> = []
       const starts: Array<number> = []
       const bytes: Array<number> = []

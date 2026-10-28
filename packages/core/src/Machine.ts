@@ -9,8 +9,8 @@
  * `<name>: start` debug log.
  *
  * - **Build** one with a constructor, one per Primitive (`tween`, `spring`, `decay`, `chase`,
- *   `animate`, `keyframes`, `springValues`, `decayVec`; `springBlend` and `animateValues`
- *   return an `Effect` needing the `InterpolatorRegistry`), or with `make`.
+ *   `animate`, `keyframes`, `springValues`, `decayVec`; `springBlend`, `animateValues` and
+ *   `keyframesValues` return an `Effect` needing the `InterpolatorRegistry`), or with `make`.
  * - **Compose** with the combinators, each `dual` where it takes more than the machine: `map`,
  *   `concat`, `concatAll`, `forever`, `delay`, `holdAfter`, `startAt`, `clampDt`, `withSpan`. They run when
  *   a machine is built, never per step: a combinator's `start()` starts its inner machine, and
@@ -32,6 +32,7 @@ import * as Option from "effect/Option"
 import { type Pipeable, pipeArguments } from "effect/Pipeable"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
+import * as Result from "effect/Result"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import type { Covariant } from "effect/Types"
@@ -41,25 +42,30 @@ import * as Easing from "./Easing.ts"
 import type * as Frame from "./Frame.ts"
 import * as FrameLoop from "./FrameLoop.ts"
 import * as InterpolatorRegistry from "./InterpolatorRegistry.ts"
-import { cachedResolver, field, NonNegative } from "./internal/options.ts"
+import { cachedResolver, field, NonNegative, optionalField } from "./internal/options.ts"
 import {
-  durationOf,
   EaseDefinition,
   initDecay,
   initTween,
-  keyframesAt,
+  type Pass,
+  passAt,
   resolveDecay,
   type ResolvedRun,
   type ResolvedTween,
   resolvedTweenOf,
   resolveTween,
   runAt,
+  segmentAt,
+  segmentProgress,
   stepDecay,
+  stopTimesOf,
+  timeIn,
   stepTween,
   TweenFields,
 } from "./internal/stepper.ts"
 import * as Inertia from "./Inertia.ts"
 import type * as Point from "./Point.ts"
+import * as Scalar from "./Scalar.ts"
 import * as Spring from "./Spring.ts"
 import type * as Supersede from "./Supersede.ts"
 import type * as Values from "./Values.ts"
@@ -164,11 +170,19 @@ export interface TweenOptions {
 }
 
 /**
- * `keyframes`' options: a tween's, with an `ease` per Segment if it likes, as Motion's keyframes
- * take an array of easings, one per Segment, wrapping round when there are fewer (#360).
+ * `keyframes`' and `keyframesValues`' options: a tween's, with an `ease` per Segment if it likes, as
+ * Motion's keyframes take an array of easings, one per Segment, wrapping round when there are fewer
+ * (#360); each stop's place in time; and `animate`'s {@link Modifiers}, over the whole run of stops
+ * (#429).
  */
-export interface KeyframesOptions extends Omit<TweenOptions, "ease"> {
+export interface KeyframesOptions extends Omit<TweenOptions, "ease">, Modifiers {
   readonly ease?: Easing.Definition | ReadonlyArray<Easing.Definition>
+  /**
+   * Each stop's place in the run, from 0 (its start) to 1 (its `duration`), in order (Motion's
+   * `times`, #429): `[0, 0.2, 1]` reaches the second of three stops a fifth of the way in. Used for
+   * stops of the same number; any other number of stops is evenly spaced, as Motion's are.
+   */
+  readonly times?: ReadonlyArray<number>
 }
 
 /**
@@ -294,7 +308,7 @@ export interface Modifiers {
    *   comes back easing out.
    */
   readonly repeatType?: "loop" | "reverse" | "mirror"
-  /** Run the animation from `to` back to `from`. Default false. */
+  /** Run the animation from `to` back to `from`; keyframes, through their stops from last to first (#429). Default false. */
   readonly reverse?: boolean
 }
 
@@ -1079,14 +1093,40 @@ const Repeat = Schema.Number.check(
 )
 
 /** `animate`'s bag, resolved: its run (its tween's `delay` 0), and the rest as given. */
-interface ResolvedAnimate {
+interface ResolvedAnimate extends ResolvedModifiers {
   readonly run: ResolvedRun
   readonly delay: number
   readonly seconds: number
+}
+
+/** The {@link Modifiers}, resolved: as given, defaults filled in. */
+interface ResolvedModifiers {
   readonly repeat: number
   readonly repeatDelay: number
   readonly repeatType: "loop" | "reverse" | "mirror"
   readonly reverse: boolean
+}
+
+/** The {@link Modifiers}' fields as a Schema (#66): `animate`'s bag and `keyframes`' (#429) add them to a tween's. */
+const ModifierFields = {
+  repeat: field(Repeat, 0),
+  repeatDelay: field(NonNegative, 0),
+  repeatType: field(Schema.Literals(["loop", "reverse", "mirror"]), "loop"),
+  reverse: field(Schema.Boolean, false),
+}
+
+/** A decoded bag's run: its tween played `repeat + 1` times, with its tween's `delay` 0 (held outside, by `delay`). */
+const resolvedRunOf = (tween: ResolvedTween, modifiers: ResolvedModifiers): ResolvedRun => {
+  const cycle = tween.duration + modifiers.repeatDelay
+  return {
+    tween: { ...tween, delay: 0 },
+    repeats: modifiers.repeat,
+    gap: modifiers.repeatDelay,
+    cycle,
+    total: cycle * (modifiers.repeat + 1) - modifiers.repeatDelay,
+    reverses: modifiers.repeatType === "reverse",
+    mirrors: modifiers.repeatType === "mirror",
+  }
 }
 
 /**
@@ -1095,26 +1135,11 @@ interface ResolvedAnimate {
  * tween field the tween rejects throws its `SchemaError`.
  */
 const resolveAnimate: (options: AnimateOptions) => ResolvedAnimate = cachedResolver(
-  {
-    ...TweenFields,
-    repeat: field(Repeat, 0),
-    repeatDelay: field(NonNegative, 0),
-    repeatType: field(Schema.Literals(["loop", "reverse", "mirror"]), "loop"),
-    reverse: field(Schema.Boolean, false),
-  },
+  { ...TweenFields, ...ModifierFields },
   (decoded): ResolvedAnimate => {
     const tween = resolvedTweenOf(decoded)
-    const cycle = tween.duration + decoded.repeatDelay
     return {
-      run: {
-        tween: { ...tween, delay: 0 },
-        repeats: decoded.repeat,
-        gap: decoded.repeatDelay,
-        cycle,
-        total: cycle * (decoded.repeat + 1) - decoded.repeatDelay,
-        reverses: decoded.repeatType === "reverse",
-        mirrors: decoded.repeatType === "mirror",
-      },
+      run: resolvedRunOf(tween, decoded),
       delay: tween.delay,
       seconds: tween.seconds,
       repeat: decoded.repeat,
@@ -1166,64 +1191,114 @@ export const animate = (from: number, to: number, options: AnimateOptions = NO_O
   )
 }
 
-/** `keyframes`' bag resolved: its tween's fields, and an easing per Segment. */
-interface ResolvedKeyframes {
-  readonly tween: ResolvedTween
+/** `keyframes`' bag resolved (#429): its run (its tween's `delay` 0), an easing per Segment, and each stop's place in time. */
+interface ResolvedKeyframes extends ResolvedModifiers {
+  readonly run: ResolvedRun
+  readonly delay: number
+  readonly seconds: number
   readonly eases: Arr.NonEmptyReadonlyArray<Easing.Easing>
+  readonly times: ReadonlyArray<number> | undefined
 }
 
 /** One `ease` or several (#360): a list is an array whose first item isn't a number, which a bézier's is. */
 const EaseOrList = Schema.Union([EaseDefinition, Schema.NonEmptyArray(EaseDefinition)])
 
+/** Whether `times` run from 0 to 1, none before the one ahead of it. */
+const inOrder = (times: ReadonlyArray<number>): boolean =>
+  Bool.and(
+    Arr.every(times, (time) => Bool.and(time >= 0, time <= 1)),
+    Arr.every(Arr.zip(times, Arr.drop(times, 1)), ([before, after]) => after >= before),
+  )
+
+/** Each stop's place in time (#429): numbers from 0 to 1, in order. */
+const Times = Schema.Array(Schema.Finite).check(
+  Schema.makeFilter((times: ReadonlyArray<number>) =>
+    Bool.match(inOrder(times), { onTrue: () => true, onFalse: () => "Expected times from 0 to 1, in order" })
+  ),
+)
+
 /**
  * `keyframes`' bag as a Schema (#66): a tween's fields, its `ease` one Definition or one per Segment
- * (#360), decoded once a bag.
+ * (#360), its `times` and the repeat modifiers (#429), decoded once a bag.
  */
 const resolveKeyframes: (options: KeyframesOptions) => ResolvedKeyframes = cachedResolver(
-  { ...TweenFields, ease: field(EaseOrList, Easing.linear as Easing.Definition) },
+  { ...TweenFields, ...ModifierFields, ease: field(EaseOrList, Easing.linear as Easing.Definition), times: optionalField(Times) },
   (decoded): ResolvedKeyframes => {
     const list: Arr.NonEmptyReadonlyArray<Easing.Definition> = Bool.match(Bool.and(Array.isArray(decoded.ease), Bool.not(Easing.isBezier(decoded.ease))), {
       onTrue: () => decoded.ease as Arr.NonEmptyReadonlyArray<Easing.Definition>,
       onFalse: (): Arr.NonEmptyReadonlyArray<Easing.Definition> => [decoded.ease as Easing.Definition],
     })
-    return { tween: resolvedTweenOf({ ...decoded, ease: list[0] }), eases: Arr.map(list, Easing.resolve) }
+    const tween = resolvedTweenOf({ ...decoded, ease: list[0] })
+    return {
+      run: resolvedRunOf(tween, decoded),
+      delay: tween.delay,
+      seconds: tween.seconds,
+      eases: Arr.map(list, Easing.resolve),
+      times: decoded.times,
+      repeat: decoded.repeat,
+      repeatDelay: decoded.repeatDelay,
+      repeatType: decoded.repeatType,
+      reverse: decoded.reverse,
+    }
   },
 )
 
+/** Stops a run can go between: a single one twice, so it holds; none, as 0. */
+const stopsOf = <A>(stops: ReadonlyArray<A>, none: A): Arr.NonEmptyReadonlyArray<A> =>
+  Arr.match(stops, {
+    onEmpty: (): Arr.NonEmptyReadonlyArray<A> => [none, none],
+    onNonEmpty: (given): Arr.NonEmptyReadonlyArray<A> => Bool.match(given.length === 1, { onTrue: () => [given[0], given[0]], onFalse: () => given }),
+  })
+
+/** A keyframes run's span attributes: its modifiers beside its own. */
+const keyframesAttributes = (resolved: ResolvedKeyframes, own: Readonly<Record<string, unknown>>): Readonly<Record<string, unknown>> => ({
+  ...own,
+  duration: resolved.seconds,
+  repeat: resolved.repeat,
+  repeatDelay: resolved.repeatDelay,
+  repeatType: resolved.repeatType,
+  reverse: resolved.reverse,
+})
+
 /**
- * Animate through a sequence of stops, splitting `duration` evenly across the Segments between
- * them, each eased whole (Motion's keyframes, evenly spaced). One leaf over one frame time (#226):
- * the next Segment starts the moment one ends, wherever that falls in a tick. A single stop, or
- * none, holds still for `duration`. `delay` holds once, before the first Segment (#77). Its own
- * span, `wardic.keyframes`.
+ * Animate through a sequence of stops, as Motion's keyframes (#429): each Segment between two stops
+ * eased whole, on its own easing from `ease` (one, or one per Segment, wrapping round), each stop at
+ * its place in `times` (evenly spaced without one per stop). The {@link Modifiers} run the whole
+ * sequence: `repeat` replays it, `"reverse"` plays every other pass backwards in time, `"mirror"`
+ * plays every other pass through the stops from last to first on the same easings, Motion's mirrored
+ * generator, and `reverse` plays every pass through them from last to first.
+ *
+ * One leaf over one frame time (#226): the next Segment starts the moment one ends, wherever that
+ * falls in a tick. A single stop, or none, holds still. `delay` holds once, before the first
+ * Segment (#77). Its own span, `wardic.keyframes`.
  */
-export const keyframes = (stops: ReadonlyArray<number>, options: KeyframesOptions): Machine<Frame.Frame<number>> => {
-  const { tween: resolved, eases } = resolveKeyframes(options)
-  const total = resolved.seconds
-  const count = Math.max(1, stops.length - 1)
-  const segment = durationOf(total / count)
-  const at: ReadonlyArray<number> = Arr.copy(stops)
-  return Arr.match(Arr.drop(stops, 1), {
-    onEmpty: () => {
-      const only = Option.getOrElse(Arr.head(stops), () => 0)
-      return tweenLeaf(only, only, { ...resolved, delay: 0 }, tweenSpan(only, only, total))
+export const keyframes = (stops: ReadonlyArray<number>, options: KeyframesOptions = NO_OPTIONS): Machine<Frame.Frame<number>> => {
+  const resolved = resolveKeyframes(options)
+  const { run, eases, reverse } = resolved
+  const at: ReadonlyArray<number> = Arr.copy(stopsOf(stops, 0))
+  const last = at.length - 1
+  const duration = run.tween.duration
+  const stopTimes = stopTimesOf(at.length, resolved.times, duration)
+  return make({
+    settles: Number.isFinite(resolved.repeat),
+    span: tweenSpan(at[0], at[last], resolved.seconds),
+    start: () => {
+      let elapsed = 0
+      const pass: Pass = { within: 0, reversed: false, flipped: false }
+      // Per frame (ADR-0025): one time, `dt` clamped (#78); the stops copied when it was built.
+      return (dt): Frame.Frame<number> => {
+        elapsed += Math.min(dt, MAX_DT)
+        const done = passAt(elapsed, run, reverse, pass)
+        const time = timeIn(pass, duration)
+        const i = segmentAt(time, stopTimes)
+        const eased = eases[i % eases.length](segmentProgress(time, stopTimes, i))
+        if (pass.flipped) return { value: Scalar.lerp(at[last - i], at[last - i - 1], eased), done }
+        return { value: Scalar.lerp(at[i], at[i + 1], eased), done }
+      }
     },
-    onNonEmpty: () =>
-      make({
-        settles: true,
-        span: tweenSpan(Option.getOrElse(Arr.head(stops), () => 0), Option.getOrElse(Arr.last(stops), () => 0), total),
-        start: () => {
-          let elapsed = 0
-          // Per frame (ADR-0025): one time, `dt` clamped (#78); the stops copied when it was built.
-          return (dt): Frame.Frame<number> => {
-            elapsed += Math.min(dt, MAX_DT)
-            return keyframesAt(elapsed, at, segment, total, eases)
-          }
-        },
-      }),
   }).pipe(
     delay(resolved.delay),
-    withSpan("wardic.keyframes", { attributes: { stops: stops.length, duration: total } }),
+    withSpan("wardic.keyframes", { attributes: keyframesAttributes(resolved, { stops: stops.length }) }),
   )
 }
 
@@ -1247,18 +1322,16 @@ const blendersFor = (
 ): Effect.Effect<ReadonlyArray<readonly [key: string, blend: Blender]>, never, InterpolatorRegistry.InterpolatorRegistry> =>
   Effect.gen(function* () {
     const registry = yield* InterpolatorRegistry.InterpolatorRegistry
-    const blenders = yield* Effect.all(
-      Rec.map(to, (b, key): Effect.Effect<Blender> => {
-        const a = Option.getOrElse(Rec.get(from, key), () => b)
-        // No rule takes it: the registry's blend, through a blender made here, as before #61. A
-        // blender made by one shared factory for every key made its call site megamorphic, and
-        // Node's string workloads 7–9% slower per frame (#61's bench).
-        return Option.getOrElse(registry.keyBlendOf(key, a, b), () =>
-          Effect.map(registry.resolve(a, b), (blend): Blender => (t) => blend(t)))
-      }),
-    )
+    const blenders = yield* Effect.all(Rec.map(to, (b, key) => blenderFor(registry, key, Option.getOrElse(Rec.get(from, key), () => b), b)))
     return Rec.toEntries(blenders)
   })
+
+/** `key`'s blender from `a` to `b` ({@link blendersFor}'s, and each of a keyframes Segment's, #429). */
+const blenderFor = (registry: InterpolatorRegistry.InterpolatorRegistry["Service"], key: string, a: number | string, b: number | string): Effect.Effect<Blender> =>
+  // No rule takes it: the registry's blend, through a blender made here, as before #61. A blender
+  // made by one shared factory for every key made its call site megamorphic, and Node's string
+  // workloads 7–9% slower per frame (#61's bench).
+  Option.getOrElse(registry.keyBlendOf(key, a, b), () => Effect.map(registry.resolve(a, b), (blend): Blender => (t) => blend(t)))
 
 /**
  * Every key's blend at one progress Frame. On the per-frame path (ADR-0025): a loop over the
@@ -1325,3 +1398,102 @@ export const springBlend = (
       map((frame) => blendAt(blenders, UndefinedOr.getOrThrow(frame.value.progress) / 100, frame.done)),
       withSpan("wardic.springBlend", { attributes: { keys: Rec.keys(to).length } }),
     ))
+
+/**
+ * One key's keyframes in a bag (#429): its stops' times in a pass, and a blender for each Segment,
+ * read from first to last (`forward`) and, when a pass can read them from last to first, that way
+ * too (`backward`), as Motion's mirrored generator builds its own.
+ */
+interface Track {
+  readonly key: string
+  readonly stopTimes: ReadonlyArray<number>
+  readonly forward: ReadonlyArray<Blender>
+  readonly backward: ReadonlyArray<Blender>
+}
+
+/** No blenders: a Track whose passes never read its stops from last to first. */
+const NO_BLENDERS: ReadonlyArray<Blender> = []
+
+/** `key`'s blender for each Segment through `stops` (two or more). */
+const segmentBlenders = (
+  registry: InterpolatorRegistry.InterpolatorRegistry["Service"],
+  key: string,
+  stops: ReadonlyArray<number | string>,
+): Effect.Effect<ReadonlyArray<Blender>> =>
+  Effect.all(Arr.map(Arr.range(0, stops.length - 2), (i) => blenderFor(registry, key, stops[i], stops[i + 1])))
+
+/** `key`'s Track through `given` in a pass of `duration` seconds, its stops at `times` when there's one each. */
+const trackFor = (
+  registry: InterpolatorRegistry.InterpolatorRegistry["Service"],
+  key: string,
+  given: Arr.NonEmptyReadonlyArray<number | string>,
+  times: ReadonlyArray<number> | undefined,
+  duration: number,
+  flips: boolean,
+): Effect.Effect<Track> => {
+  const stops = stopsOf(given, given[0])
+  return Effect.all({
+    forward: segmentBlenders(registry, key, stops),
+    backward: Bool.match(flips, { onTrue: () => segmentBlenders(registry, key, Arr.reverse(stops)), onFalse: () => Effect.succeed(NO_BLENDERS) }),
+  }).pipe(Effect.map(({ forward, backward }): Track => ({ key, stopTimes: stopTimesOf(stops.length, times, duration), forward, backward })))
+}
+
+/**
+ * Animate a bag of values through each key's stops, as Motion's keyframes (#429), each key through
+ * the `InterpolatorRegistry` as `animateValues`' are (numbers, unit strings, complex values, and its
+ * Environment's own kinds, the DOM's colours). One run drives every key, as `keyframes`' drives its
+ * one: its `duration`, `ease` (one, or one per Segment) and {@link Modifiers} are the bag's, and
+ * `done` is the run's. Each key has its own stops, at their places in `times` when there's one per
+ * stop and evenly spaced otherwise, as each of Motion's values does. A key with one stop holds it,
+ * and one with none is left out.
+ *
+ * A Segment blends as a pair does: a Discrete pair switches at its first Frame past 0, and an
+ * Environment's Key rule that holds a key until the run's last Frame (the DOM's `display` and
+ * `visibility`) sees only the last Segment's. Building it needs the `InterpolatorRegistry`,
+ * consulted once: each Segment of each key resolves to a pure blender. Its steps don't: per tick,
+ * one direct call a key. Its own span, `wardic.keyframesValues`.
+ */
+export const keyframesValues = (
+  stops: Readonly<Record<string, ReadonlyArray<number | string>>>,
+  options: KeyframesOptions = NO_OPTIONS,
+): Effect.Effect<Machine<Frame.Frame<Values.Values>>, never, InterpolatorRegistry.InterpolatorRegistry> =>
+  Effect.gen(function* () {
+    const resolved = resolveKeyframes(options)
+    const { run, eases, reverse } = resolved
+    const registry = yield* InterpolatorRegistry.InterpolatorRegistry
+    const flips = Bool.or(reverse, run.mirrors)
+    const duration = run.tween.duration
+    const tracks = yield* Effect.all(
+      Arr.filterMap(Rec.toEntries(stops), ([key, given]) =>
+        Arr.match(given, {
+          onEmpty: () => Result.failVoid,
+          onNonEmpty: (some) => Result.succeed(trackFor(registry, key, some, resolved.times, duration, flips)),
+        })),
+    )
+    return make({
+      settles: Number.isFinite(resolved.repeat),
+      span: { name: "wardic.keyframesValues", attributes: {} },
+      start: () => {
+        let elapsed = 0
+        const pass: Pass = { within: 0, reversed: false, flipped: false }
+        // Per frame (ADR-0025): one time, `dt` clamped (#78); a loop over the Tracks built with the machine.
+        return (dt): Frame.Frame<Values.Values> => {
+          elapsed += Math.min(dt, MAX_DT)
+          const done = passAt(elapsed, run, reverse, pass)
+          const time = timeIn(pass, duration)
+          const value: Record<string, number | string> = {}
+          for (const track of tracks) {
+            const i = segmentAt(time, track.stopTimes)
+            const eased = eases[i % eases.length](segmentProgress(time, track.stopTimes, i))
+            let blenders = track.forward
+            if (pass.flipped) blenders = track.backward
+            value[track.key] = blenders[i](eased, done)
+          }
+          return { value, done }
+        }
+      },
+    }).pipe(
+      delay(resolved.delay),
+      withSpan("wardic.keyframesValues", { attributes: keyframesAttributes(resolved, { keys: tracks.length }) }),
+    )
+  })

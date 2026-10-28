@@ -22,7 +22,7 @@ import { type Leg, legsOf } from "../src/retarget-legs.ts"
 
 const F = 1 / 60
 const POSITIONAL: ReducedMotion.PositionalKeys["Service"] = { isPositional: ReducedMotion.isTransform }
-const ONE_SPRING: DefaultTransition.DefaultTransition["Service"] = { transitionFor: () => DefaultTransition.ONE_SPRING }
+const ONE_SPRING: DefaultTransition.DefaultTransition["Service"] = { transitionFor: () => DefaultTransition.ONE_SPRING, keyframes: DefaultTransition.ONE_TWEEN }
 
 /** The legs of an x and an opacity going 0 → 100 / 0 → 1 on `transition`. */
 const legsFor = (transition: WardicTransition): ReadonlyArray<Leg> => legsOf({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, transition, false, POSITIONAL, ONE_SPRING, {})
