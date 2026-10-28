@@ -21,6 +21,7 @@
     "lint": "eslint packages/core/src packages/core/bench packages/core/test packages/dom packages/solid packages/test",
     "bench:core": "bun packages/core/bench/run.ts",
     "bench:solid": "bun packages/solid/bench/run.ts",
+    "skills": "bun scripts/sync-agent-skills.ts",
     "changeset": "changeset",
     "version-packages": "changeset version",
     "release": "bun run build && changeset publish"

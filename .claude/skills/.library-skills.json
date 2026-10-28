@@ -1,0 +1,26 @@
+[
+  {
+    "skill": "solid-2.0",
+    "from": "solid-js@2.0.0-rc.19"
+  },
+  {
+    "skill": "solid-2.0-cheatsheet",
+    "from": "solid-js@2.0.0-rc.19"
+  },
+  {
+    "skill": "reactivity-diagnostics",
+    "from": "solid-js@2.0.0-rc.19"
+  },
+  {
+    "skill": "server-components",
+    "from": "@solidjs/web@2.0.0-rc.19"
+  },
+  {
+    "skill": "agent-loops",
+    "from": "@solidjs/diagnostics@2.0.0-rc.19"
+  },
+  {
+    "skill": "effect-4",
+    "from": "effect@4.0.5"
+  }
+]
