@@ -45,21 +45,37 @@ import { Dynamic } from "solid-js/web"
 import { wardicDirective } from "./directive.ts"
 import { isServer } from "./server.ts"
 import { renderServerElement, serverAppearOfWard, createWardWith, type SpineInternals, type WardStyle, type WardUserProps } from "./create-ward.tsx"
-import type { WardConfig } from "./config.ts"
+import type { WardConfig, WardicVariantLabels } from "./config.ts"
+import type { InferredMotion, TargetKey } from "./ward-keys.ts"
 import { changesContext } from "./variant-tree.ts"
 import { MOTION_PROPS, motionToConfig, type WardicMotionProps } from "./motion-props.ts"
 
 export { MOTION_PROPS, motionToConfig, type WardicMotionProps } from "./motion-props.ts"
 
 /**
- * Props for a `wardic.<tag>` element: the tag's intrinsic props + motion props, with a `style` that
- * takes the transform keys and Live values too ({@link WardStyle}, #130).
+ * Props for a `wardic.<tag>` element: the tag's intrinsic props + motion props `M`, with a `style`
+ * that takes the transform keys and Live values too ({@link WardStyle}, #130). A `wardic.<tag>`
+ * component's `M` has its keys inferred ({@link WardicComponent}).
  */
-export type WardicProps<Tag extends keyof JSX.IntrinsicElements> =
+export type WardicProps<Tag extends keyof JSX.IntrinsicElements, M = WardicMotionProps> =
   // `onAnimationStart` is Motion's (#257), not the DOM's CSS `animationstart` event's, as on Motion.
   & Omit<JSX.IntrinsicElements[Tag], "style" | "onAnimationStart" | "onDrag" | "onDragStart" | "onDragEnd">
-  & WardicMotionProps
+  & M
   & { readonly style?: WardStyle | string | undefined }
+
+/**
+ * A `wardic.<tag>` component (#305): generic over the keys its targets set, so its `transition` takes
+ * entries for those keys, `default` and `layout`, and a target's own takes them and `default`
+ * ({@link InferredMotion}). A name an entry gives that the element doesn't animate is an error, and
+ * completion inside a `transition` offers the keys it drives.
+ */
+export type WardicComponent<Tag extends keyof JSX.IntrinsicElements> = <
+  K extends TargetKey = never,
+  N extends string = never,
+  LI extends WardicVariantLabels = never,
+  LA extends WardicVariantLabels = never,
+  D extends boolean | "x" | "y" = never,
+>(props: WardicProps<Tag, InferredMotion<WardicMotionProps, K, N, LI, LA, D>>) => JSX.Element
 
 /**
  * The shape `wardic.create(Component)` requires of a wrapped component: it must
@@ -94,7 +110,9 @@ export const configOfMotion = (motion: WardicMotionProps): Accessor<WardConfig> 
  * @param arg an element tag string (e.g. `"div"`) OR a component forwarding `ref`.
  * @returns a Solid component accepting the element's / component's props + motion props.
  */
-export function create<Tag extends keyof JSX.IntrinsicElements>(tag: Tag): Component<WardicProps<Tag>>
+export function create<Tag extends keyof JSX.IntrinsicElements>(tag: Tag): WardicComponent<Tag>
+// A component's stays a plain `Component`, its keys not inferred: a generic return type would stop
+// TS carrying a generic component's own type parameters through (Kobalte's `<T extends ValidComponent>`).
 export function create<P>(component: Component<P & WardicWrappable>): Component<P & WardicMotionProps>
 export function create(tag: string): Component<WardicProps<keyof JSX.IntrinsicElements>>
 export function create(arg: string | Component<Record<string, unknown> & WardicWrappable>): Component<Record<string, unknown>> {
@@ -264,7 +282,7 @@ const serverElement = (component: Rendered, internal: SpineInternals, props: Rec
 export type Wardic = ((el: HTMLElement, value: Accessor<WardConfig>) => void) & {
   readonly create: typeof create
 } & {
-  readonly [Tag in keyof JSX.IntrinsicElements]: Component<WardicProps<Tag>>
+  readonly [Tag in keyof JSX.IntrinsicElements]: WardicComponent<Tag>
 }
 
 /**

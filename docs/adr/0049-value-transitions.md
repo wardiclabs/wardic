@@ -221,3 +221,93 @@ On Solid 2, a ward's config still completed nothing inside `style` or `viewport`
 **The fix:** `PerKeyApart` (`config-view.ts`) is `PerKey`, declared apart, with its rule and its accessor (`() => C[P]`) written out. `WardChecked<C>` checks the other keys against `PerKeyApart<WardConfigValues, WardCallbackKey>`.
 - **Pinned by:** WC5 (`v2/ward-completions.ssr.test.tsx`), completion inside both keys as a value and as an accessor.
 - **Mutation-checked:** `PerKeyApart` with `Accessor<…>`, and `WardChecked` against `WardConfig`, each fail WC5.
+
+## Amendment (#305, 2026-10-28): every Wardic element infers its keys
+
+PR 2 checked Solid 2's `ward()` only (Q3). `wardic.*` on both bindings and Solid 1's `createWard` still took every value's name in every transition, because making them generic over their props cost their typo checks. #305 held them, with ideas to try. A prototype came first, and then a grill on 2026-10-28: Q1–Q4 and Q6 A, Q5 B.
+
+- **Q1: infer the keys, not the props.** `InferredMotion<M, K, N, LI, LA, D, X>` (`ward-keys.ts`) is the motion props `M` with type parameters inferred from them:
+  - `K`, the names its targets set: `initial`, `animate`, `exit`, the gesture targets and the variants;
+  - `N`, the variants' names;
+  - `LI` and `LA`, a name given in `initial` or `animate`;
+  - `D`, `drag`;
+  - `X`, the keys a ward given to the element animates (Solid 2's `wardRef`, #398).
+
+  The element's `transition` takes entries for the keys it animates, `default` and `layout`, through `NoInfer`, so its entries never widen `K`. An element Variant children can join takes every value's name (PR 2's Q1).
+  - **Typo checks stay.** Each target is `Omit<WardicValues, "transition"> & { transition? } & { [P in K]?: unknown }`. A name that isn't a value fails `K`'s constraint, so `K` is every name and the name is an excess property. `fooo="x"`, `animate={{ opacty: 1 }}` and `style={{ colr }}` are errors as before.
+  - **The map's own type stays whole.** While an editor completes inside a target, TS infers without that target, so a map typed only over `K` offered nothing.
+  - **A values map is inferred into a name parameter too.** It fails the constraint, so `LI` and `LA` are then `string`-wide: only a literal name counts (`string extends L`). A name TS can't infer, an overloaded call's, is still accepted.
+  - **No keys at all leaves the transition unchecked.** That covers an element with no target, and one whose target TS can't see into.
+  - *Rejected:* B, the whole props inferred (+14–28% check time, no typo checks in `viewport`, `dragConstraints` or `dragTransition`); C, no inference on the components.
+- **Q2: a key only `style` sets doesn't count,** on the components or on `ward()` (`DrivenKey<C>`, `AnimatedKey<C>` without `style`). Wardic never follows a `style` change (ADR-0022, decision 5), so an entry for such a key never applies. On `ward()` it's a breaking change, in types only. `read(key)` still offers `style`'s keys.
+  - Inferring `style`'s keys on the components cost Solid 1's tests 47–62% more check time, against 15–24% without.
+  - *Rejected:* B, the components only; C, both counting them.
+- **Q3: a target's own transition on the components** takes the element's keys and `default`, without `layout`. An entry for a key only another target sets compiles, though it never applies.
+  - *Rejected:* B, each target's own keys, seven more parameters; C, unchecked.
+- **Q4: `ward()` rejects a name that isn't a value** in a target, a variant or `initial`, the accessor form included. Its config is inferred whole, so every name a map has was a known property: `ward({ animate: { opacty: 1 } })` compiled since #209.
+  - `NoStray` maps each such name to `NotAValue<P>`. The error reads `Type '1' is not assignable to type '1 & NotAValue<"opacty">'`.
+  - **`style` stays unchecked.** Checking it broke completion inside a `style` accessor. The check's type depends on the config, and #306's trap read it as `any`.
+  - *Rejected:* B, `style` too; C, its own issue.
+- **Q5: Solid 1's `createWard` infers its keys as the components do** (`InferredMotion<WardConfig, …>`), its config's own type kept. That's a change from the grill's plan, which was `ward()`'s `WardCheckedConfig`. The prototype of that plan showed two problems:
+  - **It lost checks `createWard` has.** A config inferred whole knows every name it has. `{ animate: {…}, fooo: 1 }` and `viewport: { amount: 0.5, amout: 1 }` compiled, as they do on `ward()` today.
+  - **Its completion didn't narrow.** An editor's completion merges two contextual types:
+    - the ordinary one;
+    - one inferred again with the literal being written left out, and every literal around it, up to the call.
+
+    In the second, a config inferred whole is its constraint, so with `C extends WardConfig` the transition offered every name. TS replaces `any` with `unknown` in a property's contextual type across an intersection, so that can't be masked.
+
+    Keys inferred from the targets beside the one being written are still there. That's why the components', and now `createWard`'s, completion narrows. `ward()`'s does through its per-key constraint, whose accessor forms the completion code drops.
+  - **What it costs:** a target's own transition takes the element's keys (Q3), not its target's own, as on `ward()`.
+  - An error inside the accessor form is reported on the accessor.
+- **Q6:** one PR.
+- **`wardic.create(Component)`:**
+  - **Solid 2:** it infers too.
+  - **Solid 1:** it keeps a plain `Component<P & WardicMotionProps>`. A generic return type stops TS carrying a generic component's own type parameters through (Kobalte's `<T extends ValidComponent>`), and the storefront's wraps lost their props.
+- **The known gap: an overloaded generic call in a target** (Effect's `dual` functions: `Bool.match`, `Option.match`) gives the outer inference no keys. That was PR 2's unexplained VT1.
+  - On its own, the transition is unchecked.
+  - Beside another target, an entry for a key only that call sets is rejected.
+  - A type on the call's result is the way round (`as WardicVariant`). A ternary, a union of maps, is no call: its keys are every branch's.
+- **Cost:** check time (`tsc --extendedDiagnostics --incremental false`), median of three interleaved rounds against `main`. Types only, so there's no `bench:solid` run.
+
+  | | TypeScript 6.0.3 | TypeScript 7.0.2 |
+  |---|---|---|
+  | Solid 1's tests | 3.71 s → 4.63 s, +24.8% | 0.81 s → 1.09 s, +33.6% |
+  | Solid 2's tests | 5.10 s → 5.24 s, +2.7% | 1.06 s → 1.10 s, +4.5% |
+  | layout-lab (Solid 1) | +1.2% | −1.4% |
+  | layout-lab (Solid 2) | +0.6% | −2.2% |
+  | solid-start-basic | +1.8% | +8.1% |
+  | solid2-start | +1.9% | +0.7% |
+  | storefront (Solid 1) | +2.2% | +5.4% |
+  | storefront (Solid 2) | +2.3% | +4.8% |
+
+  Solid 1's tests hold hundreds of `wardic.*` elements. TypeScript 7's sub-second times are noisy: its `main` runs of Solid 1's tests spread from 0.71 s to 0.86 s.
+- **Tests:**
+  - IK1–IK7 (`inferred-keys.ssr.test.tsx`) and KI1–KI7 (`v2/inferred-keys.ssr.test.tsx`), the type checks:
+    - the element's `transition`;
+    - names the props don't know;
+    - a Variant parent, a name from an overloaded call among them;
+    - a target's own;
+    - the gap and its way round;
+    - `createWard` on Solid 1, a given ward's keys on Solid 2;
+    - `wardic.create`.
+  - TK1 now rejects an entry for a key only `style` sets.
+  - TK8 checks `ward()`'s names that aren't values.
+  - IC1–IC5 and CI1–CI5 (`wardic-completions.ssr.test.tsx` on each binding), asked of the language service. `language-service.ts` is the harness WC1–WC5 had inline, now shared.
+- **Mutation-checked:** fifteen single-point mutations, each caught by the type checks or the completion tests:
+  - the `transition` giving `K` names;
+  - targets inferring none;
+  - a target's own type not whole (completion only);
+  - no Variant parent;
+  - a values map counting as names;
+  - no drag keys;
+  - checking with no keys;
+  - a target's own taking `layout`;
+  - `style` counting on `ward()`;
+  - `ward()`'s targets or `initial` unchecked for names;
+  - a given ward's keys not counted;
+  - `createWard`, Solid 2's wraps or Solid 1's `wardic.<tag>` uninferred.
+- **A slot the prototype needed is gone.** The name slots took any names besides the inferred ones. With each target's whole type kept, the mutation that dropped the slot survived every test, so the slot went.
+- **Found and left, on `ward()`:** the typo checks its config lost when it became generic (#209), outside its targets:
+  - a name the config doesn't know, beside one it does (`{ animate: {…}, fooo: 1 }`);
+  - a misspelt name in `viewport` beside a real one;
+  - `style`'s names (Q4).

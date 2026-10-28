@@ -27,17 +27,20 @@ import { MOTION_PROPS_V2 as MOTION_PROPS, type WardicMotionPropsV2 as WardicMoti
 import { changesContext, isVariantChild } from "../../variant-tree.ts"
 import { type AnyWard, shareOf, type Ward, WARD, type WardConfig, type WardConfigValues, wardConfigView, type WardInternals, type WardRead, type WardShare, type WardStyle, wardWith } from "./ward.tsx"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
+import type { WardicVariantLabels } from "../../config.ts"
+import type { DrivenKey, InferredMotion, TargetKey } from "../../ward-keys.ts"
 import { useVariantContext } from "./variant-node.ts"
 
 /**
  * Props for a `wardic.<tag>` element: the tag's own props and its motion ({@link WardicMotion}), with
  * a `style` that takes the transform keys and Live values too ({@link WardStyle}, #130). `C` is the
- * config of a ward given to its `wardRef` (#398), `{}` with none.
+ * config of a ward given to its `wardRef` (#398), `{}` with none; `P` the motion props, a
+ * `wardic.<tag>` component's with its keys inferred ({@link WardicComponent}).
  */
-export type WardicProps<Tag extends keyof JSX.IntrinsicElements, C = {}> =
+export type WardicProps<Tag extends keyof JSX.IntrinsicElements, C = {}, P = WardicMotionProps> =
   & Omit<JSX.IntrinsicElements[Tag], "style">
   & { readonly style?: WardStyle | string | undefined }
-  & WardicMotion<C>
+  & WardicMotion<C, P>
 
 /**
  * A component's ward, handed over (#257, ADR-0046): `wardRef={(card) => …}` gets the ward the
@@ -81,13 +84,32 @@ export type GivenWard<C> = AnyWard & { readonly read: WardRead<C> }
  * drives its element with. Beside a given ward go the motion props it doesn't set
  * ({@link WardicBeside}), each laid over its config; `style` and `ref` by `ward.with()`'s rules.
  */
-export type WardicMotion<C = {}> = { readonly wardRef?: WardRefCallback | GivenWard<C> | undefined } & WardicBeside<C>
+export type WardicMotion<C = {}, P = WardicMotionProps> = { readonly wardRef?: WardRefCallback | GivenWard<C> | undefined } & WardicBeside<C, P>
 
-/** A `wardic.<tag>` component (#398): generic over the config `C` of a ward given to its `wardRef`, `{}` with none. */
-export type WardicComponent<Tag extends keyof JSX.IntrinsicElements> = <C = {}>(props: WardicProps<Tag, C>) => JSX.Element
+/**
+ * A `wardic.<tag>` component: generic over the config `C` of a ward given to its `wardRef`, `{}` with
+ * none (#398), and over the keys its targets set (#305), so its `transition` takes entries for those
+ * keys and the given ward's, `default` and `layout`, and a target's own takes them and `default`
+ * ({@link InferredMotion}).
+ */
+export type WardicComponent<Tag extends keyof JSX.IntrinsicElements> = <
+  C = {},
+  K extends TargetKey = never,
+  N extends string = never,
+  LI extends WardicVariantLabels = never,
+  LA extends WardicVariantLabels = never,
+  D extends boolean | "x" | "y" = never,
+>(props: WardicProps<Tag, C, InferredMotion<WardicMotionProps, K, N, LI, LA, D, DrivenKey<C>>>) => JSX.Element
 
-/** `wardic.create(Component)`'s component (#398): the component's props and its motion, generic as {@link WardicComponent}. */
-export type WardicWrapped<P> = <C = {}>(props: P & { readonly style?: WardStyle | string | undefined } & WardicMotion<C>) => JSX.Element
+/** `wardic.create(Component)`'s component (#398, #305): the component's props and its motion, generic as {@link WardicComponent}. */
+export type WardicWrapped<P> = <
+  C = {},
+  K extends TargetKey = never,
+  N extends string = never,
+  LI extends WardicVariantLabels = never,
+  LA extends WardicVariantLabels = never,
+  D extends boolean | "x" | "y" = never,
+>(props: P & { readonly style?: WardStyle | string | undefined } & WardicMotion<C, InferredMotion<WardicMotionProps, K, N, LI, LA, D, DrivenKey<C>>>) => JSX.Element
 
 /** A component's `wardRef`, read as its props hold it. */
 interface WardRefIn {

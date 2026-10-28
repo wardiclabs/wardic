@@ -108,7 +108,8 @@ import {
   type ServerAppearOf,
 } from "./spine.ts"
 import { type WardicVariantContextValue, useVariantContext, WardicVariantContext } from "./variants.ts"
-import type { WardConfig, WardicTransformShorthands, WardicValues } from "./config.ts"
+import type { WardConfig, WardicTransformShorthands, WardicValues, WardicVariantLabels } from "./config.ts"
+import type { InferredMotion, TargetKey } from "./ward-keys.ts"
 
 /**
  * Optional user-supplied props passed INTO the {@link Ward} callable to be
@@ -717,11 +718,22 @@ export function runSpine(opts: RunSpineOptions): void {
  * through `cfg()`; `initial` is read EXACTLY ONCE at setup (`untrack`) — it is
  * the SSR/first-frame seed and must never re-seed after mount (ADR-0003).
  *
+ * Its keys are inferred from its targets (#305), as a `wardic.*` element's are, so its `transition`
+ * takes entries for the keys it animates, `default` and `layout`, and a target's own takes them and
+ * `default` ({@link InferredMotion}). The config keeps its own type, so a name it doesn't know is an
+ * error as ever.
+ *
  * @param config initial/animate/whileHover/whileTap + transition (see {@link WardConfig}), or an accessor of it.
  * @returns the Ward: call it to spread onto a JSX element.
  */
-export function createWard(config: WardConfig | Accessor<WardConfig>): Ward {
-  return createWardWith(config, undefined)
+export function createWard<
+  K extends TargetKey = never,
+  N extends string = never,
+  LI extends WardicVariantLabels = never,
+  LA extends WardicVariantLabels = never,
+  D extends boolean | "x" | "y" = never,
+>(config: InferredMotion<WardConfig, K, N, LI, LA, D> | Accessor<InferredMotion<WardConfig, K, N, LI, LA, D>>): Ward {
+  return createWardWith(config as WardConfig | Accessor<WardConfig>, undefined)
 }
 
 /**
