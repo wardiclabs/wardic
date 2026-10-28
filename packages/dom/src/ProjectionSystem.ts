@@ -10,6 +10,10 @@
  * plain functions. `make` is the scoped constructor over any sink, for a binding that wires it
  * itself.
  *
+ * It's an Effect `Inspectable` (#384): `toJSON()` gives the tree as plain data ({@link Snapshot}),
+ * each node with its parent, its `layoutId` twin's part and what it's doing, and
+ * `console.log(system)` shows it. It's a diagnostic read: the layout lab draws it.
+ *
  * A server render builds none (ADR-0021).
  */
 import * as Context from "effect/Context"
@@ -25,6 +29,8 @@ export {
   type ProjectionNodeHandle as NodeHandle,
   type DragProjectionHandle as DragHandle,
   type AnimateLayoutOptions,
+  type Snapshot,
+  type NodeSnapshot,
   type LayoutTransition,
   type DragTransition,
   DEFAULT_LAYOUT_TRANSITION,

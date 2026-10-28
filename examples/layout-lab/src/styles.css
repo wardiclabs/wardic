@@ -479,6 +479,29 @@ body {
   font-size: 12px;
 }
 
+/* Projection tree (#384): the drawing scrolls inside the sidebar rather than widening it. */
+.tree-all {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+}
+
+.tree-scrub {
+  width: 100%;
+  margin-top: 8px;
+}
+
+.tree-diagram {
+  margin-top: 8px;
+  overflow: auto;
+  max-height: 70vh;
+}
+
+.tree-diagram svg {
+  max-width: none;
+}
+
 .flash-total {
   font: 700 18px/1 var(--lab-mono);
 }

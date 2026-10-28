@@ -78,10 +78,11 @@ import type * as Fiber from "effect/Fiber"
 import * as Exit from "effect/Exit"
 import * as FiberHandle from "effect/FiberHandle"
 import * as FiberSet from "effect/FiberSet"
+import * as Inspectable from "effect/Inspectable"
 import * as Iter from "effect/Iterable"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
-import { constFalse, constTrue, constVoid, identity } from "effect/Function"
+import { constFalse, constTrue, constUndefined, constVoid, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
 import * as Str from "effect/String"
@@ -946,7 +947,7 @@ export interface ProjectionNodeHandle extends DragProjectionHandle {
 }
 
 /** The provider-owned projection system. */
-export interface ProjectionSystem {
+export interface ProjectionSystem extends Inspectable.Inspectable {
   readonly register: (opts: RegisterNodeOptions) => ProjectionNodeHandle
   /**
    * Request a (coalesced) re-measure of the WHOLE tree (Q5). Used by a
@@ -1034,6 +1035,41 @@ export interface ProjectionSystem {
   readonly dropLeaver: (el: HTMLElement) => Option.Option<number>
   /** Stop the coordinator's run + tear down the observer (wired into the provider's onCleanup). */
   readonly dispose: () => void
+  /**
+   * The tree as plain data, for a diagnostic read (#384): every node now, in the order it was
+   * registered. `console.log(system)` shows it (Effect's `Inspectable`). Parent links are the last
+   * Measure pass's, as the engine reads them.
+   */
+  readonly toJSON: () => Snapshot
+}
+
+/** {@link ProjectionSystem.toJSON}'s tree (#384). */
+export interface Snapshot {
+  readonly _id: "ProjectionSystem"
+  readonly nodes: ReadonlyArray<NodeSnapshot>
+}
+
+/** One node in a {@link Snapshot}. */
+export interface NodeSnapshot {
+  /** The id its binding registered it with. */
+  readonly id: string
+  /** Its element's tag, lower-case. */
+  readonly tag: string
+  readonly layoutId: string | undefined
+  /** Its parent's id, as the last Measure pass found it by DOM ancestry; `undefined` for a root. */
+  readonly parent: string | undefined
+  readonly layoutRoot: boolean
+  /** A `layoutId` twin's part (ADR-0010): the Lead, the newest live one, or a Follower; `undefined` for none. */
+  readonly twin: "lead" | "follower" | undefined
+  /** A Follower's Lead's id. */
+  readonly lead: string | undefined
+  /** A layout animation in flight. */
+  readonly animating: boolean
+  readonly dragging: boolean
+  /** A drag's release, running on its Release offset (ADR-0016). */
+  readonly releasing: boolean
+  /** Kept by a presence while it leaves (ADR-0010). */
+  readonly leaving: boolean
 }
 
 /** {@link ProjectionSystem.animateLayout}'s options (#191, ADR-0039). */
@@ -5150,7 +5186,40 @@ export const makeProjectionSystem = (
     }
   }
 
-  const system: ProjectionSystem = { register, notify: scheduleMeasure, animateLayout, handleLeave, handBackWithin, keepLeaving, dispose, registerValues, rootBoxOf, dropLeaver }
+  // The tree as plain data (#384): a diagnostic read, so it reads what's there and changes nothing.
+  const snapshotOf = (node: NodeState): NodeSnapshot => {
+    const lead = UndefinedOr.map(node.layoutId, leadOf)
+    const twin = UndefinedOr.map(node.layoutId, () => Bool.match(lead === node, { onTrue: () => "lead" as const, onFalse: () => "follower" as const }))
+    return {
+      id: node.id,
+      tag: node.element.tagName.toLowerCase(),
+      layoutId: node.layoutId,
+      parent: UndefinedOr.map(node.parent, (parent) => parent.id),
+      layoutRoot: node.layoutRoot,
+      twin,
+      lead: Bool.match(twin === "follower", { onTrue: () => UndefinedOr.map(lead, (l) => l.id), onFalse: constUndefined }),
+      animating: node.animating,
+      dragging: node.dragging,
+      releasing: node.releasing,
+      leaving: node.leaving,
+    }
+  }
+  const toJSON = (): Snapshot => ({ _id: "ProjectionSystem", nodes: Arr.map(Arr.fromIterable(nodes), snapshotOf) })
+
+  const system: ProjectionSystem = {
+    ...Inspectable.BaseProto,
+    register,
+    notify: scheduleMeasure,
+    animateLayout,
+    handleLeave,
+    handBackWithin,
+    keepLeaving,
+    dispose,
+    registerValues,
+    rootBoxOf,
+    dropLeaver,
+    toJSON,
+  }
   passEnds.set(system, passEndListeners)
   return system
 }

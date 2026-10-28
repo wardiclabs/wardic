@@ -722,6 +722,21 @@ Hand runs, in Chrome and Firefox, then **Save log to repo** after each browser:
 
 Every run should read `start ✓` and `end ✓`, a run back to `none` or to a `var()` `rests ✓`, and the Variable value cells `paints ✓`.
 
+## Projection tree (#384)
+
+The sidebar's **Projection tree** panel draws the projection engine's tree with Mermaid: each node with its parent, its `layoutId` twin's part (a labelled edge goes from each Lead to its Followers) and what it's doing (animating, dragging, releasing, leaving).
+
+- **Recording:** the lab records the engine's `toJSON()` (ADR-0041, *Amendment (#384)*) after each painted frame while Wardic's Clock runs: a run, a drag, a release, a board. Frames whose tree reads the same make one state.
+  - A recording ends when the Clock stops, or after 30 frames with no change, for a Clock kept warm. Only one in which something changed is kept.
+  - Nothing is drawn while it records, so a run's frame checks are untouched.
+- **Showing:** the panel shows the last recording's final state. The slider steps through its states, each with its frames and its time since the first.
+  - It shows only the trees the recording changed (a scene's nodes make their own tree). **every tree** shows them all.
+- **Tree now** draws the tree as it is, at rest.
+- **Copy Mermaid** copies the text, to paste into an issue: GitHub draws it.
+- **Mermaid** is a lab-only dependency, loaded the first time the panel draws.
+
+Both builds have the panel: the engine is the same `@wardic/dom` under each. It reads the engine through the binding's `useWardicRuntime()`.
+
 ## Scheduler note
 
 By default the lab installs **no** `setImmediate` polyfill, so Effect's scheduler

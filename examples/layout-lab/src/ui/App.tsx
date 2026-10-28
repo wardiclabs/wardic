@@ -23,6 +23,7 @@ import type { BoardRunInput } from "../lab/base-values-board.ts"
 import type { DragRun } from "../lab/drag-run.ts"
 import type { Lab } from "../lab/lab.ts"
 import type { RestRun } from "../lab/rest-run.ts"
+import { makeTreeRecorder } from "../lab/tree-recorder.ts"
 import { currentLabScheduler } from "../probe/timeline.ts"
 import { CopyLog } from "./CopyLog.tsx"
 import { FlashCounter } from "./FlashCounter.tsx"
@@ -30,6 +31,7 @@ import { FrameStretch } from "./FrameStretch.tsx"
 import { KeepClockWarm } from "./KeepClockWarm.tsx"
 import { ScenarioCard } from "./ScenarioCard.tsx"
 import { TimelinePanel, type TimelineSelection } from "./TimelinePanel.tsx"
+import { TreePanel, TreeSource } from "./TreePanel.tsx"
 
 /** How far before the trigger a run's captured timeline slice reaches, in ms. */
 const WINDOW_LEAD_MS = 50
@@ -39,6 +41,8 @@ export const App = (props: { readonly lab: Lab }): JSX.Element => {
   const lab = props.lab
   // Built once: WardicProvider reads `env` a single time.
   const env = makeLabEnv(lab.timeline)
+  // The projection tree, recorded while the Clock runs (#384): `TreeSource` hands it the provider's engine.
+  const tree = makeTreeRecorder(lab.ticker, lab.timeline)
 
   // Each scenario's last run, with the timeline slice captured when it ended (so
   // an older run stays drawable after the ring buffers move on).
@@ -85,6 +89,7 @@ export const App = (props: { readonly lab: Lab }): JSX.Element => {
 
   return (
     <WardicProvider env={env}>
+      <TreeSource tree={tree} />
       <div class="lab">
         <LabHeader />
         <main class="cards">
@@ -110,6 +115,7 @@ export const App = (props: { readonly lab: Lab }): JSX.Element => {
             following={pickedId() === undefined}
             onFollowLatest={() => setPickedId(undefined)}
           />
+          <TreePanel tree={tree} />
           <FrameStretch
             ticker={lab.ticker}
             value={stretchMs()}

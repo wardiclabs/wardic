@@ -6,7 +6,7 @@
  * @module
  */
 import type { LabBinding } from "../lab/lab.ts"
-export { wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
+export { useWardicRuntime, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
 export { batch, type JSX } from "solid-js"
 export { render } from "solid-js/web"
 
