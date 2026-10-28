@@ -113,3 +113,39 @@ Core already had what a keyboard press needs: the keyboard and focus Input feeds
 - solid:
   - a keyboard press placed at the origin;
   - either binding's Reorder item not taking its keys.
+
+## Built (PR 2): Solid 2's `tapped()`
+
+`card.tapped()` (Q3) is built as `settled()` is (ADR-0046, `lifecycle.ts`):
+- **What it keeps:** counts and references until it's asked for. The presses started and ended are counted, and the last tap's press event and element are kept. Its info (`WardPressInfo`) is built from them the first time it's read.
+  - **Once it's been read,** its memo pends at each press's start, whether or not anything reads it then. So the tap's info is built when that pending read resolves, at the tap, and a keyboard press's centre is measured at the key. Before the first read, nothing is allocated for a tap.
+  - A draft also built the info at the tap when there was a reader. Its mutation survived a test with no read during the press, since the memo had already pended, so it went.
+- **The memo:** made at its first read, over a count of the presses started. It returns the last tap while every press has ended, else a pending promise.
+  - **A press's start** sets the count, so the read pends.
+  - **Its end** resolves the promise: with the new tap for a tap, or the last tap for a cancel or a press a drag took over.
+  - **The first read is never pending.** A press held at it pends from a microtask on, as `settled()`'s first read during a Retarget does.
+- **The first read asks for the press,** as `next("tap")` does. The ward runs its recognizer on its element (and on later mounts), and the element is made focusable.
+- **The lifecycle hears every press:** it keeps a press's state before its early return for a ward with no `next`, `each` or `when` waiting.
+- **On a server,** `tapped()` is `undefined`, as `settled()` is.
+
+## Tests (PR 2)
+
+`test/v2/tapped.browser.test.tsx`:
+- TP1: `undefined` and not pending before the first tap; pending through a pointer's press, the read keeping its value; then the tap;
+- TP2: a keyboard press's tap, at its centre measured at the key, unmoved by the element moving after, read during the press or not;
+- TP3: a cancel keeps the last tap: a release elsewhere, and a blur;
+- TP4: the first read asks for the press: the element made focusable, and a tap heard;
+- TP5: a reader in JSX beside `isPending`, with no `<Loading>` and no diagnostic;
+- TP6: a press a drag took over keeps the last tap;
+- TP7: a tap before the first read is kept;
+- TP8: a press held at the first read: not pending at that read, pending from a microtask on.
+
+**Mutation-checked:** eight single-point mutations of `tapped()`, each caught by TP1–TP8:
+- a press's start not pending;
+- a cancel taking the tap's place;
+- the first read asking for nothing;
+- presses heard only with events waiting;
+- the first read pending on a held press;
+- a held press at the first read never pending;
+- a tap before the first read forgotten;
+- the pending read never resolved.
