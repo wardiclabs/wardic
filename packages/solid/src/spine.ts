@@ -40,7 +40,7 @@ import * as Equivalence from "effect/Equivalence"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as FiberSet from "effect/FiberSet"
-import { constFalse, constUndefined, constVoid, identity } from "effect/Function"
+import { constFalse, constTrue, constUndefined, constVoid, identity } from "effect/Function"
 import * as Iter from "effect/Iterable"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
@@ -203,7 +203,8 @@ const keysByLayerOf = (
   if (listed) returnsAt = layers.length
   const groups = Arr.makeBy(Math.max(layers.length, returnsAt + 1), () => new Set<string>())
   Arr.forEach(Rec.keys(t), (key) => {
-    const at = Option.getOrElse(Arr.findLastIndex(layers, (layer) => Bool.and(layer.active, Object.hasOwn(layer.values, key))), () => returnsAt)
+    // A key only a Transition end sets (#428) is in its layer's group too, as the layer's own.
+    const at = Option.getOrElse(Arr.findLastIndex(layers, (layer) => Bool.and(layer.active, Bool.or(Object.hasOwn(layer.values, key), Object.hasOwn(layer.ends, key)))), () => returnsAt)
     UndefinedOr.map(groups[at], (group) => group.add(key))
   })
   return groups
@@ -277,6 +278,18 @@ export interface Resolution {
   readonly layers: ReadonlyArray<Layer>
   /** The names its active gesture layers resolved (#291): its own `while*` names, else those it took. */
   readonly names: GestureNames
+  /** Its layers' **Transition ends** (#428), when any active one has one. */
+  readonly ends: Ends | undefined
+}
+
+/**
+ * A resolution's **Transition ends** (#428): each key only a layer's Transition end sets, with the
+ * layer that drives it (the highest active one that sets it, as for any key), and each layer's end
+ * values for the keys it drives, a key it also animates among them.
+ */
+export interface Ends {
+  readonly endOnly: ReadonlyMap<string, number>
+  readonly byLayer: ReadonlyArray<Values.Values | undefined>
 }
 
 /**
@@ -289,10 +302,12 @@ export interface Layer {
   readonly values: Values.Values
   readonly transition: WardicVariantTransition | undefined
   readonly name: string | undefined
+  /** Its target's **Transition end** (#428): its keys are the layer's, set once its animated keys land. */
+  readonly ends: Values.Values
 }
 
 /** A gesture layer that's off: nothing is resolved for it. */
-const OFF: Layer = { active: false, values: {}, transition: undefined, name: undefined }
+const OFF: Layer = { active: false, values: {}, transition: undefined, name: undefined, ends: {} }
 
 /**
  * A gesture's layer (#291), while it's on (its own, or its provider's): its own `while*` (a target, or
@@ -645,6 +660,12 @@ const GATE_SPAN = { name: "wardic.spine.whenGate", attributes: {} }
 /** Nothing drawn while a gate is waited on. */
 const NO_SINK = (): undefined => undefined
 
+/** A Transition end's values set (#428): its one frame, done. */
+const endWriteOf = (values: Values.Values): Machine.Machine<Frame.Frame<Values.Values>> =>
+  Machine.make({ settles: true, span: END_SPAN, start: () => () => ({ value: values, done: true }) })
+
+const END_SPAN = { name: "wardic.spine.transitionEnd", attributes: {} }
+
 /**
  * A leg that waits for its name's gate first (#297's PR 2), as Motion runs a variant's `when` per
  * name: started once the gate opens, on the same token, so a later Retarget ends the wait as it ends
@@ -669,10 +690,45 @@ const gatedBy = <R,>(
 const hasOwnTransition = (layer: Layer): boolean => Bool.and(layer.active, Predicate.isNotUndefined(layer.transition))
 
 /** A target as an active layer, with the name it resolved. */
-const layerOf = (target: Target, name: string | undefined): Layer => ({ active: true, values: target.values, transition: target.transition, name })
+const layerOf = (target: Target, name: string | undefined): Layer => ({ active: true, values: target.values, transition: target.transition, name, ends: endsOfTarget(target) })
 
 /** A list's target as an active layer (#297). */
-const namedLayerOf = (target: NamedTarget): Layer => ({ active: true, values: target.values, transition: target.transition, name: target.name })
+const namedLayerOf = (target: NamedTarget): Layer => ({ active: true, values: target.values, transition: target.transition, name: target.name, ends: endsOfTarget(target) })
+
+/** A target's Transition end as a layer's (#428): none shared, so the common case allocates nothing. */
+const endsOfTarget = (target: Target): Values.Values => UndefinedOr.match(target.transitionEnd, { onUndefined: () => NO_VALUES, onDefined: identity })
+
+/** Whether a layer is on with a Transition end (#428). */
+const hasEnds = (layer: Layer): boolean => Bool.and(layer.active, layer.ends !== NO_VALUES)
+
+/** The highest active layer that sets `key`, in its values or its Transition end (#428). */
+const driverOf = (layers: ReadonlyArray<Layer>, key: string): number =>
+  Option.getOrElse(Arr.findLastIndex(layers, (layer) => Bool.and(layer.active, Bool.or(Object.hasOwn(layer.values, key), Object.hasOwn(layer.ends, key)))), () => -1)
+
+/**
+ * The Override stack resolved (#428): `Override.resolve` as before when no active layer has a
+ * Transition end; else over each layer's values and end values, its values winning a key both set, so
+ * a key only an end sets is the layer's (Motion's `{ ...target, ...transitionEnd }`), and the ends
+ * each layer drives.
+ */
+const resolvedOf = (layers: ReadonlyArray<Layer>): { readonly resolved: Values.Values; readonly ends: Ends | undefined } => {
+  if (Bool.not(Arr.some(layers, hasEnds))) return { resolved: Override.resolve(layers), ends: undefined }
+  const merged = Arr.map(layers, (layer): Layer => Bool.match(hasEnds(layer), { onTrue: () => ({ ...layer, values: { ...layer.ends, ...layer.values } }), onFalse: () => layer }))
+  const resolved = Override.resolve(merged)
+  const endOnly = new Map<string, number>()
+  const byLayer: Array<Record<string, number | string> | undefined> = Arr.makeBy(layers.length, constUndefined)
+  Arr.forEach(Rec.keys(resolved), (key) => {
+    const at = driverOf(layers, key)
+    const layer = layers[at]
+    if (Bool.or(Predicate.isUndefined(layer), Bool.not(Object.hasOwn((layer as Layer).ends, key)))) return
+    const driving = layer as Layer
+    if (Bool.not(Object.hasOwn(driving.values, key))) endOnly.set(key, at)
+    const into = UndefinedOr.match(byLayer[at], { onUndefined: (): Record<string, number | string> => ({}), onDefined: identity })
+    into[key] = driving.ends[key] as number | string
+    byLayer[at] = into
+  })
+  return { resolved, ends: { endOnly, byLayer } }
+}
 
 
 /** Two values maps with the same keys, each holding the same value. Built once, at module load. */
@@ -932,18 +988,19 @@ export const resolutionOf = (
     onUndefined: (): Target =>
       UndefinedOr.match(variant, {
         onDefined: (inheritedName) => resolveTarget(inheritedName, variants, c.custom, state),
-        onUndefined: (): Target => ({ values: initialLink, transition: undefined }),
+        onUndefined: (): Target => ({ values: initialLink, transition: undefined, transitionEnd: undefined }),
       }),
   })
   const base = target.values
-  const baseLayer: Layer = { active: true, values: base, transition: target.transition, name: variant as string | undefined }
+  const baseLayer: Layer = { active: true, values: base, transition: target.transition, name: variant as string | undefined, ends: endsOfTarget(target) }
   // A Variant child's gestures are on while its provider's are (#291, Motion's `setActive`), each on
   // its own `while*`, else the label the provider hands down. With no provider, its own: nothing made.
   // The common case: nothing handed down and no gesture on. The base layer alone, and nothing else
   // made or called, at every element's mount and Retarget.
   if (Bool.and(handDownFrom(parent) === NO_HAND_DOWN, Bool.not(anyOn(active)))) {
     const alone: ReadonlyArray<Layer> = [baseLayer]
-    return { resolved: Override.resolve(alone), base, dragging: active.dragging, variant, active, transition: target.transition, layers: alone, names: NO_GESTURE_NAMES }
+    const { resolved, ends } = resolvedOf(alone)
+    return { resolved, base, dragging: active.dragging, variant, active, transition: target.transition, layers: alone, names: NO_GESTURE_NAMES, ends }
   }
   return withGestures(c, parent, [baseLayer], base, variant, active, target.transition, state)
 }
@@ -966,7 +1023,8 @@ const withGestures = (
   const variants = c.variants
   const above = handDownFrom(parent)
   if (Bool.and(above === NO_HAND_DOWN, Bool.not(anyOn(active)))) {
-    return { resolved: Override.resolve(layers), base, dragging: active.dragging, variant, active, transition, layers, names: NO_GESTURE_NAMES }
+    const { resolved, ends } = resolvedOf(layers)
+    return { resolved, base, dragging: active.dragging, variant, active, transition, layers, names: NO_GESTURE_NAMES, ends }
   }
   const on = gesturesOnOf(active, above)
   const labels = above.names
@@ -978,9 +1036,9 @@ const withGestures = (
   // NOT stripped, so e.g. `scale: 1.1` animates while held and returns
   // after release.
   gestureLayersInto(layers, c.whileDrag, on.dragged, labels.dragged, variants, c.custom, state)
-  const resolved = Override.resolve(layers)
+  const { resolved, ends } = resolvedOf(layers)
   const names = activeNamesFor(c, on, labels)
-  return { resolved, base, dragging: active.dragging, variant, active, transition, layers, names }
+  return { resolved, base, dragging: active.dragging, variant, active, transition, layers, names, ends }
 }
 
 /** The values an element starts from, read once at setup (ADR-0003, #134). */
@@ -1556,6 +1614,15 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       const kept = stays
       fresh = Rec.filter(t, (_, key) => Bool.not(kept.has(key)))
     }
+    // A key only a Transition end sets (#428) starts no leg of its own: its layer's end leg holds it
+    // where it is, and sets it once the layer's animated keys land.
+    const ends = resolution.ends
+    let freshEnds: Values.Values = NO_VALUES
+    if (Predicate.isNotUndefined(ends)) {
+      const endOnly = ends.endOnly
+      freshEnds = Rec.filter(fresh, (_, key) => endOnly.has(key))
+      if (hasKeys(freshEnds)) fresh = Rec.filter(fresh, (_, key) => Bool.not(endOnly.has(key)))
+    }
     const from: Values.Values = Rec.map(fresh, (_, key) => UndefinedOr.getOrThrow(snapshot.values[key]))
     // Each leg: the base-value log at the head of the first, and, once the leg's run
     // settles, a count toward this landing, so the per-frame handlers stay as they were.
@@ -1774,6 +1841,46 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         ),
       )
     })
+    // Each layer's Transition end (#428): a leg holding the keys only its end sets where they are,
+    // waiting for the keys the layer animates to land (the legs drawing them now, this Retarget's or
+    // carried), then setting its end values, the keys it also animates among them. It counts toward
+    // this landing, so the landing includes it. A later Retarget that resolves its keys to the same
+    // values carries it (#325); one that doesn't gives them up, and it never sets them.
+    if (Predicate.isNotUndefined(ends)) {
+      gateNow = undefined
+      Arr.forEach(ends.byLayer, (writes, at) => {
+        if (Predicate.isUndefined(writes)) return
+        const owned = Rec.filter(freshEnds, (_, key) => ends.endOnly.get(key) === at)
+        // Its end starts again when a key it also animates starts again, or a key only it sets does.
+        const anew = Bool.or(hasKeys(owned), Arr.some(Rec.keys(writes), (key) => Bool.and(Bool.not(ends.endOnly.has(key)), Object.hasOwn(fresh, key))))
+        if (Bool.not(anew)) return
+        const animated = Arr.filter(Rec.keys(resolved), (key) => Bool.and(Bool.not(ends.endOnly.has(key)), driverOf(layers, key) === at))
+        const landedAll = (): boolean => Arr.every(animated, (key) => UndefinedOr.match(owners.get(key), { onUndefined: constTrue, onDefined: (o) => o.done }))
+        const running = runningOf(owned, resolution, landing)
+        own(running)
+        // Held where they are: a key with nothing to start from (it would start at its target, no
+        // motion) is left unset until its end, not set to it now.
+        const holding = Rec.map(Rec.filter(owned, (_, key) => started[key] !== "target"), (_, key) => UndefinedOr.getOrThrow(snapshot.values[key]))
+        if (hasKeys(holding)) gate.write(id, holding)
+        snapshot.velocities = { ...snapshot.velocities, ...Rec.map(owned, () => 0) }
+        const sink = (frame: Frame.Frame<Values.Values>): undefined => {
+          const value = running.values(frame.value)
+          snapshot.values = { ...snapshot.values, ...value }
+          gate.write(id, value)
+          recordFrame(value)
+          drew(running, frame.done)
+          return undefined
+        }
+        reporting++
+        runLeg(
+          running,
+          gateWaitOf(landedAll).pipe(
+            Machine.run(NO_SINK, running),
+            Effect.flatMap((end) => Bool.match(Supersede.isSuperseded(end), { onTrue: () => Effect.succeed(end as unknown), onFalse: () => endWriteOf(writes).pipe(Machine.run(sink, running)) })),
+          ),
+        )
+      })
+    }
     // The Retarget started, its legs on their way (#257); with none, its own or carried, it landed
     // at once (#325): its returns settle, and the element reports settled at the gate's next flush,
     // after the effects that start its orchestration's wait (ADR-0007).

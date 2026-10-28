@@ -17,6 +17,8 @@
 //   ward's config animates.
 // - KI7: `wardic.create(tag)` is `wardic.<tag>`; `wardic.create(Component)` infers its keys too, and
 //   keeps its component's props.
+// - KI8 (#428): a Transition end on any target, its names checked; a key only a Transition end sets
+//   takes no transition entry, and a Transition end widens nothing.
 import type { JSX } from "@solidjs/web"
 import { ward, wardic, type WardicVariant } from "@wardic/solid/unstable/v2"
 import * as Bool from "effect/Boolean"
@@ -224,5 +226,27 @@ describe("a Wardic element's keys, inferred from its targets, on Solid 2 (#305)"
       // @ts-expect-error the component's own props are checked
       return <Card animate={{ opacity: 1 }} />
     })
+  })
+
+  it("KI8: a Transition end on any target, its names checked, its keys no transition's", () => {
+    typed(() => (
+      <wardic.div
+        initial={{ opacity: 0, transitionEnd: { display: "none" } }}
+        animate={{ opacity: 1, transitionEnd: { display: "block" } }}
+        whileHover={{ scale: 1.05, transitionEnd: { cursor: "grab" } }}
+        transition={{ opacity: FAST, scale: FAST }}
+      />
+    ))
+    // @ts-expect-error no value has this name, in a Transition end
+    typed(() => <wardic.div animate={{ opacity: 0, transitionEnd: { dispaly: "none" } }} />)
+    typed(() => (
+      <wardic.div
+        animate={{ opacity: 0, transitionEnd: { display: "none" } }}
+        transition={{
+          // @ts-expect-error a key only the Transition end sets never runs on a transition
+          display: FAST,
+        }}
+      />
+    ))
   })
 })

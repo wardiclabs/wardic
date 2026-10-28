@@ -136,6 +136,10 @@ What a pair's empty end stands for, so the pair blends instead of being a **Disc
 A shadow from `"none"` grows from a transparent zero shadow, and a `padding` of `"0px"` opens to `"4px 8px"`. On the way back the pair blends to its Animatable none and takes its empty end, as written, on its leg's last frame, so at rest the element is exactly what the author wrote. When the other end carries neither (`"auto"`), or is a plain length like `"100px"` (`none` isn't 0 for `max-height`), the pair stays a Discrete pair.
 _Avoid_: zero value (a zero with a unit is one kind of empty end).
 
+**Transition end**:
+A target's values set at once, with no animation, once the keys that target animates have landed (#428, Motion's `transitionEnd`): `{ opacity: 0, transitionEnd: { display: "none" } }` hides the element after it fades. Its keys belong to the target's entry in the **Override stack**, so they return to their **Base value** when that entry goes inactive, and a target interrupted before it lands never sets them. The first frame's target sets its own at once. A landing includes them.
+_Avoid_: end values, final values (a keyframe's last value is its final value).
+
 **Override stack**:
 An ordered set of partial, optionally-active value-maps that resolve to a single target — for each key, the topmost *active* entry wins. This is how stacked gesture states combine (base `animate`, then `whileHover`, `whileTap`, `whileDrag`…). Core ships the pure resolution mechanism (`Override.resolve`); the binding owns the named priority order and the variant names. The resolved target feeds `springValues` / `animateValues`.
 _Avoid_: **layer** (collides with Effect/Environment Layer — never reuse it here), variant stack, state stack.

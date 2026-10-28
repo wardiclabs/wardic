@@ -11,6 +11,7 @@
 // - WK6: a target's own `transition` isn't a key; a dynamic variant's keys are its result's (#277).
 // - WK7: a list of names (#297) adds no key of its own: an array's members never complete; nor does a
 //   config without `drag` add `x` (it did: `never` took the first drag axis).
+// - WK8 (#428): a target's Transition end's keys are keys a ward reads; `transitionEnd` itself isn't one.
 import { type AnimatedKey, ward, type WardChecked, type WardConfig } from "@wardic/solid/unstable/v2"
 import type { Atom } from "effect/reactivity"
 import type { Accessor } from "solid-js"
@@ -98,5 +99,10 @@ describe("a ward's keys, typed from its config (#209)", () => {
     const card = wardOn(wide)
     expectTypeOf(card.atom("opacity")).toEqualTypeOf<Atom.Atom<number | string | undefined>>()
     expectTypeOf(card.atom("x")).toEqualTypeOf<Atom.Atom<number | undefined>>()
+  })
+
+  it("WK8: a Transition end's keys are keys a ward reads; transitionEnd itself isn't one", () => {
+    const config = { animate: { opacity: 0, transitionEnd: { display: "none" } }, whileHover: { scale: 1.1, transitionEnd: { cursor: "grab" } } } as const
+    expectTypeOf<AnimatedKey<typeof config>>().toEqualTypeOf<"opacity" | "scale" | "display" | "cursor">()
   })
 })

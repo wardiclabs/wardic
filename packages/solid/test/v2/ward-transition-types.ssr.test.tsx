@@ -17,6 +17,8 @@
 // - TK8 (#305's Q4): a name in a values map that isn't a value is an error, in a target, a variant or
 //   `initial`, as a value or an accessor; `style` isn't checked (left: its check broke completion in a
 //   `style` accessor).
+// - TK9 (#428): a Transition end on a ward's targets, its names checked as a values map's, and a key
+//   only a Transition end sets takes no entry in the element's transition.
 import { ward, type WardChecked, type WardConfig, type WardicVariants } from "@wardic/solid/unstable/v2"
 import { describe, expectTypeOf, it } from "vitest"
 
@@ -173,5 +175,22 @@ describe("a ward's transitions, checked against the keys each drives (#301)", ()
     typed(() => ward({ animate: () => ({ opacity: 1, opacty: 1 }) }))
     // Left: `style` isn't checked.
     typed(() => ward({ animate: { opacity: 1 }, style: { colr: "red" } }))
+  })
+
+  it("TK9: a Transition end on a ward's targets, its names checked; its keys no transition's", () => {
+    typed(() => ward({ initial: { opacity: 0, transitionEnd: { display: "none" } }, animate: { opacity: 1, transitionEnd: { display: "block" } }, whileHover: { scale: 1.1, transitionEnd: { cursor: "grab" } } }))
+    typed(() => ward({ variants: { shown: { opacity: 1, transitionEnd: { visibility: "visible" } } }, animate: "shown" }))
+    typed(() => ward({ animate: () => ({ opacity: 0, transitionEnd: { display: "none" } }) }))
+    // @ts-expect-error no value has this name, in a Transition end
+    typed(() => ward({ animate: { opacity: 0, transitionEnd: { dispaly: "none" } } }))
+    typed(() =>
+      ward({
+        animate: { opacity: 0, transitionEnd: { display: "none" } },
+        transition: {
+          // @ts-expect-error a key only the Transition end sets never runs on a transition
+          display: FAST,
+        },
+      }),
+    )
   })
 })
