@@ -1463,6 +1463,7 @@ export const presenceRecordOf = (
   links: StartLinks,
   tree: PresenceTree,
   snapshot: Snapshot,
+  reducedMotion: () => boolean,
 ): PresenceRecord => ({
   element,
   snapshot: { current: { ...start.initialValues } },
@@ -1471,6 +1472,8 @@ export const presenceRecordOf = (
   startOf: (key, like) => Option.getOrUndefined(Option.map(links.startLinkOf(key, like), (s) => s.value)),
   // Its spine's, read when a child back under its key takes over from it (#286): its running legs' too (#464).
   velocities: () => velocitiesNowOf(snapshot),
+  // Its own, under its nearest WardicConfig (#434): its exit honours it, not the presence's.
+  reducedMotion,
 })
 
 /**
@@ -2781,8 +2784,9 @@ const NO_APPEAR_ENTRY = (provided: WardicVariantContextValue | undefined): Serve
 /**
  * An element's entry in the server render's Appear animations (#48, ADR-0044): its starting
  * values, its targets at mount (`animate`, or an inherited variant name against its `variants`),
- * its transition, and its place in its parent's group. `state` is the provider's, `undefined` with
- * `appear={false}`: each binding reads it from its own context.
+ * its transition, its place in its parent's group, and its nearest `WardicConfig`'s reduced motion
+ * (#434). `state` is the provider's, `undefined` with `appear={false}`: each binding reads it from its
+ * own context.
  */
 export const appearEntryOf = (
   state: ServerAppear | undefined,
@@ -2791,6 +2795,7 @@ export const appearEntryOf = (
   initialValues: Values.Values,
   node: ServerVariantNode,
   quiet: boolean,
+  reducedMotion: ReducedMotion.Config | undefined,
 ): ServerAppearOf =>
   UndefinedOr.match(state, {
     onUndefined: () => NO_APPEAR_ENTRY(node.provided),
@@ -2810,6 +2815,7 @@ export const appearEntryOf = (
         group: Option.flatMap(Option.fromUndefinedOr(node.inherited), (inherited) => Option.fromUndefinedOr(inherited.appearGroup)),
         leads: hasOwnVariants(c),
         ownTransition: transitionOfTarget(own, c.transition),
+        reducedMotion,
       })
       return {
         style: Option.match(entered.animation, { onNone: constUndefined, onSome: (animation) => ({ animation }) }),

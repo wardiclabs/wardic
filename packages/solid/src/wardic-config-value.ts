@@ -1,14 +1,19 @@
 /**
- * The **Config transition** (#434, CONTEXT.md; Motion's `MotionConfig` `transition`), Solid-free: what
- * a `WardicConfig` gives the Wardic elements below it, on both bindings.
+ * What a `WardicConfig` gives the Wardic elements below it (#434, Motion's `MotionConfig`),
+ * Solid-free, on both bindings: its **Config transition** and its reduced motion.
  *
- * - **An element's own when it gives none,** as Motion's `{ ...config, ...props }`: whatever reads
- *   the element's `transition` reads it, a Variant child's in place of its parent's (Q3).
+ * - **The Config transition is an element's own when it gives none,** as Motion's
+ *   `{ ...config, ...props }`: whatever reads the element's `transition` reads it, a Variant child's in
+ *   place of its parent's (Q3).
+ * - **Its reduced motion** (ADR-0029) is the element's, over the `WardicProvider`'s (Q2), as Motion
+ *   reads its `MotionConfig`'s per element.
  * - **A `WardicConfig` inside another** replaces its transition, or with `inherit: true` lays its own
- *   fields over it (Motion's `resolveTransition`); one that gives none passes its parent's on.
+ *   fields over it (Motion's `resolveTransition`); one that gives none passes its parent's on, as one
+ *   that gives no reduced motion passes its parent's.
  *
  * @module
  */
+import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Predicate from "effect/Predicate"
 import type { WardicTransition, WardicVariantTransition } from "./config.ts"
 import { transitionOfTarget } from "./variant-target.ts"
@@ -17,6 +22,11 @@ import { transitionOfTarget } from "./variant-target.ts"
 export interface WardicConfigValue {
   /** Its **Config transition**: read when an element's transition is, so a change starts nothing by itself. */
   readonly transition: () => WardicTransition | undefined
+  /**
+   * Its reduced motion (ADR-0029): its own, else an enclosing config's, else `undefined` for the
+   * `WardicProvider`'s. Read when each animation starts.
+   */
+  readonly reducedMotion: () => ReducedMotion.Config | undefined
 }
 
 /**
@@ -29,6 +39,19 @@ export const configTransitionOf = (own: WardicVariantTransition | undefined, par
 const parentTransitionOf = (parent: WardicConfigValue | undefined): WardicTransition | undefined => {
   if (Predicate.isUndefined(parent)) return undefined
   return parent.transition()
+}
+
+/** A `WardicConfig`'s reduced motion (#434): its own, else its parent's, else none (the provider's). */
+export const configReducedMotionOf = (own: ReducedMotion.Config | undefined, parent: WardicConfigValue | undefined): ReducedMotion.Config | undefined => {
+  if (Predicate.isNotUndefined(own)) return own
+  if (Predicate.isUndefined(parent)) return undefined
+  return parent.reducedMotion()
+}
+
+/** The reduced motion an element's nearest config sets (#434), now: `undefined` for none, the provider's. */
+export const settingOf = (config: WardicConfigValue | undefined): ReducedMotion.Config | undefined => {
+  if (Predicate.isUndefined(config)) return undefined
+  return config.reducedMotion()
 }
 
 /**

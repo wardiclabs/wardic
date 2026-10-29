@@ -31,7 +31,7 @@ Wardic had `reducedMotion` and `appear` on `WardicProvider`, which builds the ru
 
 ## Built (PR 1)
 
-- **`config-transition.ts`** (both bindings): `WardicConfigValue`, the context's value (its `transition` an accessor); `configTransitionOf`, a config's transition over its parent's (`transitionOfTarget`, the variant rule's `inherit`); `withConfigTransition`, a config with the config's transition as its own when it gives none.
+- **`wardic-config-value.ts`** (both bindings): `WardicConfigValue`, the context's value (its `transition` an accessor); `configTransitionOf`, a config's transition over its parent's (`transitionOfTarget`, the variant rule's `inherit`); `withConfigTransition`, a config with the config's transition as its own when it gives none.
 - **Solid 1** (`wardic-config.tsx`): `WardicConfig`, its transition a memo, one object per change, so the elements below share it and #66's and #301's caches hit. `controlledOf`, which every client ward form builds its config through (`createWardWith`, so `wardic.*`, `wardic.create` and a `Reorder.Item`, and `use:wardic`), lays it in with a memo. With no config above, it's the config as given, and no memo. A server ward lays it into its one copy.
 - **Solid 2** (`unstable/v2/wardic-config.tsx`): the same, its memo transparent to hydration ids (#209), and its context `null` for none, as Solid 2 throws on a read of a context made with `undefined` and no provider. `wardWith` and the server ward lay it over the ward's per-key view with a getter (`configuredView`), as Animation controls lay their `animate` (#433), so `transition` is read where it's read.
 - **Exports:** `WardicConfig` and `WardicConfigProps` from both bindings.
@@ -57,3 +57,29 @@ Wardic had `reducedMotion` and `appear` on `WardicProvider`, which builds the ru
 - **Mutation-checked** (`.tmp/434/mutate.py`, run alone): ten single-point mutations, all caught: Solid 1 ignoring the config, on the client and on a server; the config over an element's own; an inner config never inheriting, or one with none passing nothing on; Solid 2 ignoring it, on the client and on a server, or putting it over an element's own; Solid 1's config read once; and the config's `layout` entry dropped. WC2's config with none was added for the fourth before the run.
 
 **Bench:** `bun run bench:solid` (N = 1,000, against main at c706b8b): every row within noise. The page has no `WardicConfig`, so this is what it costs every other element: one context read at setup. Warm: Solid 1 mount −0.5%, Retarget −0.6%, rest Retarget +0.3%, unmount +0.8%; Solid 2 −0.9%, +0.1%, −0.6%, +1.1%. Bytes −0.3% / +0.4%; retained and the layout scenes flat.
+
+## Built (PR 2)
+
+- **The config's setting:** `WardicConfigValue.reducedMotion`, its own else an enclosing config's (`configReducedMotionOf`). The shared module is `wardic-config-value.ts` now, as it holds both.
+- **The reader:** the context value's `reducedMotionUnder(setting)`: the setting given, else the provider's, else `"user"`, with the user's preference. `useWardicReducedMotion`, on both bindings, reads it with the nearest config (`reducedMotionWith`); with none above, it's the provider's reader as before. So the spine, the Solid 2 ward and `createAnimate` follow it with no change of their own, as Motion's `useAnimate` follows its `MotionConfig`.
+- **An exit** reads the leaving element's: its presence record carries the element's reader (`PresenceRecord.reducedMotion`), over the presence's, so a `WardicConfig` inside an `AnimatePresence` holds for its exits.
+- **A layout animation** reads the element's: dom's `RegisterNodeOptions.reducedMotion` is each node's own reader, the system's by default, and the binding passes the element's through `layoutOptionsOf`.
+- **A server's Appear animation:** each element enters with its nearest config's setting. Under `"always"` its reduced play goes in both slots, under `"never"` its normal one, so a provider-wide setting is the same rule. The head's media-query block is written when some element follows the user, with those elements' reduced timings alone. A page with no `WardicConfig` writes what it did.
+
+## Tests (PR 2)
+
+- **Solid 1** (`wardic-config-reduced-motion.browser.test.tsx`, WR1–WR8, every sample read after a paint, a box beside outside the config):
+  - WR1: a config's `"always"` snaps `x` under a provider's `"never"`;
+  - WR2: its `"never"` animates `x` under a provider's `"always"`, and under the user's preference;
+  - WR3: its `"user"` follows the preference under a provider's `"never"`;
+  - WR4: a config with none passes its parent's on; an inner one replaces it;
+  - WR5: an exit honours the leaving element's config, not its presence's;
+  - WR6: a layout animation under `"always"` lands at once;
+  - WR7: `createAnimate`'s `animate()` honours its scope's config;
+  - WR8: a change to the config applies from the next animation.
+- **Solid 2** (`v2/wardic-config-reduced-motion.browser.test.tsx`, WRV1–WRV2): a ward and a `wardic.*` element both ways, and an exit.
+- **A server's Appear animation** (`appear.ssr.test.tsx` AR24, `v2/appear.ssr.test.tsx` AR21): an element under a config's `"always"`, `"never"` or `"user"` renders the same timings as a page with that setting at its provider, and a config's `"user"` under a provider's `"never"` gets its media-query timing alone.
+- AR25 (`appear.ssr.test.tsx`): a `"user"` Variant child waits, in its reduced timing too, for its `"never"` parent's move (`when: "beforeChildren"`), not a snap.
+- **Mutation-checked** (`.tmp/434/mutate2.py`, run alone): fifteen single-point mutations, all caught: the config's setting ignored, or either binding's reader taking the provider's; the provider's over the config's; a config with none passing nothing on, or an inner one not replacing; an exit reading its presence's; a layout node reading the system's, or its options dropping the element's; a server ignoring the config, keeping both plays under `"always"` or `"never"`, writing the media block by the provider's, or putting a non-`"user"` element under it; and the config's setting read once. `"never"` keeping both plays survived at first: an element under it writes no reduced timing of its own, so AR25 was added, where a `"user"` Variant child's reduced delay waits for its `"never"` parent's move.
+
+**Bench:** `bun run bench:solid` (N = 1,000, against main at c706b8b, with PR 1): passed. The page has no `WardicConfig`, so this is what every other element pays: one more context read at setup (its reduced-motion reader), and a layout node's reader passed on. Warm: Solid 1 mount −0.1%, Retarget +0.9%, rest Retarget +0.4%, unmount +0.6%; Solid 2 +1.3%, +0.5%, +0.5%, +2.5%. Bytes ±0.0%; retained and the layout scenes flat.

@@ -95,7 +95,7 @@ import { layoutOptionsOf, registrationOf, wantsLayoutNode } from "../../layout-m
 import { useLayoutGroupId } from "./layout.tsx"
 import { registerAnimatable } from "../../imperative.ts"
 import { type ControlsChange, controlledConfigOf, controlledElement, isAnimationControls, subscribe, uncontrolledOf, type WardicAnimationControls } from "../../animation-controls.ts"
-import type { WardicConfigValue } from "../../config-transition.ts"
+import { settingOf, type WardicConfigValue } from "../../wardic-config-value.ts"
 import { presenceBlocksInitial, presenceHold, presenceSeedOf } from "../../presence-record.ts"
 import { handoffOf, setsAnimation } from "../../appear.ts"
 import {
@@ -1113,7 +1113,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     const links = startLinksOf(el, styleNow, live)
     // Its exit record, under an <AnimatePresence>: the presence removes it once the exit settles.
     const presenceRecord = UndefinedOr.map(presence, (registrar) => {
-      const record = presenceRecordOf(el, begun, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(initialConfig), snapshot)
+      const record = presenceRecordOf(el, begun, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(initialConfig), snapshot, reducedMotion)
       registrar.register(record)
       return record
     })
@@ -1131,7 +1131,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         const released = (): void => lifecycle.released()
         return projection.register(
           registrationOf({
-            ...layoutOptionsOf({ id, element: el, config: configNow, parent: node.inherited, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true, taken, layoutGroup }),
+            ...layoutOptionsOf({ id, element: el, config: configNow, parent: node.inherited, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true, taken, layoutGroup, reducedMotion }),
             onLayoutAnimationStart: () => started,
             onLayoutAnimationComplete: () => completed,
             // Its drag's Release offset at rest, for `next("dragTransitionEnd")` (#273).
@@ -1557,7 +1557,7 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
   const seed = Style.starting(internal.tag, drawnAtRest(initialValues, layoutNode))
   // Its Appear animation (#48, ADR-0044): its slot in the render's, and the group its Variant
   // children join when it leads one.
-  const appear = appearEntryOf(useWardicAppear(), c, internal.tag, initialValues, node, startsQuiet(c, node.inherited, presenceBlocks, untrack))
+  const appear = appearEntryOf(useWardicAppear(), c, internal.tag, initialValues, node, startsQuiet(c, node.inherited, presenceBlocks, untrack), settingOf(useWardicConfig()))
   // A late chunk's root (#245): the chunk's Appear rules go through the head registry, read once
   // the chunk has rendered and streamed with it as a head patch. A late element under another late
   // one registers too: the first read writes the batch, and any other finds it written and adds no

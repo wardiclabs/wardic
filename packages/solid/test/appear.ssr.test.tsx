@@ -48,6 +48,11 @@
 //   DOM would read, which no longer stops the rule. An element whose every key is there has none.
 // - AR23 (#434): a `WardicConfig`'s transition times the rule of an element with none of its own;
 //   one with its own keeps it, and an inner config with `inherit: true` lays its delay over it.
+// - AR24 (#434): an element under a `WardicConfig`'s `reducedMotion` renders as a page with that setting
+//   at its provider would: "always" its reduced play alone, "never" its normal one alone, and "user"
+//   both, the reduced under the media query, which a provider's "never" then writes for it alone.
+// - AR25 (#434): a Variant child that follows the user waits, in its reduced timing too, for a parent
+//   under a config's "never" to settle as that parent plays: its move, not a snap.
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
@@ -603,6 +608,57 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     expect(animationOf("config"), "the config's 1.5 s").toMatch(/ 1\.5s linear 0s /)
     expect(animationOf("own"), "its own 0.2 s").toMatch(/ 0\.2s linear 0s /)
     expect(animationOf("inherits"), "the outer 1.5 s after its 0.25 s, held in the rule").toMatch(/ 1\.75s linear 0s /)
+  })
+
+  it("AR24: an element under a WardicConfig's reducedMotion renders as its provider would with that setting (#434)", () => {
+    const rise = { initial: { opacity: 0, x: 20 }, animate: { opacity: 1, x: 0 }, transition: { type: "tween", duration: 0.3, ease: Easing.linear } } as const
+    const timingsOf = (html: string) => {
+      const css = headCss(html)
+      return (k: string) => timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation))
+    }
+    const alone = (reducedMotion: "user" | "always" | "never") => timingsOf(page(() => <wardic.div data-k="el" {...rise} />, { reducedMotion }))("el")
+    const mixed = timingsOf(page(() => (
+      <>
+        <WardicConfig reducedMotion="always">
+          <wardic.div data-k="always" {...rise} />
+        </WardicConfig>
+        <WardicConfig reducedMotion="never">
+          <wardic.div data-k="never" {...rise} />
+        </WardicConfig>
+        <wardic.div data-k="user" {...rise} />
+      </>
+    )))
+    expect(alone("user").reduced, "a reduced play under the media query").not.toBe("")
+    expect(mixed("always"), "\"always\": its reduced play alone").toEqual(alone("always"))
+    expect(mixed("never"), "\"never\": its normal play alone").toEqual(alone("never"))
+    expect(mixed("user"), "the provider's \"user\": both").toEqual(alone("user"))
+    const underNever = timingsOf(page(() => (
+      <>
+        <WardicConfig reducedMotion="user">
+          <wardic.div data-k="user" {...rise} />
+        </WardicConfig>
+        <wardic.div data-k="never" {...rise} />
+      </>
+    ), { reducedMotion: "never" }))
+    expect(underNever("user"), "a config's \"user\" under the provider's \"never\": both").toEqual(alone("user"))
+    expect(underNever("never"), "beside it, the provider's \"never\"").toEqual(alone("never"))
+  })
+
+  it("AR25: a Variant child that follows the user waits, reduced too, for its \"never\" parent's move (#434)", () => {
+    const tween = { type: "tween", duration: 0.3, ease: Easing.linear } as const
+    const html = page(() => (
+      <WardicConfig reducedMotion="never">
+        <wardic.ul initial="hidden" animate="shown" variants={{ hidden: { x: 20 }, shown: { x: 0 } }} transition={{ ...tween, when: "beforeChildren" }}>
+          <WardicConfig reducedMotion="user">
+            <wardic.li data-k="child" variants={{ hidden: { opacity: 0 }, shown: { opacity: 1, transition: tween } }} />
+          </WardicConfig>
+        </wardic.ul>
+      </WardicConfig>
+    ))
+    const css = headCss(html)
+    const child = timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === "child")?.style.animation))
+    expect(delayOf(child.normal), "it waits for its parent's 0.3 s move").toBeCloseTo(0.3, 2)
+    expect(delayOf(child.reduced), "its reduced timing waits for that move too, not a snap").toBeCloseTo(0.3, 2)
   })
 })
 

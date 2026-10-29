@@ -60,7 +60,7 @@ import {
 } from "solid-js"
 import { type ControlsChange, controlledConfigOf, controlledElement, isAnimationControls, subscribe, uncontrolledOf, type WardicAnimationControls } from "./animation-controls.ts"
 import { fromAtom, watchToSignal } from "./bridge.ts"
-import { type WardicConfigValue, withConfigTransition } from "./config-transition.ts"
+import { settingOf, type WardicConfigValue, withConfigTransition } from "./wardic-config-value.ts"
 import { dragTransitionOf, type DragTrack, type DragTrackConfig, runDragTrack } from "./drag.ts"
 import { createElementStyle } from "./element-style.ts"
 import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegistryOf, split } from "./live-style.ts"
@@ -518,7 +518,7 @@ export function runSpine(opts: RunSpineOptions): void {
       let taken: PresenceSeed | undefined
       if (Predicate.isNotUndefined(presence)) {
         const exitConfig = { current: exitConfigOf(untrack(cfg), parent) }
-        const rec = presenceRecordOf(element, begin, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(untrack(cfg)), snapshot)
+        const rec = presenceRecordOf(element, begin, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(untrack(cfg)), snapshot, reducedMotion)
         presenceRec = rec
         presence.register(rec)
         taken = presenceSeedOf(presence, element)
@@ -550,7 +550,7 @@ export function runSpine(opts: RunSpineOptions): void {
       const dragTransition = dragTransitionOf(c0.dragElastic, c0.dragTransition)
       if (wantsLayoutNode(c0)) {
         layoutHandle = useLayoutMember(
-          layoutOptionsOf({ id, element, config: cfg, parent, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true, taken, layoutGroup }),
+          layoutOptionsOf({ id, element, config: cfg, parent, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true, taken, layoutGroup, reducedMotion }),
         )
         if (Predicate.isNotUndefined(internal.onLayoutHandle)) internal.onLayoutHandle(layoutHandle)
       }
@@ -1045,9 +1045,9 @@ const SERVER_APPEAR = Symbol("wardic.serverAppear")
 /** A server ward's Appear entry (#245); `undefined` for a client one. Internal. */
 export const serverAppearOfWard = (ward: Ward): ServerAppearOf | undefined => (ward as Ward & { readonly [SERVER_APPEAR]?: ServerAppearOf })[SERVER_APPEAR]
 
-/** {@link appearEntryOf} with this provider's Appear state (#48, ADR-0044). */
+/** {@link appearEntryOf} with this provider's Appear state (#48, ADR-0044) and its nearest `WardicConfig`'s reduced motion (#434). */
 export const serverAppearOf = (c: WardConfig, tag: string | undefined, initialValues: Values.Values, node: ServerVariantNode, quiet: boolean): ServerAppearOf =>
-  appearEntryOf(useWardicAppear(), c, tag, initialValues, node, quiet)
+  appearEntryOf(useWardicAppear(), c, tag, initialValues, node, quiet, settingOf(useWardicConfig()))
 
 /** A style value read on a server: an Atom through a server's own registry, an accessor called (#130). */
 const readServerStyle = (value: unknown): unknown => readLive(value, serverRegistryOf, untrack)

@@ -41,6 +41,7 @@ import {
   fromContext,
   interrupted,
   projectionOf,
+  reducedMotionWith,
   reported,
   serverContext,
   type WardicContextValue,
@@ -49,6 +50,7 @@ import {
   type WardicServices,
 } from "../../runtime.ts"
 import { onSettledClientOnly } from "./solid-reactivity.ts"
+import { useWardicConfig } from "./wardic-config.tsx"
 
 /** A frame's Starting-style switches, applied and drained before the gate commits (ADR-0034): Solid 2's `batch`. */
 const applyAndFlush = (apply: () => void): void => {
@@ -68,7 +70,8 @@ const contextValue = (): WardicContextValue | undefined => Option.getOrUndefined
 /**
  * Provides a single Effect runtime, built once from `env`, to its subtree, as the Solid 1 binding's
  * `WardicProvider` does: built on first need (#51), disposed on unmount, inert during a server
- * render (ADR-0021). `reducedMotion` (ADR-0029) is read when each animation starts.
+ * render (ADR-0021). `reducedMotion` (ADR-0029) is read when each animation starts; a `WardicConfig`
+ * sets it for the elements below it (#434).
  */
 export function WardicProvider(props: {
   readonly env: WardicEnv
@@ -164,9 +167,13 @@ export function useWardicDefaultTransition(): DefaultTransition.DefaultTransitio
   return fromContext(contextValue(), "useWardicDefaultTransition", (value) => value.defaultTransition)
 }
 
-/** Whether reduced motion applies now (ADR-0029); always `false` during a server render. Internal. */
+/**
+ * Whether reduced motion applies now (ADR-0029): the nearest `WardicConfig`'s `reducedMotion` (#434),
+ * else the provider's, and the user's preference; always `false` during a server render. Internal.
+ */
 export function useWardicReducedMotion(): () => boolean {
-  return fromContext(contextValue(), "useWardicReducedMotion", (value) => value.reducedMotion)
+  const config = useWardicConfig()
+  return fromContext(contextValue(), "useWardicReducedMotion", (value) => reducedMotionWith(value, config))
 }
 
 /** The provider's projection system (ADR-0009); a clear error during a server render, which builds none. */

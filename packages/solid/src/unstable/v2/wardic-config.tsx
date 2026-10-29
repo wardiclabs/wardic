@@ -5,14 +5,15 @@
  * @module
  */
 import type { JSX } from "@solidjs/web"
-import * as Predicate from "effect/Predicate"
+import * as Option from "effect/Option"
 import { createContext, createMemo, useContext } from "solid-js"
+import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type { WardicVariantTransition } from "../../config.ts"
-import { configTransitionOf, type WardicConfigValue } from "../../config-transition.ts"
+import { configReducedMotionOf, configTransitionOf, type WardicConfigValue } from "../../wardic-config-value.ts"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
 
-// `null` for none: Solid 2 throws on a read of a context made with `undefined` and no provider above,
-// and most elements have no `WardicConfig` above them.
+// `null` for none, as the binding's other contexts: Solid 2 throws on a read of a context made with
+// `undefined` and no provider above, and most elements have no `WardicConfig` above them.
 const WardicConfigContext = createContext<WardicConfigValue | null>(null)
 
 /** `WardicConfig`'s props (#434). */
@@ -24,13 +25,20 @@ export interface WardicConfigProps {
    * each animation starts.
    */
   readonly transition?: WardicVariantTransition | undefined
+  /**
+   * How the Wardic elements below honour the user's `prefers-reduced-motion` (ADR-0029), as Motion's
+   * `MotionConfig` `reducedMotion`: `"user"` follows it, `"always"` reduces motion whatever it is,
+   * `"never"` animates whatever it is. It replaces an enclosing config's, and the `WardicProvider`'s
+   * for them; with none, theirs applies. Read when each animation starts.
+   */
+  readonly reducedMotion?: ReducedMotion.Config | undefined
   readonly children?: JSX.Element
 }
 
 /**
  * Settings for the Wardic elements below it (#434, Motion's `MotionConfig`): their default
- * `transition`. Nest it anywhere under a `WardicProvider`; an inner one replaces an outer one's
- * transition, unless it inherits it.
+ * `transition` and their `reducedMotion`. Nest it anywhere under a `WardicProvider`; an inner one
+ * replaces an outer one's, unless its transition inherits it.
  *
  * ```tsx
  * <WardicConfig transition={{ type: "spring", stiffness: 300, damping: 30 }}>
@@ -43,12 +51,8 @@ export function WardicConfig(props: WardicConfigProps): JSX.Element {
   // One object per change, so the elements below share it, and its caches (#66, #301) hit. Transparent
   // to hydration ids, as every computation the binding makes (#209).
   const transition = createMemo(() => configTransitionOf(props.transition, parent), CLIENT_ONLY)
-  return <WardicConfigContext value={{ transition }}>{props.children}</WardicConfigContext>
+  return <WardicConfigContext value={{ transition, reducedMotion: () => configReducedMotionOf(props.reducedMotion, parent) }}>{props.children}</WardicConfigContext>
 }
 
 /** The nearest `WardicConfig`'s settings, or none. Internal. */
-export const useWardicConfig = (): WardicConfigValue | undefined => {
-  const value = useContext(WardicConfigContext)
-  if (Predicate.isNull(value)) return undefined
-  return value
-}
+export const useWardicConfig = (): WardicConfigValue | undefined => Option.getOrUndefined(Option.fromNullishOr(useContext(WardicConfigContext)))

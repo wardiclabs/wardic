@@ -6,8 +6,9 @@
  * @module
  */
 import { createContext, createMemo, type JSX, useContext } from "solid-js"
+import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type { WardicVariantTransition } from "./config.ts"
-import { configTransitionOf, type WardicConfigValue } from "./config-transition.ts"
+import { configReducedMotionOf, configTransitionOf, type WardicConfigValue } from "./wardic-config-value.ts"
 
 const WardicConfigContext = createContext<WardicConfigValue | undefined>(undefined)
 
@@ -20,13 +21,20 @@ export interface WardicConfigProps {
    * each animation starts.
    */
   readonly transition?: WardicVariantTransition | undefined
+  /**
+   * How the Wardic elements below honour the user's `prefers-reduced-motion` (ADR-0029), as Motion's
+   * `MotionConfig` `reducedMotion`: `"user"` follows it, `"always"` reduces motion whatever it is,
+   * `"never"` animates whatever it is. It replaces an enclosing config's, and the `WardicProvider`'s
+   * for them; with none, theirs applies. Read when each animation starts.
+   */
+  readonly reducedMotion?: ReducedMotion.Config | undefined
   readonly children?: JSX.Element
 }
 
 /**
  * Settings for the Wardic elements below it (#434, Motion's `MotionConfig`): their default
- * `transition`. Nest it anywhere under a `WardicProvider`; an inner one replaces an outer one's
- * transition, unless it inherits it.
+ * `transition` and their `reducedMotion`. Nest it anywhere under a `WardicProvider`; an inner one
+ * replaces an outer one's, unless its transition inherits it.
  *
  * ```tsx
  * <WardicConfig transition={{ type: "spring", stiffness: 300, damping: 30 }}>
@@ -38,7 +46,7 @@ export function WardicConfig(props: WardicConfigProps): JSX.Element {
   const parent = useContext(WardicConfigContext)
   // One object per change, so the elements below share it, and its caches (#66, #301) hit.
   const transition = createMemo(() => configTransitionOf(props.transition, parent))
-  return <WardicConfigContext.Provider value={{ transition }}>{props.children}</WardicConfigContext.Provider>
+  return <WardicConfigContext.Provider value={{ transition, reducedMotion: () => configReducedMotionOf(props.reducedMotion, parent) }}>{props.children}</WardicConfigContext.Provider>
 }
 
 /** The nearest `WardicConfig`'s settings, or none. Internal. */

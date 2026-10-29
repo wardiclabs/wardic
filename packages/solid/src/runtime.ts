@@ -28,6 +28,7 @@ import * as Predicate from "effect/Predicate"
 import { AtomRegistry } from "effect/reactivity"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { ServerAppear } from "./appear.ts"
+import type { WardicConfigValue } from "./wardic-config-value.ts"
 
 /**
  * The full Wardic environment a `WardicProvider` requires: all five core
@@ -73,6 +74,11 @@ export interface WardicContextValue {
   readonly projection: ProjectionSystem.Shape | undefined
   /** Whether reduced motion applies now (ADR-0029): read when each animation starts. */
   readonly reducedMotion: () => boolean
+  /**
+   * Whether reduced motion applies now under `setting` (#434): a `WardicConfig`'s, else the
+   * provider's, with the user's preference. Read when each animation starts.
+   */
+  readonly reducedMotionUnder: (setting: ReducedMotion.Config | undefined) => boolean
   /** The Environment's Positional keys (ADR-0036), read once: which keys reduced motion Snaps. */
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   /** The Environment's Default transition (ADR-0051), read once: what a key with no transition of its own runs on. */
@@ -86,6 +92,7 @@ interface Built {
   readonly gate: FlushGate.Shape
   readonly projection: ProjectionSystem.Shape
   readonly reducedMotion: () => boolean
+  readonly reducedMotionUnder: (setting: ReducedMotion.Config | undefined) => boolean
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
 }
@@ -113,12 +120,14 @@ export const clientContext = (
     // The flush gate, one per WardicProvider (ADR-0006): reading it builds the runtime, the
     // Environment, the gate and the projection system together.
     const gate = runtime.runSync(FlushGate.FlushGate)
-    // Whether reduced motion applies now (ADR-0029): the app's setting and the user's preference
-    // through the Probe's atom. Read when each animation starts, so a change applies from the next one.
+    // Whether reduced motion applies now (ADR-0029): the app's setting (a `WardicConfig`'s, #434, else
+    // the provider's) and the user's preference through the Probe's atom. Read when each animation
+    // starts, so a change applies from the next one.
     const registry = runtime.runSync(AtomRegistry.AtomRegistry)
     const probe = runtime.runSync(Probe.Probe)
-    const applies = (): boolean =>
-      ReducedMotion.applies(Option.getOrElse(Option.fromUndefinedOr(reducedMotion()), () => "user" as const), registry.get(probe.prefersReducedMotion))
+    const under = (setting: ReducedMotion.Config | undefined): boolean =>
+      ReducedMotion.applies(settingOf(setting, reducedMotion), registry.get(probe.prefersReducedMotion))
+    const applies = (): boolean => under(undefined)
     // Which keys reduced motion Snaps: the Environment's Positional keys (ADR-0036), read once, as
     // the Probe is.
     const positionalKeys = runtime.runSync(ReducedMotion.PositionalKeys)
@@ -129,7 +138,7 @@ export const clientContext = (
     // the coordinator (a run on the Frame loop), and `layoutId` matching end to end, so `layoutId`
     // works with no `<LayoutGroup>` (Motion parity) and the binding keeps no registry.
     const projection = runtime.runSync(ProjectionSystem.ProjectionSystem)
-    built = { gate, projection, reducedMotion: applies, positionalKeys, defaultTransition }
+    built = { gate, projection, reducedMotion: applies, reducedMotionUnder: under, positionalKeys, defaultTransition }
     return built
   }
   const runtime = ManagedRuntime.make(
@@ -149,6 +158,9 @@ export const clientContext = (
     get reducedMotion() {
       return build().reducedMotion
     },
+    get reducedMotionUnder() {
+      return build().reducedMotionUnder
+    },
     get positionalKeys() {
       return build().positionalKeys
     },
@@ -156,6 +168,22 @@ export const clientContext = (
       return build().defaultTransition
     },
   }
+}
+
+/**
+ * Whether reduced motion applies now for an element under `config` (#434): its nearest
+ * `WardicConfig`'s setting, else the provider's; with no config above, the provider's reader as it is.
+ */
+export const reducedMotionWith = (value: WardicContextValue, config: WardicConfigValue | undefined): (() => boolean) => {
+  if (Predicate.isUndefined(config)) return value.reducedMotion
+  const under = value.reducedMotionUnder
+  return () => under(config.reducedMotion())
+}
+
+/** A setting: the given one (a `WardicConfig`'s), else the provider's, else `"user"`. */
+const settingOf = (setting: ReducedMotion.Config | undefined, provider: () => ReducedMotion.Config | undefined): ReducedMotion.Config => {
+  if (Predicate.isNotUndefined(setting)) return setting
+  return Option.getOrElse(Option.fromUndefinedOr(provider()), () => "user" as const)
 }
 
 /**
@@ -169,6 +197,7 @@ export const serverContext = (env: WardicEnv, appear: ServerAppear | undefined):
   gate: FlushGate.inert,
   projection: undefined,
   reducedMotion: () => false,
+  reducedMotionUnder: () => false,
   positionalKeys: SERVER_POSITIONAL_KEYS,
   defaultTransition: SERVER_DEFAULT_TRANSITION,
   appear,
