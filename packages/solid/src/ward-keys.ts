@@ -19,6 +19,7 @@ import type {
   WardicInherit,
   WardicOrchestration,
   WardicReducedMotion,
+  WardicSkipAnimations,
   WardicTargetValues,
   WardicTransformShorthands,
   WardicTransition,
@@ -129,7 +130,7 @@ export type WardValueOf<C, K extends string> = K extends keyof WardicTransformSh
 
 /** A transition option's name, on either arm, a target's `inherit` among them: never an entry. */
 type OptionName =
-  | keyof (Omit<Machine.SpringOptions, "from"> & Machine.AnimateOptions & WardicOrchestration & WardicReducedMotion & WardicInherit)
+  | keyof (Omit<Machine.SpringOptions, "from"> & Machine.AnimateOptions & WardicOrchestration & WardicReducedMotion & WardicSkipAnimations & WardicInherit)
   | "type"
 
 /**

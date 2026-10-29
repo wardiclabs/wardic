@@ -151,6 +151,15 @@ export interface WardicReducedMotion {
 }
 
 /**
+ * A transition's **Skipped animation** (#468, Motion's `skipAnimations`), on both arms: `true` lands its
+ * keys at their ends on the next frame, with no delay, as a `WardicConfig`'s `skipAnimations` does.
+ * `false` doesn't undo a config's.
+ */
+export interface WardicSkipAnimations {
+  readonly skipAnimations?: boolean
+}
+
+/**
  * Transition config: a primitive selector plus the matching primitive's
  * options. Without a `type`, a spring field (`stiffness`, `damping`, `mass`, `velocity`,
  * `restDelta`, `restSpeed`, `bounce`, `visualDuration`) makes it a spring and anything else a tween,
@@ -162,7 +171,7 @@ export interface WardicReducedMotion {
  * (`Machine.SpringOptions`). `"tween"` routes every key
  * through `animateValues` (duration-based, no velocity), and a key's Keyframes through
  * `keyframesValues`, with `times` and an `ease` per Segment (#429). Both arms also carry the
- * optional {@link WardicOrchestration} fields, {@link WardicReducedMotion}'s opt-out, and
+ * optional {@link WardicOrchestration} fields, {@link WardicReducedMotion}'s opt-out, {@link WardicSkipAnimations}, and
  * {@link WardicTransitionEntries}: a value's own transition (#301).
  * `from` is the stagger's origin on both: a spring's own `from` was never a transition's (each
  * key starts where it is), and the two clashed (#243).
@@ -174,18 +183,18 @@ export type WardicTransition = WardicTransitionWith<WardicTransitionEntries>
  * config checks each transition in it against the entries its keys allow (`WardChecked`).
  */
 export type WardicTransitionWith<E> =
-  | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicOrchestration & WardicReducedMotion & E)
-  | ({ readonly type?: "tween" } & Machine.KeyframesOptions & WardicOrchestration & WardicReducedMotion & E)
+  | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicOrchestration & WardicReducedMotion & WardicSkipAnimations & E)
+  | ({ readonly type?: "tween" } & Machine.KeyframesOptions & WardicOrchestration & WardicReducedMotion & WardicSkipAnimations & E)
 
 /**
  * One value's own transition (#301, Motion's `ValueTransition`): a spring or a tween, as a
  * {@link WardicTransition} is, without the orchestration, which is the whole transition's. With
  * `inherit: true` it's laid over the transition's own fields, its own winning; without, it stands
- * alone, the transition's reduced-motion opt-out the one field it takes from it.
+ * alone, the transition's reduced-motion opt-out and `skipAnimations` the fields it takes from it.
  */
 export type WardicValueTransition =
-  | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicReducedMotion & WardicInherit)
-  | ({ readonly type?: "tween" } & Machine.KeyframesOptions & WardicReducedMotion & WardicInherit)
+  | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicReducedMotion & WardicSkipAnimations & WardicInherit)
+  | ({ readonly type?: "tween" } & Machine.KeyframesOptions & WardicReducedMotion & WardicSkipAnimations & WardicInherit)
 
 /** An entry's or a target's `inherit` (#277, #301, Motion's): laid over the transition it would replace. */
 export interface WardicInherit {

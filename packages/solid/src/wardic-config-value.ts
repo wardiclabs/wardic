@@ -1,19 +1,23 @@
 /**
  * What a `WardicConfig` gives the Wardic elements below it (#434, Motion's `MotionConfig`),
- * Solid-free, on both bindings: its **Config transition** and its reduced motion.
+ * Solid-free, on both bindings: its **Config transition**, its reduced motion and whether its
+ * animations are skipped (#468).
  *
  * - **The Config transition is an element's own when it gives none,** as Motion's
  *   `{ ...config, ...props }`: whatever reads the element's `transition` reads it, a Variant child's in
  *   place of its parent's (Q3).
  * - **Its reduced motion** (ADR-0029) is the element's, over the `WardicProvider`'s (Q2), as Motion
  *   reads its `MotionConfig`'s per element.
+ * - **`skipAnimations`** (#468) makes every animation of the elements below a **Skipped animation**,
+ *   Motion's `MotionConfig` `skipAnimations`, whatever their reduced motion.
  * - **A `WardicConfig` inside another** replaces its transition, or with `inherit: true` lays its own
  *   fields over it (Motion's `resolveTransition`); one that gives none passes its parent's on, as one
- *   that gives no reduced motion passes its parent's.
+ *   that gives no reduced motion or `skipAnimations` passes its parent's.
  *
  * @module
  */
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
+import { constFalse } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import type { WardicTransition, WardicVariantTransition } from "./config.ts"
 import { transitionOfTarget } from "./variant-target.ts"
@@ -27,6 +31,11 @@ export interface WardicConfigValue {
    * `WardicProvider`'s. Read when each animation starts.
    */
   readonly reducedMotion: () => ReducedMotion.Config | undefined
+  /**
+   * Whether its animations are skipped (#468): its own, else an enclosing config's, else `undefined`,
+   * as `false`. Read when each animation starts.
+   */
+  readonly skipAnimations: () => boolean | undefined
 }
 
 /**
@@ -46,6 +55,22 @@ export const configReducedMotionOf = (own: ReducedMotion.Config | undefined, par
   if (Predicate.isNotUndefined(own)) return own
   if (Predicate.isUndefined(parent)) return undefined
   return parent.reducedMotion()
+}
+
+/** A `WardicConfig`'s `skipAnimations` (#468): its own, else its parent's, else none. */
+export const configSkipAnimationsOf = (own: boolean | undefined, parent: WardicConfigValue | undefined): boolean | undefined => {
+  if (Predicate.isNotUndefined(own)) return own
+  if (Predicate.isUndefined(parent)) return undefined
+  return parent.skipAnimations()
+}
+
+/**
+ * Whether an element's animations are skipped (#468), read when each starts: its nearest config's
+ * `skipAnimations`. With no config above, never, and nothing made.
+ */
+export const skipAnimationsOf = (config: WardicConfigValue | undefined): (() => boolean) => {
+  if (Predicate.isUndefined(config)) return constFalse
+  return () => config.skipAnimations() === true
 }
 
 /** The reduced motion an element's nearest config sets (#434), now: `undefined` for none, the provider's. */

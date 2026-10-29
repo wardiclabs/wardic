@@ -211,12 +211,18 @@ const entryNamed = (entries: Entries, name: string): WardicTransition => {
   return made
 }
 
-/** An entry as its key runs on it (#301): over the own fields with `inherit`, else with their reduced-motion opt-out alone. */
+/**
+ * An entry as its key runs on it (#301): over the own fields with `inherit`, else with their
+ * reduced-motion opt-out and their `skipAnimations` alone (#468: Motion skips every value of a
+ * transition that says so).
+ */
 const resolvedEntry = (own: WardicTransition, entry: WardicTransition): WardicTransition => {
   const { inherit, ...rest } = entry as WardicTransition & { readonly inherit?: boolean }
   if (inherit === true) return { ...own, ...rest } as WardicTransition
-  if (Bool.or(Predicate.isUndefined(own.respectReducedMotion), Predicate.isNotUndefined(rest.respectReducedMotion))) return rest as WardicTransition
-  return { ...rest, respectReducedMotion: own.respectReducedMotion } as WardicTransition
+  let made = rest as WardicTransition
+  if (Bool.and(Predicate.isNotUndefined(own.respectReducedMotion), Predicate.isUndefined(rest.respectReducedMotion))) made = { ...made, respectReducedMotion: own.respectReducedMotion } as WardicTransition
+  if (own.skipAnimations === true) made = { ...made, skipAnimations: true } as WardicTransition
+  return made
 }
 
 /**
@@ -259,7 +265,7 @@ const delayIn = (transition: WardicTransition | undefined): number =>
  * A transition as its legs run it: a spring or a tween, Motion's fields filled in (ADR-0051), with
  * its reduced-motion opt-out.
  */
-export type Run = (DefaultTransition.Transition | DefaultTransition.KeyframesTransition) & { readonly respectReducedMotion?: boolean }
+export type Run = (DefaultTransition.Transition | DefaultTransition.KeyframesTransition) & { readonly respectReducedMotion?: boolean; readonly skipAnimations?: boolean }
 
 /** Each key's stops past its first two (#429): the Keyframes a tween runs through `keyframesValues`. */
 export type StopsByKey = Readonly<Record<string, ReadonlyArray<number | string>>>
@@ -347,10 +353,10 @@ const TIME_FIELDS = ["duration", "bounce", "visualDuration"] as const
 
 /**
  * The fields that don't define a transition, beside the orchestration's ({@link motionOf}): Motion's
- * `isTransitionDefined` (at 16c6122) skips `delay`; Wardic's reduced-motion opt-out and a target's
- * `inherit` aren't a transition's either. `repeat` and its fields do define one, a tween (ADR-0051).
+ * `isTransitionDefined` (at 16c6122) skips `delay`; Wardic's reduced-motion opt-out, `skipAnimations`
+ * (#468) and a target's `inherit` aren't a transition's either. `repeat` and its fields do define one, a tween (ADR-0051).
  */
-const NOT_DEFINING: ReadonlySet<string> = new Set(["delay", "respectReducedMotion", "inherit"])
+const NOT_DEFINING: ReadonlySet<string> = new Set(["delay", "respectReducedMotion", "skipAnimations", "inherit"])
 
 /** Motion's spring defaults (`springDefaults`): what a spring transition leaves out (ADR-0051). */
 const MOTION_SPRING = { stiffness: 100, damping: 10, mass: 1 } as const
@@ -434,6 +440,8 @@ const hasKeys: Predicate.Predicate<Values.Values> = Predicate.not(Rec.isEmptyRec
  * @param given the transition the legs run on, any stagger delay folded in (ADR-0007); its orchestration
  *   fields are left out ({@link motionOf})
  * @param reducedMotion whether reduced motion is on (the provider's, ADR-0029); a transition can still opt out
+ * @param skipped whether its animations are skipped (#468, a `WardicConfig`'s `skipAnimations`): every key
+ *   lands at its end on the first tick; a transition's `skipAnimations: true` does the same for its keys
  * @param positionalKeys which keys are positional: the Environment's (ADR-0036)
  * @param defaults what a key with no transition defined runs on: the Environment's (ADR-0051)
  * @param velocities each key's velocity now (#464): a spring starts from it, unless its transition gives one
@@ -446,6 +454,7 @@ export const legsOf = (
   to: Values.Values,
   given: WardicTransition | undefined,
   reducedMotion: boolean,
+  skipped: boolean,
   positionalKeys: ReducedMotion.PositionalKeys["Service"],
   defaults: DefaultTransition.DefaultTransition["Service"],
   velocities: Velocities,
@@ -455,9 +464,9 @@ export const legsOf = (
 ): ReadonlyArray<Leg> => {
   // Each key on its own transition (#301): with entries, the keys go by the transition each runs on.
   const entries = entriesOf(given)
-  if (Predicate.isUndefined(entries)) return legsOn(from, to, given, reducedMotion, positionalKeys, defaults, velocities, follow, stops, measured)
+  if (Predicate.isUndefined(entries)) return legsOn(from, to, given, reducedMotion, skipped, positionalKeys, defaults, velocities, follow, stops, measured)
   // With no value's entry (`layout` and `default` alone), every key runs on one transition.
-  if (Bool.not(entries.byValue)) return legsOn(from, to, forKey(entries, "default"), reducedMotion, positionalKeys, defaults, velocities, follow, stops, measured)
+  if (Bool.not(entries.byValue)) return legsOn(from, to, forKey(entries, "default"), reducedMotion, skipped, positionalKeys, defaults, velocities, follow, stops, measured)
   const byTransition = new Map<WardicTransition, Record<string, number | string>>()
   Arr.forEach(Rec.keys(to), (key) => {
     const runsOn = forKey(entries, key)
@@ -468,7 +477,7 @@ export const legsOf = (
     }
     byTransition.set(runsOn, { [key]: to[key] as number | string })
   })
-  return Arr.flatMap(Arr.fromIterable(byTransition), ([runsOn, keys]) => legsOn(from, keys, runsOn, reducedMotion, positionalKeys, defaults, velocities, follow, stops, measured))
+  return Arr.flatMap(Arr.fromIterable(byTransition), ([runsOn, keys]) => legsOn(from, keys, runsOn, reducedMotion, skipped, positionalKeys, defaults, velocities, follow, stops, measured))
 }
 
 /** No legs: a Retarget with no key. */
@@ -570,6 +579,7 @@ const legsOn = (
   to: Values.Values,
   given: WardicTransition | undefined,
   reducedMotion: boolean,
+  skipped: boolean,
   positionalKeys: ReducedMotion.PositionalKeys["Service"],
   defaults: DefaultTransition.DefaultTransition["Service"],
   velocities: Velocities,
@@ -578,13 +588,13 @@ const legsOn = (
   measured: MeasuredPairs | undefined,
 ): ReadonlyArray<Leg> => {
   const run = runOf(given)
-  if (Predicate.isNotUndefined(run)) return legsWith(from, to, run, reducedMotion, positionalKeys, velocities, follow, stops, measured)
+  if (Predicate.isNotUndefined(run)) return legsWith(from, to, run, reducedMotion, skipped, positionalKeys, velocities, follow, stops, measured)
   const keys = Rec.keys(to)
   if (keys.length === 0) return NO_LEGS
   // Nearly always one Default transition for every key (a fade, a move): no grouping.
   const first = defaultFor(defaults, UndefinedOr.getOrThrow(keys[0]), to, stops)
   if (Arr.every(keys, (key) => defaultFor(defaults, key, to, stops) === first)) {
-    return legsWith(from, to, carried(first, given), reducedMotion, positionalKeys, velocities, follow, stops, measured)
+    return legsWith(from, to, carried(first, given), reducedMotion, skipped, positionalKeys, velocities, follow, stops, measured)
   }
   const byDefault = new Map<DefaultTransition.Transition | DefaultTransition.KeyframesTransition, Record<string, number | string>>()
   Arr.forEach(keys, (key) => {
@@ -596,7 +606,7 @@ const legsOn = (
     }
     byDefault.set(runsOn, { [key]: to[key] as number | string })
   })
-  return Arr.flatMap(Arr.fromIterable(byDefault), ([runsOn, grouped]) => legsWith(from, grouped, carried(runsOn, given), reducedMotion, positionalKeys, velocities, follow, stops, measured))
+  return Arr.flatMap(Arr.fromIterable(byDefault), ([runsOn, grouped]) => legsWith(from, grouped, carried(runsOn, given), reducedMotion, skipped, positionalKeys, velocities, follow, stops, measured))
 }
 
 /**
@@ -615,14 +625,14 @@ const defaultFor = (
 
 /**
  * A Default transition with what the transition that defines none still says: its `delay` (a
- * stagger's among it, ADR-0007) and its reduced-motion opt-out. The Default transition itself when
- * it says neither, as nearly every element's (it has no transition).
+ * stagger's among it, ADR-0007), its reduced-motion opt-out and its `skipAnimations` (#468). The
+ * Default transition itself when it says none, as nearly every element's (it has no transition).
  */
 const carried = (runsOn: DefaultTransition.Transition | DefaultTransition.KeyframesTransition, given: WardicTransition | undefined): Run => {
   if (Predicate.isUndefined(given)) return runsOn
-  const { delay, respectReducedMotion } = given
-  if (Bool.and(Predicate.isUndefined(delay), Predicate.isUndefined(respectReducedMotion))) return runsOn
-  return { ...runsOn, ...Rec.filter({ delay, respectReducedMotion }, Predicate.isNotUndefined) } as Run
+  const { delay, respectReducedMotion, skipAnimations } = given
+  if (Bool.every([Predicate.isUndefined(delay), Predicate.isUndefined(respectReducedMotion), Predicate.isUndefined(skipAnimations)])) return runsOn
+  return { ...runsOn, ...Rec.filter({ delay, respectReducedMotion, skipAnimations }, Predicate.isNotUndefined) } as Run
 }
 
 /** {@link legsOf} on one transition as it runs. */
@@ -631,12 +641,18 @@ const legsWith = (
   to: Values.Values,
   transition: Run,
   reducedMotion: boolean,
+  skipped: boolean,
   positionalKeys: ReducedMotion.PositionalKeys["Service"],
   velocities: Velocities,
   follow: Follows | undefined,
   stops: StopsByKey | undefined,
   measured: MeasuredPairs | undefined,
 ): ReadonlyArray<Leg> => {
+  // A **Skipped animation** (#468, Motion's `skipAnimations`): every key lands where its leg would end,
+  // on its first tick, with no delay and whatever reduced motion says. Keyframes land on their last
+  // stop, a turned `repeat` where it ends, a Measured pair on its target as given, and a return to a
+  // moving Live value on where it is now, its follower taking over once it lands.
+  if (Bool.or(skipped, transition.skipAnimations === true)) return [snapLeg(from, to, Rec.map(to, (target, key) => ReducedMotion.endOf(UndefinedOr.getOrThrow(from[key]), target, transition as Machine.Modifiers)), NO_DELAY)]
   const useTween = transition.type === "tween"
   // Reduced motion (ADR-0029): the positional keys snap to where their leg would end, holding
   // through the delay it would hold, and the rest animate as they would. A transition opts out with
@@ -758,6 +774,9 @@ const mapMachineMatch: (input: { readonly leg: Leg; readonly f: MachineMap }) =>
  * Appear animation where its CSS has got (#48, ADR-0044 decision 6).
  */
 export const startingAt = (leg: Leg, at: LazyArg<number>): Leg => mapMachine(leg, Machine.startAt(at))
+
+/** No delay: a Skipped animation's snap (#468). */
+const NO_DELAY = (): number => 0
 
 /** The snap's leg: the positional keys, from where they are to `to`, after `delay()`. */
 const snapLeg = (from: Values.Values, positional: Values.Values, to: Values.Values, delay: () => number): Snap => ({

@@ -23,7 +23,8 @@
 import type * as DefaultTransition from "@wardic/core/DefaultTransition"
 import * as Machine from "@wardic/core/Machine"
 import * as Playback from "@wardic/core/Playback"
-import type * as ReducedMotion from "@wardic/core/ReducedMotion"
+import * as ReducedMotion from "@wardic/core/ReducedMotion"
+import type * as Values from "@wardic/core/Values"
 import * as Sequence from "@wardic/core/Sequence"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Report from "@wardic/dom/Report"
@@ -66,6 +67,11 @@ export interface AnimateEnv {
   readonly runtime: WardicRuntime
   readonly gate: FlushGate.Shape
   readonly reducedMotion: () => boolean
+  /**
+   * Whether its animations are skipped (#468): its scope's nearest `WardicConfig`'s, read as each
+   * starts, and handed to each element's animation in its transition, as Motion's `useAnimate` does.
+   */
+  readonly skipAnimations: () => boolean
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
 }
@@ -131,13 +137,24 @@ const plainOf = (env: AnimateEnv, element: Element): Plain => {
 }
 
 /**
+ * `transition` with `skipAnimations` when its scope's animations are skipped (#468, Motion's
+ * `useAnimate`, which hands its config's to each animation): a Wardic element's own config can skip it
+ * too, and a plain element has none.
+ */
+const skippedIn = (env: AnimateEnv, transition: WardicTransition | undefined): WardicTransition | undefined => {
+  if (Bool.not(env.skipAnimations())) return transition
+  return { ...transition, skipAnimations: true } as WardicTransition
+}
+
+/**
  * An element's animation of `target`: through its spine when it's a Wardic element's, else through its
  * plain spine, in the gate while any of its animations runs.
  */
-const trackOf = (env: AnimateEnv, element: Element, target: WardicVariant, transition: WardicTransition | undefined, head: Playback.Playhead, settled: () => void): ImperativeTrack => {
+const trackOf = (env: AnimateEnv, element: Element, target: WardicVariant, given: WardicTransition | undefined, head: Playback.Playhead, settled: () => void): ImperativeTrack => {
   const resolved = resolveTarget(target, undefined, undefined, NO_VARIANT_STATE)
   const own = wardicElements.get(element)
   const hooks = { settled, failed: constVoid }
+  const transition = skippedIn(env, given)
   if (Predicate.isNotUndefined(own)) return own.animate(resolved, transition, head, hooks)
   const plain = plainOf(env, element)
   // In the gate while it runs; out once its last animation is done, after the flush of its last frame.
@@ -627,7 +644,12 @@ const stepsOf = (sequence: WardicAnimationSequence, scope: Element | undefined, 
  */
 const callbackTrackOf = (env: AnimateEnv, callback: Callback, animation: Sequence.Animation, head: Playback.Playhead, settled: () => void): ImperativeTrack => {
   const stops = filledStops(UndefinedOr.getOrThrow(animation.keyframes[VALUE]), 0)
-  const machine = Machine.keyframesValues({ [VALUE]: stops }, UndefinedOr.getOrThrow(animation.transition[VALUE]))
+  const options = UndefinedOr.getOrThrow(animation.transition[VALUE])
+  // Skipped (#468): its callback told the value it would end on, on the first tick.
+  const machine = Bool.match(env.skipAnimations(), {
+    onTrue: () => Effect.succeed(ReducedMotion.snap<Values.Values>({ [VALUE]: UndefinedOr.getOrThrow(stops[0]) }, { [VALUE]: ReducedMotion.endOf(UndefinedOr.getOrThrow(stops[0]), UndefinedOr.getOrThrow(stops[stops.length - 1]), options) })),
+    onFalse: () => Machine.keyframesValues({ [VALUE]: stops }, options),
+  })
   let fiber: Fiber.Fiber<unknown> | undefined
   const end = (): void => {
     if (Predicate.isUndefined(fiber)) return

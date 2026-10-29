@@ -855,15 +855,17 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // name's alone when its `when` orders it (#297's PR 2).
     // The leaver's own, under its nearest WardicConfig (#434), else the presence's.
     const reduce = UndefinedOr.match(rec.reducedMotion, { onUndefined: reducedMotion, onDefined: (own) => own() })
+    // Skipped (#468): every key lands at its end on the first tick, and the element leaves then.
+    const skipped = UndefinedOr.match(rec.skipAnimations, { onUndefined: constFalse, onDefined: (own) => own() })
     // Measured pairs (#430): an exit from `auto` to 0 measures both ends, as a Retarget does, unless
-    // reduced motion snaps them.
-    const measured = Bool.match(reduce, { onTrue: constUndefined, onFalse: () => exitMeasuredOf(el, from, to) })
+    // reduced motion snaps them or the exit is skipped.
+    const measured = Bool.match(Bool.or(reduce, skipped), { onTrue: constUndefined, onFalse: () => exitMeasuredOf(el, from, to) })
     const legs = UndefinedOr.match(exit.groups, {
-      onUndefined: () => legsOf(from, to, delayedBy(exit.transition, delay(singleNameOf(exit.name))), reduce, positionalKeys, defaultTransition, moving, undefined, stops, measured),
+      onUndefined: () => legsOf(from, to, delayedBy(exit.transition, delay(singleNameOf(exit.name))), reduce, skipped, positionalKeys, defaultTransition, moving, undefined, stops, measured),
       onDefined: (groups) =>
         Arr.flatMap(
           Arr.filter(groups, (group) => Bool.or(Predicate.isUndefined(only), group.name === only)),
-          (group: ExitGroup) => legsOf(from, group.values, delayedBy(group.transition, delay(group.name)), reduce, positionalKeys, defaultTransition, moving, undefined, stops, measured),
+          (group: ExitGroup) => legsOf(from, group.values, delayedBy(group.transition, delay(group.name)), reduce, skipped, positionalKeys, defaultTransition, moving, undefined, stops, measured),
         ),
     })
     return Effect.all(Arr.map(legs, (leg) => exitRunOf(leg, el, commitFrame, velocities)), { concurrency: "unbounded", discard: true })

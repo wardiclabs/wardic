@@ -10,7 +10,7 @@ import type * as Point from "@wardic/core/Point"
 import type * as Projection from "@wardic/core/Projection"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Bool from "effect/Boolean"
-import { constTrue } from "effect/Function"
+import { constFalse, constTrue, identity } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -58,6 +58,8 @@ export interface UseLayoutMemberOptions {
   readonly dragTransition?: () => ProjectionSystem.DragTransition
   /** Whether reduced motion applies to it now (ADR-0029): its nearest `WardicConfig`'s, else the provider's (#434). Default: the system's. */
   readonly reducedMotion?: () => boolean
+  /** Whether its animations are skipped now (#468): its nearest `WardicConfig`'s `skipAnimations`. Default: never. */
+  readonly skipAnimations?: () => boolean
   /**
    * The element's `layoutId` (shared-element key, ADR-0010), or omitted for a plain
    * `layout` element. When set, the one node joins the engine's per-`layoutId`
@@ -97,13 +99,18 @@ export interface UseLayoutMemberOptions {
   readonly fadeFrom?: number
 }
 
+/** Whether a layout transition skips its animation (#468): its `layout` entry's, else its own `skipAnimations`. */
+const layoutSkips = (transition: WardicTransition | undefined): boolean =>
+  UndefinedOr.match(transitionForKey(transition, "layout"), { onUndefined: constFalse, onDefined: (t) => t.skipAnimations === true })
+
 /**
  * A layout node's registration with the projection system (ADR-0009, ADR-0010): exactly one node per
  * element, whether it has `layout`, `layoutId`, or both. Each getter is read where the projection
  * system needs it, outside the binding's tracking.
  */
 export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.RegisterNodeOptions => {
-  const { dragTransition, element, enteredFrom, fadeFrom, id, layoutAnchor, layoutId, layoutMode, layoutRoot, layoutScroll, onLayoutAnimationComplete, onLayoutAnimationStart, onReleaseEnd, ownOpacity, ownRotate, ownScale, ownTranslate, raiseWhileDragged, reducedMotion, transition } = opts
+  const { dragTransition, element, enteredFrom, fadeFrom, id, layoutAnchor, layoutId, layoutMode, layoutRoot, layoutScroll, onLayoutAnimationComplete, onLayoutAnimationStart, onReleaseEnd, ownOpacity, ownRotate, ownScale, ownTranslate, raiseWhileDragged, reducedMotion, skipAnimations, transition } = opts
+  const configSkips = UndefinedOr.match(skipAnimations, { onUndefined: () => constFalse, onDefined: identity })
   return {
     id,
     element,
@@ -113,6 +120,9 @@ export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.R
       UndefinedOr.match(transitionForKey(transition(), "layout"), { onUndefined: constTrue, onDefined: (t) => t.respectReducedMotion !== false }),
     // Whether reduced motion applies to it (#434): its subtree's, else the system's.
     ...UndefinedOr.match(reducedMotion, { onUndefined: () => ({}), onDefined: (applies) => ({ reducedMotion: applies }) }),
+    // Whether its layout animations are skipped (#468): its subtree's, or its layout transition's own
+    // `skipAnimations`, as Motion's projection runs on its layout transition. Read at each start.
+    skipAnimations: () => Bool.or(configSkips(), layoutSkips(transition())),
     ...UndefinedOr.match(layoutId, { onUndefined: () => ({}), onDefined: (twinId) => ({ layoutId: twinId }) }),
     ...Bool.match(layoutScroll === true, { onTrue: () => ({ layoutScroll: true }), onFalse: () => ({}) }),
     ...Bool.match(layoutRoot === true, { onTrue: () => ({ layoutRoot: true }), onFalse: () => ({}) }),
@@ -186,6 +196,8 @@ export interface WardLayout {
   readonly layoutGroup?: string | undefined
   /** Whether reduced motion applies to it now (ADR-0029): its nearest `WardicConfig`'s, else the provider's (#434). */
   readonly reducedMotion?: (() => boolean) | undefined
+  /** Whether its animations are skipped now (#468): its nearest `WardicConfig`'s. */
+  readonly skipAnimations?: (() => boolean) | undefined
 }
 
 /**
@@ -194,7 +206,7 @@ export interface WardLayout {
  * mode and callbacks read when the projection system needs them.
  */
 export const layoutOptionsOf = (ward: WardLayout): UseLayoutMemberOptions => {
-  const { config, element, id, parent, snapshot, dragTransition, raiseWhileDragged, taken, layoutGroup, reducedMotion } = ward
+  const { config, element, id, parent, snapshot, dragTransition, raiseWhileDragged, taken, layoutGroup, reducedMotion, skipAnimations } = ward
   const c0 = config()
   return {
     id,
@@ -223,6 +235,7 @@ export const layoutOptionsOf = (ward: WardLayout): UseLayoutMemberOptions => {
     ...Bool.match(raiseWhileDragged, { onTrue: () => ({ raiseWhileDragged: true }), onFalse: () => ({}) }),
     ...takenOptionsOf(taken),
     ...UndefinedOr.match(reducedMotion, { onUndefined: () => ({}), onDefined: (applies) => ({ reducedMotion: applies }) }),
+    ...UndefinedOr.match(skipAnimations, { onUndefined: () => ({}), onDefined: (skips) => ({ skipAnimations: skips }) }),
   }
 }
 

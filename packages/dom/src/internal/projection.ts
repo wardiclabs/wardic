@@ -805,6 +805,12 @@ export interface RegisterNodeOptions {
    */
   readonly reducedMotion?: () => boolean
   /**
+   * Whether the node's animations are skipped now (#468, a binding's `skipAnimations`), read at each
+   * layout animation's (re)start and each drag release: it lands at once, whatever reduced motion
+   * says, and a release lands on its slot. Default: never.
+   */
+  readonly skipAnimations?: () => boolean
+  /**
    * The node's **Layout mode** (ADR-0009, *Amendment (#42)*), read at each layout animation's
    * start: which parts of a layout change it animates. Default `true`, position and size.
    */
@@ -1103,6 +1109,8 @@ interface NodeState {
   readonly respectReducedMotion: () => boolean
   /** Whether reduced motion applies to the node now, read at each (re)start (ADR-0029, #434): its own, else the system's. */
   readonly reducedMotion: () => boolean
+  /** Whether the node's animations are skipped now (#468), read at each (re)start and release: its own, else never. */
+  readonly skipAnimations: () => boolean
   /** The node's Layout mode, read at each layout animation's start (ADR-0009, *Amendment (#42)*). */
   readonly layoutMode: () => Projection.LayoutMode
   /** The element's own scale per axis, drawn on top of its projection (ADR-0010 *Amendment (#8)*). */
@@ -1506,11 +1514,12 @@ export const makeProjectionSystem = (
   /**
    * A layout animation's progress at its (re)start (ADR-0009 *Amendment (#171)*): at 0, on its
    * transition read now, Motion's default with none, its delay held first, and with no velocity
-   * (Motion's). When reduced motion applies to `node` (ADR-0029), at 1 with no delay, so the node
-   * lands on its new box at once and the flight ends on its first step.
+   * (Motion's). When reduced motion applies to `node` (ADR-0029), or its animations are skipped
+   * (#468), at 1 with no delay, so the node lands on its new box at once and the flight ends on its
+   * first step.
    */
   const startFlight = (node: NodeState): Flight =>
-    Bool.match(Bool.and(node.respectReducedMotion(), node.reducedMotion()), {
+    Bool.match(Bool.or(node.skipAnimations(), Bool.and(node.respectReducedMotion(), node.reducedMotion())), {
       onTrue: landedFlight,
       onFalse: (): Flight => {
         // A transition core rejects (#66, ADR-0025 *Amendment (#66)*) is the app's defect, in
@@ -4493,6 +4502,7 @@ export const makeProjectionSystem = (
     lastWritten: undefined,
     respectReducedMotion: () => true,
     reducedMotion,
+    skipAnimations: constFalse,
     layoutMode: ALWAYS_BOTH,
     ownScale: NO_OWN_SCALE,
     ownTranslate: NO_OWN_TRANSLATE,
@@ -4975,6 +4985,7 @@ export const makeProjectionSystem = (
       lastWritten: undefined,
       respectReducedMotion: UndefinedOr.match(opts.respectReducedMotion, { onUndefined: () => constTrue, onDefined: identity }),
       reducedMotion: UndefinedOr.match(opts.reducedMotion, { onUndefined: () => reducedMotion, onDefined: identity }),
+      skipAnimations: UndefinedOr.match(opts.skipAnimations, { onUndefined: () => constFalse, onDefined: identity }),
       layoutMode: UndefinedOr.match(opts.layoutMode, { onUndefined: () => ALWAYS_BOTH, onDefined: identity }),
       ownScale: UndefinedOr.match(opts.ownScale, { onUndefined: () => NO_OWN_SCALE, onDefined: identity }),
       ownTranslate: UndefinedOr.match(opts.ownTranslate, { onUndefined: () => NO_OWN_TRANSLATE, onDefined: identity }),
@@ -5173,7 +5184,11 @@ export const makeProjectionSystem = (
           })
           return
         }
-        node.release = releaseOrLanded(offset, velocity, Option.getOrElse(dragTransition(), () => DEFAULT_DRAG_TRANSITION))
+        // Skipped (#468): the release starts at rest on the slot, so the node lands there on its first step.
+        node.release = Bool.match(node.skipAnimations(), {
+          onTrue: () => releaseFrom(ZERO_POINT, ZERO_POINT, DEFAULT_DRAG_TRANSITION),
+          onFalse: () => releaseOrLanded(offset, velocity, Option.getOrElse(dragTransition(), () => DEFAULT_DRAG_TRANSITION)),
+        })
         node.releasing = true
         active.add(node)
         ensureRunning()

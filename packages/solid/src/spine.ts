@@ -707,6 +707,7 @@ const splitLegsOf = (
   extraDelay: ((name: string | undefined) => number) | undefined,
   reuse: (transition: WardicTransition) => WardicTransition,
   reduce: boolean,
+  skipped: boolean,
   positionalKeys: ReducedMotion.PositionalKeys["Service"],
   defaultTransition: DefaultTransition.DefaultTransition["Service"],
   velocities: Velocities,
@@ -724,7 +725,7 @@ const splitLegsOf = (
     if (Rec.isEmptyRecord(picked)) return
     let followed: Follows | undefined
     if (i === returnsAt) followed = follow
-    const groupLegs = legsOf(from, picked, groupTransitionOf(resolution, groups, i, transition, element, extraDelay, reuse), reduce, positionalKeys, defaultTransition, velocities, followed, stops, measured)
+    const groupLegs = legsOf(from, picked, groupTransitionOf(resolution, groups, i, transition, element, extraDelay, reuse), reduce, skipped, positionalKeys, defaultTransition, velocities, followed, stops, measured)
     Arr.forEach(groupLegs, (built) => {
       legs.push(built)
       tags.push(i)
@@ -1548,6 +1549,7 @@ export const presenceRecordOf = (
   tree: PresenceTree,
   snapshot: Snapshot,
   reducedMotion: () => boolean,
+  skipAnimations: () => boolean,
 ): PresenceRecord => ({
   element,
   snapshot: { current: { ...start.initialValues } },
@@ -1558,6 +1560,8 @@ export const presenceRecordOf = (
   velocities: () => velocitiesNowOf(snapshot),
   // Its own, under its nearest WardicConfig (#434): its exit honours it, not the presence's.
   reducedMotion,
+  // Its nearest WardicConfig's (#468): an exit is skipped as its element's animations are.
+  skipAnimations,
 })
 
 /**
@@ -1592,6 +1596,11 @@ export interface ElementSpineOptions {
   readonly onFrame: ((done: boolean) => void) | undefined
   /** Whether reduced motion applies (ADR-0029), read at each Retarget. */
   readonly reducedMotion: () => boolean
+  /**
+   * Whether its animations are skipped (#468, its nearest `WardicConfig`'s `skipAnimations`), read at
+   * each Retarget and each Imperative animation: every key lands at its end on the next tick. Omitted, never.
+   */
+  readonly skipAnimations?: (() => boolean) | undefined
   /** Which keys reduced motion Snaps (ADR-0036). */
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   /** What a key with no transition of its own runs on (ADR-0051). */
@@ -1697,6 +1706,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   // added to each leg it starts, so a `var()` end blends what it resolves to here.
   const elementRules = [Variables.values(element)]
   const recordFrame = recordFrameOf(presence)
+  // Whether its animations are skipped (#468): never, with nothing given.
+  const skipAnimations = UndefinedOr.match(options.skipAnimations, { onUndefined: () => constFalse, onDefined: identity })
 
   // A routed key a return handed back: written by the follower from now on (#130). Set by
   // `follow`; a return settles a tick after it runs at the earliest.
@@ -2380,10 +2391,11 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       follow = { keysOf: (rest) => followingOf(routes, rest, returning), targetOf: (key, start) => liveTargetOf(routes, key, start) }
     }
     const reduce = options.reducedMotion()
-    // Measured pairs (#430), asked of the end-of-task batch, unless reduced motion snaps them: the keys
-    // found above, and those Keyframes of two stops start from their first.
+    const skipped = skipAnimations()
+    // Measured pairs (#430), asked of the end-of-task batch, unless reduced motion snaps them or the
+    // animation is skipped (#468): the keys found above, and those Keyframes of two stops start from their first.
     let measured: MeasuredPairs | undefined
-    if (Bool.and(Bool.not(reduce), Bool.or(Predicate.isNotUndefined(measuring), Predicate.isNotUndefined(keyframesNow)))) {
+    if (Bool.and(Bool.not(Bool.or(reduce, skipped)), Bool.or(Predicate.isNotUndefined(measuring), Predicate.isNotUndefined(keyframesNow)))) {
       measured = measuredOf(element, measuringOf(measuring, keyframesNow), from, fresh, snapshot.values)
     }
     let told: ToldNames | undefined
@@ -2393,10 +2405,10 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     let retargetLegs: ReadonlyArray<Leg> = NO_LEGS
     let legGroups: ReadonlyArray<number> | undefined
     if (Bool.and(Predicate.isUndefined(groups), hasKeys(fresh))) {
-      retargetLegs = legsOf(from, fresh, transition, reduce, positionalKeys, defaultTransition, readVelocity, follow, manyStops, measured)
+      retargetLegs = legsOf(from, fresh, transition, reduce, skipped, positionalKeys, defaultTransition, readVelocity, follow, manyStops, measured)
     }
     if (Predicate.isNotUndefined(groups)) {
-      const split = splitLegsOf(fresh, from, groups, resolution, listed, transition, elementTransition, extraDelay, options.reuse, reduce, positionalKeys, defaultTransition, readVelocity, follow, manyStops, measured)
+      const split = splitLegsOf(fresh, from, groups, resolution, listed, transition, elementTransition, extraDelay, options.reuse, reduce, skipped, positionalKeys, defaultTransition, readVelocity, follow, manyStops, measured)
       retargetLegs = split.legs
       legGroups = split.tags
     }
@@ -2656,10 +2668,11 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       stops = begun.stops
     }
     const reduce = options.reducedMotion()
+    const skipped = skipAnimations()
     let measured: MeasuredPairs | undefined
-    if (Bool.and(Bool.not(reduce), Predicate.isNotUndefined(measuring))) measured = measuredOf(element, UndefinedOr.getOrThrow(measuring), from, to, snapshot.values)
+    if (Bool.and(Bool.not(Bool.or(reduce, skipped)), Predicate.isNotUndefined(measuring))) measured = measuredOf(element, UndefinedOr.getOrThrow(measuring), from, to, snapshot.values)
     // Built once: a seek or a replay runs the same legs, from the same start, with the same velocities.
-    const built = legsOf(from, to, given, reduce, positionalKeys, defaultTransition, readVelocity, undefined, stops, measured)
+    const built = legsOf(from, to, given, reduce, skipped, positionalKeys, defaultTransition, readVelocity, undefined, stops, measured)
     const legs = Arr.map(built, (leg) => mapMachine(leg, Playback.drive(head)))
     let runnings: ReadonlyArray<Running> = NO_RUNNING
     let left = 0

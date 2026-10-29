@@ -77,7 +77,7 @@ import type { PresenceRecord } from "./presence-record.ts"
 import { createWhenWanted, stateOf, type Wants } from "./sensors.ts"
 import { type GestureCallbacks, gestureCallbacksOf, inViewOptionsOf, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "./gesture-callbacks.ts"
 import { runWatch, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
-import { useWardicConfig } from "./wardic-config.tsx"
+import { useWardicConfig, useWardicSkipAnimations } from "./wardic-config.tsx"
 import type { WardicRuntime } from "./runtime.ts"
 import { isHydrating, isServer } from "./server.ts"
 import { reactivity } from "./solid-reactivity.ts"
@@ -414,6 +414,8 @@ export function runSpine(opts: RunSpineOptions): void {
 
   // Whether reduced motion applies (ADR-0029), read at each Retarget.
   const reducedMotion = useWardicReducedMotion()
+  // Whether its animations are skipped (#468): its nearest WardicConfig's, read as each starts.
+  const skipAnimations = useWardicSkipAnimations()
   const positionalKeys = useWardicPositionalKeys()
   // What a key with no transition of its own runs on (ADR-0051).
   const defaultTransition = useWardicDefaultTransition()
@@ -520,7 +522,7 @@ export function runSpine(opts: RunSpineOptions): void {
       let taken: PresenceSeed | undefined
       if (Predicate.isNotUndefined(presence)) {
         const exitConfig = { current: exitConfigOf(untrack(cfg), parent) }
-        const rec = presenceRecordOf(element, begin, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(untrack(cfg)), snapshot, reducedMotion)
+        const rec = presenceRecordOf(element, begin, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(untrack(cfg)), snapshot, reducedMotion, skipAnimations)
         presenceRec = rec
         presence.register(rec)
         taken = presenceSeedOf(presence, element)
@@ -552,7 +554,7 @@ export function runSpine(opts: RunSpineOptions): void {
       const dragTransition = dragTransitionOf(c0.dragElastic, c0.dragTransition)
       if (wantsLayoutNode(c0)) {
         layoutHandle = useLayoutMember(
-          layoutOptionsOf({ id, element, config: cfg, parent, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true, taken, layoutGroup, reducedMotion }),
+          layoutOptionsOf({ id, element, config: cfg, parent, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true, taken, layoutGroup, reducedMotion, skipAnimations }),
         )
         if (Predicate.isNotUndefined(internal.onLayoutHandle)) internal.onLayoutHandle(layoutHandle)
       }
@@ -600,6 +602,7 @@ export function runSpine(opts: RunSpineOptions): void {
           recordFrame,
           setDragging,
           config: trackConfig,
+          skipAnimations,
           container: constraints.container,
           controls: c0d.dragControls,
           // ADR-0016: a drag on a LAYOUT node feeds the projection, not its own x/y
@@ -713,6 +716,7 @@ export function runSpine(opts: RunSpineOptions): void {
         byName,
         onFrame,
         reducedMotion,
+        skipAnimations,
         positionalKeys,
         defaultTransition,
         start: begin,

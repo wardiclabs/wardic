@@ -52,6 +52,11 @@ export interface PresenceRecord {
    * provider's (#434), read as its exit starts. Optional: left out, the presence's.
    */
   readonly reducedMotion?: (() => boolean) | undefined
+  /**
+   * Whether its animations are skipped now (#468): its nearest `WardicConfig`'s, read as its exit
+   * starts. Optional: left out, never.
+   */
+  readonly skipAnimations?: (() => boolean) | undefined
 }
 
 /** Where a Wardic element starts when its child takes over from a leaver (#286, ADR-0048): the values and velocities it's drawn at. */

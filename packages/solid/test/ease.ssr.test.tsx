@@ -25,7 +25,7 @@ const POSITIONAL: ReducedMotion.PositionalKeys["Service"] = { isPositional: Redu
 const ONE_SPRING: DefaultTransition.DefaultTransition["Service"] = { transitionFor: () => DefaultTransition.ONE_SPRING, keyframes: DefaultTransition.ONE_TWEEN }
 
 /** The legs of an x and an opacity going 0 → 100 / 0 → 1 on `transition`. */
-const legsFor = (transition: WardicTransition): ReadonlyArray<Leg> => legsOf({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, transition, false, POSITIONAL, ONE_SPRING, NO_VELOCITY)
+const legsFor = (transition: WardicTransition): ReadonlyArray<Leg> => legsOf({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, transition, false, false, POSITIONAL, ONE_SPRING, NO_VELOCITY)
 
 /** A Blend leg's machine, built with the DOM's Interpolators. */
 const machineOf = (leg: Leg): Machine.Machine<Frame.Frame<Record<string, unknown>>> => {

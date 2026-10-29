@@ -120,6 +120,7 @@ export type {
   WardConfig,
   WardicDragTransition,
   WardicReducedMotion,
+  WardicSkipAnimations,
   WardicTransformShorthands,
   WardicAnimationDefinition,
   WardicTransition,

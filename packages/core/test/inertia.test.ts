@@ -3,6 +3,7 @@
 // cross or starts past. Stepped by hand at 1/60 s, checked against Motion's closed form and, for the
 // bounces, against Motion's own generator's frames (motion-dom 13.3.0, `.tmp/140/motion-fixtures.ts`,
 // copied here as literals: the probe's install is gitignored), with a drag release's options.
+import * as Inertia from "@wardic/core/Inertia"
 import * as Machine from "@wardic/core/Machine"
 import { describe, expect, it } from "vitest"
 
@@ -123,3 +124,26 @@ describe("inertiaVec", () => {
     expect(last.value).toEqual({ x: 20, y: -240 })
   })
 })
+
+describe("Inertia.restOf (#468)", () => {
+  it("IR1: rests where the machine's last frame does: a glide's target, an edge it crosses, the edge nearest a start past one", () => {
+    const cases = [
+      { initial: 0, velocity: 500, options: RELEASE },
+      { initial: 0, velocity: -300, options: { ...RELEASE, min: -100 } },
+      { initial: 10, velocity: 0, options: RELEASE },
+      ...Object.values(MOTION).map((c) => ({ initial: c.initial, velocity: c.velocity, options: { ...RELEASE, ...c.options } })),
+    ]
+    for (const c of cases) {
+      const frames = run(Machine.inertia(c.initial, c.velocity, c.options))
+      expect(frames.at(-1)?.done, "the machine rests").toBe(true)
+      expect(Inertia.restOf(c.initial, c.velocity, c.options), JSON.stringify(c)).toBeCloseTo(frames.at(-1)!.value, 9)
+    }
+  })
+
+  it("IR2: a glide's target goes through modifyTarget, held to the edges", () => {
+    const snap = (ideal: number): number => Math.round(ideal / 100) * 100
+    expect(Inertia.restOf(0, 260, { ...RELEASE, modifyTarget: snap })).toBe(200)
+    expect(Inertia.restOf(0, 260, { ...RELEASE, modifyTarget: snap, max: 150 })).toBe(150)
+  })
+})
+

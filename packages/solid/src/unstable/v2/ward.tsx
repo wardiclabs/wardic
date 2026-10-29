@@ -143,7 +143,7 @@ import {
   useWardicRuntime,
 } from "./provider.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
-import { useWardicConfig } from "./wardic-config.tsx"
+import { useWardicConfig, useWardicSkipAnimations } from "./wardic-config.tsx"
 import { configView, type Fixed, type PerKey, type PerKeyApart } from "./config-view.ts"
 import { Lifecycle, type WardEvent, type WardEvents, type WardPressInfo, type WardSettled } from "./lifecycle.ts"
 import { neverLands, NO_EVENTS, serverWhen } from "./waiters.ts"
@@ -748,6 +748,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const gate = useWardicGate()
   const projection = useWardicProjection()
   const reducedMotion = useWardicReducedMotion()
+  // Whether its animations are skipped (#468): its nearest WardicConfig's, read as each starts.
+  const skipAnimations = useWardicSkipAnimations()
   const positionalKeys = useWardicPositionalKeys()
   const defaultTransition = useWardicDefaultTransition()
   const owner = getOwner()
@@ -1114,7 +1116,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     const links = startLinksOf(el, styleNow, live)
     // Its exit record, under an <AnimatePresence>: the presence removes it once the exit settles.
     const presenceRecord = UndefinedOr.map(presence, (registrar) => {
-      const record = presenceRecordOf(el, begun, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(initialConfig), snapshot, reducedMotion)
+      const record = presenceRecordOf(el, begun, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(initialConfig), snapshot, reducedMotion, skipAnimations)
       registrar.register(record)
       return record
     })
@@ -1132,7 +1134,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         const released = (): void => lifecycle.released()
         return projection.register(
           registrationOf({
-            ...layoutOptionsOf({ id, element: el, config: configNow, parent: node.inherited, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true, taken, layoutGroup, reducedMotion }),
+            ...layoutOptionsOf({ id, element: el, config: configNow, parent: node.inherited, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true, taken, layoutGroup, reducedMotion, skipAnimations }),
             onLayoutAnimationStart: () => started,
             onLayoutAnimationComplete: () => completed,
             // Its drag's Release offset at rest, for `next("dragTransitionEnd")` (#273).
@@ -1168,6 +1170,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         snapshot,
         recordFrame: recordFrameOf(presenceRecord),
         setDragging: (on: boolean) => setGesture(el, "dragging", on),
+        skipAnimations,
         config: {
           axis,
           constraints: constraints.constraints,
@@ -1208,6 +1211,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       byName: node.names,
       onFrame: node.onFrame,
       reducedMotion,
+      skipAnimations,
       positionalKeys,
       defaultTransition,
       start: begun,
