@@ -88,6 +88,7 @@ import {
   nameOf,
   NO_GESTURE_NAMES,
   ownOrInherited,
+  sameGestureNames,
   type ServerVariantNode,
   startingValuesOf,
   startsAtAnimate,
@@ -313,6 +314,12 @@ export interface Resolution {
   readonly layers: ReadonlyArray<Layer>
   /** The names its active gesture layers resolved (#291): its own `while*` names, else those it took. */
   readonly names: GestureNames
+  /**
+   * Which gesture layers are on and set values or a Transition end (#470); a named one is in `names`.
+   * One turning on or off is a new target, whatever it resolves, as a Motion type turning active
+   * animates (`animation-state.ts`).
+   */
+  readonly layersOn: GestureStates
   /** Its layers' **Transition ends** (#428), when any active one has one. */
   readonly ends: Ends | undefined
   /** Each key's **Keyframes**, as the layer that drives it gives them (#429), when any active layer has some. */
@@ -372,6 +379,7 @@ const OFF: Layer = { active: false, values: {}, transition: undefined, name: und
 /**
  * A gesture's layer (#291), while it's on (its own, or its provider's): its own `while*` (a target, or
  * a variant name), else the label its provider hands down. Off, or with neither, nothing is resolved.
+ * Whether it set values or a Transition end (#470).
  */
 const gestureLayersInto = (
   layers: Array<Layer>,
@@ -381,22 +389,38 @@ const gestureLayersInto = (
   variants: WardicVariants | undefined,
   custom: unknown,
   state: VariantState,
-): void => {
+): boolean => {
   if (Bool.not(on)) {
     layers.push(OFF)
-    return
+    return false
   }
   const entry = UndefinedOr.match(own, { onDefined: identity, onUndefined: (): Entry => label })
   if (Predicate.isUndefined(entry)) {
     layers.push(OFF)
-    return
+    return false
   }
   // A list is a layer a name, in order (#297): the last name that sets a key drives it.
   if (Array.isArray(entry)) {
-    Arr.forEach(resolveTargets(entry, variants, custom, state), (target) => layers.push(namedLayerOf(target)))
-    return
+    let sets = false
+    Arr.forEach(resolveTargets(entry, variants, custom, state), (target) => {
+      const layer = namedLayerOf(target)
+      layers.push(layer)
+      if (setsValues(layer)) sets = true
+    })
+    return sets
   }
-  layers.push(layerOf(resolveTarget(entry, variants, custom, state), labelOrUndefined(entry)))
+  const layer = layerOf(resolveTarget(entry, variants, custom, state), labelOrUndefined(entry))
+  layers.push(layer)
+  return setsValues(layer)
+}
+
+/**
+ * Whether a gesture's layer sets values or a Transition end (#470). A values map with none sets
+ * nothing; a name that resolves none is told by its name (`names`), as Motion animates it.
+ */
+const setsValues = (layer: Layer): boolean => {
+  if (hasKeys(layer.values)) return true
+  return hasKeys(layer.ends)
 }
 
 /** A single entry's name: itself, if a name; `undefined` for a values map. */
@@ -546,6 +570,7 @@ const IMPERATIVE: Resolution = {
   transition: undefined,
   layers: [],
   names: NO_GESTURE_NAMES,
+  layersOn: NO_GESTURE_STATES,
   ends: undefined,
   keyframes: undefined,
   change: undefined,
@@ -898,15 +923,71 @@ const keyframesNowOf = (layers: ReadonlyArray<Layer>, resolved: Values.Values): 
 const sameValues: Equivalence.Equivalence<Values.Values> = Rec.makeEquivalence(Equivalence.strictEqual<number | string>())
 
 /**
- * Whether two resolutions are the same target (#209): the same values for the same keys, in the
- * base layer and resolved, the same drag, and the same variant name. Motion's rule: a config that
- * resolves to the same values doesn't animate (a `transition` change applies from the next
- * change), and a new variant name does, even to the same values. The Solid 2 binding's target memo
- * compares with it, so a `style` or `transition` change in a ward's config doesn't Retarget.
+ * Whether two resolutions are the same target (#209, #470): the same values for the same keys, in
+ * the base layer and resolved, the same drag, the same variant name, Keyframes and Transition ends,
+ * and the same gesture layers on, with the same names. Motion's rule: a config that resolves to the
+ * same values doesn't animate (a `transition` change applies from the next change), and a new
+ * variant name does, even to the same values, as a gesture turning on or off does. Both bindings'
+ * target memos compare with it, so a `style`, `transition` or callback change doesn't Retarget.
  */
 export const sameResolution = (a: Resolution, b: Resolution): boolean =>
   Bool.every([a.dragging === b.dragging, sameLabels(a.variant, b.variant), a.change === b.change]) && sameValues(a.resolved, b.resolved) && sameValues(a.base, b.base) &&
-  sameKeyframesNow(a.keyframes, b.keyframes)
+  sameKeyframesNow(a.keyframes, b.keyframes) && sameLayersOn(a.layersOn, b.layersOn) && sameNamesOn(a.names, b.names) && sameEnds(a.ends, b.ends)
+
+/** Two resolutions' gesture layers on that set values (#470): none on both, the common case, at once. */
+const sameLayersOn = (a: GestureStates, b: GestureStates): boolean => {
+  if (a === b) return true
+  return a.inView === b.inView && a.focused === b.focused && a.hovered === b.hovered && a.pressed === b.pressed && a.dragged === b.dragged
+}
+
+/** Two resolutions' active gesture names (#470): a named layer turning on or off, or a new name. None on both, the common case, at once. */
+const sameNamesOn = (a: GestureNames, b: GestureNames): boolean => {
+  if (a === b) return true
+  return sameGestureNames(a, b)
+}
+
+/**
+ * Two resolutions' Transition ends the same (#470), layer by layer: a key a layer both animates and
+ * ends resolves to its value, so its end is compared here. `undefined` on both, the common case, at once.
+ */
+const sameEnds = (a: Ends | undefined, b: Ends | undefined): boolean => {
+  if (a === b) return true
+  if (Predicate.isUndefined(a)) return false
+  if (Predicate.isUndefined(b)) return false
+  const y = b.byLayer
+  return Bool.and(a.byLayer.length === y.length, Arr.every(a.byLayer, (ends, i) => sameEndsAt(ends, y[i])))
+}
+
+/** The value `key`'s Transition end sets it to in `ends` (#470): its driving layer's, the one layer that ends it. */
+const endFor = (ends: Ends | undefined, key: string): number | string | undefined => {
+  if (Predicate.isUndefined(ends)) return undefined
+  return Option.match(Arr.findFirst(ends.byLayer, (values) => endsKey(values, key)), { onNone: constUndefined, onSome: (values) => (values as Values.Values)[key] })
+}
+
+/** Whether a layer's end values set `key`. */
+const endsKey = (values: Values.Values | undefined, key: string): boolean => {
+  if (Predicate.isUndefined(values)) return false
+  return Object.hasOwn(values, key)
+}
+
+/**
+ * Whether `key`'s Transition end changed since the last Retarget (#470): Motion compares a target's
+ * `transitionEnd` with its values, so a new end animates its key again. None on either, the common
+ * case, at once.
+ */
+const endMoved = (last: Resolution | undefined, now: Resolution, key: string): boolean => {
+  if (Predicate.isUndefined(last)) return false
+  if (last.ends === now.ends) return false
+  return endFor(last.ends, key) !== endFor(now.ends, key)
+}
+
+/** A layer's end values the same in two resolutions (#470): none on both, or the same values. */
+const sameEndsAt = (a: Values.Values | undefined, b: Values.Values | undefined): boolean => {
+  if (a === b) return true
+  if (Predicate.isUndefined(a)) return false
+  if (Predicate.isUndefined(b)) return false
+  return sameValues(a, b)
+}
 
 /** Two lists of stops equal stop by stop (#429, Motion's `shallowCompare`). */
 const sameStops = (a: Style.Stops, b: Style.Stops): boolean => Bool.or(a === b, Bool.and(a.length === b.length, Arr.every(a, (stop, i) => stop === b[i])))
@@ -1224,7 +1305,7 @@ export const resolutionOf = (
   if (Bool.and(handDownFrom(parent) === NO_HAND_DOWN, Bool.not(anyOn(active)))) {
     const alone: ReadonlyArray<Layer> = [baseLayer]
     const { resolved, ends, keyframes } = resolvedOf(alone)
-    return { resolved, base, dragging: active.dragging, variant, active, transition: target.transition, layers: alone, names: NO_GESTURE_NAMES, ends, keyframes, change }
+    return { resolved, base, dragging: active.dragging, variant, active, transition: target.transition, layers: alone, names: NO_GESTURE_NAMES, layersOn: NO_GESTURE_STATES, ends, keyframes, change }
   }
   return withGestures(c, parent, [baseLayer], base, variant, active, target.transition, state, change)
 }
@@ -1273,21 +1354,24 @@ const withGestures = (
   const above = handDownFrom(parent)
   if (Bool.and(above === NO_HAND_DOWN, Bool.not(anyOn(active)))) {
     const { resolved, ends, keyframes } = resolvedOf(layers)
-    return { resolved, base, dragging: active.dragging, variant, active, transition, layers, names: NO_GESTURE_NAMES, ends, keyframes, change }
+    return { resolved, base, dragging: active.dragging, variant, active, transition, layers, names: NO_GESTURE_NAMES, layersOn: NO_GESTURE_STATES, ends, keyframes, change }
   }
   const on = gesturesOnOf(active, above)
   const labels = above.names
-  gestureLayersInto(layers, c.whileInView, on.inView, labels.inView, variants, c.custom, state)
-  gestureLayersInto(layers, c.whileFocus, on.focused, labels.focused, variants, c.custom, state)
-  gestureLayersInto(layers, c.whileHover, on.hovered, labels.hovered, variants, c.custom, state)
-  gestureLayersInto(layers, c.whileTap, on.pressed, labels.pressed, variants, c.custom, state)
-  // whileDrag sits ABOVE tap (highest priority) — driven by the spring,
-  // NOT stripped, so e.g. `scale: 1.1` animates while held and returns
-  // after release.
-  gestureLayersInto(layers, c.whileDrag, on.dragged, labels.dragged, variants, c.custom, state)
+  // In Motion's priority, lowest first: a literal's fields are evaluated in order.
+  const layersOn: GestureStates = {
+    inView: gestureLayersInto(layers, c.whileInView, on.inView, labels.inView, variants, c.custom, state),
+    focused: gestureLayersInto(layers, c.whileFocus, on.focused, labels.focused, variants, c.custom, state),
+    hovered: gestureLayersInto(layers, c.whileHover, on.hovered, labels.hovered, variants, c.custom, state),
+    pressed: gestureLayersInto(layers, c.whileTap, on.pressed, labels.pressed, variants, c.custom, state),
+    // whileDrag sits ABOVE tap (highest priority) — driven by the spring,
+    // NOT stripped, so e.g. `scale: 1.1` animates while held and returns
+    // after release.
+    dragged: gestureLayersInto(layers, c.whileDrag, on.dragged, labels.dragged, variants, c.custom, state),
+  }
   const { resolved, ends, keyframes } = resolvedOf(layers)
   const names = activeNamesFor(c, on, labels)
-  return { resolved, base, dragging: active.dragging, variant, active, transition, layers, names, ends, keyframes, change }
+  return { resolved, base, dragging: active.dragging, variant, active, transition, layers, names, layersOn, ends, keyframes, change }
 }
 
 /** The values an element starts from, read once at setup (ADR-0003, #134). */
@@ -2168,7 +2252,9 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       let drawn = false
       if (Predicate.isNotUndefined(owner)) {
         drawn = Bool.not(owner.done)
-        if (Bool.and(owner.targets[key] === like, Bool.not(restarting)) && sameKeyframesAt(keyframesAtOf(owner.resolution.keyframes, key), stops)) {
+        // A key whose Transition end changed starts again (#470), as Motion's value does, its end in
+        // its resolved values.
+        if (Bool.and(owner.targets[key] === like, Bool.not(restarting)) && sameKeyframesAt(keyframesAtOf(owner.resolution.keyframes, key), stops) && Bool.not(endMoved(lastResolution, resolution, key))) {
           if (Predicate.isUndefined(stays)) stays = new Set()
           stays.add(key)
           if (Bool.or(owner.done, owner.landing === landing)) return
@@ -2372,8 +2458,12 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       Arr.forEach(ends.byLayer, (writes, at) => {
         if (Predicate.isUndefined(writes)) return
         const owned = Rec.filter(freshEnds, (_, key) => ends.endOnly.get(key) === at)
-        // Its end starts again when a key it also animates starts again, or a key only it sets does.
-        const anew = Bool.or(hasKeys(owned), Arr.some(Rec.keys(writes), (key) => Bool.and(Bool.not(ends.endOnly.has(key)), Object.hasOwn(fresh, key))))
+        // Its end starts again when a key it also animates starts again, or its end for one changed
+        // (#470, one already there starts none), or a key only it sets does.
+        const anew = Bool.or(
+          hasKeys(owned),
+          Arr.some(Rec.keys(writes), (key) => Bool.and(Bool.not(ends.endOnly.has(key)), Bool.or(Object.hasOwn(fresh, key), endMoved(lastResolution, resolution, key)))),
+        )
         if (Bool.not(anew)) return
         const animated = Arr.filter(Rec.keys(resolved), (key) => Bool.and(Bool.not(ends.endOnly.has(key)), driverOf(layers, key) === at))
         const landedAll = (): boolean => Arr.every(animated, (key) => UndefinedOr.match(owners.get(key), { onUndefined: constTrue, onDefined: (o) => o.done }))

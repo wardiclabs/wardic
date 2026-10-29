@@ -27,8 +27,9 @@
  *   gate, builds its spine) and Retargets on each change of its target or of its `when` gate.
  *   Solid 2's apply has no owner, so what a mount makes (a Live value's watch) is made under the
  *   ward's.
- * - **Its target is compared by value** (`sameResolution`): a `style` or `transition` change in its
- *   config doesn't Retarget, as Motion's doesn't; a new variant name does.
+ * - **Its target is compared by value** (`sameResolution`), as the Solid 1 binding's is (#470): a
+ *   `style` or `transition` change in its config doesn't Retarget, as Motion's doesn't; a new variant
+ *   name does, and so does a gesture layer that sets something turning on or off.
  * - **Given to a component** (#349, ADR-0046 *Amendment (#349)*): a Wardic component's `wardRef`
  *   takes a ward, and drives its element with a ward of its own for each element, its *driving
  *   ward*: on this one's config, variant node and lifecycle, under the component's presence and with

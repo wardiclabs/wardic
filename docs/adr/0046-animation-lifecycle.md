@@ -725,3 +725,44 @@ A press is now an async value beside a landing: `card.tapped()` is the last tap,
 ## Note (#448, 2026-10-28): a mount at its `animate` lands nothing
 
 A mount that starts at its `animate` (`initial: false`, a presence's `initial={false}` first render, or an `initial` that is the same name, list or values map as `animate`) tells nothing, as Motion's animates nothing at that first render. `settled()` stays `undefined` and isn't pending, and `next("settled")` waits for the first real animation; Solid 1's `onAnimationStart` and `onAnimationComplete` aren't called. A later Retarget whose every key is already at its target starts no Leg and lands at once: `next("settled")` resolves, and `settled()` takes its landing, with no pending in between. See ADR-0005, *Amendment (#448)*.
+
+## Amendment (#470, 2026-10-29): a change that resolves the same target tells nothing
+
+Decision 3 said a change that resolves the same target (a `style` or `transition` change) starts nothing, "Wardic's already (`sameResolution`)". That held on Solid 2, whose target memo compares with `sameResolution`. Solid 1's had no comparison: any motion prop change re-resolved its target and ran a Retarget, and each Retarget told `onAnimationStart` and `onAnimationComplete`. With nothing moving, it told them for:
+- a `transition` change, an element's own or a `WardicConfig`'s (found building #434, ADR-0062);
+- a new `animate` object with the same values (`animate={{ x: pos().x }}` when only `pos().y` changed);
+- toggling `drag`, `layout` or `exit`, or a `custom` change that resolves the same values;
+- a hover on an element with `onHoverStart` and no `whileHover`, and each press on one with `onTap` and no `whileTap`: the recognizer runs for the callback, and its flip re-resolved the target.
+
+Motion animates a type only when one of its resolved values changed, its variant name did, or it turned active (`animation-state.ts`: `valueHasChanged`, `variantDidChange`, a type's last values cleared when it turns off), and only an animation tells (`animation/interfaces/visual-element.ts`).
+
+**Decisions (grilled 2026-10-29, Q1 A, Q2 A):**
+1. **Solid 1's target memo compares by value, as Solid 2's does** (Q1). A change that resolves the same target never reaches the spine: no Retarget, nothing told, nothing re-run. Its gesture hand-down to Variant children reads the gesture states themselves, not the target, as Solid 2's does (ADR-0007, GW2), so a hover whose own layer sets nothing still reaches them. Rejected: B, keeping Solid 1's Retargets and skipping only the callbacks; C, a guard in the spine for both bindings (Solid 2 filters in its memo already, and the `when` gate re-calls `retarget` with the same target on purpose).
+2. **A gesture turning on or off counts, as Motion's does** (Q2), on both bindings, as decision 3 says ("each gesture layer turning on or off"): when its layer sets something (values, a Transition end, or a variant name, its own or one it inherits), even when it resolves the values already drawn. So an orchestrating parent's `whileHover="lift"`, with no values of its own, tells `"lift"`, and its Variant children do, as Motion's `animateChildren` tells each child (`visual-element-variant.ts`). A gesture with no layer (`onHoverStart` alone) tells nothing. Solid 2's `settled()` and `next("settled")` hear these from now on. Rejected: B, values only.
+
+**Defaults, stated:**
+- **What counts:** new values; a new variant name, even to the same values (#448); new Keyframes stops (#429); a Controls change (#433); the drag starting or ending; a gesture layer that sets something turning on or off, or changing its name; a new Transition end value.
+- **A new Transition end** (ADR-0057) counts, as Motion compares a target's `transitionEnd` with its values (`{ ...target, ...transitionEnd }`). A key only an end sets was in the resolved values already. A key a layer both animates and ends starts again when its end changes, from where it's drawn (its last end), so `{ x: 100, transitionEnd: { x: 0 } }` to `transitionEnd: { x: 30 }` animates `x` to 100 again and rests at 30, as Motion's does. Its end starts again with it, or at once when the key is already at its target.
+- **What doesn't:** a `transition` change (read from the next animation, ADR-0062), `style`, a callback, `drag`, `layout`, `exit` and their options, a `custom` or `variants` change or a new `animate` object that resolves the same values, and a gesture flip on an element with no layer for it.
+- **The `when` gate** still releases a held change: Solid 1's effect re-runs on the gate's flip with the same target.
+
+**Built:**
+- **`sameResolution`** (`spine.ts`) also compares a Resolution's `layersOn`, new (the gesture layers on that set values or a Transition end, `NO_GESTURE_STATES` shared when none), its gesture `names` (a named layer, its own or inherited, on or off, or renamed), and its Transition ends layer by layer (`sameEnds`). Each is `===` first, so the common case (no gesture on, no end) costs a few reference checks.
+- **`withGestures`** fills `layersOn` as it pushes each gesture's layers: `gestureLayersInto` says whether they set values or an end (`setsValues`). A name that resolves none counts through `names`.
+- **Solid 1** (`create-ward.tsx`): the target memo's `equals` is `sameResolution`; its gesture states are one accessor (`active`), read by the memo and handed to `bindGestures`.
+- **The spine's Retarget:** a key whose Transition end changed since the last Retarget (`endMoved`) is no Carried key, and its layer's end starts again for it.
+
+**Tests:**
+- **Solid 1** (`same-target.browser.test.tsx`, ST1–ST10):
+  - telling nothing: a `transition` change (ST1); a new `animate` object with the same values (ST2); `drag`, `layout`, `exit` and a `custom` that resolves the same values (ST3); a hover with only `onHoverStart` and a press with only `onTap` (ST4);
+  - telling: a hover whose values are already drawn, on and off (ST5); an orchestrating parent's name, to the parent and its Variant child (ST6); a hover's name changing while it's on (ST7);
+  - a new Transition end on an animated key: the key animates back toward its target, then rests at the new end (ST8); an end added for a key already at its target, set once it lands (ST10);
+  - a parent's hover whose layer sets nothing turning its Variant child's own `whileHover` on (ST9).
+- **Solid 2** (`v2/same-target.browser.test.tsx`, STV1–STV4): a same-value hover landing, on and off; an orchestrating ward's name landing; a callback-only hover and a `transition` change landing nothing; a new Transition end, as ST8.
+- **WC9** (ADR-0062) pins that a `WardicConfig`'s transition change tells nothing.
+
+**Mutation-checked** (`.tmp/470/mutate.py`, run alone): nine single-point mutations, each caught: Solid 1 comparing nothing (ST1–ST4, WC9); its hand-down reading the target (ST9); the gesture layers on, or their names, ignored (ST5, STV1; ST6, ST7, STV2); a layer's values not counted (ST5, STV1); the Transition ends ignored, or a moved end never noticed (ST8, ST10, STV4); a key whose end moved carried (ST8, STV4); an end not starting again for a key already there (ST10). The seventh survived at first: ST8 checked only where `x` rests, which a carried key reaches too, its end written over it at once. ST8 and STV4 now check that `x` animates back toward 100 first, as Motion's does.
+
+Two forms weren't mutated: a named gesture layer counted in `layersOn` too, equivalent as its name is in `names` already; and a layer's ends not counted, nearly so, as a key only an end sets is a resolved value, and changes unless a lower layer resolves it the same.
+
+**Bench:** `bun run bench:solid` (N = 1,000, against main at 26151a6): passed. Solid 1 now compares each re-resolution, and both bindings compare the gesture layers and ends, so this is what every element pays. Warm: Solid 1 mount +0.9%, Retarget +3.3% [+0.4% – +4.5%], rest Retarget +1.9%, unmount −3.8%; Solid 2 −0.3%, +0.0%, +0.5%, −0.3%. Bytes +0.9% / −0.5%; retained and the layout scenes flat. Solid 1's Retarget is the one real cost, within the gate (about 0.7 µs per element per Retarget): the change on its path is the comparison, which Solid 2 already made (ADR-0045). Not profiled further.

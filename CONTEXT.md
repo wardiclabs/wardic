@@ -67,11 +67,11 @@ The point at which a Primitive reaches its rest thresholds; it produces a final 
 _Avoid_: finish, end, stop.
 
 **Retarget**:
-Replacing a running Primitive with a fresh one seeded from its last Frame, for each key whose target changed: the running one gives the key up, and is **Superseded** once it has none left. A Physics primitive carries velocity across the seam; a Definite primitive restarts from the current value. A key whose target didn't change is a **Carried key**.
+Replacing a running Primitive with a fresh one seeded from its last Frame, for each key whose target changed: the running one gives the key up, and is **Superseded** once it has none left. A Physics primitive carries velocity across the seam; a Definite primitive restarts from the current value. A key whose target didn't change is a **Carried key**. A change that resolves the same target starts no Retarget: the same values, variant names and **Keyframes**, with the same gesture layers on (#470, Motion's rule). So a `transition`, `style` or callback change moves nothing, and tells nothing.
 _Avoid_: restart, cancel, interrupt (those name a mechanism, not the intent).
 
 **Carried key**:
-A key a Retarget resolves to the same target as its running **Leg**: the Leg runs on, unrestarted, and the Retarget lands once it has (#325, Motion's per-key rule). A key whose last Leg landed at that target starts none, and stays where it is. So does a key already at its target with nothing moving it (#448). **Keyframes** are the same target when every stop is (#429).
+A key a Retarget resolves to the same target as its running **Leg**: the Leg runs on, unrestarted, and the Retarget lands once it has (#325, Motion's per-key rule). A key whose last Leg landed at that target starts none, and stays where it is. So does a key already at its target with nothing moving it (#448). **Keyframes** are the same target when every stop is (#429). A key whose **Transition end** changed isn't one: it starts again (#470).
 _Avoid_: protected key (Motion's name for it), kept key.
 
 **Superseded**:

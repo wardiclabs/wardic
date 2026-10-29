@@ -38,6 +38,7 @@ Wardic had `reducedMotion` and `appear` on `WardicProvider`, which builds the ru
 
 **Found building it:**
 - **A change to an element's own `transition` alone tells `onAnimationStart` and `onAnimationComplete`,** though nothing moves: its Retarget runs, every key already at its target (#448). Motion's tells nothing, as its targets haven't changed. A config's change does the same as an element's own, which WC9 pins. Not changed here: it's how an element's own change behaves, and a config's follows it; a difference from Motion, worth an issue of its own.
+  - *Fixed by #470* (ADR-0046, *Amendment (#470)*): Solid 1's target is compared by value, as Solid 2's is, so neither change tells anything. WC9 pins that now.
 
 ## Tests (PR 1)
 
@@ -50,7 +51,7 @@ Wardic had `reducedMotion` and `appear` on `WardicProvider`, which builds the ru
   - WC6: a layout animation runs on the config's `layout` entry.
   - WC7: a config's `delay` alone keeps it over a key's Default transition.
   - WC8: `createAnimate`'s `animate()` runs on its options alone.
-  - WC9: a change to the config moves nothing, told as an element's own change is; the next animation runs on the new one.
+  - WC9: a change to the config moves nothing, told as an element's own change is; the next animation runs on the new one. Since #470, neither tells anything.
   - WC10: a config's `staggerChildren` staggers the Variant children of an element that gives none.
 - **Solid 2** (`v2/wardic-config.browser.test.tsx`, WCV1–WCV4): a ward and a `wardic.*` element, nested configs, a Variant child, an exit.
 - **A server's Appear animation** (`appear.ssr.test.tsx` AR23, `v2/appear.ssr.test.tsx` AR20): the config's transition times an element's rule; its own keeps its own; an inner config's `inherit: true` delay is held in the rule.
