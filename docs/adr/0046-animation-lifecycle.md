@@ -724,7 +724,7 @@ A press is now an async value beside a landing: `card.tapped()` is the last tap,
 
 ## Note (#448, 2026-10-28): a mount at its `animate` lands nothing
 
-A mount that starts at its `animate` (`initial: false`, a presence's `initial={false}` first render, or an `initial` that is the same name, list or values map as `animate`) tells nothing, as Motion's animates nothing at that first render. `settled()` stays `undefined` and isn't pending, and `next("settled")` waits for the first real animation; Solid 1's `onAnimationStart` and `onAnimationComplete` aren't called. A later Retarget whose every key is already at its target starts no Leg and lands at once: `next("settled")` resolves, and `settled()` takes its landing, with no pending in between. See ADR-0005, *Amendment (#448)*.
+A mount that starts at its `animate` (`initial: false`, a presence's `initial={false}` first render, or an `initial` that is the same name, list or values map as `animate`) tells nothing, as Motion's animates nothing at that first render, whatever velocity its transition gives (#475). `settled()` stays `undefined` and isn't pending, and `next("settled")` waits for the first real animation; Solid 1's `onAnimationStart` and `onAnimationComplete` aren't called. A later Retarget whose every key is already at its target starts no Leg and lands at once: `next("settled")` resolves, and `settled()` takes its landing, with no pending in between. See ADR-0005, *Amendment (#448)*.
 
 ## Amendment (#470, 2026-10-29): a change that resolves the same target tells nothing
 

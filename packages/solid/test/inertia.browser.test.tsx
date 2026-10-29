@@ -50,16 +50,23 @@ describe("type: inertia on any value (#435)", () => {
     const calls: Array<string> = []
     const tell = (name: string) => (definition: WardicAnimationDefinition) => calls.push(`${name} ${JSON.stringify(definition)}`)
     const [to, setTo] = createSignal(0)
-    // On from the change: a quiet mount whose transition gives a velocity animates (a difference of its own).
-    const [fling, setFling] = createSignal<WardicTransition>({})
+    // From mount: a quiet mount starts nothing, whatever velocity its transition gives (#475).
     const q = mount(() => (
       <>
-        <wardic.div data-k="fling" initial={false} animate={{ x: to() }} transition={fling()} onAnimationStart={tell("start")} onAnimationComplete={tell("complete")} style={BOX} />
+        <wardic.div
+          data-k="fling"
+          initial={false}
+          animate={{ x: to() }}
+          transition={{ type: "inertia", velocity: 800, max: 50 }}
+          onAnimationStart={tell("start")}
+          onAnimationComplete={tell("complete")}
+          style={BOX}
+        />
         <wardic.div data-k="still" initial={false} animate={{ x: to() }} transition={{ type: "inertia" }} style={BOX} />
       </>
     ))
     await frames(3)
-    setFling({ type: "inertia", velocity: 800, max: 50 })
+    expect(xOf(q("fling")), "nothing at mount (#475)").toBeCloseTo(0, 3)
     setTo(200)
     await frames(2)
     expect(xOf(q("still")), "no velocity: where it was, its target unread").toBeCloseTo(0, 3)
