@@ -262,6 +262,7 @@ Put an `<AnimatePresence>` around the router's outlet, and make each page's root
 - **Data loading:** a route that loads data under `Suspense` (Solid 2's `Loading`) keeps the old page on screen, not leaving, until the data resolves; then it leaves as the new page enters.
 - **One known issue:** the router scrolls to the top after a navigation, so from a list scrolled down, a shared element flies in from below the fold and the leaving page jumps to its top (#480).
 - On both bindings, with `@solidjs/router` 1.0 (Solid 1) and 2.0 (Solid 2's `createRouter`).
+- The storefront's "Page transitions" area shows it on both bindings, Motion's beside it on Next.js (`examples/storefront`, the catalogue): a list and a piece's page under one layout, the photo flying between them.
 
 ### Nested draggables
 

@@ -7,7 +7,7 @@ import { APPS, appUrl } from "@wardic/example-storefront-shared/apps"
 import { AREAS, type Example, routeOf } from "@wardic/example-storefront-shared/examples"
 import { codeParts } from "@wardic/example-storefront-shared/format"
 import { headers } from "next/headers"
-import { type ComponentType, Suspense } from "react"
+import { type ReactNode, Suspense } from "react"
 import { BackLink } from "./BackLink.tsx"
 import { CodeFiles } from "./CodeFiles.tsx"
 import { DemoFrame } from "./DemoFrame.tsx"
@@ -23,7 +23,8 @@ function Prose({ text }: { readonly text: string }) {
   return codeParts(text).map((part, i) => (part.code ? <code key={i}>{part.text}</code> : part.text))
 }
 
-export async function ExamplePage({ example, demo: Demo }: { readonly example: Example; readonly demo: ComponentType }) {
+/** An example's page around its demo: the example's `Demo`, or a layout's pages (#479). */
+export async function ExamplePage({ example, children }: { readonly example: Example; readonly children: ReactNode }) {
   const area = AREAS.find((one) => one.id === example.area)
   if (area === undefined) throw new Error(`No area "${example.area}"`)
   // The Solid apps, on the host this page was asked for.
@@ -51,9 +52,7 @@ export async function ExamplePage({ example, demo: Demo }: { readonly example: E
           ))}
         </p>
       </header>
-      <DemoFrame>
-        <Demo />
-      </DemoFrame>
+      <DemoFrame>{children}</DemoFrame>
       <p className="note">
         <strong>Reduced motion:</strong> <Prose text={example.reducedMotion} />
       </p>
