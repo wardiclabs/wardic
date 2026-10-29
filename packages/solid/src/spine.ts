@@ -62,11 +62,12 @@ import type {
   WardicVariantTransition,
 } from "./config.ts"
 import { type ControlsChange, join, leave } from "./animation-controls.ts"
+import { frameNow, MAX_VELOCITY_DELTA, NOMINAL_FRAME } from "./frame-time.ts"
 import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
 import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "./presence-record.ts"
 import type { DragTrack } from "./drag-track.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
-import { delayedBy, type Follows, keyframesFrom, type Leg, legsOf, mapMachine, type MeasuredPairs, startingAt, type StopsByKey, transitionForKey } from "./retarget-legs.ts"
+import { delayedBy, type Follows, keyframesFrom, type Leg, legsOf, mapMachine, type MeasuredPairs, startingAt, type StopsByKey, transitionForKey, type Velocities } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import {
   changesContext,
@@ -237,9 +238,12 @@ const givesVelocity = (given: WardicTransition | undefined, key: string): boolea
   return Bool.and(Predicate.isNumber(own.velocity), own.velocity !== 0)
 }
 
-/** A key's velocity in the Snapshot, 0 with none (#448). */
-const velocityOf = (snapshot: { readonly velocities: Readonly<Record<string, number>> }, key: string): number =>
-  UndefinedOr.match(snapshot.velocities[key], { onUndefined: () => 0, onDefined: identity })
+/** A key's velocity in the Snapshot, 0 with none (#448). Per key, per Retarget: a guard. */
+const velocityOf = (snapshot: { readonly velocities: Readonly<Record<string, number>> }, key: string): number => {
+  const velocity = snapshot.velocities[key]
+  if (Predicate.isUndefined(velocity)) return 0
+  return velocity
+}
 
 /** `t`'s keys in the `i`th group, or all of them when there are no groups. */
 const pickKeys = (t: Values.Values, groups: ReadonlyArray<ReadonlySet<string>> | undefined, i: number): Values.Values => {
@@ -514,6 +518,16 @@ interface Running extends Machine.RunOptions {
   landing: Landing
   /** A list's names its end is told to (#297), for the Retarget it counts toward. */
   names: ((end: unknown) => void) | undefined
+  /** Its kind (#464): a Blend leg's keys' velocities are its frames', a Snap's none, the rest write their own. */
+  readonly kind: Leg["_tag"]
+  /** The frames it has drawn (#464). */
+  frames: number
+  /** When it drew its last frame, on {@link frameNow}'s clock; -Infinity before its first (#464). */
+  lastAt: number
+  /** A Blend leg's last frame's values, and the ones before them (the Snapshot's, before its first) and when (#464). */
+  last: Values.Values | undefined
+  before: Values.Values | undefined
+  beforeAt: number
 }
 
 /** No running legs. */
@@ -554,7 +568,7 @@ const endUnlessLanded = (running: Running | undefined): void => {
 }
 
 /** A leg over the keys of `to` (#325), counting toward `landing`: the spine gives it the keys. */
-const runningOf = (to: Values.Values, resolution: Resolution, landing: Landing): Running => ({
+const runningOf = (to: Values.Values, resolution: Resolution, landing: Landing, kind: Leg["_tag"]): Running => ({
   supersede: Supersede.make(),
   targets: to,
   resolution,
@@ -566,11 +580,42 @@ const runningOf = (to: Values.Values, resolution: Resolution, landing: Landing):
   fiber: undefined,
   landing,
   names: undefined,
+  kind,
+  frames: 0,
+  // Doubles from the start (#464): a field made an integer turns every leg's shape when its first double
+  // comes, and a read of each leg made before goes the slow way (the bench's unmount, +6%).
+  lastAt: Number.NEGATIVE_INFINITY,
+  last: undefined,
+  before: undefined,
+  beforeAt: Number.NEGATIVE_INFINITY,
 })
+
+/**
+ * A Blend leg's velocity for `key` (#464, Motion's `getVelocity`): its last two frames' change over
+ * their time apart, at most `MAX_VELOCITY_DELTA`; none for a string, nor for a jump, a leg that landed
+ * on its first frame (a `set`, a `duration: 0`).
+ */
+const blendVelocityOf = (running: Running, key: string): number => {
+  if (Bool.and(running.done, running.frames < 2)) return 0
+  // Per key, per Retarget: guards, nothing made.
+  const lastValues = running.last
+  const beforeValues = running.before
+  if (Predicate.isUndefined(lastValues)) return 0
+  if (Predicate.isUndefined(beforeValues)) return 0
+  const last = lastValues[key]
+  const before = beforeValues[key]
+  if (Bool.not(Predicate.isNumber(last))) return 0
+  if (Bool.not(Predicate.isNumber(before))) return 0
+  const apart = Math.min(running.lastAt - running.beforeAt, MAX_VELOCITY_DELTA)
+  if (apart <= 0) return 0
+  return (((last as number) - (before as number)) * 1000) / apart
+}
 
 /** A leg's frame drawn (#325): its last lands the keys it draws. Per frame: plain calls. */
 const drew = (running: Running, done: boolean): void => {
   if (done) running.done = true
+  running.frames++
+  running.lastAt = frameNow()
   running.landing.report(done)
 }
 
@@ -639,7 +684,7 @@ const splitLegsOf = (
   reduce: boolean,
   positionalKeys: ReducedMotion.PositionalKeys["Service"],
   defaultTransition: DefaultTransition.DefaultTransition["Service"],
-  velocities: Readonly<Record<string, number>>,
+  velocities: Velocities,
   follow: Follows | undefined,
   stops: StopsByKey | undefined,
   measured: MeasuredPairs | undefined,
@@ -1290,11 +1335,77 @@ export const startOf = (
  */
 export interface Snapshot {
   values: Values.Values
+  /**
+   * Each numeric key's velocity (#464, Motion's): a spring's own, a drag's pointer's, or, for a key a
+   * leg let go, the one its last two frames gave it. Read through the spine, which takes a running
+   * leg's and reads one drawn more than `MAX_VELOCITY_DELTA` ago as 0.
+   */
   velocities: Record<string, number>
+  /**
+   * When each key's velocity here was last drawn, on {@link frameNow}'s clock (#464): the last frame of
+   * the leg that let it go, or a drag's or a presence seed's setting.
+   */
+  drawnAt: Record<string, number>
+  /** The leg drawing each key, its spine's (#464): a running leg's velocity is read from it. None before its spine runs. */
+  owners: ReadonlyMap<string, Running | undefined> | undefined
 }
 
 /** A Snapshot seeded from the Starting values, velocities 0, so frame 1 flows out of the seed (no snap). */
-export const snapshotOf = (start: Start): Snapshot => ({ values: { ...start.initialValues }, velocities: {} })
+export const snapshotOf = (start: Start): Snapshot => emptySnapshotOf({ ...start.initialValues })
+
+/** A Snapshot of `values`, nothing moving: read as it is until a spine reads it. */
+export const emptySnapshotOf = (values: Values.Values): Snapshot => ({ values, velocities: {}, drawnAt: {}, owners: undefined })
+
+// --- Velocities (#464) ---------------------------------------------------------------------------
+
+/** A leg's velocity for `key`: a Blend leg's from its frames, a Snap's none, a spring's or a follow's as it wrote it. */
+const legVelocityOf = (snapshot: Snapshot, running: Running, key: string): number => {
+  if (running.kind === "Blend") return blendVelocityOf(running, key)
+  if (running.kind === "Snap") return 0
+  return velocityOf(snapshot, key)
+}
+
+/**
+ * `key`'s velocity at `now` (#464, Motion's `getVelocity`): the leg drawing it, once it has drawn a
+ * frame, else what the Snapshot holds for it (the last leg to let it go left it, a drag or a seed set
+ * it), whichever drew it last; 0 once nothing has moved it for `MAX_VELOCITY_DELTA`. Read only for a
+ * key a spring or a follow starts, or one a leg lets go: guards, nothing made.
+ */
+const velocityAt = (snapshot: Snapshot, owner: Running | undefined, key: string, now: number): number => {
+  const at = snapshot.drawnAt[key]
+  // Guards, not `Bool.and`, which reads both sides: a leg that hasn't drawn yet stands for nothing.
+  if (Predicate.isNotUndefined(owner)) {
+    if (owner.frames > 0) {
+      if (Bool.or(Predicate.isUndefined(at), owner.lastAt >= (at as number))) {
+        if (now - owner.lastAt > MAX_VELOCITY_DELTA) return 0
+        return legVelocityOf(snapshot, owner, key)
+      }
+    }
+  }
+  if (Predicate.isUndefined(at)) return 0
+  if (now - at > MAX_VELOCITY_DELTA) return 0
+  return velocityOf(snapshot, key)
+}
+
+/**
+ * `running` lets `key` go, having drawn it (#464): the velocity it gives the key now (0 once it's drawn
+ * nothing for 30 ms) and its last frame's time stay on the Snapshot, as numbers. Keeping the leg itself
+ * kept its Retarget's closures alive until the unmount, which paid for them. A string carries none.
+ */
+const letGo = (snapshot: Snapshot, key: string, running: Running): void => {
+  if (running.frames === 0) return
+  if (Bool.not(Predicate.isNumber(snapshot.values[key]))) return
+  snapshot.velocities[key] = velocityAt(snapshot, running, key, frameNow())
+  snapshot.drawnAt[key] = running.lastAt
+}
+
+/** Every numeric key's velocity now (#464): a presence's exit and takeover read it (#286). */
+export const velocitiesNowOf = (snapshot: Snapshot): Readonly<Record<string, number>> => {
+  const now = frameNow()
+  const owners = snapshot.owners
+  return Rec.map(Rec.filter(snapshot.values, Predicate.isNumber), (_, key) =>
+    velocityAt(snapshot, UndefinedOr.match(owners, { onUndefined: constUndefined, onDefined: (map) => map.get(key) }), key, now))
+}
 
 /**
  * The transition a Retarget runs on (#66): the element's last one when the new one has the same
@@ -1358,8 +1469,8 @@ export const presenceRecordOf = (
   exitOf,
   tree,
   startOf: (key, like) => Option.getOrUndefined(Option.map(links.startLinkOf(key, like), (s) => s.value)),
-  // Its spine's, read when a child back under its key takes over from it (#286).
-  velocities: () => snapshot.velocities,
+  // Its spine's, read when a child back under its key takes over from it (#286): its running legs' too (#464).
+  velocities: () => velocitiesNowOf(snapshot),
 })
 
 /**
@@ -1631,8 +1742,15 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     Arr.forEach(keys, ownKey)
   }
 
+  // The legs drawing each key: a running leg's velocity is read from it (#464).
+  snapshot.owners = owners
+  // Each key's velocity, at the time the Retarget or Imperative animation reading it read (#464).
+  let readAt = 0
+  const readVelocity: Velocities = (key) => velocityAt(snapshot, owners.get(key), key, readAt)
+
   // `key`'s leg gives it up: a leg ends with its last key, and draws only the rest before.
   const giveUp = (key: string, running: Running): void => {
+    letGo(snapshot, key, running)
     owners.set(key, undefined)
     if (running.done) return
     running.count--
@@ -1693,7 +1811,9 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   // A key's leg ended by a failure (#257 item 4): nothing draws its keys, so a later Retarget starts them afresh.
   const forget = (running: Running): void =>
     Arr.forEach(Rec.keys(running.targets), (key) => {
-      if (owners.get(key) === running) owners.set(key, undefined)
+      if (owners.get(key) !== running) return
+      letGo(snapshot, key, running)
+      owners.set(key, undefined)
     })
 
   /**
@@ -1737,9 +1857,21 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         )
       )
     }
-    // A snap's or a blend's frames: merged into the Snapshot (ADR-0004), as the spring's are.
+    // A snap's or a blend's frames: merged into the Snapshot (ADR-0004), as the spring's are. A blend's
+    // last two are kept, its keys' velocities read from them (#464): the frame's own values, which a
+    // blend makes anew each frame (`values` writes one object for a leg that lost keys).
     const sink = (frame: Frame.Frame<Values.Values>): undefined => {
       const value = running.values(frame.value)
+      let before = running.last
+      let beforeAt = running.lastAt
+      // Its first frame: from the Snapshot's values, a nominal frame before it.
+      if (Predicate.isUndefined(before)) {
+        before = snapshot.values
+        beforeAt = frameNow() - NOMINAL_FRAME
+      }
+      running.before = before
+      running.beforeAt = beforeAt
+      running.last = frame.value
       snapshot.values = { ...snapshot.values, ...value }
       gate.write(id, value)
       recordFrame(value)
@@ -1758,8 +1890,10 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   }
 
   // A leg's end, told its landing: a Retarget's legs' and an Imperative animation's (#433).
-  const legEnded = (running: Running) => (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
-    Exit.match(exit, {
+  const legEnded = (running: Running) => (exit: Exit.Exit<unknown>): Effect.Effect<void> => {
+    // Its fiber has ended, and is let go: a leg kept for its keys' velocity (#464) keeps no fiber alive.
+    running.fiber = undefined
+    return Exit.match(exit, {
       // A Superseded leg (#200) counts toward nothing, nor tells a name: the next Retarget's legs
       // land. Nothing made for it: a Retarget ends its element's legs inline.
       onSuccess: (end) => {
@@ -1781,6 +1915,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         )
       },
     })
+  }
 
   // A gated Retarget (ADR-0007 `when`, #325): a running key it resolves to its leg's target runs on,
   // the element reported unsettled meanwhile, when an earlier change started that leg; every other
@@ -2019,6 +2154,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     const keyframesNow = resolution.keyframes
     // The keys whose two ends may be a Measured pair (#430), found in the pass below.
     let measuring: Array<string> | undefined
+    // Each key's velocity, read now (#464), for a key a spring starts or one already there.
+    readAt = frameNow()
     Arr.forEach(Rec.keys(t), (key) => {
       if (Bool.not(Object.hasOwn(initialValues, key))) ownValue(key)
       const like = t[key]
@@ -2054,7 +2191,10 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       // It stays, as a carried key does, and is written once more (below), as Motion sets it on the
       // next frame. One that started at its target had no value to show, so its leg writes it, as
       // Motion's does for a value it has none of. Keyframes are never there (#429): they play.
-      const still = Bool.and(Bool.and(Bool.not(drawn), started[key] !== "target"), Bool.and(snapshot.values[key] === like, velocityOf(snapshot, key) === 0))
+      // Its velocity read last, for a key there alone (#464): per key, per Retarget.
+      let still = Bool.and(Bool.not(drawn), started[key] !== "target")
+      if (still) still = snapshot.values[key] === like
+      if (still) still = readVelocity(key) === 0
       // Its transition asked last, for a key already there alone: per key, per Retarget.
       if (still && Predicate.isUndefined(stops) && Bool.not(givesVelocity(keyTransitionOf(resolution, groups, key, transition, elementTransition), key))) {
         if (Predicate.isUndefined(stays)) stays = new Set()
@@ -2164,10 +2304,10 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     let retargetLegs: ReadonlyArray<Leg> = NO_LEGS
     let legGroups: ReadonlyArray<number> | undefined
     if (Bool.and(Predicate.isUndefined(groups), hasKeys(fresh))) {
-      retargetLegs = legsOf(from, fresh, transition, reduce, positionalKeys, defaultTransition, snapshot.velocities, follow, manyStops, measured)
+      retargetLegs = legsOf(from, fresh, transition, reduce, positionalKeys, defaultTransition, readVelocity, follow, manyStops, measured)
     }
     if (Predicate.isNotUndefined(groups)) {
-      const split = splitLegsOf(fresh, from, groups, resolution, listed, transition, elementTransition, extraDelay, options.reuse, reduce, positionalKeys, defaultTransition, snapshot.velocities, follow, manyStops, measured)
+      const split = splitLegsOf(fresh, from, groups, resolution, listed, transition, elementTransition, extraDelay, options.reuse, reduce, positionalKeys, defaultTransition, readVelocity, follow, manyStops, measured)
       retargetLegs = split.legs
       legGroups = split.tags
     }
@@ -2215,7 +2355,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // leg draws the keys it animates (#325) until a later Retarget takes them.
     Arr.forEach(retargetLegs, (leg: Leg, i): void => {
       if (Predicate.isNotUndefined(legGates)) gateNow = legGates[i]
-      const running = runningOf(leg.to, resolution, landing)
+      const running = runningOf(leg.to, resolution, landing, leg._tag)
       own(running)
       runLeg(running, legProgram(leg, running))
     })
@@ -2234,7 +2374,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         if (Bool.not(anew)) return
         const animated = Arr.filter(Rec.keys(resolved), (key) => Bool.and(Bool.not(ends.endOnly.has(key)), driverOf(layers, key) === at))
         const landedAll = (): boolean => Arr.every(animated, (key) => UndefinedOr.match(owners.get(key), { onUndefined: constTrue, onDefined: (o) => o.done }))
-        const running = runningOf(owned, resolution, landing)
+        // Its keys set at their end, at once: no motion, so no velocity (#464).
+        const running = runningOf(owned, resolution, landing, "Snap")
         own(running)
         // Held where they are: a key with nothing to start from (it would start at its target, no
         // motion) is left unset until its end, not set to it now.
@@ -2372,6 +2513,11 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     const values = from.values
     Object.assign(snapshot.values, values)
     snapshot.velocities = { ...snapshot.velocities, ...from.velocities }
+    // Drawn now, by the leaver (#464).
+    const now = frameNow()
+    Arr.forEach(Rec.keys(from.velocities), (key) => {
+      snapshot.drawnAt[key] = now
+    })
     if (Predicate.isNotUndefined(presence)) Object.assign(presence.snapshot.current, values)
     Arr.forEach(Rec.keys(values), (key) => {
       driven.set(key, values[key])
@@ -2393,6 +2539,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     const started: Record<string, string> = {}
     let measuring: Array<string> | undefined
     // Each key taken from whatever runs it, noted with its target now, and started where it's drawn.
+    // Its velocity read now (#464), as its legs are built.
+    readAt = frameNow()
     Arr.forEach(Rec.keys(to), (key) => {
       taken.set(key, before[key])
       returning.delete(key)
@@ -2418,7 +2566,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     let measured: MeasuredPairs | undefined
     if (Bool.and(Bool.not(reduce), Predicate.isNotUndefined(measuring))) measured = measuredOf(element, UndefinedOr.getOrThrow(measuring), from, to, snapshot.values)
     // Built once: a seek or a replay runs the same legs, from the same start, with the same velocities.
-    const built = legsOf(from, to, given, reduce, positionalKeys, defaultTransition, { ...snapshot.velocities }, undefined, stops, measured)
+    const built = legsOf(from, to, given, reduce, positionalKeys, defaultTransition, readVelocity, undefined, stops, measured)
     const legs = Arr.map(built, (leg) => mapMachine(leg, Playback.drive(head)))
     let runnings: ReadonlyArray<Running> = NO_RUNNING
     let left = 0
@@ -2440,7 +2588,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       end()
       left = legs.length
       runnings = Arr.map(legs, (leg) => {
-        const running = runningOf(leg.to, IMPERATIVE, landing)
+        const running = runningOf(leg.to, IMPERATIVE, landing, leg._tag)
         own(running)
         runImperative(running, legProgram(leg, running))
         return running
@@ -2452,6 +2600,11 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       end()
       snapshot.values = { ...snapshot.values, ...from }
       snapshot.velocities = { ...snapshot.velocities, ...Rec.map(from, () => 0) }
+      // Put back at once: at rest, newer than the legs that let them go (#464).
+      const now = frameNow()
+      Arr.forEach(Rec.keys(from), (key) => {
+        snapshot.drawnAt[key] = now
+      })
       gate.write(id, from)
       recordFrame(from)
     }

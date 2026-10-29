@@ -419,6 +419,7 @@ export function runSpine(opts: RunSpineOptions): void {
     const fresh = startOf(untrack(cfg), parent, false, untrack)
     snapshot.values = { ...fresh.initialValues }
     snapshot.velocities = {}
+    snapshot.drawnAt = {}
     if (Predicate.isNotUndefined(restartStyle)) restartStyle(fresh)
     return fresh
   }

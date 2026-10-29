@@ -18,14 +18,14 @@ import * as Solid from "@wardic/solid"
 import * as Effect from "effect/Effect"
 import { describe, expect, it } from "vitest"
 import type { WardicTransition } from "../src/config.ts"
-import { type Leg, legsOf } from "../src/retarget-legs.ts"
+import { type Leg, legsOf, NO_VELOCITY } from "../src/retarget-legs.ts"
 
 const F = 1 / 60
 const POSITIONAL: ReducedMotion.PositionalKeys["Service"] = { isPositional: ReducedMotion.isTransform }
 const ONE_SPRING: DefaultTransition.DefaultTransition["Service"] = { transitionFor: () => DefaultTransition.ONE_SPRING, keyframes: DefaultTransition.ONE_TWEEN }
 
 /** The legs of an x and an opacity going 0 → 100 / 0 → 1 on `transition`. */
-const legsFor = (transition: WardicTransition): ReadonlyArray<Leg> => legsOf({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, transition, false, POSITIONAL, ONE_SPRING, {})
+const legsFor = (transition: WardicTransition): ReadonlyArray<Leg> => legsOf({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, transition, false, POSITIONAL, ONE_SPRING, NO_VELOCITY)
 
 /** A Blend leg's machine, built with the DOM's Interpolators. */
 const machineOf = (leg: Leg): Machine.Machine<Frame.Frame<Record<string, unknown>>> => {

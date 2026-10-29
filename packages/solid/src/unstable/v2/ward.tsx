@@ -830,6 +830,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     begun = startOf(WARD_VIEW.setupOf(view).config, node.inherited, false, untrack)
     snapshot.values = { ...begun.initialValues }
     snapshot.velocities = {}
+    snapshot.drawnAt = {}
     elementStyle.restart(Svg.splitPatchForTag(internal.tag, project(drawnAtRest(begun.initialValues, layoutNode))).style)
   }
   const configNow = (): WardConfigValues => view

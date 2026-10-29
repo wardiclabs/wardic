@@ -34,7 +34,7 @@ import * as DomPositionalKeys from "@wardic/dom/DomPositionalKeys"
 import * as Effect from "effect/Effect"
 import { describe, expect, it } from "vitest"
 import type { WardicTransition } from "../src/config.ts"
-import { type Leg, legsOf, runOf } from "../src/retarget-legs.ts"
+import { type Leg, legsOf, NO_VELOCITY, runOf } from "../src/retarget-legs.ts"
 
 const F = 1 / 60
 
@@ -59,7 +59,7 @@ const legsFor = (
   options: { readonly from?: Values.Values; readonly to?: Values.Values; readonly reduced?: boolean; readonly defaults?: DefaultTransition.DefaultTransition["Service"] } = {},
 ): ReadonlyArray<Leg> => {
   const { from = FROM, to = TO, reduced = false, defaults = DOM } = options
-  return legsOf(from, to, transition, reduced, POSITIONAL, defaults, {})
+  return legsOf(from, to, transition, reduced, POSITIONAL, defaults, NO_VELOCITY)
 }
 
 /** Each leg's tag and keys. */

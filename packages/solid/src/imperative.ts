@@ -41,7 +41,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicKeyframes, WardicTargetValues, WardicTransition, WardicVariant } from "./config.ts"
 import { filledStops, runOf } from "./retarget-legs.ts"
 import type { WardicRuntime } from "./runtime.ts"
-import { type ElementSpine, type ImperativeTrack, makeElementSpine, makeReuse, type Snapshot, startLinksOf } from "./spine.ts"
+import { type ElementSpine, emptySnapshotOf, type ImperativeTrack, makeElementSpine, makeReuse, type Snapshot, startLinksOf } from "./spine.ts"
 import { NO_VARIANT_STATE, resolveTarget } from "./variant-target.ts"
 
 /** What an Imperative animation animates an element through: its spine's `animate`. */
@@ -99,7 +99,7 @@ const plainOf = (env: AnimateEnv, element: Element): Plain => {
   if (Predicate.isNotUndefined(known)) return known
   const el = element as HTMLElement
   const id = `wardic-animate-${plainIds++}`
-  const snapshot: Snapshot = { values: {}, velocities: {} }
+  const snapshot: Snapshot = emptySnapshotOf({})
   const spine = makeElementSpine({
     runtime: env.runtime,
     gate: env.gate,
