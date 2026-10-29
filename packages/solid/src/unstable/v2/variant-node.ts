@@ -20,14 +20,19 @@
 import * as Stagger from "@wardic/core/Stagger"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import { constTrue, constUndefined, constVoid } from "effect/Function"
+import { constTrue, constUndefined, constVoid, identity } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createContext, createMemo, createSignal, onCleanup, untrack, useContext } from "solid-js"
+import type { ControlsChange } from "../../animation-controls.ts"
 import type { WardicTransition, WardicVariantLabels } from "../../config.ts"
 import {
   activeNamesOf,
+  type ChangeAtTrigger,
+  changeAtTrigger,
+  changeConfigOf,
+  orchestrationAt,
   type GestureHandDown,
   handDownFrom,
   handDownOf,
@@ -125,6 +130,7 @@ const ownOrchestration = (
   config: VariantConfig,
   parent: WardicVariantContextValue | undefined,
   inherited: WardicVariantContextValue | undefined,
+  change: Accessor<ControlsChange | undefined>,
 ): OwnOrchestration => {
   // Children in mount order (a Set keeps insertion order), snapshotted at each trigger. Kept with a
   // count of the unsettled ones rather than a signal of the records, so a child's mount, unmount or
@@ -221,18 +227,30 @@ const ownOrchestration = (
     { ...CLIENT_ONLY, equals: (a: GestureHandDown, b: GestureHandDown) => sameHandDown(a, b) },
   )
 
-  // Its orchestration (#277, #291, Motion's): the own transition of its highest active gesture's name,
-  // else of its target (the variant it names), else its `transition`.
-  const orchestration: Accessor<WardicTransition | undefined> = createMemo(() => {
-    const c = cfg()
-    const own = UndefinedOr.match(topGestureName(activeNamesOf(gestures())), {
-      onDefined: (name) => ownTransitionOf(undefined, name, c.variants, c.custom),
-      onUndefined: () => ownTransitionOf(c.animate, variant(), c.variants, c.custom),
-    })
-    return transitionOfTarget(own, c.transition)
+  // The Controls change its latest trigger came with (#433): while it's the latest, its override is
+  // the orchestration. A new one is a trigger, to the same name too: its children's slots are taken again.
+  const at: Accessor<ChangeAtTrigger> = createMemo((previous: ChangeAtTrigger | undefined) => {
+    const made = changeAtTrigger(change(), triggerKeyOf(variant(), gestures(), change()), previous)
+    if (Bool.and(Predicate.isNotUndefined(previous), made.change !== UndefinedOr.map(previous, (p) => p.change))) stale = true
+    return made
   }, CLIENT_ONLY)
-  // What its `beforeChildren` settles at: its variant, and its gestures' names (#291).
-  const trigger: Accessor<string> = createMemo(() => triggerKeyOf(variant(), gestures()), CLIENT_ONLY)
+  // Its orchestration (#277, #291, Motion's): the own transition of its highest active gesture's name,
+  // else of its target (the variant it names), else its `transition`; a Controls change's override at
+  // the trigger it came with (#433).
+  const orchestration: Accessor<WardicTransition | undefined> = createMemo(
+    () =>
+      orchestrationAt(at(), () => {
+        const c = cfg()
+        const own = UndefinedOr.match(topGestureName(activeNamesOf(gestures())), {
+          onDefined: (name) => ownTransitionOf(undefined, name, c.variants, c.custom),
+          onUndefined: () => ownTransitionOf(c.animate, variant(), c.variants, c.custom),
+        })
+        return transitionOfTarget(own, c.transition)
+      }),
+    CLIENT_ONLY,
+  )
+  // What its `beforeChildren` settles at: its variant, its gestures' names (#291), and a Controls change (#433).
+  const trigger: Accessor<string> = createMemo(() => at().key, CLIENT_ONLY)
   const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(orchestration()), CLIENT_ONLY)
   // A list's names have each their own (#297's PR 2): none for the list as a whole.
   const when: Accessor<"beforeChildren" | "afterChildren" | undefined> = () => {
@@ -252,6 +270,9 @@ const ownOrchestration = (
     return new Map<string, NameConfig>()
   }, CLIENT_ONLY)
   const configOf = (name: string): NameConfig => {
+    // A Controls change's override orchestrates every name at its trigger (#433).
+    const changed = changeConfigOf(untrack(at))
+    if (Predicate.isNotUndefined(changed)) return changed
     const known = untrack(byName)
     const kept = known.get(name)
     if (Predicate.isNotUndefined(kept)) return kept
@@ -294,7 +315,7 @@ const ownOrchestration = (
   const transition: Accessor<WardicTransition | undefined> = createMemo(() => ownOrInherited(cfg().transition, inherited), CLIENT_ONLY)
 
   return {
-    context: { variant, initial, transition, gestures, register, stagger, staggerFor, mayStartFor, when, childrenMayStart, allChildrenSettled },
+    context: { variant, initial, transition, gestures, register, stagger, staggerFor, mayStartFor, when, childrenMayStart, allChildrenSettled, change },
     // It holds its own start for `afterChildren` (it owns the registry, so it reads it directly).
     canStart: () => when() !== "afterChildren" || allChildrenSettled(),
     settled: (done) => {
@@ -319,15 +340,25 @@ const bindOf = (own: OwnOrchestration | undefined): ((states: Accessor<GestureSt
  * tracks; `config`, the ward's plain copy at setup, #259) and the nearest context
  * (`useVariantContext()`). Call within a Solid owner.
  */
-export const createVariantNode = (cfg: Accessor<VariantConfig>, config: VariantConfig, parent: WardicVariantContextValue | undefined): VariantNode => {
+export const createVariantNode = (
+  cfg: Accessor<VariantConfig>,
+  config: VariantConfig,
+  parent: WardicVariantContextValue | undefined,
+  controls?: Accessor<ControlsChange | undefined>,
+): VariantNode => {
   if (Bool.and(Predicate.isUndefined(config.variants), Bool.not(namesOwnVariants(config)))) return plainNode(config, parent)
   const inherited = inheritedContext(config, parent)
+  // The Controls change in effect (#433): its own controls', else the one its provider is in.
+  const change: Accessor<ControlsChange | undefined> = UndefinedOr.match(controls, {
+    onDefined: identity,
+    onUndefined: () => UndefinedOr.match(UndefinedOr.map(inherited, (context) => context.change), { onUndefined: () => constUndefined, onDefined: identity }),
+  })
   // A Variant child registers with the ancestor it joins, for its stagger slot and its `when`.
   const joined = UndefinedOr.map(inherited, (context) => ({ context, registration: context.register() }))
   if (Predicate.isNotUndefined(joined)) onCleanup(joined.registration.dispose)
   const own = Bool.match(hasOwnVariants(config), {
     onFalse: constUndefined,
-    onTrue: () => ownOrchestration(cfg, config, parent, inherited),
+    onTrue: () => ownOrchestration(cfg, config, parent, inherited, change),
   })
   // The spine reports on every frame (the per-frame path, docs/agents/effect-first.md): both
   // reports are resolved here, once, so a frame makes two plain calls and allocates nothing.

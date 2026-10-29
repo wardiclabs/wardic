@@ -30,9 +30,10 @@
  */
 import { constVoid } from "effect/Function"
 import * as Predicate from "effect/Predicate"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { createUniqueId, type Accessor, untrack } from "solid-js"
 import { useWardicGate, useWardicRuntime } from "./provider.tsx"
-import { runSpine } from "./create-ward.tsx"
+import { controlledOf, runSpine } from "./create-ward.tsx"
 import { usePresenceContext } from "./presence.tsx"
 import { madeWith } from "./spine.ts"
 import type { WardConfig } from "./config.ts"
@@ -50,16 +51,19 @@ export const wardicDirective = (el: HTMLElement, value: Accessor<WardConfig>): v
   // The directive runs in a component owner, so it reads the nearest variant context
   // (ADR-0007) and, as a Variant child, joins it (#50). It renders no children, so it
   // provides none.
-  const node = createVariantNode(value, useVariantContext())
+  // Animation controls for its `animate` (#433): each change they make is its entry.
+  const { cfg, controls } = controlledOf(value)
+  const node = createVariantNode(cfg, useVariantContext(), UndefinedOr.map(controls, (c) => c.change))
   // Under a presence, its element is told to it (#286): its `key`, and whether it's a twin.
   const presence = usePresenceContext()
-  if (Predicate.isNotUndefined(presence)) madeWith(presence, constVoid, untrack(value))(el)
+  if (Predicate.isNotUndefined(presence)) madeWith(presence, constVoid, untrack(cfg))(el)
   runSpine({
     runtime: useWardicRuntime(),
     gate: useWardicGate(),
     id: createUniqueId(),
     el: () => el,
-    cfg: value,
+    cfg,
+    controls,
     parent: node.inherited,
     extraDelay: node.extraDelay,
     byName: node.names,

@@ -26,6 +26,7 @@ import * as Bool from "effect/Boolean"
 import { constTrue, constUndefined, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
+import { type ControlsChange, isAnimationControls } from "./animation-controls.ts"
 import type { AppearGroup } from "./appear.ts"
 import type { WardicTransition, WardicVariantLabels, WardicVariants } from "./config.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
@@ -195,9 +196,54 @@ const activeName = (handDown: GestureHandDown, layer: GestureLayer): WardicVaria
   return handDown.names[layer]
 }
 
-/** A key for a variant name and the active gestures' names: what a provider's orchestration snapshots at (#291), a list's names each (#297). */
-export const triggerKeyOf = (variant: WardicVariantLabels | undefined, handDown: GestureHandDown): string =>
-  [keyOfLabels(variant), ...GESTURE_LAYERS.map((layer) => keyOfLabels(activeName(handDown, layer)))].join("|")
+/**
+ * A key for a variant name and the active gestures' names: what a provider's orchestration snapshots
+ * at (#291), a list's names each (#297). A **Controls change** (#433) is one too, to the same name.
+ */
+export const triggerKeyOf = (variant: WardicVariantLabels | undefined, handDown: GestureHandDown, change: ControlsChange | undefined): string =>
+  [keyOfLabels(variant), ...GESTURE_LAYERS.map((layer) => keyOfLabels(activeName(handDown, layer))), UndefinedOr.match(change, { onUndefined: () => "", onDefined: (c) => `${c.serial}` })].join("|")
+
+/**
+ * The **Controls change** a provider's latest trigger came with (#433): its orchestration is that
+ * change's override until a trigger without one. `previous` is the last answer.
+ */
+export interface ChangeAtTrigger {
+  readonly change: ControlsChange | undefined
+  readonly key: string
+  /** The change that orchestrates now: the one the latest trigger came with, or none. */
+  readonly by: ControlsChange | undefined
+}
+
+/** {@link ChangeAtTrigger} after a trigger `key` with `change` in effect. */
+export const changeAtTrigger = (change: ControlsChange | undefined, key: string, previous: ChangeAtTrigger | undefined): ChangeAtTrigger => {
+  if (Predicate.isUndefined(previous)) return { change, key, by: change }
+  if (change !== previous.change) return { change, key, by: change }
+  if (key !== previous.key) return { change, key, by: undefined }
+  return previous
+}
+
+/** Each Controls change's override as a name's orchestration (#433), made once a change. */
+const CHANGE_CONFIGS = new WeakMap<ControlsChange, NameConfig>()
+
+/**
+ * The orchestration every name of a list takes at a trigger a Controls change came with (#433): its
+ * override's, or `undefined` for none (each name its own).
+ */
+export const changeConfigOf = (at: ChangeAtTrigger): NameConfig | undefined => {
+  const by = at.by
+  if (Predicate.isUndefined(by)) return undefined
+  const override = by.override
+  if (Predicate.isUndefined(override)) return undefined
+  const known = CHANGE_CONFIGS.get(by)
+  if (Predicate.isNotUndefined(known)) return known
+  const made = nameConfigOf(override)
+  CHANGE_CONFIGS.set(by, made)
+  return made
+}
+
+/** A provider's orchestration at a trigger (#433): the override of the change it came with, else its own. */
+export const orchestrationAt = (at: ChangeAtTrigger, own: () => WardicTransition | undefined): WardicTransition | undefined =>
+  UndefinedOr.match(UndefinedOr.map(at.by, (by) => by.override), { onUndefined: own, onDefined: identity })
 
 /** Labels as one key: a list's names apart by a character no name has in practice. */
 const keyOfLabels = (labels: WardicVariantLabels | undefined): string => Arr.join(labelsOf(labels), "\u0001")
@@ -269,6 +315,11 @@ export interface WardicVariantContextValue {
   /** Whether EVERY registered child has reported its spine as settled. */
   readonly allChildrenSettled: Accessor<boolean>
   /**
+   * The **Controls change** in effect (#433): its own controls' latest, else the one it inherits. A
+   * Variant child joins it, and runs its first Retarget for it on its override. Optional: none.
+   */
+  readonly change?: Accessor<ControlsChange | undefined>
+  /**
    * During a server render, the parent's Appear group (#48, ADR-0044 decision 5): its Variant
    * children join it in render order, for their stagger and `when` before hydration.
    */
@@ -284,6 +335,11 @@ export interface VariantConfig extends GestureConfig {
   readonly transition?: WardicTransition | undefined
   /** What its dynamic variants resolve with (#277). */
   readonly custom?: unknown
+  /**
+   * Whether its `animate` is **Animation controls**' (#433): it names its own variants whatever its
+   * entry is, as Motion's `isControllingVariants`, so it hands down the names its controls set.
+   */
+  readonly controlled?: boolean | undefined
 }
 
 /** An `initial` an element hands its children: a variant name or list (#297), `false` (#134), or `undefined` for a values map or nothing. */
@@ -294,8 +350,13 @@ export const initialNameOf = (entry: object | WardicVariantLabels | false | unde
 export const nameOf = (entry: object | WardicVariantLabels | undefined): WardicVariantLabels | undefined =>
   Bool.match(isLabels(entry), { onTrue: () => entry as WardicVariantLabels, onFalse: constUndefined })
 
-/** Whether `config` names its own variants: its `initial` or `animate` is a name or a list (Motion's `isControllingVariants`, `isVariantLabel`). */
-export const namesOwnVariants = (config: VariantConfig): boolean => isLabels(config.initial) || isLabels(config.animate)
+/**
+ * Whether `config` names its own variants: its `initial` or `animate` is a name or a list, or its
+ * `animate` is **Animation controls** (#433), as given or as its binding marks the config it reads
+ * (Motion's `isControllingVariants`, `isVariantLabel`).
+ */
+export const namesOwnVariants = (config: VariantConfig): boolean =>
+  isLabels(config.initial) || isLabels(config.animate) || config.controlled === true || isAnimationControls(config.animate)
 
 /** Whether an element has variants of its own, so Variant children join it (Motion's `isVariantNode`). */
 export const hasOwnVariants = (config: VariantConfig): boolean =>

@@ -94,6 +94,7 @@ import { dragTransitionOf } from "../../drag-transition.ts"
 import { layoutOptionsOf, registrationOf, wantsLayoutNode } from "../../layout-member.ts"
 import { useLayoutGroupId } from "./layout.tsx"
 import { registerAnimatable } from "../../imperative.ts"
+import { type ControlsChange, controlledConfigOf, controlledElement, isAnimationControls, subscribe, uncontrolledOf, type WardicAnimationControls } from "../../animation-controls.ts"
 import { presenceBlocksInitial, presenceHold, presenceSeedOf } from "../../presence-record.ts"
 import { handoffOf, setsAnimation } from "../../appear.ts"
 import {
@@ -625,14 +626,45 @@ const variantParentOf = (internal: WardInternals): WardicVariantContextValue | u
  * A ward's variant node: a driving ward's is its given ward's (#349), unless that ward listens
  * (#398), when its element builds its own from its props; any other ward's is its own, made now.
  */
-const nodeFor = (share: WardShare | undefined, cfg: () => WardConfigValues, config: WardConfigValues, parent: WardicVariantContextValue | undefined): VariantNode => {
+const nodeFor = (
+  share: WardShare | undefined,
+  cfg: () => WardConfigValues,
+  config: WardConfigValues,
+  parent: WardicVariantContextValue | undefined,
+  change: Accessor<ControlsChange | undefined> | undefined,
+): VariantNode => {
   if (Predicate.isNotUndefined(share)) {
     const node = share.node
     if (Predicate.isNotUndefined(node)) {
       if (share.carries) return node
     }
   }
-  return createVariantNode(cfg, config, parent)
+  return createVariantNode(cfg, config, parent, change)
+}
+
+/** A ward's **Animation controls** (#433): the controls, its view with each change as its entry, and the change in effect. */
+interface Controls {
+  readonly controls: WardicAnimationControls
+  readonly view: WardConfigValues
+  readonly change: Accessor<ControlsChange | undefined>
+  readonly set: (change: ControlsChange) => void
+}
+
+/** No change: a ward without Animation controls. */
+const NO_CHANGE: Accessor<ControlsChange | undefined> = constUndefined
+
+/**
+ * A ward's config with its `animate` read once, at setup (#433): **Animation controls** make each change
+ * they make its entry, over the rest of its keys as given, the view marked controlled; anything else, none.
+ */
+const controlsOf = (given: WardConfigValues, animate: WardConfigValues["animate"]): Controls | undefined => {
+  if (Bool.not(isAnimationControls(animate))) return undefined
+  const [change, setChange] = createSignal<ControlsChange | undefined>(undefined, { ownedWrite: true })
+  const view = Object.create(given, {
+    animate: { enumerable: true, get: () => UndefinedOr.map(change(), (made) => made.definition) },
+    controlled: { enumerable: true, value: true },
+  }) as WardConfigValues
+  return { controls: animate as WardicAnimationControls, view, change, set: (made) => setChange(() => made) }
 }
 
 /** A ward's lifecycle: a driving ward's is its given ward's (#349), any other its own, made now. */
@@ -709,14 +741,21 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const registry = registryOf(runtime)
   // SSR/hydration-stable: the server ward makes the same one call.
   const id = createUniqueId()
-  // Its config, read per key where it's read (#259): a change re-runs only what reads the key.
-  const view = WARD_VIEW.of(config, internal.fixed)
-  const cfg = (): WardConfigValues => view
+  // Its config, read per key where it's read (#259): a change re-runs only what reads the key. With
+  // Animation controls for its `animate` (#433), read once, each change they make is its entry.
+  const asGiven = WARD_VIEW.of(config, internal.fixed)
   // The config at setup, a plain copy read untracked: what setup reads, the keys read once among it.
   // A key still loading (#257 item 1) is left out of it: one the ward reads as it goes holds its
-  // region until it lands; one setup fixes is an error, naming it.
-  const setup = WARD_VIEW.setupOf(view)
-  const initialConfig = configAtSetup(setup)
+  // region until it lands; one setup fixes is an error, naming it. Its `animate` there tells
+  // Animation controls; one still loading is none.
+  const givenSetup = WARD_VIEW.setupOf(asGiven)
+  const controls = controlsOf(asGiven, givenSetup.config.animate)
+  const view = UndefinedOr.match(controls, { onUndefined: () => asGiven, onDefined: (c) => c.view })
+  const cfg = (): WardConfigValues => view
+  const setup = UndefinedOr.match(controls, { onUndefined: () => givenSetup, onDefined: () => WARD_VIEW.setupOf(view) })
+  const initialConfig = UndefinedOr.match(controls, { onUndefined: () => configAtSetup(setup), onDefined: () => controlledConfigOf(configAtSetup(setup), undefined) })
+  // Its Animation controls' change (#433), read with the Override stack: none without them.
+  const ownChange = UndefinedOr.match(controls, { onUndefined: () => NO_CHANGE, onDefined: (c) => c.change })
 
   // A ward a component was given (#349), whose element this one drives: its variant node and its
   // lifecycle are that ward's, so its children, stagger and `next` readers are where it was made.
@@ -724,7 +763,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   // Its place in variant orchestration (ADR-0007, #50): where it's made, its given parent's (#349),
   // or its given ward's.
   const parent = variantParentOf(internal)
-  const node = nodeFor(share, cfg, initialConfig, parent)
+  const node = nodeFor(share, cfg, initialConfig, parent, UndefinedOr.map(controls, (c) => c.change))
 
   // The nearest <AnimatePresence> (ADR-0007), or none.
   const presence = usePresenceContext()
@@ -868,6 +907,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
           dragging: g.dragging,
         },
         snapshot,
+        ownChange(),
       )
     },
     { equals: sameTarget, transparent: true },
@@ -1171,8 +1211,12 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     if (Predicate.isNotUndefined(taken)) spine.seed(taken)
     // Live values in `style` (#130, ADR-0043): followed from the first routed key on.
     spine.follow({ resolved: () => untrack(target).resolved, dragging: () => untrack(dragging) })
-    // Its Imperative animations (#433) go through its spine while it's mounted.
+    // Its Imperative animations (#433) go through its spine while it's mounted, and its Animation controls reach it.
     const unregisterAnimatable = registerAnimatable(el, spine)
+    const unsubscribe = UndefinedOr.match(controls, {
+      onUndefined: () => constVoid,
+      onDefined: (c) => subscribe(c.controls, controlledElement(c.set, { custom: () => untrack(() => view.custom), snapshot }, spine.stop)),
+    })
     const m: Mounted = {
       element: el,
       spine,
@@ -1187,6 +1231,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         if (Predicate.isNotUndefined(undrive)) undrive()
         UndefinedOr.map(mountedHook, (end) => end())
         unregisterAnimatable()
+        unsubscribe()
         spine.dispose()
         // Its gesture watches' and drag track's listeners go, a running release stops, and their spans end.
         UndefinedOr.map(watchScope, (scope) => runtime.runSync(Scope.close(scope, Exit.void)))
@@ -1484,12 +1529,13 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
   // renders the component again, so its region streams once the data is in, Appear and all.
   // Both are checked before the read that waits.
   const setup = WARD_VIEW.setupOf(view)
-  const atSetup = configAtSetup(setup)
+  // Animation controls (#433) set nothing on a server: no entry yet, and controlled, as on the client.
+  const atSetup = uncontrolledOf(configAtSetup(setup))
   // Where it's made, its given parent's, or its given ward's (#349).
   const parent = variantParentOf(internal)
   const presenceBlocks = presenceBlocksInitial(usePresenceContext())
   if (Bool.and(Arr.contains(setup.pending, "animate"), startsAtAnimate(atSetup, inheritedContext(atSetup, parent), presenceBlocks))) throw new Error(STARTS_AT_PENDING)
-  const c = WARD_VIEW.snapshotOf(view)
+  const c = uncontrolledOf(WARD_VIEW.snapshotOf(view))
   const node = serverVariantNode(c, parent)
   const initialValues = startOf(c, node.inherited, presenceBlocks, untrack).initialValues
   const layoutNode = isLayoutNode(c)

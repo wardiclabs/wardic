@@ -168,6 +168,14 @@ _Avoid_: animation handle, player.
 An **Imperative animation** of Segments laid out in time (#433, Motion's `animate(sequence)`): each Segment animates its subjects to its values, one after another unless its `at` places it (a time, a time after or before the Segment before, or a **label**'s). It plays as one animation, under one set of **Playback controls**: each subject's values run through their stops over the whole sequence. A function Segment animates a value, from 0 to 1, told to its callback each frame.
 _Avoid_: timeline (the roadmap's `@wardic/timeline` is its own abstraction), chain, choreography.
 
+**Animation controls**:
+One object, made anywhere, that Wardic elements are given as their `animate` (#433, Motion's `useAnimationControls`): each element given them follows its calls. A start sets each one's `animate` entry, so it animates and orchestrates its **Variant children** as a change of the prop would, and is awaited until they have all landed; a set lands them at once; a stop ends them where they are. An element given them names its own variants, whatever it's been started to.
+_Avoid_: animation handle, controller, imperative layer.
+
+**Controls change**:
+What one start or set of **Animation controls** makes of one element: its new `animate` entry and the transition of the change, if one was given. The element and the **Variant children** it reaches run their first animation for it on that transition, which then orchestrates them, and the change lands once they all have; their next animation, a gesture's, runs on their own transitions again.
+_Avoid_: command, controls update.
+
 **Variant child**:
 A Wardic element with `variants` that names neither its own `initial` nor `animate`, and doesn't set `inherit={false}`. It joins its nearest Wardic ancestor that has variants of its own (`variants`, or a named `initial` or `animate`): it inherits that ancestor's `initial` and `animate` names, resolved against its own `variants` (the `initial` name as its **Starting style**, read once; an inherited `initial={false}` starts it at its `animate`, #134), takes a stagger slot among the ancestor's variant children, and counts for its `when`. Any other Wardic element passes the names through to its children untouched, except one with `inherit={false}`, which passes none from above it (#50, Motion's rule).
 _Avoid_: registered child, orchestrated child.

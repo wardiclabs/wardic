@@ -67,6 +67,8 @@ export type {
   WardicSequenceOptions,
   WardicSequenceTime,
 } from "./imperative.ts"
+// Animation controls (#433, Motion's `useAnimationControls`): `animate={controls}`, then `start`, `set` and `stop`.
+export { createAnimationControls, type WardicAnimationControls, type WardicControlsDefinition } from "./animation-controls.ts"
 
 /**
  * Low-level sensor hooks: `createHover` / `createPress` / `createFocus` /

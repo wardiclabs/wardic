@@ -6,6 +6,7 @@
  *
  * @module
  */
+import type { WardicAnimationControls } from "./animation-controls.ts"
 import type * as Machine from "@wardic/core/Machine"
 import type * as Stagger from "@wardic/core/Stagger"
 import type * as CSS from "csstype"
@@ -316,9 +317,10 @@ export interface WardConfig {
   readonly initial?: WardicVariant | WardicVariantLabels | false
   /**
    * The resting target. A string names a `variants` entry. Read reactively through the whole-config
-   * accessor `cfg()`. Its own `transition` (#277) drives the animation to it.
+   * accessor `cfg()`. Its own `transition` (#277) drives the animation to it. **Animation controls**
+   * (#433, `createAnimationControls()`, read once) set it instead, at each `start` or `set`.
    */
-  readonly animate?: WardicVariant | WardicVariantLabels
+  readonly animate?: WardicVariant | WardicVariantLabels | WardicAnimationControls
   /**
    * Named targets `initial`, `animate` and `exit` strings resolve against: each a target, with its own
    * `transition` if it has one, or a function of `custom` (#277, Motion's dynamic variants).

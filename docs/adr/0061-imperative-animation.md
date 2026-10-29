@@ -168,3 +168,59 @@ Wardic had declarative props only. On Solid 2, `settled()`, `next(name)` and an 
 - **Bytes per round:** +0.0% / +0.0%.
 - **Retained at rest:** −0.0% / −0.1% for hover + press, +0.1% / +0.0% for a Reorder item.
 - **Layout scenes:** flat. **Left after the unmount:** unchanged.
+
+## Settled for PR 3 (asked 2026-10-29, both A)
+
+Q7 left two of Motion's details open; both take Motion's (`animateVariant`, `animateTarget`, `setValues` in `motion-dom`):
+- **A transition override reaches down the tree.** `controls.start("open", { duration: 1 })` beats `variants.open`'s own transition on the element and on each Variant child it reaches, and is their orchestration for that change: no stagger unless the override gives one. Rejected: B, the element only; C, the override as the element's `transition` prop, which a variant's own still beats.
+- **`set` lands the element and its Variant children.** `controls.set("hidden")` is a start on an instant transition handed down the same way, so a staggered list jumps whole. Rejected: B, the element only, its children animating to the name.
+
+## Built (PR 3)
+
+- **`animation-controls.ts`** (Solid-free, both bindings; CONTEXT.md **Animation controls**, **Controls change**):
+  - `createAnimationControls()` makes them anywhere, with no owner. `start`, `set` and `stop` reach every element given them, from its mount to its unmount.
+  - Each call makes each element a **Controls change**: its `animate` entry (a function definition called once, with the element's `custom`, values and velocities, as Motion's `controls.start((i) => …)`), the transition of the change, and a count of the elements still to land in it.
+  - `start`'s promise is every element's change landing. A change lands once its binding's flush has run (armed, a microtask after the write) and every element it reached has left: at its next landing, its unmount, a failed leg, or a later change.
+  - `set` is a change on `{ type: "tween", duration: 0 }`. `stop` ends each element's running legs where they are (the spine's new `stop`).
+- **The config:** a binding reads `animate` once, at setup. Given controls, it reads a config whose `animate` is the change's entry (none before the first) and which is marked `controlled`. `namesOwnVariants` counts that mark and controls given as they are, so the element hands down the names it's started to and Variant children join it, with no `variants` of its own (Motion's `isControllingVariants`). A server render reads the same: no entry yet.
+  - Solid 1 wraps the config accessor (`controlledOf`), for `wardic.*`, `createWard`, `Reorder.Item` and both directives.
+  - Solid 2 lays a view over the ward's per-key view (`Object.create`), its `animate` a getter of the change. It reads `animate` from the setup copy, so one still loading (#257 item 1) is no controls.
+- **The spine:** a **Resolution** carries the change in effect, the element's own or, for a Variant child, its provider's (`resolutionOf`'s new argument, `WardicVariantContextValue.change`). A new one is a new resolution (`sameResolution`), so every element it reaches Retargets, whatever the entry resolves to.
+  - The element joins the change at that Retarget, held by `when` or not, and leaves at its landing after the gate's flush (unless it joined a later one meanwhile), at a failed leg, or at its unmount.
+  - Its first started Retarget for the change runs on the override, its base layers' own transitions beaten (`overriddenOf`). Every key restarts on it, a running leg toward the same target too, so `set` lands at once. A later Retarget, a gesture's, runs on the targets' own transitions.
+- **The variant nodes**, both bindings: a change is a trigger, to the same name too (`triggerKeyOf` takes its serial), so the children's slots are taken again and `beforeChildren` waits again. Until a trigger without it, the override is the node's orchestration (`changeAtTrigger`, `orchestrationAt`, `changeConfigOf` for a list's names).
+- **Types:** `animate` takes `WardicAnimationControls` on `WardConfig`, `wardic.*`'s props, the inferred configs (#305) and Solid 2's checked config (#301). A controls object is never read as a values map.
+
+**Settled while building it:**
+- **A start's promise doesn't hang where Motion's would.** One that a later start or set supersedes resolves then. One a gesture interrupts resolves at the element's next landing. Motion's never resolves once another animation stops its values. `stop()` leaves it waiting for the next landing, as Motion's would wait.
+- **The override restarts every key.** A running leg toward the same target would otherwise carry on (#325): `set` toward where a start was heading kept animating. AC10 pins it.
+- **Solid 2's async `animate`:** the first build read `animate` at setup outside the setup copy, and a pending one threw `NotReadyError` (async-config's AC1–AC9 caught it).
+
+## Tests (PR 3)
+
+- **Solid 1** (`animation-controls.browser.test.tsx`), AC1–AC13:
+  - an element at `initial` until a start, every element given the controls following, the promise at the landing;
+  - Variant children staggered by the variant, the promise after the last of them;
+  - an override beating the variant's transition down the tree, no stagger, and only for its change;
+  - `set` landing element and children at once;
+  - `stop`;
+  - a function definition per element, called once, not again as the element resolves again;
+  - `createWard`, `Reorder.Item`, an unmount mid-start, a start that changes nothing;
+  - a controlled element with no `variants`;
+  - `set` toward a running start's target;
+  - an override's `when`;
+  - a start in the task of one that changed nothing;
+  - an unmounted element let go by the controls (GC).
+- **Solid 2** (`v2/animation-controls.browser.test.tsx`), ACV1–ACV5: a ward and `wardic.*`, Variant children staggered then overridden, `set` and `stop`, a function definition, `set` toward a running start's target. No GC test: Solid 2's dev build keeps every unmounted element's node in this harness, a plain one's too.
+- **Server renders** (`animation-controls.ssr.test.tsx`, and Solid 2's): `initial` and the children's names rendered; nothing of the controls in the markup.
+- **Mutation-checked** (`.tmp/433/mutate3.py`): 24 single-point mutations, each caught by the tests meant for it. Five first survived, and AC11–AC13, ACV5 and AC7's second half were added for them: a change compared as no new resolution on Solid 2, a resolver called at each resolution, the override's orchestration for a change's `when`, a landing leaving a change joined since, and Solid 1 not letting an element go. A sixth, Solid 2 not letting go, can't be checked here (above).
+
+## Measured (PR 3)
+
+`bench:solid` against `main` (`f645403`, 11 paired reps, noise control +1.5%) passed on both bindings. The workload gives no element controls, so this is what every element pays: a Resolution's `change`, a comparison per Retarget, the spine's change state and `stop`, and each provider's `at` memo. Solid 1 / Solid 2:
+- **Warm:** mount −0.7% / +0.7%, Retarget +1.4% / +1.3%, rest Retarget +0.3% / +0.0%, unmount +1.6% / −0.3%.
+- **Bytes per round:** +0.8% / +1.0%.
+- **Retained at rest:**
+  - hover + press +0.7% / +0.8% (19.98 → 20.11 KB, 19.18 → 19.33);
+  - a Reorder item +0.6% / +0.6%.
+- **Layout scenes:** flat. **Left after the unmount:** unchanged.

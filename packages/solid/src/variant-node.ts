@@ -8,13 +8,18 @@
 import * as Stagger from "@wardic/core/Stagger"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import { constTrue, constUndefined, constVoid } from "effect/Function"
+import { constTrue, constUndefined, constVoid, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js"
+import type { ControlsChange } from "./animation-controls.ts"
 import type { WardicTransition, WardicVariantLabels } from "./config.ts"
 import {
   activeNamesOf,
+  type ChangeAtTrigger,
+  changeAtTrigger,
+  changeConfigOf,
+  orchestrationAt,
   type GestureHandDown,
   handDownFrom,
   handDownOf,
@@ -98,6 +103,7 @@ const ownOrchestration = (
   cfg: Accessor<VariantConfig>,
   parent: WardicVariantContextValue | undefined,
   inherited: WardicVariantContextValue | undefined,
+  change: Accessor<ControlsChange | undefined>,
 ): OwnOrchestration => {
   const config = untrack(cfg)
   // Children in mount order (a Set keeps insertion order); the effect below snapshots that
@@ -182,19 +188,26 @@ const ownOrchestration = (
     { equals: sameHandDown },
   )
 
+  // The Controls change its latest trigger came with (#433): while it's the latest, its override is
+  // the orchestration.
+  const at: Accessor<ChangeAtTrigger> = createMemo((previous: ChangeAtTrigger | undefined) =>
+    changeAtTrigger(change(), triggerKeyOf(variant(), gestures(), change()), previous))
   // Its orchestration (#277, #291, Motion's): the own transition of its highest active gesture's name,
-  // else of its target (the variant it names), else its `transition`.
-  const orchestration: Accessor<WardicTransition | undefined> = createMemo(() => {
-    const c = cfg()
-    const own = UndefinedOr.match(topGestureName(activeNamesOf(gestures())), {
-      onDefined: (name) => ownTransitionOf(undefined, name, c.variants, c.custom),
-      onUndefined: () => ownTransitionOf(c.animate, variant(), c.variants, c.custom),
-    })
-    return transitionOfTarget(own, c.transition)
-  })
-  // What its children's stagger and `when` snapshot at: its variant, and its gestures' names (#291).
+  // else of its target (the variant it names), else its `transition`; a Controls change's override at
+  // the trigger it came with (#433).
+  const orchestration: Accessor<WardicTransition | undefined> = createMemo(() =>
+    orchestrationAt(at(), () => {
+      const c = cfg()
+      const own = UndefinedOr.match(topGestureName(activeNamesOf(gestures())), {
+        onDefined: (name) => ownTransitionOf(undefined, name, c.variants, c.custom),
+        onUndefined: () => ownTransitionOf(c.animate, variant(), c.variants, c.custom),
+      })
+      return transitionOfTarget(own, c.transition)
+    }))
+  // What its children's stagger and `when` snapshot at: its variant, its gestures' names (#291), and
+  // a Controls change (#433).
   const trigger: Accessor<string> = createMemo((previous: string | undefined) => {
-    const next = triggerKeyOf(variant(), gestures())
+    const next = triggerKeyOf(variant(), gestures(), change())
     if (next !== previous) {
       stale = true
       // Each name waits again (#297's PR 2): its keys, and its children's, settle anew.
@@ -219,6 +232,9 @@ const ownOrchestration = (
     return new Map()
   })
   const configOf = (name: string): NameConfig => {
+    // A Controls change's override orchestrates every name at its trigger (#433).
+    const changed = changeConfigOf(untrack(at))
+    if (Predicate.isNotUndefined(changed)) return changed
     const known = byName()
     const kept = known.get(name)
     if (Predicate.isNotUndefined(kept)) return kept
@@ -260,7 +276,7 @@ const ownOrchestration = (
   const transition: Accessor<WardicTransition | undefined> = createMemo(() => ownOrInherited(cfg().transition, inherited))
 
   return {
-    context: { variant, initial, transition, gestures, register, stagger, staggerFor, mayStartFor, when, childrenMayStart, allChildrenSettled },
+    context: { variant, initial, transition, gestures, register, stagger, staggerFor, mayStartFor, when, childrenMayStart, allChildrenSettled, change },
     // It holds its own start for `afterChildren` (it owns the registry, so it reads it directly).
     canStart: () => when() !== "afterChildren" || allChildrenSettled(),
     settled: (done) => setOwnSettled(done),
@@ -282,15 +298,24 @@ const bindOf = (own: OwnOrchestration | undefined): ((states: Accessor<GestureSt
  * An element's place in variant orchestration on the client, from its config and the nearest
  * context (`useVariantContext()`). Call within a Solid owner.
  */
-export const createVariantNode = (cfg: Accessor<VariantConfig>, parent: WardicVariantContextValue | undefined): VariantNode => {
+export const createVariantNode = (
+  cfg: Accessor<VariantConfig>,
+  parent: WardicVariantContextValue | undefined,
+  controls?: Accessor<ControlsChange | undefined>,
+): VariantNode => {
   const config = untrack(cfg)
   const inherited = inheritedContext(config, parent)
+  // The Controls change in effect (#433): its own controls', else the one its provider is in.
+  const change: Accessor<ControlsChange | undefined> = UndefinedOr.match(controls, {
+    onDefined: identity,
+    onUndefined: () => UndefinedOr.match(UndefinedOr.map(inherited, (context) => context.change), { onUndefined: () => constUndefined, onDefined: identity }),
+  })
   // A Variant child registers with the ancestor it joins, for its stagger slot and its `when`.
   const joined = UndefinedOr.map(inherited, (context) => ({ context, registration: context.register() }))
   if (Predicate.isNotUndefined(joined)) onCleanup(joined.registration.dispose)
   const own = Bool.match(hasOwnVariants(config), {
     onFalse: constUndefined,
-    onTrue: () => ownOrchestration(cfg, parent, inherited),
+    onTrue: () => ownOrchestration(cfg, parent, inherited, change),
   })
   // The spine reports on every frame (the per-frame path, docs/agents/effect-first.md): both
   // reports are resolved here, once, so a frame makes two plain calls and allocates nothing.
