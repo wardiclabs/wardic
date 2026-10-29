@@ -10,11 +10,16 @@ import * as Easing from "./Easing.ts"
 /** Where a stagger originates within the set of children. */
 export type Origin = "first" | "last" | "center" | number
 
-/** A stagger's options. */
+/** A stagger's options, Motion's `stagger`'s. */
 export interface Options {
+  /** Seconds before the first delay: every child's delay starts from it (#436). Default 0. */
+  readonly startDelay?: number
   /** Origin index the delay grows outward from. Default `"first"`. */
   readonly from?: Origin
-  /** How the delay grows across the children: an Easing definition (#360), Motion's `stagger`'s `ease`. Default linear. */
+  /**
+   * How the delay grows across the children: an Easing definition (#360), Motion's `stagger`'s
+   * `ease`, across `amount × total` as Motion's (#436). Default linear.
+   */
   readonly ease?: Easing.Definition
 }
 
@@ -27,8 +32,9 @@ const resolveOrigin = (from: Origin, total: number): number =>
   )
 
 /**
- * Builds a per-child delay function: `(index, total) => delaySeconds`. Delay
- * grows with distance from the origin; an optional easing reshapes the curve.
+ * Builds a per-child delay function, `(index, total) => delaySeconds`, Motion's `stagger` (#436):
+ * `startDelay` plus `amount` for each step from the origin. An easing reshapes the curve across
+ * `amount × total`, Motion's `maxDelay`, one step past the last child.
  *
  * ```ts
  * const d = Stagger.make(0.05, { from: "center" })
@@ -39,17 +45,18 @@ export const make = (
   amount: number,
   options: Options = {},
 ): ((index: number, total: number) => number) => {
-  const { from = "first" } = options
+  const { from = "first", startDelay = 0 } = options
   // Resolved once, here: a name or a bézier's numbers to its curve (#360).
   const ease = UndefinedOr.map(options.ease, Easing.resolve)
   return (index, total) => {
     const origin = resolveOrigin(from, total)
-    const dist = Math.abs(origin - index)
-    return Option.match(Option.fromUndefinedOr(ease), {
-      onNone: () => amount * dist,
+    const delay = amount * Math.abs(origin - index)
+    return startDelay + Option.match(Option.fromUndefinedOr(ease), {
+      onNone: () => delay,
       onSome: (easing) => {
-        const max = Math.max(1, total - 1)
-        return amount * easing(dist / max) * max
+        const max = amount * total
+        if (max === 0) return 0
+        return easing(delay / max) * max
       },
     })
   }

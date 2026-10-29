@@ -5,7 +5,6 @@
  *
  * Membership is decided once, at setup, as `initial` is read. The names stay reactive.
  */
-import * as Stagger from "@wardic/core/Stagger"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constTrue, constUndefined, constVoid, identity } from "effect/Function"
@@ -35,7 +34,7 @@ import {
   initialNameOf,
   nameOf,
   ownOrInherited,
-  directed,
+  childDelayOf,
   mayStartOf,
   type NameConfig,
   nameConfigOf,
@@ -330,7 +329,7 @@ export const createVariantNode = (
     extraDelay: UndefinedOr.map(joined, ({ context, registration }) => (name: string | undefined) => {
       const s = staggerOfName(context, name)
       const n = registration.total()
-      return s.delayChildren + Stagger.make(s.amount, { from: s.from })(directed(registration.index(), n, s.direction), n)
+      return childDelayOf(s, registration.index(), n)
     }),
     canStart: () =>
       UndefinedOr.match(inherited, { onUndefined: constTrue, onDefined: (context) => context.childrenMayStart() }) &&

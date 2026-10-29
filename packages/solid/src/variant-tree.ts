@@ -18,7 +18,7 @@
  *
  * @module
  */
-import type * as Stagger from "@wardic/core/Stagger"
+import * as Stagger from "@wardic/core/Stagger"
 import type * as Values from "@wardic/core/Values"
 import * as Style from "@wardic/dom/Style"
 import * as Arr from "effect/Array"
@@ -28,7 +28,7 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type ControlsChange, isAnimationControls } from "./animation-controls.ts"
 import type { AppearGroup } from "./appear.ts"
-import type { WardicTransition, WardicVariantLabels, WardicVariants } from "./config.ts"
+import type { WardicStagger, WardicTransition, WardicVariantLabels, WardicVariants } from "./config.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
 import { type Entry, isLabels, labelsOf, NO_VARIANT_STATE, resolveTarget, sameLabels, startingVariantsOf } from "./variant-target.ts"
 
@@ -72,8 +72,8 @@ export interface NameOrchestration {
 export interface WardicStaggerConfig {
   /** Seconds between siblings (core `stagger` amount). */
   readonly amount: number
-  /** Fixed offset added to every child's computed delay. */
-  readonly delayChildren: number
+  /** Fixed offset added to every child's computed delay, or a function that decides it whole (#436). */
+  readonly delayChildren: number | WardicStagger
   /** Origin the stagger distance grows outward from (core option). */
   readonly from: Stagger.Origin
   /** `1` forward (index = position), `-1` reverses the effective index. */
@@ -499,6 +499,17 @@ export const mayStartOf = (context: WardicVariantContextValue, name: string): bo
 export const directed = (index: number, total: number, direction: 1 | -1): number => {
   if (direction === -1) return total - 1 - index
   return index
+}
+
+/**
+ * A child's delay in a stagger (ADR-0007): its `delayChildren` plus its place from the origin, turned
+ * by its `staggerDirection`. A function `delayChildren` (#436, Motion's `calcChildStagger`) decides it
+ * whole, from the child's index and the count. Every stagger, a Variant child's, a presence's exit's
+ * and a server's Appear timing, is placed by it.
+ */
+export const childDelayOf = (s: WardicStaggerConfig, index: number, total: number): number => {
+  if (Predicate.isFunction(s.delayChildren)) return s.delayChildren(index, total)
+  return s.delayChildren + Stagger.make(s.amount, { from: s.from })(directed(index, total, s.direction), total)
 }
 
 /** A name's orchestration (#297): its stagger config, and its own `when`, from its own transition, else the element's. */

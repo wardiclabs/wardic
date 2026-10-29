@@ -29,7 +29,6 @@ import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Renderer from "@wardic/core/Renderer"
 import * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
-import * as Stagger from "@wardic/core/Stagger"
 import * as Velocity from "@wardic/core/Velocity"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as MeasuredPair from "@wardic/dom/MeasuredPair"
@@ -49,7 +48,7 @@ import type { WardicTransition, WardicVariantLabels } from "./config.ts"
 import type { ExitGroup, PresenceContextValue, PresenceExit, PresenceRecord, PresenceSeed, PresenceTree, PresenceWatch } from "./presence-record.ts"
 import { delayedBy, keyframesFrom, type Leg, legsOf, type MeasuredPairs, type StopsByKey, velocitiesOf } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
-import { staggerOf } from "./variant-tree.ts"
+import { childDelayOf, staggerOf } from "./variant-tree.ts"
 
 /** Whether a value-map has any keys (an empty exit means "remove immediately"). */
 const isEmpty = (values: Values.Values): boolean => Rec.isEmptyRecord(values)
@@ -80,12 +79,6 @@ interface ExitNode {
 
 /** Whether an exit node, or one under it, has anything to animate. */
 const busy = (node: ExitNode): boolean => Bool.or(Bool.not(isEmpty(node.exit.values)), Arr.some(node.kids, busy))
-
-/** A stagger slot's index: reversed with `staggerDirection: -1`, as the variant node's (ADR-0007). */
-const slotIndex = (i: number, n: number, direction: 1 | -1): number => {
-  if (direction === -1) return n - 1 - i
-  return i
-}
 
 /** No velocities: an element with no spine to read them from (#464: one with a spine starts its exit from its own). */
 const NO_VELOCITIES: Readonly<Record<string, number>> = {}
@@ -800,7 +793,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // its own transition's delay and stagger, else the exit's.
     const slot = (i: number) => (name: string | undefined): number => {
       const s = staggerOf(transitionOfName(node.exit, name))
-      return s.delayChildren + Stagger.make(s.amount, { from: s.from })(slotIndex(i, n, s.direction), n)
+      return childDelayOf(s, i, n)
     }
     const kidsFrom = (from: DelayOf): Effect.Effect<unknown, never, WardicServices> =>
       Effect.all(Arr.map(node.kids, (kid, i) => runOf(kid, (name) => from(name) + slot(i)(name))), { concurrency: "unbounded", discard: true })
@@ -822,7 +815,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     if (n === 0) return own
     const slot = (i: number) => (of: string | undefined): number => {
       const s = staggerOf(transitionOfName(node.exit, of))
-      return s.delayChildren + Stagger.make(s.amount, { from: s.from })(slotIndex(i, n, s.direction), n)
+      return childDelayOf(s, i, n)
     }
     const kidsFrom = (from: DelayOf): Effect.Effect<unknown, never, WardicServices> =>
       Effect.all(
