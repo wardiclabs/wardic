@@ -32,7 +32,7 @@ import * as DomInterpolators from "@wardic/dom/DomInterpolators"
 import * as Effect from "effect/Effect"
 import { describe, expect, it } from "vitest"
 import type { WardicTransition } from "../src/config.ts"
-import { delayedBy, type Follows, type Leg, legsOf, transitionForKey } from "../src/retarget-legs.ts"
+import { delayedBy, type Follows, type Leg, legsOf, transitionForKey, velocitiesOf } from "../src/retarget-legs.ts"
 import { makeReuse } from "../src/spine.ts"
 
 const positionalKeys = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* ReducedMotion.PositionalKeys }), ReducedMotion.transformsOnly))
@@ -60,7 +60,7 @@ const legsFor = (over: Partial<Retarget>): ReadonlyArray<Leg> => {
     velocities: {},
     ...over,
   }
-  return legsOf(r.from, r.to, r.transition, r.reducedMotion, positionalKeys, defaults, r.velocities, r.follow)
+  return legsOf(r.from, r.to, r.transition, r.reducedMotion, positionalKeys, defaults, velocitiesOf(r.velocities), r.follow)
 }
 
 /** A leg's machine, built (a Blend's with the DOM's Interpolators). */

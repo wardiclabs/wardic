@@ -36,7 +36,7 @@ import * as Rec from "effect/Record"
 import * as Result from "effect/Result"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicTransition } from "./config.ts"
-import { entriesOf, type KeyframesStart, keyframesFrom, type Leg, legsOf, runOf, type StopsByKey, transitionForKey } from "./retarget-legs.ts"
+import { entriesOf, type KeyframesStart, keyframesFrom, type Leg, legsOf, NO_VELOCITY, runOf, type StopsByKey, transitionForKey } from "./retarget-legs.ts"
 import type { Keyframes } from "./variant-target.ts"
 
 // --- The mount animation, on both sides -------------------------------------------------------
@@ -205,8 +205,8 @@ export const specOf = (m: MountAnimation): Result.Result<Appear.Spec, string> =>
         projected: m.layout,
         machine: () =>
           Bool.match(repeatsForever(m.transition), {
-            onTrue: () => Machine.holdAfter(together(legsOf(m.from, m.to, transition, m.reduced, DOM_POSITIONAL, DOM_DEFAULTS, {}, undefined, m.stops)), repeatDelay),
-            onFalse: () => together(legsOf(m.from, m.to, transition, m.reduced, DOM_POSITIONAL, DOM_DEFAULTS, {}, undefined, m.stops)),
+            onTrue: () => Machine.holdAfter(together(legsOf(m.from, m.to, transition, m.reduced, DOM_POSITIONAL, DOM_DEFAULTS, NO_VELOCITY, undefined, m.stops)), repeatDelay),
+            onFalse: () => together(legsOf(m.from, m.to, transition, m.reduced, DOM_POSITIONAL, DOM_DEFAULTS, NO_VELOCITY, undefined, m.stops)),
           }),
       })
     },

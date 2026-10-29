@@ -34,7 +34,7 @@ it("DW1: a response that fails is logged at Error, reported once, and the track 
       gate: useWardicGate(),
       id: "dw1",
       element: el,
-      snapshot: { values: {}, velocities: {} },
+      snapshot: { values: {}, velocities: {}, drawnAt: {} },
       recordFrame: (values) => xs.push(Number(values.x)),
       setDragging: (on) => {
         if (Bool.not(on)) return

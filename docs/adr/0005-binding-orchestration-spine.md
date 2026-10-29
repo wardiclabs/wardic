@@ -230,3 +230,68 @@ Found building #428 (#447). A Retarget started a Leg for every key whose target 
 - the server keeping keys at their target (AR21, AH13), or comparing them uncoerced (AR21).
 
 The one that survives is the Snapshot velocity guard: no test reaches a key that a release left moving exactly at its new target.
+
+## Amendment (#464, 2026-10-29): a key's velocity comes from its frames, whatever drew them
+
+**Context.** A Retarget carries velocity across its seam (decision 1), but only a spring's leg wrote one to the Snapshot. A `Snap` leg zeroed its keys', and a `Blend` leg (every tween, keyframes, a spring's string keys) left them as they were. So a spring that took a key over from a moving tween started at rest and turned at once. Worse, a spring after a tween that landed started from an older spring's velocity, still on the Snapshot: a critically damped spring to 110 ran out to 135.
+
+Motion's MotionValue reads its velocity from its last two frames, whatever drew them, for numbers. It reads 0 once the value hasn't moved for 30 ms (`getVelocity` and `MAX_VELOCITY_DELTA` in `motion-dom/src/value/index.ts`, at 16c6122), and a new animation starts from it.
+
+**Decisions** (grilled 2026-10-29, both A):
+1. **A numeric key's velocity is its last two frames' change over their time apart** (Q1), as Motion's `getVelocity`, at most 30 ms apart.
+   - A spring that takes over a moving tween carries its speed on outward.
+   - A Retarget, an Imperative animation (#433), a presence exit and a takeover (#286) read it, as does #448's at-target check. An exit started every key at rest before, a choice from when exits ran their own spring. Motion's exit starts each value from `getVelocity()`, and so does Wardic's now.
+   - *Rejected:* B, a tween leaving 0, which turns a takeover back at once, unlike Motion. C, the tween's easing slope, which needs a derivative for every easing.
+2. **It reads 0 once 30 ms have passed since a frame last moved the key** (Q2), on `frameNow()`'s clock, Motion's `sync-time` (`performance.now()` read once per synchronous block).
+   - A spring chained in the frame a tween lands (`onAnimationComplete`, told about 1 ms after its last frame) carries its last speed.
+   - One started later starts at rest: after a landed tween, a `stop()` (#433), or a key held by `when`.
+   - *Rejected:* B, zeroing at a leg's end, which differs within those 30 ms. C, keeping a velocity until something overwrites it.
+
+**Defaults, stated:**
+- **A string carries none** (ADR-0024, decision 5).
+- **A jump leaves none:** a leg that lands on its first frame (`set`, `duration: 0`), and a reduced-motion snap, as before (ADR-0029). This is Motion's `jump()`; its `set()` would read the jump as a speed for 30 ms.
+- **A spring's own velocity, and a drag's pointer's (#139), are kept as they're written.**
+
+**How.**
+- **Per frame, nothing per key:** a running leg counts its frames and stamps `lastAt`. A `Blend` leg also keeps its last frame's values and the ones before, and when they were drawn. Before its first frame, those are the Snapshot's, a 60 Hz frame earlier, as Motion's first-frame delta. The machine makes its frame objects anew each frame, so keeping them copies nothing.
+- **Read only where it's used:** `legsOf` takes a `Velocities` reader, and only a spring and a following return call it, for the keys they start. A tween reads nothing. The reader takes the leg drawing the key, once it has drawn a frame, else what the last leg to let the key go left on the Snapshot (`velocities`, `drawnAt`), on the time the Retarget or Imperative animation began. It's 0 past 30 ms. #448's at-target check reads it last, for a key already there.
+- **A transition's own `velocity` wins over the key's**, as Motion's (`transition.velocity ?? value.getVelocity()`). So #448's kick (`transition: { x: { velocity: 800 } }`, TH10) starts at its 800.
+- **A leg that lets a key go (`giveUp`, `forget`) leaves two numbers on the Snapshot:** its velocity then (0 past 30 ms), and its last frame's time. Not the leg: a Snapshot that kept the legs kept their Retargets' closures alive until the unmount, which paid for them.
+- **A presence's exit and takeover** read every numeric key's velocity now (`velocitiesNowOf`).
+- **The drag track** stamps `x` and `y` as it moves them and as its release keeps the pointer's velocity. A presence seed stamps the leaver's.
+
+The **Snapshot**'s entry in CONTEXT.md says so: each numeric key's velocity, as its last frames moved it, whatever drew them.
+
+**Found building it:**
+- **A velocity left on the Snapshot is read against the leg's last frame**, not the time it was left. `letGo` first copied the leg's reading as it was, so a spring started 100 ms after a landed tween still carried the tween's last speed. VL3 caught it.
+- **A 0 written for every key at rest blocked #448's kick** (TH10): the key's 0 won over the transition's `velocity`. Motion's order, the transition's first, fixed it.
+- **A frame's velocity is its last step's, as Motion's.** A linear tween of 0.3 s at 60 Hz lands after 18 whole steps, its last moving it 0.01 px, so it reads near 0 at its landing. One of 0.31 s reads its last third of a step.
+- **A paused animation's key reads at rest** (VL10). `Playback.drive` held a paused machine on its last Frame, a spring's with its velocity, so an exit 100 ms after a `pause()` flew off at the spring's speed. A held Frame now moves nothing: its velocity reads 0, as a held MotionValue's frames do in Motion. Core's `Playback.drive` makes it once per pause (`packages/core/test/playback-held.test.ts`, PH1–PH3).
+- **A leg's time fields start as doubles** (`Number.NEGATIVE_INFINITY`). Started as 0, a small integer, the first `performance.now()` written to one changed every leg's shape in V8. Each leg made before it was then read the slow way, which showed as +6–8% on the bench's unmount.
+
+**Measured** (`bun run bench:solid` on wardic-bench, against main at 8ffe9a6; an A/A run of main against itself read within ±1.7%):
+
+| warm, median | mount | Retarget | rest Retarget | unmount |
+| --- | --- | --- | --- | --- |
+| Solid 1 | +1.9% | +2.5% | +0.9% | **+6.8%** |
+| Solid 2 | +0.3% | **+5.5%** | +2.4% | +2.9% |
+
+- Bytes per element per round: −0.3% and −0.0%. Retained at rest: +0.2–0.6% (about 70 B per element). Left after the unmount: unchanged.
+- **Two rows are over the +5% gate.** The first build was +5.8% on Solid 2's Retarget: it read and wrote every key's velocity at every Retarget, a closure per key. Reading only a spring's keys, and numbers in place of legs, brought it down.
+- **Bisected** (`.tmp/464/bisect.py`, `bisect2.py`, on the harnesses `zz-quick.ts` and `zz-profile.ts`): the rest of it goes away only with the six fields a leg gained (`kind`, `frames`, `lastAt`, `last`, `before`, `beforeAt`): a bigger object per leg, made at every Retarget and dropped at the unmount.
+- **Accepted** (2026-10-29), as #141's Release offset was, for Motion's behaviour. The rest goes to #460's performance pass, with the bisect and its harnesses.
+
+**Tests.**
+- `packages/solid/test/tween-velocity.browser.test.tsx`, VL1–VL11:
+  - a spring taking over a moving tween goes on outward first;
+  - after a landed tween, a critically damped spring doesn't overshoot (the issue's probe);
+  - chained in the landing's frame it carries the last speed, 100 ms later it starts at rest;
+  - a `duration: 0` jump leaves none;
+  - an Imperative animation's spring takes over a tween call with its speed;
+  - an exit that takes over a moving tween starts with its speed;
+  - a spring stopped mid-flight leaves none 100 ms later, an Imperative one's and a declarative one's (Animation controls' `stop()`);
+  - stopped and followed in the same task, it carries its speed on;
+  - an exit reads a key a paused animation holds at rest, and one a long task left undrawn for 100 ms.
+- `test/v2/tween-velocity.browser.test.tsx`, VLV1–VLV2: the first two, on Solid 2.
+- `packages/core/test/playback-held.test.ts`, PH1–PH3: a held Frame's velocity is 0, a spring's and each key of `springValues`'; a Frame with none is held as it is.
+- **Mutation-checked** (`.tmp/464/mutate.py`): 18 single-point mutations, 17 caught. Three first survived, and a test was added for each: VL8 (a declarative Retarget not reading the velocity at its start), VL9 (a forgotten leg leaving none) and VL11 (a running leg's own 30 ms check, reached only once it has drawn nothing for 30 ms, as after a long task). The one left, the drag's release not stamping `x` and `y`, is equivalent in practice: the drag's last move stamped them within a frame of the release.

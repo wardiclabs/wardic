@@ -81,6 +81,7 @@ import type { DragContainer } from "./drag-constraints.ts"
 import type { WardicServices } from "./runtime.ts"
 import { subscribeDragControls, type WardicDragControls } from "./drag-controls.ts"
 import { DEFAULT_DRAG_ELASTIC, dragTransitionOf, elasticOf } from "./drag-transition.ts"
+import { frameNow } from "./frame-time.ts"
 
 
 /**
@@ -93,6 +94,8 @@ import { DEFAULT_DRAG_ELASTIC, dragTransitionOf, elasticOf } from "./drag-transi
 export interface DragSnapshot {
   values: Values.Values
   velocities: Record<string, number>
+  /** When the drag last moved `x` and `y` (#464): their velocity holds 30 ms from then. */
+  drawnAt: Record<string, number>
 }
 
 /** The static drag config (read ONCE, untracked, at setup — drag config is a document). */
@@ -328,6 +331,10 @@ const directSet = (opts: DragTrackOptions, p: Point.Point): void => {
   opts.snapshot.values.y = p.y
   opts.snapshot.velocities.x = 0
   opts.snapshot.velocities.y = 0
+  // Moved now (#464): its release's velocity holds from here.
+  const now = frameNow()
+  opts.snapshot.drawnAt.x = now
+  opts.snapshot.drawnAt.y = now
   opts.recordFrame({ x: p.x, y: p.y })
 }
 
@@ -523,6 +530,9 @@ const onReleaseAxis = (axis: Drag.Axis, retargeted: { readonly x: boolean; reado
 const keepVelocity = (opts: DragTrackOptions, v: Point.Point): void => {
   opts.snapshot.velocities.x = v.x
   opts.snapshot.velocities.y = v.y
+  const now = frameNow()
+  opts.snapshot.drawnAt.x = now
+  opts.snapshot.drawnAt.y = now
 }
 
 /** A running drag track, for the spine's Retargets (#340). */

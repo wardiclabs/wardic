@@ -47,7 +47,7 @@ import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicTransition, WardicVariantLabels } from "./config.ts"
 import type { ExitGroup, PresenceContextValue, PresenceExit, PresenceRecord, PresenceSeed, PresenceTree, PresenceWatch } from "./presence-record.ts"
-import { delayedBy, keyframesFrom, type Leg, legsOf, type MeasuredPairs, type StopsByKey } from "./retarget-legs.ts"
+import { delayedBy, keyframesFrom, type Leg, legsOf, type MeasuredPairs, type StopsByKey, velocitiesOf } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import { staggerOf } from "./variant-tree.ts"
 
@@ -87,7 +87,7 @@ const slotIndex = (i: number, n: number, direction: 1 | -1): number => {
   return i
 }
 
-/** No velocities: an exit starts each key at rest, as it did on its own spring. */
+/** No velocities: an element with no spine to read them from (#464: one with a spine starts its exit from its own). */
 const NO_VELOCITIES: Readonly<Record<string, number>> = {}
 
 /** Where an element is drawn (#286): its values, and each numeric key's velocity. */
@@ -849,6 +849,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     const to = exit.values
     if (isEmpty(to)) return Effect.void
     const { from, stops, commitFrame, velocities, el } = preparedOf(rec, exit)
+    // Its keys start with the velocity their frames gave them (#464, Motion's): 0 for one at rest.
+    const moving = velocitiesOf(UndefinedOr.match(rec.velocities, { onUndefined: () => NO_VELOCITIES, onDefined: (of) => of() }))
     // A list's exit by name (#297): each name's keys on its own transition, at its own delay; one
     // name's alone when its `when` orders it (#297's PR 2).
     const reduce = reducedMotion()
@@ -856,11 +858,11 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // reduced motion snaps them.
     const measured = Bool.match(reduce, { onTrue: constUndefined, onFalse: () => exitMeasuredOf(el, from, to) })
     const legs = UndefinedOr.match(exit.groups, {
-      onUndefined: () => legsOf(from, to, delayedBy(exit.transition, delay(singleNameOf(exit.name))), reduce, positionalKeys, defaultTransition, NO_VELOCITIES, undefined, stops, measured),
+      onUndefined: () => legsOf(from, to, delayedBy(exit.transition, delay(singleNameOf(exit.name))), reduce, positionalKeys, defaultTransition, moving, undefined, stops, measured),
       onDefined: (groups) =>
         Arr.flatMap(
           Arr.filter(groups, (group) => Bool.or(Predicate.isUndefined(only), group.name === only)),
-          (group: ExitGroup) => legsOf(from, group.values, delayedBy(group.transition, delay(group.name)), reduce, positionalKeys, defaultTransition, NO_VELOCITIES, undefined, stops, measured),
+          (group: ExitGroup) => legsOf(from, group.values, delayedBy(group.transition, delay(group.name)), reduce, positionalKeys, defaultTransition, moving, undefined, stops, measured),
         ),
     })
     return Effect.all(Arr.map(legs, (leg) => exitRunOf(leg, el, commitFrame, velocities)), { concurrency: "unbounded", discard: true })

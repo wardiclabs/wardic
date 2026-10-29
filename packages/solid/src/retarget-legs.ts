@@ -91,6 +91,23 @@ export interface Blend {
 /** One leg of a Retarget. */
 export type Leg = Snap | Follow | Numbers | Blend
 
+/**
+ * Each key's velocity now (#464): read only for a key a spring or a follow starts, so a tween's
+ * Retarget reads none. A spring takes its transition's own `velocity` over it, as Motion's
+ * `{ velocity: value.getVelocity(), ...valueTransition }`.
+ */
+export type Velocities = (key: string) => number
+
+/** No velocity: every key at rest. */
+export const NO_VELOCITY: Velocities = () => 0
+
+/** Each key's velocity from a record of them, 0 for one it doesn't have. */
+export const velocitiesOf = (record: Readonly<Record<string, number>>): Velocities => (key) => {
+  const velocity = record[key]
+  if (Predicate.isUndefined(velocity)) return 0
+  return velocity
+}
+
 /** The orchestration's fields (ADR-0007): read by the variant tree, never by a machine. */
 const ORCHESTRATION = ["staggerChildren", "delayChildren", "from", "staggerDirection", "when"] as const
 
@@ -419,7 +436,7 @@ const hasKeys: Predicate.Predicate<Values.Values> = Predicate.not(Rec.isEmptyRec
  * @param reducedMotion whether reduced motion is on (the provider's, ADR-0029); a transition can still opt out
  * @param positionalKeys which keys are positional: the Environment's (ADR-0036)
  * @param defaults what a key with no transition defined runs on: the Environment's (ADR-0051)
- * @param velocities each key's velocity now: a spring starts from it
+ * @param velocities each key's velocity now (#464): a spring starts from it, unless its transition gives one
  * @param follow the returns that follow a moving Live value (#130), given only when the Retarget returns a key
  * @param stops each key's Keyframes of more than two stops (#429, {@link keyframesFrom}), `from` at their first
  * @param measured each key's Measured pair (#430), measured at the end of the task
@@ -431,7 +448,7 @@ export const legsOf = (
   reducedMotion: boolean,
   positionalKeys: ReducedMotion.PositionalKeys["Service"],
   defaults: DefaultTransition.DefaultTransition["Service"],
-  velocities: Readonly<Record<string, number>>,
+  velocities: Velocities,
   follow?: Follows | undefined,
   stops?: StopsByKey | undefined,
   measured?: MeasuredPairs | undefined,
@@ -519,6 +536,9 @@ const measuredStep = (pairs: MeasuredPairs, to: Values.Values, transition: Run):
   }
 }
 
+/** No numbers: a spring whose transition gives every key its velocity (#464). */
+const NO_NUMBERS: Record<string, number> = {}
+
 /** No values: the failed leg of Keyframes on a spring draws none (#429). */
 const NO_VALUES: Values.Values = {}
 
@@ -552,7 +572,7 @@ const legsOn = (
   reducedMotion: boolean,
   positionalKeys: ReducedMotion.PositionalKeys["Service"],
   defaults: DefaultTransition.DefaultTransition["Service"],
-  velocities: Readonly<Record<string, number>>,
+  velocities: Velocities,
   follow: Follows | undefined,
   stops: StopsByKey | undefined,
   measured: MeasuredPairs | undefined,
@@ -612,7 +632,7 @@ const legsWith = (
   transition: Run,
   reducedMotion: boolean,
   positionalKeys: ReducedMotion.PositionalKeys["Service"],
-  velocities: Readonly<Record<string, number>>,
+  velocities: Velocities,
   follow: Follows | undefined,
   stops: StopsByKey | undefined,
   measured: MeasuredPairs | undefined,
@@ -695,13 +715,18 @@ const legsWith = (
   // A following return chases its Live value, read each step, and settles at rest on it.
   if (following) Arr.forEach(followingKeys, (key) => {
     const start = from[key] as number
-    const velocity = UndefinedOr.match(velocities[key], { onUndefined: () => 0, onDefined: identity })
+    const velocity = UndefinedOr.match(springOpts.velocity, { onUndefined: () => velocities(key), onDefined: identity })
     const chase = Machine.chase(UndefinedOr.getOrThrow(follow).targetOf(key, start), { ...springOpts, from: start, velocity })
     legs.push({ _tag: "Follow", key, to: { [key]: UndefinedOr.getOrThrow(rest[key]) }, machine: () => settling(chase) })
   })
   if (hasKeys(numeric)) {
     const fromNumeric: Record<string, number> = Rec.map(numeric, (_, key) => from[key] as number)
-    legs.push({ _tag: "Numbers", to: numeric, machine: () => Machine.springValues(numeric, springOpts, fromNumeric, velocities) })
+    // Each key's own velocity, read now; none when the transition gives one, which every key then starts with.
+    const fromVelocity: Record<string, number> = Bool.match(Predicate.isUndefined(springOpts.velocity), {
+      onTrue: () => Rec.map(numeric, (_, key) => velocities(key)),
+      onFalse: () => NO_NUMBERS,
+    })
+    legs.push({ _tag: "Numbers", to: numeric, machine: () => Machine.springValues(numeric, springOpts, fromNumeric, fromVelocity) })
   }
   if (hasKeys(strings)) {
     const fromStrings: Values.Values = Rec.map(strings, (_, key) => UndefinedOr.getOrThrow(from[key]))

@@ -79,7 +79,7 @@ A run a Retarget ended before it settled. It leaves the **Frame loop** at once a
 _Avoid_: cancelled, interrupted (mechanisms: a Superseded run's fiber isn't interrupted).
 
 **Snapshot**:
-The last value a binding has cached for each key it drives, a number or a string, with a Physics primitive's velocities: the seed read at the moment of a Retarget.
+The last value a binding has cached for each key it drives, a number or a string, with each numeric key's velocity, as its last frames moved it, whatever drew them (a spring, a tween, keyframes, a drag; #464, Motion's): the seed read at the moment of a Retarget.
 _Avoid_: state, current value.
 
 **Leg**:

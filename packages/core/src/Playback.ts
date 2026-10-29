@@ -11,6 +11,7 @@ import { constant, dual } from "effect/Function"
 import * as Inspectable from "effect/Inspectable"
 import { type Pipeable, pipeArguments } from "effect/Pipeable"
 import * as Predicate from "effect/Predicate"
+import * as Rec from "effect/Record"
 import type * as Frame from "./Frame.ts"
 import * as Machine from "./Machine.ts"
 
@@ -59,6 +60,19 @@ const runFrom = <F extends Frame.Frame<unknown>>(self: Machine.Machine<F>, at: n
   return self.start()
 }
 
+/**
+ * `frame`, held (#464): its values, moving nothing. A velocity it gives, one number or one per key,
+ * reads 0. Once per pause.
+ */
+const heldOf = <F extends Frame.Frame<unknown>>(frame: F): F => {
+  const velocity: unknown = (frame as { readonly velocity?: unknown }).velocity
+  if (Predicate.isNumber(velocity)) return { ...frame, velocity: 0 }
+  if (Predicate.isObject(velocity)) return { ...frame, velocity: Rec.map(velocity as Record<string, number>, ZERO) }
+  return frame
+}
+
+const ZERO = constant(0)
+
 /** `frame`, settled: a backwards run's at 0 (cold, once). */
 const settled = <F extends Frame.Frame<unknown>>(frame: F): F => ({ ...frame, done: true })
 
@@ -69,7 +83,8 @@ const settled = <F extends Frame.Frame<unknown>>(frame: F): F => ({ ...frame, do
  * - **Each tick's `dt`** is scaled by `head.speed`, at most `Machine.MAX_DT` a step either way, and
  *   added to its time, which it sets on `head`, so the machines of one head, started on one tick,
  *   keep its time together.
- * - **Held** while `head.paused`: the Frame it drew last, again.
+ * - **Held** while `head.paused`: the Frame it drew last, again, moving nothing: a velocity it gives
+ *   reads 0 (#464), as a held MotionValue's frames read in Motion. Made once per pause.
  * - **Backwards** below speed 0: each tick starts it again at the time it went back to, a run of
  *   `time × 60` steps; it settles at 0.
  *
@@ -91,6 +106,7 @@ export const drive: {
         // Its first tick lands at `at` when it starts partway through, whatever the `dt`.
         let landing = at > 0
         let last: F | undefined
+        let held: F | undefined
         // Per frame (ADR-0025): statement `if`s, `Math.min` / `Math.max`.
         return (dt) => {
           if (landing) {
@@ -101,8 +117,10 @@ export const drive: {
           }
           if (head.paused) {
             if (Predicate.isUndefined(last)) last = step(0)
-            return last
+            if (Predicate.isUndefined(held)) held = heldOf(last)
+            return held
           }
+          held = undefined
           const by = Math.max(-Machine.MAX_DT, Math.min(Machine.MAX_DT, dt * head.speed))
           if (by >= 0) {
             time += by
