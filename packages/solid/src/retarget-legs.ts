@@ -707,20 +707,29 @@ const legsWith = (
   return legs
 }
 
+/** What a leg's machine can be run through: the same Frames, stepped another way. */
+export type MachineMap = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>) => Machine.Machine<F>
+
+/**
+ * `leg` with its machine run through `f`: started partway ({@link startingAt}), or through an
+ * **Imperative animation**'s Playhead (#433, `Playback.drive`).
+ */
+export const mapMachine = (leg: Leg, f: MachineMap): Leg => mapMachineMatch({ leg, f })
+
+/** {@link mapMachine}'s cases, built once at module load: it runs per element at hydration (#69's PR 2). */
+const mapMachineMatch: (input: { readonly leg: Leg; readonly f: MachineMap }) => Leg = Match.type<{ readonly leg: Leg; readonly f: MachineMap }>().pipe(
+  Match.when({ leg: { _tag: "Blend" } }, ({ leg, f }): Leg => ({ ...leg, machine: () => Effect.map(leg.machine(), f) })),
+  Match.orElse(({ leg, f }): Leg => {
+    const plain = leg as Exclude<Leg, Blend>
+    return { ...plain, machine: () => f(plain.machine() as Machine.Machine<Frame.Frame<unknown>>) } as Leg
+  }),
+)
+
 /**
  * `leg`, started `at()` seconds in (`Machine.startAt`): a Handoff's first legs, which pick up an
  * Appear animation where its CSS has got (#48, ADR-0044 decision 6).
  */
-export const startingAt = (leg: Leg, at: LazyArg<number>): Leg => startingAtMatch({ leg, at })
-
-/** {@link startingAt}'s cases, built once at module load: it runs per element at hydration (#69's PR 2). */
-const startingAtMatch: (input: { readonly leg: Leg; readonly at: LazyArg<number> }) => Leg = Match.type<{ readonly leg: Leg; readonly at: LazyArg<number> }>().pipe(
-  Match.when({ leg: { _tag: "Blend" } }, ({ leg, at }): Leg => ({ ...leg, machine: () => Effect.map(leg.machine(), Machine.startAt(at)) })),
-  Match.orElse(({ leg, at }): Leg => {
-    const plain = leg as Exclude<Leg, Blend>
-    return { ...plain, machine: () => (plain.machine() as Machine.Machine<Frame.Frame<unknown>>).pipe(Machine.startAt(at)) } as Leg
-  }),
-)
+export const startingAt = (leg: Leg, at: LazyArg<number>): Leg => mapMachine(leg, Machine.startAt(at))
 
 /** The snap's leg: the positional keys, from where they are to `to`, after `delay()`. */
 const snapLeg = (from: Values.Values, positional: Values.Values, to: Values.Values, delay: () => number): Snap => ({

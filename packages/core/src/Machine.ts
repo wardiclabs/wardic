@@ -579,6 +579,32 @@ export const startAt: {
     }),
 )
 
+/**
+ * How long a run of a machine is let go to settle when its duration is asked (#433): Motion's
+ * `maxGeneratorDuration`, 20 s.
+ */
+export const MAX_DURATION = 20
+
+/**
+ * How long a run of `self` takes to settle, in seconds (#433, Motion's `duration`): stepped from its
+ * start, `CATCH_UP_DT` a step, as `startAt` catches up. `Infinity` for one that doesn't settle
+ * (`chase`, `forever`) or hasn't by {@link MAX_DURATION} (a `repeat: Infinity`). Cold: a run of up to
+ * 1,200 steps, at each ask.
+ */
+export const durationOf = <F extends Frame.Frame<unknown>>(self: Machine<F>): number => {
+  if (Bool.not(self.settles)) return Number.POSITIVE_INFINITY
+  const step = self.start()
+  let frame = step(0)
+  const most = Math.ceil(MAX_DURATION / CATCH_UP_DT)
+  // A counted loop, a settled Frame ending it, as `catchUp`'s.
+  for (let i = 0; i < most; i++) {
+    if (frame.done) return i * CATCH_UP_DT
+    frame = step(CATCH_UP_DT)
+  }
+  if (frame.done) return MAX_DURATION
+  return Number.POSITIVE_INFINITY
+}
+
 /** `step` from its start to `seconds` in: `0`, then `CATCH_UP_DT` a step, the last what's left; a settled Frame ends it. */
 const catchUp = <F extends Frame.Frame<unknown>>(step: (dt: number) => F, seconds: number): F => {
   let frame = step(0)
