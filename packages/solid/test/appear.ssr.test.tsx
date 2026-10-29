@@ -46,10 +46,12 @@
 // - AR21 (#448): a key already at its target, coerced to its shape, is left out of the rule, as the
 //   client starts it no leg: one at `1` beside a key that moves, `"0px"` against `0`, and an `auto` the
 //   DOM would read, which no longer stops the rule. An element whose every key is there has none.
+// - AR23 (#434): a `WardicConfig`'s transition times the rule of an element with none of its own;
+//   one with its own keeps it, and an inner config with `inherit: true` lays its delay over it.
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
-import { createWard, wardic, WardicProvider, type WardicTransition, type WardicVariants } from "@wardic/solid"
+import { createWard, wardic, WardicConfig, WardicProvider, type WardicTransition, type WardicVariants } from "@wardic/solid"
 import { createResource, For, type JSX, Suspense } from "solid-js"
 import { renderToStream, renderToString } from "solid-js/web"
 import { describe, expect, it } from "vitest"
@@ -582,6 +584,25 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     expect(ruleOf("pulse"), "its last stop initial's, still played").toContain("{opacity:0.2}")
     expect(ruleOf("low"), "its own middle stop").toContain("{opacity:0.3}")
     expect(ruleOf("high"), "its own middle stop, a rule of its own").toContain("{opacity:0.7}")
+  })
+
+  it("AR23: a WardicConfig's transition times an element with none of its own; inherit: true lays its delay over it (#434)", () => {
+    const rise = { initial: { opacity: 0 }, animate: { opacity: 1 } } as const
+    const html = page(() => (
+      <WardicConfig transition={{ type: "tween", duration: 1.5, ease: Easing.linear }}>
+        <wardic.div data-k="config" {...rise} />
+        <wardic.div data-k="own" {...rise} transition={{ type: "tween", duration: 0.2, ease: Easing.linear }} />
+        <WardicConfig transition={{ inherit: true, delay: 0.25 }}>
+          <wardic.div data-k="inherits" {...rise} />
+        </WardicConfig>
+      </WardicConfig>
+    ))
+    const css = headCss(html)
+    const tag = (k: string) => tagsOf(html).find((t) => t.attrs["data-k"] === k)
+    const animationOf = (k: string): string => timing(css, propertyOf(tag(k)?.style.animation)).normal
+    expect(animationOf("config"), "the config's 1.5 s").toMatch(/ 1\.5s linear 0s /)
+    expect(animationOf("own"), "its own 0.2 s").toMatch(/ 0\.2s linear 0s /)
+    expect(animationOf("inherits"), "the outer 1.5 s after its 0.25 s, held in the rule").toMatch(/ 1\.75s linear 0s /)
   })
 })
 
