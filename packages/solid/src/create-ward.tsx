@@ -64,6 +64,7 @@ import { createElementStyle } from "./element-style.ts"
 import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegistryOf, split } from "./live-style.ts"
 import { createVariantNode } from "./variant-node.ts"
 import { type GestureStates, type NameOrchestration, type ServerVariantNode, serverVariantNode, startingValuesOf, startsQuiet } from "./variant-tree.ts"
+import { registerAnimatable } from "./imperative.ts"
 import { useLayoutGroupId, useLayoutMember } from "./layout.tsx"
 import { layoutOptionsOf, wantsLayoutNode } from "./layout-member.ts"
 import { trackConstraintsOf } from "./drag-constraints.ts"
@@ -689,6 +690,8 @@ export function runSpine(opts: RunSpineOptions): void {
         animation: animationCallbacks(runtime, id),
       })
       onCleanup(spine.dispose)
+      // Its Imperative animations (#433) go through its spine while it's mounted.
+      onCleanup(registerAnimatable(element, spine))
       // A child back under its key starts where its leaver is drawn (#286), before its first Retarget.
       if (Predicate.isNotUndefined(taken)) spine.seed(taken)
 

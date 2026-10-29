@@ -21,6 +21,7 @@ import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Machine from "@wardic/core/Machine"
 import * as Override from "@wardic/core/Override"
+import * as Playback from "@wardic/core/Playback"
 import * as Projection from "@wardic/core/Projection"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Renderer from "@wardic/core/Renderer"
@@ -64,7 +65,7 @@ import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
 import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "./presence-record.ts"
 import type { DragTrack } from "./drag-track.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
-import { delayedBy, type Follows, keyframesFrom, type Leg, legsOf, type MeasuredPairs, startingAt, type StopsByKey, transitionForKey } from "./retarget-legs.ts"
+import { delayedBy, type Follows, keyframesFrom, type Leg, legsOf, mapMachine, type MeasuredPairs, startingAt, type StopsByKey, transitionForKey } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import {
   changesContext,
@@ -511,6 +512,23 @@ interface Running extends Machine.RunOptions {
 
 /** No running legs. */
 const NO_RUNNING: ReadonlyArray<Running> = []
+
+/**
+ * The resolution an **Imperative animation**'s legs run under (#433): none of the Override stack's,
+ * so a Retarget that takes a key back never carries one as its own Keyframes or names.
+ */
+const IMPERATIVE: Resolution = {
+  resolved: {},
+  base: {},
+  dragging: false,
+  variant: undefined,
+  active: { inView: false, focused: false, hovered: false, pressed: false, dragged: false, dragging: false },
+  transition: undefined,
+  layers: [],
+  names: NO_GESTURE_NAMES,
+  ends: undefined,
+  keyframes: undefined,
+}
 
 /** No values: what a spine's Retarget keys are before its first. */
 const NO_VALUES: Values.Values = {}
@@ -1378,6 +1396,26 @@ export interface FollowNow {
   readonly dragging: () => boolean
 }
 
+/** What an **Imperative animation** tells of its legs on one element (#433). */
+export interface ImperativeHooks {
+  /** Every leg it started on the element landed, told after the gate's flush of their last frames. */
+  readonly settled: () => void
+  /** A leg failed, reported already (ADR-0030). */
+  readonly failed: (cause: Cause.Cause<unknown>) => void
+}
+
+/** An **Imperative animation** on one element (#433): its legs, built at the call, run through its Playhead. */
+export interface ImperativeTrack {
+  /** Run every leg from the Playhead's time: those running end first, so a seek starts them again there. */
+  readonly run: () => void
+  /** End every leg where it is: its keys stay there, the animation's. */
+  readonly stop: () => void
+  /** End every leg, and put its keys back where it started them. */
+  readonly cancel: () => void
+  /** How long its longest leg runs, in seconds (`Machine.durationOf`, Motion's `duration`). */
+  readonly duration: () => number
+}
+
 /** A mounted element's spine. */
 export interface ElementSpine {
   /** A Retarget toward `resolution`: called by the binding on each change of its target, untracked. */
@@ -1392,6 +1430,15 @@ export interface ElementSpine {
    * drove does.
    */
   readonly seed: (from: PresenceSeed) => void
+  /**
+   * An **Imperative animation** of the element (#433): it takes `target`'s keys from whatever runs
+   * them, each noted with the target the Override stack has for it now, so a Retarget leaves it where
+   * the animation leaves it until that target changes (Motion's latest-wins). Its legs start where
+   * the keys are drawn, with their velocity, on `transition` (a key with none of its own on its
+   * Default transition), reduced motion as the provider says, and run through `head` once
+   * {@link ImperativeTrack.run} is called.
+   */
+  readonly animate: (target: Target, transition: WardicTransition | undefined, head: Playback.Playhead, hooks: ImperativeHooks) => ImperativeTrack
 }
 
 /**
@@ -1485,6 +1532,10 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   // interrupted, so off the loop at once and its fiber ended normally, at about a sixth of an
   // interrupt's cost.
   const owners: Owners = new Map()
+  // The keys an Imperative animation took (#433), each with the target the Override stack had for it
+  // then: a Retarget leaves each where the animation leaves it while its target is still that one, and
+  // takes it back once it isn't, as a newer animation of Motion's value takes it (latest-wins).
+  const taken = new Map<string, number | string | undefined>()
   // The legs that gave up a key in this Retarget: what each still draws is worked out at its end.
   const losing: Array<Running> = []
   // The landing every running leg counts toward: the last Retarget's.
@@ -1532,6 +1583,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   let resolvedNow: Values.Values = NO_VALUES
   const giveUpUnresolved = (owner: Running | undefined, key: string): void => {
     if (Predicate.isUndefined(owner)) return
+    // An Imperative animation's key (#433) is its own while taken.
+    if (taken.has(key)) return
     if (Bool.not(Object.hasOwn(resolvedNow, key))) giveUp(key, owner)
   }
 
@@ -1548,10 +1601,121 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     losing.length = 0
   }
 
+  /**
+   * Where `key` starts toward `like` (ADR-0024, D1; ADR-0022, D3): its Snapshot value, coerced to its
+   * target's shape; one of another type on a positional key as it is, a Measured pair (#430); else
+   * its Base value's start link, read at its first need, noted in `started`; with none, at its target
+   * (no motion). Guards, not a match: per key, per Retarget, and a key with a value builds nothing.
+   */
+  const startKey = (key: string, like: number | string, started: Record<string, string>): void => {
+    const coerced = OwnValues.valueLike(snapshot.values[key], like)
+    if (Option.isSome(coerced)) snapshot.values[key] = coerced.value
+    // A start of another type than its target's, on a positional key, stays as it is: a Measured
+    // pair (#430), measured at the end of the task.
+    if (Bool.and(Option.isNone(coerced), Bool.not(keepsStart(key, snapshot.values[key], like)))) {
+      Option.match(Option.filter(startLinkOf(key, like), (s) => isSameKind(s.value, like)), {
+        onSome: (s) => {
+          snapshot.values[key] = s.value
+          started[key] = s.source
+        },
+        onNone: () => {
+          snapshot.values[key] = like
+          started[key] = "target"
+        },
+      })
+    }
+  }
+
   // A key's leg ended by a failure (#257 item 4): nothing draws its keys, so a later Retarget starts them afresh.
   const forget = (running: Running): void =>
     Arr.forEach(Rec.keys(running.targets), (key) => {
       if (owners.get(key) === running) owners.set(key, undefined)
+    })
+
+  /**
+   * A leg's run into its sink: one dispatcher, each sink built for the leg that needs it, a
+   * Retarget's and an Imperative animation's (#433).
+   */
+  const legProgram = (leg: Leg, running: Running): Effect.Effect<unknown, never, WardicServices> => {
+    if (leg._tag === "Follow") {
+      const key = leg.key
+      const out: Record<string, number> = { [key]: 0 }
+      return Effect.suspend(() =>
+        leg.machine().pipe(
+          Machine.run((frame) => {
+            out[key] = frame.value
+            snapshot.values[key] = frame.value
+            snapshot.velocities[key] = UndefinedOr.match(frame.velocity, { onUndefined: () => 0, onDefined: identity })
+            gate.write(id, out)
+            recordFrame(out)
+            drew(running, frame.done)
+            return undefined
+          }, running),
+        )
+      )
+    }
+    if (leg._tag === "Numbers") {
+      return Effect.suspend(() =>
+        leg.machine().pipe(
+          Machine.run((frame) => {
+            // MULTI-OWNER MERGE (ADR-0004): merge the spring's keys into the snapshot
+            // rather than replacing it, so the drag's direct-set x/y survive alongside the
+            // spring's keys (drag owns x/y, spring owns the rest) and the post-drag
+            // handoff continues from the rested position. Only the keys it still draws (#325).
+            const value = running.values(frame.value)
+            snapshot.values = { ...snapshot.values, ...value }
+            snapshot.velocities = { ...snapshot.velocities, ...running.velocities(frame.velocity) }
+            gate.write(id, value)
+            recordFrame(value)
+            drew(running, frame.done)
+            return undefined
+          }, running),
+        )
+      )
+    }
+    // A snap's or a blend's frames: merged into the Snapshot (ADR-0004), as the spring's are.
+    const sink = (frame: Frame.Frame<Values.Values>): undefined => {
+      const value = running.values(frame.value)
+      snapshot.values = { ...snapshot.values, ...value }
+      gate.write(id, value)
+      recordFrame(value)
+      drew(running, frame.done)
+      return undefined
+    }
+    if (leg._tag === "Snap") {
+      // A snapped key comes to rest, so a later spring starts it at rest.
+      snapshot.velocities = { ...snapshot.velocities, ...Rec.fromEntries(Arr.map(leg.keys, (key) => [key, 0] as const)) }
+      return Effect.suspend(() => leg.machine().pipe(Machine.run(sink, running)))
+    }
+    return Effect.suspend(leg.machine).pipe(
+      InterpolatorRegistry.withKeyRules(elementRules),
+      Effect.flatMap(Machine.run(sink, running)),
+    )
+  }
+
+  // A leg's end, told its landing: a Retarget's legs' and an Imperative animation's (#433).
+  const legEnded = (running: Running) => (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
+    Exit.match(exit, {
+      // A Superseded leg (#200) counts toward nothing, nor tells a name: the next Retarget's legs
+      // land. Nothing made for it: a Retarget ends its element's legs inline.
+      onSuccess: (end) => {
+        if (Supersede.isSuperseded(end)) return Effect.void
+        return Effect.sync(() => {
+          running.landing.settled()
+          UndefinedOr.map(running.names, (tell) => tell(end))
+        })
+      },
+      // A leg its token didn't reach is interrupted: its keys are given up already, and it isn't a failure.
+      onFailure: (cause) => {
+        if (Cause.hasInterruptsOnly(cause)) return Effect.void
+        return Report.failure("wardic.spine: a leg failed", cause).pipe(
+          Effect.annotateLogs({ id }),
+          Effect.andThen(Effect.sync(() => {
+            forget(running)
+            running.landing.failed(cause)
+          })),
+        )
+      },
     })
 
   // A gated Retarget (ADR-0007 `when`, #325): a running key it resolves to its leg's target runs on,
@@ -1567,6 +1731,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     owners.forEach((running, key) => {
       if (Predicate.isUndefined(running)) return
       if (running.done) return
+      // An Imperative animation's key (#433) is its own while taken.
+      if (taken.has(key)) return
       if (Bool.every([Object.hasOwn(resolved, key), running.targets[key] === resolved[key], Bool.not(sameResolution(running.resolution, resolution))])) {
         running.landing = landing
         running.names = undefined
@@ -1633,6 +1799,11 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       }
     }
     const held = dragHolds(resolution)
+    // The keys an Imperative animation took (#433): one whose target here isn't the one it had when
+    // taken is the Override stack's again.
+    if (taken.size > 0) Iter.forEach(taken, ([key, was]) => {
+      if (resolved[key] !== was) taken.delete(key)
+    })
 
     // A key a Retarget drove and no layer sets now returns to its Base value
     // (ADR-0022); with none, it stays where it is (as before #47).
@@ -1647,6 +1818,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     Iter.forEach(driven, ([key, like]) => {
       // A translate key the strip below holds back returns once the drag lets go.
       if (Object.hasOwn(resolved, key) || (held && TRANSLATE_KEYS.has(key))) return
+      // One an Imperative animation holds (#433) stays where it leaves it.
+      if (taken.has(key)) return
       Option.match(BaseValue.of(key, { base, initial: initialLink, started: startedLink, ...linksFor(like) }), {
         onNone: () => {
           driven.delete(key)
@@ -1663,6 +1836,10 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // keys re-enter normally (post-drag handoff: the spring continues x/y only
     // if `animate` sets them, from the snapshot's rested position).
     if (held) Arr.forEach(TRANSLATE_KEY_LIST, (key) => delete t[key])
+    // Every key an Imperative animation holds stays where it leaves it (#433).
+    if (taken.size > 0) Iter.forEach(taken, ([key]) => {
+      delete t[key]
+    })
     // The keys this Retarget returns; once it lands, a key back at its `style` value is
     // handed back to the element's style (D4) and the rest rest inline.
     const returns = [...returning]
@@ -1782,23 +1959,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         }
         giveUp(key, owner)
       }
-      // Guards, not a match: per key, per Retarget, and a key with a value builds nothing.
-      const coerced = OwnValues.valueLike(snapshot.values[key], like)
-      if (Option.isSome(coerced)) snapshot.values[key] = coerced.value
-      // A start of another type than its target's, on a positional key, stays as it is: a Measured
-      // pair (#430), measured at the end of the task.
-      if (Bool.and(Option.isNone(coerced), Bool.not(keepsStart(key, snapshot.values[key], like)))) {
-        Option.match(Option.filter(startLinkOf(key, like), (s) => isSameKind(s.value, like)), {
-          onSome: (s) => {
-            snapshot.values[key] = s.value
-            started[key] = s.source
-          },
-          onNone: () => {
-            snapshot.values[key] = like
-            started[key] = "target"
-          },
-        })
-      }
+      startKey(key, like, started)
       // A Measured pair (#430): its two ends of different types, found in this pass, so a Retarget
       // with none builds nothing for them.
       if (MeasuredPair.isMeasuredPair(key, UndefinedOr.getOrThrow(snapshot.values[key]), like)) {
@@ -1866,29 +2027,6 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       onTrue: (): Effect.Effect<void> | undefined => baseLog(started, returns),
       onFalse: constUndefined,
     })
-    const legEnded = (running: Running) => (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
-      Exit.match(exit, {
-        // A Superseded leg (#200) counts toward nothing, nor tells a name: the next Retarget's legs
-        // land. Nothing made for it: a Retarget ends its element's legs inline.
-        onSuccess: (end) => {
-          if (Supersede.isSuperseded(end)) return Effect.void
-          return Effect.sync(() => {
-            running.landing.settled()
-            UndefinedOr.map(running.names, (tell) => tell(end))
-          })
-        },
-        // A leg its token didn't reach is interrupted: its keys are given up already, and it isn't a failure.
-        onFailure: (cause) => {
-          if (Cause.hasInterruptsOnly(cause)) return Effect.void
-          return Report.failure("wardic.spine: a leg failed", cause).pipe(
-            Effect.annotateLogs({ id }),
-            Effect.andThen(Effect.sync(() => {
-              forget(running)
-              running.landing.failed(cause)
-            })),
-          )
-        },
-      })
     // A list's names told settled one by one (#297, Solid 1's callbacks): each as the legs of the keys
     // it drives settle. Made only for a list with a binding that's told so.
     let names: NameSettles | undefined
@@ -1990,77 +2128,13 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
           running.names = settles.carried(i)
         }))
     }
-    // Each leg into its sink, in the builder's order: one dispatcher a Retarget, each sink
-    // built for the leg that needs it (#69's PR 2: a Retarget is per element). Each leg draws
-    // the keys it animates (#325) until a later Retarget takes them.
+    // Each leg into its sink, in the builder's order (#69's PR 2: a Retarget is per element). Each
+    // leg draws the keys it animates (#325) until a later Retarget takes them.
     Arr.forEach(retargetLegs, (leg: Leg, i): void => {
       if (Predicate.isNotUndefined(legGates)) gateNow = legGates[i]
       const running = runningOf(leg.to, resolution, landing)
       own(running)
-      if (leg._tag === "Follow") {
-        const key = leg.key
-        const out: Record<string, number> = { [key]: 0 }
-        runLeg(
-          running,
-          Effect.suspend(() =>
-            leg.machine().pipe(
-              Machine.run((frame) => {
-                out[key] = frame.value
-                snapshot.values[key] = frame.value
-                snapshot.velocities[key] = UndefinedOr.match(frame.velocity, { onUndefined: () => 0, onDefined: identity })
-                gate.write(id, out)
-                recordFrame(out)
-                drew(running, frame.done)
-                return undefined
-              }, running),
-            )),
-        )
-        return
-      }
-      if (leg._tag === "Numbers") {
-        runLeg(
-          running,
-          Effect.suspend(() =>
-            leg.machine().pipe(
-              Machine.run((frame) => {
-                // MULTI-OWNER MERGE (ADR-0004): merge the spring's keys into the snapshot
-                // rather than replacing it, so the drag's direct-set x/y survive alongside the
-                // spring's keys (drag owns x/y, spring owns the rest) and the post-drag
-                // handoff continues from the rested position. Only the keys it still draws (#325).
-                const value = running.values(frame.value)
-                snapshot.values = { ...snapshot.values, ...value }
-                snapshot.velocities = { ...snapshot.velocities, ...running.velocities(frame.velocity) }
-                gate.write(id, value)
-                recordFrame(value)
-                drew(running, frame.done)
-                return undefined
-              }, running),
-            )),
-        )
-        return
-      }
-      // A snap's or a blend's frames: merged into the Snapshot (ADR-0004), as the spring's are.
-      const sink = (frame: Frame.Frame<Values.Values>): undefined => {
-        const value = running.values(frame.value)
-        snapshot.values = { ...snapshot.values, ...value }
-        gate.write(id, value)
-        recordFrame(value)
-        drew(running, frame.done)
-        return undefined
-      }
-      if (leg._tag === "Snap") {
-        // A snapped key comes to rest, so a later spring starts it at rest.
-        snapshot.velocities = { ...snapshot.velocities, ...Rec.fromEntries(Arr.map(leg.keys, (key) => [key, 0] as const)) }
-        runLeg(running, Effect.suspend(() => leg.machine().pipe(Machine.run(sink, running))))
-        return
-      }
-      runLeg(
-        running,
-        Effect.suspend(leg.machine).pipe(
-          InterpolatorRegistry.withKeyRules(elementRules),
-          Effect.flatMap(Machine.run(sink, running)),
-        ),
-      )
+      runLeg(running, legProgram(leg, running))
     })
     // Each layer's Transition end (#428): a leg holding the keys only its end sets where they are,
     // waiting for the keys the layer animates to land (the legs drawing them now, this Retarget's or
@@ -2152,6 +2226,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         Bool.some([
           driven.has(key),
           Object.hasOwn(now.resolved(), key),
+          // An Imperative animation's (#433).
+          taken.has(key),
           // The drag direct-sets both translate keys while it, and its release, run (ADR-0004).
           Bool.and(dragHolds, Bool.and(now.dragging(), Bool.or(key === "x", key === "y"))),
         ])
@@ -2217,8 +2293,96 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     queueMicrotask(() => gate.flushPass(() => gate.write(id, values)))
   }
 
-  return { retarget, follow, dispose, seed }
+  // --- Imperative animations (#433) -------------------------------------------
+  /** A leg of an Imperative animation, run in the element's FiberSet as a Retarget's are; it lands on its track. */
+  const runImperative = (running: Running, program: Effect.Effect<unknown, never, WardicServices>): void => {
+    const fiber = runtime.runFork(program.pipe(Effect.onExit(legEnded(running)), Effect.asVoid))
+    running.fiber = fiber
+    FiberSet.addUnsafe(legFibers, fiber)
+  }
+
+  const animate = (target: Target, given: WardicTransition | undefined, head: Playback.Playhead, hooks: ImperativeHooks): ImperativeTrack => {
+    const to = target.values
+    const before = UndefinedOr.match(lastResolution, { onUndefined: () => NO_VALUES, onDefined: (last) => last.resolved })
+    const started: Record<string, string> = {}
+    let measuring: Array<string> | undefined
+    // Each key taken from whatever runs it, noted with its target now, and started where it's drawn.
+    Arr.forEach(Rec.keys(to), (key) => {
+      taken.set(key, before[key])
+      returning.delete(key)
+      const owner = owners.get(key)
+      if (Predicate.isNotUndefined(owner)) giveUp(key, owner)
+      if (Bool.not(Object.hasOwn(initialValues, key))) ownValue(key)
+      const like = UndefinedOr.getOrThrow(to[key])
+      startKey(key, like, started)
+      if (MeasuredPair.isMeasuredPair(key, UndefinedOr.getOrThrow(snapshot.values[key]), like)) {
+        if (Predicate.isUndefined(measuring)) measuring = []
+        measuring.push(key)
+      }
+    })
+    keepTheRest()
+    let from: Values.Values = Rec.map(to, (_, key) => UndefinedOr.getOrThrow(snapshot.values[key]))
+    let stops: StopsByKey | undefined
+    if (Predicate.isNotUndefined(target.keyframes)) {
+      const begun = keyframesFrom(from, to, target.keyframes)
+      from = begun.from
+      stops = begun.stops
+    }
+    const reduce = options.reducedMotion()
+    let measured: MeasuredPairs | undefined
+    if (Bool.and(Bool.not(reduce), Predicate.isNotUndefined(measuring))) measured = measuredOf(element, UndefinedOr.getOrThrow(measuring), from, to, snapshot.values)
+    // Built once: a seek or a replay runs the same legs, from the same start, with the same velocities.
+    const built = legsOf(from, to, given, reduce, positionalKeys, defaultTransition, { ...snapshot.velocities }, undefined, stops, measured)
+    const legs = Arr.map(built, (leg) => mapMachine(leg, Playback.drive(head)))
+    let runnings: ReadonlyArray<Running> = NO_RUNNING
+    let left = 0
+    const landing: Landing = {
+      report: constVoid,
+      settled: () => {
+        left--
+        if (left === 0) gate.afterFlush(hooks.settled)
+      },
+      failed: hooks.failed,
+    }
+    // Its legs ended where they are: the keys they draw are drawn by none.
+    const end = (): void =>
+      Arr.forEach(runnings, (running) => {
+        forget(running)
+        if (Bool.not(running.done)) endLeg(running)
+      })
+    const run = (): void => {
+      end()
+      left = legs.length
+      runnings = Arr.map(legs, (leg) => {
+        const running = runningOf(leg.to, IMPERATIVE, landing)
+        own(running)
+        runImperative(running, legProgram(leg, running))
+        return running
+      })
+      // A target with no key lands at once.
+      if (left === 0) gate.afterFlush(hooks.settled)
+    }
+    const cancel = (): void => {
+      end()
+      snapshot.values = { ...snapshot.values, ...from }
+      snapshot.velocities = { ...snapshot.velocities, ...Rec.map(from, () => 0) }
+      gate.write(id, from)
+      recordFrame(from)
+    }
+    // Each leg's machine, run from its start to rest, apart from the Playhead, which it would move: a
+    // blend's built with the element's Key rules.
+    const duration = (): number =>
+      Arr.reduce(built, 0, (longest, leg) => Math.max(longest, Machine.durationOf(machineOf(leg))))
+    const machineOf = (leg: Leg): Machine.Machine<Frame.Frame<unknown>> => {
+      if (leg._tag === "Blend") return runtime.runSync(Effect.suspend(leg.machine).pipe(InterpolatorRegistry.withKeyRules(elementRules)))
+      return leg.machine() as Machine.Machine<Frame.Frame<unknown>>
+    }
+    return { run, stop: end, cancel, duration }
+  }
+
+  return { retarget, follow, dispose, seed, animate }
 }
+
 
 /**
  * `sink` with an `onCommit` that calls the config's current `onUpdate` (#233), when the config had

@@ -93,6 +93,7 @@ import { createLiveStyle, type LiveSource, readLive, serverRegistryOf, split } f
 import { dragTransitionOf } from "../../drag-transition.ts"
 import { layoutOptionsOf, registrationOf, wantsLayoutNode } from "../../layout-member.ts"
 import { useLayoutGroupId } from "./layout.tsx"
+import { registerAnimatable } from "../../imperative.ts"
 import { presenceBlocksInitial, presenceHold, presenceSeedOf } from "../../presence-record.ts"
 import { handoffOf, setsAnimation } from "../../appear.ts"
 import {
@@ -1170,6 +1171,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     if (Predicate.isNotUndefined(taken)) spine.seed(taken)
     // Live values in `style` (#130, ADR-0043): followed from the first routed key on.
     spine.follow({ resolved: () => untrack(target).resolved, dragging: () => untrack(dragging) })
+    // Its Imperative animations (#433) go through its spine while it's mounted.
+    const unregisterAnimatable = registerAnimatable(el, spine)
     const m: Mounted = {
       element: el,
       spine,
@@ -1183,6 +1186,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       dispose: () => {
         if (Predicate.isNotUndefined(undrive)) undrive()
         UndefinedOr.map(mountedHook, (end) => end())
+        unregisterAnimatable()
         spine.dispose()
         // Its gesture watches' and drag track's listeners go, a running release stops, and their spans end.
         UndefinedOr.map(watchScope, (scope) => runtime.runSync(Scope.close(scope, Exit.void)))
