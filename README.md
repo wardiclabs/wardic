@@ -151,6 +151,8 @@ Transitions follow Motion's rules (ADR-0051):
   - A `stiffness`, `damping` or `mass` beside them wins, as in Motion, and Motion's fill the rest.
   - Two differences: a `visualDuration` alone is honoured, with no bounce, where Motion ignores it; and a `visualDuration` spring keeps the velocity it's handed (a fling, an interrupted animation), where Motion drops it. A `duration` spring starts from rest, as Motion's does, so it lands on time.
 
+- **`type: "inertia"` is Motion's** (#435, ADR-0064): each number glides from where it is at its velocity (its own, or the transition's `velocity`) and rests `power × velocity` on, through `modifyTarget`, bouncing back inside `min` / `max`. Its target isn't read, so with no velocity it stays where it is. `timeConstant` is in milliseconds, as Motion's. One difference: a key that isn't a number (a colour, a length with units) runs on its Default transition, where Motion's leaves it where it is, or carries it past its target. A layout animation under it runs on Motion's default layout tween.
+
 Each Environment picks its own defaults: `DomLive` has Motion's, and the Test Environment runs every key on one 170 / 26 spring.
 
 One timing difference: a main-thread stall longer than 0.5 s (a hidden tab, a debugger pause) advances an animation 0.5 s, and it plays out the rest when frames resume, where Motion's jumps to where the elapsed time puts it. A shorter stall lands a tween, a spring or a layout animation where Motion's lands (ADR-0017, *Amendment (#23)*).

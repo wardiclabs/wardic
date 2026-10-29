@@ -16,6 +16,7 @@
 import type * as Machine from "@wardic/core/Machine"
 import type { Atom } from "effect/reactivity"
 import type {
+  WardicInertia,
   WardicInherit,
   WardicOrchestration,
   WardicReducedMotion,
@@ -130,7 +131,7 @@ export type WardValueOf<C, K extends string> = K extends keyof WardicTransformSh
 
 /** A transition option's name, on either arm, a target's `inherit` among them: never an entry. */
 type OptionName =
-  | keyof (Omit<Machine.SpringOptions, "from"> & Machine.AnimateOptions & WardicOrchestration & WardicReducedMotion & WardicSkipAnimations & WardicInherit)
+  | keyof (Omit<Machine.SpringOptions, "from"> & Machine.AnimateOptions & WardicOrchestration & WardicReducedMotion & WardicSkipAnimations & WardicInherit & WardicInertia)
   | "type"
 
 /**
@@ -336,9 +337,7 @@ export type InferredMotion<M, K extends TargetKey, N extends string, LI extends 
     readonly whileInView?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
     readonly variants?: { readonly [V in N]: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantResolver }
     readonly drag?: D
-    readonly transition?: NoInfer<
-      true extends JoinedBy<N, LI, LA> | ([InferredKey<K, D, X>] extends [never] ? true : false)
-        ? WardicTransition
-        : WardicTransitionWith<WardicValueEntries<InferredKey<K, D, X>> & { readonly layout?: WardicValueTransition }>
-    >
+    readonly transition?: true extends NoInfer<JoinedBy<N, LI, LA> | ([InferredKey<K, D, X>] extends [never] ? true : false)>
+      ? WardicTransition
+      : WardicTransitionWith<NoInfer<WardicValueEntries<InferredKey<K, D, X>> & { readonly layout?: WardicValueTransition }>>
   }

@@ -52,6 +52,7 @@ export type {
   WardicOrchestration,
   WardicReducedMotion,
   WardicSkipAnimations,
+  WardicInertia,
   WardicTransformShorthands,
   WardicTransition,
   WardicTransitionEntries,

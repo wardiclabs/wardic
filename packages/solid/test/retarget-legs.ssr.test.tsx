@@ -24,6 +24,7 @@
 // - PV7: a stagger's transition, made anew each Retarget with its entries, is reused while their
 //   fields are the same (#66's decode cache keys on the object).
 import * as DefaultTransition from "@wardic/core/DefaultTransition"
+import * as Inertia from "@wardic/core/Inertia"
 import type * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
@@ -273,6 +274,57 @@ describe("a Skipped animation's legs (#468)", () => {
   it("SL3: a turned repeat lands where it would end", () => {
     const legs = legsFor({ skipped: true, transition: { type: "tween", duration: 1, repeat: 1, repeatType: "reverse" } })
     expect(firstTick(legs), "back at its start").toEqual([{ value: { x: 0, opacity: 0, backgroundColor: "#000" }, done: true }])
+  })
+})
+
+describe("an inertia's legs (#435)", () => {
+  /** Each leg's frames, stepped at 1/60 s until done. */
+  const settledOf = (leg: Leg): Readonly<Record<string, unknown>> => {
+    const step = machineOf(leg).start()
+    let frame = step(1 / 60)
+    for (let i = 0; i < 2000 && !frame.done; i++) frame = step(1 / 60)
+    return frame.value as Readonly<Record<string, unknown>>
+  }
+  const INERTIA = { type: "inertia", max: 300 } as const
+
+  it("IN1: a number glides from where it is at its own velocity, whatever its target; with none it stays", () => {
+    const gliding = legsFor({ to: { x: 100 }, transition: INERTIA, velocities: { x: 500 } })
+    expect(gliding.map((leg) => leg._tag)).toEqual(["Numbers"])
+    expect(settledOf(gliding[0]!), "where its glide rests, past its target").toEqual({ x: Inertia.restOf(0, 500, { max: 300 }) })
+    const given = legsFor({ to: { x: 100 }, transition: { ...INERTIA, velocity: -200 }, velocities: { x: 500 } })
+    expect(settledOf(given[0]!), "the transition's velocity over its own").toEqual({ x: Inertia.restOf(0, -200, {}) })
+    const still = legsFor({ to: { x: 100 }, transition: INERTIA })
+    expect(machineOf(still[0]!).start()(1 / 60), "no velocity: it stays, on its first step").toEqual({ value: { x: 0 }, velocity: { x: 0 }, done: true })
+  })
+
+  it("IN2: a key that isn't a number runs on its Default transition, its delay kept", () => {
+    const legs = legsFor({ transition: { ...INERTIA, delay: 0.2 }, velocities: { x: 500 } })
+    expect(legs.map((leg) => leg._tag), "x glides; opacity glides too, a number; the colour on the Default spring").toEqual(["Numbers", "Blend"])
+    const alone = legsFor({ to: { backgroundColor: "#fff" } })
+    expect(settledOf(legs[1]!), "the colour lands as it would with no transition").toEqual(settledOf(alone[0]!))
+    const colour = machineOf(legs[1]!).start()
+    expect(colour(0.1).value, "held through the delay").toEqual({ backgroundColor: "rgb(0, 0, 0)" })
+  })
+
+  it("IN3: timeConstant is Motion's milliseconds", () => {
+    const legs = legsFor({ to: { x: 100 }, transition: { type: "inertia", timeConstant: 700 }, velocities: { x: 400 } })
+    const step = machineOf(legs[0]!).start()
+    const machine = Machine.inertia(0, 400, { timeConstant: 0.7 }).start()
+    for (let i = 0; i < 20; i++) expect((step(1 / 60).value as Record<string, number>).x).toBeCloseTo(machine(1 / 60).value, 9)
+  })
+
+  it("IN4: reduced motion and skipAnimations land a key where its glide rests; more than two Keyframes fail", () => {
+    const rest = Inertia.restOf(0, 500, { max: 300 })
+    const reduced = legsFor({ reducedMotion: true, to: { x: 100 }, transition: INERTIA, velocities: { x: 500 } })
+    expect(reduced.map((leg) => leg._tag), "x is positional: snapped").toEqual(["Snap"])
+    expect(settledOf(reduced[0]!)).toEqual({ x: rest })
+    const skipped = legsFor({ skipped: true, to: { x: 100, opacity: 1 }, transition: INERTIA, velocities: { x: 500 } })
+    expect(settledOf(skipped[0]!), "x where it rests, opacity where it is (no velocity)").toEqual({ x: rest, opacity: 0 })
+    const given = legsFor({ skipped: true, to: { x: 100 }, transition: { ...INERTIA, velocity: -200 }, velocities: { x: 500 } })
+    expect(settledOf(given[0]!), "skipped, on the transition's velocity over its own").toEqual({ x: Inertia.restOf(0, -200, { max: 300 }) })
+    const keyframed = legsOf({ x: 0 }, { x: 50 }, INERTIA, false, false, positionalKeys, defaults, velocitiesOf({}), undefined, { x: [0, 100, 50] })
+    const failing = keyframed.find((leg) => leg._tag === "Blend")!
+    expect(() => Effect.runSync(Effect.provide(failing.machine() as Effect.Effect<unknown>, DomInterpolators.layer)), "Motion's two-keyframe rule").toThrow(/an inertia takes two/)
   })
 })
 

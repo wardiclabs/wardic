@@ -26,15 +26,20 @@ import { ownOrInherited, type WardicVariantContextValue } from "./variant-tree.t
  * One transition as a layout animation's (ADR-0009 *Amendment (#171)*, ADR-0051): as it runs, a value's
  * rule (a spring when it says so or gives a spring field, else a tween, Motion's fields filled in), so
  * a ported `{ duration: 0.5 }` is a 0.5 s tween. One that defines none, a `delay` alone say, is
- * Motion's default layout tween with its delay: it never turns a layout animation into a spring.
+ * Motion's default layout tween with its delay: it never turns a layout animation into a spring. An
+ * inertia (#435) is that tween too: a layout animation's progress has no velocity to glide on.
  */
 const asLayoutTransition = (t: WardicTransition): ProjectionSystem.LayoutTransition =>
   UndefinedOr.match(runOf(t), {
     // A layout tween takes one `ease`: a list of them (#429) is a Keyframes tween's, which core's layout tween rejects.
-    onDefined: (run): ProjectionSystem.LayoutTransition => run as ProjectionSystem.LayoutTransition,
-    onUndefined: () =>
-      UndefinedOr.match(t.delay, { onUndefined: () => ProjectionSystem.DEFAULT_LAYOUT_TRANSITION, onDefined: (delay): ProjectionSystem.LayoutTransition => ({ ...ProjectionSystem.DEFAULT_LAYOUT_TRANSITION, delay }) }),
+    onDefined: (run): ProjectionSystem.LayoutTransition =>
+      Bool.match(run.type === "inertia", { onTrue: () => defaultLayoutAfter(t.delay), onFalse: () => run as ProjectionSystem.LayoutTransition }),
+    onUndefined: () => defaultLayoutAfter(t.delay),
   })
+
+/** Motion's default layout tween, after `delay` when given. */
+const defaultLayoutAfter = (delay: number | undefined): ProjectionSystem.LayoutTransition =>
+  UndefinedOr.match(delay, { onUndefined: () => ProjectionSystem.DEFAULT_LAYOUT_TRANSITION, onDefined: (after): ProjectionSystem.LayoutTransition => ({ ...ProjectionSystem.DEFAULT_LAYOUT_TRANSITION, delay: after }) })
 
 /**
  * The element's layout transition (ADR-0009 *Amendment (#171)*, *Amendment (#301)*): Motion's

@@ -585,7 +585,11 @@ const segmentTransitionOf = (options: WardicSegmentOptions | undefined, key: str
     onDefined: (given) => Rec.filter(given, (_, field) => Bool.not(PLACING.has(field))),
   })
   const { delay, at: _at, ...fields } = own
-  const run = UndefinedOr.match(runOf({ ...base, ...fields } as WardicTransition), { onUndefined: () => SEGMENT_TWEEN, onDefined: (made) => made as Sequence.Transition })
+  // An inertia (#435) isn't a sequence's: a Segment's time is placed on its timeline, and a glide has none to place.
+  const run = UndefinedOr.match(runOf({ ...base, ...fields } as WardicTransition), {
+    onUndefined: () => SEGMENT_TWEEN,
+    onDefined: (made) => Bool.match(made.type === "inertia", { onTrue: () => SEGMENT_TWEEN, onFalse: () => made as Sequence.Transition }),
+  })
   return Bool.match(Predicate.isUndefined(delay), { onTrue: () => run, onFalse: () => ({ ...run, delay }) as Sequence.Transition })
 }
 

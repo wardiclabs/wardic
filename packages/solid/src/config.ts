@@ -151,6 +151,37 @@ export interface WardicReducedMotion {
 }
 
 /**
+ * A transition of `type: "inertia"` (#435, Motion's): each number glides from where it's drawn, at its
+ * velocity (its own, or `velocity`), and rests `power × velocity` on, through `modifyTarget`, springing
+ * back to `min` / `max` past one; its target isn't read, so with no velocity it stays where it is. A
+ * key that isn't a number (a colour, a length with units) runs on its Default transition instead, as
+ * if this defined none for it. Motion's units: `timeConstant` in milliseconds.
+ */
+export interface WardicInertia {
+  readonly type: "inertia"
+  /** The velocity every key glides from, per second: each key's own (its frames', #464) when left out. */
+  readonly velocity?: number
+  /** How far a glide carries, as a multiple of its velocity. Default 0.8. */
+  readonly power?: number
+  /** The glide's time constant, in milliseconds. Default 325. */
+  readonly timeConstant?: number
+  /** The bounce back from an edge: its stiffness and damping. Defaults 500 and 10. */
+  readonly bounceStiffness?: number
+  readonly bounceDamping?: number
+  /** At rest within this of where it's going. Default 0.5. */
+  readonly restDelta?: number
+  /** A bounce at rest below this speed, per second. Default 2. */
+  readonly restSpeed?: number
+  /** Moves where a glide rests, called with where it would: snapping it to a grid, say. */
+  readonly modifyTarget?: (ideal: number) => number
+  /** The edges: past one, the glide springs back to it. */
+  readonly min?: number
+  readonly max?: number
+  /** Seconds each key holds where it is before it glides. */
+  readonly delay?: number
+}
+
+/**
  * A transition's **Skipped animation** (#468, Motion's `skipAnimations`), on both arms: `true` lands its
  * keys at their ends on the next frame, with no delay, as a `WardicConfig`'s `skipAnimations` does.
  * `false` doesn't undo a config's.
@@ -185,6 +216,7 @@ export type WardicTransition = WardicTransitionWith<WardicTransitionEntries>
 export type WardicTransitionWith<E> =
   | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicOrchestration & WardicReducedMotion & WardicSkipAnimations & E)
   | ({ readonly type?: "tween" } & Machine.KeyframesOptions & WardicOrchestration & WardicReducedMotion & WardicSkipAnimations & E)
+  | (WardicInertia & WardicOrchestration & WardicReducedMotion & WardicSkipAnimations & E)
 
 /**
  * One value's own transition (#301, Motion's `ValueTransition`): a spring or a tween, as a
@@ -195,6 +227,7 @@ export type WardicTransitionWith<E> =
 export type WardicValueTransition =
   | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicReducedMotion & WardicSkipAnimations & WardicInherit)
   | ({ readonly type?: "tween" } & Machine.KeyframesOptions & WardicReducedMotion & WardicSkipAnimations & WardicInherit)
+  | (WardicInertia & WardicReducedMotion & WardicSkipAnimations & WardicInherit)
 
 /** An entry's or a target's `inherit` (#277, #301, Motion's): laid over the transition it would replace. */
 export interface WardicInherit {
