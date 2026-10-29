@@ -12,8 +12,8 @@
 // - WC7: a config's transition that defines none (a `delay` alone) keeps its delay over each key's
 //   Default transition.
 // - WC8: `createAnimate`'s `animate()` runs on its options alone, as Motion's: not on the config's.
-// - WC9: a change to the config moves nothing, and is told as a change to the element's own
-//   `transition` is; the next animation runs on the new one.
+// - WC9: a change to the config moves nothing and tells nothing, as a change to the element's own
+//   `transition` (#470, Motion's); the next animation runs on the new one.
 // - WC10: a config's `staggerChildren` staggers the Variant children of an element that gives none.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
@@ -221,7 +221,7 @@ describe("WardicConfig's transition on Solid 1 (#434)", () => {
     expect(xOf(q("p")), "a transform's spring, past the config's 40").toBeGreaterThan(80)
   })
 
-  it("WC9: a change to the config moves nothing, as a change to the element's own; the next animation runs on the new one", async () => {
+  it("WC9: a change to the config moves nothing and tells nothing, as the element's own; the next animation runs on the new one", async () => {
     const [transition, setTransition] = createSignal<WardicTransition>(SLOW)
     const [on, setOn] = createSignal(false)
     let configStarts = 0
@@ -236,9 +236,12 @@ describe("WardicConfig's transition on Solid 1 (#434)", () => {
       </>
     ))
     await frames(3)
+    const mounted = { config: configStarts, own: ownStarts }
     setTransition(() => FAST)
     await frames(4)
-    expect(configStarts, "told as the element's own change is").toBe(ownStarts)
+    // #470: no Retarget, so nothing told.
+    expect(configStarts, "the config's change tells nothing").toBe(mounted.config)
+    expect(ownStarts, "nor does the element's own").toBe(mounted.own)
     expect(xOf(q("el")), "nothing moved").toBeCloseTo(0, 3)
     setOn(true)
     await until(() => xOf(q("fast")) > 99.9, 2000)

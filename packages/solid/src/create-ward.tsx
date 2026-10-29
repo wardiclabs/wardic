@@ -83,6 +83,7 @@ import { isHydrating, isServer } from "./server.ts"
 import { reactivity } from "./solid-reactivity.ts"
 import {
   accessorOf,
+  type Active,
   animationCallbacks,
   applyDragDefaults,
   dragAxisOf,
@@ -102,6 +103,7 @@ import {
   type Resolution,
   resolutionOf,
   restingOf,
+  sameResolution,
   serverStartingStyle,
   snapshotOf,
   startLinksOf,
@@ -672,32 +674,29 @@ export function runSpine(opts: RunSpineOptions): void {
         pan: () => runWatch(runtime, (onDefect) => Recognizer.watchPan(element, { on: (sample) => gesturesOf().panned(sample), onDefect })),
       })
 
-      // The Override stack (`resolutionOf`). The memo DEPENDS on cfg() (read inside), so a
-      // reactive config change recomputes target() and drives a Retarget; a recognizer's or the
-      // drag's flip does too. A keyboard lift turns `whileDrag` on, as a drag does (ADR-0037).
+      // Its gesture states: the started recognizers, one tracked read, then each started one's state.
+      // A keyboard lift turns `whileDrag` on, as a drag does (ADR-0037).
       const lifted = internal.lifted
-      const target = createMemo<Resolution>(() => {
+      const active = (): Active => {
         const held = dragging()
-        // The started recognizers, one tracked read; then each started one's state.
         const layers = started()
-        return resolutionOf(
-          cfg(),
-          parent,
-          begin.initialLink,
-          {
-            inView: stateOf(layers.inView),
-            focused: stateOf(layers.focus),
-            hovered: stateOf(layers.hover),
-            pressed: stateOf(layers.press),
-            dragged: Bool.or(held, Predicate.isNotUndefined(lifted) && lifted()),
-            dragging: held,
-          },
-          snapshot,
-          ownChange(),
-        )
-      })
-      // Its gesture states, for the names its variant node hands down (#291).
-      if (Predicate.isNotUndefined(bindGestures)) bindGestures(() => target().active)
+        return {
+          inView: stateOf(layers.inView),
+          focused: stateOf(layers.focus),
+          hovered: stateOf(layers.hover),
+          pressed: stateOf(layers.press),
+          dragged: Bool.or(held, Predicate.isNotUndefined(lifted) && lifted()),
+          dragging: held,
+        }
+      }
+      // The Override stack (`resolutionOf`), compared by value, as Solid 2's (#470): a reactive config
+      // change, a recognizer's flip or the drag's recomputes it, and only one that resolves a new
+      // target drives a Retarget. A `transition`, a callback or an option alone tells nothing, as
+      // Motion's doesn't.
+      const target = createMemo((): Resolution => resolutionOf(cfg(), parent, begin.initialLink, active(), snapshot, ownChange()), undefined, { equals: sameResolution })
+      // Its gesture states, for the names its variant node hands down (#291): read from the gestures
+      // themselves, as a gesture whose layer resolves nothing new leaves the target as it was.
+      if (Predicate.isNotUndefined(bindGestures)) bindGestures(active)
 
       // The spine (`spine.ts`): on each target change, end the running legs and reseed a fresh
       // primitive from the Snapshot (velocity-preserving), into the gate.

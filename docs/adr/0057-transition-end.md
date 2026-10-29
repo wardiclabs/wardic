@@ -93,3 +93,7 @@ Wardic had none. A target's keys all animated, and dom's `visibility` Key rule (
 Two first versions were caught only by the type left unused, so they were rewritten to keep it used. E10 survived TE9, as a list's names resolve as separate entries, so TS4 pins the first render's merge.
 
 **Found:** with `initial={false}`, an element's mount still runs a leg from each value to itself for its transition's duration, where Motion skips a value already at its target. A target change in that time waits for it, its `transitionEnd` included. TE6 waits for rest.
+
+## Note (#470, 2026-10-29): a new end alone is a new target
+
+A change to a target's `transitionEnd` alone counts as a change, as Motion compares a target's `transitionEnd` with its values. A key only an end sets was a resolved value already. A key a layer both animates and ends now starts again when its end changes, from where it's drawn, and its end applies once it lands: `{ x: 100, transitionEnd: { x: 0 } }` to `transitionEnd: { x: 30 }` animates `x` back to 100 and rests at 30, as Motion's does. Before, Solid 2 compared nothing of it, and Solid 1 ran a Retarget whose `x`, its last Leg landed at 100, started nothing, so the new end was never set. See ADR-0046, *Amendment (#470)*; ST8 and STV4 pin it.
