@@ -58,6 +58,7 @@ import {
   onCleanup,
   untrack,
 } from "solid-js"
+import { type ControlsChange, controlledConfigOf, controlledElement, isAnimationControls, subscribe, uncontrolledOf, type WardicAnimationControls } from "./animation-controls.ts"
 import { fromAtom, watchToSignal } from "./bridge.ts"
 import { dragTransitionOf, type DragTrack, type DragTrackConfig, runDragTrack } from "./drag.ts"
 import { createElementStyle } from "./element-style.ts"
@@ -331,7 +332,30 @@ export interface RunSpineOptions {
   readonly entersFresh?: ((element: HTMLElement) => boolean) | undefined
   /** Put the Starting style for `start` back on the element's `style` until its first commit (#414). */
   readonly restartStyle?: ((start: Start) => void) | undefined
+  /** Its **Animation controls** (#433), when its `animate` is some: each change is its entry. */
+  readonly controls?: Controls | undefined
 }
+
+/** An element's **Animation controls** on the Solid 1 binding (#433): the controls, and the change in effect, its signal. */
+export interface Controls {
+  readonly controls: WardicAnimationControls
+  readonly change: Accessor<ControlsChange | undefined>
+  readonly set: (change: ControlsChange) => void
+}
+
+/**
+ * `given` with its `animate` read once (#433): **Animation controls** make each change they make its
+ * entry, the config marked controlled; anything else leaves it as it is.
+ */
+export const controlledOf = (given: Accessor<WardConfig>): { readonly cfg: Accessor<WardConfig>; readonly controls: Controls | undefined } => {
+  const animate = untrack(given).animate
+  if (Bool.not(isAnimationControls(animate))) return { cfg: given, controls: undefined }
+  const [change, set] = createSignal<ControlsChange | undefined>(undefined)
+  return { cfg: () => controlledConfigOf(given(), change()), controls: { controls: animate as WardicAnimationControls, change, set: (made) => set(() => made) } }
+}
+
+/** No change: an element without Animation controls. */
+const NO_CHANGE: Accessor<ControlsChange | undefined> = constUndefined
 
 /**
  * The fixed motion spine, factored out so both sink shapes share it (ADR-0006):
@@ -360,7 +384,9 @@ const heldBack = (presence: PresenceContextValue | undefined, element: HTMLEleme
 }
 
 export function runSpine(opts: RunSpineOptions): void {
-  const { bindGestures, byName, canStart, cfg, defaultsInProps, el, entersFresh, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, restartStyle, runtime, styleOf, tag } = opts
+  const { bindGestures, byName, canStart, cfg, controls, defaultsInProps, el, entersFresh, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, restartStyle, runtime, styleOf, tag } = opts
+  // Its Animation controls' change (#433), read with the Override stack: none without them.
+  const ownChange = UndefinedOr.match(controls, { onUndefined: () => NO_CHANGE, onDefined: (c) => c.change })
 
   // The nearest <AnimatePresence>, or undefined at the root (ADR-0007). When
   // present, this spine publishes its live value-map (`snapshot`) + exit target
@@ -653,6 +679,7 @@ export function runSpine(opts: RunSpineOptions): void {
             dragging: held,
           },
           snapshot,
+          ownChange(),
         )
       })
       // Its gesture states, for the names its variant node hands down (#291).
@@ -692,6 +719,8 @@ export function runSpine(opts: RunSpineOptions): void {
       onCleanup(spine.dispose)
       // Its Imperative animations (#433) go through its spine while it's mounted.
       onCleanup(registerAnimatable(element, spine))
+      // Its Animation controls (#433) reach it while it's mounted.
+      UndefinedOr.map(controls, (c) => onCleanup(subscribe(c.controls, controlledElement(c.set, { custom: () => untrack(cfg).custom, snapshot }, spine.stop))))
       // A child back under its key starts where its leaver is drawn (#286), before its first Retarget.
       if (Predicate.isNotUndefined(taken)) spine.seed(taken)
 
@@ -764,13 +793,14 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   const id = createUniqueId()
 
   // Normalize to an Accessor<WardConfig>. A WardConfig is always an object,
-  // so `typeof config === "function"` is a safe discriminant for the accessor.
-  const cfg: Accessor<WardConfig> = accessorOf(config)
+  // so `typeof config === "function"` is a safe discriminant for the accessor. With Animation
+  // controls for its `animate` (#433), each change they make is its entry.
+  const { cfg, controls } = controlledOf(accessorOf(config))
 
   // Its place in variant orchestration (ADR-0007, #50): what it hands its children, and,
   // as a Variant child, the ancestor it inherits from and joins (its stagger slot, its
   // `when`). Read at hook-call time (component body owner), for this instance's lifetime.
-  const node = createVariantNode(cfg, useVariantContext())
+  const node = createVariantNode(cfg, useVariantContext(), UndefinedOr.map(controls, (c) => c.change))
 
   // Resolve the Renderer's PURE project once (ADR-0003: synchronous, no engine).
   const { project } = runtime.runSync(Renderer.Renderer)
@@ -850,6 +880,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
     id,
     el,
     cfg,
+    controls,
     parent: node.inherited,
     extraDelay: node.extraDelay,
     byName: node.names,
@@ -932,7 +963,8 @@ const NO_OUTPUT: Atom.Atom<unknown> = Atom.make<unknown>(undefined)
 const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineInternals = NO_INTERNALS): Ward => {
   // The client's gate id: keeps every later hydration key in step.
   createUniqueId()
-  const c = accessorOf(config)()
+  // Animation controls (#433) set nothing on a server: no entry yet, and controlled, as on the client.
+  const c = uncontrolledOf(accessorOf(config)())
   // The same names the client hands down, read once, with orchestration that does nothing
   // (#50); a Variant child's Starting style starts from its ancestor's `initial` name.
   const node = serverVariantNode(c, useVariantContext())

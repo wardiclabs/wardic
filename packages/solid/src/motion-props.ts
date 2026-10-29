@@ -5,6 +5,7 @@
  *
  * @module
  */
+import type { WardicAnimationControls } from "./animation-controls.ts"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
@@ -143,8 +144,11 @@ export const MOTION_PROPS_V2 = Arr.filter(MOTION_PROPS, (prop) => Bool.not(Arr.c
 export interface WardicMotionProps {
   /** The seed: a values map, a `variants` name, or `false` to start at `animate` with no mount animation (#134). */
   readonly initial?: WardicVariant | WardicVariantLabels | false
-  /** The resting target, or a `variants` name; its own `transition` drives the animation to it (#277). */
-  readonly animate?: WardicVariant | WardicVariantLabels
+  /**
+   * The resting target, or a `variants` name; its own `transition` drives the animation to it (#277).
+   * Or **Animation controls** (#433, `createAnimationControls()`, read once), which set it at each `start` or `set`.
+   */
+  readonly animate?: WardicVariant | WardicVariantLabels | WardicAnimationControls
   /** Named targets, each a target or a function of `custom` (#277, Motion's dynamic variants). */
   readonly variants?: WardicVariants
   /** The value handed to this element's dynamic variants (#277, Motion's `custom`; see `WardConfig`). */

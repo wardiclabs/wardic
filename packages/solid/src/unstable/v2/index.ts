@@ -136,6 +136,7 @@ export type {
   WardicSequenceOptions,
   WardicSequenceTime,
 } from "../../imperative.ts"
+export { createAnimationControls, type WardicAnimationControls, type WardicControlsDefinition } from "../../animation-controls.ts"
 
 
 /**

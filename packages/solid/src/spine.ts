@@ -61,6 +61,7 @@ import type {
   WardicVariants,
   WardicVariantTransition,
 } from "./config.ts"
+import { type ControlsChange, join, leave } from "./animation-controls.ts"
 import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
 import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "./presence-record.ts"
 import type { DragTrack } from "./drag-track.ts"
@@ -312,6 +313,11 @@ export interface Resolution {
   readonly ends: Ends | undefined
   /** Each key's **Keyframes**, as the layer that drives it gives them (#429), when any active layer has some. */
   readonly keyframes: KeyframesNow | undefined
+  /**
+   * The **Controls change** in effect (#433): its own controls' latest, else the one its provider is
+   * in, for a Variant child. A new one is a Retarget, whatever it resolves to.
+   */
+  readonly change: ControlsChange | undefined
 }
 
 /**
@@ -528,6 +534,7 @@ const IMPERATIVE: Resolution = {
   names: NO_GESTURE_NAMES,
   ends: undefined,
   keyframes: undefined,
+  change: undefined,
 }
 
 /** No values: what a spine's Retarget keys are before its first. */
@@ -853,7 +860,7 @@ const sameValues: Equivalence.Equivalence<Values.Values> = Rec.makeEquivalence(E
  * compares with it, so a `style` or `transition` change in a ward's config doesn't Retarget.
  */
 export const sameResolution = (a: Resolution, b: Resolution): boolean =>
-  Bool.every([a.dragging === b.dragging, sameLabels(a.variant, b.variant)]) && sameValues(a.resolved, b.resolved) && sameValues(a.base, b.base) &&
+  Bool.every([a.dragging === b.dragging, sameLabels(a.variant, b.variant), a.change === b.change]) && sameValues(a.resolved, b.resolved) && sameValues(a.base, b.base) &&
   sameKeyframesNow(a.keyframes, b.keyframes)
 
 /** Two lists of stops equal stop by stop (#429, Motion's `shallowCompare`). */
@@ -1131,7 +1138,10 @@ export const resolutionOf = (
   initialLink: Values.Values,
   active: Active,
   state: VariantState,
+  own?: ControlsChange | undefined,
 ): Resolution => {
+  // The Controls change in effect (#433): its own controls', else its provider's, read here so a new one Retargets.
+  const change = changeIn(own, parent)
   const variants = c.variants
   // Base target resolution priority (ADR-0007):
   //   (1) local `animate` (a Values map or a variant name) — overrides any
@@ -1148,10 +1158,11 @@ export const resolutionOf = (
     const targets = resolveTargets(variant as ReadonlyArray<string>, variants, c.custom, state)
     const merged = mergedOf(targets)
     const listLayers: Array<Layer> = Arr.map(targets, namedLayerOf)
-    return withGestures(c, parent, listLayers, merged.values, variant, active, merged.transition, state)
+    return withGestures(c, parent, listLayers, merged.values, variant, active, merged.transition, state, change)
   }
   // A dynamic variant resolves with this element's own `custom` (#277), as Motion's each child's.
-  const target = UndefinedOr.match(c.animate, {
+  // Animation controls never reach here: its binding reads them once, each change its entry (#433).
+  const target = UndefinedOr.match(c.animate as Entry, {
     onDefined: (own) => resolveTarget(own, variants, c.custom, state),
     onUndefined: (): Target =>
       UndefinedOr.match(variant, {
@@ -1168,9 +1179,33 @@ export const resolutionOf = (
   if (Bool.and(handDownFrom(parent) === NO_HAND_DOWN, Bool.not(anyOn(active)))) {
     const alone: ReadonlyArray<Layer> = [baseLayer]
     const { resolved, ends, keyframes } = resolvedOf(alone)
-    return { resolved, base, dragging: active.dragging, variant, active, transition: target.transition, layers: alone, names: NO_GESTURE_NAMES, ends, keyframes }
+    return { resolved, base, dragging: active.dragging, variant, active, transition: target.transition, layers: alone, names: NO_GESTURE_NAMES, ends, keyframes, change }
   }
-  return withGestures(c, parent, [baseLayer], base, variant, active, target.transition, state)
+  return withGestures(c, parent, [baseLayer], base, variant, active, target.transition, state, change)
+}
+
+/** The **Controls change** in effect for an element (#433): its own, else its provider's; per Retarget, a guard. */
+const changeIn = (own: ControlsChange | undefined, parent: WardicVariantContextValue | undefined): ControlsChange | undefined => {
+  if (Predicate.isNotUndefined(own)) return own
+  if (Predicate.isUndefined(parent)) return undefined
+  const inherited = parent.change
+  if (Predicate.isUndefined(inherited)) return undefined
+  return inherited()
+}
+
+/**
+ * `resolution` run on its Controls change's override (#433, Motion's `transitionOverride`): its base
+ * layers' own transitions beaten by it, its gestures' kept. The first Retarget for the change only.
+ */
+const overriddenOf = (resolution: Resolution, override: WardicTransition): Resolution => {
+  const variant = resolution.variant
+  let base = 1
+  if (Array.isArray(variant)) base = variant.length
+  return {
+    ...resolution,
+    transition: override as WardicVariantTransition,
+    layers: Arr.map(resolution.layers, (layer, i) => Bool.match(i < base, { onTrue: (): Layer => ({ ...layer, transition: override as WardicVariantTransition }), onFalse: () => layer })),
+  }
 }
 
 /**
@@ -1187,12 +1222,13 @@ const withGestures = (
   active: Active,
   transition: WardicVariantTransition | undefined,
   state: VariantState,
+  change: ControlsChange | undefined,
 ): Resolution => {
   const variants = c.variants
   const above = handDownFrom(parent)
   if (Bool.and(above === NO_HAND_DOWN, Bool.not(anyOn(active)))) {
     const { resolved, ends, keyframes } = resolvedOf(layers)
-    return { resolved, base, dragging: active.dragging, variant, active, transition, layers, names: NO_GESTURE_NAMES, ends, keyframes }
+    return { resolved, base, dragging: active.dragging, variant, active, transition, layers, names: NO_GESTURE_NAMES, ends, keyframes, change }
   }
   const on = gesturesOnOf(active, above)
   const labels = above.names
@@ -1206,7 +1242,7 @@ const withGestures = (
   gestureLayersInto(layers, c.whileDrag, on.dragged, labels.dragged, variants, c.custom, state)
   const { resolved, ends, keyframes } = resolvedOf(layers)
   const names = activeNamesFor(c, on, labels)
-  return { resolved, base, dragging: active.dragging, variant, active, transition, layers, names, ends, keyframes }
+  return { resolved, base, dragging: active.dragging, variant, active, transition, layers, names, ends, keyframes, change }
 }
 
 /** The values an element starts from, read once at setup (ADR-0003, #134). */
@@ -1439,6 +1475,8 @@ export interface ElementSpine {
    * {@link ImperativeTrack.run} is called.
    */
   readonly animate: (target: Target, transition: WardicTransition | undefined, head: Playback.Playhead, hooks: ImperativeHooks) => ImperativeTrack
+  /** End every running leg where it is (#433, **Animation controls**' `stop`): its keys stay there, until the next Retarget. */
+  readonly stop: () => void
 }
 
 /**
@@ -1544,6 +1582,32 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   let gated: Landing | undefined
   // The variant name the last started Retarget resolved, for its successor's `definition` (#257).
   let lastResolution: Resolution | undefined
+  // The Controls change (#433) it last joined, whether it's still counted there (until a landing),
+  // and the one its last started Retarget ran for: only the first runs on its override.
+  let joined: ControlsChange | undefined
+  let counted = false
+  let startedChange: ControlsChange | undefined
+  /** Its Retargets' change is `change` now: it leaves the last, and joins this one, held or not. */
+  const joinChange = (change: ControlsChange | undefined): void => {
+    if (counted) leave(joined as ControlsChange)
+    joined = change
+    counted = Predicate.isNotUndefined(change)
+    if (counted) join(change as ControlsChange)
+  }
+  /** It landed, or can't (a leg failed, its unmount): it leaves its change. */
+  const leaveChange = (): void => {
+    if (Bool.not(counted)) return
+    counted = false
+    leave(joined as ControlsChange)
+  }
+  /** It landed: it leaves its change once the gate has flushed its last frame, unless it joined another meanwhile. */
+  const leaveAfterFlush = (): void => {
+    if (Bool.not(counted)) return
+    const change = joined
+    gate.afterFlush(() => {
+      if (joined === change) leaveChange()
+    })
+  }
 
   // A leg with no key left ends. Its fiber ends inline (ADR-0027, *Amendment (#200)*); one its token
   // didn't reach, none of its runs on the loop, is interrupted.
@@ -1775,19 +1839,35 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     })
   }
 
-  const retarget = (resolution: Resolution): void => {
-    const { resolved, base } = resolution
+  const retarget = (given: Resolution): void => {
+    // A Controls change (#433): the element is in it from the Retarget it makes it run, held or not.
+    if (given.change !== joined) joinChange(given.change)
 
     // `when` start-gate (ADR-0007): when canStart() is false, the keys whose target changed freeze
     // where they are (#325: the rest run on), and the element waits; the binding retargets once
     // the gate flips true.
     if (Predicate.isNotUndefined(canStart) && !canStart()) {
-      hold(resolution)
+      hold(given)
       // Report NOT settled: a gated child sits at its snapshot, still
       // owing an animation, so it must not count as settled (afterChildren).
       if (Predicate.isNotUndefined(onFrame)) onFrame(false)
       return
     }
+    // The first Retarget a Controls change starts here runs on its override (#433); a later one, a
+    // gesture's, on the targets' own.
+    let resolution = given
+    // On an override, every key starts again on it, a running leg toward the same target too: `set`
+    // lands it at once, as Motion's.
+    let restarting = false
+    if (given.change !== startedChange) {
+      startedChange = given.change
+      const override = UndefinedOr.map(given.change, (change) => change.override)
+      if (Predicate.isNotUndefined(override)) {
+        resolution = overriddenOf(given, override)
+        restarting = true
+      }
+    }
+    const { resolved, base } = resolution
     // The hand-back of `dragging` after a takeover (#340): the last Retarget already ran with `x`/`y`
     // its own, so one that changes nothing else is no new animation, as Motion's has none. It goes
     // on, and lands and is told as itself.
@@ -1860,8 +1940,9 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       if (--legs !== 0) return
       settleReturns(returns)
       // The Retarget settled with its last leg (#257): told once the gate has flushed its last frame,
-      // so the element shows where it landed.
+      // so the element shows where it landed. Its Controls change hears it then too (#433).
       if (Predicate.isNotUndefined(animation)) gate.afterFlush(() => animation.settled(resolution, previous, c))
+      leaveAfterFlush()
     }
     // A leg's failure (#257 item 4): the Retarget can't land, so a binding waiting on it is told,
     // once, at once: a leg that fails before it writes leaves no flush to wait for. A leg failing
@@ -1875,6 +1956,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       if (Predicate.isNotUndefined(hooks.failed)) hooks.failed(resolution, error)
     }
     const legFailed = (cause: Cause.Cause<unknown>): void => {
+      // It can't land: its Controls change waits for it no longer (#433).
+      if (current === landing) leaveChange()
       if (Bool.or(failedTold, Predicate.isUndefined(animation))) return
       failedTold = true
       const error = Cause.squash(cause)
@@ -1945,7 +2028,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       let drawn = false
       if (Predicate.isNotUndefined(owner)) {
         drawn = Bool.not(owner.done)
-        if (owner.targets[key] === like && sameKeyframesAt(keyframesAtOf(owner.resolution.keyframes, key), stops)) {
+        if (Bool.and(owner.targets[key] === like, Bool.not(restarting)) && sameKeyframesAt(keyframesAtOf(owner.resolution.keyframes, key), stops)) {
           if (Predicate.isUndefined(stays)) stays = new Set()
           stays.add(key)
           if (Bool.or(owner.done, owner.landing === landing)) return
@@ -2192,6 +2275,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     const landed = legs === 0
     if (landed) {
       settleReturns(returns)
+      leaveAfterFlush()
       UndefinedOr.map(pendingLog, (log) => runtime.runFork(log))
       if (Predicate.isNotUndefined(onFrame)) {
         const tell = onFrame
@@ -2272,6 +2356,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   }
 
   const dispose = (): void => {
+    // Unmounted, it lands in no Controls change (#433).
+    leaveChange()
     if (Predicate.isNotUndefined(live)) live.stop()
     // The legs end normally first, so closing the Scope has nothing left to interrupt.
     owners.forEach(endUnlessLanded)
@@ -2380,7 +2466,16 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     return { run, stop: end, cancel, duration }
   }
 
-  return { retarget, follow, dispose, seed, animate }
+  // **Animation controls**' `stop` (#433): every running leg ends where it is, its keys given up, so
+  // the next Retarget starts them from where they're drawn.
+  const stop = (): void =>
+    owners.forEach((running) => {
+      if (Predicate.isUndefined(running)) return
+      forget(running)
+      if (Bool.not(running.done)) endLeg(running)
+    })
+
+  return { retarget, follow, dispose, seed, animate, stop }
 }
 
 
@@ -2582,7 +2677,7 @@ export const appearEntryOf = (
  * against its own `variants`, a dynamic one with its `custom` and no values yet (#277).
  */
 export const serverTargetOf = (c: WardConfig, inherited: WardicVariantContextValue | undefined): Option.Option<Target> =>
-  UndefinedOr.match(c.animate, {
+  UndefinedOr.match(c.animate as Entry, {
     onDefined: (own) => Option.some(resolveTarget(own, c.variants, c.custom, NO_VARIANT_STATE)),
     onUndefined: () =>
       Option.map(

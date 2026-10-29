@@ -61,7 +61,7 @@ import { Dynamic } from "solid-js/web"
 import { runWatch, useWardicGate, useWardicProjection, useWardicRuntime } from "./provider.tsx"
 import { watchItemInput } from "./reorder-input.ts"
 import type { WardicRuntime } from "./runtime.ts"
-import { runSpine, type SpineInternals, createWardWith, type Ward, type WardProps, type WardUserProps } from "./create-ward.tsx"
+import { controlledOf, runSpine, type SpineInternals, createWardWith, type Ward, type WardProps, type WardUserProps } from "./create-ward.tsx"
 import type { WardConfig } from "./config.ts"
 import { isServer } from "./server.ts"
 import { createVariantNode } from "./variant-node.ts"
@@ -407,12 +407,13 @@ export type ReorderItemDirectiveValue = {
  */
 export function reorderItem(el: HTMLElement, value: Accessor<ReorderItemDirectiveValue>): void {
   const first = untrack(value)
-  const cfg = (): WardConfig => {
+  // Animation controls for its `animate` (#433): each change they make is its entry.
+  const { cfg, controls } = controlledOf((): WardConfig => {
     const { group: _group, value: _value, ...rest } = value()
     return { ...rest, layout: itemLayoutOf(rest.layout) }
-  }
+  })
   // As `use:wardic`: a Variant child joins the nearest variant context; it provides none (#50).
-  const node = createVariantNode(cfg, useVariantContext())
+  const node = createVariantNode(cfg, useVariantContext(), UndefinedOr.map(controls, (c) => c.change))
   const runtime = useWardicRuntime()
   const group = first.group as ItemGroup<unknown>
   // The keyboard reorder's tab stop and instructions (ADR-0037), on the element itself: the app's
@@ -430,6 +431,7 @@ export function reorderItem(el: HTMLElement, value: Accessor<ReorderItemDirectiv
     id: createUniqueId(),
     el: () => el,
     cfg,
+    controls,
     parent: node.inherited,
     extraDelay: node.extraDelay,
     byName: node.names,
