@@ -56,6 +56,8 @@ export interface UseLayoutMemberOptions {
   readonly transition: () => WardicTransition | undefined
   /** The element's drag transition, resolved: what its Release offset runs on (ADR-0016, *Amendment (#140)*). */
   readonly dragTransition?: () => ProjectionSystem.DragTransition
+  /** Whether reduced motion applies to it now (ADR-0029): its nearest `WardicConfig`'s, else the provider's (#434). Default: the system's. */
+  readonly reducedMotion?: () => boolean
   /**
    * The element's `layoutId` (shared-element key, ADR-0010), or omitted for a plain
    * `layout` element. When set, the one node joins the engine's per-`layoutId`
@@ -101,7 +103,7 @@ export interface UseLayoutMemberOptions {
  * system needs it, outside the binding's tracking.
  */
 export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.RegisterNodeOptions => {
-  const { dragTransition, element, enteredFrom, fadeFrom, id, layoutAnchor, layoutId, layoutMode, layoutRoot, layoutScroll, onLayoutAnimationComplete, onLayoutAnimationStart, onReleaseEnd, ownOpacity, ownRotate, ownScale, ownTranslate, raiseWhileDragged, transition } = opts
+  const { dragTransition, element, enteredFrom, fadeFrom, id, layoutAnchor, layoutId, layoutMode, layoutRoot, layoutScroll, onLayoutAnimationComplete, onLayoutAnimationStart, onReleaseEnd, ownOpacity, ownRotate, ownScale, ownTranslate, raiseWhileDragged, reducedMotion, transition } = opts
   return {
     id,
     element,
@@ -109,6 +111,8 @@ export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.R
     // The layout transition's reduced-motion opt-out (ADR-0029, #301), read at each layout animation's start.
     respectReducedMotion: () =>
       UndefinedOr.match(transitionForKey(transition(), "layout"), { onUndefined: constTrue, onDefined: (t) => t.respectReducedMotion !== false }),
+    // Whether reduced motion applies to it (#434): its subtree's, else the system's.
+    ...UndefinedOr.match(reducedMotion, { onUndefined: () => ({}), onDefined: (applies) => ({ reducedMotion: applies }) }),
     ...UndefinedOr.match(layoutId, { onUndefined: () => ({}), onDefined: (twinId) => ({ layoutId: twinId }) }),
     ...Bool.match(layoutScroll === true, { onTrue: () => ({ layoutScroll: true }), onFalse: () => ({}) }),
     ...Bool.match(layoutRoot === true, { onTrue: () => ({ layoutRoot: true }), onFalse: () => ({}) }),
@@ -180,6 +184,8 @@ export interface WardLayout {
   readonly taken?: PresenceSeed | undefined
   /** The id of the **Layout group** the ward was made in (#432), whose namespace its `layoutId` goes in. */
   readonly layoutGroup?: string | undefined
+  /** Whether reduced motion applies to it now (ADR-0029): its nearest `WardicConfig`'s, else the provider's (#434). */
+  readonly reducedMotion?: (() => boolean) | undefined
 }
 
 /**
@@ -188,7 +194,7 @@ export interface WardLayout {
  * mode and callbacks read when the projection system needs them.
  */
 export const layoutOptionsOf = (ward: WardLayout): UseLayoutMemberOptions => {
-  const { config, element, id, parent, snapshot, dragTransition, raiseWhileDragged, taken, layoutGroup } = ward
+  const { config, element, id, parent, snapshot, dragTransition, raiseWhileDragged, taken, layoutGroup, reducedMotion } = ward
   const c0 = config()
   return {
     id,
@@ -216,6 +222,7 @@ export const layoutOptionsOf = (ward: WardLayout): UseLayoutMemberOptions => {
     ...UndefinedOr.match(c0.layoutAnchor, { onUndefined: () => ({}), onDefined: (anchor) => ({ layoutAnchor: anchor }) }),
     ...Bool.match(raiseWhileDragged, { onTrue: () => ({ raiseWhileDragged: true }), onFalse: () => ({}) }),
     ...takenOptionsOf(taken),
+    ...UndefinedOr.match(reducedMotion, { onUndefined: () => ({}), onDefined: (applies) => ({ reducedMotion: applies }) }),
   }
 }
 

@@ -40,6 +40,7 @@ import {
   fromContext,
   interrupted,
   projectionOf,
+  reducedMotionWith,
   reported,
   serverContext,
   type WardicContextValue,
@@ -48,6 +49,7 @@ import {
   type WardicServices,
 } from "./runtime.ts"
 import { isHydrating, isServer } from "./server.ts"
+import { useWardicConfig } from "./wardic-config.tsx"
 
 /**
  * Context carrying the single runtime + flush gate down the tree. Defaults to
@@ -83,7 +85,7 @@ const WardicContext = createContext<WardicContextValue | undefined>(undefined)
  * animation's positional keys (its transforms, and the box's position and size) snap to where it
  * would end, and the rest (opacity, colour, …) animate; a layout animation lands at once, and so
  * does a presence exit's move. It's read when each animation starts, and a transition opts out
- * with `respectReducedMotion: false`.
+ * with `respectReducedMotion: false`. A `WardicConfig` sets it for the elements below it (#434).
  *
  * `appear` (#48, ADR-0044), default `true`: a server render starts each element's mount animation
  * in CSS from first paint (an **Appear animation**), sampled from Wardic's own machines into a
@@ -196,13 +198,14 @@ export function useWardicDefaultTransition(): DefaultTransition.DefaultTransitio
 }
 
 /**
- * Reads whether reduced motion applies now (ADR-0029): the provider's `reducedMotion` and the
- * user's preference. Call the accessor when an animation starts. Throws a clear, named error
+ * Reads whether reduced motion applies now (ADR-0029): the nearest `WardicConfig`'s `reducedMotion`
+ * (#434), else the provider's, and the user's preference. Call the accessor when an animation starts. Throws a clear, named error
  * outside a `WardicProvider`; during a server render it's always `false`. Internal: not exported
  * from the package.
  */
 export function useWardicReducedMotion(): () => boolean {
-  return fromContext(useContext(WardicContext), "useWardicReducedMotion", (value) => value.reducedMotion)
+  const config = useWardicConfig()
+  return fromContext(useContext(WardicContext), "useWardicReducedMotion", (value) => reducedMotionWith(value, config))
 }
 
 /**

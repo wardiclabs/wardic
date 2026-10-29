@@ -47,6 +47,11 @@ export interface PresenceRecord {
    * this one is taken over without an exit running. Optional: left out, 0.
    */
   readonly velocities?: (() => Readonly<Record<string, number>>) | undefined
+  /**
+   * Whether reduced motion applies to it now (ADR-0029): its nearest `WardicConfig`'s, else the
+   * provider's (#434), read as its exit starts. Optional: left out, the presence's.
+   */
+  readonly reducedMotion?: (() => boolean) | undefined
 }
 
 /** Where a Wardic element starts when its child takes over from a leaver (#286, ADR-0048): the values and velocities it's drawn at. */

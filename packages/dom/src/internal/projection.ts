@@ -799,6 +799,12 @@ export interface RegisterNodeOptions {
    */
   readonly respectReducedMotion?: () => boolean
   /**
+   * Whether reduced motion applies to the node now (ADR-0029), read at each layout animation's
+   * (re)start: a binding's setting for its subtree with the user's preference (Wardic's
+   * `WardicConfig`, #434). Default: the system's `reducedMotion`.
+   */
+  readonly reducedMotion?: () => boolean
+  /**
    * The node's **Layout mode** (ADR-0009, *Amendment (#42)*), read at each layout animation's
    * start: which parts of a layout change it animates. Default `true`, position and size.
    */
@@ -1095,6 +1101,8 @@ interface NodeState {
   lastWritten: Projection.Value | undefined
   /** Whether the node's layout animations honour reduced motion, read at each (re)start (ADR-0029). */
   readonly respectReducedMotion: () => boolean
+  /** Whether reduced motion applies to the node now, read at each (re)start (ADR-0029, #434): its own, else the system's. */
+  readonly reducedMotion: () => boolean
   /** The node's Layout mode, read at each layout animation's start (ADR-0009, *Amendment (#42)*). */
   readonly layoutMode: () => Projection.LayoutMode
   /** The element's own scale per axis, drawn on top of its projection (ADR-0010 *Amendment (#8)*). */
@@ -1502,7 +1510,7 @@ export const makeProjectionSystem = (
    * lands on its new box at once and the flight ends on its first step.
    */
   const startFlight = (node: NodeState): Flight =>
-    Bool.match(Bool.and(node.respectReducedMotion(), reducedMotion()), {
+    Bool.match(Bool.and(node.respectReducedMotion(), node.reducedMotion()), {
       onTrue: landedFlight,
       onFalse: (): Flight => {
         // A transition core rejects (#66, ADR-0025 *Amendment (#66)*) is the app's defect, in
@@ -4484,6 +4492,7 @@ export const makeProjectionSystem = (
     onReleaseEnd: NO_CALLBACK,
     lastWritten: undefined,
     respectReducedMotion: () => true,
+    reducedMotion,
     layoutMode: ALWAYS_BOTH,
     ownScale: NO_OWN_SCALE,
     ownTranslate: NO_OWN_TRANSLATE,
@@ -4965,6 +4974,7 @@ export const makeProjectionSystem = (
       onReleaseEnd: UndefinedOr.match(opts.onReleaseEnd, { onUndefined: () => NO_CALLBACK, onDefined: identity }),
       lastWritten: undefined,
       respectReducedMotion: UndefinedOr.match(opts.respectReducedMotion, { onUndefined: () => constTrue, onDefined: identity }),
+      reducedMotion: UndefinedOr.match(opts.reducedMotion, { onUndefined: () => reducedMotion, onDefined: identity }),
       layoutMode: UndefinedOr.match(opts.layoutMode, { onUndefined: () => ALWAYS_BOTH, onDefined: identity }),
       ownScale: UndefinedOr.match(opts.ownScale, { onUndefined: () => NO_OWN_SCALE, onDefined: identity }),
       ownTranslate: UndefinedOr.match(opts.ownTranslate, { onUndefined: () => NO_OWN_TRANSLATE, onDefined: identity }),

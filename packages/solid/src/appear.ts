@@ -259,16 +259,25 @@ export interface Entry {
   readonly group: Option.Option<AppearGroup>
   /** Why it was ruled out after it rendered: its user style, read when `ward()` is called (ADR-0044, decision 4). */
   readonly vetoes: Array<string>
+  /**
+   * Whether it follows the user's preference (`"user"`, #434): its reduced play goes under the head's
+   * media query. With `"always"` or `"never"` its plays are already that setting's.
+   */
+  readonly user: boolean
 }
 
 /** One server render's Appear animations: the provider's (ADR-0044, decisions 3 and 5). */
 export interface ServerAppear {
-  /** The provider's reduced motion: which rules the head holds. */
+  /** The provider's reduced motion: an element's, unless its nearest `WardicConfig` sets its own (#434). */
   readonly reducedMotion: ReducedMotion.Config
-  /** An element's entry, and its inline `animation` when it plays. */
+  /**
+   * An element's entry, and its inline `animation` when it plays: its plays as its reduced motion has
+   * them, `setting` (its nearest `WardicConfig`'s, #434) else the provider's.
+   */
   readonly enter: (
     animation: { readonly normal: Option.Option<Result.Result<MountAnimation, string>>; readonly reduced: Option.Option<Result.Result<MountAnimation, string>> },
     group: Option.Option<AppearGroup>,
+    setting: ReducedMotion.Config | undefined,
   ) => {
     readonly entry: Entry
     readonly animation: Option.Option<string>
@@ -306,6 +315,25 @@ export interface ServerAppear {
 /** No transition: no orchestration. */
 const NO_TRANSITION: WardicTransition = {}
 
+/** An element's reduced motion (#434): its nearest config's, else the provider's. */
+const settingOr = (setting: ReducedMotion.Config | undefined, provider: ReducedMotion.Config): ReducedMotion.Config => {
+  if (Predicate.isNotUndefined(setting)) return setting
+  return provider
+}
+
+/**
+ * An element's plays under its reduced motion (#434): `"always"` plays its reduced one in both
+ * settings, `"never"` its normal one, and `"user"` each in its own, the reduced under the media query.
+ */
+const playsUnder = (plays: Entry["plays"], setting: ReducedMotion.Config): Entry["plays"] => {
+  if (setting === "always") return { normal: plays.reduced, reduced: plays.reduced }
+  if (setting === "never") return { normal: plays.normal, reduced: plays.normal }
+  return plays
+}
+
+/** Whether an entry follows the user's preference (#434). */
+const isUser = (entry: Entry): boolean => entry.user
+
 /** A server render's Appear animations, for a provider whose reduced motion is `reducedMotion`. */
 export const serverAppear = (reducedMotion: ReducedMotion.Config): ServerAppear => {
   const sheet = Appear.sheet()
@@ -324,9 +352,11 @@ export const serverAppear = (reducedMotion: ReducedMotion.Config): ServerAppear 
   }
   /** A batch's timing, each slot defined, and the sheet's CSS for them (decision 5). */
   const write = (batch: ReadonlyArray<Entry>): string => {
+    // Each entry's plays are its own setting's (#434): the normal ones always, the reduced ones under
+    // the media query when an entry follows the user.
     const resolve = (pick: "normal" | "reduced") => timings(batch, pick)
-    const normal = Bool.match(reducedMotion === "always", { onTrue: () => resolve("reduced"), onFalse: () => resolve("normal") })
-    const reduced = Bool.match(reducedMotion === "user", { onTrue: () => Option.some(resolve("reduced")), onFalse: () => Option.none<Timings>() })
+    const normal = resolve("normal")
+    const reduced = Bool.match(Arr.some(batch, isUser), { onTrue: () => Option.some(resolve("reduced")), onFalse: () => Option.none<Timings>() })
     const settings = Arr.prepend(Option.toArray(reduced), normal)
     // Most renders write no SVG geometry: no group pass.
     const supports = Bool.match(Arr.some(settings, (byEntry) => byEntry.geometry), {
@@ -336,7 +366,7 @@ export const serverAppear = (reducedMotion: ReducedMotion.Config): ServerAppear 
     Arr.forEach(batch, (entry) =>
       Option.map(entry.slot, (slot) => {
         const play = UndefinedOr.getOrThrow(normal.get(entry))
-        const reducedPlay = Option.map(reduced, (byEntry) => UndefinedOr.getOrThrow(byEntry.get(entry)))
+        const reducedPlay = Option.map(Option.filter(reduced, () => entry.user), (byEntry) => UndefinedOr.getOrThrow(byEntry.get(entry)))
         const defined = Result.flatMap(play, (p) =>
           Option.match(reducedPlay, {
             onNone: () => slot.define(p, undefined, supports(entry)),
@@ -351,11 +381,13 @@ export const serverAppear = (reducedMotion: ReducedMotion.Config): ServerAppear 
   const chunkCss = (): string => write(nextBatch())
   return {
     reducedMotion,
-    enter: (animation, group) => {
+    enter: (given, group, setting) => {
+      const own = settingOr(setting, reducedMotion)
+      const animation = playsUnder(given, own)
       Arr.forEach([animation.normal, animation.reduced], (play) =>
         Option.map(Option.flatMap(play, (p) => Result.getFailure(p)), (reason) => reasons.push(reason)))
       const slot = Option.liftPredicate(animation, plays).pipe(Option.map(() => sheet.slot()))
-      const entry: Entry = { plays: animation, slot, group, vetoes: [] }
+      const entry: Entry = { plays: animation, slot, group, vetoes: [], user: own === "user" }
       entries.push(entry)
       Option.map(group, (g) => g.children.push(entry))
       return { entry, animation: Option.map(slot, (s) => s.animation), late: flushed, chunkRoot: Bool.and(flushed, lateDepth === 0) }
@@ -560,6 +592,8 @@ export interface ServerElement {
   readonly leads: boolean
   /** Its own transition, whose stagger and `when` its Variant children follow. */
   readonly ownTransition: WardicTransition | undefined
+  /** Its nearest `WardicConfig`'s reduced motion (#434), over the provider's: `undefined` for none. */
+  readonly reducedMotion?: ReducedMotion.Config | undefined
 }
 
 /**
@@ -592,7 +626,7 @@ export const enterServer = (
   const play = (reduced: boolean): Option.Option<Result.Result<MountAnimation, string>> =>
     Option.map(mount, (prepared) =>
       Result.map(prepared, ({ from, to, stops }): MountAnimation => ({ tag: el.tag, from, to, transition: el.transition, reduced, layout: el.layout, stops })))
-  const { entry, animation: inline, late, chunkRoot } = appear.enter({ normal: play(false), reduced: play(true) }, el.group)
+  const { entry, animation: inline, late, chunkRoot } = appear.enter({ normal: play(false), reduced: play(true) }, el.group, el.reducedMotion)
   return {
     late,
     chunkRoot,

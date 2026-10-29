@@ -853,7 +853,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     const moving = velocitiesOf(UndefinedOr.match(rec.velocities, { onUndefined: () => NO_VELOCITIES, onDefined: (of) => of() }))
     // A list's exit by name (#297): each name's keys on its own transition, at its own delay; one
     // name's alone when its `when` orders it (#297's PR 2).
-    const reduce = reducedMotion()
+    // The leaver's own, under its nearest WardicConfig (#434), else the presence's.
+    const reduce = UndefinedOr.match(rec.reducedMotion, { onUndefined: reducedMotion, onDefined: (own) => own() })
     // Measured pairs (#430): an exit from `auto` to 0 measures both ends, as a Retarget does, unless
     // reduced motion snaps them.
     const measured = Bool.match(reduce, { onTrue: constUndefined, onFalse: () => exitMeasuredOf(el, from, to) })
