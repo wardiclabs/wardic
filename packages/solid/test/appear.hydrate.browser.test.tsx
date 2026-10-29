@@ -32,6 +32,9 @@
 //   moving key on its machine and the other at its value throughout.
 // - AH14 (#429): Keyframes, a first `null` stop from `initial`: handed off mid-flight, the client's
 //   spec the server's, on `keyframesValues`' machine throughout, landing on the last stop.
+// - AH15 (#468): under `skipAnimations`, a card and a staggered list are drawn landed from first
+//   paint, before and after hydration, with no frame between; the card's mount is told start and
+//   complete once hydrated.
 import * as Easing from "@wardic/core/Easing"
 import * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
@@ -49,7 +52,7 @@ import { type JSX, sharedConfig } from "solid-js"
 import { hydrate } from "solid-js/web"
 import { commands } from "vitest/browser"
 import { afterEach, describe, expect, it } from "vitest"
-import { A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, setAppearEnv } from "./appear-fixtures.tsx"
+import { A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, setAppearEnv } from "./appear-fixtures.tsx"
 import "./browser-commands.ts"
 
 const FILE = "./test/appear-fixtures.tsx"
@@ -526,6 +529,22 @@ describe("Appear animations, server render to hydration (#48, ADR-0044)", () => 
     expect(logs.filter((m) => m.includes("another mount animation")), "the Handoff matched").toEqual([])
     expect(followsMachine(r, "stops", (s) => ({ x: machineAt(machine, s).x as number }))).toBeGreaterThan(30)
     expect(r.frames.at(-1)!.drawn.stops!.x).toBeCloseTo(80, 1)
+  })
+
+  it("AH15: under skipAnimations, everything is drawn landed from first paint, and hydration moves nothing (#468)", async () => {
+    ;(globalThis as { __a11told?: Array<string> }).__a11told = []
+    const r = await run("A11", A11, { hydrateAfter: 200, forMs: 600 })
+    expect(r.frames.length).toBeGreaterThan(20)
+    for (const f of r.frames) {
+      expect(f.drawn.card!.opacity, `card at ${Math.round(f.at)}`).toBeCloseTo(1, 3)
+      expect(Math.abs(f.drawn.card!.y)).toBeLessThanOrEqual(0.01)
+      for (const k of ["i0", "i1"]) {
+        expect(f.drawn[k]!.opacity, `${k} at ${Math.round(f.at)}`).toBeCloseTo(1, 3)
+        expect(Math.abs(f.drawn[k]!.x)).toBeLessThanOrEqual(0.01)
+      }
+    }
+    expect(r.frames.some((f) => f.hydrated), "hydrated in the run").toBe(true)
+    expect((globalThis as { __a11told?: Array<string> }).__a11told, "its mount told").toEqual(["start", "complete"])
   })
 
   it("AH12: a list's items streamed in a chunk that lands before the JS: played from the landing, handed off, the chunk's style adopted (#245)", async () => {

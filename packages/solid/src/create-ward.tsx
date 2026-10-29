@@ -1050,7 +1050,7 @@ export const serverAppearOfWard = (ward: Ward): ServerAppearOf | undefined => (w
 
 /** {@link appearEntryOf} with this provider's Appear state (#48, ADR-0044) and its nearest `WardicConfig`'s reduced motion (#434). */
 export const serverAppearOf = (c: WardConfig, tag: string | undefined, initialValues: Values.Values, node: ServerVariantNode, quiet: boolean): ServerAppearOf =>
-  appearEntryOf(useWardicAppear(), c, tag, initialValues, node, quiet, settingOf(useWardicConfig()))
+  appearEntryOf(useWardicAppear(), c, tag, initialValues, node, quiet, settingOf(useWardicConfig()), useWardicSkipAnimations()())
 
 /** A style value read on a server: an Atom through a server's own registry, an accessor called (#130). */
 const readServerStyle = (value: unknown): unknown => readLive(value, serverRegistryOf, untrack)

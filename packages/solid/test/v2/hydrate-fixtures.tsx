@@ -28,6 +28,7 @@ import {
   useWardicFiber,
   ward,
   wardic,
+  WardicConfig,
   type WardicEnv,
   WardicProvider,
 } from "@wardic/solid/unstable/v2"
@@ -511,4 +512,22 @@ export const HE2 = (): JSX.Element =>
       <ReleasedPlain />
     </Loading>
   ))
+
+/** A ward's card and a staggered list under a `WardicConfig`'s `skipAnimations` (#468): drawn landed from first paint. */
+export const A10 = (): JSX.Element => {
+  const variants = { hidden: { opacity: 0, x: -30 }, shown: { opacity: 1, x: 0 } }
+  const Card = (): JSX.Element => {
+    const card = ward({ initial: { opacity: 0, y: 40 }, animate: { opacity: 1, y: 0 }, transition: { type: "tween", duration: 1.5 }, style: { width: "40px", height: "40px" } })
+    return <div data-k="card" {...card} />
+  }
+  return page(() => (
+    <WardicConfig skipAnimations>
+      <Card />
+      <wardic.ul initial="hidden" animate="shown" variants={{ hidden: {}, shown: {} }} transition={{ type: "tween", duration: 0.5, staggerChildren: 0.3 }}>
+        <wardic.li data-k="i0" variants={variants} style={{ height: "10px" }} />
+        <wardic.li data-k="i1" variants={variants} style={{ height: "10px" }} />
+      </wardic.ul>
+    </WardicConfig>
+  ))
+}
 

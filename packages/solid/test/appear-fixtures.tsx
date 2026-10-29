@@ -3,7 +3,7 @@
 // Each element to watch carries `data-k`.
 import * as Easing from "@wardic/core/Easing"
 import { DomLive } from "@wardic/dom"
-import { wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
+import { wardic, WardicConfig, type WardicEnv, WardicProvider } from "@wardic/solid"
 import { createResource, createSignal, For, type JSX, Suspense } from "solid-js"
 
 /** The Environment the fixtures hydrate under: DomLive, or AH11's with a logger (the server's is DomLive). */
@@ -152,6 +152,33 @@ export const A8 = (): JSX.Element => {
         <For each={data()}>{(i) => <wardic.li data-k={`s${i}`} variants={items} style={{ height: "10px" }} />}</For>
       </Suspense>
     </wardic.ul>
+  ))
+}
+
+/**
+ * A card and a staggered list under a `WardicConfig`'s `skipAnimations` (#468): drawn landed from
+ * first paint. Each mount's start and complete pushed to `__a11told` on the client.
+ */
+export const A11 = (): JSX.Element => {
+  const told = ((globalThis as { __a11told?: Array<string> }).__a11told ??= [])
+  const tell = (name: string) => () => void told.push(name)
+  const variants = { hidden: { opacity: 0, x: -30 }, shown: { opacity: 1, x: 0 } }
+  return page(() => (
+    <WardicConfig skipAnimations>
+      <wardic.div
+        data-k="card"
+        style={{ width: "40px", height: "40px" }}
+        initial={{ opacity: 0, y: 40 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ type: "tween", duration: 1.5 }}
+        onAnimationStart={tell("start")}
+        onAnimationComplete={tell("complete")}
+      />
+      <wardic.ul initial="hidden" animate="shown" variants={{ hidden: {}, shown: {} }} transition={{ type: "tween", duration: 0.5, staggerChildren: 0.3 }}>
+        <wardic.li data-k="i0" variants={variants} style={{ height: "10px" }} />
+        <wardic.li data-k="i1" variants={variants} style={{ height: "10px" }} />
+      </wardic.ul>
+    </WardicConfig>
   ))
 }
 
