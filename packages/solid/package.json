@@ -39,6 +39,8 @@
     "@babel/preset-typescript": "7",
     "@solidjs/babel-plugin": "2.0.0-rc.19",
     "@solidjs/diagnostics": "2.0.0-rc.19",
+    "@solidjs/router": "1.0.0",
+    "@solidjs/router-2": "npm:@solidjs/router@2.0.0-next.42",
     "@solidjs/web": "2.0.0-rc.19",
     "@types/babel__core": "^7.20.5",
     "@wardic/test": "workspace:*",

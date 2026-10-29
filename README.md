@@ -246,6 +246,23 @@ When `isOpen` flips, the nav's variant changes and each item animates to its own
 
 Only those children join: an element without `variants` takes no stagger slot, an element in between passes the names through, and `inherit={false}` keeps a child out. With `createWard`, wrap the children in `<ward.Provider>` to pass its variants down.
 
+### Page transitions with Solid Router
+
+Put an `<AnimatePresence>` around the router's outlet, and make each page's root a Wardic element (#479). A navigation to another route gives the new page new DOM nodes, so the old page leaves by itself, with no `key` (React's pattern keys the page on its path, because React reuses an element of the same type):
+
+```tsx
+<Router root={(props) => <AnimatePresence mode="popLayout">{props.children}</AnimatePresence>}>…</Router>
+
+// each page:
+<wardic.main initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>…</wardic.main>
+```
+
+- **`mode="popLayout"`** for a shared element between pages: the leaving page is taken out of the flow where it was, the new one takes its place at once, and an element with the same `layoutId` on both flies between them. Under `wait` the new page mounts once the old one has gone, its `layoutId` elements with it, so nothing flies.
+- **A change of a route's params alone** (`/product/1` to `/product/2`) keeps the page's nodes. To animate it, key the page's content: `<AnimatePresence><Show keyed when={params.id}>…</Show></AnimatePresence>`.
+- **Data loading:** a route that loads data under `Suspense` (Solid 2's `Loading`) keeps the old page on screen, not leaving, until the data resolves; then it leaves as the new page enters.
+- **One known issue:** the router scrolls to the top after a navigation, so from a list scrolled down, a shared element flies in from below the fold and the leaving page jumps to its top (#480).
+- On both bindings, with `@solidjs/router` 1.0 (Solid 1) and 2.0 (Solid 2's `createRouter`).
+
 ### Nested draggables
 
 A draggable inside a draggable drags on its own, as in Motion. A drag claims its axes when it starts (both for `drag`, one for `drag="x"` or `drag="y"`), and an ancestor that needs one of them stays where it is for that gesture:
