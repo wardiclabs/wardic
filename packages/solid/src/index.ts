@@ -47,15 +47,25 @@ export type { WardicDragInfo, WardicPoint, WardicPointInfo, WardicPressEvent, Wa
 export type { WardicBoundingBox, WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
 // Drag controls (#431, Motion's `useDragControls`): a drag started from a handle or a track.
 export { createDragControls, type WardicDragControls, type WardicDragControlsOptions } from "./drag-controls.ts"
-// Imperative animation (#433, Motion's `useAnimate`): an Animation scope, its `animate` and its Playback controls.
+// Imperative animation (#433, Motion's `useAnimate`): an Animation scope, its `animate` and its Playback controls;
+// a sequence of Segments (Motion's), on the same controls.
 export { createAnimate } from "./create-animate.ts"
 export type {
   WardicAnimate,
   WardicAnimateOptions,
   WardicAnimationScope,
+  WardicAnimationSequence,
   WardicAnimationSubject,
+  WardicElementSegment,
+  WardicFunctionSegment,
   WardicPlaybackControls,
   WardicPlayState,
+  WardicSegment,
+  WardicSegmentOptions,
+  WardicSegmentTarget,
+  WardicSequenceLabel,
+  WardicSequenceOptions,
+  WardicSequenceTime,
 } from "./imperative.ts"
 
 /**

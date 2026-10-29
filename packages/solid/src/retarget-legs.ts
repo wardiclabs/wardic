@@ -277,8 +277,11 @@ export const keyframesFrom = (from: Values.Values, to: Values.Values, keyframes:
   return { from: started, stops: many }
 }
 
-/** Stops with each `null` filled (#429, Motion's `fillWildcards`): the first with `start`, a later one with the stop before. */
-const filledStops = (stops: Style.Stops, start: number | string): ReadonlyArray<number | string> => {
+/**
+ * Stops with each `null` filled (#429, Motion's `fillWildcards`): the first with `start`, a later one
+ * with the stop before. A sequence's function Segment fills its own from 0 (#433).
+ */
+export const filledStops = (stops: Style.Stops, start: number | string): ReadonlyArray<number | string> => {
   let before = start
   return Arr.map(stops, (stop) => {
     if (Predicate.isNotNull(stop)) before = stop
