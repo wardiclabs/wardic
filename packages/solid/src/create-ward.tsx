@@ -64,7 +64,7 @@ import { createElementStyle } from "./element-style.ts"
 import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegistryOf, split } from "./live-style.ts"
 import { createVariantNode } from "./variant-node.ts"
 import { type GestureStates, type NameOrchestration, type ServerVariantNode, serverVariantNode, startingValuesOf, startsQuiet } from "./variant-tree.ts"
-import { useLayoutMember } from "./layout.tsx"
+import { useLayoutGroupId, useLayoutMember } from "./layout.tsx"
 import { layoutOptionsOf, wantsLayoutNode } from "./layout-member.ts"
 import { trackConstraintsOf } from "./drag-constraints.ts"
 import { handoffOf, setsAnimation } from "./appear.ts"
@@ -367,6 +367,8 @@ export function runSpine(opts: RunSpineOptions): void {
   // (this child is disposed). The child does NOT unregister on its own
   // onCleanup — <AnimatePresence> owns removal after the exit settles.
   const presence = usePresenceContext()
+  // The Layout group it's made in (#432): its `layoutId`'s namespace.
+  const layoutGroup = useLayoutGroupId()
 
   // Whether reduced motion applies (ADR-0029), read at each Retarget.
   const reducedMotion = useWardicReducedMotion()
@@ -507,7 +509,7 @@ export function runSpine(opts: RunSpineOptions): void {
       const dragTransition = dragTransitionOf(c0.dragElastic, c0.dragTransition)
       if (wantsLayoutNode(c0)) {
         layoutHandle = useLayoutMember(
-          layoutOptionsOf({ id, element, config: cfg, parent, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true, taken }),
+          layoutOptionsOf({ id, element, config: cfg, parent, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true, taken, layoutGroup }),
         )
         if (Predicate.isNotUndefined(internal.onLayoutHandle)) internal.onLayoutHandle(layoutHandle)
       }

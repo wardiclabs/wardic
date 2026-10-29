@@ -92,6 +92,7 @@ import { createElementStyle } from "../../element-style.ts"
 import { createLiveStyle, type LiveSource, readLive, serverRegistryOf, split } from "../../live-style.ts"
 import { dragTransitionOf } from "../../drag-transition.ts"
 import { layoutOptionsOf, registrationOf, wantsLayoutNode } from "../../layout-member.ts"
+import { useLayoutGroupId } from "./layout.tsx"
 import { presenceBlocksInitial, presenceHold, presenceSeedOf } from "../../presence-record.ts"
 import { handoffOf, setsAnimation } from "../../appear.ts"
 import {
@@ -486,6 +487,8 @@ export interface WardShare {
   readonly carries: boolean
   /** What its `.Provider` hands down: a child's `parent` given as this ward. */
   readonly provided: WardicVariantContextValue | undefined
+  /** The **Layout group** it was made in (#432): its `layoutId`'s namespace, on whatever element it's given to. */
+  readonly layoutGroup: string | undefined
   /** Its variant node, on the client: a driving ward's. */
   readonly node: VariantNode | undefined
   /** Its lifecycle, on the client: a driving ward's, so `settled`, `next` and `each` hear it. */
@@ -586,6 +589,17 @@ const LISTENING_PARENT =
   "ward(config, { parent }): the parent given carries no variants (no `variants` or `inherit` in its ward({ … })): it only listens, " +
   "and its element's props hold its variants, so a child can't join it by `{ parent }` (#398). Render the child inside that " +
   "ward's element, where it joins through the tree, or put the variants in the parent's ward({ … })."
+
+/**
+ * The **Layout group** a ward's `layoutId` goes in (#432): the one it's made in, as its presence and
+ * variant parent are; a driving ward's is its given ward's, where that was made, unless the element's
+ * own props set the `layoutId` (#398), which is then the element's.
+ */
+const layoutGroupFor = (share: WardShare | undefined, fixed: WardInternals["fixed"]): string | undefined => {
+  if (Predicate.isUndefined(share)) return useLayoutGroupId()
+  if (Bool.and(Predicate.isNotUndefined(fixed), Predicate.hasProperty(fixed, "layoutId"))) return useLayoutGroupId()
+  return share.layoutGroup
+}
 
 /**
  * The variant context a ward is made under (#349): a driving ward's given ward's, else its given
@@ -713,6 +727,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
 
   // The nearest <AnimatePresence> (ADR-0007), or none.
   const presence = usePresenceContext()
+  // The Layout group its `layoutId` goes in (#432): where it's made, or a given ward's.
+  const layoutGroup = layoutGroupFor(share, internal.fixed)
 
   // The values it starts from, read once (ADR-0003): its `initial`, or the one it inherits, or its
   // `animate` with `initial={false}` (its own, inherited, or its presence's first render, #134).
@@ -1059,7 +1075,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         const released = (): void => lifecycle.released()
         return projection.register(
           registrationOf({
-            ...layoutOptionsOf({ id, element: el, config: configNow, parent: node.inherited, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true, taken }),
+            ...layoutOptionsOf({ id, element: el, config: configNow, parent: node.inherited, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true, taken, layoutGroup }),
             onLayoutAnimationStart: () => started,
             onLayoutAnimationComplete: () => completed,
             // Its drag's Release offset at rest, for `next("dragTransitionEnd")` (#273).
@@ -1338,7 +1354,19 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         UndefinedOr.map(driven, (atom) => registry().set(atom, undefined))
       }
     }
-    shared = { config, setup: initialConfig, internal, parent, chosen: Predicate.isNotUndefined(internal.parent), carries: carriesVariants(initialConfig), provided: node.provided, node, lifecycle, drive }
+    shared = {
+      config,
+      setup: initialConfig,
+      internal,
+      parent,
+      chosen: Predicate.isNotUndefined(internal.parent),
+      carries: carriesVariants(initialConfig),
+      provided: node.provided,
+      layoutGroup,
+      node,
+      lifecycle,
+      drive,
+    }
     return shared
   }
 
@@ -1502,6 +1530,7 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
     chosen: Predicate.isNotUndefined(internal.parent),
     carries: carriesVariants(atSetup),
     provided: appear.provided,
+    layoutGroup: useLayoutGroupId(),
     node: undefined,
     lifecycle: undefined,
     drive: () => constVoid,

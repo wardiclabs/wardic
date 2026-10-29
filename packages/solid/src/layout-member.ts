@@ -17,6 +17,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Values from "@wardic/core/Values"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type { WardConfig, WardicTransition } from "./config.ts"
+import { layoutIdIn } from "./layout-group.ts"
 import type { PresenceSeed } from "./presence-record.ts"
 import { runOf, transitionForKey } from "./retarget-legs.ts"
 import { ownOrInherited, type WardicVariantContextValue } from "./variant-tree.ts"
@@ -177,15 +178,17 @@ export interface WardLayout {
   readonly raiseWhileDragged: boolean
   /** Where its child's take-over of a leaver starts it (#286): its box and fade, when it has one. */
   readonly taken?: PresenceSeed | undefined
+  /** The id of the **Layout group** the ward was made in (#432), whose namespace its `layoutId` goes in. */
+  readonly layoutGroup?: string | undefined
 }
 
 /**
- * A ward's layout node options, from its config: `layoutId`, `layoutScroll`, `layoutRoot` and
- * `layoutAnchor` read once, at mount; its transition, Layout mode and callbacks read when the
- * projection system needs them.
+ * A ward's layout node options, from its config: `layoutId` (in its **Layout group**'s namespace,
+ * #432), `layoutScroll`, `layoutRoot` and `layoutAnchor` read once, at mount; its transition, Layout
+ * mode and callbacks read when the projection system needs them.
  */
 export const layoutOptionsOf = (ward: WardLayout): UseLayoutMemberOptions => {
-  const { config, element, id, parent, snapshot, dragTransition, raiseWhileDragged, taken } = ward
+  const { config, element, id, parent, snapshot, dragTransition, raiseWhileDragged, taken, layoutGroup } = ward
   const c0 = config()
   return {
     id,
@@ -207,7 +210,7 @@ export const layoutOptionsOf = (ward: WardLayout): UseLayoutMemberOptions => {
     onLayoutAnimationComplete: () => config().onLayoutAnimationComplete,
     // The app's `onDragTransitionEnd` (#273): its Release offset at rest.
     onReleaseEnd: () => config().onDragTransitionEnd,
-    ...UndefinedOr.match(c0.layoutId, { onUndefined: () => ({}), onDefined: (twinId) => ({ layoutId: twinId }) }),
+    ...UndefinedOr.match(layoutIdIn(layoutGroup, c0.layoutId), { onUndefined: () => ({}), onDefined: (twinId) => ({ layoutId: twinId }) }),
     ...Bool.match(c0.layoutScroll === true, { onTrue: () => ({ layoutScroll: true }), onFalse: () => ({}) }),
     ...Bool.match(c0.layoutRoot === true, { onTrue: () => ({ layoutRoot: true }), onFalse: () => ({}) }),
     ...UndefinedOr.match(c0.layoutAnchor, { onUndefined: () => ({}), onDefined: (anchor) => ({ layoutAnchor: anchor }) }),

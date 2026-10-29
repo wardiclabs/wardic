@@ -582,3 +582,41 @@ A `layoutId` twin registering after its partner started leaving found nothing to
 
 **Cost:** nothing per frame. A registration checks whether any leaver is kept past its task, one look over a map that's empty but for a leaving moment, and schedules one end-of-task step if so. A kept leaver costs a map entry, its element held while it's on the page.
 
+
+## Amendment (#432, 2026-10-28): a Layout group's `id` namespaces `layoutId`
+
+Motion's `<LayoutGroup id>` puts its members' `layoutId`s in a namespace, so two copies of a component that uses a `layoutId` (a tab bar's underline) don't pair across each other (`components/LayoutGroup/index.tsx`, `motion/index.tsx`'s `useLayoutId`, `.reference/motion` at `16c6122`). Wardic's `<LayoutGroup>` took `layoutDependency` alone, so two tab bars on one page shared one underline: the later one's Lead, the earlier one's a hidden Follower. #432 is the sixth of 1.0's Motion-parity gaps (#426). Grilled 2026-10-28, Q1–Q3 each A:
+
+1. **Motion's string** (Q1). A grouped `layoutId` reaches the engine as `${groupId}-${layoutId}`, and nested groups join the same way (`outer-inner`). Ported code pairs exactly as it did, with Motion's quirk: `layoutId="tabs-underline"` written outside any group pairs with `layoutId="underline"` inside `<LayoutGroup id="tabs">`. Rejected: B, a collision-free scope.
+2. **Motion's three `inherit` values,** default `true` (Q2).
+   - `true` and `"id"` join the outer group's id, or take it when the group has no `id` of its own. Motion's `true` also joins the outer group's node group, whose members re-measure together. Every Measure pass here reads the whole tree (ADR-0009's measure scope), so the two are the same.
+   - `false` starts a namespace of its own.
+
+   Rejected: B, a boolean only.
+3. **A ward is in the group it's made in** (Q3), as it's under the provider, the presence and the variant parent it's made under.
+   - A ward made in a component body and spread on an element inside that component's `<LayoutGroup>` is outside it. To group it, make it in a component under the group.
+   - `wardic.*` and `use:wardic` are made at their element.
+   - On Solid 2, a ward given to `wardRef` keeps the group it was made in. An element's own `layoutId` prop beside a given ward (#398) is the element's, in the element's group.
+
+   Rejected: B, the group around the element, read at its ref; C, a `ward(config, { layoutGroup })` option.
+
+**Read once,** as Motion's: a group's id at its mount, an element's `layoutId` at its mount. `layoutDependency` stays, Wardic's own.
+
+**Built:**
+- **`layout-group.ts`** (shared by both bindings) makes a group's id, `layoutGroupIdOf`, and puts a `layoutId` in it, `layoutIdIn`.
+- **Both bindings' `<LayoutGroup>`** provide their id through a context, only when it changes the id around. So a group with no `id` renders as it did, with the same hydration keys: SV15's recorded keys caught a provider adding a level. On Solid 2 the context defaults to `null`: a context made with `undefined` reads as having no value there, and throws outside a provider.
+- **`layoutOptionsOf`** (`layout-member.ts`) puts the `layoutId` in the ward's group. Every `layoutId` reaches the engine through it, on both bindings.
+- **The ward reads its group** where it reads its presence: Solid 1's `runSpine`, Solid 2's `wardWith`, whose `WardShare` carries it for a given ward.
+
+**Tests:**
+- Solid 1 (`layout-group.browser.test.tsx`), LG1–LG3:
+  - two tab bars, each with its own underline;
+  - the key's forms: nested, `"id"`, no `id`, `inherit={false}`;
+  - a `createWard` made outside its group, and `use:wardic` inside.
+- Solid 2 (`v2/layout-group.browser.test.tsx`), LV1–LV3: the tab bars, the forms, and a ward made in a body, given to `wardRef`, or beside an element's own `layoutId`.
+- **Mutation-checked** (`.tmp/432/mutate.py`): nine single-point mutations, each caught by the tests meant for it.
+  - The namespace: none at all, nested groups not joining, a group with no `id` taking none, `inherit={false}` ignored, `inherit="id"` read as `false`.
+  - Where the group is read: Solid 1's spine reading none, a given ward taking the element's group, an element's own `layoutId` taking the given ward's.
+  - Markup: a group with no `id` providing a context, which SV15's hydration keys catch.
+
+**Measured:** `bench:solid` against `main` (`d0e107d`, 11 paired reps, noise control +0.1%) passed on both bindings, flat. The workload has no `<LayoutGroup>`, so this is the context read each ward makes. Solid 1 / Solid 2: warm Retarget +1.0% / −0.1%, bytes +0.4% / +0.2%, retained +0.0% / +0.0%, layout scenes flat.
