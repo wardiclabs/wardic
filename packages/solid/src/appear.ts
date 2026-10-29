@@ -18,7 +18,6 @@ import * as Easing from "@wardic/core/Easing"
 import type * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
-import * as Stagger from "@wardic/core/Stagger"
 import type * as Values from "@wardic/core/Values"
 import * as Appear from "@wardic/dom/Appear"
 import * as DomDefaultTransition from "@wardic/dom/DomDefaultTransition"
@@ -39,6 +38,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicTransition } from "./config.ts"
 import { entriesOf, type KeyframesStart, keyframesFrom, type Leg, legsOf, NO_VELOCITY, runOf, type StopsByKey, transitionForKey } from "./retarget-legs.ts"
 import type { Keyframes } from "./variant-target.ts"
+import { childDelayOf, type WardicStaggerConfig } from "./variant-tree.ts"
 
 // --- The mount animation, on both sides -------------------------------------------------------
 
@@ -258,7 +258,7 @@ const atTarget = (start: number | string | undefined, target: number | string): 
 /** A variant parent's orchestration, on a server: its children in render order, its stagger and `when`. */
 export interface AppearGroup {
   readonly leader: Entry
-  readonly stagger: { readonly amount: number; readonly delayChildren: number; readonly from: Stagger.Origin; readonly direction: 1 | -1 }
+  readonly stagger: WardicStaggerConfig
   readonly when: "beforeChildren" | "afterChildren" | undefined
   readonly children: Array<Entry>
 }
@@ -589,8 +589,7 @@ const staggerOf = (entry: Entry, childrenOf: (g: AppearGroup) => ReadonlyArray<E
       const children = childrenOf(g)
       const n = children.length
       const i = children.indexOf(entry)
-      const index = Bool.match(g.stagger.direction === -1, { onTrue: () => n - 1 - i, onFalse: () => i })
-      return g.stagger.delayChildren + Stagger.make(g.stagger.amount, { from: g.stagger.from })(index, n)
+      return childDelayOf(g.stagger, i, n)
     },
   })
 

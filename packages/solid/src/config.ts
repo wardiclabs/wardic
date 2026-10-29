@@ -123,11 +123,18 @@ export type WardicTargetValues = {
  * child inherits them as the default transition but reads orchestration off the
  * parent CONTEXT (not its own transition).
  */
+/** A stagger (#436, Motion's `DynamicOption<number>`): a child's delay in seconds, from its index and the count. */
+export type WardicStagger = (index: number, total: number) => number
+
 export interface WardicOrchestration {
   /** Seconds between successive sibling starts (core `stagger` amount). */
   readonly staggerChildren?: number
-  /** Fixed delay added to every child before its staggered offset. */
-  readonly delayChildren?: number
+  /**
+   * Fixed delay added to every child before its staggered offset; or, as Motion's, a function of a
+   * child's index and the count, `stagger()`'s (#436), which decides each child's whole delay:
+   * `staggerChildren`, `staggerDirection` and `from` aren't read beside it.
+   */
+  readonly delayChildren?: number | WardicStagger
   /** `-1` reverses the stagger order (last child leads). Default `1`. */
   readonly staggerDirection?: 1 | -1
   /** Origin the stagger distance grows from (reuses core's `Stagger.Origin`). */

@@ -41,10 +41,11 @@
 //   both, the reduced under the media query, which a provider's "never" then writes for it alone.
 // - AR22 (#468): under a `WardicConfig`'s `skipAnimations`, a ward's and an element's rule is 0 s,
 //   holding its end, with no reduced play; a skipped Variant child holds no stagger.
+// - AR23 (#436): a `delayChildren: stagger()` times each Variant child's rule by its index.
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
-import { ward, wardic, WardicConfig, WardicProvider, type WardicTransition } from "@wardic/solid/unstable/v2"
+import { stagger, ward, wardic, WardicConfig, WardicProvider, type WardicTransition } from "@wardic/solid/unstable/v2"
 import { type JSX, renderToStream, renderToString } from "@solidjs/web"
 import * as Option from "effect/Option"
 import { createMemo, Errored, For, Loading, Show } from "solid-js"
@@ -637,5 +638,20 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
       expect(timingOf(k).reduced, `${k}: no reduced play`).toBe("")
     }
     expect(timingOf("outside").normal, "outside: its own 0.3 s").toMatch(/ 0\.3s linear 0s 1 forwards$/)
+  })
+
+  it("AR23: a delayChildren: stagger() times each Variant child's rule by its index (#436)", () => {
+    const tween = { type: "tween", duration: 0.3, ease: Easing.linear } as const
+    const item = { hidden: { opacity: 0 }, shown: { opacity: 1, transition: tween } }
+    const html = page(() => (
+      <wardic.ul initial="hidden" animate="shown" variants={{ hidden: {}, shown: {} }} transition={{ delayChildren: stagger(0.1, { from: "center" }) }}>
+        <wardic.li data-k="a" variants={item} />
+        <wardic.li data-k="b" variants={item} />
+        <wardic.li data-k="c" variants={item} />
+      </wardic.ul>
+    ))
+    const css = headCss(html)
+    const delayIn = (k: string): number => Number(/s linear (-?[\d.]+)s/.exec(timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation)).normal)?.[1] ?? Number.NaN)
+    expect([delayIn("a"), delayIn("b"), delayIn("c")].map((d) => Math.round(d * 1000) / 1000), "from the centre").toEqual([0.1, 0, 0.1])
   })
 })

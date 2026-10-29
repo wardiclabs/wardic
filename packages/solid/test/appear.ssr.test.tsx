@@ -56,12 +56,13 @@
 //   one too; beside it, outside, its own timing.
 // - AR27 (#468): a skipped Variant child holds no stagger, and waits no time for its skipped parent's
 //   `when: "beforeChildren"`.
+// - AR28 (#436): a `delayChildren: stagger()` times each Variant child's rule by its index.
 // - AR25 (#434): a Variant child that follows the user waits, in its reduced timing too, for a parent
 //   under a config's "never" to settle as that parent plays: its move, not a snap.
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
-import { createWard, wardic, WardicConfig, WardicProvider, type WardicTransition, type WardicVariants } from "@wardic/solid"
+import { createWard, stagger, wardic, WardicConfig, WardicProvider, type WardicTransition, type WardicVariants } from "@wardic/solid"
 import { createResource, For, type JSX, Suspense } from "solid-js"
 import { renderToStream, renderToString } from "solid-js/web"
 import { describe, expect, it } from "vitest"
@@ -712,6 +713,21 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     const delayIn = (k: string): number => delayOf(timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation)).normal)
     expect(delayIn("first"), "after its 0 s parent").toBe(0)
     expect(delayIn("second"), "no stagger slot").toBe(0)
+  })
+
+  it("AR28: a delayChildren: stagger() times each Variant child's rule by its index (#436)", () => {
+    const tween = { type: "tween", duration: 0.3, ease: Easing.linear } as const
+    const item = { hidden: { opacity: 0 }, shown: { opacity: 1, transition: tween } }
+    const html = page(() => (
+      <wardic.ul initial="hidden" animate="shown" variants={{ hidden: {}, shown: {} }} transition={{ delayChildren: stagger(0.1, { from: "last" }), staggerChildren: 1 }}>
+        <wardic.li data-k="a" variants={item} />
+        <wardic.li data-k="b" variants={item} />
+        <wardic.li data-k="c" variants={item} />
+      </wardic.ul>
+    ))
+    const css = headCss(html)
+    const delayIn = (k: string): number => delayOf(timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation)).normal)
+    expect([delayIn("a"), delayIn("b"), delayIn("c")].map((d) => Math.round(d * 1000) / 1000), "from the last, staggerChildren unread").toEqual([0.2, 0.1, 0])
   })
 })
 

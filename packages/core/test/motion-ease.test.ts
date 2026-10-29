@@ -112,8 +112,11 @@ describe("Motion's ease (#360)", () => {
     expect(map({})(0.5), "none: linear").toBeCloseTo(50, 6)
   })
 
-  it("ME7: a stagger's ease takes a name", () => {
+  it("ME7: a stagger's ease takes a name, across amount × total as Motion's stagger (#436)", () => {
     const delay = Stagger.make(0.1, { ease: "easeIn" })
-    expect(delay(2, 5)).toBeCloseTo(0.1 * Easing.easeIn(0.5) * 4, 9)
+    // Motion's: `maxDelay = total × duration`, `easing(delay / maxDelay) × maxDelay`.
+    expect(delay(2, 5)).toBeCloseTo(Easing.easeIn(0.2 / 0.5) * 0.5, 9)
+    expect(Stagger.make(0.1, { ease: "easeIn", startDelay: 0.3 })(2, 5), "after its startDelay").toBeCloseTo(0.3 + Easing.easeIn(0.4) * 0.5, 9)
+    expect(Stagger.make(0, { ease: "easeIn" })(2, 5), "no amount, no delay").toBe(0)
   })
 })
