@@ -1,5 +1,5 @@
 /**
- * @wardic/solid — the Solid framework binding: `WardicProvider`; `createWard`, a **Ward** to
+ * @wardic/solid — the Solid framework binding: `WardicProvider` and `WardicConfig`; `createWard`, a **Ward** to
  * spread onto an element, with variant orchestration through `ward.Provider`; `wardic.*`,
  * `wardic.create()` and the `use:wardic` directive; `<AnimatePresence>`, `<LayoutGroup>` and
  * `<Reorder>`; and the low-level `createX` primitives (ADR-0008, ADR-0042). Built directly on
@@ -28,6 +28,12 @@ export {
 } from "./provider.tsx"
 export type { AnimateLayout, WardicEnv, WardicRuntime, WardicServices } from "./runtime.ts"
 export type { AnimateLayoutOptions } from "@wardic/dom/ProjectionSystem"
+
+/**
+ * `<WardicConfig>` (#434, Motion's `MotionConfig`): settings for the Wardic elements below it, its
+ * **Config transition** their default `transition`. It nests anywhere under a `WardicProvider`.
+ */
+export { WardicConfig, type WardicConfigProps } from "./wardic-config.tsx"
 
 /**
  * The provider-owned reactive flush gate (ADR-0006): an accumulator + gated

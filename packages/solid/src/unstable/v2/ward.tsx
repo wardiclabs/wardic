@@ -95,6 +95,7 @@ import { layoutOptionsOf, registrationOf, wantsLayoutNode } from "../../layout-m
 import { useLayoutGroupId } from "./layout.tsx"
 import { registerAnimatable } from "../../imperative.ts"
 import { type ControlsChange, controlledConfigOf, controlledElement, isAnimationControls, subscribe, uncontrolledOf, type WardicAnimationControls } from "../../animation-controls.ts"
+import type { WardicConfigValue } from "../../config-transition.ts"
 import { presenceBlocksInitial, presenceHold, presenceSeedOf } from "../../presence-record.ts"
 import { handoffOf, setsAnimation } from "../../appear.ts"
 import {
@@ -141,6 +142,7 @@ import {
   useWardicRuntime,
 } from "./provider.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
+import { useWardicConfig } from "./wardic-config.tsx"
 import { configView, type Fixed, type PerKey, type PerKeyApart } from "./config-view.ts"
 import { Lifecycle, type WardEvent, type WardEvents, type WardPressInfo, type WardSettled } from "./lifecycle.ts"
 import { neverLands, NO_EVENTS, serverWhen } from "./waiters.ts"
@@ -667,6 +669,17 @@ const controlsOf = (given: WardConfigValues, animate: WardConfigValues["animate"
   return { controls: animate as WardicAnimationControls, view, change, set: (made) => setChange(() => made) }
 }
 
+/**
+ * `view` with its **Config transition** as its own when it gives none (#434, Motion's
+ * `{ ...config, ...props }`), read per read as its keys are; `view` itself with no `WardicConfig` above.
+ */
+const configuredView = (view: WardConfigValues, config: WardicConfigValue | undefined): WardConfigValues => {
+  if (Predicate.isUndefined(config)) return view
+  return Object.create(view, {
+    transition: { enumerable: true, get: () => UndefinedOr.match(view.transition, { onUndefined: config.transition, onDefined: identity }) },
+  }) as WardConfigValues
+}
+
 /** A ward's lifecycle: a driving ward's is its given ward's (#349), any other its own, made now. */
 const lifecycleFor = (share: WardShare | undefined, owner: Owner | null, want: () => void): Lifecycle => {
   const shared = UndefinedOr.map(share, lifecycleOfShare)
@@ -743,7 +756,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const id = createUniqueId()
   // Its config, read per key where it's read (#259): a change re-runs only what reads the key. With
   // Animation controls for its `animate` (#433), read once, each change they make is its entry.
-  const asGiven = WARD_VIEW.of(config, internal.fixed)
+  // Under a `WardicConfig`, its Config transition is its own when it gives none (#434).
+  const asGiven = configuredView(WARD_VIEW.of(config, internal.fixed), useWardicConfig())
   // The config at setup, a plain copy read untracked: what setup reads, the keys read once among it.
   // A key still loading (#257 item 1) is left out of it: one the ward reads as it goes holds its
   // region until it lands; one setup fixes is an error, naming it. Its `animate` there tells
@@ -1524,7 +1538,7 @@ const readServerStyle = (value: unknown): unknown => readLive(value, serverRegis
  */
 const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
   createUniqueId()
-  const view = WARD_VIEW.of(config, internal.fixed)
+  const view = configuredView(WARD_VIEW.of(config, internal.fixed), useWardicConfig())
   // A key still loading (#257 item 1): one setup fixes is the client's error here too. One the ward
   // reads as it goes is read again, throwing Solid's `NotReadyError`: a server waits for it and
   // renders the component again, so its region streams once the data is in, Appear and all.

@@ -34,10 +34,12 @@
 //   running from `initial` to the fetched target.
 // - AR19 (#257 item 1): a key setup fixes, still loading on a server, is the client's error too, and
 //   so is a pending `animate` with `initial={false}`.
+// - AR20 (#434): a `WardicConfig`'s transition times the rule of an element with none of its own;
+//   one with its own keeps it, and an inner config with `inherit: true` lays its delay over it.
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
-import { ward, wardic, WardicProvider, type WardicTransition } from "@wardic/solid/unstable/v2"
+import { ward, wardic, WardicConfig, WardicProvider, type WardicTransition } from "@wardic/solid/unstable/v2"
 import { type JSX, renderToStream, renderToString } from "@solidjs/web"
 import * as Option from "effect/Option"
 import { createMemo, Errored, For, Loading, Show } from "solid-js"
@@ -548,5 +550,24 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
       </WardicProvider>
     ))
     expect(starting).toContain("with `initial={false}` a ward starts there")
+  })
+
+  it("AR20: a WardicConfig's transition times an element with none of its own; inherit: true lays its delay over it (#434)", () => {
+    const rise = { initial: { opacity: 0 }, animate: { opacity: 1 } } as const
+    const html = page(() => (
+      <WardicConfig transition={{ type: "tween", duration: 1.5, ease: Easing.linear }}>
+        <wardic.div data-k="config" {...rise} />
+        <wardic.div data-k="own" {...rise} transition={{ type: "tween", duration: 0.2, ease: Easing.linear }} />
+        <WardicConfig transition={{ inherit: true, delay: 0.25 }}>
+          <wardic.div data-k="inherits" {...rise} />
+        </WardicConfig>
+      </WardicConfig>
+    ))
+    const css = headCss(html)
+    const tag = (k: string) => tagsOf(html).find((t) => t.attrs["data-k"] === k)
+    const animationOf = (k: string): string => timing(css, propertyOf(tag(k)?.style.animation)).normal
+    expect(animationOf("config"), "the config's 1.5 s").toMatch(/ 1\.5s linear 0s /)
+    expect(animationOf("own"), "its own 0.2 s").toMatch(/ 0\.2s linear 0s /)
+    expect(animationOf("inherits"), "the outer 1.5 s after its 0.25 s, held in the rule").toMatch(/ 1\.75s linear 0s /)
   })
 })

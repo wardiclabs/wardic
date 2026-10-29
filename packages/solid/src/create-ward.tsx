@@ -60,6 +60,7 @@ import {
 } from "solid-js"
 import { type ControlsChange, controlledConfigOf, controlledElement, isAnimationControls, subscribe, uncontrolledOf, type WardicAnimationControls } from "./animation-controls.ts"
 import { fromAtom, watchToSignal } from "./bridge.ts"
+import { type WardicConfigValue, withConfigTransition } from "./config-transition.ts"
 import { dragTransitionOf, type DragTrack, type DragTrackConfig, runDragTrack } from "./drag.ts"
 import { createElementStyle } from "./element-style.ts"
 import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegistryOf, split } from "./live-style.ts"
@@ -76,6 +77,7 @@ import type { PresenceRecord } from "./presence-record.ts"
 import { createWhenWanted, stateOf, type Wants } from "./sensors.ts"
 import { type GestureCallbacks, gestureCallbacksOf, inViewOptionsOf, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "./gesture-callbacks.ts"
 import { runWatch, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
+import { useWardicConfig } from "./wardic-config.tsx"
 import type { WardicRuntime } from "./runtime.ts"
 import { isHydrating, isServer } from "./server.ts"
 import { reactivity } from "./solid-reactivity.ts"
@@ -345,13 +347,24 @@ export interface Controls {
 
 /**
  * `given` with its `animate` read once (#433): **Animation controls** make each change they make its
- * entry, the config marked controlled; anything else leaves it as it is.
+ * entry, the config marked controlled; anything else leaves it as it is. Under a `WardicConfig`, its
+ * **Config transition** is its own when it gives none (#434).
  */
 export const controlledOf = (given: Accessor<WardConfig>): { readonly cfg: Accessor<WardConfig>; readonly controls: Controls | undefined } => {
-  const animate = untrack(given).animate
-  if (Bool.not(isAnimationControls(animate))) return { cfg: given, controls: undefined }
+  const configured = configuredOf(given, useWardicConfig())
+  const animate = untrack(configured).animate
+  if (Bool.not(isAnimationControls(animate))) return { cfg: configured, controls: undefined }
   const [change, set] = createSignal<ControlsChange | undefined>(undefined)
-  return { cfg: () => controlledConfigOf(given(), change()), controls: { controls: animate as WardicAnimationControls, change, set: (made) => set(() => made) } }
+  return { cfg: () => controlledConfigOf(configured(), change()), controls: { controls: animate as WardicAnimationControls, change, set: (made) => set(() => made) } }
+}
+
+/**
+ * `given` with its **Config transition** as its own when it gives none (#434, Motion's
+ * `{ ...config, ...props }`), one object per change; `given` itself with no `WardicConfig` above.
+ */
+const configuredOf = (given: Accessor<WardConfig>, config: WardicConfigValue | undefined): Accessor<WardConfig> => {
+  if (Predicate.isUndefined(config)) return given
+  return createMemo(() => withConfigTransition(given(), config))
 }
 
 /** No change: an element without Animation controls. */
@@ -965,7 +978,7 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
   // The client's gate id: keeps every later hydration key in step.
   createUniqueId()
   // Animation controls (#433) set nothing on a server: no entry yet, and controlled, as on the client.
-  const c = uncontrolledOf(accessorOf(config)())
+  const c = uncontrolledOf(withConfigTransition(accessorOf(config)(), useWardicConfig()))
   // The same names the client hands down, read once, with orchestration that does nothing
   // (#50); a Variant child's Starting style starts from its ancestor's `initial` name.
   const node = serverVariantNode(c, useVariantContext())

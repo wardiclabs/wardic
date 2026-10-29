@@ -18,6 +18,12 @@ export type { WardicEnv, WardicRuntime, WardicServices } from "../../runtime.ts"
 export type { AnimateLayout } from "./provider.tsx"
 
 /**
+ * `<WardicConfig>` (#434, Motion's `MotionConfig`): settings for the Wardic elements below it, its
+ * **Config transition** their default `transition`. It nests anywhere under a `WardicProvider`.
+ */
+export { WardicConfig, type WardicConfigProps } from "./wardic-config.tsx"
+
+/**
  * `ward(config)`: a **Ward**, one element's motion, as a ref that carries its props. Spread it
  * (`<div {...ward(config)} />`, its Starting style in server HTML) or give it to `ref`
  * (`ref={ward(config)}`, client-only). A kept ward has `.Provider` for its Variant children,
