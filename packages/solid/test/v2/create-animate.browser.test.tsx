@@ -7,6 +7,8 @@
 // - CV2: a selector inside the scope animates plain elements; on a ward's element the call takes its
 //   keys until the ward's own target for them changes.
 // - CV3: the scope's owner's cleanup stops its animations where they are.
+// - CV4: a sequence (#433's PR 2): its Segments in order, a function Segment's callback told each
+//   frame, `scope.settled()` pending until it lands, then holding it.
 import { DomLive } from "@wardic/dom"
 import type { JSX } from "@solidjs/web"
 import { createAnimate, ward, type WardicAnimate, type WardicAnimationScopeV2, WardicProvider } from "@wardic/solid/unstable/v2"
@@ -122,5 +124,36 @@ describe("createAnimate on Solid 2 (#433)", () => {
     await frames(8)
     expect(xOf(p), "stopped where it was").toBeCloseTo(at, 3)
     expect(at).toBeLessThan(90)
+  })
+
+  it("CV4: a sequence runs its Segments in order, and scope.settled() holds it once it lands", async () => {
+    const { scope, animate } = mountScope(() => (
+      <>
+        <div id="p" style={BOX} />
+        <div id="q" style={BOX} />
+      </>
+    ))
+    await frames(2)
+    // Read before: its first read is never pending (CV1).
+    expect(scope.settled()).toBeUndefined()
+    const p = byId("p")
+    const q = byId("q")
+    const heard: Array<number> = []
+    const sequence = animate([
+      [p, { x: 60 }, { duration: 0.3, ease: "linear" }],
+      [q, { x: 60 }, { duration: 0.3, ease: "linear" }],
+      [(value: number) => heard.push(value), { duration: 0.2, at: "<" }],
+    ])
+    await until(() => xOf(p) > 10)
+    expect(isPending(() => scope.settled()), "in flight").toBe(true)
+    expect(xOf(q), "q waits for p").toBeCloseTo(0, 3)
+    await until(() => xOf(q) > 10)
+    expect(xOf(p)).toBeCloseTo(60, 0)
+    await sequence
+    await frames(2)
+    expect(xOf(q)).toBeCloseTo(60, 0)
+    expect(heard.at(-1), "the callback's end").toBe(1)
+    expect(isPending(() => scope.settled())).toBe(false)
+    expect(scope.settled()?.animation, "the sequence landed").toBe(sequence)
   })
 })

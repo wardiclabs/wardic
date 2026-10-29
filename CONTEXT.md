@@ -164,6 +164,10 @@ _Avoid_: animation context, root.
 What an **Imperative animation** returns (Motion's): awaitable, and able to stop it where it is, cancel it back to where it started, complete it at its end, pause and play it, change its speed, and seek its time.
 _Avoid_: animation handle, player.
 
+**Sequence**:
+An **Imperative animation** of Segments laid out in time (#433, Motion's `animate(sequence)`): each Segment animates its subjects to its values, one after another unless its `at` places it (a time, a time after or before the Segment before, or a **label**'s). It plays as one animation, under one set of **Playback controls**: each subject's values run through their stops over the whole sequence. A function Segment animates a value, from 0 to 1, told to its callback each frame.
+_Avoid_: timeline (the roadmap's `@wardic/timeline` is its own abstraction), chain, choreography.
+
 **Variant child**:
 A Wardic element with `variants` that names neither its own `initial` nor `animate`, and doesn't set `inherit={false}`. It joins its nearest Wardic ancestor that has variants of its own (`variants`, or a named `initial` or `animate`): it inherits that ancestor's `initial` and `animate` names, resolved against its own `variants` (the `initial` name as its **Starting style**, read once; an inherited `initial={false}` starts it at its `animate`, #134), takes a stagger slot among the ancestor's variant children, and counts for its `when`. Any other Wardic element passes the names through to its children untouched, except one with `inherit={false}`, which passes none from above it (#50, Motion's rule).
 _Avoid_: registered child, orchestrated child.

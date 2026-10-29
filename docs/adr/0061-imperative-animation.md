@@ -109,3 +109,62 @@ Wardic had declarative props only. On Solid 2, `settled()`, `next(name)` and an 
   - a Reorder item +1.3% / +1.1%.
 
   Each spine holds its `taken` Map, its `animate` closures and its registration. A `taken` made at the first call is the obvious cut, left for #460.
+
+## Built (PR 2)
+
+- **core, `Sequence`** (new, CONTEXT.md **Sequence**): `compile(steps, options)`, Motion's `createAnimationsFromSequence`, pure and over any subject. A binding hands it each Segment's subjects, values and each value's transition; it returns each subject's Keyframes per key, on a tween over the whole sequence, with `times`.
+  - **Time:** each Segment starts where the one before ended, its longest key's delay and duration. `at` takes Motion's forms (a time, `"+0.5"` / `"-0.5"`, `"<"`, `"<+0.5"`, a label), never before 0. A label is a string at the end of the Segment before, or `{ name, at }`.
+  - **A key's stops** are placed in its Segment by its `duration`, `delay` (each subject's, when a function), `times` and `ease` per part, and merged in time order, a later Segment's erasing what it overlaps. A single value starts from `null`; a first stop after 0 is held from 0, and the last to the end.
+  - **A spring through two stops or fewer** is sampled into an easing over its time to rest: `Machine.spring` over the move between its stops (100 when they aren't two numbers), `Machine.durationOf` for the time, 240 samples a second. Its rest thresholds are the move's (#344), so a longer move takes longer. A spring set by time ends at its duration (#359).
+  - **A Segment's `repeat`** below 20 is unrolled into stops, with `repeatDelay` holding the last stop between passes, and `"mirror"` / `"reverse"` turning every other pass.
+  - **The sequence's options** (`duration`, `delay`, the repeat) are laid over each key's tween.
+- **`Easing.reverse`** is exported: Motion's `reverseEasing`, which the sequence's `"reverse"` uses.
+- **`imperative.ts`:** `animate(sequence, options)`, told apart as Motion's is (a list with a list in it).
+  - **Each element Segment's** elements are found as a call's, a selector looked up once a sequence. Each value's transition is the Segment's with the value's own laid over it, over the sequence's `defaultTransition` less its delay, times and repeat. It is a spring or a tween by Wardic's rule (ADR-0051), and Motion's 0.3 s `easeOut` tween when it defines neither.
+  - **A function Segment** is a subject of its own (a `Callback`): its value from 0 to 1, or through its own stops (a first `null` is 0), runs through `Machine.keyframesValues` on the runtime's frame loop, through the Playhead, its callback told each frame. Its `cancel` tells it its first stop again, as Motion's motion value is set back.
+  - **Each element's animation** runs as a call's does (`trackOf`: its spine, or its plain one), its Keyframes and per-value transitions as given. The controls are PR 1's, over every subject's track.
+  - **A list's missing members** are left out, as Motion's, for a call and a sequence.
+- **Types,** from both bindings: `WardicAnimationSequence`, `WardicSegment` (`WardicElementSegment`, `WardicFunctionSegment`, `WardicSequenceLabel`), `WardicSegmentOptions`, `WardicSegmentTarget`, `WardicSequenceOptions` and `WardicSequenceTime`. `WardicAnimate` takes either form.
+
+**Settled while building it:**
+- **A value's own transition is laid over its Segment's,** as Motion's sequences do (`getValueTransition` in `sequence/create.ts`). A declarative transition's entry stands alone (ADR-0049).
+- **A Segment's transition is a spring or a tween by Wardic's rule** (ADR-0051): `{ stiffness: 300 }` with no `type` is a spring, as it is everywhere else in Wardic. Motion's sequences read only `type`.
+- **`defaultTransition`'s `duration` is a Segment's, never the sequence's.** Its `delay` and repeat are the sequence's, under the sequence's own options, as Motion's. CS9 caught the first build taking its `duration` as the sequence's.
+- **Where Motion's compiler slips, Wardic's doesn't:**
+  - one easing, or a list shorter than a Segment's parts, is spread over them before a `repeat` unrolls. Motion's misaligns them past two stops: `ease: "easeIn"` through three stops eases the first pass's second part linearly;
+  - `"reverse"` plays named easings backwards too, as a reversed run does. Motion's reverses only functions;
+  - a bézier's four numbers stay one easing under a `repeat`. Motion's spreads them into four numbers, none of them an easing;
+  - `times` that don't give one per stop are spread evenly, as a key's Keyframes are (ADR-0058). Motion's place a stop with no time at `NaN`.
+
+  Two smaller differences: a spring's time to rest is `Machine.durationOf`'s, at 60 Hz, where Motion's steps 50 ms; and a Segment's `repeat` of 20 or more is left out without Motion's development warning.
+
+## Tests (PR 2)
+
+- **core** (`packages/test/test/sequence.test.ts`), SQ1–SQ13: Motion's own sequence cases (`sequence/__tests__/index.test.ts`), each key's transition given as a binding resolves it.
+  - Single values, explicit stops and easings, Segments in order;
+  - every `at` form and both label forms;
+  - the longest key, staggered subjects, the sequence's options;
+  - springs sampled (time-based, Motion's default, a longer move);
+  - `repeat`, `repeatDelay`, `"mirror"` and `"reverse"` (named easings too);
+  - Segments with no subject or no length;
+  - a later Segment erasing the stops it spans, and a `null` after a value at one time.
+- **Solid 1** (`create-animate-sequence.browser.test.tsx`), CS1–CS9:
+  - Segments in order, and `duration`;
+  - `"<"`, `"-0.2"` and a label;
+  - seeking as one;
+  - a function Segment's values, colours through the Interpolators, `cancel`;
+  - a spring Segment overshooting, the next waiting for it;
+  - a Wardic element's keys taken until its own target changes;
+  - the sequence's `duration`, `repeat`, `delay` and `onComplete`;
+  - a selector staggered and a Segment's `repeat`;
+  - a value's own transition laid over the Segment's, `defaultTransition`, and a list's missing members.
+- **Solid 2** (`v2/create-animate.browser.test.tsx`), CV4: a sequence with a function Segment, and `scope.settled()` holding it once it lands.
+- **Mutation-checked** (`.tmp/433/mutate2.py`): 34 single-point mutations, each caught by the tests meant for it. Two first survived: a later Segment erasing the stops it spans, and a `null` after a value at one time. SQ13 pins both.
+
+## Measured (PR 2)
+
+`bench:solid` against `main` (`38f2da9`, 11 paired reps, noise control +1.0%) passed on both bindings. Nothing on an element's path changed: a sequence is compiled at its call. Solid 1 / Solid 2:
+- **Warm:** mount −0.2% / −1.2%, Retarget −0.4% / −1.5%, rest Retarget +0.0% / −1.9%, unmount −1.1% / +0.3%.
+- **Bytes per round:** +0.0% / +0.0%.
+- **Retained at rest:** −0.0% / −0.1% for hover + press, +0.1% / +0.0% for a Reorder item.
+- **Layout scenes:** flat. **Left after the unmount:** unchanged.

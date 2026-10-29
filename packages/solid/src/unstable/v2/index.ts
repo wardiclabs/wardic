@@ -120,7 +120,22 @@ export type { WardicBoundingBox, WardicDragConstraints, WardicMeasureDragConstra
 export { createDragControls, type WardicDragControls, type WardicDragControlsOptions } from "../../drag-controls.ts"
 // Imperative animation (#433, Motion's `useAnimate`): an Animation scope with `settled()`, its `animate` and its Playback controls.
 export { createAnimate, type WardicAnimationScopeV2, type WardicScopeLanding } from "./create-animate.ts"
-export type { WardicAnimate, WardicAnimateOptions, WardicAnimationSubject, WardicPlaybackControls, WardicPlayState } from "../../imperative.ts"
+export type {
+  WardicAnimate,
+  WardicAnimateOptions,
+  WardicAnimationSequence,
+  WardicAnimationSubject,
+  WardicElementSegment,
+  WardicFunctionSegment,
+  WardicPlaybackControls,
+  WardicPlayState,
+  WardicSegment,
+  WardicSegmentOptions,
+  WardicSegmentTarget,
+  WardicSequenceLabel,
+  WardicSequenceOptions,
+  WardicSequenceTime,
+} from "../../imperative.ts"
 
 
 /**

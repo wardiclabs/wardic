@@ -276,8 +276,11 @@ export const nameOf = (easing: Easing): Option.Option<string> => Option.fromUnde
 
 // --- Motion's easings (#360, ADR-0052) --------------------------------------------------------
 
-/** `easing` played backwards: Motion's `reverseEasing`, which turns an ease-in into an ease-out. Per frame. */
-const reversed = (easing: Easing): Easing => (t) => 1 - easing(1 - t)
+/**
+ * `easing` played backwards: Motion's `reverseEasing`, which turns an ease-in into an ease-out. A
+ * sequence's `repeatType: "reverse"` plays every other pass of a Segment on it (#433). Per frame.
+ */
+export const reverse = (easing: Easing): Easing => (t) => 1 - easing(1 - t)
 
 /**
  * `easing` over the first half and mirrored over the second: Motion's `mirrorEasing`, which turns
@@ -301,7 +304,7 @@ export const easeInOut: Easing = named(bezier(0.42, 0, 0.58, 1), "easeInOut")
 export const circIn: Easing = named((t) => 1 - Math.sin(Math.acos(t)), "circIn")
 
 /** Motion's `circOut`: {@link circIn} reversed. */
-export const circOut: Easing = named(reversed(circIn), "circOut")
+export const circOut: Easing = named(reverse(circIn), "circOut")
 
 /** Motion's `circInOut`: {@link circIn} mirrored. */
 export const circInOut: Easing = named(mirrored(circIn), "circInOut")
@@ -310,7 +313,7 @@ export const circInOut: Easing = named(mirrored(circIn), "circInOut")
 export const backOut: Easing = named(bezier(0.33, 1.53, 0.69, 0.99), "backOut")
 
 /** Motion's `backIn`: {@link backOut} reversed, back before it goes. */
-export const backIn: Easing = named(reversed(backOut), "backIn")
+export const backIn: Easing = named(reverse(backOut), "backIn")
 
 /** Motion's `backInOut`: {@link backIn} mirrored. */
 export const backInOut: Easing = named(mirrored(backIn), "backInOut")
