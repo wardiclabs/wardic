@@ -51,6 +51,11 @@
 // - AR24 (#434): an element under a `WardicConfig`'s `reducedMotion` renders as a page with that setting
 //   at its provider would: "always" its reduced play alone, "never" its normal one alone, and "user"
 //   both, the reduced under the media query, which a provider's "never" then writes for it alone.
+// - AR26 (#468): under a `WardicConfig`'s `skipAnimations`, or its transition's own, an element's rule is
+//   0 s, holding its end from first paint, with no reduced play under the media query, a forever-repeating
+//   one too; beside it, outside, its own timing.
+// - AR27 (#468): a skipped Variant child holds no stagger, and waits no time for its skipped parent's
+//   `when: "beforeChildren"`.
 // - AR25 (#434): a Variant child that follows the user waits, in its reduced timing too, for a parent
 //   under a config's "never" to settle as that parent plays: its move, not a snap.
 import { DomLive } from "@wardic/dom"
@@ -659,6 +664,54 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     const child = timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === "child")?.style.animation))
     expect(delayOf(child.normal), "it waits for its parent's 0.3 s move").toBeCloseTo(0.3, 2)
     expect(delayOf(child.reduced), "its reduced timing waits for that move too, not a snap").toBeCloseTo(0.3, 2)
+  })
+
+  it("AR26: under skipAnimations, or a transition's own, an element's rule is 0 s, holding its end (#468)", () => {
+    const tween = { type: "tween", duration: 0.3, ease: Easing.linear } as const
+    const rise = { initial: { opacity: 0, x: 20 }, animate: { opacity: 1, x: 0 } } as const
+    const html = page(() => (
+      <>
+        <WardicConfig skipAnimations>
+          <wardic.div data-k="skipped" {...rise} transition={tween} />
+          <wardic.div data-k="forever" {...rise} transition={{ ...tween, repeat: Number.POSITIVE_INFINITY, repeatType: "reverse" }} />
+        </WardicConfig>
+        <wardic.div data-k="own" {...rise} transition={{ ...tween, skipAnimations: true }} />
+        <wardic.div data-k="outside" {...rise} transition={tween} />
+      </>
+    ), { reducedMotion: "user" })
+    const css = headCss(html)
+    const tag = (k: string) => tagsOf(html).find((t) => t.attrs["data-k"] === k)
+    const timingOf = (k: string) => timing(css, propertyOf(tag(k)?.style.animation))
+    const ruleOf = (k: string): string => {
+      const name = timingOf(k).normal.split(" ")[0] ?? ""
+      return new RegExp(`@keyframes ${name}\\{(.*?\\})\\}`).exec(css)?.[1] ?? ""
+    }
+    for (const k of ["skipped", "forever", "own"]) {
+      expect(timingOf(k).normal, `${k}: 0 s, once, from first paint`).toMatch(/ 0s linear 0s 1 forwards$/)
+      expect(timingOf(k).reduced, `${k}: no reduced play`).toBe("")
+      expect(ruleOf(k), `${k}: its end throughout`).toMatch(/^0%,100%\{.*opacity:1/)
+      expect(ruleOf(k), `${k}: x at rest`).toContain("transform:none")
+    }
+    expect(tag("skipped")?.style.opacity, "its Starting style, under the rule").toBe("0")
+    expect(timingOf("outside").normal, "outside: its own 0.3 s").toMatch(/ 0\.3s linear 0s 1 forwards$/)
+    expect(timingOf("outside").reduced, "and its reduced play").not.toBe("")
+  })
+
+  it("AR27: a skipped Variant child holds no stagger, and waits no time for its skipped parent (#468)", () => {
+    const tween = { type: "tween", duration: 0.3, ease: Easing.linear } as const
+    const item = { hidden: { opacity: 0 }, shown: { opacity: 1, transition: tween } }
+    const html = page(() => (
+      <WardicConfig skipAnimations>
+        <wardic.ul initial="hidden" animate="shown" variants={{ hidden: { x: 20 }, shown: { x: 0 } }} transition={{ ...tween, staggerChildren: 0.2, when: "beforeChildren" }}>
+          <wardic.li data-k="first" variants={item} />
+          <wardic.li data-k="second" variants={item} />
+        </wardic.ul>
+      </WardicConfig>
+    ))
+    const css = headCss(html)
+    const delayIn = (k: string): number => delayOf(timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation)).normal)
+    expect(delayIn("first"), "after its 0 s parent").toBe(0)
+    expect(delayIn("second"), "no stagger slot").toBe(0)
   })
 })
 

@@ -28,6 +28,7 @@ import * as OwnValues from "@wardic/dom/OwnValues"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
+import { identity } from "effect/Function"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Order from "effect/Order"
@@ -60,6 +61,11 @@ export interface MountAnimation {
   readonly layout: boolean
   /** Each key's Keyframes of more than two stops (#429), `from` at their first: part of its key. Left out with none. */
   readonly stops?: StopsByKey | undefined
+  /**
+   * Whether it's a **Skipped animation** (#468): every key lands on its first frame, so its rule is
+   * 0 s, holding its end from first paint. Part of its key; left out when it isn't.
+   */
+  readonly skipped?: boolean | undefined
 }
 
 /** What stands in for a function with no easing name: canonical text holding it is no key. */
@@ -97,8 +103,12 @@ export const keyOf = (m: MountAnimation): Option.Option<string> => {
     baseKeys.set(m.from, computed)
     return computed
   })
-  return Option.map(base, (text) => `${text}|reduced:${m.reduced}`)
+  // A skipped one's (#468) named apart: an unskipped one's name is as it was.
+  return Option.map(base, (text) => Bool.match(m.skipped === true, { onTrue: () => `${text}|skipped`, onFalse: () => `${text}|reduced:${m.reduced}` }))
 }
+
+/** Whether a mount animation plays for ever: its transition repeats for ever, and it isn't skipped (#468), which lands it. */
+const playsForever = (m: MountAnimation): boolean => Bool.and(m.skipped !== true, repeatsForever(m.transition))
 
 /** Whether a transition repeats for ever: a tween's `repeat: Infinity`, a tween as it runs (ADR-0051). */
 export const repeatsForever = (transition: WardicTransition | undefined): boolean =>
@@ -195,18 +205,21 @@ export const specOf = (m: MountAnimation): Result.Result<Appear.Spec, string> =>
   Option.match(keyOf(m), {
     onNone: () => Result.fail("its transition holds a function with no easing name"),
     onSome: (key) => {
-      if (foreverByValue(m)) return Result.fail("a value's own transition repeats for ever beside another")
-      const transition = sampledTransition(m.transition)
+      const skipped = m.skipped === true
+      if (Bool.and(Bool.not(skipped), foreverByValue(m))) return Result.fail("a value's own transition repeats for ever beside another")
+      const forever = playsForever(m)
+      const transition = Bool.match(skipped, { onTrue: () => m.transition, onFalse: () => sampledTransition(m.transition) })
       const repeatDelay = UndefinedOr.match(m.transition, { onUndefined: () => 0, onDefined: (t) => Option.getOrElse(Option.fromUndefinedOr((t as Machine.AnimateOptions).repeatDelay), () => 0) })
       return Result.succeed({
         key,
         tag: m.tag,
-        infinite: repeatsForever(m.transition),
+        infinite: forever,
         projected: m.layout,
+        // Skipped (#468): every key's snap, landing on its first frame, a rule of 0 s.
         machine: () =>
-          Bool.match(repeatsForever(m.transition), {
-            onTrue: () => Machine.holdAfter(together(legsOf(m.from, m.to, transition, m.reduced, false, DOM_POSITIONAL, DOM_DEFAULTS, NO_VELOCITY, undefined, m.stops)), repeatDelay),
-            onFalse: () => together(legsOf(m.from, m.to, transition, m.reduced, false, DOM_POSITIONAL, DOM_DEFAULTS, NO_VELOCITY, undefined, m.stops)),
+          Bool.match(forever, {
+            onTrue: () => Machine.holdAfter(together(legsOf(m.from, m.to, transition, m.reduced, skipped, DOM_POSITIONAL, DOM_DEFAULTS, NO_VELOCITY, undefined, m.stops)), repeatDelay),
+            onFalse: () => together(legsOf(m.from, m.to, transition, m.reduced, skipped, DOM_POSITIONAL, DOM_DEFAULTS, NO_VELOCITY, undefined, m.stops)),
           }),
       })
     },
@@ -264,6 +277,8 @@ export interface Entry {
    * media query. With `"always"` or `"never"` its plays are already that setting's.
    */
   readonly user: boolean
+  /** Whether it's skipped (#468): its rule lands on first paint, and its own stagger holds it back no more than its client does. */
+  readonly skipped: boolean
 }
 
 /** One server render's Appear animations: the provider's (ADR-0044, decisions 3 and 5). */
@@ -272,12 +287,14 @@ export interface ServerAppear {
   readonly reducedMotion: ReducedMotion.Config
   /**
    * An element's entry, and its inline `animation` when it plays: its plays as its reduced motion has
-   * them, `setting` (its nearest `WardicConfig`'s, #434) else the provider's.
+   * them, `setting` (its nearest `WardicConfig`'s, #434) else the provider's. A skipped one's (#468)
+   * are one play in both slots, whatever its reduced motion.
    */
   readonly enter: (
     animation: { readonly normal: Option.Option<Result.Result<MountAnimation, string>>; readonly reduced: Option.Option<Result.Result<MountAnimation, string>> },
     group: Option.Option<AppearGroup>,
     setting: ReducedMotion.Config | undefined,
+    skipped?: boolean,
   ) => {
     readonly entry: Entry
     readonly animation: Option.Option<string>
@@ -381,13 +398,14 @@ export const serverAppear = (reducedMotion: ReducedMotion.Config): ServerAppear 
   const chunkCss = (): string => write(nextBatch())
   return {
     reducedMotion,
-    enter: (given, group, setting) => {
-      const own = settingOr(setting, reducedMotion)
+    enter: (given, group, setting, skipped = false) => {
+      // Skipped (#468): its one play in both slots, under no media query.
+      const own = Bool.match(skipped, { onTrue: (): ReducedMotion.Config => "never", onFalse: () => settingOr(setting, reducedMotion) })
       const animation = playsUnder(given, own)
       Arr.forEach([animation.normal, animation.reduced], (play) =>
         Option.map(Option.flatMap(play, (p) => Result.getFailure(p)), (reason) => reasons.push(reason)))
       const slot = Option.liftPredicate(animation, plays).pipe(Option.map(() => sheet.slot()))
-      const entry: Entry = { plays: animation, slot, group, vetoes: [], user: own === "user" }
+      const entry: Entry = { plays: animation, slot, group, vetoes: [], user: own === "user", skipped }
       entries.push(entry)
       Option.map(group, (g) => g.children.push(entry))
       return { entry, animation: Option.map(slot, (s) => s.animation), late: flushed, chunkRoot: Bool.and(flushed, lateDepth === 0) }
@@ -461,8 +479,9 @@ const timings = (entries: ReadonlyArray<Entry>, pick: "normal" | "reduced"): Tim
         Result.map(startOf(entry), (start) => {
           const spec = Option.match(rule, { onNone: () => undefined, onSome: (r) => r.spec })
           // A forever-repeating rule is a cycle: its own delay plays before it, and it never settles.
-          const transition = Option.match(entry.plays[pick], { onNone: () => undefined, onSome: (p) => Result.match(p, { onFailure: () => undefined, onSuccess: (m) => m.transition }) })
-          const forever = repeatsForever(transition)
+          const mount = Option.match(entry.plays[pick], { onNone: () => undefined, onSome: (p) => Result.match(p, { onFailure: () => undefined, onSuccess: identity }) })
+          const transition = UndefinedOr.map(mount, (m) => m.transition)
+          const forever = UndefinedOr.match(mount, { onUndefined: () => false, onDefined: playsForever })
           const before = Bool.match(forever, { onTrue: () => ownDelayOf(transition), onFalse: () => 0 })
           const settled = Option.match(rule, { onNone: () => 0, onSome: (r) => Bool.match(forever, { onTrue: () => Number.POSITIVE_INFINITY, onFalse: () => r.rule.settled }) })
           const supports = Option.match(rule, { onNone: () => NO_SUPPORTS, onSome: (r) => r.rule.supports })
@@ -474,7 +493,7 @@ const timings = (entries: ReadonlyArray<Entry>, pick: "normal" | "reduced"): Tim
     })
   /** When `entry` starts: its stagger, after its parent under `beforeChildren`, after its children under `afterChildren`. */
   const startOf = (entry: Entry): Result.Result<number, string> =>
-    Result.flatMap(afterParent(entry), (afterLeader) => Result.map(afterChildren(entry), (afterKids) => Math.max(afterLeader, afterKids) + staggerOf(entry, childrenOf)))
+    Result.flatMap(afterParent(entry), (afterLeader) => Result.map(afterChildren(entry), (afterKids) => Math.max(afterLeader, afterKids) + ownStaggerOf(entry, childrenOf)))
   // A leader written earlier started at first paint: a late child doesn't wait on it.
   const afterParent = (entry: Entry): Result.Result<number, string> =>
     Option.match(Option.filter(entry.group, (g) => Bool.and(g.when === "beforeChildren", inBatch.has(g.leader))), {
@@ -553,6 +572,12 @@ const groupSupports = (
     })
 }
 
+/** An entry's own stagger: none when it's skipped (#468), as its client's snap has no delay; its `when` waits still hold. */
+const ownStaggerOf = (entry: Entry, childrenOf: (g: AppearGroup) => ReadonlyArray<Entry>): number => {
+  if (entry.skipped) return 0
+  return staggerOf(entry, childrenOf)
+}
+
 /**
  * A Variant child's stagger: its parent's `delayChildren` plus its place (ADR-0007), as the client
  * works it out, among the group's children in its batch (`childrenOf`, #245).
@@ -594,6 +619,8 @@ export interface ServerElement {
   readonly ownTransition: WardicTransition | undefined
   /** Its nearest `WardicConfig`'s reduced motion (#434), over the provider's: `undefined` for none. */
   readonly reducedMotion?: ReducedMotion.Config | undefined
+  /** Whether its nearest `WardicConfig` skips its animations (#468). Its transition's own `skipAnimations` counts too. */
+  readonly skipAnimations?: boolean | undefined
 }
 
 /**
@@ -623,10 +650,19 @@ export const enterServer = (
       onFalse: () => Option.some(Result.map(playable(el, moving), (prepared): KeyframesStart & { readonly to: Values.Values } => startedOf(prepared, el.keyframes))),
     })
   })
+  // Skipped (#468): its config's, or its whole transition's own, as the client's legs read them.
+  const skipped = Bool.or(el.skipAnimations === true, UndefinedOr.match(el.transition, { onUndefined: () => false, onDefined: (t) => t.skipAnimations === true }))
   const play = (reduced: boolean): Option.Option<Result.Result<MountAnimation, string>> =>
     Option.map(mount, (prepared) =>
-      Result.map(prepared, ({ from, to, stops }): MountAnimation => ({ tag: el.tag, from, to, transition: el.transition, reduced, layout: el.layout, stops })))
-  const { entry, animation: inline, late, chunkRoot } = appear.enter({ normal: play(false), reduced: play(true) }, el.group, el.reducedMotion)
+      Result.map(prepared, ({ from, to, stops }): MountAnimation => ({ tag: el.tag, from, to, transition: el.transition, reduced, layout: el.layout, stops, ...skippedField(skipped) })))
+  const plays = Bool.match(skipped, {
+    onTrue: () => {
+      const one = play(false)
+      return { normal: one, reduced: one }
+    },
+    onFalse: () => ({ normal: play(false), reduced: play(true) }),
+  })
+  const { entry, animation: inline, late, chunkRoot } = appear.enter(plays, el.group, el.reducedMotion, skipped)
   return {
     late,
     chunkRoot,
@@ -637,6 +673,9 @@ export const enterServer = (
     },
   }
 }
+
+/** A mount animation's `skipped` (#468): left out when it isn't, so its key is as before. */
+export const skippedField = (skipped: boolean): { readonly skipped?: true } => Bool.match(skipped, { onTrue: () => ({ skipped: true }) as const, onFalse: () => ({}) })
 
 /** Whether `key` has Keyframes in `keyframes` (#429). */
 const hasStops = (keyframes: Keyframes | undefined, key: string): boolean => {

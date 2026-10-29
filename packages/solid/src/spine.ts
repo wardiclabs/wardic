@@ -51,7 +51,7 @@ import * as Rec from "effect/Record"
 import { AtomRegistry } from "effect/reactivity"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { enterServer, type Handoff, keyOf, type MountAnimation, repeatsForever, type ServerAppear, startAtOf } from "./appear.ts"
+import { enterServer, type Handoff, keyOf, type MountAnimation, repeatsForever, type ServerAppear, skippedField, startAtOf } from "./appear.ts"
 import type {
   WardConfig,
   WardicAnimationDefinition,
@@ -2417,7 +2417,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     if (Predicate.isNotUndefined(handoff)) {
       const taken = handoff
       handoff = undefined
-      checkHandoff(runtime, id, taken, { tag, from, to: fresh, transition: baseTransition, reduced: reduce, layout: isLayoutNode(c), stops: manyStops })
+      checkHandoff(runtime, id, taken, { tag, from, to: fresh, transition: baseTransition, reduced: reduce, layout: isLayoutNode(c), stops: manyStops, ...skippedField(skipped) })
       const at = startAtOf(taken, baseTransition, delayOf(transition))
       retargetLegs = Arr.map(retargetLegs, (one) => startingAt(one, at))
     }
@@ -2899,6 +2899,7 @@ export const appearEntryOf = (
   node: ServerVariantNode,
   quiet: boolean,
   reducedMotion: ReducedMotion.Config | undefined,
+  skipAnimations = false,
 ): ServerAppearOf =>
   UndefinedOr.match(state, {
     onUndefined: () => NO_APPEAR_ENTRY(node.provided),
@@ -2919,6 +2920,7 @@ export const appearEntryOf = (
         leads: hasOwnVariants(c),
         ownTransition: transitionOfTarget(own, c.transition),
         reducedMotion,
+        skipAnimations,
       })
       return {
         style: Option.match(entered.animation, { onNone: constUndefined, onSome: (animation) => ({ animation }) }),

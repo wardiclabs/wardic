@@ -27,6 +27,8 @@
 // - AH13 (#257 item 13): a region `<Reveal>` holds (its data first, its chunk landing before the
 //   region ahead of it) isn't on the page until its reveal, and its Appear animation plays from then,
 //   not from its chunk's arrival: Solid holds the chunk in its inert `<template>`.
+// - AH14 (#468): under `skipAnimations`, a ward's card and a staggered list are drawn landed from
+//   first paint, before and after hydration, with no frame between.
 import * as Easing from "@wardic/core/Easing"
 import * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
@@ -44,7 +46,7 @@ import { DomLive } from "@wardic/dom"
 import { hydrate, type JSX } from "@solidjs/web"
 import { commands } from "vitest/browser"
 import { afterEach, describe, expect, it } from "vitest"
-import { A1, A2, A3, A4, A5, A6, A7, A8, A9, setAppearEnv } from "./hydrate-fixtures.tsx"
+import { A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, setAppearEnv } from "./hydrate-fixtures.tsx"
 import "../browser-commands.ts"
 
 const FILE = "./test/v2/hydrate-fixtures.tsx"
@@ -561,6 +563,20 @@ describe("Appear animations on Solid 2, server render to hydration (#48, ADR-004
     ;(globalThis as { __a8add?: () => void }).__a8add!()
     await new Promise((resolve) => setTimeout(resolve, 100))
     expect([...list.children].map((el) => (el as HTMLElement).dataset.k)).toEqual(["s0", "s1", "s2", "s3"])
+  })
+
+  it("AH14: under skipAnimations, everything is drawn landed from first paint, and hydration moves nothing (#468)", async () => {
+    const r = await run("A10", A10, { hydrateAfter: 200, forMs: 600 })
+    expect(r.frames.length).toBeGreaterThan(20)
+    for (const f of r.frames) {
+      expect(f.drawn.card!.opacity, `card at ${Math.round(f.at)}`).toBeCloseTo(1, 3)
+      expect(Math.abs(f.drawn.card!.y)).toBeLessThanOrEqual(0.01)
+      for (const key of ["i0", "i1"]) {
+        expect(f.drawn[key]!.opacity, `${key} at ${Math.round(f.at)}`).toBeCloseTo(1, 3)
+        expect(Math.abs(f.drawn[key]!.x)).toBeLessThanOrEqual(0.01)
+      }
+    }
+    expect(r.frames.some((f) => f.hydrated), "hydrated in the run").toBe(true)
   })
 
   it("AH13: a region <Reveal> holds plays its Appear animation from its reveal, not its chunk's arrival (#257 item 13)", async () => {

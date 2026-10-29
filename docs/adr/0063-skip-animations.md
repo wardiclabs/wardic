@@ -61,3 +61,21 @@ Wardic had none. `reducedMotion="always"` snaps the positional keys only (ADR-00
   - the config's setting read once (SK8).
 
 **Bench:** `bun run bench:solid` (N = 1,000, against main at e08c0f5): passed. The page has no `WardicConfig`, so this is what every other element pays: one more context read at setup, and the skip flag at each Retarget and leg build. Warm: Solid 1 mount +0.2%, Retarget +0.9%, rest Retarget +1.0%, unmount +1.4%; Solid 2 −0.3%, +0.5%, +0.8%, −0.4%. Bytes +0.9% / +0.3%; retained +0.1–0.2%; the layout scenes flat.
+
+## Built (PR 2)
+
+- **A skipped mount animation** (`appear.ts`, `MountAnimation.skipped`): sampled on its legs skipped, so its rule is 0 s, `0%,100%` its end, filled forwards from first paint. Its key ends `|skipped`, so a skipped play and an unskipped one of the same mount have rules of their own, and an unskipped one's name is as before. One that repeats for ever lands too: its rule isn't infinite (`playsForever`).
+- **A server element's skip** (`ServerElement.skipAnimations`): its nearest config's, read by each binding's server ward (`useWardicSkipAnimations()`), or its whole transition's own `skipAnimations`. A skipped element enters with one play in both slots, under no media query, whatever its reduced motion.
+- **Its timing:** a skipped entry holds no stagger of its own (`ownStaggerOf`), as its client's snap has no delay. A `when` wait still holds, so a `"beforeChildren"` child of a skipped parent waits the parent's 0 s.
+- **Hydration:** the client's handoff names its mount animation with its skip too (`skippedField`), so it finds the server's rule, and its legs land at once over the rule's end.
+- **Left as is:** a key's own entry with `skipAnimations` snaps on the client from the start, while a server's rule holds it through the element's stagger; the element's other keys animate, so the rule isn't skipped whole.
+
+## Tests (PR 2)
+
+- **Solid 1** (`appear.ssr.test.tsx`): AR26, an element under the config, one with its transition's own, and a forever-repeating one: a 0 s rule holding its end, no reduced play under a provider's `"user"`, its Starting style under it; beside it, outside, its own 0.3 s. AR27: a skipped Variant child holds no stagger, and its skipped `"beforeChildren"` parent's 0 s.
+- **Solid 2** (`v2/appear.ssr.test.tsx`): AR22, a ward and an element, 0 s and no reduced play; a skipped Variant child, no stagger.
+- **Hydration** (`appear.hydrate.browser.test.tsx` AH15, `v2/appear.hydrate.browser.test.tsx` AH14, fixtures A11 and A10): a card on a 1.5 s tween and a list staggered by 0.3 s, every frame landed from first paint, before and after hydration; on Solid 1, the card's mount told start and complete once hydrated.
+- **Mutation-checked** (`.tmp/468/mutate2.py`, run alone): nine single-point mutations, each caught: a server ignoring the config's skip or a transition's own; the sampled legs not skipped; a forever-repeating play still looping; a skipped entry keeping its stagger, or its reduced play under the media query; a skipped key named as an unskipped one (they'd share a rule); either binding's server ward not given it.
+
+**Bench (PR 2):** `bun run bench:solid` (N = 1,000, against main at 851f4c7): passed. Only the server path and a hydration's handoff changed, so it's noise: warm, Solid 1 mount +1.0%, Retarget −0.3%, rest Retarget −0.6%, unmount −1.4%; Solid 2 +0.5%, +1.7%, +1.1%, −0.5%. Bytes ±0.1%; retained flat. Solid 2's layout page frame read +4.1% [+1.0% – +12.6%], the scene known to be noisy (#385).
+

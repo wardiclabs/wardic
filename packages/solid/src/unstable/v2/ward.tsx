@@ -1562,7 +1562,7 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
   const seed = Style.starting(internal.tag, drawnAtRest(initialValues, layoutNode))
   // Its Appear animation (#48, ADR-0044): its slot in the render's, and the group its Variant
   // children join when it leads one.
-  const appear = appearEntryOf(useWardicAppear(), c, internal.tag, initialValues, node, startsQuiet(c, node.inherited, presenceBlocks, untrack), settingOf(useWardicConfig()))
+  const appear = appearEntryOf(useWardicAppear(), c, internal.tag, initialValues, node, startsQuiet(c, node.inherited, presenceBlocks, untrack), settingOf(useWardicConfig()), useWardicSkipAnimations()())
   // A late chunk's root (#245): the chunk's Appear rules go through the head registry, read once
   // the chunk has rendered and streamed with it as a head patch. A late element under another late
   // one registers too: the first read writes the batch, and any other finds it written and adds no
