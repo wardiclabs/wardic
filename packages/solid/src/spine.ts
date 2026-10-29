@@ -2295,8 +2295,10 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       let still = Bool.and(Bool.not(drawn), started[key] !== "target")
       if (still) still = snapshot.values[key] === like
       if (still) still = readVelocity(key) === 0
-      // Its transition asked last, for a key already there alone: per key, per Retarget.
-      if (still && Predicate.isUndefined(stops) && Bool.not(givesVelocity(keyTransitionOf(resolution, groups, key, transition, elementTransition), key))) {
+      // Its transition asked last, for a key already there alone: per key, per Retarget. A quiet
+      // mount's never asks (#475): Motion animates nothing at a first render that starts at its
+      // `animate`, whatever velocity its transition gives (`animation-state.ts`, `shouldAnimate`).
+      if (still && Predicate.isUndefined(stops) && (quiet || Bool.not(givesVelocity(keyTransitionOf(resolution, groups, key, transition, elementTransition), key)))) {
         if (Predicate.isUndefined(stays)) stays = new Set()
         stays.add(key)
         if (Predicate.isUndefined(there)) there = {}

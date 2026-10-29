@@ -18,9 +18,13 @@
 //   leg runs its duration and writes it, as Motion's does for a value it has none of.
 // - TH10: a key whose transition gives it a velocity isn't already there: kicked, it moves and comes
 //   back (Motion's `valueTransition.velocity`), a value's own entry's included.
+// - TH11 (#475): a mount that starts at its `animate` (`initial={false}`, an `initial` that is the same
+//   values map, an `<AnimatePresence initial={false}>`'s first render) starts nothing though its transition
+//   gives a velocity, a spring's or an inertia's, as Motion's runs nothing at that first render; a
+//   later change runs on it.
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { wardic, type WardicAnimationDefinition, WardicProvider } from "@wardic/solid"
+import { AnimatePresence, wardic, type WardicAnimationDefinition, WardicProvider } from "@wardic/solid"
 import { createSignal, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { raf, until } from "./browser-helpers.ts"
@@ -213,5 +217,41 @@ describe("a key already at its target on Solid 1 (#448)", () => {
     await until(() => log.calls.length === 2, 3000)
     expect(log.calls).toEqual(['start "kicked"', 'complete "kicked"'])
     expect(xOf(el)).toBeCloseTo(0, 1)
+  })
+
+  it("TH11: a quiet mount starts nothing though its transition gives a velocity; a later change runs on it (#475)", async () => {
+    const log = recorder()
+    const [to, setTo] = createSignal(0)
+    const KICK = { type: "spring", stiffness: 300, damping: 20, velocity: 800 } as const
+    const FLING = { type: "inertia", velocity: 800, max: 50 } as const
+    // One map as both, Motion's `initial === animate`: two maps alike are two, and a mount between them runs.
+    const SAME = { x: 0 }
+    const els: Record<string, HTMLElement> = {}
+    const at = (k: string) => (n: HTMLElement) => (els[k] = n)
+    show(() => (
+      <>
+        <wardic.div ref={at("spring")} style={BOX} initial={false} animate={{ x: to() }} transition={KICK} onAnimationStart={log.start} onAnimationComplete={log.complete} />
+        <wardic.div ref={at("inertia")} style={BOX} initial={false} animate={{ x: to() }} transition={FLING} onAnimationStart={log.start} onAnimationComplete={log.complete} />
+        <wardic.div ref={at("same")} style={BOX} initial={SAME} animate={SAME} transition={KICK} onAnimationStart={log.start} onAnimationComplete={log.complete} />
+        <AnimatePresence initial={false}>
+          <wardic.div ref={at("presence")} style={BOX} animate={{ x: 0 }} transition={KICK} onAnimationStart={log.start} onAnimationComplete={log.complete} />
+        </AnimatePresence>
+      </>
+    ))
+    let farthest = 0
+    for (let i = 0; i < 20; i++) {
+      await raf()
+      farthest = Math.max(farthest, ...Object.values(els).map((el) => Math.abs(xOf(el))))
+    }
+    expect(farthest, "nothing moved at mount").toBeLessThan(0.01)
+    expect(log.calls, "nothing told").toEqual([])
+    setTo(200)
+    let most = 0
+    for (let i = 0; i < 20; i++) {
+      await raf()
+      most = Math.max(most, xOf(els.inertia!))
+    }
+    expect(most, "the next change glides on the inertia's velocity").toBeGreaterThan(5)
+    expect(xOf(els.spring!), "and springs on the spring's").not.toBeCloseTo(0, 0)
   })
 })

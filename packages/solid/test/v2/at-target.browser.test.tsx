@@ -6,6 +6,8 @@
 //   waits through the mount, until the first real animation lands.
 // - TH8: a variant change to the same values, on a 1 s tween, lands at once: `next("settled")`
 //   resolves within two frames, `settled()` never pending.
+// - TH9 (#475): `initial: false` with a transition that gives a velocity, a spring's or an inertia's,
+//   moves nothing and lands nothing at mount, as Motion's; the next change runs on it.
 import type { JSX } from "@solidjs/web"
 import { DomLive } from "@wardic/dom"
 import { type Ward, ward, type WardConfig, WardicProvider } from "@wardic/solid/unstable/v2"
@@ -71,5 +73,40 @@ describe("a key already at its target on Solid 2 (#448)", () => {
     expect(landed, "within two frames, not after the second").toBe("b")
     expect(isPending(() => card.settled())).toBe(false)
     expect(Bool.match(card.settled() === undefined, { onTrue: () => "none", onFalse: () => String(card.settled()?.definition) })).toBe("b")
+  })
+
+  it("TH9: initial: false with a transition's velocity moves and lands nothing at mount; the next change runs on it (#475)", async () => {
+    const [to, setTo] = createSignal(0)
+    let spring!: Ward
+    let inertia!: Ward
+    const Cards = (): JSX.Element => {
+      spring = ward({ initial: false, animate: () => ({ x: to() }), transition: { type: "spring", stiffness: 300, damping: 20, velocity: 800 }, style: BOX })
+      inertia = ward({ initial: false, animate: () => ({ x: to() }), transition: { type: "inertia", velocity: 800, max: 50 }, style: BOX })
+      return (
+        <>
+          <div id="th9-spring" {...spring} />
+          <div id="th9-inertia" {...inertia} />
+        </>
+      )
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Cards />
+      </WardicProvider>
+    ))
+    const els = [document.getElementById("th9-spring")!, document.getElementById("th9-inertia")!]
+    const xOf = (el: Element): number => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)")).m41
+    let farthest = 0
+    for (let i = 0; i < 20; i++) {
+      await raf()
+      farthest = Math.max(farthest, ...els.map((el) => Math.abs(xOf(el))))
+    }
+    expect(farthest, "nothing moved at mount").toBeLessThan(0.01)
+    expect(spring.settled(), "nothing landed").toBeUndefined()
+    expect(inertia.settled()).toBeUndefined()
+    expect(isPending(() => inertia.settled()), "nor pending").toBe(false)
+    const landing = inertia.next("settled")
+    setTo(200)
+    expect((await landing).target, "the next change runs").toEqual({ x: 200 })
   })
 })
