@@ -702,3 +702,16 @@ Motion's `PopChild` pins as Wardic does: offsets from `offsetParent`, measured b
   - a re-entry interrupting the leavers (EC2, MC5, P9, PX2);
   - one child only (MC1, MC2);
   - a finished leaver's place kept (MC1).
+
+## Note (#479, 2026-10-29): page transitions with Solid Router
+
+`<AnimatePresence>` around a router's outlet animates a route change, with no new API (grilled on #479, Q1 A). A navigation to another route disposes the old page's component and inserts the new one's DOM nodes, so a page whose root is a Wardic element leaves by itself, as any presence child whose node goes does (*Many children*, Q2: C): no `key`, where React's pattern keys the page on its path because React reuses an element of the same type. A change of a route's params alone keeps the component and its nodes; a page animates it by keying its content (`<Show keyed>` in a presence of its own).
+
+- **`popLayout` for a shared element between pages** (Q2 A): the leaving page out of the flow where it was drawn, the new one in its place at once, a `layoutId` element flying from the leaving page's twin (a leaver hands back its twins, #181, #402). Under `wait` the new page mounts once the old one has gone, its twins with it, so nothing flies.
+- **A route loading its data** (Solid 1's `Suspense`, Solid 2's `Loading`): Solid Router navigates inside a transition, so the old page stays on screen, not leaving, until the data resolves.
+- **The router's scroll to the top** (Q3 A, measured): from a page scrolled down, a shared element flies in from where its twin was in the page, off-screen, and the leaving page jumps to its top (#480).
+
+**Pinned by** (through the real routers' memory histories, which scroll as the browser's do; `@solidjs/router` 1.0.0 and 2.0.0-next.42, devDependencies of `packages/solid`): Solid 1's `route-transitions.browser.test.tsx` RT1–RT6 (the node swap and the pop; a `layoutId` card into a hero and back; `wait` with nothing flying; a navigation back mid-transition; a keyed params change; a route loading its data) and Solid 2's `v2/route-transitions.browser.test.tsx` RTV1–RTV4. The scroll's frames are in #480 (`.tmp/479/probe-route-scroll*.browser.test.tsx`).
+
+**Mutation-checked** (`.tmp/479/mutate.py`, run alone): the presence behaviours a page transition rests on, each broken at one point, caught by the route tests: `popLayout` popping nothing (RT1, RTV1); a leaver keeping no twin for a later twin (RT3: under `wait`, a stale handover then flew the hero from the card's box, so `keepLeaving` is what keeps `wait` from flying); `wait` holding nothing (RT3).
+

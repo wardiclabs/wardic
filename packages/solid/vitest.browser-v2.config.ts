@@ -11,7 +11,7 @@ export default defineConfig({
   root: import.meta.dirname,
   plugins: [sourceNames(), solid2()],
   resolve: { conditions: ["development", "browser"] },
-  optimizeDeps: { include: [...PREBUNDLED], exclude: ["solid-js-2", "@solidjs/web", "@solidjs/signals"] },
+  optimizeDeps: { include: [...PREBUNDLED], exclude: ["solid-js-2", "@solidjs/web", "@solidjs/signals", "@solidjs/router-2"] },
   test: {
     name: "v2-browser",
     include: ["test/v2/**/*.browser.test.{ts,tsx}"],
