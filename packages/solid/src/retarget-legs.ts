@@ -27,6 +27,7 @@
 import * as DefaultTransition from "@wardic/core/DefaultTransition"
 import * as Easing from "@wardic/core/Easing"
 import type * as Frame from "@wardic/core/Frame"
+import * as Inertia from "@wardic/core/Inertia"
 import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Machine from "@wardic/core/Machine"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
@@ -265,7 +266,10 @@ const delayIn = (transition: WardicTransition | undefined): number =>
  * A transition as its legs run it: a spring or a tween, Motion's fields filled in (ADR-0051), with
  * its reduced-motion opt-out.
  */
-export type Run = (DefaultTransition.Transition | DefaultTransition.KeyframesTransition) & { readonly respectReducedMotion?: boolean; readonly skipAnimations?: boolean }
+export type Run = (DefaultTransition.Transition | DefaultTransition.KeyframesTransition | InertiaRun) & { readonly respectReducedMotion?: boolean; readonly skipAnimations?: boolean }
+
+/** An inertia as its legs run it (#435): core's options, `timeConstant` in seconds, with the transition's `velocity` and `delay`. */
+export type InertiaRun = Machine.InertiaValuesOptions & { readonly type: "inertia" }
 
 /** Each key's stops past its first two (#429): the Keyframes a tween runs through `keyframesValues`. */
 export type StopsByKey = Readonly<Record<string, ReadonlyArray<number | string>>>
@@ -317,9 +321,9 @@ export const filledStops = (stops: Style.Stops, start: number | string): Readonl
  * ("Only two keyframes currently supported with spring and inertia animations"), naming each key, its
  * stops and the fix.
  */
-const springStopsError = (stops: StopsByKey): Error =>
+const springStopsError = (stops: StopsByKey, kind = "a spring"): Error =>
   new Error(
-    `wardic: ${Arr.map(Rec.toEntries(stops), ([key, list]) => `"${key}" has ${list.length} keyframes`).join(", ")}, and a spring takes two, as Motion's does (#429). ` +
+    `wardic: ${Arr.map(Rec.toEntries(stops), ([key, list]) => `"${key}" has ${list.length} keyframes`).join(", ")}, and ${kind} takes two, as Motion's does (#429). ` +
       `Run them on a tween: transition: { ${Arr.map(Rec.keys(stops), (key) => `${JSON.stringify(key)}: { type: "tween" }`).join(", ")} }.`,
   )
 
@@ -391,6 +395,10 @@ const isTimed = (fields: Readonly<Record<string, unknown>>): boolean => Bool.and
 const madeRun = (given: WardicTransition): Run | typeof NOT_DEFINED => {
   const fields = Rec.filter(UndefinedOr.getOrThrow(motionOf(given)) as Readonly<Record<string, unknown>>, isGiven)
   if (Bool.not(Arr.some(Rec.keys(fields), isDefining))) return NOT_DEFINED
+  // An inertia (#435): its fields as given, Motion's `timeConstant` in milliseconds as core's seconds.
+  if (fields.type === "inertia") {
+    return { ...fields, ...UndefinedOr.match(fields.timeConstant as number | undefined, { onUndefined: () => ({}), onDefined: (ms) => ({ timeConstant: ms / 1000 }) }) } as Run
+  }
   return Bool.match(isSpring(fields), {
     onTrue: (): Run =>
       Bool.match(isTimed(fields), {
@@ -588,7 +596,10 @@ const legsOn = (
   measured: MeasuredPairs | undefined,
 ): ReadonlyArray<Leg> => {
   const run = runOf(given)
-  if (Predicate.isNotUndefined(run)) return legsWith(from, to, run, reducedMotion, skipped, positionalKeys, velocities, follow, stops, measured)
+  if (Predicate.isNotUndefined(run)) {
+    if (run.type === "inertia") return inertiaLegsOn(from, to, run as Run & InertiaRun, given, reducedMotion, skipped, positionalKeys, defaults, velocities, follow, stops, measured)
+    return legsWith(from, to, run, reducedMotion, skipped, positionalKeys, velocities, follow, stops, measured)
+  }
   const keys = Rec.keys(to)
   if (keys.length === 0) return NO_LEGS
   // Nearly always one Default transition for every key (a fade, a move): no grouping.
@@ -652,7 +663,9 @@ const legsWith = (
   // on its first tick, with no delay and whatever reduced motion says. Keyframes land on their last
   // stop, a turned `repeat` where it ends, a Measured pair on its target as given, and a return to a
   // moving Live value on where it is now, its follower taking over once it lands.
-  if (Bool.or(skipped, transition.skipAnimations === true)) return [snapLeg(from, to, Rec.map(to, (target, key) => ReducedMotion.endOf(UndefinedOr.getOrThrow(from[key]), target, transition as Machine.Modifiers)), NO_DELAY)]
+  if (Bool.or(skipped, transition.skipAnimations === true)) return [snapLeg(from, to, Rec.map(to, (target, key) => endOfLeg(from, target, key, transition, velocities)), NO_DELAY)]
+  // An inertia's numbers (#435): its other keys went to their Default transitions ({@link inertiaLegsOn}).
+  if (transition.type === "inertia") return inertiaLegsWith(from, to, transition as InertiaRun, reducedMotion, positionalKeys, velocities, stops)
   const useTween = transition.type === "tween"
   // Reduced motion (ADR-0029): the positional keys snap to where their leg would end, holding
   // through the delay it would hold, and the rest animate as they would. A transition opts out with
@@ -774,6 +787,100 @@ const mapMachineMatch: (input: { readonly leg: Leg; readonly f: MachineMap }) =>
  * Appear animation where its CSS has got (#48, ADR-0044 decision 6).
  */
 export const startingAt = (leg: Leg, at: LazyArg<number>): Leg => mapMachine(leg, Machine.startAt(at))
+
+/**
+ * Where `key`'s leg would end (#468): an inertia's where its glide rests (#435, `Inertia.restOf`), from
+ * its velocity, whatever its target; any other's at its target, or where a turned `repeat` ends.
+ */
+const endOfLeg = (from: Values.Values, target: number | string, key: string, transition: Run, velocities: Velocities): number | string => {
+  const start = UndefinedOr.getOrThrow(from[key])
+  if (transition.type !== "inertia") return ReducedMotion.endOf(start, target, transition as Machine.Modifiers)
+  return Inertia.restOf(start as number, inertiaVelocityOf(transition as InertiaRun, velocities, key), transition as InertiaRun)
+}
+
+/** A key's velocity under an inertia (#435): the transition's `velocity`, else its own (#464). */
+const inertiaVelocityOf = (run: InertiaRun, velocities: Velocities, key: string): number =>
+  UndefinedOr.match(run.velocity, { onUndefined: () => velocities(key), onDefined: identity })
+
+/**
+ * {@link legsOf} on an inertia (#435, Q2): the numbers glide on it ({@link inertiaLegsWith}); every
+ * other key, and a return following a moving Live value, runs on its Default transition, as if the
+ * transition defined none for it, its `delay`, reduced-motion opt-out and `skipAnimations` kept.
+ */
+const inertiaLegsOn = (
+  from: Values.Values,
+  to: Values.Values,
+  run: Run & InertiaRun,
+  given: WardicTransition | undefined,
+  reducedMotion: boolean,
+  skipped: boolean,
+  positionalKeys: ReducedMotion.PositionalKeys["Service"],
+  defaults: DefaultTransition.DefaultTransition["Service"],
+  velocities: Velocities,
+  follow: Follows | undefined,
+  stops: StopsByKey | undefined,
+  measured: MeasuredPairs | undefined,
+): ReadonlyArray<Leg> => {
+  let followingKeys = NO_KEYS
+  if (Predicate.isNotUndefined(follow)) followingKeys = follow.keysOf(to)
+  const glides = (target: number | string, key: string): boolean =>
+    Bool.and(Bool.and(Predicate.isNumber(target), Predicate.isNumber(from[key])), Bool.not(Arr.contains(followingKeys, key)))
+  const numbers = Rec.filter(to, glides)
+  const rest = Rec.filter(to, (target, key) => Bool.not(glides(target, key)))
+  const legs: Array<Leg> = []
+  if (hasKeys(numbers)) Arr.forEach(legsWith(from, numbers, run, reducedMotion, skipped, positionalKeys, velocities, undefined, stops, undefined), (leg) => legs.push(leg))
+  if (hasKeys(rest)) Arr.forEach(legsOn(from, rest, definingNone(given), reducedMotion, skipped, positionalKeys, defaults, velocities, follow, stops, measured), (leg) => legs.push(leg))
+  return legs
+}
+
+/** A transition's fields that define none: its `delay`, reduced-motion opt-out and `skipAnimations`, on a Default transition. */
+const definingNone = (given: WardicTransition | undefined): WardicTransition | undefined =>
+  UndefinedOr.map(given, ({ delay, respectReducedMotion, skipAnimations }) => Rec.filter({ delay, respectReducedMotion, skipAnimations }, Predicate.isNotUndefined) as WardicTransition)
+
+/**
+ * An inertia's legs over numbers (#435): each glides from where it is at its velocity, on
+ * `Machine.inertiaValues`, whatever its target. Under reduced motion its positional keys land where
+ * their glides rest, after its delay (ADR-0029); Keyframes of more than two stops fail, as a spring's
+ * (#429, Motion's two-keyframe invariant), each such key landing on its last stop.
+ */
+const inertiaLegsWith = (
+  from: Values.Values,
+  to: Values.Values,
+  run: InertiaRun,
+  reducedMotion: boolean,
+  positionalKeys: ReducedMotion.PositionalKeys["Service"],
+  velocities: Velocities,
+  stops: StopsByKey | undefined,
+): ReadonlyArray<Leg> => {
+  const legs: Array<Leg> = []
+  const delay = (): number => UndefinedOr.match(run.delay, { onUndefined: () => 0, onDefined: identity })
+  let fixed = to
+  if (anyKeyframed(fixed, stops)) {
+    const kept = fixed
+    const many = Rec.filter(stops as StopsByKey, (_, key) => Object.hasOwn(kept, key))
+    const ends = Rec.filter(kept, (_, key) => Object.hasOwn(many, key))
+    legs.push(snapLeg(from, ends, ends, delay))
+    legs.push({ _tag: "Blend", to: NO_VALUES, machine: () => Effect.die(springStopsError(many, "an inertia")) })
+    fixed = Rec.filter(kept, (_, key) => Bool.not(Object.hasOwn(many, key)))
+  }
+  if (Bool.and(reducedMotion, (run as Run).respectReducedMotion !== false)) {
+    const { positional, rest } = ReducedMotion.split(fixed, positionalKeys)
+    if (hasKeys(positional)) {
+      legs.push(snapLeg(from, positional, Rec.map(positional, (_, key) => Inertia.restOf(from[key] as number, inertiaVelocityOf(run, velocities, key), run)), delay))
+    }
+    fixed = rest
+  }
+  if (hasKeys(fixed)) {
+    const starts: Record<string, number> = Rec.map(fixed, (_, key) => from[key] as number)
+    // Each key's own velocity, read now (#464); none when the transition gives one, which every key then starts with.
+    const own: Record<string, number> = Bool.match(Predicate.isUndefined(run.velocity), {
+      onTrue: () => Rec.map(fixed, (_, key) => velocities(key)),
+      onFalse: () => NO_NUMBERS,
+    })
+    legs.push({ _tag: "Numbers", to: fixed, machine: () => Machine.inertiaValues(starts, run, own) })
+  }
+  return legs
+}
 
 /** No delay: a Skipped animation's snap (#468). */
 const NO_DELAY = (): number => 0

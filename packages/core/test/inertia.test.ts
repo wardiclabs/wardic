@@ -147,3 +147,38 @@ describe("Inertia.restOf (#468)", () => {
   })
 })
 
+
+describe("Machine.inertiaValues (#435)", () => {
+  /** Each frame's values until done (or `limit` frames). */
+  const runValues = (machine: Machine.Machine<{ readonly value: Readonly<Record<string, number>>; readonly velocity: Readonly<Record<string, number>>; readonly done: boolean }>, limit = 1200) => {
+    const step = machine.start()
+    const frames: Array<{ value: Record<string, number>; velocity: Record<string, number>; done: boolean }> = []
+    for (let i = 0; i < limit; i++) {
+      const f = step(DT)
+      frames.push({ value: { ...f.value }, velocity: { ...f.velocity }, done: f.done })
+      if (f.done) break
+    }
+    return frames
+  }
+
+  it("IV1: each key steps as Machine.inertia does, from its own velocity, else the options'", () => {
+    const options = { ...RELEASE, max: 100, bounceStiffness: 200, bounceDamping: 40, velocity: -200 }
+    const frames = runValues(Machine.inertiaValues({ x: 72, y: 10 }, options, { x: 1000 }))
+    const x = run(Machine.inertia(72, 1000, options))
+    const y = run(Machine.inertia(10, -200, options))
+    expect(frames.length, "done with the later key").toBe(Math.max(x.length, y.length))
+    frames.forEach((f, i) => {
+      expect(f.value.x, `x at ${i}`).toBeCloseTo(x[Math.min(i, x.length - 1)]!.value, 9)
+      expect(f.value.y, `y at ${i}`).toBeCloseTo(y[Math.min(i, y.length - 1)]!.value, 9)
+    })
+    expect(frames.at(-1)!.value, "each where it rests").toEqual({ x: 100, y: Inertia.restOf(10, -200, options) })
+  })
+
+  it("IV2: a delay holds each key where it starts; with no velocity a key rests there at once", () => {
+    const held = runValues(Machine.inertiaValues({ x: 0 }, { ...RELEASE, delay: 0.1, velocity: 500 }))
+    expect(held.slice(0, 5).map((f) => f.value.x), "through 0.1 s").toEqual([0, 0, 0, 0, 0])
+    expect(held[7]!.value.x, "then it glides").toBeGreaterThan(0)
+    const still = runValues(Machine.inertiaValues({ x: 30, y: 5 }, RELEASE))
+    expect(still, "on its first step").toEqual([{ value: { x: 30, y: 5 }, velocity: { x: 0, y: 0 }, done: true }])
+  })
+})

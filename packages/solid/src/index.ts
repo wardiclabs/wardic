@@ -121,6 +121,7 @@ export type {
   WardicDragTransition,
   WardicReducedMotion,
   WardicSkipAnimations,
+  WardicInertia,
   WardicTransformShorthands,
   WardicAnimationDefinition,
   WardicTransition,

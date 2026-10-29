@@ -953,6 +953,68 @@ export const inertia = (initial: number, velocity: number, options: InertiaOptio
     },
   })
 
+/** {@link inertiaValues}' options: {@link InertiaOptions}, each key's velocity when it has none of its own, and a delay. */
+export interface InertiaValuesOptions extends InertiaOptions {
+  /** A key's velocity when `velocity` gives it none, per second. Default 0. */
+  readonly velocity?: number
+  /** Seconds each key holds where it starts before it glides. Default 0. */
+  readonly delay?: number
+}
+
+/**
+ * Inertia on a bag of numbers (#435, Motion's `type: "inertia"` transition): one glide per key from
+ * `from`, at its velocity in `velocity` (else `options.velocity`, else 0), on the shared `options`,
+ * after `options.delay`, settling once every key rests. It takes no target: each key rests where its
+ * glide does, through `modifyTarget`, held within `min` / `max` ({@link Inertia.restOf}). With no
+ * velocity, a key rests where it starts, on its first step past the delay.
+ *
+ * Each Frame carries a per-key `velocity` beside `value`, as {@link springValues}' does, and is
+ * rewritten in place every tick (ADR-0030, decision 11): a sink that keeps one copies it.
+ */
+export const inertiaValues = (
+  from: Record<string, number>,
+  options: InertiaValuesOptions = NO_OPTIONS,
+  velocity: Record<string, number> = {},
+): Machine<Frame.MultiPhysics> => {
+  const keys = Rec.keys(from)
+  const delay = UndefinedOr.match(options.delay, { onUndefined: () => 0, onDefined: identity })
+  const fallback = UndefinedOr.match(options.velocity, { onUndefined: () => 0, onDefined: identity })
+  return make({
+    settles: true,
+    span: { name: "wardic.inertiaValues", attributes: { keys: keys.length } },
+    start: () => {
+      const count = keys.length
+      const starts = Arr.map(keys, (key) => UndefinedOr.getOrThrow(from[key]))
+      const resolved = Arr.map(keys, (key, i) =>
+        Inertia.resolve(starts[i] as number, UndefinedOr.match(velocity[key], { onUndefined: () => fallback, onDefined: identity }), options))
+      const states = Arr.map(keys, (_, i) => Inertia.init(starts[i] as number, resolved[i] as Inertia.Resolved))
+      const frame = { value: { ...from }, velocity: Rec.map(from, () => 0), done: count === 0 }
+      const frameValue = frame.value
+      const frameVelocity = frame.velocity
+      let time = 0
+      // Per frame (ADR-0025): `dt` clamped once (#78), the part past the delay stepped, a counted loop
+      // over the keys writing the run's one Frame in place.
+      return (dt) => {
+        const clamped = Math.min(dt, MAX_DT)
+        time += clamped
+        const simDt = Math.max(0, Math.min(clamped, time - delay))
+        if (simDt === 0) return frame
+        let done = true
+        for (let i = 0; i < count; i++) {
+          const result = Inertia.step(states[i] as Inertia.State, simDt, resolved[i] as Inertia.Resolved)
+          states[i] = result.state
+          const key = keys[i] as string
+          frameValue[key] = result.value
+          frameVelocity[key] = result.velocity
+          if (!result.done) done = false
+        }
+        frame.done = done
+        return frame
+      }
+    },
+  })
+}
+
 /** A two-axis inertia's frame: its point, and each axis's velocity there. */
 export interface PointPhysics extends Frame.Frame<Point.Point> {
   readonly velocity: Point.Point

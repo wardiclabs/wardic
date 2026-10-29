@@ -13,7 +13,7 @@ A clock-driven piece of motion (`spring`, `tween`, `decay`, `inertia`, `animate`
 _Avoid_: animation (too broad), tweener, machine (its code form).
 
 **Physics primitive**:
-A Primitive whose motion is governed by simulated forces and therefore carries velocity — `spring`, `decay`, and `inertia`, a decay that springs back to an edge it would cross (Motion's, what a drag's release runs).
+A Primitive whose motion is governed by simulated forces and therefore carries velocity — `spring`, `decay`, and `inertia`, a decay that springs back to an edge it would cross (Motion's, what a drag's release runs, and a transition of `type: "inertia"`, which glides each number from where it is on its velocity, whatever its target, #435).
 _Avoid_: dynamic animation.
 
 **Time-based spring**:
