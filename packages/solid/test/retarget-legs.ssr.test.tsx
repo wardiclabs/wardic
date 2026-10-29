@@ -46,6 +46,7 @@ interface Retarget {
   readonly to: Values.Values
   readonly transition: WardicTransition | undefined
   readonly reducedMotion: boolean
+  readonly skipped?: boolean
   readonly velocities: Readonly<Record<string, number>>
   readonly follow?: Follows
 }
@@ -60,7 +61,7 @@ const legsFor = (over: Partial<Retarget>): ReadonlyArray<Leg> => {
     velocities: {},
     ...over,
   }
-  return legsOf(r.from, r.to, r.transition, r.reducedMotion, positionalKeys, defaults, velocitiesOf(r.velocities), r.follow)
+  return legsOf(r.from, r.to, r.transition, r.reducedMotion, r.skipped === true, positionalKeys, defaults, velocitiesOf(r.velocities), r.follow)
 }
 
 /** A leg's machine, built (a Blend's with the DOM's Interpolators). */
@@ -246,3 +247,32 @@ describe("per-value transitions (#301, Motion's getValueTransition)", () => {
     expect(reuse(delayedBy(element, 0.2)!), "another delay: a new one").not.toBe(first)
   })
 })
+
+describe("a Skipped animation's legs (#468)", () => {
+  /** Where each leg lands on its first tick, and whether it's done then. */
+  const firstTick = (legs: ReadonlyArray<Leg>) => legs.map((leg) => machineOf(leg).start()(1 / 60))
+
+  it("SL1: skipped, every key snaps to its target on its first tick, delay or reduced-motion opt-out or not", () => {
+    for (const transition of [undefined, { type: "tween", duration: 2, delay: 1 }, { type: "spring", stiffness: 50, respectReducedMotion: false }] as const) {
+      const legs = legsFor({ skipped: true, transition })
+      expect(legs.map((leg) => leg._tag), JSON.stringify(transition)).toEqual(["Snap"])
+      expect(firstTick(legs), JSON.stringify(transition)).toEqual([{ value: { x: 100, opacity: 1, backgroundColor: "#fff" }, done: true }])
+    }
+  })
+
+  it("SL2: a transition's skipAnimations skips its keys, an entry's its own, and false undoes nothing", () => {
+    expect(legsFor({ transition: { type: "tween", duration: 2, skipAnimations: true } }).map((leg) => leg._tag), "the whole transition's").toEqual(["Snap"])
+    expect(legsFor({ transition: { skipAnimations: true } }).map((leg) => leg._tag), "on the Default transition").toEqual(["Snap"])
+    const whole = legsFor({ transition: { type: "tween", duration: 2, skipAnimations: true, x: { type: "spring" } } })
+    expect(whole.map((leg) => leg._tag), "an entry takes the whole transition's").toEqual(["Snap", "Snap"])
+    const own = legsFor({ transition: { type: "tween", duration: 2, x: { type: "tween", duration: 2, skipAnimations: true } } })
+    expect(own.map((leg) => leg._tag), "an entry's own, its key alone").toEqual(["Snap", "Blend"])
+    expect(legsFor({ skipped: true, transition: { skipAnimations: false } }).map((leg) => leg._tag), "false doesn't undo a config's").toEqual(["Snap"])
+  })
+
+  it("SL3: a turned repeat lands where it would end", () => {
+    const legs = legsFor({ skipped: true, transition: { type: "tween", duration: 1, repeat: 1, repeatType: "reverse" } })
+    expect(firstTick(legs), "back at its start").toEqual([{ value: { x: 0, opacity: 0, backgroundColor: "#000" }, done: true }])
+  })
+})
+

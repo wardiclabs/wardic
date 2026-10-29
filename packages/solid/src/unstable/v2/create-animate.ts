@@ -22,6 +22,7 @@ import {
 } from "../../imperative.ts"
 import { useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
+import { useWardicSkipAnimations } from "./wardic-config.tsx"
 
 /**
  * A scope's landing (#433's Q8): the animation that landed last. Held in an object, as the controls
@@ -109,6 +110,7 @@ export function createAnimate<T extends Element = HTMLElement>(): readonly [Ward
     runtime: useWardicRuntime(),
     gate: useWardicGate(),
     reducedMotion: useWardicReducedMotion(),
+    skipAnimations: useWardicSkipAnimations(),
     positionalKeys: useWardicPositionalKeys(),
     defaultTransition: useWardicDefaultTransition(),
   }

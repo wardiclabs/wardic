@@ -37,6 +37,7 @@ import { atomOf, carry, readLive, serverRegistryOf, serverSpringOf, springAccess
 import { useWardicRuntime } from "./provider.tsx"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import { isServer } from "./server.ts"
+import { useWardicSkipAnimations } from "./wardic-config.tsx"
 
 /** A Live value as an accessor: an accessor as it is, an Atom read through the provider's registry. */
 const accessorOf = <A>(source: LiveSource<A>): Accessor<A> =>
@@ -116,7 +117,9 @@ const interpolatorOf = <O extends number | string>(
 export const createSpring = (source: LiveSource<number>, options: LiveValue.SpringOptions = {}): SpringAccessor => {
   const runtime = useWardicRuntime()
   if (isServer) return serverSpringOf(accessorOf(source))
-  return springAccessorOf(runtime, derivedOf(source, accessorOf(source), (atom) => LiveValue.spring(atom, options)))
+  // Its nearest WardicConfig's `skipAnimations` (#468): each change lands at once while it's on.
+  const skipped = useWardicSkipAnimations()
+  return springAccessorOf(runtime, derivedOf(source, accessorOf(source), (atom) => LiveValue.spring(atom, options, skipped)))
 }
 
 /**

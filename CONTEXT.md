@@ -94,6 +94,10 @@ _Avoid_: per-key transition, override (that's the **Override stack**'s word).
 A subtree's default transition (#434, Motion's `MotionConfig` `transition`), given by a `WardicConfig` above its Wardic elements: an element with no transition of its own runs on it, before its **Default transition**, and a **Variant child** on it in place of its parent's, as in Motion. A `WardicConfig` inside another replaces its transition or, with `inherit: true`, lays its own fields over it.
 _Avoid_: global transition, provider transition.
 
+**Skipped animation**:
+An animation that lands at its end on its next frame, with no delay, no stagger and no velocity, under a `WardicConfig`'s `skipAnimations` or a transition's (#468, Motion's): every animation an element runs, its exit, its layout animations and a drag's release among them, and a spring following a value. It's told as any landing is. On a server page its **Appear animation** lands at once, so the page is drawn landed from the first paint. Made for end-to-end and visual-regression tests.
+_Avoid_: instant animation, disabled animation (it still runs, and is still told).
+
 **Default transition**:
 What a key runs on when its transition isn't defined: none given, or one with only orchestration (`delay`, `staggerChildren`, `when` and the rest), as Motion's `isTransitionDefined` has it. Its **Environment** picks it, by key and target (the DOM's, Motion's: a spring for a transform, a stiffer one for a scale, critically damped toward 0, and a 0.3 s ease for the rest); an Environment with no opinion runs every key on one spring (#357). A key through more than two **Keyframes** stops runs on the Environment's one keyframes default (the DOM's, Motion's 0.8 s tween; #429).
 _Avoid_: fallback transition, implicit transition.

@@ -25,7 +25,7 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as FiberHandle from "effect/FiberHandle"
-import { constUndefined, constVoid, dual, identity } from "effect/Function"
+import { constFalse, constTrue, constUndefined, constVoid, dual, identity } from "effect/Function"
 import * as Option from "effect/Option"
 import { Atom, AtomRegistry } from "effect/reactivity"
 import type * as Scope from "effect/Scope"
@@ -127,6 +127,11 @@ export interface SpringOptions extends Machine.SpringOptions {
    * browser restores after the page mounts. Default `false`.
    */
   readonly skipInitialAnimation?: boolean
+  /**
+   * Every change of the source lands at once, as a `jump` (#468, Motion's transition
+   * `skipAnimations`): a **Skipped animation**. Default `false`.
+   */
+  readonly skipAnimations?: boolean
 }
 
 /**
@@ -191,17 +196,20 @@ export const jump: {
  * the source is, and from each change on, a `Machine.chase` toward the source runs on the Frame
  * loop, reading the source afresh on every step, until it comes to rest there. Then the run
  * ends, and nothing runs until the source moves again. With `skipInitialAnimation`, the source's
- * first change is a `jump`. A `jump` of its output ends the run there, with no velocity. The run
- * and the subscription end with the Scope; the Atom is held in the registry until then, and after
- * it only while subscribed.
+ * first change is a `jump`; with `skipAnimations`, or while `skipped()` says so (#468, read at each
+ * change: a binding's subtree setting), every change is. A `jump` of its output ends the run there,
+ * with no velocity. The run and the subscription end with the Scope; the Atom is held in the
+ * registry until then, and after it only while subscribed.
  */
 export const spring = (
   source: Atom.Atom<number>,
   options: SpringOptions = {},
+  skipped: () => boolean = constFalse,
 ): Effect.Effect<Atom.Atom<number>, never, FrameLoop.FrameLoop | AtomRegistry.AtomRegistry | Scope.Scope> =>
   Effect.gen(function* () {
     const registry = yield* AtomRegistry.AtomRegistry
-    const { skipInitialAnimation, ...springOptions } = options
+    const { skipInitialAnimation, skipAnimations, ...springOptions } = options
+    const skips = Bool.match(skipAnimations === true, { onTrue: () => constTrue, onFalse: () => skipped })
     // Mounted for the Scope, not kept alive: a kept-alive Atom's node never leaves the registry.
     const out = Atom.make(registry.get(source))
     const unmount = registry.mount(out)
@@ -214,7 +222,7 @@ export const spring = (
     let skipping = skipInitialAnimation === true
     /** Follow the source from where `out` is, until it rests. */
     const follow = (): void => {
-      if (skipping) {
+      if (Bool.or(skipping, skips())) {
         skipping = false
         jumpIn(registry, out, registry.get(source))
         return

@@ -59,7 +59,7 @@ const legsFor = (
   options: { readonly from?: Values.Values; readonly to?: Values.Values; readonly reduced?: boolean; readonly defaults?: DefaultTransition.DefaultTransition["Service"] } = {},
 ): ReadonlyArray<Leg> => {
   const { from = FROM, to = TO, reduced = false, defaults = DOM } = options
-  return legsOf(from, to, transition, reduced, POSITIONAL, defaults, NO_VELOCITY)
+  return legsOf(from, to, transition, reduced, false, POSITIONAL, defaults, NO_VELOCITY)
 }
 
 /** Each leg's tag and keys. */

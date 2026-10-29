@@ -51,6 +51,7 @@ export type { WardicVariantContextValue } from "../../variant-tree.ts"
 export type {
   WardicOrchestration,
   WardicReducedMotion,
+  WardicSkipAnimations,
   WardicTransformShorthands,
   WardicTransition,
   WardicTransitionEntries,

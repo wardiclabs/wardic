@@ -53,6 +53,7 @@
  */
 import * as Drag from "@wardic/core/Drag"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
+import * as Inertia from "@wardic/core/Inertia"
 import * as InputFeed from "@wardic/core/InputFeed"
 import * as InputSource from "@wardic/core/InputSource"
 import type * as Point from "@wardic/core/Point"
@@ -70,7 +71,7 @@ import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as FiberHandle from "effect/FiberHandle"
-import { constVoid, identity } from "effect/Function"
+import { constFalse, constVoid, identity } from "effect/Function"
 import * as Match from "effect/Match"
 import * as MutableRef from "effect/MutableRef"
 import * as Predicate from "effect/Predicate"
@@ -189,6 +190,11 @@ export interface DragTrackOptions {
    * offset, which the projection tells.
    */
   readonly onReleaseEnd?: (() => void) | undefined
+  /**
+   * Whether its animations are skipped (#468, its nearest `WardicConfig`'s `skipAnimations`), read at
+   * each release: a skipped one lands at once where it would come to rest. Omitted, never.
+   */
+  readonly skipAnimations?: (() => boolean) | undefined
   /**
    * An element constraint (#273, ADR-0047, Motion's `dragConstraints={ref}`): the container whose box
    * the element's must stay inside, in place of `config.constraints`. It's measured at each drag's
@@ -491,6 +497,21 @@ const release = (
       }).pipe(Effect.andThen(Microtask.next), Effect.andThen(done)),
     )
   }
+  // Skipped (#468): it lands at once where its inertia would come to rest, on each axis it runs on,
+  // with no velocity. Motion's skipped release goes to its keyframes' last, the drag's origin; Wardic's
+  // lands where the release would. Its end is told as a release's at rest.
+  if (UndefinedOr.match(opts.skipAnimations, { onUndefined: constFalse, onDefined: (skips) => skips() })) {
+    return untilTaken(
+      Effect.sync(() => {
+        keepVelocity(opts, ORIGIN)
+        if (MutableRef.get(state).releasing) directSet(opts, restOfRelease(position, v, axis, edges, transition))
+      }).pipe(
+        Effect.catchDefect((defect) => Report.failure("wardic.drag: a release failed", Cause.die(defect)).pipe(Effect.andThen(Effect.sync(() => tapFrame(position, ORIGIN))))),
+        Effect.andThen(Microtask.next),
+        Effect.andThen(done),
+      ),
+    )
+  }
   // Only the axes the gesture moved run (Motion's `shouldDrag`): the other stays where it is.
   return untilTaken(
     Match.value(axis).pipe(
@@ -509,6 +530,17 @@ const release = (
     ),
   )
 }
+
+/**
+ * Where a release from `position` at `v` comes to rest (#468): each axis it runs on where its inertia
+ * would ({@link Inertia.restOf}), the other where it is.
+ */
+const restOfRelease = (position: Point.Point, v: Point.Point, axis: Drag.Axis, edges: Drag.Bounds, transition: ProjectionSystem.DragTransition): Point.Point =>
+  Match.value(axis).pipe(
+    Match.when("x", () => ({ x: Inertia.restOf(position.x, v.x, { ...transition, ...edges.x }), y: position.y })),
+    Match.when("y", () => ({ x: position.x, y: Inertia.restOf(position.y, v.y, { ...transition, ...edges.y }) })),
+    Match.orElse(() => ({ x: Inertia.restOf(position.x, v.x, { ...transition, ...edges.x }), y: Inertia.restOf(position.y, v.y, { ...transition, ...edges.y }) })),
+  )
 
 /** `v` on the axes a release runs on, 0 on the other. */
 const onAxes = (v: Point.Point, axis: Drag.Axis): Point.Point =>

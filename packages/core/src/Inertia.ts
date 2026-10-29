@@ -145,6 +145,18 @@ export const resolve = (initial: number, velocity: number, options: InertiaOptio
   }
 }
 
+/**
+ * Where an inertia from `initial` at `velocity` comes to rest (#468): its glide's resting point, held
+ * to its edges (one the glide crosses is where the bounce rests), or the edge nearest a start past one.
+ * What a skipped one lands on at once. A value no inertia can take throws its `SchemaError`, as
+ * {@link resolve}'s.
+ */
+export const restOf = (initial: number, velocity: number, options: InertiaOptions): number => {
+  const inertia = resolve(initial, velocity, options)
+  if (outOfBounds(initial, inertia)) return nearestEdge(initial, inertia)
+  return Math.min(Math.max(inertia.target, inertia.min), inertia.max)
+}
+
 /** The glide's distance from its resting point at `t` seconds: `−amplitude · e^(−t / timeConstant)`. Per frame. */
 const glideDelta = (t: number, inertia: Resolved): number => -inertia.amplitude * Math.exp(-t / inertia.timeConstant)
 
