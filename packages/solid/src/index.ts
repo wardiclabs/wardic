@@ -124,6 +124,7 @@ export type {
   WardicInertia,
   WardicStagger,
   WardicPath,
+  WardicPropagate,
   WardicTransformShorthands,
   WardicAnimationDefinition,
   WardicTransition,

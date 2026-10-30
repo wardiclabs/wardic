@@ -37,7 +37,7 @@ Core already had what a keyboard press needs: the keyboard and focus Input feeds
 6. **Two PRs** (Q6: A): keyboard presses on both bindings first, Solid 2's `tapped()` second.
 
 **Defaults, stated rather than asked:**
-- **Only the element's own keys press** (`fromTarget`). Enter in a text field, or on a button inside a pressable card, doesn't press the card. That's Motion's too, as focus doesn't bubble.
+- **Only the element's own keys press** (`fromTarget`). Enter in a text field, or on a button inside a pressable card, doesn't press the card. That's Motion's too, as focus doesn't bubble. *Corrected by Amendment (#439): Motion's holds for a plain button, not for a pressable element inside a pressable one, which Motion's bubbling synthetic down presses too.*
 - **Space types in a text field** (an `input` that takes text, a `textarea`, an editable region), so it doesn't press there. Enter still presses, as on Motion.
 - **One press at a time:**
   - a held key's repeats are ignored;
@@ -149,3 +149,12 @@ Core already had what a keyboard press needs: the keyboard and focus Input feeds
 - a held press at the first read never pending;
 - a tap before the first read forgotten;
 - the pending read never resolved.
+
+## Amendment (#439, 2026-10-30): a keyboard press reaches pressable ancestors
+
+The default "only the element's own keys press" said Motion's was the same, as focus doesn't bubble. Measured on Motion 14.6, it isn't, for a pressable element inside a pressable one: Motion's keyboard press dispatches a synthetic `pointerdown` that bubbles (`press/utils/keyboard.ts:14-15`), so Enter on the inner element presses the outer one too, unless the inner one has `propagate={{ tap: false }}`. Grilled on #439 (Q2: A), Wardic now does the same (ADR-0066):
+- A **Keyboard press** on a pressable element reaches its pressable ancestors, each pressed, with its own centre as its point, unless a **Press claim** stops it.
+- A key on something inside with no press of its own, a text field or a plain button, still presses none of them: only a press inside passes a key on.
+- A propagated keyboard press is cancelled when focus leaves the element the key came from, and Space the inner press took still reaches its ancestors.
+- KB5 now pins it: Enter on a pressable button inside a pressable card presses both, on a plain button neither.
+

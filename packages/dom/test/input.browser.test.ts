@@ -2,6 +2,7 @@ import * as InputFeed from "@wardic/core/InputFeed"
 import * as InputSource from "@wardic/core/InputSource"
 import { expect, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import { constVoid } from "effect/Function"
 import * as Fiber from "effect/Fiber"
 import * as Match from "effect/Match"
 import * as Ref from "effect/Ref"
@@ -120,6 +121,53 @@ layer(InputDomLive)("InputDomLive", (it) => {
       ])
       yield* sub.close
       el.remove()
+    }))
+
+  it.effect("I18: keys reach the targets they pass through innermost first, whatever order those subscribed in (#439)", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource.InputSource
+      const outer = document.createElement("div")
+      const inner = document.createElement("div")
+      outer.appendChild(inner)
+      document.body.appendChild(outer)
+      const log: Array<string> = []
+      // The outer one subscribes first: a listener of its own on the window would hear a key first.
+      const offOuter = input.keyboard(outer)((e) => log.push(`outer ${e.type} ${e.fromTarget}`), constVoid)
+      const offInner = input.keyboard(inner)((e) => log.push(`inner ${e.type} ${e.fromTarget}`), constVoid)
+      inner.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+      outer.dispatchEvent(new KeyboardEvent("keyup", { key: "Enter", bubbles: true }))
+      offInner()
+      inner.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+      offOuter()
+      inner.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
+      expect(log).toEqual(["inner down true", "outer down false", "outer up true", "outer down false"])
+      outer.remove()
+    }))
+
+  it.effect("I19: focus(target) tells its own focus and blur, and those inside it with fromTarget false (#439)", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource.InputSource
+      const outer = document.createElement("div")
+      outer.tabIndex = 0
+      const inner = document.createElement("button")
+      outer.appendChild(inner)
+      document.body.appendChild(outer)
+      const log: Array<string> = []
+      const off = input.focus(outer)((e) => log.push(`${e.type} ${e.fromTarget} ${(e.raw as Event).type}`), constVoid)
+      inner.focus()
+      outer.focus()
+      inner.focus()
+      inner.blur()
+      off()
+      expect(log).toEqual([
+        "focus false focusin",
+        "blur false focusout",
+        "focus true focus",
+        "blur true blur",
+        "focus false focusin",
+        "blur false focusout",
+      ])
+      outer.remove()
     }))
 
   it.effect("a held pointer's page-wide release says whether it landed on the target or inside it (#257)", () =>

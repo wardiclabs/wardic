@@ -55,6 +55,7 @@ export type {
   WardicInertia,
   WardicStagger,
   WardicPath,
+  WardicPropagate,
   WardicTransformShorthands,
   WardicTransition,
   WardicTransitionEntries,

@@ -2361,6 +2361,20 @@ button.product-card:hover .photo {
   font-variant-numeric: tabular-nums;
 }
 
+/* A card squeezes a little as it's pressed; its "Add" sits on its photo's corner, beside its link,
+   not in it, and its press is its own (#439), so the card doesn't squeeze with it. */
+.catalogue-item {
+  position: relative;
+}
+
+.catalogue-add {
+  position: absolute;
+  top: var(--space-2);
+  right: var(--space-2);
+  padding: var(--space-1) var(--space-3);
+  font-size: var(--text-s);
+}
+
 /* The piece's content is popped too, when the next piece replaces it. */
 .catalogue-piece {
   position: relative;

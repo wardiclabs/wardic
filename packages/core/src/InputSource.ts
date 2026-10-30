@@ -171,6 +171,12 @@ export interface KeyboardLikeEvent {
 export interface FocusLikeEvent {
   readonly type: "focus" | "blur"
   readonly timeStamp: number
+  /**
+   * Whether it's the target's own focus or blur (#439). `false`: something inside it took or lost focus,
+   * which only cancels a **Keyboard press** that reached the target from inside; `Recognizer.focus` counts
+   * the target's own only. Absent: the target's own.
+   */
+  readonly fromTarget?: boolean
   /** The platform's own event (#427), opaque to core: a blur that cancels a **Keyboard press** hands it to an app's callback. */
   readonly raw?: unknown
   /**
@@ -197,7 +203,8 @@ export class InputSource extends Context.Service<InputSource, {
   /**
    * The keys at `target` or inside it (ADR-0037): a **Shared source** per target, delivered inside
    * the platform's dispatch, after the app's own handlers, so a consumer reads whether one took
-   * the key and can still take it itself.
+   * the key and can still take it itself. A key reaches the targets it passed through innermost first
+   * (#439), so a press inside marks it in the page's **Press claims** before its ancestors read it.
    */
   readonly keyboard: (target: unknown) => InputFeed.InputFeed<KeyboardLikeEvent>
   // No wheel until a recognizer needs one, which then defines it and its units (ADR-0036,

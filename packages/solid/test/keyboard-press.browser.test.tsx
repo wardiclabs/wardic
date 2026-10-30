@@ -10,8 +10,9 @@
 // - KB4: a pressable element that doesn't take focus is made focusable (Motion's press): a `div` with
 //   only `onTap` gets `tabindex="0"`; a button, a given `tabindex` and an element with no press are
 //   left as they are.
-// - KB5: only the element's own keys press: Enter on a button inside a pressable card presses the
-//   button's, not the card; in a pressable text field, Space types and Enter presses.
+// - KB5: a key presses its element and, since #439, its pressable ancestors (Motion's): Enter on a
+//   pressable button inside a pressable card presses both, on a plain button neither; in a pressable
+//   text field, Space types and Enter presses.
 // - KB6: on a Reorder item, Enter and Space are the reorder's: the lift is no press, and the item's
 //   `whileTap` stays off.
 import { render } from "@solidjs/testing-library"
@@ -141,9 +142,10 @@ describe("keyboard presses on Solid 1 (#427)", () => {
     ])
   })
 
-  it("KB5: only the element's own keys press it; in a text field, Space types and Enter presses", async () => {
+  it("KB5: a key presses its element and its pressable ancestors, not from a plain button; in a text field, Space types and Enter presses", async () => {
     const calls: Array<string> = []
     const [inner, setInner] = createSignal<HTMLElement>()
+    const [plain, setPlain] = createSignal<HTMLElement>()
     const [field, setField] = createSignal<HTMLInputElement>()
     render(() => (
       <WardicProvider env={DomLive}>
@@ -151,6 +153,7 @@ describe("keyboard presses on Solid 1 (#427)", () => {
           <wardic.button ref={setInner} onTap={() => calls.push("button")}>
             b
           </wardic.button>
+          <button ref={setPlain}>plain</button>
         </wardic.div>
         <wardic.input ref={setField} onTapStart={() => calls.push("field start")} onTap={() => calls.push("field")} />
       </WardicProvider>
@@ -159,15 +162,19 @@ describe("keyboard presses on Solid 1 (#427)", () => {
     inner()!.focus()
     await userEvent.keyboard("{Enter}")
     await wait(50)
-    expect(calls, "the button's press, not the card's").toEqual(["button"])
+    expect(calls, "the button's press, and the card's (#439)").toEqual(["button", "card"])
+    plain()!.focus()
+    await userEvent.keyboard("{Enter}")
+    await wait(50)
+    expect(calls, "a plain button presses no card").toEqual(["button", "card"])
     field()!.focus()
     await userEvent.keyboard("[Space]")
     await wait(50)
     expect(field()!.value, "Space typed").toBe(" ")
-    expect(calls, "and pressed nothing").toEqual(["button"])
+    expect(calls, "and pressed nothing").toEqual(["button", "card"])
     await userEvent.keyboard("{Enter}")
     await wait(50)
-    expect(calls).toEqual(["button", "field start", "field"])
+    expect(calls).toEqual(["button", "card", "field start", "field"])
   })
 
   it("KB6: a Reorder item's Enter and Space are the reorder's: the lift is no press", async () => {

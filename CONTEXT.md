@@ -199,7 +199,7 @@ A core combinator that interprets raw `InputSource` (or `Probe`) events into a p
 _Avoid_: gesture (names the whole feature, not the core piece), handler, listener.
 
 **Keyboard press**:
-A press made from the keyboard on the focused element itself (#427): Enter or Space goes down to start it, and it taps when the key comes back up; a blur cancels it. It is a press like a pointer's, with `whileTap` on through the hold, and its events say they came from the keyboard and give the element's centre as their point. A key the page or a **Keyboard reorder** has already taken starts none, and an element with a press that can't take focus is made focusable, as Motion's are.
+A press made from the keyboard on the focused element (#427): Enter or Space goes down to start it, and it taps when the key comes back up; a blur cancels it. It is a press like a pointer's, with `whileTap` on through the hold, and its events say they came from the keyboard and give the element's centre as their point. It reaches the element's pressable ancestors as a pointer's press does, each pressed too, unless a **Press claim** stops it (#439, Motion's); a key on something inside that has no press of its own, a text field or a plain button, presses none of them. A key the page or a **Keyboard reorder** has already taken starts none, and an element with a press that can't take focus is made focusable, as Motion's are.
 _Avoid_: keyboard tap (a tap is only a press's end), key click.
 
 **State recognizer**:
@@ -245,6 +245,10 @@ _Avoid_: drag lock (that's a **Drag claim**), dragging (a projection node's flag
 **Drag claim**:
 A target's hold on the page's drag axes, each claimed on its own: the axis of an `x` or `y` drag, or both for a free one. It's taken at the drag's start and kept until that gesture ends or the drag is interrupted, and every drag subscription on one target shares it. A drag that needs an axis another target holds is refused for its whole gesture, so of nested draggables the innermost drags, unless they drag on different axes (ADR-0019, *Amendment (#29)*).
 _Avoid_: drag lock (Motion's name), axis lock (a drag kept to one axis), pointer capture.
+
+**Press claim**:
+An element's hold on the pointer down or the key its press starts from, taken when the element doesn't let its taps propagate (#439, Motion's `propagate={{ tap: false }}`): no press of an ancestor starts from it. By default nothing is claimed, and a press inside a pressable element presses both. It touches presses only: a **Drag claim** is its own.
+_Avoid_: stop propagation (the platform's, which stops every listener), tap lock.
 
 **Drag controls**:
 A drag's start from outside its element (#431, Motion's `useDragControls`): controls made apart and given to one element or more, whose `start(event)` begins each one's drag from a pointer that went down elsewhere, a handle or a track, which the drag then follows as if it had pressed the element. `stop()` ends a drag as a release would; `cancel()` ends it where it is. With `dragListener={false}`, an element's own presses start none. A drag the controls start takes its **Drag claim** as any drag does.

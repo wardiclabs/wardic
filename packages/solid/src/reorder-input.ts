@@ -38,7 +38,8 @@ export const watchItemInput = (
     yield* InputFeed.watch(input.keyboard(el), { on: (event) => driver.onKey(event), onDefect })
     yield* InputFeed.watch(input.focus(el), {
       on: (event) => {
-        if (event.type === "blur") fork(judgeBlur)
+        // The item's own blur: one inside it (#439) leaves it focused.
+        if (Bool.and(event.type === "blur", event.fromTarget !== false)) fork(judgeBlur)
       },
       onDefect,
     })
