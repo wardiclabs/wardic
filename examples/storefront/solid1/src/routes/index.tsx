@@ -9,8 +9,8 @@ import { For, Show } from "solid-js"
 const Card = wardic.create(A)
 
 export default function Home() {
-  const ready = AREAS.filter((area) => examplesIn(area.id).length > 0)
-  const next = AREAS.filter((area) => examplesIn(area.id).length === 0)
+  const ready = AREAS.filter((area) => examplesIn(area.id, "solid1").length > 0)
+  const next = AREAS.filter((area) => examplesIn(area.id, "solid1").length === 0)
   return (
     <main class="page">
       <section class="hero">
@@ -26,7 +26,7 @@ export default function Home() {
               <p class="muted">{area.blurb}</p>
             </div>
             <div class="example-cards">
-              <For each={examplesIn(area.id)}>
+              <For each={examplesIn(area.id, "solid1")}>
                 {(example) => (
                   <Card class="example-card" href={routeOf(example)} variants={CARD} initial="rest" animate="rest" whileHover="hover" whileFocus="hover" whileTap="press">
                     <h3>{example.title}</h3>

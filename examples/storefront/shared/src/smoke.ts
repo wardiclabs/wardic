@@ -28,11 +28,13 @@ import { existsSync, mkdirSync } from "node:fs"
 import { join } from "node:path"
 import { type BrowserContext, chromium, type ConsoleMessage, type Page, type Request } from "playwright"
 import { APPS, type AppId } from "./apps.ts"
-import { EXAMPLES, routeOf } from "./examples.ts"
+import { EXAMPLES, hasExample, routeOf } from "./examples.ts"
 
 const app = process.argv[2] ?? ""
 if (!(app in APPS)) throw new Error(`smoke: an app is solid1, solid2 or next, not "${app}"`)
 const config = APPS[app as AppId]
+/** The examples this app has: all of them, less those for another binding's pattern alone. */
+const examples = EXAMPLES.filter((example) => hasExample(config.id, example))
 /**
  * A deployment to check instead of this app's build (examples/storefront/deploy): its address, as
  * `STOREFRONT_SMOKE_URL`, and, for a Solid app, where its Motion tab should link, as
@@ -46,10 +48,10 @@ mkdirSync(shots, { recursive: true })
 /** Whether the Next.js app has an example in Motion (#366): its folder in `src/examples/`. */
 const nextHas = (id: string): boolean => existsSync(join(process.cwd(), "..", "next", "src", "examples", id, "Demo.tsx"))
 
-/** Every example has its Motion version (#366 Q9): one missing fails every app's run, named. */
+/** Every example the Next.js app has, in Motion (#366 Q9): one missing fails every app's run, named. */
 const completeness: Result = {
   route: "every example in Motion (the Next.js app)",
-  problems: EXAMPLES.filter((example) => !nextHas(example.id)).map((example) => `${routeOf(example)} has no Motion version: next/src/examples/${example.id}/Demo.tsx`),
+  problems: EXAMPLES.filter((example) => hasExample("next", example) && !nextHas(example.id)).map((example) => `${routeOf(example)} has no Motion version: next/src/examples/${example.id}/Demo.tsx`),
 }
 
 /** The app's own server for its build: its own Vite (`npx vite` from the app picks the repo root's older one), or Next.js. */
@@ -262,7 +264,7 @@ const checkNavigation = async (page: Page): Promise<ReadonlyArray<Result>> => {
   const quiet = quietOf(page)
   await page.goto(base + "/", { waitUntil: "commit" })
   await quiet()
-  for (const example of EXAMPLES) {
+  for (const example of examples) {
     const route = routeOf(example)
     problems.length = 0
     documents = 0
@@ -288,7 +290,8 @@ try {
   const storeContext = await browser.newContext()
   results.push(await checkStore(storeContext, await storeContext.newPage()))
   await storeContext.close()
-  for (const example of EXAMPLES) results.push(await check(await context.newPage(), routeOf(example), example.watch, example.interact, app !== "next"))
+  // The code's tabs, on a Solid app's page of an example the Next.js app has too.
+  for (const example of examples) results.push(await check(await context.newPage(), routeOf(example), example.watch, example.interact, app !== "next" && hasExample("next", example)))
   results.push(...(await checkNavigation(await context.newPage())))
 } finally {
   await browser.close()

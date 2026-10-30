@@ -3,6 +3,7 @@
  * around its demo. An app routes each to `/<area>/<id>` and supplies the demo; the gallery lists
  * them by area. The smoke runner (`smoke.ts`) opens each route in each app's production build.
  */
+import type { AppId } from "./apps.ts"
 
 /** The showcase's areas, in the gallery's order. */
 export const AREAS = [
@@ -39,6 +40,12 @@ export interface Example {
    * component library Wardic's is built on, #387). Its code is that app's `src/examples/<id>/`.
    */
   readonly motion?: { readonly note: string; readonly title?: string | undefined; readonly summary?: string | undefined } | undefined
+  /**
+   * The apps that have it, where not all three: a pattern only one binding shows (Solid 2's
+   * `<Loading>` in a page, #479). Their galleries list it and the smoke test opens it there; the
+   * others don't route it.
+   */
+  readonly apps?: ReadonlyArray<AppId> | undefined
   /**
    * What the smoke test does once the page has loaded, before it watches, for one that waits for the
    * visitor: a selector inside the demo to click, `drag:<selector>:<dx>:<dy>`, or
@@ -320,6 +327,22 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     watch: ".catalogue-hero .photo",
   },
   {
+    id: "waiting",
+    area: "transitions",
+    title: "Waiting for a piece's details",
+    summary: "A piece's page whose details come from the store, on Solid 2: show a skeleton and the photo flies at once, or keep the catalogue until the details land, then fly.",
+    why: [
+      "A page that loads has two honest ways to wait. It can arrive at once, a skeleton where its details will go, so the visitor sees where they're going; or the page they're on can stay until the next one is ready, so nothing half-built shows. The switch above the demo tries each, and the header's delay makes the wait longer.",
+      "The piece's details are an async memo over the store's server function, read on its page. Solid Router navigates inside a transition, so with no `<Loading>` of the page's own the navigation holds: the catalogue stays, not leaving, until the details land, then goes as the page arrives and the photo flies (\"Opening…\" is the router's `useIsRouting`). With a `<Loading>` around the details, that boundary is new, so it shows its skeleton rather than hold: the page is in at once, the catalogue leaving, and the photo flies while the details load.",
+      "The photo stays outside that `<Loading>`, so it mounts with the page and its `layoutId` has the card to fly from. Inside it, the photo would mount with the details, after the catalogue has gone, and appear where it is. The details come straight from the server function, not through the router's `query`, whose cache would answer a piece opened again within a few seconds at once.",
+    ],
+    reducedMotion: "The pages fade from one to the other and the photo doesn't fly; the skeleton and the wait are the same.",
+    uses: ["<Loading> in a page", "useIsRouting", "AnimatePresence mode=\"popLayout\"", "layoutId"],
+    apps: ["solid2"],
+    interact: ".catalogue-card",
+    watch: ".catalogue-hero .photo",
+  },
+  {
     id: "magnifier",
     area: "live",
     title: "A closer look at the glaze",
@@ -478,8 +501,11 @@ export const EXAMPLES: ReadonlyArray<Example> = [
   },
 ]
 
-/** The examples of an area, in the registry's order. */
-export const examplesIn = (area: AreaId): ReadonlyArray<Example> => EXAMPLES.filter((example) => example.area === area)
+/** Whether `app` has `example`: all three do, unless it names its apps. */
+export const hasExample = (app: AppId, example: Example): boolean => example.apps === undefined || example.apps.includes(app)
+
+/** The examples of an area that `app` has, in the registry's order. */
+export const examplesIn = (area: AreaId, app: AppId): ReadonlyArray<Example> => EXAMPLES.filter((example) => example.area === area && hasExample(app, example))
 
 /** An example by its id. */
 export const exampleById = (id: string): Example | undefined => EXAMPLES.find((example) => example.id === id)

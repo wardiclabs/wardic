@@ -2411,6 +2411,41 @@ button.product-card:hover .photo {
   }
 }
 
+/* Waiting for a piece's details (Solid 2): the switch, and what the router says while a page is held. */
+.waiting-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  margin-bottom: var(--space-5);
+}
+
+.waiting-status {
+  min-height: 1.5em;
+  font-size: var(--text-s);
+}
+
+.waiting-skeleton {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.waiting-skeleton .skeleton {
+  display: block;
+  height: 14px;
+  border-radius: var(--radius-s);
+}
+
+.waiting-skeleton .skeleton:first-child {
+  width: 30%;
+  height: 22px;
+}
+
+.waiting-skeleton .skeleton:last-child {
+  width: 60%;
+}
+
 /* --- Live values: a magnifier, a reading bar, a lookbook, a story, cards with a light (#388) -- */
 
 .magnifier {

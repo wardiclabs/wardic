@@ -10,6 +10,9 @@
 //   content leaves, the new enters, the page's node kept.
 // - RTV4: a route loading its data (an async memo under `Loading`): the old page stays, not leaving,
 //   until the data resolves, then leaves as the new page enters.
+// - RTV5: a page with a `Loading` of its own around its data (a skeleton), its `layoutId` hero outside
+//   it: the page is in at once with its skeleton, the old one leaving, and the hero flies from the
+//   card while the data loads; the data then takes the skeleton's place.
 import type { JSX } from "@solidjs/web"
 import { createRouter, memoryHistory, useNavigate, useParams } from "@solidjs/router-2"
 import { DomLive } from "@wardic/dom"
@@ -167,5 +170,40 @@ describe("page transitions with Solid Router on Solid 2 (#479)", () => {
     expect(Number(getComputedStyle(list).opacity), "now it leaves").toBeLessThan(1)
     await until(() => !list.isConnected, 2000)
     expect(app.pages()[0]!.textContent).toContain("loaded")
+  })
+
+  it("RTV5: a skeleton in the page, the hero outside it: the page in at once, the hero flying while the data loads", async () => {
+    let resolve!: (value: string) => void
+    const Skeleton = () => {
+      const data = createMemo(() => new Promise<string>((done) => (resolve = done)))
+      return (
+        <wardic.main data-page="item" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={SLOW} style={PAGE}>
+          <wardic.div data-k="hero" layoutId="card-3" transition={SLOW} style={{ width: "280px", height: "160px", background: "teal" }} />
+          <Loading fallback={<p data-k="skeleton">…</p>}>
+            <p data-k="data">{data()}</p>
+          </Loading>
+        </wardic.main>
+      )
+    }
+    const app = mountRoutes([{ path: "/", component: List }, { path: "/item", component: Skeleton }], "popLayout", true)
+    await until(() => app.el("card") !== null, 2000)
+    await frames(3)
+    const list = app.pages()[0]!
+    const card = app.el("card")!.getBoundingClientRect()
+    app.navigate("/item")
+    await until(() => app.el("hero") !== null, 2000)
+    await frames(2)
+    expect(app.el("skeleton"), "the page in with its skeleton, not held").not.toBeNull()
+    expect(Number(getComputedStyle(list).opacity), "the list leaving meanwhile").toBeLessThan(1)
+    const hero = app.el("hero")!
+    const early = hero.getBoundingClientRect()
+    expect(Math.abs(early.left - card.left), "the hero starts at the card's box").toBeLessThan(30)
+    expect(early.width, "the card's size, not the hero's 280").toBeLessThan(160)
+    resolve("loaded")
+    await until(() => app.el("data") !== null, 2000)
+    expect(app.el("skeleton"), "the data in the skeleton's place").toBeNull()
+    expect(app.el("data")!.textContent).toBe("loaded")
+    await until(() => Math.abs(hero.getBoundingClientRect().width - 280) < 0.5, 2000)
+    expect(app.el("hero"), "the same hero, landed on its own box").toBe(hero)
   })
 })
