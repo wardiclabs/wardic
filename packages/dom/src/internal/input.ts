@@ -12,7 +12,8 @@
  * the keys at the target or inside it: there it runs after the page's own handlers (the
  * element's, and Solid's delegated ones on the document), so `handled` (`defaultPrevented`) says
  * whether one took the key, and a consumer can still `handle()` it (`preventDefault()`). Its events
- * reach their consumers inside the dispatch (ADR-0032).
+ * reach their consumers inside the dispatch (ADR-0032), the targets a key passed through innermost
+ * first (#439): one listener per window walks its path.
  * Keys are in core's names (`keyOf`), not the browser's.
  *
  * `pointer(target)` also carries every **Held pointer**'s events (ADR-0019): core's
@@ -273,8 +274,8 @@ const scrollFeedOf = (target: unknown): InputSource.ScrollFeed => (emit) => {
   }
 }
 
-const toFocus = (type: InputSource.FocusLikeEvent["type"]) =>
-  (ev: FocusEvent): InputSource.FocusLikeEvent => ({ type, timeStamp: ev.timeStamp, visible: focusVisible(ev.target), raw: ev })
+const toFocus = (type: InputSource.FocusLikeEvent["type"], target: unknown) =>
+  (ev: FocusEvent): InputSource.FocusLikeEvent => ({ type, timeStamp: ev.timeStamp, visible: focusVisible(ev.target), fromTarget: ev.target === target, raw: ev })
 
 /**
  * Whether a focus shows (#273, Motion's `whileFocus`): its target matches `:focus-visible`, which a
@@ -392,38 +393,98 @@ const toKeyboard = (type: InputSource.KeyboardLikeEvent["type"], ev: KeyboardEve
 const keyTypeOf = (ev: Event): InputSource.KeyboardLikeEvent["type"] =>
   Bool.match(ev.type === "keydown", { onTrue: () => "down" as const, onFalse: () => "up" as const })
 
-/** Whether `ev` went through `target`: it's the target, or inside it (a shadow root's too). */
-const throughTarget = (ev: Event, target: unknown): boolean => ev.composedPath().includes(target as EventTarget)
+/** A window's keyed targets (#439): each target's deliveries, and the one listener that hands keys to them. */
+interface KeyedWindow {
+  readonly targets: Map<EventTarget, Set<(ev: KeyboardEvent) => void>>
+  readonly listener: (ev: Event) => void
+}
+
+/** The windows with keyed targets, each with its one listener. */
+const keyedWindows = new WeakMap<Window, KeyedWindow>()
+
+/**
+ * `win`'s keyed targets, its listener added with the first (#439): a key goes to the targets it passed
+ * through innermost first, its path's order, as a pointer's down bubbles, so a press inside marks it in
+ * core's **Press claims** before its ancestors read it. A listener for each target would run in the
+ * order the targets came.
+ */
+const keyedWindowOf = (win: Window): KeyedWindow =>
+  UndefinedOr.match(keyedWindows.get(win), {
+    onDefined: identity,
+    onUndefined: () => {
+      const targets = new Map<EventTarget, Set<(ev: KeyboardEvent) => void>>()
+      const listener = (ev: Event): void =>
+        Arr.forEach(ev.composedPath(), (node) =>
+          UndefinedOr.map(targets.get(node), (deliveries) => Arr.forEach(Arr.fromIterable(deliveries), (deliver) => deliver(ev as KeyboardEvent))),
+        )
+      win.addEventListener("keydown", listener)
+      win.addEventListener("keyup", listener)
+      const keyed: KeyedWindow = { targets, listener }
+      keyedWindows.set(win, keyed)
+      return keyed
+    },
+  })
+
+/** `delivery` off `target` on `win`, and `win`'s listener off once no target is keyed there. */
+const unkey = (win: Window, keyed: KeyedWindow, target: EventTarget, delivery: (ev: KeyboardEvent) => void): void => {
+  const deliveries = keyed.targets.get(target)
+  if (Predicate.isUndefined(deliveries)) return
+  deliveries.delete(delivery)
+  if (deliveries.size === 0) keyed.targets.delete(target)
+  if (keyed.targets.size > 0) return
+  win.removeEventListener("keydown", keyed.listener)
+  win.removeEventListener("keyup", keyed.listener)
+  keyedWindows.delete(win)
+}
 
 /**
  * The keys at `target` or inside it (ADR-0037): `keydown`/`keyup` on its window, in the bubble
- * phase, so after the page's own handlers. An **Input feed** (#318): each key reaches its consumer
- * inside the dispatch (ADR-0032), where its `handle()` still counts.
+ * phase, so after the page's own handlers, handed to the targets a key passed through innermost first
+ * (#439). An **Input feed** (#318): each key reaches its consumer inside the dispatch (ADR-0032), where
+ * its `handle()` still counts.
  */
 const keyboardOf = (target: unknown): InputFeed.InputFeed<InputSource.KeyboardLikeEvent> => (emit) => {
   const win = windowOf(target)
-  const listener = (ev: Event): void => {
-    if (!throughTarget(ev, target)) return
-    emit(toKeyboard(keyTypeOf(ev), ev as KeyboardEvent, target))
-  }
-  win.addEventListener("keydown", listener)
-  win.addEventListener("keyup", listener)
-  return (): void => {
-    win.removeEventListener("keydown", listener)
-    win.removeEventListener("keyup", listener)
-  }
+  const keyed = keyedWindowOf(win)
+  const el = target as EventTarget
+  const delivery = (ev: KeyboardEvent): void => emit(toKeyboard(keyTypeOf(ev), ev, target))
+  const deliveries = UndefinedOr.match(keyed.targets.get(el), {
+    onDefined: identity,
+    onUndefined: () => {
+      const made = new Set<(ev: KeyboardEvent) => void>()
+      keyed.targets.set(el, made)
+      return made
+    },
+  })
+  deliveries.add(delivery)
+  return (): void => unkey(win, keyed, el, delivery)
 }
 
-/** `target`'s focus and blur, as an **Input feed** (#318). */
+/**
+ * `target`'s focus and blur, as an **Input feed** (#318), and since #439 those inside it, with
+ * `fromTarget: false`: its own `focus` and `blur`, and the `focusin` and `focusout` that bubble from
+ * inside, so a **Keyboard press** that reached an ancestor from inside is cancelled when focus leaves the
+ * element its key came from.
+ */
 const focusOf = (target: unknown): InputFeed.InputFeed<InputSource.FocusLikeEvent> => (emit) => {
   const el = target as EventTarget
-  const onFocus = (ev: Event): void => emit(toFocus("focus")(ev as FocusEvent))
-  const onBlur = (ev: Event): void => emit(toFocus("blur")(ev as FocusEvent))
+  const onFocus = (ev: Event): void => emit(toFocus("focus", target)(ev as FocusEvent))
+  const onBlur = (ev: Event): void => emit(toFocus("blur", target)(ev as FocusEvent))
+  // A `focusin` or `focusout` of the target itself follows its own `focus` or `blur`: told once, by those.
+  const inside = (on: (ev: Event) => void) => (ev: Event): void => {
+    if (ev.target !== target) on(ev)
+  }
+  const onFocusIn = inside(onFocus)
+  const onFocusOut = inside(onBlur)
   el.addEventListener("focus", onFocus)
   el.addEventListener("blur", onBlur)
+  el.addEventListener("focusin", onFocusIn)
+  el.addEventListener("focusout", onFocusOut)
   return (): void => {
     el.removeEventListener("focus", onFocus)
     el.removeEventListener("blur", onBlur)
+    el.removeEventListener("focusin", onFocusIn)
+    el.removeEventListener("focusout", onFocusOut)
   }
 }
 

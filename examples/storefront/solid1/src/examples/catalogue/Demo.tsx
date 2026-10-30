@@ -3,13 +3,14 @@
  * `routes/transitions/catalogue.tsx` renders `Catalogue` around its outlet, `catalogue/index.tsx`
  * the `CatalogueList`, and `catalogue/[id].tsx` a `CataloguePiece`.
  */
-import { A, useParams } from "@solidjs/router"
+import { A, useAction, useParams } from "@solidjs/router"
 import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
 import { AnimatePresence, arc, wardic } from "@wardic/solid"
-import { For, type JSX, Show } from "solid-js"
+import { createSignal, For, type JSX, Match, onCleanup, Show, Switch } from "solid-js"
+import { addToCart } from "~/lib/store.ts"
 
 const PIECES = PRODUCTS.slice(0, 6)
 const HOME = "/transitions/catalogue"
@@ -58,13 +59,57 @@ function Photo(props: { readonly piece: Product; readonly sizes: string }) {
   )
 }
 
+/** What a card's "Add" says: its piece going into the cart, then whether it went. */
+type Adding = "idle" | "adding" | "added" | "failed"
+
+/**
+ * A card's "Add" (#439): its press is its own (`propagate={{ tap: false }}`), so the card around it
+ * doesn't squeeze as it's pressed. It sits beside the card's link, not in it, so a click on it opens
+ * nothing: `propagate` keeps a press from the card's, not a click from the link's.
+ */
+function AddButton(props: { readonly piece: Product }) {
+  const add = useAction(addToCart)
+  const [state, setState] = createSignal<Adding>("idle")
+  let reset: ReturnType<typeof setTimeout> | undefined
+  onCleanup(() => clearTimeout(reset))
+  const settle = (ended: Adding) => {
+    setState(ended)
+    clearTimeout(reset)
+    reset = setTimeout(() => setState("idle"), 2000)
+  }
+  const buy = () => {
+    setState("adding")
+    add(props.piece.id, 1).then(
+      () => settle("added"),
+      () => settle("failed"),
+    )
+  }
+  return (
+    <wardic.button
+      class="button catalogue-add"
+      aria-label={`Add ${props.piece.name} to the cart`}
+      disabled={state() === "adding"}
+      whileTap={{ scale: 0.9 }}
+      propagate={{ tap: false }}
+      onClick={buy}
+    >
+      <Switch fallback="Add">
+        <Match when={state() === "adding"}>Adding…</Match>
+        <Match when={state() === "added"}>Added ✓</Match>
+        <Match when={state() === "failed"}>Not added</Match>
+      </Switch>
+    </wardic.button>
+  )
+}
+
 /** The catalogue: `/transitions/catalogue`. */
 export function CatalogueList() {
   return (
     <wardic.ul class="catalogue-list" {...page}>
       <For each={PIECES}>
         {(piece) => (
-          <li>
+          // The card squeezes a little as it's pressed, though not as its "Add" is.
+          <wardic.li class="catalogue-item" whileTap={{ scale: 0.97 }}>
             {/* noScroll: the demo sits partway down the page, so the router leaves its scroll be. */}
             <A class="catalogue-card" href={`${HOME}/${piece.id}`} noScroll>
               <Photo piece={piece} sizes="160px" />
@@ -73,7 +118,8 @@ export function CatalogueList() {
                 <span class="price">{formatPrice(piece.price)}</span>
               </span>
             </A>
-          </li>
+            <AddButton piece={piece} />
+          </wardic.li>
         )}
       </For>
     </wardic.ul>

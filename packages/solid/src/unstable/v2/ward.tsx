@@ -48,7 +48,7 @@
 import type * as Drag from "@wardic/core/Drag"
 import type * as InputFeed from "@wardic/core/InputFeed"
 import * as Recognizer from "@wardic/core/Recognizer"
-import { watchPressOn } from "../../press.ts"
+import { tapPropagates, watchPressOn } from "../../press.ts"
 import * as Report from "@wardic/dom/Report"
 import * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
@@ -209,6 +209,7 @@ const WARD_KEYS = [
   "dragSnapToOrigin",
   "dragTransition",
   "dragPropagation",
+  "propagate",
   "dragDirectionLock",
   "dragControls",
   "dragListener",
@@ -1016,6 +1017,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
             onDefect,
           },
           internal.keysTaken === true,
+          () => tapPropagates(untrack(cfg).propagate),
         ),
       )
     }

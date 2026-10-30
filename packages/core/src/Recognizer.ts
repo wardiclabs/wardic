@@ -24,6 +24,7 @@ import * as DragActivity from "./DragActivity.ts"
 import * as InputFeed from "./InputFeed.ts"
 import * as InputSource from "./InputSource.ts"
 import type * as Point from "./Point.ts"
+import * as PressClaims from "./PressClaims.ts"
 import * as Probe from "./Probe.ts"
 import * as Velocity from "./Velocity.ts"
 
@@ -286,17 +287,17 @@ const isPressed = (s: PressState): boolean => Bool.or(Predicate.isNotNull(s.owne
 /**
  * Press's pointer step: the **Primary pointer** that pressed owns the press. It ends at that
  * pointer's release, its cancel, or its first move with no button pressed (a lost release, ADR-0019).
- * No press starts while a drag is active, nor while a key holds one (#427). A second down from the
- * owner (a lost release) keeps it pressed. Each of the owner's events notes whether a drag is active
- * (#257).
+ * No press starts while a drag is active, nor while a key holds one (#427), nor from a down a press
+ * inside claimed (a **Press claim**, #439). A second down from the owner (a lost release) keeps it
+ * pressed. Each of the owner's events notes whether a drag is active (#257).
  */
-const pointerStep = (activity: DragActivity.Shape) => (s: PressState, e: InputSource.PointerLikeEvent): PressState =>
+const pointerStep = (activity: DragActivity.Shape, claims: PressClaims.Shape, target: unknown) => (s: PressState, e: InputSource.PointerLikeEvent): PressState =>
   Match.value(e).pipe(
     Match.when(Predicate.not(InputSource.isPrimaryPointer), () => s),
     // An adopted down's pointer went down elsewhere (#431): it presses nothing here.
     Match.when({ adopted: true }, () => s),
     Match.when({ type: "down" }, (down) =>
-      Bool.match(Bool.or(isPressed(s), activity.isDragActive()), {
+      Bool.match(Bool.or(Bool.or(isPressed(s), activity.isDragActive()), claims.markOf(down, target) === "claimed"), {
         onTrue: () => s,
         onFalse: (): PressState => ({ owner: down.pointerId, key: null, dragged: false }),
       }),
@@ -322,27 +323,41 @@ const pressKeyOf = (e: InputSource.KeyboardLikeEvent): PressKey | null =>
   )
 
 /**
- * Whether a key's down starts a **Keyboard press** (#427): a pressing key, not a repeat, from the
- * target itself, that nothing took first, with no press held and no drag active.
+ * Whether a key reaches the target's press (#427, #439): one from the target itself that nothing took
+ * first, or one from inside that a press inside started from and didn't claim, as Motion's keyboard
+ * press reaches pressable ancestors. A press inside may have taken that key (Space's, `takeSpace`): it
+ * still reaches.
  */
-const startsKeyPress = (s: PressState, e: InputSource.KeyboardLikeEvent, activity: DragActivity.Shape): boolean =>
-  Bool.every([e.type === "down", Bool.not(e.repeat), e.fromTarget, Bool.not(e.handled), Bool.not(isPressed(s)), Bool.not(activity.isDragActive())])
+const reachesPress = (e: InputSource.KeyboardLikeEvent, claims: PressClaims.Shape, target: unknown): boolean => {
+  if (e.fromTarget) return Bool.not(e.handled)
+  return claims.markOf(e, target) === "pressed"
+}
+
+/**
+ * Whether a key's down starts a **Keyboard press** (#427): a pressing key, not a repeat, that reaches the
+ * target's press, with no press held and no drag active.
+ */
+const startsKeyPress = (s: PressState, e: InputSource.KeyboardLikeEvent, activity: DragActivity.Shape, claims: PressClaims.Shape, target: unknown): boolean =>
+  Bool.every([e.type === "down", Bool.not(e.repeat), Bool.not(isPressed(s)), Bool.not(activity.isDragActive()), reachesPress(e, claims, target)])
 
 /**
  * Press's key step (#427): a pressing key's down starts a **Keyboard press**, and the same key's up
  * ends it, noting a drag active then. Other keys, and other keys' ups, change nothing.
  */
-const keyStep = (activity: DragActivity.Shape) => (s: PressState, e: InputSource.KeyboardLikeEvent): PressState => {
+const keyStep = (activity: DragActivity.Shape, claims: PressClaims.Shape, target: unknown) => (s: PressState, e: InputSource.KeyboardLikeEvent): PressState => {
   const key = pressKeyOf(e)
   if (Predicate.isNull(key)) return s
-  if (startsKeyPress(s, e, activity)) return { owner: null, key, dragged: false }
+  if (startsKeyPress(s, e, activity, claims, target)) return { owner: null, key, dragged: false }
   return Bool.match(Bool.and(e.type === "up", key === s.key), {
     onTrue: (): PressState => ({ owner: null, key: null, dragged: Bool.or(s.dragged, activity.isDragActive()) }),
     onFalse: () => s,
   })
 }
 
-/** Press's focus step (#427): a blur cancels a **Keyboard press**; a pointer's press goes on. */
+/**
+ * Press's focus step (#427): a blur cancels a **Keyboard press**, the target's own or one inside it, where
+ * the key of a press that reached it from inside came from (#439); a pointer's press goes on.
+ */
 const focusStep = (s: PressState, e: InputSource.FocusLikeEvent): PressState =>
   Bool.match(Bool.and(e.type === "blur", Predicate.isNotNull(s.key)), {
     onTrue: (): PressState => ({ owner: null, key: null, dragged: s.dragged }),
@@ -378,9 +393,22 @@ export type PressEvent =
 /**
  * A press's options (#427): `keys: false` leaves out **Keyboard presses**, for a target whose Enter
  * and Space are someone else's (a Reorder item's, which lift it, ADR-0037).
+ *
+ * `propagate` (#439, Motion's `propagate.tap`): whether its presses reach its pressable ancestors, read at
+ * each press's start. `false` takes a **Press claim** on the down or the key it starts from, so no
+ * ancestor's press starts from it. Default `true`.
  */
 export interface PressOptions {
   readonly keys?: boolean | undefined
+  readonly propagate?: boolean | LazyArg<boolean> | undefined
+}
+
+/** Whether a press with `options` propagates now: its `propagate`, read now, else `true`. */
+const propagatesOf = (options: PressOptions | undefined): LazyArg<boolean> => {
+  const propagate = UndefinedOr.map(options, (o) => o.propagate)
+  if (Predicate.isUndefined(propagate)) return constTrue
+  if (Predicate.isBoolean(propagate)) return constant(propagate)
+  return propagate
 }
 
 /**
@@ -395,7 +423,8 @@ export const pressEvents = (target: unknown, options?: PressOptions): Stream.Str
  * Watch presses on `target` (#318, ADR-0055): `handlers.on` told each start and end, {@link pressEvents}',
  * inside the event's dispatch, while the Scope is open, as {@link watchHover}. A pointer's press, or a
  * **Keyboard press** (#427): one fold over the target's pointer, keys and focus, each feed watched
- * with its own step. `handlers.onEnd` is told once every feed has run out. Tier 2.
+ * with its own step. Each press marks the down or the key it starts from in the page's **Press claims**
+ * (#439), claimed when it doesn't propagate. `handlers.onEnd` is told once every feed has run out. Tier 2.
  */
 export const watchPress = (
   target: unknown,
@@ -406,7 +435,13 @@ export const watchPress = (
     yield* Effect.logDebug("wardic.press: watch")
     const input = yield* InputSource.InputSource
     const activity = yield* DragActivity.DragActivity
+    const claims = yield* PressClaims.PressClaims
     const keys = UndefinedOr.match(options, { onUndefined: constTrue, onDefined: (o) => o.keys !== false })
+    const propagates = propagatesOf(options)
+    // A press's start marks what it started from (#439): claimed when it doesn't propagate.
+    const marking = (event: PressClaims.Markable, told: PressEvent): void => {
+      if (told.phase === "start") claims.mark(event, target, Bool.not(propagates()))
+    }
     const state = MutableRef.make(noPress)
     const feeds = MutableRef.make(Bool.match(keys, { onTrue: () => 3, onFalse: () => 1 }))
     const watching: Pick<InputFeed.Handlers<never>, "onDefect" | "onEnd"> = {
@@ -430,9 +465,13 @@ export const watchPress = (
         handlers.on(told)
         return true
       }
-    yield* InputFeed.watchWith(input.pointer(target), step(pointerStep(activity), pointerPressOf, constVoid), watching)
+    yield* InputFeed.watchWith(input.pointer(target), step(pointerStep(activity, claims, target), pointerPressOf, marking), watching)
     if (Bool.not(keys)) return
-    yield* InputFeed.watchWith(input.keyboard(target), step(keyStep(activity), keyPressOf, takeSpace), watching)
+    const keyTaken = (event: InputSource.KeyboardLikeEvent, told: PressEvent): void => {
+      marking(event, told)
+      takeSpace(event, told)
+    }
+    yield* InputFeed.watchWith(input.keyboard(target), step(keyStep(activity, claims, target), keyPressOf, keyTaken), watching)
     yield* InputFeed.watchWith(input.focus(target), step(focusStep, blurPressOf, constVoid), watching)
   }).pipe(Effect.withSpanScoped("wardic.press", { attributes: {}, captureStackTrace: false }))
 
@@ -496,6 +535,19 @@ const booleanFold = <Ev>(activeOf: (event: Ev) => boolean): Fold<boolean, Ev> =>
 export const focus = (target: unknown, options: FocusOptions = {}): Stream.Stream<boolean, never, InputSource.InputSource> =>
   streamOf<boolean, InputSource.InputSource>((handlers) => watchFocus(target, options, handlers))
 
+/**
+ * Focus's fold: the target's own focus and blur, a focus counted when it shows or `visibleOnly` is off.
+ * A focus or blur inside the target (#439) changes nothing.
+ */
+const ownFocusFold = (visibleOnly: boolean): Fold<boolean, InputSource.FocusLikeEvent> => ({
+  initial: false,
+  step: (focused, e) => {
+    if (e.fromTarget === false) return focused
+    return Bool.and(e.type === "focus", Bool.or(Bool.not(visibleOnly), e.visible !== false))
+  },
+  active: identity,
+})
+
 /** {@link focus}'s options: `visible`, only a focus the Environment shows (#273). */
 export interface FocusOptions {
   readonly visible?: boolean
@@ -516,7 +568,7 @@ export const watchFocus = (
       "wardic.focus",
       { visibleOnly },
       input.focus(target),
-      statesOf(booleanFold((e: InputSource.FocusLikeEvent) => Bool.and(e.type === "focus", Bool.or(Bool.not(visibleOnly), e.visible !== false))), handlers.on, false),
+      statesOf(ownFocusFold(visibleOnly), handlers.on, false),
       handlers,
     ))
 }

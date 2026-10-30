@@ -5,6 +5,7 @@ import * as DragActivity from "@wardic/core/DragActivity"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import type * as InputSource from "@wardic/core/InputSource"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
+import * as PressClaims from "@wardic/core/PressClaims"
 import type * as Probe from "@wardic/core/Probe"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
@@ -65,6 +66,7 @@ export const testLayer = (
         Announcer.silent,
         AtomRegistry.layer,
         Layer.sync(DragActivity.DragActivity, DragActivity.make),
+        Layer.sync(PressClaims.PressClaims, PressClaims.make),
       ),
     ),
   )

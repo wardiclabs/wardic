@@ -9,7 +9,7 @@ import type { WardicAnimationControls } from "./animation-controls.ts"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
-import type { WardConfig, WardicAnimationDefinition, WardicDragTransition, WardicTransition, WardicVariant, WardicVariantLabels, WardicVariants, WardicViewport } from "./config.ts"
+import type { WardConfig, WardicAnimationDefinition, WardicDragTransition, WardicPropagate, WardicTransition, WardicVariant, WardicVariantLabels, WardicVariants, WardicViewport } from "./config.ts"
 import type { WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
 import type { WardicDragControls } from "./drag-controls.ts"
 import type { WardicDragInfo, WardicPointInfo, WardicPressEvent, WardicPressInfo } from "./gesture-info.ts"
@@ -46,6 +46,7 @@ const RARE_KEYS = [
   "dragControls",
   "dragListener",
   "onMeasureDragConstraints",
+  "propagate",
   "whileInView",
   "whileFocus",
   "viewport",
@@ -73,6 +74,7 @@ export const MOTION_PROPS = [
   "inherit",
   "whileHover",
   "whileTap",
+  "propagate",
   "whileFocus",
   "whileInView",
   "viewport",
@@ -214,6 +216,8 @@ export interface WardicMotionProps {
   readonly dragControls?: WardicDragControls
   /** Motion's `dragListener` (#431; see `WardConfig`): `false`, only its `dragControls` start its drag. */
   readonly dragListener?: boolean
+  /** Motion's `propagate` (#439; see `WardConfig`): `{ tap: false }` keeps its presses from its pressable ancestors. */
+  readonly propagate?: WardicPropagate
   /**
    * Enable layout FLIP (ADR-0005). Under a `<LayoutGroup>` sibling reflow is
    * animated too; standalone, only this element's own size/`layoutDependency`

@@ -359,6 +359,14 @@ export interface WardicDragTransition {
  * boundary a config field is always a plain value.
  */
 /**
+ * Which of an element's gestures reach its pressable ancestors (#439, Motion's `PropagateOptions`): only
+ * `tap` so far. `false` stops it; left out or `true`, it propagates.
+ */
+export interface WardicPropagate {
+  readonly tap?: boolean
+}
+
+/**
  * Motion's `definition` of an animation (#257): a variant name, or its target values. A list of names
  * (#297) on Solid 2's landing, where `animate` gave one; Solid 1's callbacks are told each name.
  */
@@ -421,6 +429,15 @@ export interface WardConfig {
   readonly whileHover?: WardicVariant | WardicVariantLabels
   /** Target merged in (highest priority) while pressed. */
   readonly whileTap?: WardicVariant | WardicVariantLabels
+  /**
+   * Whether the element's gestures reach its pressable ancestors (#439, Motion's `propagate`). With
+   * `{ tap: false }`, its press takes a **Press claim** on the pointer down or the key it starts from, and
+   * no ancestor's press starts from it: no `whileTap`, and no tap callbacks or tap events there. By
+   * default every press propagates, a key's too (ADR-0066). Read at each press's start. Only an element
+   * with a press claims (`whileTap`, or a tap callback or event), and a drag isn't stopped: drags hold
+   * their own **Drag claim**.
+   */
+  readonly propagate?: WardicPropagate
   /**
    * Target merged in while the element is in view (Motion's, #273, ADR-0047), under `whileFocus` and
    * the pointer gestures: what "in view" means is `viewport`'s.

@@ -61,6 +61,10 @@ export interface PointerLikeEvent {
    * A binding hands it to an app's gesture callback (Motion's `(event, info)`). A held pointer's
    * scroll-driven move and a lost release's ending move carry its last move's, or its down's
    * before it has moved (Motion's `lastMoveEvent`): never an enter's or a leave's.
+   *
+   * One platform event reaching several targets carries the same `raw` on each target's copy (#439):
+   * the page's **Press claims** find the event by it, never reading it. An Environment with no
+   * platform event hands every target the same event object instead, which they find it by.
    */
   readonly raw?: unknown
   /**
@@ -164,13 +168,23 @@ export interface KeyboardLikeEvent {
   readonly handle: () => void
   /** What the key's own target does with it (#427): a **Keyboard press** on Space takes the key only where its target does nothing. */
   readonly action: KeyAction
-  /** The platform's own event (#427), opaque to core, as a pointer event's `raw` is: a binding hands it to an app's callback. */
+  /**
+   * The platform's own event (#427), opaque to core, as a pointer event's `raw` is: a binding hands it
+   * to an app's callback. One key reaching several targets carries the same `raw` on each copy (#439),
+   * as a pointer event does, for the page's **Press claims**.
+   */
   readonly raw?: unknown
 }
 
 export interface FocusLikeEvent {
   readonly type: "focus" | "blur"
   readonly timeStamp: number
+  /**
+   * Whether it's the target's own focus or blur (#439). `false`: something inside it took or lost focus,
+   * which only cancels a **Keyboard press** that reached the target from inside; `Recognizer.focus` counts
+   * the target's own only. Absent: the target's own.
+   */
+  readonly fromTarget?: boolean
   /** The platform's own event (#427), opaque to core: a blur that cancels a **Keyboard press** hands it to an app's callback. */
   readonly raw?: unknown
   /**
@@ -190,14 +204,16 @@ export interface FocusLikeEvent {
  * pointer**'s: once a pointer goes down on `target`, its moves, release and cancel
  * keep reaching this feed wherever they land, until its release, its cancel or a
  * move with no button pressed (ADR-0019). Core's `heldPointer` implements that
- * for an Environment.
+ * for an Environment. A down reaches the targets it landed in innermost first (#439),
+ * so a press inside marks it in the page's **Press claims** before its ancestors read it.
  */
 export class InputSource extends Context.Service<InputSource, {
   readonly pointer: (target: unknown) => InputFeed.InputFeed<PointerLikeEvent>
   /**
    * The keys at `target` or inside it (ADR-0037): a **Shared source** per target, delivered inside
    * the platform's dispatch, after the app's own handlers, so a consumer reads whether one took
-   * the key and can still take it itself.
+   * the key and can still take it itself. A key reaches the targets it passed through innermost first
+   * (#439), so a press inside marks it in the page's **Press claims** before its ancestors read it.
    */
   readonly keyboard: (target: unknown) => InputFeed.InputFeed<KeyboardLikeEvent>
   // No wheel until a recognizer needs one, which then defines it and its units (ADR-0036,

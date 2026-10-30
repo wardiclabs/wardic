@@ -29,7 +29,7 @@
  */
 import type * as Drag from "@wardic/core/Drag"
 import * as Recognizer from "@wardic/core/Recognizer"
-import { watchPressOn } from "./press.ts"
+import { tapPropagates, watchPressOn } from "./press.ts"
 import * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
@@ -656,6 +656,7 @@ export function runSpine(opts: RunSpineOptions): void {
                   onDefect,
                 },
                 internal.keysTaken === true,
+                () => tapPropagates(untrack(cfg).propagate),
               ),
             false,
           ),
