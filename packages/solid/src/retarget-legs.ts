@@ -505,7 +505,7 @@ const pathLegOf = (at: (t: number) => Arc.PathPoint, end: Values.Values, transit
         start: () => {
           const progress = progressOf(transition)
           const turns = Object.hasOwn(end, "pathRotation")
-          return (dt) => {
+          return (dt): Frame.Frame<Values.Values> => {
             const frame = progress(dt)
             if (frame.done) return { value: end, done: true }
             const point = at(frame.value)

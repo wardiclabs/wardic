@@ -4,7 +4,7 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { motion } from "motion/react"
+import { arc, motion } from "motion/react"
 import Link from "next/link"
 
 const PIECES = PRODUCTS.slice(0, 6)
@@ -13,11 +13,14 @@ const HOME = "/transitions/catalogue"
 const pieceOf = (id: string): Product | undefined => PIECES.find((piece) => piece.id === id)
 const nextOf = (piece: Product): Product => PIECES[(PIECES.indexOf(piece) + 1) % PIECES.length] as Product
 
+// The photo's flight bows a little (#438): Motion's default layout tween, along an arc.
+const FLIGHT = { layout: { type: "tween", duration: 0.45, ease: [0.4, 0, 0.1, 1], path: arc({ strength: 0.25 }) } } as const
+
 function Photo({ piece, sizes }: { readonly piece: Product; readonly sizes: string }) {
   const photo = photoOf(piece.id)
   return (
     // The card's photo and the piece's hero: one `layoutId`, so it flies from one page to the other.
-    <motion.div className="photo" layoutId={`catalogue-${piece.id}`}>
+    <motion.div className="photo" layoutId={`catalogue-${piece.id}`} transition={FLIGHT}>
       <img src={photo.small} srcSet={srcsetOf(photo)} sizes={sizes} width={photo.width} height={photo.height} alt={piece.name} />
     </motion.div>
   )

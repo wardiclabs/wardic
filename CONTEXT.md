@@ -99,7 +99,7 @@ An animation that lands at its end on its next frame, with no delay, no stagger 
 _Avoid_: instant animation, disabled animation (it still runs, and is still told).
 
 **Path**:
-A curve `x` and `y` travel along together, from where they start to where they end, given as a transition's `path` (#438, Motion's): `arc()` makes one, bulging off the straight line between them, and any function from the two ends to a point at each progress is one. It can turn the element along the curve, on a turn of its own added onto its `rotate`. Timed by `x`'s transition, from rest.
+A curve `x` and `y` travel along together, or a layout animation's centre, from where they start to where they end, given as a transition's `path` (#438, Motion's): `arc()` makes one, bulging off the straight line between them, and any function from the two ends to a point at each progress is one. It can turn the element along the curve, on a turn of its own added onto its `rotate`. Timed by `x`'s transition, from rest.
 _Avoid_: motion path (that's CSS's `offset-path`), arc (one kind of Path).
 
 **Default transition**:

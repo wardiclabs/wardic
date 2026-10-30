@@ -208,6 +208,8 @@ export interface WardicSkipAnimations {
 /**
  * A transition's **Path** (#438, Motion's `path`): `x` and `y` travel along it together, rather than
  * each on its own, on `x`'s transition, from rest. `arc()` makes one; any {@link WardicPath} is one.
+ * A layout animation reads it where Motion's does, on its layout transition: the `layout` entry when
+ * there is one, else the element's transition. On any other value's entry it isn't read.
  */
 export interface WardicTransitionPath {
   readonly path?: WardicPath
@@ -248,9 +250,9 @@ export type WardicTransitionWith<E> =
  * alone, the transition's reduced-motion opt-out and `skipAnimations` the fields it takes from it.
  */
 export type WardicValueTransition =
-  | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicReducedMotion & WardicSkipAnimations & WardicInherit)
-  | ({ readonly type?: "tween" } & Machine.KeyframesOptions & WardicReducedMotion & WardicSkipAnimations & WardicInherit)
-  | (WardicInertia & WardicReducedMotion & WardicSkipAnimations & WardicInherit)
+  | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicReducedMotion & WardicSkipAnimations & WardicTransitionPath & WardicInherit)
+  | ({ readonly type?: "tween" } & Machine.KeyframesOptions & WardicReducedMotion & WardicSkipAnimations & WardicTransitionPath & WardicInherit)
+  | (WardicInertia & WardicReducedMotion & WardicSkipAnimations & WardicTransitionPath & WardicInherit)
 
 /** An entry's or a target's `inherit` (#277, #301, Motion's): laid over the transition it would replace. */
 export interface WardicInherit {

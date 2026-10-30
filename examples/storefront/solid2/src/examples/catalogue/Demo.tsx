@@ -9,7 +9,7 @@ import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
 import type { JSX } from "@solidjs/web"
-import { AnimatePresence, wardic } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, arc, wardic } from "@wardic/solid/unstable/v2"
 import { For, Show } from "solid-js"
 
 const PIECES = PRODUCTS.slice(0, 6)
@@ -46,11 +46,14 @@ export default function Catalogue(props: { readonly children?: JSX.Element }) {
   )
 }
 
+// The photo's flight bows a little (#438): Motion's default layout tween, along an arc.
+const FLIGHT = { layout: { type: "tween", duration: 0.45, ease: [0.4, 0, 0.1, 1], path: arc({ strength: 0.25 }) } } as const
+
 function Photo(props: { readonly piece: Product; readonly sizes: string }) {
   const photo = photoOf(props.piece.id)
   return (
     // The card's photo and the piece's hero: one `layoutId`, so it flies from one page to the other.
-    <wardic.div class="photo" layoutId={`catalogue-${props.piece.id}`}>
+    <wardic.div class="photo" layoutId={`catalogue-${props.piece.id}`} transition={FLIGHT}>
       <img src={photo.small} srcset={srcsetOf(photo)} sizes={props.sizes} width={photo.width} height={photo.height} alt={props.piece.name} />
     </wardic.div>
   )

@@ -2,7 +2,7 @@
 /** The header's switches (#296): reduce motion, the theme, the store's settings, and the cart. */
 import type { Cart, Settings } from "@wardic/example-storefront-shared/server"
 import { COG, ICON, turnOf } from "@wardic/example-storefront-shared/micro"
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, arc, motion } from "motion/react"
 import Link from "next/link"
 import { Suspense, startTransition, use, useState } from "react"
 import { type Arrival, arrivalId, landed, useArrivals } from "~/lib/arrivals.ts"
@@ -84,6 +84,9 @@ function CartCount({ cart }: { readonly cart: Promise<Cart> }) {
   )
 }
 
+// The flight into the cart bows along an arc (#438), one value for every flight, as its side is kept.
+const TOSS = arc()
+
 /**
  * A piece moved to the cart from Saved for later: its photo's twin, sharing its row photo's
  * `layoutId`, so Motion flies it here from the row it left. Landed, it shrinks into the icon.
@@ -95,7 +98,7 @@ function CartArrival({ piece }: { readonly piece: Arrival }) {
       layoutId={arrivalId(piece.id)}
       src={piece.src}
       alt=""
-      transition={{ layout: { type: "tween", duration: 0.6, ease: [0.45, 0, 0.55, 1] } }}
+      transition={{ layout: { type: "tween", duration: 0.6, ease: [0.45, 0, 0.55, 1], path: TOSS } }}
       exit={{ scale: 0.3, opacity: 0, transition: { type: "tween", duration: 0.25 } }}
       onLayoutAnimationComplete={() => landed(piece.id)}
     />
