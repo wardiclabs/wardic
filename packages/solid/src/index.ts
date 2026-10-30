@@ -123,6 +123,7 @@ export type {
   WardicSkipAnimations,
   WardicInertia,
   WardicStagger,
+  WardicPath,
   WardicTransformShorthands,
   WardicAnimationDefinition,
   WardicTransition,
@@ -264,3 +265,4 @@ export {
   steps,
 } from "@wardic/core/Easing"
 export { stagger, type WardicStaggerOptions } from "./stagger.ts"
+export { arc, type WardicArcOptions } from "./arc.ts"

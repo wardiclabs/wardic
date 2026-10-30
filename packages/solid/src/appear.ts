@@ -86,6 +86,31 @@ const textOf: (value: unknown) => string = Match.type<unknown>().pipe(
   Match.orElse((v) => String(JSON.stringify(v))),
 )
 
+/** Where a Path's key samples it (#438): nine points, its ends among them. */
+const PATH_SAMPLES = [0, 0.125, 0.25, 0.375, 0.5, 0.625, 0.75, 0.875, 1] as const
+
+/** An axis's number in `values`, its identity 0 when it has none (#438), as the leg reads it on a server. */
+const axisIn = (values: Values.Values, key: "x" | "y"): number => UndefinedOr.match(values[key], { onUndefined: () => 0, onDefined: (v) => Number(v) })
+
+/**
+ * A mount animation's transition as its key holds it: a Path (#438), a function, as its samples
+ * between the mount's ends, so two paths key apart and one path keys the same each time. Sampling it
+ * again is safe: an arc's memory of its side changes only with the way it travels.
+ */
+const keyedTransitionOf = (m: MountAnimation): unknown =>
+  UndefinedOr.match(m.transition, {
+    onUndefined: () => null,
+    onDefined: (t: WardicTransition) =>
+      UndefinedOr.match(t.path, {
+        onUndefined: () => t,
+        onDefined: (path) => {
+          const from = { x: axisIn(m.from, "x"), y: axisIn(m.from, "y") }
+          const at = path(from, { x: UndefinedOr.match(m.to.x, { onUndefined: () => from.x, onDefined: Number }), y: UndefinedOr.match(m.to.y, { onUndefined: () => from.y, onDefined: Number }) })
+          return { ...t, path: Arr.map(PATH_SAMPLES, (p) => at(p)) }
+        },
+      }),
+  })
+
 /** A value as canonical text; `None` when a function in it has no easing name. */
 const canonical = (value: unknown): Option.Option<string> => Option.filter(Option.some(textOf(value)), (text) => Bool.not(text.includes(UNNAMED)))
 
@@ -99,7 +124,7 @@ const baseKeys = new WeakMap<Values.Values, Option.Option<string>>()
  */
 export const keyOf = (m: MountAnimation): Option.Option<string> => {
   const base = Option.getOrElse(Option.fromUndefinedOr(baseKeys.get(m.from)), () => {
-    const computed = canonical({ from: m.from, to: m.to, transition: UndefinedOr.match(m.transition, { onUndefined: () => null, onDefined: (t: WardicTransition) => t }), stops: m.stops })
+    const computed = canonical({ from: m.from, to: m.to, transition: keyedTransitionOf(m), stops: m.stops })
     baseKeys.set(m.from, computed)
     return computed
   })

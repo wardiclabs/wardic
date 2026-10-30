@@ -57,12 +57,14 @@
 // - AR27 (#468): a skipped Variant child holds no stagger, and waits no time for its skipped parent's
 //   `when: "beforeChildren"`.
 // - AR28 (#436): a `delayChildren: stagger()` times each Variant child's rule by its index.
+// - AR29 (#438): an entrance on a `transition.path`: its rule follows the curve, `y` off 0 midway, and
+//   ends on its target; two paths name two rules.
 // - AR25 (#434): a Variant child that follows the user waits, in its reduced timing too, for a parent
 //   under a config's "never" to settle as that parent plays: its move, not a snap.
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
-import { createWard, stagger, wardic, WardicConfig, WardicProvider, type WardicTransition, type WardicVariants } from "@wardic/solid"
+import { arc, createWard, stagger, wardic, WardicConfig, WardicProvider, type WardicTransition, type WardicVariants } from "@wardic/solid"
 import { createResource, For, type JSX, Suspense } from "solid-js"
 import { renderToStream, renderToString } from "solid-js/web"
 import { describe, expect, it } from "vitest"
@@ -728,6 +730,26 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     const css = headCss(html)
     const delayIn = (k: string): number => delayOf(timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation)).normal)
     expect([delayIn("a"), delayIn("b"), delayIn("c")].map((d) => Math.round(d * 1000) / 1000), "from the last, staggerChildren unread").toEqual([0.2, 0.1, 0])
+  })
+
+  it("AR29: an entrance on a transition.path: its rule follows the curve and ends on its target; two paths, two rules (#438)", () => {
+    const tween = { type: "tween", duration: 0.6, ease: Easing.linear } as const
+    const html = page(() => (
+      <>
+        <wardic.div data-k="strong" initial={{ x: 0 }} animate={{ x: 200 }} transition={{ ...tween, path: arc({ strength: 1 }) }} />
+        <wardic.div data-k="gentle" initial={{ x: 0 }} animate={{ x: 200 }} transition={{ ...tween, path: arc({ strength: 0.25 }) }} />
+      </>
+    ))
+    const css = headCss(html)
+    const ruleOf = (k: string): string => {
+      const name = timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation)).normal.split(" ")[0] ?? ""
+      return new RegExp(`@keyframes ${name}\\{((?:[\\d.]+%\\{[^}]*\\})*)\\}`).exec(css)?.[1] ?? ""
+    }
+    const strong = ruleOf("strong")
+    const ys = Array.from(strong.matchAll(/translateY\(([\d.-]+)px\)/g), (m) => Math.abs(Number(m[1])))
+    expect(Math.max(...ys), "y off 0 by half the distance midway").toBeGreaterThan(90)
+    expect(strong.endsWith("100%{transform:translateX(200px)}"), strong.slice(-80)).toBe(true)
+    expect(ruleOf("gentle"), "another path, another rule").not.toBe(strong)
   })
 })
 

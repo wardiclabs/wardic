@@ -67,7 +67,7 @@ import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
 import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "./presence-record.ts"
 import type { DragTrack } from "./drag-track.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
-import { delayedBy, type Follows, keyframesFrom, type Leg, legsOf, mapMachine, type MeasuredPairs, startingAt, type StopsByKey, transitionForKey, type Velocities } from "./retarget-legs.ts"
+import { delayedBy, type Follows, keyframesFrom, type Leg, legsOf, mapMachine, type MeasuredPairs, startingAt, type StopsByKey, transitionForKey, type Velocities, withPathAxes } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import {
   changesContext,
@@ -714,6 +714,7 @@ const splitLegsOf = (
   follow: Follows | undefined,
   stops: StopsByKey | undefined,
   measured: MeasuredPairs | undefined,
+  current: Values.Values,
 ): SplitLegs => {
   let returnsAt = 0
   if (listed) returnsAt = resolution.layers.length
@@ -725,7 +726,7 @@ const splitLegsOf = (
     if (Rec.isEmptyRecord(picked)) return
     let followed: Follows | undefined
     if (i === returnsAt) followed = follow
-    const groupLegs = legsOf(from, picked, groupTransitionOf(resolution, groups, i, transition, element, extraDelay, reuse), reduce, skipped, positionalKeys, defaultTransition, velocities, followed, stops, measured)
+    const groupLegs = legsOf(from, picked, groupTransitionOf(resolution, groups, i, transition, element, extraDelay, reuse), reduce, skipped, positionalKeys, defaultTransition, velocities, followed, stops, measured, current)
     Arr.forEach(groupLegs, (built) => {
       legs.push(built)
       tags.push(i)
@@ -2323,6 +2324,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     if (Predicate.isNotUndefined(stays)) {
       const kept = stays
       fresh = Rec.filter(t, (_, key) => Bool.not(kept.has(key)))
+      // A Path couples `x` and `y` (#438): either retargeted, the other goes along it to its target.
+      fresh = withPathAxes(fresh, t, transition)
     }
     // A mount that starts at its `animate`, with nothing to animate, tells no one (#448, Motion's):
     // no start, no landing, and no list's names. It starts no leg, so it lands at once.
@@ -2407,10 +2410,11 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     let retargetLegs: ReadonlyArray<Leg> = NO_LEGS
     let legGroups: ReadonlyArray<number> | undefined
     if (Bool.and(Predicate.isUndefined(groups), hasKeys(fresh))) {
-      retargetLegs = legsOf(from, fresh, transition, reduce, skipped, positionalKeys, defaultTransition, readVelocity, follow, manyStops, measured)
+      // Where every key is now: a Path's axis the target leaves out starts and ends there (#438).
+      retargetLegs = legsOf(from, fresh, transition, reduce, skipped, positionalKeys, defaultTransition, readVelocity, follow, manyStops, measured, snapshot.values)
     }
     if (Predicate.isNotUndefined(groups)) {
-      const split = splitLegsOf(fresh, from, groups, resolution, listed, transition, elementTransition, extraDelay, options.reuse, reduce, skipped, positionalKeys, defaultTransition, readVelocity, follow, manyStops, measured)
+      const split = splitLegsOf(fresh, from, groups, resolution, listed, transition, elementTransition, extraDelay, options.reuse, reduce, skipped, positionalKeys, defaultTransition, readVelocity, follow, manyStops, measured, snapshot.values)
       retargetLegs = split.legs
       legGroups = split.tags
     }
@@ -2674,7 +2678,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     let measured: MeasuredPairs | undefined
     if (Bool.and(Bool.not(Bool.or(reduce, skipped)), Predicate.isNotUndefined(measuring))) measured = measuredOf(element, UndefinedOr.getOrThrow(measuring), from, to, snapshot.values)
     // Built once: a seek or a replay runs the same legs, from the same start, with the same velocities.
-    const built = legsOf(from, to, given, reduce, skipped, positionalKeys, defaultTransition, readVelocity, undefined, stops, measured)
+    const built = legsOf(from, to, given, reduce, skipped, positionalKeys, defaultTransition, readVelocity, undefined, stops, measured, snapshot.values)
     const legs = Arr.map(built, (leg) => mapMachine(leg, Playback.drive(head)))
     let runnings: ReadonlyArray<Running> = NO_RUNNING
     let left = 0

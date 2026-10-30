@@ -7,6 +7,7 @@
  * @module
  */
 import type { WardicAnimationControls } from "./animation-controls.ts"
+import type * as Arc from "@wardic/core/Arc"
 import type * as Machine from "@wardic/core/Machine"
 import type * as Stagger from "@wardic/core/Stagger"
 import type * as CSS from "csstype"
@@ -126,6 +127,13 @@ export type WardicTargetValues = {
 /** A stagger (#436, Motion's `DynamicOption<number>`): a child's delay in seconds, from its index and the count. */
 export type WardicStagger = (index: number, total: number) => number
 
+/**
+ * A **Path** (#438): from where `x` and `y` start to where they end, the point at each progress, 0 to 1,
+ * and a turn (`rotate`, degrees) for one that turns the element. `arc()` makes one; any function of
+ * this shape is one, a curve of an app's own.
+ */
+export type WardicPath = Arc.Path
+
 export interface WardicOrchestration {
   /** Seconds between successive sibling starts (core `stagger` amount). */
   readonly staggerChildren?: number
@@ -198,6 +206,14 @@ export interface WardicSkipAnimations {
 }
 
 /**
+ * A transition's **Path** (#438, Motion's `path`): `x` and `y` travel along it together, rather than
+ * each on its own, on `x`'s transition, from rest. `arc()` makes one; any {@link WardicPath} is one.
+ */
+export interface WardicTransitionPath {
+  readonly path?: WardicPath
+}
+
+/**
  * Transition config: a primitive selector plus the matching primitive's
  * options. Without a `type`, a spring field (`stiffness`, `damping`, `mass`, `velocity`,
  * `restDelta`, `restSpeed`, `bounce`, `visualDuration`) makes it a spring and anything else a tween,
@@ -221,9 +237,9 @@ export type WardicTransition = WardicTransitionWith<WardicTransitionEntries>
  * config checks each transition in it against the entries its keys allow (`WardChecked`).
  */
 export type WardicTransitionWith<E> =
-  | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicOrchestration & WardicReducedMotion & WardicSkipAnimations & E)
-  | ({ readonly type?: "tween" } & Machine.KeyframesOptions & WardicOrchestration & WardicReducedMotion & WardicSkipAnimations & E)
-  | (WardicInertia & WardicOrchestration & WardicReducedMotion & WardicSkipAnimations & E)
+  | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicOrchestration & WardicReducedMotion & WardicSkipAnimations & WardicTransitionPath & E)
+  | ({ readonly type?: "tween" } & Machine.KeyframesOptions & WardicOrchestration & WardicReducedMotion & WardicSkipAnimations & WardicTransitionPath & E)
+  | (WardicInertia & WardicOrchestration & WardicReducedMotion & WardicSkipAnimations & WardicTransitionPath & E)
 
 /**
  * One value's own transition (#301, Motion's `ValueTransition`): a spring or a tween, as a

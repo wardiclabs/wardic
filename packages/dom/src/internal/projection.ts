@@ -625,7 +625,7 @@ const scaleOf = (value: unknown): number | undefined => {
 }
 
 /** The keys that would take a box out of axis alignment. */
-const UNMAPPABLE_KEYS = ["rotate", "rotateX", "rotateY", "rotateZ", "skew", "skewX", "skewY"] as const
+const UNMAPPABLE_KEYS = ["rotate", "pathRotation", "rotateX", "rotateY", "rotateZ", "skew", "skewX", "skewY"] as const
 /** The keys a translate and a scale draw from (the renderer's order: translate, then scale). */
 const MAPPABLE_KEYS = ["x", "y", "translateX", "translateY", "scale", "scaleX", "scaleY"] as const
 

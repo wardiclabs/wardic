@@ -24,6 +24,7 @@
  * machine is built when it's called, inside the leg's own fiber, so a transition core rejects
  * fails that leg alone (#66).
  */
+import type * as Arc from "@wardic/core/Arc"
 import * as DefaultTransition from "@wardic/core/DefaultTransition"
 import * as Easing from "@wardic/core/Easing"
 import type * as Frame from "@wardic/core/Frame"
@@ -109,10 +110,13 @@ export const velocitiesOf = (record: Readonly<Record<string, number>>): Velociti
   return velocity
 }
 
-/** The orchestration's fields (ADR-0007): read by the variant tree, never by a machine. */
-const ORCHESTRATION = ["staggerChildren", "delayChildren", "from", "staggerDirection", "when"] as const
+/**
+ * The fields no machine reads: the orchestration's (ADR-0007), the variant tree's, and a Path
+ * (#438), which {@link legsOf} takes out to `x` and `y`'s leg. Neither defines a transition.
+ */
+const ORCHESTRATION = ["staggerChildren", "delayChildren", "from", "staggerDirection", "when", "path"] as const
 
-/** A transition as a machine takes it: without the orchestration's fields (#243), each arm. */
+/** A transition as a machine takes it: without the orchestration's fields (#243) or its Path (#438), each arm. */
 export type MotionTransition = WardicTransition extends infer T ? (T extends unknown ? Omit<T, (typeof ORCHESTRATION)[number]> : never) : never
 
 /** Each transition without its orchestration, by the transition: one object each, so core's decode cache hits (#66). */
@@ -457,6 +461,119 @@ const hasKeys: Predicate.Predicate<Values.Values> = Predicate.not(Rec.isEmptyRec
  * @param stops each key's Keyframes of more than two stops (#429, {@link keyframesFrom}), `from` at their first
  * @param measured each key's Measured pair (#430), measured at the end of the task
  */
+/** A Path's two axes (#438). */
+const AXES = ["x", "y"] as const
+
+/**
+ * A Retarget's keys with both of a Path's axes (#438): a Path couples `x` and `y`, so with either one
+ * retargeted, the other goes along it too, to its own target in `target`, though that hasn't changed
+ * (#325 would keep it out). Without a Path, or neither axis, the keys as they are.
+ */
+export const withPathAxes = (fresh: Values.Values, target: Values.Values, transition: WardicTransition | undefined): Values.Values => {
+  if (Predicate.isUndefined(UndefinedOr.map(transition, (t) => t.path))) return fresh
+  if (Bool.not(Arr.some(AXES, (key) => Object.hasOwn(fresh, key)))) return fresh
+  const missing = Arr.filter(AXES, (key) => Bool.and(Bool.not(Object.hasOwn(fresh, key)), Object.hasOwn(target, key)))
+  if (missing.length === 0) return fresh
+  return { ...fresh, ...Rec.fromEntries(Arr.map(missing, (key) => [key, UndefinedOr.getOrThrow(target[key])] as const)) }
+}
+
+/** `key`'s number: from `values`, else from `current`, else its identity, 0; `undefined` for a string. */
+const axisOf = (key: string, values: Values.Values, current: Values.Values | undefined): number | undefined => {
+  const given = values[key]
+  if (Predicate.isNumber(given)) return given
+  if (Predicate.isNotUndefined(given)) return undefined
+  const now = UndefinedOr.map(current, (all) => all[key])
+  if (Predicate.isNumber(now)) return now
+  if (Predicate.isNotUndefined(now)) return undefined
+  return 0
+}
+
+/**
+ * `x` and `y` along a Path (#438, Motion's `path`): one progress, 0 to 1, on the transition `x` runs
+ * on, from rest, as Motion's `{ velocity: 0, ...getValueTransition(transition, "x") }`; a spring's over
+ * 1000, as a layout animation's, so its rest thresholds read as at that distance (#344). Its frames
+ * write both axes, and the path's turn (`pathRotation`) when it has one; its last, the targets and no turn.
+ */
+const pathLegOf = (at: (t: number) => Arc.PathPoint, end: Values.Values, transition: Run): Blend => ({
+  _tag: "Blend",
+  to: end,
+  machine: () =>
+    Effect.succeed(
+      Machine.make({
+        settles: Bool.or(transition.type === "spring", Number.isFinite(UndefinedOr.match((transition as Machine.Modifiers).repeat, { onUndefined: () => 0, onDefined: identity }))),
+        span: { name: "wardic.path", attributes: { rotates: Object.hasOwn(end, "pathRotation") } },
+        start: () => {
+          const progress = progressOf(transition)
+          const turns = Object.hasOwn(end, "pathRotation")
+          return (dt) => {
+            const frame = progress(dt)
+            if (frame.done) return { value: end, done: true }
+            const point = at(frame.value)
+            if (turns) return { value: { x: point.x, y: point.y, pathRotation: UndefinedOr.match(point.rotate, { onUndefined: () => 0, onDefined: identity }) }, done: false }
+            return { value: { x: point.x, y: point.y }, done: false }
+          }
+        },
+      }),
+    ),
+})
+
+/** A Path's progress, 0 to 1, on `transition`: a spring's from rest over 1000 (#438), a tween's as a Measured pair's. */
+const progressOf = (transition: Run): ((dt: number) => Frame.Frame<number>) => {
+  if (transition.type === "spring") {
+    const spring = Machine.springValues({ progress: 1000 }, { ...(transition as Machine.SpringOptions), velocity: 0 }, { progress: 0 }, {}).start()
+    return (dt) => {
+      const frame = spring(dt)
+      return { value: UndefinedOr.getOrThrow(frame.value.progress) / 1000, done: frame.done }
+    }
+  }
+  return Machine.keyframes([0, 1], transition as Machine.KeyframesOptions).start()
+}
+
+/**
+ * A Retarget's Path (#438): when its transition has one and its target has `x` or `y`, their leg along
+ * it, from where they are (an axis it leaves out from where it is now, `current`, and back there), on
+ * the transition `x` runs on; and the target without them. `undefined` when there's none to take: no
+ * Path or no axis, reduced motion snapping them, a Skipped animation, an inertia, an axis that isn't a
+ * number. Keyframes' ends are their first and last stops.
+ */
+const pathOf = (
+  from: Values.Values,
+  to: Values.Values,
+  given: WardicTransition | undefined,
+  reducedMotion: boolean,
+  skipped: boolean,
+  defaults: DefaultTransition.DefaultTransition["Service"],
+  stops: StopsByKey | undefined,
+  current: Values.Values | undefined,
+): { readonly leg: Blend; readonly rest: Values.Values } | undefined => {
+  const path = UndefinedOr.map(given, (t) => t.path)
+  if (Predicate.isUndefined(path)) return undefined
+  if (Bool.not(Arr.some(AXES, (key) => Object.hasOwn(to, key)))) return undefined
+  if (Bool.or(skipped, UndefinedOr.map(given, (t) => t.skipAnimations) === true)) return undefined
+  // `x`'s transition, as a key's: its own entry (#301), else the transition's, else its Default (ADR-0051).
+  const runsOn = UndefinedOr.match(entriesOf(given), { onUndefined: () => given, onDefined: (entries) => forKey(entries, "x") })
+  const run = UndefinedOr.match(runOf(runsOn), { onUndefined: () => carried(defaultFor(defaults, "x", to, stops), runsOn), onDefined: identity })
+  if (run.type === "inertia") return undefined
+  // Reduced motion snaps the positional keys, the axes among them (ADR-0029), unless it opts out.
+  if (Bool.and(reducedMotion, run.respectReducedMotion !== false)) return undefined
+  const startX = axisOf("x", from, current)
+  if (Predicate.isUndefined(startX)) return undefined
+  const startY = axisOf("y", from, current)
+  if (Predicate.isUndefined(startY)) return undefined
+  // An axis the target leaves out ends where it starts.
+  const endX = axisOf("x", to, { x: startX })
+  if (Predicate.isUndefined(endX)) return undefined
+  const endY = axisOf("y", to, { y: startY })
+  if (Predicate.isUndefined(endY)) return undefined
+  const at = path({ x: startX, y: startY }, { x: endX, y: endY })
+  // A path that turns the element says so at its start, as Motion's `interpolate(0).rotate`.
+  const end: Values.Values = Bool.match(Predicate.isUndefined(at(0).rotate), {
+    onTrue: () => ({ x: endX, y: endY }),
+    onFalse: () => ({ x: endX, y: endY, pathRotation: 0 }),
+  })
+  return { leg: pathLegOf(at, end, run), rest: Rec.filter(to, (_, key) => Bool.not(Arr.contains(AXES, key as "x"))) }
+}
+
 export const legsOf = (
   from: Values.Values,
   to: Values.Values,
@@ -469,7 +586,13 @@ export const legsOf = (
   follow?: Follows | undefined,
   stops?: StopsByKey | undefined,
   measured?: MeasuredPairs | undefined,
+  current?: Values.Values | undefined,
 ): ReadonlyArray<Leg> => {
+  // A Path (#438): `x` and `y` along it, on a leg of their own, and every other key as before.
+  const pathed = pathOf(from, to, given, reducedMotion, skipped, defaults, stops, current)
+  if (Predicate.isNotUndefined(pathed)) {
+    return Arr.prepend(legsOf(from, pathed.rest, given, reducedMotion, skipped, positionalKeys, defaults, velocities, follow, stops, measured), pathed.leg)
+  }
   // Each key on its own transition (#301): with entries, the keys go by the transition each runs on.
   const entries = entriesOf(given)
   if (Predicate.isUndefined(entries)) return legsOn(from, to, given, reducedMotion, skipped, positionalKeys, defaults, velocities, follow, stops, measured)
