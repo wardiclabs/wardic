@@ -4,7 +4,7 @@ import { ExampleCard } from "~/components/ExampleCard.tsx"
 import { summaryOf, titleOf } from "~/components/ExamplePage.tsx"
 
 export default function Home() {
-  const areas = AREAS.map((area) => ({ area, examples: examplesIn(area.id) }))
+  const areas = AREAS.map((area) => ({ area, examples: examplesIn(area.id, "next") }))
   return (
     <main className="page">
       <section className="hero">

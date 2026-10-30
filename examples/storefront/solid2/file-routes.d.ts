@@ -207,6 +207,24 @@ declare module "virtual:file-routes" {
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/transitions/catalogue/index")>;
       $$route?: undefined;
+    },
+    {
+      path: "/transitions/waiting";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/transitions/waiting")>;
+      $$route?: undefined;
+    },
+    {
+      path: "/transitions/waiting/:id";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/transitions/waiting/[id]")>;
+      $$route?: undefined;
+    },
+    {
+      path: "/transitions/waiting/";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/transitions/waiting/index")>;
+      $$route?: undefined;
     }
   ];
   export default routes;
@@ -364,6 +382,31 @@ declare module "virtual:file-routes" {
       $component: FileRouteLazyRef<typeof import("./src/routes/presence/quick-view")>;
       $$route?: undefined;
       children?: undefined;
+    },
+    {
+      path: "/transitions/waiting";
+      id: "/transitions/waiting";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/transitions/waiting")>;
+      $$route?: undefined;
+      children: readonly [
+        {
+          path: "/";
+          id: "/";
+          page: true;
+          $component: FileRouteLazyRef<typeof import("./src/routes/transitions/waiting/index")>;
+          $$route?: undefined;
+          children?: undefined;
+        },
+        {
+          path: "/:id";
+          id: "/:id";
+          page: true;
+          $component: FileRouteLazyRef<typeof import("./src/routes/transitions/waiting/[id]")>;
+          $$route?: undefined;
+          children?: undefined;
+        }
+      ];
     },
     {
       path: "/layout/order-history";
