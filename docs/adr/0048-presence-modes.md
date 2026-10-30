@@ -710,7 +710,7 @@ Motion's `PopChild` pins as Wardic does: offsets from `offsetParent`, measured b
 - **`popLayout` for a shared element between pages** (Q2 A): the leaving page out of the flow where it was drawn, the new one in its place at once, a `layoutId` element flying from the leaving page's twin (a leaver hands back its twins, #181, #402). Under `wait` the new page mounts once the old one has gone, its twins with it, so nothing flies.
 - **A route loading its data** (Solid 1's `Suspense`, Solid 2's `Loading`): Solid Router navigates inside a transition, so the old page stays on screen, not leaving, until the data resolves.
   - **A page with a `Loading` of its own** around its data, a skeleton (measured on Solid 2, 2026-10-30): that boundary is new, so it shows its fallback rather than hold the navigation. The page is in at once, the old one leaving, and a `layoutId` element outside the boundary mounts with the page and flies. One inside it mounts with the data, after its twin has gone, so it appears where it is, as a twin that mounts after its partner has gone does anywhere. The storefront's *Waiting for a piece's details* shows both (Solid 2 only).
-- **The router's scroll to the top** (Q3 A, measured): from a page scrolled down, a shared element flies in from where its twin was in the page, off-screen, and the leaving page jumps to its top (#480).
+- **The router's scroll to the top** (Q3 A, measured): from a page scrolled down, a shared element flies in from where its twin was in the page, off-screen, and the leaving page jumps to its top (#480). *Amended by* *Amendment (#480)*: each from where it was seen.
 
 **Pinned by** (through the real routers' memory histories, which scroll as the browser's do; `@solidjs/router` 1.0.0 and 2.0.0-next.42, devDependencies of `packages/solid`): Solid 1's `route-transitions.browser.test.tsx` RT1–RT6 (the node swap and the pop; a `layoutId` card into a hero and back; `wait` with nothing flying; a navigation back mid-transition; a keyed params change; a route loading its data) and Solid 2's `v2/route-transitions.browser.test.tsx` RTV1–RTV5 (RTV5: a skeleton in the page, the hero outside it, flying while the data loads). The scroll's frames are in #480 (`.tmp/479/probe-route-scroll*.browser.test.tsx`).
 
@@ -754,3 +754,25 @@ A leaver went back before the node that followed it before the change. Solid ins
 - a leaver going after the child after it (PO1, PO2, PL17, RTV7);
 - earlier leavers left out of the order, or the order never kept (PO5, P10);
 - leavers at one place reversed (PO4, P10).
+
+## Amendment (#480, 2026-10-30): a popped leaver stays where it was seen through the page's scroll at its change
+
+A page transition from a list scrolled down under `popLayout` (#479): the router scrolled to the top a task after the navigation, and the popped list, pinned at its place in the page, jumped to its own top as it faded, showing what the user wasn't looking at. Motion's (framer-motion 13.4.0, React 19) does the same. Grilled 2026-10-30 (#480, Q2: A), beside ADR-0010 *Amendment (#480)*'s flight.
+
+**Decision 2:** **a leaver `popLayout` popped stays where it was seen, through the page's scroll at its change.** At the first frame after the change, its pin takes the page's scroll since the pop, once, and the leaving nodes inside it move with it. Scrolling after moves it with the page, as before. In `sync` and `wait` the leaving page is in the flow and still jumps with the scroll, as Motion's does, but its twins fly from where they were seen (ADR-0010).
+- Rejected: B, every leaver, the in-flow ones by a relative offset, which changes their stacking for the exit; C, the flight only.
+
+**Built:**
+- **`@wardic/dom`'s `keepSeen(el, move)`** is new on the ProjectionSystem. It records the page's scroll at the pop, and starts the coordinator for one frame even with nothing active. Its step (`settleSeen`) calls `move` with the scroll since, and moves the leaving nodes inside the element by as much (`shiftLeavingWithin`): their kept boxes, and the held leavers' last passes. A Follower inside, drawn as its Lead's target minus its own box, stays on its Lead.
+- **`@wardic/solid`'s presence** asks for it as it pops a leaver (`popOut`). `movePin` moves the pin's `top` and its inline start, a right-to-left one's from the right.
+
+**Pinned by:**
+- SS2 / SSV2: the popped list where it was seen, its card riding the hero, then gone.
+- SS6: a popped page with no twin in it.
+- RT9 / RTV8: through the real routers.
+
+**Mutation-checked** with ADR-0010's (`.tmp/480/mutate.py`):
+- presence asking nothing kept;
+- the leaving nodes staying behind (SS2's card);
+- the pin moving the wrong way;
+- a keep alone starting no frame (SS6).

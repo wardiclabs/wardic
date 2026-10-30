@@ -664,3 +664,37 @@ A `layoutId` swap inside an `<AnimatePresence>`, the new twin arriving in the sa
 - a twin child, or a twin inside a child, never awaiting (SU1–SU3, RT7);
 - the wait not kept as `exiting`, or the teardown interrupting `pending` children only (SU7);
 - a keyed leaver waiting left unrecorded, or the take-over interrupting `pending` leavers only (SU9).
+
+## Amendment (#480, 2026-10-30): a handover starts where its twin was seen, through the page's scroll at a change
+
+A page transition from a list scrolled down, the router scrolling to the top (#479): the hero flew in from where the card was in the page, 1,500 px down and below the fold, not from where it was seen (496 px). Grilled 2026-10-30 (#480, Q1–Q2).
+
+**Why:** a twin's last box (a Switch seed, a Follower's last pass) is kept in the Root frame, as painted plus the page's scroll then (*Amendment (#13)*, ADR-0012). Scroll containers' scroll is taken as painted, but the page's own scroll is not. The Measure pass runs at the end of the task, before the router scrolls a task later, so the flight started at the old scroll, and the scroll then landed under it before its first frame.
+
+**Motion** (`.tmp/480/motion`: framer-motion 13.4.0, React 19, the scroll to the top in a layout effect as React Router's `ScrollRestoration` does): the hero's first frame is at 1,465 px below a 700 px viewport, and it flies up from there. So this goes beyond Motion.
+
+**Decision 1** (Q1: A): **a flight from a twin gone or leaving starts where that twin was seen**, as *Amendment (#170)* has for a twin disposed mid-flight. A scroll of the page between the twin's last paint and the flight's first frame comes out of its origin, once. Scrolling after that moves the flight with the page, as before. A crossfade from a live twin, still on the page, moves with the page and is unchanged.
+- Rejected: B, Motion's behaviour, documented; C, parked until after 1.0.
+
+**Built** (`@wardic/dom`'s `internal/projection.ts`):
+- A disposed twin's Switch seed records the page's scroll as it goes (`HeldSeed.scroll`, `NodeState.seedScroll`), handed to its twin with the seed.
+- At a first measure, a flight from a seed, or a crossfade from a prior Lead that is leaving (#482, #402), is marked seen (`seenFrom`): at the seed's scroll, or at this pass's for a leaving twin, which has been on the page until now.
+- The coordinator's step settles those first (`settleSeen`), before any flight steps: each marked flight's origin is moved by the page's scroll since it was seen (its fold's root share), then unmarked.
+- Scrolling with `scroll-behavior: smooth` runs over many frames, and only the part done by the first frame comes out.
+
+**Pinned by** (real paint; the page scrolled down, then to the top a task after the change, as Solid Router does):
+- `packages/solid/test/scroll-seen.browser.test.tsx` (Solid 1):
+  - SS1: a swap with no presence (a Switch) starts where the old twin was seen.
+  - SS2: under `popLayout`, from where the leaving twin was seen, its card riding the hero.
+  - SS3: a scroll after the first frame moves the flight with the page.
+  - SS4: a live twin moves with the scroll, and the flight starts where its box is now.
+  - SS5: `sync`, from where the twin was seen.
+- `v2/scroll-seen.browser.test.tsx` (Solid 2): SSV1, SSV2.
+- RT9 / RTV8, through the real routers' own scroll to the top.
+
+**Mutation-checked** (`.tmp/480/mutate.py`, with ADR-0048 *Amendment (#480)*'s): 9 single-point mutations, all caught:
+- the first frame settling nothing;
+- a Switch, or a crossfade from a leaver, not marked seen;
+- a crossfade from a live twin marked seen too;
+- a seed's scroll taken as the page's top;
+- and the popped leaver's own, in ADR-0048.
