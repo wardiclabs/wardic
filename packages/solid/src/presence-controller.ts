@@ -308,6 +308,19 @@ const pin = (el: HTMLElement, box: PopBox): void => {
   style.setProperty("pointer-events", "none", "important")
 }
 
+/**
+ * A popped leaver moved by `by` in the page from where `box` pinned it (ADR-0048 *Amendment (#480)*):
+ * its top by the vertical, its inline start by the horizontal, a right-to-left one's from the right.
+ */
+const movePin = (el: HTMLElement, box: PopBox, by: { readonly x: number; readonly y: number }): void => {
+  const style = el.style
+  style.setProperty("top", `${box.top + by.y}px`, "important")
+  style.setProperty(box.side, `${box.start + START_BY[box.side] * by.x}px`, "important")
+}
+
+/** Which way a move along the page's x moves a pin's inline start: with a left one, against a right one. */
+const START_BY = { left: 1, right: -1 } as const
+
 /** The element its first child sits in, if it's one (#277's PR 5c). */
 const parentElementOf = (placed: ReadonlyArray<Placed>): Element | undefined =>
   UndefinedOr.map(UndefinedOr.map(placed[0], (first) => first.parent), (parent) => {
@@ -986,6 +999,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     const box = pops.get(el)
     if (Predicate.isUndefined(box)) return
     pin(el, box)
+    // Where it was seen, through the page's scroll at this change: a router's to the top (#480).
+    projection.keepSeen(el, (by) => movePin(el, box, by))
     popped = true
   }
 

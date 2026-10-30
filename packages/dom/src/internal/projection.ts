@@ -1033,6 +1033,13 @@ export interface ProjectionSystem extends Inspectable.Inspectable {
    */
   readonly awaitsTwin: (el: HTMLElement) => boolean
   /**
+   * A leaver its presence popped out of the flow (ADR-0048 *Amendment (#480)*): at the first frame
+   * after, if the page scrolled since (a router's scroll to the top at a navigation), `move` takes it
+   * by that scroll, so it stays where it was seen, and the leaving nodes inside it go with it. Once:
+   * scrolling after moves it with the page.
+   */
+  readonly keepSeen: (el: HTMLElement, move: (by: Point.Point) => void) => void
+  /**
    * Register an element's values (ADR-0012, *Amendment (#137)*): a binding hands every element's,
    * read from what it last wrote, so a `layoutId` twin's flight follows the translate and scale
    * Wardic animates on its ancestors each frame, an element that isn't a projection node included.
@@ -1151,6 +1158,13 @@ interface NodeState {
    * into this node's Scroll-stable frame. `undefined` otherwise.
    */
   seed: Box.Box | undefined
+  /** The page's scroll as {@link seed}'s twin was last seen (ADR-0010 *Amendment (#480)*). */
+  seedScroll: Point.Point | undefined
+  /**
+   * The page's scroll at which its flight's origin was seen, from a twin gone or leaving, until the
+   * flight's first frame takes the page's scroll since out of the origin (ADR-0010 *Amendment (#480)*).
+   */
+  seenScroll: Point.Point | undefined
   /** Where a presence take-over starts it (#286, {@link RegisterNodeOptions.enteredFrom}): consumed by its first measure. */
   enteredFrom: Box.Box | undefined
   /** Where the handover its first measure begins starts its fade (#286, {@link RegisterNodeOptions.fadeFrom}): consumed with it. */
@@ -1366,6 +1380,8 @@ interface HeldSeed {
   readonly box: Box.Box
   /** What the twin taking the seed blends from (ADR-0010 *Amendment (#166)*). */
   readonly blend: Blend
+  /** The page's scroll as the twin was last seen, at its capture (ADR-0010 *Amendment (#480)*). */
+  readonly scroll: Point.Point
   consumed: boolean
 }
 
@@ -1607,6 +1623,11 @@ export const makeProjectionSystem = (
   // twin that registers while one is on the page takes over from a twin held inside it, as from one
   // live in its stack.
   const stillLeaving = new Map<HTMLElement, LateTaken>()
+  // Leavers a presence popped, to keep where they were seen through the page's scroll at their change,
+  // with the scroll as they were seen and what moves them (#480): at the first frame after, once.
+  const seenKeeps = new Map<HTMLElement, { readonly scroll: Point.Point; readonly move: (by: Point.Point) => void }>()
+  // Flights from a twin gone or leaving, their origin taken through the page's scroll since at their first frame (#480).
+  const unseen = new Set<NodeState>()
   let leaversHeld = false
   // The end-of-task hold fibers. A `FiberSet` (a native `Set`, reference identity)
   // inside a Scope the system owns: disposing the system closes it, interrupting any
@@ -3165,7 +3186,8 @@ export const makeProjectionSystem = (
     // Its look as drawn as it goes (ADR-0010 *Amendment (#166)*): what a twin taking over blends from.
     const look = drawnLookOf(node, leavingOpacityOf(node))
     node.leftLook = look
-    const seed = UndefinedOr.map(seedBox, (box) => seedOf(node, layoutId, box, look))
+    // Seen as it goes, at the page's scroll now (#480): a scroll after, a router's at a navigation, comes out.
+    const seed = UndefinedOr.map(seedBox, (box) => seedOf(node, layoutId, box, look, measureDocumentScroll()))
     if (Predicate.isUndefined(last) && Predicate.isUndefined(seedBox)) return
     hold({ element: node.element, last, layoutAnchor: node.layoutAnchor, twin: { layoutId, chain: node.paintChain, shift, seed }, reintroduced: false, pastTask: false })
   }
@@ -3175,15 +3197,16 @@ export const makeProjectionSystem = (
    * registered first and is still unmeasured, else held per `layoutId`, replacing one a leaver with
    * the same `layoutId` held earlier in the task.
    */
-  const seedOf = (node: NodeState, layoutId: string, box: Box.Box, look: Blend): HeldSeed | "handed-off" =>
+  const seedOf = (node: NodeState, layoutId: string, box: Box.Box, look: Blend, scroll: Point.Point): HeldSeed | "handed-off" =>
     UndefinedOr.match(pendingTwinOf(node, layoutId), {
       onDefined: (twin): HeldSeed | "handed-off" => {
         twin.seed = box
         twin.seedBlend = look
+        twin.seedScroll = scroll
         return "handed-off"
       },
       onUndefined: () => {
-        const held: HeldSeed = { box, blend: look, consumed: false }
+        const held: HeldSeed = { box, blend: look, consumed: false, scroll }
         seeds.set(layoutId, held)
         return held
       },
@@ -3505,6 +3528,8 @@ export const makeProjectionSystem = (
       node.seed = undefined
       const seedBlend = node.seedBlend
       node.seedBlend = undefined
+      const seedScroll = node.seedScroll
+      node.seedScroll = undefined
       // So do a presence take-over's (#286): where it starts, and where its fade does.
       const enteredFrom = node.enteredFrom
       node.enteredFrom = undefined
@@ -3609,6 +3634,11 @@ export const makeProjectionSystem = (
           UndefinedOr.map(fadeFrom, (from) => {
             node.crossfadeFrom = from
           })
+          // From a twin leaving (#482, #402), seen at the page's scroll now: a scroll before the
+          // flight's first frame, a router's at a navigation, comes out (#480). A live one moves with the page.
+          UndefinedOr.map(priorLeadOf(node), (prior) => {
+            if (prior.leaving) seenFrom(node, documentScroll)
+          })
           node.animating = true
           active.add(node)
           start(node)
@@ -3653,6 +3683,8 @@ export const makeProjectionSystem = (
             node.flight = startFlight(node) // progress restarts at 0
             // A handover: a leaver re-introduced as a Follower (`handleLeave`) fades out with it.
             beginHandover(node)
+            // From where its twin was seen as it went (#480).
+            UndefinedOr.map(seedScroll, (scroll) => seenFrom(node, scroll))
             node.animating = true
             active.add(node)
             start(node)
@@ -4084,6 +4116,8 @@ export const makeProjectionSystem = (
   const step = (dtRaw: number): void => {
     const dt = Math.min(dtRaw, Machine.MAX_DT)
     const settled: Array<NodeState> = []
+    // 0) The first frame after a change: things there kept where they were seen (#480).
+    if (seenKeeps.size + unseen.size > 0) settleSeen()
     // 1) Step every active node's springs (no derive yet — the tree-aware derive needs
     //    ALL springs advanced before computing parent-first): its layout animation's
     //    progress, and its Release offset's two axes. It settles when both are at rest.
@@ -4338,6 +4372,61 @@ export const makeProjectionSystem = (
     )
   }
 
+  /** A flight from where its origin was seen at the page's scroll `scroll`, until its first frame (#480). */
+  const seenFrom = (node: NodeState, scroll: Point.Point): void => {
+    node.seenScroll = scroll
+    unseen.add(node)
+  }
+
+  /**
+   * Where things were seen, kept through the page's scroll at a change (ADR-0010 and ADR-0048,
+   * *Amendment (#480)*), at the first frame after it: each leaver a presence popped and asked for
+   * ({@link ProjectionSystem.keepSeen}) goes by the scroll since, its leaving nodes with it, and each
+   * flight from a twin gone or leaving starts where that twin was seen. Once: scrolling after moves
+   * them with the page, as ever.
+   */
+  const settleSeen = (): void => {
+    const now = measureDocumentScroll()
+    for (const [el, keep] of seenKeeps) {
+      const by = { x: now.x - keep.scroll.x, y: now.y - keep.scroll.y }
+      if (by.x === 0 && by.y === 0) continue
+      if (Bool.not(el.isConnected)) continue
+      keep.move(by)
+      shiftLeavingWithin(el, by)
+    }
+    seenKeeps.clear()
+    for (const node of unseen) {
+      const seen = node.seenScroll
+      node.seenScroll = undefined
+      const origin = node.origin
+      if (Predicate.isUndefined(seen)) continue
+      if (Predicate.isUndefined(origin)) continue
+      const by = rootShareOf(node.fold, { x: now.x - seen.x, y: now.y - seen.y })
+      if (by.x === 0 && by.y === 0) continue
+      node.origin = offsetBox(origin, by)
+    }
+    unseen.clear()
+  }
+
+  /** The leaving nodes inside `el`, and the leavers held there, moved with it by `by` in the page (#480). */
+  const shiftLeavingWithin = (el: HTMLElement, by: Point.Point): void => {
+    for (const node of nodes) {
+      if (Bool.not(node.leaving)) continue
+      if (Bool.not(el.contains(node.element))) continue
+      node.retained = UndefinedOr.map(node.retained, (box) => offsetBox(box, by))
+      node.layoutBox = UndefinedOr.map(node.layoutBox, (box) => offsetBox(box, by))
+    }
+    for (const [inner, leaver] of Array.from(leavers)) {
+      if (Bool.not(el.contains(inner))) continue
+      leavers.set(inner, { ...leaver, last: UndefinedOr.map(leaver.last, (last) => ({ ...last, box: offsetBox(last.box, by) })) })
+    }
+  }
+
+  const keepSeen: ProjectionSystem["keepSeen"] = (el, move) => {
+    seenKeeps.set(el, { scroll: measureDocumentScroll(), move })
+    ensureRunning()
+  }
+
   /**
    * The coordinator as a machine on the Frame loop (ADR-0027, #75): each tick is one
    * `step`, whose writes are plain calls inside it, and the run settles at the first tick
@@ -4358,7 +4447,7 @@ export const makeProjectionSystem = (
         } finally {
           inStep = false
         }
-        if (active.size === 0) return COORDINATOR_SETTLED
+        if (active.size + seenKeeps.size === 0) return COORDINATOR_SETTLED
         return COORDINATOR_RUNNING
       },
     })
@@ -4403,7 +4492,8 @@ export const makeProjectionSystem = (
    * twin's own scale, rotation and opacity) is what that tick paints, whichever was added first.
    */
   const ensureRunning = (): void => {
-    if (coordinating() || active.size === 0) return
+    // A popped leaver to keep where it was seen (#480) takes one frame, with nothing active too.
+    if (coordinating() || active.size + seenKeeps.size === 0) return
     FiberHandle.setUnsafe(
       coordinator,
       runtime.runFork(
@@ -4517,6 +4607,8 @@ export const makeProjectionSystem = (
     ownOpacity: NO_OWN_OPACITY,
     blend: undefined,
     seedBlend: undefined,
+    seedScroll: undefined,
+    seenScroll: undefined,
     leftLook: undefined,
     drawnOpacity: undefined,
     radiusBlended: false,
@@ -5024,6 +5116,8 @@ export const makeProjectionSystem = (
       ownOpacity: UndefinedOr.match(opts.ownOpacity, { onUndefined: () => NO_OWN_OPACITY, onDefined: identity }),
       blend: undefined,
       seedBlend: undefined,
+      seedScroll: undefined,
+      seenScroll: undefined,
       leftLook: undefined,
       drawnOpacity: undefined,
       radiusBlended: false,
@@ -5098,6 +5192,7 @@ export const makeProjectionSystem = (
       if (Predicate.isNotUndefined(held)) {
         node.seed = held.box
         node.seedBlend = held.blend
+        node.seedScroll = held.scroll
         held.consumed = true
         seeds.delete(node.layoutId)
       }
@@ -5353,6 +5448,7 @@ export const makeProjectionSystem = (
     handBackWithin,
     keepLeaving,
     awaitsTwin: doAwaitsTwin,
+    keepSeen,
     dispose,
     registerValues,
     rootBoxOf,

@@ -20,6 +20,8 @@
 //   while it shows, and goes with its page once the handover ends.
 // - RT8 (#486): a point over the new page mid-transition hits it: the popped list, before it and
 //   taking no input, lets the click through.
+// - RT9 (#480): from a list scrolled down, the router's scroll to the top: the hero flies from where
+//   the card was seen, and the popped list stays where it was seen, then goes.
 import { createMemoryHistory, MemoryRouter, Route, useNavigate, useParams } from "@solidjs/router"
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
@@ -27,7 +29,7 @@ import { AnimatePresence, wardic, WardicProvider, type WardicTransition } from "
 import * as Bool from "effect/Boolean"
 import { createResource, type JSX, Show, Suspense } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
-import { raf, until } from "./browser-helpers.ts"
+import { afterPaint, raf, until } from "./browser-helpers.ts"
 
 afterEach(() => {
   cleanup()
@@ -325,6 +327,25 @@ describe("page transitions with Solid Router on Solid 1 (#479)", () => {
     const r = item.getBoundingClientRect()
     const hit = document.elementFromPoint(r.left + 150, r.top + 100)?.closest<HTMLElement>("[data-page]")
     expect(hit?.dataset.page, "the point hits the new page").toBe("item")
+  })
+
+  it("RT9: from a list scrolled down, the router's scroll to the top: from where the card was seen (#480)", async () => {
+    const app = mountShared("popLayout", 1500)
+    await until(() => app.el("card") !== null, 2000)
+    await frames(3)
+    window.scrollTo(0, document.documentElement.scrollHeight)
+    await frames(3)
+    expect(window.scrollY, "the list scrolled down").toBeGreaterThan(500)
+    const list = app.pages()[0]!
+    const seen = { card: app.el("card")!.getBoundingClientRect().top, list: list.getBoundingClientRect().top }
+    app.navigate("/item/3")
+    await until(() => app.el("hero") !== null, 2000)
+    await afterPaint()
+    expect(window.scrollY, "the router scrolled to the top").toBe(0)
+    expect(Math.abs(app.el("hero")!.getBoundingClientRect().top - seen.card), "the hero from where the card was seen, px").toBeLessThan(40)
+    expect(list.getBoundingClientRect().top, "the popped list where it was seen").toBeCloseTo(seen.list, 0)
+    await until(() => Bool.not(list.isConnected), 3000)
+    expect(app.el("hero")!.getBoundingClientRect().top, "the hero landed at the top").toBeCloseTo(0, 0)
   })
 })
 

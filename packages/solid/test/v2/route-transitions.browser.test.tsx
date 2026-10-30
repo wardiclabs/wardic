@@ -15,6 +15,8 @@
 //   card while the data loads; the data then takes the skeleton's place.
 // - RTV6 (#482): the leaving page's card rides the hero's flight, then goes with its page.
 // - RTV7 (#486): a point over the new page mid-transition hits it, not the popped list.
+// - RTV8 (#480): from a list scrolled down, the router's scroll to the top: the hero from where the
+//   card was seen, and the popped list where it was seen.
 import type { JSX } from "@solidjs/web"
 import { createRouter, memoryHistory, useNavigate, useParams } from "@solidjs/router-2"
 import { DomLive } from "@wardic/dom"
@@ -22,7 +24,7 @@ import { AnimatePresence, wardic, WardicProvider, type WardicTransition } from "
 import * as Bool from "effect/Boolean"
 import { createMemo, Loading, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
-import { raf, until } from "../browser-helpers.ts"
+import { afterPaint, raf, until } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
 
 afterEach(() => window.scrollTo(0, 0))
@@ -249,5 +251,27 @@ describe("page transitions with Solid Router on Solid 2 (#479)", () => {
     const r = item.getBoundingClientRect()
     const hit = document.elementFromPoint(r.left + 150, r.top + 100)?.closest<HTMLElement>("[data-page]")
     expect(hit?.dataset.page, "the point hits the new page").toBe("item")
+  })
+
+  it("RTV8: from a list scrolled down, the router's scroll to the top: from where the card was seen (#480)", async () => {
+    const TallList = () => (
+      <wardic.main data-page="list" initial={false} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={SLOW} style={{ ...PAGE, "min-height": "1900px" }}>
+        <wardic.div data-k="card" layoutId="card-3" transition={SLOW} style={{ position: "relative", top: "1500px", left: "40px", width: "80px", height: "60px", background: "teal" }} />
+      </wardic.main>
+    )
+    const app = mountRoutes([{ path: "/", component: TallList }, { path: "/item/:id", component: Item }], "popLayout")
+    await until(() => app.el("card") !== null, 2000)
+    await frames(3)
+    window.scrollTo(0, document.documentElement.scrollHeight)
+    await frames(3)
+    expect(window.scrollY, "the list scrolled down").toBeGreaterThan(500)
+    const list = app.pages()[0]!
+    const seen = { card: app.el("card")!.getBoundingClientRect().top, list: list.getBoundingClientRect().top }
+    app.navigate("/item/3")
+    await until(() => app.el("hero") !== null, 2000)
+    await afterPaint()
+    expect(window.scrollY, "the router scrolled to the top").toBe(0)
+    expect(Math.abs(app.el("hero")!.getBoundingClientRect().top - seen.card), "the hero from where the card was seen, px").toBeLessThan(40)
+    expect(list.getBoundingClientRect().top, "the popped list where it was seen").toBeCloseTo(seen.list, 0)
   })
 })
