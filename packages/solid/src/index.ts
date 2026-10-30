@@ -94,10 +94,12 @@ export {
 /**
  * Live values (#130, ADR-0043): a value the user moves, given in an element's `style` (an accessor
  * or an Atom), followed while no layer of the Override stack sets its key. `createTransform` maps
- * one (through a function, or ranges), `createSpring` follows one with a spring; `createScroll`,
- * `createVelocity` and `createTime` make one from a scroll, a value's velocity and time (#234).
+ * one (through a function, or ranges), `createFollowValue` follows one on any transition (#441) and
+ * `createSpring` with a spring; `createScroll`, `createVelocity` and `createTime` make one from a
+ * scroll, a value's velocity and time (#234).
  */
 export {
+  createFollowValue,
   createScroll,
   createSpring,
   createTime,
@@ -107,7 +109,7 @@ export {
   type ScrollOptions,
   type ScrollValues,
 } from "./live-value.ts"
-export type { Live, LiveSource, SpringAccessor } from "./live-style.ts"
+export type { FollowAccessor, FollowValueOptions, Live, LiveSource, SpringAccessor } from "./live-style.ts"
 
 /**
  * `createWard` — a **Ward**, one element's motion binding (ADR-0005, ADR-0042): recognizers ->

@@ -156,6 +156,7 @@ export { createAnimationControls, type WardicAnimationControls, type WardicContr
  * the frame its source moves.
  */
 export {
+  createFollowValue,
   createScroll,
   createSpring,
   createTime,
@@ -165,7 +166,7 @@ export {
   type ScrollOptions,
   type ScrollValues,
 } from "./live-value.ts"
-export type { Live, LiveSource, SpringAccessor } from "../../live-style.ts"
+export type { FollowAccessor, FollowValueOptions, Live, LiveSource, SpringAccessor } from "../../live-style.ts"
 
 /**
  * `<Reorder>` (ADR-0020, ADR-0037; #209 PR 3b): `reorderGroup(config)` and `reorderItem(list, config)`,

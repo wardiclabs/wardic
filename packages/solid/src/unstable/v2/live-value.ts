@@ -1,8 +1,8 @@
 /**
  * Live values on Solid 2 (#130, ADR-0043; #209 PR 3's Q2, ADR-0045): `createTransform`,
- * `createSpring`, `createVelocity`, `createTime` and `createScroll`, core's `LiveValue` helpers
- * wrapped, as on the Solid 1 binding (Motion's `useTransform`, `useSpring`, `useVelocity`,
- * `useTime`, `useScroll`).
+ * `createFollowValue`, `createSpring`, `createVelocity`, `createTime` and `createScroll`, core's
+ * `LiveValue` helpers wrapped, as on the Solid 1 binding (Motion's `useTransform`, `useFollowValue`,
+ * `useSpring`, `useVelocity`, `useTime`, `useScroll`).
  *
  * Each gives an accessor back, for an element's `style` or anything else. Where it's derived on an
  * Atom, the accessor carries it (`live-style.ts`'s `carry`): a `style` given it follows the Atom,
@@ -10,8 +10,8 @@
  * frame and paints with it. Read through Solid it would come a frame late: Solid 2 shows a change at
  * its flush, after the gate's write. So:
  *
- * - `createSpring`, `createVelocity`, `createTime` and `createScroll` are always derived on Atoms
- *   (core's); an accessor source with no Atom of its own is mirrored into one.
+ * - `createFollowValue`, `createSpring`, `createVelocity`, `createTime` and `createScroll` are always
+ *   derived on Atoms (core's); an accessor source with no Atom of its own is mirrored into one.
  * - `createTransform` derives on an Atom when its source is one or carries one (a ward's `read`,
  *   another helper's); a plain accessor (a signal) is mapped in a memo, as Solid maps it. Its
  *   function form's own reads of Solid stay tracked: a change re-derives it.
@@ -39,7 +39,21 @@ import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { isServer } from "@solidjs/web"
 import { type Accessor, createEffect, createMemo, createSignal, onCleanup, untrack } from "solid-js"
-import { atomOf, type LiveSource, readLive, serverRegistryOf, serverSpringOf, type SpringAccessor, springAccessorOf } from "../../live-style.ts"
+import {
+  atomOf,
+  type FollowAccessor,
+  followAccessorOf,
+  followOptionsOf,
+  type FollowValueOptions,
+  type LiveSource,
+  numberOf,
+  readLive,
+  serverFollowOf,
+  serverRegistryOf,
+  type SpringAccessor,
+  unitOf,
+  withUnit,
+} from "../../live-style.ts"
 import type { WardicRuntime, WardicServices } from "../../runtime.ts"
 import { followAtom } from "./bridge.ts"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, onSettledClientOnly } from "./solid-reactivity.ts"
@@ -160,10 +174,60 @@ const interpolatorOf = <O>(
 }
 
 /**
- * A value that follows `source` with a spring (`options`, as `transition`'s spring options): it
- * starts where its source is, and from each change on, a spring toward the source runs on the Frame
- * loop until it rests there (Motion's `useSpring`). A change mid-flight keeps its velocity. Nothing
- * runs while it rests, and its owner's disposal ends it.
+ * A **Follow value** (#441, Motion's `useFollowValue`): a value that animates toward `source` on a
+ * transition, `options`, in seconds. It starts where its source is, and from each change on, a run
+ * toward it runs on the Frame loop until it rests there. Nothing runs while it rests, and its owner's
+ * disposal ends it. What `options` leave out is Motion's follower's: no `type` is a spring, of 100 /
+ * 10 / 1 unless it's set by time, and `type: "tween"` is 0.3 s `easeInOut`.
+ *
+ * - **A change mid-flight:** a spring steers toward it, keeping its velocity; a tween starts again
+ *   from where it is, its full duration and ease; an inertia glides again from there, its target
+ *   unread (#435). A `velocity` given is the one every run starts or steers with.
+ * - **`delay`** holds it where it is at every change, then it goes on toward the latest: a source
+ *   that never rests doesn't move it until it does, as Motion's.
+ * - **A string with a unit** (`"10px"`) is followed as its number, and shown with the unit its
+ *   source started with, as Motion's.
+ * - **`jump(value)`** sets it at once, not as motion (Motion's `jump`): it rests there until its
+ *   source next changes, then animates from there, and a `createVelocity` of it reads 0 across it.
+ * - **`skipInitialAnimation`**: the source's first change is a jump, as Motion's option, for a source
+ *   set once after mount (a scroll the browser restores).
+ *
+ * ```tsx
+ * const [x, setX] = createSignal(0)
+ * const card = ward({ style: { x: createFollowValue(x, { type: "tween", duration: 0.4, ease: "easeOut" }) } })
+ * ```
+ */
+export function createFollowValue(source: LiveSource<number>, options?: FollowValueOptions): FollowAccessor<number>
+export function createFollowValue(source: LiveSource<string>, options?: FollowValueOptions): FollowAccessor<string>
+export function createFollowValue(source: LiveSource<number | string>, options: FollowValueOptions = {}): FollowAccessor<number | string> {
+  if (isServer) return serverFollowOf(() => readOnServer(source))
+  const runtime = useWardicRuntime()
+  // Its nearest WardicConfig's `skipAnimations` (#468): each change lands at once while it's on.
+  const skipped = useWardicSkipAnimations()
+  const transition = followOptionsOf(options)
+  const registry = runtime.runSync(AtomRegistry.AtomRegistry)
+  const atom = sourceAtomOf(source, registry)
+  const initial = registry.get(atom)
+  // A string's accessor or a number's, as its source started.
+  return followAccessorOf(
+    runtime,
+    Bool.match(Predicate.isString(initial), {
+      onFalse: () => liveOf(runtime, LiveValue.follow(atom as Atom.Atom<number>, transition, skipped)),
+      // A unit string: its number followed, shown with the unit it started with (Motion's).
+      onTrue: () =>
+        liveOf(
+          runtime,
+          Effect.map(LiveValue.follow(Atom.map(atom, numberOf), transition, skipped), withUnit(unitOf(initial as string))),
+        ) as Accessor<number | string>,
+    }),
+  )
+}
+
+/**
+ * A value that follows `source` with a spring (Motion's `useSpring`): `createFollowValue`'s spring
+ * case (#441), `options` as `transition`'s spring options, Motion's follower's for what they leave
+ * out (100 / 10 / 1 unless it's set by time, at rest within 0.001). A change mid-flight keeps its
+ * velocity. A string with a unit is followed as its number, as `createFollowValue`'s.
  *
  * - **`jump(value)`** sets it at once, not as motion (Motion's `jump`): it rests there until its
  *   source next changes, then springs from there, and a `createVelocity` of it reads 0 across it.
@@ -177,12 +241,10 @@ const interpolatorOf = <O>(
  * const card = ward({ style: { x: createSpring(x, { stiffness: 300, damping: 30 }) } })
  * ```
  */
-export const createSpring = (source: LiveSource<number>, options: LiveValue.SpringOptions = {}): SpringAccessor => {
-  if (isServer) return serverSpringOf(() => readOnServer(source))
-  const runtime = useWardicRuntime()
-  // Its nearest WardicConfig's `skipAnimations` (#468): each change lands at once while it's on.
-  const skipped = useWardicSkipAnimations()
-  return springAccessorOf(runtime, liveOf(runtime, LiveValue.spring(sourceAtomOf(source, runtime.runSync(AtomRegistry.AtomRegistry)), options, skipped)))
+export function createSpring(source: LiveSource<number>, options?: LiveValue.SpringOptions): SpringAccessor<number>
+export function createSpring(source: LiveSource<string>, options?: LiveValue.SpringOptions): SpringAccessor<string>
+export function createSpring(source: LiveSource<number | string>, options: LiveValue.SpringOptions = {}): SpringAccessor<number | string> {
+  return createFollowValue(source as LiveSource<number>, { ...options, type: "spring" })
 }
 
 /**

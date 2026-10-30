@@ -9,8 +9,9 @@
  *   of outputs blended through the `InterpolatorRegistry`, so colours and unit strings map as
  *   `animate` blends them, or through a `mixer` of the app's (#440). `interpolate` is its mapping as
  *   a plain function (Motion's `interpolate`), for a binding that maps its own reactive value.
- * - `spring`: a value that follows another with a spring (Motion's `useSpring`), stepped on the
- *   Frame loop while it moves and idle once it rests.
+ * - `follow`: a **Follow value**, which follows another on any transition (Motion's `followValue`,
+ *   #441), stepped on the Frame loop while it moves and idle once it rests; `spring` is its spring
+ *   case (Motion's `useSpring`).
  * - `jump`: a value set at once, not as motion (Motion's `MotionValue.jump`, #257 item 7): a
  *   spring's output ends its run there, and a `velocity` of it reads no motion.
  * - `scroll`: a container's scroll and progress (Motion's `useScroll`), from the Environment's
@@ -19,16 +20,19 @@
  * - `time`: milliseconds since it started, wall time (Motion's `useTime`).
  *
  * Tier 2 (ADR-0008): Effect-typed, for bindings, which wrap them (Solid's `createTransform`,
- * `createSpring`).
+ * `createFollowValue`, `createSpring`).
  */
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as FiberHandle from "effect/FiberHandle"
+import * as Match from "effect/Match"
 import { constant, constFalse, constTrue, constUndefined, constVoid, dual, identity } from "effect/Function"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import { Atom, AtomRegistry } from "effect/reactivity"
+import * as Rec from "effect/Record"
 import type * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as FrameLoop from "./FrameLoop.ts"
@@ -172,10 +176,10 @@ const progressOf = <O>(stretch: Stretch<O>, v: number): number => {
   return (v - stretch.from) / span
 }
 
-/** `spring`'s options: `Machine.spring`'s, and Motion's `skipInitialAnimation`. */
-export interface SpringOptions extends Machine.SpringOptions {
+/** What a **Follow value** lands at once, as a `jump`, rather than animating to. */
+export interface FollowSkips {
   /**
-   * The source's first change lands at once, as a `jump`, and only the changes after it spring
+   * The source's first change lands at once, as a `jump`, and only the changes after it animate
    * (Motion's `skipInitialAnimation`): for a source set once after it starts, as a scroll the
    * browser restores after the page mounts. Default `false`.
    */
@@ -186,6 +190,30 @@ export interface SpringOptions extends Machine.SpringOptions {
    */
   readonly skipAnimations?: boolean
 }
+
+/** `spring`'s options: `Machine.spring`'s, and the skips. */
+export interface SpringOptions extends Machine.SpringOptions, FollowSkips {}
+
+/**
+ * A **Follow value**'s transition (#441, Motion's `useFollowValue`'s), in seconds: a spring, which
+ * one with no `type` is, a tween, or an inertia. What it leaves out is Motion's follower's: a spring's
+ * physics 100 / 10 / 1 unless it's set by time, at rest within 0.001 and below 0.01 a second (an
+ * inertia's too), and a tween's 0.3 s `easeInOut`. Its `delay` holds the value where it is at every
+ * change of the source, then it goes on toward the latest: a debounce, as Motion's.
+ */
+export type FollowTransition =
+  | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from">)
+  | ({ readonly type: "tween" } & Machine.TweenOptions)
+  | ({
+    readonly type: "inertia"
+    /** The velocity each glide starts from, per second: the value's own when left out. */
+    readonly velocity?: number
+    /** Seconds it holds where it is at each change before it glides. */
+    readonly delay?: number
+  } & Machine.InertiaOptions)
+
+/** `follow`'s options: its transition, and the skips. */
+export type FollowOptions = FollowTransition & FollowSkips
 
 /**
  * Who hears each Atom's jumps, per registry: a `spring` of its own output, ending its run, and a
@@ -244,24 +272,112 @@ export const jump: {
     jumpIn(registry, atom as Atom.Writable<number>, value)
   }))
 
+/** Motion's spring, for the physics a follow's spring leaves out (`motion-dom`'s `springDefaults`). */
+const MOTION_PHYSICS = { stiffness: 100, damping: 10, mass: 1 } as const
+
+/** Motion's follower's rest thresholds, for those a spring or an inertia leaves out (`follow()`'s). */
+const FOLLOW_REST = { restDelta: 0.001, restSpeed: 0.01 } as const
+
+/** Motion's follower's tween, for what one leaves out: its generator's 0.3 s `easeInOut`. */
+const FOLLOW_TWEEN = { duration: 0.3, ease: Easing.easeInOut } as const
+
+const PHYSICS_FIELDS = ["stiffness", "damping", "mass"] as const
+const TIME_FIELDS = ["duration", "bounce", "visualDuration"] as const
+
+/** A transition's fields that run it: all but its `type`, its `delay` (held outside) and its `velocity`. */
+const RUN_FIELDS = (_: unknown, key: string): boolean => Bool.and(Bool.and(key !== "type", key !== "delay"), key !== "velocity")
+
+/** Whether a spring's fields set it by time (#359): a time field, and no physics, which would win over it. */
+const isTimed = (fields: Readonly<Record<string, unknown>>): boolean =>
+  Bool.and(
+    Arr.some(TIME_FIELDS, (key) => Object.hasOwn(fields, key)),
+    Bool.not(Arr.some(PHYSICS_FIELDS, (key) => Object.hasOwn(fields, key))),
+  )
+
+/** A follow's runs, worked out once from its transition (#441). */
+interface FollowPlan {
+  /** A run from `from`, at `velocity`, toward `target()`. */
+  readonly start: (from: number, velocity: number, target: () => number) => (dt: number) => Frame.Frame<number>
+  /**
+   * Whether a change while it runs starts it again from where it's reached, as Motion's: all but a
+   * spring with no `delay` and no `velocity`, which steers toward the source, read every step.
+   */
+  readonly restarts: boolean
+  /** The velocity a run starts from, given the one it carries: the transition's, when it gives one. */
+  readonly velocityOf: (carried: number) => number
+}
+
+/** A follow's plan from its transition: what it leaves out filled as Motion's follower does. */
+const planOf = (transition: FollowTransition): FollowPlan => {
+  const fields = Rec.filter(transition as Readonly<Record<string, unknown>>, Predicate.isNotUndefined)
+  const delay = UndefinedOr.match(fields.delay as number | undefined, { onUndefined: () => 0, onDefined: identity })
+  const given = fields.velocity as number | undefined
+  const velocityOf = UndefinedOr.match(given, { onUndefined: () => identity<number>, onDefined: (v) => (): number => v })
+  const own = Rec.filter(fields, RUN_FIELDS)
+  // Each change holds it where it is for `delay`, then it goes on: a run built again at each.
+  const held = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>): Machine.Machine<F> => Machine.delay(machine, delay)
+  return Match.value(fields.type).pipe(
+    Match.when("tween", (): FollowPlan => {
+      const tween = { ...FOLLOW_TWEEN, ...own } as Machine.TweenOptions
+      return { start: (from, _, target) => held(Machine.tween(from, target(), tween)).start(), restarts: true, velocityOf }
+    }),
+    Match.when("inertia", (): FollowPlan => {
+      const inertia = { ...FOLLOW_REST, ...own } as Machine.InertiaOptions
+      return { start: (from, velocity) => held(Machine.inertia(from, velocity, inertia)).start(), restarts: true, velocityOf }
+    }),
+    Match.orElse((): FollowPlan => {
+      const physics = Bool.match(isTimed(own), { onTrue: () => ({}), onFalse: () => MOTION_PHYSICS })
+      const spring = { ...FOLLOW_REST, ...physics, ...own } as Machine.SpringOptions
+      return Bool.match(Bool.and(delay === 0, Predicate.isUndefined(given)), {
+        onTrue: (): FollowPlan => ({ start: (from, velocity, target) => Machine.chase(target, { ...spring, from, velocity }).start(), restarts: false, velocityOf }),
+        onFalse: (): FollowPlan => ({
+          start: (from, velocity, target) => held(Machine.spring(target(), { ...spring, from, velocity })).start(),
+          restarts: true,
+          velocityOf,
+        }),
+      })
+    }),
+  )
+}
+
+/** A Frame's velocity: a tween's is none, as Motion's follower drops it. Per frame: a property read and a guard. */
+const velocityOfFrame = (frame: Frame.Frame<number>): number => {
+  const velocity = (frame as Partial<Frame.Physics>).velocity
+  if (Predicate.isUndefined(velocity)) return 0
+  return velocity
+}
+
+const FOLLOW_SPAN: Machine.Span = { name: "wardic.follow", attributes: {} }
+
 /**
- * A value that follows `source` with a spring (`options`, as `Machine.spring`'s): it starts where
- * the source is, and from each change on, a `Machine.chase` toward the source runs on the Frame
- * loop, reading the source afresh on every step, until it comes to rest there. Then the run
- * ends, and nothing runs until the source moves again. With `skipInitialAnimation`, the source's
- * first change is a `jump`; with `skipAnimations`, or while `skipped()` says so (#468, read at each
- * change: a binding's subtree setting), every change is. A `jump` of its output ends the run there,
- * with no velocity. The run and the subscription end with the Scope; the Atom is held in the
- * registry until then, and after it only while subscribed.
+ * A **Follow value** (#441, Motion's `followValue`): a value that animates toward `source` on
+ * `options`' transition. It starts where the source is, and from each change on, a run toward the
+ * source runs on the Frame loop until it comes to rest there; then nothing runs until the source
+ * moves again.
+ * - **A spring** with no `delay` or `velocity` steers toward the source, read afresh every step,
+ *   keeping its velocity through a change.
+ * - **Anything else** starts again at the step after a change, from where it's reached: a tween with
+ *   its full duration and ease, and no velocity; an inertia gliding again, its target unread (#435);
+ *   a spring with the transition's `velocity`, or its own. Several changes in one frame start it
+ *   once, as Motion's `FollowAnimation` retargets at its next tick.
+ * - **A `delay`** holds it where it is at every change, then it goes on toward the latest: a source
+ *   that never rests doesn't move it until it does.
+ *
+ * At its source already, a change starts nothing. With `skipInitialAnimation`, the source's first
+ * change is a `jump`; with `skipAnimations`, or while `skipped()` says so (#468, read at each change:
+ * a binding's subtree setting), every change is. A `jump` of its output ends the run there, with no
+ * velocity. The run and the subscription end with the Scope; the Atom is held in the registry until
+ * then, and after it only while subscribed.
  */
-export const spring = (
+export const follow = (
   source: Atom.Atom<number>,
-  options: SpringOptions = {},
+  options: FollowOptions = {},
   skipped: () => boolean = constFalse,
 ): Effect.Effect<Atom.Atom<number>, never, FrameLoop.FrameLoop | AtomRegistry.AtomRegistry | Scope.Scope> =>
   Effect.gen(function* () {
     const registry = yield* AtomRegistry.AtomRegistry
-    const { skipInitialAnimation, skipAnimations, ...springOptions } = options
+    const { skipInitialAnimation, skipAnimations, ...transition } = options
+    const plan = planOf(transition as FollowTransition)
     const skips = Bool.match(skipAnimations === true, { onTrue: () => constTrue, onFalse: () => skipped })
     // Mounted for the Scope, not kept alive: a kept-alive Atom's node never leaves the registry.
     const out = Atom.make(registry.get(source))
@@ -271,26 +387,52 @@ export const spring = (
     let velocity = 0
     // Whether a run follows the source now: a change while it does costs a check, nothing built.
     let running = false
+    // A change since the run's last step, for a plan that starts again at each: taken at its next step.
+    let changed = false
     // Whether the source's next change is a jump: its first, with `skipInitialAnimation`.
     let skipping = skipInitialAnimation === true
-    /** Follow the source from where `out` is, until it rests. */
-    const follow = (): void => {
+    const target = (): number => registry.get(source)
+    /** One run: the plan's, from where `out` is, started again from where it's reached at the step after a change. */
+    const machine = Machine.make({
+      settles: false,
+      span: FOLLOW_SPAN,
+      start: () => {
+        let step = plan.start(registry.get(out), plan.velocityOf(velocity), target)
+        // Per frame (ADR-0025): a check; a run built only at a change.
+        return (dt) => {
+          const frame = step(dt)
+          if (Bool.not(changed)) return frame
+          changed = false
+          const reached = velocityOfFrame(frame)
+          step = plan.start(frame.value, plan.velocityOf(reached), target)
+          return { value: frame.value, velocity: reached, done: false }
+        }
+      },
+    })
+    /** Follow the source's change from where `out` is, until it rests. */
+    const onChange = (): void => {
       if (Bool.or(skipping, skips())) {
         skipping = false
         jumpIn(registry, out, registry.get(source))
         return
       }
-      if (running) return
+      // A steering spring reads the source itself; any other run starts again at its next step.
+      if (running) {
+        changed = plan.restarts
+        return
+      }
+      // At its source already: nothing to start, as Motion's.
+      if (registry.get(out) === registry.get(source)) return
       running = true
+      changed = false
       token = Supersede.make()
       const ending = token
-      const chase = Machine.chase(() => registry.get(source), { ...springOptions, from: registry.get(out), velocity })
       run(
-        chase.pipe(
+        machine.pipe(
           Machine.run(
             (frame) => {
               registry.set(out, frame.value)
-              velocity = frame.velocity
+              velocity = velocityOfFrame(frame)
               // At rest on the source: end the run; the next change starts another.
               if (frame.done) {
                 velocity = 0
@@ -305,10 +447,11 @@ export const spring = (
         { onlyIfMissing: true },
       )
     }
-    const unsubscribe = registry.subscribe(source, follow)
+    const unsubscribe = registry.subscribe(source, onChange)
     // A jump of `out`: the run ends where it's set, with no velocity, and the next change follows from there.
     const unhear = onJump(registry, out, () => {
       running = false
+      changed = false
       velocity = 0
       Supersede.end(token)
     })
@@ -321,6 +464,18 @@ export const spring = (
       }))
     return out
   })
+
+/**
+ * A value that follows `source` with a spring (Motion's `useSpring`): `follow`'s spring case (#441),
+ * `options` as `Machine.spring`'s, and Motion's follower's for what it leaves out: 100 / 10 / 1 unless
+ * it's set by time, at rest within 0.001 and below 0.01 a second.
+ */
+export const spring = (
+  source: Atom.Atom<number>,
+  options: SpringOptions = {},
+  skipped: () => boolean = constFalse,
+): Effect.Effect<Atom.Atom<number>, never, FrameLoop.FrameLoop | AtomRegistry.AtomRegistry | Scope.Scope> =>
+  follow(source, { ...options, type: "spring" }, skipped)
 
 /** What `scroll` gives: Motion's four values, each an Atom. */
 export interface ScrollValues {

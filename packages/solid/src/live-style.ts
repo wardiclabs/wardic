@@ -31,6 +31,7 @@ import * as Predicate from "effect/Predicate"
 import { Atom, AtomRegistry } from "effect/reactivity"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
+import type { WardicInertia } from "./config.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
 import type { WardicRuntime } from "./runtime.ts"
 
@@ -58,28 +59,77 @@ const CARRIED = Symbol.for("@wardic/solid/carried")
 export const carry = <A>(accessor: Accessor<A>, atom: Atom.Atom<A>): Accessor<A> =>
   Object.defineProperty(accessor, CARRIED, { value: atom })
 
-/** `createSpring`'s value (#257 item 7): an accessor carrying the spring's Atom, with Motion's `jump`. */
-export interface SpringAccessor extends Accessor<number> {
+/**
+ * `createFollowValue`'s options (#441, Motion's `FollowValueOptions`): a transition, in seconds, with
+ * Motion's follower's defaults for what it leaves out (`LiveValue.FollowTransition`); an inertia's
+ * `timeConstant` in milliseconds, as a `transition`'s (#435); and the skips.
+ */
+export type FollowValueOptions = (Exclude<LiveValue.FollowTransition, { readonly type: "inertia" }> | WardicInertia) & LiveValue.FollowSkips
+
+/** `options` as core's `LiveValue.follow` takes them: an inertia's `timeConstant` in seconds. */
+export const followOptionsOf = (options: FollowValueOptions): LiveValue.FollowOptions =>
+  Bool.match(options.type === "inertia", {
+    onTrue: () =>
+      ({
+        ...options,
+        ...UndefinedOr.match((options as WardicInertia).timeConstant, { onUndefined: () => ({}), onDefined: (ms) => ({ timeConstant: ms / 1000 }) }),
+      }) as LiveValue.FollowOptions,
+    onFalse: () => options as LiveValue.FollowOptions,
+  })
+
+/**
+ * A **Follow value** as an accessor (#441; `createSpring`'s since #257 item 7): carrying its Atom,
+ * with Motion's `jump`. A number, or a string with its unit, as its source is.
+ */
+export interface FollowAccessor<A extends number | string = number> extends Accessor<A> {
   /**
-   * Set the spring to `value` at once, not as motion (Motion's `MotionValue.jump`): its run ends
-   * there with no velocity, and it rests there until its source next changes, then springs from
-   * there. A `createVelocity` of it reads 0 across the jump. On a server, it does nothing.
+   * Set it to `value` at once, not as motion (Motion's `MotionValue.jump`): its run ends there with
+   * no velocity, and it rests there until its source next changes, then animates from there. A
+   * `createVelocity` of it reads 0 across the jump. A string's number is read as the follow reads
+   * its source's, and shown with the follow's unit. On a server, it does nothing.
    */
-  readonly jump: (value: number) => void
+  // A method, bivariant: one implementation serves the number and the string overloads.
+  jump(value: A): void
 }
 
-/** `accessor`, carrying a spring's Atom, with `jump` run on `runtime`. */
-export const springAccessorOf = (runtime: WardicRuntime, accessor: Accessor<number>): SpringAccessor => {
-  const atom = atomOf(accessor) as Atom.Atom<number>
+/** `createSpring`'s value: a spring's {@link FollowAccessor}. */
+export type SpringAccessor<A extends number | string = number> = FollowAccessor<A>
+
+/** The Atom of numbers each unit follow's Atom of strings shows ({@link withUnit}), for its `jump`. */
+const UNIT_NUMBERS = new WeakMap<object, Atom.Atom<number>>()
+
+/** A unit string's unit, as Motion's follower reads it (#441): what's left after its digits, `.` and `-`. */
+export const unitOf = (value: string): string => value.replace(/[\d.-]/g, "")
+
+/**
+ * `numbers`, a follow of a unit string's numbers, shown with `unit` (#441, Motion's follower: the
+ * unit its source started with, whatever a later one says). Its `jump` reaches `numbers`.
+ */
+export const withUnit =
+  (unit: string) =>
+  (numbers: Atom.Atom<number>): Atom.Atom<string> => {
+    const strings = Atom.map(numbers, (n) => `${n}${unit}`)
+    UNIT_NUMBERS.set(strings, numbers)
+    return strings
+  }
+
+/** A value a follow reads: a number as it is, a string as `parseFloat` reads it, as Motion's follower does. */
+export const numberOf = (value: number | string): number =>
+  Bool.match(Predicate.isString(value), { onTrue: () => Number.parseFloat(value as string), onFalse: () => value as number })
+
+/** `accessor`, carrying a follow's Atom, with `jump` run on `runtime`. */
+export const followAccessorOf = <A extends number | string>(runtime: WardicRuntime, accessor: Accessor<A>): FollowAccessor<A> => {
+  const atom = atomOf(accessor) as Atom.Atom<A>
+  const numbers = UndefinedOr.match(UNIT_NUMBERS.get(atom), { onUndefined: () => atom as unknown as Atom.Atom<number>, onDefined: (n) => n })
   return Object.assign(accessor, {
-    jump: (value: number): void => {
-      runtime.runSync(LiveValue.jump(atom, value))
+    jump: (value: A): void => {
+      runtime.runSync(LiveValue.jump(numbers, numberOf(value)))
     },
   })
 }
 
-/** A server's spring: `read`, as it is now, and a `jump` that does nothing (ADR-0021). */
-export const serverSpringOf = (read: Accessor<number>): SpringAccessor => Object.assign(() => read(), { jump: constVoid })
+/** A server's follow: `read`, as it is now, and a `jump` that does nothing (ADR-0021). */
+export const serverFollowOf = <A extends number | string>(read: Accessor<A>): FollowAccessor<A> => Object.assign(() => read(), { jump: constVoid })
 
 /** The Atom a Live value is, or carries: `undefined` for a plain accessor or a plain value. Per key, per change: guards, no matcher. */
 export const atomOf = (value: unknown): Atom.Atom<unknown> | undefined => {
