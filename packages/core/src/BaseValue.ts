@@ -32,6 +32,8 @@ export const TRANSFORM_IDENTITY: Readonly<Record<string, number>> = Object.freez
   scaleX: 1,
   scaleY: 1,
   rotate: 0,
+  // A path's turn (#438, Motion's `pathRotation`): added onto `rotate` where the transform is built.
+  pathRotation: 0,
   rotateX: 0,
   rotateY: 0,
   rotateZ: 0,

@@ -50,8 +50,9 @@ const TRANSFORM_FUNCS: ReadonlyArray<{ readonly key: string; readonly fn: string
   { key: "scale", fn: "scale" },
   { key: "scaleX", fn: "scaleX" },
   { key: "scaleY", fn: "scaleY" },
-  // rotate group
+  // rotate group: a path's turn after the element's own (#438), which `rotate(a) rotate(b)` adds up
   { key: "rotate", fn: "rotate" },
+  { key: "pathRotation", fn: "rotate" },
   { key: "rotateX", fn: "rotateX" },
   { key: "rotateY", fn: "rotateY" },
   { key: "rotateZ", fn: "rotateZ" },
@@ -98,6 +99,7 @@ const TRANSFORM_UNITS: Record<string, TransformUnit> = {
   scaleX: "",
   scaleY: "",
   rotate: "deg",
+  pathRotation: "deg",
   rotateX: "deg",
   rotateY: "deg",
   rotateZ: "deg",
@@ -195,6 +197,7 @@ const formatStyleValue = (key: string, value: unknown): unknown => {
  */
 const PROJECTION_WOVEN: ReadonlyArray<{ readonly key: string; readonly fn: string }> = [
   { key: "rotate", fn: "rotate" },
+  { key: "pathRotation", fn: "rotate" },
   { key: "rotateX", fn: "rotateX" },
   { key: "rotateY", fn: "rotateY" },
   { key: "rotateZ", fn: "rotateZ" },

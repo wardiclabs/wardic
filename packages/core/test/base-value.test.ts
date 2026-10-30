@@ -11,7 +11,8 @@ import * as Option from "effect/Option"
 import { expect, it } from "@effect/vitest"
 
 const SCALE_KEYS = ["scale", "scaleX", "scaleY"]
-const ZERO_KEYS = ["x", "y", "z", "translateX", "translateY", "translateZ", "rotate", "rotateX", "rotateY", "rotateZ", "skewX", "skewY"]
+// `pathRotation`: a Path's turn (#438), added onto `rotate` where the transform is built.
+const ZERO_KEYS = ["x", "y", "z", "translateX", "translateY", "translateZ", "rotate", "pathRotation", "rotateX", "rotateY", "rotateZ", "skewX", "skewY"]
 
 /** A lookup that fails the test if the chain calls it. */
 const never = (name: string) => (key: string): Option.Option<never> => {

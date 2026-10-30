@@ -14,6 +14,7 @@
  * and `docs/adr/`.
  */
 export * as Announcer from "./Announcer.ts"
+export * as Arc from "./Arc.ts"
 export * as AutoScroll from "./AutoScroll.ts"
 export * as BaseValue from "./BaseValue.ts"
 export * as Box from "./Box.ts"
