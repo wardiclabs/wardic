@@ -145,6 +145,7 @@ Transitions follow Motion's rules (ADR-0051):
 - **Missing fields are Motion's**: `{ type: "spring" }` is 100 / 10 / 1 and bounces, and a tween with no easing eases out.
 - **`repeat` with no `type`** makes a tween, since Wardic's springs don't repeat. Motion would repeat a transform's default spring.
 - **`ease` is Motion's** (#360): one of Motion's names (`"easeOut"`, `"backIn"`, `"anticipate"`…), a cubic bézier's four numbers (`[0.25, 0.1, 0.35, 1]`), or a function. The functions are exported by Motion's names too (`import { easeOut, cubicBezier, steps } from "@wardic/solid"`). The Penner set (`easeOutCubic`…) and `Easing.spring` are in `@wardic/core/Easing`. `createTransform` takes `ease` as Motion's `useTransform` does: one for every stretch, or one each. Wardic's old `easing` is an error, naming `ease`.
+- **`createTransform` maps ranges as Motion's `useTransform`** (#440, ADR-0043): its `mixer`, `(from, to) => (t) => value`, blends the outputs in place of `animate`'s blends, so they can be any type it blends, and each stretch's `ease` comes first. A descending input range maps as Motion's, quirks included: reversed, so an `ease` curve runs toward the higher input and a list of them goes back to front. One stop gives its output.
 - **Springs set by time are Motion's** (#359, ADR-0053):
   - `{ type: "spring", duration: 0.5, bounce: 0.25 }` is solved to the spring that settles in 0.5 s, and it lands on its target at 0.5 s. `bounce` defaults to 0.3, and a `bounce` alone is a 0.8 s spring.
   - `{ visualDuration: 0.5, bounce: 0.25 }` does most of its move in 0.5 s, then settles at rest. `bounce` defaults to 0 here.
@@ -174,7 +175,7 @@ A `layoutId` twin that mounts while its other twin is still leaving under `<Anim
 | solid-motionone's `use:motion` | `use:wardic` |
 | solid-motionone's `<Presence>` | `<AnimatePresence>` |
 | `useMotionValue(0)` | a signal (or an `effect/reactivity` Atom), given in `style` |
-| `useTransform(value, input, output)` | `createTransform(value, input, output)` |
+| `useTransform(value, input, output, { clamp, ease, mixer })` | `createTransform(value, input, output, { clamp, ease, mixer })` |
 | `useSpring(value, options)`, `.jump(v)`, `skipInitialAnimation` | `createSpring(value, options)`, the same `jump(v)` and option |
 | `useScroll({ container, target, offset })` | `createScroll({ container, target, offset })` |
 | `useVelocity(value)` | `createVelocity(value)` |
