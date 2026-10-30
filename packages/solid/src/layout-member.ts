@@ -120,6 +120,9 @@ export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.R
     id,
     element,
     transition: () => toLayoutTransition(transition()),
+    // Its layout transition's Path (#438, ADR-0065), Motion's: the `layout` entry's, else the element's.
+    // A layout animation of 20 px or more curves along it.
+    path: () => UndefinedOr.map(transitionForKey(transition(), "layout"), (t) => t.path),
     // The layout transition's reduced-motion opt-out (ADR-0029, #301), read at each layout animation's start.
     respectReducedMotion: () =>
       UndefinedOr.match(transitionForKey(transition(), "layout"), { onUndefined: constTrue, onDefined: (t) => t.respectReducedMotion !== false }),

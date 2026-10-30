@@ -63,6 +63,7 @@ import type * as Frame from "@wardic/core/Frame"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as Inertia from "@wardic/core/Inertia"
 import * as Microtask from "@wardic/core/Microtask"
+import type * as Arc from "@wardic/core/Arc"
 import type * as Point from "@wardic/core/Point"
 import * as Probe from "@wardic/core/Probe"
 import * as Projection from "@wardic/core/Projection"
@@ -483,6 +484,18 @@ interface Flight {
   started: boolean
   /** Whether it has landed on its own: its completion, for the app's callback and `onSettled` (#191). */
   landed: boolean
+  /** Its curve along its Path (#438, ADR-0065), built at its start; `undefined` for a straight flight. */
+  readonly curve: FlightCurve | undefined
+}
+
+/** A flight's curve along its Path (#438, ADR-0065). */
+interface FlightCurve {
+  /** Where its centre is at each progress, as an offset from its box's centre: from `from` to 0. */
+  readonly at: (t: number) => Arc.PathPoint
+  /** Where it starts: its origin's centre, as an offset from its box's. */
+  readonly from: Point.Point
+  /** Whether it turns it (an `arc()`'s `rotate`): a turn added onto its drawn rotation, 0 at both ends. */
+  readonly turns: boolean
 }
 
 /**
@@ -510,7 +523,10 @@ const timingOf = (transition: LayoutTransition): FlightTiming =>
 const LANDED: FlightTiming = springTiming(Spring.resolve({}))
 
 /** A flight at 1 on {@link LANDED}: it ends on its first step, the node on its new box. */
-const landedFlight = (): Flight => ({ position: 1, elapsed: 0, spring: Spring.init({ from: 1 }), timing: LANDED, started: false, landed: false })
+const landedFlight = (): Flight => ({ position: 1, elapsed: 0, spring: Spring.init({ from: 1 }), timing: LANDED, started: false, landed: false, curve: undefined })
+
+/** Motion's distance floor for a curved layout animation (#438): a shift shorter than this goes straight. */
+const MIN_CURVE_DISTANCE = 20
 
 
 /**
@@ -766,6 +782,12 @@ export interface RegisterNodeOptions {
    * {@link DEFAULT_LAYOUT_TRANSITION}.
    */
   readonly transition: () => Option.Option<LayoutTransition>
+  /**
+   * The element's Path (#438, ADR-0065), read at each layout animation's start: a flight of 20 px or
+   * more curves its centre along it, from where it starts to its box, its size still mixed straight,
+   * as Motion's `interpolateProjection`. Left out, every flight is straight.
+   */
+  readonly path?: (() => Arc.Path | undefined) | undefined
   /**
    * The app's `onLayoutAnimationStart` (#191, ADR-0039), read when it fires: at the frame where a
    * layout animation of this node takes its first step, once per animation (restarts in one task
@@ -1109,6 +1131,8 @@ interface NodeState {
   readonly id: string
   readonly element: HTMLElement
   readonly transition: () => Option.Option<LayoutTransition>
+  /** Its Path, read at each flight's start (#438). */
+  readonly path: () => Arc.Path | undefined
   /** The app's layout animation callbacks, read when they fire (#191, ADR-0039). */
   readonly onLayoutAnimationStart: () => Option.Option<() => void>
   readonly onLayoutAnimationComplete: () => Option.Option<() => void>
@@ -1549,13 +1573,38 @@ export const makeProjectionSystem = (
         // this one animation: reported, and the node lands, as reduced motion lands it.
         try {
           const timing = timingOf(Option.getOrElse(node.transition(), () => DEFAULT_LAYOUT_TRANSITION))
-          return { position: 0, elapsed: 0, spring: Spring.init({}), timing, started: false, landed: false }
+          return { position: 0, elapsed: 0, spring: Spring.init({}), timing, started: false, landed: false, curve: curveOf(node) }
         } catch (defect) {
           runtime.runFork(reportFailure("wardic.projection: layout transition rejected", Cause.die(defect)))
           return landedFlight()
         }
       },
     })
+  /** Where a flight's curve starts (#438): its origin's centre, as an offset from its box's; none without both. */
+  const curveFromOf = (node: NodeState): Point.Point => {
+    const origin = node.origin
+    const box = node.layoutBox
+    if (Predicate.isUndefined(origin)) return ZERO_POINT
+    if (Predicate.isUndefined(box)) return ZERO_POINT
+    const from = centreOf(origin)
+    const to = centreOf(box)
+    return { x: from.x - to.x, y: from.y - to.y }
+  }
+
+  /**
+   * A flight's curve (#438, Motion's `interpolateProjection`): its Path from where its centre starts to its
+   * box's, when it has one and moves 20 px or more; else none, and it goes straight.
+   */
+  const curveOf = (node: NodeState): FlightCurve | undefined => {
+    const path = node.path()
+    if (Predicate.isUndefined(path)) return undefined
+    const from = curveFromOf(node)
+    if (Math.hypot(from.x, from.y) < MIN_CURVE_DISTANCE) return undefined
+    const at = path(from, ZERO_POINT)
+    // It turns when its start gives a `rotate`, as an `arc()`'s with `rotate` does.
+    return { at, from, turns: Predicate.isNotUndefined(at(0).rotate) }
+  }
+
   /**
    * A drag's Release offset (ADR-0016, *Amendment (#140)*) on its drag transition. One core rejects
    * (#66) is reported, and the release starts at rest on the slot: the node lands there.
@@ -1639,6 +1688,9 @@ export const makeProjectionSystem = (
   const coordinator = runtime.runSync(FiberHandle.make<void, never>().pipe(Scope.provide(scope)))
   // Whether the coordinator's step is running: a stop from inside it settles the run.
   let inStep = false
+  // The turn a turning flight's curve gives at its target just placed (#438), for `derive` to draw:
+  // handed on as a number, so drawing a node never reads its flight, whose shape V8 sees change.
+  let curveTurn: number | undefined = undefined
   // The Measure pass (ADR-0018): whether one is queued for the end of this task,
   // whether one is running its rounds (a trigger then repeats it), whether a trigger
   // arrived during the current round, and the next-task leftover past the round cap.
@@ -1746,6 +1798,8 @@ export const makeProjectionSystem = (
    * drops that, so the gate restores the element's own `pointer-events` (#165). Asked here,
    * not by the callers, so no path that writes a Follower (a twin's first measure in the
    * same task as its Lead's, a crossfade's frames, a rest) leaves it taking input.
+   *
+   * `turn` is a turning flight's turn along its curve this frame (#438), when its target came from it.
    */
   const writeProjection = (
     node: NodeState,
@@ -1753,11 +1807,12 @@ export const makeProjectionSystem = (
     treeScale: Point.Point,
     opacity?: number,
     corrected?: Record<string, string>,
+    turn?: number,
   ): void => {
     node.fade = opacity
     const follower = isFollower(node)
     // A handover's blend (ADR-0010 *Amendment (#166)*): its rotation, and a Switch's opacity.
-    const rotate = rotateOverrideOf(node, follower)
+    const rotate = rotateOverrideOf(node, follower, turn)
     const blendOpacity = switchOpacityOf(node, opacity, follower)
     node.drawnOpacity = drawnOpacityAt(node, opacity, blendOpacity)
     const value = projectionValue(delta, treeScale, opacity, raiseOf(node), follower, rotate, blendOpacity)
@@ -2005,12 +2060,33 @@ export const makeProjectionSystem = (
     return blendRadius(blend.radius, own, blendProgressOf(node))
   }
 
-  /** Where a Lead's rotation is drawn: its blend's eased into its own, or its own. Per frame. */
+  /**
+   * Where a Lead's rotation is drawn: its blend's eased into its own, or its own, and a flight along a
+   * Path that turns it adds its turn (#438, Motion's `pathRotation`). Per frame, on a Follower's and a
+   * blending Lead's path only: a plain node's turn comes to {@link writeProjection} from its curve.
+   */
   const leadRotateOf = (node: NodeState): number => {
-    const own = node.ownRotate()
+    const own = node.ownRotate() + flightTurnOf(node)
     const blend = node.blend
     if (Predicate.isUndefined(blend)) return own
     return blend.rotate + (own - blend.rotate) * blendProgressOf(node)
+  }
+
+  /** Whether `node` is flying along a Path that turns it (#438): its flight, cleared as it settles, says so. Per frame. */
+  const turning = (node: NodeState): boolean => {
+    const flight = node.flight
+    if (Predicate.isUndefined(flight)) return false
+    const curve = flight.curve
+    if (Predicate.isUndefined(curve)) return false
+    return curve.turns
+  }
+
+  /** A turning flight's turn at its progress (#438), in degrees; 0 for any other node. Per frame. */
+  const flightTurnOf = (node: NodeState): number => {
+    if (Bool.not(turning(node))) return 0
+    const turn = UndefinedOr.getOrThrow(UndefinedOr.getOrThrow(node.flight).curve).at(progressOf(node)).rotate
+    if (Predicate.isUndefined(turn)) return 0
+    return turn
   }
 
   /** The Lead `node` follows, or `undefined` for a Lead or a node in no stack. Per frame. */
@@ -2041,11 +2117,20 @@ export const makeProjectionSystem = (
     return drawnOpacityOf(node)
   }
 
-  /** The rotation `node`'s projection draws in place of its own: a Follower's Lead's, a blending Lead's. Per frame. */
-  const rotateOverrideOf = (node: NodeState, follower: boolean): number | undefined => {
+  /**
+   * The rotation `node`'s projection draws in place of its own: a Follower's Lead's, a blending Lead's,
+   * its own with a turning flight's `turn` (#438). Per frame.
+   */
+  const rotateOverrideOf = (node: NodeState, follower: boolean, turn: number | undefined): number | undefined => {
     if (follower) return UndefinedOr.map(followedLeadOf(node), leadRotateOf)
-    if (Predicate.isUndefined(node.blend)) return undefined
+    if (Predicate.isUndefined(node.blend)) return turnedRotateOf(node, turn)
     return leadRotateOf(node)
+  }
+
+  /** A node with no blend: its own rotation and `turn`, a turning flight's (#438), else none drawn over its own. */
+  const turnedRotateOf = (node: NodeState, turn: number | undefined): number | undefined => {
+    if (Predicate.isUndefined(turn)) return undefined
+    return node.ownRotate() + turn
   }
 
   /**
@@ -2314,8 +2399,11 @@ export const makeProjectionSystem = (
       return
     }
 
-    // Where its layout puts it, moved by its Release offset while one runs.
+    // Where its layout puts it, moved by its Release offset while one runs, and the turn its curve
+    // gives there (#438).
+    curveTurn = undefined
     const targetBox = releasedOf(node, layoutTargetOf(node, box))
+    const turn = curveTurn
     const { box: layoutCorrected, treeScale } = Projection.applyTreeDeltas(box, ancestorDeltas(node))
     // delta source is the element's REAL box pushed through ancestor transforms;
     // target is where it should appear.
@@ -2326,7 +2414,7 @@ export const makeProjectionSystem = (
     // progress); otherwise none (a plain/switch node — user opacity passes through).
     // Scale-correct border-radius/box-shadow at the true visual scale (ADR-0011).
     const corrected = correctionsFor(node, delta.x.scale * treeScale.x, delta.y.scale * treeScale.y)
-    writeProjection(node, delta, treeScale, leadOpacity(node), corrected)
+    writeProjection(node, delta, treeScale, leadOpacity(node), corrected, turn)
   }
 
   /**
@@ -2359,10 +2447,37 @@ export const makeProjectionSystem = (
       return Projection.placeRelativeBox(relTarget, rp.lastTarget, anchor)
     }
     // ABSOLUTE: own viewport interpolation (no animating pure-translate ancestor).
-    if (flying(node)) return Box.mix(UndefinedOr.getOrThrow(node.origin), box, progressOf(node))
+    if (flying(node)) return curvedMix(node, box)
     // CARRIED under a SCALED ancestor / at rest: target the real box — applyTreeDeltas
     // supplies the counter-transform.
     return box
+  }
+
+  /**
+   * A flying node's target at its progress: its origin mixed to `box`, and with a Path (#438), its
+   * curve's bulge off that straight line added, so its centre follows the curve and its size goes
+   * straight. Per frame: one point the path makes.
+   */
+  const curvedMix = (node: NodeState, box: Box.Box): Box.Box => {
+    // Flying: its origin and flight are there, and its progress is its flight's.
+    const flight = UndefinedOr.getOrThrow(node.flight)
+    const mixed = Box.mix(UndefinedOr.getOrThrow(node.origin), box, flight.position)
+    const curve = flight.curve
+    if (Predicate.isUndefined(curve)) return mixed
+    return alongCurve(curve, mixed, flight.position)
+  }
+
+  /**
+   * `mixed`, the straight line's box at `progress`, moved onto `curve`: by the curve's point less the
+   * straight line's offset there. Its turn there, when it turns, is left for `derive` ({@link curveTurn}).
+   * Kept out of {@link curvedMix}, which every flight runs, so that stays small to inline
+   * (docs/agents/effect-first.md: a hot caller's size costs the rest).
+   */
+  const alongCurve = (curve: FlightCurve, mixed: Box.Box, progress: number): Box.Box => {
+    const at = curve.at(progress)
+    curveTurn = at.rotate
+    const rest = 1 - progress
+    return translateBox(mixed, at.x - curve.from.x * rest, at.y - curve.from.y * rest)
   }
 
   /** The point of a node's box its relativeParent tracks: its `layoutAnchor`, top-left by default. Per frame. */
@@ -4592,6 +4707,7 @@ export const makeProjectionSystem = (
     id: "", // a leaving Follower is driven via the Renderer, not the gate — no id needed
     element: el,
     transition: Option.none,
+    path: constUndefined,
     // A Follower's callbacks never fire: a handover is its Lead's (#191).
     onLayoutAnimationStart: NO_CALLBACK,
     onLayoutAnimationComplete: NO_CALLBACK,
@@ -5102,6 +5218,7 @@ export const makeProjectionSystem = (
       id: opts.id,
       element: opts.element,
       transition: opts.transition,
+      path: UndefinedOr.match(opts.path, { onUndefined: () => constUndefined, onDefined: identity }),
       onLayoutAnimationStart: UndefinedOr.match(opts.onLayoutAnimationStart, { onUndefined: () => NO_CALLBACK, onDefined: identity }),
       onLayoutAnimationComplete: UndefinedOr.match(opts.onLayoutAnimationComplete, { onUndefined: () => NO_CALLBACK, onDefined: identity }),
       onReleaseEnd: UndefinedOr.match(opts.onReleaseEnd, { onUndefined: () => NO_CALLBACK, onDefined: identity }),

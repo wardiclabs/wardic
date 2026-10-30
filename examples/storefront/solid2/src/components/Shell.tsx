@@ -3,7 +3,7 @@ import { revalidate } from "@solidjs/router"
 import type { JSX } from "@solidjs/web"
 import type { Settings } from "@wardic/example-storefront-shared/server"
 import { COG, ICON, turnOf } from "@wardic/example-storefront-shared/micro"
-import { AnimatePresence, ward, wardic } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, arc, ward, wardic } from "@wardic/solid/unstable/v2"
 import { action, createEffect, createMemo, createSignal, For, Loading, Show } from "solid-js"
 import { type Arrival, arrivalId, arrivals, landed } from "~/lib/arrivals.ts"
 import { type Theme, usePreferences } from "~/lib/preferences.tsx"
@@ -103,6 +103,9 @@ function CartButton() {
   )
 }
 
+// The flight into the cart bows along an arc (#438), one value for every flight, as its side is kept.
+const TOSS = arc()
+
 /**
  * A piece moved to the cart from Saved for later: its photo's twin, sharing its row photo's
  * `layoutId`, so Wardic flies it here from the row it left. Landed, it shrinks into the icon.
@@ -117,7 +120,7 @@ function CartArrival(props: { readonly piece: Arrival }) {
       wardRef={flight}
       src={props.piece.src}
       alt=""
-      transition={{ layout: { type: "tween", duration: 0.6, ease: [0.45, 0, 0.55, 1] } }}
+      transition={{ layout: { type: "tween", duration: 0.6, ease: [0.45, 0, 0.55, 1], path: TOSS } }}
       exit={{ scale: 0.3, opacity: 0, transition: { type: "tween", duration: 0.25 } }}
     />
   )
