@@ -303,6 +303,9 @@ const pin = (el: HTMLElement, box: PopBox): void => {
   style.setProperty("height", `${box.height}px`, "important")
   style.setProperty("top", `${box.top}px`, "important")
   style.setProperty(box.side, `${box.start}px`, "important")
+  // Out of the flow over what took its place, it takes none of its clicks (#486). Not Motion's: its
+  // popped child still takes input. It's never unpinned: a child that comes back is a new element.
+  style.setProperty("pointer-events", "none", "important")
 }
 
 /** The element its first child sits in, if it's one (#277's PR 5c). */
@@ -311,6 +314,41 @@ const parentElementOf = (placed: ReadonlyArray<Placed>): Element | undefined =>
     if (parent instanceof Element) return parent
     return undefined
   })
+
+/**
+ * The children in Motion's order for a change (#486, its `AnimatePresence`, #3746 there): `now`, with
+ * each of `before`, the children as they were, leavers still exiting among them, that isn't in `now`
+ * put back right after the staying child it followed, after the others put back there; first, when it
+ * followed none.
+ */
+const orderOf = (before: ReadonlyArray<HTMLElement>, now: ReadonlyArray<HTMLElement>): ReadonlyArray<HTMLElement> => {
+  const at = new Map(Arr.map(now, (el, i) => [el, i] as const))
+  return Arr.reduce(before, { order: [...now], next: 0, back: 0 }, (acc, el) =>
+    UndefinedOr.match(at.get(el), {
+      onUndefined: () => {
+        acc.order.splice(acc.next, 0, el)
+        return { order: acc.order, next: acc.next + 1, back: acc.back + 1 }
+      },
+      onDefined: (i) => ({ order: acc.order, next: i + acc.back + 1, back: acc.back }),
+    })).order
+}
+
+/**
+ * Where the leaver at `i` in `order` goes back (#486): right after the nearest child before it that's on
+ * the page, or before the nearest one after it; where it was, with neither.
+ */
+const backPlaceOf = (placed: Placed, order: ReadonlyArray<HTMLElement>, i: number): Placed => {
+  const before = Arr.findLast(Arr.take(order, i), (el) => el.isConnected)
+  const after = Arr.findFirst(Arr.drop(order, i + 1), (el) => el.isConnected)
+  return Option.match(before, {
+    onSome: (el) => ({ el: placed.el, parent: Option.getOrUndefined(Option.fromNullOr(el.parentNode)), next: Option.getOrUndefined(Option.fromNullOr(el.nextSibling)) }),
+    onNone: () =>
+      Option.match(after, {
+        onSome: (el) => ({ el: placed.el, parent: Option.getOrUndefined(Option.fromNullOr(el.parentNode)), next: el }),
+        onNone: () => placed,
+      }),
+  })
+}
 
 /** Put a retained node back into the parent it left: before its old next sibling while that's still there, else at the end. */
 const reinsert = (el: Node, parent: ParentNode, next: ChildNode | undefined): void => {
@@ -914,6 +952,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
 
   // The children present at the last change, and where each was, to retain one as it leaves.
   let previous: ReadonlyArray<Placed> = []
+  // The children as the last change left them (#486): those on the page, the leavers among them.
+  let rendered: ReadonlyArray<HTMLElement> = []
 
   // Teardown: interrupt every in-flight exit + remove retained nodes, the twins they handed back
   // dropped with them (no leaks). Every child running its own exit is in `pending`.
@@ -968,8 +1008,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     UndefinedOr.map(placed.parent, (parent) => reinsert(placed.el, parent, placed.next))
   }
 
-  /** A child that left: retained in its place, and exiting, unless it's leaving already. */
-  const left = (placed: Placed): void => {
+  /** A child that left: retained at `back` (#486), and exiting, unless it's leaving already. */
+  const left = (placed: Placed, back: Placed): void => {
     const el = placed.el
     const rec = registry.get(el)
     // The presence hooks inside it (#277's PR 5b): told it left; `usePresence`'s hold it until released.
@@ -989,10 +1029,10 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     }
     if (Bool.or(exiting.has(el), pending.has(el))) return
     leaveStarts(el)
-    // RE-INSERT: Solid's branch disposal may have already removed the node. Put it back where it was,
-    // so the parent-driven exit has a mounted node to animate.
-    putBack(placed)
-    places.set(el, placed)
+    // RE-INSERT: Solid's branch disposal may have already removed the node. Put it back, so the
+    // parent-driven exit has a mounted node to animate: at `back`, moved there if Solid left it in.
+    UndefinedOr.map(back.parent, (parent) => reinsert(el, parent, back.next))
+    places.set(el, placedOf(el))
     // `popLayout` (#277): out of the flow where it was, so the children after it take their places.
     popOut(el)
     // A twin it is or holds left with none to take it over yet (ADR-0010 *Amendment (#482)*): its
@@ -1209,9 +1249,15 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       })
       settleTakeovers()
     }
-    // The children that left, the last first: each goes back before its old next sibling, which, if
-    // it left too, is back already, so neighbours leaving together keep their order.
-    Arr.forEach(Arr.reverse(Arr.filter(previous, (placed) => Bool.and(Bool.not(kept.has(placed.el)), Bool.not(takenOver.has(placed.el))))), left)
+    // The children that left go back in Motion's order (#486): each right after the staying child it
+    // followed before the change, after the leavers back there already; first, when it followed none.
+    // Leavers from earlier changes, still exiting, keep their places in it.
+    const gone = new Map(Arr.map(Arr.filter(previous, (placed) => Bool.and(Bool.not(kept.has(placed.el)), Bool.not(takenOver.has(placed.el)))), (placed) => [placed.el, placed] as const))
+    const before = Arr.filter(rendered, (el) => Bool.or(Bool.or(kept.has(el), gone.has(el)), Bool.and(el.isConnected, Bool.not(takenOver.has(el)))))
+    const listed = new Set(before)
+    const order = orderOf(Arr.appendAll(before, Arr.filter(Arr.map(previous, (placed) => placed.el), (el) => Bool.not(listed.has(el)))), now)
+    Arr.forEach(order, (el, i) => UndefinedOr.map(gone.get(el), (placed) => left(placed, backPlaceOf(placed, order, i))))
+    rendered = Arr.filter(order, (el) => el.isConnected)
     // A child still exiting that the framework took out since (a list emptied) goes back too.
     Arr.forEach(Arr.fromIterable(places.values()), putBack)
     previous = Arr.map(now, placedOf)

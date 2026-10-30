@@ -14,6 +14,7 @@
 //   it: the page is in at once with its skeleton, the old one leaving, and the hero flies from the
 //   card while the data loads; the data then takes the skeleton's place.
 // - RTV6 (#482): the leaving page's card rides the hero's flight, then goes with its page.
+// - RTV7 (#486): a point over the new page mid-transition hits it, not the popped list.
 import type { JSX } from "@solidjs/web"
 import { createRouter, memoryHistory, useNavigate, useParams } from "@solidjs/router-2"
 import { DomLive } from "@wardic/dom"
@@ -232,5 +233,21 @@ describe("page transitions with Solid Router on Solid 2 (#479)", () => {
     expect(worst, "the card off the hero, px").toBeLessThan(0.75)
     await until(() => Bool.not(list.isConnected), 2000)
     expect(list.isConnected, "the list gone with its card").toBe(false)
+  })
+
+  it("RTV7: a point over the new page mid-transition hits it, not the popped list over it (#486)", async () => {
+    const app = mountRoutes([{ path: "/", component: List }, { path: "/item/:id", component: Item }], "popLayout")
+    await until(() => app.el("card") !== null, 2000)
+    await frames(3)
+    const list = app.pages()[0]!
+    app.navigate("/item/3")
+    await until(() => app.pages().some((p) => p.dataset.page === "item"), 2000)
+    await frames(3)
+    const item = app.pages().find((p) => p.dataset.page === "item")!
+    expect(list.isConnected, "the list still leaving").toBe(true)
+    expect(app.pages().map((p) => p.dataset.page), "the leaving list before the new page").toEqual(["list", "item"])
+    const r = item.getBoundingClientRect()
+    const hit = document.elementFromPoint(r.left + 150, r.top + 100)?.closest<HTMLElement>("[data-page]")
+    expect(hit?.dataset.page, "the point hits the new page").toBe("item")
   })
 })

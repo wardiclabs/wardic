@@ -26,8 +26,9 @@
 //   size, every frame of its exit. Before, the card's scale stretched it (66 px drawn 141 px tall).
 // - PL15: its exit's own translate is drawn on the correction.
 // - PL16: the card landing first, it rests at its own box for the rest of its exit.
-// - PL17: `sync` too: a child entering before it grows the card, and the leaver keeps its own size,
-//   from where it was to its new place. Before, the card's scale squashed it.
+// - PL17: `sync` too: a child entering grows the card, and the leaver keeps its own size, and its
+//   place, first, the child that entered below it (#486, Motion's order). Before, the card's scale
+//   squashed it.
 // - PL18: `sync`, a child leaving while its card is already growing (no Measure pass at the leave):
 //   corrected from the next frame on, not left with its last correction as the card's scale moves on.
 import { cleanup, render } from "@solidjs/testing-library"
@@ -394,7 +395,7 @@ describe('AnimatePresence mode="popLayout" on Solid 1 (#277)', () => {
     expect(transformed(a), "nothing left of the card's correction").toBe(false)
   })
 
-  it("PL17: sync: a child entering before the leaver grows the card, and the leaver keeps its own size", async () => {
+  it("PL17: sync: a child entering grows the card, and the leaver keeps its own size and its place", async () => {
     const t = mountCard(["b"], { mode: "sync", card: { type: "tween", duration: 1, ease: "linear" }, exit: { opacity: 0 }, answer: { type: "tween", duration: 1 } })
     await frames(5)
     const b = t.node("b")
@@ -403,15 +404,18 @@ describe('AnimatePresence mode="popLayout" on Solid 1 (#277)', () => {
     await raf()
     expect(rectOf(b).top, "its first frame where it was").toBeCloseTo(was.top, 0)
     const heights: Array<number> = []
+    const tops: Array<number> = []
     await until(() => {
       if (Bool.not(transformed(t.card))) return true
       if (Bool.not(b.isConnected)) return true
       heights.push(rectOf(b).height)
-      return Math.abs(rectOf(b).top - (was.top + was.height)) < 0.5
+      tops.push(rectOf(b).top)
+      return false
     }, 3000)
     expect(heights.length, "frames the card grew around it").toBeGreaterThan(5)
     expect(Arr.every(heights, (height) => Math.abs(height - was.height) < 0.5), `its own size: ${heights.join(", ")}`).toBe(true)
-    expect(rectOf(b).top, "at its new place, under the child that entered").toBeCloseTo(was.top + was.height, 0)
+    expect(Arr.every(tops, (top) => Math.abs(top - was.top) < 0.5), `its place, first: ${tops.join(", ")}`).toBe(true)
+    expect(t.node("a").getBoundingClientRect().top, "the child that entered below it").toBeGreaterThanOrEqual(was.top + was.height - 0.5)
   })
 
   it("PL18: sync: a child leaving while its card is already growing is corrected from the next frame on", async () => {
