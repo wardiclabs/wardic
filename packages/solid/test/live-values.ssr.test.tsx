@@ -8,7 +8,12 @@
 // - SL6: createScroll, createVelocity and createTime read 0 on a server, and run nothing (#234).
 // - SL7: createSpring reads its source on a server, with or without `skipInitialAnimation`; its `jump`
 //   does nothing, and the source accessor isn't given one (#257 item 7).
-import { createScroll, createSpring, createTime, createVelocity, createWard, wardic } from "@wardic/solid"
+// - SL8: createFollowValue reads its source on a server, a unit string as it is, on any transition; its
+//   `jump` does nothing (#441).
+// - SL9: `createFollowValue`'s inertia takes Motion's `timeConstant`, in milliseconds, and hands core
+//   seconds (#441, as a `transition`'s, #435); its other fields go as they are.
+import { createFollowValue, createScroll, createSpring, createTime, createVelocity, createWard, wardic } from "@wardic/solid"
+import { followOptionsOf } from "../src/live-style.ts"
 import { Atom } from "effect/reactivity"
 import type { JSX } from "solid-js"
 import { describe, expect, it } from "vitest"
@@ -71,5 +76,27 @@ describe("Live values in a server render (#130)", () => {
     expect(read).toEqual([40, 40])
     expect(div?.style["transform"]).toBe("translateX(40px)")
     expect("jump" in source, "the user's accessor is wrapped, not given a jump").toBe(false)
+  })
+
+  it("SL8: createFollowValue reads its source on a server, a unit string as it is; its jump does nothing (#441)", () => {
+    let read: Array<number | string> = []
+    function Follows(): JSX.Element {
+      const tween = createFollowValue(() => 40, { type: "tween", duration: 0.4 })
+      const width = createFollowValue(() => "10px", { delay: 0.2 })
+      const glide = createFollowValue(() => 5, { type: "inertia", velocity: 100 })
+      tween.jump(10)
+      width.jump("2px")
+      read = [tween(), width(), glide()]
+      return <wardic.div style={{ x: tween, width }} />
+    }
+    const div = first(serve(() => <Follows />), "div")
+    expect(read).toEqual([40, "10px", 5])
+    expect([div?.style["transform"], div?.style["width"]]).toEqual(["translateX(40px)", "10px"])
+  })
+
+  it("SL9: an inertia's timeConstant is Motion's milliseconds, core's seconds; the other fields go as they are (#441)", () => {
+    expect(followOptionsOf({ type: "inertia", velocity: 100, timeConstant: 200 })).toEqual({ type: "inertia", velocity: 100, timeConstant: 0.2 })
+    expect(followOptionsOf({ type: "inertia", velocity: 100 })).toEqual({ type: "inertia", velocity: 100 })
+    expect(followOptionsOf({ type: "tween", duration: 0.4, delay: 0.1 })).toEqual({ type: "tween", duration: 0.4, delay: 0.1 })
   })
 })

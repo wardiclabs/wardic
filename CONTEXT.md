@@ -443,6 +443,10 @@ _Avoid_: resume, takeover, sync.
 A value the user moves themselves, given in `style`. It's the key's `style` link (**Base value**): the element follows it on every change while no entry of the **Override stack** sets the key, and an entry that lets go returns the key to where the Live value is then.
 _Avoid_: motion value (Motion's name, for a value the engine writes into), signal, atom (its forms).
 
+**Follow value**:
+A **Live value** that animates on a transition toward its source's latest value, from wherever it is when the source changes (Motion's `useFollowValue`, Wardic's `createFollowValue`). A spring one is `createSpring`'s.
+_Avoid_: follower (a **Shared layout** twin that isn't the **Lead**), spring value (one kind of it).
+
 **Base value**:
 The value a key returns to when no layer of the Override stack (`animate`, an inherited variant, the gestures) sets it any more. In order: the key's `initial` value, its value in the element's `style`, then its **Own value** (ADR-0022). With `initial={false}`, a key the element started at from `animate`: its `style` value, then the value it started at (#134, Motion's `baseTarget`). A key with no value yet starts from the same links (`initial` already seeds the Snapshot). A key at rest at its `style` value follows a later `style` change. While any entry of the Override stack sets a key, the element shows Wardic's value whatever its `style` says: `style` is the key's fallback, never an override (#79).
 _Avoid_: default (a transform key's Identity, which is one kind of Own value), fallback.

@@ -176,6 +176,7 @@ A `layoutId` twin that mounts while its other twin is still leaving under `<Anim
 | solid-motionone's `<Presence>` | `<AnimatePresence>` |
 | `useMotionValue(0)` | a signal (or an `effect/reactivity` Atom), given in `style` |
 | `useTransform(value, input, output, { clamp, ease, mixer })` | `createTransform(value, input, output, { clamp, ease, mixer })` |
+| `useFollowValue(value, transition)` | `createFollowValue(value, transition)`, `duration` and `delay` in seconds |
 | `useSpring(value, options)`, `.jump(v)`, `skipInitialAnimation` | `createSpring(value, options)`, the same `jump(v)` and option |
 | `useScroll({ container, target, offset })` | `createScroll({ container, target, offset })` |
 | `useVelocity(value)` | `createVelocity(value)` |
@@ -334,6 +335,20 @@ function Follower() {
 }
 ```
 
+`createFollowValue(value, transition)` follows a value on any transition, as Motion's `useFollowValue` (#441, ADR-0043), and `createSpring` is its spring case:
+
+```tsx
+const eased = createFollowValue(x, { type: "tween", duration: 0.4, ease: "easeOut" })
+const width = createFollowValue(() => `${open() ? 320 : 120}px`) // a spring, shown in px
+```
+
+- **What a transition leaves out is Motion's follower's.** No `type` is a spring, of 100 / 10 / 1 unless it's set by time, at rest within 0.001. `{ duration: 0.5 }` is a time-based spring, and so is `{ duration: 0.5, ease: "easeOut" }`: its `ease` isn't read. `type: "tween"` is 0.3 s `easeInOut`.
+- **`createSpring` follows the same defaults:** with no physics it bounces as `useSpring` does, overshooting about 16%, and one with no rest thresholds settles within 0.001.
+- **A change while it moves:** a spring steers toward it, keeping its velocity. A tween starts again from where it is, with its full duration and ease. An inertia glides again from there, its target unread (#435). A `velocity` given is the one each run starts or steers with.
+- **`delay` is a debounce:** each change holds the value where it is for `delay`, then it goes on toward the latest, so a source that never rests doesn't move it until it does.
+- **A string with a unit** (`"10px"`) is followed as its number, shown with the unit it started with, as Motion's: a later `"2em"` is followed as `2px`. `jump` takes a string then.
+- **Times are in seconds,** as every Wardic transition. Motion's follower reads `duration` and `delay` in milliseconds, which its own docs don't, so a ported `duration: 500` is `0.5` here.
+
 Scroll, velocity and time are Live values too, and `onUpdate` reports every value Wardic draws for an element once a frame:
 
 ```tsx
@@ -416,7 +431,7 @@ function Badge(props: { open: boolean }) {
   ```
 - A kept ward has `card.Provider` (its Variant children inherit its variant names), `card.read("x")` (an accessor of the element's value, where Solid 1's ward has `ward.value`) and `card.atom("x")`. Their keys complete from the config: every key it animates or styles, through `initial`, `animate`, `exit`, its variants, `whileHover`, `whileTap`, `whileDrag` and `style`, and `x`/`y` when it drags. Any other key is accepted too.
 - Sensors are refs too, and called with nothing they give their reading: `const hovered = createHover()`, then `<div ref={hovered}>` and `hovered()`. There are `createHover`, `createPress`, `createFocus`, `createInView` and `createDrag`, plus `createReducedMotion()`, which isn't a ref. Several go in one ref array beside a ward: `ref={[card, hovered]}`.
-- The Live value helpers (`createTransform`, `createSpring`, `createVelocity`, `createTime`, `createScroll`) work as on Solid 1. Make them in a component's body, not inside JSX. When one is derived from a ward's `read(key)` or another helper, it carries that value's Atom, so a `style` given it moves in the same frame as its source: `createTransform(card.read("x"), [0, 200], [1, 0])` fades another element exactly as the card moves.
+- The Live value helpers (`createTransform`, `createFollowValue`, `createSpring`, `createVelocity`, `createTime`, `createScroll`) work as on Solid 1. Make them in a component's body, not inside JSX. When one is derived from a ward's `read(key)` or another helper, it carries that value's Atom, so a `style` given it moves in the same frame as its source: `createTransform(card.read("x"), [0, 200], [1, 0])` fades another element exactly as the card moves.
 - **A config from async data.** A key the ward reads as it goes (`animate`, `while*`, `transition`, `style`, `custom`) may read an async memo. The ward's region waits for it under `<Loading>`, as for any async read, and the ward then plays from its `initial` to the fetched target; a refetch keeps the last target until the new one lands. Give it the memo, not a function that fetches: an accessor is called at every read, so one that returns a promise is an error. The keys a ward fixes when it's made (`initial`, `layout`, `drag`…) must be ready, and one still loading is an error naming it.
 
   ```tsx

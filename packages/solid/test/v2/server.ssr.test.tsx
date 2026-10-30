@@ -27,6 +27,8 @@
 //   Motion's swipe card, its opacity derived from its own `read("x")`; and `read(key)` rests there.
 // - SV19 (#257 item 7): `createSpring` reads its source, with or without `skipInitialAnimation`; its
 //   `jump` does nothing, and the source accessor isn't given one.
+// - SV24 (#441): `createFollowValue` reads its source, a unit string as it is, on any transition; its
+//   `jump` does nothing.
 // - SV20 (#349): a ward given to a component's `wardRef` renders its Starting style on the element,
 //   the component's `style` over it; on `wardic.circle` its attribute keys render as attributes (the
 //   component's tag); under `<AnimatePresence initial={false}>` it starts at `animate` (the
@@ -51,6 +53,7 @@ import {
   createInView,
   createPress,
   createReducedMotion,
+  createFollowValue,
   createScroll,
   createSpring,
   createTime,
@@ -517,5 +520,22 @@ describe("ward(config) and wardic.* on a server (ADR-0021)", () => {
     const [li] = named(serve(() => <Rows />), "li")
     expectStartingStyle(li, { opacity: 0.25 })
     expect(li?.attrs.tabindex).toBe("-1")
+  })
+
+  it("SV24: createFollowValue reads its source on a server, a unit string as it is; its jump does nothing (#441)", () => {
+    let readings: Array<number | string> = []
+    const Scene = () => {
+      const tween = createFollowValue(() => 40, { type: "tween", duration: 0.4 })
+      const width = createFollowValue(() => "10px", { delay: 0.2 })
+      const glide = createFollowValue(() => 5, { type: "inertia", velocity: 100 })
+      tween.jump(10)
+      width.jump("2px")
+      readings = [tween(), width(), glide()]
+      const card = ward({ style: { x: tween, width } })
+      return <div {...card} data-card />
+    }
+    const [card] = named(serve(() => <Scene />), "div")
+    expect(readings).toEqual([40, "10px", 5])
+    expect([card?.style["transform"], card?.style["width"]]).toEqual(["translateX(40px)", "10px"])
   })
 })
