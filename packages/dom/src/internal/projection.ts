@@ -1026,6 +1026,13 @@ export interface ProjectionSystem extends Inspectable.Inspectable {
    */
   readonly keepLeaving: (el: HTMLElement, taken: LateTaken) => () => void
   /**
+   * Whether a twin that `el` is, or holds, left in this task with no live twin in its stack yet
+   * (ADR-0010 *Amendment (#482)*): a twin arriving later in the same update takes it over, so a
+   * presence decides on `el`'s leave at the task's end, when {@link handleLeave} or
+   * {@link handBackWithin} finds that twin.
+   */
+  readonly awaitsTwin: (el: HTMLElement) => boolean
+  /**
    * Register an element's values (ADR-0012, *Amendment (#137)*): a binding hands every element's,
    * read from what it last wrote, so a `layoutId` twin's flight follows the translate and scale
    * Wardic animates on its ancestors each frame, an element that isn't a projection node included.
@@ -4615,7 +4622,9 @@ export const makeProjectionSystem = (
     stack.splice(stack.length - 1, 0, follower) // insert below the Lead
     reintroduceWithin(el)
     computeTree()
-    if (active.has(lead)) {
+    // A Lead in its handover rides it now; one not measured yet takes over from it at its first measure,
+    // as from a live twin (#482).
+    if (takesOver(lead)) {
       deriveAll()
       return true
     }
@@ -4623,12 +4632,34 @@ export const makeProjectionSystem = (
     return true
   }
 
+  /** Whether a Lead takes over a twin brought back below it: in its handover, or not measured yet (#482). */
+  const takesOver = (lead: NodeState): boolean => Bool.or(active.has(lead), Predicate.isUndefined(lead.retained))
+
+  /** Whether `layoutId`'s stack holds a twin that isn't leaving. */
+  const hasLiveTwin = (layoutId: string): boolean =>
+    UndefinedOr.match(stacks.get(layoutId), { onUndefined: constFalse, onDefined: (stack) => Arr.some(stack, (node) => Bool.not(node.leaving)) })
+
+  /** A leaver held this task, a twin that `el` is or holds, with no live twin yet (#482). */
+  const doAwaitsTwin = (el: HTMLElement): boolean =>
+    Iter.some(leavers.values(), (leaver) =>
+      Arr.every(
+        [
+          Bool.not(leaver.pastTask),
+          Bool.not(leaver.reintroduced),
+          Predicate.isNotUndefined(leaver.last),
+          el.contains(leaver.element),
+          UndefinedOr.match(leaver.twin, { onUndefined: constFalse, onDefined: (twin) => Bool.not(hasLiveTwin(twin.layoutId)) }),
+        ],
+        identity,
+      ))
+
   /**
    * The twins inside a leaver presence re-introduced, disposed with it, come back too (#5): each
    * a leaving Follower of its own Lead, so a twin inside a closing container stays locked onto its
    * Lead, corrected for the container's scale, until the container goes. Motion keeps an exiting
    * subtree mounted, so its twins go on projecting; Solid disposes them before presence asks.
-   * Only one whose Lead is in a handover, which removes it as it settles; a twin presence leaves
+   * Only one whose Lead is in a handover, which removes it as it settles, or not measured yet, whose
+   * first measure begins that handover (#482); a twin presence leaves
    * itself, or already re-introduced, is left alone. Its layout nodes with no `layoutId` come back
    * as nodes it carries, corrected for its lock, and go with it (#169).
    */
@@ -4656,7 +4687,7 @@ export const makeProjectionSystem = (
       if (Predicate.isUndefined(lead)) return
       if (Predicate.isUndefined(stack)) return
       if (lead.element === inner) return
-      if (Bool.not(active.has(lead))) return
+      if (Bool.not(takesOver(lead))) return
       const twin = makeLeavingNode(inner, held.layoutId, last, () => undefined, undefined, chainOf(held))
       recent.reintroduced = true
       addNode(twin)
@@ -5321,6 +5352,7 @@ export const makeProjectionSystem = (
     handleLeave,
     handBackWithin,
     keepLeaving,
+    awaitsTwin: doAwaitsTwin,
     dispose,
     registerValues,
     rootBoxOf,

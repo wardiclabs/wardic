@@ -620,3 +620,47 @@ Motion's `<LayoutGroup id>` puts its members' `layoutId`s in a namespace, so two
   - Markup: a group with no `id` providing a context, which SV15's hydration keys catch.
 
 **Measured:** `bench:solid` against `main` (`d0e107d`, 11 paired reps, noise control +0.1%) passed on both bindings, flat. The workload has no `<LayoutGroup>`, so this is the context read each ward makes. Solid 1 / Solid 2: warm Retarget +1.0% / −0.1%, bytes +0.4% / +0.2%, retained +0.0% / +0.0%, layout scenes flat.
+
+## Amendment (#482, 2026-10-30): twins swapped in one update crossfade
+
+A `layoutId` swap inside an `<AnimatePresence>`, the new twin arriving in the same update as its partner leaves, never crossfaded. Found building #479's storefront page transitions: the list's card stayed where it was, fading with its page, while the hero grew out of it; Motion's travelled with the hero. Grilled 2026-10-30 (#482, Q1–Q3).
+
+**Why it happened** (traced on Solid 1): Solid disposes the old twin and runs the presence's leave *before* the new twin registers. The presence offered the leaver to the engine (`handleLeave`, or `handBackWithin` for a twin inside a leaving page) with no Lead in its stack yet, and the engine declined. The new twin then took the leaver's Switch seed, a flight with no Follower (the Switch is for twins that never coexist), while the leaver ran its own exit where it stood. With no `exit`, the presence removed the leaver in the same task, and that removal for good dropped its seed (*Amendment (#402)*, decision 3) before the new twin registered, so nothing flew. Solid 2 can register the new twin first; the engine then found a Lead not measured yet, and ended the Follower at once.
+
+**Motion:** the old element's `relegate()` finds no other member and stays in its stack, its removal deferred to `postRender` and made only if no twin joined (`MeasureLayout`, `NodeStack`). The new element's `promote()` makes it `prevLead`: the new one resumes from its snapshot and crossfades, the old one drawn on its flight, removed when the Lead's animation completes.
+
+**Decisions:**
+1. **The partner joins the flight** (Q1: A), as Motion's does and as *Amendment (#402)* has for a twin that comes late: a leaver still on the page under its presence is the new twin's Follower, whichever registers first, drawn on its flight every frame, fading out as it fades in, and gone when the handover ends. For a twin that is the presence's child, and for one inside a leaving page.
+   - Rejected: B, keeping the Switch; C, crossfading only a leaver with no `exit`.
+2. **A leaver that is or holds a twin, with none to take it over yet, is decided at the end of its task** (Q2: A): kept on the page till then, an exit-less one too, then crossfaded onto a twin that arrived in the update, else exiting, or removed. The window a Switch seed already has (*Amendment (#13)*); nothing is painted meanwhile. Under `mode="wait"` the next child still enters once the leaver has gone (WT11).
+   - Rejected: B, one frame, as Motion's `postRender` (a frame's overlap when no twin comes); C, removal at once with the seed kept.
+3. **The crossfade replaces a joining twin's own `exit`** (Q3: A), as when the Lead was on screen first (S3, PH6/#290): it stays at full strength while the new twin fades in, so the pair is never see-through, and the same swap looks the same whichever twin a binding registers first. A twin inside a leaving page is drawn by the handover over the page's exit (*Amendment (#181)*).
+   - Rejected: B, #402's take-over rule, the exit running on under it, as Motion composes the two.
+
+**Built** (`@wardic/dom`'s `internal/projection.ts`, and the presence in `@wardic/solid`'s `presence-controller.ts`, for both bindings):
+- **`awaitsTwin(el)`** is new on the ProjectionSystem: whether a twin `el` is, or holds, left in this task with no live twin in its stack yet.
+- **The presence** asks it as a child leaves, once the child is back on the page and popped. When it does, the leave is decided at the task's end (`decideAtTaskEnd`, on `Microtask.next`, the fiber kept as the child's `exiting` so a re-entry or the teardown interrupts it), by the same steps as before (`decideLeave`): `handleLeave` for a twin, crossfading with its exit replaced, or the exit and the hand-back.
+- **A Lead not measured yet takes a twin over** (`takesOver`): `handleLeave`'s re-introduce path and the hand-back (`reintroduceTwinsWithin`) keep the leaving Follower below it, where they ended it unless the Lead was in a handover. Its first measure finds the Follower as its prior Lead and takes the crossfade branch, ahead of the Switch seed it also holds.
+- *Amendment (#402)*'s late take-over is unchanged: a twin registering a task later still finds a partner through `keepLeaving`, its exit running on under the handover.
+- **The presence's teardown, and a keyed take-over (#286), interrupt a leave waiting for its task's end**, as they do a retained one. A keyed leaver waiting is recorded at once, so a child back under its key in the same update still takes over from it, as React reuses its element, rather than crossfading.
+
+**Pinned by** (real paint):
+- `packages/solid/test/same-update-twins.browser.test.tsx` (Solid 1):
+  - SU1, in `sync` and `popLayout`: the twins as the presence's children, no `exit`. The new twin starts on the leaver's box and fades in from 0; the leaver rides its flight (within 0.75 px) while it shows, fades out, stays while the handover runs and goes after.
+  - SU2: with an `exit` of their own, the crossfade replaces it. The leaver is at full strength over the first 8 frames.
+  - SU3: the twins inside leaving pages; the card rides the hero's flight over its page's exit, and the page goes after.
+  - SU4: a lone twin with no `exit`, no twin coming, is gone by the end of the task, before a frame.
+  - SU5: `mode="wait"` flies nothing.
+  - SU6: back mid-crossfade leaves only the first twin, at its own box.
+  - SU7: the presence torn down in the task its twin left in leaves nothing behind.
+  - SU8: a keyed twin back under its key in the same update takes over: the leaver goes at once, and the new one moves on at full strength.
+  - SU9: the same, back in a second update of the task its twin left in, its leave still waiting.
+- `packages/solid/test/v2/same-update-twins.browser.test.tsx` (Solid 2): SUV1–SUV3, SU1–SU3's cases in `popLayout`.
+- The page transitions (#479): RT7 (`route-transitions.browser.test.tsx`) and RTV6 (`v2/route-transitions.browser.test.tsx`), the leaving page's card riding the hero's flight through the real routers.
+
+**Mutation-checked** (`.tmp/482/mutate.py`, run alone): 10 single-point mutations across the engine and the presence, all caught:
+- the presence never waiting for the task's end, or deciding at once (SU1–SU3, RT7);
+- a Lead not measured yet taking nothing over, in `handleLeave` or in the hand-back (SU, SUV, RT7, RTV6);
+- a twin child, or a twin inside a child, never awaiting (SU1–SU3, RT7);
+- the wait not kept as `exiting`, or the teardown interrupting `pending` children only (SU7);
+- a keyed leaver waiting left unrecorded, or the take-over interrupting `pending` leavers only (SU9).
