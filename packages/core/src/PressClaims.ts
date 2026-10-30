@@ -4,12 +4,13 @@
  * `motion-dom/src/gestures/press/index.ts` @ `16c6122`). A press whose taps don't propagate
  * (`propagate={{ tap: false }}`) claims the down or the key it starts from, and no ancestor's press starts
  * from it. A key that a press inside started from, and didn't claim, presses its pressable ancestors too,
- * as Motion's keyboard press, a synthetic `pointerdown`, bubbles.
+ * as Motion's keyboard press reaches them, the way a pointer's down does.
  *
  * One platform event reaches each target it passes through as an event of that target's, so a mark is
  * kept by the platform's own event (`raw`), which core never reads, or by the event itself where there's
- * none (the test Environment hands every target the same one). An Environment delivers an event to the
- * targets it passes through innermost first, so a press inside marks it before its ancestors read it.
+ * none (the test Environment hands every target the same one). Two contracts of `InputSource` make that
+ * work: one platform event's copies share their `raw`, and a pointer's down or a key reaches the targets
+ * it passes through innermost first, so a press inside marks it before its ancestors read it.
  * A target never refuses itself: its presses share its claim, as its drags share a **Drag claim**.
  *
  * It is a `Context.Reference`, as **Drag activity** is: by default every runtime shares one, page-wide

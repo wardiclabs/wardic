@@ -61,5 +61,9 @@ Wardic pressed both elements of a nested pair from a pointer, as Motion does, an
 
 ## Consequences
 
+- **Two Environment contracts** core's Press claims rely on, said on `InputSource` in core's words:
+  - **Innermost first:** a pointer's down and a key reach the targets they passed through innermost first, so an inner press marks the event before its ancestors read it. The DOM's pointer listeners do by bubbling, and its keys do through the one window listener; the test Environment hands events out in subscription order.
+  - **One `raw` per platform event:** each target's copy of one platform event carries the same `raw`, which the ledger keys by, never reading it; an Environment with no platform event hands every target the same event object. An Environment that meets neither has claims that never stop anything: every press propagates.
+
 - **Behaviour change:** a key on a pressable element now presses its pressable ancestors too. An app that relied on the old rule gives the inner element `propagate={{ tap: false }}`, which also stops the mouse's.
 - **Every keyed target on a window shares one listener**, and every focus target listens for `focusin` and `focusout` too: one call per key per target it passes through, and a focus move inside a focus target reaches it, which only a keyboard press reads.

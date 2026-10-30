@@ -325,7 +325,8 @@ const pressKeyOf = (e: InputSource.KeyboardLikeEvent): PressKey | null =>
 /**
  * Whether a key reaches the target's press (#427, #439): one from the target itself that nothing took
  * first, or one from inside that a press inside started from and didn't claim, as Motion's keyboard
- * press bubbles. A press inside may have taken that key (Space's, `takeSpace`): it still reaches.
+ * press reaches pressable ancestors. A press inside may have taken that key (Space's, `takeSpace`): it
+ * still reaches.
  */
 const reachesPress = (e: InputSource.KeyboardLikeEvent, claims: PressClaims.Shape, target: unknown): boolean => {
   if (e.fromTarget) return Bool.not(e.handled)
