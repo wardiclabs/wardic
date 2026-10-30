@@ -222,6 +222,7 @@ const WARD_KEYS = [
   "layoutScroll",
   "layoutRoot",
   "layoutAnchor",
+  "layoutCrossfade",
   "onUpdate",
   "appear",
   "style",

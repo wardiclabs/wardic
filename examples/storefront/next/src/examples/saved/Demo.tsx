@@ -75,7 +75,9 @@ function SavedRow({ piece, onMove, onRemove }: { readonly piece: Product; readon
   return (
     // It fades as it leaves, either way. Moved to the cart, its photo's twin there flies from its own.
     <motion.li className="saved-row" layout exit={{ opacity: 0, transition: { type: "tween", duration: 0.22, ease: "easeOut" } }}>
-      <motion.div className="photo" layoutId={arrivalId(piece.id)}>
+      {/* One photo flies, not two crossfading: this and its twin in the cart button both have
+          layoutCrossfade={false}, so whichever takes over hides the other, out to the cart and back. */}
+      <motion.div className="photo" layoutId={arrivalId(piece.id)} layoutCrossfade={false}>
         <img src={photo.small} srcSet={srcsetOf(photo)} sizes="72px" width={photo.width} height={photo.height} alt={piece.name} />
       </motion.div>
       <div className="saved-text">

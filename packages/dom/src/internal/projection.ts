@@ -890,6 +890,12 @@ export interface RegisterNodeOptions {
    */
   readonly layoutAnchor?: Point.Point | false
   /**
+   * Whether a handover onto this node crossfades (#442, Motion's `layoutCrossfade`), read as each
+   * begins: `false` hides its Followers as it starts, and it moves at its own opacity. A Switch
+   * blends as ever. Left out, every handover crossfades.
+   */
+  readonly crossfade?: (() => boolean) | undefined
+  /**
    * Raise the node while it's dragged (ADR-0016, *Amendment (Reorder)*): from the drag
    * start until its release settles (at once for a release in place) its projection
    * carries a raise the renderer emits as `z-index`, so it paints above its siblings, as
@@ -1245,6 +1251,13 @@ interface NodeState {
    * inner twin before its container.
    */
   handoverMoves: boolean | undefined
+  /** Whether a handover onto it crossfades (#442, `layoutCrossfade`), read as each begins. */
+  readonly crossfades: () => boolean
+  /**
+   * Whether its handover fades (#442): its `crossfades` as the handover began. `false`: its
+   * Followers are hidden from the start, and it's drawn at its own opacity.
+   */
+  handoverFades: boolean
   /**
    * A Follower's crossfade factor when its Lead's handover (re)started (#5): where it fades out from.
    * `undefined` for one that joined after it began (a leaver `handleLeave` re-introduced), which
@@ -1926,6 +1939,8 @@ export const makeProjectionSystem = (
    */
   const crossfading = (lead: NodeState): boolean => {
     if (Predicate.isUndefined(lead.crossfadeFrom)) return false
+    // One that doesn't fade (#442) isn't crossfading: its descendants' handovers fade on their own.
+    if (Bool.not(lead.handoverFades)) return false
     if (Predicate.isUndefined(lead.handoverMoves)) {
       lead.handoverMoves = false
       lead.handoverMoves = hasCrossfadingAncestor(lead)
@@ -1958,6 +1973,7 @@ export const makeProjectionSystem = (
   const fadeOf = (node: NodeState): number => {
     const from = node.crossfadeFrom
     if (Predicate.isUndefined(from)) return 1
+    if (Bool.not(node.handoverFades)) return 1
     const flight = node.flight
     if (Predicate.isUndefined(flight)) return 1
     if (node.handoverMoves === true) return 1
@@ -1987,6 +2003,8 @@ export const makeProjectionSystem = (
    */
   const exitOf = (node: NodeState, lead: NodeState): number => {
     if (Predicate.isUndefined(lead.crossfadeFrom)) return 0
+    // A handover that doesn't fade (#442) hides its Followers from its start, as Motion's `hide()`.
+    if (Bool.not(lead.handoverFades)) return 0
     const flight = lead.flight
     if (Predicate.isUndefined(flight)) return 0
     crossfading(lead) // decides, on its first frame, whether its handover only moves
@@ -2004,11 +2022,14 @@ export const makeProjectionSystem = (
 
   /**
    * A handover begins on `node` (ADR-0010): its fade starts at 0, whether it only moves is decided on
-   * its first frame (#5), and its Followers fade from where they are.
+   * its first frame (#5), whether it fades at all is its `crossfade` now (#442), and its Followers fade
+   * from where they are.
    */
   const beginHandover = (node: NodeState): void => {
     node.crossfadeFrom = 0
     node.handoverMoves = undefined
+    // Whether it fades (#442, Motion's `layoutCrossfade`), read as it begins.
+    node.handoverFades = node.crossfades()
     captureExits(node)
   }
 
@@ -4762,6 +4783,9 @@ export const makeProjectionSystem = (
     lifted: false,
     crossfadeFrom: undefined,
     handoverMoves: undefined,
+    // A leaver is never promoted: a handover onto it never begins.
+    crossfades: constTrue,
+    handoverFades: true,
     exitFrom: undefined,
     fade: undefined,
     passBox: undefined,
@@ -5271,6 +5295,8 @@ export const makeProjectionSystem = (
       lifted: false,
       crossfadeFrom: undefined,
       handoverMoves: undefined,
+      crossfades: UndefinedOr.match(opts.crossfade, { onUndefined: () => constTrue, onDefined: identity }),
+      handoverFades: true,
       exitFrom: undefined,
       fade: undefined,
       passBox: undefined,

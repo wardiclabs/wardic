@@ -93,13 +93,16 @@ const TOSS = arc()
 
 /**
  * A piece moved to the cart from Saved for later: its photo's twin, sharing its row photo's
- * `layoutId`, so Wardic flies it here from the row it left. Landed, it shrinks into the icon.
+ * `layoutId`, so Wardic flies it here from the row it left. Landed, it shrinks into the icon. One photo
+ * flies, not the row's and this one crossfading (`layoutCrossfade={false}`, #442): the row's is
+ * hidden as this one takes over.
  */
 function CartArrival(props: { readonly piece: Arrival }) {
   return (
     <wardic.img
       class="cart-arrival"
       layoutId={arrivalId(props.piece.id)}
+      layoutCrossfade={false}
       src={props.piece.src}
       alt=""
       transition={{ layout: { type: "tween", duration: 0.6, ease: [0.45, 0, 0.55, 1], path: TOSS } }}

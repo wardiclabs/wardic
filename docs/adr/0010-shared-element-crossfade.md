@@ -698,3 +698,14 @@ A page transition from a list scrolled down, the router scrolling to the top (#4
 - a crossfade from a live twin marked seen too;
 - a seed's scroll taken as the page's top;
 - and the popped leaver's own, in ADR-0048.
+
+## Amendment (#442, 2026-10-30): `layoutCrossfade={false}`, Motion's
+
+Grilled on #442 (Q1: A). Motion 14.6 reads `layoutCrossfade` off the twin that becomes the Lead (`NodeStack.promote`, `setAnimationOrigin`): with `false`, the prior Lead is hidden as the handover starts (`hide()`, a leaver under `<AnimatePresence>` too, its exit running unseen), and the new Lead flies from the prior Lead's box at its own opacity. A Switch, the Lead alone in its stack, still blends its opacity from the twin that went. Wardic's handover always crossfaded.
+
+- **The prop:** on Solid 1 a `wardic.*` prop and a `createWard` config key, on Solid 2 a ward config key (`WardConfig.layoutCrossfade`), given to the projection as the node's `crossfade` option. Rejected: either twin's `false` stopping it; a `LayoutGroup`-level setting.
+- **Read as each handover begins** (`beginHandover`, every handover's start), where Motion's reads it at mount: a toggle counts from the next.
+- **A handover that doesn't fade:** its Lead's factor is 1, so it draws at its own opacity; its Followers' 0 from the first frame, live or leaving; and it isn't crossfading for its descendants (Motion's `hasOpacityCrossfade` reads `opacityExit`, which it never sets), so a twin's handover inside it fades on its own. A leaver hidden this way stays until its exit ends, as ever (#181).
+- **A Switch is unchanged:** it has no Follower, and its blend (*Amendment (#166)*) runs as before.
+- **Pinned by** `packages/solid/test/layout-crossfade.browser.test.tsx` LC1–LC5 (beside a live twin, every frame; only the new Lead's counts, under `<AnimatePresence>`; a toggle read at the next handover; a Switch's blend; a twin inside crossfading on its own) and `v2/layout-crossfade.browser.test.tsx` LCV1–LCV2 (the element's prop, and `ward()`'s config).
+- **Mutation-checked** with ADR-0048's (`.tmp/442/mutate.py`, run alone): the option ignored, not read as a handover begins, the Lead fading anyway, its Followers not hidden, crossfading for its descendants, and the binding never passing it, all caught.
