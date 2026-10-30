@@ -16,10 +16,13 @@
 //   own): the old content leaves, the new enters, the page's node kept.
 // - RT6: a route loading its data (`createResource` under `Suspense`): the old page stays, not
 //   leaving, until the data resolves, then leaves as the new page enters.
+// - RT7 (#482): the leaving page's card rides the hero's flight, drawn where the hero is each frame
+//   while it shows, and goes with its page once the handover ends.
 import { createMemoryHistory, MemoryRouter, Route, useNavigate, useParams } from "@solidjs/router"
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
+import * as Bool from "effect/Boolean"
 import { createResource, type JSX, Show, Suspense } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { raf, until } from "./browser-helpers.ts"
@@ -278,6 +281,32 @@ describe("page transitions with Solid Router on Solid 1 (#479)", () => {
     expect(Number(getComputedStyle(list).opacity), "now it leaves").toBeLessThan(1)
     await until(() => !list.isConnected, 2000)
     expect(pages()[0]!.textContent).toContain("loaded")
+  })
+
+  it("RT7: the leaving page's card rides the hero's flight, then goes with its page (#482)", async () => {
+    const app = mountShared("popLayout")
+    await until(() => app.el("card") !== null, 2000)
+    await frames(3)
+    const card = app.el("card")!
+    const list = app.pages()[0]!
+    app.navigate("/item/3")
+    await until(() => app.el("hero") !== null, 2000)
+    const hero = app.el("hero")!
+    let shown = 0
+    let worst = 0
+    for (let i = 0; i < 60 && card.isConnected; i++) {
+      await raf()
+      if (Bool.not(card.isConnected)) break
+      if (Number(getComputedStyle(card).opacity) < 0.01) continue
+      shown++
+      const a = card.getBoundingClientRect()
+      const b = hero.getBoundingClientRect()
+      worst = Math.max(worst, Math.abs(a.left - b.left), Math.abs(a.top - b.top), Math.abs(a.width - b.width), Math.abs(a.height - b.height))
+    }
+    expect(shown, "frames the card shows").toBeGreaterThan(5)
+    expect(worst, "the card off the hero, px").toBeLessThan(0.75)
+    await until(() => Bool.not(list.isConnected), 2000)
+    expect(list.isConnected, "the list gone with its card").toBe(false)
   })
 })
 

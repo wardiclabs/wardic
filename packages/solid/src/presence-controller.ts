@@ -29,6 +29,7 @@ import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Renderer from "@wardic/core/Renderer"
 import * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
+import * as Microtask from "@wardic/core/Microtask"
 import * as Velocity from "@wardic/core/Velocity"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as MeasuredPair from "@wardic/dom/MeasuredPair"
@@ -925,7 +926,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // The hooks still waiting go with it, told nothing left (#277's PR 5b).
     Arr.forEach(Arr.fromIterable(watches), (watch) => watch.gone())
     watches.clear()
-    Arr.forEach(Arr.fromIterable(pending.keys()), (el) => interruptExit(el))
+    // Each retained child, a leave waiting for its task's end (#482) among them.
+    Arr.forEach(Arr.fromIterable(new Set([...pending.keys(), ...exiting.keys()])), (el) => interruptExit(el))
     // A crossfading leaver is the projection's, not in `pending`: its exit ends here too, uncompleted (#257).
     Arr.forEach(Arr.fromIterable(leaving), (el) => leaveEnds(el, false))
   }
@@ -993,6 +995,36 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     places.set(el, placed)
     // `popLayout` (#277): out of the flow where it was, so the children after it take their places.
     popOut(el)
+    // A twin it is or holds left with none to take it over yet (ADR-0010 *Amendment (#482)*): its
+    // partner may arrive later in this update, as Solid runs a presence before the children it mounts.
+    // So it's decided at the task's end, before a frame, and stays on the page till then, an exit-less
+    // one too, as Motion keeps its relegated leaver until `postRender`.
+    if (projection.awaitsTwin(el)) {
+      // Keyed, it's what a child back under its key in this update takes over from (#286), meanwhile too.
+      UndefinedOr.map(keyOf(el), (key) => keyedLeavers.set(key, el))
+      decideAtTaskEnd(el, () => decideLeave(el, rec, inside, holds))
+      return
+    }
+    decideLeave(el, rec, inside, holds)
+  }
+
+  /** A leave decided at the task's end (#482): kept as `exiting`, so a re-entry or the teardown interrupts it. */
+  const decideAtTaskEnd = (el: HTMLElement, decide: () => void): void => {
+    const fiber = runtime.runFork(
+      Microtask.next.pipe(
+        Effect.andThen(
+          Effect.sync(() => {
+            exiting.delete(el)
+            decide()
+          }),
+        ),
+      ),
+    )
+    exiting.set(el, fiber)
+  }
+
+  /** What a retained leaver does: crossfade onto its twin, or run its exit, or hand back the twins inside it. */
+  const decideLeave = (el: HTMLElement, rec: PresenceRecord | undefined, inside: ReadonlyArray<PresenceWatch>, holds: number): void => {
     // A plain child (#392): retained, as Motion's presence child, until the exits inside it, the
     // handovers of its twins and the hooks holding it (#277's PR 5b) have all ended.
     if (Predicate.isUndefined(rec)) {
@@ -1151,7 +1183,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       return
     }
     seeds.set(el, seedOf(from))
-    if (pending.has(leaver)) {
+    // Retained, or its leave waiting for its task's end (#482).
+    if (Bool.or(pending.has(leaver), exiting.has(leaver))) {
       interruptExit(leaver)
       return
     }
