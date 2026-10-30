@@ -47,6 +47,7 @@ const RARE_KEYS = [
   "dragListener",
   "onMeasureDragConstraints",
   "propagate",
+  "layoutCrossfade",
   "whileInView",
   "whileFocus",
   "viewport",
@@ -97,6 +98,7 @@ export const MOTION_PROPS = [
   "layoutScroll",
   "layoutRoot",
   "layoutAnchor",
+  "layoutCrossfade",
   "onAnimationStart",
   "onAnimationComplete",
   ...GESTURE_CALLBACKS,
@@ -248,6 +250,8 @@ export interface WardicMotionProps {
    * anchors (0–1 per axis, default top-left). `false` forces absolute projection.
    */
   readonly layoutAnchor?: { readonly x: number; readonly y: number } | false
+  /** Whether a `layoutId` handover onto this element crossfades (#442, Motion's prop; see `WardConfig`). Default `true`. */
+  readonly layoutCrossfade?: boolean
   /** Called when an animation of this element starts, with its `definition` (#257, Motion's prop; see `WardConfig`). */
   readonly onAnimationStart?: (definition: WardicAnimationDefinition) => void
   /** Called when that animation lands, with its `definition` (#257, Motion's prop; see `WardConfig`). */

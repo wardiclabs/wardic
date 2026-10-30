@@ -13,6 +13,8 @@
 // - SS5: `sync`: the leaving page, in the flow, jumps with the scroll; its twin still flies from where
 //   it was seen.
 // - SS6: a popped page with no twin in it stays where it was seen too.
+// - SS7: pinned by its bottom right (#442, `anchorX`, `anchorY`), in a container that keeps its size, a
+//   popped page stays where it was seen as well: its pins move against the page's scroll.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
@@ -202,5 +204,31 @@ describe("where things were seen, through the page's scroll at a change (#480)",
     await afterPaint()
     expect(window.scrollY, "the page at its top").toBe(0)
     expect(topOf(list), "the popped list where it was seen").toBeCloseTo(seen, 0)
+  })
+
+  it("SS7: pinned by its bottom right, in a container that keeps its size, a popped page stays where it was seen", async () => {
+    const [page, setPage] = createSignal<"list" | "item">("list")
+    const { container } = render(() => (
+      <WardicProvider env={DomLive}>
+        <div style={{ position: "relative", width: "500px", height: "1900px" }}>
+          <AnimatePresence mode="popLayout" anchorX="right" anchorY="bottom">
+            <Show when={page() === "list"} fallback={<wardic.main data-page="item" {...PAGE_EXIT} style={SHORT} />}>
+              <wardic.main data-page="list" {...PAGE_EXIT} style={TALL} />
+            </Show>
+          </AnimatePresence>
+        </div>
+      </WardicProvider>
+    ))
+    await frames(5)
+    await scrollDown()
+    const list = container.querySelector<HTMLElement>("[data-page=list]")!
+    const seen = { top: topOf(list), left: leftOf(list) }
+    setPage("item")
+    scrollToTopLater()
+    await afterPaint()
+    expect(window.scrollY, "the page at its top").toBe(0)
+    expect([list.style.getPropertyValue("bottom"), list.style.getPropertyValue("right")], "pinned by its bottom right").not.toContain("")
+    expect(topOf(list), "the popped list where it was seen").toBeCloseTo(seen.top, 0)
+    expect(leftOf(list)).toBeCloseTo(seen.left, 0)
   })
 })

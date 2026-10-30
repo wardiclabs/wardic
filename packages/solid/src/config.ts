@@ -619,6 +619,13 @@ export interface WardConfig {
    */
   readonly layoutAnchor?: { readonly x: number; readonly y: number } | false
   /**
+   * Whether a `layoutId` handover onto this element crossfades (#442, Motion's prop), read as each
+   * begins. Default `true`: it fades in as the twin it takes over from fades out (ADR-0010). `false`:
+   * that twin is hidden as the handover starts, and this one moves at its own opacity. Only the twin
+   * that becomes the Lead reads it; a Switch, its twin already gone, blends as ever.
+   */
+  readonly layoutCrossfade?: boolean
+  /**
    * Called when an animation of this element starts (#257, Motion's prop): at each Retarget that
    * starts one, a change of `animate` or of the variant it resolves (the entrance at mount
    * included), or a gesture layer (`whileHover`, `whileTap`, `whileDrag`) turning on or off. With

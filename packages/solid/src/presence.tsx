@@ -89,6 +89,22 @@ export interface AnimatePresenceProps {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly custom?: any
   /**
+   * Where `mode="popLayout"` pins a leaver (#442, ADR-0048, Motion's): by its inline start (`"left"`,
+   * the default) or end (`"right"`), which a right-to-left layout flips, as Motion's does, and by its
+   * `"top"` (the default) or `"bottom"`. Each edge keeps its distance from its container's while the
+   * leaver exits, so one pinned by the bottom right stays in that corner as the container resizes.
+   * Read as each leaver pops.
+   */
+  readonly anchorX?: "left" | "right" | undefined
+  readonly anchorY?: "top" | "bottom" | undefined
+  /**
+   * Whether its children's going and coming moves the `layout` elements around them (#442, Motion's
+   * prop): `true` (the default) tells the projection when a child enters, a leaver pops or a leaver is
+   * removed, so a `layout` sibling animates into or out of the space; `false` tells it nothing, and a
+   * sibling animates only when something else measures it. Read at each change.
+   */
+  readonly presenceAffectsLayout?: boolean | undefined
+  /**
    * Motion's `propagate` (#277's PR 5c, ADR-0048): inside another presence's child, when that child
    * leaves, this presence's children all leave too, each running its exit, and that child goes once
    * they've all gone. Without it (the default), its children go with that child, as they are. Read
@@ -129,6 +145,9 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     events: exitCompleteEvents(runtime, () => untrack(() => props.onExitComplete)),
     mode: () => props.mode,
     custom: () => untrack(() => props.custom),
+    anchorX: () => untrack(() => props.anchorX),
+    anchorY: () => untrack(() => props.anchorY),
+    presenceAffectsLayout: () => untrack(() => props.presenceAffectsLayout),
     release: () => release(),
   })
   // `initial={false}` (#134): the children set up with this first render start at their

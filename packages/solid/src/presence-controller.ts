@@ -252,22 +252,30 @@ const placedOf = (el: HTMLElement): Placed => ({
 /**
  * Where `popLayout` pins a leaver (#277, ADR-0048), measured before the change as Motion's `PopChild`
  * measures it: its size (`getComputedStyle`, so its own `box-sizing` reads it back), and its margin
- * box's offset from its containing block's padding edge, from the top and from its inline start (the
- * left, or the right in a right-to-left one). The offsets are whole pixels, the DOM's `offsetTop`.
+ * box's offset from its containing block's padding edge on the two edges its anchors name (#442):
+ * the top or the bottom, and its inline start or end (Motion's `anchorX` `"left"` or `"right"`, which
+ * a right-to-left one flips). The offsets are whole pixels, the DOM's `offsetTop`.
  */
 interface PopBox {
   readonly width: number
   readonly height: number
-  readonly top: number
-  readonly side: "left" | "right"
-  readonly start: number
+  readonly y: "top" | "bottom"
+  readonly yAt: number
+  readonly x: "left" | "right"
+  readonly xAt: number
 }
 
-/** The width of the padding box `el`'s offsets are from: its offset parent's, or the viewport's. */
-const containerWidthOf = (el: HTMLElement): number => {
+/** Where a presence's `popLayout` pins a leaver (#442, Motion's `anchorX` and `anchorY`): its default, the inline start and the top. */
+export interface PopAnchors {
+  readonly x: "left" | "right"
+  readonly y: "top" | "bottom"
+}
+
+/** The size of the padding box `el`'s offsets are from: its offset parent's, or the viewport's. */
+const containerOf = (el: HTMLElement): { readonly width: number; readonly height: number } => {
   const parent = el.offsetParent
-  if (isHTMLElement(parent) && parent !== document.body) return parent.clientWidth
-  return document.documentElement.clientWidth
+  if (isHTMLElement(parent) && parent !== document.body) return { width: parent.clientWidth, height: parent.clientHeight }
+  return { width: document.documentElement.clientWidth, height: document.documentElement.clientHeight }
 }
 
 /** A px length of a computed style, `0` for none. */
@@ -281,18 +289,25 @@ const pxOf = (value: string): number => {
  * Where `el` is now, to pop it (#277): `undefined` for one with no size of its own (an inline element,
  * or an empty one) or not on the page, which isn't popped, as Motion's.
  */
-const popBoxOf = (el: HTMLElement): PopBox | undefined => {
+const popBoxOf = (el: HTMLElement, anchors: PopAnchors): PopBox | undefined => {
   const style = getComputedStyle(el)
   const width = Number.parseFloat(style.width)
   const height = Number.parseFloat(style.height)
   if (Bool.not(Bool.and(width > 0, height > 0))) return undefined
-  // Positioned by its margin box, as its offsets are its border box's.
-  const top = el.offsetTop - pxOf(style.marginTop)
-  if (style.direction === "rtl") {
-    const start = containerWidthOf(el) - el.offsetLeft - el.offsetWidth - pxOf(style.marginRight)
-    return { width, height, top, side: "right", start }
-  }
-  return { width, height, top, side: "left", start: el.offsetLeft - pxOf(style.marginLeft) }
+  const container = containerOf(el)
+  // Positioned by its margin box, as its offsets are its border box's. Each edge's distance from the
+  // container's same edge; `anchorX` names the inline start (`"left"`) or end, which a right-to-left
+  // one flips, as Motion's.
+  const x = Bool.match((anchors.x === "right") !== (style.direction === "rtl"), { onTrue: (): PopBox["x"] => "right", onFalse: (): PopBox["x"] => "left" })
+  const xAt = Bool.match(x === "right", {
+    onTrue: () => container.width - el.offsetLeft - el.offsetWidth - pxOf(style.marginRight),
+    onFalse: () => el.offsetLeft - pxOf(style.marginLeft),
+  })
+  const yAt = Bool.match(anchors.y === "bottom", {
+    onTrue: () => container.height - el.offsetTop - el.offsetHeight - pxOf(style.marginBottom),
+    onFalse: () => el.offsetTop - pxOf(style.marginTop),
+  })
+  return { width, height, y: anchors.y, yAt, x, xAt }
 }
 
 /** Pin a leaver where `box` measured it, out of the flow, over any style of its own. */
@@ -301,8 +316,8 @@ const pin = (el: HTMLElement, box: PopBox): void => {
   style.setProperty("position", "absolute", "important")
   style.setProperty("width", `${box.width}px`, "important")
   style.setProperty("height", `${box.height}px`, "important")
-  style.setProperty("top", `${box.top}px`, "important")
-  style.setProperty(box.side, `${box.start}px`, "important")
+  style.setProperty(box.y, `${box.yAt}px`, "important")
+  style.setProperty(box.x, `${box.xAt}px`, "important")
   // Out of the flow over what took its place, it takes none of its clicks (#486). Not Motion's: its
   // popped child still takes input. It's never unpinned: a child that comes back is a new element.
   style.setProperty("pointer-events", "none", "important")
@@ -310,16 +325,16 @@ const pin = (el: HTMLElement, box: PopBox): void => {
 
 /**
  * A popped leaver moved by `by` in the page from where `box` pinned it (ADR-0048 *Amendment (#480)*):
- * its top by the vertical, its inline start by the horizontal, a right-to-left one's from the right.
+ * each pinned edge by its axis's move, a right or bottom one against it.
  */
 const movePin = (el: HTMLElement, box: PopBox, by: { readonly x: number; readonly y: number }): void => {
   const style = el.style
-  style.setProperty("top", `${box.top + by.y}px`, "important")
-  style.setProperty(box.side, `${box.start + START_BY[box.side] * by.x}px`, "important")
+  style.setProperty(box.y, `${box.yAt + EDGE_BY[box.y] * by.y}px`, "important")
+  style.setProperty(box.x, `${box.xAt + EDGE_BY[box.x] * by.x}px`, "important")
 }
 
-/** Which way a move along the page's x moves a pin's inline start: with a left one, against a right one. */
-const START_BY = { left: 1, right: -1 } as const
+/** Which way a move along the page moves a pinned edge's offset: with a left or top one, against a right or bottom one. */
+const EDGE_BY = { left: 1, right: -1, top: 1, bottom: -1 } as const
 
 /** The element its first child sits in, if it's one (#277's PR 5c). */
 const parentElementOf = (placed: ReadonlyArray<Placed>): Element | undefined =>
@@ -399,6 +414,18 @@ export interface PresenceOptions {
   readonly custom?: (() => unknown) | undefined
   /** Its `mode` prop (#277), read at each change: left out, or `undefined`, `"sync"`. */
   readonly mode?: (() => PresenceMode | undefined) | undefined
+  /**
+   * Its `anchorX` and `anchorY` props (#442, Motion's), read as `popLayout` measures a leaver: the
+   * edges it's pinned by. Left out, or `undefined`, the inline start (`"left"`) and the top.
+   */
+  readonly anchorX?: (() => PopAnchors["x"] | undefined) | undefined
+  readonly anchorY?: (() => PopAnchors["y"] | undefined) | undefined
+  /**
+   * Its `presenceAffectsLayout` prop (#442, Motion's), read at each change: whether the projection is
+   * told when its children move (a child entering, a leaver popped or removed), so a `layout` sibling
+   * animates into or out of the space. Left out, or `undefined`, `true`.
+   */
+  readonly presenceAffectsLayout?: (() => boolean | undefined) | undefined
   /**
    * The children `mode="wait"` held may go on the page now: the binding renders its children again,
    * through {@link PresenceController.shown}. Left out, a held child stays held.
@@ -662,7 +689,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     exitParts.delete(el)
     el.remove()
     // Its siblings take the space it leaves (#277): a `layout` one animates there, as Motion's do.
-    if (moves) projection.notify()
+    if (Bool.and(moves, affectsLayout())) projection.notify()
     // Told once the node is gone, as Motion's `onExitComplete` finds it (#257).
     leaveEnds(el, completed)
   }
@@ -1010,10 +1037,15 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    */
   const measureLeavers = (resolved: unknown): void => {
     const kept = new Set(elementsOf(resolved))
+    // Its anchors now (#442).
+    const anchors: PopAnchors = {
+      x: UndefinedOr.match(UndefinedOr.map(options.anchorX, (read) => read()), { onUndefined: (): PopAnchors["x"] => "left", onDefined: identity }),
+      y: UndefinedOr.match(UndefinedOr.map(options.anchorY, (read) => read()), { onUndefined: (): PopAnchors["y"] => "top", onDefined: identity }),
+    }
     Arr.forEach(previous, (placed) => {
       if (kept.has(placed.el)) return
       if (Bool.not(retains(placed.el))) return
-      UndefinedOr.map(popBoxOf(placed.el), (box) => pops.set(placed.el, box))
+      UndefinedOr.map(popBoxOf(placed.el, anchors), (box) => pops.set(placed.el, box))
     })
   }
 
@@ -1256,6 +1288,10 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   const present = (current: unknown): void => {
     const now = elementsOf(current)
     const kept = new Set(now)
+    // A child entering pushes its siblings (#442): not on the page at the last change, the first one
+    // included, so a presence mounting moves a `layout` element after it, as Motion's re-render does.
+    const wasThere = new Set(Arr.map(previous, (placed) => placed.el))
+    const entered = Arr.some(now, (el) => Bool.not(wasThere.has(el)))
     // The take-overs found as these children went on the page (#286), before any leaves: a child
     // taken over in the change it left in doesn't leave.
     if (takeovers.size > 0) {
@@ -1282,11 +1318,10 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // stays) is dropped (#290): nothing exits it, and nothing else would.
     Arr.forEach(Arr.fromIterable(registry.keys()), dropDetached)
     Arr.forEach(Arr.fromIterable(watches), dropDetachedWatch)
-    // A popped leaver moved its siblings (#277): a `layout` one animates into the space.
-    if (popped) {
-      popped = false
-      projection.notify()
-    }
+    // A popped leaver moved its siblings (#277), and so did a child entering (#442): a `layout` one
+    // animates into the space, as Motion's presence re-renders its children then.
+    if (Bool.and(Bool.or(popped, entered), affectsLayout())) projection.notify()
+    popped = false
     // The wards inside the children held until now start, the children on the page (#277). Held
     // children go on together, so none is left held then. (A ward started while its child is held
     // would only wait again: the check saves its re-run.)
@@ -1305,6 +1340,9 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
 
   /** The mode now: `"sync"` unless the prop says otherwise. */
   const modeNow = (): PresenceMode | undefined => UndefinedOr.map(options.mode, (mode) => mode())
+
+  /** Whether the projection is told when its children move (#442, `presenceAffectsLayout`): unless the prop says `false`. */
+  const affectsLayout = (): boolean => UndefinedOr.map(options.presenceAffectsLayout, (affects) => affects()) !== false
 
   /**
    * Whether an entering child waits (#277): under `mode="wait"`, while a child exits, or one shown at

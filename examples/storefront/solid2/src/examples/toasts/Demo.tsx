@@ -16,7 +16,8 @@ interface Toast {
 
 // A toast rises in at the bottom of the stack and shrinks away as it goes. Each is a layout
 // element: when one goes, the presence pops it out of the stack (mode="popLayout"), and the others
-// slide into its place while it fades.
+// slide into its place while it fades. The stack sits in its corner, so one that goes is pinned by
+// its bottom right (anchorX, anchorY): if the stack resizes as it goes, it stays in the corner.
 const toastMotion = {
   initial: { opacity: 0, y: 24, scale: 0.96 },
   animate: { opacity: 1, y: 0, scale: 1 },
@@ -82,7 +83,7 @@ export default function Toasts() {
         </For>
       </ul>
       <ol class="toasts" aria-live="polite" aria-label="Notifications">
-        <AnimatePresence mode="popLayout">
+        <AnimatePresence mode="popLayout" anchorX="right" anchorY="bottom">
           <For each={toasts()}>
             {(toast) => (
               <wardic.li class="toast" data-kind={toast.kind} layout {...toastMotion}>

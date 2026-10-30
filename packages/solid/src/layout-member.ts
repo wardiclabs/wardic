@@ -82,6 +82,8 @@ export interface UseLayoutMemberOptions {
   readonly layoutRoot?: boolean
   /** This element's relative-projection anchor (ADR-0013): a 0–1 Point, or `false` to force absolute. */
   readonly layoutAnchor?: Point.Point | false
+  /** Whether a handover onto it crossfades (#442, `layoutCrossfade`), read as each begins. Default: always. */
+  readonly crossfade?: () => boolean
   /** Raise the node while it's dragged (ADR-0016 *Amendment (Reorder)*; internal, a `<Reorder>` item's). */
   readonly raiseWhileDragged?: boolean
   /** The element's Layout mode, read at each layout animation's start (ADR-0009, *Amendment (#42)*). Default `true`. */
@@ -114,7 +116,7 @@ const layoutSkips = (transition: WardicTransition | undefined): boolean =>
  * system needs it, outside the binding's tracking.
  */
 export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.RegisterNodeOptions => {
-  const { dragTransition, element, enteredFrom, fadeFrom, id, layoutAnchor, layoutId, layoutMode, layoutRoot, layoutScroll, onLayoutAnimationComplete, onLayoutAnimationStart, onReleaseEnd, ownOpacity, ownRotate, ownScale, ownTranslate, raiseWhileDragged, reducedMotion, skipAnimations, transition } = opts
+  const { crossfade, dragTransition, element, enteredFrom, fadeFrom, id, layoutAnchor, layoutId, layoutMode, layoutRoot, layoutScroll, onLayoutAnimationComplete, onLayoutAnimationStart, onReleaseEnd, ownOpacity, ownRotate, ownScale, ownTranslate, raiseWhileDragged, reducedMotion, skipAnimations, transition } = opts
   const configSkips = UndefinedOr.match(skipAnimations, { onUndefined: () => constFalse, onDefined: identity })
   return {
     id,
@@ -135,6 +137,7 @@ export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.R
     ...Bool.match(layoutScroll === true, { onTrue: () => ({ layoutScroll: true }), onFalse: () => ({}) }),
     ...Bool.match(layoutRoot === true, { onTrue: () => ({ layoutRoot: true }), onFalse: () => ({}) }),
     ...UndefinedOr.match(layoutAnchor, { onUndefined: () => ({}), onDefined: (anchor) => ({ layoutAnchor: anchor }) }),
+    ...UndefinedOr.match(crossfade, { onUndefined: () => ({}), onDefined: (fades) => ({ crossfade: fades }) }),
     ...Bool.match(raiseWhileDragged === true, { onTrue: () => ({ raiseWhileDragged: true }), onFalse: () => ({}) }),
     ...UndefinedOr.match(dragTransition, { onUndefined: () => ({}), onDefined: (release) => ({ dragTransition: () => Option.some(release()) }) }),
     ...UndefinedOr.match(layoutMode, { onUndefined: () => ({}), onDefined: (mode) => ({ layoutMode: mode }) }),
@@ -236,6 +239,8 @@ export const layoutOptionsOf = (ward: WardLayout): UseLayoutMemberOptions => {
     onLayoutAnimationComplete: () => config().onLayoutAnimationComplete,
     // The app's `onDragTransitionEnd` (#273): its Release offset at rest.
     onReleaseEnd: () => config().onDragTransitionEnd,
+    // Whether a handover onto it crossfades (#442, Motion's `layoutCrossfade`), read as each begins.
+    crossfade: () => config().layoutCrossfade !== false,
     ...UndefinedOr.match(layoutIdIn(layoutGroup, c0.layoutId), { onUndefined: () => ({}), onDefined: (twinId) => ({ layoutId: twinId }) }),
     ...Bool.match(c0.layoutScroll === true, { onTrue: () => ({ layoutScroll: true }), onFalse: () => ({}) }),
     ...Bool.match(c0.layoutRoot === true, { onTrue: () => ({ layoutRoot: true }), onFalse: () => ({}) }),

@@ -89,13 +89,16 @@ const TOSS = arc()
 
 /**
  * A piece moved to the cart from Saved for later: its photo's twin, sharing its row photo's
- * `layoutId`, so Motion flies it here from the row it left. Landed, it shrinks into the icon.
+ * `layoutId`, so Motion flies it here from the row it left. Landed, it shrinks into the icon. One photo
+ * flies, not the row's and this one crossfading (`layoutCrossfade={false}`, #442): the row's is
+ * hidden as this one takes over.
  */
 function CartArrival({ piece }: { readonly piece: Arrival }) {
   return (
     <motion.img
       className="cart-arrival"
       layoutId={arrivalId(piece.id)}
+      layoutCrossfade={false}
       src={piece.src}
       alt=""
       transition={{ layout: { type: "tween", duration: 0.6, ease: [0.45, 0, 0.55, 1], path: TOSS } }}
