@@ -285,3 +285,21 @@ The positioned control's own progress is pinned to the box geometry, and so is t
 - a chain's end corrected.
 
 On the way, M7 found that correcting a chain's end made a fixed target read differently in a static container than in a positioned one; it now reads the same in both.
+
+## Amendment (#440, 2026-10-30): a transform's `mixer`, and descending ranges as Motion's
+
+Grilled on #440 (Q1 A, Q2 A). `ease` was already there (#360); `mixer` wasn't, and a descending range of three stops or more mapped wrong (`[100, 50, 0] → [0, 1, 0]` gave `1` everywhere; two stops worked by accident).
+
+- **`mixer`, Motion's** (Q1: A): `(from, to) => (t) => value`, made once per stretch when the transform is built, read through the stretch's `ease` (Motion's `pipe(easing, mixer)`). It takes the place of the `InterpolatorRegistry` for that transform's outputs, so with one they can be any type (`LiveValue.MixedTransformOptions<O>`, a second overload of `interpolate`, `transform` and both bindings' `createTransform`); without one they stay `number | string`, through the registry. Rejected: a registry codec handed to the transform; a per-call `(from, to, t) => value`.
+- **Motion's mapping, ported** (Q2: A, and the defaults): `interpolate` follows `motion-dom`'s `interpolate`, measured against Motion 14.6's `transform`:
+  - **a descending range** is mapped reversed, both arrays, so its `ease`, a list too, goes to the reversed stretches, each curve running toward the higher input: `easeIn` on `[1, 0] → [0, 100]` gives `37.81, 68.46, 90.65` at 0.75, 0.5, 0.25. Rejected: `ease` as written; keeping "input ascends" as an error.
+  - **one stop** gives its output, and two equal outputs that output (one stop had been a defect);
+  - **a stretch's search** is Motion's, the first that ends above the input, else the last, and **a stretch of no length** gives its second output at or past it (Motion's `progress` of a zero span is 1), the first one its first output before it (`isZeroDeltaRange`); it had given `NaN`;
+  - **`clamp`** holds the input to the range, as Motion's, not each stretch's progress.
+- **Where it runs:** both bindings, and a server, where a mixer needs no registry.
+- **Pinned by:** `packages/test/test/live-value.test.ts` TR5 (one stop), TR7 (the mixer per stretch, `ease` first, any type), TR8–TR10 (descending ranges, their `ease`, Motion's edge cases, all at Motion's measured numbers); `transform-mixer.browser.test.tsx` TX1–TX3 and `v2/transform-mixer.browser.test.tsx` TXV1–TXV2 (into `style`); `v2/server.ssr.test.tsx` SV13 (a mixer and a descending range on a server).
+- **Mutation-checked** (`.tmp/440/mutate.py`, run alone): 12 single-point mutations, 11 caught.
+  - Caught: the mixer ignored, or the bindings dropping the options (TR7, TX1, TXV1, SV13); no `ease` (TR7, TR9, ME6); a descending range not reversed, or its `ease` list reversed too (TR8, TR9, TX3, TXV2); one stop a defect (TR5); no clamp, a zero span's progress 0, no first output before a zero first stretch (TR10, TR1, TR6).
+  - A first run found the equal-outputs shortcut unpinned, as a number blend of `4` to `4` is `4`; TR10 now gives equal objects through a counting mixer, which Motion never makes.
+  - **Equivalent:** the old stretch search (the last starting at or below the input). For any range in order, ascending or descending, it picks the same stretch as Motion's, zero-length ones and stops included; they part only for an input out of order (`[0, 10, 5, 20]`), which Motion's docs rule out.
+

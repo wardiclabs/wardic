@@ -302,7 +302,7 @@ describe("ward(config) and wardic.* on a server (ADR-0021)", () => {
     expect(readings).toEqual([false, false, false, false, null, false])
   })
 
-  it("SV13: the Live-value helpers give their source's value now, mapped, or 0s; a derived style renders in the Starting style", () => {
+  it("SV13: the Live-value helpers give their source's value now, mapped, or 0s; a derived style renders in the Starting style; a mixer and a descending range map on a server too (#440)", () => {
     const readings: Array<unknown> = []
     const Scene = () => {
       const x = (): number => 50
@@ -314,6 +314,10 @@ describe("ward(config) and wardic.* on a server (ADR-0021)", () => {
         opacity(),
         createTransform(x, (v) => v * 2)(),
         createTransform(x, [0, 100], ["rgb(0, 0, 0)", "rgb(255, 255, 255)"])(),
+        createTransform(x, [0, 100], [[0, 0] as const, [10, 20] as const], {
+          mixer: (a: readonly [number, number], b: readonly [number, number]) => (t: number): readonly [number, number] => [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t],
+        })(),
+        createTransform(x, [100, 50, 0], [0, 1, 0])(),
         createSpring(x)(),
         createVelocity(x)(),
         createTime()(),
@@ -328,7 +332,7 @@ describe("ward(config) and wardic.* on a server (ADR-0021)", () => {
       )
     }
     const [, label] = named(serve(() => <Scene />), "div")
-    expect(readings).toEqual([0.5, 100, "rgb(128, 128, 128)", 50, 0, 0, 0, 0])
+    expect(readings).toEqual([0.5, 100, "rgb(128, 128, 128)", [5, 10], 1, 50, 0, 0, 0, 0])
     expect(label?.style.opacity).toBe("0.5")
   })
 

@@ -7,8 +7,8 @@
  *
  * - `transform`: a value mapped from another through ranges (Motion's `useTransform`), each pair
  *   of outputs blended through the `InterpolatorRegistry`, so colours and unit strings map as
- *   `animate` blends them. `interpolate` is its mapping as a plain function (Motion's
- *   `interpolate`), for a binding that maps its own reactive value.
+ *   `animate` blends them, or through a `mixer` of the app's (#440). `interpolate` is its mapping as
+ *   a plain function (Motion's `interpolate`), for a binding that maps its own reactive value.
  * - `spring`: a value that follows another with a spring (Motion's `useSpring`), stepped on the
  *   Frame loop while it moves and idle once it rests.
  * - `jump`: a value set at once, not as motion (Motion's `MotionValue.jump`, #257 item 7): a
@@ -23,9 +23,10 @@
  */
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as FiberHandle from "effect/FiberHandle"
-import { constFalse, constTrue, constUndefined, constVoid, dual, identity } from "effect/Function"
+import { constant, constFalse, constTrue, constUndefined, constVoid, dual, identity } from "effect/Function"
 import * as Option from "effect/Option"
 import { Atom, AtomRegistry } from "effect/reactivity"
 import type * as Scope from "effect/Scope"
@@ -38,16 +39,33 @@ import * as Machine from "./Machine.ts"
 import * as Probe from "./Probe.ts"
 import * as Supersede from "./Supersede.ts"
 
+/**
+ * A blend between two outputs (#440, Motion's `MixerFactory`): made once per stretch from its two
+ * outputs, then read at each progress through it, 0 to 1.
+ */
+export type Mixer<O> = (from: O, to: O) => (t: number) => O
+
 /** `transform`'s options. */
-export interface TransformOptions {
+export interface TransformOptions<O = number | string> {
   /** Hold the first and last output outside the input's range. Default `true`, as Motion's is. */
   readonly clamp?: boolean
   /**
    * How each stretch of the input range eases (#360), as Motion's `useTransform`'s `ease`: one
    * Easing definition for every stretch, or an array with one per stretch, linear for any it's
-   * short of. Default linear.
+   * short of. Default linear. A descending range's stretches take it reversed, as Motion's (#440).
    */
   readonly ease?: Easing.Definition | ReadonlyArray<Easing.Definition>
+  /**
+   * How two outputs blend (#440, Motion's `mixer`): made once per stretch from its two outputs, read
+   * through the stretch's `ease`. Given, it takes the place of the `InterpolatorRegistry`, so the
+   * outputs can be any type it blends. Default: the registry's blends, of numbers and strings.
+   */
+  readonly mixer?: Mixer<O>
+}
+
+/** `transform`'s options with a `mixer` (#440): its outputs any type the mixer blends. */
+export interface MixedTransformOptions<O> extends TransformOptions<O> {
+  readonly mixer: Mixer<O>
 }
 
 /** Stretch `i`'s easing (#360): the one for every stretch, or its own from a list, linear past the list's end, as Motion's. */
@@ -61,62 +79,97 @@ const easeOfStretch = (ease: Easing.Definition | ReadonlyArray<Easing.Definition
       }),
   })
 
-/** One stretch of a `transform`'s range: its input span and its outputs' blend. */
+/** One stretch of a `transform`'s range: its input's ends and its outputs' blend. */
 interface Stretch<O> {
   readonly from: number
-  readonly span: number
+  readonly to: number
   readonly blend: (t: number) => O
 }
 
+/** A mapping's outputs blended: by the app's `mixer` (#440), or through the `InterpolatorRegistry`. */
+const blendsOf = <O>(mixer: Mixer<O> | undefined, registry: Context.Service.Shape<typeof InterpolatorRegistry.InterpolatorRegistry>): ((a: O, b: O) => Effect.Effect<(t: number) => O>) =>
+  UndefinedOr.match(mixer, {
+    onUndefined: () => (a: O, b: O) => registry.resolve(a, b) as Effect.Effect<(t: number) => O>,
+    onDefined: (mix) => (a: O, b: O) => Effect.sync(() => mix(a, b)),
+  })
+
+/** Motion's mapping, as {@link interpolate} gives it. */
+interface Interpolate {
+  <O extends number | string>(input: ReadonlyArray<number>, output: ReadonlyArray<O>, options?: TransformOptions<O>): Effect.Effect<(v: number) => O, never, InterpolatorRegistry.InterpolatorRegistry>
+  <O>(input: ReadonlyArray<number>, output: ReadonlyArray<O>, options: MixedTransformOptions<O>): Effect.Effect<(v: number) => O, never, InterpolatorRegistry.InterpolatorRegistry>
+}
+
 /**
- * The mapping `transform` applies, as a plain function: an input at `input[i]` gives `output[i]`,
- * and one between two stops blends their outputs by its progress between them (each pair through
- * the `InterpolatorRegistry`, resolved once, here). `input` ascends, and is as long as `output`,
- * with two stops or more; anything else is a defect. Outside the range the ends hold, unless
- * `clamp: false`, which carries the first or last stretch on.
+ * The mapping `transform` applies, as a plain function, Motion's `interpolate`: an input at `input[i]`
+ * gives `output[i]`, and one between two stops blends their outputs by its progress between them, each
+ * pair through the `InterpolatorRegistry`, or the `mixer` given (#440), resolved once, here. `input` and
+ * `output` are as long, one stop or more; anything else is a defect. As Motion's (#440):
+ * - **one stop**, or two with one output, gives that output;
+ * - **a descending range** is mapped reversed, both arrays, so its `ease`, a list too, goes to the
+ *   reversed stretches, each curve running toward the higher input;
+ * - **a stretch of no length** gives its second output at or past it, and, the first one, its first
+ *   output before it;
+ * - outside the range the ends hold, unless `clamp: false`, which carries the first or last stretch on.
  */
-export const interpolate = <O extends number | string>(
+export const interpolate: Interpolate = <O>(input: ReadonlyArray<number>, output: ReadonlyArray<O>, options?: TransformOptions<O>) =>
+  interpolateWith(input, output, options)
+
+/** {@link interpolate}, for outputs of any type: a `mixer` blends them, else the registry does. */
+const interpolateWith = <O>(
   input: ReadonlyArray<number>,
   output: ReadonlyArray<O>,
-  options: TransformOptions = {},
+  options: TransformOptions<O> = {},
 ): Effect.Effect<(v: number) => O, never, InterpolatorRegistry.InterpolatorRegistry> =>
   Effect.gen(function* () {
-    if (input.length < 2 || input.length !== output.length) {
-      return yield* Effect.die(new Error(`LiveValue: input and output need the same length, two or more (got ${input.length} and ${output.length})`))
+    if (Bool.or(input.length === 0, input.length !== output.length)) {
+      return yield* Effect.die(new Error(`LiveValue: input and output need the same length, one or more (got ${input.length} and ${output.length})`))
     }
-    const registry = yield* InterpolatorRegistry.InterpolatorRegistry
-    const pairs = Arr.zip(Arr.zip(input, Arr.drop(input, 1)), Arr.zip(output, Arr.drop(output, 1)))
+    if (input.length === 1) return constant(output[0] as O)
+    if (Bool.and(input.length === 2, output[0] === output[1])) return constant(output[1] as O)
+    const descending = (input[0] as number) > (input[input.length - 1] as number)
+    const ins = Bool.match(descending, { onTrue: () => Arr.reverse(input), onFalse: () => Arr.fromIterable(input) })
+    const outs = Bool.match(descending, { onTrue: () => Arr.reverse(output), onFalse: () => Arr.fromIterable(output) })
+    const blends = blendsOf(options.mixer, yield* InterpolatorRegistry.InterpolatorRegistry)
+    const pairs = Arr.zip(Arr.zip(ins, Arr.drop(ins, 1)), Arr.zip(outs, Arr.drop(outs, 1)))
     const resolved = yield* Effect.forEach(pairs, ([[from, to], [a, b]], i) =>
-      Effect.map(registry.resolve(a, b), (blend): Stretch<O> => {
+      Effect.map(blends(a, b), (mix): Stretch<O> => {
         // Each stretch's easing, resolved once, here: linear leaves its blend as it is.
         const ease = easeOfStretch(options.ease, i)
-        const mix = blend as (t: number) => O
-        return { from, span: to - from, blend: Bool.match(ease === Easing.linear, { onTrue: () => mix, onFalse: () => (t: number): O => mix(ease(t)) }) }
+        return { from, to, blend: Bool.match(ease === Easing.linear, { onTrue: () => mix, onFalse: () => (t: number): O => mix(ease(t)) }) }
       }))
     // Two stops or more, checked above: one stretch or more.
     const stretches = resolved as unknown as Arr.NonEmptyReadonlyArray<Stretch<O>>
-    const clamp = options.clamp !== false
-    return (v: number): O => stretchAt(stretches, clamp, v)
+    const first = Arr.headNonEmpty(stretches).from
+    const last = Arr.lastNonEmpty(stretches).to
+    // Below a first stretch of no length: its first output (Motion's `isZeroDeltaRange`).
+    const before = Bool.match(first === Arr.headNonEmpty(stretches).to, { onTrue: () => first, onFalse: () => Number.NEGATIVE_INFINITY })
+    const at = (v: number): O => {
+      if (v < before) return outs[0] as O
+      const stretch = stretchAt(stretches, v)
+      return stretch.blend(progressOf(stretch, v))
+    }
+    return Bool.match(options.clamp !== false, { onTrue: () => (v: number): O => at(Math.min(Math.max(v, first), last)), onFalse: () => at })
   })
 
 /**
  * `source` mapped through ranges, as `interpolate` maps a number: an Atom that follows `source`,
  * mapped afresh on each change.
  */
-export const transform = <O extends number | string>(
-  source: Atom.Atom<number>,
-  input: ReadonlyArray<number>,
-  output: ReadonlyArray<O>,
-  options: TransformOptions = {},
-): Effect.Effect<Atom.Atom<O>, never, InterpolatorRegistry.InterpolatorRegistry> =>
-  Effect.map(interpolate(input, output, options), (map) => Atom.make((get) => map(get(source))))
+export const transform: {
+  <O extends number | string>(source: Atom.Atom<number>, input: ReadonlyArray<number>, output: ReadonlyArray<O>, options?: TransformOptions<O>): Effect.Effect<Atom.Atom<O>, never, InterpolatorRegistry.InterpolatorRegistry>
+  <O>(source: Atom.Atom<number>, input: ReadonlyArray<number>, output: ReadonlyArray<O>, options: MixedTransformOptions<O>): Effect.Effect<Atom.Atom<O>, never, InterpolatorRegistry.InterpolatorRegistry>
+} = <O>(source: Atom.Atom<number>, input: ReadonlyArray<number>, output: ReadonlyArray<O>, options: TransformOptions<O> = {}) =>
+  Effect.map(interpolateWith(input, output, options), (map) => Atom.make((get) => map(get(source))))
 
-/** The output at `v`: its stretch's blend at its progress through it. Read on each change of the source. */
-const stretchAt = <O>(stretches: Arr.NonEmptyReadonlyArray<Stretch<O>>, clamp: boolean, v: number): O => {
-  // The last stretch starting at or below `v`; below the first, the first.
-  const stretch = Option.match(Arr.findLast(stretches, (s) => v >= s.from), { onNone: () => Arr.headNonEmpty(stretches), onSome: identity })
-  const t = (v - stretch.from) / stretch.span
-  return stretch.blend(Bool.match(clamp, { onTrue: () => Math.min(Math.max(t, 0), 1), onFalse: () => t }))
+/** `v`'s stretch, as Motion's: the first that ends above it, else the last. Read on each change of the source. */
+const stretchAt = <O>(stretches: Arr.NonEmptyReadonlyArray<Stretch<O>>, v: number): Stretch<O> =>
+  Option.match(Arr.findFirst(stretches, (s) => v < s.to), { onNone: () => Arr.lastNonEmpty(stretches), onSome: identity })
+
+/** `v`'s progress through `stretch`, as Motion's `progress`: 1 through a stretch of no length. */
+const progressOf = <O>(stretch: Stretch<O>, v: number): number => {
+  const span = stretch.to - stretch.from
+  if (span === 0) return 1
+  return (v - stretch.from) / span
 }
 
 /** `spring`'s options: `Machine.spring`'s, and Motion's `skipInitialAnimation`. */

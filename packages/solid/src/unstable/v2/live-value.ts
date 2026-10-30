@@ -23,6 +23,7 @@
  *
  * @module
  */
+import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as LiveValue from "@wardic/core/LiveValue"
 import * as DomInterpolators from "@wardic/dom/DomInterpolators"
 import type * as ScrollOffset from "@wardic/dom/ScrollOffset"
@@ -86,8 +87,10 @@ const liveOf = <A, R>(runtime: WardicRuntime, live: Effect.Effect<Atom.Atom<A>, 
  * `source` mapped: through `fn` (Motion's `useTransform(value, fn)`), or through ranges: an input at
  * `input[i]` gives `output[i]`, and one between two stops blends their outputs by its progress
  * between them, colours and unit strings as `animate` blends them (Motion's
- * `useTransform(value, input, output)`). `input` ascends, and is as long as `output`, with two stops
- * or more. Outside the range the ends hold, unless `clamp: false`.
+ * `useTransform(value, input, output)`). `input` is as long as `output`, ascending or descending
+ * (#440, Motion's). Outside the range the ends hold, unless `clamp: false`. `ease` eases each stretch,
+ * one for every stretch or one each (#360), and a `mixer`, `(from, to) => (t) => value`, blends the
+ * outputs in place of `animate`'s blends, so they can be any type it blends (#440, Motion's).
  *
  * ```tsx
  * const card = ward({ drag: "x" })
@@ -100,17 +103,18 @@ export function createTransform<O extends number | string>(
   source: LiveSource<number>,
   input: ReadonlyArray<number>,
   output: ReadonlyArray<O>,
-  options?: LiveValue.TransformOptions,
+  options?: LiveValue.TransformOptions<O>,
 ): Accessor<O>
+export function createTransform<O>(source: LiveSource<number>, input: ReadonlyArray<number>, output: ReadonlyArray<O>, options: LiveValue.MixedTransformOptions<O>): Accessor<O>
 export function createTransform(
   source: LiveSource<unknown>,
   fnOrInput: ((a: unknown) => unknown) | ReadonlyArray<number>,
-  output?: ReadonlyArray<number | string>,
-  options?: LiveValue.TransformOptions,
+  output?: ReadonlyArray<unknown>,
+  options?: LiveValue.TransformOptions<unknown>,
 ): Accessor<unknown> {
   const fn = Bool.match(Predicate.isFunction(fnOrInput), {
     onTrue: () => fnOrInput as (a: unknown) => unknown,
-    onFalse: () => interpolatorOf(fnOrInput as ReadonlyArray<number>, output as ReadonlyArray<number | string>, options) as (a: unknown) => unknown,
+    onFalse: () => interpolatorOf(fnOrInput as ReadonlyArray<number>, output as ReadonlyArray<unknown>, options) as (a: unknown) => unknown,
   })
   if (isServer) return () => fn(readOnServer(source))
   const atom = atomOf(source)
@@ -139,12 +143,18 @@ export function createTransform(
  * The ranges' mapping, resolved once: through the provider's `InterpolatorRegistry` on a client, the
  * DOM's on a server, which builds no runtime (ADR-0021).
  */
-const interpolatorOf = <O extends number | string>(
+const interpolatorOf = <O>(
   input: ReadonlyArray<number>,
   output: ReadonlyArray<O>,
-  options: LiveValue.TransformOptions | undefined,
+  options: LiveValue.TransformOptions<O> | undefined,
 ): ((v: number) => O) => {
-  const mapping = LiveValue.interpolate(input, output, options)
+  // Typed at `createTransform`'s overloads: numbers and strings through the registry, any type through a
+  // `mixer` (#440). Here one mapping serves both.
+  const mapping = LiveValue.interpolate(input, output as ReadonlyArray<number | string>, options as LiveValue.TransformOptions | undefined) as unknown as Effect.Effect<
+    (v: number) => O,
+    never,
+    InterpolatorRegistry.InterpolatorRegistry
+  >
   if (isServer) return Effect.runSync(mapping.pipe(Effect.provide(DomInterpolators.layer)))
   return useWardicRuntime().runSync(mapping)
 }

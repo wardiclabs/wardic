@@ -1,6 +1,16 @@
 // Live values (#130, ADR-0043): core's helpers that derive one from another, over `effect/reactivity`
-// Atoms. `transform` maps ranges through the InterpolatorRegistry; `spring` follows its source on the
-// Frame loop, with a run only while it moves.
+// Atoms. `transform` maps ranges through the InterpolatorRegistry, or an app's `mixer` (#440); `spring`
+// follows its source on the Frame loop, with a run only while it moves.
+//
+// #440, against Motion 14.6's own `transform`, measured:
+// - TR7: a `mixer` blends each stretch: made once per stretch, from its two outputs, read through its
+//   `ease`; outputs of any type.
+// - TR8: a descending range maps as Motion's, at any length.
+// - TR9: with `ease`, a descending range's curves run toward the higher input, and a list goes to its
+//   stretches back to front, as Motion's.
+// - TR10: Motion's edge cases: two equal outputs, given as they are with no mixer made; a stretch of no
+//   length, first or inside, clamped or not.
+import * as Easing from "@wardic/core/Easing"
 import type * as Frame from "@wardic/core/Frame"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
@@ -59,13 +69,14 @@ describe("LiveValue.transform: ranges mapped through the registry (#130)", () =>
       expect(heard).toEqual([1, 0.5, 0])
     }).pipe(Effect.provide(layer)))
 
-  it.effect("TR5: input and output of different lengths, or fewer than two stops, is a defect", () =>
+  it.effect("TR5: input and output of different lengths, or none, is a defect; one stop gives its output (#440, Motion's)", () =>
     Effect.gen(function* () {
       const source = Atom.make(0)
       const lengths = yield* Effect.exit(LiveValue.transform(source, [0, 1, 2], [0, 1]))
-      const single = yield* Effect.exit(LiveValue.transform(source, [0], [1]))
+      const none = yield* Effect.exit(LiveValue.transform(source, [], []))
       expect(Exit.isFailure(lengths) && Exit.hasDies(lengths)).toBe(true)
-      expect(Exit.isFailure(single) && Exit.hasDies(single)).toBe(true)
+      expect(Exit.isFailure(none) && Exit.hasDies(none)).toBe(true)
+      expect(yield* at([5], [9], [-1, 5, 20]), "one stop").toEqual([9, 9, 9])
     }).pipe(Effect.provide(layer)))
 
   it.effect("TR6: interpolate is transform's mapping as a plain function, colours blended by the registry", () =>
@@ -77,6 +88,58 @@ describe("LiveValue.transform: ranges mapped through the registry (#130)", () =>
       const bad = yield* Effect.exit(LiveValue.interpolate([0, 1], [0]))
       expect(Exit.isFailure(bad) && Exit.hasDies(bad)).toBe(true)
     }).pipe(Effect.provide(layer)))
+
+  it.effect("TR7: a mixer blends each stretch, made once per stretch and read through its ease; any outputs", () =>
+    Effect.gen(function* () {
+      const made: Array<string> = []
+      const mixPoints = (a: ReadonlyArray<number>, b: ReadonlyArray<number>) => {
+        made.push(`${a}>${b}`)
+        return (t: number): ReadonlyArray<number> => [a[0]! + (b[0]! - a[0]!) * t, a[1]! + (b[1]! - a[1]!) * t]
+      }
+      const map = yield* LiveValue.interpolate([0, 10, 20], [[0, 0], [100, 50], [100, 100]], { mixer: mixPoints })
+      expect(made, "once per stretch, when built").toEqual(["0,0>100,50", "100,50>100,100"])
+      expect([map(5), map(15), map(30)]).toEqual([[50, 25], [100, 75], [100, 100]])
+      expect(made, "not again as it maps").toHaveLength(2)
+      const eased = yield* LiveValue.interpolate([0, 1], [[0, 0], [100, 100]], { mixer: mixPoints, ease: "easeIn" })
+      expect(eased(0.5)[0], "its stretch's ease first").toBeCloseTo(100 * Easing.easeIn(0.5), 6)
+    }).pipe(Effect.provide(layer)))
+
+  it.effect("TR8: a descending range maps as Motion's, at any length", () =>
+    Effect.gen(function* () {
+      expect(yield* at([100, 50, 0], [0, 1, 0], [100, 75, 50, 25, 0])).toEqual([0, 0.5, 1, 0.5, 0])
+      expect(yield* at([100, 0], [0, 1], [150, 100, 75, 0, -50]), "clamped").toEqual([0, 0, 0.25, 1, 1])
+      expect(yield* at([100, 0], [0, 1], [150, -50], { clamp: false }), "unclamped").toEqual([-0.5, 1.5])
+    }))
+
+  it.effect("TR9: with ease, a descending range's curves run toward the higher input, a list back to front", () =>
+    Effect.gen(function* () {
+      const eased = yield* at([1, 0], [0, 100], [0.75, 0.5, 0.25], { ease: "easeIn" })
+      // Motion 14.6: 37.81, 68.46, 90.65.
+      expect(eased.map((v) => Math.round((v as number) * 100) / 100)).toEqual([37.81, 68.46, 90.65])
+      const listed = yield* at([100, 50, 0], [0, 100, 200], [75, 25], { ease: ["easeIn", "linear"] })
+      // Motion 14.6: 50 (linear) and 168.46 (easeIn).
+      expect(listed.map((v) => Math.round((v as number) * 100) / 100)).toEqual([50, 168.46])
+    }))
+
+  it.effect("TR10: Motion's edge cases: equal outputs, a stretch of no length", () =>
+    Effect.gen(function* () {
+      expect(yield* at([0, 1], [4, 4], [-1, 0.5, 2]), "two equal outputs").toEqual([4, 4, 4])
+      expect(yield* at([0, 0, 1], [0, 10, 20], [-1, 0, 0.5, 1]), "the first of no length, clamped").toEqual([10, 10, 15, 20])
+      expect(yield* at([0, 0, 1], [0, 10, 20], [-1, 0, 0.5, 2], { clamp: false }), "unclamped").toEqual([0, 10, 15, 30])
+      expect(yield* at([0, 1, 1, 2], [0, 10, 20, 30], [0.5, 1, 1.5]), "one inside").toEqual([5, 20, 25])
+      expect(yield* at([0, 0], [0, 1], [-1, 0, 1]), "the only one, clamped").toEqual([1, 1, 1])
+      expect(yield* at([0, 0], [0, 1], [-1, 0, 1], { clamp: false }), "unclamped").toEqual([0, 1, 1])
+      // Two equal outputs aren't mixed: the output itself, everywhere.
+      const same = { at: "rest" }
+      let made = 0
+      const counting = (a: { readonly at: string }, b: { readonly at: string }) => {
+        made++
+        return (t: number) => ({ at: `${a.at}>${b.at}@${t}` })
+      }
+      const equal = yield* LiveValue.interpolate([0, 1], [same, same], { mixer: counting }).pipe(Effect.provide(layer))
+      expect([equal(0), equal(0.5), equal(2)].every((v) => v === same), "the output itself").toBe(true)
+      expect(made, "no mixer made").toBe(0)
+    }))
 })
 
 type LoopShape = Context.Service.Shape<typeof FrameLoop.FrameLoop>
