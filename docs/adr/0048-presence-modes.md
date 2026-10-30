@@ -46,7 +46,7 @@ Both bindings share the work in `packages/solid/src/presence-controller.ts`, so 
 - **The controller tracks the children present at each change**, each with where it was then: its parent and next sibling (`Placed`). `present(current)` takes what the binding's `children()` resolved: one node, a flat array of them, or none.
 - **Each node that left is retained and exits** (`left`), unless it's exiting already:
   - put back where it was, if the framework took it out, before its exit starts: a leaver's exit, and its twins' hand-back, read its box where it is drawn (PH3 caught a put-back after);
-  - **the leavers of one change go back last first,** each before its old next sibling. A next sibling that left too is back already, so neighbours that leave together keep their order (MC2).
+  - **the leavers of one change go back last first,** each before its old next sibling. A next sibling that left too is back already, so neighbours that leave together keep their order (MC2). *Amended by* *Amendment (#486)*: in Motion's order, right after the staying child each followed.
 - **A leaver's place is kept until its exit ends** (`places`). At every change the controller puts back any leaver the framework has taken out since: Solid clears a `<For>`'s parent wholesale when its list empties, and that took out an item already mid-exit (MC8).
 - **No interrupt at a re-entry** (decision 2). An exit ends only at its end, or at the presence's teardown.
 - **Both bindings unchanged but for their docs:** each already resolved its children with `children()` and handed the result to the controller, which now reads all of it.
@@ -716,3 +716,41 @@ Motion's `PopChild` pins as Wardic does: offsets from `offsetParent`, measured b
 
 **Mutation-checked** (`.tmp/479/mutate.py`, run alone): the presence behaviours a page transition rests on, each broken at one point, caught by the route tests: `popLayout` popping nothing (RT1, RTV1); a leaver keeping no twin for a later twin (RT3: under `wait`, a stale handover then flew the hero from the card's box, so `keepLeaving` is what keeps `wait` from flying); `wait` holding nothing (RT3).
 
+## Amendment (#486, 2026-10-30): a leaver goes back in Motion's order, and a popped one takes no input
+
+A leaver went back before the node that followed it before the change. Solid inserts the entering child before that same node, so the leaver landed *after* the child that replaced it. Under `popLayout`, an invisible leaving page, absolute and later in the DOM, painted over the new page and took its clicks. Since #482 a leaving page that holds a twin stays for the handover, so that lasted 0.5 s in the storefront's catalogue (#479). Grilled 2026-10-30 (#486, Q1–Q2).
+
+**Motion:** `AnimatePresence` reinserts an exiting child "directly after the child they previously followed" (its #3746): it walks the children as rendered, exiting ones included, and puts each exiting child right after the staying child before it, after the others put there, or first. Its `PopChild` pins a popped child as Wardic's `pin` does and sets no `pointer-events`. A popped leaver is `position: absolute`, and a positioned box paints above in-flow, non-positioned boxes whatever the DOM order. So Motion's order alone puts a positioned new page over the leaver, while a static one stays under it, in Motion too.
+
+**Decisions:**
+1. **Motion's order** (Q1: A). A leaver goes back right after the staying child it followed before the change, after the leavers back there already, or first if none did. Entering children come after it, and a leaver from an earlier change, still exiting, keeps its place. A page swap renders `[old (leaving), new]`; `[a, b, c]` to `[a, d, c]` renders `[a, b (leaving), d, c]`. In `sync` the leaver sits above the newcomer in the flow, as Motion's does.
+   - Rejected: B, right before its replacement only; C, keeping the order and fixing only the clicks.
+2. **A popped leaver takes no pointer input** (Q2: B). `pointer-events: none` goes on with the pin (`!important`), from the pop until it goes, so clicks reach what is under it, static or positioned. This diverges from Motion, whose popped child still takes clicks; its own buttons stop responding as it leaves. A Follower inside it already takes none (ADR-0010 *Amendment (#165)*). A leaver in the flow (`sync`) keeps its input.
+   - Rejected: A, Motion's order only, documented; C, every leaver in every mode.
+
+**Built** (`@wardic/solid`'s `presence-controller.ts`, both bindings):
+- **`orderOf(before, now)`** is Motion's `nextChildren`. It takes `rendered`, the children as the last change left them (leavers still on the page among them), plus this change's leavers, and puts each leaver into `now` right after the staying child it followed.
+- **`present`** walks that order. Each leaver of this change goes back (`left(placed, back)`) right after the nearest child before it on the page, or before the nearest after it (`backPlaceOf`), moved there if Solid left it in. Its place (`places`) is where it now is. `rendered` keeps the order, less what's off the page.
+- **`pin`** adds `pointer-events: none`. A popped leaver is never unpinned: a child that comes back is a new element (#414).
+- `mode="wait"` is unchanged: its new children mount only once the leavers have gone.
+
+**Pinned by** (real paint):
+- `packages/solid/test/presence-order.browser.test.tsx` (Solid 1):
+  - PO1: a page swap under `popLayout`: the leaver before the new page, taking no input, and a point over both hits the new page, static as it is.
+  - PO2: `sync`: the leaver above the newcomer in the flow, keeping its input.
+  - PO3: Motion's list example, `[a, b (leaving), d, c]`.
+  - PO4: several leavers keep their order, those that followed no staying child first.
+  - PO5: a leaver from an earlier change keeps its place.
+- `packages/solid/test/v2/presence-order.browser.test.tsx` (Solid 2): POV1, POV2.
+- RT8 / RTV7 (`route-transitions.browser.test.tsx`, `v2/route-transitions.browser.test.tsx`): through the real routers, the leaving list before the new page, and a point over the new page mid-transition hits it.
+- Updated to Motion's order:
+  - PL17 (`presence-pop.browser.test.tsx`): the leaver keeps its place in `sync`, the child that entered below it.
+  - The SU tests of ADR-0010 *Amendment (#482)*: a `layoutId` per mount, and the scroll reset after each, now that `sync` stacks the pages.
+  - Solid 2's P10, unchanged, passes again once earlier leavers are in the order.
+
+**Mutation-checked** (`.tmp/486/mutate.py`, run alone): 6 single-point mutations, all caught:
+- a popped leaver taking input (PO1, POV1);
+- a leaver always going first (PO3, POV2, P10);
+- a leaver going after the child after it (PO1, PO2, PL17, RTV7);
+- earlier leavers left out of the order, or the order never kept (PO5, P10);
+- leavers at one place reversed (PO4, P10).
