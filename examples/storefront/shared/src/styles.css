@@ -2299,6 +2299,118 @@ button.product-card:hover .photo {
   }
 }
 
+/* --- Page transitions: the catalogue and a piece's page (#479) ------------------------------ */
+
+/* The pages' frame: a leaving page is popped out of the flow, pinned where it was inside it. Tall
+   enough for either page, so the demo doesn't jump as one replaces the other. */
+.catalogue {
+  position: relative;
+  min-height: 380px;
+}
+
+.catalogue-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: var(--space-5) var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.catalogue-card {
+  display: grid;
+  gap: var(--space-2);
+  color: inherit;
+  text-decoration: none;
+}
+
+.catalogue-card .photo,
+.catalogue-hero .photo {
+  aspect-ratio: 1;
+  border-radius: var(--radius-m);
+  background: var(--tile);
+  overflow: hidden;
+}
+
+.catalogue-card .photo img,
+.catalogue-hero .photo img {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.catalogue-card:hover .photo {
+  box-shadow: var(--shadow-m);
+}
+
+.catalogue-card .line {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-2);
+  align-items: baseline;
+  font-size: var(--text-s);
+}
+
+.catalogue-card .name {
+  font-weight: 600;
+}
+
+.catalogue-card .price {
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The piece's content is popped too, when the next piece replaces it. */
+.catalogue-piece {
+  position: relative;
+  display: grid;
+  gap: var(--space-4);
+}
+
+.catalogue-nav {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  font-size: var(--text-s);
+}
+
+.catalogue-nav a {
+  text-decoration: none;
+}
+
+.catalogue-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 320px) minmax(0, 1fr);
+  gap: var(--space-5);
+  align-items: start;
+}
+
+.catalogue-text {
+  display: grid;
+  gap: var(--space-3);
+  color: var(--muted);
+}
+
+.catalogue-text h2 {
+  color: var(--ink);
+  font-family: var(--font-display);
+  font-size: 1.75rem;
+  line-height: 1.1;
+}
+
+.catalogue-text .price {
+  color: var(--ink);
+  font-size: var(--text-l);
+  font-weight: 600;
+}
+
+@media (max-width: 640px) {
+  .catalogue-hero {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 /* --- Live values: a magnifier, a reading bar, a lookbook, a story, cards with a light (#388) -- */
 
 .magnifier {

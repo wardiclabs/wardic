@@ -189,6 +189,24 @@ declare module "virtual:file-routes" {
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/server/before-hydration")>;
       $$route?: undefined;
+    },
+    {
+      path: "/transitions/catalogue";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/transitions/catalogue")>;
+      $$route?: undefined;
+    },
+    {
+      path: "/transitions/catalogue/:id";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/transitions/catalogue/[id]")>;
+      $$route?: undefined;
+    },
+    {
+      path: "/transitions/catalogue/";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/transitions/catalogue/index")>;
+      $$route?: undefined;
     }
   ];
   export default routes;
@@ -378,6 +396,31 @@ declare module "virtual:file-routes" {
       $component: FileRouteLazyRef<typeof import("./src/routes/live/reading-progress")>;
       $$route?: undefined;
       children?: undefined;
+    },
+    {
+      path: "/transitions/catalogue";
+      id: "/transitions/catalogue";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/transitions/catalogue")>;
+      $$route?: undefined;
+      children: readonly [
+        {
+          path: "/";
+          id: "/";
+          page: true;
+          $component: FileRouteLazyRef<typeof import("./src/routes/transitions/catalogue/index")>;
+          $$route?: undefined;
+          children?: undefined;
+        },
+        {
+          path: "/:id";
+          id: "/:id";
+          page: true;
+          $component: FileRouteLazyRef<typeof import("./src/routes/transitions/catalogue/[id]")>;
+          $$route?: undefined;
+          children?: undefined;
+        }
+      ];
     },
     {
       path: "/entrances/product-grid";

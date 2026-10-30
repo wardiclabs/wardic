@@ -10,6 +10,7 @@ export const AREAS = [
   { id: "layout", title: "Layout", blurb: "Elements that move and resize as the page changes around them." },
   { id: "gestures", title: "Gestures", blurb: "Hover, press, drag and swipe, with the momentum of the hand." },
   { id: "presence", title: "Presence", blurb: "Things that leave as nicely as they arrive." },
+  { id: "transitions", title: "Page transitions", blurb: "Moving from page to page: the one you leave goes, the next arrives, and what they share flies between them." },
   { id: "live", title: "Live values", blurb: "Values that follow the pointer, the scroll or each other." },
   { id: "server", title: "Server rendering", blurb: "Animations that play before the JavaScript has loaded." },
   { id: "library", title: "With a component library", blurb: "Dialogs, selects and tabs from a component library: its keyboard and accessibility, animated." },
@@ -299,6 +300,24 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     },
     interact: ".saved-row:first-child .button.accent",
     watch: ".saved-row:nth-child(2)",
+  },
+  {
+    id: "catalogue",
+    area: "transitions",
+    title: "From the catalogue to a piece's own page",
+    summary: "Open a piece and its photo flies from the catalogue into its own page; go back and it flies home. The two are routes, so the browser's back and forward do the same.",
+    why: [
+      "A product page that replaces the list in a cut loses the visitor's place: which photo did they open? If the photo they picked grows into the page's hero, and shrinks back into its card when they return, the two pages read as one place seen closer.",
+      "The catalogue and each piece are two Solid Router routes under one layout, and the layout puts `<AnimatePresence mode=\"popLayout\">` around its outlet. Each page's root is a Wardic element with an `exit`. A navigation gives the outlet the new page's nodes, so the old page leaves by itself, with no `key`. `popLayout` takes the leaving page out of the flow where it was, so the new one is in place at once, and the photo, the same `layoutId` on the card and on the hero, flies between them.",
+      "\"Next piece\" stays on the same route with another id, which keeps the page's nodes: the piece's content is keyed on the id (`<Show keyed>`, in a presence of its own), so it slides on while the page stays. The links don't scroll (`noScroll`; Solid 2's `noscroll`), as the demo sits partway down a longer page. Across a whole app you'd keep the router's scroll to the top, where for now a shared element flies in from where it was before the scroll (#480).",
+    ],
+    reducedMotion: "The pages fade from one to the other; the photo doesn't fly and the next piece doesn't slide.",
+    uses: ["AnimatePresence mode=\"popLayout\"", "layoutId", "exit", "Solid Router", "<Show keyed>"],
+    motion: {
+      note: "Motion keys the page on the route's segment (`useSelectedLayoutSegment`), as React reuses an element of the same type, and wraps it in a \"frozen router\": the layout's `LayoutRouterContext`, an internal of Next's, kept as it was when the page mounted, so a leaving page still renders its own route while it exits. Wardic's pages need neither: a navigation gives the outlet new nodes, and the old ones leave with what they showed. Another piece is another segment for Motion, so the whole page goes and comes back, where Wardic keeps the page and keys its content. Next's `<Link scroll={false}>` is Solid Router's `noScroll`. And Motion's leaving card travels with the photo, the two crossfading, where Wardic's stays where it was and fades with its page, for now (#482).",
+    },
+    interact: ".catalogue-card",
+    watch: ".catalogue-hero .photo",
   },
   {
     id: "magnifier",

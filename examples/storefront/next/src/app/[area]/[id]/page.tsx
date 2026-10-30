@@ -7,7 +7,11 @@ import { DEMOS } from "~/examples/index.ts"
 export default async function Page({ params }: PageProps<"/[area]/[id]">) {
   const { area, id } = await params
   const example = exampleById(id)
-  const demo = DEMOS[id]
-  if (example === undefined || example.area !== area || demo === undefined) notFound()
-  return <ExamplePage example={example} demo={demo} />
+  const Demo = DEMOS[id]
+  if (example === undefined || example.area !== area || Demo === undefined) notFound()
+  return (
+    <ExamplePage example={example}>
+      <Demo />
+    </ExamplePage>
+  )
 }
