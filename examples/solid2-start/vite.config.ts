@@ -10,7 +10,7 @@ import { defineConfig } from "vite"
 export default defineConfig({
   plugins: [
     // `extensions`: the plugin also compiles the `?pick=` route modules fileRoutes emits.
-    solid({ start: { node: true, middleware: "./src/middleware.ts" }, ssr: true, extensions: [".jsx", ".tsx"] }),
+    solid({ start: { nodeServer: true, middleware: "./src/middleware.ts" }, ssr: true, extensions: [".jsx", ".tsx"] }),
     // `httpMethods`: route modules may export POST (src/routes/api/save-log.ts).
     fileRoutes({ httpMethods: true, types: true }),
   ],
