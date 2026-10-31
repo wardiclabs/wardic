@@ -1,14 +1,14 @@
 ---
 name: effect-4
 description: >-
-  The Effect 4 library's own guide for agents (effect@4.0.5's AGENTS.md): Effect.gen and Effect.fn, schemas,
+  The Effect 4 library's own guide for agents (effect@4.1.1's AGENTS.md): Effect.gen and Effect.fn, schemas,
   services as Context.Service, errors, resources and Scope, streams, schedules, observability, testing
   with @effect/vitest, runtime type guards. Use when writing or reviewing Effect code in this repo; it
   describes Effect 4, where older Effect guidance (Effect 3's Context.Tag, Effect.Service, and Either,
   now Result) no longer applies. Wardic's own rules on top are docs/agents/effect-first.md.
 ---
 
-<!-- Copied from effect@4.0.5 by scripts/sync-agent-skills.ts: run `bun run skills` after a bump, and don't edit this copy. -->
+<!-- Copied from effect@4.1.1 by scripts/sync-agent-skills.ts: run `bun run skills` after a bump, and don't edit this copy. -->
 
 # Effect library documentation
 

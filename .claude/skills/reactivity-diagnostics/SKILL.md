@@ -3,7 +3,7 @@ name: reactivity-diagnostics
 description: Map a Solid 2.0 dev diagnostic code (STRICT_READ_UNTRACKED, REACTIVE_WRITE_IN_OWNED_SCOPE, LOADING_ON_OUTSIDE_HOLD, HOT_SCOPE_*, ...) to its repair. Use when a Solid console warning, test failure or @solidjs/diagnostics artifact reports a [CODE].
 ---
 
-<!-- Copied from solid-js@2.0.0-rc.19 by scripts/sync-agent-skills.ts: run `bun run skills` after a bump, and don't edit this copy. -->
+<!-- Copied from solid-js@2.0.0-rc.20 by scripts/sync-agent-skills.ts: run `bun run skills` after a bump, and don't edit this copy. -->
 
 # Repairing Solid reactivity from diagnostic codes
 
@@ -264,6 +264,14 @@ outside the boundary and holds the frame. The frame waits for that same
 source, so the fallback cannot appear. Move the outside read under the boundary.
 If the fallback should appear immediately beside the held frame, use a
 `latest()` read in `on`.
+
+### LOADING_ON_ACCESSOR
+
+A Loading boundary's `on` received a function, such as `on={route}` or
+`on={() => route()}`. `on` takes the dependency's value, so pass
+`on={route()}`, or `on={[query(), page()]}` for several dependencies. An
+accessor passed instead is never called, nothing is read, and the boundary
+never re-arms.
 
 ## Hard failures
 

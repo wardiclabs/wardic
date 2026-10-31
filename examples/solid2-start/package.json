@@ -12,13 +12,13 @@
   },
   "dependencies": {
     "@solidjs/router": "2.0.0-next.42",
-    "@solidjs/web": "2.0.0-rc.19",
+    "@solidjs/web": "2.0.0-rc.20",
     "@wardic/core": "workspace:*",
     "@wardic/dom": "workspace:*",
     "@wardic/example-hand-checks": "workspace:*",
     "@wardic/solid": "workspace:*",
-    "effect": "4.0.5",
-    "solid-js": "2.0.0-rc.19"
+    "effect": "4.1.1",
+    "solid-js": "2.0.0-rc.20"
   },
   "devDependencies": {
     "@solidjs/vite-plugin": "3.0.0-next.51",
