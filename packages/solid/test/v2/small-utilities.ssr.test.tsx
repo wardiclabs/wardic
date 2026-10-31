@@ -7,11 +7,13 @@
 // - SUSV4: `WardicConfig`'s `isValidProp` keeps a tag's props off it on a server too.
 // - SUSV5: on a server, `createPageInView` is `true`, `createReducedMotionConfig` `true` for
 //   `"always"`, and `createAnimationFrame` calls nothing.
+// - SUSV6: `createWillChange` is `"auto"` on a server, and so is the element's `will-change`.
 import type { JSX } from "@solidjs/web"
 import { DomLive } from "@wardic/dom"
 import {
   createAnimationFrame,
   createPageInView,
+  createWillChange,
   createReducedMotionConfig,
   isValidWardicProp,
   isWardicComponent,
@@ -88,5 +90,21 @@ describe("#443's exports on Solid 2", () => {
     expect(html).toMatch(/data-name="provider"[^>]*>true</)
     expect(html).toMatch(/data-name="never"[^>]*>false</)
     expect(frames).toBe(0)
+  })
+
+  it("SUSV6: createWillChange is auto on a server, and so is the element's will-change", () => {
+    let read: string | undefined
+    const Box = (): JSX.Element => {
+      const willChange = createWillChange()
+      read = willChange()
+      return <wardic.div animate={{ x: 10 }} style={{ "will-change": willChange }} />
+    }
+    const html = serve(() => (
+      <WardicProvider env={DomLive}>
+        <Box />
+      </WardicProvider>
+    ))
+    expect(read).toBe("auto")
+    expect(tagsOf(html).find((t) => t.name === "div")?.style["will-change"]).toBe("auto")
   })
 })

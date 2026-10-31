@@ -32,6 +32,7 @@ import * as Machine from "@wardic/core/Machine"
 import * as Microtask from "@wardic/core/Microtask"
 import * as Velocity from "@wardic/core/Velocity"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
+import * as DomRenderer from "@wardic/dom/DomRenderer"
 import * as MeasuredPair from "@wardic/dom/MeasuredPair"
 import * as Report from "@wardic/dom/Report"
 import * as Variables from "@wardic/dom/Variables"
@@ -53,6 +54,12 @@ import { childDelayOf, staggerOf } from "./variant-tree.ts"
 
 /** Whether a value-map has any keys (an empty exit means "remove immediately"). */
 const isEmpty = (values: Values.Values): boolean => Rec.isEmptyRecord(values)
+
+/**
+ * An element's values as they're drawn, without its Transform template (#443): it rides in its
+ * presence record to draw its exit through, and isn't a value a child back under its key takes over.
+ */
+const valuesDrawn = (values: Values.Values): Values.Values => Rec.remove(values, DomRenderer.TEMPLATE_KEY)
 
 /** An exit's spring: the defaults, one object, so core decodes it once (#66). */
 
@@ -1186,10 +1193,10 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   const drawnOf = (rec: PresenceRecord): Drawn =>
     UndefinedOr.match(draws.get(rec.element), {
       onUndefined: (): Drawn => ({
-        values: { ...rec.snapshot.current },
+        values: valuesDrawn(rec.snapshot.current),
         velocities: UndefinedOr.match(rec.velocities, { onUndefined: () => NO_VELOCITIES, onDefined: (of) => ({ ...of() }) }),
       }),
-      onDefined: (drawn): Drawn => ({ values: { ...rec.snapshot.current, ...drawn.values }, velocities: { ...drawn.velocities } }),
+      onDefined: (drawn): Drawn => ({ values: valuesDrawn({ ...rec.snapshot.current, ...drawn.values }), velocities: { ...drawn.velocities } }),
     })
 
   /** The Wardic elements made under this presence inside `el`, in document order, but the twins (#181). */

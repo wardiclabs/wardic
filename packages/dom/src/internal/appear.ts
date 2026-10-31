@@ -28,7 +28,7 @@ import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as Result from "effect/Result"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { drawnUnitOf, project } from "./renderer.ts"
+import { drawnUnitOf, project, TEMPLATE_KEY, type TransformTemplate } from "./renderer.ts"
 import { dashCase, isPathKey, isSvgInnerTag, splitPatchForTag, svgAttrNameOf } from "./svg.ts"
 
 /** An element's mount animation, as its binding describes it. */
@@ -53,6 +53,12 @@ export interface Spec {
    * its own translate on top (#363).
    */
   readonly projected?: boolean | undefined
+  /**
+   * The element's **Transform template** (#443): each stop's transform drawn through it, as the
+   * client draws it. A function's text can't name a rule, so a templated spec's rule is named by its
+   * stops, and sampled for each element that has one, never cached.
+   */
+  readonly template?: TransformTemplate | undefined
 }
 
 /** A spec's `@keyframes` rule. */
@@ -114,9 +120,7 @@ const NAMES_SIZE = 4096
 
 /** The rule's name for a spec: its key, tag, repeat and projection, hashed (once a text: a server names each element's spec). */
 export const nameOf = (spec: Pick<Spec, "key" | "tag" | "infinite" | "projected">): string => {
-  const text = `${UndefinedOr.match(spec.tag, { onUndefined: () => "", onDefined: (tag: string) => tag })}|${spec.infinite === true}|${spec.key}${
-    Bool.match(spec.projected === true, { onTrue: () => "|projected", onFalse: () => "" })
-  }`
+  const text = specTextOf(spec)
   return Option.getOrElse(Option.fromUndefinedOr(names.get(text)), () => {
     const name = `${PREFIX}${hash53(text)}`
     if (names.size >= NAMES_SIZE) names.clear()
@@ -124,6 +128,12 @@ export const nameOf = (spec: Pick<Spec, "key" | "tag" | "infinite" | "projected"
     return name
   })
 }
+
+/** A spec's text, which its rule's name hashes: its tag, repeat, key and projection. */
+const specTextOf = (spec: Pick<Spec, "key" | "tag" | "infinite" | "projected">): string =>
+  `${UndefinedOr.match(spec.tag, { onUndefined: () => "", onDefined: (tag: string) => tag })}|${spec.infinite === true}|${spec.key}${
+    Bool.match(spec.projected === true, { onTrue: () => "|projected", onFalse: () => "" })
+  }`
 
 // --- Sampling ----------------------------------------------------------------------------------
 
@@ -372,11 +382,8 @@ interface Declarations {
  * text. An svg-inner element's attributes are drawn as their CSS properties where they have one; a
  * layout node through its projection at rest (#245).
  */
-const declarationsOf = (tag: string | undefined, values: Values.Values, projected: boolean): Result.Result<Declarations, string> => {
-  const { attrs, style } = splitPatchForTag(
-    tag,
-    project(Bool.match(projected, { onTrue: () => ({ ...values, [Projection.KEY]: Projection.AT_REST }), onFalse: () => values })),
-  )
+const declarationsOf = (tag: string | undefined, values: Values.Values, projected: boolean, template: TransformTemplate | undefined): Result.Result<Declarations, string> => {
+  const { attrs, style } = splitPatchForTag(tag, project(drawnValuesOf(values, projected, template)))
   const drawn = Arr.filter(Rec.toEntries(attrs), ([name]) => Bool.not(SVG_FIXED.has(name)))
   const declarations = Arr.appendAll(
     Arr.map(Rec.toEntries(style), ([key, value]) => `${dashCase(key)}:${trimNumbers(String(value))}`),
@@ -391,6 +398,12 @@ const declarationsOf = (tag: string | undefined, values: Values.Values, projecte
           Result.succeed({ text: declarations.join(";"), supports: Arr.filter(Arr.map(drawn, ([name]) => name), (name) => SVG_GEOMETRY.has(name)) }),
       }),
   })
+}
+
+/** A Frame's values as the client draws them: a layout node's through its projection at rest (#245), a templated one's through its template (#443). */
+const drawnValuesOf = (values: Values.Values, projected: boolean, template: TransformTemplate | undefined): Readonly<Record<string, unknown>> => {
+  const drawn = Bool.match(projected, { onTrue: () => ({ ...values, [Projection.KEY]: Projection.AT_REST }), onFalse: () => values })
+  return UndefinedOr.match(template, { onUndefined: () => drawn, onDefined: (t) => ({ ...drawn, [TEMPLATE_KEY]: t }) })
 }
 
 /** A stop's offset in the rule, a percentage to six decimals, so a jump's hold sits before its stop. */
@@ -412,7 +425,6 @@ const sample = (spec: Spec): Result.Result<Keyframes, string> =>
       const last = frames.length - 1
       const projected = spec.projected === true
       const { kept, end, jumps } = thin(frames, spec.tag)
-      const name = nameOf(spec)
       /** A kept stop's Frame: the end drawn as the settled Frame. */
       const frameAt = (stop: number): Values.Values => frames[Bool.match(stop === end, { onTrue: () => last, onFalse: () => stop })] as Values.Values
       // The rule's stops: each kept one, and at a jump, the Frame before it held to halfway, then its own.
@@ -426,21 +438,33 @@ const sample = (spec: Spec): Result.Result<Keyframes, string> =>
           onFalse: () => [{ offset: stop, frame: frameAt(stop) }],
         }))
       return Result.map(
-        Result.all(Arr.map(stops, ({ frame }) => declarationsOf(spec.tag, frame, projected))),
-        (declarations): Keyframes => ({
-          name,
-          duration: end * Machine.CATCH_UP_DT,
-          settled: last * Machine.CATCH_UP_DT,
-          infinite: spec.infinite === true,
-          times: Arr.map(kept, (stop) => stop * Machine.CATCH_UP_DT),
-          css: `@keyframes ${name}{${
-            Arr.map(Bool.match(end === 0, { onTrue: () => ["0%,100%"], onFalse: () => Arr.map(stops, ({ offset }) => percentOf(offset, end)) }), (offset, i) =>
-              `${offset}{${(declarations[i] as Declarations).text}}`).join("")
-          }}`,
-          supports: supportsOf(Arr.flatMap(declarations, (d) => d.supports)),
-        }),
+        Result.all(Arr.map(stops, ({ frame }) => declarationsOf(spec.tag, frame, projected, spec.template))),
+        (declarations): Keyframes => {
+          const body = Arr.map(Bool.match(end === 0, { onTrue: () => ["0%,100%"], onFalse: () => Arr.map(stops, ({ offset }) => percentOf(offset, end)) }), (offset, i) =>
+            `${offset}{${(declarations[i] as Declarations).text}}`).join("")
+          const name = ruleNameOf(spec, body)
+          return {
+            name,
+            duration: end * Machine.CATCH_UP_DT,
+            settled: last * Machine.CATCH_UP_DT,
+            infinite: spec.infinite === true,
+            times: Arr.map(kept, (stop) => stop * Machine.CATCH_UP_DT),
+            css: `@keyframes ${name}{${body}}`,
+            supports: supportsOf(Arr.flatMap(declarations, (d) => d.supports)),
+          }
+        },
       )
     },
+  })
+
+/**
+ * A rule's name: its spec's ({@link nameOf}), or, for a templated spec (#443), its spec's text and
+ * its stops hashed, since a function can't name it: two templates that draw the same share one.
+ */
+const ruleNameOf = (spec: Spec, body: string): string =>
+  UndefinedOr.match(spec.template, {
+    onUndefined: () => nameOf(spec),
+    onDefined: () => `${PREFIX}${hash53(`${specTextOf(spec)}|template|${body}`)}`,
   })
 
 /** Geometry properties once each, in order: a condition's text is the same for the same set. */
@@ -457,9 +481,11 @@ const CACHE_SIZE = 512
 
 /**
  * A spec's rule, or why it has none (a debug log's line): sampled once a spec, cached across
- * requests by its name, since a spec's rule never changes.
+ * requests by its name, since a spec's rule never changes. A templated spec's is sampled each time
+ * (#443): its name comes from its stops.
  */
 export const keyframes = (spec: Spec): Result.Result<Keyframes, string> => {
+  if (Predicate.isNotUndefined(spec.template)) return sample(spec)
   const name = nameOf(spec)
   return Option.getOrElse(Option.fromUndefinedOr(cache.get(name)), () => {
     const sampled = sample(spec)

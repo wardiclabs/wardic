@@ -326,6 +326,151 @@ const buildProjectionTransform = (
   return funcs.join(" ")
 }
 
+/**
+ * The reserved key an element's **Transform template** rides under in its values (#443, Motion's
+ * `transformTemplate`), as its projection rides under `Projection.KEY`: {@link project} calls it for
+ * the element's transform. Namespaced (`@…`), so it never collides with a CSS property or a value key.
+ * Tier 2, for binding authors.
+ */
+export const TEMPLATE_KEY = "@transformTemplate"
+
+/**
+ * A **Transform template** (#443, Motion's `transformTemplate`): the element's whole transform, from
+ * its values and the transform Wardic would draw (`generated`). Called by {@link project}:
+ *
+ * - at a plain render, with its transform keys in their units (`x: "10px"`, `rotate: "45deg"`,
+ *   `scale: 1.5`) and `generated` `""` when every one is at its identity, or it has none;
+ * - while a projection moves it, with all its values as they are (`x: 10`) and the projection's
+ *   transform; once nothing moves it, as at a plain render;
+ * - held for a Measure pass, with all its values and `""` ({@link heldTransformOf}).
+ */
+export type TransformTemplate = (values: Readonly<Record<string, string | number>>, generated: string) => string
+
+/** `values`' template, or `undefined`: a function under {@link TEMPLATE_KEY}. Per frame: an early return. */
+const templateOf = (values: Record<string, unknown>): TransformTemplate | undefined => {
+  const template = values[TEMPLATE_KEY]
+  if (Predicate.isFunction(template)) return template as TransformTemplate
+  return undefined
+}
+
+/**
+ * An element's transform keys as a template takes them at a plain render (#443, Motion's
+ * `buildTransform`): each one it has, at its identity too, a number in its unit (`x: "10px"`,
+ * `rotate: "45deg"`) and a scale's as it is (`1.5`). Not `pathRotation`, which Motion adds to the
+ * transform alone (#438). A templated element's, per frame.
+ */
+const templateValuesOf = (values: Record<string, unknown>): Record<string, string | number> => {
+  const out: Record<string, string | number> = {}
+  for (const { key } of TRANSFORM_FUNCS) {
+    if (key === "pathRotation" || !Object.hasOwn(values, key)) continue
+    const value = values[key]
+    out[key] = templateValueOf(key, value)
+  }
+  return out
+}
+
+/** One transform value as a template takes it: a number in its key's unit, a unitless one as it is, a string as it is. */
+const templateValueOf = (key: string, value: unknown): string | number => {
+  if (Predicate.isString(value)) return value
+  if (!Predicate.isNumber(value)) return String(value)
+  const unit = unitOf(key)
+  if (unit === "") return value
+  return `${value}${unit}`
+}
+
+/**
+ * An element's values as a template takes them while projected or held (#443, Motion's
+ * `latestValues`): every one as it is, but the reserved keys. A templated element's, per frame.
+ */
+const rawValuesOf = (values: Record<string, unknown>): Record<string, string | number> => {
+  const out: Record<string, string | number> = {}
+  for (const key in values) {
+    if (key === Projection.KEY || key === TEMPLATE_KEY) continue
+    out[key] = values[key] as string | number
+  }
+  return out
+}
+
+/**
+ * Whether a projection moves nothing (#443): no delta, no tree scale, no handover's rotation. A
+ * templated element it draws is drawn as at a plain render then, as Motion's is once its projection
+ * ends (`transformTemplate({}, "")` with no transform key), so a template is never handed `none`.
+ */
+const projectsNothing = (projection: Projection.Value): boolean => {
+  const { delta, treeScale } = projection
+  if (delta.x.translate !== 0 || delta.y.translate !== 0) return false
+  if (delta.x.scale !== 1 || delta.y.scale !== 1) return false
+  if (treeScale.x !== 1 || treeScale.y !== 1) return false
+  return Predicate.isUndefined(projection.rotate)
+}
+
+/**
+ * The transform keys a plain render draws (ADR-0023): each one present and not at its identity, in
+ * the canonical order; `""` when every one present is at its identity; `undefined` with none. Built
+ * by concatenation, not an array joined (ADR-0034): this runs per element per frame.
+ */
+const plainTransformOf = (values: Record<string, unknown>): string | undefined => {
+  let transform = ""
+  let separator = ""
+  let present = false
+  for (const { key, fn, identity } of TRANSFORM_FUNCS) {
+    if (!Object.hasOwn(values, key)) continue
+    present = true
+    const value = values[key]
+    if (isIdentity(value, identity)) continue
+    transform = `${transform}${separator}${fn}(${formatTransformValue(key, value)})`
+    separator = " "
+  }
+  if (!present) return undefined
+  return transform
+}
+
+/**
+ * The transform an element draws at a plain render, or `undefined` to leave its own: its template's,
+ * called with no transform key too, as Motion's is (#443); else its keys', `none` when every one is
+ * at its identity (ADR-0023), so a class's transform stays overridden and its last one doesn't stay
+ * inline. Per frame: early returns.
+ */
+const drawnTransformOf = (values: Record<string, unknown>): string | undefined => {
+  const template = templateOf(values)
+  if (Predicate.isNotUndefined(template)) return templatedPlain(template, values)
+  const transform = plainTransformOf(values)
+  if (transform === "") return "none"
+  return transform
+}
+
+/**
+ * A templated element's transform at a plain render (#443): its template's, from its keys and the
+ * transform Wardic would draw, `""` when that's nothing.
+ */
+const templatedPlain = (template: TransformTemplate, values: Record<string, unknown>): string => {
+  const generated = plainTransformOf(values)
+  if (Predicate.isUndefined(generated)) return template(templateValuesOf(values), "")
+  return template(templateValuesOf(values), generated)
+}
+
+/**
+ * The transform a projected element draws (ADR-0009): its projection's, through its template while
+ * the projection moves it, and as at a plain render once nothing does (#443). Per frame: early returns.
+ */
+const projectedTransformOf = (projection: Projection.Value, values: Record<string, unknown>): string => {
+  const template = templateOf(values)
+  if (Predicate.isUndefined(template)) return buildProjectionTransform(projection.delta, projection.treeScale, values, projection.rotate)
+  if (projectsNothing(projection)) return templatedPlain(template, values)
+  return template(rawValuesOf(values), buildProjectionTransform(projection.delta, projection.treeScale, values, projection.rotate))
+}
+
+/**
+ * The transform a Measure pass holds an element at (#443, Motion's `transformTemplate(values, "")`):
+ * its template's with no transform of Wardic's, so a static part of it, such as centring, is in the
+ * box measured. `""` for an element with none, which the pass clears to. Tier 2, for binding authors.
+ */
+export const heldTransformOf = (values: Readonly<Record<string, unknown>>): string => {
+  const template = templateOf(values as Record<string, unknown>)
+  if (Predicate.isUndefined(template)) return ""
+  return template(rawValuesOf(values as Record<string, unknown>), "")
+}
+
 /** `translate3d`'s z argument: the element's own `z`, plus its `translateZ` in pixels when it has one (#363), else none. */
 const zArgOf = (z: unknown, translateZ: unknown): string => {
   if (Predicate.isNotUndefined(translateZ)) return `${pxOf(z) + pxOf(translateZ)}px`
@@ -369,12 +514,13 @@ export const project = (values: Record<string, unknown>): Renderer.Patch => {
 
   const projection = values[Projection.KEY] as Projection.Value | undefined
   if (Predicate.isNotUndefined(projection)) {
-    // Projection owns the transform; weave this element's rotate/skew from `values`.
-    patch.transform = buildProjectionTransform(projection.delta, projection.treeScale, values, projection.rotate)
+    // Projection owns the transform; weave this element's rotate/skew from `values`, through its
+    // Transform template when it has one (#443).
+    patch.transform = projectedTransformOf(projection, values)
     // Copy non-transform style keys (transform keys are consumed by the weave /
-    // owned by the projection; the projection key itself never renders).
+    // owned by the projection; the reserved keys never render).
     for (const key in values) {
-      if (key === Projection.KEY || TRANSFORM_KEYS.has(key)) continue
+      if (key === Projection.KEY || key === TEMPLATE_KEY || TRANSFORM_KEYS.has(key)) continue
       patch[key] = formatStyleValue(key, values[key])
     }
     // Shared-element crossfade (ADR-0010): compose the crossfade factor with the
@@ -393,27 +539,14 @@ export const project = (values: Record<string, unknown>): Renderer.Patch => {
     return patch
   }
 
-  // Grouped transform: walk the canonical order, emitting a func per present key not at
-  // its identity. `none` when every present key is (ADR-0023): written, so a class's
-  // transform stays overridden and an element's last transform doesn't stay inline.
-  // Built by concatenation, not an array joined (ADR-0034): this runs per element per frame.
-  let transform = ""
-  let separator = ""
-  let present = false
-  for (const { key, fn, identity } of TRANSFORM_FUNCS) {
-    if (!Object.hasOwn(values, key)) continue
-    present = true
-    const value = values[key]
-    if (isIdentity(value, identity)) continue
-    transform = `${transform}${separator}${fn}(${formatTransformValue(key, value)})`
-    separator = " "
-  }
-  if (present && transform === "") transform = "none"
-  if (present) patch.transform = transform
+  // Grouped transform: the present keys in the canonical order, through the Transform template
+  // when the element has one (#443).
+  const transform = drawnTransformOf(values)
+  if (Predicate.isNotUndefined(transform)) patch.transform = transform
 
   // Non-transform keys: copy across with default-unit handling.
   for (const key in values) {
-    if (TRANSFORM_KEYS.has(key)) continue
+    if (key === TEMPLATE_KEY || TRANSFORM_KEYS.has(key)) continue
     patch[key] = formatStyleValue(key, values[key])
   }
 

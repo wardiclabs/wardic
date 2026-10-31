@@ -862,6 +862,12 @@ export interface RegisterNodeOptions {
    */
   readonly ownOpacity?: () => number
   /**
+   * The transform a Measure pass holds the element at (#443, Motion's `transformTemplate(values, "")`):
+   * its **Transform template**'s with no transform of Wardic's, so a static part of it, such as
+   * centring, is in the boxes it flies between. Read at each pass. Without one, the pass clears it.
+   */
+  readonly heldTransform?: () => string
+  /**
    * Shared-element match key (ADR-0010). Enrols the node in the per-`layoutId`
    * lead/follow stack so coexisting twins crossfade, and lets a twin disposed in the
    * same task seed its first measure (a Switch, *Amendment (#13)*). Omitted for a
@@ -1071,7 +1077,8 @@ export interface ProjectionSystem extends Inspectable.Inspectable {
    * Register an element's values (ADR-0012, *Amendment (#137)*): a binding hands every element's,
    * read from what it last wrote, so a `layoutId` twin's flight follows the translate and scale
    * Wardic animates on its ancestors each frame, an element that isn't a projection node included.
-   * Returns the unregistration, for the element's dispose.
+   * A presence registers a leaver's drawn values in their place, its Transform template among them
+   * (#443), so it's drawn through it as it leaves. Returns the unregistration, for the element's dispose.
    */
   readonly registerValues: (el: Element, read: () => Readonly<Record<string, unknown>>) => () => void
   /**
@@ -1164,6 +1171,8 @@ interface NodeState {
   /** The element's own `rotate` and opacity, which a handover blends into (ADR-0010 *Amendment (#166)*). */
   readonly ownRotate: () => number
   readonly ownOpacity: () => number
+  /** What a Measure pass holds the element's transform at (#443): its template's; `undefined` clears it. */
+  readonly heldTransform: (() => string) | undefined
   /**
    * What the node's handover blends from (ADR-0010 *Amendment (#166)*): the twin's radius, rotation
    * and, for a Switch, opacity, as they were drawn as it began. Eased into the node's own over the
@@ -1450,6 +1459,17 @@ const NO_OWN_SCALE = (): Point.Point => UNIT_SCALE
 /** No own translate: a node the binding gives none, or a leaving one (#363). */
 const NO_TRANSLATE: Point.Point = { x: 0, y: 0 }
 const NO_OWN_TRANSLATE = (): Point.Point => NO_TRANSLATE
+
+/**
+ * The transform a Measure pass holds `node` at (#443): its Transform template's, `""` (cleared) for a
+ * node with none. Per pass per node: a field read and an early return.
+ */
+const heldTransformFor = (node: { readonly heldTransform: (() => string) | undefined }): string => {
+  const held = node.heldTransform
+  if (Predicate.isUndefined(held)) return ""
+  return held()
+}
+
 /** No own rotation or opacity of its own: a node the binding gives none, or a leaving one (*Amendment (#166)*). */
 const NO_OWN_ROTATE = (): number => 0
 const NO_OWN_OPACITY = (): number => 1
@@ -3469,10 +3489,12 @@ export const makeProjectionSystem = (
     // pass (ADR-0009 Q5), so that set is exactly `ordered` — the flag would be
     // dead machinery. A descendant's transform cannot pollute an ancestor's rect,
     // so this is still the minimal set, not a widening.
+    // A templated element is held at its Transform template's with no transform of Wardic's (#443,
+    // Motion's `transformTemplate(values, "")`), so a static part of it, such as centring, is measured.
     const savedTransforms: Array<string> = []
     for (const node of ordered) {
       savedTransforms.push(node.element.style.transform)
-      node.element.style.transform = ""
+      node.element.style.transform = heldTransformFor(node)
       // A server's Appear animation not yet handed off (#245, ADR-0044 *Amendment (#245)*): its CSS
       // transform beats an inline one, but not an important one. Its timeline runs on; the restore
       // below gives the old value back, at its own priority.
@@ -4742,6 +4764,7 @@ export const makeProjectionSystem = (
     ownTranslate: NO_OWN_TRANSLATE,
     ownRotate: NO_OWN_ROTATE,
     ownOpacity: NO_OWN_OPACITY,
+    heldTransform: undefined,
     blend: undefined,
     seedBlend: undefined,
     seedScroll: undefined,
@@ -5255,6 +5278,7 @@ export const makeProjectionSystem = (
       ownTranslate: UndefinedOr.match(opts.ownTranslate, { onUndefined: () => NO_OWN_TRANSLATE, onDefined: identity }),
       ownRotate: UndefinedOr.match(opts.ownRotate, { onUndefined: () => NO_OWN_ROTATE, onDefined: identity }),
       ownOpacity: UndefinedOr.match(opts.ownOpacity, { onUndefined: () => NO_OWN_OPACITY, onDefined: identity }),
+      heldTransform: opts.heldTransform,
       blend: undefined,
       seedBlend: undefined,
       seedScroll: undefined,

@@ -101,7 +101,8 @@ export { createCycle, type Cycle } from "./cycle.ts"
  * or an Atom), followed while no layer of the Override stack sets its key. `createTransform` maps
  * one (through a function, or ranges), `createFollowValue` follows one on any transition (#441) and
  * `createSpring` with a spring; `createScroll`, `createVelocity` and `createTime` make one from a
- * scroll, a value's velocity and time (#234). `createAnimationFrame` tells a callback each frame (#443).
+ * scroll, a value's velocity and time (#234). `createAnimationFrame` tells a callback each frame, and `createWillChange` makes a
+ * `willChange` that turns on as its element animates (#443).
  */
 export {
   createAnimationFrame,
@@ -111,11 +112,12 @@ export {
   createTime,
   createTransform,
   createVelocity,
+  createWillChange,
   type ElementSource,
   type ScrollOptions,
   type ScrollValues,
 } from "./live-value.ts"
-export type { FollowAccessor, FollowValueOptions, Live, LiveSource, SpringAccessor } from "./live-style.ts"
+export type { FollowAccessor, FollowValueOptions, Live, LiveSource, SpringAccessor, WillChange } from "./live-style.ts"
 
 /**
  * `createWard` — a **Ward**, one element's motion binding (ADR-0005, ADR-0042): recognizers ->
@@ -134,6 +136,7 @@ export type {
   WardicPath,
   WardicPropagate,
   WardicTransformShorthands,
+  WardicTransformTemplate,
   WardicAnimationDefinition,
   WardicTransition,
   WardicTransitionEntries,

@@ -212,6 +212,11 @@ export interface LiveStyle {
   readonly valueOf: (key: string) => Option.Option<unknown>
   /** Whether a routed key's source is live, so a return to it follows it (decision 6). */
   readonly isLive: (key: string) => boolean
+  /**
+   * Its `willChange`'s turn-on, when its style gives it a `createWillChange` value (#443), as
+   * `willChange` or `will-change`; `undefined` otherwise, at once for a style that routes nothing.
+   */
+  readonly willChange: () => (() => void) | undefined
   /** A style value read now, live or not. */
   readonly read: (value: unknown) => unknown
   /**
@@ -336,6 +341,13 @@ const Proto: Omit<LiveStyle, never> & ThisType<State> = {
   isLive(key) {
     return Bool.and(Object.hasOwn(this.routed, key), isLive(this.routed[key]))
   },
+  willChange() {
+    const routed = this.routed
+    if (routed === NOTHING_ROUTED) return undefined
+    if (Object.hasOwn(routed, "willChange")) return turnOnOf(routed["willChange"])
+    if (Object.hasOwn(routed, "will-change")) return turnOnOf(routed["will-change"])
+    return undefined
+  },
   read(value) {
     return readLive(value, this.registry, this.reactivity.untrack)
   },
@@ -375,6 +387,49 @@ export const createLiveStyle = (options: LiveStyleOptions): LiveStyle => {
   }
   return Object.assign(Object.create(Proto), state)
 }
+
+/** A `createWillChange` value (#443, Motion's `useWillChange`): `"auto"` until its element animates, then `"transform"`. */
+export type WillChange = "auto" | "transform"
+
+/** Each `createWillChange` value's turn-on (#443), by its accessor and by the Atom it carries. */
+const WILL_CHANGE = new WeakMap<object, () => void>()
+
+/**
+ * A `createWillChange` value (#443): its Atom, `"auto"`, held in `registry` until `onCleanup` runs,
+ * as an accessor `wrap` makes. Its turn-on sets it to `"transform"`, once, for good, as Motion's
+ * `WillChangeMotionValue` stays enabled. The accessor and its Atom are both marked, so a `style` that
+ * routes either finds it.
+ */
+export const willChangeOf = (
+  registry: AtomRegistry.AtomRegistry,
+  onCleanup: (fn: () => void) => void,
+  wrap: (atom: Atom.Atom<WillChange>) => Accessor<WillChange>,
+): Accessor<WillChange> => {
+  const atom = Atom.make<WillChange>("auto")
+  onCleanup(registry.mount(atom))
+  let on = false
+  const turnOn = (): void => {
+    if (on) return
+    on = true
+    registry.set(atom, "transform")
+  }
+  const accessor = wrap(atom)
+  WILL_CHANGE.set(atom, turnOn)
+  WILL_CHANGE.set(accessor, turnOn)
+  return accessor
+}
+
+/** A style value's will-change turn-on (#443), when it's a `createWillChange` value; `undefined` for anything else. */
+const turnOnOf = (value: unknown): (() => void) | undefined => WILL_CHANGE.get(value as object)
+
+/**
+ * The keys whose animation turns a will-change value on (#443, Motion's `addValueToWillChange`): the
+ * transform keys, and the ones a browser can animate on its compositor (Motion's `acceleratedValues`).
+ */
+const ACCELERATED: ReadonlySet<string> = new Set(["transform", "opacity", "clipPath", "clip-path", "filter", "backgroundColor", "background-color"])
+
+/** Whether animating `key` turns a will-change value on (#443). */
+export const turnsWillChangeOn = (key: string): boolean => Bool.or(isTransformKey(key), ACCELERATED.has(key))
 
 /** A server's registry, made on first need: an Atom read there gives its own initial value (ADR-0021). */
 let serverRegistry: AtomRegistry.AtomRegistry | undefined

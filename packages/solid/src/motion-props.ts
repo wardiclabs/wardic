@@ -9,7 +9,7 @@ import type { WardicAnimationControls } from "./animation-controls.ts"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
-import type { WardConfig, WardicAnimationDefinition, WardicDragTransition, WardicPropagate, WardicTransition, WardicVariant, WardicVariantLabels, WardicVariants, WardicViewport } from "./config.ts"
+import type { WardConfig, WardicAnimationDefinition, WardicDragTransition, WardicPropagate, WardicTransformTemplate, WardicTransition, WardicVariant, WardicVariantLabels, WardicVariants, WardicViewport } from "./config.ts"
 import type { WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
 import type { WardicDragControls } from "./drag-controls.ts"
 import type { WardicDragInfo, WardicPointInfo, WardicPressEvent, WardicPressInfo } from "./gesture-info.ts"
@@ -48,6 +48,7 @@ const RARE_KEYS = [
   "onMeasureDragConstraints",
   "propagate",
   "layoutCrossfade",
+  "transformTemplate",
   "whileInView",
   "whileFocus",
   "viewport",
@@ -105,6 +106,7 @@ export const MOTION_PROPS = [
   "onLayoutAnimationStart",
   "onLayoutAnimationComplete",
   "onUpdate",
+  "transformTemplate",
   "appear",
   "transition",
   "key",
@@ -314,6 +316,8 @@ export interface WardicMotionProps {
    * it to keep it. Whether the element reports is read once, at mount.
    */
   readonly onUpdate?: (latest: Readonly<Record<string, number | string>>) => void
+  /** The element's whole transform, from its values and the one Wardic would draw (#443, Motion's prop; see `WardConfig`). */
+  readonly transformTemplate?: WardicTransformTemplate
   /**
    * `false` keeps this element at its Starting style until mount during a server render, when the
    * provider would start its mount animation in CSS from first paint (#48, ADR-0044). Read on the

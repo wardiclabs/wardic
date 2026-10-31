@@ -60,8 +60,10 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import type * as Fiber from "effect/Fiber"
 import * as Predicate from "effect/Predicate"
+import * as UndefinedOr from "effect/UndefinedOr"
 import * as Scope from "effect/Scope"
 import { reportFailure } from "./report.ts"
+import { TEMPLATE_KEY } from "./renderer.ts"
 import { dashCase } from "./svg.ts"
 
 /**
@@ -147,9 +149,10 @@ export interface FlushGate {
   /**
    * Register an element under `id` with its `sink`. Returns an unregister fn
    * that removes the element from the accumulator (a subsequent `write` is a
-   * no-op).
+   * no-op). `values` start its value-map, unflushed: drawn with its first `write`, so they never
+   * commit alone (#443: its Transform template, which mustn't take its Starting style off early).
    */
-  readonly register: (id: string, sink: FlushSink) => () => void
+  readonly register: (id: string, sink: FlushSink, values?: Readonly<Record<string, unknown>>) => () => void
   /**
    * Merge `partial` into the element's value-map by key, mark it dirty, and
    * schedule a flush: the end of the Frame loop's tick, for a write made in one, or else the
@@ -357,6 +360,8 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
       }
       for (const key in latest) if (!Object.hasOwn(entry.values, key)) delete latest[key]
       Object.assign(latest, entry.values)
+      // Its Transform template rides in its values (#443), and isn't one: Motion's `onUpdate` never sees it.
+      delete latest[TEMPLATE_KEY]
       try {
         onCommit(latest)
         entry.failing = false
@@ -454,8 +459,8 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     frame = requestFrame(flush)
   }
 
-  const register: FlushGate["register"] = (id, sink) => {
-    const entry: Entry = { values: {}, sink, dirty: false, committed: new Map(), outputs: outputsById.get(id), latest: undefined, failing: false, patch: undefined }
+  const register: FlushGate["register"] = (id, sink, values) => {
+    const entry: Entry = { values: UndefinedOr.match(values, { onUndefined: () => ({}), onDefined: (start) => ({ ...start }) }), sink, dirty: false, committed: new Map(), outputs: outputsById.get(id), latest: undefined, failing: false, patch: undefined }
     accumulator.set(id, entry)
     if (Predicate.isNotUndefined(sink.beforeFirstCommit)) firstCommits.add(id)
     return () => {

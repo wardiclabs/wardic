@@ -9,9 +9,11 @@
 // - SUS5: on a server, `createPageInView` is `true`; `createReducedMotionConfig` is `true` for
 //   `"always"` and `false` for the rest; `createAnimationFrame` calls nothing.
 // - SUS6: `forwardMotionProps` hands a wrapped component the motion props on a server too.
+// - SUS7: `createWillChange` is `"auto"` on a server, and so is the element's `will-change`.
 import {
   createAnimationFrame,
   createPageInView,
+  createWillChange,
   createReducedMotionConfig,
   isValidWardicProp,
   isWardicComponent,
@@ -133,5 +135,21 @@ describe("the hooks on a server (#443)", () => {
     const Forwarding = wardic.create(Box, { forwardMotionProps: true })
     serve(() => <Forwarding animate={{ opacity: 0.5 }} />)
     expect(seen).toEqual({ opacity: 0.5 })
+  })
+
+  it("SUS7: createWillChange is auto on a server, and so is the element's will-change", () => {
+    let read: string | undefined
+    const Box = (): JSX.Element => {
+      const willChange = createWillChange()
+      read = willChange()
+      return <wardic.div animate={{ x: 10 }} style={{ "will-change": willChange }} />
+    }
+    const html = serve(() => (
+      <WardicProvider env={DomLive}>
+        <Box />
+      </WardicProvider>
+    ))
+    expect(read).toBe("auto")
+    expect(tagsOf(html).find((t) => t.name === "div")?.style["will-change"]).toBe("auto")
   })
 })

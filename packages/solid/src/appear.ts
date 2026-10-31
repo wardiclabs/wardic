@@ -20,6 +20,7 @@ import * as Machine from "@wardic/core/Machine"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Values from "@wardic/core/Values"
 import * as Appear from "@wardic/dom/Appear"
+import type * as DomRenderer from "@wardic/dom/DomRenderer"
 import * as DomDefaultTransition from "@wardic/dom/DomDefaultTransition"
 import * as DomInterpolators from "@wardic/dom/DomInterpolators"
 import * as DomPositionalKeys from "@wardic/dom/DomPositionalKeys"
@@ -66,6 +67,8 @@ export interface MountAnimation {
    * 0 s, holding its end from first paint. Part of its key; left out when it isn't.
    */
   readonly skipped?: boolean | undefined
+  /** Its **Transform template** (#443): its stops drawn through it, as the client draws them. Left out with none. */
+  readonly template?: DomRenderer.TransformTemplate | undefined
 }
 
 /** What stands in for a function with no easing name: canonical text holding it is no key. */
@@ -240,6 +243,7 @@ export const specOf = (m: MountAnimation): Result.Result<Appear.Spec, string> =>
         tag: m.tag,
         infinite: forever,
         projected: m.layout,
+        template: m.template,
         // Skipped (#468): every key's snap, landing on its first frame, a rule of 0 s.
         machine: () =>
           Bool.match(forever, {
@@ -635,6 +639,8 @@ export interface ServerElement {
   readonly transition: WardicTransition | undefined
   /** Whether it's a layout node (`layout` or `layoutId`): drawn through its projection at rest (#245). */
   readonly layout: boolean
+  /** Its **Transform template** (#443), when it has one. */
+  readonly template?: DomRenderer.TransformTemplate | undefined
   /** The group it staggers in, as a Variant child: its parent's (`node.inherited`). */
   readonly group: Option.Option<AppearGroup>
   /** Whether it orchestrates its Variant children: it has variants of its own (ADR-0007). */
@@ -678,7 +684,17 @@ export const enterServer = (
   const skipped = Bool.or(el.skipAnimations === true, UndefinedOr.match(el.transition, { onUndefined: () => false, onDefined: (t) => t.skipAnimations === true }))
   const play = (reduced: boolean): Option.Option<Result.Result<MountAnimation, string>> =>
     Option.map(mount, (prepared) =>
-      Result.map(prepared, ({ from, to, stops }): MountAnimation => ({ tag: el.tag, from, to, transition: el.transition, reduced, layout: el.layout, stops, ...skippedField(skipped) })))
+      Result.map(prepared, ({ from, to, stops }): MountAnimation => ({
+        tag: el.tag,
+        from,
+        to,
+        transition: el.transition,
+        reduced,
+        layout: el.layout,
+        stops,
+        ...skippedField(skipped),
+        ...UndefinedOr.match(el.template, { onUndefined: () => ({}), onDefined: (template) => ({ template }) }),
+      })))
   const plays = Bool.match(skipped, {
     onTrue: () => {
       const one = play(false)

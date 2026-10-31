@@ -104,7 +104,11 @@ import {
   applyDragDefaults,
   dragAxisOf,
   dragDefaultsOf,
+  draggingWithWillChange,
   drawnAtRest,
+  followTemplate,
+  heldTransformFor,
+  registeredValuesOf,
   type ElementSpine,
   flagStartingStyle,
   isLayoutNode,
@@ -170,9 +174,10 @@ export interface WardConfigValues extends Omit<SharedWardConfig, SolidOneCallbac
 
 /**
  * The config keys whose values are functions: read as they are, never called as accessors (#259).
- * `dragConstraints`' function is its container's accessor (#273), read at each measure.
+ * `dragConstraints`' function is its container's accessor (#273), read at each measure; a
+ * `transformTemplate` is called by the renderer (#443).
  */
-type WardCallbackKey = "onUpdate" | "dragConstraints" | "onMeasureDragConstraints"
+type WardCallbackKey = "onUpdate" | "dragConstraints" | "onMeasureDragConstraints" | "transformTemplate"
 
 /**
  * A ward's config (ADR-0042, #259): each key a value, or an accessor of it, read per key. A getter,
@@ -224,6 +229,7 @@ const WARD_KEYS = [
   "layoutAnchor",
   "layoutCrossfade",
   "onUpdate",
+  "transformTemplate",
   "appear",
   "style",
   "key",
@@ -252,7 +258,7 @@ const sameTarget = (a: Resolution | undefined, b: Resolution | undefined): boole
 }
 
 /** A ward's config read per key (#259). */
-const WARD_VIEW = configView<WardConfigValues>(WARD_KEYS, ["onUpdate", "dragConstraints", "onMeasureDragConstraints"])
+const WARD_VIEW = configView<WardConfigValues>(WARD_KEYS, ["onUpdate", "dragConstraints", "onMeasureDragConstraints", "transformTemplate"])
 
 /** `config` read per key (#259), for a read outside a ward: a `wardic.<tag>`'s props at setup. Internal. */
 export const wardConfigView = (config: WardConfig): WardConfigValues => WARD_VIEW.of(config)
@@ -805,7 +811,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   // hydrating, what the server rendered, the DOM's project (the Hydration hold). A layout node's is
   // drawn through its projection at rest, as its first commit draws it (#245).
   const layoutNode = isLayoutNode(initialConfig)
-  const drawnStart = drawnAtRest(start.initialValues, layoutNode)
+  const drawnStart = drawnAtRest(start.initialValues, layoutNode, initialConfig.transformTemplate)
   const projected = project(drawnStart)
   const hydrating = isHydrating()
   const startingPatch = Bool.match(hydrating, { onTrue: () => DomRenderer.project(drawnStart), onFalse: () => projected })
@@ -835,7 +841,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     userStyle,
     starting: seed.style,
     startingWith: (routed: Values.Values): Renderer.Patch =>
-      Svg.splitPatchForTag(internal.tag, projectStarting(drawnAtRest({ ...routed, ...start.initialValues }, layoutNode))).style,
+      Svg.splitPatchForTag(internal.tag, projectStarting(drawnAtRest({ ...routed, ...start.initialValues }, layoutNode, initialConfig.transformTemplate))).style,
     live,
     defaults: dragDefaults,
     base: internal.baseStyle,
@@ -850,11 +856,12 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   let begun = start
   const beginFresh = (): void => {
     // The config now, a plain copy read untracked, as setup reads it: this runs in the mount effect.
-    begun = startOf(WARD_VIEW.setupOf(view).config, node.inherited, false, untrack)
+    const now = WARD_VIEW.setupOf(view).config
+    begun = startOf(now, node.inherited, false, untrack)
     snapshot.values = { ...begun.initialValues }
     snapshot.velocities = {}
     snapshot.drawnAt = {}
-    elementStyle.restart(Svg.splitPatchForTag(internal.tag, project(drawnAtRest(begun.initialValues, layoutNode))).style)
+    elementStyle.restart(Svg.splitPatchForTag(internal.tag, project(drawnAtRest(begun.initialValues, layoutNode, now.transformTemplate))).style)
   }
   const configNow = (): WardConfigValues => view
   const styleNow = (): WardStyle | string | undefined => untrack(userStyle)
@@ -1117,7 +1124,11 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     // hydrating, its Appear animation is found here, taken over by its first Retarget that starts,
     // and removed in its first commit (the Handoff, ADR-0044 decision 6).
     const handoff = Bool.match(hydrating, { onTrue: () => Option.getOrUndefined(handoffOf(el)), onFalse: constUndefined })
-    const unregister = gate.register(id, releasingAppear(withOnUpdate({ target: el, ...elementStyle.hooks }, configNow().onUpdate, configNow), handoff, el))
+    // Its Transform template (#443), drawn with its first write: the one at mount, then each other one
+    // its config gives.
+    const templateAtMount = configNow().transformTemplate
+    let template = templateAtMount
+    const unregister = gate.register(id, releasingAppear(withOnUpdate({ target: el, ...elementStyle.hooks }, configNow().onUpdate, configNow), handoff, el), registeredValuesOf(templateAtMount))
     // Its values, for the projection's flights (ADR-0012 *Amendment (#137)*).
     const unregisterValues = projection.registerValues(el, () => snapshot.values)
     const links = startLinksOf(el, styleNow, live)
@@ -1126,6 +1137,16 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       const record = presenceRecordOf(el, begun, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(initialConfig), snapshot, reducedMotion, skipAnimations)
       registrar.register(record)
       return record
+    })
+    const recordFrame = recordFrameOf(presenceRecord)
+    // Its exit is drawn through its template (#443): it rides in its presence record, whose drawn values
+    // the projection reads as it leaves. A later one is written with the values it holds, so the commit
+    // that may take its Starting style off holds them.
+    UndefinedOr.map(registeredValuesOf(templateAtMount), (values) => recordFrame(values as Values.Values))
+    const unfollowTemplate = followTemplate(templateAtMount, () => view.transformTemplate, reactivity.watch, (next) => {
+      template = next
+      gate.write(id, { ...snapshot.values, [DomRenderer.TEMPLATE_KEY]: next })
+      recordFrame({ [DomRenderer.TEMPLATE_KEY]: next } as unknown as Values.Values)
     })
     // Where it starts when its child takes over from a leaver (#286): asked before its layout node
     // registers, which moves from the leaver's box, and before its first Retarget.
@@ -1141,7 +1162,20 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         const released = (): void => lifecycle.released()
         return projection.register(
           registrationOf({
-            ...layoutOptionsOf({ id, element: el, config: configNow, parent: node.inherited, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true, taken, layoutGroup, reducedMotion, skipAnimations }),
+            ...layoutOptionsOf({
+              id,
+              element: el,
+              config: configNow,
+              parent: node.inherited,
+              snapshot,
+              dragTransition,
+              raiseWhileDragged: internal.raiseWhileDragged === true,
+              taken,
+              layoutGroup,
+              reducedMotion,
+              skipAnimations,
+              heldTransform: heldTransformFor(snapshot, templateAtMount, () => template),
+            }),
             onLayoutAnimationStart: () => started,
             onLayoutAnimationComplete: () => completed,
             // Its drag's Release offset at rest, for `next("dragTransitionEnd")` (#273).
@@ -1175,8 +1209,9 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         id,
         element: el,
         snapshot,
-        recordFrame: recordFrameOf(presenceRecord),
-        setDragging: (on: boolean) => setGesture(el, "dragging", on),
+        recordFrame,
+        // A drag's start turns its `style`'s will-change value on (#443).
+        setDragging: draggingWithWillChange(live, (on: boolean) => setGesture(el, "dragging", on)),
         skipAnimations,
         config: {
           axis,
@@ -1265,6 +1300,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         // The group lets go of the node before it's disposed.
         UndefinedOr.map(handedOver, (release) => release())
         UndefinedOr.map(layout, (node) => node.dispose())
+        unfollowTemplate()
         unregisterValues()
         unregister()
       },
@@ -1613,7 +1649,7 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
   const node = serverVariantNode(c, parent)
   const initialValues = startOf(c, node.inherited, presenceBlocks, untrack).initialValues
   const layoutNode = isLayoutNode(c)
-  const seed = Style.starting(internal.tag, drawnAtRest(initialValues, layoutNode))
+  const seed = Style.starting(internal.tag, drawnAtRest(initialValues, layoutNode, c.transformTemplate))
   // Its Appear animation (#48, ADR-0044): its slot in the render's, and the group its Variant
   // children join when it leads one.
   const appear = appearEntryOf(useWardicAppear(), c, internal.tag, initialValues, node, startsQuiet(c, node.inherited, presenceBlocks, untrack), settingOf(useWardicConfig()), useWardicSkipAnimations()())
@@ -1634,7 +1670,7 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
     const parts = split(user)
     if (setsAnimation(parts.css)) appear.veto("its own style sets an animation")
     return pipe(
-      serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed, layoutNode, untrack),
+      serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed, layoutNode, untrack, c.transformTemplate),
       Style.over(parts.css),
       Style.over(UndefinedOr.match(internal.baseStyle, { onUndefined: constUndefined, onDefined: (base) => base() })),
       Style.over(dragDefaults),

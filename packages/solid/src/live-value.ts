@@ -14,6 +14,7 @@
  *   `scrollY` and their progress, through Motion's offsets for a `target`.
  * - `createVelocity(source)` is a value's velocity a second, per frame (Motion's `useVelocity`).
  * - `createTime()` is the milliseconds since it was created (Motion's `useTime`).
+ * - `createWillChange()` is a `willChange` that turns on as its element animates (Motion's `useWillChange`, #443).
  *
  * Call them where you'd create a signal (a component's body): each owns what it subscribes to
  * until its owner is disposed. On a server, each gives its source's value as it is now (ADR-0021).
@@ -35,8 +36,8 @@ import * as Option from "effect/Option"
 import { type Accessor, createComputed, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js"
 import { eachFrameOf } from "./animation-frame.ts"
 import { fromAtom } from "./bridge.ts"
-import type { FollowAccessor, FollowValueOptions, LiveSource, SpringAccessor } from "./live-style.ts"
-import { atomOf, carry, followAccessorOf, followOptionsOf, numberOf, readLive, serverFollowOf, serverRegistryOf, unitOf, withUnit } from "./live-style.ts"
+import type { FollowAccessor, FollowValueOptions, LiveSource, SpringAccessor, WillChange } from "./live-style.ts"
+import { atomOf, carry, followAccessorOf, followOptionsOf, numberOf, readLive, serverFollowOf, serverRegistryOf, unitOf, willChangeOf, withUnit } from "./live-style.ts"
 import { useWardicRuntime } from "./provider.tsx"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import { isServer } from "./server.ts"
@@ -238,6 +239,26 @@ const liveOf = <A, R>(runtime: WardicRuntime, live: Effect.Effect<Atom.Atom<A>, 
 }
 
 const SERVER_ZERO: Accessor<number> = () => 0
+
+/**
+ * A `willChange` for an element's `style` (#443, Motion's `useWillChange`): `"auto"` until that
+ * element starts animating a transform key, `opacity`, `clipPath`, `filter` or `backgroundColor`, or
+ * starts a drag; then `"transform"`, for good, so the browser keeps the element on a layer of its own
+ * from its first move on. A key already at its target and a layout animation don't count. `"auto"`
+ * on a server, where nothing animates.
+ *
+ * ```tsx
+ * const willChange = createWillChange()
+ * <wardic.div whileHover={{ scale: 1.1 }} style={{ "will-change": willChange }} />
+ * ```
+ */
+export const createWillChange = (): Accessor<WillChange> => {
+  if (isServer) return SERVER_AUTO
+  const runtime = useWardicRuntime()
+  return willChangeOf(runtime.runSync(AtomRegistry.AtomRegistry), onCleanup, (atom) => carry(fromAtom(atom), atom))
+}
+
+const SERVER_AUTO: Accessor<WillChange> = () => "auto"
 
 /**
  * `callback` told each frame's time and delta, in milliseconds, while its owner lives (#443, Motion's
