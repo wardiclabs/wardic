@@ -7,6 +7,9 @@
  * @module
  */
 export {
+  createInstantLayoutTransition,
+  createInstantTransition,
+  createResetProjection,
   runScoped,
   useAnimateLayout,
   useWardicFiber,
@@ -14,6 +17,8 @@ export {
   useWardicRuntime,
   WardicProvider,
 } from "./provider.tsx"
+// The Instant change and the Projection reset (#443): Motion's `useInstantTransition` and kin.
+export type { InstantTransition } from "../../instant.ts"
 export type { WardicEnv, WardicRuntime, WardicServices } from "../../runtime.ts"
 export type { AnimateLayout } from "./provider.tsx"
 
@@ -134,7 +139,7 @@ export { createCycle, type Cycle } from "./cycle.ts"
 
 /** Reactive bridges (ADR-0006): a core `Stream` or an Effect `Atom` as an accessor. */
 export { fromAtom, streamToSignal } from "./bridge.ts"
-export type { WardicDragTransition, WardicTransformTemplate } from "../../config.ts"
+export type { WardicDragTransition, WardicLayoutBox, WardicScaleCorrector, WardicTransformTemplate } from "../../config.ts"
 export type { WardicBoundingBox, WardicDragConstraints, WardicMeasureDragConstraints } from "../../drag-constraints.ts"
 // Drag controls (#431, Motion's `useDragControls`): a drag started from a handle or a track.
 export { createDragControls, type WardicDragControls, type WardicDragControlsOptions } from "../../drag-controls.ts"

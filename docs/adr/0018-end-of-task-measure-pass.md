@@ -275,3 +275,30 @@ The noise control was +0.4%; element timings, bytes and retained memory are flat
 *Amendment (#45)*'s viewport subscription is made at the first registration and lasts as long as the system. Its listener, `(viewport) => onResize(viewport.width)`, was made inside `register`. V8 gives a scope's closures one context, so the listener kept that registration's `node`, and with it the node's ward and, on Solid 2, every ward mounted with it, after they unmounted. The listener is now made once, at the system's scope (`onViewport`), and closes over nothing a registration made. UR1 pins it (ADR-0040, *Amendment (#418)*).
 
 **For the engine's code:** a closure stored somewhere that outlives the call it's made in (a subscription, an observer, a system-wide set) has to be made outside `register` and outside any per-node scope.
+
+## Amendment (#443, 2026-10-31): the measure callbacks, the Instant change and the Projection reset
+
+Grilled on #443 (Q5 A, Q8 A): Motion's `onBeforeLayoutMeasure` and `onLayoutMeasure`, and its `useInstantLayoutTransition`, `useInstantTransition` (with `disableInstantTransitions`) and `useResetProjection`, on both bindings. Motion 14.6: `create-projection-node.mjs` (`resetTransformStyle`, `updateLayout`, `blockUpdate`, `resetTree`), framer-motion's `use-instant-transition.mjs`.
+
+1. **`onBeforeLayoutMeasure()` and `onLayoutMeasure(box, prev)`,** synchronous props on both bindings (on Solid 2 callback keys, read as they are, as `onUpdate` is), handed to the element's projection node:
+   - The first is called in each pass's write phase, before the node's transform is held for the read (Motion's `resetTransformStyle`).
+   - The second is called with the node's box in its Scroll-stable frame (ADR-0012), Motion's page layout box (core `Box`, page pixels, its transforms left out), and the box before it, `undefined` at its first. It's called once the round has set every box, before any animation it starts.
+   - Both are called for every node each pass measures, blocked passes included (a Resize block, an Instant change), as Motion's resize-blocked update still measures. A throw is reported (`wardic.projection: an onLayoutMeasure failed`), and the pass goes on.
+   - Whether an element has one is read at mount, as `onUpdate`; the function at each call. A node without one pays a field read a pass.
+2. **An Instant change of the layout** (`createInstantLayoutTransition()` → `start(fn?)`): `fn` runs, and the pass at the end of the task is blocked, as a Resize block's is. Every node takes its new box and nothing starts, and the running layout animations but a dragged node's end on their slots as it begins, as Motion clears its measurements. The engine's `instant(fn)`. A pass already due in the task is that pass; one asked from a pass's own flush blocks its next round.
+3. **An Instant change** (`createInstantTransition()` → `start(fn)`): the same, and every animation that starts until two Refresh frames after the call is a **Skipped animation** (#468), Motion's `instantAnimations`. A later call extends it, and `start.end()` ends it at once, Motion's `disableInstantTransitions`. The flag is the provider's, read wherever an element's `skipAnimations` is (`useWardicSkipAnimations`).
+4. **A Projection reset** (`createResetProjection()` → `reset()`): every layout animation and Release offset but a dragged node's ends on its slot, every leaving twin and Switch seed goes, and the next pass, at the end of the task, is blocked, so it measures every box afresh and moves none. The engine's `reset()`.
+5. **Each is its runtime's,** as Q5 decided: a provider's projection system and flag, so two providers on a page don't share them. On a server, `start` runs `fn` and `reset` does nothing.
+
+Building it:
+- **A reset keeps live `layoutId` pairings.** Q5 decided Motion's, which empties its stacks. Wardic's engine reads a live twin outside its stack as a Follower with no Lead, and Motion's own reset then shows a twin it had hidden. So the stacks drop their leavers alone. A twin that mounts later pairs with a live one, as it would before the reset.
+- **The running layout animations end as the blocked pass begins,** not at the call: a change between the call and the pass's end of task is one change.
+- `finishFlights` is the Resize block's ending, shared by the three.
+
+- **Pinned by:** `projection-utilities.browser.test.tsx` PU1–PU5, PU4b and PU7, and `v2/projection-utilities.browser.test.tsx` PUV1–PUV3; on a server, `small-utilities.ssr.test.tsx` SUS8 and `v2/small-utilities.ssr.test.tsx` SUSV7.
+- **Mutation-checked** (`.tmp/443/mutate3.py`, run alone): 31 single-point mutations with ADR-0011's *Amendment (#443)*, 30 caught. Here:
+  - either callback never called, the box before handed as the box, a throw not caught, a node not given its callbacks, the layout member or a config dropping one, Solid 2 calling it as an accessor;
+  - an Instant change not blocking, not ending a running flight, scheduling no pass, or a round not taking it;
+  - the flag never on or never off, a later call not extending it, `end` not ending it, either binding's elements ignoring it, the transition not starting it, a server's start not running `fn`;
+  - a reset not blocking, or scheduling no pass.
+  - **Not caught:** a reset keeping its leavers. Ending the flights ends their handovers, which drops them; the explicit drop only reaches a leaver whose Lead is dragged, whose flight the ending leaves running.

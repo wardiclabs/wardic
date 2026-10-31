@@ -97,6 +97,9 @@ export interface UseLayoutMemberOptions {
   readonly ownOpacity?: () => number
   /** What a Measure pass holds its transform at (#443): its Transform template's. Left out with none. */
   readonly heldTransform?: () => string
+  /** The app's `onBeforeLayoutMeasure` and `onLayoutMeasure` (#443), each left out when it had none at mount. */
+  readonly onBeforeMeasure?: () => void
+  readonly onMeasure?: (box: Box.Box, prev: Box.Box | undefined) => void
   /** The app's layout animation callbacks, read when they fire (#191, ADR-0039). */
   readonly onLayoutAnimationStart?: () => (() => void) | undefined
   readonly onLayoutAnimationComplete?: () => (() => void) | undefined
@@ -118,7 +121,7 @@ const layoutSkips = (transition: WardicTransition | undefined): boolean =>
  * system needs it, outside the binding's tracking.
  */
 export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.RegisterNodeOptions => {
-  const { crossfade, dragTransition, element, enteredFrom, fadeFrom, id, layoutAnchor, layoutId, layoutMode, layoutRoot, layoutScroll, heldTransform, onLayoutAnimationComplete, onLayoutAnimationStart, onReleaseEnd, ownOpacity, ownRotate, ownScale, ownTranslate, raiseWhileDragged, reducedMotion, skipAnimations, transition } = opts
+  const { crossfade, dragTransition, element, enteredFrom, fadeFrom, id, layoutAnchor, layoutId, layoutMode, layoutRoot, layoutScroll, heldTransform, onBeforeMeasure, onMeasure, onLayoutAnimationComplete, onLayoutAnimationStart, onReleaseEnd, ownOpacity, ownRotate, ownScale, ownTranslate, raiseWhileDragged, reducedMotion, skipAnimations, transition } = opts
   const configSkips = UndefinedOr.match(skipAnimations, { onUndefined: () => constFalse, onDefined: identity })
   return {
     id,
@@ -148,6 +151,8 @@ export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.R
     ...UndefinedOr.match(ownRotate, { onUndefined: () => ({}), onDefined: (rotate) => ({ ownRotate: rotate }) }),
     ...UndefinedOr.match(ownOpacity, { onUndefined: () => ({}), onDefined: (opacity) => ({ ownOpacity: opacity }) }),
     ...UndefinedOr.match(heldTransform, { onUndefined: () => ({}), onDefined: (held) => ({ heldTransform: held }) }),
+    ...UndefinedOr.match(onBeforeMeasure, { onUndefined: () => ({}), onDefined: (before) => ({ onBeforeMeasure: before }) }),
+    ...UndefinedOr.match(onMeasure, { onUndefined: () => ({}), onDefined: (measured) => ({ onMeasure: measured }) }),
     ...UndefinedOr.match(onLayoutAnimationStart, {
       onUndefined: () => ({}),
       onDefined: (start) => ({ onLayoutAnimationStart: () => Option.fromUndefinedOr(start()) }),
@@ -256,6 +261,16 @@ export const layoutOptionsOf = (ward: WardLayout): UseLayoutMemberOptions => {
     ...UndefinedOr.match(skipAnimations, { onUndefined: () => ({}), onDefined: (skips) => ({ skipAnimations: skips }) }),
     // Its Transform template's hold for a Measure pass (#443): a node without one is cleared.
     ...UndefinedOr.match(heldTransform, { onUndefined: () => ({}), onDefined: (held) => ({ heldTransform: held }) }),
+    // The app's layout measure callbacks (#443), read when each is called: a node whose config had
+    // none at mount is given none, and pays nothing a pass.
+    ...Bool.match(Predicate.isNotUndefined(c0.onBeforeLayoutMeasure), {
+      onTrue: () => ({ onBeforeMeasure: () => UndefinedOr.map(config().onBeforeLayoutMeasure, (before) => before()) }),
+      onFalse: () => ({}),
+    }),
+    ...Bool.match(Predicate.isNotUndefined(c0.onLayoutMeasure), {
+      onTrue: () => ({ onMeasure: (box: Box.Box, prev: Box.Box | undefined) => UndefinedOr.map(config().onLayoutMeasure, (measured) => measured(box, prev)) }),
+      onFalse: () => ({}),
+    }),
   }
 }
 

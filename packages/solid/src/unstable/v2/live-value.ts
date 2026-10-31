@@ -60,8 +60,7 @@ import type { WardicRuntime, WardicServices } from "../../runtime.ts"
 import { eachFrameOf } from "../../animation-frame.ts"
 import { followAtom } from "./bridge.ts"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, onSettledClientOnly } from "./solid-reactivity.ts"
-import { useWardicRuntime } from "./provider.tsx"
-import { useWardicSkipAnimations } from "./wardic-config.tsx"
+import { useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 
 /** A Live value read now on a server: an Atom through a server's own registry, an accessor called. */
 const readOnServer = <A>(source: LiveSource<A>): A => readLive(source, serverRegistryOf, untrack) as A

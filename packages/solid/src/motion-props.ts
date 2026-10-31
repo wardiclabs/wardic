@@ -9,7 +9,7 @@ import type { WardicAnimationControls } from "./animation-controls.ts"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
-import type { WardConfig, WardicAnimationDefinition, WardicDragTransition, WardicPropagate, WardicTransformTemplate, WardicTransition, WardicVariant, WardicVariantLabels, WardicVariants, WardicViewport } from "./config.ts"
+import type { WardConfig, WardicAnimationDefinition, WardicDragTransition, WardicLayoutBox, WardicPropagate, WardicTransformTemplate, WardicTransition, WardicVariant, WardicVariantLabels, WardicVariants, WardicViewport } from "./config.ts"
 import type { WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
 import type { WardicDragControls } from "./drag-controls.ts"
 import type { WardicDragInfo, WardicPointInfo, WardicPressEvent, WardicPressInfo } from "./gesture-info.ts"
@@ -49,6 +49,8 @@ const RARE_KEYS = [
   "propagate",
   "layoutCrossfade",
   "transformTemplate",
+  "onBeforeLayoutMeasure",
+  "onLayoutMeasure",
   "whileInView",
   "whileFocus",
   "viewport",
@@ -107,6 +109,8 @@ export const MOTION_PROPS = [
   "onLayoutAnimationComplete",
   "onUpdate",
   "transformTemplate",
+  "onBeforeLayoutMeasure",
+  "onLayoutMeasure",
   "appear",
   "transition",
   "key",
@@ -318,6 +322,10 @@ export interface WardicMotionProps {
   readonly onUpdate?: (latest: Readonly<Record<string, number | string>>) => void
   /** The element's whole transform, from its values and the one Wardic would draw (#443, Motion's prop; see `WardConfig`). */
   readonly transformTemplate?: WardicTransformTemplate
+  /** Called as each layout measure of this layout element begins (#443, Motion's prop; see `WardConfig`). */
+  readonly onBeforeLayoutMeasure?: () => void
+  /** Called with this layout element's box each layout measure, and its box before (#443, Motion's prop; see `WardConfig`). */
+  readonly onLayoutMeasure?: (box: WardicLayoutBox, prev: WardicLayoutBox | undefined) => void
   /**
    * `false` keeps this element at its Starting style until mount during a server render, when the
    * provider would start its mount animation in CSS from first paint (#48, ADR-0044). Read on the

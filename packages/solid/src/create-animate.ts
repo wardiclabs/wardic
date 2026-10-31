@@ -6,9 +6,8 @@
  */
 import { onCleanup } from "solid-js"
 import { type AnimateEnv, scopedAnimate, scopeOf, serverAnimate, type WardicAnimate, type WardicAnimationScope } from "./imperative.ts"
-import { useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
+import { useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { isServer } from "./server.ts"
-import { useWardicSkipAnimations } from "./wardic-config.tsx"
 
 /**
  * An **Animation scope** and its `animate` (#433, Motion's `useAnimate`), made in a component under a

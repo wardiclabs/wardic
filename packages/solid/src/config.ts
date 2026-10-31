@@ -12,6 +12,8 @@ import type * as Machine from "@wardic/core/Machine"
 import type * as Stagger from "@wardic/core/Stagger"
 import type * as CSS from "csstype"
 import type * as DomRenderer from "@wardic/dom/DomRenderer"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
+import type * as Box from "@wardic/core/Box"
 import type { WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
 import type { WardicDragControls } from "./drag-controls.ts"
 import type { WardicDragInfo, WardicPointInfo, WardicPressEvent, WardicPressInfo } from "./gesture-info.ts"
@@ -372,6 +374,19 @@ export interface WardicPropagate {
  * (#297) on Solid 2's landing, where `animate` gave one; Solid 1's callbacks are told each name.
  */
 export type WardicAnimationDefinition = WardicVariantLabels | WardicValues
+
+/**
+ * An app's scale corrector (#443, Motion's `addScaleCorrector` entry), given to `WardicProvider`'s
+ * `scaleCorrectors` by the value key it corrects: `correct(latest, { target, treeScale, projectionDelta })`
+ * turns the element's value into the one to write while a layout animation scales it (`target` the
+ * box it's drawn into, `treeScale` its ancestors' scale, `projectionDelta` its delta, Motion's
+ * shapes), written under `applyTo`'s keys when given, else its own. `latest` is the element's own
+ * value for the key (from its `style` or an animation), else its computed value at its first measure.
+ */
+export type WardicScaleCorrector = ProjectionSystem.ScaleCorrector
+
+/** A layout box (#443, Motion's `Box`): each axis's `min` and `max`, in the page's pixels. */
+export type WardicLayoutBox = Box.Box
 
 /**
  * A **Transform template** (#443, Motion's `transformTemplate`): `(values, generated) => transform`.
@@ -739,6 +754,20 @@ export interface WardConfig {
    * ```
    */
   readonly transformTemplate?: WardicTransformTemplate
+  /**
+   * Called as each layout measure that measures this element begins (#443, Motion's prop), before
+   * its transform is held for the read: for a layout element (`layout`, `layoutId`), resize-blocked
+   * and instant measures included. Whether it's given is read at mount; the function each call. A
+   * throw is reported, and the measure goes on.
+   */
+  readonly onBeforeLayoutMeasure?: () => void
+  /**
+   * Called with this layout element's box each layout measure measures it (#443, Motion's prop), and
+   * its box before, `undefined` at its first: each axis's `min` and `max` in the page's pixels, its
+   * transforms left out (Motion's layout box). After the read, before any animation starts.
+   * Whether it's given is read at mount; the function each call. A throw is reported.
+   */
+  readonly onLayoutMeasure?: (box: WardicLayoutBox, prev: WardicLayoutBox | undefined) => void
   /**
    * `false` keeps this element at its Starting style until mount during a server render, when the
    * provider would start its mount animation in CSS from first paint (an Appear animation, #48,

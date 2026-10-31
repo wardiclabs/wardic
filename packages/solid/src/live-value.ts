@@ -38,10 +38,9 @@ import { eachFrameOf } from "./animation-frame.ts"
 import { fromAtom } from "./bridge.ts"
 import type { FollowAccessor, FollowValueOptions, LiveSource, SpringAccessor, WillChange } from "./live-style.ts"
 import { atomOf, carry, followAccessorOf, followOptionsOf, numberOf, readLive, serverFollowOf, serverRegistryOf, unitOf, willChangeOf, withUnit } from "./live-style.ts"
-import { useWardicRuntime } from "./provider.tsx"
+import { useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import { isServer } from "./server.ts"
-import { useWardicSkipAnimations } from "./wardic-config.tsx"
 
 /** A Live value as an accessor: an accessor as it is, an Atom read through the provider's registry. */
 const accessorOf = <A>(source: LiveSource<A>): Accessor<A> =>

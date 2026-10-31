@@ -1,5 +1,5 @@
 "use client"
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, motion, useInstantTransition } from "motion/react"
 import { useState } from "react"
 
 const QUESTIONS = [
@@ -34,31 +34,52 @@ const answer = {
 const chevron = { shut: { rotate: 0 }, open: { rotate: 180 } } as const
 
 export default function DeliveryFaq() {
-  const [open, setOpen] = useState(0)
+  // Each answer opens on its own; the first is open as the page loads.
+  const [open, setOpen] = useState<ReadonlySet<number>>(() => new Set([0]))
+  const toggle = (index: number) => {
+    const next = new Set(open)
+    if (next.has(index)) next.delete(index)
+    else next.add(index)
+    setOpen(next)
+  }
+  // Open all and Close all land at once: an instant transition, so every card takes its new size,
+  // and every answer and chevron its end, with no animation. Four cards growing together, and the
+  // rest of the page sliding under them, would be a lot of motion for one click.
+  const startInstant = useInstantTransition()
 
   return (
-    <ul className="faq">
-      {QUESTIONS.map((item, index) => (
-        // Each item grows as its answer opens: layout animates its size, its rounded corners and
-        // shadow kept as they are while it scales, and the items below slide down to make room.
-        <motion.li key={item.question} className="faq-item" layout>
-          <motion.button className="faq-question" layout="position" aria-expanded={open === index} onClick={() => setOpen(open === index ? -1 : index)}>
-            <span>{item.question}</span>
-            {/* initial={false}: the answer open when the page loads has its chevron turned already. */}
-            <motion.span className="chevron" variants={chevron} initial={false} animate={open === index ? "open" : "shut"} transition={{ duration: 0.2 }} aria-hidden="true">
-              ⌄
-            </motion.span>
-          </motion.button>
-          {/* popLayout: a closing answer leaves the flow at once, so its card shrinks while it fades. */}
-          <AnimatePresence initial={false} mode="popLayout">
-            {open === index && (
-              <motion.div className="faq-answer" layout="position" {...answer}>
-                <p>{item.answer}</p>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.li>
-      ))}
-    </ul>
+    <div className="faq-demo">
+      <div className="chips">
+        <button className="chip" onClick={() => startInstant(() => setOpen(new Set(QUESTIONS.map((_, index) => index))))}>
+          Open all
+        </button>
+        <button className="chip" onClick={() => startInstant(() => setOpen(new Set<number>()))}>
+          Close all
+        </button>
+      </div>
+      <ul className="faq">
+        {QUESTIONS.map((item, index) => (
+          // Each item grows as its answer opens: layout animates its size, its rounded corners and
+          // shadow kept as they are while it scales, and the items below slide down to make room.
+          <motion.li key={item.question} className="faq-item" layout>
+            <motion.button className="faq-question" layout="position" aria-expanded={open.has(index)} onClick={() => toggle(index)}>
+              <span>{item.question}</span>
+              {/* initial={false}: the answer open when the page loads has its chevron turned already. */}
+              <motion.span className="chevron" variants={chevron} initial={false} animate={open.has(index) ? "open" : "shut"} transition={{ duration: 0.2 }} aria-hidden="true">
+                ⌄
+              </motion.span>
+            </motion.button>
+            {/* popLayout: a closing answer leaves the flow at once, so its card shrinks while it fades. */}
+            <AnimatePresence initial={false} mode="popLayout">
+              {open.has(index) && (
+                <motion.div className="faq-answer" layout="position" {...answer}>
+                  <p>{item.answer}</p>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.li>
+        ))}
+      </ul>
+    </div>
   )
 }
