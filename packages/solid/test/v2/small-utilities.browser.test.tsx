@@ -183,25 +183,24 @@ describe("#443's hooks on Solid 2", () => {
   })
 
   it("SUV6: forwardMotionProps hands a wrapped component the motion props, which still drive the element; without it, none", async () => {
-    // `label`, not `name`: a ward spread hides a `name` prop on Solid 2 (#495).
     const seen: Record<string, unknown> = {}
-    const Box = (props: { readonly ref?: JSX.Ref<HTMLDivElement>; readonly style?: JSX.CSSProperties; readonly label: string; readonly animate?: unknown }): JSX.Element => {
+    const Box = (props: { readonly ref?: JSX.Ref<HTMLDivElement>; readonly style?: JSX.CSSProperties; readonly name: string; readonly animate?: unknown }): JSX.Element => {
       untrack(() => {
-        seen[props.label] = props.animate
+        seen[props.name] = props.animate
       })
-      return <div data-label={props.label} ref={props.ref} style={props.style} />
+      return <div data-name={props.name} ref={props.ref} style={props.style} />
     }
     const Forwarding = wardic.create(Box, { forwardMotionProps: true })
     const Plain = wardic.create(Box)
     const { host } = mount(() => (
       <WardicProvider env={DomLive}>
-        <Forwarding label="forwarding" initial={{ opacity: 0 }} animate={{ opacity: 0.5 }} transition={{ duration: 0.05 }} />
-        <Plain label="plain" animate={{ opacity: 0.5 }} />
+        <Forwarding name="forwarding" initial={{ opacity: 0 }} animate={{ opacity: 0.5 }} transition={{ duration: 0.05 }} />
+        <Plain name="plain" animate={{ opacity: 0.5 }} />
       </WardicProvider>
     ))
     expect(seen.forwarding).toEqual({ opacity: 0.5 })
     expect(seen.plain).toBeUndefined()
-    const forwarding = host.querySelector<HTMLElement>('[data-label="forwarding"]')!
+    const forwarding = host.querySelector<HTMLElement>('[data-name="forwarding"]')!
     await until(() => opacityOf(forwarding) === 0.5, 3000)
     expect(opacityOf(forwarding)).toBe(0.5)
   })
