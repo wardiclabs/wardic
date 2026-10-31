@@ -18,6 +18,8 @@
  *   `Probe.scroll` (#234).
  * - `velocity`: another value's velocity, per frame while it moves (Motion's `useVelocity`).
  * - `time`: milliseconds since it started, wall time (Motion's `useTime`).
+ * - `eachFrame`: no value, a callback told each frame's time and delta (Motion's `useAnimationFrame`,
+ *   #443), on the same run as `time`.
  *
  * Tier 2 (ADR-0008): Effect-typed, for bindings, which wrap them (Solid's `createTransform`,
  * `createFollowValue`, `createSpring`).
@@ -28,6 +30,7 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as FiberHandle from "effect/FiberHandle"
 import * as Match from "effect/Match"
+import * as Num from "effect/Number"
 import { constant, constFalse, constTrue, constUndefined, constVoid, dual, identity } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -608,5 +611,42 @@ export const time = (): Effect.Effect<Atom.Atom<number>, never, FrameLoop.FrameL
         unmount()
       }))
     return out
+  })
+
+/** The range `eachFrame`'s delta is held to, in ms: Motion's frame loop's (`maxElapsed`, and 1 at least). */
+const FRAME_DELTA = { minimum: 1, maximum: 40 } as const
+
+/**
+ * `callback` told each frame's time and delta, in milliseconds (Motion's `useAnimationFrame`, #443): a
+ * run on the Frame loop that never settles, so it keeps the Clock ticking every frame for as long as
+ * it runs; the run ends with the Scope.
+ *
+ * - **`time`** is 0 at its first frame, then the total of each tick's `dt` as the Clock gives it,
+ *   unclamped, so it keeps wall time as {@link time} does (a hidden tab's minutes count in full, as
+ *   Motion's do).
+ * - **`delta`** is the tick's `dt` held to 1–40 ms, as Motion's frame loop holds its delta: a step
+ *   after a hidden tab is 40 ms, not minutes. A run's first frame after the Clock wakes is the Clock's
+ *   nominal frame, 16.7 ms, as Motion's is.
+ *
+ * A throw from `callback` ends the run, as any run's defect does (ADR-0027, decision 7): a binding
+ * catches it first.
+ */
+export const eachFrame = (callback: (time: number, delta: number) => void): Effect.Effect<void, never, FrameLoop.FrameLoop | Scope.Scope> =>
+  Effect.gen(function* () {
+    const run = yield* FiberHandle.makeRuntime<FrameLoop.FrameLoop, never, unknown>()
+    const token = Supersede.make()
+    const frames = numberMachine("wardic.eachFrame", false, () => {
+      let ms = 0
+      let first = true
+      return (dt) => {
+        // Its first frame is 0, as Motion's `timestamp - initialTimestamp` is.
+        if (!first) ms += dt * 1000
+        first = false
+        callback(ms, Num.clamp(dt * 1000, FRAME_DELTA))
+        return { value: ms, done: false }
+      }
+    })
+    run(frames.pipe(Machine.run(constUndefined, { supersede: token })))
+    yield* Effect.addFinalizer(() => Effect.sync(() => Supersede.end(token)))
   })
 

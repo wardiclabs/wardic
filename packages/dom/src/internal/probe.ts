@@ -1,15 +1,16 @@
 /**
  * `ProbeDomLive` — the browser realization of `Probe`: measurement
  * (`getBoundingClientRect`), reactive viewport size, the `prefers-reduced-motion`
- * preference, and per-target resize/intersection observation streams.
+ * preference, whether the page is shown (`document.visibilityState`, #443), and per-target
+ * resize/intersection observation streams.
  *
- * The writable Atoms (`viewport`, `prefersReducedMotion`) are pinned with
+ * The writable Atoms (`viewport`, `prefersReducedMotion`, `pageVisible`) are pinned with
  * `keepAlive` and written through the
  * Environment's {@link AtomRegistry} captured at build time — the same registry
  * a consumer reads `Probe.viewport`/`Probe.prefersReducedMotion` from — so the
  * `make`/event path can update them without leaking an `AtomRegistry`
- * requirement into the `Probe` interface. The window `resize` and
- * `MediaQueryList` `change` listeners are the only writers, forked into the
+ * requirement into the `Probe` interface. The window `resize`, the
+ * `MediaQueryList` `change` and the document's `visibilitychange` listeners are the only writers, forked into the
  * layer's scope so they live exactly as long as the Layer.
  *
  * Per CONTEXT.md's **Shared source** contract, `observeResize` goes through core's
@@ -105,6 +106,16 @@ const make = Effect.gen(function* () {
     )
   }
 
+  // --- pageVisible (#443) ---------------------------------------------------
+  // The document's `visibilitychange` listener is its only writer, and it writes inside the event,
+  // as `viewport`'s does: a reader sees the page hidden before the next frame.
+  const pageVisible = Atom.keepAlive(Atom.make(document.visibilityState !== "hidden"))
+  const writePageVisible = (): void => registry.set(pageVisible, document.visibilityState !== "hidden")
+  yield* Effect.acquireRelease(
+    Effect.sync(() => document.addEventListener("visibilitychange", writePageVisible)),
+    () => Effect.sync(() => document.removeEventListener("visibilitychange", writePageVisible)),
+  )
+
   // --- observeResize ------------------------------------------------------
   // One ResizeObserver per target, ref-counted via `SharedSource.byTarget`. The
   // observer is constructed on the first subscriber; `Effect.addFinalizer`
@@ -143,6 +154,7 @@ const make = Effect.gen(function* () {
     measure: (target) => Effect.sync(() => toBounds((target as Element).getBoundingClientRect())),
     viewport,
     prefersReducedMotion,
+    pageVisible,
     // A container's scroll, set within its events (#234): `scroll.ts`.
     scroll: makeScroll(registry),
     observeResize,

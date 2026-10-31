@@ -16,6 +16,7 @@ import * as DomRenderer from "@wardic/dom/DomRenderer"
 import {
   AnimatePresence,
   createHover,
+  createPageInView,
   createReducedMotion,
   streamToSignal,
   LayoutGroup,
@@ -189,7 +190,7 @@ export const F12 = live(() => <Hover />)
  * What each render of HOLD_RM and HOLD_STREAM saw, in order (on the client; the server has
  * its own copy of this module). Tests reset it before rendering.
  */
-export const seen: { readonly reduced: Array<boolean>; readonly stream: Array<string> } = { reduced: [], stream: [] }
+export const seen: { readonly reduced: Array<boolean>; readonly stream: Array<string>; readonly page: Array<boolean> } = { reduced: [], stream: [], page: [] }
 
 function ReducedRecorder(): JSX.Element {
   const reduced = createReducedMotion()
@@ -205,6 +206,14 @@ function ReducedRecorder(): JSX.Element {
 }
 /** HY-H1: createReducedMotion, whose live value a test can make differ from the server's. */
 export const HOLD_RM = live(() => <ReducedRecorder />)
+
+function PageRecorder(): JSX.Element {
+  const visible = createPageInView()
+  createRenderEffect(() => seen.page.push(visible()))
+  return <span data-k="pv">{String(visible())}</span>
+}
+/** HY-H4 (#443): createPageInView, which a test can hide while the server says shown. */
+export const HOLD_PAGE = live(() => <PageRecorder />)
 
 function StreamRecorder(): JSX.Element {
   // A stream that emits at once: without the hold, a hydrating client would show "live"

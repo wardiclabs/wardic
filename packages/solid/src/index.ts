@@ -79,7 +79,8 @@ export { createAnimationControls, type WardicAnimationControls, type WardicContr
 /**
  * Low-level sensor hooks: `createHover` / `createPress` / `createFocus` /
  * `createInView` / `createDrag` (recognizer-backed signals) and `createReducedMotion`
- * (`Probe.prefersReducedMotion` atom bridge).
+ * (`Probe.prefersReducedMotion` atom bridge); `createReducedMotionConfig`, the nearest config's
+ * setting over it, and `createPageInView`, whether the page is shown (#443).
  */
 export {
   type CreateDragOptions,
@@ -87,18 +88,23 @@ export {
   createFocus,
   createHover,
   createInView,
+  createPageInView,
   createPress,
   createReducedMotion,
+  createReducedMotionConfig,
 } from "./sensors.ts"
+// `createCycle` (#443, Motion's `useCycle`): one of a list of states at a time, stepped through.
+export { createCycle, type Cycle } from "./cycle.ts"
 
 /**
  * Live values (#130, ADR-0043): a value the user moves, given in an element's `style` (an accessor
  * or an Atom), followed while no layer of the Override stack sets its key. `createTransform` maps
  * one (through a function, or ranges), `createFollowValue` follows one on any transition (#441) and
  * `createSpring` with a spring; `createScroll`, `createVelocity` and `createTime` make one from a
- * scroll, a value's velocity and time (#234).
+ * scroll, a value's velocity and time (#234). `createAnimationFrame` tells a callback each frame (#443).
  */
 export {
+  createAnimationFrame,
   createFollowValue,
   createScroll,
   createSpring,
@@ -212,6 +218,10 @@ export {
   type WardicProps,
   wardic,
 } from "./wardic.tsx"
+// #443 (Motion's): `wardic.create`'s options; whether a component is a Wardic element's and what it
+// wraps; whether a prop is a motion prop.
+export { isWardicComponent, unwrapWardicComponent, type WardicCreateOptions } from "./wardic-component.ts"
+export { isValidWardicProp } from "./motion-props.ts"
 
 /**
  * `<AnimatePresence>` — single-child exit-before-unmount (ADR-0007). Wraps a

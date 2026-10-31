@@ -340,12 +340,16 @@ Among the Projection nodes sharing one `layoutId`, the **Lead** is the most-rece
 _Avoid_: active/inactive, primary/secondary.
 
 **Scale correction**:
-A **Projection**'s scale counter-scales an element's *geometry* via the transform, but distorts non-geometric CSS — `border-radius`, `box-shadow`. A **Scale corrector** reads the authored value and emits, each frame, a CSS string that — once the transform scales it — renders as the authored value (a px radius becomes `radius / scale`; a percentage is self-correcting and passes through). The corrected value is computed upstream (in the projection, which has the per-frame scale) and written as an ordinary style key, so the Renderer stays pure. An extensible per-CSS-key registry holds the correctors.
+A **Projection**'s scale counter-scales an element's *geometry* via the transform, but distorts non-geometric CSS — `border-radius`, `box-shadow`. A **Scale corrector** reads the authored value and emits, each frame, a CSS string that — once the transform scales it — renders as the authored value (a px radius becomes `radius / scale`; a percentage is self-correcting and passes through). The corrected value is computed upstream (in the projection, which has the per-frame scale) and written as an ordinary style key, so the Renderer stays pure. A per-CSS-key registry holds the correctors: Wardic's built-in ones, and those an app gives its runtime (its `WardicProvider`'s, #443), which correct the element's own value for a key each frame, or its computed one.
 _Avoid_: counter-scale (reserve for the geometric transform), inverse scale.
 
 **Own transform**:
 A **Projection node**'s own `x`, `y`, `translate*`, `z`, scales, `rotate` and skews: what its animations and style set, drawn on top of its projection, as Motion draws a layout element's latest values (#363). Its children ride it through CSS, and a twin, a handover or a restart starts from where it's drawn with it.
 _Avoid_: own value (that's a key's value before Wardic writes it), projection transform.
+
+**Transform template**:
+A function an element gives to build its whole transform itself, from its values and the transform Wardic would draw (Motion's `transformTemplate`). What it returns is the element's transform wherever the element is drawn: at rest, animating, projected by a **FLIP**, held for a **Measure pass**, and on a server. So a static part of it, such as centring, is measured, and stays through a layout animation (#443).
+_Avoid_: transform string, custom transform.
 
 **Layout sub-root** (`layoutRoot`):
 A **Projection node** marked a stable reference frame for its subtree: it never FLIPs its own layout (self-snaps to its new box), bounds the search for a relative parent (its descendants find none above it), and is a **persistent relative anchor** (its descendants always project relative to it). Every ancestor's projection still counts in its descendants' boxes, as CSS composes them. Used to isolate a layout subtree from an ancestor's projection: under an ancestor's layout animation it paints at its new box from the first frame, while an ancestor's transforms (a drag, a **Release offset**) still carry it, as Motion's `layoutRoot` does.
@@ -370,6 +374,14 @@ _Avoid_: resize freeze, blocked update (Motion's name).
 **Page-size refresh**:
 When the page's content (the body and its direct children) changes size with no **Measure pass** reading it, every **Projection node** is measured again at once, with the **Resize block**'s slot-only update: nothing starts, and a running animation moves with its box. A node that content elsewhere moved then starts its next layout animation from where it's painted. A move that leaves the page's size unchanged needs a **Declared layout change** (ADR-0018, *Amendment (#261)*).
 _Avoid_: re-measure, snapshot (reserved).
+
+**Instant change**:
+A change of the app's state that lands rather than animates (Motion's `useInstantTransition`, Wardic's `createInstantTransition`). The next **Measure pass** after it gives every **Projection node** its new box and starts nothing, and a running layout animation ends there, unlike in a **Resize block**. Every animation that starts until two frames after it is a **Skipped animation**, so it's still told. One that only blocks the layout (`createInstantLayoutTransition`) leaves the other animations running as ever. It belongs to one runtime (#443).
+_Avoid_: instant transition (in Wardic a transition is how a value moves, not a change of state), skipped change.
+
+**Projection reset**:
+Ending every layout animation where it is and forgetting every node's boxes, its leavers and the `layoutId` pairings, so the next **Measure pass** starts from nothing: no node moves from a box measured before, and a twin mounting then pairs with none (Motion's `useResetProjection`). For when something outside Wardic moved elements without changing their size (#443).
+_Avoid_: re-measure, refresh (a **Page-size refresh** keeps every box and pairing).
 
 ### Environment
 

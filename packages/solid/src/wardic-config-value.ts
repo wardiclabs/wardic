@@ -10,9 +10,11 @@
  *   reads its `MotionConfig`'s per element.
  * - **`skipAnimations`** (#468) makes every animation of the elements below a **Skipped animation**,
  *   Motion's `MotionConfig` `skipAnimations`, whatever their reduced motion.
+ * - **`isValidProp`** (#443) keeps a tag's props it says aren't valid off its element, Motion's
+ *   `MotionConfig` `isValidProp`.
  * - **A `WardicConfig` inside another** replaces its transition, or with `inherit: true` lays its own
  *   fields over it (Motion's `resolveTransition`); one that gives none passes its parent's on, as one
- *   that gives no reduced motion or `skipAnimations` passes its parent's.
+ *   that gives no reduced motion, `skipAnimations` or `isValidProp` passes its parent's.
  *
  * @module
  */
@@ -36,6 +38,11 @@ export interface WardicConfigValue {
    * as `false`. Read when each animation starts.
    */
   readonly skipAnimations: () => boolean | undefined
+  /**
+   * Which of a tag's own props reach its element (#443, Motion's `MotionConfig` `isValidProp`): its
+   * own, else an enclosing config's, else `undefined`, every one. Read as each element is made.
+   */
+  readonly isValidProp: () => ((key: string) => boolean) | undefined
 }
 
 /**
@@ -62,6 +69,19 @@ export const configSkipAnimationsOf = (own: boolean | undefined, parent: WardicC
   if (Predicate.isNotUndefined(own)) return own
   if (Predicate.isUndefined(parent)) return undefined
   return parent.skipAnimations()
+}
+
+/** A `WardicConfig`'s `isValidProp` (#443): its own, else its parent's, else none. */
+export const configIsValidPropOf = (own: ((key: string) => boolean) | undefined, parent: WardicConfigValue | undefined): ((key: string) => boolean) | undefined => {
+  if (Predicate.isNotUndefined(own)) return own
+  if (Predicate.isUndefined(parent)) return undefined
+  return parent.isValidProp()
+}
+
+/** The nearest config's `isValidProp` (#443), as an element is made: `undefined` for none. */
+export const isValidPropOf = (config: WardicConfigValue | undefined): ((key: string) => boolean) | undefined => {
+  if (Predicate.isUndefined(config)) return undefined
+  return config.isValidProp()
 }
 
 /**

@@ -8,7 +8,7 @@
 import { createContext, createMemo, type JSX, useContext } from "solid-js"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type { WardicVariantTransition } from "./config.ts"
-import { configReducedMotionOf, configSkipAnimationsOf, configTransitionOf, skipAnimationsOf, type WardicConfigValue } from "./wardic-config-value.ts"
+import { configIsValidPropOf, configReducedMotionOf, configSkipAnimationsOf, configTransitionOf, skipAnimationsOf, type WardicConfigValue } from "./wardic-config-value.ts"
 
 const WardicConfigContext = createContext<WardicConfigValue | undefined>(undefined)
 
@@ -35,6 +35,14 @@ export interface WardicConfigProps {
    * An inner config's `false` animates its subtree again. Read when each animation starts.
    */
   readonly skipAnimations?: boolean | undefined
+  /**
+   * Which of the props given a Wardic element's tag below reach the element (#443, Motion's
+   * `MotionConfig` `isValidProp`): one it returns `false` for is kept off it, for a prop a styling
+   * system reads that shouldn't render as an attribute. Asked of no prop starting with `on`, nor a
+   * wrapped component's, which get every prop, as Motion's do. It replaces an enclosing config's. Read as
+   * each element is made, for the props it has then.
+   */
+  readonly isValidProp?: ((key: string) => boolean) | undefined
   readonly children?: JSX.Element
 }
 
@@ -53,7 +61,7 @@ export function WardicConfig(props: WardicConfigProps): JSX.Element {
   const parent = useContext(WardicConfigContext)
   // One object per change, so the elements below share it, and its caches (#66, #301) hit.
   const transition = createMemo(() => configTransitionOf(props.transition, parent))
-  return <WardicConfigContext.Provider value={{ transition, reducedMotion: () => configReducedMotionOf(props.reducedMotion, parent), skipAnimations: () => configSkipAnimationsOf(props.skipAnimations, parent) }}>{props.children}</WardicConfigContext.Provider>
+  return <WardicConfigContext.Provider value={{ transition, reducedMotion: () => configReducedMotionOf(props.reducedMotion, parent), skipAnimations: () => configSkipAnimationsOf(props.skipAnimations, parent), isValidProp: () => configIsValidPropOf(props.isValidProp, parent) }}>{props.children}</WardicConfigContext.Provider>
 }
 
 /** The nearest `WardicConfig`'s settings, or none. Internal. */

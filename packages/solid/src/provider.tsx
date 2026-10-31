@@ -40,6 +40,7 @@ import {
   fromContext,
   interrupted,
   projectionOf,
+  reducedMotionSettingWith,
   reducedMotionWith,
   reported,
   serverContext,
@@ -112,7 +113,7 @@ export function WardicProvider(props: {
       onFalse: () => serverAppear(Option.getOrElse(Option.fromUndefinedOr(props.reducedMotion), () => "user" as const)),
     })
     if (Predicate.isNotUndefined(appear)) useAssets(() => appearStyle(appear))
-    const value = serverContext(props.env, appear)
+    const value = serverContext(props.env, appear, () => untrack(() => props.reducedMotion))
     onCleanup(() => void value.runtime.dispose())
     return <WardicContext.Provider value={value}>{props.children}</WardicContext.Provider>
   }
@@ -206,6 +207,15 @@ export function useWardicDefaultTransition(): DefaultTransition.DefaultTransitio
 export function useWardicReducedMotion(): () => boolean {
   const config = useWardicConfig()
   return fromContext(useContext(WardicContext), "useWardicReducedMotion", (value) => reducedMotionWith(value, config))
+}
+
+/**
+ * The reduced-motion setting that applies here (#443): the nearest `WardicConfig`'s `reducedMotion`,
+ * else the provider's, else `"user"`. Read untracked for the provider's. Internal.
+ */
+export function useWardicReducedMotionSetting(): () => ReducedMotion.Config {
+  const config = useWardicConfig()
+  return fromContext(useContext(WardicContext), "useWardicReducedMotionSetting", (value) => reducedMotionSettingWith(value, config))
 }
 
 /**

@@ -89,6 +89,10 @@ export {
   wardic,
 } from "./wardic.tsx"
 export type { WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
+// #443 (Motion's): `wardic.create`'s options; whether a component is a Wardic element's and what it
+// wraps; whether a prop is a motion prop, Solid 2's own list.
+export { isWardicComponent, unwrapWardicComponent, type WardicCreateOptions } from "../../wardic-component.ts"
+export { isValidWardicPropV2 as isValidWardicProp } from "../../motion-props.ts"
 
 /**
  * `<AnimatePresence>` (ADR-0007): a single child's exit before it's removed, from its ward's `exit`;
@@ -110,7 +114,8 @@ export { measureLayoutBox } from "@wardic/dom/ProjectionSystem"
 /**
  * Sensors (#209 PR 3's Q1): each a ref that's also its reading. `createHover`, `createPress`,
  * `createFocus`, `createInView` and `createDrag` attach to the element they're given as a ref;
- * `createReducedMotion` follows the user's preference.
+ * `createReducedMotion` follows the user's preference, `createReducedMotionConfig` the nearest config's
+ * setting over it, and `createPageInView` whether the page is shown (#443).
  */
 export {
   type CreateDragOptions,
@@ -119,9 +124,13 @@ export {
   createHover,
   createInView,
   createPress,
+  createPageInView,
   createReducedMotion,
+  createReducedMotionConfig,
   type Sensor,
 } from "./sensors.ts"
+// `createCycle` (#443, Motion's `useCycle`): one of a list of states at a time, stepped through.
+export { createCycle, type Cycle } from "./cycle.ts"
 
 /** Reactive bridges (ADR-0006): a core `Stream` or an Effect `Atom` as an accessor. */
 export { fromAtom, streamToSignal } from "./bridge.ts"
@@ -153,9 +162,10 @@ export { createAnimationControls, type WardicAnimationControls, type WardicContr
 /**
  * Live values (#130, ADR-0043; #209 PR 3's Q2): core's `LiveValue` helpers as accessors. One derived
  * on an Atom (a ward's `read(key)`, another helper's) carries it, so a `style` given it is written in
- * the frame its source moves.
+ * the frame its source moves. `createAnimationFrame` tells a callback each frame (#443).
  */
 export {
+  createAnimationFrame,
   createFollowValue,
   createScroll,
   createSpring,

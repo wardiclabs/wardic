@@ -30,6 +30,9 @@ import { CLIENT_ONLY } from "./solid-reactivity.ts"
 import type { WardicVariantLabels } from "../../config.ts"
 import type { DrivenKey, InferredMotion, TargetKey } from "../../ward-keys.ts"
 import { useVariantContext } from "./variant-node.ts"
+import { droppedKeysOf, markWardic, routingTagOf, type WardicCreateOptions } from "../../wardic-component.ts"
+import { isValidPropOf } from "../../wardic-config-value.ts"
+import { useWardicConfig } from "./wardic-config.tsx"
 
 /**
  * Props for a `wardic.<tag>` element: the tag's own props and its motion ({@link WardicMotion}), with
@@ -249,6 +252,22 @@ interface RefStyle {
 /** The props a component passes through to its element: all but the motion props, `ref`, `style` and `wardRef`. */
 const PASSED_OVER = [...MOTION_PROPS, "ref", "style", "wardRef"] as const
 
+/** What an element whose motion props are handed on (#443, `forwardMotionProps`) keeps for itself. */
+const PASSED_OVER_FORWARDING = ["ref", "style", "wardRef"] as const
+
+/**
+ * `props` without what the element keeps for itself (the motion props unless `forward`, `ref`,
+ * `style`, `wardRef`), and without a tag's props the nearest `WardicConfig`'s `isValidProp` keeps off
+ * it (#443), read as the element is made.
+ */
+const restOf = (props: Record<string, unknown>, forward: boolean, isTag: boolean): Record<string, unknown> => {
+  const rest = Bool.match(forward, { onTrue: () => omit(props, ...PASSED_OVER_FORWARDING), onFalse: () => omit(props, ...PASSED_OVER) })
+  const dropped = droppedKeysOf(() => Object.keys(rest), isValidPropOf(useWardicConfig()), isTag)
+  // Omitted again only when it keeps any off (most elements have no `isValidProp` above them).
+  if (Arr.isReadonlyArrayEmpty(dropped)) return rest
+  return omit(rest, ...dropped)
+}
+
 /**
  * `element`, with `ward`'s Provider around it when `config` changes what its children read (#50):
  * the element's props, read at setup, or a given ward's config (#349).
@@ -279,44 +298,47 @@ export const refsOf = (props: { readonly ref?: unknown }, own: ReadonlyArray<(el
  *   own (`ComponentProps`), so a part generic over what it renders, as a component library's are
  *   (Kobalte's `Dialog.Content`), keeps them (#387).
  */
-export function create<Tag extends keyof JSX.IntrinsicElements>(tag: Tag): WardicComponent<Tag>
-export function create<C extends Exclude<ValidComponent, string>>(component: C): WardicWrapped<ComponentProps<C>>
-export function create(tag: string): WardicComponent<keyof JSX.IntrinsicElements>
-export function create(arg: string | Component<Record<string, unknown>>): AnyComponent {
-  return Bool.match(Predicate.isString(arg), {
-    onTrue: () => tagComponent(arg as string),
-    onFalse: () => wrapComponent(arg as Component<Record<string, unknown>>),
+export function create<Tag extends keyof JSX.IntrinsicElements>(tag: Tag, options?: WardicCreateOptions): WardicComponent<Tag>
+export function create<C extends Exclude<ValidComponent, string>>(component: C, options?: WardicCreateOptions): WardicWrapped<ComponentProps<C>>
+export function create(tag: string, options?: WardicCreateOptions): WardicComponent<keyof JSX.IntrinsicElements>
+export function create(arg: string | Component<Record<string, unknown>>, options: WardicCreateOptions = {}): AnyComponent {
+  const forward = options.forwardMotionProps === true
+  const made = Bool.match(Predicate.isString(arg), {
+    onTrue: () => tagComponent(arg as string, routingTagOf(arg as string, options.type), forward),
+    onFalse: () => wrapComponent(arg as Component<Record<string, unknown>>, routingTagOf(undefined, options.type), forward),
   })
+  // Marked with what it wraps (#443): `isWardicComponent`, `unwrapWardicComponent`.
+  return markWardic(made, arg)
 }
 
 /** `wardic.<tag>`: the element with a ward on it, the ward's Provider around it when it changes what its children read (#50). */
-const tagComponent = (tag: string): Component<Record<string, unknown>> => {
+const tagComponent = (tag: string, routing: string | undefined, forward: boolean): Component<Record<string, unknown>> => {
   const Element = dynamic(() => tag)
   const name = `wardic.${tag}`
   return (props) => {
     const own = props as WardicMotionProps & RefStyle & WardRefIn
-    const rest = omit(props, ...PASSED_OVER)
+    const rest = restOf(props, forward, true)
     // A ward given to `wardRef` (#349): the component drives its element with it, its `style` over
     // the ward's config's, as `.with()` lays it (#264).
     const wardRef = untrack(() => own.wardRef)
     const given = shareOf(wardRef)
     if (Predicate.isNotUndefined(given)) {
-      const { ward: driving, setup } = drivenWard(name, own, given, { tag }, MOTION_PROPS)
+      const { ward: driving, setup } = drivenWard(name, own, given, { tag: routing }, MOTION_PROPS)
       return withProvider(driving, setup, () => <Element {...rest} {...driving.with({ style: own.style })} ref={refsOf(own, [driving])} />)
     }
-    const ward = wardWith(own as WardConfig, { tag })
+    const ward = wardWith(own as WardConfig, { tag: routing })
     if (Predicate.isFunction(wardRef)) wardRef(ward)
     return withProvider(ward, wardConfigView(own as WardConfig), () => <Element {...rest} {...ward} ref={refsOf(own, [ward])} />)
   }
 }
 
 /** `wardic.create(Component)`: the ward on the element the component forwards its `ref` to (ADR-0008). */
-const wrapComponent = (Wrapped: Component<Record<string, unknown>>): Component<Record<string, unknown>> => {
+const wrapComponent = (Wrapped: Component<Record<string, unknown>>, routing: string | undefined, forward: boolean): Component<Record<string, unknown>> => {
   const Element = dynamic(() => Wrapped)
   const name = `wardic.create(${Wrapped.name || "anonymous component"})`
   return (props) => {
     const own = props as WardicMotionProps & RefStyle & WardRefIn
-    const rest = omit(props, ...PASSED_OVER)
+    const rest = restOf(props, forward, false)
     // ADR-0008's ref-forwarding contract, narrowed by #414: a component that renders an element and
     // forwards its ref to none of what it renders leaves the ward no element to drive, and fails
     // loudly. One that renders nothing yet (a component library's part that shows only while open or
@@ -349,10 +371,10 @@ const wrapComponent = (Wrapped: Component<Record<string, unknown>>): Component<R
     const wardRef = untrack(() => own.wardRef)
     const given = shareOf(wardRef)
     if (Predicate.isNotUndefined(given)) {
-      const { ward: driving, setup } = drivenWard(name, own, given, { defaultsOnElement: true }, MOTION_PROPS)
+      const { ward: driving, setup } = drivenWard(name, own, given, { defaultsOnElement: true, tag: routing }, MOTION_PROPS)
       return withProvider(driving, setup, () => checked(() => <Element {...rest} {...driving.with({ style: own.style })} ref={refsOf(own, [driving, seen])} />))
     }
-    const ward = wardWith(own as WardConfig, { defaultsOnElement: true })
+    const ward = wardWith(own as WardConfig, { defaultsOnElement: true, tag: routing })
     if (Predicate.isFunction(wardRef)) wardRef(ward)
     return withProvider(ward, wardConfigView(own as WardConfig), () => checked(() => <Element {...rest} {...ward} ref={refsOf(own, [ward, seen])} />))
   }

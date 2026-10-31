@@ -96,6 +96,11 @@ export class Probe extends Context.Service<Probe, {
   /** Reactive `prefers-reduced-motion` preference. */
   readonly prefersReducedMotion: Atom.Atom<boolean>
   /**
+   * Whether the Environment's page is shown, live (#443, Motion's `usePageInView`): `false` while it's
+   * hidden (in the DOM, a tab in the background or a minimised window), set as it changes.
+   */
+  readonly pageVisible: Atom.Atom<boolean>
+  /**
    * A container's scroll, live (#234, ADR-0043 *Amendment (#233, #234)*): an Atom the Environment
    * sets as the container scrolls or resizes, within the event, so a value derived from it is
    * written in the frame that shows the scroll. Containers are shared: one listener a container,
