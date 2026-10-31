@@ -11,6 +11,7 @@ import type * as Arc from "@wardic/core/Arc"
 import type * as Machine from "@wardic/core/Machine"
 import type * as Stagger from "@wardic/core/Stagger"
 import type * as CSS from "csstype"
+import type * as DomRenderer from "@wardic/dom/DomRenderer"
 import type { WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
 import type { WardicDragControls } from "./drag-controls.ts"
 import type { WardicDragInfo, WardicPointInfo, WardicPressEvent, WardicPressInfo } from "./gesture-info.ts"
@@ -372,6 +373,18 @@ export interface WardicPropagate {
  */
 export type WardicAnimationDefinition = WardicVariantLabels | WardicValues
 
+/**
+ * A **Transform template** (#443, Motion's `transformTemplate`): `(values, generated) => transform`.
+ *
+ * - **At rest and animating:** `values` holds the element's transform keys in their units, as
+ *   Motion's do (`x: "10px"`, `rotate: "45deg"`, `scale: 1.5`), and `generated` is the transform
+ *   Wardic would draw, `""` when every key is at its identity. It's called with no transform key too.
+ * - **While a layout animation moves it:** `values` holds every value as it is (`x: 10`), and
+ *   `generated` is the projection's transform. Once the flight lands, it's called as at rest.
+ * - **Held for a Measure pass:** every value as it is, and `""`.
+ */
+export type WardicTransformTemplate = DomRenderer.TransformTemplate
+
 export interface WardConfig {
   /**
    * The per-mount seed — the *entry-from* state the animation departs from.
@@ -713,6 +726,19 @@ export interface WardConfig {
    * signal it sets paints in the next frame. For one key, `ward.value(key)` costs less.
    */
   readonly onUpdate?: (latest: Readonly<Record<string, number | string>>) => void
+  /**
+   * The element's whole transform, built from its values and the one Wardic would draw (#443, a
+   * **Transform template**, Motion's prop). What it returns is the element's transform wherever it's
+   * drawn: at rest, animating, on a server, in its Appear animation, projected by a layout animation,
+   * and held for a Measure pass, so a static part of it, such as centring, is measured and stays
+   * through the flight. See {@link WardicTransformTemplate} for what it's handed. Whether the element
+   * has one is read at mount; the function is read each frame, and another one is drawn at the next.
+   *
+   * ```tsx
+   * <wardic.div layoutId="modal" transformTemplate={(_, generated) => `translate(-50%, -50%) ${generated}`} />
+   * ```
+   */
+  readonly transformTemplate?: WardicTransformTemplate
   /**
    * `false` keeps this element at its Starting style until mount during a server render, when the
    * provider would start its mount animation in CSS from first paint (an Appear animation, #48,

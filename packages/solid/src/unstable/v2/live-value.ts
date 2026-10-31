@@ -52,6 +52,8 @@ import {
   serverRegistryOf,
   type SpringAccessor,
   unitOf,
+  type WillChange,
+  willChangeOf,
   withUnit,
 } from "../../live-style.ts"
 import type { WardicRuntime, WardicServices } from "../../runtime.ts"
@@ -269,6 +271,26 @@ export const createTime = (): Accessor<number> => {
 }
 
 const SERVER_ZERO: Accessor<number> = () => 0
+
+/**
+ * A `willChange` for an element's `style` (#443, Motion's `useWillChange`): `"auto"` until that
+ * element starts animating a transform key, `opacity`, `clipPath`, `filter` or `backgroundColor`, or
+ * starts a drag; then `"transform"`, for good, so the browser keeps the element on a layer of its own
+ * from its first move on. A key already at its target and a layout animation don't count. `"auto"`
+ * on a server, where nothing animates.
+ *
+ * ```tsx
+ * const willChange = createWillChange()
+ * <wardic.div whileHover={{ scale: 1.1 }} style={{ "will-change": willChange }} />
+ * ```
+ */
+export const createWillChange = (): Accessor<WillChange> => {
+  if (isServer) return SERVER_AUTO
+  const registry = useWardicRuntime().runSync(AtomRegistry.AtomRegistry)
+  return willChangeOf(registry, onCleanup, (atom) => followAtom(registry, atom))
+}
+
+const SERVER_AUTO: Accessor<WillChange> = () => "auto"
 
 /**
  * `callback` told each frame's time and delta, in milliseconds, while its owner lives (#443, Motion's

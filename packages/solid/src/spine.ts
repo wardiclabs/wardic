@@ -28,6 +28,7 @@ import type * as Renderer from "@wardic/core/Renderer"
 import * as Supersede from "@wardic/core/Supersede"
 import * as Values from "@wardic/core/Values"
 import * as Appear from "@wardic/dom/Appear"
+import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as OwnValues from "@wardic/dom/OwnValues"
 import * as Report from "@wardic/dom/Report"
@@ -63,7 +64,7 @@ import type {
 } from "./config.ts"
 import { type ControlsChange, join, leave } from "./animation-controls.ts"
 import { frameNow, MAX_VELOCITY_DELTA, NOMINAL_FRAME } from "./frame-time.ts"
-import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
+import { type LiveStyle, serverRegistryOf, turnsWillChangeOn, valuesOf } from "./live-style.ts"
 import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "./presence-record.ts"
 import type { DragTrack } from "./drag-track.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
@@ -1573,6 +1574,32 @@ export const recordFrameOf = (presence: PresenceRecord | undefined): ((value: Va
   if (Predicate.isNotUndefined(presence)) Object.assign(presence.snapshot.current, value)
 }
 
+/**
+ * Turn the element's will-change value on (#443, Motion's `addValueToWillChange`) when its `style`
+ * gives it one and one of `legs` animates a transform key or one a browser composites. A key already
+ * at its target starts no leg (#448), and a layout animation runs none, so neither does. Per start:
+ * a lookup in its routed keys, none for a style that routes nothing.
+ */
+const turnWillChangeOn = (live: LiveStyle | undefined, legs: ReadonlyArray<Leg>): void => {
+  if (Predicate.isUndefined(live)) return
+  const turnOn = live.willChange()
+  if (Predicate.isUndefined(turnOn)) return
+  if (Arr.some(legs, (leg) => Arr.some(Rec.keys(leg.to), turnsWillChangeOn))) turnOn()
+}
+
+/**
+ * A binding's `setDragging`, turning the element's will-change value on as a drag starts (#443,
+ * Motion's): `"transform"`, as its drag draws `x` and `y`.
+ */
+export const draggingWithWillChange = (live: LiveStyle | undefined, setDragging: (on: boolean) => void): ((on: boolean) => void) =>
+  UndefinedOr.match(live, {
+    onUndefined: () => setDragging,
+    onDefined: (style) => (on: boolean) => {
+      if (on) UndefinedOr.map(style.willChange(), (turnOn) => turnOn())
+      setDragging(on)
+    },
+  })
+
 /** What {@link makeElementSpine} reads. */
 export interface ElementSpineOptions {
   /** The provider runtime the legs fork on. */
@@ -2423,7 +2450,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     if (Predicate.isNotUndefined(handoff)) {
       const taken = handoff
       handoff = undefined
-      checkHandoff(runtime, id, taken, { tag, from, to: fresh, transition: baseTransition, reduced: reduce, layout: isLayoutNode(c), stops: manyStops, ...skippedField(skipped) })
+      checkHandoff(runtime, id, taken, { tag, from, to: fresh, transition: baseTransition, reduced: reduce, layout: isLayoutNode(c), stops: manyStops, ...skippedField(skipped), ...templateField(c.transformTemplate) })
       const at = startAtOf(taken, baseTransition, delayOf(transition))
       retargetLegs = Arr.map(retargetLegs, (one) => startingAt(one, at))
     }
@@ -2458,6 +2485,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
           running.names = settles.carried(i)
         }))
     }
+    // Its `style`'s will-change value turns on as a leg starts a key Motion's would (#443).
+    turnWillChangeOn(live, retargetLegs)
     // Each leg into its sink, in the builder's order (#69's PR 2: a Retarget is per element). Each
     // leg draws the keys it animates (#325) until a later Retarget takes them.
     Arr.forEach(retargetLegs, (leg: Leg, i): void => {
@@ -2699,6 +2728,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     const run = (): void => {
       end()
       left = legs.length
+      turnWillChangeOn(live, legs)
       runnings = Arr.map(legs, (leg) => {
         const running = runningOf(leg.to, IMPERATIVE, landing, leg._tag)
         own(running)
@@ -2782,6 +2812,8 @@ export const releasingAppear = (sink: FlushGate.Sink, handoff: Handoff | undefin
  * Noted once (cold path, `wardic.hydration`); the client's own animation goes on from the same time.
  */
 const checkHandoff = (runtime: WardicRuntime, id: string, handoff: Handoff, mount: MountAnimation): void => {
+  // A templated element's rule is named by its stops (#443), which the client doesn't sample to check.
+  if (Predicate.isNotUndefined(mount.template)) return
   const same = Option.exists(keyOf(mount), (key) =>
     Appear.matches(handoff.animation, { key, tag: mount.tag, infinite: repeatsForever(mount.transition), projected: mount.layout }))
   if (same) return
@@ -2922,6 +2954,7 @@ export const appearEntryOf = (
         quiet,
         transition: transitionOfTarget(own, ownOrInherited(c.transition, node.inherited)),
         layout: isLayoutNode(c),
+        template: c.transformTemplate,
         group: Option.flatMap(Option.fromUndefinedOr(node.inherited), (inherited) => Option.fromUndefinedOr(inherited.appearGroup)),
         leads: hasOwnVariants(c),
         ownTransition: transitionOfTarget(own, c.transition),
@@ -2967,10 +3000,11 @@ export const serverStartingStyle = (
   routed: Readonly<Record<string, unknown>>,
   layout: boolean,
   untrack: Reactivity["untrack"],
+  template: WardConfig["transformTemplate"],
 ): Renderer.Patch =>
   Bool.match(Rec.isEmptyRecord(routed), {
     onTrue: () => starting,
-    onFalse: () => Style.starting(tag, drawnAtRest({ ...valuesOf(routed, serverRegistryOf, untrack), ...initialValues }, layout)).style,
+    onFalse: () => Style.starting(tag, drawnAtRest({ ...valuesOf(routed, serverRegistryOf, untrack), ...initialValues }, layout, template)).style,
   })
 
 /** Whether a config makes its element a layout node: `layout` (or a mode), or a `layoutId`. */
@@ -2980,10 +3014,57 @@ export const isLayoutNode = (c: WardConfig): boolean =>
 /**
  * The values a layout node's Starting style is drawn from (#245, ADR-0044 *Amendment (#245)*):
  * through its projection at rest, as its first commit draws it, its own translate on top (#363).
- * Any other element's, as they are.
+ * Any other element's, as they are. A templated element's, with its Transform template (#443).
  */
-export const drawnAtRest = (values: Values.Values, layout: boolean): Readonly<Record<string, unknown>> =>
-  Bool.match(layout, { onTrue: () => ({ ...values, [Projection.KEY]: Projection.AT_REST }), onFalse: () => values })
+export const drawnAtRest = (values: Values.Values, layout: boolean, template: WardConfig["transformTemplate"]): Readonly<Record<string, unknown>> =>
+  withTemplate(Bool.match(layout, { onTrue: () => ({ ...values, [Projection.KEY]: Projection.AT_REST }), onFalse: () => values }), template)
+
+/** `values` with `template` under the renderer's reserved key, as its projection rides (#443); as they are with none. */
+export const withTemplate = <V extends Readonly<Record<string, unknown>>>(values: V, template: WardConfig["transformTemplate"]): V =>
+  UndefinedOr.match(template, { onUndefined: () => values, onDefined: (t) => ({ ...values, [DomRenderer.TEMPLATE_KEY]: t }) })
+
+/**
+ * What an element registers with in the gate (#443): its Transform template at mount, under the
+ * renderer's reserved key, drawn with its first write (a write of its own would take its Starting
+ * style off early). Nothing with none.
+ */
+export const registeredValuesOf = (template: WardConfig["transformTemplate"]): Readonly<Record<string, unknown>> | undefined =>
+  UndefinedOr.map(template, (t) => ({ [DomRenderer.TEMPLATE_KEY]: t }))
+
+/**
+ * What an element's projection node is held at for a Measure pass (#443, Motion's
+ * `transformTemplate(values, "")`): its Transform template's, from its values now, when it had one
+ * at mount. `undefined` otherwise, so a node without one pays a field read a pass.
+ */
+export const heldTransformFor = (
+  snapshot: Snapshot,
+  atMount: WardConfig["transformTemplate"],
+  template: () => WardConfig["transformTemplate"],
+): (() => string) | undefined => UndefinedOr.map(atMount, () => () => DomRenderer.heldTransformOf(withTemplate(snapshot.values, template())))
+
+/**
+ * Follow an element's Transform template after mount (#443): `write` is called with each other one
+ * its config gives, and draws it at the next frame. Only for an element with one at mount, as
+ * `onUpdate` (#233): another costs nothing. Returns the stop.
+ */
+export const followTemplate = (
+  atMount: WardConfig["transformTemplate"],
+  template: () => WardConfig["transformTemplate"],
+  watch: Reactivity["watch"],
+  write: (template: WardConfig["transformTemplate"]) => void,
+): (() => void) => {
+  if (Predicate.isUndefined(atMount)) return constVoid
+  let last: WardConfig["transformTemplate"] = atMount
+  return watch(template, (next) => {
+    if (next === last) return
+    last = next
+    write(next)
+  })
+}
+
+/** A mount animation's template field (#443): left out with none, as its key reads it. */
+export const templateField = (template: WardConfig["transformTemplate"]): { readonly template?: DomRenderer.TransformTemplate } =>
+  UndefinedOr.match(template, { onUndefined: () => ({}), onDefined: (t) => ({ template: t }) })
 
 /** What a `<Reorder>` item adds to an element's drag: its gesture's axis, read at each drag's start. */
 interface DragInternals {

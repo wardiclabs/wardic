@@ -95,6 +95,8 @@ export interface UseLayoutMemberOptions {
   /** The element's own `rotate` and opacity, which a handover blends into (ADR-0010 *Amendment (#166)*). */
   readonly ownRotate?: () => number
   readonly ownOpacity?: () => number
+  /** What a Measure pass holds its transform at (#443): its Transform template's. Left out with none. */
+  readonly heldTransform?: () => string
   /** The app's layout animation callbacks, read when they fire (#191, ADR-0039). */
   readonly onLayoutAnimationStart?: () => (() => void) | undefined
   readonly onLayoutAnimationComplete?: () => (() => void) | undefined
@@ -116,7 +118,7 @@ const layoutSkips = (transition: WardicTransition | undefined): boolean =>
  * system needs it, outside the binding's tracking.
  */
 export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.RegisterNodeOptions => {
-  const { crossfade, dragTransition, element, enteredFrom, fadeFrom, id, layoutAnchor, layoutId, layoutMode, layoutRoot, layoutScroll, onLayoutAnimationComplete, onLayoutAnimationStart, onReleaseEnd, ownOpacity, ownRotate, ownScale, ownTranslate, raiseWhileDragged, reducedMotion, skipAnimations, transition } = opts
+  const { crossfade, dragTransition, element, enteredFrom, fadeFrom, id, layoutAnchor, layoutId, layoutMode, layoutRoot, layoutScroll, heldTransform, onLayoutAnimationComplete, onLayoutAnimationStart, onReleaseEnd, ownOpacity, ownRotate, ownScale, ownTranslate, raiseWhileDragged, reducedMotion, skipAnimations, transition } = opts
   const configSkips = UndefinedOr.match(skipAnimations, { onUndefined: () => constFalse, onDefined: identity })
   return {
     id,
@@ -145,6 +147,7 @@ export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.R
     ...UndefinedOr.match(ownTranslate, { onUndefined: () => ({}), onDefined: (translate) => ({ ownTranslate: translate }) }),
     ...UndefinedOr.match(ownRotate, { onUndefined: () => ({}), onDefined: (rotate) => ({ ownRotate: rotate }) }),
     ...UndefinedOr.match(ownOpacity, { onUndefined: () => ({}), onDefined: (opacity) => ({ ownOpacity: opacity }) }),
+    ...UndefinedOr.match(heldTransform, { onUndefined: () => ({}), onDefined: (held) => ({ heldTransform: held }) }),
     ...UndefinedOr.match(onLayoutAnimationStart, {
       onUndefined: () => ({}),
       onDefined: (start) => ({ onLayoutAnimationStart: () => Option.fromUndefinedOr(start()) }),
@@ -209,6 +212,8 @@ export interface WardLayout {
   readonly reducedMotion?: (() => boolean) | undefined
   /** Whether its animations are skipped now (#468): its nearest `WardicConfig`'s. */
   readonly skipAnimations?: (() => boolean) | undefined
+  /** What a Measure pass holds its transform at (#443): its Transform template's, when it had one at mount. */
+  readonly heldTransform?: (() => string) | undefined
 }
 
 /**
@@ -217,7 +222,7 @@ export interface WardLayout {
  * mode and callbacks read when the projection system needs them.
  */
 export const layoutOptionsOf = (ward: WardLayout): UseLayoutMemberOptions => {
-  const { config, element, id, parent, snapshot, dragTransition, raiseWhileDragged, taken, layoutGroup, reducedMotion, skipAnimations } = ward
+  const { config, element, id, parent, snapshot, dragTransition, raiseWhileDragged, taken, layoutGroup, reducedMotion, skipAnimations, heldTransform } = ward
   const c0 = config()
   return {
     id,
@@ -249,6 +254,8 @@ export const layoutOptionsOf = (ward: WardLayout): UseLayoutMemberOptions => {
     ...takenOptionsOf(taken),
     ...UndefinedOr.match(reducedMotion, { onUndefined: () => ({}), onDefined: (applies) => ({ reducedMotion: applies }) }),
     ...UndefinedOr.match(skipAnimations, { onUndefined: () => ({}), onDefined: (skips) => ({ skipAnimations: skips }) }),
+    // Its Transform template's hold for a Measure pass (#443): a node without one is cleared.
+    ...UndefinedOr.match(heldTransform, { onUndefined: () => ({}), onDefined: (held) => ({ heldTransform: held }) }),
   }
 }
 

@@ -134,7 +134,7 @@ export { createCycle, type Cycle } from "./cycle.ts"
 
 /** Reactive bridges (ADR-0006): a core `Stream` or an Effect `Atom` as an accessor. */
 export { fromAtom, streamToSignal } from "./bridge.ts"
-export type { WardicDragTransition } from "../../config.ts"
+export type { WardicDragTransition, WardicTransformTemplate } from "../../config.ts"
 export type { WardicBoundingBox, WardicDragConstraints, WardicMeasureDragConstraints } from "../../drag-constraints.ts"
 // Drag controls (#431, Motion's `useDragControls`): a drag started from a handle or a track.
 export { createDragControls, type WardicDragControls, type WardicDragControlsOptions } from "../../drag-controls.ts"
@@ -162,7 +162,8 @@ export { createAnimationControls, type WardicAnimationControls, type WardicContr
 /**
  * Live values (#130, ADR-0043; #209 PR 3's Q2): core's `LiveValue` helpers as accessors. One derived
  * on an Atom (a ward's `read(key)`, another helper's) carries it, so a `style` given it is written in
- * the frame its source moves. `createAnimationFrame` tells a callback each frame (#443).
+ * the frame its source moves. `createAnimationFrame` tells a callback each frame, and `createWillChange` makes a
+ * `willChange` that turns on as its element animates (#443).
  */
 export {
   createAnimationFrame,
@@ -172,11 +173,12 @@ export {
   createTime,
   createTransform,
   createVelocity,
+  createWillChange,
   type ElementSource,
   type ScrollOptions,
   type ScrollValues,
 } from "./live-value.ts"
-export type { FollowAccessor, FollowValueOptions, Live, LiveSource, SpringAccessor } from "../../live-style.ts"
+export type { FollowAccessor, FollowValueOptions, Live, LiveSource, SpringAccessor, WillChange } from "../../live-style.ts"
 
 /**
  * `<Reorder>` (ADR-0020, ADR-0037; #209 PR 3b): `reorderGroup(config)` and `reorderItem(list, config)`,

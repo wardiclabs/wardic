@@ -88,7 +88,11 @@ import {
   applyDragDefaults,
   dragAxisOf,
   dragDefaultsOf,
+  draggingWithWillChange,
   drawnAtRest,
+  followTemplate,
+  heldTransformFor,
+  registeredValuesOf,
   flagStartingStyle,
   isLayoutNode,
   madeWith,
@@ -476,7 +480,11 @@ export function runSpine(opts: RunSpineOptions): void {
       // hydrating, its Appear animation is found here, taken over by its first Retarget that
       // starts, and removed in its first commit (#48, ADR-0044 decision 6).
       const handoff = Bool.match(hydrating === true, { onTrue: () => Option.getOrUndefined(handoffOf(element)), onFalse: constUndefined })
-      const unregister = gate.register(id, releasingAppear(withOnUpdate(makeSink(element), untrack(cfg).onUpdate, configNow), handoff, element))
+      // Its Transform template (#443), drawn with its first write: the one at mount, then each other
+      // one its config gives.
+      const templateAtMount = untrack(cfg).transformTemplate
+      let template = templateAtMount
+      const unregister = gate.register(id, releasingAppear(withOnUpdate(makeSink(element), untrack(cfg).onUpdate, configNow), handoff, element), registeredValuesOf(templateAtMount))
       onCleanup(unregister)
 
       // A surface whose props don't carry a drag element's defaults (ADR-0019 *Amendment
@@ -535,6 +543,18 @@ export function runSpine(opts: RunSpineOptions): void {
       // Every element's values, by element, for the projection (ADR-0012 *Amendment (#137)*): a twin's
       // flight follows the translate and scale Wardic animates on its ancestors each frame.
       onCleanup(useWardicProjection().registerValues(element, () => snapshot.values))
+      // Its exit is drawn through its template (#443): it rides in its presence record, whose drawn
+      // values the projection reads as it leaves. A later one is written with the values it holds, so
+      // the commit that may take its Starting style off holds them.
+      UndefinedOr.map(registeredValuesOf(templateAtMount), (values) => recordFrame(values as Values.Values))
+      onCleanup(
+        followTemplate(templateAtMount, () => cfg().transformTemplate, reactivity.watch, (next) => {
+          template = next
+          const values = { ...snapshot.values, [DomRenderer.TEMPLATE_KEY]: next }
+          gate.write(id, values)
+          recordFrame({ [DomRenderer.TEMPLATE_KEY]: next } as unknown as Values.Values)
+        }),
+      )
 
       // --- Layout / shared-element / scroll projection (ADR-0009/0010/0012) ---
       // ONE projection node per element: `layout`, `layoutId`, and/or `layoutScroll`
@@ -554,7 +574,20 @@ export function runSpine(opts: RunSpineOptions): void {
       const dragTransition = dragTransitionOf(c0.dragElastic, c0.dragTransition)
       if (wantsLayoutNode(c0)) {
         layoutHandle = useLayoutMember(
-          layoutOptionsOf({ id, element, config: cfg, parent, snapshot, dragTransition, raiseWhileDragged: internal.raiseWhileDragged === true, taken, layoutGroup, reducedMotion, skipAnimations }),
+          layoutOptionsOf({
+            id,
+            element,
+            config: cfg,
+            parent,
+            snapshot,
+            dragTransition,
+            raiseWhileDragged: internal.raiseWhileDragged === true,
+            taken,
+            layoutGroup,
+            reducedMotion,
+            skipAnimations,
+            heldTransform: heldTransformFor(snapshot, templateAtMount, () => template),
+          }),
         )
         if (Predicate.isNotUndefined(internal.onLayoutHandle)) internal.onLayoutHandle(layoutHandle)
       }
@@ -600,7 +633,8 @@ export function runSpine(opts: RunSpineOptions): void {
           element,
           snapshot,
           recordFrame,
-          setDragging,
+          // A drag's start turns its `style`'s will-change value on (#443).
+          setDragging: draggingWithWillChange(live, setDragging),
           config: trackConfig,
           skipAnimations,
           container: constraints.container,
@@ -832,7 +866,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   const initialValues = startingValuesOf(initialConfig, node.inherited, presenceBlocksInitial(presence), untrack)
   // A layout node's is drawn through its projection at rest, as its first commit draws it (#245).
   const layoutNode = isLayoutNode(initialConfig)
-  const drawnStart = drawnAtRest(initialValues, layoutNode)
+  const drawnStart = drawnAtRest(initialValues, layoutNode, initialConfig.transformTemplate)
 
   // The Starting style: the projected SSR initial, carried by `style` until the gate's
   // first commit (ADR-0021 decision 6, ADR-0034). An svg-inner tag's attribute keys are
@@ -852,7 +886,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: () => warnDroppedTransform(runtime, id), reactivity })
   const projectStarting = Bool.match(hydrating, { onTrue: () => DomRenderer.project, onFalse: () => project })
   const startingWith = (routed: Values.Values): Renderer.Patch =>
-    Svg.splitPatchForTag(internal.tag, projectStarting(drawnAtRest({ ...routed, ...initialValues }, layoutNode))).style
+    Svg.splitPatchForTag(internal.tag, projectStarting(drawnAtRest({ ...routed, ...initialValues }, layoutNode, initialConfig.transformTemplate))).style
 
   // A drag element's defaults (ADR-0019 *Amendment (Reorder)*), under the user's
   // style: `drag` is static, so they're chosen once.
@@ -917,7 +951,8 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
     hydrating,
     tag: internal.tag,
     entersFresh: (element) => element === fresh,
-    restartStyle: (start) => elementStyle.restart(Svg.splitPatchForTag(internal.tag, project(drawnAtRest(start.initialValues, layoutNode))).style),
+    restartStyle: (start) =>
+      elementStyle.restart(Svg.splitPatchForTag(internal.tag, project(drawnAtRest(start.initialValues, layoutNode, untrack(cfg).transformTemplate))).style),
   })
 
   // `<ward.Provider>` publishes what this instance hands its children (#50): its own
@@ -987,7 +1022,7 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
   // (#50); a Variant child's Starting style starts from its ancestor's `initial` name.
   const node = serverVariantNode(c, useVariantContext())
   const layoutNode = isLayoutNode(c)
-  const seed = Style.starting(internal.tag, drawnAtRest(startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack), layoutNode))
+  const seed = Style.starting(internal.tag, drawnAtRest(startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack), layoutNode, c.transformTemplate))
   const dragDefaults = dragDefaultsOf(c, internal)
   const initialValues = startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack)
   // Its Appear animation (#48, ADR-0044): its slot in the render's, and the group its Variant
@@ -1009,7 +1044,7 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
       return {
         ref: UndefinedOr.match(userProps.ref, { onUndefined: () => noRef, onDefined: identity }),
         style: pipe(
-          serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed, layoutNode, untrack),
+          serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed, layoutNode, untrack, c.transformTemplate),
           Style.over(parts.css),
           Style.over(UndefinedOr.match(internal.baseStyle, { onUndefined: constUndefined, onDefined: (base) => base() })),
           Style.over(dragDefaults),
