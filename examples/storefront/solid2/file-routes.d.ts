@@ -131,6 +131,12 @@ declare module "virtual:file-routes" {
       $$route?: undefined;
     },
     {
+      path: "/live/announcements";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/live/announcements")>;
+      $$route?: undefined;
+    },
+    {
       path: "/live/magnifier";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/live/magnifier")>;
@@ -356,6 +362,14 @@ declare module "virtual:file-routes" {
       id: "/library/size-guide";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/library/size-guide")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/live/announcements";
+      id: "/live/announcements";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/live/announcements")>;
       $$route?: undefined;
       children?: undefined;
     },

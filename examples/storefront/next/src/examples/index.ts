@@ -4,6 +4,7 @@
  */
 import type { ComponentType } from "react"
 import AddToCart from "./add-to-cart/Demo.tsx"
+import Announcements from "./announcements/Demo.tsx"
 import BeforeHydration from "./before-hydration/Demo.tsx"
 import Browse from "./browse/Demo.tsx"
 import CartDrawer from "./cart-drawer/Demo.tsx"
@@ -49,6 +50,7 @@ export const DEMOS: Readonly<Record<string, ComponentType>> = {
   parallax: Parallax,
   reveals: Reveals,
   spotlight: Spotlight,
+  announcements: Announcements,
   "before-hydration": BeforeHydration,
   "size-guide": SizeGuide,
   "sort-by": SortBy,

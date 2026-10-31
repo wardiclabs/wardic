@@ -33,6 +33,7 @@ import * as Scope from "effect/Scope"
 import * as Arr from "effect/Array"
 import * as Option from "effect/Option"
 import { type Accessor, createComputed, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js"
+import { eachFrameOf } from "./animation-frame.ts"
 import { fromAtom } from "./bridge.ts"
 import type { FollowAccessor, FollowValueOptions, LiveSource, SpringAccessor } from "./live-style.ts"
 import { atomOf, carry, followAccessorOf, followOptionsOf, numberOf, readLive, serverFollowOf, serverRegistryOf, unitOf, withUnit } from "./live-style.ts"
@@ -237,6 +238,33 @@ const liveOf = <A, R>(runtime: WardicRuntime, live: Effect.Effect<Atom.Atom<A>, 
 }
 
 const SERVER_ZERO: Accessor<number> = () => 0
+
+/**
+ * `callback` told each frame's time and delta, in milliseconds, while its owner lives (#443, Motion's
+ * `useAnimationFrame`), for what a frame should draw itself: a canvas, a 3D scene, a value no target
+ * describes. It keeps the Clock ticking every frame.
+ *
+ * - **`time`** is 0 at its first frame, then wall time since: a hidden tab's minutes count, as
+ *   `createTime`'s do.
+ * - **`delta`** is the frame's own time, held to 1–40 ms as Motion's is: the first frame back from a
+ *   hidden tab steps 40 ms, not minutes.
+ *
+ * A throw from `callback` is logged at the first of a run of throws, and the next frame calls it as
+ * ever, as `onUpdate`. Nothing runs on a server.
+ *
+ * ```tsx
+ * createAnimationFrame((time) => {
+ *   cube.style.transform = `rotateY(${time / 10}deg)`
+ * })
+ * ```
+ */
+export const createAnimationFrame = (callback: (time: number, delta: number) => void): void => {
+  if (isServer) return
+  const runtime = useWardicRuntime()
+  const scope = Scope.makeUnsafe()
+  onCleanup(() => closeScope(runtime, scope))
+  runtime.runSync(eachFrameOf(runtime, callback).pipe(Scope.provide(scope)))
+}
 
 /** An element given as it is, or as an accessor of one (a ref, set at mount). */
 export type ElementSource = Element | Accessor<Element | undefined>

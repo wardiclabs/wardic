@@ -11,8 +11,9 @@
  * Each wraps a core recognizer (ADR-0006): attached, it runs on the provider's runtime until the
  * sensor's owner is disposed or it's given another element. Each is a watch (#318, #379, ADR-0055),
  * in a Scope of its own with no fiber. Its value starts at its rest (`false`,
- * or `null` for a drag) and stays there on a server, where no ref is called. `createReducedMotion`
- * takes no element: it follows the Probe's preference.
+ * or `null` for a drag) and stays there on a server, where no ref is called. `createReducedMotion`,
+ * `createReducedMotionConfig` and `createPageInView` take no element: they follow the Probe's
+ * preference, the nearest config's setting over it, and the page's visibility (#443).
  *
  * @module
  */
@@ -20,6 +21,7 @@ import type * as Drag from "@wardic/core/Drag"
 import type * as InputFeed from "@wardic/core/InputFeed"
 import * as Probe from "@wardic/core/Probe"
 import * as Recognizer from "@wardic/core/Recognizer"
+import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Report from "@wardic/dom/Report"
 import { watchPressOn } from "../../press.ts"
 import type * as Cause from "effect/Cause"
@@ -33,7 +35,7 @@ import { type Accessor, createSignal, onCleanup } from "solid-js"
 import { type CreateDragOptions, watchDragSamples } from "../../drag-samples.ts"
 import type { WardicServices } from "../../runtime.ts"
 import { fromAtom } from "./bridge.ts"
-import { useWardicRuntime } from "./provider.tsx"
+import { useWardicReducedMotionSetting, useWardicRuntime } from "./provider.tsx"
 
 export type { CreateDragOptions } from "../../drag-samples.ts"
 
@@ -127,4 +129,28 @@ export const createReducedMotion = (): Accessor<boolean> => {
   if (isServer) return () => false
   const probe = useWardicRuntime().runSync(Probe.Probe)
   return fromAtom(probe.prefersReducedMotion, { serverValue: false })
+}
+
+/**
+ * Whether reduced motion applies here, as Wardic's animations here honour it (#443, Motion's
+ * `useReducedMotionConfig`): the nearest `WardicConfig`'s `reducedMotion`, else the provider's, over
+ * the user's preference. `"always"` is `true`, `"never"` `false`, and `"user"` follows
+ * {@link createReducedMotion}. A server renders `"always"` as `true` and the rest as `false`, and a
+ * hydrating client keeps that until it has settled (the Hydration hold).
+ */
+export const createReducedMotionConfig = (): Accessor<boolean> => {
+  const setting = useWardicReducedMotionSetting()
+  const prefers = createReducedMotion()
+  return () => ReducedMotion.applies(setting(), prefers())
+}
+
+/**
+ * Whether the page is shown (#443, Motion's `usePageInView`): `false` while it's hidden, in a tab in
+ * the background or a minimised window, from the Probe's `pageVisible`. A server renders `true`, and
+ * a hydrating client keeps it until it has settled (the Hydration hold).
+ */
+export const createPageInView = (): Accessor<boolean> => {
+  if (isServer) return () => true
+  const probe = useWardicRuntime().runSync(Probe.Probe)
+  return fromAtom(probe.pageVisible, { serverValue: true })
 }

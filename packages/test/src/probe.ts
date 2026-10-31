@@ -19,6 +19,8 @@ export interface TestProbeOptions {
   readonly bounds?: Probe.Bounds
   readonly viewport?: { readonly width: number; readonly height: number }
   readonly prefersReducedMotion?: boolean
+  /** Whether the page is shown (#443): `true` when left out. */
+  readonly pageVisible?: boolean
   /** Every container's scroll, as `scroll` gives it (#234): a page that doesn't scroll when left out. */
   readonly scroll?: Probe.Scroll
   /**
@@ -43,13 +45,14 @@ export const layer = (options: TestProbeOptions = {}): Layer.Layer<Probe.Probe> 
 }
 
 /**
- * Both Probes' fixed part: the bounds, the viewport and the preference, each defaulted, no resizes,
+ * Both Probes' fixed part: the bounds, the viewport, the preference and the page's visibility, each defaulted, no resizes,
  * and one scroll Atom for every container, target and offset (#234).
  */
-const fixed = ({ bounds = ZERO_BOUNDS, viewport = VIEWPORT, prefersReducedMotion = false }: TestProbeOptions, scroll: Atom.Atom<Probe.Scroll>) => ({
+const fixed = ({ bounds = ZERO_BOUNDS, viewport = VIEWPORT, prefersReducedMotion = false, pageVisible = true }: TestProbeOptions, scroll: Atom.Atom<Probe.Scroll>) => ({
   measure: () => Effect.sync(() => bounds),
   viewport: Atom.make(viewport),
   prefersReducedMotion: Atom.make(prefersReducedMotion),
+  pageVisible: Atom.make(pageVisible),
   scroll: () => Effect.succeed(scroll),
   observeResize: () => Stream.empty,
 })

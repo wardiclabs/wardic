@@ -12,6 +12,10 @@
  * `wardic.<tag>` (e.g. `wardic.div`, `wardic.button`) is a cached shorthand for
  * `wardic.create("<tag>")` — `wardic.div === wardic.div`.
  *
+ * `wardic.create`'s options (#443, Motion's): `forwardMotionProps` hands the motion props on too, and
+ * `type` says what its element is for its server render. Every component made is marked
+ * (`isWardicComponent`), and a `WardicConfig`'s `isValidProp` keeps a tag's props off its element.
+ *
  * Locked merge policy (Option A) — the merge now lives in `ward()`
  * ({@link createWard}); this HOC just forwards the user's `ref` + `style` into it:
  *   - Motion props are split off so none leak to the DOM (even ones not yet
@@ -49,6 +53,9 @@ import type { WardConfig, WardicVariantLabels } from "./config.ts"
 import type { InferredMotion, TargetKey } from "./ward-keys.ts"
 import { changesContext } from "./variant-tree.ts"
 import { MOTION_PROPS, motionToConfig, type WardicMotionProps } from "./motion-props.ts"
+import { droppedKeysOf, markWardic, routingTagOf, type WardicCreateOptions } from "./wardic-component.ts"
+import { useWardicConfig } from "./wardic-config.tsx"
+import { isValidPropOf } from "./wardic-config-value.ts"
 
 export { MOTION_PROPS, motionToConfig, type WardicMotionProps } from "./motion-props.ts"
 
@@ -107,19 +114,26 @@ export const configOfMotion = (motion: WardicMotionProps): Accessor<WardConfig> 
  *     set on its element at mount (ADR-0021, decision 6). One that never forwards its ref is a
  *     clear error once mounted (ADR-0008).
  *
+ * `options` (#443, Motion's `motion.create` options): `forwardMotionProps` hands the motion props on
+ * to what it renders as well, and `type` says what its element is for its server render and Starting
+ * style ({@link WardicCreateOptions}).
+ *
  * @param arg an element tag string (e.g. `"div"`) OR a component forwarding `ref`.
  * @returns a Solid component accepting the element's / component's props + motion props.
  */
-export function create<Tag extends keyof JSX.IntrinsicElements>(tag: Tag): WardicComponent<Tag>
+export function create<Tag extends keyof JSX.IntrinsicElements>(tag: Tag, options?: WardicCreateOptions): WardicComponent<Tag>
 // A component's stays a plain `Component`, its keys not inferred: a generic return type would stop
 // TS carrying a generic component's own type parameters through (Kobalte's `<T extends ValidComponent>`).
-export function create<P>(component: Component<P & WardicWrappable>): Component<P & WardicMotionProps>
-export function create(tag: string): Component<WardicProps<keyof JSX.IntrinsicElements>>
-export function create(arg: string | Component<Record<string, unknown> & WardicWrappable>): Component<Record<string, unknown>> {
-  return Bool.match(Predicate.isString(arg), {
-    onTrue: () => wardComponent(arg as string, { tag: arg as string }),
-    onFalse: () => wardComponent(arg as Component<Record<string, unknown> & WardicWrappable>, WRAPPED),
+export function create<P>(component: Component<P & WardicWrappable>, options?: WardicCreateOptions): Component<P & WardicMotionProps>
+export function create(tag: string, options?: WardicCreateOptions): Component<WardicProps<keyof JSX.IntrinsicElements>>
+export function create(arg: string | Component<Record<string, unknown> & WardicWrappable>, options: WardicCreateOptions = {}): Component<Record<string, unknown>> {
+  const forward = options.forwardMotionProps === true
+  const made = Bool.match(Predicate.isString(arg), {
+    onTrue: () => wardComponent(arg as string, { tag: routingTagOf(arg as string, options.type) }, forward),
+    onFalse: () => wardComponent(arg as Component<Record<string, unknown> & WardicWrappable>, { ...WRAPPED, tag: routingTagOf(undefined, options.type) }, forward),
   })
+  // Marked with what it wraps (#443): `isWardicComponent`, `unwrapWardicComponent`.
+  return markWardic(made, arg)
 }
 
 /** What wraps a component tells {@link createWardWith}: its component may not pass `style` on. */
@@ -131,17 +145,27 @@ type Rendered = string | Component<Record<string, unknown> & WardicWrappable>
 /**
  * `wardic.<tag>` and `wardic.create(Component)`: the element, or the wrapped component, with a
  * Ward from {@link createWardWith} spread on it, its variant context's Provider around it when it
- * changes what its children read (#50).
+ * changes what its children read (#50). `forward`: its motion props are handed on too (#443).
  */
 const wardComponent =
-  (component: Rendered, internal: SpineInternals): Component<Record<string, unknown>> =>
+  (component: Rendered, internal: SpineInternals, forward: boolean): Component<Record<string, unknown>> =>
   (props) => {
+    // The nearest `WardicConfig`'s `isValidProp`, as the element is made (#443).
+    const isValidProp = isValidPropOf(useWardicConfig())
     // A server render takes the lean path (ADR-0021, decision 4).
-    if (isServer) return serverElement(component, internal, props)
+    if (isServer) return serverElement(component, internal, props, forward, isValidProp)
 
-    // 3-way split: motion props (consumed, never leak), then ref+style (merged),
-    // then everything else (rest) passes through to the element or component.
-    const [motion, refStyle, rest] = splitProps(props as WardicProps<keyof JSX.IntrinsicElements>, MOTION_PROPS, ["ref", "style"])
+    // 3-way split: motion props (consumed, and only handed on when forwarded, #443), then ref+style
+    // (merged), then everything else (rest) passes through to the element or component, but a tag's
+    // props a `WardicConfig`'s `isValidProp` keeps off it.
+    const [motion, refStyle, own] = splitProps(props as WardicProps<keyof JSX.IntrinsicElements>, MOTION_PROPS, ["ref", "style"])
+    const dropped = droppedKeysOf(() => Object.keys(own), isValidProp, Predicate.isString(component))
+    // Split again only when it keeps any off (most elements have no `isValidProp` above them).
+    const rest = Bool.match(Arr.isReadonlyArrayEmpty(dropped), {
+      onTrue: () => own,
+      onFalse: () => splitProps(own, dropped as Array<keyof typeof own>)[1],
+    })
+    const handedOn = Bool.match(forward, { onTrue: () => motion, onFalse: () => NO_PROPS })
 
     // Reactive config accessor: motionToConfig reads each (reactive) prop getter
     // inside the accessor, so a changed `animate` / `whileHover` / `transition`
@@ -172,7 +196,7 @@ const wardComponent =
 
     // An element that changes what its children read renders its variant context's Provider
     // around them (#50); any other renders none (`changesContext`, decided once, as on a server).
-    const element = (): JSX.Element => <Dynamic component={component} {...rest} {...ward(userProps)} />
+    const element = (): JSX.Element => <Dynamic component={component} {...handedOn} {...rest} {...ward(userProps)} />
     return Bool.match(changesContext(untrack(cfg)), {
       onFalse: () => forwarding.render(element),
       onTrue: () => <ward.Provider>{forwarding.render(element)}</ward.Provider>,
@@ -222,6 +246,9 @@ const forwardingOf = (component: Rendered, userRef: ((el: HTMLElement) => void) 
 /** Whether a rendered node is an element. */
 const isElement = (node: unknown): node is Element => node instanceof Element
 
+/** No props: what an element that doesn't forward its motion props hands on of them. */
+const NO_PROPS: Readonly<Record<string, never>> = {}
+
 /** The motion props, as a set for the server path's one pass. */
 const MOTION_KEYS: ReadonlySet<string> = new Set(MOTION_PROPS)
 
@@ -235,12 +262,17 @@ const override = (out: Record<string, unknown>, values: Record<string, unknown>)
     Object.defineProperty(out, key, { value: values[key], enumerable: true, configurable: true, writable: true })
   })
 
-/** Everything in `props` but the motion props, `ref` and `style`, in one pass; getters stay getters. */
-const passThrough = (props: Record<string, unknown>): Record<string, unknown> => {
+/**
+ * Everything in `props` but `ref`, `style`, the motion props unless `forward`, and the keys `dropped`
+ * (#443), in one pass; getters stay getters.
+ */
+const passThrough = (props: Record<string, unknown>, forward: boolean, dropped: ReadonlyArray<string>): Record<string, unknown> => {
   const descriptors = Object.getOwnPropertyDescriptors(props)
   const out: Record<string, unknown> = {}
+  const off = new Set(dropped)
   Arr.forEach(Rec.keys(descriptors), (key) => {
-    if (MOTION_KEYS.has(key) || key === "ref" || key === "style") return
+    if (key === "ref" || key === "style" || off.has(key)) return
+    if (MOTION_KEYS.has(key) && !forward) return
     Object.defineProperty(out, key, UndefinedOr.getOrThrow(descriptors[key]))
   })
   return out
@@ -254,8 +286,16 @@ const passThrough = (props: Record<string, unknown>): Record<string, unknown> =>
  * `createUniqueId` (inside `createWardWith`) and its `Dynamic` boundary are kept, so every
  * hydration key lands where the client's render puts it.
  */
-const serverElement = (component: Rendered, internal: SpineInternals, props: Record<string, unknown>): JSX.Element => {
-  const out = passThrough(props)
+const serverElement = (
+  component: Rendered,
+  internal: SpineInternals,
+  props: Record<string, unknown>,
+  forward: boolean,
+  isValidProp: ((key: string) => boolean) | undefined,
+): JSX.Element => {
+  // A tag's props `isValidProp` keeps off it, as the client's (#443): of its own, the motion props, `ref` and `style` aside.
+  const ownKeys = (): ReadonlyArray<string> => Arr.filter(Object.keys(props), (key) => !MOTION_KEYS.has(key) && key !== "ref" && key !== "style")
+  const out = passThrough(props, forward, droppedKeysOf(ownKeys, isValidProp, Predicate.isString(component)))
   const cfg = motionToConfig(props as WardicMotionProps)
   const ward = createWardWith(cfg, internal)
   override(out, { ...ward({ style: props.style as JSX.CSSProperties | undefined }), component })

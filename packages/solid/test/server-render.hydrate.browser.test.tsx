@@ -38,7 +38,7 @@ import * as References from "effect/References"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { commands } from "vitest/browser"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
-import { EXPECTED, FIXTURES, type FixtureName, HOLD_RM, HOLD_STREAM, LOG, LOG_CARD, seen, setLogEnv } from "./hydrate-fixtures.tsx"
+import { EXPECTED, FIXTURES, type FixtureName, HOLD_PAGE, HOLD_RM, HOLD_STREAM, LOG, LOG_CARD, seen, setLogEnv } from "./hydrate-fixtures.tsx"
 import "./browser-commands.ts"
 import {
   atNextPaint,
@@ -263,6 +263,22 @@ describe("the Hydration hold for client-only values (decisions 8 and 9)", () => 
       hydrated.dispose()
     } finally {
       await commands.emulateReducedMotion(false)
+    }
+  })
+
+  it("HY-H4 (#443): on a hidden page, createPageInView renders true while hydrating, the server's, then false", async () => {
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => "hidden" })
+    try {
+      seen.page.length = 0
+      const hydrated = await hydrateFixture("HOLD_PAGE", HOLD_PAGE)
+      expect(hydrated.threw).toBe("")
+      expect(seen.page[0], "the hydration render saw the server's value").toBe(true)
+      await frames(2)
+      expect(hydrated.host.querySelector('[data-k="pv"]')?.textContent, "after mount").toBe("false")
+      expect(hydrated.stopErrors()).toEqual([])
+      hydrated.dispose()
+    } finally {
+      delete (document as { visibilityState?: unknown }).visibilityState
     }
   })
 

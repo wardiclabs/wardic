@@ -426,6 +426,22 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     watch: ".spot-grid li:first-child .spot-card",
   },
   {
+    id: "announcements",
+    area: "live",
+    title: "Announcements that take turns",
+    summary: "The strip above the shop shows one message at a time, a bar filling under it, and holds while you read it or look away.",
+    why: [
+      "A strip of news above a shop has more to say than fits, and a visitor reads one line at a time. Taking turns shows each in full, and the bar under it says when the next comes. It holds while the pointer rests on it, and Pause stops it for good, so nobody loses a message halfway through reading it.",
+      "`createCycle` keeps the messages and steps to the next, the first after the last; each is a new child of `<AnimatePresence mode=\"wait\">`, so the last fades out before the next fades in. `createAnimationFrame` runs every frame with the frame's `delta`, which adds up to each message's four seconds and fills the bar, a live value in its `scaleX`. `createPageInView` is `false` while the tab is in the background: then the time stands still, so a visitor coming back finds the message they left, not the one after.",
+    ],
+    reducedMotion: "The messages fade without sliding; the bar still fills, as time passes, not as an animation of its own.",
+    uses: ["createCycle", "createAnimationFrame", "createPageInView", "AnimatePresence mode=\"wait\"", "scaleX in style"],
+    motion: {
+      note: "Motion's `useCycle`, `useAnimationFrame` and `usePageInView` are `createCycle`, `createAnimationFrame` and `createPageInView`. Motion's bar is a motion value set each frame, so React doesn't render the strip again as it fills; Solid's is a signal, and only the bar's `scaleX` changes. Motion's frame callback is a new one each render, and its hook subscribes it again; Solid's runs once and reads the signals as they are.",
+    },
+    watch: ".announcement-message",
+  },
+  {
     id: "before-hydration",
     area: "server",
     title: "A banner that arrives before the JavaScript",

@@ -41,6 +41,7 @@ import {
   fromContext,
   interrupted,
   projectionOf,
+  reducedMotionSettingWith,
   reducedMotionWith,
   reported,
   serverContext,
@@ -85,7 +86,7 @@ export function WardicProvider(props: {
   readonly children?: JSX.Element
 }): JSX.Element {
   const value = Bool.match(isServer, {
-    onTrue: () => serverContext(props.env, serverAppearOf(props.appear, props.reducedMotion)),
+    onTrue: () => serverContext(props.env, serverAppearOf(props.appear, props.reducedMotion), () => untrack(() => props.reducedMotion)),
     onFalse: () => clientContext(props.env, applyAndFlush, () => untrack(() => props.reducedMotion)),
   })
   // Disposing the runtime closes its Scope: the projection system, then the gate (#132). Its
@@ -174,6 +175,15 @@ export function useWardicDefaultTransition(): DefaultTransition.DefaultTransitio
 export function useWardicReducedMotion(): () => boolean {
   const config = useWardicConfig()
   return fromContext(contextValue(), "useWardicReducedMotion", (value) => reducedMotionWith(value, config))
+}
+
+/**
+ * The reduced-motion setting that applies here (#443): the nearest `WardicConfig`'s `reducedMotion`,
+ * else the provider's, else `"user"`. Read untracked for the provider's. Internal.
+ */
+export function useWardicReducedMotionSetting(): () => ReducedMotion.Config {
+  const config = useWardicConfig()
+  return fromContext(contextValue(), "useWardicReducedMotionSetting", (value) => reducedMotionSettingWith(value, config))
 }
 
 /** The provider's projection system (ADR-0009); a clear error during a server render, which builds none. */

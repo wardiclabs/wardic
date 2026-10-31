@@ -6,7 +6,8 @@
  * (#318, #379): the recognizer's `wardic.*` span, and a Scope of its own with no
  * fiber, closed on the consuming component's unmount (dropping the shared feed's
  * count). `createReducedMotion` bridges
- * `Probe.prefersReducedMotion` (an `Atom`) via {@link fromAtom}. `createTransform` moved to
+ * `Probe.prefersReducedMotion` (an `Atom`) via {@link fromAtom}, `createReducedMotionConfig` lays the
+ * nearest config's setting over it, and `createPageInView` bridges `Probe.pageVisible` (#443). `createTransform` moved to
  * `live-value.ts`, with `createSpring` (#130).
  *
  * All hooks MUST be called within a component/owner (they register `onCleanup`
@@ -15,6 +16,7 @@
 import * as Drag from "@wardic/core/Drag"
 import * as Probe from "@wardic/core/Probe"
 import * as Recognizer from "@wardic/core/Recognizer"
+import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Bool from "effect/Boolean"
 import { constFalse } from "effect/Function"
 import * as Predicate from "effect/Predicate"
@@ -22,7 +24,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createComputed, createSignal, getOwner, runWithOwner, untrack } from "solid-js"
 import { fromAtom, watchToSignal } from "./bridge.ts"
 import { type CreateDragOptions, watchDragSamples } from "./drag-samples.ts"
-import { useWardicRuntime } from "./provider.tsx"
+import { useWardicReducedMotionSetting, useWardicRuntime } from "./provider.tsx"
 import { watchPressOn } from "./press.ts"
 import { isServer } from "./server.ts"
 
@@ -169,4 +171,39 @@ export const createReducedMotion = (): Accessor<boolean> => {
   // key is itself an Effect, so running it yields the service instance.
   const probe = runtime.runSync(Probe.Probe)
   return fromAtom(probe.prefersReducedMotion, { serverValue: false })
+}
+
+/**
+ * Whether reduced motion applies here, as Wardic's animations here honour it (#443, Motion's
+ * `useReducedMotionConfig`): the nearest `WardicConfig`'s `reducedMotion`, else the provider's, over
+ * the user's preference. `"always"` is `true`, `"never"` `false`, and `"user"` follows
+ * {@link createReducedMotion}.
+ *
+ * A server renders `"always"` as `true` and the rest as `false`, and a hydrating client keeps that
+ * until mount (the Hydration hold, as `createReducedMotion`'s), so markup that depends on it hydrates.
+ */
+export const createReducedMotionConfig = (): Accessor<boolean> => {
+  const setting = useWardicReducedMotionSetting()
+  const prefers = createReducedMotion()
+  return () => ReducedMotion.applies(setting(), prefers())
+}
+
+/**
+ * Whether the page is shown (#443, Motion's `usePageInView`): `false` while it's hidden, in a tab in
+ * the background or a minimised window, from the Probe's `pageVisible`. Pause what nobody can see,
+ * such as a carousel's autoplay.
+ *
+ * A server renders `true`, and a hydrating client keeps it until mount (the Hydration hold), as
+ * Motion's starts `true` and corrects itself after its first render.
+ *
+ * ```tsx
+ * const visible = createPageInView()
+ * createEffect(() => (visible() ? player.play() : player.pause()))
+ * ```
+ */
+export const createPageInView = (): Accessor<boolean> => {
+  const runtime = useWardicRuntime()
+  if (isServer) return () => true
+  const probe = runtime.runSync(Probe.Probe)
+  return fromAtom(probe.pageVisible, { serverValue: true })
 }

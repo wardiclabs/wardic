@@ -172,6 +172,10 @@ A `layoutId` twin that mounts while its other twin is still leaving under `<Anim
 |---|---|
 | `motion.div` | `wardic.div` |
 | `motion.create(Component)` | `wardic.create(Component)` |
+| `motion.create(Component, { forwardMotionProps: true, type: "svg" })` | the same options (#443): `forwardMotionProps` hands the motion props on to the component as well, and `type: "svg"` renders an svg-inner element's attribute keys as attributes on a server, where Wardic can't see the element |
+| `isMotionComponent(c)`, `unwrapMotionComponent(c)` | `isWardicComponent(c)`, `unwrapWardicComponent(c)` (#443): either binding's, `"div"` for `wardic.div` |
+| `isValidMotionProp(key)` | `isValidWardicProp(key)` (#443): Wardic's own motion props, exactly, each binding's own (Solid 2's leaves out the callbacks that are DOM events there) |
+| `<MotionConfig isValidProp={isPropValid}>` | `<WardicConfig isValidProp={…}>` (#443): a tag's props it says aren't valid stay off the element; it's never asked about an `on…` prop, and a wrapped component gets every prop, as in Motion |
 | solid-motionone's `<Motion.div>` | `wardic.div` |
 | solid-motionone's `createMotion(el, options)` | `createWard(options)`, spread onto the element: `<div {...ward()}>` |
 | solid-motionone's `use:motion` | `use:wardic` |
@@ -183,6 +187,10 @@ A `layoutId` twin that mounts while its other twin is still leaving under `<Anim
 | `useScroll({ container, target, offset })` | `createScroll({ container, target, offset })` |
 | `useVelocity(value)` | `createVelocity(value)` |
 | `useTime()` | `createTime()` |
+| `useAnimationFrame((time, delta) => …)` | `createAnimationFrame((time, delta) => …)` (#443): the same, in ms, `time` 0 at its first frame and `delta` held to 1–40 ms; nothing on a server |
+| `const [x, cycleX] = useCycle(0, 50, 100)` | `const [x, cycleX] = createCycle(0, 50, 100)` (#443), `x()` an accessor; `cycleX()` steps, `cycleX(2)` jumps |
+| `usePageInView()` | `createPageInView()` (#443): `false` while the tab is hidden; `true` on a server, kept while hydrating |
+| `useReducedMotionConfig()` | `createReducedMotionConfig()` (#443): the nearest `WardicConfig`'s `reducedMotion`, else the provider's, over the user's preference |
 | `onUpdate={(latest) => …}` | `onUpdate={(latest) => …}` |
 | `onAnimationStart={(definition) => …}`, `onAnimationComplete={(definition) => …}` | the same, with the variant name or the target values (ADR-0046); not on Solid 2 |
 | `<AnimatePresence>` around many keyed children | around many children, each its DOM node: a `<For>`'s items, a `<Show>`'s child; each that leaves exits in its place, and a `layout` sibling slides into its space once it's gone; one back mid-exit is a new node entering beside it, unless it has a `key` (ADR-0048) |
@@ -379,6 +387,21 @@ A scroll's values are set within its own event, so what you derive from them pai
 
 A `target`'s place in its `container` is measured as Motion measures it, along its chain of offset parents. Unlike Motion, the container doesn't need a position: a `position: static` one reads just as a `relative` one would. Motion reads it short, and warns you to position the container (#395).
 
+For what a frame draws itself, `createAnimationFrame` is Motion's `useAnimationFrame` (#443): a callback each frame, with the time since its first frame and the frame's own `delta`, both in ms. `createCycle` steps through a list of states, and `createPageInView` says whether the page is shown, so an autoplay can hold while nobody sees it:
+
+```tsx
+const [message, next] = createCycle("Free delivery over £60", "Wrapped by hand", "Free returns")
+const visible = createPageInView()
+let shown = 0
+createAnimationFrame((_, delta) => {
+  if (!visible()) return
+  shown += delta // held to 40 ms a frame, as Motion's
+  if (shown < 4000) return
+  shown = 0
+  next()
+})
+```
+
 ### Server rendering and Appear animations
 
 A server render gives every element its starting style (its `initial`), and the client hydrates it with no flash. An element whose whole mount animation the server knows (static `initial` and `animate`, every key starting from `initial`) also plays it from first paint: the server samples it from the same springs and tweens the client runs into a CSS `@keyframes` rule in the page's head, and the element runs it before any JavaScript does. At hydration the engine takes it over where the CSS has got to, velocity included; with JavaScript off, it plays to its end and holds. Variant staggers, `when`, repeats and reduced motion (`prefers-reduced-motion`) carry over.
@@ -435,8 +458,8 @@ function Badge(props: { open: boolean }) {
   return <wardic.div wardRef={swipe} style={{ opacity }} />   // spread: <div {...swipe.with({ style: { opacity } })} />
   ```
 - A kept ward has `card.Provider` (its Variant children inherit its variant names), `card.read("x")` (an accessor of the element's value, where Solid 1's ward has `ward.value`) and `card.atom("x")`. Their keys complete from the config: every key it animates or styles, through `initial`, `animate`, `exit`, its variants, `whileHover`, `whileTap`, `whileDrag` and `style`, and `x`/`y` when it drags. Any other key is accepted too.
-- Sensors are refs too, and called with nothing they give their reading: `const hovered = createHover()`, then `<div ref={hovered}>` and `hovered()`. There are `createHover`, `createPress`, `createFocus`, `createInView` and `createDrag`, plus `createReducedMotion()`, which isn't a ref. Several go in one ref array beside a ward: `ref={[card, hovered]}`.
-- The Live value helpers (`createTransform`, `createFollowValue`, `createSpring`, `createVelocity`, `createTime`, `createScroll`) work as on Solid 1. Make them in a component's body, not inside JSX. When one is derived from a ward's `read(key)` or another helper, it carries that value's Atom, so a `style` given it moves in the same frame as its source: `createTransform(card.read("x"), [0, 200], [1, 0])` fades another element exactly as the card moves.
+- Sensors are refs too, and called with nothing they give their reading: `const hovered = createHover()`, then `<div ref={hovered}>` and `hovered()`. There are `createHover`, `createPress`, `createFocus`, `createInView` and `createDrag`, plus `createReducedMotion()`, `createReducedMotionConfig()` and `createPageInView()`, which aren't refs. Several go in one ref array beside a ward: `ref={[card, hovered]}`.
+- The Live value helpers (`createTransform`, `createFollowValue`, `createSpring`, `createVelocity`, `createTime`, `createScroll`) work as on Solid 1, and so do `createAnimationFrame` and `createCycle`. Make them in a component's body, not inside JSX. When one is derived from a ward's `read(key)` or another helper, it carries that value's Atom, so a `style` given it moves in the same frame as its source: `createTransform(card.read("x"), [0, 200], [1, 0])` fades another element exactly as the card moves.
 - **A config from async data.** A key the ward reads as it goes (`animate`, `while*`, `transition`, `style`, `custom`) may read an async memo. The ward's region waits for it under `<Loading>`, as for any async read, and the ward then plays from its `initial` to the fetched target; a refetch keeps the last target until the new one lands. Give it the memo, not a function that fetches: an accessor is called at every read, so one that returns a promise is an error. The keys a ward fixes when it's made (`initial`, `layout`, `drag`…) must be ready, and one still loading is an error naming it.
 
   ```tsx
@@ -618,7 +641,7 @@ function Badge(props: { open: boolean }) {
     await api.save()
   }}>Close and save</button>
   ```
-- So far: `initial`, `animate`, `transition`, `variants` with stagger and `when`, `style` with Live values, `onUpdate`, `<AnimatePresence>` with `exit` (a name, a dynamic variant, the presence's `custom`), many children, `mode="wait"` / `"popLayout"` with `anchorX` / `anchorY`, and `presenceAffectsLayout`, dynamic variants and `custom`, layout (`layout`, `layoutId`, `layoutCrossfade`, `layoutScroll`, `layoutRoot`, `layoutAnchor`, `<LayoutGroup>` with `id` and `inherit`, `useAnimateLayout`), gestures (`whileHover`, `whileTap`, `whileDrag`, `whileInView` with `viewport`, `whileFocus`), drag (`drag`, `dragConstraints` with `onMeasureDragConstraints`, `dragElastic`, `dragMomentum`, `dragSnapToOrigin`, `dragPropagation`, `dragDirectionLock`, `dragTransition`, `dragControls` from `createDragControls()`, `dragListener`), `createAnimate()` with its sequences and `scope.settled()`, `createAnimationControls()`, sensors, the Live value helpers, `fromAtom` and `streamToSignal`, Reorder with the keyboard reorder, and server rendering with Appear animations: the head's `<style>` goes through Solid 2's head registry (`useHead`), and a streamed `<Loading>` chunk's rules arrive with it.
+- So far: `initial`, `animate`, `transition`, `variants` with stagger and `when`, `style` with Live values, `onUpdate`, `<AnimatePresence>` with `exit` (a name, a dynamic variant, the presence's `custom`), many children, `mode="wait"` / `"popLayout"` with `anchorX` / `anchorY`, and `presenceAffectsLayout`, dynamic variants and `custom`, layout (`layout`, `layoutId`, `layoutCrossfade`, `layoutScroll`, `layoutRoot`, `layoutAnchor`, `<LayoutGroup>` with `id` and `inherit`, `useAnimateLayout`), gestures (`whileHover`, `whileTap`, `whileDrag`, `whileInView` with `viewport`, `whileFocus`), drag (`drag`, `dragConstraints` with `onMeasureDragConstraints`, `dragElastic`, `dragMomentum`, `dragSnapToOrigin`, `dragPropagation`, `dragDirectionLock`, `dragTransition`, `dragControls` from `createDragControls()`, `dragListener`), `createAnimate()` with its sequences and `scope.settled()`, `createAnimationControls()`, sensors, the Live value helpers, `createAnimationFrame`, `createCycle`, `createPageInView`, `createReducedMotionConfig`, `wardic.create`'s options, `isValidWardicProp`, `isWardicComponent`, `fromAtom` and `streamToSignal`, Reorder with the keyboard reorder, and server rendering with Appear animations: the head's `<style>` goes through Solid 2's head registry (`useHead`), and a streamed `<Loading>` chunk's rules arrive with it.
 - `examples/solid2-start` runs it in `@solidjs/vite-plugin`'s start mode (streaming server rendering, file routes, hydration), with the same hand checks as the Solid 1 example: `/ssr` for hydration and `/appear` for Appear animations.
 - `examples/layout-lab` runs on it too (`bun dev:v2`): the same lab built on Solid 2, every scenario on the Solid 2 binding, its Reorder card on the components or the factories.
 

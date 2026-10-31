@@ -28,7 +28,7 @@ import * as Predicate from "effect/Predicate"
 import { AtomRegistry } from "effect/reactivity"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { ServerAppear } from "./appear.ts"
-import type { WardicConfigValue } from "./wardic-config-value.ts"
+import { settingOf as configSettingOf, type WardicConfigValue } from "./wardic-config-value.ts"
 
 /**
  * The full Wardic environment a `WardicProvider` requires: all five core
@@ -79,6 +79,8 @@ export interface WardicContextValue {
    * provider's, with the user's preference. Read when each animation starts.
    */
   readonly reducedMotionUnder: (setting: ReducedMotion.Config | undefined) => boolean
+  /** The provider's own `reducedMotion` setting (#443), read untracked: `undefined` when it gives none. */
+  readonly reducedMotionSetting: () => ReducedMotion.Config | undefined
   /** The Environment's Positional keys (ADR-0036), read once: which keys reduced motion Snaps. */
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   /** The Environment's Default transition (ADR-0051), read once: what a key with no transition of its own runs on. */
@@ -149,6 +151,7 @@ export const clientContext = (
   )
   return {
     runtime,
+    reducedMotionSetting: reducedMotion,
     get gate() {
       return build().gate
     },
@@ -180,6 +183,13 @@ export const reducedMotionWith = (value: WardicContextValue, config: WardicConfi
   return () => under(config.reducedMotion())
 }
 
+/**
+ * The reduced-motion setting that applies to an element under `config` (#443, Motion's
+ * `useReducedMotionConfig`): its nearest `WardicConfig`'s, else the provider's, else `"user"`.
+ */
+export const reducedMotionSettingWith = (value: WardicContextValue, config: WardicConfigValue | undefined): (() => ReducedMotion.Config) =>
+  () => settingOf(configSettingOf(config), value.reducedMotionSetting)
+
 /** A setting: the given one (a `WardicConfig`'s), else the provider's, else `"user"`. */
 const settingOf = (setting: ReducedMotion.Config | undefined, provider: () => ReducedMotion.Config | undefined): ReducedMotion.Config => {
   if (Predicate.isNotUndefined(setting)) return setting
@@ -192,12 +202,13 @@ const settingOf = (setting: ReducedMotion.Config | undefined, provider: () => Re
  * working), an inert gate, no projection system, reduced motion never applying, and the render's
  * Appear animations when it has them.
  */
-export const serverContext = (env: WardicEnv, appear: ServerAppear | undefined): WardicContextValue => ({
+export const serverContext = (env: WardicEnv, appear: ServerAppear | undefined, reducedMotion: () => ReducedMotion.Config | undefined): WardicContextValue => ({
   runtime: ManagedRuntime.make(env),
   gate: FlushGate.inert,
   projection: undefined,
   reducedMotion: () => false,
   reducedMotionUnder: () => false,
+  reducedMotionSetting: reducedMotion,
   positionalKeys: SERVER_POSITIONAL_KEYS,
   defaultTransition: SERVER_DEFAULT_TRANSITION,
   appear,

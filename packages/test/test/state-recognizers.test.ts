@@ -123,6 +123,7 @@ const scriptedProbe = (script: ReadonlyArray<boolean>, asked: Array<Probe.Inters
     measure: () => Effect.die("unused"),
     viewport: Atom.make({ width: 0, height: 0 }),
     prefersReducedMotion: Atom.make(false),
+    pageVisible: Atom.make(true),
     scroll: () => Effect.die("unused"),
     observeResize: () => Stream.empty,
     observeIntersection: (_target, options) => {

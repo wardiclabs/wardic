@@ -55,6 +55,7 @@ import {
   withUnit,
 } from "../../live-style.ts"
 import type { WardicRuntime, WardicServices } from "../../runtime.ts"
+import { eachFrameOf } from "../../animation-frame.ts"
 import { followAtom } from "./bridge.ts"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, onSettledClientOnly } from "./solid-reactivity.ts"
 import { useWardicRuntime } from "./provider.tsx"
@@ -268,6 +269,33 @@ export const createTime = (): Accessor<number> => {
 }
 
 const SERVER_ZERO: Accessor<number> = () => 0
+
+/**
+ * `callback` told each frame's time and delta, in milliseconds, while its owner lives (#443, Motion's
+ * `useAnimationFrame`), for what a frame should draw itself: a canvas, a 3D scene, a value no target
+ * describes. It keeps the Clock ticking every frame.
+ *
+ * - **`time`** is 0 at its first frame, then wall time since: a hidden tab's minutes count, as
+ *   `createTime`'s do.
+ * - **`delta`** is the frame's own time, held to 1–40 ms as Motion's is: the first frame back from a
+ *   hidden tab steps 40 ms, not minutes.
+ *
+ * A throw from `callback` is logged at the first of a run of throws, and the next frame calls it as
+ * ever, as `onUpdate`. Nothing runs on a server.
+ *
+ * ```tsx
+ * createAnimationFrame((time) => {
+ *   cube.style.transform = `rotateY(${time / 10}deg)`
+ * })
+ * ```
+ */
+export const createAnimationFrame = (callback: (time: number, delta: number) => void): void => {
+  if (isServer) return
+  const runtime = useWardicRuntime()
+  const scope = Scope.makeUnsafe()
+  onCleanup(() => closeScope(runtime, scope))
+  runtime.runSync(eachFrameOf(runtime, callback).pipe(Scope.provide(scope)))
+}
 
 /** An element given as it is, or as an accessor of one (a ref's, set at mount). */
 export type ElementSource = Element | Accessor<Element | undefined>

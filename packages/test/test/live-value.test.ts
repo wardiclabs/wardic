@@ -21,6 +21,11 @@
 // - FV5: an inertia glides again at each change, its target unread; none from rest with no velocity.
 // - FV6: a `velocity` given steers every change.
 // - FV7: a change to where it is starts nothing; a `jump` ends a tween; the skips jump a tween.
+//
+// #443, `eachFrame` (Motion's `useAnimationFrame`):
+// - AF1: time 0 at its first frame, then the total of each tick's dt, unclamped; delta the tick's dt in ms.
+// - AF2: delta held to 1–40 ms, as Motion's frame loop holds it; time not.
+// - AF3: closing its Scope ends the run: no frame after.
 import * as Easing from "@wardic/core/Easing"
 import type * as Frame from "@wardic/core/Frame"
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -587,6 +592,67 @@ describe("LiveValue.time: milliseconds of wall time (#234)", () => {
         const at = registry.get(out)
         yield* frames(h.clock, registry, out, 2)
         expect(registry.get(out)).toBe(at)
+      }).pipe(Effect.scoped, Effect.provide(h.layer))
+    }))
+})
+
+describe("LiveValue.eachFrame: each frame's time and delta to a callback (#443)", () => {
+  /** What `eachFrame`'s callback was told, rounded to a thousandth of a ms. */
+  const told = () => {
+    const calls: Array<readonly [number, number]> = []
+    const round = (ms: number): number => Math.round(ms * 1000) / 1000
+    return { calls, callback: (time: number, delta: number) => void calls.push([round(time), round(delta)]) }
+  }
+
+  it.effect("AF1: time 0 at its first frame, then the total of each tick's dt, unclamped; delta the tick's dt", () =>
+    Effect.gen(function* () {
+      const h = yield* harness()
+      yield* Effect.gen(function* () {
+        const { calls, callback } = told()
+        yield* LiveValue.eachFrame(callback)
+        expect(calls, "nothing until the first frame").toEqual([])
+        yield* h.clock.advance(F)
+        yield* h.clock.advance(F)
+        yield* h.clock.advance(0.025)
+        expect(calls).toEqual([
+          [0, 16.667],
+          [16.667, 16.667],
+          [41.667, 25],
+        ])
+        expect(h.live(), "one run, never settling").toBe(1)
+      }).pipe(Effect.scoped, Effect.provide(h.layer))
+    }))
+
+  it.effect("AF2: delta held to 1–40 ms: a 2 s stall's is 40, a 0.5 ms frame's 1; time counts both in full", () =>
+    Effect.gen(function* () {
+      const h = yield* harness()
+      yield* Effect.gen(function* () {
+        const { calls, callback } = told()
+        yield* LiveValue.eachFrame(callback)
+        yield* h.clock.advance(F)
+        yield* h.clock.advance(2)
+        yield* h.clock.advance(0.0005)
+        expect(calls).toEqual([
+          [0, 16.667],
+          [2000, 40],
+          [2000.5, 1],
+        ])
+      }).pipe(Effect.scoped, Effect.provide(h.layer))
+    }))
+
+  it.effect("AF3: closing its Scope ends the run: no frame after", () =>
+    Effect.gen(function* () {
+      const h = yield* harness()
+      yield* Effect.gen(function* () {
+        const { calls, callback } = told()
+        const scope = yield* Scope.make()
+        yield* LiveValue.eachFrame(callback).pipe(Scope.provide(scope))
+        yield* h.clock.advance(F)
+        yield* h.clock.advance(F)
+        yield* Scope.close(scope, Exit.void)
+        expect(h.live()).toBe(0)
+        yield* h.clock.advance(F)
+        expect(calls.length).toBe(2)
       }).pipe(Effect.scoped, Effect.provide(h.layer))
     }))
 })
