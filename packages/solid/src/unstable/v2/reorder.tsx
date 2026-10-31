@@ -60,7 +60,7 @@ import { watchItemInput } from "../../reorder-input.ts"
 import { changesContext } from "../../variant-tree.ts"
 import { configView, type PerKey } from "./config-view.ts"
 import { useWardicProjection, useWardicRuntime } from "./provider.tsx"
-import { type AnyWard, type Ward, type WardConfig, type WardConfigValues, wardConfigView, type WardOptions, type WardShare, type WardStyle, wardWith } from "./ward.tsx"
+import { type AnyWard, spreadPropsOf, type Ward, withSpreadProps, type WardConfig, type WardConfigValues, wardConfigView, type WardOptions, type WardShare, type WardStyle, wardWith } from "./ward.tsx"
 import { drivenWard, type GivenWard, givenOf, handOver, listOf, refsOf, sets, setKeysOf, wardic, type WardicBeside, type WardicMotion, type WardRefCallback, type WardSetKey } from "./wardic.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
 import { eachOf, neverLands, NO_EVENTS, serverWhen, Waiters, whenOf } from "./waiters.ts"
@@ -158,8 +158,11 @@ export interface AnyReorderGroup<V> {
 export interface ReorderGroup<V> extends ReorderGroupProps, AnyReorderGroup<V> {
   /** Attaches the group to `element`: Solid calls it as a ref. */
   (element: HTMLElement): void
-  /** The group itself, as a spread's `merge` reads it. */
-  (previous?: unknown): ReorderGroup<V>
+  /**
+   * Its spread's props alone (#495): what Solid 2's `merge` reads when the group is spread, calling it
+   * as a function source, on no prototype, so none of the group's own names shadows the element's props.
+   */
+  (previous?: unknown): ReorderGroupProps
   /** Core's Reorder group. */
   readonly group: CoreReorder.Group<V>
   /** The axis: the config's, else the one detected from the items' boxes. */
@@ -257,16 +260,22 @@ const keyboardOf = <V,>(cfg: Accessor<ReorderGroupConfigValues<V>>) => ({
 const groupStyleOf = (style: JSX.CSSProperties | string | undefined): JSX.CSSProperties =>
   pipe(style, Style.over(ReorderController.GROUP_STYLE)) as JSX.CSSProperties
 
-/** A ref carrying `props` and `reads`: `props` enumerable (a spread applies them), `reads` not. */
+/**
+ * A ref carrying `props` and `reads`: `props` enumerable (a spread applies them), `reads` not. Called
+ * with nothing, as Solid 2's `merge` calls a spread's function source, it gives `ref` and `props` alone
+ * (#495), so none of its own names (`name`, `length`, its reads) shadows the element's props.
+ */
 const refCarrying = <G,>(attach: (element: HTMLElement) => void, props: PropertyDescriptorMap, reads: object): G => {
-  const self = ((value?: unknown): G | undefined => {
+  const self = ((value?: unknown): object | undefined => {
     if (isElement(value)) {
       attach(value)
       return undefined
     }
-    return self
+    return spread
   }) as unknown as G
-  Object.defineProperties(self, { [REORDER_GROUP]: { value: true }, ref: { value: self, enumerable: true }, ...props })
+  const spreadProps: PropertyDescriptorMap = { ref: { value: self, enumerable: true }, ...props }
+  const spread = spreadPropsOf<object>(spreadProps)
+  Object.defineProperties(self, { [REORDER_GROUP]: { value: true }, ...spreadProps })
   return Object.assign(self as object, reads) as G
 }
 
@@ -500,7 +509,7 @@ const reorderItemWith = <V,>(list: ReorderGroup<V>, config: ReorderItemConfig<V>
   // controller (ADR-0021); the instructions element exists on the client only.
   if (isServer) {
     const row = wardWith(wardConfig, { tag, dragAxis: () => true, baseStyle: touchAction, fixed, group: list, parent })
-    return Object.defineProperties(row, { [REORDER_ITEM]: { value: list }, ...keyboardAttributes(list, cfg, constUndefined) })
+    return withSpreadProps(Object.defineProperties(row, { [REORDER_ITEM]: { value: list } }), keyboardAttributes(list, cfg, constUndefined))
   }
   const runtime = useWardicRuntime()
   const value = untrack(() => own.value)
@@ -544,7 +553,7 @@ const reorderItemWith = <V,>(list: ReorderGroup<V>, config: ReorderItemConfig<V>
     },
   })
   // eslint-disable-next-line solid/reactivity -- handed to getters, which read it where the spread tracks them
-  return Object.defineProperties(row, { [REORDER_ITEM]: { value: list }, ...keyboardAttributes(list, cfg, describedBy) })
+  return withSpreadProps(Object.defineProperties(row, { [REORDER_ITEM]: { value: list } }), keyboardAttributes(list, cfg, describedBy))
 }
 
 // --- Components (ADR-0020: built on the factories) ---------------------------------------------

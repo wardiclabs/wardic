@@ -323,8 +323,12 @@ export interface WardOptions {
 export interface Ward<C extends WardConfig = WardConfig> extends WardProps, AnyWard {
   /** Mounts the ward on `element`: Solid calls it as a ref. */
   (element: HTMLElement): void
-  /** The ward itself, as a spread's `merge` reads it. */
-  (previous?: unknown): Ward<C>
+  /**
+   * Its spread's props alone (#495): what Solid 2's `merge` reads when the ward is spread, calling it
+   * as a function source. Only `ref`, `style` and the Starting style's attributes, on no prototype, so
+   * none of the ward's own names (`name`, `length`, `read`, `next`…) shadows the element's props.
+   */
+  (previous?: unknown): WardProps
   /**
    * Hands this element's variant context to the subtree (ADR-0007, #50): its Variant children
    * inherit its variant name and transition, and join its stagger and `when`.
@@ -1443,7 +1447,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   }
 
   const setMade = madeWith(presence, setElement, initialConfig)
-  const self = ((value?: unknown): Ward | undefined => {
+  const self = ((value?: unknown): WardProps | undefined => {
     if (isElement(value)) {
       const last = refdLast
       if (Predicate.isNotUndefined(last)) {
@@ -1456,8 +1460,22 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       setMade(value)
       return undefined
     }
-    return self
+    return spreadNow()
   }) as Ward
+  // What a spread of the ward reads (#495): its spread's props alone, made at its first spread, so a
+  // ward given only to `ref` makes none, and a Reorder item's keyboard attributes are in it.
+  let spread: WardProps | undefined
+  const spreadNow = (): WardProps => {
+    if (Predicate.isUndefined(spread)) {
+      spread = spreadOfWard(self, {
+        ref: { value: self, enumerable: true },
+        style: { get: renderedStyle, enumerable: true },
+        ...attributesOf(seed.attrs),
+        ...attributesOf(UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES })),
+      })
+    }
+    return spread
+  }
   Object.defineProperties(self, {
     [WARD]: { get: sharedNow },
     ref: { value: self, enumerable: true },
@@ -1476,7 +1494,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       value: (own: WardWithProps): WardProps => {
         given = own
         withCallsOf()[1](undefined)
-        return Object.defineProperties({} as WardProps, {
+        return spreadPropsOf({
           ref: { value: withRef(own.ref, self), enumerable: true },
           style: { get: renderedStyle, enumerable: true },
           ...attributesOf(seed.attrs),
@@ -1530,6 +1548,39 @@ const withRef = (user: WardWithProps["ref"], self: Ward): ((element: HTMLElement
 /** The Starting style's attributes as a ward's own keys: enumerable, so a spread applies them. */
 const attributesOf = (attrs: Readonly<Record<string, unknown>>): PropertyDescriptorMap =>
   Object.fromEntries(Object.entries(attrs).map(([key, value]) => [key, { value, enumerable: true }]))
+
+/**
+ * A spread's props, reaching no name but their own (#495): what a ward, its `.with()` or a Reorder group
+ * hands an element's spread, and nothing else. Solid 2's `merge` calls a function source and reads each key off
+ * what it returns with `in`, so a ward that returned itself shadowed the element's props with its own
+ * names (`name`, `length`, `read`, `next`…), and an object with a prototype would with
+ * `Object.prototype`'s (`constructor`, `toString`).
+ */
+export const spreadPropsOf = <P = WardProps,>(descriptors: PropertyDescriptorMap): P => Object.defineProperties(new SpreadProps(), descriptors) as P
+
+/**
+ * What a spread's props are made from (#495): a constructor whose prototype has no prototype and no
+ * names, so its objects reach none but their own. An `Object.create(null)` would too, but V8 keeps it
+ * in dictionary mode: 217 bytes each in Node 24, against 49 (`.tmp/495/spreadmem.mjs`).
+ */
+const SpreadProps = function SpreadProps(): void {} as unknown as new () => object
+SpreadProps.prototype = Object.create(null)
+
+/** The props a Reorder item adds to its ward's spread (#495): its keyboard attributes. Only items have them. */
+const SPREAD_EXTRAS = new WeakMap<object, PropertyDescriptorMap>()
+
+/**
+ * `ward` with `descriptors` defined on it and added to its spread (#495), for a ward that carries props
+ * of its own kind (a Reorder item's keyboard attributes). Before the ward's first spread.
+ */
+export const withSpreadProps = <W extends object>(ward: W, descriptors: PropertyDescriptorMap): W => {
+  SPREAD_EXTRAS.set(ward, descriptors)
+  return Object.defineProperties(ward, descriptors)
+}
+
+/** A ward's spread: `descriptors`, and what {@link withSpreadProps} added, on no prototype. */
+const spreadOfWard = (ward: object, descriptors: PropertyDescriptorMap): WardProps =>
+  spreadPropsOf(UndefinedOr.match(SPREAD_EXTRAS.get(ward), { onUndefined: () => descriptors, onDefined: (extras) => ({ ...descriptors, ...extras }) }))
 
 /** A server's output Atom: nothing is written there, so it stays `undefined`. */
 const NO_OUTPUT: Atom.Atom<unknown> = Atom.make<unknown>(undefined)
@@ -1593,7 +1644,12 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
   const style = styleFor(c.style)
   let given: WardWithProps = NO_WITH
   const attributes = { ...seed.attrs, ...UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES }) }
-  const self = ((): Ward => self) as Ward
+  // A spread of it reads its spread's props alone, made at its first spread, as the client's (#495).
+  let spread: WardProps | undefined
+  const self = ((): WardProps => {
+    if (Predicate.isUndefined(spread)) spread = spreadOfWard(self, { ref: { value: noRef, enumerable: true }, style: { value: style, enumerable: true }, ...attributesOf(attributes) })
+    return spread
+  }) as Ward
   // What it shares with a component it's given to (#349): a server's component renders its own.
   const shared: WardShare = {
     config,
@@ -1627,7 +1683,7 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
     with: {
       value: (own: WardWithProps): WardProps => {
         given = own
-        return Object.defineProperties({} as WardProps, {
+        return spreadPropsOf({
           ref: { value: noRef, enumerable: true },
           style: { value: styleFor(withStyleOver(c.style, own.style)), enumerable: true },
           ...attributesOf(attributes),
