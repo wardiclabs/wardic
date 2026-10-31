@@ -61,6 +61,15 @@
  * paired per rep. It reports the mount, the set task and the frame after it (see `page.tsx`), and the
  * unmount, Wardic's against plain Solid's, ungated: a base before Live values can't run the page.
  *
+ * `--features` (#460 Q3) adds the feature pages, each the `wardic` page's elements and rounds with one
+ * feature on (`page.tsx`): Keyframes (#429, #457), Measured pairs (`height: "auto"`, #430) and
+ * `transitionEnd` (#428) on both bindings, and on Solid 2 `tapped()` (#427) with its reference page of
+ * plain wards. Each is timed and its bytes read as the `wardic` page's, head against base, gated as
+ * a task is when the base has the feature (the commit it arrived in, `FEATURES`); against an earlier
+ * base the head runs alone, reported, not gated. Each also reports its cost to the elements using
+ * it: the head's page against its reference page, paired per rep, not gated. **A change to one of
+ * these features, or to the path they share with every element, runs `--features`** (docs/agents/effect-first.md).
+ *
  * `--v2` (#209, ADR-0045) runs `--head` alone too: the Solid 2 binding's page (`page-v2.tsx`, the
  * same N `wardic.div`s, built with Solid 2's compile) against the Solid 1 binding's, paired per rep.
  * It reports each task and the first frame after the mount, where every element's Starting-style
@@ -108,6 +117,7 @@ const allocReps = Number(arg("alloc-reps", "3"))
 const retainedReps = Number(arg("retained-reps", "3"))
 const liveMode = process.argv.includes("--live")
 const v2Mode = process.argv.includes("--v2")
+const featuresMode = process.argv.includes("--features")
 const bindingArg = arg("binding", "both")
 if (Bool.not(["1", "2", "both"].includes(bindingArg))) throw new Error(`bench:solid: --binding is 1, 2 or both, not ${bindingArg}`)
 
@@ -117,7 +127,10 @@ const isV2 = (side: Side): boolean => Bool.or(side === "v2Base", side === "v2Hea
 /** The retained gate's pages (#318, #379). */
 const RETAINED_KINDS = ["retained", "retained-reorder"] as const
 type RetainedKind = (typeof RETAINED_KINDS)[number]
-type Kind = "wardic" | "plain" | "live" | "live-plain" | "layout" | RetainedKind
+/** `--features`' pages (#460 Q3): `ward` is `tapped`'s reference page. */
+const FEATURE_KINDS = ["keyframes", "auto", "transition-end", "ward", "tapped"] as const
+type FeatureKind = (typeof FEATURE_KINDS)[number]
+type Kind = "wardic" | "plain" | "live" | "live-plain" | "layout" | RetainedKind | FeatureKind
 /** The layout page's scenes, in `page.tsx`'s order (#385): the page isn't imported for its values. */
 const SCENES: ReadonlyArray<Scene> = ["page", "list", "item", "scaled"]
 const SCENE_TASKS = ["measure", "frame"] as const
@@ -143,6 +156,17 @@ const hasV2 = (commit: string | undefined): boolean =>
       }
     },
   })
+
+/** Whether `commit` (the working tree when undefined) has what `since` brought: it is `since`, or after it. */
+const hasSince = (since: string | undefined, commit: string | undefined): boolean => {
+  if (Bool.or(since === undefined, commit === undefined)) return true
+  try {
+    execSync(`git merge-base --is-ancestor ${since} ${commit}`, { cwd: REPO, stdio: "ignore" })
+    return true
+  } catch {
+    return false
+  }
+}
 
 /** Where a commit's dependencies come from: the repo's own install, or `bench:core`'s checkout of it. */
 const depsOf = (commit: string): string => {
@@ -310,9 +334,9 @@ interface HeapNode {
 }
 const bytesOf = (node: HeapNode): number => node.children.reduce((sum, child) => sum + bytesOf(child), node.selfSize)
 
-/** What one `wardic` page of `side`'s build allocates over its rounds, in bytes per element per round. */
-const allocatedPage = async (side: Side): Promise<number> => {
-  const { page, errors } = await openPage(side, "wardic")
+/** What one `wardic` page, or a feature page, of `side`'s build allocates over its rounds, in bytes per element per round. */
+const allocatedPage = async (side: Side, kind: "wardic" | FeatureKind = "wardic"): Promise<number> => {
+  const { page, errors } = await openPage(side, kind)
   const cdp = await page.context().newCDPSession(page)
   await cdp.send("HeapProfiler.enable")
   await cdp.send("HeapProfiler.startSampling", {
@@ -323,7 +347,7 @@ const allocatedPage = async (side: Side): Promise<number> => {
   await runRounds(page)
   const { profile } = await cdp.send("HeapProfiler.stopSampling")
   await page.close()
-  if (errors.length > 0) throw new Error(`bench:solid: ${side} allocation: ${errors.join("; ")}`)
+  if (errors.length > 0) throw new Error(`bench:solid: ${side} ${kind} allocation: ${errors.join("; ")}`)
   return bytesOf(profile.head as HeapNode) / (rounds * n)
 }
 
@@ -458,7 +482,9 @@ if (v2Mode) {
 console.log(`bench:solid: base ${base} (${baseCommit.slice(0, 7)}) against ${headLabel}`)
 if (baseDeps !== REPO) console.log(`base runs on its own dependencies (${baseDeps})`)
 if (headDeps !== REPO) console.log(`head runs on its own dependencies (${headDeps})`)
-console.log(`Chromium ${browser.version()}, ${n} elements, ${rounds} rounds per page, ${reps} paired reps, ${allocReps} for bytes`)
+console.log(
+  `Chromium ${browser.version()}, ${n} elements, ${rounds} rounds per page, ${reps} paired reps, ${allocReps} for bytes${when(featuresMode, ", with the feature pages")}`,
+)
 console.log(
   `bindings: ${Arr.join(
     Arr.filter([when(runSolid1, "Solid 1"), when(runSolid2, "Solid 2"), when(Bool.and(wantSolid2, Bool.not(runSolid2)), "(Solid 2 skipped: no binding on one side)")], (x) => x.length > 0),
@@ -477,14 +503,52 @@ const SIDES = {
   solid2: { base: "v2Base", head: "v2Head" },
 } as const satisfies Record<string, Record<"base" | "head", Side>>
 type Binding = keyof typeof SIDES
+
+/** A feature page (`--features`, #460 Q3). */
+interface Feature {
+  readonly kind: FeatureKind
+  readonly label: string
+  /** The commit it arrived in: against a base before it, the head runs alone, reported, not gated. */
+  readonly since: string | undefined
+  readonly bindings: ReadonlyArray<Binding>
+  /** The head's page its cost is read against: the same elements without it. */
+  readonly reference: "wardic" | "ward"
+}
+const FEATURES: ReadonlyArray<Feature> = [
+  { kind: "keyframes", label: "Keyframes (#429)", since: "708bd5a", bindings: ["solid1", "solid2"], reference: "wardic" },
+  { kind: "auto", label: "Measured pairs (#430)", since: "aa76e73", bindings: ["solid1", "solid2"], reference: "wardic" },
+  { kind: "transition-end", label: "transitionEnd (#428)", since: "2a39b2f", bindings: ["solid1", "solid2"], reference: "wardic" },
+  { kind: "ward", label: "wards", since: undefined, bindings: ["solid2"], reference: "wardic" },
+  { kind: "tapped", label: "tapped() (#427)", since: "1c8159b", bindings: ["solid2"], reference: "ward" },
+]
+/** The feature pages a binding runs: none without `--features`, and none the head is before. */
+const featuresOf = (binding: Binding): ReadonlyArray<Feature> =>
+  Arr.filter(FEATURES, (f) => Bool.and(featuresMode, Bool.and(f.bindings.includes(binding), hasSince(f.since, headCommit))))
+/** Whether a feature's pages are run head against base, and gated: the base has it. */
+const baseHas = (f: Feature): boolean => hasSince(f.since, baseCommit)
+/** A rep's order for a feature page: the head alone when the base is before it. */
+const featureOrder = (f: Feature, order: ReadonlyArray<"base" | "head">): ReadonlyArray<"base" | "head"> =>
+  Arr.filter(order, (side) => Bool.or(side === "head", baseHas(f)))
+
 const bindings: ReadonlyArray<Binding> = Arr.filter(["solid1", "solid2"] as const, (b) => Bool.match(b === "solid1", { onTrue: () => runSolid1, onFalse: () => runSolid2 }))
 const emptySides = (): Record<"base" | "head", Array<ReadonlyArray<Round>>> => ({ base: [], head: [] })
 const runs: Record<Binding | "plain", Record<"base" | "head", Array<ReadonlyArray<Round>>>> = { solid1: emptySides(), solid2: emptySides(), plain: emptySides() }
 const emptyLayout = (): Record<"base" | "head", Array<ReadonlyArray<LayoutRound>>> => ({ base: [], head: [] })
 const layoutRuns: Record<Binding, Record<"base" | "head", Array<ReadonlyArray<LayoutRound>>>> = { solid1: emptyLayout(), solid2: emptyLayout() }
+const emptyFeatures = <A>(): Record<FeatureKind, Record<"base" | "head", Array<A>>> => ({
+  keyframes: { base: [], head: [] },
+  auto: { base: [], head: [] },
+  "transition-end": { base: [], head: [] },
+  ward: { base: [], head: [] },
+  tapped: { base: [], head: [] },
+})
+const featureRuns: Record<Binding, Record<FeatureKind, Record<"base" | "head", Array<ReadonlyArray<Round>>>>> = { solid1: emptyFeatures(), solid2: emptyFeatures() }
 for (let r = 0; r < reps; r++) {
   const order = orderOf(r)
   for (const binding of bindings) for (const side of order) runs[binding][side].push(await runPage(SIDES[binding][side], "wardic"))
+  for (const binding of bindings) {
+    for (const f of featuresOf(binding)) for (const side of featureOrder(f, order)) featureRuns[binding][f.kind][side].push(await runPage(SIDES[binding][side], f.kind))
+  }
   for (const binding of bindings) for (const side of order) layoutRuns[binding][side].push(await layoutPage(SIDES[binding][side]))
   // The noise control: plain divs on Solid 1's compile, whichever bindings run.
   for (const side of order) runs.plain[side].push(await runPage(side, "plain"))
@@ -492,9 +556,13 @@ for (let r = 0; r < reps; r++) {
 }
 const allocated: Record<Binding, Record<"base" | "head", Array<number>>> = { solid1: { base: [], head: [] }, solid2: { base: [], head: [] } }
 const layoutAllocated: Record<Binding, Record<"base" | "head", Array<number>>> = { solid1: { base: [], head: [] }, solid2: { base: [], head: [] } }
+const featureAllocated: Record<Binding, Record<FeatureKind, Record<"base" | "head", Array<number>>>> = { solid1: emptyFeatures(), solid2: emptyFeatures() }
 for (let r = 0; r < allocReps; r++) {
   const order = orderOf(r)
   for (const binding of bindings) for (const side of order) allocated[binding][side].push(await allocatedPage(SIDES[binding][side]))
+  for (const binding of bindings) {
+    for (const f of featuresOf(binding)) for (const side of featureOrder(f, order)) featureAllocated[binding][f.kind][side].push(await allocatedPage(SIDES[binding][side], f.kind))
+  }
   for (const binding of bindings) for (const side of order) layoutAllocated[binding][side].push(await allocatedLayoutPage(SIDES[binding][side]))
   process.stderr.write(`bytes ${r + 1}/${allocReps}\r`)
 }
@@ -527,6 +595,52 @@ const RETAINED_ROWS: ReadonlyArray<readonly [RetainedKind, string]> = [
   ["retained-reorder", "reorder item"],
 ]
 const TITLES: Record<Binding, string> = { solid1: "Solid 1 (@wardic/solid)", solid2: "Solid 2 (@wardic/solid/unstable/v2)" }
+
+/** Ratios' median and quartiles, as the tables print them. */
+const spread = (ratios: ReadonlyArray<number>): string => `${percent(quantile(ratios, 0.5))} [${percent(quantile(ratios, 0.25))} – ${percent(quantile(ratios, 0.75))}]`
+/** Whether ratios fail the gate: a median past +5%, its 25th percentile above 0%. */
+const failsGate = (ratios: ReadonlyArray<number>): boolean => Bool.and(quantile(ratios, 0.5) > GATE, quantile(ratios, 0.25) > 1)
+
+/**
+ * A binding's feature pages (`--features`): each warm task and its bytes, head against base when the
+ * base has the feature (gated), and the head's page against its reference page (its cost, not gated).
+ * Whether one failed.
+ */
+const featureReport = (binding: Binding): boolean => {
+  const features = featuresOf(binding)
+  if (features.length === 0) return false
+  let fails = false
+  console.log(
+    "\nfeatures (--features; warm ms and KB per element per round, median across reps; head / base paired per rep: median [p25 – p75], " +
+      "gated when the base has the feature; its cost: the head's page against its reference page, paired per rep, not gated)",
+  )
+  for (const f of features) {
+    const pages = featureRuns[binding][f.kind]
+    const bytes = featureAllocated[binding][f.kind]
+    const refPages = Bool.match(f.reference === "wardic", { onTrue: () => runs[binding].head, onFalse: () => featureRuns[binding].ward.head })
+    const refBytes = Bool.match(f.reference === "wardic", { onTrue: () => allocated[binding].head, onFalse: () => featureAllocated[binding].ward.head })
+    const gated = baseHas(f)
+    console.log(`  ${f.label}${when(Bool.not(gated), `: the base is before ${f.since}, the head alone, not gated`)}`)
+    console.log(`    ${"".padEnd(14)}${"base".padEnd(10)}${"head".padEnd(10)}${"head / base".padEnd(30)}vs ${f.reference}`)
+    const row = (label: string, base: string, head: string, ratios: ReadonlyArray<number>, cost: ReadonlyArray<number>): void => {
+      const failing = Bool.and(gated, failsGate(ratios))
+      fails ||= failing
+      const change = Bool.match(gated, { onTrue: () => spread(ratios), onFalse: () => "—" })
+      console.log(`    ${label.padEnd(14)}${base.padEnd(10)}${head.padEnd(10)}${change.padEnd(30)}${spread(cost)}${when(failing, "  FAIL")}`)
+    }
+    for (const task of TASKS) {
+      const ratios = Bool.match(gated, { onTrue: () => pages.head.map((page, r) => warm(page, task) / warm(pages.base[r]!, task)), onFalse: (): Array<number> => [] })
+      const base = Bool.match(gated, { onTrue: () => median(pages.base.map((page) => warm(page, task))).toFixed(1), onFalse: () => "—" })
+      const cost = pages.head.map((page, r) => warm(page, task) / warm(refPages[r]!, task))
+      row(task, base, median(pages.head.map((page) => warm(page, task))).toFixed(1), ratios, cost)
+    }
+    const byteRatios = Bool.match(gated, { onTrue: () => bytes.head.map((b, r) => b / bytes.base[r]!), onFalse: (): Array<number> => [] })
+    const baseBytes = Bool.match(gated, { onTrue: () => (median(bytes.base) / 1024).toFixed(1), onFalse: () => "—" })
+    row("bytes", baseBytes, (median(bytes.head) / 1024).toFixed(1), byteRatios, bytes.head.map((b, r) => b / refBytes[r]!))
+  }
+  return fails
+}
+
 let failed = false
 for (const binding of bindings) {
   const pages = runs[binding]
@@ -605,6 +719,8 @@ for (const binding of bindings) {
   console.log(
     `  frames to land, not gated: ${SCENES.map((scene) => `${scene} ${median(layout.base.map((page) => sceneWarm(page, scene, "frames")))} / ${median(layout.head.map((page) => sceneWarm(page, scene, "frames")))}`).join(", ")}`,
   )
+  // Not `||=`: the feature pages report whether or not a table above failed.
+  failed = Bool.or(featureReport(binding), failed)
   console.log("")
 }
 

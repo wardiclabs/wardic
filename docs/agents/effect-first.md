@@ -126,6 +126,7 @@ For a single function, a named import is fine: `import { identity } from "effect
   It runs in CI with the other gates. Whether a predicate is *named*, and whether `Match`, `Schema` or `Scope` fits, stay with review.
 - **`bun run bench:core --base main`** checks a change on the per-frame path (above).
 - **`bun run bench:solid --base main`** checks a change on the binding's start path: a mount, two Retargets and an unmount of 1,000 elements, each timed after a full GC, and the bytes they allocate per element per round (ADR-0040, *Amendment (#69)*). Its layout page checks the projection engine: 1,331 `layout` wards through four `animateLayout` scenes, each scene's Measure pass, its median frame and the bytes per frame (ADR-0040, *Amendment (#385)*).
+- **`bun run bench:solid --base main --features`** adds the feature pages (#460): elements using Keyframes, Measured pairs (`height: "auto"`), `transitionEnd`, and on Solid 2 `tapped()`. Each is gated head against base, and reports what the feature costs the elements using it against the same elements without it. Run it for a change to one of those features, or to the Retarget path they share with every element: the plain page doesn't reach their code.
 
 ## Pitfalls
 
