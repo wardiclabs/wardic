@@ -6,11 +6,17 @@
  * `whileTap`, and `Reorder.Item`s in one `Reorder.Group`, for the runner's heap readings.
  * `?kind=layout` (#385) is `page.tsx`'s too: #383's tree of 1,331 `layout` wards and its four scenes,
  * each scene's landing the promise this binding's `animateLayout` returns.
+ *
+ * `--features` (#460 Q3): `page.tsx`'s feature pages on this binding (`?kind=keyframes`, `auto`,
+ * `transition-end`), and two of its own:
+ * - `?kind=ward`: the `wardic` page's elements as wards, each spread on a `div`;
+ * - `?kind=tapped` (#427): the same wards, each element reading `isPending(() => card.tapped())`,
+ *   which asks for its press, so it's read against `ward`.
  */
 import { DomLive } from "@wardic/dom"
-import { type AnimateLayout, Reorder, useAnimateLayout, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
+import { type AnimateLayout, Reorder, useAnimateLayout, ward, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 import { render } from "@solidjs/web"
-import { createSignal, flush, For, Show } from "solid-js"
+import { createSignal, flush, For, isPending, Show } from "solid-js"
 
 const realRaf = window.requestAnimationFrame.bind(window)
 const WHITE = "rgb(255, 255, 255)"
@@ -21,6 +27,20 @@ interface Target {
   readonly o: number
   readonly c: string
 }
+
+/** A feature page's values for a target (`--features`), `page.tsx`'s. */
+interface Extras {
+  readonly mo: number
+  readonly mc: string
+  readonly h: string
+  readonly pe: "auto" | "none"
+}
+const EXTRAS: Readonly<Record<string, Extras>> = {
+  [WHITE]: { mo: 0.6, mc: "rgb(255, 255, 0)", h: "auto", pe: "auto" },
+  [BLUE]: { mo: 0.9, mc: "rgb(0, 255, 0)", h: "50%", pe: "none" },
+  [RED]: { mo: 0.7, mc: "rgb(255, 0, 255)", h: "auto", pe: "auto" },
+}
+const extras = (t: Target): Extras => EXTRAS[t.c]!
 
 const params = new URLSearchParams(location.search)
 const n = Number(params.get("n") ?? "1000")
@@ -36,7 +56,9 @@ style.textContent =
   ".root{width:400px}.root.wide{width:800px}.root.padded{padding:16px}" +
   ".list{display:flex;flex-wrap:wrap;width:100%;margin:0;padding:0;list-style:none}" +
   ".item{position:relative;width:9%;height:8px;margin:1px;border-radius:2px;box-shadow:0 1px 1px rgb(0 0 0 / 0.2);background:#888}" +
-  ".item.shifted{left:24px}.badge{display:block;width:50%;height:4px;border-radius:2px;background:#222}"
+  ".item.shifted{left:24px}.badge{display:block;width:50%;height:4px;border-radius:2px;background:#222}" +
+  // The `auto` page: a container `50%` resolves against (12px; `auto` is 0, the elements being empty).
+  ".fp{height:24px;overflow:hidden}"
 document.head.append(style)
 
 /** `text` when `cond` holds, else nothing. */
@@ -73,6 +95,82 @@ const Wardic = () => (
           />
         )}
       </For>
+    </Show>
+  </WardicProvider>
+)
+const Keyframes = () => (
+  <WardicProvider env={DomLive}>
+    <Show when={shown()}>
+      <For each={items}>
+        {() => (
+          <wardic.div
+            class="b"
+            initial={{ opacity: 0, "background-color": "rgb(0, 0, 0)" }}
+            animate={{ opacity: [null, extras(target()).mo, target().o], "background-color": [null, extras(target()).mc, target().c] }}
+          />
+        )}
+      </For>
+    </Show>
+  </WardicProvider>
+)
+const Auto = () => (
+  <WardicProvider env={DomLive}>
+    <Show when={shown()}>
+      <div class="fp">
+        <For each={items}>
+          {() => (
+            <wardic.div
+              class="b"
+              initial={{ opacity: 0, "background-color": "rgb(0, 0, 0)", height: 0 }}
+              animate={{ opacity: target().o, "background-color": target().c, height: extras(target()).h }}
+            />
+          )}
+        </For>
+      </div>
+    </Show>
+  </WardicProvider>
+)
+const TransitionEnd = () => (
+  <WardicProvider env={DomLive}>
+    <Show when={shown()}>
+      <For each={items}>
+        {() => (
+          <wardic.div
+            class="b"
+            initial={{ opacity: 0, "background-color": "rgb(0, 0, 0)" }}
+            animate={{ opacity: target().o, "background-color": target().c, transitionEnd: { "pointer-events": extras(target()).pe } }}
+          />
+        )}
+      </For>
+    </Show>
+  </WardicProvider>
+)
+/** A ward of the `wardic` page's element. */
+const wardOf = () =>
+  ward({
+    initial: { opacity: 0, "background-color": "rgb(0, 0, 0)" },
+    animate: () => ({ opacity: target().o, "background-color": target().c }),
+  })
+const WardBox = () => {
+  const card = wardOf()
+  return <div class="b" {...card()} />
+}
+/** `WardBox`, its element reading its last tap's pending, which asks for the press. */
+const TappedBox = () => {
+  const card = wardOf()
+  return <div class="b" {...card()} data-p={when(isPending(() => card.tapped()), "1")} />
+}
+const Wards = () => (
+  <WardicProvider env={DomLive}>
+    <Show when={shown()}>
+      <For each={items}>{() => <WardBox />}</For>
+    </Show>
+  </WardicProvider>
+)
+const Tapped = () => (
+  <WardicProvider env={DomLive}>
+    <Show when={shown()}>
+      <For each={items}>{() => <TappedBox />}</For>
     </Show>
   </WardicProvider>
 )
@@ -137,7 +235,17 @@ const Layout = () => (
     </Show>
   </WardicProvider>
 )
-const pages = { wardic: Wardic, retained: Retained, "retained-reorder": RetainedReorder, layout: Layout } as const
+const pages = {
+  wardic: Wardic,
+  keyframes: Keyframes,
+  auto: Auto,
+  "transition-end": TransitionEnd,
+  ward: Wards,
+  tapped: Tapped,
+  retained: Retained,
+  "retained-reorder": RetainedReorder,
+  layout: Layout,
+} as const
 render(() => {
   const Page = pages[kind as keyof typeof pages]
   return <Page />
@@ -165,7 +273,13 @@ const timed = (f: () => void): number => {
   return performance.now() - t0
 }
 const boxes = (): ReadonlyArray<HTMLElement> => [...host.querySelectorAll<HTMLElement>(".b")]
-const at = (t: Target): boolean => boxes().every((el) => el.style.opacity === String(t.o) && el.style.backgroundColor === t.c)
+/** A feature page's own landing, beside its legs' (`--features`), `page.tsx`'s. */
+const LANDED: Readonly<Record<string, (el: HTMLElement, t: Target) => boolean>> = {
+  auto: (el, t) => el.style.height === extras(t).h,
+  "transition-end": (el, t) => el.style.pointerEvents === extras(t).pe,
+}
+const landed = LANDED[kind] ?? (() => true)
+const at = (t: Target): boolean => boxes().every((el) => el.style.opacity === String(t.o) && el.style.backgroundColor === t.c && landed(el, t))
 const until = async (done: () => boolean, timeoutMs = 10000): Promise<void> => {
   const end = performance.now() + timeoutMs
   while (!done()) {

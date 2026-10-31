@@ -41,6 +41,15 @@
  * median of its frames' rAF callbacks, summed per frame until it lands (the coordinator's step and
  * the gate's flush), timed by a `requestAnimationFrame` this page wraps before Wardic's Clock reads
  * it. Its **frames** are how many there were.
+ *
+ * `--features` (#460 Q3): the `wardic` page's elements and rounds, each with one feature on both its
+ * legs, its values new at every target, for what an element using it costs:
+ * - `?kind=keyframes` (#457): Keyframes of three stops, the first `null` (from the Snapshot), a
+ *   middle stop of the target's own, so every Retarget replays every key;
+ * - `?kind=auto`: Measured pairs (#430), `height` from 0 to `auto`, then `50%` mid-flight and `auto`
+ *   at rest, each measured, in a container of a fixed height (the same element, no content added);
+ * - `?kind=transition-end` (#428): a `transitionEnd` of `pointer-events` with each target, set once
+ *   its legs land.
  */
 import { DomLive } from "@wardic/dom"
 import { type AnimateLayout, Reorder, useAnimateLayout, wardic, WardicProvider } from "@wardic/solid"
@@ -58,6 +67,20 @@ interface Target {
   readonly c: string
 }
 
+/** A feature page's values for a target (`--features`): its middle Keyframes stops, its `height`, its `transitionEnd`. */
+interface Extras {
+  readonly mo: number
+  readonly mc: string
+  readonly h: string
+  readonly pe: "auto" | "none"
+}
+const EXTRAS: Readonly<Record<string, Extras>> = {
+  [WHITE]: { mo: 0.6, mc: "rgb(255, 255, 0)", h: "auto", pe: "auto" },
+  [BLUE]: { mo: 0.9, mc: "rgb(0, 255, 0)", h: "50%", pe: "none" },
+  [RED]: { mo: 0.7, mc: "rgb(255, 0, 255)", h: "auto", pe: "auto" },
+}
+const extras = (t: Target): Extras => EXTRAS[t.c]!
+
 const params = new URLSearchParams(location.search)
 const n = Number(params.get("n") ?? "1000")
 const kind = params.get("kind") ?? "wardic"
@@ -73,7 +96,9 @@ style.textContent =
   ".root{width:400px}.root.wide{width:800px}.root.padded{padding:16px}" +
   ".list{display:flex;flex-wrap:wrap;width:100%;margin:0;padding:0;list-style:none}" +
   ".item{position:relative;width:9%;height:8px;margin:1px;border-radius:2px;box-shadow:0 1px 1px rgb(0 0 0 / 0.2);background:#888}" +
-  ".item.shifted{left:24px}.badge{display:block;width:50%;height:4px;border-radius:2px;background:#222}"
+  ".item.shifted{left:24px}.badge{display:block;width:50%;height:4px;border-radius:2px;background:#222}" +
+  // The `auto` page: a container `50%` resolves against (12px; `auto` is 0, the elements being empty).
+  ".fp{height:24px;overflow:hidden}"
 document.head.append(style)
 
 /** `text` when `cond` holds, else nothing. */
@@ -106,6 +131,53 @@ const Wardic = () => (
             class="b"
             initial={{ opacity: 0, "background-color": "rgb(0, 0, 0)" }}
             animate={{ opacity: target().o, "background-color": target().c }}
+          />
+        )}
+      </For>
+    </Show>
+  </WardicProvider>
+)
+const Keyframes = () => (
+  <WardicProvider env={DomLive}>
+    <Show when={shown()}>
+      <For each={items}>
+        {() => (
+          <wardic.div
+            class="b"
+            initial={{ opacity: 0, "background-color": "rgb(0, 0, 0)" }}
+            animate={{ opacity: [null, extras(target()).mo, target().o], "background-color": [null, extras(target()).mc, target().c] }}
+          />
+        )}
+      </For>
+    </Show>
+  </WardicProvider>
+)
+const Auto = () => (
+  <WardicProvider env={DomLive}>
+    <Show when={shown()}>
+      <div class="fp">
+        <For each={items}>
+          {() => (
+            <wardic.div
+              class="b"
+              initial={{ opacity: 0, "background-color": "rgb(0, 0, 0)", height: 0 }}
+              animate={{ opacity: target().o, "background-color": target().c, height: extras(target()).h }}
+            />
+          )}
+        </For>
+      </div>
+    </Show>
+  </WardicProvider>
+)
+const TransitionEnd = () => (
+  <WardicProvider env={DomLive}>
+    <Show when={shown()}>
+      <For each={items}>
+        {() => (
+          <wardic.div
+            class="b"
+            initial={{ opacity: 0, "background-color": "rgb(0, 0, 0)" }}
+            animate={{ opacity: target().o, "background-color": target().c, transitionEnd: { "pointer-events": extras(target()).pe } }}
           />
         )}
       </For>
@@ -190,7 +262,18 @@ const Layout = () => (
     </Show>
   </WardicProvider>
 )
-const pages = { plain: Plain, wardic: Wardic, live: Live, "live-plain": LivePlain, retained: Retained, "retained-reorder": RetainedReorder, layout: Layout } as const
+const pages = {
+  plain: Plain,
+  wardic: Wardic,
+  keyframes: Keyframes,
+  auto: Auto,
+  "transition-end": TransitionEnd,
+  live: Live,
+  "live-plain": LivePlain,
+  retained: Retained,
+  "retained-reorder": RetainedReorder,
+  layout: Layout,
+} as const
 render(() => {
   const Page = pages[kind as keyof typeof pages]
   return <Page />
@@ -216,7 +299,13 @@ const timed = (f: () => void): number => {
   return performance.now() - t0
 }
 const boxes = (): ReadonlyArray<HTMLElement> => [...host.querySelectorAll<HTMLElement>(".b")]
-const at = (t: Target): boolean => boxes().every((el) => el.style.opacity === String(t.o) && el.style.backgroundColor === t.c)
+/** A feature page's own landing, beside its legs' (`--features`): the height given, and the `transitionEnd` set. */
+const LANDED: Readonly<Record<string, (el: HTMLElement, t: Target) => boolean>> = {
+  auto: (el, t) => el.style.height === extras(t).h,
+  "transition-end": (el, t) => el.style.pointerEvents === extras(t).pe,
+}
+const landed = LANDED[kind] ?? (() => true)
+const at = (t: Target): boolean => boxes().every((el) => el.style.opacity === String(t.o) && el.style.backgroundColor === t.c && landed(el, t))
 const until = async (done: () => boolean, timeoutMs = 10000): Promise<void> => {
   const end = performance.now() + timeoutMs
   while (!done()) {
@@ -243,7 +332,7 @@ const round = async (): Promise<Round> => {
   if (boxes().length !== n) throw new Error(`bench:solid: mounted ${boxes().length} of ${n}`)
   const firstFrame = await first
   await frames(7)
-  if (kind === "wardic" && !boxes().some((el) => Number(el.style.opacity) > 0 && Number(el.style.opacity) < 1)) {
+  if (kind !== "plain" && !boxes().some((el) => Number(el.style.opacity) > 0 && Number(el.style.opacity) < 1)) {
     throw new Error("bench:solid: not mid-flight at the Retarget")
   }
   await afterPaint()
