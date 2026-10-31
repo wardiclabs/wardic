@@ -55,6 +55,25 @@ export const glide = async (from: Pt, to: Pt, steps: number, ms = 20): Promise<v
 
 export const add = (p: Pt, dx: number, dy: number): Pt => ({ x: p.x + dx, y: p.y + dy })
 
+/**
+ * A flick that lets go with its last move (#369, #496): grab at `g`, glide `slow` px right, make 3
+ * moves of `step` px 35 ms apart, and leave the 4th to `mouse.up`, which moves there and lets go in
+ * one command. Returns where the up lets go.
+ *
+ * A release's velocity is its last 100 ms's. Let go a command after the last move, the up lagged it
+ * by 14–71 ms in the full browser suite, and past 100 ms it lets go with none: no glide. Here the up
+ * follows a real step within one round trip, whatever the load.
+ */
+export const flingFrom = async (g: Pt, slow: number, step: number): Promise<Pt> => {
+  await mouse.down(g)
+  await glide(g, add(g, slow, 0), 10, 20)
+  for (let k = 1; k <= 3; k++) {
+    await mouse.move(add(g, slow + step * k, 0))
+    await wait(35)
+  }
+  return add(g, slow + 4 * step, 0)
+}
+
 /** For `afterEach`: release a held button, park the mouse, clear any selection, unmount, scroll home. */
 export const resetScene = async (): Promise<void> => {
   if (held) await mouse.up({ x: 5, y: 5 })

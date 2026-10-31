@@ -32,7 +32,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { page } from "vitest/browser"
-import { add, glide, mountReorder, mouse, type Pt, resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
+import { add, flingFrom, glide, mountReorder, mouse, type Pt, resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
 
 afterEach(resetScene)
 
@@ -120,26 +120,13 @@ interface Fling {
 }
 
 /**
- * A flick that lets go with its last move (#369): grab the box (`from` px right of its slot), glide
- * `slow` px right, make 3 moves of `step` px 35 ms apart, and leave the 4th to `mouse.up`, which moves
- * there and lets go in one command.
- *
- * A release's velocity is its last 100 ms's. Let go a command after the last move, as `flick`'s are,
- * the up lagged it by 14–71 ms in the full browser suite, and past 100 ms it lets go with none: no
- * glide. Here the up follows a real step within one round trip, whatever the load.
- *
- * Returns where the up lets go, and where the box is then: a step on from where it is, 1:1 (a free
- * drag, or one inside its constraints).
+ * A {@link flingFrom} on the box (#369), grabbed `from` px right of its slot: the up makes the flick's
+ * last move and lets go in one command. Returns where the up lets go, and where the box is then: a
+ * step on from where it is, 1:1 (a free drag, or one inside its constraints).
  */
 const fling = async (b: Box, slow: number, step: number, from = 0): Promise<Fling> => {
-  const g = grabOf(b, from)
-  await mouse.down(g)
-  await glide(g, add(g, slow, 0), 10, 20)
-  for (let k = 1; k <= 3; k++) {
-    await mouse.move(add(g, slow + step * k, 0))
-    await wait(35)
-  }
-  return { pointer: add(g, slow + 4 * step, 0), released: dxOf(b) + step }
+  const pointer = await flingFrom(grabOf(b, from), slow, step)
+  return { pointer, released: dxOf(b) + step }
 }
 
 /** Grab the box (`from` px right of its slot), glide `by` px right, and pause, so it lets go with no velocity. */

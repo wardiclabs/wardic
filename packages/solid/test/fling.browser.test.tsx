@@ -6,7 +6,9 @@
 // flick's velocity. A layout drag past elastic constraints releases with the pointer's velocity,
 // not its slower elastic offsets'. Each release runs on the drag transition (ADR-0016, *Amendment
 // (#140)*): FL4 and FL5 give it a soft bounce, so a release's carry outward before it turns back
-// shows its velocity.
+// shows its velocity. A release that should carry lets go with its flick's last move (`fling`, #496,
+// as drag-transition's did for #369): FL1, FL4 and FL5. FL2 and FL3 let go a command after it, since
+// theirs shouldn't carry.
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { wardic, type WardicBoundingBox, type WardicDragTransition, WardicProvider } from "@wardic/solid"
@@ -15,7 +17,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { page } from "vitest/browser"
-import { add, glide, mouse, type Pt, resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
+import { add, flingFrom, glide, mouse, type Pt, resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
 
 afterEach(resetScene)
 
@@ -86,15 +88,31 @@ const flick = async (b: Box, slow: number, step: number): Promise<Pt> => {
   return add(g, slow + 4 * step, 0)
 }
 
+/** A {@link fling}'s release: where the pointer lets go, and where the box is then. */
+interface Fling {
+  readonly pointer: Pt
+  readonly released: number
+}
+
+/**
+ * {@link flick}'s moves, but the up makes the last one and lets go in one command ({@link flingFrom},
+ * #496), so the release reads the flick's velocity however loaded the suite is. Returns where the up
+ * lets go, and where the box is then: a step on from where it is, `follows` of it (1 for a free
+ * drag, `dragElastic` past a bound).
+ */
+const fling = async (b: Box, slow: number, step: number, follows = 1): Promise<Fling> => {
+  const pointer = await flingFrom({ x: b.slot.left + 20, y: b.slot.top + 40 }, slow, step)
+  return { pointer, released: dxOf(b) + step * follows }
+}
+
 /** A soft bounce (40/12), so a release's carry outward before it turns back shows its velocity. */
 const SOFT: WardicDragTransition = { bounceStiffness: 40, bounceDamping: 12 }
 
 describe("a free drag's release reads the pointer's last 100 ms (ADR-0004, Amendment (#139))", () => {
   it("FL1: a flick with moves about 50 ms apart carries on past where it was let go", async () => {
     const b = await mountBox({})
-    const at = await flick(b, 100, 50)
-    const released = dxOf(b)
-    await mouse.up(at)
+    const { pointer, released } = await fling(b, 100, 50)
+    await mouse.up(pointer)
     await wait(1500)
     const carried = dxOf(b) - released
     expect(carried, `it carried ${carried} px past the release`).toBeGreaterThan(30)
@@ -121,10 +139,9 @@ describe("a free drag's release reads the pointer's last 100 ms (ADR-0004, Amend
 
   it("FL4: with dragSnapToOrigin a flick away from the origin carries on outward first, then springs back to it", async () => {
     const b = await mountBox({ snapToOrigin: true, dragTransition: SOFT })
-    const at = await flick(b, 100, 50)
-    const released = dxOf(b)
+    const { pointer, released } = await fling(b, 100, 50)
     const sampling = sampleFrames(() => dxOf(b))
-    await mouse.up(at)
+    await mouse.up(pointer)
     await wait(2000)
     const farthest = Math.max(...sampling.stop().map((f) => f.v))
     expect(farthest - released, `it went ${farthest - released} px past the release before turning back`).toBeGreaterThan(5)
@@ -134,15 +151,20 @@ describe("a free drag's release reads the pointer's last 100 ms (ADR-0004, Amend
   it("FL5: a layout drag past elastic constraints releases with the pointer's velocity, as one at the same offset with none", async () => {
     // Both runs let go 150 px right of the slot, at the same pointer speed: free (50 px, then 4 x 25 px)
     // and past a 50 px bound with dragElastic 0.5 (150 px, then 4 x 25 px: 50 + (250 - 50) / 2 = 150).
-    // The offsets past the bound move at half the pointer's speed; the release reads the pointer's.
+    // The offsets past the bound move at half the pointer's speed, so the box follows the up's step by
+    // half of it; the release reads the pointer's.
     const carries: Array<number> = []
     for (const constrained of [false, true]) {
       const b = await mountBox({ layout: true, dragTransition: SOFT, ...Bool.match(constrained, { onTrue: () => ({ constraints: { left: 0, right: 50 } }), onFalse: () => ({}) }) })
-      const at = await flick(b, Bool.match(constrained, { onTrue: () => 150, onFalse: () => 50 }), 25)
-      const released = dxOf(b)
+      const { pointer, released } = await fling(
+        b,
+        Bool.match(constrained, { onTrue: () => 150, onFalse: () => 50 }),
+        25,
+        Bool.match(constrained, { onTrue: () => 0.5, onFalse: () => 1 }),
+      )
       expect(released, "let go 150 px right of the slot").toBeCloseTo(150, -1)
       const sampling = sampleFrames(() => dxOf(b))
-      await mouse.up(at)
+      await mouse.up(pointer)
       await wait(400)
       carries.push(Math.max(...sampling.stop().map((f) => f.v)) - released)
       await wait(1400)
