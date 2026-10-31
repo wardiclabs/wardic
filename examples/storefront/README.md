@@ -24,6 +24,7 @@ A made-up ceramics and glass shop whose every feature is a Wardic example: the d
 | Layout | Order history in a scrolling panel | a re-sort through `animateLayout`, inside a scrolled panel |
 | Gestures | Notifications you swipe away | `drag="x"` with `dragSnapToOrigin`, a throw that flies on, an undo window, `<AnimatePresence mode="popLayout">` (Solid 2: one `action` around `next("settled")`) |
 | Gestures | A wishlist you rearrange by hand | `Reorder.Group` / `Reorder.Item` (Solid 1: each visitor's, saved with `onReorderEnd`; Solid 2: one list everyone shares, live across windows through `live()`) |
+| Gestures | Arrange a room, at any zoom | `drag` with `dragConstraints` inside a zoomed plan, under `WardicConfig`'s `transformPagePoint={correctParentTransform(() => plan)}` |
 | Presence | "Added to cart", in toasts that make room | `<AnimatePresence mode="popLayout" anchorX="right" anchorY="bottom">` over `layout` toasts: a leaving one is popped out of the stack, pinned by its bottom right, and the others close the gap as it fades |
 | Presence | A photo gallery that slides the way you go | `<AnimatePresence custom>` with variants as functions: the leaving photo reads the latest direction from the presence; no distance under reduced motion |
 | Presence | A quick view whose list leaves before it | `<AnimatePresence propagate>` inside the dialog: its suggestions run their exits when the dialog leaves, and it waits for them |

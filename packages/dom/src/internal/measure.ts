@@ -68,10 +68,20 @@ export const measureLayoutBox = (el: HTMLElement): Probe.Bounds => {
 /**
  * The bounds on `element`'s x/y that keep it inside `container` (#273, ADR-0047, Motion's element
  * `dragConstraints`): `element` measured without its own transform (its layout box, as Motion's
- * projection measures it), `container` as it renders.
+ * projection measures it), `container` as it renders. With `mapPoint` (#443, Motion's
+ * `transformPagePoint`), each box's corners are mapped through it first, as Motion's `measurePageBox`
+ * maps them: a container inside a zoomed parent bounds the element in its own pixels.
  */
-export const dragBoundsWithin = (element: HTMLElement, container: Element): Drag.Bounds =>
-  Drag.boundsWithin(measureLayoutBox(element), container.getBoundingClientRect())
+export const dragBoundsWithin = (element: HTMLElement, container: Element, mapPoint?: (point: Point.Point) => Point.Point): Drag.Bounds =>
+  Drag.boundsWithin(mappedEdges(measureLayoutBox(element), mapPoint), mappedEdges(container.getBoundingClientRect(), mapPoint))
+
+/** A box's edges, its top-left and bottom-right corners mapped through `mapPoint` when given (#443, Motion's `transformBoxPoints`). */
+const mappedEdges = (box: Drag.Edges, mapPoint: ((point: Point.Point) => Point.Point) | undefined): Drag.Edges => {
+  if (Predicate.isUndefined(mapPoint)) return box
+  const topLeft = mapPoint({ x: box.left, y: box.top })
+  const bottomRight = mapPoint({ x: box.right, y: box.bottom })
+  return { left: topLeft.x, top: topLeft.y, right: bottomRight.x, bottom: bottomRight.y }
+}
 
 /** A box's size, in CSS px. */
 export interface BoxSize {

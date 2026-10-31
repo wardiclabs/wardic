@@ -1001,6 +1001,39 @@ export interface DragOptions {
    * on one axis.
    */
   readonly threshold?: ((down: InputSource.PointerLikeEvent) => number | undefined) | undefined
+  /**
+   * Where each pointer point is, for the gesture (#443, Motion's `transformPagePoint`): read at each
+   * down, and applied to that gesture's every point, its down's and each move's, before they're
+   * folded. `undefined` (or none given) leaves them as they are. It's handed and gives the point on
+   * the screen, the scroll a hold counts in added back after.
+   */
+  readonly mapPoint?: LazyArg<PointMap | undefined> | undefined
+}
+
+/** A point mapped (#443, Motion's `transformPagePoint`): the Environment's coordinates in, the gesture's out. */
+export type PointMap = (point: Point.Point) => Point.Point
+
+/** Pan options (#443): see {@link DragOptions}'s `mapPoint`. */
+export interface PanOptions {
+  readonly mapPoint?: LazyArg<PointMap | undefined> | undefined
+}
+
+/**
+ * A gesture's point mapping (#443): read at each down, `event` mapped while it's set. The point
+ * mapped is the one on the screen (`x - scroll.x`), the scroll the hold counts in added back after.
+ * Allocates only for a mapped gesture.
+ */
+const mappedEvents = (mapPoint: DragOptions["mapPoint"]): ((event: InputSource.PointerLikeEvent) => InputSource.PointerLikeEvent) => {
+  if (Predicate.isUndefined(mapPoint)) return identity
+  const current = MutableRef.make<PointMap | undefined>(undefined)
+  return (event) => {
+    if (event.type === "down") MutableRef.set(current, mapPoint())
+    const mapping = MutableRef.get(current)
+    if (Predicate.isUndefined(mapping)) return event
+    const { scroll } = event
+    const at = mapping({ x: event.x - scroll.x, y: event.y - scroll.y })
+    return { ...event, x: at.x + scroll.x, y: at.y + scroll.y }
+  }
 }
 
 /**
@@ -1093,10 +1126,11 @@ export const drag = (target: unknown, options: DragOptions = {}): Stream.Stream<
  */
 export const watchDrag = (
   target: unknown,
-  { axis = "xy", claim = true, lock = false, listen = true, threshold }: DragOptions,
+  { axis = "xy", claim = true, lock = false, listen = true, threshold, mapPoint }: DragOptions,
   handlers: InputFeed.Handlers<Drag.Sample>,
 ): Effect.Effect<WatchedDrag, never, Scope.Scope | InputSource.InputSource> => {
   const attributes = { threshold: THRESHOLD, velocityWindowMs: VELOCITY_WINDOW_MS }
+  const mapped = mappedEvents(mapPoint)
   const axisAt = axisAtOf(axis)
   const fold = stepOf(Bool.match(lock, { onTrue: () => locks, onFalse: () => pastThreshold }), dragDownsOf(listen, threshold))
   const on = handlers.on
@@ -1176,7 +1210,7 @@ export const watchDrag = (
       attributes,
       input.pointer(target),
       () => (event) => {
-        const [next, samples] = fold(MutableRef.get(state), event)
+        const [next, samples] = fold(MutableRef.get(state), mapped(event))
         MutableRef.set(state, next)
         Arr.forEach(samples, admit)
         return true
@@ -1242,7 +1276,7 @@ export const pan = (target: unknown): Stream.Stream<PanSample, never, InputSourc
  * event's dispatch, while the Scope is open. A started pan's count in the **Drag activity** is held
  * from its `"start"` to its `"end"`, and given back when the Scope closes on one still going. Tier 2.
  */
-export const watchPan = (target: unknown, handlers: InputFeed.Handlers<PanSample>): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> => {
+export const watchPan = (target: unknown, handlers: InputFeed.Handlers<PanSample>, options: PanOptions = {}): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> => {
   const attributes = { threshold: THRESHOLD, velocityWindowMs: VELOCITY_WINDOW_MS }
   return Effect.gen(function* () {
     const input = yield* InputSource.InputSource
@@ -1267,8 +1301,9 @@ export const watchPan = (target: unknown, handlers: InputFeed.Handlers<PanSample
       input.pointer(target),
       () => {
         const state = MutableRef.make(initState)
+        const mapped = mappedEvents(options.mapPoint)
         return (event) => {
-          const [next, samples] = panStep(MutableRef.get(state), event)
+          const [next, samples] = panStep(MutableRef.get(state), mapped(event))
           MutableRef.set(state, next)
           Arr.forEach(samples, (sample) => {
             counted(sample)

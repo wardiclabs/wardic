@@ -78,6 +78,7 @@ import { createWhenWanted, stateOf, type Wants } from "./sensors.ts"
 import { type GestureCallbacks, gestureCallbacksOf, inViewOptionsOf, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "./gesture-callbacks.ts"
 import { runWatch, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
+import { transformPagePointOf } from "./wardic-config-value.ts"
 import type { WardicRuntime } from "./runtime.ts"
 import { isHydrating, isServer } from "./server.ts"
 import { reactivity } from "./solid-reactivity.ts"
@@ -420,6 +421,8 @@ export function runSpine(opts: RunSpineOptions): void {
   const reducedMotion = useWardicReducedMotion()
   // Whether its animations are skipped (#468): its nearest WardicConfig's, read as each starts.
   const skipAnimations = useWardicSkipAnimations()
+  // Where its drag's and pan's points are (#443): its nearest WardicConfig's, read as each starts.
+  const pagePoint = transformPagePointOf(useWardicConfig())
   const positionalKeys = useWardicPositionalKeys()
   // What a key with no transition of its own runs on (ADR-0051).
   const defaultTransition = useWardicDefaultTransition()
@@ -614,7 +617,7 @@ export function runSpine(opts: RunSpineOptions): void {
       if (Predicate.isNotUndefined(dragCfg)) {
         const c0d = untrack(cfg)
         // Motion's `dragConstraints` (#273): a box of numbers, or a container measured against the element.
-        const constraints = trackConstraintsOf(c0d.dragConstraints, element, () => untrack(cfg).onMeasureDragConstraints)
+        const constraints = trackConstraintsOf(c0d.dragConstraints, element, () => untrack(cfg).onMeasureDragConstraints, pagePoint)
         const trackConfig: DragTrackConfig = {
           axis: dragCfg,
           constraints: constraints.constraints,
@@ -635,6 +638,7 @@ export function runSpine(opts: RunSpineOptions): void {
           recordFrame,
           // A drag's start turns its `style`'s will-change value on (#443).
           setDragging: draggingWithWillChange(live, setDragging),
+          mapPoint: pagePoint,
           config: trackConfig,
           skipAnimations,
           container: constraints.container,
@@ -709,7 +713,7 @@ export function runSpine(opts: RunSpineOptions): void {
           ),
         // Focused as the browser shows it (`:focus-visible`, Motion's `whileFocus`).
         focus: () => watchToSignal<boolean>((handlers) => Recognizer.watchFocus(element, { visible: true }, handlers), false),
-        pan: () => runWatch(runtime, (onDefect) => Recognizer.watchPan(element, { on: (sample) => gesturesOf().panned(sample), onDefect })),
+        pan: () => runWatch(runtime, (onDefect) => Recognizer.watchPan(element, { on: (sample) => gesturesOf().panned(sample), onDefect }, { mapPoint: pagePoint })),
       })
 
       // Its gesture states: the started recognizers, one tracked read, then each started one's state.

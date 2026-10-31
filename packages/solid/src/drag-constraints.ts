@@ -10,6 +10,8 @@ import type * as Drag from "@wardic/core/Drag"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
+import { constUndefined } from "effect/Function"
+import type { WardicTransformPoint } from "./config.ts"
 
 /** A box's edges, as Motion's `BoundingBox`: on x, `left` and `right`; on y, `top` and `bottom`. */
 export interface WardicBoundingBox {
@@ -77,6 +79,7 @@ export const trackConstraintsOf = (
   constraints: WardicDragConstraints | undefined,
   element: HTMLElement,
   onMeasure: () => WardicMeasureDragConstraints | undefined,
+  mapPoint: () => WardicTransformPoint | undefined = constUndefined,
 ): TrackConstraints => {
   if (Predicate.isUndefined(constraints)) return NONE
   if (constraints === false) return NONE
@@ -85,7 +88,8 @@ export const trackConstraintsOf = (
       container: {
         element: constraints,
         bounds: (container) => {
-          const measured = ProjectionSystem.dragBoundsWithin(element, container)
+          // Its boxes through the nearest config's `transformPagePoint` (#443), read at each measure.
+          const measured = ProjectionSystem.dragBoundsWithin(element, container, mapPoint())
           return UndefinedOr.match(onMeasure(), {
             onUndefined: () => measured,
             onDefined: (adjust) =>

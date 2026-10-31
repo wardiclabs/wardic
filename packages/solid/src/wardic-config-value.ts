@@ -12,16 +12,18 @@
  *   Motion's `MotionConfig` `skipAnimations`, whatever their reduced motion.
  * - **`isValidProp`** (#443) keeps a tag's props it says aren't valid off its element, Motion's
  *   `MotionConfig` `isValidProp`.
+ * - **`transformPagePoint`** (#443) maps the points a drag or a pan below it uses, Motion's
+ *   `MotionConfig` `transformPagePoint`.
  * - **A `WardicConfig` inside another** replaces its transition, or with `inherit: true` lays its own
  *   fields over it (Motion's `resolveTransition`); one that gives none passes its parent's on, as one
- *   that gives no reduced motion, `skipAnimations` or `isValidProp` passes its parent's.
+ *   that gives no reduced motion, `skipAnimations`, `isValidProp` or `transformPagePoint` passes its parent's.
  *
  * @module
  */
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
-import { constFalse } from "effect/Function"
+import { constFalse, constUndefined } from "effect/Function"
 import * as Predicate from "effect/Predicate"
-import type { WardicTransition, WardicVariantTransition } from "./config.ts"
+import type { WardicTransformPoint, WardicTransition, WardicVariantTransition } from "./config.ts"
 import { transitionOfTarget } from "./variant-target.ts"
 
 /** What a `WardicConfig` gives below it (#434): one value per config, read where a binding reads it. */
@@ -43,6 +45,11 @@ export interface WardicConfigValue {
    * own, else an enclosing config's, else `undefined`, every one. Read as each element is made.
    */
   readonly isValidProp: () => ((key: string) => boolean) | undefined
+  /**
+   * Where a drag's or a pan's points are (#443, Motion's `MotionConfig` `transformPagePoint`): its
+   * own, else an enclosing config's, else `undefined`, as they are. Read at each drag or pan start.
+   */
+  readonly transformPagePoint: () => WardicTransformPoint | undefined
 }
 
 /**
@@ -76,6 +83,19 @@ export const configIsValidPropOf = (own: ((key: string) => boolean) | undefined,
   if (Predicate.isNotUndefined(own)) return own
   if (Predicate.isUndefined(parent)) return undefined
   return parent.isValidProp()
+}
+
+/** A `WardicConfig`'s `transformPagePoint` (#443): its own, else its parent's, else none. */
+export const configTransformPagePointOf = (own: WardicTransformPoint | undefined, parent: WardicConfigValue | undefined): WardicTransformPoint | undefined => {
+  if (Predicate.isNotUndefined(own)) return own
+  if (Predicate.isUndefined(parent)) return undefined
+  return parent.transformPagePoint()
+}
+
+/** The nearest config's `transformPagePoint` (#443), read at each drag or pan start: `undefined` for none. */
+export const transformPagePointOf = (config: WardicConfigValue | undefined): (() => WardicTransformPoint | undefined) => {
+  if (Predicate.isUndefined(config)) return constUndefined
+  return () => config.transformPagePoint()
 }
 
 /** The nearest config's `isValidProp` (#443), as an element is made: `undefined` for none. */

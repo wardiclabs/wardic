@@ -10,13 +10,17 @@
 // - SUSV6: `createWillChange` is `"auto"` on a server, and so is the element's `will-change`.
 // - SUSV7: on a server, `createInstantLayoutTransition` and `createInstantTransition` run `fn`,
 //   `createResetProjection` does nothing, and `scaleCorrectors` and the measure callbacks render nothing.
+// - SUSV8: on a server, a `WardicConfig` with `transformPagePoint` renders its children, and the
+//   helpers pass a point through with no element.
 import type { JSX } from "@solidjs/web"
 import { DomLive } from "@wardic/dom"
 import {
+  correctParentTransform,
   createAnimationFrame,
   createInstantLayoutTransition,
   createInstantTransition,
   createResetProjection,
+  transformViewBoxPoint,
   createPageInView,
   createWillChange,
   createReducedMotionConfig,
@@ -132,5 +136,17 @@ describe("#443's exports on Solid 2", () => {
     expect(ran).toEqual(["layout", "instant"])
     const div = tagsOf(html).find((t) => t.name === "div")
     expect(Object.keys(div?.attrs ?? {}).filter((name) => name.toLowerCase().includes("measure"))).toEqual([])
+  })
+  it("SUSV8: on a server, a WardicConfig with transformPagePoint renders its children, and the helpers pass a point through with no element", () => {
+    const html = serve(() => (
+      <WardicProvider env={DomLive}>
+        <WardicConfig transformPagePoint={correctParentTransform(() => undefined)}>
+          <wardic.div data-in drag />
+        </WardicConfig>
+      </WardicProvider>
+    ))
+    expect(tagsOf(html).some((t) => t.name === "div" && "data-in" in t.attrs)).toBe(true)
+    expect(correctParentTransform(() => undefined)({ x: 3, y: 4 })).toEqual({ x: 3, y: 4 })
+    expect(transformViewBoxPoint(() => undefined)({ x: 3, y: 4 })).toEqual({ x: 3, y: 4 })
   })
 })
