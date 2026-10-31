@@ -376,11 +376,11 @@ When the page's content (the body and its direct children) changes size with no 
 _Avoid_: re-measure, snapshot (reserved).
 
 **Instant change**:
-A change of the app's state that lands rather than animates (Motion's `useInstantTransition`, Wardic's `createInstantTransition`). The next **Measure pass** after it gives every **Projection node** its new box and starts nothing, and a running layout animation ends there, unlike in a **Resize block**. Every animation that starts until two frames after it is a **Skipped animation**, so it's still told. One that only blocks the layout (`createInstantLayoutTransition`) leaves the other animations running as ever. It belongs to one runtime (#443).
+A change of the app's state that lands rather than animates (Motion's `useInstantTransition`, Wardic's `createInstantTransition`). The next **Measure pass** after it is blocked, as a **Resize block**'s is: every **Projection node** takes its new box and nothing starts, and a running layout animation ends on its slot as the pass begins. Every animation that starts until two frames after it is a **Skipped animation**, so it's still told. One that only blocks the layout (`createInstantLayoutTransition`) leaves the other animations running as ever. It belongs to one runtime (#443).
 _Avoid_: instant transition (in Wardic a transition is how a value moves, not a change of state), skipped change.
 
 **Projection reset**:
-Ending every layout animation where it is and forgetting every node's boxes, its leavers and the `layoutId` pairings, so the next **Measure pass** starts from nothing: no node moves from a box measured before, and a twin mounting then pairs with none (Motion's `useResetProjection`). For when something outside Wardic moved elements without changing their size (#443).
+Ending every layout animation on its node's slot and dropping what came before: every leaving twin and Switch seed goes, and the next **Measure pass** measures every box afresh and moves no node, as an **Instant change**'s (Motion's `useResetProjection`). Live `layoutId` twins stay paired: Motion empties its pairings, which leaves a hidden twin with no Lead. For a change that replaces the page wholesale, or one outside Wardic (#443).
 _Avoid_: re-measure, refresh (a **Page-size refresh** keeps every box and pairing).
 
 ### Environment

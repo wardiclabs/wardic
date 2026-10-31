@@ -52,6 +52,9 @@ import {
 } from "../../runtime.ts"
 import { onSettledClientOnly } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
+import { skipAnimationsOf } from "../../wardic-config-value.ts"
+import { instantLayoutOf, type InstantTransition, instantTransitionOf, resetOf } from "../../instant.ts"
+import type { WardicScaleCorrector } from "../../config.ts"
 
 /** A frame's Starting-style switches, applied and drained before the gate commits (ADR-0034): Solid 2's `batch`. */
 const applyAndFlush = (apply: () => void): void => {
@@ -83,11 +86,17 @@ export function WardicProvider(props: {
    * `false` renders every element at its Starting style until mount. Read on the server, once.
    */
   readonly appear?: boolean | undefined
+  /**
+   * The app's scale correctors (#443, Motion's `addScaleCorrector`, given here), by the value key each
+   * corrects, in Motion's form: this provider's alone, read once. One keyed `borderRadius` or
+   * `boxShadow` replaces the built-in one. Ignored on a server.
+   */
+  readonly scaleCorrectors?: Readonly<Record<string, WardicScaleCorrector>> | undefined
   readonly children?: JSX.Element
 }): JSX.Element {
   const value = Bool.match(isServer, {
     onTrue: () => serverContext(props.env, serverAppearOf(props.appear, props.reducedMotion), () => untrack(() => props.reducedMotion)),
-    onFalse: () => clientContext(props.env, applyAndFlush, () => untrack(() => props.reducedMotion)),
+    onFalse: () => clientContext(props.env, applyAndFlush, () => untrack(() => props.reducedMotion), untrack(() => props.scaleCorrectors)),
   })
   // Disposing the runtime closes its Scope: the projection system, then the gate (#132). Its
   // disposal rejects first, ending every `animateLayout` still waiting: their flights won't end (#257).
@@ -175,6 +184,46 @@ export function useWardicDefaultTransition(): DefaultTransition.DefaultTransitio
 export function useWardicReducedMotion(): () => boolean {
   const config = useWardicConfig()
   return fromContext(contextValue(), "useWardicReducedMotion", (value) => reducedMotionWith(value, config))
+}
+
+/**
+ * Whether the elements here skip their animations now (#468): the nearest `WardicConfig`'s
+ * `skipAnimations`, or the provider's Instant change while one runs (#443). Read when each starts.
+ * Internal.
+ */
+export function useWardicSkipAnimations(): () => boolean {
+  const config = skipAnimationsOf(useWardicConfig())
+  const value = contextValue()
+  if (Predicate.isUndefined(value)) return config
+  const instant = value.instant
+  return () => Bool.or(instant.active(), config())
+}
+
+/**
+ * An **Instant change** of the layout (#443, Motion's `useInstantLayoutTransition`): `start(fn)` runs
+ * `fn`, and the layout change it makes lands at once, a running layout animation ended too. On a
+ * server it runs `fn`. As Solid 1's.
+ */
+export function createInstantLayoutTransition(): (fn?: () => void) => void {
+  return fromContext(contextValue(), "createInstantLayoutTransition", (value) => instantLayoutOf(() => value.projection))
+}
+
+/**
+ * An **Instant change** (#443, Motion's `useInstantTransition`): `start(fn)` runs `fn`, and what it
+ * changes lands at once, its layout and every animation that starts until two frames after the call.
+ * A later call extends it; `start.end()` ends it now. As Solid 1's.
+ */
+export function createInstantTransition(): InstantTransition {
+  return fromContext(contextValue(), "createInstantTransition", (value) => instantTransitionOf(() => value.projection, () => value.instant))
+}
+
+/**
+ * A **Projection reset** (#443, Motion's `useResetProjection`): `reset()` ends every layout animation
+ * on its slot, drops every leaving twin and Switch seed, and has the next layout measure take every
+ * box afresh. Nothing on a server. As Solid 1's.
+ */
+export function createResetProjection(): () => void {
+  return fromContext(contextValue(), "createResetProjection", (value) => resetOf(() => value.projection))
 }
 
 /**

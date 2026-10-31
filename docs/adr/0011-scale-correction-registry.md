@@ -66,3 +66,18 @@ During a `layoutId` handover the radius corrector writes a blend instead of the 
 **Pinned by:**
 - `projection-follower-shadow.browser.test.ts`, FS1 (frames fired by hand): twins of different sizes and shadows crossfade, and each frame the Follower writes its own shadow corrected for its own scale, the Lead its own for its. A guard, passing on `main` too. It fails if a Follower draws its Lead's shadow, or isn't corrected at all.
 - The correctors' unit tests (`scale-correction.browser.test.ts`) already pin the per-axis radius and the multi-layer shadow.
+
+## Amendment (#443, 2026-10-31): an app's own scale correctors, per runtime
+
+Grilled on #443 (Q3 C): Motion's `addScaleCorrector`, given to a provider rather than a module. `WardicProvider`'s `scaleCorrectors`, on both bindings, takes Motion's entry form by value key: `{ [key]: { correct(latest, { target, treeScale, projectionDelta }), applyTo? } }`. `target` is the box the node is drawn into this frame, `treeScale` its ancestors' scale, and `projectionDelta` its delta, as Motion's node fields are named (`ProjectionSystem.ScaleCorrector`).
+
+- **The value corrected** is the element's own for the key each frame (from its `style` or an animation, its values as the binding registers them), else its computed value, read at its first Measurement as the built-ins read theirs.
+- **Written while the projection scales the node,** under `applyTo`'s keys when given, else its own, kebab-cased as the gate writes them. At unit scale nothing is written, and the value is put back once.
+- **One keyed `borderRadius` or `boxShadow` replaces the built-in one,** as in Motion. A replaced radius isn't blended across a handover (*Note (#166)*), which needs the built-in's parsed corners.
+- **No module-level `addScaleCorrector`:** a runtime's correctors are its own, read once as its projection system is made, and two providers on a page don't share them.
+- **Ignored on a server,** which builds no runtime and projects nothing.
+- A system given none runs as before: one length check a frame per corrected node.
+
+- **Pinned by:** `projection-utilities.browser.test.tsx` PU6 (a replaced radius handed Motion's fields, written while scaled and put back once; a CSS variable's corrector from its live value; another provider keeping the built-in), PU8 (one corner's corrector across a handover, the others never written, its own radius at the end) and PU9 (a flight that doesn't scale writes nothing), and `v2/projection-utilities.browser.test.tsx` PUV4.
+- **Mutation-checked** with ADR-0018's *Amendment (#443)*, all caught: an app's correctors ignored, the built-in left in place, the element's own value not read, its value not put back at rest, its base not read, a value written at unit scale, either provider not passing them. The built-in left in place and the write at unit scale survived at first: PU8's corrector shared the built-in's key, which wrote over it, and PU6's radius was inline, as the write is. PU8 now corrects one corner, and PU9 takes its radius from a stylesheet.
+- **Building it** found the guard keeping a replaced radius out of a handover's blend redundant: with the built-in replaced, no node has a radius base, so a blend has none. It's gone.

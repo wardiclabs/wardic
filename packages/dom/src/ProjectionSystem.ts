@@ -36,6 +36,7 @@ export {
   DEFAULT_LAYOUT_TRANSITION,
   DEFAULT_DRAG_TRANSITION,
 } from "./internal/projection.ts"
+export type { ScaleCorrectorEntry as ScaleCorrector, CorrectorInfo } from "./internal/scale-correction.ts"
 export { dragBoundsWithin, measureLayoutBox } from "./internal/measure.ts"
 
 /** The engine: what a binding registers its layout elements with. */
@@ -44,7 +45,7 @@ export type Shape = Omit<internal.ProjectionSystem, "dispose">
 /** What the engine writes each node's projection through: a `FlushGate`'s `write` and `flushPass`. */
 export type Sink = internal.ProjectionSink
 
-/** What a binding hands its engine: whether reduced motion applies now (ADR-0029). */
+/** What a binding hands its engine: whether reduced motion applies now (ADR-0029), and the app's scale correctors (#443). */
 export type Options = internal.ProjectionSystemOptions
 
 /** The services the engine needs from its Environment. */

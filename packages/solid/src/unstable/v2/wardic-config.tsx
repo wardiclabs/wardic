@@ -9,7 +9,7 @@ import * as Option from "effect/Option"
 import { createContext, createMemo, useContext } from "solid-js"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type { WardicVariantTransition } from "../../config.ts"
-import { configIsValidPropOf, configReducedMotionOf, configSkipAnimationsOf, configTransitionOf, skipAnimationsOf, type WardicConfigValue } from "../../wardic-config-value.ts"
+import { configIsValidPropOf, configReducedMotionOf, configSkipAnimationsOf, configTransitionOf, type WardicConfigValue } from "../../wardic-config-value.ts"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
 
 // `null` for none, as the binding's other contexts: Solid 2 throws on a read of a context made with
@@ -72,5 +72,3 @@ export function WardicConfig(props: WardicConfigProps): JSX.Element {
 /** The nearest `WardicConfig`'s settings, or none. Internal. */
 export const useWardicConfig = (): WardicConfigValue | undefined => Option.getOrUndefined(Option.fromNullishOr(useContext(WardicConfigContext)))
 
-/** Whether the elements here skip their animations (#468): the nearest `WardicConfig`'s, read when each starts. Internal. */
-export const useWardicSkipAnimations = (): (() => boolean) => skipAnimationsOf(useWardicConfig())

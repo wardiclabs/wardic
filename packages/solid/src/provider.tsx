@@ -51,6 +51,9 @@ import {
 } from "./runtime.ts"
 import { isHydrating, isServer } from "./server.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
+import { skipAnimationsOf } from "./wardic-config-value.ts"
+import { instantLayoutOf, type InstantTransition, instantTransitionOf, resetOf } from "./instant.ts"
+import type { WardicScaleCorrector } from "./config.ts"
 
 /**
  * Context carrying the single runtime + flush gate down the tree. Defaults to
@@ -93,11 +96,18 @@ const WardicContext = createContext<WardicContextValue | undefined>(undefined)
  * `<style>` in the page's head, and the client takes it over at mount (the **Handoff**). With JS
  * off it plays to its end. `appear={false}` renders every element at its Starting style until mount,
  * as before; an element's own `appear={false}` does that for it alone. Read on the server, once.
+ *
+ * `scaleCorrectors` (#443, Motion's `addScaleCorrector`, given here rather than to a module): the
+ * app's own corrections of a value a layout animation's scale would distort, by the value key each
+ * corrects, in Motion's form (`{ correct(latest, { target, treeScale, projectionDelta }), applyTo? }`).
+ * They're this provider's alone, and read once. One keyed `borderRadius` or `boxShadow` replaces the
+ * built-in one. Ignored on a server, which projects nothing.
  */
 export function WardicProvider(props: {
   readonly env: WardicEnv
   readonly reducedMotion?: ReducedMotion.Config | undefined
   readonly appear?: boolean | undefined
+  readonly scaleCorrectors?: Readonly<Record<string, WardicScaleCorrector>> | undefined
   readonly children?: JSX.Element
 }): JSX.Element {
   if (isServer) {
@@ -127,7 +137,12 @@ export function WardicProvider(props: {
   // runs a frame's Starting-style switches through Solid's `batch` (ADR-0034). The rest builds on
   // first need (#51). Disposing the runtime closes its Scope, which ends the projection system,
   // then the gate (#132); dispose() returns a Promise, fire-and-forget on unmount.
-  const value = clientContext(props.env, batch, () => untrack(() => props.reducedMotion))
+  const value = clientContext(
+    props.env,
+    batch,
+    () => untrack(() => props.reducedMotion),
+    untrack(() => props.scaleCorrectors),
+  )
   onCleanup(() => void value.runtime.dispose())
   return <WardicContext.Provider value={value}>{props.children}</WardicContext.Provider>
 }
@@ -207,6 +222,58 @@ export function useWardicDefaultTransition(): DefaultTransition.DefaultTransitio
 export function useWardicReducedMotion(): () => boolean {
   const config = useWardicConfig()
   return fromContext(useContext(WardicContext), "useWardicReducedMotion", (value) => reducedMotionWith(value, config))
+}
+
+/**
+ * Whether the elements here skip their animations now (#468): the nearest `WardicConfig`'s
+ * `skipAnimations`, or the provider's Instant change while one runs (#443). Read when each starts.
+ * Internal.
+ */
+export function useWardicSkipAnimations(): () => boolean {
+  const config = skipAnimationsOf(useWardicConfig())
+  const value = useContext(WardicContext)
+  if (Predicate.isUndefined(value)) return config
+  const instant = value.instant
+  return () => Bool.or(instant.active(), config())
+}
+
+/**
+ * An **Instant change** of the layout (#443, Motion's `useInstantLayoutTransition`): `start(fn)` runs
+ * `fn`, and the layout change it makes lands at once, every element on its new box, a running layout
+ * animation ended too; the change's other animations run as ever. On a server it runs `fn`.
+ *
+ * ```tsx
+ * const start = createInstantLayoutTransition()
+ * start(() => setOrder(sorted()))
+ * ```
+ */
+export function createInstantLayoutTransition(): (fn?: () => void) => void {
+  return fromContext(useContext(WardicContext), "createInstantLayoutTransition", (value) => instantLayoutOf(() => value.projection))
+}
+
+/**
+ * An **Instant change** (#443, Motion's `useInstantTransition`): `start(fn)` runs `fn`, and what it
+ * changes lands at once, its layout and every animation that starts until two frames after the call
+ * (a **Skipped animation**, #468). A later call extends it, and `start.end()` ends it now (Motion's
+ * `disableInstantTransitions`). For a change that shouldn't animate: a reset, a jump to a route.
+ *
+ * ```tsx
+ * const start = createInstantTransition()
+ * <button onClick={() => start(() => setOpen(all))}>Open all</button>
+ * ```
+ */
+export function createInstantTransition(): InstantTransition {
+  return fromContext(useContext(WardicContext), "createInstantTransition", (value) => instantTransitionOf(() => value.projection, () => value.instant))
+}
+
+/**
+ * A **Projection reset** (#443, Motion's `useResetProjection`): `reset()` ends every layout animation
+ * on its element's slot, drops every leaving `layoutId` twin and Switch seed, and has the next layout
+ * measure take every box afresh, animating none. For a change that replaces the page wholesale. On a
+ * server it does nothing.
+ */
+export function createResetProjection(): () => void {
+  return fromContext(useContext(WardicContext), "createResetProjection", (value) => resetOf(() => value.projection))
 }
 
 /**

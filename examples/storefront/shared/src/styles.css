@@ -1310,6 +1310,12 @@ button.product-card:hover .photo {
 
 /* --- Questions ---------------------------------------------------------------------------- */
 
+.faq-demo {
+  display: grid;
+  gap: var(--space-4);
+  max-width: 680px;
+}
+
 .faq {
   display: grid;
   gap: var(--space-3);

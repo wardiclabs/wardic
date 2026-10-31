@@ -14,7 +14,7 @@ import type * as InputSource from "@wardic/core/InputSource"
 import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Probe from "@wardic/core/Probe"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
-import type * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
+import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import type * as Renderer from "@wardic/core/Renderer"
 import * as FlushGate from "@wardic/dom/FlushGate"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
@@ -28,6 +28,7 @@ import * as Predicate from "effect/Predicate"
 import { AtomRegistry } from "effect/reactivity"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { ServerAppear } from "./appear.ts"
+import { type InstantAnimations, makeInstantAnimations, NO_INSTANT } from "./instant.ts"
 import { settingOf as configSettingOf, type WardicConfigValue } from "./wardic-config-value.ts"
 
 /**
@@ -87,6 +88,8 @@ export interface WardicContextValue {
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
   /** A server render's Appear animations (#48, ADR-0044); none on the client, or with `appear={false}`. */
   readonly appear?: ServerAppear | undefined
+  /** Whether its animations are instant now (#443, an Instant change's); never on a server. */
+  readonly instant: InstantAnimations
 }
 
 /** What a client provider builds on first need (#51): everything in its context but the runtime. */
@@ -115,6 +118,7 @@ export const clientContext = (
   env: WardicEnv,
   batch: (apply: () => void) => void,
   reducedMotion: () => ReducedMotion.Config | undefined,
+  scaleCorrectors?: ProjectionSystem.Options["scaleCorrectors"],
 ): WardicContextValue => {
   let built: Built | undefined
   const build = (): Built => {
@@ -144,14 +148,17 @@ export const clientContext = (
     return built
   }
   const runtime = ManagedRuntime.make(
-    ProjectionSystem.layer({ reducedMotion: () => build().reducedMotion() }).pipe(
+    ProjectionSystem.layer({ reducedMotion: () => build().reducedMotion(), scaleCorrectors }).pipe(
       Layer.provideMerge(FlushGate.layer({ batch })),
       Layer.provideMerge(env),
     ),
   )
+  // Its Instant changes (#443), timed by its Environment's Refresh frames, found at the first.
+  const instant = makeInstantAnimations(() => runtime.runSync(RefreshFrameSource.RefreshFrameSource).requestFrame)
   return {
     runtime,
     reducedMotionSetting: reducedMotion,
+    instant,
     get gate() {
       return build().gate
     },
@@ -212,6 +219,7 @@ export const serverContext = (env: WardicEnv, appear: ServerAppear | undefined, 
   positionalKeys: SERVER_POSITIONAL_KEYS,
   defaultTransition: SERVER_DEFAULT_TRANSITION,
   appear,
+  instant: NO_INSTANT,
 })
 
 /** Reads `pick` off a provider's context value, or throws `name`'s clear error outside one. */

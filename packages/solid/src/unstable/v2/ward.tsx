@@ -145,9 +145,10 @@ import {
   useWardicProjection,
   useWardicReducedMotion,
   useWardicRuntime,
+  useWardicSkipAnimations,
 } from "./provider.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
-import { useWardicConfig, useWardicSkipAnimations } from "./wardic-config.tsx"
+import { useWardicConfig } from "./wardic-config.tsx"
 import { configView, type Fixed, type PerKey, type PerKeyApart } from "./config-view.ts"
 import { Lifecycle, type WardEvent, type WardEvents, type WardPressInfo, type WardSettled } from "./lifecycle.ts"
 import { neverLands, NO_EVENTS, serverWhen } from "./waiters.ts"
@@ -177,7 +178,7 @@ export interface WardConfigValues extends Omit<SharedWardConfig, SolidOneCallbac
  * `dragConstraints`' function is its container's accessor (#273), read at each measure; a
  * `transformTemplate` is called by the renderer (#443).
  */
-type WardCallbackKey = "onUpdate" | "dragConstraints" | "onMeasureDragConstraints" | "transformTemplate"
+type WardCallbackKey = "onUpdate" | "dragConstraints" | "onMeasureDragConstraints" | "transformTemplate" | "onBeforeLayoutMeasure" | "onLayoutMeasure"
 
 /**
  * A ward's config (ADR-0042, #259): each key a value, or an accessor of it, read per key. A getter,
@@ -230,6 +231,8 @@ const WARD_KEYS = [
   "layoutCrossfade",
   "onUpdate",
   "transformTemplate",
+  "onBeforeLayoutMeasure",
+  "onLayoutMeasure",
   "appear",
   "style",
   "key",
@@ -258,7 +261,7 @@ const sameTarget = (a: Resolution | undefined, b: Resolution | undefined): boole
 }
 
 /** A ward's config read per key (#259). */
-const WARD_VIEW = configView<WardConfigValues>(WARD_KEYS, ["onUpdate", "dragConstraints", "onMeasureDragConstraints", "transformTemplate"])
+const WARD_VIEW = configView<WardConfigValues>(WARD_KEYS, ["onUpdate", "dragConstraints", "onMeasureDragConstraints", "transformTemplate", "onBeforeLayoutMeasure", "onLayoutMeasure"])
 
 /** `config` read per key (#259), for a read outside a ward: a `wardic.<tag>`'s props at setup. Internal. */
 export const wardConfigView = (config: WardConfig): WardConfigValues => WARD_VIEW.of(config)

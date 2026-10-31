@@ -16,7 +16,32 @@
  * same fraction of each scaled dimension, so it passes through). Reading resolved
  * values therefore gives full-grammar parity.
  */
+import type * as Box from "@wardic/core/Box"
+import type * as Point from "@wardic/core/Point"
+import type * as Projection from "@wardic/core/Projection"
 import * as Predicate from "effect/Predicate"
+
+/**
+ * What an app's scale corrector is handed beside the value (#443): the projection node's fields
+ * Motion's correctors read, as Motion names them. `target` is the box the node is drawn into this
+ * frame, `treeScale` its ancestors' scale, `projectionDelta` its delta.
+ */
+export interface CorrectorInfo {
+  readonly target: Box.Box
+  readonly treeScale: Point.Point
+  readonly projectionDelta: Projection.Delta
+}
+
+/**
+ * An app's scale corrector (#443, Motion's `addScaleCorrector` entry), given to a provider by the
+ * value key it corrects (`borderRadius`, `--card-radius`): `correct` turns the element's value into
+ * the one to write while its projection scales it, written under `applyTo`'s keys when given, else
+ * its own.
+ */
+export interface ScaleCorrectorEntry {
+  readonly correct: (latest: string | number, info: CorrectorInfo) => string | number
+  readonly applyTo?: ReadonlyArray<string> | undefined
+}
 
 /** A registered scale corrector — owns reading its base + emitting the corrected value. */
 export interface ScaleCorrector {

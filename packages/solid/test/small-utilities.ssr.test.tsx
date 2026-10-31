@@ -10,8 +10,13 @@
 //   `"always"` and `false` for the rest; `createAnimationFrame` calls nothing.
 // - SUS6: `forwardMotionProps` hands a wrapped component the motion props on a server too.
 // - SUS7: `createWillChange` is `"auto"` on a server, and so is the element's `will-change`.
+// - SUS8: on a server, `createInstantLayoutTransition` and `createInstantTransition` run `fn`,
+//   `createResetProjection` does nothing, and `scaleCorrectors` and the measure callbacks render nothing.
 import {
   createAnimationFrame,
+  createInstantLayoutTransition,
+  createInstantTransition,
+  createResetProjection,
   createPageInView,
   createWillChange,
   createReducedMotionConfig,
@@ -151,5 +156,26 @@ describe("the hooks on a server (#443)", () => {
     ))
     expect(read).toBe("auto")
     expect(tagsOf(html).find((t) => t.name === "div")?.style["will-change"]).toBe("auto")
+  })
+  it("SUS8: on a server, the instant starts run fn and reset does nothing; scaleCorrectors and the measure callbacks render nothing", () => {
+    const ran: Array<string> = []
+    const Read = (): JSX.Element => {
+      const startLayout = createInstantLayoutTransition()
+      const startInstant = createInstantTransition()
+      const reset = createResetProjection()
+      startLayout(() => ran.push("layout"))
+      startInstant(() => ran.push("instant"))
+      startInstant.end()
+      reset()
+      return <wardic.div layout onBeforeLayoutMeasure={() => ran.push("before")} onLayoutMeasure={() => ran.push("measure")} />
+    }
+    const html = serve(() => (
+      <WardicProvider env={DomLive} scaleCorrectors={{ borderRadius: { correct: () => "0px" } }}>
+        <Read />
+      </WardicProvider>
+    ))
+    expect(ran).toEqual(["layout", "instant"])
+    const div = tagsOf(html).find((t) => t.name === "div")
+    expect(Object.keys(div?.attrs ?? {}).filter((name) => name.toLowerCase().includes("measure"))).toEqual([])
   })
 })

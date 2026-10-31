@@ -19,7 +19,7 @@ A made-up ceramics and glass shop whose every feature is a Wardic example: the d
 | Layout | Filter the shop, switch the view | `layout` with `<AnimatePresence mode="popLayout">`, a grid ↔ list switch |
 | Layout | Tabs on a product page | a `layoutId` indicator, `<AnimatePresence mode="wait">` |
 | Layout | Add to cart, and see it's done | a button whose width follows its label |
-| Layout | Questions that open in place | `layout` with scale correction |
+| Layout | Questions that open in place | `layout` with scale correction; Open all through `createInstantTransition` |
 | Layout | A cart drawer that keeps up | optimistic lines (Solid 1: pending submissions; Solid 2: an optimistic store) |
 | Layout | Order history in a scrolling panel | a re-sort through `animateLayout`, inside a scrolled panel |
 | Gestures | Notifications you swipe away | `drag="x"` with `dragSnapToOrigin`, a throw that flies on, an undo window, `<AnimatePresence mode="popLayout">` (Solid 2: one `action` around `next("settled")`) |

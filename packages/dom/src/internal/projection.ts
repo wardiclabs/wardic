@@ -111,7 +111,8 @@ import {
 import { counted, watchPage, type Watched } from "./content-watch.ts"
 import { pending as appearRuns } from "./appear.ts"
 import { reportFailure } from "./report.ts"
-import { blendRadius, borderRadiusCorrector, isUnitScale, SCALE_CORRECTORS, type ScaleCorrector, scaleRadius, ZERO_RADIUS } from "./scale-correction.ts"
+import { blendRadius, borderRadiusCorrector, isUnitScale, SCALE_CORRECTORS, type ScaleCorrector, type ScaleCorrectorEntry, scaleRadius, ZERO_RADIUS } from "./scale-correction.ts"
+import { dashCase } from "./svg.ts"
 
 /**
  * The binding seam the coordinator writes through — structurally satisfied by the
@@ -868,6 +869,18 @@ export interface RegisterNodeOptions {
    */
   readonly heldTransform?: () => string
   /**
+   * Called as each Measure pass that measures the node begins (#443, Motion's `onBeforeLayoutMeasure`):
+   * in its write phase, before its transform is held for the read, blocked passes included. A throw
+   * is reported, and the pass goes on.
+   */
+  readonly onBeforeMeasure?: () => void
+  /**
+   * Called with the node's box each Measure pass measures it (#443, Motion's `onLayoutMeasure`), after
+   * the read: in its Scroll-stable frame (ADR-0012), Motion's page layout box, and the box before it,
+   * `undefined` at its first. Blocked passes included. A throw is reported, and the pass goes on.
+   */
+  readonly onMeasure?: (box: Box.Box, prev: Box.Box | undefined) => void
+  /**
    * Shared-element match key (ADR-0010). Enrols the node in the per-`layoutId`
    * lead/follow stack so coexisting twins crossfade, and lets a twin disposed in the
    * same task seed its first measure (a Switch, *Amendment (#13)*). Omitted for a
@@ -1026,6 +1039,18 @@ export interface ProjectionSystem extends Inspectable.Inspectable {
    */
   readonly animateLayout: <A>(fn: () => A, options?: AnimateLayoutOptions) => A
   /**
+   * An **Instant change** (#443, Motion's `useInstantLayoutTransition`): run `fn`, and the Measure
+   * pass at the end of the task gives every node its new box and starts nothing, as a Resize block's
+   * does. Every running layout animation but a dragged node's ends on its slot as that pass begins.
+   */
+  readonly instant: (fn?: () => void) => void
+  /**
+   * A **Projection reset** (#443, Motion's `useResetProjection`): every running layout animation and
+   * Release offset ends on its slot, every leaver and Switch seed goes (each `layoutId` stack keeps
+   * its live nodes), and the next Measure pass measures every box afresh, animating none.
+   */
+  readonly reset: () => void
+  /**
    * Shared-element exit coupling (ADR-0010). A binding's presence layer calls this
    * for a leaving `layoutId` element it has RETAINED (kept in the DOM mid-exit).
    * Returns `true` if there is a live twin (Lead) to crossfade toward — the engine
@@ -1173,6 +1198,9 @@ interface NodeState {
   readonly ownOpacity: () => number
   /** What a Measure pass holds the element's transform at (#443): its template's; `undefined` clears it. */
   readonly heldTransform: (() => string) | undefined
+  /** Called as a Measure pass that measures it begins, and with its box after the read (#443); most nodes have neither. */
+  readonly onBeforeMeasure: (() => void) | undefined
+  readonly onMeasure: ((box: Box.Box, prev: Box.Box | undefined) => void) | undefined
   /**
    * What the node's handover blends from (ADR-0010 *Amendment (#166)*): the twin's radius, rotation
    * and, for a Switch, opacity, as they were drawn as it began. Eased into the node's own over the
@@ -1328,6 +1356,10 @@ interface NodeState {
   correctorBases: ReadonlyArray<{ readonly corrector: ScaleCorrector; readonly base: unknown }> | undefined
   /** Whether a corrected style is currently applied (so it's restored once at rest). */
   corrected: boolean
+  /** The app's correctors' base values (#443), read at its first Measurement; `undefined` in a system given none. */
+  customBases: Readonly<Record<string, string>> | undefined
+  /** Whether an app's corrector's value is written corrected now (so it's put back once at rest). */
+  customCorrected: boolean
   // --- drag (ADR-0016) ---
   /** Whether this node is being dragged: its target follows the pointer (no spring), held active. */
   dragging: boolean
@@ -1459,6 +1491,8 @@ const NO_OWN_SCALE = (): Point.Point => UNIT_SCALE
 /** No own translate: a node the binding gives none, or a leaving one (#363). */
 const NO_TRANSLATE: Point.Point = { x: 0, y: 0 }
 const NO_OWN_TRANSLATE = (): Point.Point => NO_TRANSLATE
+/** No values registered for an element (#443): an app's corrector reads its base then. */
+const NO_VALUES: Readonly<Record<string, unknown>> = {}
 
 /**
  * The transform a Measure pass holds `node` at (#443): its Transform template's, `""` (cleared) for a
@@ -1576,7 +1610,41 @@ export interface ProjectionSystemOptions {
    * default, never.
    */
   readonly reducedMotion?: () => boolean
+  /**
+   * The app's own scale correctors (#443, Motion's `addScaleCorrector` entries), by the value key
+   * each corrects, for this system's nodes alone. Each is handed the element's own value for its key
+   * each frame (from its `style` or an animation), else its computed value read at its first
+   * Measurement, and writes nothing while the projection doesn't scale it, putting the value back
+   * once. One keyed `borderRadius` or `boxShadow` replaces the built-in one, and a replaced radius
+   * isn't blended across a handover (ADR-0010 *Amendment (#166)*).
+   */
+  readonly scaleCorrectors?: Readonly<Record<string, ScaleCorrectorEntry>> | undefined
 }
+
+/** An app's scale corrector, ready to run: its value key, the CSS key it's read by, and the keys it writes. */
+interface CustomCorrector {
+  readonly key: string
+  readonly cssKey: string
+  readonly writes: ReadonlyArray<string>
+  readonly correct: ScaleCorrectorEntry["correct"]
+}
+
+/** An app's scale correctors (#443), each with its CSS keys: kebab-case, as the gate writes them. */
+const customCorrectorsOf = (entries: ProjectionSystemOptions["scaleCorrectors"]): ReadonlyArray<CustomCorrector> =>
+  UndefinedOr.match(entries, {
+    onUndefined: () => [],
+    onDefined: (given) =>
+      Object.entries(given).map(([key, entry]): CustomCorrector => ({
+        key,
+        cssKey: dashCase(key),
+        writes: UndefinedOr.match(entry.applyTo, { onUndefined: () => [dashCase(key)], onDefined: (keys) => keys.map(dashCase) }),
+        correct: entry.correct,
+      })),
+  })
+
+/** The built-in correctors an app's don't replace (#443): its `borderRadius` replaces the radius's, its `boxShadow` the shadow's. */
+const builtInCorrectorsOf = (custom: ReadonlyArray<CustomCorrector>): ReadonlyArray<ScaleCorrector> =>
+  SCALE_CORRECTORS.filter((corrector) => !custom.some((c) => c.cssKey === corrector.key))
 
 /**
  * Build a projection system against a binding's `runtime` (providing its
@@ -1591,6 +1659,10 @@ export const makeProjectionSystem = (
   options: ProjectionSystemOptions = {},
 ): ProjectionSystem => {
   const reducedMotion = UndefinedOr.match(options.reducedMotion, { onUndefined: () => constFalse, onDefined: identity })
+  // The app's scale correctors (#443), and the built-ins they leave. With the radius's replaced, no
+  // node has a radius base, so a handover blends none (ADR-0010 *Amendment (#166)*).
+  const customCorrectors = customCorrectorsOf(options.scaleCorrectors)
+  const builtInCorrectors = builtInCorrectorsOf(customCorrectors)
   /**
    * A layout animation's progress at its (re)start (ADR-0009 *Amendment (#171)*): at 0, on its
    * transition read now, Motion's default with none, its delay held first, and with no velocity
@@ -1752,6 +1824,8 @@ export const makeProjectionSystem = (
   let stopViewport: () => void = constVoid
   let lastWidth = 0
   let resizeBlocked = false
+  // An Instant change or a Projection reset (#443) blocks the next Measure round, which takes it.
+  let instantNext = false
   const resizeWait = runtime.runSync(FiberHandle.make<void, never>().pipe(Scope.provide(scope)))
 
   // The Renderer's pure halves, resolved once (like the gate) — used to drive a
@@ -1883,7 +1957,7 @@ export const makeProjectionSystem = (
   /** Read this element's non-trivial scale-correction bases (ADR-0011), measure phase. */
   const readBases = (el: HTMLElement): NodeState["correctorBases"] => {
     const out: Array<{ corrector: ScaleCorrector; base: unknown }> = []
-    for (const corrector of SCALE_CORRECTORS) {
+    for (const corrector of builtInCorrectors) {
       const base = corrector.read(el)
       if (Predicate.isNotUndefined(base)) out.push({ corrector, base })
     }
@@ -1896,7 +1970,62 @@ export const makeProjectionSystem = (
    * previously-corrected node is restored to its base ONCE (then nothing) so no
    * stale correction lingers and rest stays zero-cost.
    */
-  const correctionsFor = (node: NodeState, sx: number, sy: number): Record<string, string> | undefined => {
+  const correctionsFor = (node: NodeState, sx: number, sy: number, treeScale: Point.Point): Record<string, string> | undefined => {
+    const own = builtInCorrectionsFor(node, sx, sy)
+    if (customCorrectors.length === 0) return own
+    return withCustomCorrections(node, sx, sy, treeScale, own)
+  }
+
+  /**
+   * `own` with the app's scale correctors' values for `node` (#443): each one's value for it (its own
+   * for the key, else the base read at its first Measurement), corrected while the projection scales
+   * it, put back once when it stops, then nothing. Per frame, in a system given one.
+   */
+  const withCustomCorrections = (node: NodeState, sx: number, sy: number, treeScale: Point.Point, own: Record<string, string> | undefined): Record<string, string> | undefined => {
+    const unit = isUnitScale(sx, sy)
+    if (unit && !node.customCorrected) return own
+    node.customCorrected = !unit
+    const read = elementValues.get(node.element)
+    let values: Readonly<Record<string, unknown>> = NO_VALUES
+    if (Predicate.isNotUndefined(read)) values = read()
+    let out = own
+    for (const corrector of customCorrectors) {
+      const latest = latestFor(node, corrector, values)
+      if (Predicate.isUndefined(latest)) continue
+      if (Predicate.isUndefined(out)) out = {}
+      if (unit) {
+        for (const key of corrector.writes) out[key] = String(latest)
+        continue
+      }
+      const corrected = String(corrector.correct(latest, { target: node.lastTarget as Box.Box, treeScale, projectionDelta: node.lastDelta }))
+      for (const key of corrector.writes) out[key] = corrected
+    }
+    return out
+  }
+
+  /** An app's corrector's value for `node` (#443): its own for the key, a number or a string, else its base, else none. */
+  const latestFor = (node: NodeState, corrector: CustomCorrector, values: Readonly<Record<string, unknown>>): string | number | undefined => {
+    const own = values[corrector.key]
+    if (Predicate.isString(own) || Predicate.isNumber(own)) return own
+    const bases = node.customBases
+    if (Predicate.isUndefined(bases)) return undefined
+    return bases[corrector.key]
+  }
+
+  /** The base values of the app's correctors' keys on `el` (#443), computed, read once at its first Measurement: none, or `none`, left out. */
+  const readCustomBases = (el: HTMLElement): Readonly<Record<string, string>> | undefined => {
+    if (customCorrectors.length === 0) return undefined
+    const style = getComputedStyle(el)
+    const out: Record<string, string> = {}
+    for (const corrector of customCorrectors) {
+      const value = style.getPropertyValue(corrector.cssKey).trim()
+      if (value !== "" && value !== "none") out[corrector.key] = value
+    }
+    return out
+  }
+
+  /** The built-in correctors' keys for `node` (ADR-0011), and a handover's blended radius (#166). */
+  const builtInCorrectionsFor = (node: NodeState, sx: number, sy: number): Record<string, string> | undefined => {
     const radius = radiusOverrideOf(node)
     if (Predicate.isUndefined(radius) && !node.radiusBlended) return plainCorrectionsFor(node, sx, sy)
     // A blended radius (ADR-0010 *Amendment (#166)*) is written whatever the scale, corrected for it;
@@ -2435,7 +2564,7 @@ export const makeProjectionSystem = (
       const delta = Projection.calcBoxDelta(layoutCorrected, targetBox)
       node.lastTarget = targetBox
       node.lastDelta = delta
-      const corrected = correctionsFor(node, delta.x.scale * treeScale.x, delta.y.scale * treeScale.y)
+      const corrected = correctionsFor(node, delta.x.scale * treeScale.x, delta.y.scale * treeScale.y, treeScale)
       writeProjection(node, delta, treeScale, leadOpacity(node), corrected)
       return
     }
@@ -2454,7 +2583,7 @@ export const makeProjectionSystem = (
     // A Lead with Followers carries the crossfade factor (fades IN over its handover's
     // progress); otherwise none (a plain/switch node — user opacity passes through).
     // Scale-correct border-radius/box-shadow at the true visual scale (ADR-0011).
-    const corrected = correctionsFor(node, delta.x.scale * treeScale.x, delta.y.scale * treeScale.y)
+    const corrected = correctionsFor(node, delta.x.scale * treeScale.x, delta.y.scale * treeScale.y, treeScale)
     writeProjection(node, delta, treeScale, leadOpacity(node), corrected, turn)
   }
 
@@ -2559,7 +2688,7 @@ export const makeProjectionSystem = (
     const delta = Projection.calcBoxDelta(layoutCorrected, target)
     node.lastTarget = target
     node.lastDelta = delta
-    const corrected = correctionsFor(node, delta.x.scale * treeScale.x, delta.y.scale * treeScale.y)
+    const corrected = correctionsFor(node, delta.x.scale * treeScale.x, delta.y.scale * treeScale.y, treeScale)
     writeProjection(node, delta, treeScale, exitOf(node, lead), corrected) // fades out as its Lead fades in (#5)
   }
 
@@ -3458,12 +3587,25 @@ export const makeProjectionSystem = (
     return true
   }
 
+  /** The nodes a Measure round measured that have an `onLayoutMeasure` (#443), told at its end. Reused: most rounds tell none. */
+  const measuredNow: Array<{ readonly node: NodeState; readonly box: Box.Box; readonly prev: Box.Box | undefined }> = []
+
+  /** Call an app's measure hook (#443): a throw is reported, and the pass goes on. */
+  const callMeasureHook = (hook: () => void, name: string): void => {
+    try {
+      hook()
+    } catch (defect) {
+      runtime.runFork(reportFailure(`wardic.projection: an ${name} failed`, Cause.die(defect)))
+    }
+  }
+
   /**
    * One round of a Measure pass. `blocked`: every node takes a slot-only update (a **Resize block**,
    * or a **Declared layout change**'s Measurements). `versioned`: each node's `layoutVersion` rises,
    * except for a Declared layout change's Measurements, which read the layout from before its change.
    */
   const runMeasurePass = (seeded: Set<NodeState>, dragBlocked: Set<NodeState>, blocked: boolean, versioned: boolean): void => {
+    measuredNow.length = 0
     // Parent links + depth FIRST (DOM-ancestry only, box-independent): the scroll
     // fold walks the ancestor chain (ADR-0012). Every phase below runs ancestors-first,
     // in the depth order (#383), though none relies on it today: every scroll sample is
@@ -3493,6 +3635,8 @@ export const makeProjectionSystem = (
     // Motion's `transformTemplate(values, "")`), so a static part of it, such as centring, is measured.
     const savedTransforms: Array<string> = []
     for (const node of ordered) {
+      // Its app's `onBeforeLayoutMeasure` (#443), before its transform is held for the read.
+      if (Predicate.isNotUndefined(node.onBeforeMeasure)) callMeasureHook(node.onBeforeMeasure, "onBeforeLayoutMeasure")
       savedTransforms.push(node.element.style.transform)
       node.element.style.transform = heldTransformFor(node)
       // A server's Appear animation not yet handed off (#245, ADR-0044 *Amendment (#245)*): its CSS
@@ -3541,7 +3685,10 @@ export const makeProjectionSystem = (
         // OWN corrected inline value (inline overrides the stylesheet) and compound the
         // radius/shadow each frame. (A node's authored radius changing mid-life is the
         // documented v0.1 limit.)
-        if (Predicate.isUndefined(node.correctorBases)) node.correctorBases = readBases(node.element)
+        if (Predicate.isUndefined(node.correctorBases)) {
+          node.correctorBases = readBases(node.element)
+          node.customBases = readCustomBases(node.element)
+        }
       }
       // Each node's fold (ADR-0012, *Amendment (Reorder)*), now every `layoutScroll`
       // sample is in: every container that can scroll, read once this pass.
@@ -3675,6 +3822,8 @@ export const makeProjectionSystem = (
       const prev = node.retained
       const newBox = boxThisPass(node, moved[i], viewportBoxes[i], documentScroll)
       node.retained = newBox
+      // Its app's `onLayoutMeasure` (#443), told once the loop has set every box.
+      if (Predicate.isNotUndefined(node.onMeasure)) measuredNow.push({ node, box: newBox, prev })
       // Its own size keys (#453): read at its first Measurement, and at each after while it draws
       // any. A node that draws none, nearly every one, reads nothing more per pass (#453's bench: a
       // read per node per pass slowed every layout scene's Measure pass by 3–12%).
@@ -3899,6 +4048,13 @@ export const makeProjectionSystem = (
     // computed at the top of the pass, before the scroll fold.) This is also the
     // real restore for them: `writeProjection` rebuilds each node's inline transform
     // from its new delta, rather than writing back the pre-pass value.
+    // Each `onLayoutMeasure` (#443), with its box and the one before it, once every box is set.
+    if (measuredNow.length > 0) {
+      for (const { node, box, prev } of measuredNow.splice(0)) {
+        const tell = node.onMeasure
+        if (Predicate.isNotUndefined(tell)) callMeasureHook(() => tell(box, prev), "onLayoutMeasure")
+      }
+    }
     deriveGroup(groupOf(changed))
     ensureRunning()
   }
@@ -3932,7 +4088,8 @@ export const makeProjectionSystem = (
       do {
         triggeredDuringPass = false
         rounds++
-        sink.flushPass(() => runMeasurePass(seeded, dragBlocked, blocked, true))
+        const roundBlocked = Bool.or(blocked, takeInstant())
+        sink.flushPass(() => runMeasurePass(seeded, dragBlocked, roundBlocked, true))
       } while (triggeredDuringPass && rounds < MAX_ROUNDS)
     } finally {
       inPass = false
@@ -4473,6 +4630,71 @@ export const makeProjectionSystem = (
   }
 
   /**
+   * Every running layout animation and Release offset but a dragged node's, ended on its slot: a
+   * Resize block's (ADR-0018 *Amendment (#39)*), an **Instant change**'s and a **Projection
+   * reset**'s (#443). Derived while still active (as a tick derives a node before it settles), so
+   * each writes its resting projection; then settled.
+   */
+  const finishFlights = (why: string): void => {
+    const finished: Array<NodeState> = []
+    for (const node of active) if (!node.dragging) finished.push(node)
+    if (finished.length === 0) return
+    for (const node of finished) {
+      node.origin = undefined
+      node.flight = undefined
+      node.animating = false
+      node.release = undefined
+    }
+    deriveGroup(groupOf(new Set(finished)))
+    finishSettled(finished)
+    debug(`${why} finish`, { finished: finished.length })
+    // Their flights are cut short: a Declared layout change waiting on them has settled (#191).
+    checkSettlings()
+  }
+
+  /**
+   * An **Instant change** (#443, Motion's `useInstantLayoutTransition`): run `fn`, and the Measure
+   * pass at the end of the task is blocked, as a Resize block's is: every node takes its new box
+   * and nothing animates. A pass already due in the task is that pass; one asked from a pass's own
+   * flush blocks its next round. Its running layout animations end as the pass begins.
+   */
+  const instant: ProjectionSystem["instant"] = (fn) => {
+    if (disposed) {
+      UndefinedOr.map(fn, (run) => run())
+      return
+    }
+    instantNext = true
+    try {
+      UndefinedOr.map(fn, (run) => run())
+    } finally {
+      scheduleMeasure()
+    }
+  }
+
+  /** Whether this round is an Instant change's (#443): taken once, ending the running layout animations. */
+  const takeInstant = (): boolean => {
+    if (!instantNext) return false
+    instantNext = false
+    finishFlights("instant")
+    return true
+  }
+
+  /**
+   * A **Projection reset** (#443, Motion's `useResetProjection`): every layout animation and Release
+   * offset ends on its node's slot, every leaver and its twins' Switch seeds are dropped (so each
+   * `layoutId` stack keeps only its live nodes), and the next Measure pass, at the end of the task,
+   * measures every box afresh and animates none, as an Instant change's.
+   */
+  const reset: ProjectionSystem["reset"] = () => {
+    if (disposed) return
+    for (const node of Array.from(nodes)) if (node.leaving) finishLeaver(node)
+    seeds.clear()
+    leavers.clear()
+    instantNext = true
+    scheduleMeasure()
+  }
+
+  /**
    * A viewport resize (ADR-0018 *Amendment (#39)*; Motion's resize listener,
    * create-projection-node.ts:459-487 at 16c61222c4166bbef5ff6ab0051192faa79fa8c8).
    * Only a width change counts, as Motion's: it finishes every running layout
@@ -4486,23 +4708,7 @@ export const makeProjectionSystem = (
     if (disposed) return
     if (width === lastWidth) return
     lastWidth = width
-    const finished: Array<NodeState> = []
-    for (const node of active) if (!node.dragging) finished.push(node)
-    if (finished.length > 0) {
-      // At rest on their slots, derived while still active (as a tick derives a node
-      // before it settles), so each writes its resting projection; then settled.
-      for (const node of finished) {
-        node.origin = undefined
-        node.flight = undefined
-        node.animating = false
-        node.release = undefined
-      }
-      deriveGroup(groupOf(new Set(finished)))
-      finishSettled(finished)
-      debug("resize finish", { finished: finished.length })
-      // Their flights are cut short: a Declared layout change waiting on them has settled (#191).
-      checkSettlings()
-    }
+    finishFlights("resize")
     resizeBlocked = true
     // A later change restarts the wait.
     FiberHandle.setUnsafe(
@@ -4765,6 +4971,8 @@ export const makeProjectionSystem = (
     ownRotate: NO_OWN_ROTATE,
     ownOpacity: NO_OWN_OPACITY,
     heldTransform: undefined,
+    onBeforeMeasure: undefined,
+    onMeasure: undefined,
     blend: undefined,
     seedBlend: undefined,
     seedScroll: undefined,
@@ -4795,6 +5003,8 @@ export const makeProjectionSystem = (
     onLeaveDone: onDone,
     correctorBases: readBases(el),
     corrected: false,
+    customBases: readCustomBases(el),
+    customCorrected: false,
     isScroll: false,
     scroll: { x: 0, y: 0 },
     isScrollRoot: false,
@@ -5279,6 +5489,8 @@ export const makeProjectionSystem = (
       ownRotate: UndefinedOr.match(opts.ownRotate, { onUndefined: () => NO_OWN_ROTATE, onDefined: identity }),
       ownOpacity: UndefinedOr.match(opts.ownOpacity, { onUndefined: () => NO_OWN_OPACITY, onDefined: identity }),
       heldTransform: opts.heldTransform,
+      onBeforeMeasure: opts.onBeforeMeasure,
+      onMeasure: opts.onMeasure,
       blend: undefined,
       seedBlend: undefined,
       seedScroll: undefined,
@@ -5309,6 +5521,8 @@ export const makeProjectionSystem = (
       onLeaveDone: undefined,
       correctorBases: undefined,
       corrected: false,
+      customBases: undefined,
+      customCorrected: false,
       isScroll: opts.layoutScroll === true,
       scroll: { x: 0, y: 0 },
       isScrollRoot: false,
@@ -5611,6 +5825,8 @@ export const makeProjectionSystem = (
     register,
     notify: scheduleMeasure,
     animateLayout,
+    instant,
+    reset,
     handleLeave,
     handBackWithin,
     keepLeaving,

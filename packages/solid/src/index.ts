@@ -19,6 +19,9 @@ export const VERSION = "0.1.0-alpha.0"
  * examples/solid-start-basic.
  */
 export {
+  createInstantLayoutTransition,
+  createInstantTransition,
+  createResetProjection,
   runScoped,
   useAnimateLayout,
   useWardicFiber,
@@ -26,6 +29,8 @@ export {
   useWardicRuntime,
   WardicProvider,
 } from "./provider.tsx"
+// The Instant change and the Projection reset (#443): Motion's `useInstantTransition` and kin.
+export type { InstantTransition } from "./instant.ts"
 export type { AnimateLayout, WardicEnv, WardicRuntime, WardicServices } from "./runtime.ts"
 export type { AnimateLayoutOptions } from "@wardic/dom/ProjectionSystem"
 
@@ -137,6 +142,8 @@ export type {
   WardicPropagate,
   WardicTransformShorthands,
   WardicTransformTemplate,
+  WardicScaleCorrector,
+  WardicLayoutBox,
   WardicAnimationDefinition,
   WardicTransition,
   WardicTransitionEntries,
