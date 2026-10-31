@@ -36,6 +36,8 @@ import { type CreateDragOptions, watchDragSamples } from "../../drag-samples.ts"
 import type { WardicServices } from "../../runtime.ts"
 import { fromAtom } from "./bridge.ts"
 import { useWardicReducedMotionSetting, useWardicRuntime } from "./provider.tsx"
+import { useWardicConfig } from "./wardic-config.tsx"
+import { transformPagePointOf } from "../../wardic-config-value.ts"
 
 export type { CreateDragOptions } from "../../drag-samples.ts"
 
@@ -117,8 +119,11 @@ export const createInView = (options?: { readonly once?: boolean }): Sensor<bool
  * (#379) with `options`' axis, claim and bounds. Like an element's own drag, it holds the
  * element's **Drag claim** while a gesture is on, unless `claim: false`.
  */
-export const createDrag = (options?: CreateDragOptions): Sensor<Drag.Sample | null> =>
-  watchSensorOf<Drag.Sample | null>((target, handlers) => watchDragSamples(target, { ...options }, handlers), null)
+export const createDrag = (options?: CreateDragOptions): Sensor<Drag.Sample | null> => {
+  // Its points through the nearest WardicConfig's `transformPagePoint` (#443), read at each down.
+  const pagePoint = transformPagePointOf(useWardicConfig())
+  return watchSensorOf<Drag.Sample | null>((target, handlers) => watchDragSamples(target, { ...options }, handlers, pagePoint), null)
+}
 
 /**
  * Whether the user prefers reduced motion, from the Probe's preference. A server renders `false`,

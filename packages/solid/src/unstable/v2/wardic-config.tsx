@@ -8,8 +8,8 @@ import type { JSX } from "@solidjs/web"
 import * as Option from "effect/Option"
 import { createContext, createMemo, useContext } from "solid-js"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
-import type { WardicVariantTransition } from "../../config.ts"
-import { configIsValidPropOf, configReducedMotionOf, configSkipAnimationsOf, configTransitionOf, type WardicConfigValue } from "../../wardic-config-value.ts"
+import type { WardicTransformPoint, WardicVariantTransition } from "../../config.ts"
+import { configIsValidPropOf, configReducedMotionOf, configTransformPagePointOf, configSkipAnimationsOf, configTransitionOf, type WardicConfigValue } from "../../wardic-config-value.ts"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
 
 // `null` for none, as the binding's other contexts: Solid 2 throws on a read of a context made with
@@ -47,6 +47,16 @@ export interface WardicConfigProps {
    * each element is made, for the props it has then.
    */
   readonly isValidProp?: ((key: string) => boolean) | undefined
+  /**
+   * Where the points a drag or a pan below uses are (#443, Motion's `MotionConfig`
+   * `transformPagePoint`): handed each point in the viewport's coordinates, it gives the one the
+   * gesture uses. Read at each drag or pan start, and applied to its down, each move, a drag
+   * controls' start and its snap to the cursor, and to the boxes drag constraints are measured from;
+   * never to a layout animation's boxes, which Wardic already reads through their ancestors'
+   * transforms. `correctParentTransform(parent)` makes one for a zoomed or rotated parent, and
+   * `transformViewBoxPoint(svg)` one for an SVG's viewBox. It replaces an enclosing config's.
+   */
+  readonly transformPagePoint?: WardicTransformPoint | undefined
   readonly children?: JSX.Element
 }
 
@@ -66,7 +76,7 @@ export function WardicConfig(props: WardicConfigProps): JSX.Element {
   // One object per change, so the elements below share it, and its caches (#66, #301) hit. Transparent
   // to hydration ids, as every computation the binding makes (#209).
   const transition = createMemo(() => configTransitionOf(props.transition, parent), CLIENT_ONLY)
-  return <WardicConfigContext value={{ transition, reducedMotion: () => configReducedMotionOf(props.reducedMotion, parent), skipAnimations: () => configSkipAnimationsOf(props.skipAnimations, parent), isValidProp: () => configIsValidPropOf(props.isValidProp, parent) }}>{props.children}</WardicConfigContext>
+  return <WardicConfigContext value={{ transition, reducedMotion: () => configReducedMotionOf(props.reducedMotion, parent), skipAnimations: () => configSkipAnimationsOf(props.skipAnimations, parent), isValidProp: () => configIsValidPropOf(props.isValidProp, parent), transformPagePoint: () => configTransformPagePointOf(props.transformPagePoint, parent) }}>{props.children}</WardicConfigContext>
 }
 
 /** The nearest `WardicConfig`'s settings, or none. Internal. */

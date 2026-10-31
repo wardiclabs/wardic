@@ -71,7 +71,7 @@ import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as FiberHandle from "effect/FiberHandle"
-import { constFalse, constVoid, identity } from "effect/Function"
+import { constFalse, constUndefined, constVoid, identity } from "effect/Function"
 import * as Match from "effect/Match"
 import * as MutableRef from "effect/MutableRef"
 import * as Predicate from "effect/Predicate"
@@ -80,6 +80,7 @@ import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { DragContainer } from "./drag-constraints.ts"
 import type { WardicServices } from "./runtime.ts"
+import type { WardicTransformPoint } from "./config.ts"
 import { subscribeDragControls, type WardicDragControls } from "./drag-controls.ts"
 import { DEFAULT_DRAG_ELASTIC, dragTransitionOf, elasticOf } from "./drag-transition.ts"
 import { frameNow } from "./frame-time.ts"
@@ -208,7 +209,17 @@ export interface DragTrackOptions {
    * them while its watch Scope is open.
    */
   readonly controls?: WardicDragControls | undefined
+  /**
+   * Where the drag's points are (#443, its nearest `WardicConfig`'s `transformPagePoint`): read at
+   * each down, and applied to its every point and to the box its snap to the cursor measures.
+   * Omitted, as they are.
+   */
+  readonly mapPoint?: (() => WardicTransformPoint | undefined) | undefined
 }
+
+/** A point mapping now (#443): the config's, else the point as it is. */
+const mapPointOf = (mapPoint: DragTrackOptions["mapPoint"]): WardicTransformPoint =>
+  UndefinedOr.match(UndefinedOr.match(mapPoint, { onUndefined: constUndefined, onDefined: (read) => read() }), { onUndefined: () => identity, onDefined: identity })
 
 /** A drag config's axis as core's: `true` (free) is `"xy"`. */
 const toDragAxis = (axis: boolean | "x" | "y"): Drag.Axis =>
@@ -727,7 +738,11 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
       const snapTo = (down: InputSource.PointerLikeEvent): void => {
         const box = element.getBoundingClientRect()
         const axis = UndefinedOr.match(axisAt, { onUndefined: () => toDragAxis(config.axis), onDefined: (at) => toDragAxis(at()) })
-        const by = onAxes({ x: down.x - (box.left + box.width / 2), y: down.y - (box.top + box.height / 2) }, axis)
+        // The pointer and the box's centre, each mapped as the drag's points are (#443, Motion's).
+        const map = mapPointOf(opts.mapPoint)
+        const cursor = map({ x: down.x, y: down.y })
+        const centre = map({ x: box.left + box.width / 2, y: box.top + box.height / 2 })
+        const by = onAxes({ x: cursor.x - centre.x, y: cursor.y - centre.y }, axis)
         UndefinedOr.match(opts.projection, {
           onUndefined: () => {
             const from = snapshotPos(opts.snapshot)
@@ -845,7 +860,7 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
       // Subscribed in this order, so the samples hear an event before the grabs. The constraints
       // bound the element's x/y, so they're applied where the gesture's offset meets its base, in
       // `follow` and at the release (ADR-0016, *Amendment (#140)*).
-      const drag = yield* Recognizer.watchDrag(element, { axis, claim: Bool.not(propagation), lock: config.directionLock === true, listen: listens, threshold }, {
+      const drag = yield* Recognizer.watchDrag(element, { axis, claim: Bool.not(propagation), lock: config.directionLock === true, listen: listens, threshold, mapPoint: opts.mapPoint }, {
         on: (sample) => respond(onSample(sample)),
         onDefect,
       })

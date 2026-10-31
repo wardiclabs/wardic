@@ -346,3 +346,12 @@ TF1–TF7 and TF9 fail on `main`, about 420 px off (TF7 about 310).
 - `rootBoxOf` without it (TF8, KL7);
 - a rebase keeping the page's scroll under a scroll root (TF2, TF8);
 - a re-introduced leaving Follower starting with the page's scroll folded in again (TF9).
+
+## Amendment (#443, 2026-10-31): a drag inside a scaled or rotated parent, with `transformPagePoint`
+
+*Amendment (#136)*'s decision 4 left a drag inside a scaled or rotated parent moving in the parent's own pixels, the pointer's movement in screen pixels, so inside `scale(0.5)` the element covered half the pointer's distance. It rejected a `transformPagePoint`-like option then. #443 (Q6 A) adds Motion's: `WardicConfig`'s `transformPagePoint`, with `correctParentTransform(parent)` for a transformed parent (ADR-0062, *Amendment (#443 PR 4)*).
+
+- With it, a drag's points are turned through the inverse of the parent's transform, so the drag moves its element in the parent's own pixels, and the element stays under the pointer: a free drag, a layout element's (its offsets are what the projection is handed), and drag constraints measured from a container inside the parent.
+- Without it, a drag is as decision 4 has it, as Motion's is.
+- **Layout boxes aren't mapped:** the projection reads them through their ancestors' transforms already (#136, #137), so a mapping on top would count the parent's transform twice.
+- The limit stands for a drag with no mapping given, and Motion shares it.

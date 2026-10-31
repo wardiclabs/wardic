@@ -183,6 +183,8 @@ A change that shouldn't animate, such as opening every question at once or jumpi
 | `motion.create(Component, { forwardMotionProps: true, type: "svg" })` | the same options (#443): `forwardMotionProps` hands the motion props on to the component as well, and `type: "svg"` renders an svg-inner element's attribute keys as attributes on a server, where Wardic can't see the element |
 | `isMotionComponent(c)`, `unwrapMotionComponent(c)` | `isWardicComponent(c)`, `unwrapWardicComponent(c)` (#443): either binding's, `"div"` for `wardic.div` |
 | `isValidMotionProp(key)` | `isValidWardicProp(key)` (#443): Wardic's own motion props, exactly, each binding's own (Solid 2's leaves out the callbacks that are DOM events there) |
+| `<MotionConfig transformPagePoint={…}>` | `<WardicConfig transformPagePoint={…}>` (#443): maps every point a drag or a pan below it uses, and the boxes its drag constraints are measured from, in viewport coordinates; read at each drag's start. Not layout boxes, which Wardic already reads through their ancestors' transforms |
+| `correctParentTransform(ref)`, `transformViewBoxPoint(ref)` | the same (#443), each taking the element or an accessor of it: a drag inside a zoomed or rotated parent, or inside an SVG drawn at another size than its viewBox |
 | `<MotionConfig isValidProp={isPropValid}>` | `<WardicConfig isValidProp={…}>` (#443): a tag's props it says aren't valid stay off the element; it's never asked about an `on…` prop, and a wrapped component gets every prop, as in Motion |
 | solid-motionone's `<Motion.div>` | `wardic.div` |
 | solid-motionone's `createMotion(el, options)` | `createWard(options)`, spread onto the element: `<div {...ward()}>` |
@@ -310,6 +312,17 @@ A draggable inside a draggable drags on its own, as in Motion. A drag claims its
 ```
 
 The card's `whileHover` and `whileTap` still show while a child is dragged. `dragPropagation` makes an element claim nothing, so its ancestors drag with it; `createDrag(el, { claim: false })` watches a pan over an area without blocking the draggables in it.
+
+A drag inside a zoomed or rotated parent moves its element in the parent's own pixels, so it runs ahead of the pointer or lags behind it, as Motion's does. `WardicConfig`'s `transformPagePoint` maps the drag's points, as Motion's `MotionConfig` does (#443), and `correctParentTransform` makes the mapping for a transformed parent, which keeps the element under the pointer at any zoom:
+
+```tsx
+let plan!: HTMLDivElement
+<div ref={plan} style={{ transform: `scale(${zoom()})` }}>
+  <WardicConfig transformPagePoint={correctParentTransform(() => plan)}>
+    <wardic.div drag dragConstraints={() => plan} />
+  </WardicConfig>
+</div>
+```
 
 ### Live values
 
@@ -656,7 +669,7 @@ function Badge(props: { open: boolean }) {
     await api.save()
   }}>Close and save</button>
   ```
-- So far: `initial`, `animate`, `transition`, `variants` with stagger and `when`, `style` with Live values, `onUpdate`, `<AnimatePresence>` with `exit` (a name, a dynamic variant, the presence's `custom`), many children, `mode="wait"` / `"popLayout"` with `anchorX` / `anchorY`, and `presenceAffectsLayout`, dynamic variants and `custom`, layout (`layout`, `layoutId`, `layoutCrossfade`, `layoutScroll`, `layoutRoot`, `layoutAnchor`, `<LayoutGroup>` with `id` and `inherit`, `useAnimateLayout`), gestures (`whileHover`, `whileTap`, `whileDrag`, `whileInView` with `viewport`, `whileFocus`), drag (`drag`, `dragConstraints` with `onMeasureDragConstraints`, `dragElastic`, `dragMomentum`, `dragSnapToOrigin`, `dragPropagation`, `dragDirectionLock`, `dragTransition`, `dragControls` from `createDragControls()`, `dragListener`), `createAnimate()` with its sequences and `scope.settled()`, `createAnimationControls()`, sensors, the Live value helpers, `createAnimationFrame`, `createCycle`, `createPageInView`, `createReducedMotionConfig`, `createWillChange`, `transformTemplate`, `onBeforeLayoutMeasure` and `onLayoutMeasure`, `createInstantTransition`, `createInstantLayoutTransition`, `createResetProjection`, the provider's `scaleCorrectors`, `wardic.create`'s options, `isValidWardicProp`, `isWardicComponent`, `fromAtom` and `streamToSignal`, Reorder with the keyboard reorder, and server rendering with Appear animations: the head's `<style>` goes through Solid 2's head registry (`useHead`), and a streamed `<Loading>` chunk's rules arrive with it.
+- So far: `initial`, `animate`, `transition`, `variants` with stagger and `when`, `style` with Live values, `onUpdate`, `<AnimatePresence>` with `exit` (a name, a dynamic variant, the presence's `custom`), many children, `mode="wait"` / `"popLayout"` with `anchorX` / `anchorY`, and `presenceAffectsLayout`, dynamic variants and `custom`, layout (`layout`, `layoutId`, `layoutCrossfade`, `layoutScroll`, `layoutRoot`, `layoutAnchor`, `<LayoutGroup>` with `id` and `inherit`, `useAnimateLayout`), gestures (`whileHover`, `whileTap`, `whileDrag`, `whileInView` with `viewport`, `whileFocus`), drag (`drag`, `dragConstraints` with `onMeasureDragConstraints`, `dragElastic`, `dragMomentum`, `dragSnapToOrigin`, `dragPropagation`, `dragDirectionLock`, `dragTransition`, `dragControls` from `createDragControls()`, `dragListener`, `WardicConfig`'s `transformPagePoint` with `correctParentTransform` and `transformViewBoxPoint`), `createAnimate()` with its sequences and `scope.settled()`, `createAnimationControls()`, sensors, the Live value helpers, `createAnimationFrame`, `createCycle`, `createPageInView`, `createReducedMotionConfig`, `createWillChange`, `transformTemplate`, `onBeforeLayoutMeasure` and `onLayoutMeasure`, `createInstantTransition`, `createInstantLayoutTransition`, `createResetProjection`, the provider's `scaleCorrectors`, `wardic.create`'s options, `isValidWardicProp`, `isWardicComponent`, `fromAtom` and `streamToSignal`, Reorder with the keyboard reorder, and server rendering with Appear animations: the head's `<style>` goes through Solid 2's head registry (`useHead`), and a streamed `<Loading>` chunk's rules arrive with it.
 - `examples/solid2-start` runs it in `@solidjs/vite-plugin`'s start mode (streaming server rendering, file routes, hydration), with the same hand checks as the Solid 1 example: `/ssr` for hydration and `/appear` for Appear animations.
 - `examples/layout-lab` runs on it too (`bun dev:v2`): the same lab built on Solid 2, every scenario on the Solid 2 binding, its Reorder card on the components or the factories.
 

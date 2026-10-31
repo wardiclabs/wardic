@@ -385,6 +385,12 @@ export type WardicAnimationDefinition = WardicVariantLabels | WardicValues
  */
 export type WardicScaleCorrector = ProjectionSystem.ScaleCorrector
 
+/**
+ * A point mapping (#443, Motion's `TransformPoint`): handed a point in the viewport's coordinates, it
+ * gives the one a drag or a pan uses: `WardicConfig`'s `transformPagePoint`.
+ */
+export type WardicTransformPoint = (point: { readonly x: number; readonly y: number }) => { readonly x: number; readonly y: number }
+
 /** A layout box (#443, Motion's `Box`): each axis's `min` and `max`, in the page's pixels. */
 export type WardicLayoutBox = Box.Box
 

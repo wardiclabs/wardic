@@ -149,6 +149,7 @@ import {
 } from "./provider.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
+import { transformPagePointOf } from "../../wardic-config-value.ts"
 import { configView, type Fixed, type PerKey, type PerKeyApart } from "./config-view.ts"
 import { Lifecycle, type WardEvent, type WardEvents, type WardPressInfo, type WardSettled } from "./lifecycle.ts"
 import { neverLands, NO_EVENTS, serverWhen } from "./waiters.ts"
@@ -765,6 +766,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const reducedMotion = useWardicReducedMotion()
   // Whether its animations are skipped (#468): its nearest WardicConfig's, read as each starts.
   const skipAnimations = useWardicSkipAnimations()
+  // Where its drag's and pan's points are (#443): its nearest WardicConfig's, read as each starts.
+  const pagePoint = transformPagePointOf(useWardicConfig())
   const positionalKeys = useWardicPositionalKeys()
   const defaultTransition = useWardicDefaultTransition()
   const owner = getOwner()
@@ -1039,7 +1042,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     // A pan sets no layer: only a `next` wants it (#273).
     if (Bool.and(lifecycle.wantsPan, Bool.not(m.pan))) {
       m.pan = true
-      m.watch(Recognizer.watchPan(m.element, { on: (sample) => lifecycle.panned(sample, m.element), onDefect }))
+      m.watch(Recognizer.watchPan(m.element, { on: (sample) => lifecycle.panned(sample, m.element), onDefect }, { mapPoint: pagePoint }))
     }
     // In view as its `viewport` says, read when it starts (#273).
     if (Bool.and(Bool.or(untrack(wantsInView), lifecycle.wantsInView), Bool.not(m.inView))) {
@@ -1203,7 +1206,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     // `whileDrag`; on a layout node it feeds the projection (ADR-0016).
     const locked = initialConfig.dragDirectionLock === true
     // Motion's `dragConstraints` (#273): a box of numbers, or a container measured against the element.
-    const constraints = trackConstraintsOf(initialConfig.dragConstraints, el, () => untrack(cfg).onMeasureDragConstraints)
+    const constraints = trackConstraintsOf(initialConfig.dragConstraints, el, () => untrack(cfg).onMeasureDragConstraints, pagePoint)
     const dragTrack = UndefinedOr.map(dragAxis, (axis) =>
       driveDragTrack({
         watch: (track) => watchIn(track(onDefect)),
@@ -1215,6 +1218,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         recordFrame,
         // A drag's start turns its `style`'s will-change value on (#443).
         setDragging: draggingWithWillChange(live, (on: boolean) => setGesture(el, "dragging", on)),
+        mapPoint: pagePoint,
         skipAnimations,
         config: {
           axis,

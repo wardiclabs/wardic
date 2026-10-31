@@ -243,6 +243,23 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     watch: '.wish[data-id="tulip-bowl"]',
   },
   {
+    id: "arrange-room",
+    area: "gestures",
+    title: "Arrange a room, at any zoom",
+    summary: "Zoom the floor plan in or out, then drag the sofa, the table and the lamp about: each stays under your pointer, and inside the room.",
+    why: [
+      "A plan you can zoom is drawn with a CSS transform, so the pointer moves in the page's pixels while a piece moves in the plan's: at 140% a piece would run ahead of your pointer, and at 60% lag behind it. The pieces sit under a `WardicConfig` whose `transformPagePoint` is `correctParentTransform(() => plan)`, which turns each point of a drag back through the plan's zoom, so a piece stays under your pointer at any zoom.",
+      "Each piece's `dragConstraints` is the plan itself. Its box is measured through the same mapping, so a piece stops at the room's walls, whatever the zoom.",
+    ],
+    reducedMotion: "Nothing changes: a piece follows your pointer, and nothing moves by itself.",
+    uses: ["transformPagePoint", "correctParentTransform", "drag", "dragConstraints"],
+    motion: {
+      note: "Motion's `correctParentTransform` takes a React ref to the plan; Wardic's takes the element, or an accessor of it.",
+    },
+    interact: ['drag:.room-piece[data-id="sofa"]:80:40'],
+    watch: '.room-piece[data-id="sofa"]',
+  },
+  {
     id: "toasts",
     area: "presence",
     title: "\"Added to cart\", in toasts that make room",

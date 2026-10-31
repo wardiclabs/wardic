@@ -11,6 +11,7 @@ import * as Recognizer from "@wardic/core/Recognizer"
 import type * as Effect from "effect/Effect"
 import type * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
+import type { WardicTransformPoint } from "./config.ts"
 
 /** The axis, claim and bounds options for {@link createDrag}. */
 export interface CreateDragOptions {
@@ -30,12 +31,14 @@ export interface CreateDragOptions {
 /**
  * Watch a drag's samples (#379): the core drag watch on `target` with `options`' axis and claim, each
  * sample kept within `bounds` when present (`Drag.within`, the off-axis zeroed before clamping), told
- * to `handlers.on` inside its pointer event, for both bindings' `createDrag`.
+ * to `handlers.on` inside its pointer event, for both bindings' `createDrag`. Its points through
+ * `mapPoint`, its nearest `WardicConfig`'s `transformPagePoint` read at each down (#443).
  */
 export const watchDragSamples = (
   target: unknown,
   options: CreateDragOptions,
   handlers: InputFeed.Handlers<Drag.Sample>,
+  mapPoint?: () => WardicTransformPoint | undefined,
 ): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> => {
   const { axis = "xy", claim = true } = options
   const on = UndefinedOr.match(options.bounds, {
@@ -45,5 +48,5 @@ export const watchDragSamples = (
       return (sample: Drag.Sample) => handlers.on(kept(sample))
     },
   })
-  return Recognizer.watchDrag(target, { axis, claim }, { ...handlers, on })
+  return Recognizer.watchDrag(target, { axis, claim, mapPoint }, { ...handlers, on })
 }

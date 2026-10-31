@@ -31,6 +31,8 @@ export {
 } from "./provider.tsx"
 // The Instant change and the Projection reset (#443): Motion's `useInstantTransition` and kin.
 export type { InstantTransition } from "./instant.ts"
+// `WardicConfig`'s `transformPagePoint` helpers (#443, Motion's): a drag inside a transformed parent, or an SVG's viewBox.
+export { correctParentTransform, transformViewBoxPoint } from "./page-point.ts"
 export type { AnimateLayout, WardicEnv, WardicRuntime, WardicServices } from "./runtime.ts"
 export type { AnimateLayoutOptions } from "@wardic/dom/ProjectionSystem"
 
@@ -144,6 +146,7 @@ export type {
   WardicTransformTemplate,
   WardicScaleCorrector,
   WardicLayoutBox,
+  WardicTransformPoint,
   WardicAnimationDefinition,
   WardicTransition,
   WardicTransitionEntries,

@@ -98,3 +98,21 @@ Grilled on #443 (Q1 A, Q7 A). Motion's `MotionConfig` also takes `isValidProp`: 
 
 - **Pinned by:** `small-utilities.browser.test.tsx` SU6 and SU7, `v2/small-utilities.browser.test.tsx` SUV5 and SUV6 (a tag's prop kept off, `on` props unasked, a wrapped component given every prop, a config with none passing it on, an inner one replacing it; the motion props handed on and still driving the element); `small-utilities.ssr.test.tsx` SUS1–SUS4 and SUS6, `v2/small-utilities.ssr.test.tsx` SUSV1–SUSV4 (each binding's list, the mark, `type` on a server, `isValidProp` on a server).
 - **Mutation-checked** with PR 1's hooks (`.tmp/443/mutate.py`, run alone): see ADR-0043's *Note (#443)*. Here: `isValidProp` asked of an `on` prop, a wrapped component filtered, a config with none passing nothing on, either binding's client or Solid 1's server ignoring it; the motion props not forwarded on either binding's client or Solid 1's server; `type` ignored either way; Solid 2 answering Solid 1's list; either binding leaving its components unmarked. All caught.
+
+## Amendment (#443 PR 4, 2026-10-31): `transformPagePoint`
+
+Grilled on #443 (Q6 A): Motion's `MotionConfig` `transformPagePoint` and its two helpers, on both bindings.
+
+- **`WardicConfig`'s `transformPagePoint(point)`**: read from the nearest config at each drag or pan start, an inner config with none passing its parent's on, as `isValidProp`. It maps every point the drag and the pan use, in Wardic's viewport coordinates:
+  - the down and each move (core's `Recognizer.watchDrag` and `watchPan` take a `mapPoint`, read at each down);
+  - an adopted down (Drag controls' `start`), and the snap to the cursor, whose pointer and box centre are mapped;
+  - the boxes drag constraints are measured from, the element's and its container's, each box's top-left and bottom-right corners, as Motion's `measurePageBox`;
+  - `createDrag`'s samples.
+- **Not layout projection boxes,** which Motion also maps: Wardic's projection already reads them through their ancestors' transforms (ADR-0012, #136, #137), so mapping them again would count a zoom twice. A layout element's drag follows the pointer inside a zoomed parent all the same (PP4), its offsets mapped.
+- **Hover and press points aren't mapped,** as Motion maps only pan sessions'.
+- **The helpers,** `correctParentTransform(parent)` and `transformViewBoxPoint(svg)`, take an element or an accessor of one, read at each point, and work in viewport coordinates: Motion's add the page's scroll, as its points are the page's. The first turns a point through the inverse of the parent's transform about its centre (Motion's `getInverseMatrix`, here through `DOMMatrixReadOnly`); the second scales it into the SVG's viewBox about its top left corner.
+- **A point the hold of a pointer counts the page's scroll into** (ADR-0019, *Amendment (Reorder)*) is mapped where it is on the screen, and that scroll is added back after.
+- It lifts ADR-0012's decision 4: inside a scaled or rotated parent, a drag follows the pointer when the app gives the mapping (*Amendment (#443)* there).
+
+- **Pinned by:** `page-point.browser.test.tsx` PP1–PP9 (a 2× parent with and without it, a rotated one, constraints, a layout drag, an SVG viewBox, a pan, an inner config and a new mapping read at the next start, a snap to the cursor, `createDrag`) and `v2/page-point.browser.test.tsx` PPV1–PPV3 (`wardic.div` and a ward, `createDrag`, a ward's pan); on a server, `small-utilities.ssr.test.tsx` SUS9 and `v2/…` SUSV8.
+- **Mutation-checked** (`.tmp/443/mutate4.py`, run alone): 18 single-point mutations, all caught. They covered: a drag's or a pan's points not mapped, the mapping read once rather than at each down; either binding's drag, pan or `createDrag` not given it; the constraints or a box's corners not mapped; the snap not mapped; an inner config not passing it on; `correctParentTransform` passing the point, or its inverse's off-diagonals swapped; the viewBox scale inverted; a helper throwing with no element.

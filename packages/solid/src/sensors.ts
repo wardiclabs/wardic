@@ -27,6 +27,8 @@ import { type CreateDragOptions, watchDragSamples } from "./drag-samples.ts"
 import { useWardicReducedMotionSetting, useWardicRuntime } from "./provider.tsx"
 import { watchPressOn } from "./press.ts"
 import { isServer } from "./server.ts"
+import { useWardicConfig } from "./wardic-config.tsx"
+import { transformPagePointOf } from "./wardic-config-value.ts"
 
 export type { CreateDragOptions } from "./drag-samples.ts"
 
@@ -149,8 +151,11 @@ export const createInView = (
  * is on, which it shares with every other drag on `target`; refused one, it gets no samples
  * for that gesture.
  */
-export const createDrag = (target: unknown, options?: CreateDragOptions): Accessor<Drag.Sample | null> =>
-  watchToSignal<Drag.Sample | null>((handlers) => watchDragSamples(target, { ...options }, handlers), null)
+export const createDrag = (target: unknown, options?: CreateDragOptions): Accessor<Drag.Sample | null> => {
+  // Its points through the nearest WardicConfig's `transformPagePoint` (#443), read at each down.
+  const pagePoint = transformPagePointOf(useWardicConfig())
+  return watchToSignal<Drag.Sample | null>((handlers) => watchDragSamples(target, { ...options }, handlers, pagePoint), null)
+}
 
 /**
  * Reactive `prefers-reduced-motion` preference as a boolean `Accessor`. Resolves
