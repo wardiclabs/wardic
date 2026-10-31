@@ -1,13 +1,13 @@
 # Upgrade targets: Effect 4 and Solid 2
 
-> **Status (2026-10-07): the Effect half is done** — `effect` and `@effect/vitest` are on
-> `4.0.2`, the stable line (§1). **The Solid 2 half is still intent only, not scheduled** (§2): treat it as a
-> starting point, not a plan, and re-check every upstream fact before acting on it.
+> **Status (2026-10-31): both halves are done.** `effect` and `@effect/vitest` are on `4.1.1`
+> (§1). The Solid 2 build shipped as `@wardic/solid/unstable/v2` (ADR-0045), now on
+> `2.0.0-rc.20`; §2 below is the intent it started from, kept as written.
 
 Wardic will:
 
 1. **Move off the Effect v4 beta onto the Effect 4 release-candidate line**, and follow it to
-   4.0.0 stable. Done: 4.0.2 (§1).
+   4.0.0 stable. Done: 4.0.2, now 4.1.1 (§1).
 2. **Ship a Solid 2 build of the Solid binding**, targeting the Solid 2.0 release candidates
    and then 2.0 stable.
 
@@ -19,17 +19,21 @@ Wardic will:
 > **Done (2026-10-07): `4.0.2`**, the stable line (4.0.0 shipped on 2026-10-01), in #64. What
 > changed, the timing internals re-read at 4.0.2 and the before/after numbers are in
 > [`docs/research/effect-4-stable-upgrade.md`](../research/effect-4-stable-upgrade.md).
-> Next: bump 4.x deliberately, one version at a time, re-checking with that doc's last section.
+>
+> **Done (2026-10-31): `4.1.1`**, in #460's first PR, with Solid `2.0.0-rc.20` and `1.9.18`. No
+> code change; the read is [`docs/research/effect-4-1-upgrade.md`](../research/effect-4-1-upgrade.md).
+> Next: bump 4.x deliberately, one version at a time, re-checking with
+> [the 4.0.2 doc's last section](../research/effect-4-stable-upgrade.md#re-checking-at-the-next-bump).
 
 ### Where we are
 
-`effect` is pinned **exactly** at `4.0.2` in the root, in `@wardic/solid`'s dev dependencies and
-in `examples/layout-lab`, and `@effect/vitest` is pinned to the same exact version in the root.
-The `@wardic/core`, `@wardic/dom`, `@wardic/test` and `@wardic/solid` peers take **`^4.0.2`**.
+`effect` is pinned **exactly** at `4.1.1` in the root, in `@wardic/solid`'s dev dependencies and
+in the examples, and `@effect/vitest` is pinned to the same exact version in the root. The
+`@wardic/core`, `@wardic/dom`, `@wardic/test` and `@wardic/solid` peers take **`^4.1.1`**.
 
-Effect is published from **`Effect-TS/effect`** (tag `effect@4.0.2` = `269a7c86`; rc.117 was
-`14a3f140`), not from `effect-smol`. `.reference/effect` (the local, uncommitted Effect source
-copy) is that repository at that commit; re-download it from
+Effect is published from **`Effect-TS/effect`** (`packages/effect`; tag `effect@4.1.1` =
+`bc492f09`, 4.0.2 was `269a7c86`, rc.117 `14a3f140`), not from `effect-smol`. `.reference/effect`
+(the local, uncommitted Effect source copy) is that repository at that commit; re-download it from
 `https://codeload.github.com/Effect-TS/effect/tar.gz/<tag commit>` at the next bump.
 
 ### What the upgrades needed

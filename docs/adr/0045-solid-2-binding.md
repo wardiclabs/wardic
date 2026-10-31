@@ -811,3 +811,26 @@ rc.18 to rc.19 changed nothing in Wardic. What it changes beside it:
   - **Cost** (`bun run bench:solid`, against main at eb8b89c): Solid 2's warm mount −1.5%, Retarget −3.2%, within noise (control −1.4%); bytes +0.7%; retained +0.14 KB per element (+0.7%; +1.0% for a Reorder item), the spread's object and its ward's closure, which Solid's `merge` memo now holds beside the ward, the same with either kind of object. Solid 1 flat.
 - **Pinned by:** `v2/ward-spread-props.browser.test.tsx` WP1–WP5 (`name`, `length`, `read`, `next` and `with` on `wardic.input`, beside a plain element's `{...card}`, on a `wardic.create` component and beside a Reorder group's spread; the call's props alone, on no prototype); `v2/ward-spread-props.ssr.test.tsx` WPS1; `ward-spread-props.browser.test.tsx` WP1, a guard on Solid 1, whose spread is `ward(userProps)`'s plain object.
 - **Mutation-checked** (`.tmp/495/mutate.py`): seven, six caught: the client ward or the group returning itself, a Reorder item's attributes left out of its spread (RK1–RK5), the drag defaults left out (WP5), a `.with()` or the props on `Object.prototype`. The server ward returning itself isn't: WPS1 passes either way.
+
+## Note (#460, 2026-10-31): rc.20
+
+Bumped per decision 9, as #460's first PR, with Effect 4.1.1 and Solid 1.9.18 ([`docs/research/effect-4-1-upgrade.md`](../research/effect-4-1-upgrade.md)):
+- `solid-js` (`solid-js-2`), `@solidjs/web` and `@solidjs/diagnostics` are pinned at 2.0.0-rc.20 in dev, with `@solidjs/signals` beside them, and the peer floor is `^2.0.0-rc.20`;
+- the examples move to rc.20 too. `@solidjs/router` 2.0.0-next.42 and `@solidjs/vite-plugin` 3.0.0-next.51 stay: rc.20 meets their peers (next.43 and next.54 exist).
+
+rc.19 to rc.20 changed nothing in Wardic. What it changes beside it:
+- **`latest()`** no longer opens a transaction, so a `latest(a)` read beside `b()` can't pair `a`'s new value with `b`'s old one. An uninitialized async memo re-asked in a verdict lane throws `NotReady` instead of returning `undefined`. The in-flight setup read (#335) uses `latest()`.
+- **`isPending`** read through a memo settles when its action completes, and a derived store's key isn't pending at its first landing. The docs' `isPending(() => card.settled())` and `isPending(() => card.tapped())` read it inline.
+- **`<Errored>` and `<Loading>`:** a dozen fixes for recovery, holds and hydration, for apps such as the storefront's Solid 2 app.
+- **The "multiple instances of Solid" warning** fires only when two copies meet, so Solid 1 and Solid 2 roots on one page no longer warn.
+- **The skills:** writes in one synchronous frame land together, and `onFlush(fn)`, not `queueMicrotask` or `setTimeout`, lands one on its own; hydration runs each adopted compute once with a `Promise` and `fetch` that never settle. Both are for #460's Solid 2 audit to check against the binding.
+- **New:** `@solidjs/element`, a web-components wrapper for Solid. Wardic doesn't use it.
+
+**Checked:**
+- the Solid 2 browser, hydration and server-render suites, unchanged and all passing under #320's diagnostics gate (the full browser run twice);
+- the storefront's three apps: every route, 57, 59 and 57;
+- `examples/solid2-start` built, and every route loaded with nothing logged;
+- `bench:solid` against main, Effect and both Solids together (11 paired reps, 1,000 elements, control +1.7%), with no gate failing. Solid 2:
+  - warm mount +0.3%, Retarget +0.9%, at-rest Retarget +1.9% [+0.7% – +2.0%], unmount −0.8%;
+  - bytes +0.9%, retained +0.3% (hover and press) and +0.8% (the Reorder item, 28.46 KB);
+  - the layout page within noise, and 0.22 KB left after an unmount.

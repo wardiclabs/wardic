@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@wardic/example-storefront-shared": "workspace:*",
-    "effect": "4.0.5",
+    "effect": "4.1.1",
     "motion": "14.6.0",
     "next": "16.4.3",
     "radix-ui": "1.8.1",
