@@ -83,7 +83,6 @@ import type { WardicServices } from "./runtime.ts"
 import type { WardicTransformPoint } from "./config.ts"
 import { subscribeDragControls, type WardicDragControls } from "./drag-controls.ts"
 import { DEFAULT_DRAG_ELASTIC, dragTransitionOf, elasticOf } from "./drag-transition.ts"
-import { frameNow } from "./frame-time.ts"
 
 
 /**
@@ -98,6 +97,8 @@ export interface DragSnapshot {
   velocities: Record<string, number>
   /** When the drag last moved `x` and `y` (#464): their velocity holds 30 ms from then. */
   drawnAt: Record<string, number>
+  /** The time now, on the element's provider's Clock (#460, Q7). */
+  readonly now: () => number
 }
 
 /** The static drag config (read ONCE, untracked, at setup — drag config is a document). */
@@ -349,7 +350,7 @@ const directSet = (opts: DragTrackOptions, p: Point.Point): void => {
   opts.snapshot.velocities.x = 0
   opts.snapshot.velocities.y = 0
   // Moved now (#464): its release's velocity holds from here.
-  const now = frameNow()
+  const now = opts.snapshot.now()
   opts.snapshot.drawnAt.x = now
   opts.snapshot.drawnAt.y = now
   opts.recordFrame({ x: p.x, y: p.y })
@@ -573,7 +574,7 @@ const onReleaseAxis = (axis: Drag.Axis, retargeted: { readonly x: boolean; reado
 const keepVelocity = (opts: DragTrackOptions, v: Point.Point): void => {
   opts.snapshot.velocities.x = v.x
   opts.snapshot.velocities.y = v.y
-  const now = frameNow()
+  const now = opts.snapshot.now()
   opts.snapshot.drawnAt.x = now
   opts.snapshot.drawnAt.y = now
 }

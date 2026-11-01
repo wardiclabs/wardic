@@ -3,21 +3,21 @@ import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Effect from "effect/Effect"
 import * as Logger from "effect/Logger"
 import * as Option from "effect/Option"
-import * as Schema from "effect/Schema"
+import * as Predicate from "effect/Predicate"
 import { expect, it, layer } from "@effect/vitest"
 
-// Pure interpolator tests — no registry or Effect needed. Each entry is a codec and a blend
-// (ADR-0026): `decodes` asks its codec, and `blendOf` decodes both endpoints, then blends.
+// Pure interpolator tests — no registry or Effect needed. Each entry is a parse, a format and a
+// blend (ADR-0026, *Amendment (#511)*): `decodes` asks its parse, and `blendOf` reads both
+// endpoints, then blends.
 
-/** Whether `entry`'s codec decodes `value`: whether the value is the entry's kind. */
-const decodes = <D, E>(entry: Interpolator.Entry<D, E>, value: unknown): boolean =>
-  Option.isSome(Schema.decodeUnknownOption(entry.codec)(value))
+/** Whether `entry`'s parse reads `value`: whether the value is the entry's kind. */
+const decodes = <D, E>(entry: Interpolator.Entry<D, E>, value: unknown): boolean => Option.isSome(entry.parse(value))
 
-/** `entry`'s blend of two endpoints, decoded by its codec, at `t`. */
+/** `entry`'s blend of two endpoints, read by its parse, at `t`. */
 const blendOf =
   <D, E>(entry: Interpolator.Entry<D, E>, from: unknown, to: unknown) =>
   (t: number): E => {
-    const decode = Schema.decodeUnknownSync(entry.codec)
+    const decode = (value: unknown): D => Option.getOrThrow(entry.parse(value))
     return Option.getOrThrow(entry.blend(decode(from), decode(to)))(t)
   }
 
@@ -178,7 +178,8 @@ layer(InterpolatorRegistry.layer)("interpolator registry (registration precedenc
       const registry = yield* InterpolatorRegistry.InterpolatorRegistry
       yield* registry.register({
         name: "always-999",
-        codec: Schema.Number,
+        parse: Option.liftPredicate(Predicate.isNumber),
+        format: (n: number) => n,
         blend: () => Option.some(() => 999),
       })
       const result = yield* registry.interpolate(0, 10, 0.5)
@@ -224,7 +225,8 @@ it.effect("register empties the cache: a pair kept before it resolves through th
     expect((yield* registry.resolve("10px", "20px"))(0.5)).toBe("15px")
     yield* registry.register({
       name: "always-shout",
-      codec: Schema.String,
+      parse: Option.liftPredicate(Predicate.isString),
+      format: (s: string) => s,
       blend: () => Option.some(() => "SHOUT"),
     })
     expect((yield* registry.resolve("10px", "20px"))(0.5)).toBe("SHOUT")

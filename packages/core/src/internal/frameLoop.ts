@@ -51,13 +51,11 @@ import * as Data from "effect/Data"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
-import type * as Fiber from "effect/Fiber"
 import * as FiberHandle from "effect/FiberHandle"
 import { constUndefined, identity } from "effect/Function"
 import * as Metric from "effect/Metric"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
-import * as References from "effect/References"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as Tracer from "effect/Tracer"
@@ -66,6 +64,7 @@ import type * as Frame from "../Frame.ts"
 import * as Supersede from "../Supersede.ts"
 import type * as FrameLoop from "../FrameLoop.ts"
 import type * as Machine from "../Machine.ts"
+import { isTraced, traced } from "./tracing.ts"
 
 // @wardic/core compiles against ES2022 alone, which does not declare `performance` (see
 // refresh-frame-clock.ts). It is a host global in every Environment Wardic targets.
@@ -205,13 +204,6 @@ const countEnd = (exit: Exit.Exit<unknown>): Effect.Effect<void> => {
   if (Cause.hasInterruptsOnly(exit.cause)) return Effect.void
   return Metric.update(failedRuns, 1)
 }
-
-/**
- * Whether a fiber's spans reach anything (#460): a tracer installed, other than Effect's default
- * `nativeTracer` (the comparison Effect's `Tracer` documents for this), and tracing on.
- */
-const isTraced = (fiber: Fiber.Fiber<unknown, unknown>): boolean =>
-  fiber.getRef(Tracer.Tracer) !== Tracer.nativeTracer && fiber.getRef(References.TracerEnabled)
 
 /** A run's wait for its end. Built once (#460). */
 const settledOf = (entry: Entry): Effect.Effect<Frame.Frame<unknown> | Supersede.Superseded> => Deferred.await(entry.settled)
@@ -374,7 +366,7 @@ export const make = Effect.fnUntraced(
       Stream.takeUntil(identity),
       Stream.runDrain,
       Effect.onExit((exit) => Effect.sync(() => endAll(exit))),
-      Effect.withSpan("wardic.frameloop", { root: true }, { captureStackTrace: false }),
+      (self) => traced(self, "wardic.frameloop", { root: true }),
       Effect.provideContext(buildContext),
     )
 
@@ -466,5 +458,5 @@ export const make = Effect.fnUntraced(
 
     return { run: runIn(entries), runLast: runIn(lastEntries), afterTick } satisfies Shape
   },
-  Effect.withSpan("wardic.frameloop.make", undefined, { captureStackTrace: false }),
+  (self) => traced(self, "wardic.frameloop.make"),
 )

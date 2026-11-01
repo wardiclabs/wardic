@@ -86,7 +86,7 @@ describe("Motion's ease (#360)", () => {
 
   it("ME4: a bag still giving easing is rejected, naming ease", () => {
     const bag = { duration: 1, easing: Easing.easeIn } as unknown as Machine.AnimateOptions
-    expect(() => Machine.animate(0, 1, bag)).toThrow(expect.objectContaining({ name: "SchemaError", message: expect.stringContaining("Wardic's `easing` is `ease` now") }))
+    expect(() => Machine.animate(0, 1, bag)).toThrow(expect.objectContaining({ name: "OptionError", message: expect.stringContaining("Wardic's `easing` is `ease` now") }))
   })
 
   it("ME5: keyframes take one ease per Segment, wrapping round; four numbers are one bézier", () => {

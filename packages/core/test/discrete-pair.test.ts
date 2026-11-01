@@ -3,7 +3,6 @@ import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Effect from "effect/Effect"
 import * as Logger from "effect/Logger"
 import * as Option from "effect/Option"
-import * as Schema from "effect/Schema"
 import { expect, layer } from "@effect/vitest"
 
 // A Discrete pair (CONTEXT.md, ADR-0024 decision 3): a pair no Interpolator can blend switches to
@@ -42,7 +41,7 @@ layer(InterpolatorRegistry.layer)("the registry's Discrete pairs", (it) => {
     Effect.gen(function* () {
       const from = "M0,0 L10,10"
       const to = "M0,0 C1,1 2,2 3,3"
-      const decode = Schema.decodeUnknownSync(Interpolator.complex.codec)
+      const decode = (value: string) => Option.getOrThrow(Interpolator.complex.parse(value))
       expect(Interpolator.complex.blend(decode(from), decode(to))).toEqual(Option.none())
       expect(yield* resolved(from, to)).toEqual({ start: from, first: to, half: to, end: to })
     }),
@@ -50,7 +49,7 @@ layer(InterpolatorRegistry.layer)("the registry's Discrete pairs", (it) => {
 
   it.effect("DP2: the unit tier doesn't decode an unparseable value, so resolve switches the pair at the first frame past 0", () =>
     Effect.gen(function* () {
-      expect(Schema.decodeUnknownOption(Interpolator.unit.codec)("auto")).toEqual(Option.none())
+      expect(Interpolator.unit.parse("auto")).toEqual(Option.none())
       expect(yield* resolved("auto", "10px")).toEqual({ start: "auto", first: "10px", half: "10px", end: "10px" })
     }),
   )

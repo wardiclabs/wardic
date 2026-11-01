@@ -8,10 +8,9 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Match from "effect/Match"
 import * as Predicate from "effect/Predicate"
-import * as Schema from "effect/Schema"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { SpringOptions } from "./Machine.ts"
-import { cachedResolver, field, NonNegative, optionalField, Positive } from "./internal/options.ts"
+import { cachedResolver, field, finite, nonNegative, optionalField, positive } from "./internal/options.ts"
 import type { PhysicsStepResult } from "./internal/stepper.ts"
 
 // --- Presets: drop into `Machine.spring(…)` or a `transition`. `gentle` and `stiff` are the
@@ -86,23 +85,23 @@ export interface Rest {
 }
 
 /**
- * A spring's options as a Schema (#66, ADR-0025 *Amendment (#66)*): the plain bag is its encoded
- * side, checked field by field, each default filled in after. `from` and `velocity` are `init`'s,
- * checked here.
+ * A spring's options (#66, ADR-0025 *Amendment (#66)*; checked by hand since #511, *Amendment
+ * (#511)*): the plain bag, checked field by field, each default filled in. `from` and `velocity`
+ * are `init`'s, checked here.
  */
 const Options = {
-  stiffness: optionalField(Positive),
-  damping: optionalField(NonNegative),
-  mass: optionalField(Positive),
-  restDelta: optionalField(Positive),
-  restSpeed: optionalField(Positive),
-  delay: field(NonNegative, 0),
-  from: optionalField(Schema.Finite),
-  velocity: optionalField(Schema.Finite),
+  stiffness: optionalField(positive),
+  damping: optionalField(nonNegative),
+  mass: optionalField(positive),
+  restDelta: optionalField(positive),
+  restSpeed: optionalField(positive),
+  delay: field(nonNegative, 0),
+  from: optionalField(finite),
+  velocity: optionalField(finite),
   // A time-based spring's (#359, Motion's `DurationSpringOptions`), in seconds.
-  duration: optionalField(NonNegative),
-  bounce: optionalField(Schema.Finite),
-  visualDuration: optionalField(Positive),
+  duration: optionalField(nonNegative),
+  bounce: optionalField(finite),
+  visualDuration: optionalField(positive),
 }
 
 /** A spring's physics: its stiffness, damping and mass, and how long it runs after its delay. */
@@ -225,9 +224,9 @@ const physicsOf: (d: Decoded) => Physics = Match.type<Decoded>().pipe(
  * Motion's) is solved to its physics instead: a `duration` (with a `bounce`, default 0.3, or a
  * `bounce` alone, a duration of 0.8 s) by Motion's `findSpring`, ending at that duration; a
  * `visualDuration` (with a `bounce`, default 0) by Motion's closed form, ending at rest. A
- * `stiffness`, `damping` or `mass` given beside wins over them. Decoded once a bag (#66): a value no
+ * `stiffness`, `damping` or `mass` given beside wins over them. Checked once a bag (#66): a value no
  * spring can take (a stiffness or mass at or below 0, a negative damping or duration, NaN,
- * Infinity) throws its `SchemaError`, naming the field.
+ * Infinity) throws its `OptionError` (`Machine.OptionError`), naming the field.
  */
 export const resolve: (options: SpringOptions) => Resolved = cachedResolver(Options, (decoded): Resolved => {
   const physics = physicsOf(decoded)

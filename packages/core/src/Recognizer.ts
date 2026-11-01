@@ -27,6 +27,7 @@ import type * as Point from "./Point.ts"
 import * as PressClaims from "./PressClaims.ts"
 import * as Probe from "./Probe.ts"
 import * as Velocity from "./Velocity.ts"
+import { tracedScoped } from "./internal/tracing.ts"
 
 /**
  * One state recognizer's fold: a start state, a pure step per event, and the boolean
@@ -56,10 +57,13 @@ const watchFeed = <Ev>(
   makeHandle: () => (event: Ev) => boolean,
   handlers: Pick<InputFeed.Handlers<never>, "onDefect" | "onEnd">,
 ): Effect.Effect<void, never, Scope.Scope> =>
-  Effect.logDebug(`${span}: watch`).pipe(
-    Effect.andThen(InputFeed.watchWith(feed, makeHandle, handlers)),
-    Effect.annotateLogs(attributes),
-    Effect.withSpanScoped(span, { attributes, captureStackTrace: false }),
+  tracedScoped(
+    Effect.logDebug(`${span}: watch`).pipe(
+      Effect.andThen(InputFeed.watchWith(feed, makeHandle, handlers)),
+      Effect.annotateLogs(attributes),
+    ),
+    span,
+    { attributes },
   )
 
 /**
@@ -507,7 +511,7 @@ export const watchPress: (
     yield* InputFeed.watchWith(input.focus(target), () => focuses, watching)
     if (focusWithin(target)) openKeys()
   },
-  Effect.withSpanScoped("wardic.press", { attributes: {}, captureStackTrace: false }),
+  (self) => tracedScoped(self, "wardic.press"),
 )
 
 /**

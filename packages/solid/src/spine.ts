@@ -63,7 +63,7 @@ import type {
   WardicVariantTransition,
 } from "./config.ts"
 import { type ControlsChange, join, leave } from "./animation-controls.ts"
-import { frameNow, MAX_VELOCITY_DELTA, NOMINAL_FRAME } from "./frame-time.ts"
+import { clockNowOf, frameNow, MAX_VELOCITY_DELTA, NOMINAL_FRAME } from "./frame-time.ts"
 import { type LiveStyle, serverRegistryOf, turnsWillChangeOn, valuesOf } from "./live-style.ts"
 import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "./presence-record.ts"
 import type { DragTrack } from "./drag-track.ts"
@@ -638,11 +638,11 @@ const blendVelocityOf = (running: Running, key: string): number => {
   return (((last as number) - (before as number)) * 1000) / apart
 }
 
-/** A leg's frame drawn (#325): its last lands the keys it draws. Per frame: plain calls. */
-const drew = (running: Running, done: boolean): void => {
+/** A leg's frame drawn (#325) at `now`: its last lands the keys it draws. Per frame: plain calls. */
+const drew = (running: Running, done: boolean, now: number): void => {
   if (done) running.done = true
   running.frames++
-  running.lastAt = frameNow()
+  running.lastAt = now
   running.landing.report(done)
 }
 
@@ -1467,13 +1467,15 @@ export interface Snapshot {
   drawnAt: Record<string, number>
   /** The leg drawing each key, its spine's (#464): a running leg's velocity is read from it. None before its spine runs. */
   owners: ReadonlyMap<string, Running | undefined> | undefined
+  /** The time now, its provider's Clock's once its spine runs (#460, Q7), {@link frameNow} before. */
+  now: () => number
 }
 
 /** A Snapshot seeded from the Starting values, velocities 0, so frame 1 flows out of the seed (no snap). */
 export const snapshotOf = (start: Start): Snapshot => emptySnapshotOf({ ...start.initialValues })
 
 /** A Snapshot of `values`, nothing moving: read as it is until a spine reads it. */
-export const emptySnapshotOf = (values: Values.Values): Snapshot => ({ values, velocities: {}, drawnAt: {}, owners: undefined })
+export const emptySnapshotOf = (values: Values.Values): Snapshot => ({ values, velocities: {}, drawnAt: {}, owners: undefined, now: frameNow })
 
 // --- Velocities (#464) ---------------------------------------------------------------------------
 
@@ -1514,13 +1516,13 @@ const velocityAt = (snapshot: Snapshot, owner: Running | undefined, key: string,
 const letGo = (snapshot: Snapshot, key: string, running: Running): void => {
   if (running.frames === 0) return
   if (!Predicate.isNumber(snapshot.values[key])) return
-  snapshot.velocities[key] = velocityAt(snapshot, running, key, frameNow())
+  snapshot.velocities[key] = velocityAt(snapshot, running, key, snapshot.now())
   snapshot.drawnAt[key] = running.lastAt
 }
 
 /** Every numeric key's velocity now (#464): a presence's exit and takeover read it (#286). */
 export const velocitiesNowOf = (snapshot: Snapshot): Readonly<Record<string, number>> => {
-  const now = frameNow()
+  const now = snapshot.now()
   const owners = snapshot.owners
   return Rec.map(Rec.filter(snapshot.values, Predicate.isNumber), (_, key) =>
     velocityAt(snapshot, UndefinedOr.match(owners, { onUndefined: constUndefined, onDefined: (map) => map.get(key) }), key, now))
@@ -1901,6 +1903,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
 
   // The legs drawing each key: a running leg's velocity is read from it (#464).
   snapshot.owners = owners
+  // Its time, its provider's Clock's (#460, Q7).
+  snapshot.now = clockNowOf(runtime)
   // Each key's velocity, at the time the Retarget or Imperative animation reading it read (#464).
   let readAt = 0
   const readVelocity: Velocities = (key) => velocityAt(snapshot, owners.get(key), key, readAt)
@@ -1989,7 +1993,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
           snapshot.velocities[key] = velocity
           gate.write(id, out)
           recordFrame(out)
-          drew(running, frame.done)
+          drew(running, frame.done, snapshot.now())
           return undefined
         }, running)
       )
@@ -2006,7 +2010,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
           snapshot.velocities = { ...snapshot.velocities, ...running.velocities(frame.velocity) }
           gate.write(id, value)
           recordFrame(value)
-          drew(running, frame.done)
+          drew(running, frame.done, snapshot.now())
           return undefined
         }, running)
       )
@@ -2021,7 +2025,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       // Its first frame: from the Snapshot's values, a nominal frame before it.
       if (Predicate.isUndefined(before)) {
         before = snapshot.values
-        beforeAt = frameNow() - NOMINAL_FRAME
+        beforeAt = snapshot.now() - NOMINAL_FRAME
       }
       running.before = before
       running.beforeAt = beforeAt
@@ -2029,7 +2033,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       snapshot.values = { ...snapshot.values, ...value }
       gate.write(id, value)
       recordFrame(value)
-      drew(running, frame.done)
+      drew(running, frame.done, snapshot.now())
       return undefined
     }
     if (leg._tag === "Snap") {
@@ -2303,7 +2307,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // The keys whose two ends may be a Measured pair (#430), found in the pass below.
     let measuring: Array<string> | undefined
     // Each key's velocity, read now (#464), for a key a spring starts or one already there.
-    readAt = frameNow()
+    readAt = snapshot.now()
     Arr.forEach(Rec.keys(t), (key) => {
       if (!Object.hasOwn(initialValues, key)) ownValue(key)
       const like = t[key]
@@ -2548,7 +2552,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
           snapshot.values = { ...snapshot.values, ...value }
           gate.write(id, value)
           recordFrame(value)
-          drew(running, frame.done)
+          drew(running, frame.done, snapshot.now())
           return undefined
         }
         reporting++
@@ -2675,7 +2679,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     Object.assign(snapshot.values, values)
     snapshot.velocities = { ...snapshot.velocities, ...from.velocities }
     // Drawn now, by the leaver (#464).
-    const now = frameNow()
+    const now = snapshot.now()
     Arr.forEach(Rec.keys(from.velocities), (key) => {
       snapshot.drawnAt[key] = now
     })
@@ -2701,7 +2705,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     let measuring: Array<string> | undefined
     // Each key taken from whatever runs it, noted with its target now, and started where it's drawn.
     // Its velocity read now (#464), as its legs are built.
-    readAt = frameNow()
+    readAt = snapshot.now()
     if (taken === NONE_TAKEN) taken = new Map()
     const takenNow = taken
     Arr.forEach(Rec.keys(to), (key) => {
@@ -2766,7 +2770,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       snapshot.values = { ...snapshot.values, ...from }
       snapshot.velocities = { ...snapshot.velocities, ...Rec.map(from, () => 0) }
       // Put back at once: at rest, newer than the legs that let them go (#464).
-      const now = frameNow()
+      const now = snapshot.now()
       Arr.forEach(Rec.keys(from), (key) => {
         snapshot.drawnAt[key] = now
       })

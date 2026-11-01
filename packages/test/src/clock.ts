@@ -13,13 +13,21 @@ import * as UndefinedOr from "effect/UndefinedOr"
 /**
  * A deterministic Clock for frame-level tests. `ticks` replays the supplied `dt`
  * sequence (in seconds) exactly once, so a primitive's per-frame output can be
- * collected with `Stream.runCollect` and asserted. A live Clock (rAF-driven) is
+ * collected with `Stream.runCollect` and asserted. Its `now` is the time those
+ * ticks have reached, in ms, from 0 (#460). A live Clock (rAF-driven) is
  * `@wardic/dom`'s.
  */
-export const makeTestClock = (frames: ReadonlyArray<number> = []) => ({
-  ticks: Stream.fromIterable(frames),
-  tick: (_t: number) => Effect.sync(() => {}),
-})
+export const makeTestClock = (frames: ReadonlyArray<number> = []): Clock.Clock["Service"] => {
+  const time = MutableRef.make(0)
+  return {
+    ticks: Stream.map(Stream.fromIterable(frames), (dt) => {
+      MutableRef.update(time, (t) => t + dt * 1000)
+      return dt
+    }),
+    tick: (_t: number) => Effect.sync(() => {}),
+    now: () => MutableRef.get(time),
+  }
+}
 
 /** Clock Layer that emits `frames` (dt values, seconds) then completes. */
 export const layer = (frames: ReadonlyArray<number> = []): Layer.Layer<Clock.Clock> =>
@@ -79,7 +87,8 @@ const makeFrames = () => {
  * is one Refresh frame in the web's order: it runs the frames requested so far (a flush gate's
  * flush of a write made outside a tick), in request order, then publishes `dt` (the Clock's
  * tick, at whose end a Frame loop over this Clock calls its `afterTick` hooks: the gate's
- * flush, ADR-0033). A frame requested during that `advance` waits for the next one. The frames' timestamps start at 0 and advance by `dt`.
+ * flush, ADR-0033). A frame requested during that `advance` waits for the next one. The frames' timestamps start at 0 and advance by `dt`,
+ * and the Clock's `now` is the last one's (#460): a test's advances drive velocities too.
  *
  * It doesn't yield (ADR-0032): a subscriber waiting on the ticks handles the tick inside the
  * publish, as every subscriber does inside a real Refresh frame's callback, so a consumer that
@@ -105,6 +114,7 @@ export const pushable: () => Effect.Effect<{
         Layer.succeed(Clock.Clock, {
           ticks: Stream.fromPubSub(pubsub),
           tick: (_t: number) => Effect.sync(() => {}),
+          now: () => MutableRef.get(time),
         }),
         RefreshFrameSource.layer(frames.source),
       ),

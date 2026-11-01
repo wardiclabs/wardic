@@ -1,7 +1,7 @@
 // The DOM Environment's colours (#160, ADR-0036; `@wardic/dom`'s `colors.ts`): CSS Color syntax
 // through culori, as a tier of the DOM's registry (`cssColor`) and as a kind of token in its complex
 // tier (`cssComplex`, #61). Moved from core when colours left it, so the Test Environment has none:
-// - CL1–CL5, `ColorString`: core's `codecs.test.ts`.
+// - CL1–CL5, `Color.parse` and `Color.format` (`ColorString` before #511): core's `codecs.test.ts`.
 // - CL6, the colour Interpolator: core's `interpolate.test.ts`.
 // - CL7–CL10, the registry: core's `discrete-pair.test.ts` (DP9, DP11, DP12, and the colour cases of
 //   DP5, DP13 and DP15) and `interpolate.test.ts`.
@@ -23,23 +23,22 @@ import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as Logger from "effect/Logger"
 import * as Option from "effect/Option"
-import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 
-const decodeColor = Schema.decodeUnknownOption(Color.FromString)
-const decodeComplex = Schema.decodeUnknownOption(cssComplex.codec)
+const decodeColor = Color.parse
+const decodeComplex = cssComplex.parse
 
-/** Schema's decode, then Schema's encode. */
+/** A parse, then a format. */
 const roundTrip =
-  <T, E>(codec: Schema.Codec<T, E>) =>
+  <T, E>(entry: { readonly parse: (input: unknown) => Option.Option<T>; readonly format: (value: T) => E }) =>
   (input: unknown): E =>
-    Schema.encodeSync(codec)(Schema.decodeUnknownSync(codec)(input))
+    entry.format(Option.getOrThrow(entry.parse(input)))
 
 /** Every input decodes to `None`. */
 const rejectsAll = (decode: (input: unknown) => Option.Option<unknown>, inputs: ReadonlyArray<unknown>) =>
   expect(Arr.map(inputs, decode)).toEqual(Arr.map(inputs, () => Option.none()))
 
-describe("ColorString", () => {
+describe("Color.parse and Color.format", () => {
   it("CL1: decodes what culori parses, trimmed, in the space it's written in", () => {
     expect(Option.map(decodeColor("#000"), (color) => color.mode)).toEqual(Option.some("rgb"))
     expect(Option.map(decodeColor(" #000 "), (color) => color.mode)).toEqual(Option.some("rgb"))
@@ -65,21 +64,21 @@ describe("ColorString", () => {
   })
 
   it("CL4: encodes as rgb() / rgba(), so a round trip canonicalises", () => {
-    expect(roundTrip(Color.FromString)("#000")).toBe("rgb(0, 0, 0)")
-    expect(roundTrip(Color.FromString)("rgba(0,0,0,0.5)")).toBe("rgba(0, 0, 0, 0.5)")
-    expect(roundTrip(Color.FromString)("hsl(0 100% 50%)")).toBe("rgb(255, 0, 0)")
-    expect(roundTrip(Color.FromString)("rebeccapurple")).toBe("rgb(102, 51, 153)")
+    expect(roundTrip(Color)("#000")).toBe("rgb(0, 0, 0)")
+    expect(roundTrip(Color)("rgba(0,0,0,0.5)")).toBe("rgba(0, 0, 0, 0.5)")
+    expect(roundTrip(Color)("hsl(0 100% 50%)")).toBe("rgb(255, 0, 0)")
+    expect(roundTrip(Color)("rebeccapurple")).toBe("rgb(102, 51, 153)")
   })
 
   it("CL5: is idempotent once canonical", () => {
     const inputs = ["#000", " #fff ", "rgba(10, 20, 30, 0.25)", "hsl(120 50% 50%)", "transparent", "rebeccapurple"]
-    const once = Arr.map(inputs, roundTrip(Color.FromString))
-    expect(Arr.map(once, roundTrip(Color.FromString))).toEqual(once)
+    const once = Arr.map(inputs, roundTrip(Color))
+    expect(Arr.map(once, roundTrip(Color))).toEqual(once)
   })
 })
 
 it("CL6: the colour Interpolator decodes '#fff', 'rgb(0,0,0)' and 'rebeccapurple' through culori's parse, not 'auto'", () => {
-  const decodes = (value: string): boolean => Option.isSome(Schema.decodeUnknownOption(Color.css.codec)(value))
+  const decodes = (value: string): boolean => Option.isSome(Color.css.parse(value))
   expect(Arr.map(["#fff", "rgb(0,0,0)", "rebeccapurple", "auto"], decodes)).toEqual([true, true, true, false])
 })
 
@@ -166,8 +165,8 @@ describe("colour tokens in the DOM's complex values (#61)", () => {
   })
 
   it("CL12: encodes a colour token as rgb() / rgba()", () => {
-    expect(roundTrip(cssComplex.codec)("0px 0px 5px rgba(0,0,0,0.5)")).toBe("0px 0px 5px rgba(0, 0, 0, 0.5)")
-    expect(roundTrip(cssComplex.codec)("0px 0px 5px #f00")).toBe("0px 0px 5px rgb(255, 0, 0)")
+    expect(roundTrip(cssComplex)("0px 0px 5px rgba(0,0,0,0.5)")).toBe("0px 0px 5px rgba(0, 0, 0, 0.5)")
+    expect(roundTrip(cssComplex)("0px 0px 5px #f00")).toBe("0px 0px 5px rgb(255, 0, 0)")
   })
 
   it("CL13: blends a shadow's colour as a colour, in sRGB as the colour tier does", () => {
@@ -251,7 +250,7 @@ describe("a spring's colour (ADR-0024, decision 5)", () => {
 })
 
 describe("Wardic's own sRGB blend (#156): culori's strings, without a colour object per frame", () => {
-  const decode = Schema.decodeUnknownSync(Color.FromString)
+  const decode = (value: string) => Option.getOrThrow(Color.parse(value))
   /** `entry`'s blend of two colour strings. */
   const blendWith = (entry: typeof Color.css, from: string, to: string) => Option.getOrThrow(entry.blend(decode(from), decode(to)))
   /** culori's own: `formatRgb(interpolate([from, to], mode)(t))`. */
@@ -319,7 +318,7 @@ describe("Wardic's own sRGB blend (#156): culori's strings, without a colour obj
     const same = blendWith(Color.css, "rgb(none 10 20)", "rgb(30 10 20)")
     expect([same(0), same(0.01), same(0.5), same(1.2)]).toEqual(["rgb(0, 10, 20)", "rgb(30, 10, 20)", "rgb(30, 10, 20)", "rgb(30, 10, 20)"])
     // A shadow that grows at one colour: the colour token holds while the lengths blend.
-    const decodeComplex = Schema.decodeUnknownSync(cssComplex.codec)
+    const decodeComplex = (value: string) => Option.getOrThrow(cssComplex.parse(value))
     const shadow = Option.getOrThrow(cssComplex.blend(decodeComplex("0px 2px 4px rgba(0,0,0,0.2)"), decodeComplex("0px 8px 24px rgba(0,0,0,0.2)")))
     expect([shadow(0.5), shadow(1)]).toEqual(["0px 5px 14px rgba(0, 0, 0, 0.2)", "0px 8px 24px rgba(0, 0, 0, 0.2)"])
   })

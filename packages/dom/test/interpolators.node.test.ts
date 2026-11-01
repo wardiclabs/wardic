@@ -11,7 +11,6 @@ import { expect, layer } from "@effect/vitest"
 import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
-import * as Schema from "effect/Schema"
 import * as Interpolator from "@wardic/core/Interpolator"
 
 const at = (fn: (t: number) => unknown) => ({ start: fn(0), first: fn(0.01), half: fn(0.5), end: fn(1) })
@@ -56,9 +55,9 @@ layer(DomInterpolators.layer)("the DOM's Interpolators (#158)", (it) => {
   )
 })
 
-layer(DomInterpolators.layer)("the DOM's complex codec (#158)", (it) => {
+layer(DomInterpolators.layer)("the DOM's complex parse (#158)", (it) => {
   it("CV4: keeps a var() as text, and a lone var() isn't a complex value", () => {
-    const decode = Schema.decodeUnknownOption(cssComplex.codec)
+    const decode = cssComplex.parse
     expect(decode("var(--gray-500)")).toEqual(Option.none())
     expect(decode("0px 4px var(--shadow-1)")).toEqual(Option.some({ parts: ["", "px ", "px var(--shadow-1)"], tokens: [0, 4] }))
     expect(decode("calc(var(--gap-1) * 2)")).toEqual(Option.some({ parts: ["calc(var(--gap-1) * ", ")"], tokens: [2] }))

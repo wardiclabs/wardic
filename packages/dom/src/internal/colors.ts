@@ -9,14 +9,13 @@
  */
 /// <reference path="./culori.d.ts" />
 import { converter, formatRgb, interpolate as culoriInterpolate, parse as culoriParse } from "culori"
-import * as Interpolator from "@wardic/core/Interpolator"
+import type * as Interpolator from "@wardic/core/Interpolator"
 import * as Scalar from "@wardic/core/Scalar"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { identity } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
-import * as Schema from "effect/Schema"
 import * as Str from "effect/String"
 import * as UndefinedOr from "effect/UndefinedOr"
 
@@ -31,26 +30,32 @@ const isColor = (value: unknown): value is Color => Predicate.hasProperty(value,
 
 /**
  * culori's `parse`, with a throw read as no colour. It throws on a CSS function holding a length,
- * `blur(4px)`, `inset(10px)`, `drop-shadow(0px 0px 4px red)`, and the throw escaped the codec's
+ * `blur(4px)`, `inset(10px)`, `drop-shadow(0px 0px 4px red)`, and the throw escaped the colour's
  * decode at `resolve`, so the leg failed (#154).
  */
 const culoriParseOption = Option.liftThrowable(culoriParse)
 
 /** Parse a colour string, trimmed, or `None` when culori rejects it (`"auto"`, `"#zzz"`) or throws on it (`"blur(4px)"`). */
-const parseColor = (input: string): Option.Option<Color> =>
+const parseColorString = (input: string): Option.Option<Color> =>
   Option.filter(Option.flatMap(culoriParseOption(Str.trim(input)), Option.fromUndefinedOr), isColor)
 
 /**
- * A colour string (ADR-0026; CONTEXT.md's "color string") ↔ a culori colour. A string is a colour
- * iff culori's `parse` accepts it, trimmed. It encodes as `rgb(…)` / `rgba(…)` with culori's
- * `formatRgb`, the function the frame calls, so `"#000"` round-trips to `"rgb(0, 0, 0)"`.
+ * A colour string read (ADR-0026; CONTEXT.md's "color string"): a culori colour, or `None` for any
+ * other value. A string is a colour iff culori's `parse` accepts it, trimmed. `Color.parse`, and
+ * the colour Interpolator's `parse` (plain functions since #511, where they were a Schema codec,
+ * `ColorString`).
  */
-export const ColorString: Schema.Codec<Color, string> = Schema.String.pipe(
-  Schema.decodeTo(
-    Schema.declare(isColor),
-    Interpolator.parseAndFormat(parseColor, (color: Color): string => formatRgb(color)),
-  ),
-)
+export const parseColor = (value: unknown): Option.Option<Color> => {
+  if (!Predicate.isString(value)) return Option.none()
+  return parseColorString(value)
+}
+
+/**
+ * A colour written as `rgb(…)` / `rgba(…)` with culori's `formatRgb`, the function the frame
+ * calls, so `"#000"` reads and writes back as `"rgb(0, 0, 0)"`. `Color.format`, and the colour
+ * Interpolator's `format`.
+ */
+export const formatColor = (color: Color): string => formatRgb(color)
 
 // --- sRGB, Wardic's own (#156, ADR-0026 *Amendment (#156)*) ------------------------------------
 //
@@ -167,13 +172,13 @@ const throughCulori = (mode: string, from: Color, to: Color): ((t: number) => st
  * Interpolates colours (ADR-0026). `mode` is the colour space the blend runs in: `"rgb"` by default
  * (sRGB, as WAAPI blends, ADR-0024); pass `"oklch"` / `"lab"` for perceptual blends.
  *
- * Built as a factory so an app can register the space it prefers, over the one `ColorString`
- * codec; the DOM's registry uses `"rgb"` (`cssColor`). A string is a colour iff culori parses it,
- * trimmed, so CSS keywords like `"auto"` / `"inherit"` aren't, and named colours and modern forms
- * culori supports are.
+ * Built as a factory so an app can register the space it prefers, over the one `parseColor` and
+ * `formatColor`; the DOM's registry uses `"rgb"` (`cssColor`). A string is a colour iff culori
+ * parses it, trimmed, so CSS keywords like `"auto"` / `"inherit"` aren't, and named colours and
+ * modern forms culori supports are.
  *
- * `blend` resolves the pair once, when a stream is built, and the frame writes the string the
- * codec's encode (`formatRgb`) would:
+ * `blend` resolves the pair once, when a stream is built, and the frame writes the string `format`
+ * (`formatRgb`) would:
  * - **`"rgb"`** blends with Wardic's own lerp and format (#156, ADR-0026 *Amendment (#156)*), the
  *   strings culori writes, with no colour object per frame; two ends of the same colour write one
  *   string.
@@ -185,7 +190,8 @@ const throughCulori = (mode: string, from: Color, to: Color): ((t: number) => st
  */
 export const color = (mode = "rgb"): Interpolator.Entry<Color, string> => ({
   name: `color(${mode})`,
-  codec: ColorString,
+  parse: parseColor,
+  format: formatColor,
   blend: (from, to) =>
     Option.some(
       Bool.match(mode === "rgb", {

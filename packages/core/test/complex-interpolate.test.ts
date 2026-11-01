@@ -3,16 +3,16 @@ import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
-import * as Schema from "effect/Schema"
+import * as Predicate from "effect/Predicate"
 import { expect, it, layer } from "@effect/vitest"
 
 // Pure interpolator tests — the same-structure tier of path morphing (ADR-0015). The entry is a
-// codec and a blend (ADR-0026): `decodes` asks `ComplexString`, and `blendOf` decodes both
-// endpoints once, then blends.
+// parse, a format and a blend (ADR-0026, *Amendment (#511)*): `decodes` asks `complex.parse`, and
+// `blendOf` reads both endpoints once, then blends.
 
-const decode = Schema.decodeUnknownOption(Interpolator.complex.codec)
+const decode = Interpolator.complex.parse
 
-/** Whether a value is a complex value: whether the entry's codec decodes it. */
+/** Whether a value is a complex value: whether the entry's parse reads it. */
 const decodes = (value: unknown): boolean => Option.isSome(decode(value))
 
 /** The entry's blend of two complex values: `None` when they can't blend. */
@@ -74,7 +74,7 @@ it("matches number by number, written in the target's structure (#61, Motion's m
 it("blends around an Environment's text spans; the target's spans are written (#158, ADR-0035; Motion's)", () => {
   // A made-up syntax, `@name`: core names no Environment's own (the DOM's `var()` is @wardic/dom's).
   const entry = Interpolator.complexWith({ text: [/@[\w-]+/] })
-  const decodeWith = Schema.decodeUnknownSync(entry.codec)
+  const decodeWith = (value: string) => Option.getOrThrow(entry.parse(value))
   const blendWith = (from: string, to: string) => entry.blend(decodeWith(from), decodeWith(to))
   expect(Option.getOrThrow(blendWith("0px 0px 4px @shade-1", "0px 0px 8px @shade-2"))(0.5)).toBe("0px 0px 6px @shade-2")
   // A different count of spans can't blend (Motion's mixComplex, for its var()).
@@ -122,34 +122,30 @@ layer(InterpolatorRegistry.layer)("complex interpolator routing", (it) => {
 })
 
 // Token kinds (#160, ADR-0036): an Environment's kinds of token besides numbers, each a pattern and
-// the Interpolator its tokens decode, blend and encode through. Two made-up kinds, since core names
+// the Interpolator its tokens read, blend and write through. Two made-up kinds, since core names
 // no Environment's own (the DOM's colours are `@wardic/dom`'s, `colors.node.test.ts`): `<n>`, a
 // step that blends rounded, and `!word`, a flag that blends only into itself.
 
 /** `<n>`: a whole step, blended and rounded. */
 const step: Interpolator.Entry<number, string> = {
   name: "step",
-  codec: Schema.String.pipe(
-    Schema.decodeTo(
-      Schema.Number,
-      Interpolator.parseAndFormat(
-        (input: string) => Option.map(Option.fromNullishOr(/^<(-?\d+)>$/.exec(input.trim())), ([, n]) => Number(n)),
-        (n: number) => `<${n}>`,
-      ),
-    ),
-  ),
+  parse: (input) =>
+    Option.flatMap(Option.liftPredicate(input, Predicate.isString), (text) =>
+      Option.map(Option.fromNullishOr(/^<(-?\d+)>$/.exec(text.trim())), ([, n]) => Number(n))),
+  format: (n) => `<${n}>`,
   blend: (from, to) => Option.some((t: number) => `<${Math.round(from + (to - from) * t)}>`),
 }
 
 /** `!word`: a flag, which blends only into itself. */
 const flag: Interpolator.Entry<string, string> = {
   name: "flag",
-  codec: Schema.String,
+  parse: Option.liftPredicate(Predicate.isString),
+  format: (word) => word,
   blend: (from, to) => Option.liftPredicate(() => to, () => from === to),
 }
 
 const stepped = Interpolator.complexWith({ tokens: [{ pattern: /<-?\d+>/, entry: step }, { pattern: /![a-z]+/, entry: flag }] })
-const decodeStepped = Schema.decodeUnknownOption(stepped.codec)
+const decodeStepped = stepped.parse
 const blendStepped = (from: string, to: string): Option.Option<(t: number) => string> =>
   Option.flatMap(Option.all([decodeStepped(from), decodeStepped(to)] as const), ([a, b]) => stepped.blend(a, b))
 const atStepped = (from: string, to: string, t: number): string => Option.getOrThrow(blendStepped(from, to))(t)
@@ -179,10 +175,10 @@ it("TK4: a pair of tokens its kind can't blend makes the pair a Discrete pair", 
   expect(blendStepped("!on 0px", "!off 10px")).toEqual(Option.none())
 })
 
-it("TK5: encodes a kind's token by its kind's encode, and fails on a kind the codec doesn't have", () => {
-  const roundTrip = (input: string) => Schema.encodeSync(stepped.codec)(Schema.decodeUnknownSync(stepped.codec)(input))
+it("TK5: writes a kind's token by its kind's format, and throws on a kind the complex Interpolator doesn't have", () => {
+  const roundTrip = (input: string) => stepped.format(Option.getOrThrow(stepped.parse(input)))
   expect(roundTrip("<03> 1.50px")).toBe("<3> 1.5px")
-  expect(() => Schema.encodeSync(stepped.codec)({ parts: ["", " ", "px"], tokens: [{ kind: "colour", value: 1 }, 4] })).toThrow()
+  expect(() => stepped.format({ parts: ["", " ", "px"], tokens: [{ kind: "colour", value: 1 }, 4] })).toThrow(/token of kind "colour"/)
 })
 
 layer(

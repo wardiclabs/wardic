@@ -38,6 +38,7 @@ import * as RcRef from "effect/RcRef"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
+import { tracedStream } from "./internal/tracing.ts"
 
 /** Options for both constructors. */
 export interface Options {
@@ -74,6 +75,7 @@ const fanIn: <A>(
  * never inspects the target and each distinct target is its own entry. One wrapper is cached per
  * target (the `WeakMap` in {@link byTarget}).
  */
+// Module state (#460, Q7): an id counter, only ever compared for distinctness, so every runtime may share it.
 let nextTargetHash = 1
 class TargetKey implements Equal.Equal {
   readonly hash: number
@@ -136,13 +138,16 @@ export const byTarget: <A>(
       ...idleOf(options),
     })
     return (target: unknown): Stream.Stream<A> =>
-      Stream.unwrap(
-        Effect.gen(function* () {
-          yield* Effect.logDebug("wardic.sharedSource.byTarget: subscribe")
-          const pubsub = yield* RcMap.get(map, keyFor(target))
-          return Stream.fromPubSub(pubsub)
-        }),
-      ).pipe(Stream.withSpan("wardic.sharedSource.byTarget", { captureStackTrace: false }))
+      tracedStream(
+        Stream.unwrap(
+          Effect.gen(function* () {
+            yield* Effect.logDebug("wardic.sharedSource.byTarget: subscribe")
+            const pubsub = yield* RcMap.get(map, keyFor(target))
+            return Stream.fromPubSub(pubsub)
+          }),
+        ),
+        "wardic.sharedSource.byTarget",
+      )
   })
 
 /**
@@ -166,11 +171,14 @@ export const make: <A>(
       acquire: fanIn(acquire),
       ...idleOf(options),
     })
-    return Stream.unwrap(
-      Effect.gen(function* () {
-        yield* Effect.logDebug("wardic.sharedSource.make: subscribe")
-        const pubsub = yield* RcRef.get(ref)
-        return Stream.fromPubSub(pubsub)
-      }),
-    ).pipe(Stream.withSpan("wardic.sharedSource.make", { captureStackTrace: false }))
+    return tracedStream(
+      Stream.unwrap(
+        Effect.gen(function* () {
+          yield* Effect.logDebug("wardic.sharedSource.make: subscribe")
+          const pubsub = yield* RcRef.get(ref)
+          return Stream.fromPubSub(pubsub)
+        }),
+      ),
+      "wardic.sharedSource.make",
+    )
   })

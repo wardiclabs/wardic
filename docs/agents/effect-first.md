@@ -10,7 +10,8 @@ How code in this repo is written: Effect's modules over vanilla TypeScript, and 
    - **Loops:** `Arr`, `Rec` and `Iter` (`map`, `filter`, `reduce`, `findFirst`, …), and `Effect.forEach` / `Effect.all` over Effects. Not `for` or `while`.
    - **Boolean checks:** named `Predicate`s, built with `Predicate`'s combinators and `Num`, `Str` and `Bool`. Not `typeof`, and not hand-written `&&` chains. `Bool.and` and `Bool.or` take values in hand: they read both arguments, so an operand that calls something costly or effectful, or that means anything only once the first holds, goes in `Predicate.and(a, b)(x)` or a statement `if` with an early return (#460, Q8; lint holds it). On the hot path, statements (below).
    - **Missing values:** `Option`. Not `??`, `!` or `=== undefined`. To read a value that is already `A | undefined` (an option bag's `?:` field, a `Map.get`), `UndefinedOr.match` / `map` is fine: it allocates no `Some`.
-   - **The rest, where they fit:** `Match` (on a path that runs per element or per key, a matcher built once with `Match.type` at module level: `Match.value(x).pipe(…)` builds it again on every call; #69's PR 2 measured 136 ns a call against 46); `Schema` wherever values are decoded and encoded (the Interpolators' codecs, ADR-0026; the option bags, #66), never per frame; Services and `Scope`; `Schedule` for policies on wall time. The Clock's frames don't come from `Schedule` or `Scheduler` (ADR-0025, decision 8).
+   - **The rest, where they fit:** `Match` (on a path that runs per element or per key, a matcher built once with `Match.type` at module level: `Match.value(x).pipe(…)` builds it again on every call; #69's PR 2 measured 136 ns a call against 46); Services and `Scope`; `Schedule` for policies on wall time.
+   - **Not `Schema`, in any package's `src`** (#511, ADR-0067 decision 9): it was 54 KB minified of every app. Values are decoded by hand, with Wardic's own checks: an option bag's fields through `internal/options.ts` (each a plain `(value) => true | string`, a rejected bag throwing `Machine.OptionError`, ADR-0025 *Amendment (#511)*), and an Interpolator's values through its `parse` and `format` (ADR-0026 *Amendment (#511)*). Never per frame. Tests and benches may use it where they test something else. The Clock's frames don't come from `Schedule` or `Scheduler` (ADR-0025, decision 8).
 2. **No ternary operators.** Use `Boolean.match`, `Option.match` or `Match`.
 
 Parameter and destructuring defaults (`options = {}`, `{ from = "first" }`) are declarations, not checks. They stay.
@@ -60,7 +61,7 @@ Input-event code (recognizers, reorder, the held pointer) runs per gesture event
 **The allowed forms on the per-frame path:**
 - **Instead of a ternary:** a statement `if` with an early return, or `Math.min` / `Math.max`. A `Boolean.match` is fine only when its handlers are hoisted to module level and capture nothing.
 - **No `Option`, `Match`, `Num.clamp`, `Rec.map` or `Boolean.match` with inline closures on each call,** and no Effect round trip (`Effect.runSync`, a service access) per frame.
-- **Options are resolved once, when the machine is built or started,** and the frame reads plain fields. Each resolver (`Spring.resolve`, `Machine.resolveTween`, the decay's in `internal/stepper.ts`, `Inertia.resolve`) decodes its bag through a Schema, cached by the bag's identity (ADR-0025, *Amendment (#66)*). No caller resolves per frame: dom's projection pass resolves a flight's transition at its start, and a release's at the release.
+- **Options are resolved once, when the machine is built or started,** and the frame reads plain fields. Each resolver (`Spring.resolve`, `Machine.resolveTween`, the decay's in `internal/stepper.ts`, `Inertia.resolve`) checks its bag with Wardic's checks, cached by the bag's identity (ADR-0025, *Amendments (#66, #511)*). No caller resolves per frame: dom's projection pass resolves a flight's transition at its start, and a release's at the release.
 - **A value that may be missing is checked in an early return** (`if (Predicate.isNullish(end)) return fallback`), because `Option` would allocate on every call. Use `Predicate.isNullish` where it replaces `??`, which skips `null` too, and `Predicate.isUndefined` where it replaces `=== undefined`.
 - **A counted numeric loop, or a loop over a stream's keys, stays a `for`.** Examples: `Spring.step`'s substeps, `blendAt`, `Interpolator.complex`'s number-by-number blend. Lint lets exactly the files that need such a loop have one (ADR-0025).
 - **No `!` here either.**
@@ -82,6 +83,21 @@ Code that runs **per key or per element on every Retarget, or per leg**, as well
 - Per mount and below, rule 1's forms as above.
 
 Why: Effect's `dual` keeps its first argument for the data-last closure it might return, so V8 gives every call a context for it, a data-first call too, unless TurboFan has inlined the wrapper into an optimized caller, and its other forms read `arguments`. Most of a binding's per-leg code runs in Maglev, where a data-first `Bool.or` measured 104 B a call, and a pipe built at the call 472 B against 0 for the same predicate composed once (Node, #460). Core's own operations use core's `dual` (`internal/dual.ts`, [`pipeable.md`](pipeable.md)), which allocates nothing on a data-first call in any tier. On the bench page, `dual`'s wrapper was 18 KB of each element's 139 KB a round.
+
+## Module state and time
+
+What a provider's Environment owns lives in its runtime, not in a module (#460, Q7):
+- **Time** is the Environment's: core's `Clock.now`, the same through one synchronous block (`Clock.syncNow`). A binding reads its provider's once per runtime (solid's `clockNowOf`), so a test Environment's Clock drives velocities too.
+- **What stays at module scope,** each with a comment saying why (`// Module state (#460, Q7): …`):
+  - per-frame scratch, written and read within one call (`RUN_PASS`, `setAside`);
+  - a cache built once, keyed by what it caches (`WeakMap`s by value or document; `serverRegistry`, on a server, where no runtime runs);
+  - an id counter, only ever compared for distinctness;
+  - the page's one batch across providers (Measured pairs' end-of-task read).
+- **`queueMicrotask`** stays in plain callbacks, the same end-of-task checkpoint core uses; inside Effect code it's `Microtask.next`.
+
+## Spans
+
+Core opens a span only where something reads it: `internal/tracing.ts`'s `traced`, `tracedScoped` and `tracedStream`, which open it when a tracer other than Effect's default `nativeTracer` is installed and tracing is on (ADR-0040, *Amendment (#460)*), never with a call-site stack. A new span in core goes through them. A Stream's is decided once, when it runs, and the pull it hands on is the Stream's own: a wrapper there, a `Stream.unwrap` among them, runs on every pull.
 
 ## Vanilla to Effect
 
@@ -119,7 +135,7 @@ For a single function, a named import is fine: `import { identity } from "effect
 ## Core's surface
 
 - **Core is Effect-native; the bindings hide Effect** (ADR-0025, decision 7, amending ADR-0008). Core's functions use `Option` for a missing value, in their returns and in the callbacks a binding passes in.
-- **The shapes users write stay plain TypeScript:** option bags, `Values`, the `Frame` types. An option bag is its Schema's encoded side: core decodes it, filling in its defaults and rejecting a value no animation can take (ADR-0025, *Amendment (#66)*). A `?:` field read anywhere else goes through `Option.fromUndefinedOr` / `UndefinedOr`.
+- **The shapes users write stay plain TypeScript:** option bags, `Values`, the `Frame` types. Core checks an option bag by hand with Wardic's checks, filling in its defaults and rejecting a value no animation can take with an `OptionError` naming the field (`Machine.OptionError`; ADR-0025, *Amendments (#66, #511)*; ADR-0067 decision 9). A `?:` field read anywhere else goes through `Option.fromUndefinedOr` / `UndefinedOr`.
 - **dom's surface is Effect-native too** (ADR-0025, *Amendment (#69)*): `Option` for a missing value in its returns and in the callbacks a binding passes in, for its binding authors.
 - **solid and a future react unwrap at their own boundary,** for an app.
 - **The API's shape** (a module per data type, `Pipeable` data types, `dual` operations) is [`pipeable.md`](pipeable.md) (ADR-0028).
@@ -137,7 +153,7 @@ For a single function, a named import is fine: `import { identity } from "effect
   - `Arr.getUnsafe` in the per-frame loop files and `Easing.ts` (ADR-0030);
   - a `Bool.and` / `Bool.or` whose second argument calls more than a pure check (#460, Q8: `BOOL_OPERANDS`).
 
-  It runs in CI with the other gates. Whether a predicate is *named*, and whether `Match`, `Schema` or `Scope` fits, stay with review.
+  It runs in CI with the other gates. Whether a predicate is *named*, and whether `Match` or `Scope` fits, stay with review. `Schema` in a package's `src` shows in `bun run size` (#511).
 - **`bun run bench:core --base main`** checks a change on the per-frame path (above).
 - **`bun run bench:solid --base main`** checks a change on the binding's start path: a mount, two Retargets and an unmount of 1,000 elements, each timed after a full GC, and the bytes they allocate per element per round (ADR-0040, *Amendment (#69)*). Its layout page checks the projection engine: 1,331 `layout` wards through four `animateLayout` scenes, each scene's Measure pass, its median frame and the bytes per frame (ADR-0040, *Amendment (#385)*).
 - **`bun run size --base main`** (#511, ADR-0067) builds a set of apps on both bindings as an app ships them and fails one whose gzip grows more than 1% over `main`'s. It runs in seconds, with no quiet host: run it for any change to a package's `src`.

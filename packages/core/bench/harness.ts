@@ -23,7 +23,9 @@ import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+// Only for a base core before #511, whose Interpolators were Schema codecs (`colorEntry`).
 import * as Schema from "effect/Schema"
+import type * as SchemaTransformation from "effect/SchemaTransformation"
 import * as Scheduler from "effect/Scheduler"
 import * as Stream from "effect/Stream"
 import { AtomRegistry } from "effect/reactivity"
@@ -257,6 +259,31 @@ const isColor = (value: unknown): value is Color => Predicate.hasProperty(value,
 const parseColor = (input: string): Option.Option<Color> =>
   Option.filter(Option.flatMap(Option.liftThrowable(culoriParse)(input.trim()), Option.fromUndefinedOr), isColor)
 
+/** A colour string read, as an entry's `parse` reads any value (#511): `None` for one that isn't a string. */
+const parseColorValue = (value: unknown): Option.Option<Color> => Option.flatMap(Option.liftPredicate(value, Predicate.isString), parseColor)
+
+const formatColor = (value: Color): string => formatRgb(value)
+
+/** A core before #511, whose entries read and write through a Schema codec built on its `parseAndFormat`. */
+interface SchemaInterpolator {
+  readonly parseAndFormat: (
+    parse: (input: string) => Option.Option<Color>,
+    format: (value: Color) => string,
+  ) => SchemaTransformation.Transformation<Color, string>
+}
+
+/**
+ * The harness's colour entry for `core`: a `parse` and `format` since #511 (ADR-0026, *Amendment
+ * (#511)*), a Schema codec before it, built on the same two.
+ */
+const colorEntry = (core: Core, blend: CoreModule.Interpolator.Entry<Color, string>["blend"]): CoreModule.Interpolator.Entry<Color, string> => {
+  const name = "color(rgb)"
+  if (!("parseAndFormat" in core.Interpolator)) return { name, parse: parseColorValue, format: formatColor, blend }
+  const transformation = (core.Interpolator as unknown as SchemaInterpolator).parseAndFormat(parseColor, formatColor)
+  const codec = Schema.String.pipe(Schema.decodeTo(Schema.declare(isColor), transformation))
+  return { name, codec, blend } as unknown as CoreModule.Interpolator.Entry<Color, string>
+}
+
 /** A colour inside a complex value (`@wardic/dom`'s `COLOR_TOKEN`). */
 const COLOR_TOKEN = /#[\da-f]{3,8}|(?:rgb|hsl)a?\((?:-?[\d.]+%?[,\s]+){2}-?[\d.]+%?\s*(?:[,/]\s*)?(?:\b\d+(?:\.\d+)?|\.\d+)?%?\)/
 
@@ -271,16 +298,10 @@ const COLOR_TOKEN = /#[\da-f]{3,8}|(?:rgb|hsl)a?\((?:-?[\d.]+%?[,\s]+){2}-?[\d.]
  */
 const registryOf = (core: Core): Layer.Layer<CoreModule.InterpolatorRegistry.InterpolatorRegistry> => {
   if ("color" in core.Interpolator) return core.InterpolatorRegistry.layer
-  const color: CoreModule.Interpolator.Entry<Color, string> = {
-    name: "color(rgb)",
-    codec: Schema.String.pipe(
-      Schema.decodeTo(Schema.declare(isColor), core.Interpolator.parseAndFormat(parseColor, (value: Color) => formatRgb(value))),
-    ),
-    blend: (from, to) => {
-      const at = culoriInterpolate([from, to], "rgb")
-      return Option.some((t: number) => formatRgb(at(t)))
-    },
-  }
+  const color = colorEntry(core, (from, to) => {
+    const at = culoriInterpolate([from, to], "rgb")
+    return Option.some((t: number) => formatRgb(at(t)))
+  })
   const complex = core.Interpolator.complexWith({ tokens: [{ pattern: COLOR_TOKEN, entry: color }] })
   const entries = [core.Interpolator.number, core.Interpolator.array, color, core.Interpolator.unit, complex]
   return Layer.effect(core.InterpolatorRegistry.InterpolatorRegistry)(core.InterpolatorRegistry.make(entries))

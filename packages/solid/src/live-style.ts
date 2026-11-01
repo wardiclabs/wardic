@@ -432,6 +432,7 @@ const ACCELERATED: ReadonlySet<string> = new Set(["transform", "opacity", "clipP
 export const turnsWillChangeOn = (key: string): boolean => Bool.or(isTransformKey(key), ACCELERATED.has(key))
 
 /** A server's registry, made on first need: an Atom read there gives its own initial value (ADR-0021). */
+// Module state (#460, Q7): built once, on a server, where no provider's runtime runs.
 let serverRegistry: AtomRegistry.AtomRegistry | undefined
 export const serverRegistryOf = (): AtomRegistry.AtomRegistry => {
   if (Predicate.isUndefined(serverRegistry)) serverRegistry = AtomRegistry.make()

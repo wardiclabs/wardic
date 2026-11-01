@@ -14,8 +14,7 @@
  */
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
-import * as Schema from "effect/Schema"
-import { cachedResolver, field, Fn, NonNegative, NotNaN, Positive } from "./internal/options.ts"
+import { cachedResolver, field, finite, fn, nonNegative, notNaN, positive } from "./internal/options.ts"
 import type { PhysicsStepResult } from "./internal/stepper.ts"
 import type { InertiaOptions } from "./Machine.ts"
 
@@ -101,22 +100,23 @@ interface Decoded {
 }
 
 /**
- * An inertia's options as a Schema (#66, ADR-0025 *Amendment (#66)*): the plain bag is its encoded
- * side. Its decode rejects a value no inertia can take (a time constant, bounce stiffness or rest
- * threshold at or below 0, a negative bounce damping, a power that isn't finite, an edge that's NaN,
- * or `min` above `max`; an infinite edge is no edge), and Motion's defaults are filled in after.
+ * An inertia's options (#66, ADR-0025 *Amendment (#66)*; checked by hand since #511, *Amendment
+ * (#511)*): the plain bag, checked field by field. It rejects a value no inertia can take (a time
+ * constant, bounce stiffness or rest threshold at or below 0, a negative bounce damping, a power that
+ * isn't finite, an edge that's NaN, or `min` above `max`; an infinite edge is no edge), and Motion's
+ * defaults are filled in.
  */
 const decode: (options: InertiaOptions) => Decoded = cachedResolver(
   {
-    power: field(Schema.Finite, DEFAULT_POWER),
-    timeConstant: field(Positive, DEFAULT_TIME_CONSTANT),
-    bounceStiffness: field(Positive, DEFAULT_BOUNCE_STIFFNESS),
-    bounceDamping: field(NonNegative, DEFAULT_BOUNCE_DAMPING),
-    restDelta: field(Positive, DEFAULT_REST_DELTA),
-    restSpeed: field(Positive, DEFAULT_REST_SPEED),
-    modifyTarget: field(Fn<(ideal: number) => number>("a modifyTarget function"), asIs),
-    min: field(NotNaN, Number.NEGATIVE_INFINITY),
-    max: field(NotNaN, Number.POSITIVE_INFINITY),
+    power: field(finite, DEFAULT_POWER),
+    timeConstant: field(positive, DEFAULT_TIME_CONSTANT),
+    bounceStiffness: field(positive, DEFAULT_BOUNCE_STIFFNESS),
+    bounceDamping: field(nonNegative, DEFAULT_BOUNCE_DAMPING),
+    restDelta: field(positive, DEFAULT_REST_DELTA),
+    restSpeed: field(positive, DEFAULT_REST_SPEED),
+    modifyTarget: field(fn<(ideal: number) => number>("a modifyTarget function"), asIs),
+    min: field(notNaN, Number.NEGATIVE_INFINITY),
+    max: field(notNaN, Number.POSITIVE_INFINITY),
   },
   (decoded): Decoded => decoded,
   ({ min, max }) => Bool.match(min <= max, { onTrue: () => true, onFalse: () => `Expected min (${min}) at or below max (${max})` }),
@@ -124,7 +124,7 @@ const decode: (options: InertiaOptions) => Decoded = cachedResolver(
 
 /**
  * Fill in an inertia's defaults and work out its glide from `initial` at `velocity`. Once per run;
- * the options are decoded once a bag (#66), and a value no inertia can take throws its `SchemaError`.
+ * the options are checked once a bag (#66), and a value no inertia can take throws its `OptionError`.
  */
 export const resolve = (initial: number, velocity: number, options: InertiaOptions): Resolved => {
   const o = decode(options)
@@ -148,7 +148,7 @@ export const resolve = (initial: number, velocity: number, options: InertiaOptio
 /**
  * Where an inertia from `initial` at `velocity` comes to rest (#468): its glide's resting point, held
  * to its edges (one the glide crosses is where the bounce rests), or the edge nearest a start past one.
- * What a skipped one lands on at once. A value no inertia can take throws its `SchemaError`, as
+ * What a skipped one lands on at once. A value no inertia can take throws its `OptionError`, as
  * {@link resolve}'s.
  */
 export const restOf = (initial: number, velocity: number, options: InertiaOptions): number => {

@@ -1,6 +1,6 @@
 # Interpolators as Schema codecs: decoded once when a stream is built, blended and encoded per frame
 
-Each Interpolator is a value kind's Schema codec and a blend (#65). `resolve` decodes both endpoints once, when a stream is built, and the entry's `blend` turns the two decoded values into the closure the frame calls, which lerps and encodes with the codec's plain encode function, never `Schema.encode`. Decoding is matching: an entry takes an endpoint its codec decodes, and a pair of strings is resolved once per registry and kept. The `complex` tier stops parsing both strings on every frame, and the colour tier stops rebuilding culori's interpolator on every frame. `InterpolatorEntry` changes shape, a breaking change to Tier 2. This amends ADR-0015 and ADR-0024, and is ADR-0025's decision 6 for interpolation. *ADR-0035 adds Key rules to the registry: an Environment's rule for a key by name, asked before a pair is resolved by value.* *ADR-0036 moves the colour tier (`color`, `ColorString`, culori) to `@wardic/dom`, which registers it before `unit`: core's defaults are `number`, `array`, `unit` and `complex`.*
+Each Interpolator is a value kind's Schema codec and a blend (#65). `resolve` decodes both endpoints once, when a stream is built, and the entry's `blend` turns the two decoded values into the closure the frame calls, which lerps and encodes with the codec's plain encode function, never `Schema.encode`. Decoding is matching: an entry takes an endpoint its codec decodes, and a pair of strings is resolved once per registry and kept. The `complex` tier stops parsing both strings on every frame, and the colour tier stops rebuilding culori's interpolator on every frame. `InterpolatorEntry` changes shape, a breaking change to Tier 2. This amends ADR-0015 and ADR-0024, and is ADR-0025's decision 6 for interpolation. *ADR-0035 adds Key rules to the registry: an Environment's rule for a key by name, asked before a pair is resolved by value.* *ADR-0036 moves the colour tier (`color`, `ColorString`, culori) to `@wardic/dom`, which registers it before `unit`: core's defaults are `number`, `array`, `unit` and `complex`.* *Since #511 an entry gives the plain `parse` and `format` its codec was built on, in place of the Schema codec (Amendment (#511)).*
 
 ## Why
 
@@ -226,3 +226,39 @@ Grilled 2026-10-14:
 
 Which path a pair takes, Wardic's or culori's, writes the same strings by design, so no test sees it; the probes do.
 
+
+## Amendment (#511, 2026-11-01): an Entry's `parse` and `format`, not a Schema codec
+
+ADR-0067's decision 9 (grilled 2026-11-01, Q9: A) takes `Schema` out of Wardic's runtime, its option bags with it (ADR-0025, *Amendment (#511)*). Every codec here was already built on a plain parse and a plain format (`parseAndFormat`, decision 9's sync getters), so the entry gives those two in its place. This reverses decision 1's shape; core is unpublished.
+
+1. **The shape:**
+   ```ts
+   interface Entry<Decoded, Encoded> {
+     readonly name: string
+     readonly parse: (value: unknown) => Option.Option<Decoded>
+     readonly format: (value: Decoded) => Encoded
+     readonly blend: (from: Decoded, to: Decoded) => Option.Option<(t: number) => Encoded>
+   }
+   ```
+   - **`parse` takes any value and checks its type itself,** as the codec's outer `Schema.String` / `Schema.Number` did: `number` reads any number; `array` an array of numbers; `unit` a string or a number; `complex` a string; the DOM's colour a string. Reading is matching, as decoding was (decision 3): the registry asks each entry's `parse`, in precedence, and the `Registered` wrapper that held a codec's decoder goes.
+   - **`format` is the function the frame's closure writes with,** as the codec's encode was.
+2. **What goes, and what replaces it:** `parseAndFormat`, `UnitString`, `ComplexString` and `complexStringWith` leave `Interpolator`; their functions are the entries' own: `unit.parse` / `unit.format`, `complex.parse` / `complex.format`, `complexWith(options).parse` / `.format`. In `@wardic/dom`, `Color.FromString` (`ColorString`) becomes `Color.parse` and `Color.format`, which the colour Interpolator's `parse` and `format` are. A complex value's kinds of token read and write through their entry's `parse` and `format`. dom's Key rules read and write templates and lone colours through the same functions. culori is unchanged (the colour split is ADR-0067's decision 5, a later PR).
+3. **What Schema checked that the functions don't:**
+   - **A failed read has no message.** `parse` returns `None`; decision 9's "Expected a valid value" was only ever seen by a direct `Schema.decode`, since the registry discards issues.
+   - **Writing a complex value checked its tokens first.** A token of a kind the complex Interpolator doesn't have now throws from its `format` (a defect naming the kind, `complex-interpolate.test.ts`' TK5), as Schema's encode threw. A kind's token value isn't checked against that kind before its own `format` writes it.
+   - **The read value's shape** (`{ value, unit }`, `{ parts, tokens }`, a colour's `mode`) was checked after every decode; the parses build it, so it can't differ.
+4. **`bench:core`'s harness** builds its culori colour entry with `parse` and `format` for a core since #511, and as a Schema codec on that core's `parseAndFormat` before it, so `--base` still reaches older cores.
+
+**Measured:** the bundle's share is ADR-0025's *Amendment (#511)* (`bun run size`: 13.8–13.9 KB gzipped off each Wardic app, Schema and the option bags' checks together). One read, ns per call (a probe on the dev host, not gated), Node 22 / Bun 1.3, Schema's `decodeUnknownOption` of the codec against `parse`:
+
+| Read | Node | Bun |
+|---|---|---|
+| `unit`, `"10px"` | 166 → 40 | 143 → 74 |
+| `unit`, `"auto"` (rejected) | 102 → 16 | 94 → 18 |
+| `number`, `"10px"` (rejected) | 47 → 5 | 38 → 3 |
+| `complex`, `"M0,0 L10,10"` | 989 → 463 | 992 → 543 |
+| `complex`, `"auto"` (rejected) | 193 → 74 | 163 → 80 |
+
+**Breaking (Tier 2, ADR-0008):** `Interpolator.Entry`'s shape and `register`'s parameter; the four codec exports; `Color.FromString`.
+
+**Tests:** `codecs.test.ts` reads and writes through each entry's `parse` and `format` (its round trips, what each rejects, any type included); `interpolate.test.ts`, `complex-interpolate.test.ts` and `discrete-pair.test.ts` read through `parse`, and their custom entries (`always-999`, `always-shout`, the `step` and `flag` kinds) are written with `parse` and `format`; TK5 pins the throw on a foreign kind. In `@wardic/dom`, `colors.node.test.ts` (CL1–CL6, CL19–CL21) and `interpolators.node.test.ts` (CV4) read through `Color.parse`, `Color.format` and `cssComplex.parse`. No test imports `effect/Schema`, so the three browser configs' `optimizeDeps.include` drop `effect/Schema`, `effect/SchemaGetter` and `effect/SchemaTransformation`.

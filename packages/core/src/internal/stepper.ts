@@ -10,11 +10,10 @@
  */
 import * as Arr from "effect/Array"
 import * as Predicate from "effect/Predicate"
-import * as Schema from "effect/Schema"
 import * as Easing from "../Easing.ts"
 import type { DecayOptions, TweenOptions } from "../Machine.ts"
 import * as Scalar from "../Scalar.ts"
-import { cachedResolver, field, Fn, NonNegative, optionalField, Positive } from "./options.ts"
+import { cachedResolver, type Check, field, finite, fn, literals, make, nonNegative, optionalField, positive, tuple, union } from "./options.ts"
 
 /** A step's result: the next state, the value to emit, and whether motion has settled. */
 export interface StepResult<S, V> {
@@ -70,24 +69,27 @@ export interface ResolvedTween {
 }
 
 /** An `ease` (#360, ADR-0052): one of Motion's names, a bézier's four numbers, or a function. */
-export const EaseDefinition = Schema.Union([
-  Schema.Literals(Easing.NAMES_LIST),
-  Schema.Tuple([Schema.Finite, Schema.Finite, Schema.Finite, Schema.Finite]),
-  Fn<Easing.Easing>("an easing function"),
+export const EaseDefinition: Check<Easing.Definition> = union([
+  literals(Easing.NAMES_LIST),
+  tuple([finite, finite, finite, finite]),
+  fn<Easing.Easing>("an easing function"),
 ])
+
+/** What a leftover `easing` is told (#360). */
+const EASE_NOW = "`ease`: Wardic's `easing` is `ease` now, as Motion's (#360)"
 
 /**
  * Wardic's old name for `ease` (#360): a bag still giving it is rejected, naming `ease`. A transition
  * hoisted into a constant gets past TypeScript's check for a key its type doesn't have, and would
  * otherwise lose its easing without a word.
  */
-export const NoEasing = Schema.declare((_given: unknown): _given is never => false, { expected: "`ease`: Wardic's `easing` is `ease` now, as Motion's (#360)" })
+export const NoEasing: Check<never> = make(EASE_NOW, Predicate.isUnknown, () => `Expected ${EASE_NOW}`)
 
-/** A tween's fields as a Schema (#66): `animate`'s bag adds its repeat modifiers to them. */
+/** A tween's fields (#66; checked by hand since #511): `animate`'s bag adds its repeat modifiers to them. */
 export const TweenFields = {
-  delay: field(NonNegative, 0),
-  duration: field(NonNegative, DEFAULT_DURATION),
-  ease: field(EaseDefinition, Easing.linear as Easing.Definition),
+  delay: field(nonNegative, 0),
+  duration: field(nonNegative, DEFAULT_DURATION),
+  ease: field(EaseDefinition, Easing.linear),
   easing: optionalField(NoEasing),
 }
 
@@ -100,9 +102,9 @@ export const resolvedTweenOf = (decoded: { readonly delay: number; readonly dura
 })
 
 /**
- * Fill in a tween's defaults: 0.3 s, no delay, linear. Decoded once a bag (#66): a negative or
+ * Fill in a tween's defaults: 0.3 s, no delay, linear. Checked once a bag (#66): a negative or
  * non-finite duration or delay, an `ease` that's none of Motion's names, four numbers or a function,
- * or a leftover `easing` (#360), throws its `SchemaError`. Public as `Machine.resolveTween`, Tier 3,
+ * or a leftover `easing` (#360), throws its `OptionError`. Public as `Machine.resolveTween`, Tier 3,
  * for dom's layout tween.
  */
 export const resolveTween: (options: TweenOptions) => ResolvedTween = cachedResolver(TweenFields, resolvedTweenOf)
@@ -193,6 +195,7 @@ export const passAt = (t: number, run: ResolvedRun, flip: boolean, pass: Pass): 
 }
 
 /** {@link runAt}'s pass, written in place: it's read right after, and never across a call. */
+// Module state (#460, Q7): per-frame scratch, written and read within one step, never across one.
 const RUN_PASS: Pass = { within: 0, reversed: false, flipped: false }
 
 /**
@@ -262,14 +265,14 @@ export interface ResolvedDecay {
 }
 
 /**
- * Fill in a decay's defaults: friction 3, rest below 0.1, no delay. Decoded once a bag (#66): a
- * friction or rest speed at or below 0, or a non-finite value, throws its `SchemaError`.
+ * Fill in a decay's defaults: friction 3, rest below 0.1, no delay. Checked once a bag (#66): a
+ * friction or rest speed at or below 0, or a non-finite value, throws its `OptionError`.
  */
 export const resolveDecay: (options: DecayOptions) => ResolvedDecay = cachedResolver(
   {
-    friction: field(Positive, 3),
-    restSpeed: field(Positive, 0.1),
-    delay: field(NonNegative, 0),
+    friction: field(positive, 3),
+    restSpeed: field(positive, 0.1),
+    delay: field(nonNegative, 0),
   },
   ({ friction, restSpeed, delay }): ResolvedDecay => ({ friction, restSpeed, delay }),
 )

@@ -1,38 +1,38 @@
 /**
  * The `Interpolator` module: the value kinds core blends (ADR-0026), each an `Entry` the
  * `InterpolatorRegistry` resolves a pair through: `number`, `array`, `unit` and `complex`, in
- * `defaults`' order, with their codecs (`UnitString`, `ComplexString`) and `unitOf`. An Environment
- * registers its own kinds beside them, and names the spans and kinds of token in its complex values
- * (`complexWith`): the DOM's colours are `@wardic/dom`'s, since core names no Environment's syntax
- * (ADR-0036). A plain shape callers write to register their own kinds, so no prototype (ADR-0028,
- * decision 1). The blends' closures are on the per-frame path (ADR-0025).
+ * `defaults`' order, each with its plain `parse` and `format` (`unit.parse`, `complex.format`), and
+ * `unitOf`. An Environment registers its own kinds beside them, and names the spans and kinds of
+ * token in its complex values (`complexWith`): the DOM's colours are `@wardic/dom`'s, since core
+ * names no Environment's syntax (ADR-0036). A plain shape callers write to register their own kinds,
+ * so no prototype (ADR-0028, decision 1). The blends' closures are on the per-frame path (ADR-0025).
  */
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import { pipe } from "effect/Function"
+import { identity, pipe } from "effect/Function"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
-import * as Schema from "effect/Schema"
-import * as SchemaGetter from "effect/SchemaGetter"
-import * as SchemaTransformation from "effect/SchemaTransformation"
 import * as Str from "effect/String"
+import * as UndefinedOr from "effect/UndefinedOr"
 import { type Tokenizer, tokenizerOf } from "./internal/complexTokens.ts"
 import * as Scalar from "./Scalar.ts"
 
 /**
- * A value kind the registry can blend (ADR-0026): its Schema codec, and how two decoded values
- * of it blend.
+ * A value kind the registry can blend (ADR-0026): how an endpoint of it is read and written, and
+ * how two of it blend. Plain functions since #511 (ADR-0067 decision 9, ADR-0026 *Amendment (#511)*),
+ * where they were a Schema codec built on the same two.
  *
- * - **`codec`** decodes an endpoint of the kind. An endpoint it decodes is this entry's, and one
- *   it rejects isn't: decoding is matching. The registry decodes once, when a stream is built
- *   (`resolve`), never per frame.
- * - **`blend`** takes two decoded endpoints, once, and returns the closure the frame calls,
- *   which blends and then encodes with the codec's plain encode function, never
- *   `Schema.encode`. The pair's own work (comparing two structures, settling a unit) happens
- *   here, once. `None` when the pair can't blend: a Discrete pair (CONTEXT.md), which the
- *   registry switches at the first frame and warns about.
+ * - **`parse`** reads an endpoint of the kind, any value at all: `Some` of what it read, `None` for
+ *   a value of another kind, its type checked first (a string, a number). An endpoint it reads is
+ *   this entry's, and one it rejects isn't: reading is matching. The registry parses once, when a
+ *   stream is built (`resolve`), never per frame.
+ * - **`format`** writes a read value back: what the frame's closure writes with.
+ * - **`blend`** takes two read endpoints, once, and returns the closure the frame calls, which
+ *   blends and then writes with `format`'s function. The pair's own work (comparing two
+ *   structures, settling a unit) happens here, once. `None` when the pair can't blend: a Discrete
+ *   pair (CONTEXT.md), which the registry switches at the first frame and warns about.
  *
  * The built-in entries (number, array, unit string, complex value) are registered when the
  * Environment is set up, beside the Environment's own (the DOM's colours, ADR-0036), and consumers
@@ -41,34 +41,13 @@ import * as Scalar from "./Scalar.ts"
 export interface Entry<Decoded, Encoded> {
   /** Unique name for the value kind, e.g. "number", "unit". */
   readonly name: string
-  /** The value kind: decodes an endpoint of it, and encodes a blended value back. */
-  readonly codec: Schema.Codec<Decoded, Encoded>
-  /** Two decoded endpoints' blend: the closure the frame calls with `t`, or `None`. */
+  /** Reads an endpoint of the kind: `Some` of it read, or `None` for any other value. */
+  readonly parse: (value: unknown) => Option.Option<Decoded>
+  /** Writes a read value back. */
+  readonly format: (value: Decoded) => Encoded
+  /** Two read endpoints' blend: the closure the frame calls with `t`, or `None`. */
   readonly blend: (from: Decoded, to: Decoded) => Option.Option<(t: number) => Encoded>
 }
-
-/**
- * An Interpolator codec's transformation, built on its plain parse and plain format (ADR-0026).
- * `format` is the encode the frame calls directly, so each format is written once and
- * `Schema.encode` never runs per frame.
- *
- * Both directions are sync getters. `parse` returns `None` for a value of another kind, which
- * leaves the decode without a value, and Schema fails it with its bare `InvalidValue`
- * ("Expected a valid value"). Selection fails most decodes it tries, and a descriptive issue,
- * built in an effectful getter or a filter, cost each one about as much as the decode itself
- * (decision 9).
- *
- * Core's codecs are built with it, and an Environment builds its own the same way (the DOM's
- * `ColorString`).
- */
-export const parseAndFormat = <T, E>(
-  parse: (input: E) => Option.Option<T>,
-  format: (value: T) => E,
-): SchemaTransformation.Transformation<T, E> =>
-  SchemaTransformation.makeTransformation({
-    decode: SchemaGetter.transformOptional((input: Option.Option<E>) => Option.flatMap(input, parse)),
-    encode: SchemaGetter.transform(format),
-  })
 
 /** A number with an optional unit suffix: `10`, `"10px"`, `"-0.5em"`, `"50%"`. */
 const UNIT_RE = /^(-?\d*\.?\d+)([a-z%]*)$/i
@@ -86,10 +65,7 @@ const parseUnit = (input: string): Option.Option<ParsedUnit> =>
     unit,
   }))
 
-/**
- * A number with its unit, as a string: the unit codec's plain encode (ADR-0026). The frame calls
- * it with a lerped value; `Schema.encode` never runs per frame.
- */
+/** A number with its unit, as a string: `unit.format`'s (ADR-0026), and what the frame calls with a lerped value. */
 const formatUnit = (value: number, unit: string): string => `${value}${unit}`
 
 /** A unit that is present (a bare number has none). */
@@ -108,10 +84,11 @@ const incompatible: Predicate.Predicate<readonly [ParsedUnit, ParsedUnit]> = Pre
 const unitOfPair = (a: ParsedUnit, b: ParsedUnit): string =>
   Bool.match(hasUnit(a), { onTrue: () => a.unit, onFalse: () => b.unit })
 
-/** Interpolates plain numbers: `Schema.Number` decodes a number as it is. */
+/** Interpolates plain numbers: it reads any number as it is, NaN and the infinities too. */
 export const number: Entry<number, number> = {
   name: "number",
-  codec: Schema.Number,
+  parse: Option.liftPredicate(Predicate.isNumber),
+  format: identity,
   blend: (from, to) => Option.some((t: number) => Scalar.lerp(from, to, t)),
 }
 
@@ -138,35 +115,31 @@ const blendArrays =
     return out
   }
 
-/** Interpolates fixed-length numeric arrays element-wise (e.g. RGB tuples). */
+/** An array of numbers, each any number. */
+const isNumberArray = (value: unknown): value is ReadonlyArray<number> => Arr.isArray(value) && Arr.every(value, Predicate.isNumber)
+
+/** Interpolates fixed-length numeric arrays element-wise (e.g. RGB tuples): it reads an array of numbers as it is. */
 export const array: Entry<ReadonlyArray<number>, ReadonlyArray<number>> = {
   name: "array",
-  codec: Schema.Array(Schema.Number),
+  parse: Option.liftPredicate(isNumberArray),
+  format: identity,
   blend: (from, to) => Option.some(blendArrays(from, to)),
 }
 
-/** An endpoint as the unit codec parses it: a bare number, like `"120"`, has no unit. */
-const parseEndpoint = (input: string | number): Option.Option<ParsedUnit> =>
-  Match.value(input).pipe(
-    Match.when(Predicate.isNumber, (value) => Option.some({ value, unit: "" })),
-    Match.orElse(parseUnit),
-  )
-
 /**
- * A unit string (ADR-0026): a number with an optional unit suffix (`"10px"`, `"-0.5em"`, `"50%"`,
- * `"120"`), or a bare number, ↔ its value and unit. A bare number decodes with no unit, as `"120"`
- * does, so in a pair it takes the other endpoint's unit. It encodes with `formatUnit`, the
- * function the frame calls.
+ * A unit string read (ADR-0026): a number with an optional unit suffix (`"10px"`, `"-0.5em"`,
+ * `"50%"`, `"120"`), or a bare number, as its value and unit; `None` for any other value. A bare
+ * number reads with no unit, as `"120"` does, so in a pair it takes the other endpoint's unit.
+ * Per key, each leg (#460, compose once): statements.
  */
-export const UnitString: Schema.Codec<ParsedUnit, string | number> = Schema.Union([Schema.String, Schema.Number]).pipe(
-  Schema.decodeTo(
-    Schema.Struct({ value: Schema.Number, unit: Schema.String }),
-    parseAndFormat(
-      parseEndpoint,
-      (parsed: ParsedUnit): string | number => formatUnit(parsed.value, parsed.unit),
-    ),
-  ),
-)
+const parseUnitValue = (value: unknown): Option.Option<ParsedUnit> => {
+  if (Predicate.isNumber(value)) return Option.some({ value, unit: "" })
+  if (Predicate.isString(value)) return parseUnit(value)
+  return Option.none()
+}
+
+/** A unit string written: its value and unit, by `formatUnit`, the function the frame calls. */
+const formatParsedUnit = (parsed: ParsedUnit): string => formatUnit(parsed.value, parsed.unit)
 
 /**
  * The unit of a number-with-unit string as the `unit` interpolator parses it (`""` for a bare
@@ -181,15 +154,17 @@ const compatible: Predicate.Predicate<readonly [ParsedUnit, ParsedUnit]> = Predi
 /**
  * Interpolates a number with a unit suffix, e.g. `"10px" → "20px"`, `"0%" → "100%"`, and a bare
  * number paired with one, `0 → "10px"`: the unit is taken from whichever endpoint has one, once,
- * when a stream is built, and the frame lerps the value and formats it with `formatUnit`, the
- * codec's encode (ADR-0026).
+ * when a stream is built, and the frame lerps the value and formats it with `formatUnit`, as
+ * `format` does (ADR-0026). `unit.parse` reads a string or a number (`" 10px "` → `{ value: 10,
+ * unit: "px" }`, `120` → `{ value: 120, unit: "" }`), and `unit.format` writes one back (`"10px"`).
  *
  * Two different units, both present (`"10px"`, `"1em"`), can't blend: `None`, a Discrete pair,
  * which `resolve` switches at the first frame and warns about (decision 4).
  */
 export const unit: Entry<ParsedUnit, string | number> = {
   name: "unit",
-  codec: UnitString,
+  parse: parseUnitValue,
+  format: formatParsedUnit,
   blend: (from, to) =>
     Option.map(Option.liftPredicate([from, to] as const, compatible), ([a, b]) => {
       const unit = unitOfPair(a, b)
@@ -220,21 +195,21 @@ export interface Complex {
 
 /**
  * A kind of token an Environment names in its complex values besides numbers (#160, ADR-0036):
- * what one looks like, and the Interpolator that decodes, blends and encodes it, usually the one
- * the Environment registers for a value of that kind on its own (the DOM's colours). Its tokens
- * are told apart by that Interpolator's name.
+ * what one looks like, and the Interpolator that reads, blends and writes it, usually the one the
+ * Environment registers for a value of that kind on its own (the DOM's colours). Its tokens are
+ * told apart by that Interpolator's name.
  */
 export interface TokenKind<Decoded = any> {
   /**
    * What a token of the kind looks like: matched case-insensitively, after the text spans and
-   * before numbers. No capturing groups: the codec splits a string around its tokens.
+   * before numbers. No capturing groups: the parse splits a string around its tokens.
    */
   readonly pattern: RegExp
-  /** How a token of the kind decodes, blends and encodes. */
+  /** How a token of the kind reads (`parse`), blends and writes (`format`). */
   readonly entry: Entry<Decoded, string>
 }
 
-/** A kind of token, ready to use: its name, and its Interpolator's decode, encode and blend. Built once per codec. */
+/** A kind of token, ready to use: its name, and its Interpolator's parse, format and blend. Built once per complex Interpolator. */
 interface Kind {
   readonly name: string
   readonly decode: (token: string) => Option.Option<unknown>
@@ -244,16 +219,10 @@ interface Kind {
 
 const kindFrom = (kind: TokenKind): Kind => ({
   name: kind.entry.name,
-  decode: Schema.decodeUnknownOption(kind.entry.codec),
-  encode: Schema.encodeSync(kind.entry.codec),
+  decode: kind.entry.parse,
+  encode: kind.entry.format,
   blend: kind.entry.blend,
 })
-
-/** A token of one of the kinds named `names`, decoded. */
-const isKindTokenOf =
-  (names: ReadonlyArray<string>) =>
-  (value: unknown): value is KindToken =>
-    Predicate.hasProperty(value, "kind") && Predicate.hasProperty(value, "value") && Arr.contains(names, value.kind)
 
 /** A token of a kind, not a number. */
 const isKindToken: Predicate.Refinement<ComplexToken, KindToken> = (token): token is KindToken => !Predicate.isNumber(token)
@@ -310,12 +279,12 @@ const hasTokens: Predicate.Predicate<Folded> = (folded) => folded.tokens.length 
 /**
  * A complex value's parser for a tokenizer and its kinds: a string carrying one or more numbers or
  * tokens of a kind among other text (#61, Motion's rule; two or more numbers before), any text span
- * kept as text (#158). `None` for a unit string, a lone token of a kind, a string with no tokens (a
- * lone text span), or one with a token its kind can't decode.
+ * kept as text (#158). `None` for any value but a string, a unit string, a lone token of a kind, a
+ * string with no tokens (a lone text span), or one with a token its kind can't read.
  */
 const parseComplexWith = (tokenizer: Tokenizer, kinds: ReadonlyArray<Kind>) => {
   const parseToken = parseTokenWith(tokenizer, kinds)
-  return (input: string): Option.Option<Complex> =>
+  const parseString = (input: string): Option.Option<Complex> =>
     pipe(
       Option.liftPredicate(input, Predicate.not(isUnitString)),
       Option.flatMap(Str.match(tokenizer.tokenRe)),
@@ -325,20 +294,27 @@ const parseComplexWith = (tokenizer: Tokenizer, kinds: ReadonlyArray<Kind>) => {
         Option.map(Option.all(Arr.map(folded.tokens, parseToken)), (tokens): Complex => ({ parts: folded.parts, tokens }))),
       Option.filter(Predicate.not(isLoneKindToken)),
     )
+  return (value: unknown): Option.Option<Complex> => {
+    if (!Predicate.isString(value)) return Option.none()
+    return parseString(value)
+  }
 }
 
+/** A token of a kind this complex Interpolator doesn't have, which it can't write: a defect. */
+const unknownKind = (kind: string) => (): Error =>
+  new Error(`wardic.interpolator: a complex value's token of kind "${kind}", which this complex Interpolator doesn't have, can't be written`)
+
 /**
- * A complex value's parts and tokens, interleaved: the complex codec's plain encode (ADR-0026).
- * A number is written in its shortest form, and a token of a kind by its kind's encode. Its kind is
- * one of the codec's: Schema checks the tokens before it encodes.
+ * A complex value's parts and tokens, interleaved: its `format` (ADR-0026). A number is written in
+ * its shortest form, and a token of a kind by its kind's `format`. A token of a kind it doesn't have
+ * throws, as Schema's encode did.
  */
 const formatComplexWith = (kinds: ReadonlyArray<Kind>) => {
-  const encoders: Record<string, (value: unknown) => string> = Rec.fromEntries(Arr.map(kinds, (kind) => [kind.name, kind.encode] as const))
-  const formatToken = (token: ComplexToken): string =>
-    Match.value(token).pipe(
-      Match.when(Predicate.isNumber, (value) => String(value)),
-      Match.orElse((token) => encoders[token.kind](token.value)),
-    )
+  const encoders: ReadonlyMap<string, (value: unknown) => string> = new Map(Arr.map(kinds, (kind) => [kind.name, kind.encode] as const))
+  const formatToken = (token: ComplexToken): string => {
+    if (Predicate.isNumber(token)) return String(token)
+    return UndefinedOr.getOrThrowWith(encoders.get(token.kind), unknownKind(token.kind))(token.value)
+  }
   return (complex: Complex): string =>
     Arr.reduce(complex.tokens, complex.parts[0], (out, token, i) => out + formatToken(token) + complex.parts[i + 1])
 }
@@ -371,26 +347,6 @@ const kindsOf = (options: ComplexOptions): ReadonlyArray<Kind> =>
 /** A tokenizer for the options' text spans and kinds. */
 const tokenizerFor = (options: ComplexOptions): Tokenizer =>
   tokenizerOf(textOf(options), Arr.map(Option.getOrElse(Option.fromUndefinedOr(options.tokens), () => []), (kind) => kind.pattern))
-
-/**
- * A complex value codec (ADR-0015, ADR-0026; CONTEXT.md) for an Environment's text spans and kinds
- * of token: a string carrying one or more numbers or tokens of a kind among other text ↔ its parts
- * and tokens. It encodes numbers in JavaScript's shortest form and each token by its kind's encode,
- * so `"M0.50,1e3"` encodes back as `"M0.5,1000"`.
- */
-export const complexStringWith = (options: ComplexOptions): Schema.Codec<Complex, string> => {
-  const kinds = kindsOf(options)
-  const isOwnKindToken = isKindTokenOf(Arr.map(kinds, (kind) => kind.name))
-  return Schema.String.pipe(
-    Schema.decodeTo(
-      Schema.Struct({ parts: Schema.Array(Schema.String), tokens: Schema.Array(Schema.Union([Schema.Number, Schema.declare(isOwnKindToken)])) }),
-      parseAndFormat(parseComplexWith(tokenizerFor(options), kinds), formatComplexWith(kinds)),
-    ),
-  )
-}
-
-/** The complex value codec with no text spans and no kinds: core's default. */
-export const ComplexString: Schema.Codec<Complex, string> = complexStringWith({})
 
 /**
  * One token of the target, with what it blends from: two numbers, or a token of a kind's blend
@@ -485,17 +441,21 @@ const slotsOf = (kinds: Readonly<Record<string, Kind>>, from: Complex, to: Compl
  * Known limit (as Motion, without a path normalizer): SVG arc flags in an `A`/`a` command are
  * treated as plain numbers, so an arc path can interpolate through invalid flag values.
  *
- * Both strings are decoded once, when a stream is built (`complexStringWith`), and the closure
- * `blend` returns is on the per-frame path (ADR-0025): it only lerps, calls each kind's blend and
- * formats.
+ * Its `parse` reads a string carrying one or more numbers or tokens of a kind among other text into
+ * its parts and tokens (`complexWith(options).parse`), and its `format` writes them back, numbers
+ * in JavaScript's shortest form and each token by its kind's `format`, so `"M0.50,1e3"` writes back
+ * as `"M0.5,1000"`. Both strings are read once, when a stream is built, and the closure `blend`
+ * returns is on the per-frame path (ADR-0025): it only lerps, calls each kind's blend and formats.
  */
 export const complexWith = (options: ComplexOptions): Entry<Complex, string> => {
   const kinds = kindsOf(options)
   const byName: Readonly<Record<string, Kind>> = Rec.fromEntries(Arr.map(kinds, (kind) => [kind.name, kind] as const))
-  const matches = matchesWith(Arr.map(kinds, (kind) => kind.name), tokenizerFor(options).textCountOf)
+  const tokenizer = tokenizerFor(options)
+  const matches = matchesWith(Arr.map(kinds, (kind) => kind.name), tokenizer.textCountOf)
   return {
     name: "complex",
-    codec: complexStringWith(options),
+    parse: parseComplexWith(tokenizer, kinds),
+    format: formatComplexWith(kinds),
     blend: (from, to) =>
       Bool.match(matches(from, to), {
         onTrue: () => Option.map(slotsOf(byName, from, to), (slots) => blendSlots(to.parts, slots)),

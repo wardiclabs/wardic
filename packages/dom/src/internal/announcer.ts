@@ -79,6 +79,7 @@ export const announceIn = (doc: Document, message: string): void => {
 
 /** Each document's instructions ids, by text. */
 const instructions = new WeakMap<Document, Map<string, string>>()
+// Module state (#460, Q7): an id counter; an id need only be unique in its document.
 let nextInstructions = 1
 
 /**
