@@ -31,7 +31,7 @@ import * as Effect from "effect/Effect"
 import * as FiberHandle from "effect/FiberHandle"
 import * as Match from "effect/Match"
 import * as Num from "effect/Number"
-import { constant, constFalse, constTrue, constUndefined, constVoid, dual, identity } from "effect/Function"
+import { constant, constFalse, constTrue, constUndefined, constVoid, identity } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import { Atom, AtomRegistry } from "effect/reactivity"
@@ -45,6 +45,7 @@ import type * as Frame from "./Frame.ts"
 import * as Machine from "./Machine.ts"
 import * as Probe from "./Probe.ts"
 import * as Supersede from "./Supersede.ts"
+import { dual } from "./internal/dual.ts"
 
 /**
  * A blend between two outputs (#440, Motion's `MixerFactory`): made once per stretch from its two
@@ -122,12 +123,12 @@ export const interpolate: Interpolate = <O>(input: ReadonlyArray<number>, output
   interpolateWith(input, output, options)
 
 /** {@link interpolate}, for outputs of any type: a `mixer` blends them, else the registry does. */
-const interpolateWith = <O>(
+const interpolateWith: <O>(
   input: ReadonlyArray<number>,
   output: ReadonlyArray<O>,
-  options: TransformOptions<O> = {},
-): Effect.Effect<(v: number) => O, never, InterpolatorRegistry.InterpolatorRegistry> =>
-  Effect.gen(function* () {
+  options?: TransformOptions<O>,
+) => Effect.Effect<(v: number) => O, never, InterpolatorRegistry.InterpolatorRegistry> = Effect.fnUntraced(
+  function* <O>(input: ReadonlyArray<number>, output: ReadonlyArray<O>, options: TransformOptions<O> = {}) {
     if (Bool.or(input.length === 0, input.length !== output.length)) {
       return yield* Effect.die(new Error(`LiveValue: input and output need the same length, one or more (got ${input.length} and ${output.length})`))
     }
@@ -266,14 +267,16 @@ const jumpIn = (registry: AtomRegistry.AtomRegistry, atom: Atom.Writable<number>
 export const jump: {
   (value: number): (atom: Atom.Atom<number>) => Effect.Effect<void, never, AtomRegistry.AtomRegistry>
   (atom: Atom.Atom<number>, value: number): Effect.Effect<void, never, AtomRegistry.AtomRegistry>
-} = dual(2, (atom: Atom.Atom<number>, value: number): Effect.Effect<void, never, AtomRegistry.AtomRegistry> =>
-  Effect.gen(function* () {
+} = dual(
+  2,
+  Effect.fnUntraced(function* (atom: Atom.Atom<number>, value: number): Effect.fn.Return<void, never, AtomRegistry.AtomRegistry> {
     if (Bool.not(Atom.isWritable(atom))) {
       return yield* Effect.die(new Error("LiveValue.jump: the Atom isn't writable (a spring's output, or one of your own)"))
     }
     const registry = yield* AtomRegistry.AtomRegistry
     jumpIn(registry, atom as Atom.Writable<number>, value)
-  }))
+  }),
+)
 
 /** Motion's spring, for the physics a follow's spring leaves out (`motion-dom`'s `springDefaults`). */
 const MOTION_PHYSICS = { stiffness: 100, damping: 10, mass: 1 } as const
@@ -372,12 +375,12 @@ const FOLLOW_SPAN: Machine.Span = { name: "wardic.follow", attributes: {} }
  * velocity. The run and the subscription end with the Scope; the Atom is held in the registry until
  * then, and after it only while subscribed.
  */
-export const follow = (
+export const follow: (
   source: Atom.Atom<number>,
-  options: FollowOptions = {},
-  skipped: () => boolean = constFalse,
-): Effect.Effect<Atom.Atom<number>, never, FrameLoop.FrameLoop | AtomRegistry.AtomRegistry | Scope.Scope> =>
-  Effect.gen(function* () {
+  options?: FollowOptions,
+  skipped?: () => boolean,
+) => Effect.Effect<Atom.Atom<number>, never, FrameLoop.FrameLoop | AtomRegistry.AtomRegistry | Scope.Scope> = Effect.fnUntraced(
+  function* (source: Atom.Atom<number>, options: FollowOptions = {}, skipped: () => boolean = constFalse) {
     const registry = yield* AtomRegistry.AtomRegistry
     const { skipInitialAnimation, skipAnimations, ...transition } = options
     const plan = planOf(transition as FollowTransition)
@@ -414,7 +417,8 @@ export const follow = (
     })
     /** Follow the source's change from where `out` is, until it rests. */
     const onChange = (): void => {
-      if (Bool.or(skipping, skips())) {
+      // The callback only once a skip isn't already under way (#460, Q8).
+      if (skipping || skips()) {
         skipping = false
         jumpIn(registry, out, registry.get(source))
         return
@@ -500,8 +504,8 @@ export interface ScrollValues {
  * derived from one is written in the frame that shows the scroll. The container's listeners are
  * held while the Scope is.
  */
-export const scroll = (options: Probe.ScrollOptions = {}): Effect.Effect<ScrollValues, never, Probe.Probe | Scope.Scope> =>
-  Effect.gen(function* () {
+export const scroll: (options?: Probe.ScrollOptions) => Effect.Effect<ScrollValues, never, Probe.Probe | Scope.Scope> = Effect.fnUntraced(
+  function* (options: Probe.ScrollOptions = {}) {
     const probe = yield* Probe.Probe
     const info = yield* probe.scroll(options)
     return {
@@ -526,8 +530,8 @@ const numberMachine = (name: string, settles: boolean, start: () => (dt: number)
  * otherwise count two frames' change over one `dt`. Velocity is a value too: `velocity(velocity(x))`
  * is acceleration. The run, the hook and the subscription end with the Scope.
  */
-export const velocity = (source: Atom.Atom<number>): Effect.Effect<Atom.Atom<number>, never, FrameLoop.FrameLoop | AtomRegistry.AtomRegistry | Scope.Scope> =>
-  Effect.gen(function* () {
+export const velocity: (source: Atom.Atom<number>) => Effect.Effect<Atom.Atom<number>, never, FrameLoop.FrameLoop | AtomRegistry.AtomRegistry | Scope.Scope> = Effect.fnUntraced(
+  function* (source: Atom.Atom<number>) {
     const registry = yield* AtomRegistry.AtomRegistry
     // Mounted for the Scope, not kept alive: a kept-alive Atom's node never leaves the registry.
     const out = Atom.make(0)
@@ -583,8 +587,8 @@ export const velocity = (source: Atom.Atom<number>): Effect.Effect<Atom.Atom<num
  * minutes count in full, as Motion's do). It keeps the Clock ticking every frame for as long as it
  * runs; the run ends with the Scope.
  */
-export const time = (): Effect.Effect<Atom.Atom<number>, never, FrameLoop.FrameLoop | AtomRegistry.AtomRegistry | Scope.Scope> =>
-  Effect.gen(function* () {
+export const time: () => Effect.Effect<Atom.Atom<number>, never, FrameLoop.FrameLoop | AtomRegistry.AtomRegistry | Scope.Scope> = Effect.fnUntraced(
+  function* () {
     const registry = yield* AtomRegistry.AtomRegistry
     const out = Atom.make(0)
     const unmount = registry.mount(out)
@@ -631,8 +635,8 @@ const FRAME_DELTA = { minimum: 1, maximum: 40 } as const
  * A throw from `callback` ends the run, as any run's defect does (ADR-0027, decision 7): a binding
  * catches it first.
  */
-export const eachFrame = (callback: (time: number, delta: number) => void): Effect.Effect<void, never, FrameLoop.FrameLoop | Scope.Scope> =>
-  Effect.gen(function* () {
+export const eachFrame: (callback: (time: number, delta: number) => void) => Effect.Effect<void, never, FrameLoop.FrameLoop | Scope.Scope> = Effect.fnUntraced(
+  function* (callback: (time: number, delta: number) => void) {
     const run = yield* FiberHandle.makeRuntime<FrameLoop.FrameLoop, never, unknown>()
     const token = Supersede.make()
     const frames = numberMachine("wardic.eachFrame", false, () => {

@@ -567,3 +567,11 @@ A stall across a seam lost the rest of the stall. Through 500 ms, `keyframes([0,
 - **A first pair of runs measured against a stale base** (the bench clone's `main` was still `4a3f3ec`, before #66 and #23), and read Chromium's `animateValues` and `animateComplex` +2.7% and +3.8%. Against `b429963` they're level, so that was #66's and #23's share, not this one's.
 
 **Gates:** typecheck, lint, unit (1104), browser (1017, no "optimized dependencies changed"), and the lab's tsc and vitest (208). The lab's drives on a restarted 5173 are as #23's: drive16 54 of 54, drive-held 0 off, drive7 6 clean · held 0, drive17 identical, drive14k on its slot, late reads 0 frames behind.
+
+## Amendment (#460, 2026-11-01): core's own `dual`
+
+Core's operations are built with core's `dual` (`src/internal/dual.ts`), not `effect/Function`'s, for what Effect's costs per call (ADR-0025, *Amendment (#460)*). The same two forms, told apart without `arguments`, the data-last closure made by a helper the wrapper doesn't capture in:
+- **By arity,** `dual(2, body)` and `dual(3, body)`: a sentinel default on the last parameter. For an operation whose last argument is never `undefined`; a call with it `undefined` reads as data-last.
+- **By the first argument,** `dual(isMachine, body)`, replacing `(args) => isMachine(args[0])`: up to three arguments after it. For an optional argument (`withSpan`, `run`), and for an arity-2 operation whose last argument may be `undefined` (the Reorder group's `value: V`, `Renderer.applyTo`'s target).
+
+A data-first call allocates nothing in any tier (Node: 0 B a call against Effect's 34–42 B); a data-last call allocates its closure, as Effect's does. All 28 of core's operations moved; the types are Effect's. dom's three (`starting-style.ts`, per mount) keep Effect's: dom can't import core's internals. `dual.test.ts` pins both forms.

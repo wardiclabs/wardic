@@ -339,37 +339,36 @@ export const makeScroll = (registry: AtomRegistry.AtomRegistry): ((options?: Pro
     container.remove()
   }
 
-  return (options = {}) =>
-    Effect.gen(function* () {
-      const element = UndefinedOr.match(options.container as Element | undefined, { onUndefined: pageOf, onDefined: (given) => given })
-      const container = yield* Effect.acquireRelease(
-        Effect.sync(() => acquire(element)),
-        (held) => Effect.sync(() => release(element, held)),
-      )
-      const measure = measureOf(element, options)
-      let last = measure()
-      // Mounted while read, not kept alive: a kept-alive Atom's node never leaves the registry.
-      const atom = Atom.make(last)
-      const unmount = registry.mount(atom)
-      const read = (): void => {
-        const next = measure()
-        if (sameScroll(last, next)) return
-        last = next
-        registry.set(atom, next)
-      }
-      yield* Effect.acquireRelease(
-        Effect.sync(() => container.readers.add(read)),
-        () =>
-          Effect.sync(() => {
-            container.readers.delete(read)
-            unmount()
-          }),
-      )
-      // A target's own size moves its offsets (#239): watched while this reader reads.
-      yield* Option.match(Option.fromUndefinedOr(options.target as Element | undefined), {
-        onNone: () => Effect.void,
-        onSome: (target) => Effect.acquireRelease(Effect.sync(() => container.watch(target)), (unwatch) => Effect.sync(unwatch)),
-      })
-      return atom
+  return Effect.fnUntraced(function* (options: Probe.ScrollOptions = {}) {
+    const element = UndefinedOr.match(options.container as Element | undefined, { onUndefined: pageOf, onDefined: (given) => given })
+    const container = yield* Effect.acquireRelease(
+      Effect.sync(() => acquire(element)),
+      (held) => Effect.sync(() => release(element, held)),
+    )
+    const measure = measureOf(element, options)
+    let last = measure()
+    // Mounted while read, not kept alive: a kept-alive Atom's node never leaves the registry.
+    const atom = Atom.make(last)
+    const unmount = registry.mount(atom)
+    const read = (): void => {
+      const next = measure()
+      if (sameScroll(last, next)) return
+      last = next
+      registry.set(atom, next)
+    }
+    yield* Effect.acquireRelease(
+      Effect.sync(() => container.readers.add(read)),
+      () =>
+        Effect.sync(() => {
+          container.readers.delete(read)
+          unmount()
+        }),
+    )
+    // A target's own size moves its offsets (#239): watched while this reader reads.
+    yield* Option.match(Option.fromUndefinedOr(options.target as Element | undefined), {
+      onNone: () => Effect.void,
+      onSome: (target) => Effect.acquireRelease(Effect.sync(() => container.watch(target)), (unwatch) => Effect.sync(unwatch)),
     })
+    return atom
+  })
 }

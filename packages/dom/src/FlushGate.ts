@@ -38,8 +38,8 @@ export class FlushGate extends Context.Service<FlushGate, Shape>()("@wardic/dom/
  * Build a gate over the context's Renderer, Frame loop and Refresh frame source, in the current
  * Scope: what it forks runs in that Scope, and closing it ends the gate.
  */
-export const make = (options: Options): Effect.Effect<Shape, never, Services | Scope.Scope> =>
-  Effect.gen(function* () {
+export const make: (options: Options) => Effect.Effect<Shape, never, Services | Scope.Scope> = Effect.fnUntraced(
+  function* (options: Options) {
     // The gate itself, typed without `dispose`: the Scope ends it. Its runner forks on Effect's
     // default scheduler, whatever call built the Layer (`internal/runner.ts`).
     const gate = internal.makeFlushGate(yield* makeRunner<Services>(), options)

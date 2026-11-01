@@ -94,10 +94,10 @@ declare const performance: { readonly now: () => number }
  *
  * Tier 2 (ADR-0008): Effect-typed, for Environment authors.
  */
-export const fromRefreshFrames = <Handle>(
+export const fromRefreshFrames: <Handle>(
   source: RefreshFrameSource.Shape<Handle>,
-): Effect.Effect<Context.Service.Shape<typeof Clock>, never, Scope.Scope> =>
-  Effect.gen(function* () {
+) => Effect.Effect<Context.Service.Shape<typeof Clock>, never, Scope.Scope> = Effect.fnUntraced(
+  function* <Handle>(source: RefreshFrameSource.Shape<Handle>) {
     // Called detached, never as `source.requestFrame(cb)`: a browser throws
     // "Illegal invocation" when `requestAnimationFrame` runs with `this` bound to
     // anything but the window.

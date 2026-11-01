@@ -70,6 +70,24 @@ const BRANCHES = [
   ),
 ]
 
+/**
+ * Q8 (#460): `Bool.and` and `Bool.or` take values in hand. They read both arguments, so a second
+ * argument that calls anything but a pure check (a named `is…`, `has…`, `same…`, `ends…`,
+ * `starts…` or `turns…` check; `Bool`'s, `Predicate`'s, `Str`'s and `Num`'s; `has`, `includes`,
+ * `test`, `Object.hasOwn`) runs even when the first decides:
+ * a costly or effectful call, or one meaningful only once the first holds. It goes in
+ * `Predicate.and(a, b)(x)` or a statement `if` with an early return; on the hot path, a statement.
+ */
+const BOOL_OPERANDS = [
+  restrict(
+    "CallExpression[callee.object.name='Bool'][callee.property.name=/^(and|or)$/] > CallExpression:nth-child(2)" +
+      ":not([callee.object.name=/^(Bool|Predicate|Str|Num)$/]):not([callee.callee.object.name=/^(Predicate|Str|Num)$/])" +
+      ":not([callee.name=/^(is|has|same|ends|starts|turns)[A-Z]/])" +
+      ":not([callee.property.name=/^((is|has|same|ends|starts)[A-Z].*|has|includes|test|hasOwn)$/])",
+    "Bool.and / Bool.or read both arguments: a second that calls more than a pure check goes in Predicate.and or a statement if",
+  ),
+]
+
 /** A `no-restricted-syntax` entry whose message points at the span rule's record. */
 const restrictSpan = (selector, message) => ({ selector, message: `${message} (ADR-0040, decision 2).` })
 
@@ -84,7 +102,7 @@ const restrictSpan = (selector, message) => ({ selector, message: `${message} (A
 const SPANS = [
   restrictSpan(
     "CallExpression[callee.object.name='Effect'][callee.property.name='fn']",
-    "Effect.fn captures a call-site stack at its definition and at every call: use Effect.gen with Effect.withSpan",
+    "Effect.fn captures a call-site stack at its definition and at every call: use Effect.fnUntraced with Effect.withSpan as its pipeable (#460)",
   ),
   restrictSpan(
     "CallExpression[callee.object.name=/^(Effect|Stream)$/][callee.property.name=/^(withSpan|withSpanScoped)$/]:not(:has(Property[key.name='captureStackTrace']))",
@@ -180,13 +198,13 @@ export default defineConfig([
     rules: {
       "no-ternary": "error",
       "@typescript-eslint/no-non-null-assertion": "error",
-      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...LOOPS, ...ALIASES, ...SPANS, ...EVENT_NAMES],
+      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...LOOPS, ...ALIASES, ...SPANS, ...BOOL_OPERANDS, ...EVENT_NAMES],
     },
   },
   {
     files: PER_FRAME_LOOPS,
     rules: {
-      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...ALIASES, ...SPANS, ...EVENT_NAMES],
+      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...ALIASES, ...SPANS, ...BOOL_OPERANDS, ...EVENT_NAMES],
     },
   },
   {
@@ -205,7 +223,7 @@ export default defineConfig([
   {
     files: ["packages/core/src/index.ts"],
     rules: {
-      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...LOOPS, ...ALIASES, ...ROOT, ...SPANS, ...EVENT_NAMES],
+      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...LOOPS, ...ALIASES, ...ROOT, ...SPANS, ...BOOL_OPERANDS, ...EVENT_NAMES],
     },
   },
   {

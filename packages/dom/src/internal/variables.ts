@@ -57,13 +57,15 @@ interface Parts {
  * the fallback's brackets balanced, at any depth of nested `var()`s (a pattern alone stops at one).
  * So `var(--a, 1px) var(--b)` isn't one: two values side by side.
  */
-const partsOf = (value: string): Option.Option<Parts> =>
-  pipe(
-    Option.liftPredicate(value, (v) => VAR_START_RE.test(v)),
-    Option.flatMap((v) => Option.fromNullishOr(PARTS_RE.exec(Str.trim(v)))),
+const partsOf = (value: string): Option.Option<Parts> => {
+  // Asked of a string end of every key, each leg (#460): one that doesn't start as one builds nothing.
+  if (!VAR_START_RE.test(value)) return Option.none()
+  return pipe(
+    Option.fromNullishOr(PARTS_RE.exec(Str.trim(value))),
     Option.map(([, name, fallback]): Parts => ({ name, fallback: Option.map(Option.fromUndefinedOr(fallback), Str.trim) })),
     Option.filter((parts) => Option.match(parts.fallback, { onNone: () => true, onSome: isBalanced })),
   )
+}
 
 /** How deep a fallback that is itself a Variable value is followed (Motion's `maxDepth`). */
 const MAX_DEPTH = 4
@@ -125,7 +127,8 @@ const landOn =
 export const variableValues = (element: Element): InterpolatorRegistry.KeyRule => ({
   name: "variable values",
   blend: (key, from, to, _resolve, next) => {
-    if (Bool.and(!isVariableValue(from), !isVariableValue(to))) return Option.none()
+    // Per key, each leg (#460): a statement.
+    if (!isVariableValue(from) && !isVariableValue(to)) return Option.none()
     return Option.map(Option.all([endOf(element, from), endOf(element, to)]), ([a, b]) =>
       Effect.map(next(key, a, b), (blend) => landOn(blend, to)))
   },

@@ -8,7 +8,7 @@
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Equivalence from "effect/Equivalence"
-import { constVoid, dual, identity } from "effect/Function"
+import { constVoid, identity } from "effect/Function"
 import * as Inspectable from "effect/Inspectable"
 import * as Match from "effect/Match"
 import * as MutableRef from "effect/MutableRef"
@@ -21,6 +21,7 @@ import type { Invariant } from "effect/Types"
 import type * as Box from "./Box.ts"
 import type * as InputSource from "./InputSource.ts"
 import type * as Point from "./Point.ts"
+import { dual } from "./internal/dual.ts"
 
 /**
  * The axis a **Reorder group** reorders on: a column (`"y"`), a row (`"x"`), or a
@@ -516,7 +517,7 @@ const directionOf = <V>(group: Group<V>): "ltr" | "rtl" =>
 export const dragStart: {
   <V>(value: V): (group: Group<V>) => Axis
   <V>(group: Group<V>, value: V): Axis
-} = dual(2, <V>(group: Group<V>, value: V): Axis => {
+} = dual(isGroup, <V>(group: Group<V>, value: V): Axis => {
   const axis = resolveAxis(group)
   const direction = directionOf(group)
   MutableRef.set(group.gesture, Option.some({ value, axis, direction, guard: Option.none(), waited: false }))
@@ -548,7 +549,7 @@ export const dragMove: {
 export const dragEnd: {
   <V>(value: V): (group: Group<V>) => void
   <V>(group: Group<V>, value: V): void
-} = dual(2, <V>(group: Group<V>, value: V): void => {
+} = dual(isGroup, <V>(group: Group<V>, value: V): void => {
   if (Option.exists(MutableRef.get(group.gesture), (g) => g.value === value)) {
     MutableRef.set(group.gesture, Option.none())
   }
@@ -708,7 +709,7 @@ const liftOf = <V>(group: Group<V>, value: V): Option.Option<Lift<V>> => Option.
 export const lift: {
   <V>(value: V): (group: Group<V>) => Option.Option<Placement>
   <V>(group: Group<V>, value: V): Option.Option<Placement>
-} = dual(2, <V>(group: Group<V>, value: V): Option.Option<Placement> => {
+} = dual(isGroup, <V>(group: Group<V>, value: V): Option.Option<Placement> => {
   const values = group.options.values()
   return Option.map(placementIn(values, value, false), (placement) => {
     const axis = resolveAxis(group)
@@ -756,7 +757,7 @@ export const step: {
 export const drop: {
   <V>(value: V): (group: Group<V>) => Option.Option<Placement>
   <V>(group: Group<V>, value: V): Option.Option<Placement>
-} = dual(2, <V>(group: Group<V>, value: V): Option.Option<Placement> =>
+} = dual(isGroup, <V>(group: Group<V>, value: V): Option.Option<Placement> =>
   Option.flatMap(liftOf(group, value), () => {
     MutableRef.set(group.lifted, Option.none())
     const placement = placementIn(group.options.values(), value, false)
@@ -771,7 +772,7 @@ export const drop: {
 export const cancel: {
   <V>(value: V): (group: Group<V>) => Option.Option<Placement>
   <V>(group: Group<V>, value: V): Option.Option<Placement>
-} = dual(2, <V>(group: Group<V>, value: V): Option.Option<Placement> =>
+} = dual(isGroup, <V>(group: Group<V>, value: V): Option.Option<Placement> =>
   Option.flatMap(liftOf(group, value), (l) => {
     MutableRef.set(group.lifted, Option.none())
     const values = group.options.values()

@@ -767,8 +767,15 @@ const defaultFor = (
 const carried = (runsOn: DefaultTransition.Transition | DefaultTransition.KeyframesTransition, given: WardicTransition | undefined): Run => {
   if (Predicate.isUndefined(given)) return runsOn
   const { delay, respectReducedMotion, skipAnimations } = given
-  if (Bool.every([Predicate.isUndefined(delay), Predicate.isUndefined(respectReducedMotion), Predicate.isUndefined(skipAnimations)])) return runsOn
+  // Per Retarget (#460): statements.
+  if (Predicate.isUndefined(delay) && Predicate.isUndefined(respectReducedMotion) && Predicate.isUndefined(skipAnimations)) return runsOn
   return { ...runsOn, ...Rec.filter({ delay, respectReducedMotion, skipAnimations }, Predicate.isNotUndefined) } as Run
+}
+
+/** The keys reduced motion snaps (ADR-0029), when it applies; else none, every key animating. */
+const reducedSplitOf = (to: Values.Values, applies: boolean, positionalKeys: ReducedMotion.PositionalKeys["Service"]): ReducedMotion.Split => {
+  if (applies) return ReducedMotion.split(to, positionalKeys)
+  return { positional: {}, rest: to }
 }
 
 /** {@link legsOf} on one transition as it runs. */
@@ -788,7 +795,8 @@ const legsWith = (
   // on its first tick, with no delay and whatever reduced motion says. Keyframes land on their last
   // stop, a turned `repeat` where it ends, a Measured pair on its target as given, and a return to a
   // moving Live value on where it is now, its follower taking over once it lands.
-  if (Bool.or(skipped, transition.skipAnimations === true)) return [snapLeg(from, to, Rec.map(to, (target, key) => endOfLeg(from, target, key, transition, velocities)), NO_DELAY)]
+  // Per Retarget (#460, compose once): statements.
+  if (skipped || transition.skipAnimations === true) return [snapLeg(from, to, Rec.map(to, (target, key) => endOfLeg(from, target, key, transition, velocities)), NO_DELAY)]
   // An inertia's numbers (#435): its other keys went to their Default transitions ({@link inertiaLegsOn}).
   if (transition.type === "inertia") return inertiaLegsWith(from, to, transition as InertiaRun, reducedMotion, positionalKeys, velocities, stops)
   const useTween = transition.type === "tween"
@@ -796,16 +804,13 @@ const legsWith = (
   // through the delay it would hold, and the rest animate as they would. A transition opts out with
   // `respectReducedMotion: false`.
   const respects = transition.respectReducedMotion !== false
-  const { positional, rest } = Bool.match(Bool.and(respects, reducedMotion), {
-    onTrue: () => ReducedMotion.split(to, positionalKeys),
-    onFalse: (): ReducedMotion.Split => ({ positional: {}, rest: to }),
-  })
+  const { positional, rest } = reducedSplitOf(to, respects && reducedMotion, positionalKeys)
   const snapping = hasKeys(positional)
   let followingKeys = NO_KEYS
   if (Predicate.isNotUndefined(follow)) followingKeys = follow.keysOf(rest)
   const following = followingKeys.length > 0
   let fixed = rest
-  if (following) fixed = Rec.filter(rest, (_, key) => Bool.not(Arr.contains(followingKeys, key)))
+  if (following) fixed = Rec.filter(rest, (_, key) => !Arr.contains(followingKeys, key))
   // Built a leg at a time, once a Retarget (#69's PR 2: a Retarget is per element, so no spreads).
   const legs: Array<Leg> = []
   // Measured pairs (#430): a leg of their own, between their ends in px, on this transition.
@@ -814,7 +819,7 @@ const legsWith = (
     const kept = fixed
     const pairs = Rec.filter(measured as MeasuredPairs, (_, key) => Object.hasOwn(kept, key))
     legs.push(measuredLegOf(pairs, transition))
-    fixed = Rec.filter(kept, (_, key) => Bool.not(Object.hasOwn(pairs, key)))
+    fixed = Rec.filter(kept, (_, key) => !Object.hasOwn(pairs, key))
   }
   if (useTween) {
     // Its options as they are: a missing `duration` is core's 0.3 s, and the rest still apply (#107).
@@ -833,16 +838,17 @@ const legsWith = (
         key,
         to: { [key]: UndefinedOr.getOrThrow(rest[key]) },
         machine: () =>
-          Machine.animate(0, 1, options as Machine.AnimateOptions).pipe(
-            Machine.map((progress) => ({ value: start + (target() - start) * progress.value, done: progress.done })),
-          ),
+          Machine.map(Machine.animate(0, 1, options as Machine.AnimateOptions), (progress) => ({
+            value: start + (target() - start) * progress.value,
+            done: progress.done,
+          })),
       })
     })
     // With every key snapped, following or measured, there's nothing left to tween.
-    if (Bool.or(Bool.and(Bool.and(!snapping, !following), !measuring), hasKeys(fixed))) {
+    if ((!snapping && !following && !measuring) || hasKeys(fixed)) {
       // A key's Keyframes, or `times` or an `ease` per Segment, run every key through `keyframesValues`
       // (#429), on one run, a target as its two stops.
-      if (Bool.or(anyKeyframed(fixed, stops), keyframedOptions(options))) {
+      if (anyKeyframed(fixed, stops) || keyframedOptions(options)) {
         legs.push({ _tag: "Blend", to: fixed, machine: () => Machine.keyframesValues(stopsFor(from, fixed, stops), options) })
         return legs
       }
@@ -861,7 +867,7 @@ const legsWith = (
     const ends = Rec.filter(kept, (_, key) => Object.hasOwn(many, key))
     legs.push(snapLeg(from, ends, ends, () => Spring.resolve(springOpts).delay))
     legs.push({ _tag: "Blend", to: NO_VALUES, machine: () => Effect.die(springStopsError(many)) })
-    fixed = Rec.filter(kept, (_, key) => Bool.not(Object.hasOwn(many, key)))
+    fixed = Rec.filter(kept, (_, key) => !Object.hasOwn(many, key))
   }
   const { numbers: numeric, strings } = Values.split(fixed)
   // A spring settles at its target: the snap lands there.
@@ -869,17 +875,16 @@ const legsWith = (
   // A following return chases its Live value, read each step, and settles at rest on it.
   if (following) Arr.forEach(followingKeys, (key) => {
     const start = from[key] as number
-    const velocity = UndefinedOr.match(springOpts.velocity, { onUndefined: () => velocities(key), onDefined: identity })
+    let velocity = springOpts.velocity
+    if (Predicate.isUndefined(velocity)) velocity = velocities(key)
     const chase = Machine.chase(UndefinedOr.getOrThrow(follow).targetOf(key, start), { ...springOpts, from: start, velocity })
     legs.push({ _tag: "Follow", key, to: { [key]: UndefinedOr.getOrThrow(rest[key]) }, machine: () => settling(chase) })
   })
   if (hasKeys(numeric)) {
     const fromNumeric: Record<string, number> = Rec.map(numeric, (_, key) => from[key] as number)
     // Each key's own velocity, read now; none when the transition gives one, which every key then starts with.
-    const fromVelocity: Record<string, number> = Bool.match(Predicate.isUndefined(springOpts.velocity), {
-      onTrue: () => Rec.map(numeric, (_, key) => velocities(key)),
-      onFalse: () => NO_NUMBERS,
-    })
+    let fromVelocity: Record<string, number> = NO_NUMBERS
+    if (Predicate.isUndefined(springOpts.velocity)) fromVelocity = Rec.map(numeric, (_, key) => velocities(key))
     legs.push({ _tag: "Numbers", to: numeric, machine: () => Machine.springValues(numeric, springOpts, fromNumeric, fromVelocity) })
   }
   if (hasKeys(strings)) {
@@ -986,7 +991,7 @@ const inertiaLegsWith = (
     const ends = Rec.filter(kept, (_, key) => Object.hasOwn(many, key))
     legs.push(snapLeg(from, ends, ends, delay))
     legs.push({ _tag: "Blend", to: NO_VALUES, machine: () => Effect.die(springStopsError(many, "an inertia")) })
-    fixed = Rec.filter(kept, (_, key) => Bool.not(Object.hasOwn(many, key)))
+    fixed = Rec.filter(kept, (_, key) => !Object.hasOwn(many, key))
   }
   if (Bool.and(reducedMotion, (run as Run).respectReducedMotion !== false)) {
     const { positional, rest } = ReducedMotion.split(fixed, positionalKeys)

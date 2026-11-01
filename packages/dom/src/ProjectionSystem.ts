@@ -58,8 +58,8 @@ export class ProjectionSystem extends Context.Service<ProjectionSystem, Shape>()
  * Build the engine over `sink`, the context's Frame loop and Renderer, in the current Scope: what
  * it forks runs in that Scope, and closing it ends the engine.
  */
-export const make = (sink: Sink, options: Options = {}): Effect.Effect<Shape, never, Services | Scope.Scope> =>
-  Effect.gen(function* () {
+export const make: (sink: Sink, options?: Options) => Effect.Effect<Shape, never, Services | Scope.Scope> = Effect.fnUntraced(
+  function* (sink: Sink, options: Options = {}) {
     // The same object the engine's own lookups key on (`onPassEnd`), typed without `dispose`:
     // the Scope ends it. Its runner forks on Effect's default scheduler, whatever call built the
     // Layer (`internal/runner.ts`).

@@ -9,14 +9,13 @@
 import * as Arr from "effect/Array"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import { dual, identity } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Schema from "effect/Schema"
-import * as UndefinedOr from "effect/UndefinedOr"
 import * as Interpolator from "./Interpolator.ts"
+import { dual } from "./internal/dual.ts"
 
 // The registry is heterogeneous by design: its entries are `Interpolator.Entry<any, any>`.
 
@@ -205,7 +204,8 @@ const CACHE_CAPACITY = 1024
  * - At capacity it starts over, and `register` empties it, since precedence changes.
  */
 interface BlendCache {
-  readonly get: (from: string, to: string) => Option.Option<Blend<any, any>>
+  /** Per key, each leg (#460): the blend, or `undefined`, nothing made. */
+  readonly get: (from: string, to: string) => Blend<any, any> | undefined
   readonly set: (from: string, to: string, blend: Blend<any, any>) => void
   readonly clear: () => void
 }
@@ -225,7 +225,11 @@ const makeBlendCache = (capacity: number): BlendCache => {
       return row
     })
   return {
-    get: (from, to) => Option.flatMap(Option.fromUndefinedOr(rows.get(from)), (row) => Option.fromUndefinedOr(row.get(to))),
+    get: (from, to) => {
+      const row = rows.get(from)
+      if (Predicate.isUndefined(row)) return undefined
+      return row.get(to)
+    },
     set: (from, to, blend) => {
       if (MutableRef.get(size) >= capacity) clear()
       rowOf(from).set(to, blend)
@@ -234,14 +238,6 @@ const makeBlendCache = (capacity: number): BlendCache => {
     clear,
   }
 }
-
-type Pair = readonly [from: unknown, to: unknown]
-
-/** Two strings: a pair the registry's cache keeps. */
-const stringPair: Predicate.Refinement<Pair, readonly [string, string]> = Predicate.Tuple([
-  Predicate.isString,
-  Predicate.isString,
-])
 
 /**
  * Builds the `InterpolatorRegistry` service shape over a mutable entry list and a mutable Key
@@ -266,50 +262,46 @@ export const make = (
     // The rules as one chain, built again when one is registered.
     const chain = MutableRef.make<KeyBlendOf>(noRule)
 
-    const resolveUncached = <From, To>(from: From, to: To): Effect.Effect<Blend<From, To>> =>
-      Option.match(select(entries, from, to), {
-        onNone: () => Effect.succeed(discreteBlend(from, to)),
-        onSome: (decoded) => blendDecoded(decoded, from, to),
-      })
+    // Per key, each leg (#460, compose once): statements.
+    const resolveUncached = <From, To>(from: From, to: To): Effect.Effect<Blend<From, To>> => {
+      const decoded = select(entries, from, to)
+      if (Option.isNone(decoded)) return Effect.succeed(discreteBlend(from, to))
+      return blendDecoded(decoded.value, from, to)
+    }
 
     /** A pair of strings, from the cache, or resolved and kept. */
-    const resolveCached = ([from, to]: readonly [string, string]): Effect.Effect<Blend<any, any>> =>
-      Option.match(cache.get(from, to), {
-        onSome: (blend) => Effect.succeed(blend),
-        onNone: () => Effect.tap(resolveUncached(from, to), (blend) => Effect.sync(() => cache.set(from, to, blend))),
-      })
+    const resolveCached = (from: string, to: string): Effect.Effect<Blend<any, any>> => {
+      const kept = cache.get(from, to)
+      if (Predicate.isNotUndefined(kept)) return Effect.succeed(kept)
+      return Effect.tap(resolveUncached(from, to), (blend) => Effect.sync(() => cache.set(from, to, blend)))
+    }
 
     const resolve = <From, To>(from: From, to: To): Effect.Effect<Blend<From, To>> =>
       Effect.suspend(() => {
-        const pair: Pair = [from, to]
-        return Option.match(Option.liftPredicate(pair, stringPair), {
-          onNone: () => resolveUncached(from, to),
-          onSome: resolveCached,
-        })
+        if (Predicate.isString(from) && Predicate.isString(to)) return resolveCached(from, to)
+        return resolveUncached(from, to)
       })
 
     MutableRef.set(chain, chainOf(rules, resolve, noRule))
 
     return {
-      register: <Decoded, Encoded>(entry: Interpolator.Entry<Decoded, Encoded>) =>
-        Effect.gen(function* () {
-          entries.unshift(registered(entry))
-          cache.clear()
-          yield* Effect.logDebug("wardic.interpolator: register").pipe(
-            Effect.annotateLogs({ interpolator: entry.name }),
-          )
-        }),
+      register: Effect.fnUntraced(function* <Decoded, Encoded>(entry: Interpolator.Entry<Decoded, Encoded>) {
+        entries.unshift(registered(entry))
+        cache.clear()
+        yield* Effect.logDebug("wardic.interpolator: register").pipe(
+          Effect.annotateLogs({ interpolator: entry.name }),
+        )
+      }),
       resolve,
       interpolate: <From, To>(from: From, to: To, t: number): Effect.Effect<From | To> =>
         Effect.map(resolve(from, to), (blend) => blend(t)),
-      registerKeyRule: (rule: KeyRule) =>
-        Effect.gen(function* () {
-          rules.unshift(rule)
-          MutableRef.set(chain, chainOf(rules, resolve, noRule))
-          yield* Effect.logDebug("wardic.interpolator: register key rule").pipe(
-            Effect.annotateLogs({ keyRule: rule.name }),
-          )
-        }),
+      registerKeyRule: Effect.fnUntraced(function* (rule: KeyRule) {
+        rules.unshift(rule)
+        MutableRef.set(chain, chainOf(rules, resolve, noRule))
+        yield* Effect.logDebug("wardic.interpolator: register key rule").pipe(
+          Effect.annotateLogs({ keyRule: rule.name }),
+        )
+      }),
       keyBlendOf: (key: string, from: number | string, to: number | string): Option.Option<Effect.Effect<KeyBlend>> =>
         MutableRef.get(chain)(key, from, to),
     }
@@ -343,22 +335,17 @@ const layered = new WeakMap<ReadonlyArray<KeyRule>, WeakMap<Service, Service>>()
 
 /** `registry` with `rules` asked first: kept per rule list and registry. */
 const layeredOf = (rules: ReadonlyArray<KeyRule>, registry: Service): Service => {
-  const byRegistry = UndefinedOr.match(layered.get(rules), {
-    onDefined: identity,
-    onUndefined: () => {
-      const made = new WeakMap<Service, Service>()
-      layered.set(rules, made)
-      return made
-    },
-  })
-  return UndefinedOr.match(byRegistry.get(registry), {
-    onDefined: identity,
-    onUndefined: () => {
-      const made: Service = { ...registry, keyBlendOf: chainOf(rules, registry.resolve, registry.keyBlendOf) }
-      byRegistry.set(registry, made)
-      return made
-    },
-  })
+  // Per leg (#460): statements.
+  let byRegistry = layered.get(rules)
+  if (Predicate.isUndefined(byRegistry)) {
+    byRegistry = new WeakMap<Service, Service>()
+    layered.set(rules, byRegistry)
+  }
+  const kept = byRegistry.get(registry)
+  if (Predicate.isNotUndefined(kept)) return kept
+  const made: Service = { ...registry, keyBlendOf: chainOf(rules, registry.resolve, registry.keyBlendOf) }
+  byRegistry.set(registry, made)
+  return made
 }
 
 /** The `InterpolatorRegistry` pre-loaded with core's built-in interpolators (`Interpolator.defaults`) and no Key rules. */

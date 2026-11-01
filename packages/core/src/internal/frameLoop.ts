@@ -51,12 +51,13 @@ import * as Data from "effect/Data"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import type * as Fiber from "effect/Fiber"
 import * as FiberHandle from "effect/FiberHandle"
 import { constUndefined, identity } from "effect/Function"
-import * as Match from "effect/Match"
 import * as Metric from "effect/Metric"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import * as References from "effect/References"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as Tracer from "effect/Tracer"
@@ -195,19 +196,25 @@ const checked =
   }
 
 /** A run's ending, counted: a settle or a failure (an interruption is neither, nor a superseded run). */
-const countEnd = (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
-  Exit.match(exit, {
-    onSuccess: (end) =>
-      Bool.match(Supersede.isSuperseded(end), {
-        onTrue: () => Effect.void,
-        onFalse: () => Metric.update(settledRuns, 1),
-      }),
-    onFailure: (cause) =>
-      Bool.match(Cause.hasInterruptsOnly(cause), {
-        onTrue: () => Effect.void,
-        onFalse: () => Metric.update(failedRuns, 1),
-      }),
-  })
+const countEnd = (exit: Exit.Exit<unknown>): Effect.Effect<void> => {
+  // Per run (#460, compose once): statements.
+  if (Exit.isSuccess(exit)) {
+    if (Supersede.isSuperseded(exit.value)) return Effect.void
+    return Metric.update(settledRuns, 1)
+  }
+  if (Cause.hasInterruptsOnly(exit.cause)) return Effect.void
+  return Metric.update(failedRuns, 1)
+}
+
+/**
+ * Whether a fiber's spans reach anything (#460): a tracer installed, other than Effect's default
+ * `nativeTracer` (the comparison Effect's `Tracer` documents for this), and tracing on.
+ */
+const isTraced = (fiber: Fiber.Fiber<unknown, unknown>): boolean =>
+  fiber.getRef(Tracer.Tracer) !== Tracer.nativeTracer && fiber.getRef(References.TracerEnabled)
+
+/** A run's wait for its end. Built once (#460). */
+const settledOf = (entry: Entry): Effect.Effect<Frame.Frame<unknown> | Supersede.Superseded> => Deferred.await(entry.settled)
 
 /**
  * A run's defect, named after its run: annotated with a stack frame of the run's span name and no
@@ -232,217 +239,232 @@ const endingOf = (exit: Exit.Exit<void>): Exit.Exit<never> =>
 /**
  * Build the Frame loop over the Environment's `Clock`. Needs a `Scope` (the burst's
  * `FiberHandle` lives in it), so the `FrameLoop` module wraps it as its `layer`. Its span
- * captures no call-site stack (ADR-0040, decision 2), so not `Effect.fn`, which always does.
+ * captures no call-site stack (ADR-0040, decision 2), so not `Effect.fn`, which always does:
+ * `Effect.fnUntraced`, the span its pipeable (#460, Q6).
  */
-export const make = () =>
-  Effect.withSpan(
-    Effect.gen(function* () {
-      const clock = yield* Clock.Clock
-      // The burst runs here, under the Layer's build context, never in a caller's.
-      const buildContext = yield* Effect.context<Clock.Clock | Scope.Scope>()
-      const burst = yield* FiberHandle.make<void>()
-      const entries: Array<Entry> = []
-      // The runs `runLast` added, stepped after `entries` in each tick.
-      const lastEntries: Array<Entry> = []
-      // The `afterTick` hooks, replaced (never changed in place) by an add or a removal, so the end
-      // of a tick calls the hooks there were when it began calling them, whatever a hook adds or
-      // removes.
-      let hooks: ReadonlyArray<Hook> = []
-      // Whether a burst holds the loop's subscription. A run's continuation runs inline while the
-      // ending burst is still in `burst`, so the loop tracks its burst itself rather than asking the
-      // handle (#81).
-      let bursting = false
+export const make = Effect.fnUntraced(
+  function* () {
+    const clock = yield* Clock.Clock
+    // The burst runs here, under the Layer's build context, never in a caller's.
+    const buildContext = yield* Effect.context<Clock.Clock | Scope.Scope>()
+    const burst = yield* FiberHandle.make<void>()
+    const entries: Array<Entry> = []
+    // The runs `runLast` added, stepped after `entries` in each tick.
+    const lastEntries: Array<Entry> = []
+    // The `afterTick` hooks, replaced (never changed in place) by an add or a removal, so the end
+    // of a tick calls the hooks there were when it began calling them, whatever a hook adds or
+    // removes.
+    let hooks: ReadonlyArray<Hook> = []
+    // Whether a burst holds the loop's subscription. A run's continuation runs inline while the
+    // ending burst is still in `burst`, so the loop tracks its burst itself rather than asking the
+    // handle (#81).
+    let bursting = false
 
-      /** End `entry`'s run: removed, and its fiber resumed with `exit` (inline, within the tick). */
-      const end = (entry: Entry, exit: Exit.Exit<Frame.Frame<unknown>>): void => {
-        entry.removed = true
-        Deferred.doneUnsafe(entry.settled, exit)
-      }
+    /** End `entry`'s run: removed, and its fiber resumed with `exit` (inline, within the tick). */
+    const end = (entry: Entry, exit: Exit.Exit<Frame.Frame<unknown>>): void => {
+      entry.removed = true
+      Deferred.doneUnsafe(entry.settled, exit)
+    }
 
-      // Per frame (ADR-0025): plain calls only, in the one `Stream.map` call per tick (ADR-0027,
-      // decision 8); counted loops, statement `if`s, a `try` per entry (it costs nothing measurable).
+    // Per frame (ADR-0025): plain calls only, in the one `Stream.map` call per tick (ADR-0027,
+    // decision 8); counted loops, statement `if`s, a `try` per entry (it costs nothing measurable).
 
-      /**
-       * Step the last lane's first `count` entries, in add order, as `tick` steps the others. Per frame,
-       * and only while it holds a run.
-       */
-      const stepLast = (count: number, dt: number): void => {
-        for (let i = 0; i < count; i++) {
-          const entry = lastEntries[i]
-          if (entry.removed) continue
-          try {
-            const frame = entry.step(dt)
-            entry.sink(frame)
-            if (entry.settles && frame.done) end(entry, Exit.succeed(frame))
-          } catch (defect) {
-            end(entry, dieNamed(entry.name, defect))
-          }
+    /**
+     * Step the last lane's first `count` entries, in add order, as `tick` steps the others. Per frame,
+     * and only while it holds a run.
+     */
+    const stepLast = (count: number, dt: number): void => {
+      for (let i = 0; i < count; i++) {
+        const entry = lastEntries[i]
+        if (entry.removed) continue
+        try {
+          const frame = entry.step(dt)
+          entry.sink(frame)
+          if (entry.settles && frame.done) end(entry, Exit.succeed(frame))
+        } catch (defect) {
+          end(entry, dieNamed(entry.name, defect))
         }
       }
+    }
 
-      /** Drop the last lane's removed entries in place, keeping order; how many are left. Per frame. */
-      const compactLast = (): number => {
-        let kept = 0
-        for (let i = 0; i < lastEntries.length; i++) {
-          const entry = lastEntries[i]
-          if (entry.removed) continue
-          lastEntries[kept] = entry
-          kept++
+    /** Drop the last lane's removed entries in place, keeping order; how many are left. Per frame. */
+    const compactLast = (): number => {
+      let kept = 0
+      for (let i = 0; i < lastEntries.length; i++) {
+        const entry = lastEntries[i]
+        if (entry.removed) continue
+        lastEntries[kept] = entry
+        kept++
+      }
+      lastEntries.length = kept
+      return kept
+    }
+
+    // The first lane's loops stay inline in `tick`: moved into a function shared with the last lane,
+    // Node's `chase/loop` ran 55% slower (`bench:core`, ADR-0027 *Amendment (#137)*).
+    const tick = (dt: number): boolean => {
+      const t0 = performance.now()
+      // Both counts before any step: a run added during the tick, to either lane, waits for the next.
+      const count = entries.length
+      const lastCount = lastEntries.length
+      for (let i = 0; i < count; i++) {
+        const entry = entries[i]
+        if (entry.removed) continue
+        try {
+          const frame = entry.step(dt)
+          entry.sink(frame)
+          if (entry.settles && frame.done) end(entry, Exit.succeed(frame))
+        } catch (defect) {
+          end(entry, dieNamed(entry.name, defect))
         }
-        lastEntries.length = kept
-        return kept
       }
-
-      // The first lane's loops stay inline in `tick`: moved into a function shared with the last lane,
-      // Node's `chase/loop` ran 55% slower (`bench:core`, ADR-0027 *Amendment (#137)*).
-      const tick = (dt: number): boolean => {
-        const t0 = performance.now()
-        // Both counts before any step: a run added during the tick, to either lane, waits for the next.
-        const count = entries.length
-        const lastCount = lastEntries.length
-        for (let i = 0; i < count; i++) {
-          const entry = entries[i]
-          if (entry.removed) continue
-          try {
-            const frame = entry.step(dt)
-            entry.sink(frame)
-            if (entry.settles && frame.done) end(entry, Exit.succeed(frame))
-          } catch (defect) {
-            end(entry, dieNamed(entry.name, defect))
-          }
-        }
-        // The last lane, after every other run (ADR-0027, *Amendment (#137)*).
-        if (lastCount > 0) stepLast(lastCount, dt)
-        // Drop the removed entries in place, keeping order (and those added during the pass).
-        let kept = 0
-        for (let i = 0; i < entries.length; i++) {
-          const entry = entries[i]
-          if (entry.removed) continue
-          entries[kept] = entry
-          kept++
-        }
-        entries.length = kept
-        if (lastEntries.length > 0) kept += compactLast()
-        animations.updateUnsafe(kept, buildContext)
-        tickMs.updateUnsafe(performance.now() - t0, buildContext)
-        // The end of the tick: everything for this Refresh frame is written (ADR-0033). After
-        // `tickMs`, which stays the cost of the steps alone.
-        const ended = hooks
-        for (let i = 0; i < ended.length; i++) ended[i].hook()
-        // The burst ends with no run left, counted after the hooks: one a hook started (the flush
-        // gate's, running a binding's batch, #209) takes its first step at the next tick.
-        return entries.length + lastEntries.length === 0
+      // The last lane, after every other run (ADR-0027, *Amendment (#137)*).
+      if (lastCount > 0) stepLast(lastCount, dt)
+      // Drop the removed entries in place, keeping order (and those added during the pass).
+      let kept = 0
+      for (let i = 0; i < entries.length; i++) {
+        const entry = entries[i]
+        if (entry.removed) continue
+        entries[kept] = entry
+        kept++
       }
+      entries.length = kept
+      if (lastEntries.length > 0) kept += compactLast()
+      animations.updateUnsafe(kept, buildContext)
+      tickMs.updateUnsafe(performance.now() - t0, buildContext)
+      // The end of the tick: everything for this Refresh frame is written (ADR-0033). After
+      // `tickMs`, which stays the cost of the steps alone.
+      const ended = hooks
+      for (let i = 0; i < ended.length; i++) ended[i].hook()
+      // The burst ends with no run left, counted after the hooks: one a hook started (the flush
+      // gate's, running a binding's batch, #209) takes its first step at the next tick.
+      return entries.length + lastEntries.length === 0
+    }
 
-      const afterTick = (hook: () => undefined): Effect.Effect<void, never, Scope.Scope> => {
-        const added: Hook = { hook }
-        return Effect.acquireRelease(
-          Effect.sync(() => {
-            hooks = Arr.append(hooks, added)
-          }),
-          () =>
-            Effect.sync(() => {
-              hooks = Arr.filter(hooks, (h) => h !== added)
-            }),
-        )
-      }
-
-      /**
-       * A burst ended: end every run still on the loop as `endingOf` says. `bursting` clears before
-       * any run resumes, so a run a continuation starts gets the next burst, inline (#81). If that
-       * burst ends at once (a dead Clock), its `endAll` runs inside this one: one level deep, since
-       * the runs it ends are still starting, not waiting. Not the per-frame path.
-       */
-      const endAll = (exit: Exit.Exit<void>): void => {
-        const ending = endingOf(exit)
-        bursting = false
-        Arr.forEach(Arr.appendAll(entries.splice(0), lastEntries.splice(0)), (entry) => {
-          if (!entry.removed) end(entry, ending)
-        })
-        animations.updateUnsafe(0, buildContext)
-      }
-
-      const ticking: Effect.Effect<void> = clock.ticks.pipe(
-        Stream.map(tick),
-        Stream.takeUntil(identity),
-        Stream.runDrain,
-        Effect.onExit((exit) => Effect.sync(() => endAll(exit))),
-        Effect.withSpan("wardic.frameloop", { root: true }, { captureStackTrace: false }),
-        Effect.provideContext(buildContext),
-      )
-
-      /**
-       * Start a burst unless one holds the subscription, inline: no scheduler hop before the
-       * subscription. While a burst ends its runs, the new one replaces it in `burst` (#81).
-       */
-      const startBurst: Effect.Effect<unknown> = Effect.suspend(() =>
-        Bool.match(bursting, {
-          onTrue: () => Effect.void,
-          onFalse: () => {
-            bursting = true
-            return FiberHandle.run(burst, ticking)
-          },
+    const afterTick = (hook: () => undefined): Effect.Effect<void, never, Scope.Scope> => {
+      const added: Hook = { hook }
+      return Effect.acquireRelease(
+        Effect.sync(() => {
+          hooks = Arr.append(hooks, added)
         }),
+        () =>
+          Effect.sync(() => {
+            hooks = Arr.filter(hooks, (h) => h !== added)
+          }),
       )
+    }
 
-      /**
-       * A run added to `lane`: `run`'s and `runLast`'s one body. Its span is the `ParentSpan` of what
-       * runs inside it, with no stack frame (ADR-0040, decision 3).
-       */
-      const runIn = (lane: Array<Entry>): Run =>
-        (<F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, sink: FrameLoop.Sink<F>, options?: RunOptions) =>
-          Effect.useSpan(machine.span.name, { attributes: machine.span.attributes }, (span) =>
-            Effect.provideService(added(lane, machine, sink, options, span), Tracer.ParentSpan, span),
-          )) as Run
+    /**
+     * A burst ended: end every run still on the loop as `endingOf` says. `bursting` clears before
+     * any run resumes, so a run a continuation starts gets the next burst, inline (#81). If that
+     * burst ends at once (a dead Clock), its `endAll` runs inside this one: one level deep, since
+     * the runs it ends are still starting, not waiting. Not the per-frame path.
+     */
+    const endAll = (exit: Exit.Exit<void>): void => {
+      const ending = endingOf(exit)
+      bursting = false
+      Arr.forEach(Arr.appendAll(entries.splice(0), lastEntries.splice(0)), (entry) => {
+        if (!entry.removed) end(entry, ending)
+      })
+      animations.updateUnsafe(0, buildContext)
+    }
 
-      /**
-       * The run itself: its start log, then its entry on `lane` (and in its token, given one) until
-       * it ends. A superseded end marks `span`.
-       */
-      const added = <F extends Frame.Frame<unknown>>(
-        lane: Array<Entry>,
-        machine: Machine.Machine<F>,
-        sink: FrameLoop.Sink<F>,
-        options: RunOptions | undefined,
-        span: Tracer.Span,
-      ): Effect.Effect<F | Supersede.Superseded> =>
-        Effect.logDebug(`${machine.span.name}: start`).pipe(
-          Effect.andThen(
-            Effect.acquireUseRelease(
-              // `CheckFrames` from the caller's fiber, once per run: with it off, the sink as it is.
-              Effect.flatMap(Effect.service(CheckFrames), (check) =>
-                Match.value(burst.state).pipe(
-                  // A closed Environment takes no runs: nothing would tick them.
-                  Match.tag("Closed", () => Effect.interrupt),
-                  Match.tag("Open", () => {
-                    const entry: Entry = {
-                      name: machine.span.name,
-                      step: machine.start(),
-                      sink: Bool.match(check, { onTrue: () => checked(sink), onFalse: () => sink }) as FrameLoop.Sink<Frame.Frame<unknown>>,
-                      settles: machine.settles,
-                      settled: Deferred.makeUnsafe<Frame.Frame<unknown> | Supersede.Superseded>(),
-                      removed: false,
-                    }
-                    lane.push(entry)
-                    if (Predicate.isNotUndefined(options)) options.supersede.runs.push(entry)
-                    return Effect.as(startBurst, entry)
-                  }),
-                  Match.exhaustive,
-                ),
-              ),
-              (entry) => Deferred.await(entry.settled) as Effect.Effect<F | Supersede.Superseded>,
-              (entry, exit) =>
+    const ticking: Effect.Effect<void> = clock.ticks.pipe(
+      Stream.map(tick),
+      Stream.takeUntil(identity),
+      Stream.runDrain,
+      Effect.onExit((exit) => Effect.sync(() => endAll(exit))),
+      Effect.withSpan("wardic.frameloop", { root: true }, { captureStackTrace: false }),
+      Effect.provideContext(buildContext),
+    )
+
+    /**
+     * Start a burst unless one holds the subscription, inline: no scheduler hop before the
+     * subscription. While a burst ends its runs, the new one replaces it in `burst` (#81).
+     */
+    const startBurst: Effect.Effect<unknown> = Effect.suspend(() =>
+      Bool.match(bursting, {
+        onTrue: () => Effect.void,
+        onFalse: () => {
+          bursting = true
+          return FiberHandle.run(burst, ticking)
+        },
+      }),
+    )
+
+    /**
+     * A run added to `lane`: `run`'s and `runLast`'s one body. Its span is the `ParentSpan` of what
+     * runs inside it, with no stack frame (ADR-0040, decision 3), opened only when a tracer is
+     * installed (ADR-0040, *Amendment (#460)*): an app's, the devtools', a test's. Effect's default
+     * records a span nothing reads, a leg's largest cost after its machine.
+     */
+    const runIn = (lane: Array<Entry>): Run =>
+      (<F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, sink: FrameLoop.Sink<F>, options?: RunOptions) =>
+        Effect.withFiber((fiber) => {
+          if (!isTraced(fiber)) return added(lane, machine, sink, options, undefined)
+          return Effect.useSpan(machine.span.name, { attributes: machine.span.attributes }, (span) =>
+            Effect.provideService(added(lane, machine, sink, options, span), Tracer.ParentSpan, span))
+        })) as Run
+
+    /**
+     * The run itself: its start log, then its entry on `lane` (and in its token, given one) until
+     * it ends. A superseded end marks `span`.
+     */
+    const added = <F extends Frame.Frame<unknown>>(
+      lane: Array<Entry>,
+      machine: Machine.Machine<F>,
+      sink: FrameLoop.Sink<F>,
+      options: RunOptions | undefined,
+      span: Tracer.Span | undefined,
+    ): Effect.Effect<F | Supersede.Superseded> =>
+      // Per run, a leg each (#460, compose once): Effect's calls data-first, the steps statements.
+      Effect.annotateLogs(
+        Effect.andThen(
+          Effect.logDebug(`${machine.span.name}: start`),
+          Effect.acquireUseRelease(
+            // `CheckFrames` from the caller's fiber, once per run: with it off, the sink as it is.
+            Effect.flatMap(Effect.service(CheckFrames), (check) => entered(lane, machine, sink, options, check)),
+            settledOf as (entry: Entry) => Effect.Effect<F | Supersede.Superseded>,
+            (entry, exit) =>
+              Effect.andThen(
                 Effect.sync(() => {
                   entry.removed = true
+                  if (Predicate.isUndefined(span)) return
                   if (Exit.isSuccess(exit) && Supersede.isSuperseded(exit.value)) span.attribute("superseded", true)
-                }).pipe(Effect.andThen(countEnd(exit))),
-            ),
+                }),
+                countEnd(exit),
+              ),
           ),
-          Effect.annotateLogs(machine.span.attributes),
-        )
+        ),
+        machine.span.attributes,
+      )
 
-      return { run: runIn(entries), runLast: runIn(lastEntries), afterTick } satisfies Shape
-    }),
-    "wardic.frameloop.make",
-    { captureStackTrace: false },
-  )
+    /** A run's entry on `lane` (and in its token, given one), and the burst started for it. */
+    const entered = <F extends Frame.Frame<unknown>>(
+      lane: Array<Entry>,
+      machine: Machine.Machine<F>,
+      sink: FrameLoop.Sink<F>,
+      options: RunOptions | undefined,
+      check: boolean,
+    ): Effect.Effect<Entry> => {
+      // A closed Environment takes no runs: nothing would tick them.
+      if (burst.state._tag === "Closed") return Effect.interrupt
+      let checkedSink: FrameLoop.Sink<F> = sink
+      if (check) checkedSink = checked(sink)
+      const entry: Entry = {
+        name: machine.span.name,
+        step: machine.start(),
+        sink: checkedSink as FrameLoop.Sink<Frame.Frame<unknown>>,
+        settles: machine.settles,
+        settled: Deferred.makeUnsafe<Frame.Frame<unknown> | Supersede.Superseded>(),
+        removed: false,
+      }
+      lane.push(entry)
+      if (Predicate.isNotUndefined(options)) options.supersede.runs.push(entry)
+      return Effect.as(startBurst, entry)
+    }
+
+    return { run: runIn(entries), runLast: runIn(lastEntries), afterTick } satisfies Shape
+  },
+  Effect.withSpan("wardic.frameloop.make", undefined, { captureStackTrace: false }),
+)
