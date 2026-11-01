@@ -97,7 +97,7 @@ What a provider's Environment owns lives in its runtime, not in a module (#460, 
 
 ## Spans
 
-Core opens a span only where something reads it: `internal/tracing.ts`'s `traced`, `tracedScoped` and `tracedStream`, which open it when a tracer other than Effect's default `nativeTracer` is installed and tracing is on (ADR-0040, *Amendment (#460)*), never with a call-site stack. A new span in core goes through them.
+Core opens a span only where something reads it: `internal/tracing.ts`'s `traced`, `tracedScoped` and `tracedStream`, which open it when a tracer other than Effect's default `nativeTracer` is installed and tracing is on (ADR-0040, *Amendment (#460)*), never with a call-site stack. A new span in core goes through them. A Stream's is decided once, when it runs, and the pull it hands on is the Stream's own: a wrapper there, a `Stream.unwrap` among them, runs on every pull.
 
 ## Vanilla to Effect
 

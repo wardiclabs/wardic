@@ -5,6 +5,7 @@
  * install one; with Effect's default, a span is recorded that nothing reads, and its `ParentSpan` gives
  * the fiber a new context root. No span captures a call-site stack (ADR-0040, decision 2).
  */
+import * as Channel from "effect/Channel"
 import * as Effect from "effect/Effect"
 import type * as Fiber from "effect/Fiber"
 import * as References from "effect/References"
@@ -40,11 +41,20 @@ export const tracedScoped = <A, E, R>(
     return Effect.withSpanScoped(self, name, { ...options, captureStackTrace: false })
   })
 
-/** `self` under the span `name` when the fiber running it is traced; as it is otherwise. */
-export const tracedStream = <A, E, R>(self: Stream.Stream<A, E, R>, name: string, options: SpanOptions = {}): Stream.Stream<A, E, R> =>
-  Stream.unwrap(
-    Effect.withFiber((fiber) => {
-      if (!isTraced(fiber)) return Effect.succeed(self)
-      return Effect.succeed(Stream.withSpan(self, name, { ...options, captureStackTrace: false }))
-    }),
+/**
+ * `self` under the span `name` when the fiber running it is traced; as it is otherwise. Decided once,
+ * when the stream is run, and the pull handed on is `self`'s own: a `Stream.unwrap` here suspended
+ * every pull, per element per frame for a Stream consumer (+4–6% on Bun's `ticksOnly`).
+ */
+export const tracedStream = <A, E, R>(self: Stream.Stream<A, E, R>, name: string, options: SpanOptions = {}): Stream.Stream<A, E, R> => {
+  const channel = Stream.toChannel(self)
+  return Stream.fromChannel(
+    Channel.fromTransform((upstream, scope) =>
+      Effect.withFiber((fiber) => {
+        if (!isTraced(fiber)) return Channel.toTransform(channel)(upstream, scope)
+        const spanned = Stream.withSpan(self, name, { ...options, captureStackTrace: false })
+        return Channel.toTransform(Stream.toChannel(spanned))(upstream, scope)
+      }),
+    ),
   )
+}

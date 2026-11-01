@@ -114,6 +114,7 @@ export const PREBUNDLED: ReadonlyArray<string> = [
       "effect/Array",
       "effect/Boolean",
       "effect/Cause",
+      "effect/Channel",
       "effect/Combiner",
       "effect/Data",
       "effect/Deferred",

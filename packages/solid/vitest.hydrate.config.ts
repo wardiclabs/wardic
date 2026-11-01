@@ -107,6 +107,7 @@ export default defineConfig({
       "effect/Array",
       "effect/Boolean",
       "effect/Cause",
+      "effect/Channel",
       "effect/Combiner",
       "effect/Data",
       "effect/Deferred",
