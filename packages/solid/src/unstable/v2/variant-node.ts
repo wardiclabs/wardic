@@ -54,6 +54,7 @@ import {
   nameConfigOf,
   type NameOrchestration,
   passedThrough,
+  sameStagger,
   staggerOf,
   staggerOfName,
   type VariantConfig,
@@ -251,7 +252,7 @@ const ownOrchestration = (
   )
   // What its `beforeChildren` settles at: its variant, its gestures' names (#291), and a Controls change (#433).
   const trigger: Accessor<string> = createMemo(() => at().key, CLIENT_ONLY)
-  const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(orchestration()), CLIENT_ONLY)
+  const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(orchestration()), { ...CLIENT_ONLY, equals: sameStagger })
   // A list's names have each their own (#297's PR 2): none for the list as a whole.
   const when: Accessor<"beforeChildren" | "afterChildren" | undefined> = () => {
     if (Array.isArray(variant())) return undefined
