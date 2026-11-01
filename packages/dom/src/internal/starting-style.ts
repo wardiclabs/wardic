@@ -67,6 +67,7 @@ const isStops = (value: unknown): value is Stops => {
  * The Keyframes {@link keepAnimatable} set aside while it filtered a values map (#452): written by it,
  * read and cleared right after, never across a call. A target with none leaves it `undefined`.
  */
+// Module state (#460, Q7): scratch within one synchronous call, never held across one.
 let setAside: Record<string, Stops> | undefined
 
 /**

@@ -8,6 +8,7 @@ import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
 import type * as Frame from "./Frame.ts"
 import { dual } from "./internal/dual.ts"
+import { traced } from "./internal/tracing.ts"
 
 /**
  * Output of `Renderer.project` — the environment-specific representation of a
@@ -82,6 +83,6 @@ export const applyTo: {
       yield* Effect.logDebug("wardic.applyTo: subscribe").pipe(Effect.annotateLogs({ target: typeof target }))
       yield* stream.pipe(Stream.runForEach((frame) => Effect.sync(() => renderer.commit(target, renderer.project(frame.value)))))
     },
-    Effect.withSpan("wardic.applyTo", undefined, { captureStackTrace: false }),
+    (self) => traced(self, "wardic.applyTo"),
   ),
 )

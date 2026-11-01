@@ -121,6 +121,7 @@ export const subscribe = (controls: WardicAnimationControls, element: Controlled
 }
 
 /** The changes made, counted. */
+// Module state (#460, Q7): an id counter, only compared for order and identity.
 let serials = 0
 
 /**

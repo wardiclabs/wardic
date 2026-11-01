@@ -89,6 +89,7 @@ interface Plain {
 const plainByGate = new WeakMap<FlushGate.Shape, WeakMap<Element, Plain>>()
 
 /** The plain elements' gate ids, counted. */
+// Module state (#460, Q7): an id counter, unique across every gate.
 let plainIds = 0
 
 /** No config: a plain element's. */

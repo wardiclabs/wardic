@@ -83,6 +83,21 @@ Code that runs **per key or per element on every Retarget, or per leg**, as well
 
 Why: Effect's `dual` keeps its first argument for the data-last closure it might return, so V8 gives every call a context for it, a data-first call too, unless TurboFan has inlined the wrapper into an optimized caller, and its other forms read `arguments`. Most of a binding's per-leg code runs in Maglev, where a data-first `Bool.or` measured 104 B a call, and a pipe built at the call 472 B against 0 for the same predicate composed once (Node, #460). Core's own operations use core's `dual` (`internal/dual.ts`, [`pipeable.md`](pipeable.md)), which allocates nothing on a data-first call in any tier. On the bench page, `dual`'s wrapper was 18 KB of each element's 139 KB a round.
 
+## Module state and time
+
+What a provider's Environment owns lives in its runtime, not in a module (#460, Q7):
+- **Time** is the Environment's: core's `Clock.now`, the same through one synchronous block (`Clock.syncNow`). A binding reads its provider's once per runtime (solid's `clockNowOf`), so a test Environment's Clock drives velocities too.
+- **What stays at module scope,** each with a comment saying why (`// Module state (#460, Q7): …`):
+  - per-frame scratch, written and read within one call (`RUN_PASS`, `setAside`);
+  - a cache built once, keyed by what it caches (`WeakMap`s by value or document; `serverRegistry`, on a server, where no runtime runs);
+  - an id counter, only ever compared for distinctness;
+  - the page's one batch across providers (Measured pairs' end-of-task read).
+- **`queueMicrotask`** stays in plain callbacks, the same end-of-task checkpoint core uses; inside Effect code it's `Microtask.next`.
+
+## Spans
+
+Core opens a span only where something reads it: `internal/tracing.ts`'s `traced`, `tracedScoped` and `tracedStream`, which open it when a tracer other than Effect's default `nativeTracer` is installed and tracing is on (ADR-0040, *Amendment (#460)*), never with a call-site stack. A new span in core goes through them.
+
 ## Vanilla to Effect
 
 | Vanilla | Effect |

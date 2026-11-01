@@ -47,11 +47,13 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as PubSub from "effect/PubSub"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as Microtask from "./Microtask.ts"
 import * as RefreshFrameSource from "./RefreshFrameSource.ts"
+import { tracedStream } from "./internal/tracing.ts"
 
 /**
  * Time source for the engine.
@@ -72,6 +74,12 @@ export class Clock extends Context.Service<Clock, {
   readonly ticks: Stream.Stream<number>
   /** Advance the clock to absolute time `t` (environments call this). */
   readonly tick: (t: number) => Effect.Effect<void>
+  /**
+   * The Environment's time now, in ms, the same for the rest of a synchronous block (Motion's
+   * `sync-time`): what a key's velocity is read against (#464), the provider's, so a test
+   * Environment's Clock drives velocities too (#460, Q7).
+   */
+  readonly now: () => number
 }>()("@wardic/Clock") {}
 
 /**
@@ -82,9 +90,29 @@ export class Clock extends Context.Service<Clock, {
 export const NOMINAL_DT = 1 / 60
 
 // @wardic/core compiles against ES2022 alone (no DOM lib, no Node types), which does
-// not declare `performance`. It is a host global in every environment Wardic targets
-// (browsers, Node, React Native), so it is declared here, in module scope only.
+// not declare `performance` or `queueMicrotask`. They are host globals in every environment
+// Wardic targets (browsers, Node, React Native), so they are declared here, in module scope only.
 declare const performance: { readonly now: () => number }
+declare const queueMicrotask: (callback: () => void) => void
+
+/**
+ * `read`, read once a synchronous block: the first call reads it and keeps it until the microtask
+ * that clears it, so every sink a tick runs, and a Retarget in the same task, read one time
+ * (Motion's `sync-time`, #464). A Clock's `now` for an Environment whose time is a wall clock.
+ */
+export const syncNow = (read: () => number): (() => number) => {
+  let kept: number | undefined
+  const clear = (): void => {
+    kept = undefined
+  }
+  return () => {
+    if (Predicate.isNotUndefined(kept)) return kept
+    const at = read()
+    kept = at
+    queueMicrotask(clear)
+    return at
+  }
+}
 
 /**
  * Build a `Clock` service driven by `source`'s Refresh frames. Requires a `Scope`
@@ -240,16 +268,19 @@ export const fromRefreshFrames: <Handle>(
 
     // Subscribing joins the tick PubSub, then joins the loop. Join the PubSub
     // FIRST, so no tick published once the loop runs can miss this subscriber.
-    const ticks = Stream.unwrap(
+    const ticks = tracedStream(
+      Stream.unwrap(
       Effect.gen(function* () {
         yield* Effect.logDebug("wardic.clock: subscribe")
         const subscription = yield* PubSub.subscribe(tickPubSub)
         yield* Effect.acquireRelease(join, () => leave)
         return Stream.fromSubscription(subscription)
       }),
-    ).pipe(Stream.withSpan("wardic.clock", { captureStackTrace: false }))
+    ),
+      "wardic.clock",
+    )
 
-    return { ticks, tick }
+    return { ticks, tick, now: syncNow(now) }
   })
 
 /**

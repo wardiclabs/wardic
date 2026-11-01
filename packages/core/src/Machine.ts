@@ -70,6 +70,7 @@ import * as Spring from "./Spring.ts"
 import type * as Supersede from "./Supersede.ts"
 import type * as Values from "./Values.ts"
 import { dual } from "./internal/dual.ts"
+import { tracedStream } from "./internal/tracing.ts"
 
 // --- The data type -----------------------------------------------------------
 
@@ -700,7 +701,7 @@ export const toStream = <F extends Frame.Frame<unknown>>(self: Machine<F>): Stre
         onFalse: () => frames,
       })
     }).pipe(Effect.annotateLogs(self.span.attributes)),
-  ).pipe(Stream.withSpan(self.span.name, { attributes: self.span.attributes, captureStackTrace: false }))
+  ).pipe((frames) => tracedStream(frames, self.span.name, { attributes: self.span.attributes }))
 
 /**
  * Run `self` on the Frame loop, from the loop's next tick, handing each Frame to `sink`: a plain

@@ -109,3 +109,7 @@ ADR-0033 decides it.
 ## Note (#370, 2026-10-25): the spring's cost no longer needs the cap
 
 Springs step in Motion's closed form now (ADR-0054): one exact step whatever the `dt`. So *Amendment (#23)*'s decision 1 loses one of its reasons, that a minute in a hidden tab would be 14,400 substeps a spring. `MAX_DT` stays 0.5 s for the others: an animation that resumes rather than jumps, and wall time's other costs (the projection's progress spring, **Frame time**). #370 left it as it was.
+
+## Amendment (#460, 2026-11-01): `Clock.now`, the Environment's time
+
+The final review (#460, Q7) moved the time a key's velocity is read against (#464) into the Environment: the `Clock` service gains `now`, the Environment's time in ms, the same for the rest of a synchronous block (Motion's `sync-time`). `fromRefreshFrames` builds it on its source's `now`, else `performance.now()`, through `Clock.syncNow`, which reads once and keeps the value until a microtask clears it. The test Environment's Clocks keep their own: the static one the time its replayed `dt`s reach, `pushable` its advances, so a test drives velocities as it drives frames. Solid reads its provider's `now` once per runtime (`clockNowOf`) and keeps it on each element's Snapshot; a Snapshot before its spine runs reads `performance.now()` the same way. A Clock built by hand gives `now` too.

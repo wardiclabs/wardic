@@ -193,6 +193,7 @@ export const passAt = (t: number, run: ResolvedRun, flip: boolean, pass: Pass): 
 }
 
 /** {@link runAt}'s pass, written in place: it's read right after, and never across a call. */
+// Module state (#460, Q7): per-frame scratch, written and read within one step, never across one.
 const RUN_PASS: Pass = { within: 0, reversed: false, flipped: false }
 
 /**
