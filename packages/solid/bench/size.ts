@@ -3,8 +3,9 @@
  * `bun run size [--base <ref>] [--head <ref>]` (#511, decision Q10): what an app ships for Wardic.
  *
  * - **The apps:** each binding's plain Solid app, one Complete element (`wardic.div` under a
- *   `WardicProvider`), and the same inside `<AnimatePresence>`. The Slim element's apps (its base,
- *   each Feature alone, `domAnimation`, `domMax`) join them with #511's feature split.
+ *   `WardicProvider`), and the same inside `<AnimatePresence>`; one Slim element (`w.div`) alone, the
+ *   Slim element's base, and with each Feature (#511). An app the base can't build, its API new, is
+ *   reported as new and not gated.
  * - **Each side is built as an app ships it,** as `bench:solid` builds its pages (`sides.ts`): Vite,
  *   production mode, minified, tree-shaken; Solid 1 through vite-plugin-solid, Solid 2 through the
  *   repo's `solid2({ dev: false })`.
@@ -65,13 +66,30 @@ void Show
 `
 }
 
+/**
+ * A Slim element's app (#511): one `w.div` that fades in under a `WardicProvider` with `features`, a
+ * list of the Feature imports it names (none: the Slim element's base app).
+ */
+const slim = (render: string, entry: string, features: ReadonlyArray<string>): string => {
+  const imports = ["WardicProvider", "w", ...features].join(", ")
+  return `import { render } from "${render}"
+import { DomLive } from "@wardic/dom"
+import { ${imports} } from "${entry}"
+render(() => <WardicProvider env={DomLive} features={[${features.join(", ")}]}><w.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>hi</w.div></WardicProvider>, document.body)
+`
+}
+
 const APPS: ReadonlyArray<App> = [
   { name: "s1-plain", v2: false, source: plain("solid-js/web") },
   { name: "s1-complete", v2: false, source: complete("solid-js/web", "@wardic/solid", false) },
   { name: "s1-presence", v2: false, source: complete("solid-js/web", "@wardic/solid", true) },
+  { name: "s1-slim", v2: false, source: slim("solid-js/web", "@wardic/solid", []) },
+  { name: "s1-colors", v2: false, source: slim("solid-js/web", "@wardic/solid", ["colors"]) },
   { name: "s2-plain", v2: true, source: plain("@solidjs/web") },
   { name: "s2-complete", v2: true, source: complete("@solidjs/web", "@wardic/solid/unstable/v2", false) },
   { name: "s2-presence", v2: true, source: complete("@solidjs/web", "@wardic/solid/unstable/v2", true) },
+  { name: "s2-slim", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", []) },
+  { name: "s2-colors", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["colors"]) },
 ]
 
 /** What a source map's sources are counted under. */
@@ -153,7 +171,8 @@ const sizesOf = async (side: string, commit: string | undefined, deps: string): 
   for (const app of APPS) {
     const entry = join(root, "apps", `${app.name}.tsx`)
     writeFileSync(entry, app.source)
-    await build({
+    // An app the base can't build is one the head adds (its API is new): reported, not gated.
+    const built = await build({
       configFile: false,
       logLevel: "error",
       mode: "production",
@@ -167,7 +186,14 @@ const sizesOf = async (side: string, commit: string | undefined, deps: string): 
         sourcemap: true,
         lib: { entry, formats: ["es"], fileName: () => `${app.name}.js` },
       },
-    })
+    }).then(
+      () => true,
+      (error: unknown) => {
+        if (side === "head") throw error
+        return false
+      },
+    )
+    if (!built) continue
     const js = readFileSync(join(root, "dist", `${app.name}.js`))
     const map = JSON.parse(readFileSync(join(root, "dist", `${app.name}.js.map`), "utf8"))
     sizes.set(app.name, {
@@ -206,8 +232,12 @@ let failed = false
 console.log("\nKB; gzip at level 9, brotli at its default; gated on gzip, head against base (+1%)")
 console.log(`${"app".padEnd(14)}${pad("min", 9)}${pad("gzip", 15)}${pad("change", 9)}${pad("brotli", 15)}   gate`)
 for (const app of APPS) {
-  const b = baseSizes.get(app.name)!
   const h = headSizes.get(app.name)!
+  const b = baseSizes.get(app.name)
+  if (b === undefined) {
+    console.log(`${app.name.padEnd(14)}${pad(kb(h.min), 9)}${pad(`new → ${kb(h.gz)}`, 15)}${pad("", 9)}${pad(`new → ${kb(h.br)}`, 15)}   new`)
+    continue
+  }
   const fails = h.gz > b.gz * GATE
   if (fails) failed = true
   console.log(
@@ -220,8 +250,8 @@ for (const app of APPS) {
 console.log("\nthe head's minified KB by package (change from the base)")
 console.log(`${"app".padEnd(14)}${GROUPS.map((g) => pad(g, 15)).join("")}`)
 for (const app of APPS) {
-  const b = baseSizes.get(app.name)!
   const h = headSizes.get(app.name)!
+  const b = UndefinedOr.match(baseSizes.get(app.name), { onUndefined: () => h, onDefined: (given) => given })
   console.log(
     `${app.name.padEnd(14)}${GROUPS.map((g) => {
       const delta = h.groups[g] - b.groups[g]

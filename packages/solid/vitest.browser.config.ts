@@ -111,6 +111,7 @@ const realTouch: BrowserCommand<[
 
 /** Pre-bundled up front, here and in the Solid 2 project (vitest.browser-v2.config.ts, #209). */
 export const PREBUNDLED: ReadonlyArray<string> = [
+      "culori/fn",
       "effect/Array",
       "effect/Boolean",
       "effect/Cause",

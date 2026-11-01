@@ -16,7 +16,16 @@ export {
   useWardicGate,
   useWardicRuntime,
   WardicProvider,
+  LazyWardic,
 } from "./provider.tsx"
+/**
+ * **Features** (#511, ADR-0067): what a Slim element (`w.*`, `w.ward()`) has only when it's chosen, on
+ * a `WardicProvider` or a `LazyWardic` (`features={[colors]}`), each its own import so an app ships
+ * only those it uses; a Complete element (`wardic.*`, `ward()`) has every one. `colors`: every CSS
+ * colour space beyond a hex, `rgb()`, `hsl()` and the colour names.
+ */
+export type { Feature, FeatureLoad, Features, FeaturesProp } from "../../feature.ts"
+export { colors } from "../../features/colors.ts"
 // The Instant change and the Projection reset (#443): Motion's `useInstantTransition` and kin.
 export type { InstantTransition } from "../../instant.ts"
 // `WardicConfig`'s `transformPagePoint` helpers (#443, Motion's): a drag inside a transformed parent, or an SVG's viewBox.
@@ -95,6 +104,11 @@ export {
   type WardRefCallback,
   wardic,
 } from "./wardic.tsx"
+/**
+ * `w` (#511, ADR-0067; Motion's `m`): the **Slim element**'s forms, `w.<tag>`, `w.create` and
+ * `w.ward()`, each as its Complete form but with only the Features chosen above it.
+ */
+export { type W, w } from "./w.tsx"
 export type { WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
 // #443 (Motion's): `wardic.create`'s options; whether a component is a Wardic element's and what it
 // wraps; whether a prop is a motion prop, Solid 2's own list.

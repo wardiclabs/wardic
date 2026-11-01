@@ -45,6 +45,11 @@ export class InterpolatorRegistry extends Context.Service<InterpolatorRegistry, 
    * Synchronous: it's asked once per key each time a leg is built.
    */
   readonly keyBlendOf: (key: string, from: number | string, to: number | string) => Option.Option<Effect.Effect<KeyBlend>>
+  /**
+   * Forget every pair resolved so far (#511): an Interpolator now decodes what it didn't, as the DOM's
+   * colours do once an app registers more colour spaces, so a pair resolves again when next asked.
+   */
+  readonly forget: Effect.Effect<void>
 }>()("@wardic/InterpolatorRegistry") {}
 
 /**
@@ -292,6 +297,7 @@ export const make = (
       }),
       keyBlendOf: (key: string, from: number | string, to: number | string): Option.Option<Effect.Effect<KeyBlend>> =>
         MutableRef.get(chain)(key, from, to),
+      forget: Effect.sync(() => cache.clear()),
     }
   })
 

@@ -104,6 +104,7 @@ export default defineConfig({
   // Pre-bundled up front, as the dom project does: a first import mid-run reloads the page.
   optimizeDeps: {
     include: [
+      "culori/fn",
       "effect/Array",
       "effect/Boolean",
       "effect/Cause",

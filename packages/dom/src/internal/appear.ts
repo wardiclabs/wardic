@@ -28,6 +28,7 @@ import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as Result from "effect/Result"
 import * as UndefinedOr from "effect/UndefinedOr"
+import { spacesRegistered } from "./colors.ts"
 import { drawnUnitOf, project, TEMPLATE_KEY, type TransformTemplate } from "./renderer.ts"
 import { dashCase, isPathKey, isSvgInnerTag, splitPatchForTag, svgAttrNameOf } from "./svg.ts"
 
@@ -474,25 +475,37 @@ const supportsOf = (properties: ReadonlyArray<string>): ReadonlyArray<string> =>
 const conditionOf = (properties: ReadonlyArray<string>): string => Arr.map(properties, (property) => `(${property}:0px)`).join(" and ")
 
 
-/** The rules sampled so far, across requests, by name; the oldest dropped past `CACHE_SIZE`. */
-const cache = new Map<string, Result.Result<Keyframes, string>>()
+/**
+ * The rules sampled so far, across requests, by name, each with whether every CSS colour space was
+ * registered when it was (#511); the oldest dropped past `CACHE_SIZE`.
+ */
+const cache = new Map<string, Sampled>()
+
+/** A spec's rule as sampled, and whether the colour spaces were registered then. */
+interface Sampled {
+  readonly spaces: boolean
+  readonly rule: Result.Result<Keyframes, string>
+}
 
 const CACHE_SIZE = 512
 
 /**
  * A spec's rule, or why it has none (a debug log's line): sampled once a spec, cached across
- * requests by its name, since a spec's rule never changes. A templated spec's is sampled each time
- * (#443): its name comes from its stops.
+ * requests by its name, since a spec's rule changes only once the page registers every colour space
+ * (`registerSpaces`, #511): a wide-gamut colour blends as written before, in sRGB after. Its name stays,
+ * so a client matches it whatever it had registered. A templated spec's is sampled each time (#443):
+ * its name comes from its stops.
  */
 export const keyframes = (spec: Spec): Result.Result<Keyframes, string> => {
   if (Predicate.isNotUndefined(spec.template)) return sample(spec)
   const name = nameOf(spec)
-  return Option.getOrElse(Option.fromUndefinedOr(cache.get(name)), () => {
-    const sampled = sample(spec)
-    Option.map(Arr.head(Arr.take(Array.from(cache.keys()), Math.max(0, cache.size + 1 - CACHE_SIZE))), (oldest) => cache.delete(oldest))
-    cache.set(name, sampled)
-    return sampled
-  })
+  const spaces = spacesRegistered()
+  const kept = cache.get(name)
+  if (Predicate.isNotUndefined(kept) && kept.spaces === spaces) return kept.rule
+  const sampled = sample(spec)
+  Option.map(Arr.head(Arr.take(Array.from(cache.keys()), Math.max(0, cache.size + 1 - CACHE_SIZE))), (oldest) => cache.delete(oldest))
+  cache.set(name, { spaces, rule: sampled })
+  return sampled
 }
 
 /**

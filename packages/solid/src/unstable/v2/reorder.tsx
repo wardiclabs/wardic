@@ -61,7 +61,8 @@ import { changesContext } from "../../variant-tree.ts"
 import { configView, type PerKey } from "./config-view.ts"
 import { useWardicProjection, useWardicRuntime } from "./provider.tsx"
 import { type AnyWard, spreadPropsOf, type Ward, withSpreadProps, type WardConfig, type WardConfigValues, wardConfigView, type WardOptions, type WardShare, type WardStyle, wardWith } from "./ward.tsx"
-import { drivenWard, type GivenWard, givenOf, handOver, listOf, refsOf, sets, setKeysOf, wardic, type WardicBeside, type WardicMotion, type WardRefCallback, type WardSetKey } from "./wardic.tsx"
+import { drivenWard, type GivenWard, givenOf, handOver, listOf, refsOf, sets, setKeysOf, type WardicBeside, type WardicMotion, type WardRefCallback, type WardSetKey } from "./element.tsx"
+import { w } from "./w.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
 import { eachOf, neverLands, NO_EVENTS, serverWhen, Waiters, whenOf } from "./waiters.ts"
 
@@ -678,9 +679,12 @@ const ITEM_CONFIG = [...MOTION_PROPS, "value", "tabindex", "aria-describedby"] a
 /** A `<Reorder>` item's keyboard reorder attributes (ADR-0037), which a given item's element carries (#349). */
 const KEYBOARD_ATTRIBUTES = ["tabindex", "aria-describedby"] as const
 
-/** The motion element for `tag` (`wardic[tag]`), as a plain component. */
+/**
+ * The motion element for `tag`, as a plain component: a Slim element's (`w[tag]`, #511), so a Reorder
+ * brings no Feature but its own (ADR-0067 decision 12) and renders under a `strict` section.
+ */
 const wardicTag = (tag: string): Component<Record<string, unknown>> =>
-  UndefinedOr.getOrThrow((wardic as unknown as Record<string, Component<Record<string, unknown>> | undefined>)[tag])
+  UndefinedOr.getOrThrow((w as unknown as Record<string, Component<Record<string, unknown>> | undefined>)[tag])
 
 /** The group given to `groupRef` (#349), or `undefined` for a function or none: read once, untracked, as `ref` is. */
 const givenGroupOf = <V,>(local: GroupLocal<V>): ReorderGroup<V> | undefined => {

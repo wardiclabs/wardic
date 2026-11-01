@@ -74,6 +74,7 @@ import {
   createMemo,
   createSignal,
   createUniqueId,
+  DEV,
   getOwner,
   isHydrating,
   type Owner,
@@ -146,7 +147,11 @@ import {
   useWardicReducedMotion,
   useWardicRuntime,
   useWardicSkipAnimations,
+  useElementFeatures,
+  useFeatureRegistry,
 } from "./provider.tsx"
+import { type Feature, type FeatureRegistry, type FeatureSection, missingMessage, unreadColorIn } from "../../feature.ts"
+import { ALL } from "../../features/all.ts"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { transformPagePointOf } from "../../wardic-config-value.ts"
@@ -483,7 +488,17 @@ export interface WardInternals {
    * and lifecycle are this one's, and it follows this one's element while it's mounted.
    */
   readonly share?: WardShare | undefined
+  /** The Features it brings beside its section's (#511): a Complete element's every one. None for a Slim element. */
+  readonly brings?: ReadonlyArray<Feature> | undefined
+  /** Whether it's a **Complete element** (#511): an error in development under a `strict` section. */
+  readonly complete?: boolean | undefined
 }
+
+/**
+ * What a **Complete element** tells its ward (#511, ADR-0067): it brings every Feature. Its forms'
+ * (`ward()`, `wardic.*`, `wardic.create`) alone: a Slim element's never name it.
+ */
+export const COMPLETE: WardInternals = { brings: ALL, complete: true }
 
 /**
  * What a ward shares with the wards a component given it makes, one an element (#349). Internal:
@@ -551,12 +566,13 @@ const stillOn = (other: HTMLElement | undefined, el: HTMLElement | undefined): b
 /** What a ward's errors call it: the component it drives an element for, else `ward(config)`. */
 const nameOf = (internal: WardInternals): string => UndefinedOr.match(internal.name, { onUndefined: () => "ward(config)", onDefined: identity })
 
-const NO_INTERNALS: WardInternals = {}
+/** What a Slim element tells its ward: it brings no Feature of its own (#511). */
+export const SLIM: WardInternals = {}
 /** A ward's internals from `ward()`'s options: its chosen parent, if any. */
-const internalsOf = (options: WardOptions | undefined): WardInternals => {
-  if (Predicate.isUndefined(options)) return NO_INTERNALS
-  if (Predicate.isUndefined(options.parent)) return NO_INTERNALS
-  return { parent: options.parent }
+export const internalsOf = (options: WardOptions | undefined, kind: WardInternals): WardInternals => {
+  if (Predicate.isUndefined(options)) return kind
+  if (Predicate.isUndefined(options.parent)) return kind
+  return { ...kind, parent: options.parent }
 }
 
 /**
@@ -581,6 +597,25 @@ const isElement = (value: unknown): value is HTMLElement => Predicate.hasPropert
 /** A context value as Solid 2's context takes it: `null` for none. */
 const contextOf = (value: WardicVariantContextValue | undefined): WardicVariantContextValue | null => Option.getOrNull(Option.fromUndefinedOr(value))
 
+/**
+ * Says, once per provider, that a colour of the element's needs the `colors` Feature (#511, ADR-0067
+ * decision 7): a value naming a wide-gamut space, while the page reads none, outside a lazy load.
+ * Development only (its caller's `DEV`).
+ */
+const warnUnreadColors = (registry: FeatureRegistry, features: FeatureSection, values: () => Values.Values): void => {
+  createEffect(
+    () => {
+      if (features.pending()) return undefined
+      return unreadColorIn(values())
+    },
+    (unread) => {
+      if (Predicate.isUndefined(unread)) return
+      registry.warnOnce("colors", missingMessage("colors", `The colour \`${unread}\``, "@wardic/solid/unstable/v2"))
+    },
+    CLIENT_ONLY,
+  )
+}
+
 /** No config: a ward that only listens (#398), `ward()`. */
 const NO_CONFIG: WardConfig = {}
 
@@ -590,6 +625,7 @@ const NO_CONFIG: WardConfig = {}
  * or a root, under a `WardicProvider`. Its config's type is kept, so `read` and `atom` complete the
  * keys it animates. With no config (#398), it listens: spread on a plain element, its gestures'
  * events with no motion; given to a Wardic component's `wardRef`, the element's own props set it.
+ * It puts on a **Complete element**, every Feature brought (#511); `w.ward()` puts on a Slim one.
  */
 export function ward<const C extends WardConfig>(config: WardChecked<C>, options?: WardOptions): Ward<C>
 export function ward(): Ward<{}>
@@ -598,8 +634,8 @@ export function ward(config: undefined, options: WardOptions): Ward<{}>
 // (`transition: () => ({ type: "tween" })` read `type` as a string), as `C` fell back to it.
 export function ward(config?: WardConfig, options?: WardOptions): Ward {
   // Plain checks: every ward is made through here, and a match's objects would cost each (#349).
-  if (Predicate.isUndefined(config)) return wardWith(NO_CONFIG, internalsOf(options))
-  return wardWith(config, internalsOf(options))
+  if (Predicate.isUndefined(config)) return wardWith(NO_CONFIG, internalsOf(options, COMPLETE))
+  return wardWith(config, internalsOf(options, COMPLETE))
 }
 
 /** Whether a config carries its variants (#398): it sets `variants` or `inherit`. */
@@ -759,6 +795,9 @@ const forgetJustLeft = (): void => justLeft.clear()
 export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   if (Predicate.isFunction(config)) throw new Error(WHOLE_ACCESSOR)
   const runtime = useWardicRuntime()
+  // Its Features (#511, ADR-0067), a Complete element's every one: what they register, a server
+  // render's elements read too (the `colors` Feature's spaces).
+  const features = useElementFeatures(internal.brings, internal.complete === true)
   // A server render takes the lean path: the Starting style only, no spine (ADR-0021).
   if (isServer) return serverWard(config, internal)
   const gate = useWardicGate()
@@ -949,6 +988,10 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     },
     { equals: sameTarget, transparent: true },
   )
+  // A colour only the `colors` Feature reads, on a Slim element without it (#511, decision 7): said
+  // once per provider, in development only, and not while a lazy load is on its way.
+  // eslint-disable-next-line solid/reactivity -- read inside the warning's effect, where it tracks
+  if (DEV && internal.complete !== true) warnUnreadColors(useFeatureRegistry(), features, () => target().resolved)
   // Its gesture states, for what its variant node hands down (#291): bound at setup, before its
   // children read them. Read from the gestures themselves, not the target: a gesture whose layer
   // resolves to nothing new leaves the target as it was (`sameResolution`), but is on all the same.

@@ -33,7 +33,7 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createUniqueId, type Accessor, untrack } from "solid-js"
 import { useWardicGate, useWardicRuntime } from "./provider.tsx"
-import { controlledOf, runSpine } from "./create-ward.tsx"
+import { controlledOf, runSpine, type SpineInternals } from "./create-ward.tsx"
 import { usePresenceContext } from "./presence.tsx"
 import { madeWith } from "./spine.ts"
 import type { WardConfig } from "./config.ts"
@@ -41,13 +41,13 @@ import { createVariantNode } from "./variant-node.ts"
 import { useVariantContext } from "./variants.ts"
 
 /**
- * The `use:wardic` directive — drive `el` through Wardic's motion spine. An arrow
- * function, so the `wardic` Proxy over it has no non-configurable `prototype` to keep.
+ * A directive's body (`use:wardic`, `use:w`, #511): drive `el` through Wardic's motion spine, a
+ * Complete element or a Slim one as `internal` says.
  *
  * @param el the directive's host element (supplied by Solid).
  * @param value the reactive config accessor (Solid wraps `use:wardic={config}` as `() => config`).
  */
-export const wardicDirective = (el: HTMLElement, value: Accessor<WardConfig>): void => {
+export const runDirective = (el: HTMLElement, value: Accessor<WardConfig>, internal: SpineInternals): void => {
   // The directive runs in a component owner, so it reads the nearest variant context
   // (ADR-0007) and, as a Variant child, joins it (#50). It renders no children, so it
   // provides none.
@@ -71,6 +71,7 @@ export const wardicDirective = (el: HTMLElement, value: Accessor<WardConfig>): v
     bindGestures: node.bindGestures,
     onFrame: node.onFrame,
     makeSink: (element) => ({ target: element }),
+    internal,
   })
 }
 
@@ -79,6 +80,8 @@ declare module "solid-js" {
   namespace JSX {
     interface Directives {
       wardic: WardConfig
+      /** `use:w` (#511): a Slim element's directive. */
+      w: WardConfig
     }
   }
 }

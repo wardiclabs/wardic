@@ -5,10 +5,36 @@
  * colour Interpolator in its registry (`interpolators.ts`) and names a colour inside a complex value
  * as a kind of token (`COLOR_TOKEN`, #61).
  *
+ * Read through `culori/fn`, which registers no colour space by itself (#511, ADR-0067 decision 5):
+ * sRGB's syntaxes, a hex, `rgb()`, `hsl()` and the colour names, are registered here, and every other
+ * CSS colour space (`oklch()`, `lab()`, `color(display-p3 …)`, `hwb()` …) by {@link registerSpaces},
+ * which the bindings' `colors` Feature calls. culori keeps its spaces in one registry for the page, so
+ * a space registered once is read everywhere from then on.
+ *
  * @module
  */
 /// <reference path="./culori.d.ts" />
-import { converter, formatRgb, interpolate as culoriInterpolate, parse as culoriParse } from "culori"
+import {
+  formatRgb,
+  getMode,
+  interpolate as culoriInterpolate,
+  modeA98,
+  modeHsl,
+  modeHwb,
+  modeLab,
+  modeLch,
+  modeLrgb,
+  modeOklab,
+  modeOklch,
+  modeP3,
+  modeProphoto,
+  modeRec2020,
+  modeRgb,
+  modeXyz50,
+  modeXyz65,
+  parse as culoriParse,
+  useMode,
+} from "culori/fn"
 import type * as Interpolator from "@wardic/core/Interpolator"
 import * as Scalar from "@wardic/core/Scalar"
 import * as Arr from "effect/Array"
@@ -68,7 +94,33 @@ export const formatColor = (color: Color): string => formatRgb(color)
 // `rgba()` with alpha clamped and rounded to two places, so 0.999 writes `rgba(…, 1)`. A seeded
 // differential test against culori pins it (`colors.node.test.ts`).
 
-const toRgb = converter("rgb")
+// sRGB's syntaxes, read by every app (#511): `rgb`'s parsers take a hex, `rgb()` and `rgba()`, the
+// colour names and `transparent`; `hsl`'s take `hsl()` and `hsla()`. Registered once, when this module
+// loads, as culori's own bundle registers its spaces.
+const toRgb = useMode(modeRgb)
+useMode(modeHsl)
+
+/**
+ * Register every CSS colour space beyond sRGB's syntaxes (#511, ADR-0067 decision 5): `lab()`,
+ * `lch()`, `oklab()`, `oklch()`, `hwb()`, and `color()`'s `display-p3`, `rec2020`, `a98-rgb`,
+ * `prophoto-rgb`, `srgb-linear`, `xyz`, `xyz-d50` and `xyz-d65`, the spaces culori's `culori/css`
+ * registers but for its non-CSS `hsv`, `lab65` and `lch65`. From then on such a string is a colour
+ * everywhere on the page; before, it isn't one (a `lab()` value is read as a complex value, its
+ * numbers blended as written). Calling it again does nothing new. The `colors` Feature's.
+ */
+export const registerSpaces = (): void => {
+  Arr.forEach(CSS_SPACES, (mode) => {
+    useMode(mode)
+  })
+}
+
+/**
+ * Whether the spaces {@link registerSpaces} registers are registered on the page: by it, or by culori's
+ * own bundle, which registers every space as it loads. Asked of culori's registry, the page's.
+ */
+export const spacesRegistered = (): boolean => Predicate.isNotUndefined(getMode("oklch"))
+
+const CSS_SPACES = [modeA98, modeHwb, modeLab, modeLch, modeLrgb, modeOklab, modeOklch, modeP3, modeProphoto, modeRec2020, modeXyz50, modeXyz65]
 
 /** A colour's four channels, resolved once: what the frame lerps. */
 interface Channels {
@@ -170,7 +222,8 @@ const throughCulori = (mode: string, from: Color, to: Color): ((t: number) => st
 
 /**
  * Interpolates colours (ADR-0026). `mode` is the colour space the blend runs in: `"rgb"` by default
- * (sRGB, as WAAPI blends, ADR-0024); pass `"oklch"` / `"lab"` for perceptual blends.
+ * (sRGB, as WAAPI blends, ADR-0024); pass `"oklch"` / `"lab"` for perceptual blends, once
+ * {@link registerSpaces} has registered them (#511).
  *
  * Built as a factory so an app can register the space it prefers, over the one `parseColor` and
  * `formatColor`; the DOM's registry uses `"rgb"` (`cssColor`). A string is a colour iff culori

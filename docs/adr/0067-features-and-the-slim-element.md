@@ -23,6 +23,17 @@ For scale, Motion's docs (*Reduce bundle size*, Rollup bundles): the `motion` co
 11. **Interleaved with #460** (Q11: A): `bun run size` first; Schema out with #460's PR 3b; the colour and Feature splits after #460's PR 4, before its PR 5 reads the code.
 12. **A Feature's components bring it** (Q12: A): `LayoutGroup` brings `layout` for the elements under it, `Reorder.Group` and `Reorder.Item` bring `drag` and `layout`.
 
+## Decisions at the split (grilled 2026-11-01, #511)
+
+13. **Features are Layers, built by the provider, held by the section** (asked for during #460's PR 3b: "treat every lazy thing to add as an optional layer"; Q13: A). A Feature is an Effect `Layer` of its service: its name, the service's key, and the Layer, on the provider's Environment.
+    - **Built into the runtime's `MemoMap`:** the provider builds a Feature's Layer the first time an element under it asks (#51: a provider with no element builds nothing), or as a lazy one arrives, with `Layer.buildWithMemoMap` into its runtime's `MemoMap`, in a Scope of its own. A Layer two Features share, such as the gestures' pointer input or the projection system, is built once per provider, and the provider ends its Features before its runtime.
+    - **Held by the section:** each `WardicProvider` and `LazyWardic` holds the services of its Features, a `Context`, joined with its parent's: Q2b's union. An element looks a Feature up by its key. A lazy Feature arriving changes its section's, so an element takes it from then on, its fibers running as they did.
+    - Rejected: B, one registry per provider, which is Motion's (its `loadFeatures` writes one registry for the page), as a section's choice would reach its siblings, reversing Q2b; C, providing the section's `Context` to each element's fibers, as every run would pay a context switch (#460's PR 3 measured Effect 4.1.1's per-fiber context) and a late Feature couldn't reach a fiber already running.
+14. **The gestures' input moves into the gestures** (Q14: A). `DomLive` stops building the DOM's `InputSource`. Every gesture Feature's Layer stands on one input Layer, built once per provider by the `MemoMap`, which uses an `InputSource` the Environment gives (`@wardic/test`'s `TestLive`) and else builds the DOM's. An app with no gesture ships no pointer code, about 3 KB gzipped; `InputSource` leaves the Environment's required services.
+    - Rejected: keeping it in the Environment, the gestures' Features carrying their recognizers only.
+15. **The split in three PRs and a short fourth** (Q15: A): (1) the mechanism, with `colors` as its first Feature: Features as Layers, `features` and `strict` on `WardicProvider`, `LazyWardic`, `w` in every form on both bindings, the missing-Feature word, lazy loading, and the base reading colours through `culori/fn`; (2) `layout`, the projection system out of the provider, `LayoutGroup`, `Reorder` and the layout hooks bringing it; (3) the gestures, one Feature each, the input out of `DomLive`, `domAnimation` and `domMax`; (4) the base app's absolute budget, `/*#__PURE__*/` measured again, and this record. Each gated by `bun run size` and both benches.
+    - Rejected: one PR; the biggest cut first, the mechanism built in pieces.
+
 ## Built
 
 **`bun run size`** (`packages/solid/bench/size.ts`, PR 1 of #511):
@@ -33,6 +44,21 @@ For scale, Motion's docs (*Reduce bundle size*, Rollup bundles): the `motion` co
 **`/*#__PURE__*/` annotations**, measured and not shipped: all 227 top-level calls in the three packages' sources, annotated, saved 0.2 KB gzipped (−0.1%), and added 1 KB minified, since esbuild keeps the comments for downstream bundlers. The Complete element's path reaches nearly everything it imports. Measured again after the Feature split, when a Slim element's app imports modules most of whose exports it won't use.
 
 **Schema out of the runtime** (decision 9, with #460's PR 3b): option bags checked by hand (`internal/options.ts`), a rejected one throwing `Machine.OptionError` with Schema's messages word for word (137 rejected bags compared before and after); `Interpolator.Entry`'s `parse` / `format`; `Color.parse` / `Color.format`. `bun run size`, with the rest of #460's PR 3b: the Complete element's app 180.6 → 167.0 KB gzipped on Solid 1 (−7.6%), 216.9 → 203.3 on Solid 2 (−6.3%); Effect −57.4 KB minified, core +2.1 (+1.7 for the Schema step alone). What Schema is left, 118 bytes, is Effect's own `Atom` importing it. A fresh bag resolves 35–51% faster in Node, and an Interpolator parses 2–10× faster (ADR-0025's and ADR-0026's *Amendments (#511)*).
+
+**The mechanism and `colors`** (PR 2 of #511, decisions 13 and 15's first):
+- **`feature.ts`, shared by both bindings:** a `Feature` (its `name`, its service's `key`, its `layer`, and a `server` part), Features as a list or nested (`[domAnimation, layout]`), a provider's `FeatureRegistry` (`build`, a Complete element's `section`, `warnOnce`, `dispose`), and `makeSection`, which each binding calls with its reactivity: a Feature given at once is built on first need; a lazy one's load starts on the client as its section renders, and a `Reactivity` trigger tells its arrival. A server render builds no runtime, so it runs each Feature's `server` part instead, and loads nothing lazily.
+- **Both bindings:** `WardicProvider`'s `features` and `strict`, `LazyWardic`, and `w`: `w.<tag>`, `w.create` and `w.createWard` / `use:w` on Solid 1, `w.<tag>`, `w.create` and `w.ward()` on Solid 2. The forms' shared code moved to each binding's `element.tsx`, so `wardic.tsx`, `createWard` and `ward()` are the only modules naming every Feature (`features/all.ts`), and `w.tsx` names none. A Complete element under a `strict` section throws in development (`DEV`, Solid's own flag, which a production build has as `undefined`). `Reorder` renders `w.<tag>` elements, so it renders under `strict`.
+- **`colors`** (`features/colors.ts`): its Layer registers the colour spaces (ADR-0026, *Amendment (#511, colour spaces)*) and has its provider's interpolator registry `forget` the pairs it resolved before; its `server` part registers them too, as a server render's Appear rules read colours. A Slim element with a colour naming a wide-gamut space, while the page reads none, logs once per provider, in development and not while a lazy load is on its way, naming the import.
+- **A Feature module's top-level calls are marked `/*#__PURE__*/`.** Without the marks, Rollup kept `registerSpaces` and every space's definition in a Slim element's app that never imported `colors`: the callback given to `Effect.sync` in the module's `Layer.effect(…)` was kept as reachable, though nothing of the module was emitted (1 KB gzipped). Annotating the module's two calls dropped it.
+- **`bun run size`'s apps:** each binding's Slim element alone (`s1-slim`, `s2-slim`) and with `colors` (`s1-colors`, `s2-colors`); an app the base can't build, its API new, is reported as new and not gated.
+
+| App, gzipped KB | Solid 1 | Solid 2 |
+|---|---|---|
+| Complete element (main → PR 2) | 167.0 → 161.9 | 203.3 → 198.2 |
+| Slim element alone | 156.8 | 193.2 |
+| Slim element with `colors` | 161.8 | 198.2 |
+
+The mechanism adds 3.6 KB minified to every Wardic app (its registry, sections and `LazyWardic`), about 1 KB gzipped. The Slim element's base is still most of the binding: `layout` and the gestures are the next two PRs.
 
 ## Consequences
 

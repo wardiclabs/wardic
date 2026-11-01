@@ -53,6 +53,7 @@ import {
   createMemo,
   createSignal,
   createUniqueId,
+  DEV,
   type JSX,
   on,
   onCleanup,
@@ -76,7 +77,9 @@ import { type PresenceSeed, presenceSeedOf } from "./presence-record.ts"
 import type { PresenceRecord } from "./presence-record.ts"
 import { createWhenWanted, stateOf, type Wants } from "./sensors.ts"
 import { type GestureCallbacks, gestureCallbacksOf, inViewOptionsOf, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "./gesture-callbacks.ts"
-import { runWatch, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
+import { type Feature, type FeatureRegistry, type FeatureSection, missingMessage, unreadColorIn } from "./feature.ts"
+import { ALL } from "./features/all.ts"
+import { runWatch, useElementFeatures, useFeatureRegistry, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { transformPagePointOf } from "./wardic-config-value.ts"
 import type { WardicRuntime } from "./runtime.ts"
@@ -234,9 +237,13 @@ const NO_USER_PROPS: WardUserProps = {}
  * - `tag`: the element's tag, set by `wardic.create(tag)`, so an svg-inner element's
  *   Starting style renders its attribute keys as attributes (ADR-0021; a `createWard`
  *   spread doesn't know its tag and stays all style).
+ * - `brings` and `complete` (#511, ADR-0067): the Features the element brings, beside its section's,
+ *   and whether it's a **Complete element**, which brings every one. None for a **Slim element**.
  */
 export interface SpineInternals {
   readonly tag?: string | undefined
+  readonly brings?: ReadonlyArray<Feature> | undefined
+  readonly complete?: boolean | undefined
   /**
    * Whether the element's drag defaults go on it at mount too, for a `wardic.create(Component)`
    * wrap: its component may not pass the spread's `style` and `draggable` on (#253).
@@ -327,6 +334,8 @@ export interface RunSpineOptions {
   readonly hydrating?: boolean | undefined
   /** The element's tag, for its mount animation's spec (SVG's routing): `undefined` when it isn't known. */
   readonly tag?: string | undefined
+  /** Its Features (#511), when its surface has read them already; else the spine reads them. */
+  readonly features?: FeatureSection | undefined
   /**
    * Whether the element's drag defaults and base style reach it with its props: a `createWard`
    * spread's `style` and attributes. Otherwise the spine sets them on the element at mount (the
@@ -405,6 +414,8 @@ const heldBack = (presence: PresenceContextValue | undefined, element: HTMLEleme
 
 export function runSpine(opts: RunSpineOptions): void {
   const { bindGestures, byName, canStart, cfg, controls, defaultsInProps, el, entersFresh, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, restartStyle, runtime, styleOf, tag } = opts
+  // Its Features (#511, ADR-0067): its section's, and those it brings.
+  const features = UndefinedOr.match(opts.features, { onDefined: identity, onUndefined: () => useElementFeatures(internal.brings, internal.complete === true) })
   // Its Animation controls' change (#433), read with the Override stack: none without them.
   const ownChange = UndefinedOr.match(controls, { onUndefined: () => NO_CHANGE, onDefined: (c) => c.change })
 
@@ -740,6 +751,9 @@ export function runSpine(opts: RunSpineOptions): void {
       // target drives a Retarget. A `transition`, a callback or an option alone tells nothing, as
       // Motion's doesn't.
       const target = createMemo((): Resolution => resolutionOf(cfg(), parent, begin.initialLink, active(), snapshot, ownChange()), undefined, { equals: sameResolution })
+      // A colour only the `colors` Feature reads, on a Slim element without it (#511, decision 7): said
+      // once per provider, in development only, and not while a lazy load is on its way.
+      if (DEV && internal.complete !== true) warnUnreadColors(useFeatureRegistry(), features, () => target().resolved)
       // Its gesture states, for the names its variant node hands down (#291): read from the gestures
       // themselves, as a gesture whose layer resolves nothing new leaves the target as it was.
       if (Predicate.isNotUndefined(bindGestures)) bindGestures(active)
@@ -809,6 +823,19 @@ export function runSpine(opts: RunSpineOptions): void {
 }
 
 /**
+ * Says, once per provider, that a colour of the element's needs the `colors` Feature (#511, ADR-0067
+ * decision 7): a value naming a wide-gamut space, while the page reads none, outside a lazy load.
+ * Development only (its caller's `DEV`).
+ */
+const warnUnreadColors = (registry: FeatureRegistry, features: FeatureSection, values: Accessor<Values.Values>): void => {
+  createEffect(() => {
+    const unread = unreadColorIn(values())
+    if (Predicate.isUndefined(unread) || features.pending()) return
+    registry.warnOnce("colors", missingMessage("colors", `The colour \`${unread}\``, "@wardic/solid"))
+  })
+}
+
+/**
  * Create a **Ward**, one element's motion binding (ADR-0042): spread it onto the element
  * (`<div {...ward()}>`) to drive it through Wardic's motion spine. Solid's `create*`
  * convention: it owns computations under the current owner, as `createDrag` does.
@@ -826,6 +853,8 @@ export function runSpine(opts: RunSpineOptions): void {
  * `default` ({@link InferredMotion}). The config keeps its own type, so a name it doesn't know is an
  * error as ever.
  *
+ * It puts on a **Complete element**, every Feature brought (#511); `w.createWard` puts on a Slim one.
+ *
  * @param config initial/animate/whileHover/whileTap + transition (see {@link WardConfig}), or an accessor of it.
  * @returns the Ward: call it to spread onto a JSX element.
  */
@@ -836,8 +865,15 @@ export function createWard<
   LA extends WardicVariantLabels = never,
   D extends boolean | "x" | "y" = never,
 >(config: InferredMotion<WardConfig, K, N, LI, LA, D> | Accessor<InferredMotion<WardConfig, K, N, LI, LA, D>>): Ward {
-  return createWardWith(config as WardConfig | Accessor<WardConfig>, undefined)
+  return createWardWith(config as WardConfig | Accessor<WardConfig>, COMPLETE)
 }
+
+/**
+ * What a **Complete element** tells the spine (#511, ADR-0067): it brings every Feature. Its forms'
+ * (`createWard`, `wardic.*`, `wardic.create`, `use:wardic`) alone: a Slim element's never name it, so
+ * its app ships no Feature it doesn't choose.
+ */
+export const COMPLETE: SpineInternals = { brings: ALL, complete: true }
 
 /**
  * {@link createWard} with a `<Reorder>` item's additions (internal, ADR-0020; not
@@ -845,6 +881,9 @@ export function createWard<
  */
 export function createWardWith(config: WardConfig | Accessor<WardConfig>, internal: SpineInternals = NO_INTERNALS): Ward {
   const runtime = useWardicRuntime()
+  // Its Features (#511, ADR-0067), a Complete element's every one: what they register, a server
+  // render's elements read too (the `colors` Feature's spaces).
+  const features = useElementFeatures(internal.brings, internal.complete === true)
   // A server render takes the lean path: the Starting style only, no spine (ADR-0021).
   if (isServer) return serverWard(config, internal)
   const gate = useWardicGate()
@@ -961,6 +1000,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
     entersFresh: (element) => element === fresh,
     restartStyle: (start) =>
       elementStyle.restart(Svg.splitPatchForTag(internal.tag, project(drawnAtRest(start.initialValues, layoutNode, untrack(cfg).transformTemplate))).style),
+    features,
   })
 
   // `<ward.Provider>` publishes what this instance hands its children (#50): its own
