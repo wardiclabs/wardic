@@ -274,9 +274,6 @@ const scrollFeedOf = (target: unknown): InputSource.ScrollFeed => (emit) => {
   }
 }
 
-const toFocus = (type: InputSource.FocusLikeEvent["type"], target: unknown) =>
-  (ev: FocusEvent): InputSource.FocusLikeEvent => ({ type, timeStamp: ev.timeStamp, visible: focusVisible(ev.target), fromTarget: ev.target === target, raw: ev })
-
 /**
  * Whether a focus shows (#273, Motion's `whileFocus`): its target matches `:focus-visible`, which a
  * keyboard's focus does and a pointer's click on most elements doesn't. A browser that doesn't know the
@@ -393,48 +390,81 @@ const toKeyboard = (type: InputSource.KeyboardLikeEvent["type"], ev: KeyboardEve
 const keyTypeOf = (ev: Event): InputSource.KeyboardLikeEvent["type"] =>
   Bool.match(ev.type === "keydown", { onTrue: () => "down" as const, onFalse: () => "up" as const })
 
-/** A window's keyed targets (#439): each target's deliveries, and the one listener that hands keys to them. */
-interface KeyedWindow {
-  readonly targets: Map<EventTarget, Set<(ev: KeyboardEvent) => void>>
+/**
+ * A window's targets for one kind of event (#439, #460): each target's deliveries, and the one listener
+ * that hands the events to them.
+ */
+interface PathWindow<E> {
+  readonly targets: Map<EventTarget, Set<(ev: E) => void>>
   readonly listener: (ev: Event) => void
 }
 
-/** The windows with keyed targets, each with its one listener. */
-const keyedWindows = new WeakMap<Window, KeyedWindow>()
+/**
+ * A kind of event a window hands to the targets on its path (#439, #460): its types, whether its
+ * listener runs in the capture phase, and the windows listening for it.
+ */
+interface PathKind<E> {
+  readonly types: ReadonlyArray<string>
+  readonly capture: boolean
+  readonly windows: WeakMap<Window, PathWindow<E>>
+}
+
+/** Keys (#439): in the bubble phase, so after the page's own handlers, where a key's `handle()` still counts. */
+const KEYS: PathKind<KeyboardEvent> = { types: ["keydown", "keyup"], capture: false, windows: new WeakMap() }
 
 /**
- * `win`'s keyed targets, its listener added with the first (#439): a key goes to the targets it passed
- * through innermost first, its path's order, as a pointer's down bubbles, so a press inside marks it in
- * core's **Press claims** before its ancestors read it. A listener for each target would run in the
- * order the targets came.
+ * Focus changes (#460): `focusin` and `focusout`, which a target's own focus and blur and those inside
+ * it both fire, in the capture phase, so no page handler stops them first. One listener a window
+ * where each target added four of its own.
  */
-const keyedWindowOf = (win: Window): KeyedWindow =>
-  UndefinedOr.match(keyedWindows.get(win), {
+const FOCUS: PathKind<FocusEvent> = { types: ["focusin", "focusout"], capture: true, windows: new WeakMap() }
+
+/**
+ * `win`'s targets for `kind`, its listener added with the first (#439): an event goes to the targets it
+ * passed through innermost first, its path's order, as a pointer's down bubbles, so a press inside
+ * marks a key in core's **Press claims** before its ancestors read it. A listener for each target would
+ * run in the order the targets came.
+ */
+const pathWindowOf = <E>(kind: PathKind<E>, win: Window): PathWindow<E> =>
+  UndefinedOr.match(kind.windows.get(win), {
     onDefined: identity,
     onUndefined: () => {
-      const targets = new Map<EventTarget, Set<(ev: KeyboardEvent) => void>>()
+      const targets = new Map<EventTarget, Set<(ev: E) => void>>()
       const listener = (ev: Event): void =>
         Arr.forEach(ev.composedPath(), (node) =>
-          UndefinedOr.map(targets.get(node), (deliveries) => Arr.forEach(Arr.fromIterable(deliveries), (deliver) => deliver(ev as KeyboardEvent))),
+          UndefinedOr.map(targets.get(node), (deliveries) => Arr.forEach(Arr.fromIterable(deliveries), (deliver) => deliver(ev as E))),
         )
-      win.addEventListener("keydown", listener)
-      win.addEventListener("keyup", listener)
-      const keyed: KeyedWindow = { targets, listener }
-      keyedWindows.set(win, keyed)
-      return keyed
+      Arr.forEach(kind.types, (type) => win.addEventListener(type, listener, kind.capture))
+      const made: PathWindow<E> = { targets, listener }
+      kind.windows.set(win, made)
+      return made
     },
   })
 
-/** `delivery` off `target` on `win`, and `win`'s listener off once no target is keyed there. */
-const unkey = (win: Window, keyed: KeyedWindow, target: EventTarget, delivery: (ev: KeyboardEvent) => void): void => {
-  const deliveries = keyed.targets.get(target)
-  if (Predicate.isUndefined(deliveries)) return
-  deliveries.delete(delivery)
-  if (deliveries.size === 0) keyed.targets.delete(target)
-  if (keyed.targets.size > 0) return
-  win.removeEventListener("keydown", keyed.listener)
-  win.removeEventListener("keyup", keyed.listener)
-  keyedWindows.delete(win)
+/**
+ * `delivery` handed `kind`'s events on `target`'s window that pass through `target` (#439, #460), until
+ * the function returned stops it; the window's listener goes once no target there is left.
+ */
+const deliverAlong = <E>(kind: PathKind<E>, target: unknown, delivery: (ev: E) => void): (() => void) => {
+  const win = windowOf(target)
+  const path = pathWindowOf(kind, win)
+  const el = target as EventTarget
+  const deliveries = UndefinedOr.match(path.targets.get(el), {
+    onDefined: identity,
+    onUndefined: () => {
+      const made = new Set<(ev: E) => void>()
+      path.targets.set(el, made)
+      return made
+    },
+  })
+  deliveries.add(delivery)
+  return (): void => {
+    deliveries.delete(delivery)
+    if (deliveries.size === 0) path.targets.delete(el)
+    if (path.targets.size > 0) return
+    Arr.forEach(kind.types, (type) => win.removeEventListener(type, path.listener, kind.capture))
+    kind.windows.delete(win)
+  }
 }
 
 /**
@@ -443,49 +473,44 @@ const unkey = (win: Window, keyed: KeyedWindow, target: EventTarget, delivery: (
  * (#439). An **Input feed** (#318): each key reaches its consumer inside the dispatch (ADR-0032), where
  * its `handle()` still counts.
  */
-const keyboardOf = (target: unknown): InputFeed.InputFeed<InputSource.KeyboardLikeEvent> => (emit) => {
-  const win = windowOf(target)
-  const keyed = keyedWindowOf(win)
-  const el = target as EventTarget
-  const delivery = (ev: KeyboardEvent): void => emit(toKeyboard(keyTypeOf(ev), ev, target))
-  const deliveries = UndefinedOr.match(keyed.targets.get(el), {
-    onDefined: identity,
-    onUndefined: () => {
-      const made = new Set<(ev: KeyboardEvent) => void>()
-      keyed.targets.set(el, made)
-      return made
-    },
-  })
-  deliveries.add(delivery)
-  return (): void => unkey(win, keyed, el, delivery)
-}
+const keyboardOf = (target: unknown): InputFeed.InputFeed<InputSource.KeyboardLikeEvent> => (emit) =>
+  deliverAlong(KEYS, target, (ev) => emit(toKeyboard(keyTypeOf(ev), ev, target)))
 
 /**
  * `target`'s focus and blur, as an **Input feed** (#318), and since #439 those inside it, with
- * `fromTarget: false`: its own `focus` and `blur`, and the `focusin` and `focusout` that bubble from
- * inside, so a **Keyboard press** that reached an ancestor from inside is cancelled when focus leaves the
- * element its key came from.
+ * `fromTarget: false`, so a **Keyboard press** that reached an ancestor from inside is cancelled when
+ * focus leaves the element its key came from. Since #460 `focusin` and `focusout` on its window, handed
+ * to the targets on their path ({@link FOCUS}): a target's own is the one whose path starts at it.
  */
-const focusOf = (target: unknown): InputFeed.InputFeed<InputSource.FocusLikeEvent> => (emit) => {
-  const el = target as EventTarget
-  const onFocus = (ev: Event): void => emit(toFocus("focus", target)(ev as FocusEvent))
-  const onBlur = (ev: Event): void => emit(toFocus("blur", target)(ev as FocusEvent))
-  // A `focusin` or `focusout` of the target itself follows its own `focus` or `blur`: told once, by those.
-  const inside = (on: (ev: Event) => void) => (ev: Event): void => {
-    if (ev.target !== target) on(ev)
+const focusOf = (target: unknown): InputFeed.InputFeed<InputSource.FocusLikeEvent> => (emit) =>
+  deliverAlong(FOCUS, target, (ev) => emit(toPathFocus(ev, target)))
+
+/**
+ * A `focusin` or `focusout` as `target`'s focus or blur (#460): its own when the event's path starts at
+ * it, which shadow roots don't hide as they do `ev.target`, and shown as the element focus moved to or
+ * from shows it.
+ */
+const toPathFocus = (ev: FocusEvent, target: unknown): InputSource.FocusLikeEvent => {
+  const origin = UndefinedOr.match(ev.composedPath()[0], { onUndefined: () => ev.target, onDefined: identity })
+  return {
+    type: Bool.match(ev.type === "focusin", { onTrue: (): InputSource.FocusLikeEvent["type"] => "focus", onFalse: () => "blur" }),
+    timeStamp: ev.timeStamp,
+    visible: focusVisible(origin),
+    fromTarget: origin === target,
+    raw: ev,
   }
-  const onFocusIn = inside(onFocus)
-  const onFocusOut = inside(onBlur)
-  el.addEventListener("focus", onFocus)
-  el.addEventListener("blur", onBlur)
-  el.addEventListener("focusin", onFocusIn)
-  el.addEventListener("focusout", onFocusOut)
-  return (): void => {
-    el.removeEventListener("focus", onFocus)
-    el.removeEventListener("blur", onBlur)
-    el.removeEventListener("focusin", onFocusIn)
-    el.removeEventListener("focusout", onFocusOut)
-  }
+}
+
+/**
+ * Whether focus is on `target` or inside it (#460, core's `InputSource.focusWithin`): the active element
+ * of its root, its document or its shadow root, is it or inside it. A focus deeper in a shadow root
+ * inside it shows there as that root's host. A target that isn't a node has no focus.
+ */
+const focusWithin = (target: unknown): boolean => {
+  if (Bool.not(isNode(target))) return false
+  const active = ((target as Node).getRootNode() as Partial<DocumentOrShadowRoot>).activeElement
+  if (Predicate.isNullish(active)) return false
+  return (target as Node).contains(active)
 }
 
 /**
@@ -512,6 +537,7 @@ const make = Effect.gen(function* () {
     pointer,
     focus,
     keyboard,
+    focusWithin,
     adoptPointer,
   })
 })

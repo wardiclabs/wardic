@@ -370,6 +370,21 @@ export const hasOwnVariants = (config: VariantConfig): boolean =>
  */
 export const changesContext = (config: VariantConfig): boolean => hasOwnVariants(config) || config.inherit === false
 
+/**
+ * The **Controls change** in effect for an element (#433): its own controls', else the one the context
+ * it inherits from is in, else none. Per mount, for every element (#460): guards, nothing built.
+ */
+export const controlsChangeOf = (
+  controls: Accessor<ControlsChange | undefined> | undefined,
+  inherited: WardicVariantContextValue | undefined,
+): Accessor<ControlsChange | undefined> => {
+  if (Predicate.isNotUndefined(controls)) return controls
+  if (Predicate.isUndefined(inherited)) return constUndefined
+  const change = inherited.change
+  if (Predicate.isUndefined(change)) return constUndefined
+  return change
+}
+
 /** Whether an element is a **Variant child** (CONTEXT.md). */
 export const isVariantChild = (config: VariantConfig): boolean =>
   Predicate.isNotUndefined(config.variants) && !namesOwnVariants(config) && config.inherit !== false

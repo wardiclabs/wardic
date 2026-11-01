@@ -91,13 +91,16 @@ layer(InputDomLive)("InputDomLive", (it) => {
     Effect.gen(function* () {
       const input = yield* InputSource.InputSource
       const el = document.createElement("div")
+      el.tabIndex = 0
+      document.body.appendChild(el)
       const sub = yield* subscribeIn(InputFeed.toStream(input.focus(el)))
 
-      el.dispatchEvent(new FocusEvent("focus"))
-      el.dispatchEvent(new FocusEvent("blur"))
+      el.focus()
+      el.blur()
 
       expect((yield* sub.collect(2)).map((e) => e.type)).toEqual(["focus", "blur"])
       yield* sub.close
+      el.remove()
     }))
 
   it.effect("keyboard(target) maps keydown/keyup at the target and inside it, with repeat and whether it came from the target (#43)", () =>
@@ -144,7 +147,7 @@ layer(InputDomLive)("InputDomLive", (it) => {
       outer.remove()
     }))
 
-  it.effect("I19: focus(target) tells its own focus and blur, and those inside it with fromTarget false (#439)", () =>
+  it.effect("I19: focus(target) tells its own focus and blur, and those inside it with fromTarget false (#439), each from its focusin or focusout (#460)", () =>
     Effect.gen(function* () {
       const input = yield* InputSource.InputSource
       const outer = document.createElement("div")
@@ -162,8 +165,8 @@ layer(InputDomLive)("InputDomLive", (it) => {
       expect(log).toEqual([
         "focus false focusin",
         "blur false focusout",
-        "focus true focus",
-        "blur true blur",
+        "focus true focusin",
+        "blur true focusout",
         "focus false focusin",
         "blur false focusout",
       ])

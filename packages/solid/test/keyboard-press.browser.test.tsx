@@ -1,12 +1,12 @@
 // Keyboard presses on Solid 1 (#427, ADR-0056), with the browser's own keys: Enter and Space on a
-// focused Wardic element press it, as a pointer does. Solid 2's are KB7–KB10.
+// focused Wardic element press it, as a pointer does. Solid 2's are KB7–KB11; KB12 is Solid 1's again.
 //
 // - KB1: Enter held turns `whileTap` on and its release turns it off; `onTapStart` hears the keydown
 //   and `onTap` the keyup, the info's `input` the keyboard's and its point the element's centre.
 // - KB2: Space presses too: on a pressable `div`, taken, so the page doesn't scroll; on a native
 //   button, left alone, so its own click still fires beside the tap.
-// - KB3: a blur cancels a keyboard press: `onTapCancel` with the blur's event, and the key's release
-//   taps nothing.
+// - KB3: a blur cancels a keyboard press: `onTapCancel` with the blur's event (its `focusout` since
+//   #460), and the key's release taps nothing.
 // - KB4: a pressable element that doesn't take focus is made focusable (Motion's press): a `div` with
 //   only `onTap` gets `tabindex="0"`; a button, a given `tabindex` and an element with no press are
 //   left as they are.
@@ -15,10 +15,14 @@
 //   text field, Space types and Enter presses.
 // - KB6: on a Reorder item, Enter and Space are the reorder's: the lift is no press, and the item's
 //   `whileTap` stays off.
+// - KB12: a press watched only once its element, or something inside it, already has focus hears its
+//   keys at once (#460: the keys are held only while focus is within the element, from the start when
+//   it already is), and lets them go when focus leaves.
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { Reorder, wardic, type WardicPressInfo, WardicProvider } from "@wardic/solid"
-import { createSignal, For, type JSX } from "solid-js"
+import { createPress, Reorder, wardic, type WardicPressInfo, WardicProvider } from "@wardic/solid"
+import { createSignal, For, type JSX, Show } from "solid-js"
+import * as Bool from "effect/Boolean"
 import { afterEach, describe, expect, it } from "vitest"
 import { userEvent } from "vitest/browser"
 import { scaleOf } from "./base-values-harness.ts"
@@ -118,7 +122,7 @@ describe("keyboard presses on Solid 1 (#427)", () => {
     other()!.focus()
     await userEvent.keyboard("{/Enter}")
     await wait(50)
-    expect(calls).toEqual([`tapStart keydown keyboard ${centre(el)}`, `cancel blur keyboard ${centre(el)}`])
+    expect(calls).toEqual([`tapStart keydown keyboard ${centre(el)}`, `cancel focusout keyboard ${centre(el)}`])
   })
 
   it("KB4: a pressable element that doesn't take focus is made focusable; the rest are left as they are", async () => {
@@ -212,5 +216,53 @@ describe("keyboard presses on Solid 1 (#427)", () => {
     expect(order(), "the keyboard reorder moved it").toEqual(["b", "a", "c"])
     expect(scaleOf(items.a!), "no whileTap").toBeCloseTo(1, 3)
     expect(calls, "no press").toEqual([])
+  })
+
+  it("KB12: a press watched once focus is already within its element hears the keys at once, and not once focus leaves", async () => {
+    const [watching, setWatching] = createSignal(false)
+    const [card, setCard] = createSignal<HTMLElement>()
+    const [inner, setInner] = createSignal<HTMLElement>()
+    const [other, setOther] = createSignal<HTMLElement>()
+    const pressed: { card: () => boolean; inner: () => boolean } = { card: () => false, inner: () => false }
+    function Watch(props: { readonly card: HTMLElement; readonly inner: HTMLElement }) {
+      // eslint-disable-next-line solid/reactivity
+      pressed.card = createPress(props.card)
+      // eslint-disable-next-line solid/reactivity
+      pressed.inner = createPress(props.inner)
+      return null
+    }
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <div ref={setCard} tabindex="0" style={BOX}>
+          <button ref={setInner}>inner</button>
+        </div>
+        <button ref={setOther}>other</button>
+        <Show when={watching()}>
+          <Watch card={card()!} inner={inner()!} />
+        </Show>
+      </WardicProvider>
+    ))
+    await settle()
+    // Focus inside the card, then the watches start.
+    inner()!.focus()
+    setWatching(true)
+    await wait(50)
+    await userEvent.keyboard("{Enter>}")
+    await until(() => pressed.card(), 1000)
+    expect([pressed.card(), pressed.inner()], "the card and the button pressed").toEqual([true, true])
+    await userEvent.keyboard("{/Enter}")
+    await until(() => Bool.not(pressed.card()), 1000)
+    expect([pressed.card(), pressed.inner()], "released").toEqual([false, false])
+    // Focus moves to the card itself, then out of it: its keys go with it.
+    card()!.focus()
+    await userEvent.keyboard("{Enter>}")
+    await until(() => pressed.card(), 1000)
+    await userEvent.keyboard("{/Enter}")
+    await until(() => Bool.not(pressed.card()), 1000)
+    other()!.focus()
+    await userEvent.keyboard("{Enter>}")
+    await wait(100)
+    expect(pressed.card(), "no press once focus left").toBe(false)
+    await userEvent.keyboard("{/Enter}")
   })
 })

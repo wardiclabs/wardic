@@ -546,7 +546,9 @@ const pathOf = (
   stops: StopsByKey | undefined,
   current: Values.Values | undefined,
 ): { readonly leg: Blend; readonly rest: Values.Values } | undefined => {
-  const path = UndefinedOr.map(given, (t) => t.path)
+  // Every element's Retarget asks, nearly always with no `path` (#460): guards, nothing built.
+  if (Predicate.isUndefined(given)) return undefined
+  const path = given.path
   if (Predicate.isUndefined(path)) return undefined
   if (Bool.not(Arr.some(AXES, (key) => Object.hasOwn(to, key)))) return undefined
   if (Bool.or(skipped, UndefinedOr.map(given, (t) => t.skipAnimations) === true)) return undefined

@@ -36,8 +36,11 @@ const SIZES: ReadonlySet<string> = new Set(["width", "height"])
 const INSETS: ReadonlySet<string> = new Set(["top", "left", "right", "bottom"])
 const TRANSLATES: ReadonlySet<string> = new Set(["x", "y", "translateX", "translateY"])
 
+/** Every key a Measured pair can be on: one lookup per key, per Retarget (#460). */
+const MEASURABLE: ReadonlySet<string> = new Set([...SIZES, ...INSETS, ...TRANSLATES])
+
 /** Whether `key` can be a Measured pair. */
-const isMeasurable = (key: string): boolean => Bool.or(Bool.or(SIZES.has(key), INSETS.has(key)), TRANSLATES.has(key))
+const isMeasurable = (key: string): boolean => MEASURABLE.has(key)
 
 /**
  * A value's type, as a Measured pair compares them: a number or a px length is `px`; `auto`; a
