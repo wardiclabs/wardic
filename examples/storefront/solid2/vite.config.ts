@@ -15,8 +15,11 @@ export default defineConfig({
   resolve: {
     alias: { "~": fileURLToPath(new URL("./src", import.meta.url)) },
     // @wardic/solid's source sits in packages/solid, where `solid-js` is Solid 1 (its own binding's
-    // peer): resolve Solid from this app, so its Solid 2 binding runs on Solid 2.
-    dedupe: ["solid-js", "@solidjs/web", "@solidjs/signals", "@solidjs/router", "effect"],
+    // peer): resolve Solid from this app, so its Solid 2 binding runs on Solid 2. Not
+    // `@solidjs/signals`, which the app doesn't declare: dedupe resolves from the app's root, and once
+    // `@solidjs/diagnostics` (a devDependency, #460) has the dev server externalize signals, the
+    // server render can't find it there. Every importer reaches the one copy beside `solid-js`.
+    dedupe: ["solid-js", "@solidjs/web", "@solidjs/router", "effect"],
   },
   ssr: { noExternal: ["@wardic/core", "@wardic/dom", "@wardic/solid", "@wardic/example-storefront-shared"] },
   server: { port: 3102 },

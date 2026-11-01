@@ -4,7 +4,7 @@ import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
 import { AnimatePresence, wardic } from "@wardic/solid/unstable/v2"
-import { action, createOptimisticStore, createSignal, flush, For, Show } from "solid-js"
+import { action, createMemo, createOptimisticStore, createSignal, flush, For, Show } from "solid-js"
 import { arrivalId, arrive, recall } from "~/lib/arrivals.ts"
 import { useReducedMotion } from "~/lib/preferences.tsx"
 import { cart } from "~/lib/store.ts"
@@ -76,14 +76,15 @@ export default function SavedForLater() {
 }
 
 function SavedRow(props: { readonly piece: Product; readonly onMove: () => void; readonly onRemove: () => void }) {
-  const photo = photoOf(props.piece.id)
+  // The row's piece is the store's, so its photo is read where it's followed (#460).
+  const photo = createMemo(() => photoOf(props.piece.id))
   return (
     // It fades as it leaves, either way. Moved to the cart, its photo's twin there flies from its own.
     <wardic.li class="saved-row" layout exit={{ opacity: 0, transition: { type: "tween", duration: 0.22, ease: "easeOut" } }}>
       {/* One photo flies, not two crossfading: this and its twin in the cart button both have
           layoutCrossfade={false}, so whichever takes over hides the other, out to the cart and back. */}
       <wardic.div class="photo" layoutId={arrivalId(props.piece.id)} layoutCrossfade={false}>
-        <img src={photo.small} srcset={srcsetOf(photo)} sizes="72px" width={photo.width} height={photo.height} alt={props.piece.name} />
+        <img src={photo().small} srcset={srcsetOf(photo())} sizes="72px" width={photo().width} height={photo().height} alt={props.piece.name} />
       </wardic.div>
       <div class="saved-text">
         <span class="name">{props.piece.name}</span>

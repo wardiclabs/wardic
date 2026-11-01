@@ -834,3 +834,17 @@ rc.19 to rc.20 changed nothing in Wardic. What it changes beside it:
   - warm mount +0.3%, Retarget +0.9%, at-rest Retarget +1.9% [+0.7% – +2.0%], unmount −0.8%;
   - bytes +0.9%, retained +0.3% (hover and press) and +0.8% (the Reorder item, 28.46 KB);
   - the layout page within noise, and 0.22 KB left after an unmount.
+
+## Amendment (#460, 2026-11-01): the gate beyond the tests, and rc.20's two checks
+
+#460's PR 4, the Solid 2 audit (Q9: A).
+
+- **The gate's filter is one module,** `packages/solid/test/v2/gate-filter.ts`: every coded diagnostic but the heuristics, which a loaded machine moves or which count what a page did. The browser projects' setup (#320) and the storefront smoke's dev mode read it.
+- **`OPTIMISTIC_REVERTED` joins the heuristics.** Solid's guide calls it "a count to read, not a warning to silence": an optimistic value the screen showed, then replaced. Its cheatsheet's "saving…" affordance, a co-written `createOptimistic(false)` flag, reports one every time it goes back.
+- **The storefront smoke's dev mode** (`bun run smoke:dev` in `examples/storefront/solid2`): the app's dev server, every route and its interaction, failing on what the gate fails on. `@solidjs/diagnostics`, the app's devDependency, has the plugin install Solid's diagnostics bridge in the dev client entry, and the smoke begins its session as the bridge is installed, before hydration. The server render's codes are read from the dev server's output. The app's `resolve.dedupe` no longer names `@solidjs/signals`, which the app doesn't declare: once the diagnostics package has the dev server externalize it, the server render couldn't resolve it from the app's root.
+- **What it found** (59 routes; fixed unless named):
+  - the binding: a Variant child with no variant of its parent's gesture's name made its orchestration and stagger anew at each gesture, equal (`UNSTABLE_MEMO_OUTPUT`). An own transition with no `inherit` is handed back as given (`transitionOfTarget`), and the stagger memo compares by value (`sameStagger`, both bindings). GW4 pins it;
+  - the examples: reads that wouldn't follow (`STRICT_READ_UNTRACKED`): a photo read from a store row or `<Show>`'s accessor at the top of a component, now a memo; reduced motion read in an effect's callback, now `untrack`ed, the one-time read it is;
+  - Kobalte 2.0's Tabs (alpha.4): `Tabs.List` copies the selected trigger into its context from an effect, and `Tabs.Content`'s presence (`@solid-primitives/presence` 1.0.0-next.2) sets its own source from one (`EFFECT_RELAY_TEAR`, `EFFECT_WRITES_OWN_SOURCE`). Named on the example, not Wardic's or the example's to fix.
+- **rc.20's `onFlush`:** the binding's two writes from a microtask when a Retarget starts (`settled()`'s count, `createAnimate`'s) aren't writes a hold catches: they come from a flush that has landed. `onFlush` in `started()` passes the same tests (SE1–SE11); `queueMicrotask` stays, for #315's reason. The two made when a memo is (`tapped()`, `createAnimate`) can be in a computation, where `onFlush` warns.
+- **rc.20's adopted computes:** none of the binding's memos that make a promise (`settled()`, `tapped()`, `createAnimate`) is adopted. Each is `transparent`, so it takes no hydration id, and a server ward's reads are constants.

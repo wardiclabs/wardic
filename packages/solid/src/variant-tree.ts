@@ -547,6 +547,14 @@ export const staggerWith = ({ staggerChildren = 0, delayChildren = 0, from = "fi
   direction: staggerDirection,
 })
 
+/**
+ * Two stagger configs the same field by field: a memo of one holds while its orchestration changes to
+ * a transition with the same stagger (#460: a Variant child with no `press` variant, its parent
+ * pressed, made a new, equal config at each press and release, `UNSTABLE_MEMO_OUTPUT`).
+ */
+export const sameStagger = (a: WardicStaggerConfig, b: WardicStaggerConfig): boolean =>
+  a.amount === b.amount && a.delayChildren === b.delayChildren && a.from === b.from && a.direction === b.direction
+
 /** What an element provides when it has no variants of its own: its parent's context, unless `inherit={false}`. */
 export const passedThrough = (
   config: VariantConfig,

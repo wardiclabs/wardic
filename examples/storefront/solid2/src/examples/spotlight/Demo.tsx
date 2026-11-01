@@ -3,7 +3,7 @@ import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
 import { createSpring, createTransform, ward, wardic } from "@wardic/solid/unstable/v2"
-import { createEffect, createSignal, For } from "solid-js"
+import { createEffect, createSignal, For, untrack } from "solid-js"
 import { useReducedMotion } from "~/lib/preferences.tsx"
 
 const SHELF = PRODUCTS.filter((product) => ["poppy-plate", "blossom-jar", "slip-dish"].includes(product.id))
@@ -32,9 +32,10 @@ function SpotCard(props: { readonly product: Product }) {
   const [down, setDown] = createSignal(0)
   const springAcross = createSpring(across, { stiffness: 260, damping: 22 })
   const springDown = createSpring(down, { stiffness: 260, damping: 22 })
-  // The card turns toward the pointer; the light sits under it. Under reduced motion, no tilt.
+  // The card turns toward the pointer; the light sits under it. Under reduced motion, no tilt: read
+  // at each step of the spring, which runs outside Solid's tracking.
   const tilt = (degrees: number) => (at: number) => {
-    if (reduced()) return 0
+    if (untrack(reduced)) return 0
     return at * degrees
   }
   const rotateY = createTransform(springAcross, tilt(TILT))
@@ -55,8 +56,9 @@ function SpotCard(props: { readonly product: Product }) {
     const atDown = ((point.y - box.top) / box.height) * 2 - 1
     setAcross(atAcross)
     setDown(atDown)
-    // Under reduced motion the light doesn't glide either: it's where the pointer is.
-    if (reduced()) {
+    // Under reduced motion the light doesn't glide either: it's where the pointer is. Read as the
+    // pointer moves, not followed: an effect's callback doesn't track.
+    if (untrack(reduced)) {
       springAcross.jump(atAcross)
       springDown.jump(atDown)
     }

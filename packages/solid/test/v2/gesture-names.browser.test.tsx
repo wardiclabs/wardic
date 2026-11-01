@@ -4,6 +4,9 @@
 // - GW1: `whileHover="hover"`: the element's own entry while hovered, back at its end.
 // - GW2: the name passes to Variant children while the parent is hovered.
 // - GW3: a child's own `whileHover` is on with its parent's hover, over the name it would take.
+// - GW4: names with their own transitions, through hover, press, release and leave, twice: the
+//   orchestration holds its transition, so the gate sees no `UNSTABLE_MEMO_OUTPUT` (#460, the
+//   storefront's settings button in the smoke's dev mode).
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider, type WardicVariants } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
@@ -23,6 +26,8 @@ const mountIn = (ui: () => JSX.Element) => {
   const { host } = mount(() => <WardicProvider env={DomLive}>{ui()}</WardicProvider>)
   return (k: string): HTMLElement => host.querySelector<HTMLElement>(`[data-k="${k}"]`)!
 }
+
+const mouse = { pointerId: 1, pointerType: "mouse", isPrimary: true, bubbles: true } as const
 
 const hover = async (el: HTMLElement, held: () => boolean): Promise<void> => {
   await until(() => {
@@ -70,5 +75,28 @@ describe("gesture props taking a variant name on Solid 2 (#291)", () => {
     const iconEl = q("icon")
     await hover(q("card"), () => matrixOf(iconEl).m41 < -19)
     expect(matrixOf(iconEl).m41).toBeLessThan(-19)
+  })
+
+  it("GW4: names with their own transitions, hovered and pressed twice: the orchestration holds (no UNSTABLE_MEMO_OUTPUT)", async () => {
+    const spring = { type: "spring", stiffness: 500, damping: 30 } as const
+    const icon: WardicVariants = { rest: { scale: 1, transition: spring }, hover: { scale: 1.2, transition: spring }, press: { scale: 0.8, transition: spring } }
+    const cog: WardicVariants = { rest: { rotate: 0, transition: spring }, hover: { rotate: 60, transition: spring } }
+    const q = mountIn(() => (
+      <wardic.button data-k="button" variants={icon} initial="rest" animate="rest" whileHover="hover" whileTap="press" style={BOX}>
+        <wardic.span data-k="cog" variants={cog} style={{ display: "inline-block" }} />
+      </wardic.button>
+    ))
+    await frames(3)
+    const button = q("button")
+    for (let round = 0; round < 2; round++) {
+      await hover(button, () => matrixOf(button).a > 1.15)
+      button.dispatchEvent(new PointerEvent("pointerdown", { ...mouse, button: 0, buttons: 1 }))
+      await until(() => matrixOf(button).a < 0.85, 2000)
+      button.dispatchEvent(new PointerEvent("pointerup", { ...mouse, button: 0, buttons: 0 }))
+      await until(() => matrixOf(button).a > 1.15, 2000)
+      button.dispatchEvent(new PointerEvent("pointerleave", { ...mouse }))
+      await until(() => Math.abs(matrixOf(button).a - 1) < 0.02, 2000)
+    }
+    expect(Math.abs(matrixOf(button).a - 1)).toBeLessThan(0.02)
   })
 })

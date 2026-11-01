@@ -85,10 +85,11 @@ export default function ProductDetail() {
 }
 
 function Photo(props: { readonly product: Product }) {
-  const photo = photoOf(props.product.id)
+  // The open piece is `<Show>`'s, so its photo is read where it's followed (#460).
+  const photo = createMemo(() => photoOf(props.product.id))
   return (
     <wardic.div class="photo" layoutId={`photo-${props.product.id}`}>
-      <img src={photo.small} srcset={srcsetOf(photo)} sizes="(max-width: 640px) 100vw, 480px" width={photo.width} height={photo.height} alt={props.product.name} />
+      <img src={photo().small} srcset={srcsetOf(photo())} sizes="(max-width: 640px) 100vw, 480px" width={photo().width} height={photo().height} alt={props.product.name} />
     </wardic.div>
   )
 }

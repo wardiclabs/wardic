@@ -190,10 +190,13 @@ const transitionEndOf = (given: unknown): Values.Values | undefined => {
 /**
  * The transition an animation to a target runs on (#277, Motion's `resolveTransition`): the target's
  * own in place of the element's, or laid over it with `inherit: true` (a shallow merge, its own keys
- * winning); the element's when it has none.
+ * winning); the element's when it has none. An own transition with no `inherit` is handed back as it
+ * is, the same object each call, so a memo of it holds (#460: a copy per call made Solid 2's variant
+ * node re-run its orchestration's readers at every gesture, `UNSTABLE_MEMO_OUTPUT`).
  */
 export const transitionOfTarget = (own: WardicVariantTransition | undefined, element: WardicTransition | undefined): WardicTransition | undefined => {
   if (Predicate.isUndefined(own)) return element
+  if (!("inherit" in own)) return own as WardicTransition
   const { inherit, ...rest } = own
   if (inherit === true) return { ...element, ...rest } as WardicTransition
   return rest as WardicTransition

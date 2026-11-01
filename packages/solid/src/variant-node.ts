@@ -41,6 +41,7 @@ import {
   nameConfigOf,
   type NameOrchestration,
   passedThrough,
+  sameStagger,
   staggerOf,
   staggerOfName,
   type VariantConfig,
@@ -216,7 +217,7 @@ const ownOrchestration = (
     }
     return next
   })
-  const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(orchestration()))
+  const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(orchestration()), undefined, { equals: sameStagger })
   // A list's names have each their own (#297's PR 2): none for the list as a whole.
   const when: Accessor<"beforeChildren" | "afterChildren" | undefined> = () => {
     if (Array.isArray(variant())) return undefined

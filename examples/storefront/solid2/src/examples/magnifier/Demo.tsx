@@ -1,6 +1,6 @@
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import { createSpring, createTransform, ward, type WardPointInfo, wardic } from "@wardic/solid/unstable/v2"
-import { createEffect, createSignal } from "solid-js"
+import { createEffect, createSignal, untrack } from "solid-js"
 import { useReducedMotion } from "~/lib/preferences.tsx"
 
 const ZOOM = 2.5
@@ -39,8 +39,9 @@ export default function Magnifier() {
     setWidth(box.width)
     setPointerX(atX)
     setPointerY(atY)
-    // Under reduced motion the lens doesn't glide: it's where the pointer is.
-    if (reduced()) {
+    // Under reduced motion the lens doesn't glide: it's where the pointer is. Read as the pointer
+    // moves, not followed: an effect's callback doesn't track.
+    if (untrack(reduced)) {
       x.jump(atX)
       y.jump(atY)
     }

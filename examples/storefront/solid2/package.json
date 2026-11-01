@@ -9,7 +9,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "typecheck": "../../../node_modules/typescript-7/bin/tsc --noEmit",
-    "smoke": "vite build && bun ../shared/src/smoke.ts solid2"
+    "smoke": "vite build && bun ../shared/src/smoke.ts solid2",
+    "smoke:dev": "bun ../shared/src/smoke.ts solid2 --dev"
   },
   "dependencies": {
     "@kobalte/core": "2.0.0-alpha.4",
@@ -24,6 +25,7 @@
     "solid-js": "2.0.0-rc.20"
   },
   "devDependencies": {
+    "@solidjs/diagnostics": "2.0.0-rc.20",
     "@solidjs/vite-plugin": "3.0.0-next.54",
     "filesystem-routing": "0.4.0",
     "vite": "8.3.4"

@@ -55,6 +55,12 @@ export interface Example {
   readonly interact?: string | ReadonlyArray<string> | undefined
   /** What the smoke test watches move, then settle: a selector inside the demo. */
   readonly watch: string
+  /**
+   * The Solid 2 codes its page makes that are neither Wardic's to fix nor the example's (#460, Q9): a
+   * component library's own effects. Each says why, as a test's `allowDiagnostic`; the smoke's dev
+   * mode lets them pass here alone, and the page's session still records them.
+   */
+  readonly allowDiagnostics?: Readonly<Record<string, string>> | undefined
 }
 
 export const EXAMPLES: ReadonlyArray<Example> = [
@@ -533,6 +539,10 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     },
     interact: ".details-tabs .tab:nth-child(2)",
     watch: ".details-tabs .tab-indicator",
+    allowDiagnostics: {
+      EFFECT_RELAY_TEAR: "Kobalte 2.0's Tabs.List copies the selected trigger into its context from an effect, and Tabs.Content's presence relays its own state (alpha.4)",
+      EFFECT_WRITES_OWN_SOURCE: "Tabs.Content's presence (@solid-primitives/presence 1.0.0-next.2) sets `isVisible` from an effect that reads it",
+    },
   },
 ]
 
