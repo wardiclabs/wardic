@@ -10,7 +10,8 @@
 //   Solid prints only a `warn` or an `error`: a relay across more than one effect, a relay's tear
 //   (EFFECT_RELAY_TEAR) and every other `info` code reach the channel alone. Read from the console
 //   only, 73 tests made one unseen (#320).
-// - But the timing and size heuristics (`HEURISTICS`), which a loaded machine moves.
+// - But the timing and size heuristics (`HEURISTICS`, `./gate-filter.ts`, which the storefront smoke's
+//   dev mode shares), which a loaded machine moves.
 // - But a code a test makes on purpose, named with `allowDiagnostic` (`./diagnostics.ts`).
 // - A hydration key it missed. An element with a template doesn't throw on a miss: Solid warns
 //   ("Hydration key miss") and makes a detached copy, leaving the server's node on the page, so a
@@ -22,26 +23,9 @@ import { OBSERVE } from "solid-js"
 import { attribution } from "solid-js/attribution"
 import { afterEach, beforeEach, expect } from "vitest"
 import { gateState } from "./diagnostics.ts"
+import { codeOf, gated, reports } from "./gate-filter.ts"
 
 attribution.enable({ log: false })
-
-/** The codes measured in time, counts or sizes: real costs, but not a test's to judge. */
-const HEURISTICS = [
-  "HOT_SCOPE_TIME",
-  "HOT_SCOPE_RERUNS",
-  "HOT_SCOPE_FANOUT",
-  "HUGE_FAN_OUT",
-  "HUGE_FAN_IN",
-  "WIDE_SCOPE_DEPS",
-  "GRAPH_GROWTH",
-  "SILENT_HOLD",
-  "LONG_HOLD",
-  "STACKED_HOLDS",
-  "FALLBACK_FLASH",
-  "ABANDONED_FLIGHTS",
-  "ASYNC_WATERFALL",
-]
-const CODE = /^\[([A-Z][A-Z_]+)\]/
 
 const { allowed, seen } = gateState
 /** Keep a diagnostic once, by its first line: a printed one reaches the channel too. */
@@ -53,7 +37,7 @@ const keep = (code: string | undefined, line: string): void => {
 // The channel: every coded diagnostic, at every severity.
 if (OBSERVE === undefined) throw new Error("diagnostics-setup: Solid 2's dev build has no OBSERVE channel")
 OBSERVE.diagnostics.subscribe((event) => {
-  if (HEURISTICS.includes(event.code)) return
+  if (!gated(event.code)) return
   keep(event.code, event.message.split("\n")[0] ?? event.message)
 })
 
@@ -61,9 +45,7 @@ OBSERVE.diagnostics.subscribe((event) => {
 const capture = (args: ReadonlyArray<unknown>): void => {
   const message = String(args[0])
   const line = message.split("\n")[0] ?? message
-  const code = CODE.exec(line)?.[1]
-  const reported = code !== undefined && !HEURISTICS.includes(code) && !line.includes("repair guide") && !line.includes("deeper evidence")
-  if (reported || message.includes("Hydration key miss")) keep(code, line)
+  if (reports(line) || message.includes("Hydration key miss")) keep(codeOf(line), line)
 }
 const warn = console.warn.bind(console)
 const error = console.error.bind(console)

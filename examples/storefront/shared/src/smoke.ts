@@ -22,16 +22,30 @@
  * logged and nothing uncaught.
  *
  * Each page's screenshot lands in `<app>/.smoke/`, for a person to look at. Exits 1 on any failure.
+ *
+ * `--dev`, for the Solid 2 app (#460, Q9): the same checks on its dev server, on Solid's development
+ * builds, failing on every coded diagnostic the binding's tests fail on (`gate-filter.ts`). The
+ * dev server installs Solid's diagnostics bridge (`@solidjs/diagnostics`, a devDependency), and the
+ * smoke begins its session as the bridge is installed, before hydration, so a page's whole life is
+ * read: every code at every severity, from the bridge, and the server render's, from the dev server's
+ * output. Each page's session, with its attribution (re-runs, costs, holds), lands in
+ * `<app>/.smoke/dev/diagnostics/`, for the heuristics the gate leaves out. Run it on any change to
+ * the Solid 2 binding, beside the browser suite.
  */
 import { spawn } from "node:child_process"
-import { existsSync, mkdirSync } from "node:fs"
+import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { type BrowserContext, chromium, type ConsoleMessage, type Page, type Request } from "playwright"
+// The binding's own gate, so the dev mode fails on what its tests fail on.
+import { codeOf, gated, reports } from "../../../../packages/solid/test/v2/gate-filter.ts"
 import { APPS, type AppId } from "./apps.ts"
 import { EXAMPLES, hasExample, routeOf } from "./examples.ts"
 
 const app = process.argv[2] ?? ""
 if (!(app in APPS)) throw new Error(`smoke: an app is solid1, solid2 or next, not "${app}"`)
+/** The dev mode (#460, Q9): the Solid 2 app's dev server, failing on its coded diagnostics. */
+const dev = process.argv.includes("--dev")
+if (dev && app !== "solid2") throw new Error("smoke: --dev is the Solid 2 app's, whose dev build reports coded diagnostics")
 const config = APPS[app as AppId]
 /** The examples this app has: all of them, less those for another binding's pattern alone. */
 const examples = EXAMPLES.filter((example) => hasExample(config.id, example))
@@ -41,9 +55,13 @@ const examples = EXAMPLES.filter((example) => hasExample(config.id, example))
  * `STOREFRONT_NEXT_URL`. Nothing is started then.
  */
 const deployed = process.env.STOREFRONT_SMOKE_URL
+if (dev && deployed !== undefined) throw new Error("smoke: --dev runs the app's own dev server, not a deployment")
 const base = deployed ?? `http://127.0.0.1:${config.port}`
-const shots = join(process.cwd(), ".smoke")
+const shots = join(process.cwd(), ".smoke", dev ? "dev" : "")
 mkdirSync(shots, { recursive: true })
+/** Where the dev mode keeps each page's diagnostics session. */
+const sessions = join(shots, "diagnostics")
+if (dev) mkdirSync(sessions, { recursive: true })
 
 /** Whether the Next.js app has an example in Motion (#366): its folder in `src/examples/`. */
 const nextHas = (id: string): boolean => existsSync(join(process.cwd(), "..", "next", "src", "examples", id, "Demo.tsx"))
@@ -54,12 +72,27 @@ const completeness: Result = {
   problems: EXAMPLES.filter((example) => hasExample("next", example) && !nextHas(example.id)).map((example) => `${routeOf(example)} has no Motion version: next/src/examples/${example.id}/Demo.tsx`),
 }
 
-/** The app's own server for its build: its own Vite (`npx vite` from the app picks the repo root's older one), or Next.js. */
+/**
+ * The app's own server for its build: its own Vite (`npx vite` from the app picks the repo root's
+ * older one), or Next.js; with `--dev`, its Vite dev server.
+ */
+const vite = join(process.cwd(), "node_modules", ".bin", "vite")
 const command: ReadonlyArray<string> =
   app === "next"
     ? [join(process.cwd(), "node_modules", ".bin", "next"), "start", "--hostname", "127.0.0.1", "--port", String(config.port)]
-    : [join(process.cwd(), "node_modules", ".bin", "vite"), "preview", "--host", "127.0.0.1", "--port", String(config.port), "--strictPort"]
+    : [vite, ...(dev ? [] : ["preview"]), "--host", "127.0.0.1", "--port", String(config.port), "--strictPort"]
 const server = deployed === undefined ? spawn(command[0]!, command.slice(1), { stdio: "pipe", env: { ...process.env, NEXT_TELEMETRY_DISABLED: "1" } }) : undefined
+/**
+ * Every line the server has printed, read so its pipes never fill. The dev mode reads a server
+ * render's diagnostics there; Vite's dev server also prints the browser's console, each message
+ * under a `[vite] (client)` line, which the bridge has already read.
+ */
+const serverLines: Array<string> = []
+const readLines = (chunk: Buffer): void => {
+  serverLines.push(...chunk.toString().split("\n"))
+}
+server?.stdout?.on("data", readLines)
+server?.stderr?.on("data", readLines)
 const stop = (): void => {
   server?.kill("SIGTERM")
 }
@@ -77,9 +110,82 @@ const ready = async (): Promise<void> => {
   throw new Error(`smoke: ${base} never answered`)
 }
 
-/** A console message that's a failure: an error or a warning, or Solid's hydration complaint. */
-const failing = (message: ConsoleMessage): boolean =>
-  message.type() === "error" || message.type() === "warning" || /hydrat/i.test(message.text())
+/**
+ * A console message that's a failure: an error or a warning, or Solid's hydration complaint. In the
+ * dev mode, a coded diagnostic's lines are the bridge's to report (`diagnosed`), at every severity.
+ */
+const failing = (message: ConsoleMessage): boolean => {
+  if (dev && codeOf(message.text()) !== undefined) return false
+  return message.type() === "error" || message.type() === "warning" || /hydrat/i.test(message.text())
+}
+
+/** One of Solid's coded diagnostics, as its bridge hands it over. */
+interface Diagnostic {
+  readonly code: string
+  readonly severity: string
+  readonly message: string
+}
+
+/** The shape of Solid's diagnostics bridge the smoke drives (`@solidjs/diagnostics/browser`). */
+interface Bridge {
+  begin(options: { readonly attribution: boolean }): void
+  end(): { readonly diagnostics: ReadonlyArray<Diagnostic> }
+  active(): boolean
+}
+
+/**
+ * Run in each page before its own scripts (the dev mode): when Solid's bridge is installed, the dev
+ * client entry's first import, begin its session, so hydration is read too.
+ */
+const beginAtInstall = (): void => {
+  let bridge: Bridge | undefined
+  Object.defineProperty(globalThis, "__SOLID_DIAGNOSTICS__", {
+    configurable: true,
+    get: () => bridge,
+    set: (value: Bridge) => {
+      bridge = value
+      value.begin({ attribution: true })
+    },
+  })
+}
+
+/** A diagnostic's report: its code, then its first line. */
+const reportOf = (code: string, message: string): string => {
+  const line = (message.split("\n")[0] ?? message).slice(0, 200)
+  if (line.startsWith(`[${code}]`)) return `diagnostic ${line}`
+  return `diagnostic [${code}] ${line}`
+}
+
+/** A server's printed line, its colours taken off. */
+const plain = (line: string): string => line.replace(/\u001b\[[0-9;]*m/g, "").trim()
+
+/** Codes a page may make, each with why (`Example.allowDiagnostics`). */
+type Allowed = Readonly<Record<string, string>>
+
+/**
+ * The dev mode's reading of a page (`label` names its session's file): the bridge's session since it
+ * began, ended and begun again, its diagnostics the gate fails on, less those `allowed`, and the
+ * server's since `from`.
+ */
+const diagnosed = async (page: Page, label: string, from: number, allowed: Allowed = {}): Promise<ReadonlyArray<string>> => {
+  if (!dev) return []
+  const session = await page.evaluate(() => {
+    const bridge = (globalThis as unknown as { __SOLID_DIAGNOSTICS__?: Bridge }).__SOLID_DIAGNOSTICS__
+    if (bridge === undefined || !bridge.active()) return undefined
+    const ended = bridge.end()
+    bridge.begin({ attribution: true })
+    return ended
+  })
+  const problems = serverLines
+    .slice(from)
+    .map(plain)
+    .filter((line) => reports(line) && !(codeOf(line)! in allowed))
+    .map((line) => `server ${line.slice(0, 200)}`)
+  if (session === undefined) return [...problems, "no diagnostics session on the page: is @solidjs/diagnostics the app's devDependency?"]
+  writeFileSync(join(sessions, `${label.replaceAll("/", "_") || "_"}.json`), JSON.stringify(session))
+  for (const diagnostic of session.diagnostics) if (gated(diagnostic.code) && !(diagnostic.code in allowed)) problems.push(reportOf(diagnostic.code, diagnostic.message))
+  return problems
+}
 
 /** Each frame's computed opacity and transform of the first `selector`, for up to `ms`. */
 const sampleFrames = (page: Page, selector: string, ms: number): Promise<ReadonlyArray<string>> =>
@@ -185,8 +291,9 @@ const checkTabs = async (page: Page, route: string, problems: Array<string>): Pr
   if (run === null || !run.endsWith(expected)) problems.push(`the Motion tab's link goes to ${run}, not ${expected}`)
 }
 
-const check = async (page: Page, route: string, watch: string | undefined, interact: string | ReadonlyArray<string> | undefined, tabs = false): Promise<Result> => {
+const check = async (page: Page, route: string, watch: string | undefined, interact: string | ReadonlyArray<string> | undefined, tabs = false, allowed: Allowed = {}): Promise<Result> => {
   const problems: Array<string> = []
+  const from = serverLines.length
   const onConsole = (message: ConsoleMessage): void => {
     if (failing(message)) problems.push(`console ${message.type()}: ${message.text().slice(0, 200)}`)
   }
@@ -212,7 +319,12 @@ const check = async (page: Page, route: string, watch: string | undefined, inter
   }
   await quiet()
   await page.screenshot({ path: join(shots, `${route.replaceAll("/", "_") || "_"}.png`), fullPage: true })
-  if (tabs) await checkTabs(page, route, problems)
+  problems.push(...(await diagnosed(page, route, from, allowed)))
+  if (tabs) {
+    const tabsFrom = serverLines.length
+    await checkTabs(page, route, problems)
+    problems.push(...(await diagnosed(page, `${route}, tabs`, tabsFrom, allowed)))
+  }
   page.off("console", onConsole)
   page.off("pageerror", onError)
   return { route, problems }
@@ -226,6 +338,7 @@ const check = async (page: Page, route: string, watch: string | undefined, inter
  */
 const checkStore = async (context: BrowserContext, page: Page): Promise<Result> => {
   const problems: Array<string> = []
+  const from = serverLines.length
   await page.goto(base + "/")
   await page.waitForLoadState("networkidle")
   const cookies = await context.cookies(base)
@@ -242,6 +355,7 @@ const checkStore = async (context: BrowserContext, page: Page): Promise<Result> 
   if (!(await switched(true))) problems.push("the store's settings, fetched again by the browser after a change, didn't load")
   else if (!(await switched(false))) problems.push("the store's settings couldn't be switched back")
   await page.waitForLoadState("networkidle")
+  problems.push(...(await diagnosed(page, "/, the store", from)))
   return { route: "/ (the store, from the browser)", problems }
 }
 
@@ -268,11 +382,13 @@ const checkNavigation = async (page: Page): Promise<ReadonlyArray<Result>> => {
     const route = routeOf(example)
     problems.length = 0
     documents = 0
+    const from = serverLines.length
     await page.click(`a[href='${route}']`)
     await page.waitForURL(base + route)
     await quiet()
     if ((await page.locator(".demo").count()) === 0) problems.push("no demo on the page")
     if (documents > 0) problems.push("its link loaded a document from the server, not the router")
+    problems.push(...(await diagnosed(page, `${route}, from the gallery`, from, example.allowDiagnostics)))
     results.push({ route: `${route}, from the gallery's link`, problems: [...problems] })
     // Back to the gallery, loaded afresh: a page that failed may have no link left to click.
     await page.goto(base + "/", { waitUntil: "commit" })
@@ -286,12 +402,16 @@ const browser = await chromium.launch()
 const results: Array<Result> = [completeness]
 try {
   const context = await browser.newContext({ viewport: { width: 1280, height: 900 } })
+  if (dev) await context.addInitScript(beginAtInstall)
   results.push(await check(await context.newPage(), "/", undefined, undefined))
   const storeContext = await browser.newContext()
+  if (dev) await storeContext.addInitScript(beginAtInstall)
   results.push(await checkStore(storeContext, await storeContext.newPage()))
   await storeContext.close()
   // The code's tabs, on a Solid app's page of an example the Next.js app has too.
-  for (const example of examples) results.push(await check(await context.newPage(), routeOf(example), example.watch, example.interact, app !== "next" && hasExample("next", example)))
+  for (const example of examples) {
+    results.push(await check(await context.newPage(), routeOf(example), example.watch, example.interact, app !== "next" && hasExample("next", example), example.allowDiagnostics))
+  }
   results.push(...(await checkNavigation(await context.newPage())))
 } finally {
   await browser.close()
@@ -308,5 +428,5 @@ for (const result of results) {
   console.log(`FAIL  ${result.route}`)
   for (const problem of result.problems) console.log(`      ${problem}`)
 }
-console.log(`\n${app}: ${results.length - failed} of ${results.length} routes passed; screenshots in ${shots}`)
+console.log(`\n${app}${dev ? " (dev)" : ""}: ${results.length - failed} of ${results.length} routes passed; screenshots in ${shots}`)
 process.exit(failed === 0 ? 0 : 1)
