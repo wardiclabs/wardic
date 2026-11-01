@@ -158,3 +158,11 @@ The default "only the element's own keys press" said Motion's was the same, as f
 - A propagated keyboard press is cancelled when focus leaves the element the key came from, and Space the inner press took still reaches its ancestors.
 - KB5 now pins it: Enter on a pressable button inside a pressable card presses both, on a plain button neither.
 
+## Amendment (#460, 2026-10-31): the keys only while focus is within
+
+The final review (#460, Part 1) found a press's keyboard side to be most of what 1.0 added to a pressable element at rest: two more Input feeds held throughout, its keys and its focus, about 1.1 KB each, and on Solid 2's `tapped()` page a third of its mount and unmount. Motion's press listens for keys only once its element has focus (`press/utils/keyboard.ts`). Part 2 does the same:
+- **The keys while focus is within.** `InputSource` gains `focusWithin(target)`, for an Environment that can say where focus is. With it, `Recognizer.watchPress` holds the target's focus feed alone at rest, and its keys from a `focus` (its own, or one inside it, #439) to the `blur` after, or from the start when focus is already within. An Environment without it, the Test one's by default, has the keys watched throughout, as before. `InputFeed.switched` is the subscription it opens and closes, and a watch's `onStop` lets it go.
+- **One focus listener a window.** The DOM's focus feed was four listeners on each target (`focus`, `blur`, `focusin`, `focusout`). It's now `focusin` and `focusout` on the target's window, in the capture phase, handed to the targets on their path innermost first, as its key feed's are (#439). A target's own focus or blur is the one whose path starts at it.
+- **A cancel's event is the `focusout`.** On Solid 1, a keyboard press a blur cancels hands `onTapCancel` the `focusout`, where it was the `blur` (decision 4): the same `FocusEvent`, the same target and `relatedTarget`.
+
+Measured against `main`, this change alone: 0.85 KB less held at rest by a pressable element; on the `tapped()` page, 4.1 KB less allocated per element per round, 2.1 ms off 1,000 elements' mount and 2.8 ms off their unmount. The rest of the keyboard side's cost is the focus feed's own subscription, which the press needs at rest. KP9 and KB12 pin the new behaviour.

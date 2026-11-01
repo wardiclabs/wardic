@@ -3,6 +3,7 @@ import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Predicate from "effect/Predicate"
 import * as Layer from "effect/Layer"
+import * as UndefinedOr from "effect/UndefinedOr"
 import * as Feeds from "./feeds.ts"
 
 /**
@@ -59,8 +60,12 @@ export const layer = (
  * `adoptPointer(target, raw)` (#431) takes a pointer event as its `raw`: a pressed one is pushed on
  * the pointer hub as an adopted down, inside the call, as the DOM's is. The hub holds no pointer, so
  * the test pushes that pointer's later events itself.
+ *
+ * `options.focusWithin` (#460) is the source's `focusWithin`, for a test of a **Keyboard press** that
+ * holds its keys only while focus is within its target. Without it the source says nothing of focus,
+ * and a press hears every key pushed.
  */
-export const pushable = (): Effect.Effect<{
+export const pushable = (options?: { readonly focusWithin?: ((target: unknown) => boolean) | undefined }): Effect.Effect<{
   readonly layer: Layer.Layer<InputSource.InputSource>
   readonly push: (event: InputSource.PointerLikeEvent) => Effect.Effect<void>
   readonly pushFocus: (event: InputSource.FocusLikeEvent) => Effect.Effect<void>
@@ -75,6 +80,7 @@ export const pushable = (): Effect.Effect<{
         pointer: () => pointer.feed,
         keyboard: () => keys.feed,
         focus: () => focus.feed,
+        focusWithin: UndefinedOr.map(options, (o) => o.focusWithin),
         adoptPointer: (_target, raw) => {
           if (isPressedPointer(raw)) {
             const down: InputSource.PointerLikeEvent = { ...raw, type: "down", adopted: true }

@@ -487,7 +487,8 @@ export function runSpine(opts: RunSpineOptions): void {
       // one its config gives.
       const templateAtMount = untrack(cfg).transformTemplate
       let template = templateAtMount
-      const unregister = gate.register(id, releasingAppear(withOnUpdate(makeSink(element), untrack(cfg).onUpdate, configNow), handoff, element), registeredValuesOf(templateAtMount))
+      const registered = registeredValuesOf(templateAtMount)
+      const unregister = gate.register(id, releasingAppear(withOnUpdate(makeSink(element), untrack(cfg).onUpdate, configNow), handoff, element), registered)
       onCleanup(unregister)
 
       // A surface whose props don't carry a drag element's defaults (ADR-0019 *Amendment
@@ -549,15 +550,18 @@ export function runSpine(opts: RunSpineOptions): void {
       // Its exit is drawn through its template (#443): it rides in its presence record, whose drawn
       // values the projection reads as it leaves. A later one is written with the values it holds, so
       // the commit that may take its Starting style off holds them.
-      UndefinedOr.map(registeredValuesOf(templateAtMount), (values) => recordFrame(values as Values.Values))
-      onCleanup(
-        followTemplate(templateAtMount, () => cfg().transformTemplate, reactivity.watch, (next) => {
-          template = next
-          const values = { ...snapshot.values, [DomRenderer.TEMPLATE_KEY]: next }
-          gate.write(id, values)
-          recordFrame({ [DomRenderer.TEMPLATE_KEY]: next } as unknown as Values.Values)
-        }),
-      )
+      // Nothing with none (#460): no follow, and nothing for its cleanup to run.
+      if (Predicate.isNotUndefined(templateAtMount)) {
+        recordFrame(registered as Values.Values)
+        onCleanup(
+          followTemplate(templateAtMount, () => cfg().transformTemplate, reactivity.watch, (next) => {
+            template = next
+            const values = { ...snapshot.values, [DomRenderer.TEMPLATE_KEY]: next }
+            gate.write(id, values)
+            recordFrame({ [DomRenderer.TEMPLATE_KEY]: next } as unknown as Values.Values)
+          }),
+        )
+      }
 
       // --- Layout / shared-element / scroll projection (ADR-0009/0010/0012) ---
       // ONE projection node per element: `layout`, `layoutId`, and/or `layoutScroll`

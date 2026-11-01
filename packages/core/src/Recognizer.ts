@@ -424,7 +424,13 @@ export const pressEvents = (target: unknown, options?: PressOptions): Stream.Str
  * inside the event's dispatch, while the Scope is open, as {@link watchHover}. A pointer's press, or a
  * **Keyboard press** (#427): one fold over the target's pointer, keys and focus, each feed watched
  * with its own step. Each press marks the down or the key it starts from in the page's **Press claims**
- * (#439), claimed when it doesn't propagate. `handlers.onEnd` is told once every feed has run out. Tier 2.
+ * (#439), claimed when it doesn't propagate. `handlers.onEnd` is told once every feed it watches
+ * throughout has run out. Tier 2.
+ *
+ * An Environment that says where focus is (`InputSource.focusWithin`, #460) has its keys watched only
+ * while focus is within the target, as Motion's press listens for keys only once its element has focus:
+ * from a `focus` to the `blur` after, or from the start when focus is already there. An element at
+ * rest holds its focus feed alone.
  */
 export const watchPress = (
   target: unknown,
@@ -442,14 +448,21 @@ export const watchPress = (
     const marking = (event: PressClaims.Markable, told: PressEvent): void => {
       if (told.phase === "start") claims.mark(event, target, Bool.not(propagates()))
     }
+    const focusWithin = input.focusWithin
     const state = MutableRef.make(noPress)
-    const feeds = MutableRef.make(Bool.match(keys, { onTrue: () => 3, onFalse: () => 1 }))
-    const watching: Pick<InputFeed.Handlers<never>, "onDefect" | "onEnd"> = {
+    const feeds = MutableRef.make(feedsWatched(keys, Predicate.isNotUndefined(focusWithin)))
+    // The keys while focus is within the target (#460): made at the first focus, let go with the watches.
+    let keysNow: InputFeed.Switch | undefined
+    const closeKeys = (): void => {
+      if (Predicate.isNotUndefined(keysNow)) keysNow.close()
+    }
+    const watching: Pick<InputFeed.Handlers<never>, "onDefect" | "onEnd" | "onStop"> = {
       onDefect: handlers.onDefect,
       onEnd: () => {
         MutableRef.set(feeds, MutableRef.get(feeds) - 1)
         if (MutableRef.get(feeds) === 0) UndefinedOr.map(handlers.onEnd, (onEnd) => onEnd())
       },
+      onStop: closeKeys,
     }
     const step =
       <Ev>(next: (s: PressState, e: Ev) => PressState, out: (ended: PressState, e: Ev, active: boolean) => PressEvent, taken: (e: Ev, out: PressEvent) => void) =>
@@ -471,9 +484,40 @@ export const watchPress = (
       marking(event, told)
       takeSpace(event, told)
     }
-    yield* InputFeed.watchWith(input.keyboard(target), step(keyStep(activity, claims, target), keyPressOf, keyTaken), watching)
-    yield* InputFeed.watchWith(input.focus(target), step(focusStep, blurPressOf, constVoid), watching)
+    const onKey = step(keyStep(activity, claims, target), keyPressOf, keyTaken)
+    const onFocus = step(focusStep, blurPressOf, constVoid)
+    if (Predicate.isUndefined(focusWithin)) {
+      yield* InputFeed.watchWith(input.keyboard(target), onKey, watching)
+      yield* InputFeed.watchWith(input.focus(target), onFocus, watching)
+      return
+    }
+    // Keys only while focus is within the target (#460), from a focus, or from now when it already is.
+    const openKeys = (): void => {
+      if (Predicate.isUndefined(keysNow)) keysNow = InputFeed.switched(input.keyboard(target), onKey(), handlers.onDefect)
+      keysNow.open()
+    }
+    const blurs = onFocus()
+    const focuses = (event: InputSource.FocusLikeEvent): boolean => {
+      if (event.type === "focus") openKeys()
+      // A blur first ends a Keyboard press it cancels, then lets the keys go.
+      const goOn = blurs(event)
+      if (event.type === "blur") closeKeys()
+      return goOn
+    }
+    yield* InputFeed.watchWith(input.focus(target), () => focuses, watching)
+    if (focusWithin(target)) openKeys()
   }).pipe(Effect.withSpanScoped("wardic.press", { attributes: {}, captureStackTrace: false }))
+
+/**
+ * How many feeds a press watches throughout (#427, #460), each one's end counted for `onEnd`: its
+ * pointer; with **Keyboard presses**, its focus; and its keys too, unless they're held only while focus
+ * is within the target.
+ */
+const feedsWatched = (keys: boolean, keysOnFocus: boolean): number => {
+  if (Bool.not(keys)) return 1
+  if (keysOnFocus) return 2
+  return 3
+}
 
 /** A pointer's press transition, with how it began or ended. */
 const pointerPressOf = (next: PressState, event: InputSource.PointerLikeEvent, active: boolean): PressEvent => ({

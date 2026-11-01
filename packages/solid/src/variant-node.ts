@@ -7,7 +7,7 @@
  */
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import { constTrue, constUndefined, constVoid, identity } from "effect/Function"
+import { constTrue, constUndefined, constVoid } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js"
@@ -17,6 +17,7 @@ import {
   activeNamesOf,
   type ChangeAtTrigger,
   changeAtTrigger,
+  controlsChangeOf,
   changeConfigOf,
   orchestrationAt,
   type GestureHandDown,
@@ -305,10 +306,7 @@ export const createVariantNode = (
   const config = untrack(cfg)
   const inherited = inheritedContext(config, parent)
   // The Controls change in effect (#433): its own controls', else the one its provider is in.
-  const change: Accessor<ControlsChange | undefined> = UndefinedOr.match(controls, {
-    onDefined: identity,
-    onUndefined: () => UndefinedOr.match(UndefinedOr.map(inherited, (context) => context.change), { onUndefined: () => constUndefined, onDefined: identity }),
-  })
+  const change = controlsChangeOf(controls, inherited)
   // A Variant child registers with the ancestor it joins, for its stagger slot and its `when`.
   const joined = UndefinedOr.map(inherited, (context) => ({ context, registration: context.register() }))
   if (Predicate.isNotUndefined(joined)) onCleanup(joined.registration.dispose)

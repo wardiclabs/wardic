@@ -17,12 +17,16 @@
 //   after a pointer script is heard, and `press` toggles on each.
 // - KP8: a second down of the same key without an up (a lost keyup) keeps the press, as a pointer's
 //   second down does.
+// - KP9: with an Environment that says where focus is (#460), the keys are heard only from a focus to
+//   the blur after (Motion's), or from the start when focus is already within; a blur still cancels the
+//   press it ends first. Closing the scope while focused lets the keys go.
 import * as DragActivity from "@wardic/core/DragActivity"
 import * as InputSource from "@wardic/core/InputSource"
 import * as Recognizer from "@wardic/core/Recognizer"
 import { TestInput } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 
@@ -47,6 +51,7 @@ const key = (type: "down" | "up", name: InputSource.Key, t = 0, over: Partial<In
 })
 
 const blur = (t = 0): InputSource.FocusLikeEvent => ({ type: "blur", timeStamp: t })
+const focus = (t = 0): InputSource.FocusLikeEvent => ({ type: "focus", timeStamp: t })
 
 /** Run `watch` in a Scope of its own. */
 const opened = <R>(watch: Effect.Effect<void, never, Scope.Scope | R>) =>
@@ -210,4 +215,35 @@ it.effect("KP8: a second down of the same key without its up keeps the press", (
       yield* input.pushKey(key("up", "enter", 3))
     }).pipe(Effect.provide(input.layer))
     expect(heard).toEqual(["start keyboard@1", "tap keyboard@3"])
+  }))
+
+it.effect("KP9: with focusWithin, the keys are heard only while focus is within the target", () =>
+  Effect.gen(function* () {
+    let focused = false
+    const input = yield* TestInput.pushable({ focusWithin: () => focused })
+    const heard: Array<string> = []
+    yield* Effect.gen(function* () {
+      const scope = yield* opened(Recognizer.watchPress("el", { on: (p) => heard.push(told(p)) }))
+      // At rest, unfocused: no key is heard.
+      yield* input.pushKey(key("down", "enter", 1))
+      yield* input.pushKey(key("up", "enter", 2))
+      // From a focus: heard.
+      yield* input.pushFocus(focus(3))
+      yield* input.pushKey(key("down", "enter", 4))
+      yield* input.pushKey(key("up", "enter", 5))
+      // A blur cancels the press it ends, then the keys go: the up after it, and the next down, are heard by nothing.
+      yield* input.pushKey(key("down", "space", 6))
+      yield* input.pushFocus(blur(7))
+      yield* input.pushKey(key("up", "space", 8))
+      yield* input.pushKey(key("down", "enter", 9))
+      yield* Scope.close(scope, Exit.void)
+      // Focus already within it at the start: heard from the start, until its scope closes.
+      focused = true
+      const again = yield* opened(Recognizer.watchPress("el", { on: (p) => heard.push(told(p)) }))
+      yield* input.pushKey(key("down", "enter", 10))
+      yield* input.pushKey(key("up", "enter", 11))
+      yield* Scope.close(again, Exit.void)
+      yield* input.pushKey(key("down", "enter", 12))
+    }).pipe(Effect.provide(input.layer))
+    expect(heard).toEqual(["start keyboard@4", "tap keyboard@5", "start keyboard@6", "cancel keyboard@7", "start keyboard@10", "tap keyboard@11"])
   }))

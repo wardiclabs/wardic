@@ -1134,7 +1134,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     // its config gives.
     const templateAtMount = configNow().transformTemplate
     let template = templateAtMount
-    const unregister = gate.register(id, releasingAppear(withOnUpdate({ target: el, ...elementStyle.hooks }, configNow().onUpdate, configNow), handoff, el), registeredValuesOf(templateAtMount))
+    const registered = registeredValuesOf(templateAtMount)
+    const unregister = gate.register(id, releasingAppear(withOnUpdate({ target: el, ...elementStyle.hooks }, configNow().onUpdate, configNow), handoff, el), registered)
     // Its values, for the projection's flights (ADR-0012 *Amendment (#137)*).
     const unregisterValues = projection.registerValues(el, () => snapshot.values)
     const links = startLinksOf(el, styleNow, live)
@@ -1148,12 +1149,16 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     // Its exit is drawn through its template (#443): it rides in its presence record, whose drawn values
     // the projection reads as it leaves. A later one is written with the values it holds, so the commit
     // that may take its Starting style off holds them.
-    UndefinedOr.map(registeredValuesOf(templateAtMount), (values) => recordFrame(values as Values.Values))
-    const unfollowTemplate = followTemplate(templateAtMount, () => view.transformTemplate, reactivity.watch, (next) => {
-      template = next
-      gate.write(id, { ...snapshot.values, [DomRenderer.TEMPLATE_KEY]: next })
-      recordFrame({ [DomRenderer.TEMPLATE_KEY]: next } as unknown as Values.Values)
-    })
+    // Nothing with none (#460): no follow.
+    let unfollowTemplate: () => void = constVoid
+    if (Predicate.isNotUndefined(templateAtMount)) {
+      recordFrame(registered as Values.Values)
+      unfollowTemplate = followTemplate(templateAtMount, () => view.transformTemplate, reactivity.watch, (next) => {
+        template = next
+        gate.write(id, { ...snapshot.values, [DomRenderer.TEMPLATE_KEY]: next })
+        recordFrame({ [DomRenderer.TEMPLATE_KEY]: next } as unknown as Values.Values)
+      })
+    }
     // Where it starts when its child takes over from a leaver (#286): asked before its layout node
     // registers, which moves from the leaver's box, and before its first Retarget.
     const taken = presenceSeedOf(presence, el)
@@ -1508,23 +1513,19 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   // What a spread of the ward reads (#495): its spread's props alone, made at its first spread, so a
   // ward given only to `ref` makes none, and a Reorder item's keyboard attributes are in it.
   let spread: WardProps | undefined
+  // Its `style` and its attributes as descriptors, made once (#460): its own keys, its spread and each
+  // `.with()` share them.
+  const styleKey: PropertyDescriptor = { get: renderedStyle, enumerable: true }
+  const attributes = attributeKeysOf(seed.attrs, Predicate.isNotUndefined(dragDefaults))
   const spreadNow = (): WardProps => {
-    if (Predicate.isUndefined(spread)) {
-      spread = spreadOfWard(self, {
-        ref: { value: self, enumerable: true },
-        style: { get: renderedStyle, enumerable: true },
-        ...attributesOf(seed.attrs),
-        ...attributesOf(UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES })),
-      })
-    }
+    if (Predicate.isUndefined(spread)) spread = spreadOfWard(self, { value: self, enumerable: true }, styleKey, attributes)
     return spread
   }
   Object.defineProperties(self, {
     [WARD]: { get: sharedNow },
     ref: { value: self, enumerable: true },
-    style: { get: renderedStyle, enumerable: true },
-    ...attributesOf(seed.attrs),
-    ...attributesOf(UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES })),
+    style: styleKey,
+    ...attributes,
     Provider: { value: Provider },
     read: { value: read },
     atom: { value: atomOf },
@@ -1537,12 +1538,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       value: (own: WardWithProps): WardProps => {
         given = own
         withCallsOf()[1](undefined)
-        return spreadPropsOf({
-          ref: { value: withRef(own.ref, self), enumerable: true },
-          style: { get: renderedStyle, enumerable: true },
-          ...attributesOf(seed.attrs),
-          ...attributesOf(UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES })),
-        })
+        return spreadPropsOf({ ref: { value: withRef(own.ref, self), enumerable: true }, style: styleKey, ...attributes })
       },
     },
   })
@@ -1588,9 +1584,22 @@ const withRef = (user: WardWithProps["ref"], self: Ward): ((element: HTMLElement
   }
 }
 
-/** The Starting style's attributes as a ward's own keys: enumerable, so a spread applies them. */
-const attributesOf = (attrs: Readonly<Record<string, unknown>>): PropertyDescriptorMap =>
-  Object.fromEntries(Object.entries(attrs).map(([key, value]) => [key, { value, enumerable: true }]))
+/**
+ * The Starting style's attributes, and a drag element's default ones when it `drags`, as a ward's own
+ * keys: enumerable, so a spread applies them. Made once a ward (#460), into one map.
+ */
+const attributeKeysOf = (attrs: Readonly<Record<string, unknown>>, drags: boolean): PropertyDescriptorMap => {
+  const keys: PropertyDescriptorMap = {}
+  addAttributeKeys(keys, attrs)
+  if (drags) addAttributeKeys(keys, Style.DRAG_DEFAULT_ATTRIBUTES)
+  return keys
+}
+
+/** Each of `attrs` as an enumerable key, into `keys`: a later one wins a key both set. */
+const addAttributeKeys = (keys: PropertyDescriptorMap, attrs: Readonly<Record<string, unknown>>): void =>
+  Arr.forEach(Object.keys(attrs), (key) => {
+    keys[key] = { value: attrs[key], enumerable: true }
+  })
 
 /**
  * A spread's props, reaching no name but their own (#495): what a ward, its `.with()` or a Reorder group
@@ -1621,9 +1630,12 @@ export const withSpreadProps = <W extends object>(ward: W, descriptors: Property
   return Object.defineProperties(ward, descriptors)
 }
 
-/** A ward's spread: `descriptors`, and what {@link withSpreadProps} added, on no prototype. */
-const spreadOfWard = (ward: object, descriptors: PropertyDescriptorMap): WardProps =>
-  spreadPropsOf(UndefinedOr.match(SPREAD_EXTRAS.get(ward), { onUndefined: () => descriptors, onDefined: (extras) => ({ ...descriptors, ...extras }) }))
+/** A ward's spread: its `ref`, `style` and attributes, and what {@link withSpreadProps} added, on no prototype. Made at its first spread (#460: one map). */
+const spreadOfWard = (ward: object, ref: PropertyDescriptor, style: PropertyDescriptor, attributes: PropertyDescriptorMap): WardProps => {
+  const extras = SPREAD_EXTRAS.get(ward)
+  if (Predicate.isUndefined(extras)) return spreadPropsOf({ ref, style, ...attributes })
+  return spreadPropsOf({ ref, style, ...attributes, ...extras })
+}
 
 /** A server's output Atom: nothing is written there, so it stays `undefined`. */
 const NO_OUTPUT: Atom.Atom<unknown> = Atom.make<unknown>(undefined)
@@ -1686,11 +1698,11 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
   }
   const style = styleFor(c.style)
   let given: WardWithProps = NO_WITH
-  const attributes = { ...seed.attrs, ...UndefinedOr.match(dragDefaults, { onUndefined: () => ({}), onDefined: () => Style.DRAG_DEFAULT_ATTRIBUTES }) }
+  const attributes = attributeKeysOf(seed.attrs, Predicate.isNotUndefined(dragDefaults))
   // A spread of it reads its spread's props alone, made at its first spread, as the client's (#495).
   let spread: WardProps | undefined
   const self = ((): WardProps => {
-    if (Predicate.isUndefined(spread)) spread = spreadOfWard(self, { ref: { value: noRef, enumerable: true }, style: { value: style, enumerable: true }, ...attributesOf(attributes) })
+    if (Predicate.isUndefined(spread)) spread = spreadOfWard(self, { value: noRef, enumerable: true }, { value: style, enumerable: true }, attributes)
     return spread
   }) as Ward
   // What it shares with a component it's given to (#349): a server's component renders its own.
@@ -1711,7 +1723,7 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
     [WARD]: { value: shared },
     ref: { value: noRef, enumerable: true },
     style: { value: style, enumerable: true },
-    ...attributesOf(attributes),
+    ...attributes,
     Provider: { value: Provider },
     read: { value: (key: string) => () => restingOf(key, initialValues, withStyleOver(c.style, given.style), readServerStyle) },
     atom: { value: (): Atom.Atom<unknown> => NO_OUTPUT },
@@ -1729,7 +1741,7 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
         return spreadPropsOf({
           ref: { value: noRef, enumerable: true },
           style: { value: styleFor(withStyleOver(c.style, own.style)), enumerable: true },
-          ...attributesOf(attributes),
+          ...attributes,
         })
       },
     },

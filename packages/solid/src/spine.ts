@@ -43,7 +43,7 @@ import * as Equivalence from "effect/Equivalence"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as FiberSet from "effect/FiberSet"
-import { constFalse, constTrue, constUndefined, constVoid, identity } from "effect/Function"
+import { constFalse, constUndefined, constVoid, identity } from "effect/Function"
 import * as Iter from "effect/Iterable"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
@@ -809,6 +809,19 @@ const GATE_SPAN = { name: "wardic.spine.whenGate", attributes: {} }
 /** Nothing drawn while a gate is waited on. */
 const NO_SINK = (): undefined => undefined
 
+/** Whether a key's leg has landed (#428): its owner's done, or it has none. A guard: asked per frame (#460). */
+const ownerLanded = (owner: Running | undefined): boolean => {
+  if (Predicate.isUndefined(owner)) return true
+  return owner.done
+}
+
+/**
+ * No key taken by an Imperative animation (#433): every spine's until its first, shared, so an element
+ * none animates holds no map of its own (#460). Never written: a spine sets keys in a map of its own,
+ * and deletes only from one that has some.
+ */
+const NONE_TAKEN: Map<string, number | string | undefined> = new Map()
+
 /** A Transition end's values set (#428): its one frame, done. */
 const endWriteOf = (values: Values.Values): Machine.Machine<Frame.Frame<Values.Values>> =>
   Machine.make({ settles: true, span: END_SPAN, start: () => () => ({ value: values, done: true }) })
@@ -851,8 +864,11 @@ const layerOf = (target: Target, name: string | undefined): Layer => ({
 /** A list's target as an active layer (#297). */
 const namedLayerOf = (target: NamedTarget): Layer => layerOf(target, target.name)
 
-/** A target's Transition end as a layer's (#428): none shared, so the common case allocates nothing. */
-const endsOfTarget = (target: Target): Values.Values => UndefinedOr.match(target.transitionEnd, { onUndefined: () => NO_VALUES, onDefined: identity })
+/** A target's Transition end as a layer's (#428): none shared, so the common case allocates nothing. Per layer, per Retarget (#460): a guard. */
+const endsOfTarget = (target: Target): Values.Values => {
+  if (Predicate.isUndefined(target.transitionEnd)) return NO_VALUES
+  return target.transitionEnd
+}
 
 /** Whether a layer is on with a Transition end (#428). */
 const hasEnds = (layer: Layer): boolean => Bool.and(layer.active, layer.ends !== NO_VALUES)
@@ -1810,7 +1826,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   // The keys an Imperative animation took (#433), each with the target the Override stack had for it
   // then: a Retarget leaves each where the animation leaves it while its target is still that one, and
   // takes it back once it isn't, as a newer animation of Motion's value takes it (latest-wins).
-  const taken = new Map<string, number | string | undefined>()
+  // Every element reads it, nearly none sets it (#460): the shared empty one until the first key taken.
+  let taken: Map<string, number | string | undefined> = NONE_TAKEN
   // The legs that gave up a key in this Retarget: what each still draws is worked out at its end.
   const losing: Array<Running> = []
   // The landing every running leg counts toward: the last Retarget's.
@@ -2513,7 +2530,9 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         )
         if (Bool.not(anew)) return
         const animated = Arr.filter(Rec.keys(resolved), (key) => Bool.and(Bool.not(ends.endOnly.has(key)), driverOf(layers, key) === at))
-        const landedAll = (): boolean => Arr.every(animated, (key) => UndefinedOr.match(owners.get(key), { onUndefined: constTrue, onDefined: (o) => o.done }))
+        // Asked every frame until they land (#460): its key's check made once, nothing built per frame.
+        const keyLanded = (key: string): boolean => ownerLanded(owners.get(key))
+        const landedAll = (): boolean => Arr.every(animated, keyLanded)
         // Its keys set at their end, at once: no motion, so no velocity (#464).
         const running = runningOf(owned, resolution, landing, "Snap")
         own(running)
@@ -2681,8 +2700,10 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // Each key taken from whatever runs it, noted with its target now, and started where it's drawn.
     // Its velocity read now (#464), as its legs are built.
     readAt = frameNow()
+    if (taken === NONE_TAKEN) taken = new Map()
+    const takenNow = taken
     Arr.forEach(Rec.keys(to), (key) => {
-      taken.set(key, before[key])
+      takenNow.set(key, before[key])
       returning.delete(key)
       const owner = owners.get(key)
       if (Predicate.isNotUndefined(owner)) giveUp(key, owner)
@@ -3016,20 +3037,27 @@ export const isLayoutNode = (c: WardConfig): boolean =>
  * through its projection at rest, as its first commit draws it, its own translate on top (#363).
  * Any other element's, as they are. A templated element's, with its Transform template (#443).
  */
-export const drawnAtRest = (values: Values.Values, layout: boolean, template: WardConfig["transformTemplate"]): Readonly<Record<string, unknown>> =>
-  withTemplate(Bool.match(layout, { onTrue: () => ({ ...values, [Projection.KEY]: Projection.AT_REST }), onFalse: () => values }), template)
+export const drawnAtRest = (values: Values.Values, layout: boolean, template: WardConfig["transformTemplate"]): Readonly<Record<string, unknown>> => {
+  // Per mount (#460): guards, nothing built for an element neither a layout node nor templated.
+  if (Bool.not(layout)) return withTemplate(values, template)
+  return withTemplate({ ...values, [Projection.KEY]: Projection.AT_REST }, template)
+}
 
 /** `values` with `template` under the renderer's reserved key, as its projection rides (#443); as they are with none. */
-export const withTemplate = <V extends Readonly<Record<string, unknown>>>(values: V, template: WardConfig["transformTemplate"]): V =>
-  UndefinedOr.match(template, { onUndefined: () => values, onDefined: (t) => ({ ...values, [DomRenderer.TEMPLATE_KEY]: t }) })
+export const withTemplate = <V extends Readonly<Record<string, unknown>>>(values: V, template: WardConfig["transformTemplate"]): V => {
+  if (Predicate.isUndefined(template)) return values
+  return { ...values, [DomRenderer.TEMPLATE_KEY]: template }
+}
 
 /**
  * What an element registers with in the gate (#443): its Transform template at mount, under the
  * renderer's reserved key, drawn with its first write (a write of its own would take its Starting
  * style off early). Nothing with none.
  */
-export const registeredValuesOf = (template: WardConfig["transformTemplate"]): Readonly<Record<string, unknown>> | undefined =>
-  UndefinedOr.map(template, (t) => ({ [DomRenderer.TEMPLATE_KEY]: t }))
+export const registeredValuesOf = (template: WardConfig["transformTemplate"]): Readonly<Record<string, unknown>> | undefined => {
+  if (Predicate.isUndefined(template)) return undefined
+  return { [DomRenderer.TEMPLATE_KEY]: template }
+}
 
 /**
  * What an element's projection node is held at for a Measure pass (#443, Motion's
@@ -3040,20 +3068,22 @@ export const heldTransformFor = (
   snapshot: Snapshot,
   atMount: WardConfig["transformTemplate"],
   template: () => WardConfig["transformTemplate"],
-): (() => string) | undefined => UndefinedOr.map(atMount, () => () => DomRenderer.heldTransformOf(withTemplate(snapshot.values, template())))
+): (() => string) | undefined => {
+  if (Predicate.isUndefined(atMount)) return undefined
+  return () => DomRenderer.heldTransformOf(withTemplate(snapshot.values, template()))
+}
 
 /**
  * Follow an element's Transform template after mount (#443): `write` is called with each other one
  * its config gives, and draws it at the next frame. Only for an element with one at mount, as
- * `onUpdate` (#233): another costs nothing. Returns the stop.
+ * `onUpdate` (#233): its caller asks only then, so another makes nothing (#460). Returns the stop.
  */
 export const followTemplate = (
-  atMount: WardConfig["transformTemplate"],
+  atMount: DomRenderer.TransformTemplate,
   template: () => WardConfig["transformTemplate"],
   watch: Reactivity["watch"],
   write: (template: WardConfig["transformTemplate"]) => void,
 ): (() => void) => {
-  if (Predicate.isUndefined(atMount)) return constVoid
   let last: WardConfig["transformTemplate"] = atMount
   return watch(template, (next) => {
     if (next === last) return

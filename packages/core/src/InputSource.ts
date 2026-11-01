@@ -225,6 +225,14 @@ export class InputSource extends Context.Service<InputSource, {
    */
   readonly focus: (target: unknown) => InputFeed.InputFeed<FocusLikeEvent>
   /**
+   * Whether focus is now on `target` or inside it (#460), from an Environment that can say. A **Keyboard
+   * press** then holds its target's keys only while it is, from a `focus` on its `focus(target)` to the
+   * `blur` after, as Motion's listens for keys only once its element has focus, and an element at rest
+   * holds none. Absent: a **Keyboard press** holds the keys throughout, for an Environment whose keys
+   * can reach a target without its focus.
+   */
+  readonly focusWithin?: ((target: unknown) => boolean) | undefined
+  /**
    * Hand `raw`, the platform's event of a pointer pressed elsewhere, to `target` (#431, **Drag
    * controls**): delivered on `pointer(target)` as an `adopted` down at its point, inside this call,
    * and held from there as a down on the target is, so its moves, release and cancel reach the

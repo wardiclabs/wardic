@@ -13,6 +13,8 @@
  * - {@link watch} and {@link watchWith}: a feed subscribed while a Scope is open, each event handled
  *   inside its emit, with no fiber and no Stream (#318, #379). The recognizers' watches fold events
  *   over them; a binding watches a feed it doesn't fold (a drag track's grabs, a Reorder item's keys).
+ * - {@link switched}: a subscription its owner opens and closes (#460), for a feed a watch needs only
+ *   some of the time.
  *
  * Tier 2 (ADR-0008), for Environment authors. Nothing here names a DOM type.
  */
@@ -23,6 +25,7 @@ import * as Effect from "effect/Effect"
 import { constVoid } from "effect/Function"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as Queue from "effect/Queue"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
@@ -135,12 +138,15 @@ export type OnDefect = (cause: Cause.Cause<never>) => void
 
 /**
  * A watch's handlers (#318): `on`, each event or value, inside the event's dispatch; `onDefect`, a
- * throw from the handler (else it goes up the dispatch); `onEnd`, the feed ran out (a test's script).
+ * throw from the handler (else it goes up the dispatch); `onEnd`, the feed ran out (a test's script);
+ * `onStop`, once the watch stops, its Scope closed or its handler done (#460), for a watch that holds
+ * something of its own beside the feed ({@link switched}'s).
  */
 export interface Handlers<A> {
   readonly on: (value: A) => void
   readonly onDefect?: OnDefect | undefined
   readonly onEnd?: (() => void) | undefined
+  readonly onStop?: (() => void) | undefined
 }
 
 /** `handle`, a throw from it handed to `onDefect` when there is one. */
@@ -157,6 +163,38 @@ const guarded = <A>(handle: (event: A) => void, onDefect: OnDefect | undefined):
   })
 
 /**
+ * A subscription its owner opens and closes (#460): {@link switched}'s. `open` starts the feed unless
+ * it's running, `close` stops it unless it's stopped.
+ */
+export interface Switch {
+  readonly open: () => void
+  readonly close: () => void
+}
+
+/**
+ * A subscription to `feed` that its owner opens and closes (#460), each event handed to `handle` inside
+ * its emit and a throw from it to `onDefect`, as {@link watchWith}'s. For a watch that needs a feed only
+ * some of the time: a **Keyboard press** holds its target's keys only while focus is within it, so an
+ * element at rest holds no subscription to them. The feed running out ends nothing. Its owner closes
+ * it when it's done.
+ */
+export const switched = <A>(feed: InputFeed<A>, handle: (event: A) => void, onDefect?: OnDefect): Switch => {
+  const on = guarded(handle, onDefect)
+  let stop: (() => void) | undefined
+  return {
+    open: () => {
+      if (Predicate.isUndefined(stop)) stop = feed(on, constVoid)
+    },
+    close: () => {
+      if (Predicate.isUndefined(stop)) return
+      const running = stop
+      stop = undefined
+      running()
+    },
+  }
+}
+
+/**
  * Watch `feed` while the Scope is open (#318, #379): `make` makes this subscription's handler, which
  * hears each event inside its emit, with no fiber and no Stream, and returns whether to go on: `false`
  * stops the subscription (a recognizer's `once`), even from inside the feed's start. A throw from it
@@ -166,7 +204,7 @@ const guarded = <A>(handle: (event: A) => void, onDefect: OnDefect | undefined):
 export const watchWith = <A>(
   feed: InputFeed<A>,
   make: () => (event: A) => boolean,
-  handlers: Pick<Handlers<never>, "onDefect" | "onEnd">,
+  handlers: Pick<Handlers<never>, "onDefect" | "onEnd" | "onStop">,
 ): Effect.Effect<void, never, Scope.Scope> =>
   Effect.acquireRelease(
     Effect.sync(() => {
@@ -177,6 +215,7 @@ export const watchWith = <A>(
         if (MutableRef.get(done)) return
         MutableRef.set(done, true)
         MutableRef.get(stopFeed)()
+        if (Predicate.isNotUndefined(handlers.onStop)) handlers.onStop()
       }
       const stop = feed(
         guarded((event: A) => {
