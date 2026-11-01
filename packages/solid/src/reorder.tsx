@@ -60,6 +60,8 @@ import {
 import { Dynamic } from "solid-js/web"
 import { runWatch, useWardicGate, useWardicProjection, useWardicRuntime } from "./provider.tsx"
 import { watchItemInput } from "./reorder-input.ts"
+import type { Feature } from "./feature.ts"
+import { layout } from "./features/layout.ts"
 import type { WardicRuntime } from "./runtime.ts"
 import { controlledOf, runSpine, type SpineInternals, createWardWith, type Ward, type WardProps, type WardUserProps } from "./create-ward.tsx"
 import type { WardConfig } from "./config.ts"
@@ -250,6 +252,9 @@ type ItemGroup<V> = {
 const touchActionOf = <V,>(group: ItemGroup<V>, listens: boolean): SpineInternals["baseStyle"] =>
   Bool.match(listens, { onTrue: () => () => ({ "touch-action": Style.reorderTouchAction(group.axis()) }), onFalse: constUndefined })
 
+/** What an item brings (ADR-0067 decision 12): its layout node, whatever its section has (#511). */
+const ITEM_BRINGS: ReadonlyArray<Feature> = [layout]
+
 const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTMLElement | undefined>, runtime: WardicRuntime, listens: boolean): SpineInternals => {
   // A keyboard lift turns the item's `whileDrag` on (ADR-0037).
   const [lifted, setLifted] = createSignal(false)
@@ -264,6 +269,7 @@ const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTML
     }),
   )
   return {
+    brings: ITEM_BRINGS,
     dragAxis: () => dragAxisFor(driver.dragAxis()),
     onDragSample: driver.onSample,
     onLayoutHandle: (handle) => onCleanup(driver.register(handle)),
@@ -328,7 +334,7 @@ export function createReorderItem<V>(group: ReorderGroup<V>, config: ReorderItem
   // On a server the item renders the drag defaults with its group's touch-action and
   // joins no controller (ADR-0021).
   const internals: SpineInternals = Bool.match(isServer, {
-    onTrue: (): SpineInternals => ({ dragAxis: () => true, baseStyle: touchActionOf(group, listens) }),
+    onTrue: (): SpineInternals => ({ brings: ITEM_BRINGS, dragAxis: () => true, baseStyle: touchActionOf(group, listens) }),
     onFalse: () => itemInternals(group, value, element, useWardicRuntime(), listens),
   })
   const ward = createWardWith(() => ({ ...withoutValue(cfg()), layout: itemLayoutOf(cfg().layout) }), internals)

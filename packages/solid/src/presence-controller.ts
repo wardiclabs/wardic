@@ -404,7 +404,8 @@ export type PresenceMode = "sync" | "wait" | "popLayout"
 /** What a presence reads from its provider and its props. */
 export interface PresenceOptions {
   readonly runtime: WardicRuntime
-  readonly projection: ProjectionSystem.Shape
+  /** The provider's projection system once its `layout` Feature is built (#511), read at each use. */
+  readonly projection: () => ProjectionSystem.Shape | undefined
   /** Whether reduced motion applies now (ADR-0029), read at each exit. */
   readonly reducedMotion: () => boolean
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
@@ -507,9 +508,38 @@ export const exitCompleteEvents = (runtime: WardicRuntime, onExitComplete: () =>
   },
 })
 
+/** What a presence asks of the projection system. */
+type PresenceProjection = Pick<
+  ProjectionSystem.Shape,
+  "notify" | "handleLeave" | "handBackWithin" | "keepLeaving" | "awaitsTwin" | "keepSeen" | "registerValues" | "rootBoxOf" | "dropLeaver"
+>
+
+/**
+ * The projection system as a presence asks it (#511): the provider's once its `layout` Feature is
+ * built, read at each call, as a presence brings no Feature; until then, what one with no layout node
+ * answers: no twin to cross-fade or hand back, no leaving node to keep, nothing to tell. A popped
+ * leaver isn't kept where it was seen across a scroll then (ADR-0048 *Amendment (#480)*): the
+ * projection's frame does that.
+ */
+const presenceProjectionOf = (projection: () => ProjectionSystem.Shape | undefined): PresenceProjection => {
+  const call = <A>(use: (system: ProjectionSystem.Shape) => A, none: () => A): A => UndefinedOr.match(projection(), { onUndefined: none, onDefined: use })
+  return {
+    notify: () => call((system) => system.notify(), constVoid),
+    handleLeave: (el, onDone) => call((system) => system.handleLeave(el, onDone), constFalse),
+    handBackWithin: (el, onDone) => call((system) => system.handBackWithin(el, onDone), Option.none),
+    keepLeaving: (el, taken) => call((system) => system.keepLeaving(el, taken), () => constVoid),
+    awaitsTwin: (el) => call((system) => system.awaitsTwin(el), constFalse),
+    keepSeen: (el, move) => call((system) => system.keepSeen(el, move), constVoid),
+    registerValues: (el, read) => call((system) => system.registerValues(el, read), () => constVoid),
+    rootBoxOf: (el) => call((system) => system.rootBoxOf(el), Option.none),
+    dropLeaver: (el) => call((system) => system.dropLeaver(el), Option.none),
+  }
+}
+
 /** A presence's work: see the module. */
 export const makePresence = (options: PresenceOptions): PresenceController => {
-  const { runtime, projection, reducedMotion, positionalKeys, defaultTransition } = options
+  const { runtime, reducedMotion, positionalKeys, defaultTransition } = options
+  const projection = presenceProjectionOf(options.projection)
   const { commit, project } = runtime.runSync(Renderer.Renderer)
 
   /**

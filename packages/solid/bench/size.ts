@@ -85,11 +85,13 @@ const APPS: ReadonlyArray<App> = [
   { name: "s1-presence", v2: false, source: complete("solid-js/web", "@wardic/solid", true) },
   { name: "s1-slim", v2: false, source: slim("solid-js/web", "@wardic/solid", []) },
   { name: "s1-colors", v2: false, source: slim("solid-js/web", "@wardic/solid", ["colors"]) },
+  { name: "s1-layout", v2: false, source: slim("solid-js/web", "@wardic/solid", ["layout"]) },
   { name: "s2-plain", v2: true, source: plain("@solidjs/web") },
   { name: "s2-complete", v2: true, source: complete("@solidjs/web", "@wardic/solid/unstable/v2", false) },
   { name: "s2-presence", v2: true, source: complete("@solidjs/web", "@wardic/solid/unstable/v2", true) },
   { name: "s2-slim", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", []) },
   { name: "s2-colors", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["colors"]) },
+  { name: "s2-layout", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["layout"]) },
 ]
 
 /** What a source map's sources are counted under. */

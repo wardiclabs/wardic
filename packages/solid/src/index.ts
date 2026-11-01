@@ -35,10 +35,12 @@ export {
  * **Features** (#511, ADR-0067): what a Slim element (`w.*`) has only when it's chosen, on a
  * `WardicProvider` or a `LazyWardic` (`features={[colors]}`), each its own import so an app ships only
  * those it uses; a Complete element (`wardic.*`) has every one. `colors`: every CSS colour space beyond
- * a hex, `rgb()`, `hsl()` and the colour names.
+ * a hex, `rgb()`, `hsl()` and the colour names. `layout`: layout animations, the props `layout`,
+ * `layoutId`, `layoutScroll` and `layoutRoot` (`LayoutGroup` and `Reorder` bring it themselves).
  */
 export type { Feature, FeatureLoad, Features, FeaturesProp } from "./feature.ts"
 export { colors } from "./features/colors.ts"
+export { layout } from "./features/layout.ts"
 // The Instant change and the Projection reset (#443): Motion's `useInstantTransition` and kin.
 export type { InstantTransition } from "./instant.ts"
 // `WardicConfig`'s `transformPagePoint` helpers (#443, Motion's): a drag inside a transformed parent, or an SVG's viewBox.
