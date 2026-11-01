@@ -414,3 +414,5 @@ Grilled 2026-10-17 (A, A, A, A):
 - **Pinned:**
   - SN1–SN3 (`packages/dom/test/projection-snapshot.browser.test.ts`): the parents, tags, `layoutRoot`, a Lead and its Follower; the flags through a layout change, a drag and its release; `String(system)`;
   - TR1–TR4 (`examples/layout-lab/test/tree.test.ts`): the labels, the Mermaid text, the separate trees and what a recording changed, and the cycle check.
+
+*Note (#511, 2026-11-01):* `Color.FromString`, a Schema codec, is `Color.parse` and `Color.format` now: Schema left Wardic's runtime (ADR-0067, decision 9; ADR-0026, *Amendment (#511)*).

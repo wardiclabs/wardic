@@ -32,6 +32,8 @@ For scale, Motion's docs (*Reduce bundle size*, Rollup bundles): the `motion` co
 
 **`/*#__PURE__*/` annotations**, measured and not shipped: all 227 top-level calls in the three packages' sources, annotated, saved 0.2 KB gzipped (−0.1%), and added 1 KB minified, since esbuild keeps the comments for downstream bundlers. The Complete element's path reaches nearly everything it imports. Measured again after the Feature split, when a Slim element's app imports modules most of whose exports it won't use.
 
+**Schema out of the runtime** (decision 9, with #460's PR 3b): option bags checked by hand (`internal/options.ts`), a rejected one throwing `Machine.OptionError` with Schema's messages word for word (137 rejected bags compared before and after); `Interpolator.Entry`'s `parse` / `format`; `Color.parse` / `Color.format`. `bun run size`, with the rest of #460's PR 3b: the Complete element's app 180.6 → 167.0 KB gzipped on Solid 1 (−7.6%), 216.9 → 203.3 on Solid 2 (−6.3%); Effect −57.4 KB minified, core +2.1 (+1.7 for the Schema step alone). What Schema is left, 118 bytes, is Effect's own `Atom` importing it. A fresh bag resolves 35–51% faster in Node, and an Interpolator parses 2–10× faster (ADR-0025's and ADR-0026's *Amendments (#511)*).
+
 ## Consequences
 
 - A new user's `wardic.*` app is the same size as before; the savings are for apps that move to `w.*`.
