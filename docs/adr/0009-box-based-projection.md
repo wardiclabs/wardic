@@ -415,3 +415,11 @@ Building it:
   - Bytes allocated +0.1–0.3%.
   - Retained at rest +0.3–0.6% (about 0.1 KB per element), not gated.
   - A frame's `project` reads one more key per element to find no template.
+
+## Amendment (#511, 2026-11-01): the projection system is the `layout` Feature's
+
+The projection system is no longer built with each provider's runtime. It's the `layout` Feature's service (ADR-0067, decisions 13 and 15). A provider builds it once, over its flush gate, the first time an element whose section has `layout` asks, or a component that brings it does (`LayoutGroup`, `Reorder`). It still ends before the gate.
+
+- **A Complete element** (`wardic.*`) has every Feature, so a `wardic.*` app builds it at its first element, as before.
+- **A Slim element** (`w.*`) makes a Projection node only when its section has `layout`.
+- **Every element's values, and a presence,** work with the projection system only once some section has built it. With no layout node there's no flight to follow and no twin to hand over.
