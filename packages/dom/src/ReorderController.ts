@@ -39,8 +39,8 @@ export type Services = ProjectionSystem.ProjectionSystem | Announcer.Announcer
  * Build a group's controller over the context's projection system, announcing through its
  * `Announcer`, in the current Scope: closing it ends the controller.
  */
-export const make = <V>(options: Options<V>): Effect.Effect<ReorderController<V>, never, Services | Scope.Scope> =>
-  Effect.gen(function* () {
+export const make: <V>(options: Options<V>) => Effect.Effect<ReorderController<V>, never, Services | Scope.Scope> = Effect.fnUntraced(
+  function* <V>(options: Options<V>) {
     const projection = yield* ProjectionSystem.ProjectionSystem
     const announcer = yield* Announcer.Announcer
     const controller = internal.makeReorderController(

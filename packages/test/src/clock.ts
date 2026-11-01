@@ -92,11 +92,11 @@ const makeFrames = () => {
  * yield* clock.advance()        // one 1/60s frame
  * yield* clock.advance(1 / 30)  // a custom dt
  */
-export const pushable = (): Effect.Effect<{
+export const pushable: () => Effect.Effect<{
   readonly layer: Layer.Layer<Clock.Clock | RefreshFrameSource.RefreshFrameSource>
   readonly advance: (dt?: number) => Effect.Effect<void>
-}> =>
-  Effect.gen(function* () {
+}> = Effect.fnUntraced(
+  function* () {
     const pubsub = yield* PubSub.unbounded<number>()
     const frames = makeFrames()
     const time = MutableRef.make(0)

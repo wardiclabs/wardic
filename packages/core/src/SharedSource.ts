@@ -56,10 +56,10 @@ export interface Options {
  * the Rc cache entry's scope, so when the cache releases the entry the pump is interrupted and the
  * cold source's finalizers run. Per-element publishing is un-logged: it's the hot path.
  */
-const fanIn = <A>(
+const fanIn: <A>(
   acquire: Effect.Effect<Stream.Stream<A>, never, Scope.Scope>,
-): Effect.Effect<PubSub.PubSub<A>, never, Scope.Scope> =>
-  Effect.gen(function* () {
+) => Effect.Effect<PubSub.PubSub<A>, never, Scope.Scope> = Effect.fnUntraced(
+  function* <A>(acquire: Effect.Effect<Stream.Stream<A>, never, Scope.Scope>) {
     const pubsub = yield* PubSub.unbounded<A>()
     const source = yield* acquire
     yield* Effect.forkScoped(Stream.runForEach(source, (a) => PubSub.publish(pubsub, a)))
@@ -111,11 +111,11 @@ const idleOf = (options: Options = {}): { readonly idleTimeToLive?: Duration.Inp
  * Stream.runForEach(resize(target), onLayout)
  * Stream.runForEach(resize(target), onScroll)
  */
-export const byTarget = <A>(
+export const byTarget: <A>(
   lookup: (target: unknown) => Effect.Effect<Stream.Stream<A>, never, Scope.Scope>,
   options?: Options,
-): Effect.Effect<(target: unknown) => Stream.Stream<A>, never, Scope.Scope> =>
-  Effect.gen(function* () {
+) => Effect.Effect<(target: unknown) => Stream.Stream<A>, never, Scope.Scope> = Effect.fnUntraced(
+  function* <A>(lookup: (target: unknown) => Effect.Effect<Stream.Stream<A>, never, Scope.Scope>, options?: Options) {
     yield* Effect.logDebug("wardic.sharedSource.byTarget: create")
     // One stable identity key per target (see TargetKey). Object targets are cached weakly, so the
     // key, and the RcMap entry it addresses, share the target's lifetime; a non-object target hashes
@@ -156,11 +156,11 @@ export const byTarget = <A>(
  * const viewport = yield* SharedSource.make(Effect.succeed(viewportChanges))
  * Stream.runForEach(viewport, onResize) // one listener, however many subscribe
  */
-export const make = <A>(
+export const make: <A>(
   acquire: Effect.Effect<Stream.Stream<A>, never, Scope.Scope>,
   options?: Options,
-): Effect.Effect<Stream.Stream<A>, never, Scope.Scope> =>
-  Effect.gen(function* () {
+) => Effect.Effect<Stream.Stream<A>, never, Scope.Scope> = Effect.fnUntraced(
+  function* <A>(acquire: Effect.Effect<Stream.Stream<A>, never, Scope.Scope>, options?: Options) {
     yield* Effect.logDebug("wardic.sharedSource.make: create")
     const ref = yield* RcRef.make({
       acquire: fanIn(acquire),

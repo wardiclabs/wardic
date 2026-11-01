@@ -224,8 +224,8 @@ export interface HoverHandlers extends InputFeed.Handlers<Transition> {
  * dispatch, while the Scope is open. No fiber and no Stream: a scoped subscription to the target's
  * pointer feed. A throw from either goes to `handlers.onDefect`. Tier 2, for bindings.
  */
-export const watchHover = (target: unknown, handlers: HoverHandlers): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> =>
-  Effect.gen(function* () {
+export const watchHover: (target: unknown, handlers: HoverHandlers) => Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> = Effect.fnUntraced(
+  function* (target: unknown, handlers: HoverHandlers) {
     const input = yield* InputSource.InputSource
     const activity = yield* DragActivity.DragActivity
     const fold = hoverFold(activity)
@@ -432,12 +432,12 @@ export const pressEvents = (target: unknown, options?: PressOptions): Stream.Str
  * from a `focus` to the `blur` after, or from the start when focus is already there. An element at
  * rest holds its focus feed alone.
  */
-export const watchPress = (
+export const watchPress: (
   target: unknown,
   handlers: InputFeed.Handlers<PressEvent>,
   options?: PressOptions,
-): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> =>
-  Effect.gen(function* () {
+) => Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> = Effect.fnUntraced(
+  function* (target: unknown, handlers: InputFeed.Handlers<PressEvent>, options?: PressOptions) {
     yield* Effect.logDebug("wardic.press: watch")
     const input = yield* InputSource.InputSource
     const activity = yield* DragActivity.DragActivity
@@ -506,7 +506,9 @@ export const watchPress = (
     }
     yield* InputFeed.watchWith(input.focus(target), () => focuses, watching)
     if (focusWithin(target)) openKeys()
-  }).pipe(Effect.withSpanScoped("wardic.press", { attributes: {}, captureStackTrace: false }))
+  },
+  Effect.withSpanScoped("wardic.press", { attributes: {}, captureStackTrace: false }),
+)
 
 /**
  * How many feeds a press watches throughout (#427, #460), each one's end counted for `onEnd`: its

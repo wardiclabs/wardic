@@ -291,25 +291,23 @@ export const make = (
     MutableRef.set(chain, chainOf(rules, resolve, noRule))
 
     return {
-      register: <Decoded, Encoded>(entry: Interpolator.Entry<Decoded, Encoded>) =>
-        Effect.gen(function* () {
-          entries.unshift(registered(entry))
-          cache.clear()
-          yield* Effect.logDebug("wardic.interpolator: register").pipe(
-            Effect.annotateLogs({ interpolator: entry.name }),
-          )
-        }),
+      register: Effect.fnUntraced(function* <Decoded, Encoded>(entry: Interpolator.Entry<Decoded, Encoded>) {
+        entries.unshift(registered(entry))
+        cache.clear()
+        yield* Effect.logDebug("wardic.interpolator: register").pipe(
+          Effect.annotateLogs({ interpolator: entry.name }),
+        )
+      }),
       resolve,
       interpolate: <From, To>(from: From, to: To, t: number): Effect.Effect<From | To> =>
         Effect.map(resolve(from, to), (blend) => blend(t)),
-      registerKeyRule: (rule: KeyRule) =>
-        Effect.gen(function* () {
-          rules.unshift(rule)
-          MutableRef.set(chain, chainOf(rules, resolve, noRule))
-          yield* Effect.logDebug("wardic.interpolator: register key rule").pipe(
-            Effect.annotateLogs({ keyRule: rule.name }),
-          )
-        }),
+      registerKeyRule: Effect.fnUntraced(function* (rule: KeyRule) {
+        rules.unshift(rule)
+        MutableRef.set(chain, chainOf(rules, resolve, noRule))
+        yield* Effect.logDebug("wardic.interpolator: register key rule").pipe(
+          Effect.annotateLogs({ keyRule: rule.name }),
+        )
+      }),
       keyBlendOf: (key: string, from: number | string, to: number | string): Option.Option<Effect.Effect<KeyBlend>> =>
         MutableRef.get(chain)(key, from, to),
     }
