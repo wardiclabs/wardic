@@ -31,9 +31,8 @@ import { pipe } from "effect/Function"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
-import * as Schema from "effect/Schema"
 import * as Str from "effect/String"
-import { type Color, ColorString, cssColor } from "./colors.ts"
+import { type Color, cssColor, formatColor, parseColor } from "./colors.ts"
 import { cssComplex } from "./complex.ts"
 import { dashCase } from "./svg.ts"
 
@@ -48,12 +47,13 @@ interface Prepared {
   readonly pairs: ReadonlyArray<Pair>
 }
 
-// The DOM's own codecs (ADR-0036): a template's colours are tokens and its `var()`s text, as the
-// DOM's registry reads them, so a zero keeps a variable's name as written (#160).
-const decodeComplex = Schema.decodeUnknownOption(cssComplex.codec)
-const encodeComplex = Schema.encodeSync(cssComplex.codec)
-const decodeColor = Schema.decodeUnknownOption(ColorString)
-const encodeColor = Schema.encodeSync(ColorString)
+// The DOM's own Interpolators' `parse` and `format` (ADR-0036; plain functions since #511): a
+// template's colours are tokens and its `var()`s text, as the DOM's registry reads them, so a zero
+// keeps a variable's name as written (#160).
+const decodeComplex = cssComplex.parse
+const encodeComplex = cssComplex.format
+const decodeColor = parseColor
+const encodeColor = formatColor
 
 /** The keys whose empty end takes each filter function's identity (Motion's `filter` type, and the backdrop it leaves out). */
 const FILTER_KEYS: ReadonlySet<string> = new Set(["filter", "-webkit-filter", "backdrop-filter", "-webkit-backdrop-filter"])

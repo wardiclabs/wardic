@@ -509,8 +509,8 @@ interface Settling {
 }
 
 /**
- * A transition's timing for a flight. Once per (re)start; core decodes its bag once (#66), and one
- * it rejects throws its `SchemaError`.
+ * A transition's timing for a flight. Once per (re)start; core checks its bag once (#66), and one
+ * it rejects throws its `OptionError`.
  */
 const timingOf = (transition: LayoutTransition): FlightTiming =>
   Match.value(transition).pipe(

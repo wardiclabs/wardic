@@ -13,7 +13,6 @@ import * as Layer from "effect/Layer"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
-import * as Schema from "effect/Schema"
 import * as Interpolator from "./Interpolator.ts"
 import { dual } from "./internal/dual.ts"
 
@@ -136,41 +135,30 @@ const discreteBlend =
   (t) =>
     discrete(from, to, t)
 
-/** A registered entry, with its codec's decoder built once, when it's registered. */
-interface Registered {
-  readonly entry: Interpolator.Entry<any, any>
-  readonly decode: (value: unknown) => Option.Option<unknown>
-}
-
-const registered = (entry: Interpolator.Entry<any, any>): Registered => ({
-  entry,
-  decode: Schema.decodeUnknownOption(entry.codec),
-})
-
-/** A pair as the entry that takes it decodes it. */
+/** A pair as the entry that takes it read it. */
 interface DecodedPair {
   readonly entry: Interpolator.Entry<any, any>
   readonly from: unknown
   readonly to: unknown
 }
 
-/** Both endpoints, decoded by one entry's codec: `to` only once `from` decodes. */
+/** Both endpoints, read by one entry's `parse`: `to` only once `from` reads. */
 const decodedBy =
   (from: unknown, to: unknown) =>
-  (registered: Registered): Option.Option<DecodedPair> =>
-    Option.flatMap(registered.decode(from), (decodedFrom) =>
-      Option.map(registered.decode(to), (decodedTo) => ({ entry: registered.entry, from: decodedFrom, to: decodedTo })),
+  (entry: Interpolator.Entry<any, any>): Option.Option<DecodedPair> =>
+    Option.flatMap(entry.parse(from), (decodedFrom) =>
+      Option.map(entry.parse(to), (decodedTo) => ({ entry, from: decodedFrom, to: decodedTo })),
     )
 
 /**
  * The entry a pair resolves to (ADR-0026, decision 3): the first, in registry precedence, whose
- * codec decodes both endpoints, with what it decoded. Decoding is matching, so `0` → `"10px"`
- * resolves to `unit`, whose codec decodes a bare number too.
+ * `parse` reads both endpoints, with what it read. Reading is matching, so `0` → `"10px"` resolves
+ * to `unit`, whose `parse` reads a bare number too.
  *
- * `None` when no entry decodes both: a Discrete pair, which switches to `to` at the first frame
+ * `None` when no entry reads both: a Discrete pair, which switches to `to` at the first frame
  * past 0 (ADR-0024 decision 3; Motion's `mixImmediate`).
  */
-const select = (entries: ReadonlyArray<Registered>, from: unknown, to: unknown): Option.Option<DecodedPair> =>
+const select = (entries: ReadonlyArray<Interpolator.Entry<any, any>>, from: unknown, to: unknown): Option.Option<DecodedPair> =>
   Arr.findFirst(entries, decodedBy(from, to))
 
 /**
@@ -256,7 +244,7 @@ export const make = (
   keyRules: ReadonlyArray<KeyRule> = [],
 ) =>
   Effect.sync(() => {
-    const entries: Array<Registered> = Arr.map(initial, registered)
+    const entries: Array<Interpolator.Entry<any, any>> = Arr.copy(initial)
     const rules: Array<KeyRule> = Arr.copy(keyRules)
     const cache = makeBlendCache(CACHE_CAPACITY)
     // The rules as one chain, built again when one is registered.
@@ -286,7 +274,7 @@ export const make = (
 
     return {
       register: Effect.fnUntraced(function* <Decoded, Encoded>(entry: Interpolator.Entry<Decoded, Encoded>) {
-        entries.unshift(registered(entry))
+        entries.unshift(entry)
         cache.clear()
         yield* Effect.logDebug("wardic.interpolator: register").pipe(
           Effect.annotateLogs({ interpolator: entry.name }),

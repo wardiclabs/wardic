@@ -1,7 +1,8 @@
-// The option bags decoded through Schema (#66, ADR-0025 *Amendment (#66)*): each bag a user
-// writes is a Schema's encoded side, decoded once a bag when an animation is built or started. Its
-// defaults are filled in, and a value no animation can take throws a `SchemaError` naming the
-// field: the validation table, row by row, through the public builders and resolvers.
+// The option bags checked (#66, ADR-0025 *Amendment (#66)*; by hand since #511, *Amendment
+// (#511)*): each bag a user writes is checked once a bag when an animation is built or started. Its
+// defaults are filled in, and a value no animation can take throws an `OptionError` naming the
+// field: the validation table, row by row, through the public builders and resolvers; and the
+// messages, word for word as Schema's decode wrote them before #511.
 import * as Easing from "@wardic/core/Easing"
 import * as Machine from "@wardic/core/Machine"
 import * as Spring from "@wardic/core/Spring"
@@ -16,13 +17,23 @@ const show = (bag: Record<string, unknown>): string =>
   JSON.stringify(bag, (_, v: unknown) =>
     Bool.match(Bool.and(Predicate.isNumber(v), !Number.isFinite(v as number)), { onTrue: () => String(v), onFalse: () => v }))
 
-/** Each row's bag throws a `SchemaError` whose message names its field. */
+/** Each row's bag throws an `OptionError` whose message names its field. */
 const rejects = (build: (bag: never) => unknown, rows: ReadonlyArray<Row>): void => {
   for (const [field, bag] of rows) {
     it(`rejects ${show(bag)}`, () => {
-      expect(() => build(bag as never)).toThrow(expect.objectContaining({ name: "SchemaError", message: expect.stringContaining(field) }))
+      expect(() => build(bag as never)).toThrow(expect.objectContaining({ name: "OptionError", message: expect.stringContaining(field) }))
     })
   }
+}
+
+/** What `build` throws for `bag`. */
+const thrownBy = (build: () => unknown): unknown => {
+  try {
+    build()
+  } catch (error) {
+    return error
+  }
+  return undefined
 }
 
 /** Each bag builds. */
@@ -184,4 +195,56 @@ describe("each bag is decoded once: its result cached by the bag's identity", ()
     expect(() => Machine.animate(0, 1)).not.toThrow()
     expect(() => Machine.inertia(0, 1).start()).not.toThrow()
   })
+})
+
+/** Motion's easing names, as a rejected `ease` lists them. */
+const NAMES = '"linear" | "easeIn" | "easeOut" | "easeInOut" | "circIn" | "circOut" | "circInOut" | "backIn" | "backOut" | "backInOut" | "anticipate"'
+
+describe("OptionError's messages: Schema's, word for word (#511)", () => {
+  // Each as Schema's decode wrote it before #511: `Expected …`, then the field's place; a union's
+  // members that take the value, each on its lines; a place below the field; a value of the wrong
+  // type as its type `| undefined`; the first rejected field in the bag's declared order.
+  const cases: ReadonlyArray<readonly [name: string, build: () => unknown, message: string]> = [
+    ["a stiffness at or below 0", () => Spring.resolve({ stiffness: -1 }), 'Expected a value greater than 0\n  at ["stiffness"]'],
+    ["the first field rejected, in the declared order", () => Spring.resolve({ mass: 0, stiffness: -1 }), 'Expected a value greater than 0\n  at ["stiffness"]'],
+    ["a negative damping", () => Spring.resolve({ damping: -1 }), 'Expected a value greater than or equal to 0\n  at ["damping"]'],
+    ["NaN", () => Spring.resolve({ from: Number.NaN }), 'Expected a finite number\n  at ["from"]'],
+    ["a JS caller's string", () => Spring.resolve({ stiffness: "170" } as never), 'Expected number | undefined\n  at ["stiffness"]'],
+    ["a bag that isn't an object", () => Spring.resolve(5 as never), "Expected object"],
+    ["a fractional repeat", () => Machine.animate(0, 1, { repeat: 1.5 }), 'Expected a whole number of repeats, 0 or above, or Infinity\n  at ["repeat"]'],
+    ["an ease that's none of Motion's names", () => Machine.animate(0, 1, { ease: "bogus" as never }), `Expected ${NAMES}\n  at ["ease"]\nExpected an easing function\n  at ["ease"]`],
+    ["a bézier of three numbers", () => Machine.resolveTween({ ease: [0.25, 0.1, 0.35] as never }), 'Missing key\n  at ["ease"][3]\nExpected an easing function\n  at ["ease"]'],
+    ["a bézier of five numbers", () => Machine.resolveTween({ ease: [0.25, 0.1, 0.35, 1, 2] as never }), 'Expected no excess property\n  at ["ease"][4]\nExpected an easing function\n  at ["ease"]'],
+    ["a bézier with a NaN", () => Machine.resolveTween({ ease: [0.25, 0.1, Number.NaN, 1] }), 'Expected a finite number\n  at ["ease"][2]\nExpected an easing function\n  at ["ease"]'],
+    ["an ease of the wrong type", () => Machine.resolveTween({ ease: 5 as never }), 'Expected an easing function\n  at ["ease"]'],
+    ["a leftover `easing`", () => Machine.animate(0, 1, { easing: "linear" } as never), "Expected `ease`: Wardic's `easing` is `ease` now, as Motion's (#360)\n  at [\"easing\"]"],
+    ["a repeatType that's none of three", () => Machine.animate(0, 1, { repeatType: "x" as never }), 'Expected "loop" | "reverse" | "mirror"\n  at ["repeatType"]'],
+    ["a repeatType of the wrong type", () => Machine.animate(0, 1, { repeatType: 5 as never }), 'Expected "loop" | "reverse" | "mirror" | undefined\n  at ["repeatType"]'],
+    ["a reverse that isn't a boolean", () => Machine.animate(0, 1, { reverse: 1 as never }), 'Expected boolean | undefined\n  at ["reverse"]'],
+    ["min above max", () => Machine.inertia(0, 100, { min: 10, max: 0 }).start(), "Expected min (10) at or below max (0)"],
+    ["an edge that's NaN", () => Machine.inertia(0, 100, { min: Number.NaN }).start(), 'Expected a number, not NaN\n  at ["min"]'],
+    ["a modifyTarget that isn't a function", () => Machine.inertia(0, 100, { modifyTarget: 5 as never }).start(), 'Expected a modifyTarget function\n  at ["modifyTarget"]'],
+    ["times out of order", () => Machine.keyframes([0, 1, 0], { times: [0, 0.6, 0.4] }), 'Expected times from 0 to 1, in order\n  at ["times"]'],
+    ["a time that's NaN", () => Machine.keyframes([0, 1, 0], { times: [0, Number.NaN, 1] }), 'Expected a finite number\n  at ["times"][1]'],
+    ["times that aren't an array", () => Machine.keyframes([0, 1, 0], { times: "x" as never }), 'Expected array | undefined\n  at ["times"]'],
+    [
+      "a list of eases, one none of Motion's names",
+      () => Machine.keyframes([0, 1, 0], { ease: ["easeIn", "bogus" as never] }),
+      `Expected number\n  at ["ease"][0]\nExpected an easing function\n  at ["ease"]\nExpected ${NAMES}\n  at ["ease"][1]\nExpected an easing function\n  at ["ease"][1]`,
+    ],
+    [
+      "a list of eases holding a short bézier",
+      () => Machine.keyframes([0, 1, 0], { ease: [[0, 0, 1] as never, "easeIn"] }),
+      'Expected number\n  at ["ease"][0]\nExpected an easing function\n  at ["ease"]\nMissing key\n  at ["ease"][0][3]\nExpected an easing function\n  at ["ease"][0]',
+    ],
+    ["an empty list of eases", () => Machine.keyframes([0, 1, 0], { ease: [] as never }), 'Missing key\n  at ["ease"][0]\nExpected an easing function\n  at ["ease"]\nMissing key\n  at ["ease"][0]'],
+  ]
+  for (const [name, build, message] of cases) {
+    it(name, () => {
+      const error = thrownBy(build)
+      expect(error).toBeInstanceOf(Machine.OptionError)
+      expect(error).toBeInstanceOf(Error)
+      expect(error).toEqual(expect.objectContaining({ _tag: "OptionError", name: "OptionError", message }))
+    })
+  }
 })

@@ -189,9 +189,9 @@ interface SpringSim {
  * `(t) => progress` function — the spring is run 0 → 1 to rest, sampled every
  * 1/240 s on its exact solution (Motion's closed form, #370), then re-normalized.
  *
- * Its bag is decoded as every spring bag is (`Spring.resolve`, #225, ADR-0025 *Amendment (#225)*), when
+ * Its bag is checked as every spring bag is (`Spring.resolve`, #225, ADR-0025 *Amendment (#225)*), when
  * it's called: a value no spring can take (a stiffness or mass at or below 0, a negative damping, NaN,
- * Infinity) throws its `SchemaError`, naming the field. Only `stiffness`, `damping` and `mass` shape
+ * Infinity) throws its `OptionError` (`Machine.OptionError`), naming the field. Only `stiffness`, `damping` and `mass` shape
  * the curve, or a time-based spring's `duration`, `bounce` and `visualDuration` (#359): a `duration`
  * spring's curve is its run to that duration, landing on 1 there, as its machine does. It bakes its
  * own rest thresholds and step.

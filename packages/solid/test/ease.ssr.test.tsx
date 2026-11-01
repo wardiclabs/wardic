@@ -55,7 +55,7 @@ describe("Motion's ease in the binding (#360)", () => {
   it("EA2: a transition still giving easing fails its leg, naming ease", () => {
     const hoisted = { type: "tween", duration: 1, easing: Easing.easeIn } as const
     const legs = legsFor(hoisted as unknown as WardicTransition)
-    expect(() => machineOf(legs[0]!)).toThrow(expect.objectContaining({ name: "SchemaError", message: expect.stringContaining("Wardic's `easing` is `ease` now") }))
+    expect(() => machineOf(legs[0]!)).toThrow(expect.objectContaining({ name: "OptionError", message: expect.stringContaining("Wardic's `easing` is `ease` now") }))
   })
 
   it("EA3: @wardic/solid exports Motion's easing functions, core's own", () => {

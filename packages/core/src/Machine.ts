@@ -33,7 +33,6 @@ import { type Pipeable, pipeArguments } from "effect/Pipeable"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as Result from "effect/Result"
-import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import type { Covariant } from "effect/Types"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -42,7 +41,7 @@ import * as Easing from "./Easing.ts"
 import type * as Frame from "./Frame.ts"
 import * as FrameLoop from "./FrameLoop.ts"
 import * as InterpolatorRegistry from "./InterpolatorRegistry.ts"
-import { cachedResolver, field, NonNegative, optionalField } from "./internal/options.ts"
+import { array, boolean, cachedResolver, field, finite, literals, nonEmptyArray, nonNegative, number, optionalField, refine, union } from "./internal/options.ts"
 import {
   EaseDefinition,
   initDecay,
@@ -151,9 +150,13 @@ export const MAX_DT = 0.5
 // --- The option bags ---------------------------------------------------------
 //
 // Durations and delays are in seconds, matching the public `transition: { duration: 0.3 }`
-// surface and the `dt` the Clock emits. Each bag is a Schema's encoded side (#66, ADR-0025
-// *Amendment (#66)*): decoded once a bag, when an animation is built, filling in its defaults; a
-// value no animation can take throws its `SchemaError`, naming the field.
+// surface and the `dt` the Clock emits. Each bag is checked by hand (#66, ADR-0025 *Amendment
+// (#66)*; without Schema since #511, *Amendment (#511)*): once a bag, when an animation is built,
+// filling in its defaults; a value no animation can take throws an `OptionError`, naming the field.
+// It's here, beside the bags: every resolver and builder that takes one throws it (`Spring.resolve`,
+// `Inertia.resolve`, `resolveTween`, `spring`, `tween`, `animate`, `keyframes`, `decay`, `inertia`,
+// …, and `Easing.spring`).
+export { OptionError } from "./internal/options.ts"
 
 /** Options for a definite, duration-based animation. */
 export interface TweenOptions {
@@ -1172,15 +1175,10 @@ export const springValues = (
 
 // --- The composites ----------------------------------------------------------
 
+const NOT_REPEAT = "Expected a whole number of repeats, 0 or above, or Infinity"
+
 /** A repeat count: a whole number, 0 or above, or `Infinity` to loop forever. */
-const Repeat = Schema.Number.check(
-  Schema.makeFilter((n: number) =>
-    Bool.match(Bool.or(n === Infinity, Bool.and(Number.isInteger(n), n >= 0)), {
-      onTrue: () => true,
-      onFalse: () => "Expected a whole number of repeats, 0 or above, or Infinity",
-    }),
-  ),
-)
+const Repeat = refine(number, (n) => n === Infinity || (Number.isInteger(n) && n >= 0) || NOT_REPEAT)
 
 /** `animate`'s bag, resolved: its run (its tween's `delay` 0), and the rest as given. */
 interface ResolvedAnimate extends ResolvedModifiers {
@@ -1197,12 +1195,12 @@ interface ResolvedModifiers {
   readonly reverse: boolean
 }
 
-/** The {@link Modifiers}' fields as a Schema (#66): `animate`'s bag and `keyframes`' (#429) add them to a tween's. */
+/** The {@link Modifiers}' fields (#66): `animate`'s bag and `keyframes`' (#429) add them to a tween's. */
 const ModifierFields = {
   repeat: field(Repeat, 0),
-  repeatDelay: field(NonNegative, 0),
-  repeatType: field(Schema.Literals(["loop", "reverse", "mirror"]), "loop"),
-  reverse: field(Schema.Boolean, false),
+  repeatDelay: field(nonNegative, 0),
+  repeatType: field(literals(["loop", "reverse", "mirror"]), "loop"),
+  reverse: field(boolean, false),
 }
 
 /** A decoded bag's run: its tween played `repeat + 1` times, with its tween's `delay` 0 (held outside, by `delay`). */
@@ -1220,9 +1218,9 @@ const resolvedRunOf = (tween: ResolvedTween, modifiers: ResolvedModifiers): Reso
 }
 
 /**
- * `animate`'s bag as a Schema (#66, ADR-0025 *Amendment (#66)*): a tween's fields and the repeat
- * modifiers, decoded once a bag. A fractional or negative `repeat`, a negative `repeatDelay`, or a
- * tween field the tween rejects throws its `SchemaError`.
+ * `animate`'s bag (#66, ADR-0025 *Amendment (#66)*): a tween's fields and the repeat modifiers,
+ * checked once a bag. A fractional or negative `repeat`, a negative `repeatDelay`, or a tween field
+ * the tween rejects throws its `OptionError`.
  */
 const resolveAnimate: (options: AnimateOptions) => ResolvedAnimate = cachedResolver(
   { ...TweenFields, ...ModifierFields },
@@ -1299,7 +1297,7 @@ interface ResolvedKeyframes extends ResolvedModifiers {
 }
 
 /** One `ease` or several (#360): a list is an array whose first item isn't a number, which a bézier's is. */
-const EaseOrList = Schema.Union([EaseDefinition, Schema.NonEmptyArray(EaseDefinition)])
+const EaseOrList = union([EaseDefinition, nonEmptyArray(EaseDefinition)])
 
 /** Whether `times` run from 0 to 1, none before the one ahead of it. */
 const inOrder = (times: ReadonlyArray<number>): boolean => {
@@ -1308,19 +1306,17 @@ const inOrder = (times: ReadonlyArray<number>): boolean => {
   return Arr.every(Arr.zip(times, Arr.drop(times, 1)), ([before, after]) => after >= before)
 }
 
+const NOT_IN_ORDER = "Expected times from 0 to 1, in order"
+
 /** Each stop's place in time (#429): numbers from 0 to 1, in order. */
-const Times = Schema.Array(Schema.Finite).check(
-  Schema.makeFilter((times: ReadonlyArray<number>) =>
-    Bool.match(inOrder(times), { onTrue: () => true, onFalse: () => "Expected times from 0 to 1, in order" })
-  ),
-)
+const Times = refine(array(finite), (times) => inOrder(times) || NOT_IN_ORDER)
 
 /**
- * `keyframes`' bag as a Schema (#66): a tween's fields, its `ease` one Definition or one per Segment
- * (#360), its `times` and the repeat modifiers (#429), decoded once a bag.
+ * `keyframes`' bag (#66): a tween's fields, its `ease` one Definition or one per Segment (#360), its
+ * `times` and the repeat modifiers (#429), checked once a bag.
  */
 const resolveKeyframes: (options: KeyframesOptions) => ResolvedKeyframes = cachedResolver(
-  { ...TweenFields, ...ModifierFields, ease: field(EaseOrList, Easing.linear as Easing.Definition), times: optionalField(Times) },
+  { ...TweenFields, ...ModifierFields, ease: field(EaseOrList, Easing.linear), times: optionalField(Times) },
   (decoded): ResolvedKeyframes => {
     const list: Arr.NonEmptyReadonlyArray<Easing.Definition> = Bool.match(Bool.and(Array.isArray(decoded.ease), Bool.not(Easing.isBezier(decoded.ease))), {
       onTrue: () => decoded.ease as Arr.NonEmptyReadonlyArray<Easing.Definition>,
