@@ -61,11 +61,12 @@ export default function Waiting(props: { readonly children?: JSX.Element }) {
 }
 
 function Photo(props: { readonly piece: Product; readonly sizes: string }) {
-  const photo = photoOf(props.piece.id)
+  // The piece may be `<Show>`'s, so its photo is read where it's followed (#460).
+  const photo = createMemo(() => photoOf(props.piece.id))
   return (
     // The card's photo and the piece's hero: one `layoutId`, so it flies from one page to the other.
     <wardic.div class="photo" layoutId={`waiting-${props.piece.id}`}>
-      <img src={photo.small} srcset={srcsetOf(photo)} sizes={props.sizes} width={photo.width} height={photo.height} alt={props.piece.name} />
+      <img src={photo().small} srcset={srcsetOf(photo())} sizes={props.sizes} width={photo().width} height={photo().height} alt={props.piece.name} />
     </wardic.div>
   )
 }
