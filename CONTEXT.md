@@ -481,6 +481,18 @@ _Avoid_: empty ward, headless ward, event ward.
 An element with a **Ward** on it.
 _Avoid_: motion element, animated element.
 
+**Feature**:
+A part of the binding an element pays for only when it needs it (#511): a gesture each (`hover`, `press`, `focus`, `inView`, `pan`, `drag`), `layout` (layout, `layoutId`, projection), and `colors` (every CSS colour space beyond hex, `rgb()`, `hsl()` and colour names, which the base reads). Motion's presets name two sets of them: `domAnimation` (the hover, press, focus and in-view gestures) and `domMax` (every Feature). A component that exists for a Feature brings it for the elements under it: `LayoutGroup` brings `layout`, `Reorder` brings `drag` and `layout`. A **Slim element** has the Features chosen above it, by its `WardicProvider` and any `LazyWardic` between them, together; a **Complete element** has every one.
+_Avoid_: plugin, addon, module.
+
+**Slim element**:
+A **Wardic element** put on by one of `w`'s forms (#511; Motion's `m`): `w.*`, `w.create()`, and the ward forms, `w.createWard()` and `use:w` on Solid 1, `w.ward()` on Solid 2. Its own code animates values (`animate`, `initial`, `exit`, variants, transitions), with the **Features** chosen above it (its `WardicProvider`'s and every `LazyWardic`'s between). A prop of a Feature it doesn't have does nothing.
+_Avoid_: m component, lite element.
+
+**Complete element**:
+A **Wardic element** put on by any form but `w`'s (`wardic.*`, `wardic.create()`, `createWard`, `use:wardic`, `ward()`; Motion's `motion`): it has every **Feature** built in. An app with one ships every Feature's code.
+_Avoid_: full element, motion component.
+
 ## Relationships
 
 - A **Primitive** produces **Frames**; a **Physics primitive** produces **Physics frames**.

@@ -77,18 +77,18 @@
  */
 import { execSync } from "node:child_process"
 import { cpSync, existsSync, mkdirSync, readFileSync, rmSync, symlinkSync } from "node:fs"
-import { dirname, join, resolve } from "node:path"
+import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
 import { type CDPSession, chromium, type Page } from "playwright"
-import { build, type Plugin } from "vite"
+import { build } from "vite"
 import solid from "vite-plugin-solid"
 import * as Arr from "effect/Array"
-import * as Option from "effect/Option"
 import { solid2 } from "../vite.solid2.ts"
 import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { LayoutRound, LiveRound, Round, Scene } from "./page.tsx"
+import { commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
 
 const GATE = 1.05
 const NOISE = 0.05
@@ -96,10 +96,8 @@ const NOISE = 0.05
 const CONTROL_SCALE = 10
 /** The heap profiler's mean sampling interval, in bytes: a page's rounds take about 170,000 samples. */
 const ALLOC_INTERVAL = 4096
-const PACKAGES = ["core", "dom", "solid"] as const
 
 const BENCH = dirname(fileURLToPath(import.meta.url))
-const REPO = resolve(BENCH, "../../..")
 const OUT = join(REPO, ".tmp/bench-solid")
 
 const arg = (name: string, fallback: string): string => {
@@ -136,10 +134,7 @@ const SCENES: ReadonlyArray<Scene> = ["page", "list", "item", "scaled"]
 const SCENE_TASKS = ["measure", "frame"] as const
 const TASKS = ["mount", "retarget", "restRetarget", "unmount"] as const
 
-const commitOf = (ref: string): string =>
-  execSync(`git rev-parse --verify ${JSON.stringify(`${ref}^{commit}`)}`, { cwd: REPO }).toString().trim()
 
-const installedLock = readFileSync(join(REPO, "bun.lock"), "utf8")
 
 /** The Solid 2 binding's entry, which a commit before #209 doesn't have. */
 const V2_ENTRY = "packages/solid/src/unstable/v2/index.ts"
@@ -168,67 +163,19 @@ const hasSince = (since: string | undefined, commit: string | undefined): boolea
   }
 }
 
-/** Where a commit's dependencies come from: the repo's own install, or `bench:core`'s checkout of it. */
-const depsOf = (commit: string): string => {
-  const lock = execSync(`git show ${commit}:bun.lock`, { cwd: REPO, maxBuffer: 1 << 26 }).toString()
-  if (lock === installedLock) return REPO
-  const tree = join(REPO, ".tmp/bench-core/deps", commit)
-  if (!existsSync(tree)) {
-    execSync(`git worktree add --detach ${JSON.stringify(tree)} ${commit}`, { cwd: REPO, stdio: "ignore" })
-  }
-  if (!existsSync(join(tree, "node_modules"))) {
-    console.log(`bench:solid: ${commit.slice(0, 7)} has its own bun.lock, installing it at ${tree}`)
-    execSync("bun install --frozen-lockfile", { cwd: tree, stdio: "ignore" })
-  }
-  return tree
-}
 
 /** Put a side's three packages' `src` at `.tmp/bench-solid/<side>/packages`: from a commit, or the working tree. */
 const fill = (side: Side, commit: string | undefined): string => {
   const root = join(OUT, side)
   rmSync(root, { recursive: true, force: true })
   mkdirSync(root, { recursive: true })
-  if (commit === undefined) {
-    for (const pkg of PACKAGES) cpSync(join(REPO, "packages", pkg, "src"), join(root, "packages", pkg, "src"), { recursive: true })
-  } else {
-    execSync(`git archive ${commit} ${PACKAGES.map((pkg) => `packages/${pkg}/src`).join(" ")} | tar -x -C ${JSON.stringify(root)}`, { cwd: REPO })
-  }
+  sourcesInto(root, commit)
   cpSync(join(BENCH, "page.tsx"), join(root, "page.tsx"))
   cpSync(join(BENCH, "page-v2.tsx"), join(root, "page-v2.tsx"))
   return root
 }
 
-/** A `@wardic/*` subpath that's a folder, not a module: its index. */
-const SUBPATHS: Readonly<Record<string, string>> = { "unstable/v2": "unstable/v2/index.ts" }
 
-/**
- * Resolve `@wardic/*` to the side's sources, and every other bare import as the importing package
- * would in `deps` (the page as solid): one copy of solid-js and effect per side.
- */
-const sideResolver = (root: string, deps: string): Plugin => ({
-  name: "bench-solid-resolve",
-  enforce: "pre",
-  async resolveId(source, importer, options) {
-    const wardic = /^@wardic\/(core|dom|solid)(?:\/(.+))?$/.exec(source)
-    if (wardic !== null) {
-      const [, pkg, sub] = wardic
-      return join(
-        root,
-        "packages",
-        pkg!,
-        "src",
-        UndefinedOr.match(sub, {
-          onUndefined: () => "index.ts",
-          onDefined: (name) => Option.getOrElse(Option.fromUndefinedOr(SUBPATHS[name]), () => `${name}.ts`),
-        }),
-      )
-    }
-    if (importer === undefined || !importer.startsWith(root)) return null
-    if (source.startsWith(".") || source.startsWith("/") || source.startsWith("\0")) return null
-    const pkg = /\/packages\/(core|dom|solid)\/src\//.exec(importer)?.[1] ?? "solid"
-    return this.resolve(source, join(deps, "packages", pkg, "src/index.ts"), { ...options, skipSelf: true })
-  },
-})
 
 const bundle = async (side: Side, commit: string | undefined, deps: string): Promise<string> => {
   const root = fill(side, commit)
