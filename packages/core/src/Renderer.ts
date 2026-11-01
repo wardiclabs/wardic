@@ -5,9 +5,9 @@
  */
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import { dual } from "effect/Function"
 import * as Stream from "effect/Stream"
 import type * as Frame from "./Frame.ts"
+import { dual } from "./internal/dual.ts"
 
 /**
  * Output of `Renderer.project` — the environment-specific representation of a
@@ -72,7 +72,8 @@ export const applyTo: {
   ) => Effect.Effect<void, E, R | Renderer>
   <T, E, R>(stream: Stream.Stream<Frame.Frame<Record<string, unknown>>, E, R>, target: T): Effect.Effect<void, E, R | Renderer>
 } = dual(
-  2,
+  // The target is any value: told apart by the stream (#460).
+  Stream.isStream,
   // Not `Effect.fn`, which always captures a call-site stack (ADR-0040, decision 2).
   Effect.fnUntraced(
     function* <T, E, R>(stream: Stream.Stream<Frame.Frame<Record<string, unknown>>, E, R>, target: T): Effect.fn.Return<void, E, R | Renderer> {

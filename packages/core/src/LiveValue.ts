@@ -31,7 +31,7 @@ import * as Effect from "effect/Effect"
 import * as FiberHandle from "effect/FiberHandle"
 import * as Match from "effect/Match"
 import * as Num from "effect/Number"
-import { constant, constFalse, constTrue, constUndefined, constVoid, dual, identity } from "effect/Function"
+import { constant, constFalse, constTrue, constUndefined, constVoid, identity } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import { Atom, AtomRegistry } from "effect/reactivity"
@@ -45,6 +45,7 @@ import type * as Frame from "./Frame.ts"
 import * as Machine from "./Machine.ts"
 import * as Probe from "./Probe.ts"
 import * as Supersede from "./Supersede.ts"
+import { dual } from "./internal/dual.ts"
 
 /**
  * A blend between two outputs (#440, Motion's `MixerFactory`): made once per stretch from its two
@@ -416,7 +417,8 @@ export const follow: (
     })
     /** Follow the source's change from where `out` is, until it rests. */
     const onChange = (): void => {
-      if (Bool.or(skipping, skips())) {
+      // The callback only once a skip isn't already under way (#460, Q8).
+      if (skipping || skips()) {
         skipping = false
         jumpIn(registry, out, registry.get(source))
         return

@@ -7,13 +7,14 @@
  *
  * Tier 2 (ADR-0008): for binding authors.
  */
-import { constant, dual } from "effect/Function"
+import { constant } from "effect/Function"
 import * as Inspectable from "effect/Inspectable"
 import { type Pipeable, pipeArguments } from "effect/Pipeable"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import type * as Frame from "./Frame.ts"
 import * as Machine from "./Machine.ts"
+import { dual } from "./internal/dual.ts"
 
 const TypeId = "~@wardic/core/Playback"
 

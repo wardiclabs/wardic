@@ -4,10 +4,10 @@
  * leg: `split`, by kind, and `pick`. Plain shapes callers write, so no prototype (ADR-0028,
  * decision 1). The operations run when a leg is built, at a Retarget, never per frame.
  */
-import { dual } from "effect/Function"
-import * as Option from "effect/Option"
+import * as Iter from "effect/Iterable"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
+import { dual } from "./internal/dual.ts"
 
 /** A flat bag of animatable values: numbers, or strings its Environment's Interpolators blend. */
 export type Values = Record<string, number | string>
@@ -47,6 +47,15 @@ export const pick: {
   (self: Values, keysFrom: Values): Values
 } = dual(
   2,
-  (self: Values, keysFrom: Values): Values =>
-    Rec.getSomes(Rec.map(keysFrom, (_, key) => Option.flatMap(Rec.get(self, key), Option.fromUndefinedOr))),
+  (self: Values, keysFrom: Values): Values => {
+    // Per leg (#460): one record, a statement a key, no `Option` made.
+    const picked: Record<string, number | string> = {}
+    Iter.forEach(Object.keys(keysFrom), (key) => {
+      if (!Object.hasOwn(self, key)) return
+      const value = self[key]
+      if (Predicate.isUndefined(value)) return
+      picked[key] = value
+    })
+    return picked
+  },
 )

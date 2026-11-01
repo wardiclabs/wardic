@@ -137,6 +137,7 @@ export const PREBUNDLED: ReadonlyArray<string> = [
       "effect/Pipeable",
       "effect/Predicate",
       "effect/Record",
+      "effect/References",
       "effect/Result",
       "effect/Schema",
       "effect/SchemaGetter",

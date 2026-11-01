@@ -484,3 +484,21 @@ Decision 6 left the option bags' Schemas to #66, because a decode validates and 
 **Gates:** typecheck, lint, unit (1113), browser (1017), and the lab's tsc and vitest (208). No bench and no lab drives: no per-frame code changed, and nothing in Wardic calls `Easing.spring`.
 
 *Note (#344, 2026-10-24):* the spring's and the decay's `restVelocity` is `restSpeed` (ADR-0050), and a spring's `restDelta` and `restSpeed` have no default: a leg's are Motion's, by its distance, unless given.
+
+## Amendment (#460, 2026-11-01): the hot path composes once
+
+The final review (#460, Part 3) re-grilled Q8 with what Effect's `dual` costs per call. Effect's two-argument wrapper keeps its first argument for the data-last closure it might return, so V8 gives every call a context for it, data-first calls too, unless TurboFan has inlined the wrapper into an optimized caller; its other forms read `arguments`. Most of a binding's per-leg code runs in Maglev. In Node, one data-first `Bool.or` measured 0 B under TurboFan and 104 B under Maglev; a predicate piped at the call 264 / 472 B; the same predicate built once at module scope 0 / 0 B. On the bench page, `dual`'s wrapper was 18 KB of each element's 139 KB a round.
+
+- **The hot path is code that runs per key or per element on every Retarget, per leg, or per frame.** The per-frame path's rules (decision 3) stand; the hot path adds its own, *compose once* (Q8 re-grilled, 2026-11-01). The user asked first whether functional pipelines could keep Effect's utilities without the cost: they can, written as definitions.
+  - A predicate, matcher or pipeline over values the call doesn't own is built at module scope, data-last, and applied.
+  - A step that needs a value only the call has is a statement: an `if` with an early return, `&&`, `||`, `!`.
+  - Effect's and core's operations are called data-first, never a pipe of data-last steps built at the call.
+  - Loops stay `Arr` / `Iter`; per mount and below, rule 1's forms (Q8: `Bool.and` / `Bool.or` for values in hand, lint's `BOOL_OPERANDS` for the rest).
+- **Core builds its operations with its own `dual`** (ADR-0028, *Amendment (#460)*), so a data-first call into core costs nothing in any tier.
+- **Applied** to dom's Key rules (`mayApply`, `isVariableValue`), core's per-leg constructors (`animate`, `animateValues`, `springBlend`, `keyframes`, `keyframesValues`, `blendersFor`), the registry's lookups, `Values.pick`, the Frame loop's per-run code, and the binding's Retarget and leg path (`resolutionOf`, `retarget`, `dragHolds`, `startKey`, `legProgram`, `legEnded`, `legsWith`).
+
+Measured (`bench:solid --base main --features` and `bench:core --base main`, on the bench host, with Q6's `fnUntraced` and ADR-0040's *Amendment (#460)*), Solid 1 / Solid 2:
+- warm mount −11.9% / −13.6%, Retarget −33.2% / −34.1%, rest Retarget −30.4% / −29.1%, unmount −17.0% / −15.1%;
+- bytes per element per round −21.0% / −22.4% (135.7 → 106.9 KB, 129.5 → 100.5 KB), and −17% to −23% on every feature page;
+- layout scenes within ±3.8% / ±3.4%, their bytes per frame −0.7% / −0.9%;
+- `bench:core`: every workload within its gate on Bun, Node and Chromium; a run's start down by about a third (`animateValues` 13.1 → 8.3 ms in Bun, 9.1 → 5.6 in Chromium).

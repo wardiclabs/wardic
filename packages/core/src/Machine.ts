@@ -26,7 +26,7 @@
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
-import { dual, identity, type LazyArg } from "effect/Function"
+import { identity, type LazyArg } from "effect/Function"
 import * as Inspectable from "effect/Inspectable"
 import * as Option from "effect/Option"
 import { type Pipeable, pipeArguments } from "effect/Pipeable"
@@ -69,6 +69,7 @@ import * as Scalar from "./Scalar.ts"
 import * as Spring from "./Spring.ts"
 import type * as Supersede from "./Supersede.ts"
 import type * as Values from "./Values.ts"
+import { dual } from "./internal/dual.ts"
 
 // --- The data type -----------------------------------------------------------
 
@@ -651,7 +652,7 @@ export const withSpan: {
   (name: string, options?: SpanOptions): <F extends Frame.Frame<unknown>>(self: Machine<F>) => Machine<F>
   <F extends Frame.Frame<unknown>>(self: Machine<F>, name: string, options?: SpanOptions): Machine<F>
 } = dual(
-  (args) => isMachine(args[0]),
+  isMachine,
   <F extends Frame.Frame<unknown>>(self: Machine<F>, name: string, { attributes = {} }: SpanOptions = {}): Machine<F> =>
     make({ start: self.start, settles: self.settles, span: { name, attributes } }),
 )
@@ -732,7 +733,7 @@ export const run: {
     options: RunOptions,
   ): Effect.Effect<F | Supersede.Superseded, never, FrameLoop.FrameLoop>
 } = dual(
-  (args) => isMachine(args[0]),
+  isMachine,
   <F extends Frame.Frame<unknown>>(self: Machine<F>, sink: FrameLoop.Sink<F>, options?: RunOptions): Effect.Effect<F | Supersede.Superseded, never, FrameLoop.FrameLoop> =>
     // The loop reads a missing `options` as none: one call, nothing allocated per run.
     FrameLoop.FrameLoop.use((loop) => loop.run(self, sink, options as RunOptions)),
@@ -1254,29 +1255,37 @@ const resolveAnimate: (options: AnimateOptions) => ResolvedAnimate = cachedResol
 export const animate = (from: number, to: number, options: AnimateOptions = NO_OPTIONS): Machine<Frame.Frame<number>> => {
   const resolved = resolveAnimate(options)
   const { run, repeat, repeatDelay, repeatType, reverse } = resolved
-  const [a, b] = Bool.match(reverse, { onTrue: () => [to, from] as const, onFalse: () => [from, to] as const })
-  const span = tweenSpan(a, b, resolved.seconds)
-  // One run, no repeat: nothing to sequence, so the tween's own step, which `runAt` reduces to, and
-  // the cheaper per frame (the binding's every tween leg without a `repeat`).
-  return Bool.match(repeat === 0, {
-    onTrue: () => tweenLeaf(a, b, run.tween, span),
-    onFalse: () =>
-      make({
-        settles: Number.isFinite(repeat),
-        span,
-        start: () => {
-          let elapsed = 0
-          // Per frame (ADR-0025): one time, `dt` clamped (#78); the run resolved when it was built.
-          return (dt): Frame.Frame<number> => {
-            elapsed += Math.min(dt, MAX_DT)
-            return runAt(elapsed, a, b, run)
-          }
-        },
-      }),
-  }).pipe(
-    delay(resolved.delay),
-    withSpan("wardic.animate", { attributes: { from, to, repeat, repeatDelay, repeatType, reverse } }),
-  )
+  // Per leg (#460, compose once): statements, and the combinators called data-first.
+  let a = from
+  let b = to
+  if (reverse) {
+    a = to
+    b = from
+  }
+  const machine = animateRun(a, b, run, repeat, tweenSpan(a, b, resolved.seconds))
+  return withSpan(delay(machine, resolved.delay), "wardic.animate", {
+    attributes: { from, to, repeat, repeatDelay, repeatType, reverse },
+  })
+}
+
+/**
+ * `animate`'s run from `a` to `b`. One run, no repeat: nothing to sequence, so the tween's own step,
+ * which `runAt` reduces to, and the cheaper per frame (the binding's every tween leg without a `repeat`).
+ */
+const animateRun = (a: number, b: number, run: ResolvedRun, repeat: number, span: Span): Machine<Frame.Frame<number>> => {
+  if (repeat === 0) return tweenLeaf(a, b, run.tween, span)
+  return make({
+    settles: Number.isFinite(repeat),
+    span,
+    start: () => {
+      let elapsed = 0
+      // Per frame (ADR-0025): one time, `dt` clamped (#78); the run resolved when it was built.
+      return (dt): Frame.Frame<number> => {
+        elapsed += Math.min(dt, MAX_DT)
+        return runAt(elapsed, a, b, run)
+      }
+    },
+  })
 }
 
 /** `keyframes`' bag resolved (#429): its run (its tween's `delay` 0), an easing per Segment, and each stop's place in time. */
@@ -1292,11 +1301,11 @@ interface ResolvedKeyframes extends ResolvedModifiers {
 const EaseOrList = Schema.Union([EaseDefinition, Schema.NonEmptyArray(EaseDefinition)])
 
 /** Whether `times` run from 0 to 1, none before the one ahead of it. */
-const inOrder = (times: ReadonlyArray<number>): boolean =>
-  Bool.and(
-    Arr.every(times, (time) => Bool.and(time >= 0, time <= 1)),
-    Arr.every(Arr.zip(times, Arr.drop(times, 1)), ([before, after]) => after >= before),
-  )
+const inOrder = (times: ReadonlyArray<number>): boolean => {
+  // The pairs only once every time is in range (#460, Q8).
+  if (!Arr.every(times, (time) => Bool.and(time >= 0, time <= 1))) return false
+  return Arr.every(Arr.zip(times, Arr.drop(times, 1)), ([before, after]) => after >= before)
+}
 
 /** Each stop's place in time (#429): numbers from 0 to 1, in order. */
 const Times = Schema.Array(Schema.Finite).check(
@@ -1367,7 +1376,7 @@ export const keyframes = (stops: ReadonlyArray<number>, options: KeyframesOption
   const last = at.length - 1
   const duration = run.tween.duration
   const stopTimes = stopTimesOf(at.length, resolved.times, duration)
-  return make({
+  const machine = make({
     settles: Number.isFinite(resolved.repeat),
     span: tweenSpan(at[0], at[last], resolved.seconds),
     start: () => {
@@ -1384,10 +1393,11 @@ export const keyframes = (stops: ReadonlyArray<number>, options: KeyframesOption
         return { value: Scalar.lerp(at[i], at[i + 1], eased), done }
       }
     },
-  }).pipe(
-    delay(resolved.delay),
-    withSpan("wardic.keyframes", { attributes: keyframesAttributes(resolved, { stops: stops.length }) }),
-  )
+  })
+  // Per leg (#460): the combinators called data-first.
+  return withSpan(delay(machine, resolved.delay), "wardic.keyframes", {
+    attributes: keyframesAttributes(resolved, { stops: stops.length }),
+  })
 }
 
 /** One key's blend at a progress `t`, given whether that progress Frame is the run's last. */
@@ -1404,15 +1414,23 @@ type Blender = InterpolatorRegistry.KeyBlend
  * - **Else by value**: the registry's blend. A pair it can't blend is a Discrete pair and switches
  *   at the first Frame past 0 (ADR-0024, decision 3).
  */
-const blendersFor = (
+const blendersFor: (
   from: Values.Values,
   to: Values.Values,
-): Effect.Effect<ReadonlyArray<readonly [key: string, blend: Blender]>, never, InterpolatorRegistry.InterpolatorRegistry> =>
-  Effect.gen(function* () {
+) => Effect.Effect<ReadonlyArray<readonly [key: string, blend: Blender]>, never, InterpolatorRegistry.InterpolatorRegistry> =
+  // Per leg (#460): one Effect a key, in `to`'s order, and no record built between.
+  Effect.fnUntraced(function* (from: Values.Values, to: Values.Values) {
     const registry = yield* InterpolatorRegistry.InterpolatorRegistry
-    const blenders = yield* Effect.all(Rec.map(to, (b, key) => blenderFor(registry, key, Option.getOrElse(Rec.get(from, key), () => b), b)))
-    return Rec.toEntries(blenders)
+    const keys = Rec.keys(to)
+    const blenders = yield* Effect.forEach(keys, (key) => blenderFor(registry, key, startOf(from, key, to[key]), to[key]))
+    return Arr.zip(keys, blenders)
   })
+
+/** `key`'s start in `from`, else its target `b`: a statement (#460), as `Rec.get` reads an own key. */
+const startOf = (from: Values.Values, key: string, b: number | string): number | string => {
+  if (!Object.hasOwn(from, key)) return b
+  return from[key]
+}
 
 /** `key`'s blender from `a` to `b` ({@link blendersFor}'s, and each of a keyframes Segment's, #429). */
 const blenderFor = (registry: InterpolatorRegistry.InterpolatorRegistry["Service"], key: string, a: number | string, b: number | string): Effect.Effect<Blender> =>
@@ -1452,10 +1470,12 @@ export const animateValues = (
   to: Values.Values,
   options: AnimateOptions = NO_OPTIONS,
 ): Effect.Effect<Machine<Frame.Frame<Values.Values>>, never, InterpolatorRegistry.InterpolatorRegistry> =>
+  // Per leg (#460): the combinators called data-first.
   Effect.map(blendersFor(from, to), (blenders) =>
-    animate(0, 1, options).pipe(
-      map((progress) => blendAt(blenders, progress.value, progress.done)),
-      withSpan("wardic.animateValues", { attributes: { keys: Rec.keys(to).length } }),
+    withSpan(
+      map(animate(0, 1, options), (progress) => blendAt(blenders, progress.value, progress.done)),
+      "wardic.animateValues",
+      { attributes: { keys: blenders.length } },
     ))
 
 /**
@@ -1481,10 +1501,13 @@ export const springBlend = (
   to: Values.Values,
   options: SpringOptions = NO_OPTIONS,
 ): Effect.Effect<Machine<Frame.Frame<Values.Values>>, never, InterpolatorRegistry.InterpolatorRegistry> =>
+  // Per leg (#460): the combinators called data-first.
   Effect.map(blendersFor(from, to), (blenders) =>
-    springValues({ progress: 100 }, options, { progress: 0 }, { progress: 0 }).pipe(
-      map((frame) => blendAt(blenders, UndefinedOr.getOrThrow(frame.value.progress) / 100, frame.done)),
-      withSpan("wardic.springBlend", { attributes: { keys: Rec.keys(to).length } }),
+    withSpan(
+      map(springValues({ progress: 100 }, options, { progress: 0 }, { progress: 0 }), (frame) =>
+        blendAt(blenders, UndefinedOr.getOrThrow(frame.value.progress) / 100, frame.done)),
+      "wardic.springBlend",
+      { attributes: { keys: blenders.length } },
     ))
 
 /**
@@ -1541,11 +1564,11 @@ const trackFor = (
  * consulted once: each Segment of each key resolves to a pure blender. Its steps don't: per tick,
  * one direct call a key. Its own span, `wardic.keyframesValues`.
  */
-export const keyframesValues = (
+export const keyframesValues: (
   stops: Readonly<Record<string, ReadonlyArray<number | string>>>,
-  options: KeyframesOptions = NO_OPTIONS,
-): Effect.Effect<Machine<Frame.Frame<Values.Values>>, never, InterpolatorRegistry.InterpolatorRegistry> =>
-  Effect.gen(function* () {
+  options?: KeyframesOptions,
+) => Effect.Effect<Machine<Frame.Frame<Values.Values>>, never, InterpolatorRegistry.InterpolatorRegistry> = Effect.fnUntraced(
+  function* (stops: Readonly<Record<string, ReadonlyArray<number | string>>>, options: KeyframesOptions = NO_OPTIONS) {
     const resolved = resolveKeyframes(options)
     const { run, eases, reverse } = resolved
     const registry = yield* InterpolatorRegistry.InterpolatorRegistry
@@ -1558,7 +1581,7 @@ export const keyframesValues = (
           onNonEmpty: (some) => Result.succeed(trackFor(registry, key, some, resolved.times, duration, flips)),
         })),
     )
-    return make({
+    const machine = make({
       settles: Number.isFinite(resolved.repeat),
       span: { name: "wardic.keyframesValues", attributes: {} },
       start: () => {
@@ -1580,8 +1603,10 @@ export const keyframesValues = (
           return { value, done }
         }
       },
-    }).pipe(
-      delay(resolved.delay),
-      withSpan("wardic.keyframesValues", { attributes: keyframesAttributes(resolved, { keys: tracks.length }) }),
-    )
-  })
+    })
+    // Per leg (#460): the combinators called data-first.
+    return withSpan(delay(machine, resolved.delay), "wardic.keyframesValues", {
+      attributes: keyframesAttributes(resolved, { keys: tracks.length }),
+    })
+  },
+)

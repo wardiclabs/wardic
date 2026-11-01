@@ -7,12 +7,12 @@
  * (ADR-0004, *Amendment (#32)*).
  */
 import * as Bool from "effect/Boolean"
-import { dual } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as Stream from "effect/Stream"
 import type * as Point from "./Point.ts"
+import { dual } from "./internal/dual.ts"
 
 /**
  * One emission from the `Recognizer.drag` recognizer — an Effect-free, portable signal.
@@ -199,7 +199,7 @@ export const within: {
   (bounds: Bounds, options?: { readonly elastic?: number }): (sample: Sample) => Sample
   (sample: Sample, bounds: Bounds, options?: { readonly elastic?: number }): Sample
 } = dual(
-  (args) => Predicate.hasProperty(args[0], "phase"),
+  (first) => Predicate.hasProperty(first, "phase"),
   (sample: Sample, bounds: Bounds, options: { readonly elastic?: number } = {}): Sample => {
     const elastic = Option.getOrElse(Option.fromNullishOr(options.elastic), () => 0)
     return {
@@ -241,7 +241,7 @@ export const withinBounds: {
     options?: { readonly elastic?: number },
   ): Stream.Stream<Sample, E, R>
 } = dual(
-  (args) => Stream.isStream(args[0]),
+  Stream.isStream,
   <E, R>(
     stream: Stream.Stream<Sample, E, R>,
     bounds: Bounds,

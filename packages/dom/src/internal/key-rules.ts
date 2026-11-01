@@ -68,6 +68,11 @@ const isOneOf =
   (key) =>
     keys.has(dashCase(key))
 
+// Built once (#460): `mayApply` asks of every key, each leg.
+const isFilterKey = isOneOf(FILTER_KEYS)
+const isMaskKey = isOneOf(MASK_KEYS)
+const isShadowKey = isOneOf(SHADOW_KEYS)
+
 /** The filter functions whose identity is 1 (or 100%); every other is at its identity at 0 (Motion's `maxDefaults`). */
 const IDENTITY_ONE: ReadonlySet<string> = new Set(["brightness", "contrast", "saturate", "opacity"])
 
@@ -172,9 +177,9 @@ const filterAtIdentity = (value: string): Option.Option<string> =>
 
 /** What `key`'s empty end stands for, facing `template` (CONTEXT.md's Animatable none); `None` when `template` can't be one. */
 const noneOf = (key: string, template: string): Option.Option<string> =>
-  Bool.match(isOneOf(FILTER_KEYS)(key), {
+  Bool.match(isFilterKey(key), {
     onTrue: () => filterAtIdentity(template),
-    onFalse: () => zeroOf(template, Bool.match(isOneOf(MASK_KEYS)(key), { onTrue: () => opaque, onFalse: () => transparent })),
+    onFalse: () => zeroOf(template, Bool.match(isMaskKey(key), { onTrue: () => opaque, onFalse: () => transparent })),
   })
 
 /** `auto`, which carries nothing to grow from. */
@@ -231,7 +236,7 @@ const isAsGiven =
  */
 const shadows = (key: string, from: Value, to: Value): Option.Option<Prepared> =>
   pipe(
-    Option.liftPredicate(key, isOneOf(SHADOW_KEYS)),
+    Option.liftPredicate(key, isShadowKey),
     Option.flatMap(() => Option.all([Option.liftPredicate(from, Predicate.isString), Option.liftPredicate(to, Predicate.isString)])),
     Option.map(([a, b]) => {
       const as = shadowsOf(a)
@@ -250,13 +255,13 @@ const isTemplateEnd: Predicate.Predicate<Value> = (value) => Predicate.isString(
  * strings. Checked first, allocating nothing, so a pair no rule applies to (`opacity` from `0`,
  * `pointer-events` to `none`) never reaches the `Option` chains below: their calls at stream
  * build, through library functions the frame path shares, cost Node's `animateValues` about 5%
- * per frame when it ran after other workloads (#61's bench).
+ * per frame when it ran after other workloads (#61's bench). Per key, each leg: statements (#460).
  */
-const mayApply = (key: string, from: Value, to: Value): boolean =>
-  Bool.or(
-    Bool.or(Bool.and(isEmptyEnd(from), isTemplateEnd(to)), Bool.and(isEmptyEnd(to), isTemplateEnd(from))),
-    Bool.and(isOneOf(SHADOW_KEYS)(key), Bool.and(Predicate.isString(from), Predicate.isString(to))),
-  )
+const mayApply = (key: string, from: Value, to: Value): boolean => {
+  if (isEmptyEnd(from) && isTemplateEnd(to)) return true
+  if (isEmptyEnd(to) && isTemplateEnd(from)) return true
+  return isShadowKey(key) && Predicate.isString(from) && Predicate.isString(to)
+}
 
 /**
  * `key`'s pairs (#61): from or to its Animatable none when one end is empty, or shadow by shadow
