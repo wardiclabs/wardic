@@ -32,6 +32,7 @@ export default defineConfig({
   // mid-run and reloads the page once ("optimized dependencies changed. reloading").
   optimizeDeps: {
     include: [
+      "culori/fn",
       "effect/Array",
       "effect/Boolean",
       "effect/Cause",
