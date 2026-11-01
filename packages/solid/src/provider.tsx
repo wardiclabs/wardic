@@ -20,12 +20,12 @@ import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as Scope from "effect/Scope"
 import * as Bool from "effect/Boolean"
-import { constUndefined } from "effect/Function"
+import { constUndefined, identity } from "effect/Function"
 import * as Latch from "effect/Latch"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { batch, createContext, onCleanup, onMount, untrack, useContext } from "solid-js"
+import { batch, createContext, DEV, onCleanup, onMount, untrack, useContext } from "solid-js"
 import type { JSX } from "solid-js"
 import { useAssets } from "solid-js/web"
 import * as Appear from "@wardic/dom/Appear"
@@ -33,6 +33,9 @@ import * as Report from "@wardic/dom/Report"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { type ServerAppear, serverAppear } from "./appear.ts"
+import * as Context from "effect/Context"
+import { type Feature, type FeatureRegistry, type FeatureSection, type FeaturesProp, ROOT, strictMessage } from "./feature.ts"
+import { FeatureSectionProvider, sectionUnder, useLazySection } from "./feature-section.ts"
 import {
   type AnimateLayout,
   animateLayoutOf,
@@ -102,12 +105,20 @@ const WardicContext = createContext<WardicContextValue | undefined>(undefined)
  * corrects, in Motion's form (`{ correct(latest, { target, treeScale, projectionDelta }), applyTo? }`).
  * They're this provider's alone, and read once. One keyed `borderRadius` or `boxShadow` replaces the
  * built-in one. Ignored on a server, which projects nothing.
+ *
+ * `features` (#511, ADR-0067) are the **Features** every Slim element (`w.*`) under it has, as a
+ * `LazyWardic`'s are for its section: given at once (`features={[colors]}`), or loaded lazily
+ * (`features={() => import("./features.ts").then((m) => m.colors)}`), taking effect as they arrive.
+ * A Complete element (`wardic.*`) has every Feature whatever it's given. `strict` makes a Complete
+ * element under it an error in development. Both are read once.
  */
 export function WardicProvider(props: {
   readonly env: WardicEnv
   readonly reducedMotion?: ReducedMotion.Config | undefined
   readonly appear?: boolean | undefined
   readonly scaleCorrectors?: Readonly<Record<string, WardicScaleCorrector>> | undefined
+  readonly features?: FeaturesProp | undefined
+  readonly strict?: boolean | undefined
   readonly children?: JSX.Element
 }): JSX.Element {
   if (isServer) {
@@ -124,7 +135,8 @@ export function WardicProvider(props: {
     })
     if (Predicate.isNotUndefined(appear)) useAssets(() => appearStyle(appear))
     const value = serverContext(props.env, appear, () => untrack(() => props.reducedMotion))
-    onCleanup(() => void value.runtime.dispose())
+    onCleanup(() => void value.features.dispose())
+    sections.set(value, sectionOf(value, ROOT, props))
     return <WardicContext.Provider value={value}>{props.children}</WardicContext.Provider>
   }
 
@@ -143,8 +155,82 @@ export function WardicProvider(props: {
     () => untrack(() => props.reducedMotion),
     untrack(() => props.scaleCorrectors),
   )
-  onCleanup(() => void value.runtime.dispose())
+  // Its Features end first, then the runtime they stand on (#511).
+  onCleanup(() => void value.features.dispose())
+  sections.set(value, sectionOf(value, ROOT, props))
   return <WardicContext.Provider value={value}>{props.children}</WardicContext.Provider>
+}
+
+/**
+ * Each provider's own section (#511): its Features, the first section of its tree. Kept beside its
+ * context value, not in a context of its own, so a provider renders one Provider, as before.
+ */
+const sections = new WeakMap<WardicContextValue, FeatureSection>()
+
+/**
+ * The section an element is in (#511): the nearest `LazyWardic`'s, else its provider's own; outside a
+ * provider, none. Internal.
+ */
+export function useFeatureSection(): FeatureSection {
+  return UndefinedOr.match(useLazySection(), {
+    onDefined: identity,
+    onUndefined: () => UndefinedOr.match(useContext(WardicContext), { onUndefined: () => ROOT, onDefined: (value) => UndefinedOr.getOrThrow(sections.get(value)) }),
+  })
+}
+
+/**
+ * The section `props` make under `parent` (#511), on `value`'s registry: a failed lazy load reported
+ * as a fiber's failure is (ADR-0030, decision 4).
+ */
+const sectionOf = (
+  value: WardicContextValue,
+  parent: FeatureSection,
+  props: { readonly features?: FeaturesProp | undefined; readonly strict?: boolean | undefined },
+): FeatureSection =>
+  sectionUnder(parent, value.features, untrack(() => props.features), untrack(() => props.strict) === true, (cause) => {
+    value.runtime.runFork(Report.failure("wardic.features: a lazy load of Features failed", cause))
+  })
+
+/**
+ * **`LazyWardic`** (#511, ADR-0067; Motion's `LazyMotion`): the **Features** the Slim elements
+ * (`w.*`) below it have, beside their provider's and every `LazyWardic`'s between them.
+ *
+ * ```tsx
+ * <LazyWardic features={[colors]}>…</LazyWardic>
+ * <LazyWardic features={() => import("./features.ts").then((m) => m.colors)}>…</LazyWardic>
+ * ```
+ *
+ * Given at once, they're built the first time an element below asks. Loaded lazily, the load starts as
+ * it renders, on the client, and its elements animate their values at once; each Feature takes effect
+ * as it arrives, from then on, and nothing before is replayed. A failed load is reported once. A server
+ * render loads nothing, and renders as it would without them. `strict` makes a Complete element
+ * (`wardic.*`) below it an error in development. Both props are read once.
+ */
+export function LazyWardic(props: { readonly features: FeaturesProp; readonly strict?: boolean | undefined; readonly children?: JSX.Element }): JSX.Element {
+  const value = useContext(WardicContext)
+  const section = fromContext(value, "LazyWardic", (v) => sectionOf(v, useFeatureSection(), props))
+  return <FeatureSectionProvider value={section}>{props.children}</FeatureSectionProvider>
+}
+
+/**
+ * The Features an element has (#511): its section's, and those it brings, a Complete element's every
+ * one (`brings`), built at once. A Complete element under a `strict` section is an error in
+ * development. Internal.
+ */
+export function useElementFeatures(brings: ReadonlyArray<Feature> | undefined, complete: boolean): FeatureSection {
+  const section = useFeatureSection()
+  if (DEV && complete && section.strict) throw new Error(strictMessage("wardic.*, wardic.create, createWard, use:wardic", "w.*, w.create, w.createWard, use:w"))
+  if (Predicate.isUndefined(brings)) return section
+  const registry = useFeatureRegistry()
+  // A Complete element has every Feature, whatever its section has: one section per provider.
+  if (complete) return registry.section(brings)
+  const own = registry.build(brings)
+  return { services: () => Context.merge(section.services(), own), pending: section.pending, strict: section.strict }
+}
+
+/** The provider's Features (#511). Internal. */
+export function useFeatureRegistry(): FeatureRegistry {
+  return fromContext(useContext(WardicContext), "useFeatureRegistry", (value) => value.features)
 }
 
 /**

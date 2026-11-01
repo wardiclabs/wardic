@@ -68,7 +68,9 @@ import { createVariantNode } from "./variant-node.ts"
 import { accessorOf } from "./spine.ts"
 import { changesContext } from "./variant-tree.ts"
 import { useVariantContext } from "./variants.ts"
-import { configOfMotion, MOTION_PROPS, wardic, type WardicMotionProps, type WardicProps } from "./wardic.tsx"
+import { configOfMotion, type WardicProps } from "./element.tsx"
+import { MOTION_PROPS, type WardicMotionProps } from "./motion-props.ts"
+import { w } from "./w.tsx"
 
 /**
  * A **Reorder group**'s config: the app's `values` in order, `onReorder` to receive a
@@ -529,9 +531,12 @@ interface ItemLocal<V> {
   readonly "aria-describedby"?: string | undefined
 }
 
-/** The motion element for `tag` (`wardic[tag]`), typed as a plain component. */
+/**
+ * The motion element for `tag`, typed as a plain component: a Slim element's (`w[tag]`, #511), so a
+ * Reorder brings no Feature but its own (ADR-0067 decision 12) and renders under a `strict` section.
+ */
 const wardicTag = (tag: string): Component<Record<string, unknown>> =>
-  UndefinedOr.getOrThrow((wardic as unknown as Record<string, Component<Record<string, unknown>> | undefined>)[tag])
+  UndefinedOr.getOrThrow((w as unknown as Record<string, Component<Record<string, unknown>> | undefined>)[tag])
 
 function Group<V, Tag extends ReorderElementTag = "ul">(props: ReorderGroupProps<V, Tag>): JSX.Element {
   const [local, rest] = splitProps(props as unknown as GroupLocal<V> & Record<string, unknown>, [

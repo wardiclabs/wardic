@@ -28,6 +28,7 @@ import * as Predicate from "effect/Predicate"
 import { AtomRegistry } from "effect/reactivity"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { ServerAppear } from "./appear.ts"
+import { clientRegistry, type FeatureRegistry, serverRegistry } from "./feature.ts"
 import { type InstantAnimations, makeInstantAnimations, NO_INSTANT } from "./instant.ts"
 import { settingOf as configSettingOf, type WardicConfigValue } from "./wardic-config-value.ts"
 
@@ -90,6 +91,11 @@ export interface WardicContextValue {
   readonly appear?: ServerAppear | undefined
   /** Whether its animations are instant now (#443, an Instant change's); never on a server. */
   readonly instant: InstantAnimations
+  /**
+   * Its **Features** (#511, ADR-0067), each built once on first need into the runtime's `MemoMap`; a
+   * server render's run their `server` part alone. Disposing them disposes the runtime after.
+   */
+  readonly features: FeatureRegistry
 }
 
 /** What a client provider builds on first need (#51): everything in its context but the runtime. */
@@ -159,6 +165,7 @@ export const clientContext = (
     runtime,
     reducedMotionSetting: reducedMotion,
     instant,
+    features: clientRegistry(runtime),
     get gate() {
       return build().gate
     },
@@ -209,18 +216,22 @@ const settingOf = (setting: ReducedMotion.Config | undefined, provider: () => Re
  * working), an inert gate, no projection system, reduced motion never applying, and the render's
  * Appear animations when it has them.
  */
-export const serverContext = (env: WardicEnv, appear: ServerAppear | undefined, reducedMotion: () => ReducedMotion.Config | undefined): WardicContextValue => ({
-  runtime: ManagedRuntime.make(env),
-  gate: FlushGate.inert,
-  projection: undefined,
-  reducedMotion: () => false,
-  reducedMotionUnder: () => false,
-  reducedMotionSetting: reducedMotion,
-  positionalKeys: SERVER_POSITIONAL_KEYS,
-  defaultTransition: SERVER_DEFAULT_TRANSITION,
-  appear,
-  instant: NO_INSTANT,
-})
+export const serverContext = (env: WardicEnv, appear: ServerAppear | undefined, reducedMotion: () => ReducedMotion.Config | undefined): WardicContextValue => {
+  const runtime = ManagedRuntime.make(env)
+  return {
+    runtime,
+    features: serverRegistry(runtime),
+    gate: FlushGate.inert,
+    projection: undefined,
+    reducedMotion: () => false,
+    reducedMotionUnder: () => false,
+    reducedMotionSetting: reducedMotion,
+    positionalKeys: SERVER_POSITIONAL_KEYS,
+    defaultTransition: SERVER_DEFAULT_TRANSITION,
+    appear,
+    instant: NO_INSTANT,
+  }
+}
 
 /** Reads `pick` off a provider's context value, or throws `name`'s clear error outside one. */
 export const fromContext = <A>(value: WardicContextValue | undefined, name: string, pick: (value: WardicContextValue) => A): A => {
