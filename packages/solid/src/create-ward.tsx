@@ -68,7 +68,7 @@ import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegis
 import { createVariantNode } from "./variant-node.ts"
 import { type GestureStates, type NameOrchestration, type ServerVariantNode, serverVariantNode, startingValuesOf, startsQuiet } from "./variant-tree.ts"
 import { registerAnimatable } from "./imperative.ts"
-import { useLayoutGroupId, useLayoutMember } from "./layout.tsx"
+import { layoutMemberOf, useLayoutGroupId } from "./layout.tsx"
 import { layoutOptionsOf, wantsLayoutNode } from "./layout-member.ts"
 import { trackConstraintsOf } from "./drag-constraints.ts"
 import { handoffOf, setsAnimation } from "./appear.ts"
@@ -77,12 +77,12 @@ import { type PresenceSeed, presenceSeedOf } from "./presence-record.ts"
 import type { PresenceRecord } from "./presence-record.ts"
 import { createWhenWanted, stateOf, type Wants } from "./sensors.ts"
 import { type GestureCallbacks, gestureCallbacksOf, inViewOptionsOf, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "./gesture-callbacks.ts"
-import { type Feature, type FeatureRegistry, type FeatureSection, missingMessage, unreadColorIn } from "./feature.ts"
+import { type Feature, type FeatureRegistry, type FeatureSection, LAYOUT_PROPS, missingMessage, unreadColorIn } from "./feature.ts"
 import { ALL } from "./features/all.ts"
-import { runWatch, useElementFeatures, useFeatureRegistry, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicProjection, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
+import { runWatch, useBuiltProjection, useElementFeatures, useFeatureRegistry, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { transformPagePointOf } from "./wardic-config-value.ts"
-import type { WardicRuntime } from "./runtime.ts"
+import { projectionIn, type WardicRuntime } from "./runtime.ts"
 import { isHydrating, isServer } from "./server.ts"
 import { reactivity } from "./solid-reactivity.ts"
 import {
@@ -416,6 +416,11 @@ export function runSpine(opts: RunSpineOptions): void {
   const { bindGestures, byName, canStart, cfg, controls, defaultsInProps, el, entersFresh, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, restartStyle, runtime, styleOf, tag } = opts
   // Its Features (#511, ADR-0067): its section's, and those it brings.
   const features = UndefinedOr.match(opts.features, { onDefined: identity, onUndefined: () => useElementFeatures(internal.brings, internal.complete === true) })
+  // Its section's projection system, the `layout` Feature's (#511): `undefined` without it. Read now,
+  // which builds the Features given to its section at once: the first element to ask builds them.
+  const layoutProjection = projectionIn(untrack(features.services))
+  // The provider's, once any section has built it: what its values register with.
+  const builtProjection = useBuiltProjection()
   // Its Animation controls' change (#433), read with the Override stack: none without them.
   const ownChange = UndefinedOr.match(controls, { onUndefined: () => NO_CHANGE, onDefined: (c) => c.change })
 
@@ -557,7 +562,8 @@ export function runSpine(opts: RunSpineOptions): void {
 
       // Every element's values, by element, for the projection (ADR-0012 *Amendment (#137)*): a twin's
       // flight follows the translate and scale Wardic animates on its ancestors each frame.
-      onCleanup(useWardicProjection().registerValues(element, () => snapshot.values))
+      // None while no section has `layout`: there's no flight to follow them (#511).
+      UndefinedOr.map(builtProjection(), (projection) => onCleanup(projection.registerValues(element, () => snapshot.values)))
       // Its exit is drawn through its template (#443): it rides in its presence record, whose drawn
       // values the projection reads as it leaves. A later one is written with the values it holds, so
       // the commit that may take its Starting style off holds them.
@@ -590,8 +596,14 @@ export function runSpine(opts: RunSpineOptions): void {
       let layoutHandle: ProjectionSystem.NodeHandle | undefined
       // What every release runs on, the layout node's Release offset and the drag track's (ADR-0016, *Amendment (#140)*).
       const dragTransition = dragTransitionOf(c0.dragElastic, c0.dragTransition)
-      if (wantsLayoutNode(c0)) {
-        layoutHandle = useLayoutMember(
+      // Its section's `layout` makes its node (#511): without it, its layout props do nothing, and
+      // development says so once, unless `layout` is on its way.
+      if (DEV && wantsLayoutNode(c0) && Predicate.isUndefined(layoutProjection) && Bool.not(untrack(features.pending))) {
+        useFeatureRegistry().warnOnce("layout", missingMessage("layout", LAYOUT_PROPS, "@wardic/solid"))
+      }
+      if (wantsLayoutNode(c0) && Predicate.isNotUndefined(layoutProjection)) {
+        layoutHandle = layoutMemberOf(
+          layoutProjection,
           layoutOptionsOf({
             id,
             element,

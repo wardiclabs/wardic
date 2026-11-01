@@ -300,7 +300,7 @@ Which parts of an element's layout change its **FLIP** animates. With `true`, it
 _Avoid_: layout type, animation type.
 
 **Projection system**:
-`@wardic/dom`'s engine for the **Projection**, one per Environment a binding builds: it holds every **Projection node**, runs the **Measure pass** and the per-frame projection pass, and owns `layoutId` matching. A binding gets it as a service, built by its Layer and ended by its Scope (#132).
+`@wardic/dom`'s engine for the **Projection**, one per Environment a binding builds: it holds every **Projection node**, runs the **Measure pass** and the per-frame projection pass, and owns `layoutId` matching. A binding gets it as a service, built by its Layer and ended by its Scope (#132): the `layout` **Feature**'s, so an app with no layout animation builds none (#511).
 _Avoid_: projection engine, layout engine.
 
 **Projection node**:

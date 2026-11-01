@@ -19,6 +19,7 @@ import type * as Renderer from "@wardic/core/Renderer"
 import * as FlushGate from "@wardic/dom/FlushGate"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Report from "@wardic/dom/Report"
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import type * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
@@ -59,6 +60,19 @@ export type WardicServices =
 /** The `ManagedRuntime` flavour built from a {@link WardicEnv}. */
 export type WardicRuntime = ManagedRuntime.ManagedRuntime<WardicServices, never>
 
+/**
+ * What a client provider hands its projection system (#511): whether reduced motion applies now
+ * (ADR-0029), and the app's scale correctors (#443). The `layout` Feature's Layer reads it from the
+ * provider's runtime, as the projection system is no longer built with it.
+ */
+export class ProjectionOptions extends /*#__PURE__*/ Context.Service<ProjectionOptions, ProjectionSystem.Options>()("@wardic/solid/ProjectionOptions") {}
+
+/** What a provider's runtime holds: its Environment, and its flush gate and projection options over it. */
+export type ProviderServices = WardicServices | FlushGate.FlushGate | ProjectionOptions
+
+/** A provider's runtime, as its Features build on it. */
+export type ProviderRuntime = ManagedRuntime.ManagedRuntime<ProviderServices, never>
+
 /** A server render's Positional keys: it builds no runtime, and reduced motion never applies there. */
 export const SERVER_POSITIONAL_KEYS: ReducedMotion.PositionalKeys["Service"] = { isPositional: ReducedMotion.isTransform }
 
@@ -72,7 +86,11 @@ export const SERVER_DEFAULT_TRANSITION: DefaultTransition.DefaultTransition["Ser
 export interface WardicContextValue {
   readonly runtime: WardicRuntime
   readonly gate: FlushGate.Shape
-  /** `undefined` during a server render, which builds no projection system (ADR-0021). */
+  /**
+   * Its projection system (ADR-0009), once its `layout` Feature is built (#511): by an element whose
+   * section has it, or a component that brings it. Read as it's needed, so nothing waits on it; and
+   * `undefined` until then, as during a server render, which builds none (ADR-0021).
+   */
   readonly projection: ProjectionSystem.Shape | undefined
   /** Whether reduced motion applies now (ADR-0029): read when each animation starts. */
   readonly reducedMotion: () => boolean
@@ -101,7 +119,6 @@ export interface WardicContextValue {
 /** What a client provider builds on first need (#51): everything in its context but the runtime. */
 interface Built {
   readonly gate: FlushGate.Shape
-  readonly projection: ProjectionSystem.Shape
   readonly reducedMotion: () => boolean
   readonly reducedMotionUnder: (setting: ReducedMotion.Config | undefined) => boolean
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
@@ -111,9 +128,10 @@ interface Built {
 /**
  * A client provider's runtime and context value. The runtime is made once from `env`, over which
  * it builds the flush gate, running a frame's Starting-style switches through `batch` (ADR-0034:
- * Solid 1's `batch`, Solid 2's apply-then-`flush()`), and the projection system writing through it
- * (#132, ADR-0041): services built by their Layers and ended by its Scope, the projection system
- * before the gate. Making it builds nothing (it's Effect's `ManagedRuntime`).
+ * Solid 1's `batch`, Solid 2's apply-then-`flush()`), a service built by its Layer and ended by its
+ * Scope (#132, ADR-0041). Making it builds nothing (it's Effect's `ManagedRuntime`). The projection
+ * system is the `layout` Feature's (#511), built on the runtime when it's first needed, and ended
+ * before it.
  *
  * The rest is built on first need (#51, ADR-0021 *Amendment (#51)*): together, the first time a
  * Wardic element or hook reads any of it from the context value, which is during the first
@@ -130,7 +148,7 @@ export const clientContext = (
   const build = (): Built => {
     if (Predicate.isNotUndefined(built)) return built
     // The flush gate, one per WardicProvider (ADR-0006): reading it builds the runtime, the
-    // Environment, the gate and the projection system together.
+    // Environment and the gate together.
     const gate = runtime.runSync(FlushGate.FlushGate)
     // Whether reduced motion applies now (ADR-0029): the app's setting (a `WardicConfig`'s, #434, else
     // the provider's) and the user's preference through the Probe's atom. Read when each animation
@@ -146,31 +164,28 @@ export const clientContext = (
     // What a key with no transition of its own runs on: the Environment's Default transition
     // (ADR-0051), read once too.
     const defaultTransition = runtime.runSync(DefaultTransition.DefaultTransition)
-    // The box-based projection system (ADR-0009), provider-owned like the gate: the projection nodes,
-    // the coordinator (a run on the Frame loop), and `layoutId` matching end to end, so `layoutId`
-    // works with no `<LayoutGroup>` (Motion parity) and the binding keeps no registry.
-    const projection = runtime.runSync(ProjectionSystem.ProjectionSystem)
-    built = { gate, projection, reducedMotion: applies, reducedMotionUnder: under, positionalKeys, defaultTransition }
+    built = { gate, reducedMotion: applies, reducedMotionUnder: under, positionalKeys, defaultTransition }
     return built
   }
-  const runtime = ManagedRuntime.make(
-    ProjectionSystem.layer({ reducedMotion: () => build().reducedMotion(), scaleCorrectors }).pipe(
-      Layer.provideMerge(FlushGate.layer({ batch })),
-      Layer.provideMerge(env),
-    ),
+  // What the `layout` Feature builds its projection system with (#511): reduced motion read as each
+  // layout animation starts, and the app's scale correctors.
+  const projectionOptions: ProjectionSystem.Options = { reducedMotion: () => build().reducedMotion(), scaleCorrectors }
+  const runtime: ProviderRuntime = ManagedRuntime.make(
+    Layer.merge(FlushGate.layer({ batch }), Layer.succeed(ProjectionOptions)(projectionOptions)).pipe(Layer.provideMerge(env)),
   )
+  const features = clientRegistry(runtime)
   // Its Instant changes (#443), timed by its Environment's Refresh frames, found at the first.
   const instant = makeInstantAnimations(() => runtime.runSync(RefreshFrameSource.RefreshFrameSource).requestFrame)
   return {
     runtime,
     reducedMotionSetting: reducedMotion,
     instant,
-    features: clientRegistry(runtime),
+    features,
     get gate() {
       return build().gate
     },
     get projection() {
-      return build().projection
+      return projectionIn(features.built())
     },
     get reducedMotion() {
       return build().reducedMotion
@@ -239,15 +254,9 @@ export const fromContext = <A>(value: WardicContextValue | undefined, name: stri
   return pick(value)
 }
 
-/**
- * The projection system off a provider's context value (ADR-0009), or a clear error outside one
- * or during a server render, which builds none (ADR-0021).
- */
-export const projectionOf = (value: WardicContextValue | undefined): ProjectionSystem.Shape =>
-  fromContext(value, "useWardicProjection", (v) => {
-    if (Predicate.isUndefined(v.projection)) throw new Error("useWardicProjection: there is no projection system during a server render (ADR-0021)")
-    return v.projection
-  })
+/** The projection system among `services`, the `layout` Feature's (#511), or `undefined` when they hold none. */
+export const projectionIn = (services: Context.Context<never>): ProjectionSystem.Shape | undefined =>
+  Option.getOrUndefined(Context.getOption(services as Context.Context<ProjectionSystem.ProjectionSystem>, ProjectionSystem.ProjectionSystem))
 
 /**
  * A **Declared layout change**: run `fn`, and animate the layout change it makes. Returns `fn`'s
@@ -264,9 +273,19 @@ const runOnly: AnimateLayout = (fn, options = NO_OPTIONS) => {
   return result
 }
 
-/** A provider's `animateLayout` (#4, ADR-0038), or `fn` just run during a server render. */
+/**
+ * A provider's `animateLayout` (#4, ADR-0038), its projection system's read at each call (#511): `fn`
+ * just run until a section builds `layout`, as with no layout element there's nothing to animate, and
+ * during a server render.
+ */
 export const animateLayoutOf = (value: WardicContextValue | undefined): AnimateLayout =>
-  fromContext(value, "useAnimateLayout", (v) => UndefinedOr.match(v.projection, { onUndefined: () => runOnly, onDefined: (projection) => projection.animateLayout }))
+  fromContext(
+    value,
+    "useAnimateLayout",
+    (v): AnimateLayout =>
+      (fn, options) =>
+        UndefinedOr.match(v.projection, { onUndefined: () => runOnly(fn, options), onDefined: (projection) => projection.animateLayout(fn, options) }),
+  )
 
 /**
  * A fiber's effect as `runScoped` runs it: a failure logged at Error, `wardic.runScoped: a fiber

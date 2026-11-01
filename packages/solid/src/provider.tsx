@@ -36,13 +36,13 @@ import { type ServerAppear, serverAppear } from "./appear.ts"
 import * as Context from "effect/Context"
 import { type Feature, type FeatureRegistry, type FeatureSection, type FeaturesProp, ROOT, strictMessage } from "./feature.ts"
 import { FeatureSectionProvider, sectionUnder, useLazySection } from "./feature-section.ts"
+import { projectionBrought } from "./features/layout.ts"
 import {
   type AnimateLayout,
   animateLayoutOf,
   clientContext,
   fromContext,
   interrupted,
-  projectionOf,
   reducedMotionSettingWith,
   reducedMotionWith,
   reported,
@@ -372,12 +372,22 @@ export function useWardicReducedMotionSetting(): () => ReducedMotion.Config {
 }
 
 /**
- * Reads the provider-owned projection system (ADR-0009 — the box-based layout
- * engine). Throws a clear, named error outside a `WardicProvider`. Must be called
- * within a Solid owner.
+ * Reads the provider's projection system (ADR-0009 — the box-based layout engine), bringing the
+ * `layout` Feature (#511, decision 12): built now if nothing has built it yet. For a component that
+ * brings it (`LayoutGroup`, `Reorder`, `useLayoutMember`). Throws a clear, named error outside a
+ * `WardicProvider`, or during a server render. Must be called within a Solid owner.
  */
 export function useWardicProjection(): ProjectionSystem.Shape {
-  return projectionOf(useContext(WardicContext))
+  return fromContext(useContext(WardicContext), "useWardicProjection", projectionBrought)
+}
+
+/**
+ * The provider's projection system once its `layout` Feature is built (#511), read as it's needed;
+ * `undefined` until then, and during a server render. For what brings no `layout` and works with the
+ * layout elements that are there: an element registering its values, a presence. Internal.
+ */
+export function useBuiltProjection(): () => ProjectionSystem.Shape | undefined {
+  return fromContext(useContext(WardicContext), "useBuiltProjection", (value) => () => value.projection)
 }
 
 /**

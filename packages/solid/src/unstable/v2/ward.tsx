@@ -88,7 +88,7 @@ import { MOTION_PROPS_V2, type SolidOneCallback } from "../../motion-props.ts"
 import { trackConstraintsOf } from "../../drag-constraints.ts"
 import { inViewOptionsOf } from "../../gesture-callbacks.ts"
 import { driveDragTrack } from "../../drag-track.ts"
-import type { WardicServices } from "../../runtime.ts"
+import { projectionIn, type WardicServices } from "../../runtime.ts"
 import type { WardCheckedConfig, WardKey, WardValueOf } from "../../ward-keys.ts"
 import { createElementStyle } from "../../element-style.ts"
 import { createLiveStyle, type LiveSource, readLive, serverRegistryOf, split } from "../../live-style.ts"
@@ -143,14 +143,14 @@ import {
   useWardicGate,
   useWardicPositionalKeys,
   useWardicDefaultTransition,
-  useWardicProjection,
+  useBuiltProjection,
   useWardicReducedMotion,
   useWardicRuntime,
   useWardicSkipAnimations,
   useElementFeatures,
   useFeatureRegistry,
 } from "./provider.tsx"
-import { type Feature, type FeatureRegistry, type FeatureSection, missingMessage, unreadColorIn } from "../../feature.ts"
+import { type Feature, type FeatureRegistry, type FeatureSection, LAYOUT_PROPS, missingMessage, unreadColorIn } from "../../feature.ts"
 import { ALL } from "../../features/all.ts"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
@@ -801,7 +801,11 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   // A server render takes the lean path: the Starting style only, no spine (ADR-0021).
   if (isServer) return serverWard(config, internal)
   const gate = useWardicGate()
-  const projection = useWardicProjection()
+  // Its section's projection system, the `layout` Feature's (#511): `undefined` without it. Read now,
+  // which builds the Features given to its section at once: the first element to ask builds them.
+  const layoutProjection = projectionIn(untrack(features.services))
+  // The provider's, once any section has built it: what its values register with.
+  const builtProjection = useBuiltProjection()
   const reducedMotion = useWardicReducedMotion()
   // Whether its animations are skipped (#468): its nearest WardicConfig's, read as each starts.
   const skipAnimations = useWardicSkipAnimations()
@@ -926,9 +930,15 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     )
   }
 
-  // Its layout node (ADR-0009): whether it has one, decided at setup, as `layout` is read once, and
-  // what a release runs on, its Release offset (ADR-0016, *Amendment (#140)*).
-  const layoutMember = wantsLayoutNode(initialConfig)
+  // Its layout node (ADR-0009): the projection system it registers one with, decided at setup, as
+  // `layout` is read once, and what a release runs on, its Release offset (ADR-0016, *Amendment
+  // (#140)*). Its section's `layout` makes its node (#511): without it, its layout props do nothing,
+  // and development says so once, unless `layout` is on its way.
+  const wantsNode = wantsLayoutNode(initialConfig)
+  if (DEV && wantsNode && Predicate.isUndefined(layoutProjection) && Bool.not(untrack(features.pending))) {
+    useFeatureRegistry().warnOnce("layout", missingMessage("layout", LAYOUT_PROPS, "@wardic/solid/unstable/v2"))
+  }
+  const layoutNodes = Bool.match(wantsNode, { onTrue: () => layoutProjection, onFalse: constUndefined })
   const dragTransition = dragTransitionOf(initialConfig.dragElastic, initialConfig.dragTransition)
 
   // The element, set by the ref during render. Its write is the one a ward makes in an owned scope: a
@@ -1180,7 +1190,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     const registered = registeredValuesOf(templateAtMount)
     const unregister = gate.register(id, releasingAppear(withOnUpdate({ target: el, ...elementStyle.hooks }, configNow().onUpdate, configNow), handoff, el), registered)
     // Its values, for the projection's flights (ADR-0012 *Amendment (#137)*).
-    const unregisterValues = projection.registerValues(el, () => snapshot.values)
+    // None while no section has `layout`: there's no flight to follow them (#511).
+    const unregisterValues = UndefinedOr.match(builtProjection(), { onUndefined: () => constVoid, onDefined: (projection) => projection.registerValues(el, () => snapshot.values) })
     const links = startLinksOf(el, styleNow, live)
     // Its exit record, under an <AnimatePresence>: the presence removes it once the exit settles.
     const presenceRecord = UndefinedOr.map(presence, (registrar) => {
@@ -1209,35 +1220,32 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     // Its layout animations' starts and landings, and its drag's release at rest, go to the lifecycle,
     // for `next("layoutStart")`, `next("layoutComplete")` and `next("dragTransitionEnd")` (#257, #273):
     // Solid 2 has no props for them.
-    const layout = Bool.match(layoutMember, {
-      onTrue: () => {
-        const started = (): void => lifecycle.layoutStarted()
-        const completed = (): void => lifecycle.layoutCompleted()
-        const released = (): void => lifecycle.released()
-        return projection.register(
-          registrationOf({
-            ...layoutOptionsOf({
-              id,
-              element: el,
-              config: configNow,
-              parent: node.inherited,
-              snapshot,
-              dragTransition,
-              raiseWhileDragged: internal.raiseWhileDragged === true,
-              taken,
-              layoutGroup,
-              reducedMotion,
-              skipAnimations,
-              heldTransform: heldTransformFor(snapshot, templateAtMount, () => template),
-            }),
-            onLayoutAnimationStart: () => started,
-            onLayoutAnimationComplete: () => completed,
-            // Its drag's Release offset at rest, for `next("dragTransitionEnd")` (#273).
-            onReleaseEnd: () => released,
+    const layout = UndefinedOr.map(layoutNodes, (projection) => {
+      const started = (): void => lifecycle.layoutStarted()
+      const completed = (): void => lifecycle.layoutCompleted()
+      const released = (): void => lifecycle.released()
+      return projection.register(
+        registrationOf({
+          ...layoutOptionsOf({
+            id,
+            element: el,
+            config: configNow,
+            parent: node.inherited,
+            snapshot,
+            dragTransition,
+            raiseWhileDragged: internal.raiseWhileDragged === true,
+            taken,
+            layoutGroup,
+            reducedMotion,
+            skipAnimations,
+            heldTransform: heldTransformFor(snapshot, templateAtMount, () => template),
           }),
-        )
-      },
-      onFalse: constUndefined,
+          onLayoutAnimationStart: () => started,
+          onLayoutAnimationComplete: () => completed,
+          // Its drag's Release offset at rest, for `next("dragTransitionEnd")` (#273).
+          onReleaseEnd: () => released,
+        }),
+      )
     })
     // A `<Reorder>` item's group registers the node, until the unmount.
     const handedOver = UndefinedOr.map(layout, (handle) => UndefinedOr.map(internal.onLayoutHandle, (onHandle) => onHandle(handle)))
@@ -1378,7 +1386,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   // A `layoutDependency` change re-measures its layout node (not at mount: it measures as it registers).
   // Only a change of its value: a memo, since a Solid 2 effect applies on every re-run of its compute,
   // and `cfg()` is re-read on any of the config's changes (a `style` change re-measured, #209 PR 5's lab).
-  if (layoutMember) {
+  if (Predicate.isNotUndefined(layoutNodes)) {
     const dependency = createMemo(() => cfg().layoutDependency, CLIENT_ONLY)
     createEffect(
       dependency,

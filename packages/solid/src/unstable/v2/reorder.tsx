@@ -55,6 +55,8 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import { dynamic, isServer, type JSX } from "@solidjs/web"
 import { type Accessor, type Component, createContext, createEffect, createMemo, createSignal, flush, omit, onCleanup, untrack, useContext } from "solid-js"
 import { MOTION_PROPS_V2 as MOTION_PROPS, type WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
+import type { Feature } from "../../feature.ts"
+import { layout } from "../../features/layout.ts"
 import type { WardicRuntime } from "../../runtime.ts"
 import { watchItemInput } from "../../reorder-input.ts"
 import { changesContext } from "../../variant-tree.ts"
@@ -234,6 +236,9 @@ interface ReorderItemOwn<V> {
 }
 
 /** An item's own keys read per key (#259); the rest are its ward's, which reads them itself. */
+/** What an item brings (ADR-0067 decision 12): its layout node, whatever its section has (#511). */
+const ITEM_BRINGS: ReadonlyArray<Feature> = [layout]
+
 const ITEM_VIEW = configView<ReorderItemOwn<unknown>>(["value", "layout", "tabindex", "aria-describedby"], [])
 
 /** An item's `layout` as its Layout mode: `"position"`, else `true` (ADR-0009, *Amendment (#42)*). */
@@ -509,7 +514,7 @@ const reorderItemWith = <V,>(list: ReorderGroup<V>, config: ReorderItemConfig<V>
   // On a server the item renders the drag defaults with its group's touch-action, and joins no
   // controller (ADR-0021); the instructions element exists on the client only.
   if (isServer) {
-    const row = wardWith(wardConfig, { tag, dragAxis: () => true, baseStyle: touchAction, fixed, group: list, parent })
+    const row = wardWith(wardConfig, { tag, brings: ITEM_BRINGS, dragAxis: () => true, baseStyle: touchAction, fixed, group: list, parent })
     return withSpreadProps(Object.defineProperties(row, { [REORDER_ITEM]: { value: list } }), keyboardAttributes(list, cfg, constUndefined))
   }
   const runtime = useWardicRuntime()
@@ -533,6 +538,7 @@ const reorderItemWith = <V,>(list: ReorderGroup<V>, config: ReorderItemConfig<V>
   )
   const row = wardWith(wardConfig, {
     tag,
+    brings: ITEM_BRINGS,
     fixed,
     group: list,
     parent,

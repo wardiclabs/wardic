@@ -52,13 +52,13 @@ export type Options = internal.ProjectionSystemOptions
 export type Services = internal.ProjectionServices
 
 /** The Environment's Projection system. */
-export class ProjectionSystem extends Context.Service<ProjectionSystem, Shape>()("@wardic/dom/ProjectionSystem") {}
+export class ProjectionSystem extends /*#__PURE__*/ Context.Service<ProjectionSystem, Shape>()("@wardic/dom/ProjectionSystem") {}
 
 /**
  * Build the engine over `sink`, the context's Frame loop and Renderer, in the current Scope: what
  * it forks runs in that Scope, and closing it ends the engine.
  */
-export const make: (sink: Sink, options?: Options) => Effect.Effect<Shape, never, Services | Scope.Scope> = Effect.fnUntraced(
+export const make: (sink: Sink, options?: Options) => Effect.Effect<Shape, never, Services | Scope.Scope> = /*#__PURE__*/ Effect.fnUntraced(
   function* (sink: Sink, options: Options = {}) {
     // The same object the engine's own lookups key on (`onPassEnd`), typed without `dispose`:
     // the Scope ends it. Its runner forks on Effect's default scheduler, whatever call built the

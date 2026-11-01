@@ -45,10 +45,19 @@ export type { UseLayoutMemberOptions } from "./layout-member.ts"
  * engine-side (ADR-0010 *Amendment (#13)*), so there is no registry, ownership
  * token or layout read here.
  *
+ * It brings the `layout` Feature (#511), whatever its section has: a Slim element's own layout node is
+ * its section's.
+ *
  * Must be called within a Solid owner (registers `createEffect` / `onCleanup`).
  */
-export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionSystem.NodeHandle => {
-  const handle = useWardicProjection().register(registrationOf(opts))
+export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionSystem.NodeHandle => layoutMemberOf(useWardicProjection(), opts)
+
+/**
+ * {@link useLayoutMember} on `projection`: an element's, its section's `layout` Feature's (#511), where
+ * `useLayoutMember` brings it. Internal.
+ */
+export const layoutMemberOf = (projection: ProjectionSystem.Shape, opts: UseLayoutMemberOptions): ProjectionSystem.NodeHandle => {
+  const handle = projection.register(registrationOf(opts))
   onCleanup(handle.dispose)
   createEffect(on(() => opts.layoutDependency(), () => handle.notify(), { defer: true }))
   return handle // ADR-0016: the spine forwards the drag methods to runDragTrack

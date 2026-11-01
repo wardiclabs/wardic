@@ -60,6 +60,30 @@ For scale, Motion's docs (*Reduce bundle size*, Rollup bundles): the `motion` co
 
 The mechanism adds 3.6 KB minified to every Wardic app (its registry, sections and `LazyWardic`), about 1 KB gzipped. The Slim element's base is still most of the binding: `layout` and the gestures are the next two PRs.
 
+**`layout`** (PR 3 of #511, decision 15's second):
+- **The projection system leaves the provider's runtime** for the `layout` Feature (`features/layout.ts`). Its Layer builds `ProjectionSystem.make` over the provider's flush gate, with the provider's reduced motion and scale correctors, which a `ProjectionOptions` service in the runtime carries. It's built once per provider, the first time an element whose section has it asks or a component brings it, in the Features' Scope, so it still ends before the gate.
+- **Who makes layout nodes:** an element whose section has `layout`. Without it, its layout props (`layout`, `layoutId`, `layoutScroll`, `layoutRoot`) do nothing, and development says so once per provider. Its node is made as it mounts, its layout props being read once: an element mounted while `layout` is on its way gets none.
+- **Who brings it** (decision 12): `LayoutGroup`, for its `layoutDependency`; each `Reorder.Item`, for its own node; `Reorder.Group`; `useLayoutMember` and `useWardicProjection`. `LayoutGroup` brings it for itself, not for its children: giving them a section would add a context Provider, and with it a level to every Solid 1 hydration key below (PR 2's SV15).
+- **What works with it when it's there, and brings none,** refining decision 15's "the layout hooks bringing it":
+  - every element's values registration (ADR-0012 *Amendment (#137)*);
+  - the presence: its crossfades, hand-backs, kept leavers, take-overs' boxes and `presenceAffectsLayout`;
+  - `animateLayout`, the Instant changes and the Projection reset.
+
+  Each reads the provider's projection system as it's used, whichever section built it. Until then there's no layout node to act on, so `animateLayout` runs `fn` and settles, as during a server render. A hook that brought it would ship the projection system in an app that loads `layout` lazily. Without it, a popped leaver isn't kept where it was seen across a scroll (ADR-0048 *Amendment (#480)*), which is Motion's behaviour.
+- **Two fixes:**
+  - The providers' `animateLayout` read the projection system once, when the hook was called: one taken before the first layout element mounted would only ever run `fn`. It reads it at each call now.
+  - PR 2's sections built the Features given at once only when something read them, and no element did: a `w.div` under `features={[colors]}` read no wide-gamut colour. Each element now reads its section's Features as it mounts.
+- **Marks:** `ProjectionSystem.ts`'s class and `make` are marked `/*#__PURE__*/`, so a Slim app can import the module's key without the engine.
+
+| App, gzipped KB | Solid 1 | Solid 2 |
+|---|---|---|
+| Slim element alone (PR 2 → PR 3) | 156.8 → 135.5 (−13.6%) | 193.2 → 171.8 (−11.1%) |
+| Slim element with `layout` | 157.0 | 193.2 |
+| Complete element | 161.9 → 161.9 | 198.2 → 198.2 |
+| Complete element in `AnimatePresence` | 168.3 → 168.6 (+0.2%) | 204.9 → 205.2 (+0.1%) |
+
+dom's share of a Slim app falls by 70.6 KB minified. The presence's view of the projection system, built to work without one, adds 0.7–0.9 KB minified to an app with `AnimatePresence`.
+
 ## Consequences
 
 - A new user's `wardic.*` app is the same size as before; the savings are for apps that move to `w.*`.

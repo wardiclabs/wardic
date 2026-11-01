@@ -7,5 +7,6 @@
  */
 import type { Feature } from "../feature.ts"
 import { colors } from "./colors.ts"
+import { layout } from "./layout.ts"
 
-export const ALL: ReadonlyArray<Feature> = [colors]
+export const ALL: ReadonlyArray<Feature> = [colors, layout]

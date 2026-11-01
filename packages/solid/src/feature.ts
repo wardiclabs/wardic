@@ -26,18 +26,19 @@ import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { Reactivity } from "./reactivity.ts"
-import type { WardicServices } from "./runtime.ts"
+import type { ProviderRuntime, ProviderServices, WardicServices } from "./runtime.ts"
 
 /**
  * A **Feature** (#511): its name, the key of the service its Layer gives (what an element looks up),
- * and that Layer, built on the provider's runtime. `server` is what a server render, which builds no
- * runtime (ADR-0021), does with it: the `colors` Feature registers its colour spaces there too, as the
- * render reads colours; the rest do nothing.
+ * and that Layer, built on the provider's runtime: its Environment, its flush gate and its projection
+ * options. `server` is what a server render, which builds no runtime (ADR-0021), does with it: the
+ * `colors` Feature registers its colour spaces there too, as the render reads colours; the rest do
+ * nothing.
  */
 export interface Feature<I = any, S = any> {
   readonly name: string
   readonly key: Context.Key<I, S>
-  readonly layer: Layer.Layer<I, never, WardicServices>
+  readonly layer: Layer.Layer<I, never, ProviderServices>
   readonly server?: (() => void) | undefined
 }
 
@@ -196,6 +197,11 @@ export interface FeatureRegistry {
   readonly build: (features: ReadonlyArray<Feature>) => Context.Context<never>
   /** A section of exactly `features`, nothing on its way: one per list, a Complete element's (#511). */
   readonly section: (features: ReadonlyArray<Feature>) => FeatureSection
+  /**
+   * The services of every Feature built so far, whichever section asked: what a part of the provider
+   * that brings no Feature works with when one is there (the projection system, for a presence).
+   */
+  readonly built: () => Context.Context<never>
   /** Logs `message` at Warning the first time `feature` is named: development's word on a missing Feature. */
   readonly warnOnce: (feature: string, message: string) => void
   /** Ends every Feature built, the provider's runtime after (a Feature's Layer may stand on it). */
@@ -230,16 +236,18 @@ const sectionsAndWarnings = (build: (features: ReadonlyArray<Feature>) => Contex
  * `dispose` closes before it disposes the runtime, so a Feature ends before the Environment it stands
  * on. A list asked for again (the Complete element's every Feature) is joined once.
  */
-export const clientRegistry = (runtime: ManagedRuntime.ManagedRuntime<WardicServices, never>): FeatureRegistry => {
+export const clientRegistry = (runtime: ProviderRuntime): FeatureRegistry => {
   const scope = Scope.makeUnsafe()
   const built = new Map<Feature, Context.Context<never>>()
   const lists = new WeakMap<ReadonlyArray<Feature>, Context.Context<never>>()
+  let all = NONE
   const one = (feature: Feature): Context.Context<never> =>
     UndefinedOr.match(built.get(feature), {
       onDefined: (services) => services,
       onUndefined: () => {
         const services = runtime.runSync(Layer.buildWithMemoMap(feature.layer, runtime.memoMap, scope)) as Context.Context<never>
         built.set(feature, services)
+        all = Context.merge(all, services)
         return services
       },
     })
@@ -254,6 +262,7 @@ export const clientRegistry = (runtime: ManagedRuntime.ManagedRuntime<WardicServ
     })
   return {
     build,
+    built: () => all,
     ...sectionsAndWarnings(build, (message) => {
       runtime.runFork(Effect.logWarning(message))
     }),
@@ -276,7 +285,7 @@ export const serverRegistry = (runtime: ManagedRuntime.ManagedRuntime<WardicServ
     return NONE
   }
   // A server render says nothing: the client, rendering the same, does.
-  return { build, ...sectionsAndWarnings(build, constVoid), dispose: () => runtime.dispose() }
+  return { build, built: () => NONE, ...sectionsAndWarnings(build, constVoid), dispose: () => runtime.dispose() }
 }
 
 /**
@@ -303,6 +312,9 @@ export const unreadColorIn = (values: Readonly<Record<string, unknown>>): string
 export const strictMessage = (complete: string, slim: string): string =>
   `wardic: a Complete element (${complete}) is rendered under a strict WardicProvider or LazyWardic. ` +
   `It brings every Feature's code with it; render the Slim element (${slim}) instead.`
+
+/** What development's word on a missing `layout` Feature names (#511): the props that need it. */
+export const LAYOUT_PROPS = "A layout prop (`layout`, `layoutId`, `layoutScroll` or `layoutRoot`)"
 
 /**
  * Development's word on a missing Feature (#511, ADR-0067 decision 7): what needed it, its import from
