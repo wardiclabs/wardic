@@ -324,6 +324,117 @@ export interface AnyWard {
   readonly [WARD]: unknown
 }
 
+/**
+ * A ward's own state, read by the members it shares with every other ward (#525): what they need of
+ * it, and each member's closure once made.
+ */
+interface WardState {
+  readonly shared: () => WardShare
+  readonly Provider: (props: { readonly children?: JSX.Element }) => JSX.Element
+  readonly read: (key: string) => Accessor<unknown>
+  readonly atom: (key: string) => Atom.Atom<unknown>
+  readonly with: (own: WardWithProps) => WardProps
+  readonly lifecycle: Lifecycle
+  settled: Accessor<WardSettled | undefined> | undefined
+  tapped: Accessor<WardPressInfo | undefined> | undefined
+  next: (<E extends WardEvent>(name: E) => Promise<WardEvents[E]>) | undefined
+  each: (<E extends WardEvent>(name: E) => AsyncIterable<WardEvents[E]>) | undefined
+  when: (<E extends WardEvent>(name: E) => Accessor<WardEvents[E]>) | undefined
+}
+
+/** Where a ward keeps its {@link WardState}: on itself, not enumerable, so a spread never sees it. */
+const WARD_STATE: unique symbol = Symbol("wardic.wardState")
+
+/** A ward's {@link WardState}. */
+const stateOf = (ward: object): WardState => (ward as { readonly [WARD_STATE]: WardState })[WARD_STATE]
+
+/**
+ * The members every client ward shares (#525): one prototype over `Function.prototype`, so a ward is
+ * still a function, Solid's ref. Each is a getter: its closure is made at its first read and kept on
+ * that ward, so one taken off the ward still works and one never read is never made. A ward was
+ * given each as its own property, a descriptor and most a closure apiece, in one `defineProperties` a
+ * ward: the line a Solid 2 mount spent most in. A ward keeps `ref`, `style` and its attributes as its
+ * own, enumerable, as a spread and `Object.keys` read them.
+ */
+const WARD_MEMBER_KEYS: PropertyDescriptorMap = {
+  [WARD]: {
+    get(this: object): WardShare {
+      return stateOf(this).shared()
+    },
+  },
+  Provider: {
+    get(this: object): WardState["Provider"] {
+      return stateOf(this).Provider
+    },
+  },
+  read: {
+    get(this: object): WardState["read"] {
+      return stateOf(this).read
+    },
+  },
+  atom: {
+    get(this: object): WardState["atom"] {
+      return stateOf(this).atom
+    },
+  },
+  with: {
+    get(this: object): WardState["with"] {
+      return stateOf(this).with
+    },
+  },
+  settled: {
+    get(this: object): Accessor<WardSettled | undefined> {
+      const state = stateOf(this)
+      if (Predicate.isNotUndefined(state.settled)) return state.settled
+      const lifecycle = state.lifecycle
+      state.settled = () => lifecycle.read()
+      return state.settled
+    },
+  },
+  tapped: {
+    get(this: object): Accessor<WardPressInfo | undefined> {
+      const state = stateOf(this)
+      if (Predicate.isNotUndefined(state.tapped)) return state.tapped
+      const lifecycle = state.lifecycle
+      state.tapped = () => lifecycle.tapped()
+      return state.tapped
+    },
+  },
+  next: {
+    get(this: object): NonNullable<WardState["next"]> {
+      const state = stateOf(this)
+      if (Predicate.isNotUndefined(state.next)) return state.next
+      const lifecycle = state.lifecycle
+      const next = <E extends WardEvent>(name: E): Promise<WardEvents[E]> => lifecycle.wait(name)
+      state.next = next
+      return next
+    },
+  },
+  each: {
+    get(this: object): NonNullable<WardState["each"]> {
+      const state = stateOf(this)
+      if (Predicate.isNotUndefined(state.each)) return state.each
+      const lifecycle = state.lifecycle
+      const each = <E extends WardEvent>(name: E): AsyncIterable<WardEvents[E]> => lifecycle.each(name)
+      state.each = each
+      return each
+    },
+  },
+  when: {
+    get(this: object): NonNullable<WardState["when"]> {
+      const state = stateOf(this)
+      if (Predicate.isNotUndefined(state.when)) return state.when
+      const lifecycle = state.lifecycle
+      const when = <E extends WardEvent>(name: E): Accessor<WardEvents[E]> => lifecycle.when(name)
+      state.when = when
+      return when
+    },
+  },
+}
+
+/** {@link WARD_MEMBER_KEYS} on one prototype over `Function.prototype`. */
+const WARD_MEMBERS: object = /*#__PURE__*/ Object.create(Function.prototype, WARD_MEMBER_KEYS)
+
 /** `ward(config, options)`'s options (#349). */
 export interface WardOptions {
   /**
@@ -1606,26 +1717,31 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     if (Predicate.isUndefined(spread)) spread = spreadOfWard(self, { value: self, enumerable: true }, styleKey, attributes)
     return spread
   }
+  // Its members are the ones every ward shares (#525), reading this state: its own are `ref`, `style`
+  // and its attributes.
+  const state: WardState = {
+    shared: sharedNow,
+    Provider,
+    read,
+    atom: atomOf,
+    with: (own: WardWithProps): WardProps => {
+      given = own
+      withCallsOf()[1](undefined)
+      return spreadPropsOf({ ref: { value: withRef(own.ref, self), enumerable: true }, style: styleKey, ...attributes })
+    },
+    lifecycle,
+    settled: undefined,
+    tapped: undefined,
+    next: undefined,
+    each: undefined,
+    when: undefined,
+  }
+  Object.setPrototypeOf(self, WARD_MEMBERS)
   Object.defineProperties(self, {
-    [WARD]: { get: sharedNow },
+    [WARD_STATE]: { value: state },
     ref: { value: self, enumerable: true },
     style: styleKey,
     ...attributes,
-    Provider: { value: Provider },
-    read: { value: read },
-    atom: { value: atomOf },
-    settled: { value: () => lifecycle.read() },
-    tapped: { value: () => lifecycle.tapped() },
-    next: { value: <E extends WardEvent>(name: E) => lifecycle.wait(name) },
-    each: { value: <E extends WardEvent>(name: E) => lifecycle.each(name) },
-    when: { value: <E extends WardEvent>(name: E) => lifecycle.when(name) },
-    with: {
-      value: (own: WardWithProps): WardProps => {
-        given = own
-        withCallsOf()[1](undefined)
-        return spreadPropsOf({ ref: { value: withRef(own.ref, self), enumerable: true }, style: styleKey, ...attributes })
-      },
-    },
   })
   return self
 }
