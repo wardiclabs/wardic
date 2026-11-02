@@ -79,7 +79,7 @@ const UNNAMED = "\u0000unnamed"
  * function by its easing name (`Easing.nameOf`), else {@link UNNAMED}. Written directly, its cases
  * built once at module load: it runs per element (#69's PR 2).
  */
-const textOf: (value: unknown) => string = Match.type<unknown>().pipe(
+const textOf: (value: unknown) => string = /*#__PURE__*/ Match.type<unknown>().pipe(
   Match.when(Predicate.isFunction, (fn) => Option.match(Easing.nameOf(fn as Easing.Easing), { onNone: () => UNNAMED, onSome: (easing) => `{"easing":${JSON.stringify(easing)}}` })),
   Match.when(Array.isArray, (items) => `[${Arr.map(items as ReadonlyArray<unknown>, (item) => textOf(item)).join(",")}]`),
   Match.when(Predicate.isObject, (record) => {
@@ -118,7 +118,7 @@ const keyedTransitionOf = (m: MountAnimation): unknown =>
 const canonical = (value: unknown): Option.Option<string> => Option.filter(Option.some(textOf(value)), (text) => Bool.not(text.includes(UNNAMED)))
 
 /** Each mount animation's canonical starts, targets and transition, by its `from`: both its plays share one. */
-const baseKeys = new WeakMap<Values.Values, Option.Option<string>>()
+const baseKeys = /*#__PURE__*/ new WeakMap<Values.Values, Option.Option<string>>()
 
 /**
  * The mount animation's key: its starts, targets and transition as one canonical text, and whether
@@ -735,7 +735,7 @@ const playable = (el: ServerElement, to: Values.Values): Result.Result<{ readonl
 
 /** {@link playable}'s cases, built once at module load: it runs per element (#69's PR 2). */
 const playableMatch: (input: { readonly el: ServerElement; readonly to: Values.Values }) => Result.Result<{ readonly from: Values.Values; readonly to: Values.Values }, string> =
-  Match.type<{ readonly el: ServerElement; readonly to: Values.Values }>().pipe(
+  /*#__PURE__*/ Match.type<{ readonly el: ServerElement; readonly to: Values.Values }>().pipe(
     Match.when({ el: { appear: false } }, () => Result.fail("appear={false}")),
     Match.orElse(({ el, to }) =>
       Option.match(unplayable(el.initial, to), {
@@ -745,7 +745,7 @@ const playableMatch: (input: { readonly el: ServerElement; readonly to: Values.V
   )
 
 /** Whether a user style sets an `animation` of its own: the element's one CSS animation would be taken. */
-export const setsAnimation: (css: object | string | undefined) => boolean = Match.type<object | string | undefined>().pipe(
+export const setsAnimation: (css: object | string | undefined) => boolean = /*#__PURE__*/ Match.type<object | string | undefined>().pipe(
   Match.when(Predicate.isString, (text) => /(^|;)\s*animation(-name)?\s*:/i.test(text)),
   Match.when(Predicate.isObject, (record) => Bool.or(Object.hasOwn(record, "animation"), Object.hasOwn(record, "animationName"))),
   Match.orElse(() => false),

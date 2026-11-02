@@ -135,12 +135,12 @@ const SOLID_1_CALLBACKS = [
 export type SolidOneCallback = (typeof SOLID_1_CALLBACKS)[number]
 
 /** {@link MOTION_PROPS} on Solid 2 (#257): all but Solid 1's callbacks, so `onAnimationStart` on an element there is the DOM's. */
-export const MOTION_PROPS_V2 = Arr.filter(MOTION_PROPS, (prop) => Bool.not(Arr.contains(SOLID_1_CALLBACKS, prop))) as ReadonlyArray<
+export const MOTION_PROPS_V2 = /*#__PURE__*/ Arr.filter(MOTION_PROPS, (prop) => Bool.not(Arr.contains(SOLID_1_CALLBACKS, prop))) as ReadonlyArray<
   Exclude<(typeof MOTION_PROPS)[number], (typeof SOLID_1_CALLBACKS)[number]>
 >
 
-const MOTION_PROP_SET: ReadonlySet<string> = new Set(MOTION_PROPS)
-const MOTION_PROP_SET_V2: ReadonlySet<string> = new Set(MOTION_PROPS_V2)
+const MOTION_PROP_SET: ReadonlySet<string> = /*#__PURE__*/ new Set(MOTION_PROPS)
+const MOTION_PROP_SET_V2: ReadonlySet<string> = /*#__PURE__*/ new Set(MOTION_PROPS_V2)
 
 /**
  * Whether `key` is one of a Wardic element's motion props on Solid 1 (#443, Motion's

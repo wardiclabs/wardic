@@ -105,6 +105,21 @@ dom's share of a Slim app falls by 70.6 KB minified. The presence's view of the 
 
 core's share of a Slim app falls by 23.6 KB minified (`Recognizer`, `Drag`, `Inertia`, `InputFeed`), the binding's by 10.2 and dom's by 8.0. The Complete element pays about 2 KB minified for the lookups, under the gate's 1%.
 
+**The split's end** (PR 5 of #511, decision 15's fourth):
+- **`/*#__PURE__*/` measured again.**
+  - Every top-level call in core, dom and solid marked (319, by a script over the TypeScript AST) saved 1.2 KB gzipped on the Slim element's app, 2.6 on `hover`'s and 3.0 on `drag`'s. Before the split, the same marks saved 0.2 KB: the Complete element reached nearly everything they could have dropped.
+  - Per package: core's marks gave most of it, solid's about 0.5 KB, and dom's nothing.
+  - Diffing each app's source-map split with and without the marks found the modules they let Rollup drop: core's `Recognizer`, Effect's `RcRef` (through `SharedSource`), `PressClaims`, the stepper's option checks, and solid's `appear.ts` and `motion-props.ts`.
+  - 22 marks in those six modules, each reviewed as a pure construction (`Effect.fnUntraced`, `Context.Reference`, `Match` and `Predicate` combinators, `new WeakMap`/`new Set`, `Arr.filter`, and the builders `stepOf` and `cachedResolver`), give all of it. They ship. The rest don't: they change nothing in an app.
+- **The budget** (decision 10): the Slim element's base apps hold absolute budgets, 122 KB gzipped on Solid 1 and 159 on Solid 2, its sizes at the split's end with a little room. `bun run size` fails an app past its own budget, whatever its base, so changes each under the +1% gate can't add up.
+  - Decision 10's 105 KB budget, "once it's reached", and Q4's target move to #518, after v1. Wardic's focuses are, in order: performance, dev-friendly APIs, and extensibility to every environment JS runs in. Size comes after them.
+
+| App, gzipped KB | Solid 1 | Solid 2 |
+|---|---|---|
+| Complete element (#511 filed → the split's end) | 180.6 → 161.3 (−10.7%) | 216.9 → 197.7 (−8.9%) |
+| Slim element alone (PR 2 → the split's end) | 156.8 → 120.5 (−23.2%) | 193.2 → 156.9 (−18.8%) |
+| … with `hover` / `domAnimation` / `drag` | 125.5 / 127.4 / 132.2 | 162.0 / 163.8 / 168.6 |
+
 ## Consequences
 
 - A new user's `wardic.*` app is the same size as before; the savings are for apps that move to `w.*`.

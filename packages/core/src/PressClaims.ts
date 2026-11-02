@@ -79,6 +79,6 @@ export const make = (): Shape => {
 }
 
 /** The runtime's Press claims: one shared default instance unless a runtime provides its own. */
-export const PressClaims: Context.Reference<Shape> = Context.Reference<Shape>("@wardic/PressClaims", {
+export const PressClaims: Context.Reference<Shape> = /*#__PURE__*/ Context.Reference<Shape>("@wardic/PressClaims", {
   defaultValue: make,
 })

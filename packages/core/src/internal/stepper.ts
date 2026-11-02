@@ -69,7 +69,7 @@ export interface ResolvedTween {
 }
 
 /** An `ease` (#360, ADR-0052): one of Motion's names, a bézier's four numbers, or a function. */
-export const EaseDefinition: Check<Easing.Definition> = union([
+export const EaseDefinition: Check<Easing.Definition> = /*#__PURE__*/ union([
   literals(Easing.NAMES_LIST),
   tuple([finite, finite, finite, finite]),
   fn<Easing.Easing>("an easing function"),
@@ -83,7 +83,7 @@ const EASE_NOW = "`ease`: Wardic's `easing` is `ease` now, as Motion's (#360)"
  * hoisted into a constant gets past TypeScript's check for a key its type doesn't have, and would
  * otherwise lose its easing without a word.
  */
-export const NoEasing: Check<never> = make(EASE_NOW, Predicate.isUnknown, () => `Expected ${EASE_NOW}`)
+export const NoEasing: Check<never> = /*#__PURE__*/ make(EASE_NOW, Predicate.isUnknown, () => `Expected ${EASE_NOW}`)
 
 /** A tween's fields (#66; checked by hand since #511): `animate`'s bag adds its repeat modifiers to them. */
 export const TweenFields = {
@@ -107,7 +107,7 @@ export const resolvedTweenOf = (decoded: { readonly delay: number; readonly dura
  * or a leftover `easing` (#360), throws its `OptionError`. Public as `Machine.resolveTween`, Tier 3,
  * for dom's layout tween.
  */
-export const resolveTween: (options: TweenOptions) => ResolvedTween = cachedResolver(TweenFields, resolvedTweenOf)
+export const resolveTween: (options: TweenOptions) => ResolvedTween = /*#__PURE__*/ cachedResolver(TweenFields, resolvedTweenOf)
 
 export const initTween = (): TweenState => ({ elapsed: 0 })
 
@@ -268,7 +268,7 @@ export interface ResolvedDecay {
  * Fill in a decay's defaults: friction 3, rest below 0.1, no delay. Checked once a bag (#66): a
  * friction or rest speed at or below 0, or a non-finite value, throws its `OptionError`.
  */
-export const resolveDecay: (options: DecayOptions) => ResolvedDecay = cachedResolver(
+export const resolveDecay: (options: DecayOptions) => ResolvedDecay = /*#__PURE__*/ cachedResolver(
   {
     friction: field(positive, 3),
     restSpeed: field(positive, 0.1),
