@@ -7,10 +7,12 @@
 //   already mounted hovers.
 // - FGV4, `drag` given at once, under an Environment that gives its own input: the drag runs on that
 //   input. Without `drag`, `drag` does nothing, and development says so.
+// - FGV5 (#525), an element given no gesture key watches for a late gesture only from its first want:
+//   its `next("hoverStart")`, asked before `domAnimation` arrives lazily, is heard once it's here.
 import type { JSX } from "@solidjs/web"
 import * as InputSource from "@wardic/core/InputSource"
 import { DomLive } from "@wardic/dom"
-import { domAnimation, drag, type FeatureLoad, hover, LazyWardic, w, WardicProvider } from "@wardic/solid/unstable/v2"
+import { domAnimation, drag, type FeatureLoad, hover, LazyWardic, w, type Ward, WardicProvider } from "@wardic/solid/unstable/v2"
 import { TestInput } from "@wardic/test"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -127,6 +129,32 @@ describe("The gesture Features (#511), Solid 2", () => {
     await hoverUntil(el, () => opacityOf(el) > 0.5, 2000)
     await until(() => opacityOf(el) === 1, 2000)
     expect(opacityOf(el)).toBe(1)
+  })
+
+  it("FGV5: an element with no gesture key hears next('hoverStart'), asked before domAnimation arrives lazily", async () => {
+    let arrive!: () => void
+    const load: FeatureLoad = () =>
+      new Promise((resolve) => {
+        arrive = () => resolve(domAnimation)
+      })
+    let el!: HTMLElement
+    let card!: Ward
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <LazyWardic features={load}>
+          <w.div ref={(n: HTMLElement) => (el = n)} wardRef={(ward: Ward) => (card = ward)} style={BOX} initial={{ opacity: 0.2 }} animate={{ opacity: 0.2 }} />
+        </LazyWardic>
+      </WardicProvider>
+    ))
+    await settle()
+    let heard = false
+    void card.next("hoverStart").then(() => {
+      heard = true
+    })
+    arrive()
+    await wait(50)
+    await hoverUntil(el, () => heard, 2000)
+    expect(heard, "the hover started once its Feature arrived").toBe(true)
   })
 
   it("FGV4: `drag` runs on the Environment's own input; without `drag`, development says so", async () => {
