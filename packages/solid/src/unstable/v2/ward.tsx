@@ -62,7 +62,7 @@ import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Scope from "effect/Scope"
-import { constFalse, constUndefined, constVoid, identity, pipe } from "effect/Function"
+import { constFalse, constTrue, constUndefined, constVoid, identity, pipe } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -560,9 +560,21 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps, AnyW
 }
 
 /** What a `wardic.*` component or a `<Reorder>` item adds to a ward. Internal. */
+/**
+ * The config keys that want a gesture on Solid 2 (#525), as the ward's `wants*` read them: an element
+ * given none, its keys fixed, is `gestureless`. Pan is wanted only through the lifecycle.
+ */
+export const GESTURE_KEYS = ["whileHover", "whileTap", "whileInView", "whileFocus"] as const
+
 export interface WardInternals {
   /** Its tag, so an SVG element's attribute keys render as attributes. */
   readonly tag?: string | undefined
+  /**
+   * Its config can never want a gesture (#525): its keys are fixed and it was given none of
+   * `GESTURE_KEYS`. It watches for a late one only from its first want through its lifecycle (a
+   * `next("tap")`), so a Feature that arrives lazily still starts it.
+   */
+  readonly gestureless?: boolean | undefined
   /**
    * Set a drag element's defaults on the element at mount: a `wardic.create(Component)` wrap's,
    * whose component may not pass `style` and `draggable` on (as on the Solid 1 binding).
@@ -849,6 +861,16 @@ const configuredView = (view: WardConfigValues, config: WardicConfigValue | unde
   }) as WardConfigValues
 }
 
+/**
+ * Whether a node's `when` gate lets a Retarget start (ADR-0007), as a memo, so only a flip of it
+ * re-runs what reads it. A plain node's gate never shuts (its `canStart` is `constTrue`), so it has
+ * none (#525).
+ */
+const gateOf = (node: { readonly canStart: () => boolean }): Accessor<boolean> => {
+  if (node.canStart === constTrue) return constTrue
+  return createMemo(() => node.canStart(), CLIENT_ONLY)
+}
+
 /** A ward's lifecycle: a driving ward's is its given ward's (#349), any other its own, made now. */
 const lifecycleFor = (share: WardShare | undefined, owner: Owner | null, want: () => void): Lifecycle => {
   const shared = UndefinedOr.map(share, lifecycleOfShare)
@@ -1085,6 +1107,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     return NO_GESTURES
   }
   const dragging = (): boolean => gestures().dragging
+  // The keys these read are `GESTURE_KEYS` (#525).
   const wantsHover = (): boolean => Predicate.isNotUndefined(cfg().whileHover)
   const wantsPress = (): boolean => Predicate.isNotUndefined(cfg().whileTap)
   const wantsInView = (): boolean => Predicate.isNotUndefined(cfg().whileInView)
@@ -1148,6 +1171,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
 
   // A driving ward's are its given ward's (#349), whose `next` starts them on the element it drives.
   const lifecycle = lifecycleFor(share, owner, () => {
+    watchLateGestures()
     UndefinedOr.map(mounted, startRecognizers)
     UndefinedOr.map(driver, (d) => d.wanted())
   })
@@ -1520,13 +1544,23 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   // the two keys, so only their changes re-run it (#259).
   // Its section's Features are read there too, so a gesture's arriving lazily starts it (#511): each
   // start checks what's wanted.
-  createEffect(
-    () => ({ wanted: Bool.some([wantsHover(), wantsPress(), wantsInView(), wantsFocus()]), services: features.services() }),
-    () => {
-      UndefinedOr.map(mounted, startRecognizers)
-    },
-    CLIENT_ONLY_DEFERRED,
-  )
+  // An element whose config can never want one (`gestureless`, #525) makes it at its first want
+  // through its lifecycle instead: no computation an element until then.
+  let watchingLate = false
+  const watchLateGestures = (): void => {
+    if (watchingLate) return
+    watchingLate = true
+    runWithOwner(owner, () =>
+      createEffect(
+        () => ({ wanted: Bool.some([wantsHover(), wantsPress(), wantsInView(), wantsFocus()]), services: features.services() }),
+        () => {
+          UndefinedOr.map(mounted, startRecognizers)
+        },
+        CLIENT_ONLY_DEFERRED,
+      ),
+    )
+  }
+  if (internal.gestureless !== true) watchLateGestures()
 
   // A `layoutDependency` change re-measures its layout node (not at mount: it measures as it registers).
   // Only a change of its value: a memo, since a Solid 2 effect applies on every re-run of its compute,
@@ -1544,7 +1578,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
 
   // Whether the `when` gate lets a Retarget start (ADR-0007), as a memo: an element with variants of
   // its own reads its `when` off its config, and only a flip of the gate may re-run the effect.
-  const open = createMemo(() => node.canStart(), CLIENT_ONLY)
+  const open = gateOf(node)
 
   // Mount, then Retarget on each change of the target or of the `when` gate: both are read here,
   // so a gate's flip re-runs it and releases a held Retarget. Only once the ref has given the

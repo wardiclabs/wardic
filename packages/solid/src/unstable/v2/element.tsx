@@ -27,10 +27,10 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type ComponentProps, dynamic, isServer, type JSX, type ValidComponent } from "@solidjs/web"
-import { children, type Component, createEffect, omit, runWithOwner, untrack } from "solid-js"
+import { $PROXY, children, type Component, createEffect, createMemo, createOwner, omit, runWithOwner, untrack } from "solid-js"
 import { MOTION_PROPS_V2 as MOTION_PROPS, type WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
 import { changesContext, isVariantChild } from "../../variant-tree.ts"
-import { type AnyWard, shareOf, type Ward, WARD, type WardConfig, type WardConfigValues, wardConfigView, type WardInternals, type WardRead, type WardShare, type WardStyle, wardWith } from "./ward.tsx"
+import { type AnyWard, GESTURE_KEYS, shareOf, type Ward, WARD, type WardConfig, type WardConfigValues, wardConfigView, type WardInternals, type WardRead, type WardShare, type WardStyle, wardWith } from "./ward.tsx"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
 import type { WardicVariantLabels } from "../../config.ts"
 import type { DrivenKey, InferredMotion, TargetKey } from "../../ward-keys.ts"
@@ -354,7 +354,20 @@ export const formOf = <F extends object>(create: Create, extras: Readonly<Record
 
 /** `<form>.<tag>`: the element with a ward on it, the ward's Provider around it when it changes what its children read (#50). */
 const tagComponent = (tag: string, routing: string | undefined, forward: boolean, kind: WardInternals): Component<Record<string, unknown>> => {
-  const Element = dynamic(() => tag)
+  // Its tag never changes, so a static `dynamic()` makes none of its memos over it (#525). On a server,
+  // one memo of the element's own holds what `ssrElement` reads as it renders: a pending child or
+  // attribute (`{product().name}`) waits there, as at `dynamic()`'s, not thrown to the `<Loading>` to
+  // run its subtree again (AR14). A browser's render needs none: it renders under a plain owner, which
+  // takes the hydration id the server's memo took, and isn't a computation its effects run under.
+  const render = dynamic(() => tag, { static: true })
+  const Element = (props: Record<string, unknown>): JSX.Element => {
+    if (isServer) {
+      const rendered = createMemo(() => render(props))
+      // A component may return a memo, as `dynamic()`'s does; Solid 2's `JSX.Element` names no accessor.
+      return rendered as unknown as JSX.Element
+    }
+    return runWithOwner(createOwner(), () => render(props))
+  }
   const name = `wardic.${tag}`
   return (props) => {
     const own = props as WardicMotionProps & RefStyle & WardRefIn
@@ -367,15 +380,20 @@ const tagComponent = (tag: string, routing: string | undefined, forward: boolean
       const { ward: driving, setup } = drivenWard(name, own, given, { ...kind, tag: routing }, MOTION_PROPS)
       return withProvider(driving, setup, () => <Element {...rest} {...driving.with({ style: own.style })} ref={refsOf(own, [driving])} />)
     }
-    const ward = wardWith(own as WardConfig, { ...kind, tag: routing })
+    const ward = wardWith(own as WardConfig, { ...kind, tag: routing, gestureless: gesturelessOf(props) })
     if (Predicate.isFunction(wardRef)) wardRef(ward)
-    return withProvider(ward, wardConfigView(own as WardConfig), () => <Element {...rest} {...ward} ref={refsOf(own, [ward])} />)
+    // The ward's spread props, as an object: spread as the function it is, it's a source `merge` calls
+    // in a computation, whose keys `spread` can't know, so it inserts children too (#525).
+    const wardProps = ward()
+    return withProvider(ward, wardConfigView(own as WardConfig), () => <Element {...rest} {...wardProps} ref={refsOf(own, [ward])} />)
   }
 }
 
 /** `wardic.create(Component)`: the ward on the element the component forwards its `ref` to (ADR-0008). */
 const wrapComponent = (Wrapped: Component<Record<string, unknown>>, routing: string | undefined, forward: boolean, kind: WardInternals): Component<Record<string, unknown>> => {
-  const Element = dynamic(() => Wrapped)
+  // The component it wraps never changes, so a static `dynamic()` makes no memos over it (#525). A
+  // pending read the server's render meets waits at `checked`'s `children()` (AR24).
+  const Element = dynamic(() => Wrapped, { static: true })
   const name = `wardic.create(${Wrapped.name || "anonymous component"})`
   return (props) => {
     const own = props as WardicMotionProps & RefStyle & WardRefIn
@@ -415,10 +433,17 @@ const wrapComponent = (Wrapped: Component<Record<string, unknown>>, routing: str
       const { ward: driving, setup } = drivenWard(name, own, given, { ...kind, defaultsOnElement: true, tag: routing }, MOTION_PROPS)
       return withProvider(driving, setup, () => checked(() => <Element {...rest} {...driving.with({ style: own.style })} ref={refsOf(own, [driving, seen])} />))
     }
-    const ward = wardWith(own as WardConfig, { ...kind, defaultsOnElement: true, tag: routing })
+    const ward = wardWith(own as WardConfig, { ...kind, defaultsOnElement: true, tag: routing, gestureless: gesturelessOf(props) })
     if (Predicate.isFunction(wardRef)) wardRef(ward)
-    return withProvider(ward, wardConfigView(own as WardConfig), () => checked(() => <Element {...rest} {...ward} ref={refsOf(own, [ward, seen])} />))
+    const wardProps = ward()
+    return withProvider(ward, wardConfigView(own as WardConfig), () => checked(() => <Element {...rest} {...wardProps} ref={refsOf(own, [ward, seen])} />))
   }
+}
+
+/** Whether an element's config can never want a gesture (#525): its keys fixed, none of them a gesture's. */
+const gesturelessOf = (props: Record<string, unknown>): boolean => {
+  if ($PROXY in props) return false
+  return Bool.not(Arr.some(GESTURE_KEYS, (key) => key in props))
 }
 
 /** Whether a rendered node is an element. */

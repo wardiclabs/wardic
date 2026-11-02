@@ -42,6 +42,8 @@
 // - AR22 (#468): under a `WardicConfig`'s `skipAnimations`, a ward's and an element's rule is 0 s,
 //   holding its end, with no reduced play; a skipped Variant child holds no stagger.
 // - AR23 (#436): a `delayChildren: stagger()` times each Variant child's rule by its index.
+// - AR24 (#525): a wrapped component whose element takes its props by a spread, its child pending,
+//   is the shell's too: the pending read waits at the wrap's `children()`, its rule in the head.
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
@@ -653,5 +655,24 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
     const css = headCss(html)
     const delayIn = (k: string): number => Number(/s linear (-?[\d.]+)s/.exec(timing(css, propertyOf(tagsOf(html).find((t) => t.attrs["data-k"] === k)?.style.animation)).normal)?.[1] ?? Number.NaN)
     expect([delayIn("a"), delayIn("b"), delayIn("c")].map((d) => Math.round(d * 1000) / 1000), "from the centre").toEqual([0.1, 0, 0.1])
+  })
+
+  it("AR24: a wrapped component's pending child waits at its wrap, its rule in the head (#525)", async () => {
+    const Line = (p: JSX.HTMLAttributes<HTMLParagraphElement>) => <p {...p} />
+    const WLine = wardic.create(Line)
+    const writes = await stream(() => {
+      const later = after(20, "later")
+      return (
+        <Loading fallback={<i>loading</i>}>
+          <WLine data-k="wrapped" {...rise}>
+            {later()}
+          </WLine>
+        </Loading>
+      )
+    })
+    const chunk = writes.slice(1).find((w) => w.includes('data-k="wrapped"'))!
+    const line = tagsOf(chunk).find((t) => t.attrs["data-k"] === "wrapped")
+    expect(timing(headCss(writes[0]!), propertyOf(line?.style.animation)).normal, "in the head").not.toBe("")
+    expect(appearPatches(chunk), "nothing new in its chunk").toEqual([])
   })
 })
