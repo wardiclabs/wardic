@@ -99,9 +99,18 @@ export interface WardicSvgAttributes {
  * first, letting the `number | string` typing here win for them.
  */
 export type WardicValues =
-  & Omit<CSSProperties, keyof WardicTransformShorthands | keyof WardicSvgAttributes>
+  & Omit<CSSProperties, keyof WardicTransformShorthands | keyof WardicSvgAttributes | DomRenderer.LengthKey>
+  & WardicLengths
   & WardicTransformShorthands
   & WardicSvgAttributes
+
+/**
+ * The CSS lengths a value takes a bare number on, drawn in `px` (#522, Motion's `animate={{ height: 200 }}`):
+ * the DOM renderer's `LENGTH_KEYS`, so a number typechecks only where it's drawn as a length. Every
+ * other length takes `csstype`'s value, `0` or a string. `style` keeps Solid's own types: Solid writes a
+ * number there as it is.
+ */
+export type WardicLengths = { readonly [K in DomRenderer.LengthKey]?: number | CSSProperties[K] }
 
 /**
  * A **Keyframes** value (#429, Motion's): the stops a key passes through in order, as
