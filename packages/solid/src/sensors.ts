@@ -95,6 +95,9 @@ export interface Started {
 
 const NONE_STARTED: Started = {}
 
+/** No layer recognizer started, for good: an element that can never want one (#525). */
+export const NEVER_STARTED: Accessor<Started> = () => NONE_STARTED
+
 /** A layer's state: its recognizer's, `false` until it starts. */
 export const stateOf = (started: Accessor<boolean> | undefined): boolean =>
   UndefinedOr.match(started, { onUndefined: constFalse, onDefined: (state) => state() })

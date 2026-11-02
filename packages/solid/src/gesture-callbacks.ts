@@ -25,6 +25,29 @@ import { dragInfoOf, pointInfoOf, pointOfSample, pressInfoOf, type WardicPressEv
 import type { WardicRuntime } from "./runtime.ts"
 
 /**
+ * Every key the `wants*` below read (#525): an element given none of them, its keys fixed, can never
+ * want a gesture, so it starts no computation to watch for one. `gesture-keys.ssr.test.tsx` checks
+ * each of them turns its gesture on.
+ */
+export const GESTURE_KEYS = [
+  "whileHover",
+  "onHoverStart",
+  "onHoverEnd",
+  "whileTap",
+  "onTap",
+  "onTapStart",
+  "onTapCancel",
+  "onPan",
+  "onPanStart",
+  "onPanSessionStart",
+  "onPanEnd",
+  "whileInView",
+  "onViewportEnter",
+  "onViewportLeave",
+  "whileFocus",
+] as const satisfies ReadonlyArray<keyof WardConfig>
+
+/**
  * Whether `config` runs the hover recognizer (Motion's hover feature). Read at every config change of
  * an element that doesn't run it yet: statement `if`s, no array (ADR-0025).
  */

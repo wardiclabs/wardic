@@ -81,7 +81,7 @@ import { handoffOf, setsAnimation } from "./appear.ts"
 import { type PresenceContextValue, presenceBlocksInitial, presenceHold, usePresenceContext } from "./presence.tsx"
 import { type PresenceSeed, presenceSeedOf } from "./presence-record.ts"
 import type { PresenceRecord } from "./presence-record.ts"
-import { createWhenWanted, stateOf, type Wants } from "./sensors.ts"
+import { createWhenWanted, NEVER_STARTED, type Started, stateOf, type Wants } from "./sensors.ts"
 import { type GestureCallbacks, gestureCallbacksOf, inViewOptionsOf, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "./gesture-callbacks.ts"
 import { type Feature, type FeatureRegistry, type FeatureSection, LAYOUT_PROPS, missingMessage, unreadColorIn } from "./feature.ts"
 import { ALL } from "./features/all.ts"
@@ -272,6 +272,11 @@ const NO_USER_PROPS: WardUserProps = {}
  */
 export interface SpineInternals {
   readonly tag?: string | undefined
+  /**
+   * The element can never want a gesture (#525): its keys are fixed and it was given none of
+   * `GESTURE_KEYS`. It starts no computation to watch for one.
+   */
+  readonly gestureless?: boolean | undefined
   readonly brings?: ReadonlyArray<Feature> | undefined
   readonly complete?: boolean | undefined
   /**
@@ -734,7 +739,9 @@ export function runSpine(opts: RunSpineOptions): void {
       // Each through its section's Feature (#511), read with the config, so one that arrives lazily
       // starts what the config wants of it from then on.
       const gestureOf = <I, S>(key: Context.Key<I, S>): S => UndefinedOr.getOrThrow(serviceIn(untrack(features.services), key))
-      const started = createWhenWanted(() => ({ config: cfg(), services: features.services() }), WANTS, {
+      // An element that can never want one watches for none (#525): no computation an element.
+      let started: Accessor<Started> = NEVER_STARTED
+      if (internal.gestureless !== true) started = createWhenWanted(() => ({ config: cfg(), services: features.services() }), WANTS, {
         hover: () =>
           watchToSignal<boolean>(
             ({ on, onDefect }) =>
@@ -781,7 +788,7 @@ export function runSpine(opts: RunSpineOptions): void {
         focus: () => watchToSignal<boolean>((handlers) => gestureOf(FocusGesture).watch(element, { visible: true }, handlers), false),
         pan: () => runWatch(runtime, (onDefect) => gestureOf(PanGesture).watch(element, { on: (sample) => gesturesOf().panned(sample), onDefect }, { mapPoint: pagePoint })),
       })
-      if (DEV && internal.complete !== true) warnMissingGestures(useFeatureRegistry(), features, cfg)
+      if (DEV && internal.complete !== true && internal.gestureless !== true) warnMissingGestures(useFeatureRegistry(), features, cfg)
 
       // Its gesture states: the started recognizers, one tracked read, then each started one's state.
       // A keyboard lift turns `whileDrag` on, as a drag does (ADR-0037).

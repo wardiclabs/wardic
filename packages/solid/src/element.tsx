@@ -38,9 +38,10 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { $PROXY, type Accessor, children, type Component, createComponent, createEffect, type JSX, splitProps, untrack } from "solid-js"
-import { createDynamic, Dynamic } from "solid-js/web"
+import { $PROXY, type Accessor, children, type Component, createComponent, createEffect, createRenderEffect, type JSX, sharedConfig, splitProps, untrack } from "solid-js"
+import { assign, Dynamic, getNextElement, insert, spread, SVGElements, use } from "solid-js/web"
 import { isServer } from "./server.ts"
+import { GESTURE_KEYS } from "./gesture-callbacks.ts"
 import { renderServerElement, serverAppearOfWard, createWardWith, type SpineInternals, type WardStyle, type WardUserProps } from "./create-ward.tsx"
 import type { WardConfig, WardicVariantLabels } from "./config.ts"
 import type { InferredMotion, TargetKey } from "./ward-keys.ts"
@@ -165,15 +166,53 @@ const WRAPPED: SpineInternals = { defaultsOnElement: true }
 /** What a form's `create` renders: an element's tag, or the component it wraps. */
 type Rendered = string | Component<Record<string, unknown> & WardicWrappable>
 
+/** The namespace an svg tag's element is made in, as Solid's `createDynamic` makes it. */
+const SVG_NAMESPACE = "http://www.w3.org/2000/svg"
+
 /**
- * `<Dynamic component={component}>` for a component that never changes, without `Dynamic`'s own
- * `splitProps` copying every prop to take `component` out (#525). Still a component boundary, as
- * `Dynamic` is, so the hydration keys land where the server's `Dynamic` puts them.
+ * What `<Dynamic component={component}>` renders, for a form's tag or component, which never changes
+ * (#525). Still a component boundary, as `Dynamic` is, so the hydration keys land where the server's
+ * `Dynamic` puts them. Without `Dynamic`'s `splitProps`, which copied every prop to take `component`
+ * out, and without `createDynamic`'s two memos over a component that can't change.
  */
-const fixedDynamic =
-  (component: Rendered): Component<Record<string, unknown>> =>
-  (props) =>
-    createDynamic(() => component, props)
+const fixedElement = (component: Rendered): Component<Record<string, unknown>> => {
+  if (Predicate.isFunction(component)) return (props) => untrack(() => component(props))
+  const tag = component
+  const isSvg = SVGElements.has(tag)
+  return (props) => {
+    const el = tagElementOf(tag, isSvg, props)
+    spreadOnto(el, props, isSvg)
+    return el
+  }
+}
+
+/** `tag`'s element: the server's while hydrating, else a new one, as `createDynamic` makes it. */
+const tagElementOf = (tag: string, isSvg: boolean, props: Record<string, unknown>): Element => {
+  if (Predicate.isNotNullish(sharedConfig.context)) return getNextElement()
+  if (isSvg) return document.createElementNS(SVG_NAMESPACE, tag)
+  const is = untrack(() => props.is)
+  if (Predicate.isString(is)) return document.createElement(tag, { is })
+  return document.createElement(tag)
+}
+
+/**
+ * Solid's `spread` for props whose keys are fixed (#525): their children's effect only when they have
+ * children, and their ref called once, as JSX calls its own `ref`, where `spread` gives each a render
+ * effect an element. A proxy's keys can change (a reactive spread), so it takes Solid's `spread`.
+ */
+const spreadOnto = (el: Element, props: Record<string, unknown>, isSvg: boolean): void => {
+  if ($PROXY in props) {
+    spread(el, props, isSvg)
+    return
+  }
+  if ("children" in props) insert(el, () => props.children)
+  untrack(() => {
+    const ref = props.ref
+    if (Predicate.isFunction(ref)) use(ref as (node: Element) => void, el)
+  })
+  const prev = {}
+  createRenderEffect(() => assign(el, props, isSvg, true, prev, true))
+}
 
 /**
  * `<form>.<tag>` and `<form>.create(Component)`: the element, or the wrapped component, with a
@@ -181,7 +220,9 @@ const fixedDynamic =
  * changes what its children read (#50). `forward`: its motion props are handed on too (#443).
  */
 const wardComponent = (component: Rendered, internal: SpineInternals, forward: boolean): Component<Record<string, unknown>> => {
-  const Rendered = fixedDynamic(component)
+  const Rendered = fixedElement(component)
+  // What an element that can never want a gesture runs with (#525): made once a form.
+  const gestureless: SpineInternals = { ...internal, gestureless: true }
   return (props) => {
     // The nearest `WardicConfig`'s `isValidProp`, as the element is made (#443).
     const isValidProp = isValidPropOf(useWardicConfig())
@@ -205,7 +246,12 @@ const wardComponent = (component: Rendered, internal: SpineInternals, forward: b
     // (a tracked expression) drives a Retarget. The tag lets an svg-inner element
     // render its Starting style's attribute keys as attributes (ADR-0021).
     const cfg = configOfMotion(motion)
-    const ward = createWardWith(cfg, internal)
+    // Its keys fixed (no reactive spread) and none of them a gesture's, it can never want one (#525).
+    let spineInternal = internal
+    if (Bool.not($PROXY in motion)) {
+      if (Bool.not(Arr.some(GESTURE_KEYS, (key) => key in motion))) spineInternal = gestureless
+    }
+    const ward = createWardWith(cfg, spineInternal)
 
     // Delegate the ref + style merge entirely to ward(): it invokes both the
     // user's ref and ward's internal ref, and gives the element its `style`: the
