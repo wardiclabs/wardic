@@ -86,12 +86,20 @@ const APPS: ReadonlyArray<App> = [
   { name: "s1-slim", v2: false, source: slim("solid-js/web", "@wardic/solid", []) },
   { name: "s1-colors", v2: false, source: slim("solid-js/web", "@wardic/solid", ["colors"]) },
   { name: "s1-layout", v2: false, source: slim("solid-js/web", "@wardic/solid", ["layout"]) },
+  { name: "s1-hover", v2: false, source: slim("solid-js/web", "@wardic/solid", ["hover"]) },
+  { name: "s1-drag", v2: false, source: slim("solid-js/web", "@wardic/solid", ["drag"]) },
+  { name: "s1-dom-animation", v2: false, source: slim("solid-js/web", "@wardic/solid", ["domAnimation"]) },
+  { name: "s1-dom-max", v2: false, source: slim("solid-js/web", "@wardic/solid", ["domMax"]) },
   { name: "s2-plain", v2: true, source: plain("@solidjs/web") },
   { name: "s2-complete", v2: true, source: complete("@solidjs/web", "@wardic/solid/unstable/v2", false) },
   { name: "s2-presence", v2: true, source: complete("@solidjs/web", "@wardic/solid/unstable/v2", true) },
   { name: "s2-slim", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", []) },
   { name: "s2-colors", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["colors"]) },
   { name: "s2-layout", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["layout"]) },
+  { name: "s2-hover", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["hover"]) },
+  { name: "s2-drag", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["drag"]) },
+  { name: "s2-dom-animation", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["domAnimation"]) },
+  { name: "s2-dom-max", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["domMax"]) },
 ]
 
 /** What a source map's sources are counted under. */

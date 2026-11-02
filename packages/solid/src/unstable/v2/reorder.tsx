@@ -37,6 +37,7 @@
  *
  * @module
  */
+import * as InputSource from "@wardic/core/InputSource"
 import type * as CoreReorder from "@wardic/core/Reorder"
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
@@ -56,12 +57,19 @@ import { dynamic, isServer, type JSX } from "@solidjs/web"
 import { type Accessor, type Component, createContext, createEffect, createMemo, createSignal, flush, omit, onCleanup, untrack, useContext } from "solid-js"
 import { MOTION_PROPS_V2 as MOTION_PROPS, type WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
 import type { Feature } from "../../feature.ts"
+import { drag } from "../../features/drag.ts"
+import { focus } from "../../features/focus.ts"
+import { hover } from "../../features/hover.ts"
+import { inView } from "../../features/in-view.ts"
 import { layout } from "../../features/layout.ts"
+import { pan } from "../../features/pan.ts"
+import { press } from "../../features/press.ts"
+import { inputIn } from "../../gesture-features.ts"
 import type { WardicRuntime } from "../../runtime.ts"
 import { watchItemInput } from "../../reorder-input.ts"
 import { changesContext } from "../../variant-tree.ts"
 import { configView, type PerKey } from "./config-view.ts"
-import { useWardicProjection, useWardicRuntime } from "./provider.tsx"
+import { useBrought, useWardicProjection, useWardicRuntime } from "./provider.tsx"
 import { type AnyWard, spreadPropsOf, type Ward, withSpreadProps, type WardConfig, type WardConfigValues, wardConfigView, type WardOptions, type WardShare, type WardStyle, wardWith } from "./ward.tsx"
 import { drivenWard, type GivenWard, givenOf, handOver, listOf, refsOf, sets, setKeysOf, type WardicBeside, type WardicMotion, type WardRefCallback, type WardSetKey } from "./element.tsx"
 import { w } from "./w.tsx"
@@ -236,8 +244,12 @@ interface ReorderItemOwn<V> {
 }
 
 /** An item's own keys read per key (#259); the rest are its ward's, which reads them itself. */
-/** What an item brings (ADR-0067 decision 12): its layout node, whatever its section has (#511). */
-const ITEM_BRINGS: ReadonlyArray<Feature> = [layout]
+/**
+ * What an item brings (ADR-0067 decision 12), whatever its section has (#511): its layout node, its
+ * drag, and every other gesture, so `whileHover` or `whileTap` on an item works as on Motion's, for
+ * about 0.5 KB gzipped beside the drag's.
+ */
+const ITEM_BRINGS: ReadonlyArray<Feature> = [layout, drag, hover, press, focus, inView, pan]
 
 const ITEM_VIEW = configView<ReorderItemOwn<unknown>>(["value", "layout", "tabindex", "aria-describedby"], [])
 
@@ -518,6 +530,8 @@ const reorderItemWith = <V,>(list: ReorderGroup<V>, config: ReorderItemConfig<V>
     return withSpreadProps(Object.defineProperties(row, { [REORDER_ITEM]: { value: list } }), keyboardAttributes(list, cfg, constUndefined))
   }
   const runtime = useWardicRuntime()
+  // Its keys' input, the `drag` Feature's it brings (#511).
+  const services = useBrought(ITEM_BRINGS)
   const value = untrack(() => own.value)
   // A keyboard lift turns the item's `whileDrag` on (ADR-0037).
   const [lifted, setLifted] = createSignal(false)
@@ -553,7 +567,7 @@ const reorderItemWith = <V,>(list: ReorderGroup<V>, config: ReorderItemConfig<V>
       element = el
       setDocument(DomAnnouncer.documentOf(el))
       // Its keys, blurs and presses (ADR-0037), watched in the ward's watch Scope, with no fiber at rest (#379).
-      watch((onDefect) => watchItemInput(el, driver, (effect) => void runtime.runFork(effect), onDefect))
+      watch((onDefect) => Effect.provideService(watchItemInput(el, driver, (effect) => void runtime.runFork(effect), onDefect), InputSource.InputSource, inputIn(services())))
       return () => {
         element = undefined
       }

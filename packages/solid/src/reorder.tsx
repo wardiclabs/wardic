@@ -25,6 +25,7 @@
  * runtime (cold path: once per reorder, wait, gesture, edge or axis change, never per
  * sample); this file logs nothing.
  */
+import * as InputSource from "@wardic/core/InputSource"
 import * as CoreReorder from "@wardic/core/Reorder"
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
@@ -58,10 +59,17 @@ import {
   useContext,
 } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { runWatch, useWardicGate, useWardicProjection, useWardicRuntime } from "./provider.tsx"
+import { runWatch, useBrought, useWardicGate, useWardicProjection, useWardicRuntime } from "./provider.tsx"
 import { watchItemInput } from "./reorder-input.ts"
 import type { Feature } from "./feature.ts"
+import { drag } from "./features/drag.ts"
+import { focus } from "./features/focus.ts"
+import { hover } from "./features/hover.ts"
+import { inView } from "./features/in-view.ts"
 import { layout } from "./features/layout.ts"
+import { pan } from "./features/pan.ts"
+import { press } from "./features/press.ts"
+import { inputIn } from "./gesture-features.ts"
 import type { WardicRuntime } from "./runtime.ts"
 import { controlledOf, runSpine, type SpineInternals, createWardWith, type Ward, type WardProps, type WardUserProps } from "./create-ward.tsx"
 import type { WardConfig } from "./config.ts"
@@ -252,10 +260,16 @@ type ItemGroup<V> = {
 const touchActionOf = <V,>(group: ItemGroup<V>, listens: boolean): SpineInternals["baseStyle"] =>
   Bool.match(listens, { onTrue: () => () => ({ "touch-action": Style.reorderTouchAction(group.axis()) }), onFalse: constUndefined })
 
-/** What an item brings (ADR-0067 decision 12): its layout node, whatever its section has (#511). */
-const ITEM_BRINGS: ReadonlyArray<Feature> = [layout]
+/**
+ * What an item brings (ADR-0067 decision 12), whatever its section has (#511): its layout node, its
+ * drag, and every other gesture, so `whileHover` or `whileTap` on an item works as on Motion's, for
+ * about 0.5 KB gzipped beside the drag's.
+ */
+const ITEM_BRINGS: ReadonlyArray<Feature> = [layout, drag, hover, press, focus, inView, pan]
 
 const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTMLElement | undefined>, runtime: WardicRuntime, listens: boolean): SpineInternals => {
+  // Its keys' input, the `drag` Feature's it brings (#511).
+  const services = useBrought(ITEM_BRINGS)
   // A keyboard lift turns the item's `whileDrag` on (ADR-0037).
   const [lifted, setLifted] = createSignal(false)
   const driver = group.controller.item(value, () => Option.fromUndefinedOr(element()), setLifted)
@@ -265,7 +279,11 @@ const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTML
   // is this one, with no fiber at rest (#379).
   createEffect(
     on(element, (el) => {
-      if (Predicate.isNotUndefined(el)) runWatch(runtime, (onDefect) => watchItemInput(el, driver, (effect) => void runtime.runFork(effect), onDefect))
+      if (Predicate.isNotUndefined(el)) {
+        runWatch(runtime, (onDefect) =>
+          Effect.provideService(watchItemInput(el, driver, (effect) => void runtime.runFork(effect), onDefect), InputSource.InputSource, inputIn(services())),
+        )
+      }
     }),
   )
   return {

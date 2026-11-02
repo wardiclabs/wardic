@@ -19,11 +19,11 @@
  */
 import type * as Drag from "@wardic/core/Drag"
 import type * as InputFeed from "@wardic/core/InputFeed"
+import * as InputSource from "@wardic/core/InputSource"
 import * as Probe from "@wardic/core/Probe"
 import * as Recognizer from "@wardic/core/Recognizer"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Report from "@wardic/dom/Report"
-import { watchPressOn } from "../../press.ts"
 import type * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -35,7 +35,13 @@ import { type Accessor, createSignal, onCleanup } from "solid-js"
 import { type CreateDragOptions, watchDragSamples } from "../../drag-samples.ts"
 import type { WardicServices } from "../../runtime.ts"
 import { fromAtom } from "./bridge.ts"
-import { useWardicReducedMotionSetting, useWardicRuntime } from "./provider.tsx"
+import type { Feature } from "../../feature.ts"
+import { drag } from "../../features/drag.ts"
+import { focus, FocusGesture } from "../../features/focus.ts"
+import { hover, HoverGesture } from "../../features/hover.ts"
+import { press, PressGesture } from "../../features/press.ts"
+import { inputIn, serviceOf } from "../../gesture-features.ts"
+import { useBrought, useWardicReducedMotionSetting, useWardicRuntime } from "./provider.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { transformPagePointOf } from "../../wardic-config-value.ts"
 
@@ -51,6 +57,12 @@ export interface Sensor<A> {
 
 /** Whether a sensor's call is Solid applying it as a ref. */
 const isElement = (value: unknown): value is Element => Predicate.hasProperty(value, "nodeType")
+
+// What each hook brings (ADR-0067 decision 12): its gesture's Feature, whatever its section has (#511).
+const HOVER: ReadonlyArray<Feature> = [hover]
+const PRESS: ReadonlyArray<Feature> = [press]
+const FOCUS: ReadonlyArray<Feature> = [focus]
+const DRAG: ReadonlyArray<Feature> = [drag]
 
 /**
  * A sensor of a watch's values (#318, ADR-0055), at `initial` until its first: attached, the watch
@@ -93,19 +105,26 @@ const watchSensorOf = <A>(
 }
 
 /** `true` while the pointer is over the element, `false` once it leaves (the core hover watch). */
-export const createHover = (): Sensor<boolean> =>
-  watchSensorOf<boolean>((target, { on, onDefect }) => Recognizer.watchHover(target, { on: (transition) => on(transition.active), onDefect }), false)
+export const createHover = (): Sensor<boolean> => {
+  const services = useBrought(HOVER)
+  return watchSensorOf<boolean>((target, { on, onDefect }) => serviceOf(services(), HoverGesture).watch(target, { on: (transition) => on(transition.active), onDefect }), false)
+}
 
 /**
  * `true` while the pointer is held down on the element, or a **Keyboard press** holds Enter or Space
  * on it (#427, the element made focusable for one), `false` once released or cancelled (the core
  * press watch).
  */
-export const createPress = (): Sensor<boolean> =>
-  watchSensorOf<boolean>((target, { on, onDefect }) => watchPressOn(target, { on: (press) => on(press.phase === "start"), onDefect }), false)
+export const createPress = (): Sensor<boolean> => {
+  const services = useBrought(PRESS)
+  return watchSensorOf<boolean>((target, { on, onDefect }) => serviceOf(services(), PressGesture).watch(target, { on: (press) => on(press.phase === "start"), onDefect }), false)
+}
 
 /** `true` while the element is focused, `false` once blurred (the core focus watch). */
-export const createFocus = (): Sensor<boolean> => watchSensorOf<boolean>((target, handlers) => Recognizer.watchFocus(target, {}, handlers), false)
+export const createFocus = (): Sensor<boolean> => {
+  const services = useBrought(FOCUS)
+  return watchSensorOf<boolean>((target, handlers) => serviceOf(services(), FocusGesture).watch(target, {}, handlers), false)
+}
 
 /** `true` while the element intersects the viewport (the core in-view watch); `{ once: true }` settles at the first `true`. */
 export const createInView = (options?: { readonly once?: boolean }): Sensor<boolean> =>
@@ -122,7 +141,11 @@ export const createInView = (options?: { readonly once?: boolean }): Sensor<bool
 export const createDrag = (options?: CreateDragOptions): Sensor<Drag.Sample | null> => {
   // Its points through the nearest WardicConfig's `transformPagePoint` (#443), read at each down.
   const pagePoint = transformPagePointOf(useWardicConfig())
-  return watchSensorOf<Drag.Sample | null>((target, handlers) => watchDragSamples(target, { ...options }, handlers, pagePoint), null)
+  const services = useBrought(DRAG)
+  return watchSensorOf<Drag.Sample | null>(
+    (target, handlers) => Effect.provideService(watchDragSamples(target, { ...options }, handlers, pagePoint), InputSource.InputSource, inputIn(services())),
+    null,
+  )
 }
 
 /**

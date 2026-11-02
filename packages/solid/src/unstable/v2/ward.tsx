@@ -47,8 +47,7 @@
  */
 import type * as Drag from "@wardic/core/Drag"
 import type * as InputFeed from "@wardic/core/InputFeed"
-import * as Recognizer from "@wardic/core/Recognizer"
-import { tapPropagates, watchPressOn } from "../../press.ts"
+import { tapPropagates } from "../../press.ts"
 import * as Report from "@wardic/dom/Report"
 import * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
@@ -58,6 +57,7 @@ import * as Style from "@wardic/dom/Style"
 import * as Svg from "@wardic/dom/Svg"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import type * as Context from "effect/Context"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -85,9 +85,14 @@ import {
 } from "solid-js"
 import type { WardConfig as SharedWardConfig, WardicValues } from "../../config.ts"
 import { MOTION_PROPS_V2, type SolidOneCallback } from "../../motion-props.ts"
-import { trackConstraintsOf } from "../../drag-constraints.ts"
+import { DragGesture } from "../../features/drag.ts"
+import { FocusGesture } from "../../features/focus.ts"
+import { HoverGesture } from "../../features/hover.ts"
+import { InViewGesture } from "../../features/in-view.ts"
+import { PanGesture } from "../../features/pan.ts"
+import { PressGesture } from "../../features/press.ts"
+import { GESTURE_WORDS, serviceIn } from "../../gesture-features.ts"
 import { inViewOptionsOf } from "../../gesture-callbacks.ts"
-import { driveDragTrack } from "../../drag-track.ts"
 import { projectionIn, type WardicServices } from "../../runtime.ts"
 import type { WardCheckedConfig, WardKey, WardValueOf } from "../../ward-keys.ts"
 import { createElementStyle } from "../../element-style.ts"
@@ -1055,16 +1060,34 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const onDefect = (cause: Cause.Cause<never>): void => {
     runtime.runFork(Report.failure("wardic.ward: a gesture handler failed", cause))
   }
+  // The provider's Features, for development's word on a missing one (#511).
+  const featureRegistry = useFeatureRegistry()
+  /**
+   * A gesture's service when the element `wanted` it: its section's Feature's (#511), `undefined`
+   * without it, which development says once, unless it's on its way.
+   */
+  const gestureIn = <I, S>(services: Context.Context<never>, name: keyof typeof GESTURE_WORDS, key: Context.Key<I, S>, wanted: boolean): S | undefined => {
+    if (Bool.not(wanted)) return undefined
+    const service = serviceIn(services, key)
+    if (DEV && Predicate.isUndefined(service) && Bool.not(untrack(features.pending))) {
+      featureRegistry.warnOnce(name, missingMessage(name, GESTURE_WORDS[name], "@wardic/solid/unstable/v2"))
+    }
+    return service
+  }
   /**
    * Start the hover, press and pan recognizers its config or a `next` now wants, each once a mount:
    * each hover or press transition sets its gesture layer, and every event is told to the lifecycle
    * for `next` (#257, #273).
    */
   const startRecognizers = (m: Mounted): void => {
-    if (Bool.and(Bool.or(untrack(wantsHover), lifecycle.wantsHover), Bool.not(m.hover))) {
+    // Each through its section's Feature (#511), read as it starts: one that arrives lazily starts from
+    // then on, as the effect below runs this again.
+    const services = untrack(features.services)
+    const hover = gestureIn(services, "hover", HoverGesture, Bool.or(untrack(wantsHover), lifecycle.wantsHover))
+    if (Predicate.isNotUndefined(hover) && Bool.not(m.hover)) {
       m.hover = true
       m.watch(
-        Recognizer.watchHover(m.element, {
+        hover.watch(m.element, {
           on: (transition) => {
             setGesture(m.element, "hovered", transition.active)
             lifecycle.hovered(transition, m.element)
@@ -1075,10 +1098,11 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         }),
       )
     }
-    if (Bool.and(Bool.or(untrack(wantsPress), lifecycle.wantsPress), Bool.not(m.press))) {
+    const press = gestureIn(services, "press", PressGesture, Bool.or(untrack(wantsPress), lifecycle.wantsPress))
+    if (Predicate.isNotUndefined(press) && Bool.not(m.press)) {
       m.press = true
       m.watch(
-        watchPressOn(
+        press.watch(
           m.element,
           {
             on: (press) => {
@@ -1093,15 +1117,17 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       )
     }
     // A pan sets no layer: only a `next` wants it (#273).
-    if (Bool.and(lifecycle.wantsPan, Bool.not(m.pan))) {
+    const pan = gestureIn(services, "pan", PanGesture, lifecycle.wantsPan)
+    if (Predicate.isNotUndefined(pan) && Bool.not(m.pan)) {
       m.pan = true
-      m.watch(Recognizer.watchPan(m.element, { on: (sample) => lifecycle.panned(sample, m.element), onDefect }, { mapPoint: pagePoint }))
+      m.watch(pan.watch(m.element, { on: (sample) => lifecycle.panned(sample, m.element), onDefect }, { mapPoint: pagePoint }))
     }
     // In view as its `viewport` says, read when it starts (#273).
-    if (Bool.and(Bool.or(untrack(wantsInView), lifecycle.wantsInView), Bool.not(m.inView))) {
+    const inView = gestureIn(services, "inView", InViewGesture, Bool.or(untrack(wantsInView), lifecycle.wantsInView))
+    if (Predicate.isNotUndefined(inView) && Bool.not(m.inView)) {
       m.inView = true
       m.watch(
-        Recognizer.watchInView(m.element, inViewOptionsOf(untrack(cfg).viewport), {
+        inView.watch(m.element, inViewOptionsOf(untrack(cfg).viewport), {
           on: (transition) => {
             setGesture(m.element, "inView", transition.active)
             lifecycle.viewed(transition)
@@ -1111,9 +1137,10 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       )
     }
     // Focused as the browser shows it (`:focus-visible`, #273).
-    if (Bool.and(untrack(wantsFocus), Bool.not(m.focus))) {
+    const focus = gestureIn(services, "focus", FocusGesture, untrack(wantsFocus))
+    if (Predicate.isNotUndefined(focus) && Bool.not(m.focus)) {
       m.focus = true
-      m.watch(Recognizer.watchFocus(m.element, { visible: true }, { on: (focused) => setGesture(m.element, "focused", focused), onDefect }))
+      m.watch(focus.watch(m.element, { visible: true }, { on: (focused) => setGesture(m.element, "focused", focused), onDefect }))
     }
   }
   let mounted: Mounted | undefined
@@ -1261,10 +1288,14 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     // The drag track (ADR-0004): the pointer direct-sets `x`/`y` while the spring drives the rest and
     // `whileDrag`; on a layout node it feeds the projection (ADR-0016).
     const locked = initialConfig.dragDirectionLock === true
-    // Motion's `dragConstraints` (#273): a box of numbers, or a container measured against the element.
-    const constraints = trackConstraintsOf(initialConfig.dragConstraints, el, () => untrack(cfg).onMeasureDragConstraints, pagePoint)
-    const dragTrack = UndefinedOr.map(dragAxis, (axis) =>
-      driveDragTrack({
+    // Its section's `drag` Feature drives it (#511): without it, `drag` does nothing, and development
+    // says so once, unless `drag` is on its way.
+    const dragGesture = gestureIn(untrack(features.services), "drag", DragGesture, Predicate.isNotUndefined(dragAxis))
+    const dragTrack = UndefinedOr.map(dragGesture, (gesture) => {
+      const axis = UndefinedOr.getOrThrow(dragAxis)
+      // Motion's `dragConstraints` (#273): a box of numbers, or a container measured against the element.
+      const constraints = gesture.constraintsOf(initialConfig.dragConstraints, el, () => untrack(cfg).onMeasureDragConstraints, pagePoint)
+      return gesture.drive({
         watch: (track) => watchIn(track(onDefect)),
         fork: (response) => void runtime.runFork(response),
         gate,
@@ -1302,7 +1333,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         }),
         // Its release at rest, for `next("dragTransitionEnd")` (#273).
         onReleaseEnd: () => lifecycle.released(),
-      }))
+      })
+    })
     const spine = makeElementSpine({
       runtime,
       gate,
@@ -1375,10 +1407,12 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
 
   // A `while*` target set after mount starts its recognizer then (#87, ADR-0040). Its compute reads
   // the two keys, so only their changes re-run it (#259).
+  // Its section's Features are read there too, so a gesture's arriving lazily starts it (#511): each
+  // start checks what's wanted.
   createEffect(
-    () => Bool.some([wantsHover(), wantsPress(), wantsInView(), wantsFocus()]),
-    (wanted) => {
-      if (wanted) UndefinedOr.map(mounted, startRecognizers)
+    () => ({ wanted: Bool.some([wantsHover(), wantsPress(), wantsInView(), wantsFocus()]), services: features.services() }),
+    () => {
+      UndefinedOr.map(mounted, startRecognizers)
     },
     CLIENT_ONLY_DEFERRED,
   )

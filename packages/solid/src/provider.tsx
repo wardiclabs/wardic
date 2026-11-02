@@ -234,6 +234,16 @@ export function useFeatureRegistry(): FeatureRegistry {
 }
 
 /**
+ * The services of `features`, which a hook or component brings (#511, decision 12) whatever its
+ * section has: built the first time they're read, on the client. `features` is a list the caller keeps,
+ * so its provider joins it once. Internal.
+ */
+export function useBrought(features: ReadonlyArray<Feature>): () => Context.Context<never> {
+  const registry = useFeatureRegistry()
+  return () => registry.build(features)
+}
+
+/**
  * A server render's Appear animations (#48, ADR-0044), or `undefined`: on the client, outside a
  * provider, or with `appear={false}`. Internal.
  */

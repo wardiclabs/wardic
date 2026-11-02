@@ -28,8 +28,7 @@
  * writing into the same gate id) — see core's `Values.split`.
  */
 import type * as Drag from "@wardic/core/Drag"
-import * as Recognizer from "@wardic/core/Recognizer"
-import { tapPropagates, watchPressOn } from "./press.ts"
+import { tapPropagates } from "./press.ts"
 import * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
@@ -39,6 +38,7 @@ import * as Style from "@wardic/dom/Style"
 import * as Svg from "@wardic/dom/Svg"
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Arr from "effect/Array"
+import type * as Context from "effect/Context"
 import * as Bool from "effect/Boolean"
 import { constUndefined, identity, pipe } from "effect/Function"
 import * as Option from "effect/Option"
@@ -62,7 +62,7 @@ import {
 import { type ControlsChange, controlledConfigOf, controlledElement, isAnimationControls, subscribe, uncontrolledOf, type WardicAnimationControls } from "./animation-controls.ts"
 import { fromAtom, watchToSignal } from "./bridge.ts"
 import { settingOf, type WardicConfigValue, withConfigTransition } from "./wardic-config-value.ts"
-import { dragTransitionOf, type DragTrack, type DragTrackConfig, runDragTrack } from "./drag.ts"
+import { dragTransitionOf, type DragTrack, type DragTrackConfig, runDragTrackWith } from "./drag.ts"
 import { createElementStyle } from "./element-style.ts"
 import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegistryOf, split } from "./live-style.ts"
 import { createVariantNode } from "./variant-node.ts"
@@ -70,7 +70,13 @@ import { type GestureStates, type NameOrchestration, type ServerVariantNode, ser
 import { registerAnimatable } from "./imperative.ts"
 import { layoutMemberOf, useLayoutGroupId } from "./layout.tsx"
 import { layoutOptionsOf, wantsLayoutNode } from "./layout-member.ts"
-import { trackConstraintsOf } from "./drag-constraints.ts"
+import { DragGesture } from "./features/drag.ts"
+import { FocusGesture } from "./features/focus.ts"
+import { HoverGesture } from "./features/hover.ts"
+import { InViewGesture } from "./features/in-view.ts"
+import { PanGesture } from "./features/pan.ts"
+import { PressGesture } from "./features/press.ts"
+import { GESTURE_WORDS, hasService, serviceIn } from "./gesture-features.ts"
 import { handoffOf, setsAnimation } from "./appear.ts"
 import { type PresenceContextValue, presenceBlocksInitial, presenceHold, usePresenceContext } from "./presence.tsx"
 import { type PresenceSeed, presenceSeedOf } from "./presence-record.ts"
@@ -215,8 +221,32 @@ export interface WardValue {
 /** A `<Reorder>` item's additions when there are none: a plain element's. */
 const NO_INTERNALS: SpineInternals = {}
 
-/** Whether a config wants each gesture recognizer (#87, #273): shared by every element. */
-const WANTS: Wants<WardConfig> = { hover: wantsHover, press: wantsPress, inView: wantsInView, focus: wantsFocus, pan: wantsPan }
+/** What an element's gestures are wanted by: its config, and its section's Features (#511). */
+interface Wanted {
+  readonly config: WardConfig
+  readonly services: Context.Context<never>
+}
+
+/**
+ * Whether an element wants each gesture recognizer (#87, #273), its section having the gesture's
+ * Feature (#511): shared by every element.
+ */
+const WANTS: Wants<Wanted> = {
+  hover: (w) => wantsHover(w.config) && hasService(w.services, HoverGesture),
+  press: (w) => wantsPress(w.config) && hasService(w.services, PressGesture),
+  inView: (w) => wantsInView(w.config) && hasService(w.services, InViewGesture),
+  focus: (w) => wantsFocus(w.config) && hasService(w.services, FocusGesture),
+  pan: (w) => wantsPan(w.config) && hasService(w.services, PanGesture),
+}
+
+/** Each gesture a config may want, its Feature's name and key: what development's word on a missing one checks (#511). */
+const GESTURE_FEATURES: ReadonlyArray<readonly [keyof typeof GESTURE_WORDS, (config: WardConfig) => boolean, Context.Key<unknown, unknown>]> = [
+  ["hover", wantsHover, HoverGesture],
+  ["press", wantsPress, PressGesture],
+  ["inView", wantsInView, InViewGesture],
+  ["focus", wantsFocus, FocusGesture],
+  ["pan", wantsPan, PanGesture],
+]
 
 /** A `ward()` call's user props when it's given none. */
 const NO_USER_PROPS: WardUserProps = {}
@@ -641,10 +671,16 @@ export function runSpine(opts: RunSpineOptions): void {
       const [dragging, setDragging] = createSignal(false)
       // Its hold on `x`/`y`, for the spine's Retargets (#340).
       let dragTrack: DragTrack | undefined
-      if (Predicate.isNotUndefined(dragCfg)) {
+      // Its section's `drag` Feature drives it (#511): without it, `drag` does nothing, and development
+      // says so once, unless `drag` is on its way.
+      const dragGesture = serviceIn(untrack(features.services), DragGesture)
+      if (DEV && Predicate.isNotUndefined(dragCfg) && Predicate.isUndefined(dragGesture) && Bool.not(untrack(features.pending))) {
+        useFeatureRegistry().warnOnce("drag", missingMessage("drag", GESTURE_WORDS.drag, "@wardic/solid"))
+      }
+      if (Predicate.isNotUndefined(dragCfg) && Predicate.isNotUndefined(dragGesture)) {
         const c0d = untrack(cfg)
         // Motion's `dragConstraints` (#273): a box of numbers, or a container measured against the element.
-        const constraints = trackConstraintsOf(c0d.dragConstraints, element, () => untrack(cfg).onMeasureDragConstraints, pagePoint)
+        const constraints = dragGesture.constraintsOf(c0d.dragConstraints, element, () => untrack(cfg).onMeasureDragConstraints, pagePoint)
         const trackConfig: DragTrackConfig = {
           axis: dragCfg,
           constraints: constraints.constraints,
@@ -656,7 +692,7 @@ export function runSpine(opts: RunSpineOptions): void {
           transition: dragTransition,
           listen: c0d.dragListener,
         }
-        dragTrack = runDragTrack({
+        dragTrack = runDragTrackWith(dragGesture.drive, {
           runtime,
           gate,
           id,
@@ -695,11 +731,14 @@ export function runSpine(opts: RunSpineOptions): void {
       // tap callback, a pan callback. Each hover and press transition sets its layer; each event is
       // told to the app's callbacks, at the event. Their fibers are scoped to this owner's onCleanup
       // (runScoped). Until started, a layer reads false.
-      const started = createWhenWanted(cfg, WANTS, {
+      // Each through its section's Feature (#511), read with the config, so one that arrives lazily
+      // starts what the config wants of it from then on.
+      const gestureOf = <I, S>(key: Context.Key<I, S>): S => UndefinedOr.getOrThrow(serviceIn(untrack(features.services), key))
+      const started = createWhenWanted(() => ({ config: cfg(), services: features.services() }), WANTS, {
         hover: () =>
           watchToSignal<boolean>(
             ({ on, onDefect }) =>
-              Recognizer.watchHover(element, {
+              gestureOf(HoverGesture).watch(element, {
                 on: (transition) => {
                   gesturesOf().hovered(transition)
                   on(transition.active)
@@ -711,7 +750,7 @@ export function runSpine(opts: RunSpineOptions): void {
         press: () =>
           watchToSignal<boolean>(
             ({ on, onDefect }) =>
-              watchPressOn(
+              gestureOf(PressGesture).watch(
                 element,
                 {
                   on: (press) => {
@@ -729,7 +768,7 @@ export function runSpine(opts: RunSpineOptions): void {
         inView: () =>
           watchToSignal<boolean>(
             ({ on, onDefect }) =>
-              Recognizer.watchInView(element, inViewOptionsOf(untrack(cfg).viewport), {
+              gestureOf(InViewGesture).watch(element, inViewOptionsOf(untrack(cfg).viewport), {
                 on: (transition) => {
                   gesturesOf().viewed(transition)
                   on(transition.active)
@@ -739,9 +778,10 @@ export function runSpine(opts: RunSpineOptions): void {
             false,
           ),
         // Focused as the browser shows it (`:focus-visible`, Motion's `whileFocus`).
-        focus: () => watchToSignal<boolean>((handlers) => Recognizer.watchFocus(element, { visible: true }, handlers), false),
-        pan: () => runWatch(runtime, (onDefect) => Recognizer.watchPan(element, { on: (sample) => gesturesOf().panned(sample), onDefect }, { mapPoint: pagePoint })),
+        focus: () => watchToSignal<boolean>((handlers) => gestureOf(FocusGesture).watch(element, { visible: true }, handlers), false),
+        pan: () => runWatch(runtime, (onDefect) => gestureOf(PanGesture).watch(element, { on: (sample) => gesturesOf().panned(sample), onDefect }, { mapPoint: pagePoint })),
       })
+      if (DEV && internal.complete !== true) warnMissingGestures(useFeatureRegistry(), features, cfg)
 
       // Its gesture states: the started recognizers, one tracked read, then each started one's state.
       // A keyboard lift turns `whileDrag` on, as a drag does (ADR-0037).
@@ -832,6 +872,21 @@ export function runSpine(opts: RunSpineOptions): void {
       spine.follow({ resolved: () => untrack(target).resolved, dragging: () => untrack(dragging) })
     }),
   )
+}
+
+/**
+ * Says, once per provider and gesture, that the element wants a gesture its section has no Feature for
+ * (#511, ADR-0067 decision 7): outside a lazy load. Development only (its caller's `DEV`).
+ */
+const warnMissingGestures = (registry: FeatureRegistry, features: FeatureSection, config: Accessor<WardConfig>): void => {
+  createEffect(() => {
+    const c = config()
+    const services = features.services()
+    if (features.pending()) return
+    Arr.forEach(GESTURE_FEATURES, ([name, wants, key]) => {
+      if (wants(c) && Bool.not(hasService(services, key))) registry.warnOnce(name, missingMessage(name, GESTURE_WORDS[name], "@wardic/solid"))
+    })
+  })
 }
 
 /**
