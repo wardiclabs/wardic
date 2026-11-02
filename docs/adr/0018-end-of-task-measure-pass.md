@@ -302,3 +302,48 @@ Building it:
   - the flag never on or never off, a later call not extending it, `end` not ending it, either binding's elements ignoring it, the transition not starting it, a server's start not running `fn`;
   - a reset not blocking, or scheduling no pass.
   - **Not caught:** a reset keeping its leavers. Ending the flights ends their handovers, which drops them; the explicit drop only reaches a leaver whose Lead is dragged, whose flight the ending leaves running.
+
+## Amendment (#504, 2026-11-02): an own-size leg's resizes, and the nodes its refresh reads
+
+**What happened.** Found by #460's review. A node animating its own size (*Amendment (#453)*) refreshed the page every frame it drew: a slot-only Measure pass over every layout node. Probed on the bench server with `bench:solid`'s tree of 1,331 layout wards and one list item animating its width from 36 to 80 px over a 1 s linear tween:
+- **The cost:** each frame's refresh took 2.8 ms of the 16.7 ms frame (0.47 ms on a 134-node page).
+- **A second case:** the item held a layout child sized from it, a 50%-wide badge. The badge's resize, each frame, wasn't the item's own, so every delivery queued a **triggered** pass instead. That pass animated the item's siblings from where they were painted, with 834 layout animations started over the leg. A sibling trailed its slot by up to 37 px, nearly still while its slot slid away. Motion's siblings reflow with the item.
+- **Not counted:** `bench:solid`'s layout scenes time `requestAnimationFrame` callbacks alone. A pass a delivery queues runs on the microtask after it and was never counted.
+
+**Decided (#504's grill).**
+1. **What a leg resizes is its own resize (Q1).** In a delivery with a node's own resize, a resized node inside that node (a child sized from it) or around it (a parent it widens) counts as part of it. When every unmeasured size in the delivery is one of those, the refresh runs and nothing animates. In a mixed delivery they all take the slot-only update (`ownSized`).
+   - *The trade-off:* a real layout change inside such a node, landing in a frame the leg draws, gets the slot-only update too, a jump. Motion animates only at a render.
+2. **The refresh reads what the resize can move (Q2).** An own-size refresh measures the subtree of each resized node's layout parent, the parent included (`scopedOrder`): all its siblings, since a centred or wrapping row moves earlier ones too, and their descendants. A parent the leg resizes is a resized node itself, so its own parent's subtree is taken. A node with no layout parent refreshes every node, as does every other pass. A repeated round of the same pass reads every node. This narrows *ADR-0009*'s measure scope (the whole registered tree per pass) for this refresh alone.
+3. **`bench:solid` times it (Q3).** The layout page gets an `own-size` scene on both bindings: list 0's first item, with its badge, animating its width in percent (so every other scene lays it out as before). Its frames count the ResizeObserver's deliveries and the microtasks each queues. The four existing scenes count as they did.
+
+**Rejected:**
+- *Q1:*
+  - only the node itself, which keeps the trailing siblings;
+  - every resize during a leg, which would make an unrelated change elsewhere jump.
+- *Q2:*
+  - one full refresh once the leg ends, which leaves the siblings' slots stale mid-leg;
+  - keeping the full refresh.
+- *Q3:*
+  - the probe alone;
+  - timing the observer in every scene, which would restart their history.
+
+**A limit, unchanged:** a real resize elsewhere landing in a frame the leg draws runs a triggered pass. That pass reads the leg's siblings a frame stale, a few px, as before #504.
+
+Pinned by `packages/solid/test/layout-own-size.browser.test.tsx`:
+- **OS4:** a child sized from the node and a row the node widens. The node after the row follows the flow, never transformed, and the child is never scaled. 88 failures on `main`.
+- **OS5:** a sibling in the node's row is measured every frame of the leg, and a node in another container never after the leg's start. Every frame on `main`.
+
+**Measured.** The probe, per frame of a leg on the 1,331-node page:
+
+| The item | Before | After |
+|---|---|---|
+| With a layout child | a triggered pass, 2.81 ms, 834 animations started, a sibling 37 px behind | the refresh, 0.65 ms, none started, the sibling on its slot |
+| Without one | the refresh, 2.82 ms | 0.65 ms |
+
+What's left is mainly `computeTree`, which walks every node's DOM ancestry once a pass.
+
+`bench:solid` against `main` (11 paired reps) passes. Its `own-size` scene, whose frames count the observer's work, goes from 3.97 to 0.94 ms a frame on both bindings (−77.0%, −76.6%). The layout page allocates 8.7% and 9.2% less per frame. The element tasks are flat, and the other scenes' Measure passes are within −6.9% and +0.1%. Solid 2's page frame read +18.6% [−4.7%, +27.0%], the noisy scene, under the gate; that path's only change is an `undefined` check.
+
+**Mutations:** two, both caught.
+- The scope as the resized node alone: OS5.
+- No grouping, so only the node's own size counts: OS4.

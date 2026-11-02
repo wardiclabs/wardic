@@ -423,3 +423,7 @@ The projection system is no longer built with each provider's runtime. It's the 
 - **A Complete element** (`wardic.*`) has every Feature, so a `wardic.*` app builds it at its first element, as before.
 - **A Slim element** (`w.*`) makes a Projection node only when its section has `layout`.
 - **Every element's values, and a presence,** work with the projection system only once some section has built it. With no layout node there's no flight to follow and no twin to hand over.
+
+## Note (#504, 2026-11-02): an own-size refresh reads its parents' subtrees
+
+The measure scope above, the whole registered tree per pass, has one exception. The refresh that runs while a node animates its own size measures only the subtree of each resized node's layout parent, the nodes its resize can move. Every other pass, and every repeated round, reads the whole tree. See ADR-0018 *Amendment (#504)*.
