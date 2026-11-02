@@ -114,43 +114,77 @@ const TRANSFORM_UNITS: Record<string, TransformUnit> = {
 const TRANSFORM_KEYS: ReadonlySet<string> = new Set(Object.keys(BaseValue.TRANSFORM_IDENTITY))
 
 /**
- * Non-transform CSS properties that take a length: a bare number is rendered
- * with a `px` suffix. Anything not in this set (`opacity`, `zIndex`, custom
- * unitless numerics) keeps its raw number; string values always pass through
- * verbatim regardless of key.
+ * The CSS properties a bare number on is a length, drawn in `px` (#522), spelled as Wardic's keys are
+ * (`margin-top`): Motion's (`numberValueTypes`' `px` keys), and `min-width`, `min-height`, the gaps
+ * and `letter-spacing`. The Solid bindings' value types take a number on these and no other length
+ * (`WardicValues`), so a number never draws CSS a browser drops. `line-height` isn't one: CSS reads
+ * its bare number as a multiple. A number on any other key (`opacity`, `z-index`, a custom property)
+ * is drawn as it is; a string always is.
  */
-const LENGTH_KEYS: ReadonlySet<string> = new Set([
+export const LENGTH_KEYS = [
+  "border-width",
+  "border-top-width",
+  "border-right-width",
+  "border-bottom-width",
+  "border-left-width",
+  "border-radius",
+  "border-top-left-radius",
+  "border-top-right-radius",
+  "border-bottom-right-radius",
+  "border-bottom-left-radius",
   "width",
+  "min-width",
+  "max-width",
   "height",
+  "min-height",
+  "max-height",
   "top",
-  "left",
   "right",
   "bottom",
-  "margin",
-  "marginTop",
-  "marginRight",
-  "marginBottom",
-  "marginLeft",
+  "left",
+  "inset",
+  "inset-block",
+  "inset-block-start",
+  "inset-block-end",
+  "inset-inline",
+  "inset-inline-start",
+  "inset-inline-end",
   "padding",
-  "paddingTop",
-  "paddingRight",
-  "paddingBottom",
-  "paddingLeft",
-  "fontSize",
-  "borderRadius",
-  "borderWidth",
+  "padding-top",
+  "padding-right",
+  "padding-bottom",
+  "padding-left",
+  "padding-block",
+  "padding-block-start",
+  "padding-block-end",
+  "padding-inline",
+  "padding-inline-start",
+  "padding-inline-end",
+  "margin",
+  "margin-top",
+  "margin-right",
+  "margin-bottom",
+  "margin-left",
+  "margin-block",
+  "margin-block-start",
+  "margin-block-end",
+  "margin-inline",
+  "margin-inline-start",
+  "margin-inline-end",
   "gap",
-  "rowGap",
-  "columnGap",
-  "minWidth",
-  "maxWidth",
-  "minHeight",
-  "maxHeight",
-  "lineHeight",
-  "letterSpacing",
-  "translateX",
-  "translateY",
-])
+  "row-gap",
+  "column-gap",
+  "font-size",
+  "letter-spacing",
+  "background-position-x",
+  "background-position-y",
+] as const
+
+/** One of {@link LENGTH_KEYS}: a CSS property a bare number on is drawn in `px`. */
+export type LengthKey = (typeof LENGTH_KEYS)[number]
+
+/** {@link LENGTH_KEYS}, for a membership test a frame can make. */
+const LENGTH_KEY_SET: ReadonlySet<string> = new Set(LENGTH_KEYS)
 
 /**
  * Format one transform value into its CSS func argument. Strings pass through
@@ -175,14 +209,14 @@ const unitOf = (key: string): TransformUnit => {
  * (#48, ADR-0044).
  */
 export const drawnUnitOf = (key: string): TransformUnit =>
-  Bool.match(LENGTH_KEYS.has(key), { onTrue: (): TransformUnit => "px", onFalse: () => unitOf(key) })
+  Bool.match(LENGTH_KEY_SET.has(key), { onTrue: (): TransformUnit => "px", onFalse: () => unitOf(key) })
 
 /**
  * Format one non-transform value. Strings pass through verbatim; numbers on a
  * known length key get `px`; every other number stays raw (unitless).
  */
 const formatStyleValue = (key: string, value: unknown): unknown => {
-  if (Predicate.isNumber(value) && LENGTH_KEYS.has(key)) return `${value}px`
+  if (Predicate.isNumber(value) && LENGTH_KEY_SET.has(key)) return `${value}px`
   return value
 }
 
