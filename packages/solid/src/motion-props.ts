@@ -62,6 +62,59 @@ const RARE_KEYS = [
 type RareKey = (typeof RARE_KEYS)[number]
 
 /**
+ * Every key {@link motionToConfig} copies into a config, in the order it sets them: the common keys,
+ * the rare ones, then the layout animation and update callbacks.
+ */
+const CONFIG_KEYS = [
+  "initial",
+  "animate",
+  "whileHover",
+  "whileTap",
+  "transition",
+  "variants",
+  "inherit",
+  "exit",
+  "drag",
+  "whileDrag",
+  "dragConstraints",
+  "dragElastic",
+  "dragMomentum",
+  "dragSnapToOrigin",
+  "dragTransition",
+  "dragPropagation",
+  "layout",
+  "layoutDependency",
+  "layoutId",
+  "layoutScroll",
+  "layoutRoot",
+  "layoutAnchor",
+  "onAnimationStart",
+  "onAnimationComplete",
+  ...RARE_KEYS,
+  "onLayoutAnimationStart",
+  "onLayoutAnimationComplete",
+  "onUpdate",
+  "appear",
+] as const
+
+/** One of {@link CONFIG_KEYS}. */
+type ConfigKey = (typeof CONFIG_KEYS)[number]
+
+/**
+ * A config's build from `motion`'s `keys`: each one's value, when it's defined; reading a key tracks
+ * it. Its step is made once, an element, so a build allocates its config and the fold alone (#460's
+ * compose once, #525).
+ */
+const configBuildOf = (motion: WardicMotionProps, keys: ReadonlyArray<ConfigKey>): Accessor<WardConfig> => {
+  const add = (config: Record<string, unknown>, key: ConfigKey): Record<string, unknown> => {
+    const value = motion[key]
+    if (Predicate.isNotUndefined(value)) config[key] = value
+    return config
+  }
+  return () => Arr.reduce(keys, {} as Record<string, unknown>, add) as WardConfig
+}
+
+/**
  * Every motion prop the HOC consumes off the props object so it never leaks to
  * the DOM. A subset (`initial` / `animate` / `variants` / `whileHover` /
  * `whileTap` / `transition`) is wired into {@link createWard} today; the rest
@@ -353,17 +406,18 @@ export type WardicMotionPropsV2 = Omit<WardicMotionProps, (typeof SOLID_1_CALLBA
  * forbids an explicit `undefined` on the optional config fields, and an absent key
  * is exactly how a Ward reads "no field".
  *
- * `fixedKeys`: `motion`'s keys stay as they are (it isn't a proxy over a reactive spread), so the
- * rare keys it wasn't given (the gesture callbacks, `dragDirectionLock`, `onMeasureDragConstraints`) are never read (#273).
- * Without it, all are.
+ * `fixedKeys`: `motion`'s keys stay as they are (it isn't a proxy over a reactive spread), so only
+ * the keys it was given are read, found once (#273, #525): the config is rebuilt at each read, a
+ * mount reads it 13 times, and each read took the 28 common keys where most elements are given two
+ * or three. Without it, all are, as a proxy's keys can change.
  */
 export const motionToConfig = (motion: WardicMotionProps, fixedKeys = false): Accessor<WardConfig> => {
-  // The rare keys the element was given (#273), found once: the config is rebuilt at each read, and
-  // most elements take none. Keys that can change (a proxy's) are all read.
-  const rare: ReadonlyArray<RareKey> = Bool.match(fixedKeys, {
-    onTrue: () => Arr.filter(RARE_KEYS, (key) => key in motion),
-    onFalse: () => RARE_KEYS,
-  })
+  if (fixedKeys) {
+    return configBuildOf(
+      motion,
+      Arr.filter(CONFIG_KEYS, (key) => key in motion),
+    )
+  }
   return () => {
     const config: { -readonly [K in keyof WardConfig]: WardConfig[K] } = {}
     // Read each (reactive) prop getter inside the accessor so it tracks.
@@ -419,12 +473,10 @@ export const motionToConfig = (motion: WardicMotionProps, fixedKeys = false): Ac
     if (Predicate.isNotUndefined(layoutAnchor)) config.layoutAnchor = layoutAnchor
     if (Predicate.isNotUndefined(onAnimationStart)) config.onAnimationStart = onAnimationStart
     if (Predicate.isNotUndefined(onAnimationComplete)) config.onAnimationComplete = onAnimationComplete
-    if (Arr.isReadonlyArrayNonEmpty(rare)) {
-      Arr.forEach(rare, (key) => {
-        const value = motion[key]
-        if (Predicate.isNotUndefined(value)) (config as Record<RareKey, unknown>)[key] = value
-      })
-    }
+    Arr.forEach(RARE_KEYS, (key) => {
+      const value = motion[key]
+      if (Predicate.isNotUndefined(value)) (config as Record<RareKey, unknown>)[key] = value
+    })
     if (Predicate.isNotUndefined(onLayoutAnimationStart)) config.onLayoutAnimationStart = onLayoutAnimationStart
     if (Predicate.isNotUndefined(onLayoutAnimationComplete)) config.onLayoutAnimationComplete = onLayoutAnimationComplete
     if (Predicate.isNotUndefined(onUpdate)) config.onUpdate = onUpdate
