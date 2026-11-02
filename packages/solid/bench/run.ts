@@ -52,7 +52,9 @@
  *   binding with the others, paired. Per scene (page, list, item, scaled; see `page.tsx`), the
  *   `animateLayout` call (its Measure pass) and its frames' median fail as a task does, and so does
  *   what the scenes allocate per frame, from `--alloc-reps` pages under the heap profiler, sampled
- *   after the tree has mounted. How many frames each scene took is reported.
+ *   after the tree has mounted. How many frames each scene took is reported. The own-size scene
+ *   (#504) sets an item's width for its own legs to draw instead of calling `animateLayout`, and its
+ *   frames count the ResizeObserver's deliveries and the passes they run.
  *
  * Runs on the bench server, after `wardic-quiet`, not in CI. Exits 0 when every task passes, 1
  * when one fails, and 2 when the run is too noisy.
@@ -131,7 +133,7 @@ const FEATURE_KINDS = ["keyframes", "auto", "transition-end", "ward", "tapped"] 
 type FeatureKind = (typeof FEATURE_KINDS)[number]
 type Kind = "wardic" | "plain" | "live" | "live-plain" | "layout" | RetainedKind | FeatureKind
 /** The layout page's scenes, in `page.tsx`'s order (#385): the page isn't imported for its values. */
-const SCENES: ReadonlyArray<Scene> = ["page", "list", "item", "scaled"]
+const SCENES: ReadonlyArray<Scene> = ["page", "list", "item", "scaled", "own-size"]
 const SCENE_TASKS = ["measure", "frame"] as const
 const TASKS = ["mount", "retarget", "restRetarget", "unmount"] as const
 
