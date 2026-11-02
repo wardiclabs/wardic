@@ -111,7 +111,7 @@ core's share of a Slim app falls by 23.6 KB minified (`Recognizer`, `Drag`, `Ine
   - Per package: core's marks gave most of it, solid's about 0.5 KB, and dom's nothing.
   - Diffing each app's source-map split with and without the marks found the modules they let Rollup drop: core's `Recognizer`, Effect's `RcRef` (through `SharedSource`), `PressClaims`, the stepper's option checks, and solid's `appear.ts` and `motion-props.ts`.
   - 22 marks in those six modules, each reviewed as a pure construction (`Effect.fnUntraced`, `Context.Reference`, `Match` and `Predicate` combinators, `new WeakMap`/`new Set`, `Arr.filter`, and the builders `stepOf` and `cachedResolver`), give all of it. They ship. The rest don't: they change nothing in an app.
-- **The budget** (decision 10): the Slim element's base apps hold absolute budgets, 122 KB gzipped on Solid 1 and 159 on Solid 2, its sizes at the split's end with a little room. `bun run size` fails an app past its own budget, whatever its base, so changes each under the +1% gate can't add up.
+- **The budget** (decision 10): the Slim element's base apps hold absolute budgets, 122 KB gzipped on Solid 1 and 159 on Solid 2, its sizes at the split's end with a little room. They're 121 and 157 since the build target moved (#525, ADR-0040), the same room over 119.4 and 154.9. `bun run size` fails an app past its own budget, whatever its base, so changes each under the +1% gate can't add up.
   - Decision 10's 105 KB budget, "once it's reached", and Q4's target move to #518, after v1. Wardic's focuses are, in order: performance, dev-friendly APIs, and extensibility to every environment JS runs in. Size comes after them.
 
 | App, gzipped KB | Solid 1 | Solid 2 |

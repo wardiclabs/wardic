@@ -296,3 +296,11 @@ Compared with Motion again (#519), mounting was the one task Motion led: 1,000 S
 Left for #525's next part, with Solid 2's.
 
 Measured with #519's harness against `main`, Solid 1, warm, median of 11 paired reps: mount and its frames −10.1%, its synchronous task −7.9%, unmount −5.8%, Retarget +0.8% (within the harness's noise). Solid 2 is unchanged: its element spreads the ward object itself. `bench:solid --base main --features` passes: Solid 1's warm mount task −6.9%, unmount −4.2%, Retarget −0.5%; cold mount −7.4%; bytes per element per round −4.3%; held at rest −5.2% for `hover + press` (the memo `mergeProps` made for the function source, and its proxies, gone). Solid 2 flat.
+
+## Amendment (#525, 2026-11-02): built for the browsers an app ships to
+
+`bench:solid` and `bun run size` built each side with the repo's Vite 6 and its default target, `modules` (es2020). That target rewrites every class field into an `Object.defineProperty` call: Solid 2's `Lifecycle`, 24 fields an element, Effect's fibers, Motion's classes in #519's harness. Apps on Vite 7 and later don't, since their default target, `baseline-widely-available`, keeps class fields native, and Wardic's own storefronts (Vite 8, `esnext`) never did. So the benches charged an element a cost its users mostly don't pay.
+
+Both now build for `APP_TARGET` (`bench/sides.ts`): Vite 8's `baseline-widely-available`, Chrome and Edge 111, Firefox 114, Safari and iOS 16.4, set explicitly. Base and head are built the same way, so a comparison stays fair; what moved is every number's level. On #519's harness, `main` built both ways (warm, median of 11 paired reps): Solid 2's mount and its frames −3.3% (48.3 → 46.4 ms), its synchronous task −4.6%; Solid 1's mount, every Retarget and unmount flat. Every app is smaller, the Slim element 120.6 → 119.4 KB gzipped on Solid 1 and 157.0 → 154.9 on Solid 2, so the size budgets keep their room at 121 and 157 (ADR-0067).
+
+Rejected: keeping es2020 and rewriting `Lifecycle` and Wardic's other per-element classes without fields, which would bend the code to a rewrite modern builds don't do. An app built for older browsers pays the rewrite on Motion's classes as much as on Wardic's. Decided as #525's part-2 grill, Q5. `bench:solid`, both sides built for `APP_TARGET`, read as an A/A: every task within noise.

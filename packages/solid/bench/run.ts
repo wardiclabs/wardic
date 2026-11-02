@@ -13,9 +13,10 @@
  *   `--binding 2` runs one; the noise control runs either way.
  *
  * - **Each side is built as an app ships it:** Vite and vite-plugin-solid, production mode,
- *   minified, from that side's `packages/{core,dom,solid}/src`. A bare import resolves as the
- *   importing package would, in that side's dependencies (`bench:core`'s rule: a commit whose
- *   `bun.lock` differs is checked out and installed at `.tmp/bench-core/deps/<commit>`).
+ *   minified, for the browsers an app ships to by default (`APP_TARGET`, #525), from that side's
+ *   `packages/{core,dom,solid}/src`. A bare import resolves as the importing package would, in that
+ *   side's dependencies (`bench:core`'s rule: a commit whose `bun.lock` differs is checked out and
+ *   installed at `.tmp/bench-core/deps/<commit>`).
  * - **Paired reps.** Each rep runs base and head back to back, each on a fresh cross-origin isolated
  *   page (`performance.now()` at 5 µs), in alternating order. A page runs `--rounds` rounds: the
  *   first is reported as cold, the median of the rest as warm.
@@ -88,7 +89,7 @@ import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { LayoutRound, LiveRound, Round, Scene } from "./page.tsx"
-import { commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
+import { APP_TARGET, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
 
 const GATE = 1.05
 const NOISE = 0.05
@@ -194,6 +195,7 @@ const bundle = async (side: Side, commit: string | undefined, deps: string): Pro
       outDir: join(root, "dist"),
       emptyOutDir: true,
       minify: true,
+      target: [...APP_TARGET],
       lib: {
         entry: join(root, Bool.match(v2, { onTrue: () => "page-v2.tsx", onFalse: () => "page.tsx" })),
         formats: ["iife"],
