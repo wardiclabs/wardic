@@ -103,7 +103,7 @@ Wardic's gesture props took values only.
    - **A gesture whose layer resolves to nothing new** (a name the child has no entry for) Retargets nothing, as before.
 
 **Built:**
-- **Each gesture layer** resolves through `resolveTarget`: its own entry while the gesture is on (its own, or its provider's), else the label handed down (`gestureLayerOf`). An off layer resolves nothing: one shared empty layer.
+- **Each gesture layer** resolves through `resolveTarget`: its own entry while the gesture is on (its own, or its provider's), else the label handed down (`gestureLayerOf`; `handedDown` in `variant-tree.ts` since #297). An off layer resolves nothing: one shared empty layer.
 - **The `Resolution`** keeps its layers and the active gestures' names. The Retarget splits its keys by layer only when an active layer has its own transition (`keysByLayerOf`).
 - **The hand-down:** a provider's variant node hands down a `GestureHandDown` (whether each gesture is on, and its label) through the context's `gestures`. It's a memo equal while nothing changes, so its children re-resolve only at a change.
   - Its stagger snapshot and its `beforeChildren` key on the variant name plus the active gestures' names (`triggerKeyOf`).

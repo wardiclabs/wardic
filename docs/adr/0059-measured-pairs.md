@@ -85,3 +85,7 @@ Two first survived. A spring's landing was checked after an `until` that never t
 | bytes per element | +1.0% | +1.0% |
 
 The layout scenes and retained memory are flat. The bytes aren't attributed; `.tmp/452`'s probe can attribute them.
+
+## Amendment (#460, 2026-11-02): two stops, as decided
+
+#460's sweep found decision 1's "two stops only" unkept: a Retarget asked the batch about every Keyframes key, so `height: [0, 200, "auto"]` became a pair from 0 to `auto`'s px, its middle stop dropped, and a spring given three such stops raised no error. An exit did the same. Now `measuredOf` (the Retarget's and an Imperative animation's) and `exitMeasuredOf` skip a key with more than two stops (`hasManyStops`, `retarget-legs.ts`), which runs through them on `keyframesValues` and switches where types mix, as Motion's. MS9 and MS10 pin a Retarget's and an exit's.

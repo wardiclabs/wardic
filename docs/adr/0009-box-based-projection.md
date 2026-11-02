@@ -418,7 +418,7 @@ Building it:
 
 ## Amendment (#511, 2026-11-01): the projection system is the `layout` Feature's
 
-The projection system is no longer built with each provider's runtime. It's the `layout` Feature's service (ADR-0067, decisions 13 and 15). A provider builds it once, over its flush gate, the first time an element whose section has `layout` asks, or a component that brings it does (`LayoutGroup`, `Reorder`). It still ends before the gate.
+The projection system is no longer built with each provider's runtime. It's the `layout` Feature's service (ADR-0067, decisions 13 and 15). A provider builds it once, over its flush gate, the first time an element whose section has `layout` asks, or a component or hook that brings it does (`LayoutGroup`, `Reorder`, `useLayoutMember`, `useWardicProjection`). It still ends before the gate.
 
 - **A Complete element** (`wardic.*`) has every Feature, so a `wardic.*` app builds it at its first element, as before.
 - **A Slim element** (`w.*`) makes a Projection node only when its section has `layout`.

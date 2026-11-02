@@ -174,7 +174,7 @@ While I was dragged, Motion's O kept its `whileHover` and its `whileTap` (the pr
     - `DragActivity.Shape`'s `claim(target, axis): Option<release>` (refused: `None`) and `count()`, in place of the argument-less `claim()`;
     - `Drag.axisLock` removed.
   - Solid:
-    - `dragPropagation` on `wardic.*`, `useWardic`, `use:ward` and `Reorder.Item`;
+    - `dragPropagation` on `wardic.*`, `useWardic`, `use:ward` and `Reorder.Item` (`createWard` and `use:wardic` since #193, ADR-0042);
     - `createDrag`'s `claim` option.
 - **Cost.**
   - Per gesture, at the drag's start and end, the claim reads and writes one `MutableRef` per axis, and the count.

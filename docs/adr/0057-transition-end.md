@@ -92,7 +92,7 @@ Wardic had none. A target's keys all animated, and dom's `visibility` Key rule (
 
 Two first versions were caught only by the type left unused, so they were rewritten to keep it used. E10 survived TE9, as a list's names resolve as separate entries, so TS4 pins the first render's merge.
 
-**Found:** with `initial={false}`, an element's mount still runs a leg from each value to itself for its transition's duration, where Motion skips a value already at its target. A target change in that time waits for it, its `transitionEnd` included. TE6 waits for rest.
+**Found:** with `initial={false}`, an element's mount still runs a leg from each value to itself for its transition's duration, where Motion skips a value already at its target. A target change in that time waits for it, its `transitionEnd` included. TE6 waits for rest. *Fixed by #448* (ADR-0005, *Amendment (#448)*): a quiet mount starts no leg, and TE6 no longer waits.
 
 ## Note (#470, 2026-10-29): a new end alone is a new target
 

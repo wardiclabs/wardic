@@ -598,7 +598,7 @@ A ward told a hover's start and end (`hoverStart`, `hoverEnd`, Motion's), but no
 - a given ward's `read`, `atom`, `settled`, `next` and `when` follow its driver, whatever set the key.
 
 **Built:**
-- **The element's props over the ward's config.** `drivenWard` (`unstable/v2/wardic.tsx`):
+- **The element's props over the ward's config.** `drivenWard` (`unstable/v2/wardic.tsx`; in `unstable/v2/element.tsx` since #511, ADR-0067):
   - finds the motion props the element sets (`besideOf`);
   - throws on a duplicate, or on a node key beside a ward that carries its variants;
   - builds the driving ward with them as fixed keys over the given ward's config (`fixedOf`), one getter per key reading the element's prop, so a changed prop retargets as the element's own would;
@@ -677,7 +677,7 @@ Grilled 2026-10-27 (Q1–Q3, each A):
    - Rejected: B, wraps only.
 
 **Built**, in `@wardic/solid`, both bindings alike:
-- **The check:** Solid 1's `forwardingOf` (`src/wardic.tsx`, in place of `refOf`'s `onMount`) and Solid 2's `wrapComponent` (`src/unstable/v2/wardic.tsx`, in place of `onSettled`): what the wrap renders, through `children()`, and an effect over its elements. The ref notes the element it reached.
+- **The check:** Solid 1's `forwardingOf` (`src/wardic.tsx`, in place of `refOf`'s `onMount`) and Solid 2's `wrapComponent` (`src/unstable/v2/wardic.tsx`, in place of `onSettled`; both in their binding's `element.tsx` since #511, ADR-0067): what the wrap renders, through `children()`, and an effect over its elements. The ref notes the element it reached.
 - **A fresh entry:**
   - The ward's ref (Solid 1's `refElement` in `createWardWith`; Solid 2's `self`) marks an element given while the last one is off the page.
   - The mount: Solid 1's `runSpine` takes `entersFresh` and `restartStyle` (`beginOf`); Solid 2's mount effect calls `beginFresh`. For a fresh element, a new `Start` (`startOf`, the config now, no presence block), the Snapshot reset to it, and that start given to the element's presence record and spine.
