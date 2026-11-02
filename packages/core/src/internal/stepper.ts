@@ -1,6 +1,6 @@
 /**
  * Pure, dt-driven steppers shared by core's modules (ADR-0028, decision 2): the tween's and the
- * decay's, the step results, and `valueOr`. Not importable from outside core (`package.json`'s
+ * decay's, and the step results. Not importable from outside core (`package.json`'s
  * `"./internal/*": null`); the spring's stepper is public, in the `Spring` module, for dom.
  *
  * Every stepper takes the previous state and a frame delta `dt` (seconds) and returns the next
@@ -29,17 +29,6 @@ export interface StepResult<S, V> {
  */
 export interface PhysicsStepResult<S> extends StepResult<S, number> {
   readonly velocity: number
-}
-
-/**
- * An option's value, or its default when it's missing (`undefined` or `null`, as `??` read it).
- * A caller that steps by hand may resolve per frame (dom's projection pass calls
- * `Spring.resolve` per node per frame), so it's an early return, not an `Option`: nothing is
- * allocated (ADR-0025).
- */
-export const valueOr = <A>(value: A | undefined, fallback: A): A => {
-  if (Predicate.isNullish(value)) return fallback
-  return value
 }
 
 /** A tween's duration when its options give none: 0.3 s (#107). */
