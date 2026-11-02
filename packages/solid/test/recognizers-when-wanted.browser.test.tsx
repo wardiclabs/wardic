@@ -39,11 +39,8 @@ const frames = async (n: number): Promise<void> => {
   for (let i = 0; i < n; i++) await raf()
 }
 
-/** `until`, which returns at its timeout either way, then the check that `done` was reached. */
-const reach = async (done: () => boolean, what: string): Promise<void> => {
-  await until(done)
-  expect(done(), what).toBe(true)
-}
+/** `until`, naming what it waits for. */
+const reach = (done: () => boolean, what: string): Promise<void> => until(done, 4000, what)
 
 /** One element on `createWard` with the config `config()` reads, in a provider over `env`. */
 const mount = (env: WardicEnv, config: () => WardConfig): { readonly el: () => HTMLElement | undefined } => {

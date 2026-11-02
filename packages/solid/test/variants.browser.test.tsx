@@ -9,7 +9,7 @@ import { DomLive } from "@wardic/dom"
 import { createSignal } from "solid-js"
 import { createWard, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
-import { until } from "./browser-helpers.ts"
+import { until, waitAtMost } from "./browser-helpers.ts"
 
 afterEach(cleanup)
 
@@ -105,7 +105,7 @@ describe("variant propagation — inheritance by name", () => {
     expect(opacityOf(childEl!)).toBeCloseTo(0.5, 1)
 
     setOpen(true) // local animate wins -> child stays at 0.5
-    await until(() => false, 600) // observe ~600ms of frames
+    await waitAtMost(600) // observe ~600ms of frames
     expect(opacityOf(childEl!)).toBeCloseTo(0.5, 1)
   })
 

@@ -95,10 +95,27 @@ export const paintedTimedFrames = (el: Element, n: number): Promise<ReadonlyArra
     requestAnimationFrame(post)
   })
 
-/** Poll every real frame until `done()` returns true, or `timeoutMs` elapses. */
-export const until = async (done: () => boolean, timeoutMs = 4000): Promise<void> => {
+/**
+ * Poll every real frame until `done()` returns true; at `timeoutMs`, fail, naming the condition
+ * (`what`, else `done`'s source), so a wait that never ends can't pass on what follows it (#460).
+ * A test that waits on purpose, up to a time or until something, uses `waitAtMost`.
+ */
+export const until = async (done: () => boolean, timeoutMs = 4000, what?: string): Promise<void> => {
+  const start = performance.now()
+  while (!done()) {
+    if (performance.now() - start >= timeoutMs) throw new Error(`until: ${what ?? String(done)} still false after ${timeoutMs} ms`)
+    await raf()
+  }
+}
+
+/**
+ * Poll every real frame until `done()` returns true or `timeoutMs` elapses, whichever comes first: a
+ * deliberate wait, not a check. Without `done`, it waits the whole time. Returns whether `done()` held.
+ */
+export const waitAtMost = async (timeoutMs: number, done: () => boolean = () => false): Promise<boolean> => {
   const start = performance.now()
   while (!done() && performance.now() - start < timeoutMs) await raf()
+  return done()
 }
 
 /**

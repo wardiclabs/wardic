@@ -18,7 +18,7 @@ import * as Bool from "effect/Boolean"
 import type { JSX } from "@solidjs/web"
 import { createSignal, Errored, flush } from "solid-js"
 import { describe, expect, it, vi } from "vitest"
-import { raf, until } from "../browser-helpers.ts"
+import { raf, until, waitAtMost } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
 
 const opacityOf = (el: HTMLElement): number => Number(el.style.opacity)
@@ -171,7 +171,7 @@ describe("wardic.<tag>: tracked props", () => {
     expect(opacityOf(el!)).toBe(0.4)
     setSeed(0.9)
     flush()
-    await until(() => false, 300)
+    await waitAtMost(300)
     expect(opacityOf(el!)).toBeCloseTo(0.4, 2)
   })
 

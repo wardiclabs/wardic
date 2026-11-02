@@ -21,7 +21,7 @@ import { For, type JSX } from "solid-js"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { FeatureRegistry } from "../src/feature.ts"
 import { useFeatureRegistry } from "../src/provider.tsx"
-import { opacityOf, until } from "./browser-helpers.ts"
+import { opacityOf, until, waitAtMost } from "./browser-helpers.ts"
 import { resetScene, settle, wait } from "./reorder-harness.tsx"
 
 afterEach(async () => {
@@ -49,13 +49,14 @@ const logged = async (run: () => Promise<void>): Promise<ReadonlyArray<string>> 
   return lines
 }
 
-/** Enters `el` with the pointer, again and again, until `done` or `ms` pass: the recognizer attaches asynchronously. */
-const hoverUntil = async (el: HTMLElement, done: () => boolean, ms: number): Promise<void> => {
-  await until(() => {
-    el.dispatchEvent(new PointerEvent("pointerenter", { pointerId: 1, bubbles: true }))
-    return done()
-  }, ms)
+/** Enters `el` with the pointer, then reads `done`: again and again, as the recognizer attaches asynchronously. */
+const entering = (el: HTMLElement, done: () => boolean) => (): boolean => {
+  el.dispatchEvent(new PointerEvent("pointerenter", { pointerId: 1, bubbles: true }))
+  return done()
 }
+
+/** Enters `el` until `done`, failing after `ms`. */
+const hoverUntil = (el: HTMLElement, done: () => boolean, ms: number): Promise<void> => until(entering(el, done), ms)
 
 /** Whether its provider's Features have built the gestures' input. */
 const hasInput = (registry: FeatureRegistry): boolean => Option.isSome(Context.getOption(registry.built() as Context.Context<InputSource.InputSource>, InputSource.InputSource))
@@ -78,7 +79,8 @@ describe("The gesture Features (#511), Solid 1", () => {
         </WardicProvider>
       ))
       await settle()
-      await hoverUntil(els[0]!, () => opacityOf(els[0]!) > 0.5, 400)
+      // Entered for 400 ms, long past the recognizer's attaching: it never hovers.
+      await waitAtMost(400, entering(els[0]!, () => opacityOf(els[0]!) > 0.5))
       expect(opacityOf(els[0]!), "it never hovered").toBeCloseTo(0.2, 2)
     })
     expect(hasInput(registry), "no input built").toBe(false)
