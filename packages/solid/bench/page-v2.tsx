@@ -67,19 +67,40 @@ const when = (cond: boolean, text: string): string => {
   return ""
 }
 
-// `?kind=layout` times each frame's rAF callbacks (#385), as `page.tsx` does.
+// `?kind=layout` times each frame's rAF callbacks (#385), and the own-size scene the ResizeObserver's
+// deliveries with the microtasks each queues (#504), as `page.tsx` does.
 let timing = false
 const frameJs = new Map<number, number>()
+let timingObserver = false
+let currentFrame = 0
+const addFrameJs = (frame: number, ms: number): void => {
+  if (timing) frameJs.set(frame, (frameJs.get(frame) ?? 0) + ms)
+}
 if (kind === "layout") {
   window.requestAnimationFrame = (callback: FrameRequestCallback): number =>
     realRaf((time) => {
+      currentFrame = time
       const t0 = performance.now()
       try {
         callback(time)
       } finally {
-        if (timing) frameJs.set(time, (frameJs.get(time) ?? 0) + performance.now() - t0)
+        addFrameJs(time, performance.now() - t0)
       }
     })
+  const RealObserver = window.ResizeObserver
+  window.ResizeObserver = class extends RealObserver {
+    constructor(callback: ResizeObserverCallback) {
+      super((entries, observer) => {
+        const frame = currentFrame
+        const t0 = performance.now()
+        try {
+          callback(entries, observer)
+        } finally {
+          if (timingObserver) queueMicrotask(() => addFrameJs(frame, performance.now() - t0))
+        }
+      })
+    }
+  }
 }
 const host = document.createElement("div")
 document.body.append(host)
@@ -199,6 +220,13 @@ const [padded, setPadded] = createSignal(false)
 const [reversed, setReversed] = createSignal(false)
 const [shifted, setShifted] = createSignal(false)
 const [wide, setWide] = createSignal(false)
+// The own-size scene's item (#504), as `page.tsx`'s.
+const [grown, setGrown] = createSignal(false)
+const OWN_SIZE = { type: "tween", ease: "linear", duration: 0.5 } as const
+const ownWidth = (): string => {
+  if (grown()) return "20%"
+  return "9%"
+}
 let animateLayout: AnimateLayout | undefined
 const orderOf = (list: number): ReadonlyArray<number> => {
   if (list === 0 && reversed()) return [...ITEMS].reverse()
@@ -215,11 +243,20 @@ const LayoutTree = () => {
           <wardic.ul class="list" layout>
             <For each={orderOf(list)}>
               {(item) => (
-                <wardic.li class={itemClass(list, item)} layout>
-                  <Show when={item % 3 === 0}>
+                <Show
+                  when={list === 0 && item === 0}
+                  fallback={
+                    <wardic.li class={itemClass(list, item)} layout>
+                      <Show when={item % 3 === 0}>
+                        <wardic.span class="badge" layout />
+                      </Show>
+                    </wardic.li>
+                  }
+                >
+                  <wardic.li class={itemClass(list, item)} data-own-size layout animate={{ width: ownWidth() }} transition={OWN_SIZE}>
                     <wardic.span class="badge" layout />
-                  </Show>
-                </wardic.li>
+                  </wardic.li>
+                </Show>
               )}
             </For>
           </wardic.ul>
@@ -330,7 +367,7 @@ const round = async () => {
 }
 
 /** The layout page's scenes (#385), in each round's order: `page.tsx`'s. */
-const SCENES = ["page", "list", "item", "scaled"] as const
+const SCENES = ["page", "list", "item", "scaled", "own-size"] as const
 type Scene = (typeof SCENES)[number]
 interface LayoutScene {
   readonly measure: number
@@ -344,6 +381,10 @@ const switches: Readonly<Record<Scene, () => void>> = {
   list: () => setReversed(!reversed()),
   item: () => setShifted(!shifted()),
   scaled: () => setWide(!wide()),
+  "own-size": () => {
+    setGrown(!grown())
+    flush()
+  },
 }
 const median = (xs: ReadonlyArray<number>): number => [...xs].sort((a, b) => a - b)[Math.floor((xs.length - 1) / 2)]!
 const layoutNodes = (): number => host.querySelectorAll(".root, .list, .item, .badge").length
@@ -358,8 +399,28 @@ const mountLayout = async (): Promise<void> => {
 }
 ;(globalThis as unknown as { __wardicLayoutMount: () => Promise<void> }).__wardicLayoutMount = mountLayout
 
+/** The own-size scene (#504): its width set, then its frames until it lands and the observer has delivered it. */
+const ownSizeScene = async (): Promise<LayoutScene> => {
+  const item = host.querySelector<HTMLElement>("[data-own-size]")
+  if (item === null) throw new Error("bench:solid: the layout page has no own-size item")
+  await afterPaint()
+  frameJs.clear()
+  timing = true
+  timingObserver = true
+  const measure = timed(switches["own-size"])
+  const target = ownWidth()
+  await until(() => item.style.width === target)
+  await frames(3)
+  timing = false
+  timingObserver = false
+  const times = [...frameJs.values()]
+  if (times.length < 5) throw new Error(`bench:solid: the layout scene own-size ran ${times.length} frames`)
+  return { measure, frame: median(times), frames: times.length }
+}
+
 /** One scene, from a task after a paint: its `animateLayout` call, then its frames until it lands. */
 const scene = async (which: Scene): Promise<LayoutScene> => {
+  if (which === "own-size") return ownSizeScene()
   const run = animateLayout
   if (run === undefined) throw new Error("bench:solid: the layout page isn't mounted")
   await afterPaint()
