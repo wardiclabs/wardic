@@ -39,7 +39,7 @@ import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { $PROXY, type Accessor, children, type Component, createComponent, createEffect, type JSX, splitProps, untrack } from "solid-js"
-import { Dynamic } from "solid-js/web"
+import { createDynamic, Dynamic } from "solid-js/web"
 import { isServer } from "./server.ts"
 import { renderServerElement, serverAppearOfWard, createWardWith, type SpineInternals, type WardStyle, type WardUserProps } from "./create-ward.tsx"
 import type { WardConfig, WardicVariantLabels } from "./config.ts"
@@ -166,13 +166,23 @@ const WRAPPED: SpineInternals = { defaultsOnElement: true }
 type Rendered = string | Component<Record<string, unknown> & WardicWrappable>
 
 /**
+ * `<Dynamic component={component}>` for a component that never changes, without `Dynamic`'s own
+ * `splitProps` copying every prop to take `component` out (#525). Still a component boundary, as
+ * `Dynamic` is, so the hydration keys land where the server's `Dynamic` puts them.
+ */
+const fixedDynamic =
+  (component: Rendered): Component<Record<string, unknown>> =>
+  (props) =>
+    createDynamic(() => component, props)
+
+/**
  * `<form>.<tag>` and `<form>.create(Component)`: the element, or the wrapped component, with a
  * Ward from {@link createWardWith} spread on it, its variant context's Provider around it when it
  * changes what its children read (#50). `forward`: its motion props are handed on too (#443).
  */
-const wardComponent =
-  (component: Rendered, internal: SpineInternals, forward: boolean): Component<Record<string, unknown>> =>
-  (props) => {
+const wardComponent = (component: Rendered, internal: SpineInternals, forward: boolean): Component<Record<string, unknown>> => {
+  const Rendered = fixedDynamic(component)
+  return (props) => {
     // The nearest `WardicConfig`'s `isValidProp`, as the element is made (#443).
     const isValidProp = isValidPropOf(useWardicConfig())
     // A server render takes the lean path (ADR-0021, decision 4).
@@ -219,12 +229,16 @@ const wardComponent =
 
     // An element that changes what its children read renders its variant context's Provider
     // around them (#50); any other renders none (`changesContext`, decided once, as on a server).
-    const element = (): JSX.Element => <Dynamic component={component} {...handedOn} {...rest} {...ward(userProps)} />
+    // The Ward's props, made once: a call spread in JSX compiles to a function source, which made
+    // `mergeProps` a proxy that the spread read every key through (#525). Their `style` is a getter.
+    const wardProps = ward(userProps)
+    const element = (): JSX.Element => <Rendered {...handedOn} {...rest} {...wardProps} />
     return Bool.match(changesContext(untrack(cfg)), {
       onFalse: () => forwarding.render(element),
       onTrue: () => <ward.Provider>{forwarding.render(element)}</ward.Provider>,
     })
   }
+}
 
 /** The user's ref, merged with what checks the Ward's, and how the element renders. */
 interface Forwarding {
