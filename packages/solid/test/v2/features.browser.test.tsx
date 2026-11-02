@@ -17,7 +17,7 @@ import { colors, type FeatureLoad, LazyWardic, Reorder, w, ward, wardic, WardicP
 import * as Bool from "effect/Boolean"
 import { createSignal, Errored, flush, For, untrack } from "solid-js"
 import { describe, expect, it, vi } from "vitest"
-import { has } from "../../src/feature.ts"
+import { hasService } from "../../src/gesture-features.ts"
 import { useFeatureSection } from "../../src/unstable/v2/provider.tsx"
 import { opacityOf, until } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
@@ -130,7 +130,7 @@ describe("Features and the Slim element (#511), Solid 2", () => {
     const seen: Record<string, boolean> = {}
     const Probe = (props: { readonly name: string }): JSX.Element => {
       const section = useFeatureSection()
-      seen[untrack(() => props.name)] = untrack(() => has(section.services(), colors))
+      seen[untrack(() => props.name)] = untrack(() => hasService(section.services(), colors.key))
       return undefined
     }
     mount(() => (

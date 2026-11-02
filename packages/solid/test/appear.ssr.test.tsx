@@ -381,10 +381,18 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
   it("AR14: a stream's late chunk brings its own rules, after its first root, keyless (#245)", async () => {
     const items = { hidden: { opacity: 0, y: 20 }, shown: { opacity: 1, y: 0 } }
     const writes: Array<string> = []
+    // Each late part resolves once the write before it is out, not on a timer: a part ready before
+    // the shell is written goes into the shell, as on a slow runner's cold first render (#460).
+    const waits: Array<{ readonly out: (w: string) => boolean; readonly go: () => void }> = []
+    const written = (out: (w: string) => boolean): Promise<void> => new Promise((go) => void waits.push({ out, go }))
+    const write = (w: string): void => {
+      writes.push(w)
+      waits.filter((x) => x.out(w)).forEach((x) => x.go())
+    }
     await new Promise<void>((resolve) => {
       renderToStream(() => {
-        const [data] = createResource(() => new Promise<Array<number>>((r) => setTimeout(() => r([0, 1, 2]), 20)))
-        const [later] = createResource(() => new Promise<string>((r) => setTimeout(() => r("later"), 60)))
+        const [data] = createResource(() => written(() => true).then(() => [0, 1, 2]))
+        const [later] = createResource(() => written((w) => w.includes('data-k="late0"')).then(() => "later"))
         return (
           <html>
             <head>
@@ -424,7 +432,7 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
             </body>
           </html>
         )
-      }).pipe({ write: (v: string) => void writes.push(v), end: () => resolve() } as unknown as { write: (v: string) => void; end: () => void })
+      }).pipe({ write, end: () => resolve() } as unknown as { write: (v: string) => void; end: () => void })
     })
     const shell = writes[0]!
     const chunks = writes.slice(1).filter((w) => w.includes("<template"))

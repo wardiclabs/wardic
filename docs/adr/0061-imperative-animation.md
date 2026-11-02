@@ -55,7 +55,7 @@ Wardic had declarative props only. On Solid 2, `settled()`, `next(name)` and an 
 8. **Solid 2's scope has `settled()`** (Q8): an async value, pending while any animation the scope started runs, its last landing otherwise, `undefined` before the first, as a ward's (ADR-0046). On both bindings the controls are awaitable. Rejected: B, the awaitable controls alone.
 
 **Defaults, stated rather than asked:**
-- **Reduced motion** applies to an Imperative animation as the provider says (ADR-0029: positional keys snap), as Motion's `useAnimate` takes its config's.
+- **Reduced motion** applies to an Imperative animation as its scope's nearest `WardicConfig`, else the provider, says (ADR-0029: positional keys snap; ADR-0062 since #434), as Motion's `useAnimate` takes its config's.
 - **Targets and options** are what `animate` takes: Keyframes, per-value transitions and the Default transitions. `delay` may be a function of an element's index and count, as Motion's. `stagger()` itself is #436.
 - **On a server** `createAnimate` animates nothing.
 
@@ -96,7 +96,7 @@ Wardic had declarative props only. On Solid 2, `settled()`, `next(name)` and an 
 - **Solid 2** (`v2/create-animate.browser.test.tsx`), CV1–CV3: `scope.settled()`, a selector and a ward's latest-wins, the owner's cleanup.
 - **Mutation-checked** (`.tmp/433/mutate.py`): 21 single-point mutations, each caught by the tests meant for it. One first survived: the guard that keeps a taken key out of a Retarget's returns. The strip after it already keeps the key out of the target, so it shows only where the Base value is the element's `style`, which a landing hands the key back to. CA10 pins it.
 
-**Found along the way, and left alone:** a tween's leg keeps no velocity on the Snapshot, so a spring that takes a key over from a tween starts it at rest, declaratively as well as here. Motion carries it.
+**Found along the way, and left alone:** a tween's leg keeps no velocity on the Snapshot, so a spring that takes a key over from a tween starts it at rest, declaratively as well as here. Motion carries it. *Fixed by #464* (ADR-0005, *Amendment (#464)*): a spring taking over a moving tween carries its speed.
 
 ## Measured (PR 1)
 
@@ -108,7 +108,7 @@ Wardic had declarative props only. On Solid 2, `settled()`, `next(name)` and an 
   - hover + press +1.9% / +1.7% (19.60 → 19.96 KB, 18.89 → 19.20);
   - a Reorder item +1.3% / +1.1%.
 
-  Each spine holds its `taken` Map, its `animate` closures and its registration. A `taken` made at the first call is the obvious cut, left for #460.
+  Each spine holds its `taken` Map, its `animate` closures and its registration. A `taken` made at the first call is the obvious cut, left for #460, which made it: every spine shares `NONE_TAKEN` until its first call.
 
 ## Built (PR 2)
 

@@ -106,3 +106,11 @@ PR 2's (`.tmp/438/mutate2.py`, run alone): 12 single-point mutations, all caught
 - A spring path starts at rest at every Retarget, as Motion's: an interrupt visibly stops and sets off again.
 - A layout flight interrupted mid-curve restarts from where it's drawn (#146) on a new curve, from rest.
 - `{ layout: { path } }` alone keeps Motion's default layout tween, as `{ path }` alone keeps `x`'s Default (PR 1).
+
+## Amendment (#460, 2026-11-02): the turn goes back at an interrupt or a stop
+
+#460's sweep found decision 3's "it goes back to 0 at the end, an interrupt or a stop" kept only at the landing. A Retarget gives up every key it doesn't resolve (#325), and `pathRotation` is never in a target, so any Retarget mid-curve froze the turn where it was, one that changed only `opacity` or a gesture layer too; a stop or a cancel wrote nothing for it.
+
+- **A leg's own keys ride with it while it's whole** (`giveUpUnresolved`, `holdsWhole`): a key its Retarget didn't resolve, the turn or an axis its target left out, stays with the leg while the leg still draws every key it was started for, each resolved now or taken. A Retarget of another key leaves the Path as it was, as Motion's leaves `x`'s animation.
+- **The turn goes back to 0 once no leg draws it** (`turnBack`): after a Retarget whose legs don't turn (the old leg lost `x` or `y`), Animation controls' `stop`, and an Imperative animation's `stop` and `cancel`. An axis its target left out stays where the curve had it, as *Consequences* says.
+- PA9 (another key's Retarget), PA10 (`createAnimate`'s `stop` and `cancel`) and PA11 (a straight Retarget of `x`, the controls' `stop`) pin it; each failed before.

@@ -13,7 +13,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid"
 import * as Option from "effect/Option"
-import { retryGesture, until } from "./browser-helpers.ts"
+import { retryGesture, until, waitAtMost } from "./browser-helpers.ts"
 
 afterEach(cleanup)
 
@@ -165,7 +165,7 @@ describe("drag — (f) post-drag rest (no momentum/snap)", () => {
     expect(translateXOf(el!)).toBeCloseTo(70, 0)
 
     el!.dispatchEvent(up(70, 0)) // no momentum + no snap -> rests where released
-    await until(() => false, 500) // observe ~500ms of frames
+    await waitAtMost(500) // observe ~500ms of frames
     expect(translateXOf(el!)).toBeCloseTo(70, 0)
   })
 })

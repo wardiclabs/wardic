@@ -20,7 +20,7 @@ Wardic had a keyframes machine, `Machine.keyframes`, through numbers, evenly spa
 5. **They run in core's Machine** (Q5). `Machine.keyframes` takes `times` and `animate`'s Modifiers, and `Machine.keyframesValues` runs a bag of keys, each through its own stops, on one run through the `InterpolatorRegistry`. Appear samples it as any machine, and #433's `animate()` reuses it. Stops that can't blend fail as such a pair does; Motion's measured unit conversion between stops goes with #430. Rejected: B, in the binding.
 6. **Two PRs** (Q6): core and dom first (the machine, the Default transition's keyframes entry, `bench:core`); then both bindings, closing #429. Rejected: B, one PR.
 
-**Not changed:** a Wardic tween passes no velocity to a spring that takes over from it, where Motion samples the value's. That's true of every tween, Keyframes included.
+**Not changed:** a Wardic tween passes no velocity to a spring that takes over from it, where Motion samples the value's. That's true of every tween, Keyframes included. *Superseded by #464* (ADR-0005, *Amendment (#464)*): a tween's speed now carries into the spring that takes over, as Motion's.
 
 ## Built: PR 1, core and dom
 

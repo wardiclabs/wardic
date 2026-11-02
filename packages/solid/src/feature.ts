@@ -64,9 +64,6 @@ const isFeature = (value: Features): value is Feature => Predicate.hasProperty(v
 /** Whether a `features` prop loads lazily: a function, where Features are values. */
 export const isLoad = (prop: FeaturesProp): prop is FeatureLoad => Predicate.isFunction(prop)
 
-/** Whether `services` holds `feature`'s. */
-export const has = (services: Context.Context<never>, feature: Feature): boolean => Option.isSome(Context.getOption(services, feature.key))
-
 /** No Features. */
 export const NONE: Context.Context<never> = Context.empty()
 

@@ -116,6 +116,7 @@ Wardic can't take the snapshot: its pass runs after the change (ADR-0018). For a
    - The pointer's movement in screen px is applied in the parent's own px, so inside `scale(0.5)` the element covers half the pointer's distance. Motion does the same unless the app supplies `transformPagePoint` ([PanSession.ts:140](https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/motion-dom/src/gestures/pan/PanSession.ts#L140), `:311`).
    - A translated parent (the card above, or `animate={{ x }}`) is exact, because a translation is the same in both frames.
    - *Rejected:* converting the pointer's movement through the ancestors' scale at the drag's start (a forced layout per drag start, exact for scale only), and a `transformPagePoint`-like option. Neither is #136's.
+   - *Amended by* *Amendment (#443)*: `WardicConfig`'s `transformPagePoint` (with `correctParentTransform`) makes the drag follow the pointer.
 
 **How the pass finds the transformed ancestors** (chosen on cost, below).
 - After its usual reads, the pass compares each node's box with the box its last pass read. Both are read with the ancestors' transforms still on, and both are moved by the node's fold.
@@ -125,7 +126,7 @@ Wardic can't take the snapshot: its pass runs after the change (ADR-0018). For a
 
 **Limits:**
 - **A transform mid CSS transition when a pass reads.** Holding it would cancel or restart the transition, so it's left alone and its current offset stays in the box. The common hover lift meets this only during its transition.
-- **A drag inside a scaled or rotated parent** (decision 4).
+- **A drag inside a scaled or rotated parent** (decision 4), unless the app gives `transformPagePoint` (*Amendment (#443)*).
 - **Twins are converted as of each twin's pass**, and axis-aligned under a rotation. An ancestor transform that changes mid-flight drifts until the animation ends, as before (#137).
 - **A node's own transform from a stylesheet**, or its `translate`, `scale` or `rotate`, stays in its box, as before. Only its inline `transform` is cleared.
 - **An ancestor whose layout and transform change together**, so that the node doesn't move on screen (another library's FLIP on a wrapper, for example). The node keeps its stored box, as on main, and the next pass after the wrapper's transform comes off FLIPs it from there.

@@ -8,18 +8,12 @@ import { createWard, WardicProvider, type WardicTransition } from "@wardic/solid
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
 import { afterEach, expect, it } from "vitest"
+import { raf, until } from "./browser-helpers.ts"
 import { createSignal } from "solid-js"
 
 afterEach(cleanup)
 
 const op = (el: HTMLElement): number => Number(el.style.opacity || "0")
-const raf = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()))
-
-/** Poll every real frame until `done()` or timeout. */
-const until = async (done: () => boolean, timeoutMs = 4000): Promise<void> => {
-  const start = performance.now()
-  while (!done() && performance.now() - start < timeoutMs) await raf()
-}
 
 /**
  * Drive real frames until `done()`; record the frame index at which each element

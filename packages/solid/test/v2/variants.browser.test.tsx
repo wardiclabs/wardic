@@ -16,7 +16,7 @@ import { ward, wardic, WardicProvider, type WardicTransition } from "@wardic/sol
 import * as Bool from "effect/Boolean"
 import { createSignal, flush, For } from "solid-js"
 import { describe, expect, it } from "vitest"
-import { raf, until } from "../browser-helpers.ts"
+import { raf, until, waitAtMost } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
 
 const opacityOf = (el: HTMLElement): number => Number(el.style.opacity)
@@ -82,7 +82,7 @@ describe("variant propagation: inheritance by name, through a ward's Provider", 
     expect(opacityOf(childEl)).toBe(0.5)
     setOpen(true)
     flush()
-    await until(() => false, 600)
+    await waitAtMost(600)
     expect(opacityOf(childEl)).toBeCloseTo(0.5, 2)
   })
 

@@ -8,7 +8,7 @@ import { DomLive } from "@wardic/dom"
 import { createSignal, type JSX } from "solid-js"
 import { wardic, WardicProvider, type WardicValues } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
-import { raf, until } from "./browser-helpers.ts"
+import { raf, until, waitAtMost } from "./browser-helpers.ts"
 
 afterEach(cleanup)
 
@@ -224,7 +224,7 @@ describe("wardic.div — tracked-value motion props (Solid prop reactivity)", ()
 
     // animate is static 0.4 + initial read once -> no re-seed / no move.
     setSeed(0.9)
-    await until(() => false, 600)
+    await waitAtMost(600)
     expect(opacityOf(el!)).toBeCloseTo(0.4, 1)
   })
 

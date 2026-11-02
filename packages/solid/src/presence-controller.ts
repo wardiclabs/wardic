@@ -48,7 +48,7 @@ import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicTransition, WardicVariantLabels } from "./config.ts"
 import type { ExitGroup, PresenceContextValue, PresenceExit, PresenceRecord, PresenceSeed, PresenceTree, PresenceWatch } from "./presence-record.ts"
-import { delayedBy, keyframesFrom, type Leg, legsOf, type MeasuredPairs, type StopsByKey, velocitiesOf } from "./retarget-legs.ts"
+import { delayedBy, hasManyStops, keyframesFrom, type Leg, legsOf, type MeasuredPairs, type StopsByKey, velocitiesOf } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import { childDelayOf, staggerOf } from "./variant-tree.ts"
 
@@ -206,10 +206,11 @@ interface PreparedExit {
 
 /**
  * An exit's Measured pairs (#430): each key whose start and target differ in type, asked of the
- * end-of-task batch. `undefined` with none, nearly every exit.
+ * end-of-task batch, but a key with Keyframes of more than two stops (`stops`, #460). `undefined` with
+ * none, nearly every exit.
  */
-const exitMeasuredOf = (element: HTMLElement, from: Values.Values, to: Values.Values): MeasuredPairs | undefined => {
-  const pairs = Rec.filter(to, (target, key) => Bool.and(Object.hasOwn(from, key), keepsMeasured(key, from[key], target)))
+const exitMeasuredOf = (element: HTMLElement, from: Values.Values, to: Values.Values, stops: StopsByKey | undefined): MeasuredPairs | undefined => {
+  const pairs = Rec.filter(to, (target, key) => Bool.and(Bool.and(Object.hasOwn(from, key), Bool.not(hasManyStops(stops, key))), keepsMeasured(key, from[key], target)))
   if (Rec.isEmptyRecord(pairs)) return undefined
   return MeasuredPair.measure(element, Rec.map(pairs, (target, key) => ({ from: UndefinedOr.getOrThrow(from[key]), to: target })), from)
 }
@@ -968,7 +969,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     const skipped = UndefinedOr.match(rec.skipAnimations, { onUndefined: constFalse, onDefined: (own) => own() })
     // Measured pairs (#430): an exit from `auto` to 0 measures both ends, as a Retarget does, unless
     // reduced motion snaps them or the exit is skipped.
-    const measured = Bool.match(Bool.or(reduce, skipped), { onTrue: constUndefined, onFalse: () => exitMeasuredOf(el, from, to) })
+    const measured = Bool.match(Bool.or(reduce, skipped), { onTrue: constUndefined, onFalse: () => exitMeasuredOf(el, from, to, stops) })
     const legs = UndefinedOr.match(exit.groups, {
       onUndefined: () => legsOf(from, to, delayedBy(exit.transition, delay(singleNameOf(exit.name))), reduce, skipped, positionalKeys, defaultTransition, moving, undefined, stops, measured),
       onDefined: (groups) =>

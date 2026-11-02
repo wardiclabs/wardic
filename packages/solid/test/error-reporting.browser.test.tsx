@@ -30,15 +30,18 @@ describe("each boundary logs a failure at Error and reports it once", () => {
   it("the spine's leg: each failed leg is logged and reported, the defect's message in the report", async () => {
     const logs: Array<Logged> = []
     const reports: Array<string> = []
+    // A spring, as frame-loop's "alone" tests: its numbers and its strings are two legs (ADR-0024,
+    // D5), so the opacity lands while the colour's leg fails. A tween, every key's Default since
+    // #357, runs both on one leg, which the colour ends (#460).
     const { container } = render(() => (
       <WardicProvider env={envWith({ logs, reports })}>
-        <wardic.div data-broken initial={{ opacity: 0, "background-color": "rgb(0, 0, 0)" }} animate={{ opacity: 1, "background-color": BROKEN }}>
+        <wardic.div data-broken initial={{ opacity: 0, "background-color": "rgb(0, 0, 0)" }} animate={{ opacity: 1, "background-color": BROKEN }} transition={{ type: "spring" }}>
           a
         </wardic.div>
       </WardicProvider>
     ))
     const el = container.querySelector<HTMLElement>("[data-broken]")!
-    await until(() => opacityOf(el) === 1 && reports.length > 0)
+    await until(() => opacityOf(el) === 1 && reports.length > 0, 4000, "the opacity landed and the colour's leg reported")
     const failed = errorsNamed(logs, "wardic.spine: a leg failed")
     // One per Retarget that starts the broken leg (a resting real pointer can Retarget it by hover).
     expect(failed.length).toBeGreaterThanOrEqual(1)

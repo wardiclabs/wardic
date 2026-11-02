@@ -9,6 +9,7 @@ import { wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import { createSignal, For } from "solid-js"
 import { afterEach, expect, it } from "vitest"
+import { raf, until } from "./browser-helpers.ts"
 
 afterEach(cleanup)
 
@@ -16,13 +17,6 @@ const VARIANTS = { hidden: { opacity: 0 }, shown: { opacity: 1 } }
 const TWEEN: WardicTransition = { type: "tween", duration: 0.2 }
 
 const op = (el: HTMLElement): number => Number(el.style.opacity || "1")
-const raf = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()))
-
-/** Poll every real frame until `done()` or timeout. */
-const until = async (done: () => boolean, timeoutMs = 4000): Promise<void> => {
-  const start = performance.now()
-  while (!done() && performance.now() - start < timeoutMs) await raf()
-}
 
 /** The frame index at which each element first reaches `threshold` opacity, until `done()` (-1 if never). */
 const crossings = async (els: ReadonlyArray<HTMLElement>, threshold: number, done: () => boolean): Promise<Array<number>> => {
