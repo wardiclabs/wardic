@@ -7,8 +7,9 @@
  *   Slim element's base, and with each Feature (#511). An app the base can't build, its API new, is
  *   reported as new and not gated.
  * - **Each side is built as an app ships it,** as `bench:solid` builds its pages (`sides.ts`): Vite,
- *   production mode, minified, tree-shaken; Solid 1 through vite-plugin-solid, Solid 2 through the
- *   repo's `solid2({ dev: false })`.
+ *   production mode, minified, tree-shaken, for the browsers an app ships to by default
+ *   (`APP_TARGET`, #525); Solid 1 through vite-plugin-solid, Solid 2 through the repo's
+ *   `solid2({ dev: false })`.
  * - **Reported:** each app's minified, gzip (level 9) and brotli bytes, head against base, and the
  *   head's minified bytes split by package through its source map.
  * - **Gate:** an app fails when its gzip grows more than 1% over the base's, and the Slim element's
@@ -27,7 +28,7 @@ import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { solid2 } from "../vite.solid2.ts"
-import { commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
+import { APP_TARGET, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
 
 /** An app fails when its gzip passes this ratio of the base's. */
 const GATE = 1.01
@@ -35,9 +36,10 @@ const GATE = 1.01
 /**
  * The Slim element's base apps' budgets (#511, decision 10), in gzipped KB: an app fails past its own,
  * whatever its base. Set at the split's end, at its sizes with a little room, so changes each under the
- * gate can't add up; #518 lowers them toward Q4's 105 KB after v1.
+ * gate can't add up, and kept that room when the build target moved (#525: 119.4 and 154.9); #518
+ * lowers them toward Q4's 105 KB after v1.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 122, "s2-slim": 159 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 121, "s2-slim": 157 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 
@@ -201,6 +203,7 @@ const sizesOf = async (side: string, commit: string | undefined, deps: string): 
         outDir: join(root, "dist"),
         emptyOutDir: false,
         minify: true,
+      target: [...APP_TARGET],
         sourcemap: true,
         lib: { entry, formats: ["es"], fileName: () => `${app.name}.js` },
       },

@@ -15,6 +15,14 @@ import * as UndefinedOr from "effect/UndefinedOr"
 /** The packages a side builds from. */
 export const PACKAGES = ["core", "dom", "solid"] as const
 
+/**
+ * The browsers a side is built for: what an app ships to by default, Vite 8's
+ * `baseline-widely-available` (#525). Class fields stay native there. Vite 6's default (`modules`,
+ * es2020), which built the sides before, rewrote each into an `Object.defineProperty` call, a cost
+ * apps on Vite 7 and later don't pay, Wardic's own storefronts (Vite 8, `esnext`) among them.
+ */
+export const APP_TARGET: ReadonlyArray<string> = ["chrome111", "edge111", "firefox114", "safari16.4", "ios16.4"]
+
 /** The repo's root. */
 export const REPO = resolve(dirname(fileURLToPath(import.meta.url)), "../../..")
 
