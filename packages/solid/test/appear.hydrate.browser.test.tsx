@@ -51,7 +51,7 @@ import { DomLive } from "@wardic/dom"
 import { type JSX, sharedConfig } from "solid-js"
 import { hydrate } from "solid-js/web"
 import { commands } from "vitest/browser"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, beforeAll, describe, expect, it } from "vitest"
 import { A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, setAppearEnv } from "./appear-fixtures.tsx"
 import "./browser-commands.ts"
 
@@ -96,6 +96,12 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) cleanup()
   await commands.emulateReducedMotion(false)
 })
+
+// The first server render compiles the fixtures' module graph for the server: over 13 s on a cold CI
+// runner (#524), past a test's 15 s. Done once here, on the hook's own time.
+beforeAll(async () => {
+  await commands.serverRenderPage(FILE, "A1", "warm")
+}, 60_000)
 
 const drawnOf = (el: Element): Drawn => {
   const computed = getComputedStyle(el)
@@ -149,6 +155,16 @@ const run = async (
     for (const style of styles) style.remove()
   })
   const startOf: Record<string, number> = {}
+  // Each watched element's CSS animation's start, once it has one: a frame's read notes it, and so
+  // does the Handoff, just before it takes them over, as a slow runner can skip every read before it (#524).
+  const noteStarts = (): void => {
+    for (const el of watched) {
+      const k = (el as HTMLElement).dataset.k!
+      Option.map(Appear.find(el), (animation) => {
+        if (startOf[k] === undefined && typeof animation.startTime === "number") startOf[k] = animation.startTime
+      })
+    }
+  }
   const hydratedStyle: Record<string, string> = {}
   const frames: Array<Recorded> = []
   const begun = performance.now()
@@ -161,6 +177,7 @@ const run = async (
     setTimeout(() => {
       ;(globalThis as { _$HY?: { done?: boolean } })._$HY!.done = false
       sharedConfig.done = false
+      noteStarts()
       dispose = hydrate(code, host, { renderId })
       hydrated = true
       for (const el of watched) hydratedStyle[(el as HTMLElement).dataset.k!] = (el as HTMLElement).style.transform
@@ -183,13 +200,8 @@ const run = async (
       setTimeout(() => {
         if (frameCount !== seen) return
         const drawn: Record<string, Drawn> = {}
-        for (const el of watched) {
-          const k = (el as HTMLElement).dataset.k!
-          Option.map(Appear.find(el), (animation) => {
-            if (startOf[k] === undefined && typeof animation.startTime === "number") startOf[k] = animation.startTime
-          })
-          drawn[k] = drawnOf(el)
-        }
+        noteStarts()
+        for (const el of watched) drawn[(el as HTMLElement).dataset.k!] = drawnOf(el)
         frames.push({ at: now, hydrated, drawn })
       }, 0)
       if (performance.now() - begun < options.forMs) requestAnimationFrame(frame)
@@ -319,7 +331,7 @@ const followsMachine = (
   expected: (seconds: number) => { readonly opacity?: number; readonly x?: number; readonly y?: number; readonly rotate?: number; readonly cx?: number; readonly r?: number; readonly dash?: number },
 ): number => {
   const start = r.startOf[k]
-  expect(start, `${k}'s CSS animation was found`).toBeDefined()
+  expect(start, `${k}'s CSS animation was found (frames read before hydration: ${r.frames.filter((f) => !f.hydrated).length})`).toBeDefined()
   let after = 0
   for (const frame of r.frames) {
     if (frame.at < start!) continue

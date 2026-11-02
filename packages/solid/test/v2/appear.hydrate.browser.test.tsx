@@ -45,7 +45,7 @@ import * as References from "effect/References"
 import { DomLive } from "@wardic/dom"
 import { hydrate, type JSX } from "@solidjs/web"
 import { commands } from "vitest/browser"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, beforeAll, describe, expect, it } from "vitest"
 import { A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, setAppearEnv } from "./hydrate-fixtures.tsx"
 import "../browser-commands.ts"
 
@@ -94,6 +94,12 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) cleanup()
   await commands.emulateReducedMotion(false)
 })
+
+// The first server render compiles the fixtures' module graph for the server: over 13 s on a cold CI
+// runner (#524), past a test's 15 s. Done once here, on the hook's own time.
+beforeAll(async () => {
+  await commands.serverRender2(FILE, "A1", "warm")
+}, 60_000)
 
 const drawnOf = (el: Element): Drawn => {
   const computed = getComputedStyle(el)
@@ -155,6 +161,16 @@ const run = async (
     for (const style of styles) style.remove()
   })
   const startOf: Record<string, number> = {}
+  // Each watched element's CSS animation's start, once it has one: a frame's read notes it, and so
+  // does the Handoff, just before it takes them over, as a slow runner can skip every read before it (#524).
+  const noteStarts = (): void => {
+    for (const el of watched) {
+      const k = (el as HTMLElement).dataset.k!
+      Option.map(Appear.find(el), (animation) => {
+        if (startOf[k] === undefined && typeof animation.startTime === "number") startOf[k] = animation.startTime
+      })
+    }
+  }
   const hydratedStyle: Record<string, string> = {}
   const frames: Array<Recorded> = []
   const begun = performance.now()
@@ -167,6 +183,7 @@ const run = async (
   if (options.hydrateAfter !== undefined) {
     setTimeout(() => {
       freshHydration()
+      noteStarts()
       dispose = hydrate(code, host, { renderId })
       hydrated = true
       for (const el of watched) {
@@ -193,13 +210,8 @@ const run = async (
       setTimeout(() => {
         if (frameCount !== seen) return
         const drawn: Record<string, Drawn> = {}
-        for (const el of watched) {
-          const k = (el as HTMLElement).dataset.k!
-          Option.map(Appear.find(el), (animation) => {
-            if (startOf[k] === undefined && typeof animation.startTime === "number") startOf[k] = animation.startTime
-          })
-          drawn[k] = drawnOf(el)
-        }
+        noteStarts()
+        for (const el of watched) drawn[(el as HTMLElement).dataset.k!] = drawnOf(el)
         frames.push({ at: now, hydrated, drawn })
       }, 0)
       if (performance.now() - begun < options.forMs) requestAnimationFrame(frame)
@@ -353,7 +365,7 @@ const followsMachine = (
   expected: (seconds: number) => { readonly opacity?: number; readonly x?: number; readonly y?: number; readonly rotate?: number; readonly cx?: number; readonly r?: number; readonly dash?: number },
 ): number => {
   const start = r.startOf[k]
-  expect(start, `${k}'s CSS animation was found`).toBeDefined()
+  expect(start, `${k}'s CSS animation was found (frames read before hydration: ${r.frames.filter((f) => !f.hydrated).length})`).toBeDefined()
   let after = 0
   for (const frame of r.frames) {
     if (frame.at < start!) continue
@@ -588,9 +600,11 @@ describe("Appear animations on Solid 2, server render to hydration (#48, ADR-004
     const early = r.frames.filter((f) => f.at > held + 20 && f.at < revealed - 20)
     expect(early.length, "frames between the two landings").toBeGreaterThan(5)
     expect(early.every((f) => f.drawn["fast"] === undefined), "the held element isn't on the page").toBe(true)
-    // Its CSS animation starts at the reveal, and plays from 0 to 1, through the Handoff.
+    // Its CSS animation starts at the reveal, and plays from 0 to 1, through the Handoff. Its start is
+    // its frame's timeline time, which a slow runner can stamp before the landing's `performance.now()`
+    // in that frame (#524): a frame early is still the reveal, 300 ms after the chunk's arrival.
     expect(r.startOf["fast"], "it played its CSS").toBeDefined()
-    expect(r.startOf["fast"]!, "from the reveal, not the chunk's arrival").toBeGreaterThanOrEqual(revealed)
+    expect(r.startOf["fast"]!, "from the reveal, not the chunk's arrival").toBeGreaterThan(revealed - 1000 / 60)
     const shown = r.frames.filter((f) => f.drawn["fast"] !== undefined)
     expect(shown[0]!.drawn["fast"]!.opacity, "its first frame on the page: near its start").toBeLessThan(0.2)
     expect(shown.some((f) => f.drawn["fast"]!.opacity > 0.3 && f.drawn["fast"]!.opacity < 0.8), "it moved on the page").toBe(true)
