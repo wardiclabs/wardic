@@ -84,6 +84,27 @@ The mechanism adds 3.6 KB minified to every Wardic app (its registry, sections a
 
 dom's share of a Slim app falls by 70.6 KB minified. The presence's view of the projection system, built to work without one, adds 0.7–0.9 KB minified to an app with `AnimatePresence`.
 
+**The gestures and the presets** (PR 4 of #511, decision 15's third):
+- **A Feature per gesture:** `hover`, `press` (its Keyboard presses included), `focus`, `inView`, `pan` and `drag` (`dragControls`, the constraints and the release's inertia included), each in its own module under `features/`. Each one's service is its gesture's start, which wraps core's `Recognizer.watch*`, `watchPressOn` or the drag track. An element looks it up in its section.
+  - With the Feature, the gesture starts through it. Without it, its props do nothing, and development says so once per provider and gesture, naming the import.
+  - So an element imports none of `Recognizer`, `press.ts`, dom's input, the drag track or `Inertia`. It keeps the gesture layers, the drag defaults and `dragTransitionOf`, which a layout node's release also runs on.
+- **A gesture Feature arriving lazily starts an element's gesture from then on,** unlike `layout`, whose node is made at the mount. Solid 1's recognizers start from a computation that reads the section's Features with the config; Solid 2's `startRecognizers` runs again when they change. A drag is still decided at the mount.
+- **The input** (decision 14): `DomLive` no longer builds the DOM's `InputSource`, and `WardicServices` no longer requires one. Every gesture Feature but `inView`, which reads only the Probe, stands on one input Layer (`features/input.ts`): the Environment's `InputSource` when it gives one (`TestLive`, a test's pushed input), else `DomInput.layer`. It's one Layer, so a provider's `MemoMap` builds it once. A gesture Feature gives the input beside its service, so a section with one has it: a `Reorder` item's keys and `createDrag` run on it.
+  - Asked at the build: should the same check, the Environment's service if it gives one, apply to every Feature? Not now: only the input needs it.
+- **What brings what** (decision 12): each `Reorder` item brings `layout`, `drag` and every other gesture. Decision 12 named `layout` and `drag`. The rest let `whileHover` or `whileTap` on an item work as on Motion's, for about 0.5 KB gzipped beside the drag's, which already brings `Recognizer` and the input; #511's tests caught a `Reorder` item's `whileHover` going quiet without them. `createHover`, `createPress`, `createFocus`, `createDrag` and Solid 1's `runDragTrack` bring their gesture's Feature. `createInView` reads only the Probe, so it brings none.
+- **The presets:** `domAnimation` is `hover`, `press`, `focus` and `inView`, as Motion's is. `domMax` is every Feature, `colors` and `layout` included: the Complete element's list.
+- **Still DOM-bound:** dom's `auto-scroll` reads the held scroll shift only the DOM's input fills, so under another `InputSource` a held drag's auto-scroll doesn't follow the page's scroll.
+
+| App, gzipped KB | Solid 1 | Solid 2 |
+|---|---|---|
+| Slim element alone (PR 3 → PR 4) | 135.5 → 121.7 (−10.1%) | 171.8 → 158.0 (−8.0%) |
+| Slim element with `hover` | 128.1 | 164.5 |
+| Slim element with `domAnimation` | 128.7 | 165.0 |
+| Slim element with `drag` | 135.2 | 171.5 |
+| Slim element with `domMax` = Complete element | 161.9 → 162.4 (+0.3%) | 198.2 → 198.9 (+0.4%) |
+
+core's share of a Slim app falls by 23.6 KB minified (`Recognizer`, `Drag`, `Inertia`, `InputFeed`), the binding's by 10.2 and dom's by 8.0. The Complete element pays about 2 KB minified for the lookups, under the gate's 1%.
+
 ## Consequences
 
 - A new user's `wardic.*` app is the same size as before; the savings are for apps that move to `w.*`.

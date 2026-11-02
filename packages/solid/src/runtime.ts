@@ -10,7 +10,6 @@ import type * as Announcer from "@wardic/core/Announcer"
 import type * as Clock from "@wardic/core/Clock"
 import * as DefaultTransition from "@wardic/core/DefaultTransition"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
-import type * as InputSource from "@wardic/core/InputSource"
 import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Probe from "@wardic/core/Probe"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
@@ -34,12 +33,14 @@ import { type InstantAnimations, makeInstantAnimations, NO_INSTANT } from "./ins
 import { settingOf as configSettingOf, type WardicConfigValue } from "./wardic-config-value.ts"
 
 /**
- * The full Wardic environment a `WardicProvider` requires: all five core
- * service contracts, the `RefreshFrameSource` the Clock ticks on and the flush gate requests its
+ * The full Wardic environment a `WardicProvider` requires: core's service contracts but the
+ * `InputSource`, the `RefreshFrameSource` the Clock ticks on and the flush gate requests its
  * flushes from (ADR-0031), core's Frame loop over the Clock (`FrameLoop.layer`, which runs every
  * animation the binding starts, ADR-0027), and the `AtomRegistry` that backs reactive service
  * inputs. Satisfied by `@wardic/dom`'s `DomLive` (real browser) or `@wardic/test`'s
- * `TestLive` (headless). `ER` and `R` are `never`: a fully self-contained Layer.
+ * `TestLive` (headless). `ER` and `R` are `never`: a fully self-contained Layer. The `InputSource` is
+ * the gesture Features' (#511, ADR-0067 decision 14): built with the first one, over the page, unless
+ * the Environment gives one, as `TestLive` does, which they take.
  */
 export type WardicEnv = Layer.Layer<WardicServices, never, never>
 
@@ -49,7 +50,6 @@ export type WardicServices =
   | RefreshFrameSource.RefreshFrameSource
   | FrameLoop.FrameLoop
   | Renderer.Renderer
-  | InputSource.InputSource
   | Probe.Probe
   | InterpolatorRegistry.InterpolatorRegistry
   | ReducedMotion.PositionalKeys

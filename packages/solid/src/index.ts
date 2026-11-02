@@ -41,6 +41,20 @@ export {
 export type { Feature, FeatureLoad, Features, FeaturesProp } from "./feature.ts"
 export { colors } from "./features/colors.ts"
 export { layout } from "./features/layout.ts"
+/**
+ * The gestures (#511, ADR-0067 decision 3), a Feature each: `hover`, `press` (its Keyboard presses
+ * included), `focus`, `inView`, `pan` and `drag` (`dragControls` and the release's inertia included).
+ * Every one but `inView` stands on the gestures' input: the Environment's when it gives one, else the
+ * DOM's. Motion's bundles: `domAnimation` (`hover`, `press`, `focus`, `inView`) and `domMax` (every
+ * Feature).
+ */
+export { drag } from "./features/drag.ts"
+export { focus } from "./features/focus.ts"
+export { hover } from "./features/hover.ts"
+export { inView } from "./features/in-view.ts"
+export { pan } from "./features/pan.ts"
+export { press } from "./features/press.ts"
+export { domAnimation, domMax } from "./features/presets.ts"
 // The Instant change and the Projection reset (#443): Motion's `useInstantTransition` and kin.
 export type { InstantTransition } from "./instant.ts"
 // `WardicConfig`'s `transformPagePoint` helpers (#443, Motion's): a drag inside a transformed parent, or an SVG's viewBox.

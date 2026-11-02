@@ -8,9 +8,12 @@ import * as Renderer from "@wardic/core/Renderer"
 import { expect, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
+import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
 import { DomLive } from "@wardic/dom"
+import * as DomInput from "@wardic/dom/DomInput"
 
 /** Hand the scheduler a fixed budget of turns so async steps settle. */
 const drain = Effect.forEach(Array.from({ length: 16 }), () => Effect.yieldNow, { discard: true })
@@ -36,14 +39,22 @@ const subscribeIn = <A>(stream: Stream.Stream<A, never, never>) =>
     }
   })
 
-// `layer(DomLive)` provides the whole composed browser environment to every test
-// and memoizes it. Each test uses a FRESH element, so the shared input RcMaps
-// key distinct entries — no cross-test interference.
-layer(DomLive)("DomLive", (it) => {
+// DomLive builds no InputSource (#511, ADR-0067 decision 14): a binding's gestures build `DomInput.layer`.
+layer(DomLive)("DomLive alone", (it) => {
+  it.effect("builds no InputSource", () =>
+    Effect.gen(function* () {
+      expect(Option.isNone(yield* Effect.serviceOption(InputSource.InputSource))).toBe(true)
+    }))
+})
+
+// `layer(…)` provides the whole composed browser environment, with the DOM's input as a binding's
+// gestures build it, to every test and memoizes it. Each test uses a FRESH element, so the shared
+// input RcMaps key distinct entries — no cross-test interference.
+layer(Layer.merge(DomLive, DomInput.layer))("DomLive with DomInput.layer", (it) => {
   it.effect("end-to-end: core `drag` recognizer over the real DOM produces start/move/end", () =>
     Effect.gen(function* () {
       const el = document.createElement("div")
-      // `drag(el)` resolves InputSource from DomLive; R is satisfied by the layer.
+      // `drag(el)` resolves InputSource from DomInput.layer; R is satisfied by the layer.
       const sub = yield* subscribeIn(Recognizer.drag(el) as Stream.Stream<Drag.Sample, never, never>)
 
       // pointerdown claims the gesture (no emission yet).
@@ -67,7 +78,7 @@ layer(DomLive)("DomLive", (it) => {
       yield* sub.close
     }))
 
-  it.effect("provides all five services (Clock, Renderer, InputSource, Probe, InterpolatorRegistry)", () =>
+  it.effect("provides the five services (Clock, Renderer, InputSource, Probe, InterpolatorRegistry)", () =>
     Effect.gen(function* () {
       const clock = yield* Clock.Clock
       const renderer = yield* Renderer.Renderer

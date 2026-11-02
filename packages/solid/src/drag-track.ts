@@ -136,6 +136,9 @@ export interface DragTrackConfig {
   readonly listen?: boolean | undefined
 }
 
+/** What the track's watches and responses run with: the provider's services and the gestures' input (#511). */
+export type TrackServices = WardicServices | InputSource.InputSource
+
 /** Options for {@link driveDragTrack}. */
 export interface DragTrackOptions {
   /**
@@ -143,14 +146,14 @@ export interface DragTrackOptions {
    * fiber, until the element goes and the Scope closes, which stops a running release. A throw from a
    * watch's fold goes to the `onDefect` it's given (#209: each binding's Solid owns the Scope).
    */
-  readonly watch: (track: (onDefect: InputFeed.OnDefect) => Effect.Effect<void, never, Scope.Scope | WardicServices>) => void
+  readonly watch: (track: (onDefect: InputFeed.OnDefect) => Effect.Effect<void, never, Scope.Scope | TrackServices>) => void
   /**
    * Runs a response forked on the provider runtime (#379): its fiber starts at once and runs to its
    * end inside the event. A release it forks keeps the runtime's scheduler, a host's if it gave one
    * (ADR-0027 decision 6, ADR-0041 *Amendment (#208)*), not a `runSync`'s sync one, which would resume
    * the release's yields on a microtask.
    */
-  readonly fork: (response: Effect.Effect<void, never, WardicServices>) => void
+  readonly fork: (response: Effect.Effect<void, never, TrackServices>) => void
   /** The provider-owned flush gate (ADR-0006); the drag writes `x`/`y` into `id`. */
   readonly gate: FlushGate.Shape
   /** The element's gate id (shared with the spine, so writes merge). */

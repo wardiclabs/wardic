@@ -193,6 +193,16 @@ export function useFeatureRegistry(): FeatureRegistry {
   return fromContext(contextValue(), "useFeatureRegistry", (value) => value.features)
 }
 
+/**
+ * The services of `features`, which a hook or component brings (#511, decision 12) whatever its
+ * section has: built the first time they're read, on the client. `features` is a list the caller keeps,
+ * so its provider joins it once. Internal.
+ */
+export function useBrought(features: ReadonlyArray<Feature>): () => Context.Context<never> {
+  const registry = useFeatureRegistry()
+  return () => registry.build(features)
+}
+
 /** Each client provider's disposal (#257): a promise that rejects with an `AbortError` then. */
 const disposals = new WeakMap<WardicContextValue, Promise<never>>()
 

@@ -416,3 +416,9 @@ Grilled 2026-10-17 (A, A, A, A):
   - TR1–TR4 (`examples/layout-lab/test/tree.test.ts`): the labels, the Mermaid text, the separate trees and what a recording changed, and the cycle check.
 
 *Note (#511, 2026-11-01):* `Color.FromString`, a Schema codec, is `Color.parse` and `Color.format` now: Schema left Wardic's runtime (ADR-0067, decision 9; ADR-0026, *Amendment (#511)*).
+
+## Amendment (#511, 2026-11-01): `DomLive` builds no `InputSource`
+
+`DomLive` no longer merges `DomInput.layer`, and its type no longer lists `InputSource` (ADR-0067, decision 14). A binding's gesture Features build `DomInput.layer` with the first one an app uses, unless the Environment gives an `InputSource` of its own, as `@wardic/test`'s `TestLive` does. An app with no gesture ships no input code.
+
+`DomInput.layer` itself is unchanged, and still `@wardic/dom/DomInput`'s. Code that runs core's recognizers straight on `DomLive` provides it beside: `Layer.merge(DomLive, DomInput.layer)`, as dom's own `dom-live` test now does.

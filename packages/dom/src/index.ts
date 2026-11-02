@@ -16,7 +16,6 @@
  */
 import type * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
-import type * as InputSource from "@wardic/core/InputSource"
 import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import type * as Announcer from "@wardic/core/Announcer"
 import type * as DefaultTransition from "@wardic/core/DefaultTransition"
@@ -29,7 +28,6 @@ import { AtomRegistry } from "effect/reactivity"
 import * as DomAnnouncer from "./DomAnnouncer.ts"
 import * as DomClock from "./DomClock.ts"
 import * as DomDefaultTransition from "./DomDefaultTransition.ts"
-import * as DomInput from "./DomInput.ts"
 import * as DomInterpolators from "./DomInterpolators.ts"
 import * as DomPositionalKeys from "./DomPositionalKeys.ts"
 import * as DomProbe from "./DomProbe.ts"
@@ -72,6 +70,9 @@ export * as Report from "./Report.ts"
  * exactly as the headless `testLayer` (packages/test) does. Provide this to
  * `WardicProvider` to run the full engine against the real DOM.
  *
+ * It builds no `InputSource` (#511, ADR-0067 decision 14): a binding's gestures build `DomInput.layer`
+ * with the first one an app uses, so an app with none ships no input code.
+ *
  * Client-only: a server render builds no runtime, and building DomLive on a server fails
  * with a clear error naming the Layer and the missing global (ADR-0021, decision 7).
  */
@@ -80,7 +81,6 @@ export const DomLive: Layer.Layer<
   | RefreshFrameSource.RefreshFrameSource
   | FrameLoop.FrameLoop
   | Renderer.Renderer
-  | InputSource.InputSource
   | Probe.Probe
   | InterpolatorRegistry.InterpolatorRegistry
   | ReducedMotion.PositionalKeys
@@ -89,7 +89,7 @@ export const DomLive: Layer.Layer<
   | AtomRegistry.AtomRegistry
 > = FrameLoop.layer.pipe(
   Layer.provideMerge(
-    Layer.mergeAll(DomClock.layer, DomRenderer.layer, DomInput.layer, DomProbe.layer, DomInterpolators.layer, DomPositionalKeys.layer, DomDefaultTransition.layer, DomAnnouncer.layer),
+    Layer.mergeAll(DomClock.layer, DomRenderer.layer, DomProbe.layer, DomInterpolators.layer, DomPositionalKeys.layer, DomDefaultTransition.layer, DomAnnouncer.layer),
   ),
   Layer.provideMerge(AtomRegistry.layer),
 )
