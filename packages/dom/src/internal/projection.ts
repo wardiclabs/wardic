@@ -85,6 +85,7 @@ import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import { constFalse, constTrue, constUndefined, constVoid, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
+import * as Result from "effect/Result"
 import * as Scope from "effect/Scope"
 import * as Str from "effect/String"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -1766,6 +1767,8 @@ export const makeProjectionSystem = (
   let stopPage: () => void = constVoid
   // Whether the next Measure pass is a page-size refresh (#261).
   let refreshing = false
+  // The nodes an own-size refresh is for (#504): its pass measures their layout parents' subtrees.
+  let refreshResized: ReadonlyArray<NodeState> | undefined
   // The layout nodes disposed this task, by element (#221), and the newest held Switch seed per
   // `layoutId`, in the Root frame (ADR-0010 *Amendment (#13)*): an enterer registering within the
   // task takes it (a twin already registered but unmeasured got it handed over directly). One
@@ -2829,6 +2832,34 @@ export const makeProjectionSystem = (
     return byDepth
   }
 
+  /**
+   * The nodes an own-size refresh measures (#504, ADR-0018 *Amendment (#504)*): every node under the
+   * layout parent of a node `resized`, the parent with them, in depth order. A node's resize moves
+   * only what shares its parent's box (its siblings, earlier ones too in a centred or wrapping row,
+   * and theirs); a parent it resizes is one of `resized` itself. Every node when one has no parent, or
+   * when there's no refresh scope (`resized` undefined: any other pass). Parent links as
+   * {@link computeTree} has just set them.
+   */
+  const scopedOrder = (ordered: ReadonlyArray<NodeState>, resized: ReadonlyArray<NodeState> | undefined): ReadonlyArray<NodeState> => {
+    if (Predicate.isUndefined(resized)) return ordered
+    const roots = new Set<NodeState>()
+    for (const node of resized) {
+      if (Predicate.isUndefined(node.parent)) return ordered
+      roots.add(node.parent)
+    }
+    return Arr.filter(ordered, (node) => underAny(node, roots))
+  }
+
+  /** Whether `node` is one of `roots`, or under one. */
+  const underAny = (node: NodeState, roots: ReadonlySet<NodeState>): boolean => {
+    let at: NodeState | undefined = node
+    while (Predicate.isNotUndefined(at)) {
+      if (roots.has(at)) return true
+      at = at.parent
+    }
+    return false
+  }
+
   // A frame's leads and followers in {@link deriveAll}: the same two arrays each frame, emptied after
   // (#383, ADR-0025: the per-frame path allocates nothing).
   const FRAME_LEADS: Array<NodeState> = []
@@ -3604,14 +3635,14 @@ export const makeProjectionSystem = (
    * or a **Declared layout change**'s Measurements). `versioned`: each node's `layoutVersion` rises,
    * except for a Declared layout change's Measurements, which read the layout from before its change.
    */
-  const runMeasurePass = (seeded: Set<NodeState>, dragBlocked: Set<NodeState>, blocked: boolean, versioned: boolean): void => {
+  const runMeasurePass = (seeded: Set<NodeState>, dragBlocked: Set<NodeState>, blocked: boolean, versioned: boolean, resized?: ReadonlyArray<NodeState>): void => {
     measuredNow.length = 0
     // Parent links + depth FIRST (DOM-ancestry only, box-independent): the scroll
     // fold walks the ancestor chain (ADR-0012). Every phase below runs ancestors-first,
     // in the depth order (#383), though none relies on it today: every scroll sample is
     // read before any fold, and a restart reads the boxes as the pass began (#146).
     computeTree()
-    const ordered = inDepthOrder()
+    const ordered = scopedOrder(inDepthOrder(), resized)
     // The nodes this round (re)seeded or whose box changed under their descendants.
     const changed = new Set<NodeState>()
     const start = (node: NodeState): void => {
@@ -4079,6 +4110,10 @@ export const makeProjectionSystem = (
     // The Resize block: this pass takes it and clears it. A page-size refresh is the same blocked pass (#261).
     const refreshed = refreshing
     refreshing = false
+    // An own-size refresh's nodes (#504): its first round measures their parents' subtrees; a round a
+    // trigger during it repeats is a triggered one, and reads every node.
+    let scope = refreshResized
+    refreshResized = undefined
     const blocked = Bool.or(resizeBlocked, refreshed)
     resizeBlocked = false
     runtime.runFork(FiberHandle.clear(resizeWait))
@@ -4089,7 +4124,9 @@ export const makeProjectionSystem = (
         triggeredDuringPass = false
         rounds++
         const roundBlocked = Bool.or(blocked, takeInstant())
-        sink.flushPass(() => runMeasurePass(seeded, dragBlocked, roundBlocked, true))
+        const roundScope = scope
+        scope = undefined
+        sink.flushPass(() => runMeasurePass(seeded, dragBlocked, roundBlocked, true, roundScope))
       } while (triggeredDuringPass && rounds < MAX_ROUNDS)
     } finally {
       inPass = false
@@ -5394,11 +5431,14 @@ export const makeProjectionSystem = (
    * next layout animation starts from where its node is painted (Motion's snapshot at `willUpdate`).
    * Its `layoutVersion`s rise and its pass-end listeners run, as any pass's. None while a pass is due,
    * which reads every node and animates what moved as triggered, nor under a **Resize block**, whose
-   * own pass does this once the resize settles.
+   * own pass does this once the resize settles. An own-size refresh (#504) names the nodes `resized`,
+   * and its pass reads only their layout parents' subtrees ({@link scopedOrder}): each frame of a size
+   * leg, the nodes it can move, not the page.
    */
-  const refresh = (): void => {
+  const refresh = (resized?: ReadonlyArray<NodeState>): void => {
     if (Bool.some([disposed, inPass, passQueued, resizeBlocked, nodes.size === 0])) return
     refreshing = true
+    refreshResized = resized
     runtime.runSync(measurePass.pipe(Effect.catchCause((cause) => reportFailure("wardic.projection: refresh failed", cause))))
   }
 
@@ -5441,19 +5481,22 @@ export const makeProjectionSystem = (
    * The shared observer's delivery (#21, ADR-0018 *Amendment (#21)*): a Measure pass only when an
    * entry reports a size the engine hasn't measured. Its first delivery for a node just mounted, and
    * its echo of a size a triggered pass already read, run none. A node's own resize (#453), its legs
-   * drawing its size, is no layout change: when every unmeasured size is one, the page refreshes (#261),
-   * nothing animating, as Motion's projection never sees it; beside a real resize, the pass gives those
-   * nodes a slot-only update.
+   * drawing its size, is no layout change, and nor is a node's it resizes in the same delivery, inside
+   * it (a child sized from it) or around it (a parent it grows, #504): when every unmeasured size is
+   * one of those, the nodes those could move refresh (#261, {@link scopedOrder}), nothing animating, as
+   * Motion's projection never sees it; beside a real resize, the pass gives them a slot-only update.
    */
   const onObserved = (entries: ReadonlyArray<ResizeObserverEntry>): void => {
     // A node's own resize runs a pass, which reads the page as well.
     const unmeasured = Arr.filter(entries, Predicate.not(alreadyMeasured))
     if (Arr.isArrayNonEmpty(unmeasured)) {
-      const own = Arr.filter(unmeasured, ownResize)
-      Arr.forEach(own, (entry) => UndefinedOr.map(elementToNode.get(entry.target as HTMLElement), (node) => ownSized.add(node)))
-      if (own.length === unmeasured.length) {
+      const own = Arr.map(Arr.filter(unmeasured, ownResize), (entry) => entry.target)
+      const ofOwn = Arr.filter(unmeasured, (entry) => Arr.some(own, (el) => Bool.or(el.contains(entry.target), entry.target.contains(el))))
+      const resized = Arr.filterMap(ofOwn, (entry) => Result.fromNullishOr(elementToNode.get(entry.target as HTMLElement), constVoid))
+      Arr.forEach(resized, (node) => ownSized.add(node))
+      if (ofOwn.length === unmeasured.length) {
         // Its sizes taken as they are; a pass already due takes them so too.
-        refresh()
+        refresh(resized)
         return
       }
       scheduleMeasure()

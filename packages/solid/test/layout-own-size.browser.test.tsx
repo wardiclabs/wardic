@@ -7,6 +7,13 @@
 // - OS2: a `layout` sibling the leg moves goes with the flow: it never takes a transform.
 // - OS3: beside a real resize in the same delivery (another layout node's content grows in a frame the
 //   leg draws), the own-sized node still draws its height, and the other animates its growth.
+// - OS4 (#504): a layout child sized from the node (half its width) and a layout row the node widens,
+//   both resized by the leg in its deliveries, count as its own resize: the node after the row follows
+//   the flow every frame, never transformed, and the child is never scaled. Before, each frame's
+//   triggered pass animated that node from where it was painted, trailing its slot.
+// - OS5 (#504): each frame of the leg measures only its layout parent's subtree: a sibling in the
+//   same row is measured every frame, a node in another container never after the leg's start.
+//   Before, each frame refreshed the whole page.
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider } from "@wardic/solid"
@@ -29,7 +36,7 @@ const heights = (el: HTMLElement): { readonly painted: number; readonly style: n
 /** `el`'s computed transform as a matrix, identity for `none`. */
 const matrixOf = (el: HTMLElement): DOMMatrix => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)"))
 
-describe("a layout node animating its own size (#453)", () => {
+describe("a layout node animating its own size (#453, #504)", () => {
   it("OS1: a layout element's own height leg is drawn as it goes, with no scale", async () => {
     const [h, setH] = createSignal("40px")
     let el!: HTMLElement
@@ -102,5 +109,66 @@ describe("a layout node animating its own size (#453)", () => {
     }
     expect(off, "the own-sized node painted as drawn").toEqual([])
     expect(scaled, "the grown node's real resize animates").toBe(true)
+  })
+
+  it("OS4: a child sized from the node and a row it widens are its own resize: the node after follows the flow", async () => {
+    const [w, setW] = createSignal(40)
+    let after!: HTMLElement
+    let child!: HTMLElement
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div layout style={{ display: "flex", "margin-top": "120px", "margin-left": "120px" }}>
+          <wardic.div layout style={{ display: "flex" }}>
+            <wardic.div layout style={{ height: "40px", background: "teal" }} initial={{ width: 40 }} animate={{ width: w() }} transition={LINEAR}>
+              <wardic.div ref={(n: HTMLElement) => (child = n)} layout style={{ width: "50%", height: "10px", background: "navy" }} />
+            </wardic.div>
+          </wardic.div>
+          <wardic.div ref={(n: HTMLElement) => (after = n)} layout style={{ width: "40px", height: "40px", background: "orange" }} />
+        </wardic.div>
+      </WardicProvider>
+    ))
+    await settle()
+    const left = after.getBoundingClientRect().left
+    setW(160)
+    const moved: Array<string> = []
+    for (let i = 0; i < 45; i++) {
+      await raf()
+      const m = matrixOf(after)
+      if (Math.abs(m.m41) > 1e-6 || Math.abs(m.m11 - 1) > 1e-6) moved.push(`${i}: after ${getComputedStyle(after).transform}`)
+      if (Math.abs(matrixOf(child).m11 - 1) > 1e-6) moved.push(`${i}: child ${getComputedStyle(child).transform}`)
+    }
+    expect(moved, "no layout animation, no scale").toEqual([])
+    expect(after.getBoundingClientRect().left - left, "pushed right by the leg").toBeCloseTo(120, 0)
+  })
+
+  it("OS5: each frame of the leg measures its parent's subtree, not another container's", async () => {
+    const [w, setW] = createSignal(40)
+    let sibling = 0
+    let far = 0
+    let frame = -1
+    const farAt: Array<number> = []
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div layout style={{ display: "flex", width: "400px", "margin-top": "120px", "margin-left": "120px" }}>
+          <wardic.div layout style={{ height: "40px", background: "teal" }} initial={{ width: 40 }} animate={{ width: w() }} transition={LINEAR} />
+          <wardic.div layout onLayoutMeasure={() => sibling++} style={{ width: "40px", height: "40px", background: "orange" }} />
+        </wardic.div>
+        <wardic.div layout style={{ width: "400px", "margin-left": "120px" }}>
+          <wardic.div layout onLayoutMeasure={() => { far++; farAt.push(frame) }} style={{ width: "40px", height: "40px", background: "gray" }} />
+        </wardic.div>
+      </WardicProvider>
+    ))
+    await settle()
+    sibling = 0
+    far = 0
+    setW(160)
+    for (let i = 0; i < 45; i++) {
+      frame = i
+      await raf()
+    }
+    expect(sibling, "the sibling, every frame the leg draws").toBeGreaterThan(15)
+    // The passes as the leg starts, its update's (frames -1 and 0 here, as before #504), read the page;
+    // none of the frames after does.
+    expect(farAt.filter((at) => at > 0), "another container's node, never after the leg's start").toEqual([])
   })
 })
