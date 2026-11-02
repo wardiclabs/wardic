@@ -51,7 +51,7 @@ import { DomLive } from "@wardic/dom"
 import { type JSX, sharedConfig } from "solid-js"
 import { hydrate } from "solid-js/web"
 import { commands } from "vitest/browser"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, beforeAll, describe, expect, it } from "vitest"
 import { A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, setAppearEnv } from "./appear-fixtures.tsx"
 import "./browser-commands.ts"
 
@@ -96,6 +96,12 @@ afterEach(async () => {
   for (const cleanup of cleanups.splice(0)) cleanup()
   await commands.emulateReducedMotion(false)
 })
+
+// The first server render compiles the fixtures' module graph for the server: over 13 s on a cold CI
+// runner (#524), past a test's 15 s. Done once here, on the hook's own time.
+beforeAll(async () => {
+  await commands.serverRenderPage(FILE, "A1", "warm")
+}, 60_000)
 
 const drawnOf = (el: Element): Drawn => {
   const computed = getComputedStyle(el)
