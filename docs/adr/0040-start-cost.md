@@ -318,3 +318,24 @@ A Solid 2 ward is a function, so it can be Solid's ref, with its props and membe
 Now the members are getters on one prototype over `Function.prototype` (`WARD_MEMBERS`), made once a module, reading the ward's `WardState`, a non-enumerable property of its own. A getter makes its closure at its first read and keeps it on that ward, so a member taken off the ward still works and one never read is never made. A ward keeps `ref`, `style` and its attributes as its own enumerable properties, which a spread and `Object.keys` read (W6). `shareOf` reads the `WARD` mark with `in`, which finds it on the prototype.
 
 Decided as #525's part-2 grill, Q3, and measured before it shipped against the alternative, the same getters defined on each ward from one shared descriptor map: with #519's harness against `main`, Solid 2, warm, median of 11 paired reps, the prototype took mount and its frames −2.6% and its synchronous task −3.7%, Retarget −1.1%, where the shared descriptors took −0.2% and unmount +1.6%. `Object.setPrototypeOf` on a fresh function wasn't the cost; the thirteen-entry `defineProperties` was. `bench:solid` passes: Solid 2's warm mount −4.9%, Retarget −1.8%, Retarget at rest +2.3%; held at rest −2.0% for `hover + press` and −1.0% for a `Reorder` item, the members no one reads never made. Solid 1 flat.
+
+## Amendment (#525, 2026-11-02): a Solid 1 element's computations, only what can change
+
+#525's part-2 grill (Q4) asked each element's computations to exist only when their input can change, the user's word: take full advantage of Solid's fine-grained reactivity. A plain Solid 1 `wardic.div`, its keys fixed (no reactive spread) and no gesture key or children given, made 9 in a production build, counted under its own owner:
+
+| Computation | Needed? |
+|---|---|
+| its mount effect, its Retarget effect, its target memo | yes |
+| its props' render effect (`assign`) | yes |
+| `createDynamic`'s two memos, over a component | no: a form's tag never changes |
+| `spread`'s children effect | only when it's given children |
+| `spread`'s ref effect | no: a ref is called once, as JSX calls its own `ref` |
+| `createWhenWanted`'s computed, which starts a gesture its config comes to want | no: none of `GESTURE_KEYS` was given, and its keys are fixed |
+
+Now it makes 4 (`computations.browser.test.tsx` pins it, and that `whileHover`, children or a reactive spread each add theirs):
+
+- **`fixedElement`** (`element.tsx`) renders a form's tag as `createDynamic` does, the server's element while hydrating, without its memos: still a component boundary, as `Dynamic` is, so the hydration keys land where the server's `Dynamic` puts them. A wrapped component is called as `createDynamic` calls it.
+- **`spreadOnto`** is Solid's `spread` for props whose keys are fixed: their children inserted only when there are any, their ref called once, `assign` in one render effect. A proxy's keys can change, so it takes Solid's `spread`.
+- **`gestureless`** (`SpineInternals`): an element whose keys are fixed and given none of `GESTURE_KEYS` (`gesture-callbacks.ts`, beside the `wants*` it mirrors; `gesture-keys.ssr.test.tsx` checks each turns its gesture on) starts no `createWhenWanted`, and development's word on a missing gesture Feature has nothing to say.
+
+Measured each alone with #519's harness against `main`, built for `APP_TARGET`, Solid 1, warm, median of 11 paired reps: the memos alone moved mount −0.2% and unmount −3.2%; with the spread's two effects, mount −2.5% and unmount −3.3%; with no gesture computed too, mount −2.0%, Retarget −1.7%, unmount −4.8%, in a run where the first two read −1.2% and −5.3%. `bench:solid` passes: Solid 1's warm mount −4.1%, Retarget at rest −2.9%, unmount −5.8% (cold −16.4%); bytes per element per round −2.0%; held at rest −4.1% for `hover + press`, whose elements keep their gesture computed but not the memos or the spread's effects. Solid 2 flat; its half of Q4 follows.
