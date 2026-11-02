@@ -12,10 +12,14 @@
 // - PA7: `{ path }` alone keeps `x`'s Default transition (the DOM's spring for `x`, which overshoots).
 // - PA8: `createAnimate`'s target with `x` alone, on a Wardic element at `y: 50`: `y` curves around
 //   where it is and ends there (an `animate` target keeps its own `y`, #325's coupling, PA4).
+// - PA9 (#460): a Retarget of another key mid-curve leaves the path whole: its turn and the axis its
+//   target leaves out ride on with it, and land.
+// - PA10 (#460): `createAnimate`'s `stop` and `cancel` mid-curve take the turn back to 0.
+// - PA11 (#460): so do a Retarget of `x` on a path that doesn't turn, and Animation controls' `stop`.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { arc, createAnimate, type WardicAnimate, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
-import { createSignal, type JSX } from "solid-js"
+import { arc, createAnimate, createAnimationControls, type WardicAnimate, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
+import { batch, createSignal, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { raf } from "./browser-helpers.ts"
 
@@ -156,5 +160,79 @@ describe("transition.path and arc() on Solid 1 (#438)", () => {
     expect(Math.max(...seen.map((s) => Math.abs(s.y - 50))), "bulging off 50").toBeGreaterThan(90)
     expect(yOf(box), "back on 50").toBeCloseTo(50, 1)
     expect(xOf(box)).toBeCloseTo(200, 1)
+  })
+
+  it("PA9 (#460): a Retarget of another key mid-curve leaves the path whole: its turn and the axis it leaves out land", async () => {
+    const m = mountMove({ ...LINEAR, path: arc({ strength: 1, rotate: true }) }, { x: 0, y: 0, opacity: 1 })
+    await frames(3)
+    // Turned near 50° a quarter of the way: the arc's tangent is flat at its peak.
+    m.to({ x: 200, opacity: 1 })
+    await frames(8)
+    expect(Math.abs(yOf(m.box)), "mid-curve").toBeGreaterThan(20)
+    expect(Math.abs(angleOf(m.box)), "turned").toBeGreaterThan(5)
+    m.to({ x: 200, opacity: 0.5 })
+    await frames(50)
+    expect(xOf(m.box)).toBeCloseTo(200, 1)
+    expect(yOf(m.box), "back on the line").toBeCloseTo(0, 1)
+    expect(angleOf(m.box), "no turn left").toBeCloseTo(0, 1)
+  })
+
+  it("PA10 (#460): createAnimate's stop and cancel mid-curve take the turn back to 0", async () => {
+    let animate!: WardicAnimate
+    const Scene = (): JSX.Element => {
+      const [scope, made] = createAnimate()
+      animate = made
+      return (
+        <div ref={scope}>
+          <wardic.div data-k="box" initial={{ x: 0, y: 0 }} animate={{ x: 0, y: 0 }} style={BOX} />
+        </div>
+      )
+    }
+    const { container } = render(() => (
+      <WardicProvider env={DomLive}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await frames(3)
+    const box = container.querySelector<HTMLElement>("[data-k=box]")!
+    for (const end of ["stop", "cancel"] as const) {
+      const controls = animate(box, { x: 200 }, { ...LINEAR, path: arc({ strength: 1, rotate: true }) })
+      await frames(8)
+      expect(Math.abs(angleOf(box)), `turned, before ${end}`).toBeGreaterThan(5)
+      controls[end]()
+      await frames(2)
+      expect(angleOf(box), `no turn after ${end}`).toBeCloseTo(0, 1)
+    }
+  })
+
+  it("PA11 (#460): a Retarget of x on a path that doesn't turn, and Animation controls' stop, take the turn back to 0", async () => {
+    const TURNING: WardicTransition = { ...LINEAR, path: arc({ strength: 1, rotate: true }) }
+    const [transition, setTransition] = createSignal<WardicTransition>(TURNING)
+    const [target, setTarget] = createSignal<Record<string, number>>({ x: 0, y: 0 })
+    const controls = createAnimationControls()
+    const { container } = render(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div data-k="box" initial={{ x: 0, y: 0 }} animate={target()} transition={transition()} style={BOX} />
+        <wardic.div data-k="held" initial={{ x: 0, y: 0 }} animate={controls} style={BOX} />
+      </WardicProvider>
+    ))
+    await frames(3)
+    const box = container.querySelector<HTMLElement>("[data-k=box]")!
+    setTarget({ x: 200 })
+    await frames(8)
+    expect(Math.abs(angleOf(box)), "turned").toBeGreaterThan(5)
+    batch(() => {
+      setTransition(LINEAR)
+      setTarget({ x: 0 })
+    })
+    await frames(2)
+    expect(angleOf(box), "no turn once a straight leg takes x").toBeCloseTo(0, 1)
+    const held = container.querySelector<HTMLElement>("[data-k=held]")!
+    void controls.start({ x: 200 }, TURNING)
+    await frames(8)
+    expect(Math.abs(angleOf(held)), "turned, by its controls").toBeGreaterThan(5)
+    controls.stop()
+    await frames(2)
+    expect(angleOf(held), "no turn after its controls' stop").toBeCloseTo(0, 1)
   })
 })

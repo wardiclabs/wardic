@@ -68,7 +68,7 @@ import { type LiveStyle, serverRegistryOf, turnsWillChangeOn, valuesOf } from ".
 import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "./presence-record.ts"
 import type { DragTrack } from "./drag-track.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
-import { delayedBy, type Follows, keyframesFrom, type Leg, legsOf, mapMachine, type MeasuredPairs, startingAt, type StopsByKey, transitionForKey, type Velocities, withPathAxes } from "./retarget-legs.ts"
+import { delayedBy, type Follows, hasManyStops, keyframesFrom, type Leg, legsOf, mapMachine, type MeasuredPairs, startingAt, type StopsByKey, transitionForKey, type Velocities, withPathAxes } from "./retarget-legs.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import {
   changesContext,
@@ -581,6 +581,12 @@ const IMPERATIVE: Resolution = {
 /** No values: what a spine's Retarget keys are before its first. */
 const NO_VALUES: Values.Values = {}
 
+/** A Path's turn (#438, ADR-0065): the reserved key the dom transform adds onto `rotate`. */
+const PATH_ROTATION = "pathRotation"
+
+/** The turn back at 0, written once no leg draws it (#460). */
+const TURNED_BACK: Values.Values = { [PATH_ROTATION]: 0 }
+
 /**
  * Each key's Leg (#325): the one that draws it, or the last one that did, landed; `undefined` once
  * none does. A key's entry is cleared in place, never deleted: a Retarget that gives up and restarts
@@ -1027,11 +1033,13 @@ const measuringOf = (found: ReadonlyArray<string> | undefined, keyframes: Keyfra
 
 /**
  * A Retarget's Measured pairs (#430): each of `keys` whose start and target are one, asked of the
- * end-of-task batch with the values the element draws now. `undefined` with none.
+ * end-of-task batch with the values the element draws now, but a key with Keyframes of more than two
+ * stops (`many`, #460). `undefined` with none.
  */
-const measuredOf = (element: HTMLElement, keys: ReadonlyArray<string>, from: Values.Values, to: Values.Values, values: Values.Values): MeasuredPairs | undefined => {
+const measuredOf = (element: HTMLElement, keys: ReadonlyArray<string>, from: Values.Values, to: Values.Values, values: Values.Values, many: StopsByKey | undefined): MeasuredPairs | undefined => {
   const pairs: Record<string, { readonly from: number | string; readonly to: number | string }> = {}
   Arr.forEach(keys, (key) => {
+    if (hasManyStops(many, key)) return
     const start = from[key]
     const target = to[key]
     if (Bool.or(Predicate.isUndefined(start), Predicate.isUndefined(target))) return
@@ -1924,11 +1932,39 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   // The keys the Retarget being worked out resolves, for `giveUpUnresolved`: one callback a spine,
   // not one a Retarget.
   let resolvedNow: Values.Values = NO_VALUES
+  // Whether `running` is whole: it still draws every key it was started for, each held now, resolved
+  // by the Retarget being worked out or taken by its Imperative animation. A key its Retarget didn't
+  // resolve, a Path's turn or the axis its target leaves out (#438), is the leg's own: not counted.
+  const holdsWhole = (running: Running): boolean =>
+    Arr.every(Rec.keys(running.targets), (key) => {
+      if (taken.has(key)) return owners.get(key) === running
+      if (Bool.not(Object.hasOwn(running.resolution.resolved, key))) return true
+      return Bool.and(owners.get(key) === running, Object.hasOwn(resolvedNow, key))
+    })
   const giveUpUnresolved = (owner: Running | undefined, key: string): void => {
     if (Predicate.isUndefined(owner)) return
     // An Imperative animation's key (#433) is its own while taken.
     if (taken.has(key)) return
-    if (!Object.hasOwn(resolvedNow, key)) giveUp(key, owner)
+    if (Object.hasOwn(resolvedNow, key)) return
+    if (Object.hasOwn(owner.resolution.resolved, key)) return giveUp(key, owner)
+    // A key its leg draws though its own Retarget didn't resolve it rides on with that leg while the
+    // leg is whole (#460, ADR-0065): a Retarget of another key leaves a Path as it was. Once the leg
+    // loses a key, its turn goes back to 0 (`turnBack`) and an axis its target left out stays.
+    if (holdsWhole(owner)) return
+    giveUp(key, owner)
+  }
+
+  // A Path's turn goes back to 0 once no leg draws it (#460, ADR-0065 decision 3): after a Retarget
+  // whose legs don't turn, a stop, a cancel. Most elements never turn: a guard.
+  const turnBack = (): void => {
+    const turn = snapshot.values[PATH_ROTATION]
+    if (Bool.or(Predicate.isUndefined(turn), turn === 0)) return
+    if (Predicate.isNotUndefined(owners.get(PATH_ROTATION))) return
+    snapshot.values = { ...snapshot.values, ...TURNED_BACK }
+    snapshot.velocities = { ...snapshot.velocities, [PATH_ROTATION]: 0 }
+    snapshot.drawnAt[PATH_ROTATION] = snapshot.now()
+    gate.write(id, TURNED_BACK)
+    recordFrame(TURNED_BACK)
   }
 
   // Each leg that gave up keys draws the ones it kept from now on: once per such leg, a Retarget.
@@ -2451,7 +2487,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // animation is skipped (#468): the keys found above, and those Keyframes of two stops start from their first.
     let measured: MeasuredPairs | undefined
     if (!reduce && !skipped && (Predicate.isNotUndefined(measuring) || Predicate.isNotUndefined(keyframesNow))) {
-      measured = measuredOf(element, measuringOf(measuring, keyframesNow), from, fresh, snapshot.values)
+      measured = measuredOf(element, measuringOf(measuring, keyframesNow), from, fresh, snapshot.values, manyStops)
     }
     let told: ToldNames | undefined
     if (!silent) told = namesToldOf(animation, resolution, lastResolution)
@@ -2565,6 +2601,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         )
       })
     }
+    // A turn none of its legs draws now goes back (#460).
+    turnBack()
     // The keys already there (#448), written with each key the Retarget moves at where it starts, as
     // its leg's first frame writes it: the element's first commit, which takes its Starting style off,
     // holds every key, whatever frame the legs first draw in (a gated name's draws later).
@@ -2732,7 +2770,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     const reduce = options.reducedMotion()
     const skipped = skipAnimations()
     let measured: MeasuredPairs | undefined
-    if (Bool.and(Bool.not(Bool.or(reduce, skipped)), Predicate.isNotUndefined(measuring))) measured = measuredOf(element, UndefinedOr.getOrThrow(measuring), from, to, snapshot.values)
+    if (Bool.and(Bool.not(Bool.or(reduce, skipped)), Predicate.isNotUndefined(measuring))) measured = measuredOf(element, UndefinedOr.getOrThrow(measuring), from, to, snapshot.values, stops)
     // Built once: a seek or a replay runs the same legs, from the same start, with the same velocities.
     const built = legsOf(from, to, given, reduce, skipped, positionalKeys, defaultTransition, readVelocity, undefined, stops, measured, snapshot.values)
     const legs = Arr.map(built, (leg) => mapMachine(leg, Playback.drive(head)))
@@ -2767,6 +2805,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     }
     const cancel = (): void => {
       end()
+      turnBack()
       snapshot.values = { ...snapshot.values, ...from }
       snapshot.velocities = { ...snapshot.velocities, ...Rec.map(from, () => 0) }
       // Put back at once: at rest, newer than the legs that let them go (#464).
@@ -2785,17 +2824,23 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       if (leg._tag === "Blend") return runtime.runSync(Effect.suspend(leg.machine).pipe(InterpolatorRegistry.withKeyRules(elementRules)))
       return leg.machine() as Machine.Machine<Frame.Frame<unknown>>
     }
-    return { run, stop: end, cancel, duration }
+    const stop = (): void => {
+      end()
+      turnBack()
+    }
+    return { run, stop, cancel, duration }
   }
 
   // **Animation controls**' `stop` (#433): every running leg ends where it is, its keys given up, so
   // the next Retarget starts them from where they're drawn.
-  const stop = (): void =>
+  const stop = (): void => {
     owners.forEach((running) => {
       if (Predicate.isUndefined(running)) return
       forget(running)
       if (Bool.not(running.done)) endLeg(running)
     })
+    turnBack()
+  }
 
   return { retarget, follow, dispose, seed, animate, stop }
 }

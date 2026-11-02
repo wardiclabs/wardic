@@ -278,6 +278,15 @@ export type InertiaRun = Machine.InertiaValuesOptions & { readonly type: "inerti
 /** Each key's stops past its first two (#429): the Keyframes a tween runs through `keyframesValues`. */
 export type StopsByKey = Readonly<Record<string, ReadonlyArray<number | string>>>
 
+/**
+ * Whether `key` has Keyframes of more than two stops among `stops`: never a Measured pair (#430). They
+ * run through their stops, switching where types mix, as Motion's measures two stops only (#460).
+ */
+export const hasManyStops = (stops: StopsByKey | undefined, key: string): boolean => {
+  if (Predicate.isUndefined(stops)) return false
+  return Object.hasOwn(stops, key)
+}
+
 /** Where a Retarget's keys start, and each one's stops, its Keyframes resolved ({@link keyframesFrom}). */
 export interface KeyframesStart {
   readonly from: Values.Values

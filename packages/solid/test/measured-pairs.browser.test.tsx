@@ -13,6 +13,9 @@
 // - MS6: under reduced motion, a Measured pair snaps to its target as given, nothing measured.
 // - MS7: an exit from `auto` to 0 animates from its height.
 // - MS8: twenty accordions opened in one task all animate, each to its own height.
+// - MS9 (#460): Keyframes of three stops whose first and last differ in type are no Measured pair:
+//   they run through their middle stop and switch at the last, as Motion's (two stops only).
+// - MS10 (#460): an exit's too.
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, wardic, WardicProvider } from "@wardic/solid"
@@ -247,5 +250,50 @@ describe("Measured pairs on Solid 1 (#430)", () => {
     expect(mid.every((h, i) => h > 0 && h < 20 * (1 + (i % 4))), "every one mid-flight").toBe(true)
     await until(() => panels.every((el) => el.style.height === "auto"), 2000)
     expect(panels.map(heightOf)).toEqual(panels.map((_, i) => 20 * (1 + (i % 4))))
+  })
+
+  it("MS9: Keyframes of three stops, [0, 200px, auto], run through their middle stop: no Measured pair", async () => {
+    const [stops, setStops] = createSignal(false)
+    let el!: HTMLElement
+    show(() => (
+      <wardic.div
+        ref={(n: HTMLElement) => (el = n)}
+        style={{ ...PANEL, "margin-top": "120px" }}
+        initial={false}
+        animate={Bool.match(stops(), { onTrue: () => ({ height: [0, "200px", "auto"] as const }), onFalse: () => ({ height: "auto" as const }) })}
+        transition={LINEAR}
+      >
+        <Lines lines={5} />
+      </wardic.div>
+    ))
+    await settle()
+    setStops(true)
+    const frames = await sample(el, heightOf, 600)
+    // Measured from 0 to auto's 100px, it would never pass 100.
+    expect(Math.max(...frames), "through its middle stop, 200").toBeGreaterThan(150)
+    expect(el.style.height, "landed on its last stop as given").toBe("auto")
+  })
+
+  it("MS10: an exit's Keyframes of three stops, [auto, 200px, 0], run through their middle stop", async () => {
+    const [shown, setShown] = createSignal(true)
+    show(() => (
+      <AnimatePresence>
+        <Show when={shown()}>
+          <wardic.div data-leaving style={{ ...PANEL, "margin-top": "120px" }} initial={false} animate={{ height: "auto" }} exit={{ height: ["auto", "200px", 0] }} transition={LINEAR}>
+            <Lines lines={5} />
+          </wardic.div>
+        </Show>
+      </AnimatePresence>
+    ))
+    await settle()
+    const el = document.querySelector<HTMLElement>("[data-leaving]")!
+    setShown(false)
+    const frames: Array<number> = []
+    await until(() => {
+      frames.push(heightOf(el))
+      return !el.isConnected
+    }, 2000)
+    // Measured from auto's 100px to 0, it would never pass 100.
+    expect(Math.max(...frames), "through its middle stop, 200").toBeGreaterThan(150)
   })
 })
