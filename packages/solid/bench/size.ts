@@ -11,8 +11,9 @@
  *   repo's `solid2({ dev: false })`.
  * - **Reported:** each app's minified, gzip (level 9) and brotli bytes, head against base, and the
  *   head's minified bytes split by package through its source map.
- * - **Gate:** an app fails when its gzip grows more than 1% over the base's. Sizes are deterministic,
- *   so no reps and no quiet host: it runs in seconds. Exits 1 when an app fails.
+ * - **Gate:** an app fails when its gzip grows more than 1% over the base's, and the Slim element's
+ *   base apps when they pass their budgets (`BUDGETS`). Sizes are deterministic, so no reps and no
+ *   quiet host: it runs in seconds. Exits 1 when an app fails.
  *
  * Run it for any change to a package's `src` (`docs/agents/effect-first.md`'s *Checks*).
  */
@@ -30,6 +31,13 @@ import { commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./s
 
 /** An app fails when its gzip passes this ratio of the base's. */
 const GATE = 1.01
+
+/**
+ * The Slim element's base apps' budgets (#511, decision 10), in gzipped KB: an app fails past its own,
+ * whatever its base. Set at the split's end, at its sizes with a little room, so changes each under the
+ * gate can't add up; #518 lowers them toward Q4's 105 KB after v1.
+ */
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 122, "s2-slim": 159 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 
@@ -255,6 +263,14 @@ for (const app of APPS) {
       Bool.match(fails, { onTrue: () => "FAIL", onFalse: () => "ok" })
     }`,
   )
+}
+
+console.log("\nbudgets: gzip KB, the head at most")
+for (const [name, budget] of Object.entries(BUDGETS)) {
+  const h = headSizes.get(name)!
+  const over = h.gz > budget * 1024
+  if (over) failed = true
+  console.log(`${name.padEnd(14)}${pad(kb(h.gz), 9)} of ${budget}   ${Bool.match(over, { onTrue: () => "FAIL", onFalse: () => "ok" })}`)
 }
 
 console.log("\nthe head's minified KB by package (change from the base)")

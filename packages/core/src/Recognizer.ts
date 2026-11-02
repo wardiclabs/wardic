@@ -155,10 +155,10 @@ const ofType =
     event.type === type
 
 /** A move with no button pressed: the release was lost (ADR-0019). */
-const isUnpressedMove: Predicate.Predicate<InputSource.PointerLikeEvent> = Predicate.and(ofType("move"), (event) => Bool.not(event.pressed))
+const isUnpressedMove: Predicate.Predicate<InputSource.PointerLikeEvent> = /*#__PURE__*/ Predicate.and(ofType("move"), (event) => Bool.not(event.pressed))
 
 /** Whether `event` ends a held pointer's press: its release, its cancel, or a move with no button pressed. */
-const endsPress: Predicate.Predicate<InputSource.PointerLikeEvent> = Predicate.some([ofType("up"), ofType("cancel"), isUnpressedMove])
+const endsPress: Predicate.Predicate<InputSource.PointerLikeEvent> = /*#__PURE__*/ Predicate.some([ofType("up"), ofType("cancel"), isUnpressedMove])
 
 /**
  * Hover's fold, after Motion's `hover` (`motion-dom/src/gestures/hover.ts` @ `16c6122`,
@@ -228,7 +228,7 @@ export interface HoverHandlers extends InputFeed.Handlers<Transition> {
  * dispatch, while the Scope is open. No fiber and no Stream: a scoped subscription to the target's
  * pointer feed. A throw from either goes to `handlers.onDefect`. Tier 2, for bindings.
  */
-export const watchHover: (target: unknown, handlers: HoverHandlers) => Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> = Effect.fnUntraced(
+export const watchHover: (target: unknown, handlers: HoverHandlers) => Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> = /*#__PURE__*/ Effect.fnUntraced(
   function* (target: unknown, handlers: HoverHandlers) {
     const input = yield* InputSource.InputSource
     const activity = yield* DragActivity.DragActivity
@@ -440,7 +440,7 @@ export const watchPress: (
   target: unknown,
   handlers: InputFeed.Handlers<PressEvent>,
   options?: PressOptions,
-) => Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> = Effect.fnUntraced(
+) => Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> = /*#__PURE__*/ Effect.fnUntraced(
   function* (target: unknown, handlers: InputFeed.Handlers<PressEvent>, options?: PressOptions) {
     yield* Effect.logDebug("wardic.press: watch")
     const input = yield* InputSource.InputSource
@@ -767,7 +767,7 @@ type StaleRule = "unpressed move" | "second down"
  * The `"end"` samples that close a Stale gesture, and why (read by {@link drag}'s
  * cold-path log). A WeakMap, so the fold stays pure and allocates nothing more.
  */
-const staleEnds = new WeakMap<Drag.Sample, StaleRule>()
+const staleEnds = /*#__PURE__*/ new WeakMap<Drag.Sample, StaleRule>()
 
 /** No samples: the event changes nothing a consumer sees. */
 const NO_SAMPLES: ReadonlyArray<Drag.Sample> = []
@@ -1016,7 +1016,7 @@ const stepOf = (starts: Starts, downs: Downs) => (state: DragState, event: Input
   )
 
 /** A pan's fold: its own presses, each starting past the threshold. */
-const panFold = stepOf(pastThreshold, OWN_DOWNS)
+const panFold = /*#__PURE__*/ stepOf(pastThreshold, OWN_DOWNS)
 
 /** `drag`'s options (ADR-0019, *Amendment (#29)*). */
 export interface DragOptions {

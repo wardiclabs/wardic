@@ -59,7 +59,7 @@ export interface Options {
  */
 const fanIn: <A>(
   acquire: Effect.Effect<Stream.Stream<A>, never, Scope.Scope>,
-) => Effect.Effect<PubSub.PubSub<A>, never, Scope.Scope> = Effect.fnUntraced(
+) => Effect.Effect<PubSub.PubSub<A>, never, Scope.Scope> = /*#__PURE__*/ Effect.fnUntraced(
   function* <A>(acquire: Effect.Effect<Stream.Stream<A>, never, Scope.Scope>) {
     const pubsub = yield* PubSub.unbounded<A>()
     const source = yield* acquire
@@ -91,7 +91,7 @@ class TargetKey implements Equal.Equal {
 }
 
 /** The target a key addresses: a {@link TargetKey}'s own, else the key itself (a non-object target). */
-const targetOf: (key: unknown) => unknown = Match.type<unknown>().pipe(
+const targetOf: (key: unknown) => unknown = /*#__PURE__*/ Match.type<unknown>().pipe(
   Match.when(Match.instanceOf(TargetKey), (key) => key.target),
   Match.orElse(identity),
 )
@@ -116,7 +116,7 @@ const idleOf = (options: Options = {}): { readonly idleTimeToLive?: Duration.Inp
 export const byTarget: <A>(
   lookup: (target: unknown) => Effect.Effect<Stream.Stream<A>, never, Scope.Scope>,
   options?: Options,
-) => Effect.Effect<(target: unknown) => Stream.Stream<A>, never, Scope.Scope> = Effect.fnUntraced(
+) => Effect.Effect<(target: unknown) => Stream.Stream<A>, never, Scope.Scope> = /*#__PURE__*/ Effect.fnUntraced(
   function* <A>(lookup: (target: unknown) => Effect.Effect<Stream.Stream<A>, never, Scope.Scope>, options?: Options) {
     yield* Effect.logDebug("wardic.sharedSource.byTarget: create")
     // One stable identity key per target (see TargetKey). Object targets are cached weakly, so the
@@ -164,7 +164,7 @@ export const byTarget: <A>(
 export const make: <A>(
   acquire: Effect.Effect<Stream.Stream<A>, never, Scope.Scope>,
   options?: Options,
-) => Effect.Effect<Stream.Stream<A>, never, Scope.Scope> = Effect.fnUntraced(
+) => Effect.Effect<Stream.Stream<A>, never, Scope.Scope> = /*#__PURE__*/ Effect.fnUntraced(
   function* <A>(acquire: Effect.Effect<Stream.Stream<A>, never, Scope.Scope>, options?: Options) {
     yield* Effect.logDebug("wardic.sharedSource.make: create")
     const ref = yield* RcRef.make({
