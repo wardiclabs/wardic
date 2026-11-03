@@ -130,6 +130,7 @@ export const PREBUNDLED: ReadonlyArray<string> = [
       "effect/Inspectable",
       "effect/Iterable",
       "effect/Latch",
+      "effect/LogLevel",
       "effect/Match",
       "effect/Metric",
       "effect/MutableRef",

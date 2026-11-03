@@ -163,4 +163,29 @@ describe("Variable values with real paint (#55)", () => {
     const between = frames.filter((f): f is Rgba => f !== undefined && f[0] > 10 && f[0] < 245 && f[2] > 10 && f[2] < 245)
     expect(between.length, "frames in between before it goes").toBeGreaterThan(3)
   })
+
+  // A change takes the element's rule when any value in it is a Variable value (#542): its start, its
+  // target or a Keyframes stop, each alone.
+  it("VB10: a var(--a) start → a colour blends from what --a resolves to", async () => {
+    const box = mountFlip({ "background-color": "var(--a)" } as WardicValues, { "background-color": "#00ff00" } as WardicValues)
+    await settle()
+    expect(backgroundOf(box.el())).toEqual([255, 0, 0, 1])
+    box.flip()
+    const frames = await sampleFor(700, () => backgroundOf(box.el()))
+    expect(frames.filter(([r, g]) => r > 10 && r < 245 && g > 10 && g < 245).length, "frames in between").toBeGreaterThan(5)
+    expect(backgroundOf(box.el())).toEqual([0, 255, 0, 1])
+  })
+
+  it("VB11: a Keyframes stop of var(--brand) between two colours blends through what it resolves to", async () => {
+    const box = mountFlip(
+      { "background-color": "#ff0000" } as WardicValues,
+      { "background-color": ["#ff0000", "var(--brand)", "#00ff00"] } as unknown as WardicValues,
+      { type: "tween", duration: 0.6 },
+    )
+    await settle()
+    box.flip()
+    const frames = await sampleFor(900, () => backgroundOf(box.el()))
+    expect(frames.filter(([r, , b]) => r > 10 && r < 245 && b > 10 && b < 245).length, "frames between red and the stop").toBeGreaterThan(3)
+    expect(backgroundOf(box.el())).toEqual([0, 255, 0, 1])
+  })
 })

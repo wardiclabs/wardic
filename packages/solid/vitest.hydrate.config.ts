@@ -122,6 +122,7 @@ export default defineConfig({
       "effect/Inspectable",
       "effect/Iterable",
       "effect/Latch",
+      "effect/LogLevel",
       "effect/Logger",
       "effect/Match",
       "effect/Metric",

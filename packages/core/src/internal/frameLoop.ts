@@ -28,9 +28,12 @@
  *   a hook starts keeps the burst: whether it ends is counted after the hooks (#209).
  *
  * Observability: a span per run, named after its Primitive (`machine.span`), and one per burst
- * (`wardic.frameloop`). Per tick, no span or log: a gauge of running animations and a histogram
- * of ms per tick, each one `updateUnsafe` (ADR-0027, decision 6). The histogram ends before the
- * hooks, so it measures the steps alone, not the gate's flush (ADR-0033).
+ * (`wardic.frameloop`). A run's `<name>: start` debug log, annotated with its span's attributes,
+ * built only when a Debug log would be kept (#542). Per tick, no span or log: a gauge of running
+ * animations and a histogram of ms per tick, each one `updateUnsafe` (ADR-0027, decision 6), and the
+ * runs that settled or failed in it, counted as they end and added at its end by the loop's own
+ * `afterTick` hook, its first (#542). The histogram ends before the hooks, so it measures the steps
+ * alone, not the gate's flush (ADR-0033).
  *
  * A run's span is opened without a stack frame (ADR-0040, decision 3): `useSpan` with the span as
  * the `ParentSpan`, not `withSpan`, whose frame Effect stamps on an interrupted run's cause and
@@ -53,9 +56,11 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as FiberHandle from "effect/FiberHandle"
 import { constUndefined, identity } from "effect/Function"
+import * as LogLevel from "effect/LogLevel"
 import * as Metric from "effect/Metric"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import * as References from "effect/References"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as Tracer from "effect/Tracer"
@@ -194,17 +199,6 @@ const checked =
     return sink(frame)
   }
 
-/** A run's ending, counted: a settle or a failure (an interruption is neither, nor a superseded run). */
-const countEnd = (exit: Exit.Exit<unknown>): Effect.Effect<void> => {
-  // Per run (#460, compose once): statements.
-  if (Exit.isSuccess(exit)) {
-    if (Supersede.isSuperseded(exit.value)) return Effect.void
-    return Metric.update(settledRuns, 1)
-  }
-  if (Cause.hasInterruptsOnly(exit.cause)) return Effect.void
-  return Metric.update(failedRuns, 1)
-}
-
 /** A run's wait for its end. Built once (#460). */
 const settledOf = (entry: Entry): Effect.Effect<Frame.Frame<unknown> | Supersede.Superseded> => Deferred.await(entry.settled)
 
@@ -251,12 +245,30 @@ export const make = Effect.fnUntraced(
     // ending burst is still in `burst`, so the loop tracks its burst itself rather than asking the
     // handle (#81).
     let bursting = false
+    // The runs the loop ended since it last counted (#542): a settle or a failure, into the counters
+    // once per tick. An interruption is neither, nor a superseded run, which the loop doesn't end.
+    let settledCount = 0
+    let failedCount = 0
 
-    /** End `entry`'s run: removed, and its fiber resumed with `exit` (inline, within the tick). */
+    /** End `entry`'s run: removed, counted, and its fiber resumed with `exit` (inline, within the tick). */
     const end = (entry: Entry, exit: Exit.Exit<Frame.Frame<unknown>>): void => {
       entry.removed = true
+      if (Exit.isSuccess(exit)) settledCount++
+      if (Exit.isFailure(exit) && !Cause.hasInterruptsOnly(exit.cause)) failedCount++
       Deferred.doneUnsafe(entry.settled, exit)
     }
+
+    /** The runs ended since the last count, into the counters: once per tick, and as a burst ends. */
+    const countEnds = (): undefined => {
+      if (settledCount > 0) settledRuns.updateUnsafe(settledCount, buildContext)
+      if (failedCount > 0) failedRuns.updateUnsafe(failedCount, buildContext)
+      settledCount = 0
+      failedCount = 0
+      return undefined
+    }
+    // The loop's own hook, the first: the counts reach the counters at the end of every tick, and
+    // `tick`, the per-frame path, is as it was (#542).
+    hooks = [{ hook: countEnds }]
 
     // Per frame (ADR-0025): plain calls only, in the one `Stream.map` call per tick (ADR-0027,
     // decision 8); counted loops, statement `if`s, a `try` per entry (it costs nothing measurable).
@@ -359,6 +371,7 @@ export const make = Effect.fnUntraced(
         if (!entry.removed) end(entry, ending)
       })
       animations.updateUnsafe(0, buildContext)
+      countEnds()
     }
 
     const ticking: Effect.Effect<void> = clock.ticks.pipe(
@@ -393,14 +406,16 @@ export const make = Effect.fnUntraced(
     const runIn = (lane: Array<Entry>): Run =>
       (<F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, sink: FrameLoop.Sink<F>, options?: RunOptions) =>
         Effect.withFiber((fiber) => {
-          if (!isTraced(fiber)) return added(lane, machine, sink, options, undefined)
+          // Its start log only when a Debug log would be kept (#542): Effect's own rule, read once.
+          const logged = !LogLevel.isGreaterThan(fiber.getRef(References.MinimumLogLevel), "Debug")
+          if (!isTraced(fiber)) return added(lane, machine, sink, options, undefined, logged)
           return Effect.useSpan(machine.span.name, { attributes: machine.span.attributes }, (span) =>
-            Effect.provideService(added(lane, machine, sink, options, span), Tracer.ParentSpan, span))
+            Effect.provideService(added(lane, machine, sink, options, span, logged), Tracer.ParentSpan, span))
         })) as Run
 
     /**
-     * The run itself: its start log, then its entry on `lane` (and in its token, given one) until
-     * it ends. A superseded end marks `span`.
+     * The run itself: its start log when `logged`, then its entry on `lane` (and in its token, given
+     * one) until it ends. A superseded end marks `span`.
      */
     const added = <F extends Frame.Frame<unknown>>(
       lane: Array<Entry>,
@@ -408,28 +423,24 @@ export const make = Effect.fnUntraced(
       sink: FrameLoop.Sink<F>,
       options: RunOptions | undefined,
       span: Tracer.Span | undefined,
-    ): Effect.Effect<F | Supersede.Superseded> =>
+      logged: boolean,
+    ): Effect.Effect<F | Supersede.Superseded> => {
       // Per run, a leg each (#460, compose once): Effect's calls data-first, the steps statements.
-      Effect.annotateLogs(
-        Effect.andThen(
-          Effect.logDebug(`${machine.span.name}: start`),
-          Effect.acquireUseRelease(
-            // `CheckFrames` from the caller's fiber, once per run: with it off, the sink as it is.
-            Effect.flatMap(Effect.service(CheckFrames), (check) => entered(lane, machine, sink, options, check)),
-            settledOf as (entry: Entry) => Effect.Effect<F | Supersede.Superseded>,
-            (entry, exit) =>
-              Effect.andThen(
-                Effect.sync(() => {
-                  entry.removed = true
-                  if (Predicate.isUndefined(span)) return
-                  if (Exit.isSuccess(exit) && Supersede.isSuperseded(exit.value)) span.attribute("superseded", true)
-                }),
-                countEnd(exit),
-              ),
-          ),
-        ),
-        machine.span.attributes,
+      const run = Effect.acquireUseRelease(
+        // `CheckFrames` from the caller's fiber, once per run: with it off, the sink as it is.
+        Effect.flatMap(Effect.service(CheckFrames), (check) => entered(lane, machine, sink, options, check)),
+        settledOf as (entry: Entry) => Effect.Effect<F | Supersede.Superseded>,
+        (entry, exit) =>
+          Effect.sync(() => {
+            entry.removed = true
+            if (Predicate.isUndefined(span)) return
+            if (Exit.isSuccess(exit) && Supersede.isSuperseded(exit.value)) span.attribute("superseded", true)
+          }),
       )
+      // The start log stays (ADR-0040), annotated with the run's attributes, when it would be kept.
+      if (!logged) return run
+      return Effect.annotateLogs(Effect.andThen(Effect.logDebug(`${machine.span.name}: start`), run), machine.span.attributes)
+    }
 
     /** A run's entry on `lane` (and in its token, given one), and the burst started for it. */
     const entered = <F extends Frame.Frame<unknown>>(

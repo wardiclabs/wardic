@@ -42,7 +42,6 @@ import * as Effect from "effect/Effect"
 import * as Equivalence from "effect/Equivalence"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
-import * as FiberSet from "effect/FiberSet"
 import { constFalse, constUndefined, constVoid, identity } from "effect/Function"
 import * as Iter from "effect/Iterable"
 import * as Match from "effect/Match"
@@ -50,7 +49,6 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import { AtomRegistry } from "effect/reactivity"
-import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { enterServer, type Handoff, keyOf, type MountAnimation, repeatsForever, type ServerAppear, skippedField, startAtOf } from "./appear.ts"
 import type {
@@ -704,6 +702,22 @@ const IMPERATIVE: Resolution = {
 /** No values: what a spine's Retarget keys are before its first. */
 const NO_VALUES: Values.Values = {}
 
+/** Whether a key's Keyframes stops hold a Variable value (#55). Built once (#460). */
+const stopsHoldVariable = (stops: ReadonlyArray<number | string>): boolean => Arr.some(stops, Variables.isValue)
+
+/**
+ * Whether a change's starts, targets or Keyframes stops hold a Variable value (#542): only then can
+ * the element's Key rule, its Variable values (#55), take a pair, so only then is a leg's machine
+ * built under it. It declines every pair with no `var()` at either end.
+ */
+const holdsVariable = (from: Values.Values, to: Values.Values, stops: StopsByKey | undefined): boolean => {
+  // Per Retarget (#460): statements, Effect's calls data-first.
+  if (Rec.some(from, Variables.isValue)) return true
+  if (Rec.some(to, Variables.isValue)) return true
+  if (Predicate.isUndefined(stops)) return false
+  return Rec.some(stops, stopsHoldVariable)
+}
+
 /** A Path's turn (#438, ADR-0065): the reserved key the dom transform adds onto `rotate`. */
 const PATH_ROTATION = "pathRotation"
 
@@ -716,12 +730,6 @@ const TURNED_BACK: Values.Values = { [PATH_ROTATION]: 0 }
  * every key would otherwise leave the Map a hole a key each time, and rehash it.
  */
 type Owners = Map<string, Running | undefined>
-
-/** A Leg's run ended at an unmount, unless it landed. Hoisted: called per key at each unmount. */
-const endUnlessLanded = (running: Running | undefined): void => {
-  if (Predicate.isUndefined(running)) return
-  if (!running.done) Supersede.end(running.supersede)
-}
 
 /** A leg over the keys of `to` (#325), counting toward `landing`: the spine gives it the keys. */
 const runningOf = (to: Values.Values, resolution: Resolution, landing: Landing, kind: Leg["_tag"]): Running => ({
@@ -1873,12 +1881,12 @@ export interface ElementSpine {
 
 /**
  * A mounted element's spine: its Retarget, the returns to its Base values, the follower of its
- * Live values, and its legs' lifetime. Every leg runs in the element's FiberSet (#76) and joins its
- * Retarget's token: a Retarget ends the token before it starts its own legs, and {@link
- * ElementSpine.dispose} ends it and closes its Scope. Both end the legs in the calling task: each
- * leg's run leaves the loop at once, and its fiber ends Superseded, inline (ADR-0027, decision 5,
- * *Amendment (#200)*). A leg the token didn't reach is interrupted, by the FiberSet's clear or the
- * Scope's close. The same shape as the projection system's end-of-task holds.
+ * Live values, and its legs' lifetime. Every leg is a fiber of its provider's runtime, and joins
+ * its Retarget's token: a Retarget ends the token before it starts its own legs, and {@link
+ * ElementSpine.dispose} ends every leg's (#542). Both end the legs in the calling task: each leg's
+ * run leaves the loop at once, and its fiber ends Superseded, inline (ADR-0027, decision 5,
+ * *Amendment (#200)*). A leg the token didn't reach is interrupted (`endLeg`). The runtime's own
+ * fiber Scope interrupts what's left when the provider ends.
  */
 export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => {
   const { animation, byName, canStart, config, defaultTransition, element, extraDelay, gate, id, links, live, onFrame, parent, positionalKeys, presence, projected, runtime, snapshot, start, styleNow, tag } = options
@@ -1955,8 +1963,6 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       Effect.annotateLogs({ id, started, returned: Object.fromEntries(returns) }),
     )
 
-  const legScope = Scope.makeUnsafe()
-  const legFibers = runtime.runSync(FiberSet.make<void, never>().pipe(Scope.provide(legScope)))
   // Each key's leg (#325, Motion's per-key rule): the running leg that draws it, or the last one that
   // did, landed. A Retarget leaves a key its running leg when it resolves it to the same target, starts
   // none for a key whose last leg landed there, and starts every other key afresh. Each leg has its
@@ -2135,9 +2141,10 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
 
   /**
    * A leg's run into its sink: one dispatcher, each sink built for the leg that needs it, a
-   * Retarget's and an Imperative animation's (#433).
+   * Retarget's and an Imperative animation's (#433). A blend's machine is built under the element's
+   * Key rules when its change holds a Variable value (`variables`, #542).
    */
-  const legProgram = (leg: Leg, running: Running): Effect.Effect<unknown, never, WardicServices> => {
+  const legProgram = (leg: Leg, running: Running, variables: boolean): Effect.Effect<unknown, never, WardicServices> => {
     if (leg._tag === "Follow") {
       const key = leg.key
       const out: Record<string, number> = { [key]: 0 }
@@ -2202,8 +2209,10 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       snapshot.velocities = { ...snapshot.velocities, ...Rec.fromEntries(Arr.map(leg.keys, (key) => [key, 0] as const)) }
       return Effect.suspend(() => Machine.run(leg.machine(), sink, running))
     }
-    return Effect.flatMap(InterpolatorRegistry.withKeyRules(Effect.suspend(leg.machine), elementRules), (machine) =>
-      Machine.run(machine, sink, running))
+    // Per leg (#460): a statement, Effect's calls data-first.
+    let built = Effect.suspend(leg.machine)
+    if (variables) built = InterpolatorRegistry.withKeyRules(built, elementRules)
+    return Effect.flatMap(built, (machine) => Machine.run(machine, sink, running))
   }
 
   // A leg's end, told its landing: a Retarget's legs' and an Imperative animation's (#433).
@@ -2580,19 +2589,17 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       if (Predicate.isNotUndefined(names)) running.names = names.leg()
       return Effect.asVoid(Effect.onExit(run, legEnded(running)))
     }
-    // Start a leg in this element's FiberSet: forked on the provider's runtime, which runs
-    // it inline up to its add on the loop, so every leg started in a task is on the loop by
-    // the end of that task and takes its first step at the next tick (ADR-0027 decision 5,
-    // ADR-0033). Not `FiberSet.run`: forked from
-    // a `runSync`, a leg would inherit that call's scheduler (ADR-0027, decision 6).
+    // Start a leg: forked on the provider's runtime, which runs it inline up to its add on the
+    // loop, so every leg started in a task is on the loop by the end of that task and takes its
+    // first step at the next tick (ADR-0027 decision 5, ADR-0033). Forked from a `runSync`, a leg
+    // would inherit that call's scheduler (ADR-0027, decision 6). The runtime keeps it in its own
+    // fiber Scope, which interrupts it if it's still running when the provider ends (#542).
     // The name the leg being started waits for (#297's PR 2), set as each is started; none for most.
     let gateNow: string | undefined
     const runLeg = <R extends WardicServices>(running: Running, program: Effect.Effect<unknown, never, R>): void => {
       let run: Effect.Effect<unknown, never, R | FrameLoop.FrameLoop> = program
       if (Predicate.isNotUndefined(gateNow)) run = gatedBy(gateNow, byName, running, program)
-      const fiber = runtime.runFork(leg(running, run))
-      running.fiber = fiber
-      FiberSet.addUnsafe(legFibers, fiber)
+      running.fiber = runtime.runFork(leg(running, run))
     }
     // The legs (#48, ADR-0044 decision 8): one pure builder, which a server render's Appear
     // animation samples too, so the two can't drift. Built here; each leg's machine is built
@@ -2671,13 +2678,15 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     }
     // Its `style`'s will-change value turns on as a leg starts a key Motion's would (#443).
     turnWillChangeOn(live, retargetLegs)
+    // The element's Key rules only for a change a Variable value is in (#542).
+    const variables = holdsVariable(from, fresh, manyStops)
     // Each leg into its sink, in the builder's order (#69's PR 2: a Retarget is per element). Each
     // leg draws the keys it animates (#325) until a later Retarget takes them.
     Arr.forEach(retargetLegs, (leg: Leg, i): void => {
       if (Predicate.isNotUndefined(legGates)) gateNow = legGates[i]
       const running = runningOf(leg.to, resolution, landing, leg._tag)
       own(running)
-      runLeg(running, legProgram(leg, running))
+      runLeg(running, legProgram(leg, running, variables))
     })
     // Each layer's Transition end (#428): a leg holding the keys only its end sets where they are,
     // waiting for the keys the layer animates to land (the legs drawing them now, this Retarget's or
@@ -2825,8 +2834,12 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // The legs end normally first, so closing the Scope has nothing left to interrupt. A Transition
     // end waiting or due writes nothing (#508).
     if (Predicate.isNotUndefined(waiting)) waiting.dispose()
-    owners.forEach(endUnlessLanded)
-    runtime.runFork(Scope.close(legScope, Exit.void))
+    // Each leg not landed ends as a Retarget ends one (#542): by its token, and interrupted if its
+    // token didn't reach it. Nothing else ends them before the provider does.
+    owners.forEach((running) => {
+      if (Predicate.isUndefined(running)) return
+      if (!running.done) endLeg(running)
+    })
   }
 
   // A child back under its key (#286): its values and velocities from where the leaver is drawn, a
@@ -2850,11 +2863,9 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   }
 
   // --- Imperative animations (#433) -------------------------------------------
-  /** A leg of an Imperative animation, run in the element's FiberSet as a Retarget's are; it lands on its track. */
+  /** A leg of an Imperative animation, forked as a Retarget's are; it lands on its track. */
   const runImperative = (running: Running, program: Effect.Effect<unknown, never, WardicServices>): void => {
-    const fiber = runtime.runFork(program.pipe(Effect.onExit(legEnded(running)), Effect.asVoid))
-    running.fiber = fiber
-    FiberSet.addUnsafe(legFibers, fiber)
+    running.fiber = runtime.runFork(program.pipe(Effect.onExit(legEnded(running)), Effect.asVoid))
   }
 
   const animate = (target: Target, given: WardicTransition | undefined, head: Playback.Playhead, hooks: ImperativeHooks): ImperativeTrack => {
@@ -2894,6 +2905,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     if (Bool.and(Bool.not(Bool.or(reduce, skipped)), Predicate.isNotUndefined(measuring))) measured = measuredOf(element, UndefinedOr.getOrThrow(measuring), from, to, snapshot.values, stops)
     // Built once: a seek or a replay runs the same legs, from the same start, with the same velocities.
     const built = legsOf(from, to, given, reduce, skipped, positionalKeys, defaultTransition, readVelocity, undefined, stops, measured, snapshot.values)
+    const variables = holdsVariable(from, to, stops)
     const legs = Arr.map(built, (leg) => mapMachine(leg, Playback.drive(head)))
     let runnings: ReadonlyArray<Running> = NO_RUNNING
     let left = 0
@@ -2918,7 +2930,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       runnings = Arr.map(legs, (leg) => {
         const running = runningOf(leg.to, IMPERATIVE, landing, leg._tag)
         own(running)
-        runImperative(running, legProgram(leg, running))
+        runImperative(running, legProgram(leg, running, variables))
         return running
       })
       // A target with no key lands at once.
