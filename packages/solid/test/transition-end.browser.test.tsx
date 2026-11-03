@@ -20,9 +20,14 @@
 // - TE8: a target's Transition end still applies when its keys land after a later Retarget carried
 //   them (#325): a hover starting mid-entrance doesn't drop the entrance's.
 // - TE9: a variant's Transition end, and a list's, the later name's winning a key both set.
+// - TE10 (#508): a target its animation controls stop before it lands never sets its Transition end,
+//   even once a later leg on the element lands (an Imperative animation's), as the leg it was never did.
+// - TE11 (#508): a target whose Transition end only sets keys it animates (so it holds no key of its
+//   own), interrupted before it lands, never sets it: the element rests at the later target. Before, it
+//   waited for whichever legs drew those keys next, and set the stale end.
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { wardic, type WardicVariant, WardicProvider } from "@wardic/solid"
+import { createAnimate, createAnimationControls, wardic, type WardicAnimate, type WardicVariant, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import { createSignal, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
@@ -231,5 +236,52 @@ describe("a target's Transition end on Solid 1 (#428)", () => {
     await until(() => el.style.getPropertyValue("--end") === "b", 2000)
     expect(el.style.getPropertyValue("--end"), "the later name's").toBe("b")
     expect(getComputedStyle(el).visibility, "the earlier name's other key").toBe("visible")
+  })
+
+  it("TE10: a target its controls stop before it lands never sets its Transition end, though a later leg lands", async () => {
+    const controls = createAnimationControls()
+    let el!: HTMLElement
+    let animate!: WardicAnimate
+    const Scene = (): JSX.Element => {
+      const [scope, animateIn] = createAnimate()
+      animate = animateIn
+      return (
+        <div ref={scope}>
+          <wardic.div ref={(n: HTMLElement) => (el = n)} style={{ width: "40px", height: "40px" }} animate={controls} />
+        </div>
+      )
+    }
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await settle()
+    void controls.start({ opacity: 0, transitionEnd: { display: "none" } }, { type: "tween", ease: "linear", duration: 0.3 })
+    for (let i = 0; i < 5; i++) await raf()
+    expect(Number(el.style.opacity), "fading").toBeLessThan(1)
+    controls.stop()
+    await animate(el, { x: 20 }, { type: "tween", duration: 0.1 })
+    for (let i = 0; i < 5; i++) await raf()
+    expect(el.style.display, "never hidden").not.toBe("none")
+  })
+
+  it("TE11: a target whose end only re-sets a key it animates, interrupted, never sets it", async () => {
+    const [step, setStep] = createSignal(0)
+    const targets: ReadonlyArray<WardicVariant> = [{ opacity: 1 }, { opacity: 0, transitionEnd: { opacity: 0.5 } }, { opacity: 1 }]
+    let el!: HTMLElement
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <wardic.div ref={(n: HTMLElement) => (el = n)} style={{ width: "40px", height: "40px" }} initial={false} animate={targets[step()]!} transition={{ type: "tween", ease: "linear", duration: 0.3 }} />
+      </WardicProvider>
+    ))
+    await settle()
+    setStep(1)
+    for (let i = 0; i < 6; i++) await raf()
+    expect(Number(el.style.opacity), "fading").toBeLessThan(1)
+    setStep(2)
+    await until(() => el.style.opacity === "1", 2000)
+    for (let i = 0; i < 10; i++) await raf()
+    expect(el.style.opacity, "the later target's, not the interrupted end's").toBe("1")
   })
 })
