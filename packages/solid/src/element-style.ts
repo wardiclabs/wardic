@@ -25,7 +25,7 @@ import type * as Values from "@wardic/core/Values"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Style from "@wardic/dom/Style"
 import * as Bool from "effect/Boolean"
-import { constUndefined, pipe } from "effect/Function"
+import { constUndefined } from "effect/Function"
 import * as Rec from "effect/Record"
 import type { LiveStyle } from "./live-style.ts"
 import type { Reactivity } from "./reactivity.ts"
@@ -84,8 +84,8 @@ export const createElementStyle = (options: ElementStyleOptions): ElementStyle =
     changed.track()
     const css = live.css(user)
     return Bool.match(committed, {
-      onFalse: () => pipe(startingNow(), Style.over(css), Style.over(base()), Style.over(defaults)),
-      onTrue: () => pipe(css, Style.over(base()), Style.over(defaults), Style.without(held)),
+      onFalse: () => Style.over(Style.over(Style.over(startingNow(), css), base()), defaults),
+      onTrue: () => Style.without(Style.over(Style.over(css, base()), defaults), held),
     })
   }
 
@@ -93,7 +93,7 @@ export const createElementStyle = (options: ElementStyleOptions): ElementStyle =
     const prev = held
     held = next
     if (!committed) return
-    const style = pipe(live.css(untrack(userStyle)), Style.over(untrack(base)), Style.over(defaults))
+    const style = Style.over(Style.over(live.css(untrack(userStyle)), untrack(base)), defaults)
     if (Style.heldTouches(style, prev, next)) changed.notify()
   }
 

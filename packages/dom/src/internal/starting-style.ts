@@ -85,12 +85,17 @@ const keepAnimatable = (value: unknown, key: string): boolean => {
 
 /** A values map's numbers and strings, its Keyframes set aside (#452, {@link keepAnimatable}): {@link toValues}' one pass. */
 const filtered = (v: object | undefined): Values.Values => {
+  // Per element at mount (#540): statements and a loop.
   setAside = undefined
-  return UndefinedOr.match(v, {
-    onUndefined: (): Values.Values => ({}),
+  const out: Record<string, number | string> = {}
+  if (Predicate.isUndefined(v)) return out
+  const values = v as Readonly<Record<string, unknown>>
+  for (const key of Object.keys(values)) {
+    const value = values[key]
     // `keepAnimatable` keeps numbers and strings alone, as `isAnimatable` does.
-    onDefined: (values) => Rec.filter(values as Readonly<Record<string, unknown>>, keepAnimatable) as Values.Values,
-  })
+    if (keepAnimatable(value, key)) out[key] = value as number | string
+  }
+  return out
 }
 
 /** The Keyframes the last {@link filtered} set aside, taken: `undefined` with none. */
@@ -192,10 +197,11 @@ const entryOf: (entry: Entry) => Values.Values = Match.type<Entry>().pipe(
  * live target. A **Keyframes** value starts at its first stop, or, with `initial: false`, at
  * `animate`'s last, where the animation it skips would end (#429, Motion's `use-visual-state.ts`).
  */
-export const resolveInitial: (config: InitialConfig) => Values.Values = Match.type<InitialConfig>().pipe(
-  Match.when({ initial: false }, (config) => entryOf({ entry: config.animate, variants: config.variants, at: "last" })),
-  Match.orElse((config) => entryOf({ entry: config.initial as object | string | ReadonlyArray<string> | undefined, variants: config.variants, at: "first" })),
-)
+export const resolveInitial = (config: InitialConfig): Values.Values => {
+  // Per element at mount (#540): statements.
+  if (config.initial === false) return entryOf({ entry: config.animate, variants: config.variants, at: "last" })
+  return entryOf({ entry: config.initial as object | string | ReadonlyArray<string> | undefined, variants: config.variants, at: "first" })
+}
 
 /**
  * A CSS declaration list (`"color: red; background: url(a;b)"`) as `{ property: value }`.
@@ -268,14 +274,18 @@ export type StyleInput = object | string | undefined
 export type StyleRecord = Readonly<Record<string, unknown>>
 
 /** A style given as CSS text, parsed; a record as it is. */
-const recordOf: (input: object | string) => StyleRecord = Match.type<object | string>().pipe(
-  Match.when(Predicate.isString, parseCssText),
-  Match.orElse((record) => record as StyleRecord),
-)
+const recordOf = (input: object | string): StyleRecord => {
+  // Per element at mount (#540): statements.
+  if (Predicate.isString(input)) return parseCssText(input)
+  return input as StyleRecord
+}
 
 /** A style given as CSS text, parsed; a record as it is; none, an empty record. */
-const recordOfInput = (input: StyleInput): StyleRecord =>
-  UndefinedOr.match(input, { onUndefined: (): StyleRecord => ({}), onDefined: recordOf })
+const recordOfInput = (input: StyleInput): StyleRecord => {
+  // Per element at mount (#540): statements.
+  if (Predicate.isUndefined(input)) return {}
+  return recordOf(input)
+}
 
 const setsKey =
   (key: string): Predicate.Predicate<StyleRecord> =>
@@ -317,20 +327,21 @@ const layered = (self: StyleRecord, that: StyleRecord): StyleRecord => {
 export const over: {
   (that: StyleInput): (self: StyleInput) => StyleRecord
   (self: StyleInput, that: StyleInput): StyleRecord
-} = dual(2, (self: StyleInput, that: StyleInput): StyleRecord =>
-  UndefinedOr.match(that, {
-    onUndefined: () => recordOfInput(self),
-    onDefined: (below) =>
-      UndefinedOr.match(self, {
-        onUndefined: () => recordOf(below),
-        onDefined: (above) => layered(recordOf(above), recordOf(below)),
-      }),
-  }),
-)
+} = dual(2, (self: StyleInput, that: StyleInput): StyleRecord => {
+  // Per element at mount (#540): statements.
+  if (Predicate.isUndefined(that)) return recordOfInput(self)
+  if (Predicate.isUndefined(self)) return recordOf(that)
+  return layered(recordOf(self), recordOf(that))
+})
 
 /** Whether `key`, a CSS property, is one of the gate's held patch keys: by its name, or its name dash-cased. */
-const isHeld = (held: ReadonlyArray<string>, key: string): boolean =>
-  Arr.some(held, (patchKey) => Arr.contains([patchKey, dashCase(patchKey)], key))
+const isHeld = (held: ReadonlyArray<string>, key: string): boolean => {
+  // Per element at mount (#540): a loop.
+  for (const patchKey of held) {
+    if (patchKey === key || dashCase(patchKey) === key) return true
+  }
+  return false
+}
 
 /**
  * `self` without the keys the flush gate holds on the element (`held`, by patch key, matched by
@@ -344,9 +355,15 @@ const isHeld = (held: ReadonlyArray<string>, key: string): boolean =>
 export const without: {
   (held: ReadonlyArray<string>): (self: StyleInput) => StyleRecord
   (self: StyleInput, held: ReadonlyArray<string>): StyleRecord
-} = dual(2, (self: StyleInput, held: ReadonlyArray<string>): StyleRecord =>
-  Rec.filter(recordOfInput(self), (_, key) => Bool.not(isHeld(held, key))),
-)
+} = dual(2, (self: StyleInput, held: ReadonlyArray<string>): StyleRecord => {
+  // Per element at mount (#540): a loop.
+  const record = recordOfInput(self)
+  const out: Record<string, unknown> = {}
+  for (const key of Object.keys(record)) {
+    if (!isHeld(held, key)) out[key] = record[key]
+  }
+  return out
+})
 
 /**
  * Whether the keys the flush gate holds, changing from `prev` to `next`, change `self`'s
