@@ -395,6 +395,48 @@ const isGrab: Predicate.Predicate<InputSource.PointerLikeEvent> = Predicate.and(
 const isAdopted: Predicate.Predicate<InputSource.PointerLikeEvent> = (e) => e.adopted === true
 
 /**
+ * A layout node's snap to the cursor ended with no drag (#431): its drag ended at rest, back to its
+ * slot. Whether there was one. A module's, not a track's (#507): a track given no Drag controls never
+ * snaps, and makes nothing for it.
+ */
+const unsnap = (state: TrackState, projection: ProjectionSystem.DragHandle): boolean => {
+  if (Predicate.isUndefined(MutableRef.get(state).snapped)) return false
+  MutableRef.update(state, (s) => ({ ...s, snapped: undefined }))
+  projection.dragEnd(ORIGIN)
+  return true
+}
+
+/**
+ * Snap the element's centre under `down`'s point (#431, Motion's `snapToCursor`), on the axes it drags,
+ * measured from its box now: a plain element's x/y moved by the difference, a layout node's projection
+ * drag begun at it. A module's (#507), as {@link unsnap} is.
+ */
+const snapTo = (opts: DragTrackOptions, state: TrackState, down: InputSource.PointerLikeEvent): void => {
+  const box = opts.element.getBoundingClientRect()
+  const axis = UndefinedOr.match(opts.axisAt, { onUndefined: () => toDragAxis(opts.config.axis), onDefined: (at) => toDragAxis(at()) })
+  // The pointer and the box's centre, each mapped as the drag's points are (#443, Motion's).
+  const map = mapPointOf(opts.mapPoint)
+  const cursor = map({ x: down.x, y: down.y })
+  const centre = map({ x: box.left + box.width / 2, y: box.top + box.height / 2 })
+  const by = onAxes({ x: cursor.x - centre.x, y: cursor.y - centre.y }, axis)
+  UndefinedOr.match(opts.projection, {
+    onUndefined: () => {
+      const from = snapshotPos(opts.snapshot)
+      const to = { x: from.x + by.x, y: from.y + by.y }
+      MutableRef.update(state, (s) => ({ ...s, position: to }))
+      directSet(opts, to)
+    },
+    onDefined: (projection) => {
+      const was = MutableRef.get(state).snapped
+      const at = UndefinedOr.match(was, { onUndefined: () => by, onDefined: (prev) => ({ x: prev.x + by.x, y: prev.y + by.y }) })
+      if (Predicate.isUndefined(was)) projection.dragStart()
+      projection.dragMove(at)
+      MutableRef.update(state, (s) => ({ ...s, snapped: at }))
+    },
+  })
+}
+
+/**
  * The end of a Primary pointer's press: its up, its cancel, or a move with no button pressed
  * (its release was lost, ADR-0019). A press with no drag lets a projection node's stopped
  * release go on; any other unpressed move (a hover) finds none stopped.
@@ -719,49 +761,18 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
       const { propagation = false } = config
       const listens = config.listen !== false
 
-      // --- Drag controls (#431) ------------------------------------------------------------------
+      // --- Drag controls (#431), only for an element given them (#507) ----------------------------
+      const controlled = Predicate.isNotUndefined(opts.controls)
       // The threshold of the gesture an adopted down claims: its controls' `distanceThreshold`, set for
-      // the length of the start that adopts it. Any other down's is the recognizer's own.
+      // the length of the start that adopts it. Any other down's is the recognizer's own, and a track
+      // with no controls has none to set.
       let adoptedThreshold: number | undefined = undefined
-      const threshold = (down: InputSource.PointerLikeEvent): number | undefined => {
-        if (down.adopted === true) return adoptedThreshold
-        return undefined
-      }
-      /** A layout node's snap to the cursor ended with no drag: its drag ended at rest, back to its slot. Whether there was one. */
-      const unsnap = (projection: ProjectionSystem.DragHandle): boolean => {
-        if (Predicate.isUndefined(MutableRef.get(state).snapped)) return false
-        MutableRef.update(state, (s) => ({ ...s, snapped: undefined }))
-        projection.dragEnd(ORIGIN)
-        return true
-      }
-      /**
-       * Snap the element's centre under `down`'s point (#431, Motion's `snapToCursor`), on the axes it
-       * drags, measured from its box now: a plain element's x/y moved by the difference, a layout node's
-       * projection drag begun at it.
-       */
-      const snapTo = (down: InputSource.PointerLikeEvent): void => {
-        const box = element.getBoundingClientRect()
-        const axis = UndefinedOr.match(axisAt, { onUndefined: () => toDragAxis(config.axis), onDefined: (at) => toDragAxis(at()) })
-        // The pointer and the box's centre, each mapped as the drag's points are (#443, Motion's).
-        const map = mapPointOf(opts.mapPoint)
-        const cursor = map({ x: down.x, y: down.y })
-        const centre = map({ x: box.left + box.width / 2, y: box.top + box.height / 2 })
-        const by = onAxes({ x: cursor.x - centre.x, y: cursor.y - centre.y }, axis)
-        UndefinedOr.match(opts.projection, {
-          onUndefined: () => {
-            const from = snapshotPos(opts.snapshot)
-            const to = { x: from.x + by.x, y: from.y + by.y }
-            MutableRef.update(state, (s) => ({ ...s, position: to }))
-            directSet(opts, to)
-          },
-          onDefined: (projection) => {
-            const was = MutableRef.get(state).snapped
-            const at = UndefinedOr.match(was, { onUndefined: () => by, onDefined: (prev) => ({ x: prev.x + by.x, y: prev.y + by.y }) })
-            if (Predicate.isUndefined(was)) projection.dragStart()
-            projection.dragMove(at)
-            MutableRef.update(state, (s) => ({ ...s, snapped: at }))
-          },
-        })
+      let threshold: ((down: InputSource.PointerLikeEvent) => number | undefined) | undefined
+      if (controlled) {
+        threshold = (down) => {
+          if (down.adopted === true) return adoptedThreshold
+          return undefined
+        }
       }
 
       /** A free drag's release from `position` with `velocity`, run in `releasing` (#279: recorded as running). */
@@ -848,7 +859,7 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
           onUndefined: () => resumeFree,
           onDefined: (projection) =>
             Effect.sync(() => {
-              if (unsnap(projection)) return
+              if (unsnap(state, projection)) return
               projection.resumeRelease()
             }),
         })
@@ -864,13 +875,15 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
       // Subscribed in this order, so the samples hear an event before the grabs. The constraints
       // bound the element's x/y, so they're applied where the gesture's offset meets its base, in
       // `follow` and at the release (ADR-0016, *Amendment (#140)*).
-      const drag = yield* Recognizer.watchDrag(element, { axis, claim: Bool.not(propagation), lock: config.directionLock === true, listen: listens, threshold, mapPoint: opts.mapPoint }, {
+      const drag = yield* Recognizer.watchDrag(element, { axis, claim: Bool.not(propagation), lock: config.directionLock === true, listen: listens, adoptable: controlled, threshold, mapPoint: opts.mapPoint }, {
         on: (sample) => respond(onSample(sample)),
         onDefect,
       })
       // A down grabs when the drag listens to it (#431): with `listen: false`, only an adopted one.
       const grabs = Bool.match(listens, { onTrue: () => isGrab, onFalse: () => Predicate.and(isGrab, isAdopted) })
-      yield* InputFeed.watch(input.pointer(element), {
+      // The adoptable feed with controls (#507), so a grab hears an adopted down; the plain one without.
+      const pointerFeed = Bool.match(controlled, { onTrue: () => InputSource.adoptablePointerOf(input, element), onFalse: () => input.pointer(element) })
+      yield* InputFeed.watch(pointerFeed, {
         on: (event) => {
           if (grabs(event)) return respond(onGrab)
           if (isPressEnd(event)) respond(onPressEnd)
@@ -882,14 +895,14 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
       // the recognizer claims and the grabs stop a release at, inside the call; then the snap.
       if (Predicate.isNotUndefined(opts.controls)) {
         /** A layout node's snap that no gesture took, ended once its controls end the drag. */
-        const unsnapped = (): void => UndefinedOr.match(opts.projection, { onUndefined: constVoid, onDefined: (projection) => void unsnap(projection) })
+        const unsnapped = (): void => UndefinedOr.match(opts.projection, { onUndefined: constVoid, onDefined: (projection) => void unsnap(state, projection) })
         const unsubscribe = subscribeDragControls(opts.controls, {
           start: (event, options) => {
             adoptedThreshold = options.distanceThreshold
             const down = input.adoptPointer(element, event)
             adoptedThreshold = undefined
             if (Predicate.isUndefined(down)) return
-            if (options.snapToCursor === true) snapTo(down)
+            if (options.snapToCursor === true) snapTo(opts, state, down)
           },
           stop: () => {
             drag.stop()

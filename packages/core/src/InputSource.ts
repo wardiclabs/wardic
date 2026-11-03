@@ -233,14 +233,28 @@ export class InputSource extends Context.Service<InputSource, {
    */
   readonly focusWithin?: ((target: unknown) => boolean) | undefined
   /**
+   * `pointer(target)`, and the downs `adoptPointer` hands `target` too (#431, #507, **Drag controls**):
+   * for a target that can be handed one, a drag given Drag controls. Its plain `pointer` then
+   * subscribes no adoption, so an element only hovered or pressed pays for none. Absent: `pointer`
+   * delivers the adopted downs itself, for an Environment that doesn't split them.
+   */
+  readonly adoptablePointer?: ((target: unknown) => InputFeed.InputFeed<PointerLikeEvent>) | undefined
+  /**
    * Hand `raw`, the platform's event of a pointer pressed elsewhere, to `target` (#431, **Drag
-   * controls**): delivered on `pointer(target)` as an `adopted` down at its point, inside this call,
-   * and held from there as a down on the target is, so its moves, release and cancel reach the
-   * target's feed wherever they land. The down as delivered, or `undefined`, delivering nothing, when
-   * `raw` isn't a pressed pointer's event.
+   * controls**): delivered on `adoptablePointer(target)` (`pointer(target)` without one) as an
+   * `adopted` down at its point, inside this call, and held from there as a down on the target is, so
+   * its moves, release and cancel reach the target's feed wherever they land. The down as delivered, or
+   * `undefined`, delivering nothing, when `raw` isn't a pressed pointer's event.
    */
   readonly adoptPointer: (target: unknown, raw: unknown) => PointerLikeEvent | undefined
 }>()("@wardic/InputSource") {}
+
+/**
+ * `target`'s pointer feed with the downs `adoptPointer` hands it (#431, #507): `input`'s
+ * `adoptablePointer`, or its `pointer` when it has none, which then delivers them itself.
+ */
+export const adoptablePointerOf = (input: InputSource["Service"], target: unknown): InputFeed.InputFeed<PointerLikeEvent> =>
+  UndefinedOr.match(input.adoptablePointer, { onUndefined: () => input.pointer(target), onDefined: (feed) => feed(target) })
 
 /**
  * `heldPointer` — the Environment-agnostic realization of the **Held pointer**
