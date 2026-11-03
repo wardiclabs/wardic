@@ -210,3 +210,37 @@ ADR-0044 decides it, on decision 1's opening: still no runtime on a server, and 
 ## Note (#414, 2026-10-27): the ref is checked against what the component renders
 
 `wardic.create(Component)`'s one requirement, forwarding the ref, still holds, but it's checked against what the component renders: a component that renders an element and forwards its ref to none of it throws, and one that has rendered nothing yet is waited on, its element driven when it comes. Before, it threw at mount whenever the ref hadn't been called, so a component library's part that renders only while shown (Kobalte's `Tabs.Content`) threw. See ADR-0046 *Amendment (#414)*. The server render is unchanged: the wrap passes its Starting style in `style`, as decision 6 says.
+
+## Amendment (#535, 2026-11-03): the build at idle, once the provider has mounted
+
+*Amendment (#51)* moved a client provider's build from its render to its first element's render, so a provider with nothing under it builds nothing. #535 profiled a page's first mount of 1,000 elements, where Wardic trailed Motion most (73 / 84 ms against Motion 14.9's 52.5). One-time setup at the first element was about 11 ms (Solid 1) and 19 ms (Solid 2):
+- **The runtime and the Features,** about 5.5 ms. The runtime's Environment was 2.45 ms of it, spread over nine Layers each a fraction of a millisecond. The projection engine was 1.2 ms.
+- **The first animation's setup,** 2.5–3 ms.
+- **Effect's first forks and the first frame's writes,** 2–4 ms.
+
+Compiling wasn't any of it: with every function compiled at load (V8's `--no-lazy`), the cold mount didn't move. The rest of the gap, about 17–24 ms, is V8 running the first 1,000 elements' code before it optimizes it.
+
+**Decided (#535's grill, Q1 and Q3).**
+1. **A provider builds at idle once it has mounted** (Q1): at the browser's idle time (`requestIdleCallback`, within 250 ms; after 50 ms where there's none, as in Safari), asked for as the provider is made, with no computation of its own (an `onSettled`'s shifted Solid 2's hydration ids), and cancelled at its cleanup.
+   - **What it builds:** the context value's `prepare()` (the runtime, its Environment, the gate and the reduced-motion inputs) and the provider's own Features (`prepareIdle`).
+   - **Before then:** a first element builds them itself, as before.
+   - **A provider with no element:** it now builds them too, at idle.
+   - **A failure at idle** is left to the first element's own build, which fails the same way and reports it where it renders.
+2. **The same task warms the first animation's code** (Q3): it resolves and blends a number, a length and a colour on the registry (`WARM_PAIRS`). The registry's cache is by a pair's own strings, so it's the code that's warmed, not the cache.
+
+**The reach.** In most apps the first Wardic elements render in the same pass as their provider, with no idle moment between. Those elements build as before. So both help content that mounts later: a list after data, a route change, a modal, not a page's first paint.
+
+**Rejected:**
+- *Q1:* building at the provider's render, which undoes #51; leaving it to the first need.
+- *Q3:* leaving it.
+- *Q4:* making the Environment's Layers lighter, about 0.5–1 ms at best (DomProbe's, on first read).
+- *Q2, decided and then dropped:* a Complete element building `layout` at its first layout node instead of with its other Features (1.2 ms, once, on a page with none). A layout element's values register with the projection engine at its render (*ADR-0012, Amendment (#137)*), which own-size legs need (*ADR-0018, Amendment (#453)*). On Solid 1, knowing at render whether an element is one costs every Complete element a config build. `popLayout` keeps a popped Complete child where it was seen through the engine too. So Complete elements build `layout` at once, as before.
+
+The first paint's larger part, the element path running unoptimized, is a follow-up: its helper calls on the mount path, cold and warm.
+
+Pinned by `features-layout.browser.test.tsx`'s **FL6** and Solid 2's **FLV6** (a provider with `layout` given and no element under it has built none at its mount, and has built it once idle), and `provider-lazy.browser.test.tsx`'s **LZ1** and **LZ3**, rewritten: nothing built at the render, everything at idle, nothing when unmounted before idle.
+
+**Measured.** `bench:solid --base main --features`, 11 paired reps. Its rounds start a few frames after the provider renders, so the idle build has run.
+- **Cold mount** (each page's first round, not gated), Solid 1 / Solid 2: −3.7% / −6.7% (55.7 → 53.7 ms, 62.0 → 58.5). Solid 2's cold unmount −10.8%.
+- **Everything else is flat:** warm tasks within −3.4% and +0.5%, bytes and retained memory, the layout scenes.
+- **One gate failed:** Solid 1's Keyframes page, unmount +8.1% [+6.3%, +9.5%]. Solid 1 alone, run again, passed every gate, with that unmount at +0.2% and the cold mount −3.8% again.

@@ -8,6 +8,8 @@
 //   animates its layout change.
 // - FLV4, what brings no Feature works without `layout`, and builds none: an `AnimatePresence`'s Slim
 //   child exits, and `useAnimateLayout` runs its change and settles. `LayoutGroup` brings it.
+// - FLV6 (#535), a provider builds its own Features at the browser's idle time once it has settled, with
+//   no element under it: none at its mount, `layout` once idle.
 // - FLV5, `colors` given at once to the provider: a `w.div` reads `oklch()` as a colour. #515's
 //   sections built such Features only when something read them, which no element did. Last, as colour
 //   spaces are the page's.
@@ -183,6 +185,21 @@ describe("The layout Feature (#511), Solid 2", () => {
       </WardicProvider>
     ))
     expect(built(), "LayoutGroup built it").toBeDefined()
+  })
+
+  it("FLV6: a provider builds its own Features at idle once it has settled, with no element under it", async () => {
+    let built!: () => unknown
+    const Probe = (): JSX.Element => {
+      built = useBuiltProjection()
+      return null
+    }
+    mount(() => (
+      <WardicProvider env={DomLive} features={[layout]}>
+        <Probe />
+      </WardicProvider>
+    ))
+    expect(built(), "none at its mount").toBeUndefined()
+    await until(() => built() !== undefined, 2000, "`layout` built at idle")
   })
 
   it("FLV5: `colors` given at once to the provider: a w.div reads oklch() as a colour", async () => {

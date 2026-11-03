@@ -10,7 +10,7 @@ import type * as Announcer from "@wardic/core/Announcer"
 import type * as Clock from "@wardic/core/Clock"
 import * as DefaultTransition from "@wardic/core/DefaultTransition"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
-import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
+import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Probe from "@wardic/core/Probe"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
@@ -18,8 +18,10 @@ import type * as Renderer from "@wardic/core/Renderer"
 import * as FlushGate from "@wardic/dom/FlushGate"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Report from "@wardic/dom/Report"
+import * as Arr from "effect/Array"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import { constVoid } from "effect/Function"
 import type * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
@@ -28,7 +30,7 @@ import * as Predicate from "effect/Predicate"
 import { AtomRegistry } from "effect/reactivity"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { ServerAppear } from "./appear.ts"
-import { clientRegistry, type FeatureRegistry, serverRegistry } from "./feature.ts"
+import { clientRegistry, type FeatureRegistry, type FeatureSection, serverRegistry } from "./feature.ts"
 import { type InstantAnimations, makeInstantAnimations, NO_INSTANT } from "./instant.ts"
 import { settingOf as configSettingOf, type WardicConfigValue } from "./wardic-config-value.ts"
 
@@ -114,6 +116,13 @@ export interface WardicContextValue {
    * server render's run their `server` part alone. Disposing them disposes the runtime after.
    */
   readonly features: FeatureRegistry
+  /**
+   * Build what a first element would (#535): the runtime, its Environment and the gate, and the first
+   * animation's code warmed through the interpolators nearly every app uses. A provider runs it at
+   * the browser's idle time once it has mounted; a first element before then builds them itself.
+   * Nothing on a server.
+   */
+  readonly prepare: () => void
 }
 
 /** What a client provider builds on first need (#51): everything in its context but the runtime. */
@@ -176,11 +185,16 @@ export const clientContext = (
   const features = clientRegistry(runtime)
   // Its Instant changes (#443), timed by its Environment's Refresh frames, found at the first.
   const instant = makeInstantAnimations(() => runtime.runSync(RefreshFrameSource.RefreshFrameSource).requestFrame)
+  const prepare = (): void => {
+    build()
+    warmInterpolators(runtime)
+  }
   return {
     runtime,
     reducedMotionSetting: reducedMotion,
     instant,
     features,
+    prepare,
     get gate() {
       return build().gate
     },
@@ -236,6 +250,7 @@ export const serverContext = (env: WardicEnv, appear: ServerAppear | undefined, 
   return {
     runtime,
     features: serverRegistry(runtime),
+    prepare: constVoid,
     gate: FlushGate.inert,
     projection: undefined,
     reducedMotion: () => false,
@@ -245,6 +260,58 @@ export const serverContext = (env: WardicEnv, appear: ServerAppear | undefined, 
     defaultTransition: SERVER_DEFAULT_TRANSITION,
     appear,
     instant: NO_INSTANT,
+  }
+}
+
+/**
+ * Pairs nearly every app animates (#535): a number (opacity, the transform shorthands), a length and a
+ * colour. Resolving them runs the registry's selection, parsers and blends once, so a first animation
+ * after it runs them warm. Its cache is by the pair's own strings, so it's the code they warm.
+ */
+const WARM_PAIRS: ReadonlyArray<readonly [number | string, number | string]> = [
+  [0, 1],
+  ["0px", "10px"],
+  ["rgb(0, 0, 0)", "rgb(255, 255, 255)"],
+]
+
+/** Resolve {@link WARM_PAIRS} on `runtime`'s registry, and blend each once. */
+const warmInterpolators = (runtime: ProviderRuntime): void => {
+  const registry = runtime.runSync(InterpolatorRegistry.InterpolatorRegistry)
+  Arr.forEach(WARM_PAIRS, ([from, to]) => {
+    runtime.runSync(Effect.map(registry.resolve(from, to), (blend) => blend(0.5)))
+  })
+}
+
+/** How long a provider's {@link whenIdle} waits for an idle moment at most (#535), in ms. */
+const IDLE_TIMEOUT_MS = 250
+
+/** Where there's no `requestIdleCallback` (Safari), the timer it runs on instead (#535), in ms. */
+const IDLE_FALLBACK_MS = 50
+
+/**
+ * Run `fn` at the browser's idle time, within {@link IDLE_TIMEOUT_MS} (#535), or after
+ * {@link IDLE_FALLBACK_MS} where there's no `requestIdleCallback`. Returns its cancel.
+ */
+export const whenIdle = (fn: () => void): (() => void) => {
+  if (Predicate.isFunction(globalThis.requestIdleCallback)) {
+    const handle = globalThis.requestIdleCallback(fn, { timeout: IDLE_TIMEOUT_MS })
+    return () => globalThis.cancelIdleCallback(handle)
+  }
+  const handle = setTimeout(fn, IDLE_FALLBACK_MS)
+  return () => clearTimeout(handle)
+}
+
+/**
+ * What a provider builds at the browser's idle time once it has mounted (#535): `value`'s `prepare`,
+ * and `section`'s Features, its own. A failure here is left to the first element, whose own build
+ * fails the same way and reports it where it renders.
+ */
+export const prepareIdle = (value: WardicContextValue, section: FeatureSection): void => {
+  try {
+    value.prepare()
+    section.services()
+  } catch {
+    // Left to the first element's build, which reports it.
   }
 }
 
