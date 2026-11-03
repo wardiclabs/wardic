@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { rowsOf } from "../bench/rows.ts"
+import { confirmed, rowsOf, runsOf } from "../bench/rows.ts"
 
 // How the bench runner reports each workload from the names each side ran (#74). Before, every
 // workload only head ran was read as a Frame loop workload against the base's `<name>`, so a new
@@ -40,5 +40,18 @@ describe("bench:core's rows", () => {
       { kind: "dropped", workload: "animateComplex" },
       { kind: "dropped", workload: "chase/loop" },
     ])
+  })
+
+  // #545: the runs a side timed, and a failure the rerun confirms.
+  it("a side's runs are its own count, or N from a harness before #545", () => {
+    expect(runsOf({ runs: 10_000 }, 1000)).toBe(10_000)
+    expect(runsOf({}, 1000)).toBe(1000)
+  })
+
+  it("a workload fails the gate only when it fails an engine's run and its rerun", () => {
+    expect(confirmed(new Set(["chase/loop", "animateRepeat/loop"]), new Set(["animateRepeat/loop", "springBlend/loop"]))).toEqual([
+      "animateRepeat/loop",
+    ])
+    expect(confirmed(new Set(["chase/loop"]), new Set())).toEqual([])
   })
 })

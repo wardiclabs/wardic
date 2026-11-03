@@ -8,7 +8,8 @@
  * - **Paired reps.** Each rep runs base and head back to back, in fresh processes or pages, in
  *   alternating order. The gate reads each workload's per-rep head / base ratios.
  * - **Noise control.** `ticksOnly` runs the same code in both cores. If its median ratio is off
- *   by more than ±3%, the run is too noisy to judge, and it's rerun.
+ *   by more than ±3%, the engine's run is too noisy to judge, and its reps run once more (#545).
+ *   An engine still noisy then makes the run exit 2.
  * - **Time gate.** A workload fails when its median ratio passes +5% and its 25th percentile is
  *   above 0%, so at least three pairs in four ran slower. Run against itself (`02ecce7`), a
  *   single Chromium pair swings ±17% and a workload's median ±7%, so the median alone would
@@ -16,6 +17,14 @@
  * - **Allocation gate.** Node's bytes per frame fail at +5%. On unchanged code they don't move.
  *   They count what a GC frees inside the measured window too (`one.mjs`), so a scavenge there
  *   doesn't hide allocation.
+ * - **A rerun before failing** (#545). An engine with a failing workload runs its reps again, and a
+ *   workload fails only when it fails both runs. Run against itself at 21 reps, Bun's loop
+ *   workloads spread about ten points between their quartiles, and after a change elsewhere in
+ *   core JavaScriptCore moved them −10% to +39% with the frame code unchanged (#542).
+ * - **The loop's two tiniest workloads run ten times N** (`scale`, #545): `chase/loop` and
+ *   `springValues/loop`, under 0.1 ms a frame at N, spread 25–29 points on Bun and Chromium. A
+ *   workload the two sides timed at different counts (a base on its own older harness) is
+ *   reported, not gated.
  * - `start` (construction) is reported, not gated.
  * - **A workload one side lacks** is reported, not gated (`rows.ts`, #74):
  *   - a Frame loop workload only head has (`springValues/loop`, against a base from before
@@ -37,7 +46,7 @@ import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { chromium } from "playwright"
 import type { Options, WorkloadResult } from "./harness.ts"
-import { rowsOf } from "./rows.ts"
+import { confirmed, rowsOf, runsOf } from "./rows.ts"
 
 const GATE = 1.05
 const NOISE = 0.03
@@ -237,30 +246,38 @@ if (!headCommit && dirty) head = "the working tree (modified)"
 console.log(`bench:core: base ${base} (${commit.slice(0, 7)}) against ${head}`)
 if (baseDeps !== REPO) console.log(`base runs on its own dependencies (${baseDeps})`)
 if (headDeps !== REPO) console.log(`head runs on its own dependencies (${headDeps})`)
-console.log(`${options.n} elements, ${options.frames} frames × ${options.rounds - 1} rounds per run, ${reps} paired reps\n`)
+console.log(
+  `${options.n} elements (a loop workload with a scale, ten times: #545), ${options.frames} frames × ${options.rounds - 1} rounds per run, ${reps} paired reps\n`,
+)
 
-for (const engine of engines) {
+/** Every rep of `engine`, base and head paired, and its version. */
+const runEngine = async (engine: string): Promise<{ readonly runs: Record<Side, Array<Results>>; readonly version: string }> => {
   const runs: Record<Side, Array<Results>> = { base: [], head: [] }
-  let version: string
   if (engine === "chromium") {
     const browser = await chromium.launch()
     for (let r = 0; r < reps; r++) for (const side of orderOf(r)) runs[side].push(await runChromium(browser, side))
-    version = browser.version()
+    const version = browser.version()
     await browser.close()
-  } else {
-    for (let r = 0; r < reps; r++) for (const side of orderOf(r)) runs[side].push(runProcess(engine as "bun" | "node", side))
-    version = spawnSync(engine, ["--version"]).stdout.toString().trim()
+    return { runs, version }
   }
+  for (let r = 0; r < reps; r++) for (const side of orderOf(r)) runs[side].push(runProcess(engine as "bun" | "node", side))
+  return { runs, version: spawnSync(engine, ["--version"]).stdout.toString().trim() }
+}
 
+/** One run's table, printed under `title`: whether its noise control was off, and the workloads that failed. */
+const report = (
+  title: string,
+  runs: Record<Side, Array<Results>>,
+): { readonly noisy: boolean; readonly failing: ReadonlySet<string> } => {
+  const failing = new Set<string>()
   const ratioOf = (workload: string) =>
     runs.head.map((head, r) => head[workload]!.frameMs / runs.base[r]![workload]!.frameMs)
   const floor = quantile(ratioOf("ticksOnly"), 0.5)
   const engineNoisy = Math.abs(floor - 1) > NOISE
-  noisy ||= engineNoisy
 
-  let title = `${engine} ${version}`
-  if (engineNoisy) title += `: TOO NOISY (ticksOnly ${percent(floor)}), rerun`
-  console.log(title)
+  let heading = title
+  if (engineNoisy) heading += `: TOO NOISY (ticksOnly ${percent(floor)}), rerun`
+  console.log(heading)
   console.log(
     `  ${"workload".padEnd(22)}${"base ms".padEnd(10)}${"head ms".padEnd(10)}${"head/base [p25–p75]".padEnd(28)}${"start ms".padEnd(18)}${"MB/frame".padEnd(16)}gate`,
   )
@@ -285,10 +302,15 @@ for (const engine of engines) {
     const slower = ratio > GATE && quantile(ratios, 0.25) > 1
     const bytesRatio = median("head", "bytesPerFrame") / median("base", "bytesPerFrame")
     const allocates = bytesRatio > BYTES_GATE
-    const fails = workload !== "ticksOnly" && (slower || allocates)
-    failed ||= fails && !engineNoisy
+    // Timed at different run counts (#545: a base on its own harness from before), so not compared.
+    const baseRuns = runsOf(runs.base[0]![workload]!, options.n)
+    const headRuns = runsOf(runs.head[0]![workload]!, options.n)
+    const comparable = baseRuns === headRuns
+    const fails = comparable && workload !== "ticksOnly" && (slower || allocates)
+    if (fails) failing.add(workload)
     let gate = "ok"
     if (workload === "ticksOnly") gate = "noise control"
+    else if (!comparable) gate = `${baseRuns} → ${headRuns} runs, not gated`
     else if (slower && allocates) gate = `FAIL: time and bytes`
     else if (slower) gate = `FAIL: time (> ${percent(GATE)}, p25 > 0%)`
     else if (allocates) gate = `FAIL: bytes (${percent(bytesRatio)})`
@@ -303,6 +325,33 @@ for (const engine of engines) {
     )
   }
   console.log("")
+  return { noisy: engineNoisy, failing }
+}
+
+for (const engine of engines) {
+  let first = await runEngine(engine)
+  let judged = report(`${engine} ${first.version}`, first.runs)
+  // A noisy engine runs once more (#545), and that run is judged as its first.
+  if (judged.noisy) {
+    console.log(`${engine}: too noisy; running its ${reps} reps again\n`)
+    first = await runEngine(engine)
+    judged = report(`${engine} ${first.version}, rerun`, first.runs)
+  }
+  noisy ||= judged.noisy
+  if (judged.noisy || judged.failing.size === 0) continue
+  // A rerun before failing (#545): run against itself, Bun's loop workloads spread about ten points
+  // at their quartiles, so a single run fails code that changed nothing. A workload fails when it
+  // fails both runs.
+  console.log(`${engine}: ${[...judged.failing].join(", ")} failed; running its ${reps} reps again\n`)
+  const again = await runEngine(engine)
+  const rerun = report(`${engine} ${again.version}, rerun`, again.runs)
+  noisy ||= rerun.noisy
+  const fails = confirmed(judged.failing, rerun.failing)
+  const passed = [...judged.failing].filter((workload) => !fails.includes(workload))
+  if (passed.length > 0) console.log(`${engine}: passed on its rerun: ${passed.join(", ")}`)
+  if (fails.length > 0) console.log(`${engine}: FAIL in both runs: ${fails.join(", ")}`)
+  console.log("")
+  failed ||= fails.length > 0 && !rerun.noisy
 }
 
 if (noisy) process.exit(2)
