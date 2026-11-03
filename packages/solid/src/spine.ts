@@ -560,6 +560,129 @@ interface Running extends Machine.RunOptions {
 const NO_RUNNING: ReadonlyArray<Running> = []
 
 /**
+ * A layer's Transition end waiting for its keys to land (#428, #508): no fiber of its own. Its `running`
+ * holds the keys only it sets, counts toward its landing and is given up as any leg's; the landing of
+ * its keys' last leg makes it due, and it's written at the next flush.
+ */
+interface PendingEnd {
+  readonly running: Running
+  /** The keys its layer animates, each held by the leg drawing it. */
+  readonly animated: ReadonlyArray<string>
+  /** Its end values, the keys it also animates among them. */
+  readonly writes: Values.Values
+  /**
+   * An end that owns no key, its values all keys its layer animates: the leg drawing each of
+   * `animated` as it was made. Nothing gives such an end up, so a key's leg given up or replaced
+   * before it lands, the target interrupted, drops it (ADR-0057 Q1). Undefined for one that owns keys,
+   * which an interrupt gives up.
+   */
+  readonly legs: ReadonlyArray<Running | undefined> | undefined
+  state: "waiting" | "due" | "written" | "dropped"
+}
+
+/** An element's waiting Transition ends (#508). */
+interface WaitingEnds {
+  /** A layer's end, waiting for its keys, or due already when they've landed. */
+  readonly add: (end: PendingEnd) => void
+  /** A leg landed: each end whose keys now all have is due, written at the next flush. */
+  readonly land: () => void
+  /** The end `running` is, dropped, whether it waits or is due: given up, stopped or ended. */
+  readonly drop: (running: Running) => void
+  /** The element is gone: none is written. */
+  readonly dispose: () => void
+}
+
+/**
+ * The waiting Transition ends of element `id` (#508): made at its first end, so an element with none,
+ * nearly every one, pays nothing for them. `owners` holds the leg drawing each key.
+ */
+const waitingEndsOf = (owners: Owners, snapshot: Snapshot, gate: FlushGate.Shape, id: string, recordFrame: (value: Values.Values) => void): WaitingEnds => {
+  const pending: Array<PendingEnd> = []
+  let disposed = false
+  /** Whether `key`'s leg has landed: it drew its last frame, or none draws it. */
+  const keyLanded = (key: string): boolean => ownerLanded(owners.get(key))
+  /** `end` off the list. */
+  const remove = (end: PendingEnd): void => {
+    const at = pending.indexOf(end)
+    if (at >= 0) pending.splice(at, 1)
+  }
+  /**
+   * An end written, at the flush after its keys landed: the frame its leg's write would have drawn in,
+   * and Motion's (`frame.update` once its animations resolve). It counts toward its landing as that leg
+   * did, so the landing's settle, told after the next flush, sees it (ADR-0057 Q4).
+   */
+  const write = (end: PendingEnd): void => {
+    if (Bool.or(disposed, end.state !== "due")) return
+    end.state = "written"
+    remove(end)
+    const running = end.running
+    const value = running.values(end.writes)
+    snapshot.values = { ...snapshot.values, ...value }
+    gate.write(id, value)
+    recordFrame(value)
+    drew(running, true, snapshot.now())
+    running.landing.settled()
+    const tell = running.names
+    if (Predicate.isNotUndefined(tell)) tell(undefined)
+  }
+  /** Whether a key-less end's target was interrupted: a leg it waits for given up or replaced before it landed. */
+  const interrupted = (end: PendingEnd): boolean => {
+    const legs = end.legs
+    if (Predicate.isUndefined(legs)) return false
+    return Arr.some(end.animated, (key, i) => {
+      const leg = legs[i]
+      if (Predicate.isUndefined(leg)) return false
+      if (leg.done) return false
+      return owners.get(key) !== leg
+    })
+  }
+  /** An end due once every key it waits for has landed, written at the next flush; dropped when its target was interrupted. */
+  const landOne = (end: PendingEnd): void => {
+    if (end.state !== "waiting") return
+    if (interrupted(end)) {
+      end.state = "dropped"
+      return
+    }
+    if (Bool.not(Arr.every(end.animated, keyLanded))) return
+    end.state = "due"
+    gate.afterFlush(() => write(end))
+  }
+  const dropped = (end: PendingEnd): boolean => end.state === "dropped"
+  const land = (): void => {
+    Arr.forEach(pending, landOne)
+    if (Arr.some(pending, dropped)) {
+      const kept = Arr.filter(pending, Predicate.not(dropped))
+      pending.length = 0
+      pending.push(...kept)
+    }
+  }
+  return {
+    add: (end) => {
+      pending.push(end)
+      land()
+    },
+    land,
+    drop: (running) =>
+      Option.match(Arr.findFirst(pending, (end) => end.running === running), {
+        onNone: constVoid,
+        onSome: (end) => {
+          end.state = "dropped"
+          remove(end)
+        },
+      }),
+    dispose: () => {
+      disposed = true
+      pending.length = 0
+    },
+  }
+}
+
+/** A leg's last frame lands the Transition ends waiting on it (#508); an element with none has nothing to ask. */
+const landEndsOf = (waiting: WaitingEnds | undefined): void => {
+  if (Predicate.isNotUndefined(waiting)) waiting.land()
+}
+
+/**
  * The resolution an **Imperative animation**'s legs run under (#433): none of the Override stack's,
  * so a Retarget that takes a key back never carries one as its own Keyframes or names.
  */
@@ -816,7 +939,7 @@ const GATE_SPAN = { name: "wardic.spine.whenGate", attributes: {} }
 /** Nothing drawn while a gate is waited on. */
 const NO_SINK = (): undefined => undefined
 
-/** Whether a key's leg has landed (#428): its owner's done, or it has none. A guard: asked per frame (#460). */
+/** Whether a key's leg has landed (#428): its owner's done, or it has none. A guard: asked at each leg's landing while a Transition end waits (#508). */
 const ownerLanded = (owner: Running | undefined): boolean => {
   if (Predicate.isUndefined(owner)) return true
   return owner.done
@@ -828,12 +951,6 @@ const ownerLanded = (owner: Running | undefined): boolean => {
  * and deletes only from one that has some.
  */
 const NONE_TAKEN: Map<string, number | string | undefined> = new Map()
-
-/** A Transition end's values set (#428): its one frame, done. */
-const endWriteOf = (values: Values.Values): Machine.Machine<Frame.Frame<Values.Values>> =>
-  Machine.make({ settles: true, span: END_SPAN, start: () => () => ({ value: values, done: true }) })
-
-const END_SPAN = { name: "wardic.spine.transitionEnd", attributes: {} }
 
 /**
  * A leg that waits for its name's gate first (#297's PR 2), as Motion runs a variant's `when` per
@@ -1887,10 +2004,15 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     })
   }
 
+  // The element's waiting Transition ends (#508), made at its first: most elements never have one.
+  let waiting: WaitingEnds | undefined
+
   // A leg with no key left ends. Its fiber ends inline (ADR-0027, *Amendment (#200)*); one its token
-  // didn't reach, none of its runs on the loop, is interrupted.
+  // didn't reach, none of its runs on the loop, is interrupted. A Transition end it is (#508) is
+  // dropped, written never, as its leg was.
   const endLeg = (running: Running): void => {
     Supersede.end(running.supersede)
+    if (Predicate.isNotUndefined(waiting)) waiting.drop(running)
     const fiber = running.fiber
     if (Predicate.isUndefined(fiber)) return
     if (Predicate.isNotUndefined(fiber.pollUnsafe())) return
@@ -2030,6 +2152,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
           gate.write(id, out)
           recordFrame(out)
           drew(running, frame.done, snapshot.now())
+          if (frame.done) landEndsOf(waiting)
           return undefined
         }, running)
       )
@@ -2047,6 +2170,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
           gate.write(id, value)
           recordFrame(value)
           drew(running, frame.done, snapshot.now())
+          if (frame.done) landEndsOf(waiting)
           return undefined
         }, running)
       )
@@ -2070,6 +2194,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       gate.write(id, value)
       recordFrame(value)
       drew(running, frame.done, snapshot.now())
+      if (frame.done) landEndsOf(waiting)
       return undefined
     }
     if (leg._tag === "Snap") {
@@ -2572,9 +2697,6 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         )
         if (Bool.not(anew)) return
         const animated = Arr.filter(Rec.keys(resolved), (key) => Bool.and(Bool.not(ends.endOnly.has(key)), driverOf(layers, key) === at))
-        // Asked every frame until they land (#460): its key's check made once, nothing built per frame.
-        const keyLanded = (key: string): boolean => ownerLanded(owners.get(key))
-        const landedAll = (): boolean => Arr.every(animated, keyLanded)
         // Its keys set at their end, at once: no motion, so no velocity (#464).
         const running = runningOf(owned, resolution, landing, "Snap")
         own(running)
@@ -2583,22 +2705,19 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         const holding = Rec.map(Rec.filter(owned, (_, key) => started[key] !== "target"), (_, key) => UndefinedOr.getOrThrow(snapshot.values[key]))
         if (hasKeys(holding)) gate.write(id, holding)
         snapshot.velocities = { ...snapshot.velocities, ...Rec.map(owned, () => 0) }
-        const sink = (frame: Frame.Frame<Values.Values>): undefined => {
-          const value = running.values(frame.value)
-          snapshot.values = { ...snapshot.values, ...value }
-          gate.write(id, value)
-          recordFrame(value)
-          drew(running, frame.done, snapshot.now())
-          return undefined
-        }
+        // Counted toward this landing as a leg is (#508), with no fiber of its own: the landing of its
+        // keys' last leg writes it, or the next flush when they've landed already.
         reporting++
-        runLeg(
-          running,
-          gateWaitOf(landedAll).pipe(
-            Machine.run(NO_SINK, running),
-            Effect.flatMap((end) => Bool.match(Supersede.isSuperseded(end), { onTrue: () => Effect.succeed(end as unknown), onFalse: () => endWriteOf(writes).pipe(Machine.run(sink, running)) })),
-          ),
-        )
+        legs++
+        const log = pendingLog
+        pendingLog = undefined
+        if (Predicate.isNotUndefined(log)) runtime.runFork(log)
+        if (Predicate.isNotUndefined(names)) running.names = names.leg()
+        // One that owns no key records the legs it waits for: their interrupt drops it (ADR-0057 Q1).
+        let waitsOn: ReadonlyArray<Running | undefined> | undefined
+        if (Bool.not(hasKeys(owned))) waitsOn = Arr.map(animated, (key) => owners.get(key))
+        if (Predicate.isUndefined(waiting)) waiting = waitingEndsOf(owners, snapshot, gate, id, recordFrame)
+        waiting.add({ running, animated, writes, legs: waitsOn, state: "waiting" })
       })
     }
     // A turn none of its legs draws now goes back (#460).
@@ -2703,7 +2822,9 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // Unmounted, it lands in no Controls change (#433).
     leaveChange()
     if (Predicate.isNotUndefined(live)) live.stop()
-    // The legs end normally first, so closing the Scope has nothing left to interrupt.
+    // The legs end normally first, so closing the Scope has nothing left to interrupt. A Transition
+    // end waiting or due writes nothing (#508).
+    if (Predicate.isNotUndefined(waiting)) waiting.dispose()
     owners.forEach(endUnlessLanded)
     runtime.runFork(Scope.close(legScope, Exit.void))
   }

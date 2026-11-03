@@ -97,3 +97,33 @@ Two first versions were caught only by the type left unused, so they were rewrit
 ## Note (#470, 2026-10-29): a new end alone is a new target
 
 A change to a target's `transitionEnd` alone counts as a change, as Motion compares a target's `transitionEnd` with its values. A key only an end sets was a resolved value already. A key a layer both animates and ends now starts again when its end changes, from where it's drawn, and its end applies once it lands: `{ x: 100, transitionEnd: { x: 0 } }` to `transitionEnd: { x: 30 }` animates `x` back to 100 and rests at 30, as Motion's does. Before, Solid 2 compared nothing of it, and Solid 1 ran a Retarget whose `x`, its last Leg landed at 100, started nothing, so the new end was never set. See ADR-0046, *Amendment (#470)*; ST8 and STV4 pin it.
+
+## Amendment (#508, 2026-11-02): an end written from its keys' landing, with no leg
+
+**What happened.** Found by #460's review. Each layer whose end starts anew got a leg per Retarget: a fiber running a gate machine that checked every frame whether the layer's keys had landed, then a one-frame machine that wrote the end. On `bench:solid`'s `transitionEnd` page against the same elements without one: Retarget +41–45%, unmount +44%, bytes +26–27%, on both bindings.
+
+**Decided (#508's grill).** A layer's end is a **waiting end**: no fiber, no machine.
+- **Waiting:** the Retarget makes its `running` as before, so it owns its end-only keys, counts toward the landing and is carried or given up as any leg (*Built*). The end goes on the element's waiting ends (`waitingEndsOf`). They're made at its first end, so an element without one pays nothing for them.
+- **Due:** a leg's last frame (`landEndsOf`) asks each waiting end whether every key its layer animates has landed, the check the gate machine made. One that has is due, and is written at the gate's next flush (`afterFlush`). That's the frame the leg's write drew in, and Motion's: `frame.update` once its animations resolve. An end whose keys landed already is due at once.
+- **Written:** its values go through its `running` as the leg's frame did. It reports its last frame and settles its landing, whose own settle comes after the next flush, so `settled()` and `onAnimationComplete` see it (Q4).
+- **Dropped:** `endLeg`, which ends a leg given up, stopped (`stop()`) or ended with an Imperative animation's, drops it whether waiting or due. An unmount drops them all.
+
+**Rejected:** one polling leg per Retarget for all its layers, which saves nothing in the common one-layer case; keeping the cost.
+
+**A bug fixed on the way.** An end whose values are all keys its layer also animates owns no key, so nothing gave it up. Interrupted, it waited for whichever legs drew those keys next, and set its stale end. `animate={{ opacity: 0, transitionEnd: { opacity: 0.5 } }}`, retargeted mid-fade to `{ opacity: 1 }`, came to rest at 0.5. That broke Q1: a target interrupted before it lands never applies it.
+- **Now:** such an end records the leg drawing each key it waits for, as it's made (`PendingEnd.legs`). One of them given up or replaced before it lands drops the end.
+- **Carried keys:** a leg a later Retarget carries (#325) is the same leg, so TE8 holds.
+- **Ends that own keys** are as before: an interrupt gives their keys up (TE4).
+
+Pinned by `transition-end.browser.test.tsx`'s TE1–TE9 and Solid 2's ET1–ET3, unchanged and passing, and:
+- **TE10:** a target its controls stop before it lands never sets its end, though an Imperative animation on the element lands after.
+- **TE11:** a target whose end only re-sets a key it animates, interrupted, never sets it. It rests at the later target's 1, where `main` rests at 0.5.
+
+Mutations:
+- no drop in `endLeg`: caught by TE4 and TE10;
+- no interrupt check: caught by TE11.
+
+**Measured.** `bench:solid --base main --features`, 11 paired reps, passes.
+- **The `transitionEnd` page,** Solid 1 / Solid 2: Retarget −8.8% / −7.3%, at rest −9.9% / −9.3%, unmount −25.9% / −23.5%, bytes −7.9% / −8.6%. Against the same elements without an end it now costs Retarget +21–30%, unmount +9–11% and bytes +16–17%, where it cost +41–45%, +44% and +26–27%.
+- **Every other element** is flat: held at rest +0.0% / +0.1%, bytes per element −0.3% to +0.4%, warm tasks within −2.1% and +1.4%.
+- **A first version** made the waiting ends with each element, and an end's helper with each Retarget. It passed, but every element paid for it: held at rest +2%, bytes +0.8–1.4%, Retarget +2%. Hence `waitingEndsOf`, made at an element's first end.
