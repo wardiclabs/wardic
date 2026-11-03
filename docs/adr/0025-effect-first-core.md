@@ -551,3 +551,50 @@ Decided in #540's grill (2026-11-03):
 - **retained at rest and the layout scenes:** flat, within their gates.
 
 `bun run size --base main`: −0.1 KB minified in each of core, dom and solid; s1-slim 120.4 of its 121 KB.
+
+## Amendment (#545, 2026-11-03): `bench:core` reruns before it fails, and its two tiniest loop workloads run ten times N
+
+#542 changed the Frame loop's run code and left its per-frame path byte-for-byte `main`'s. On Bun, decision 4's gate still failed `animateRepeat/loop` in 2 of 6 runs and `chase/loop` in 2. Judging those failures took about an hour of reruns. Grilled 2026-11-03 (https://github.com/wardiclabs/wardic/issues/545#issuecomment-6613256226).
+
+**The probe.** `main` against `main` (`--head main`), 21 reps, Bun, Node and Chromium. Both sides run the same code, so the spread between a workload's 25th and 75th percentile is the bench's own noise. Across the eight loop workloads, in points, typical / worst:
+- **as it was** (1,000 runs, each frame timed), 6.5 min:
+  - Bun 10.2 / 28.9 (`chase/loop`);
+  - Node 3.2 / 8.0;
+  - Chromium 5.7 / 25.0 (`chase/loop`).
+- **10,000 runs on the loop,** 18.5 min:
+  - Bun 9.9 / 18.1;
+  - Node 5.6 / 7.6;
+  - Chromium 5.6 / 14.4.
+- **10-frame batches per timed sample:**
+  - Bun 9.3 / 25.8;
+  - Node 3.5 / 5.4;
+  - Chromium 7.0 / 23.3.
+
+The medians stayed within ±3.6%, but for `chase/loop` on Bun. So size isn't the lever for most of the lane. On #542, Bun's medians moved −10% to +39%, beyond anything `main` showed against itself, with the frame code unchanged: JavaScriptCore compiling the same frame differently after a change elsewhere. No size removes that. The gate's judgement has to absorb it.
+
+1. **The two tiniest loop workloads run ten times N** (Q1). `chase/loop` and `springValues/loop` ran under 0.1 ms a frame (a workload's `scale`, `harness.ts`). Each result reports the runs it timed. A row whose two sides timed different counts, such as a base on its own older harness, is reported, not gated (`rows.ts`' `runsOf`).
+2. **A rerun before failing** (Q2). An engine with a failing workload runs its reps again. A workload fails only when it fails both runs (`confirmed`), and the output shows both tables and a line for each workload that passed its rerun.
+3. **Bun gated as the others** (Q3), with the rerun. It's the only check on Safari's engine.
+4. **No absolute floor** (Q4). After decision 1 every gated frame is at least about 0.2 ms, so +5% is already at least about 10 µs.
+5. **A noisy engine runs once more** (Q5). An engine whose `ticksOnly` is off by more than ±3% runs its reps again, and that run is judged as its first. Only an engine still noisy after it makes the run exit 2. Node's `ticksOnly` spreads 7–10 points between its quartiles, so ±3% on its median trips by chance.
+
+Stated, not asked: `ticksOnly` stays the only noise control. A loop-lane control would run the loop's own code, which a change under test can alter (ADR-0027, decision 12).
+
+Rejected:
+- the whole loop lane at 10,000 runs (3× the time, no tighter spread);
+- batch timing;
+- rerunning until two of three runs agree;
+- Bun at a wider margin, or reported only;
+- a 10 µs floor;
+- widening the noise limit to ±5%.
+
+**Checked:**
+- **The rows test** (`core/test/bench-rows.test.ts`): a side's runs, and a failure confirmed only by its rerun.
+- **`main` against `main`** with every decision in:
+  - Bun's `animateComplex/loop` failed one run by noise (+6.9%, its 25th percentile +0.3%) and passed its rerun;
+  - Node's noise control tripped at +3.0% with every workload steady, the case decision 5 reruns;
+  - Chromium's `chase/loop` at 10,000 runs read +0.0% [−4.2%, +0.0%];
+  - Bun's `chase/loop` stays bimodal at any size, its 25th percentile at −30% to −40%, under the gate.
+  - a second run, with decision 5 in, passed every workload on its first run on all three engines and exited 0.
+- **A real regression:** a busy loop in `chase`'s step, run on Node, failed both runs (`chase` +21% and +24%, `chase/loop` +705% and +714%), and the bench exited 1.
+

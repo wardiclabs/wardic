@@ -125,7 +125,7 @@ The binding's Primitives run on one **Frame loop** per Environment (#68). It's o
 12. **The bench.**
     - **The `Stream` workloads stay,** and gate the machine refactor.
     - **New loop workloads** (`springValues`, `springBlend`, `animateValues`, `animateComplex`, `chase`, at N = 1,000) are report-only in #68, since main has none. They're gated from the next PR, after a baseline of head against itself (11 paired reps, as decision 4 of ADR-0025 did).
-    - **The noise control stays `ticksOnly` at ±3%.** The Clock doesn't change, and the loop's own floor (0.01–0.03 ms) is too small to serve as one.
+    - **The noise control stays `ticksOnly` at ±3%.** The Clock doesn't change, and the loop's own floor (0.01–0.03 ms) is too small to serve as one. *Note (#545):* the two loop workloads under 0.1 ms a frame now run ten times N, and a failing or noisy engine reruns (ADR-0025, *Amendment (#545)*).
 13. **How #68 lands.**
     - **The first PR:** this record, every Primitive as a machine with the Tier 2 `Stream`s rebuilt on it, and the `FrameLoop` service with its tests and bench workloads. It's core-only and behaviour-neutral.
     - **Then:** the binding on the loop (#74), the projection coordinator (#75), and `FiberSet` in the spine (#76).

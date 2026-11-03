@@ -70,7 +70,7 @@ Input-event code (recognizers, reorder, the held pointer) runs per gesture event
   - A loop over a record's keys runs over an array of `[key, value]` pairs built when the stream is built (`Rec.toEntries`).
 - **Arithmetic stays arithmetic:** `a + b`, not `Num.sum(a, b)`.
 
-A change on the per-frame path is checked with `bun run bench:core --base main`. A workload fails when it's more than 5% slower with three pairs in four slower, or when Node's bytes per frame rise more than 5% (ADR-0025, decision 4).
+A change on the per-frame path is checked with `bun run bench:core --base main`. A workload fails when it's more than 5% slower with three pairs in four slower, or when Node's bytes per frame rise more than 5% (ADR-0025, decision 4), in an engine's run and again in its rerun (ADR-0025, *Amendment (#545)*). A noisy engine runs once more before the bench gives up on it.
 
 ## The hot path: compose once
 
