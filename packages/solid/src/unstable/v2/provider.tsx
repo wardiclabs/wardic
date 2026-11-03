@@ -45,6 +45,7 @@ import {
   clientContext,
   fromContext,
   interrupted,
+  prepareIdle,
   reducedMotionSettingWith,
   reducedMotionWith,
   reported,
@@ -53,6 +54,7 @@ import {
   type WardicEnv,
   type WardicRuntime,
   type WardicServices,
+  whenIdle,
 } from "../../runtime.ts"
 import { onSettledClientOnly } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
@@ -125,7 +127,13 @@ export function WardicProvider(props: {
     // Its Features end first, then the runtime they stand on (#511).
     void value.features.dispose()
   })
-  sections.set(value, sectionOf(value, ROOT, props))
+  const section = sectionOf(value, ROOT, props)
+  sections.set(value, section)
+  // Built at the browser's idle time, after this render (#535): what a first element would build, so an
+  // element mounted after pays none of it. One mounted before then builds it itself, as before. Asked
+  // for here, with no computation of the provider's own (an `onSettled`'s would shift a hydration's
+  // owners from the server's), and on the client alone.
+  if (Bool.not(isServer)) onCleanup(whenIdle(() => prepareIdle(value, section)))
   return <WardicContext value={value}>{props.children}</WardicContext>
 }
 

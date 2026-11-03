@@ -2,11 +2,13 @@
 // on its first run, and the gate, the projection system and the reduced-motion inputs together,
 // the first time a Wardic element or hook reads one, during that element's render.
 //
-// - LZ1: a provider with nothing from Wardic under it builds nothing: its runtime stays unbuilt,
-//   with no media query read and no listener added, over several frames.
+// - LZ1: a provider with nothing from Wardic under it builds nothing at its render: its runtime is
+//   unbuilt, with no media query read and no listener added. It builds at the browser's idle time once
+//   it has mounted (#535, ADR-0021 *Amendment (#535)*).
 // - LZ2: the first Wardic element builds it, during its render: built when `render` returns, one
 //   gate however many times it's read, and the element animates.
-// - LZ3: a provider that never built unmounts cleanly, and builds nothing on its way out.
+// - LZ3: a provider unmounted before it's idle unmounts cleanly, and never builds: its idle build is
+//   cancelled (#535).
 // - LZ4: a provider that built disposes what it built on unmount (its projection system's
 //   resize listener goes).
 import { cleanup, render } from "@solidjs/testing-library"
@@ -43,7 +45,7 @@ const Grab = (props: { readonly into: (runtime: WardicRuntime) => void }) => {
 }
 
 describe("a client WardicProvider builds on first need (#51)", () => {
-  it("LZ1: a provider with nothing from Wardic under it builds nothing, over several frames", async () => {
+  it("LZ1: a provider with nothing from Wardic under it builds nothing at its render, and builds at idle", async () => {
     const seen = spies()
     let runtime: WardicRuntime | undefined
     render(() => (
@@ -51,10 +53,11 @@ describe("a client WardicProvider builds on first need (#51)", () => {
         <Grab into={(r) => (runtime = r)} />
       </WardicProvider>
     ))
-    await frames(10)
-    expect(runtime!.cachedContext, "the runtime: unbuilt").toBeUndefined()
-    expect(seen.mediaQueries(), "no media query read").toBe(0)
-    expect(seen.resizeListeners(), "no resize listener").toBe(0)
+    expect(runtime!.cachedContext, "the runtime: unbuilt at its render").toBeUndefined()
+    expect(seen.mediaQueries(), "no media query read at its render").toBe(0)
+    expect(seen.resizeListeners(), "no resize listener at its render").toBe(0)
+    await until(() => runtime!.cachedContext !== undefined, 2000, "built at idle")
+    expect(seen.mediaQueries(), "its media query read at idle").toBeGreaterThan(0)
   })
 
   it("LZ2: the first Wardic element builds it during its render; one gate however often it's read; it animates", async () => {
@@ -80,7 +83,7 @@ describe("a client WardicProvider builds on first need (#51)", () => {
     expect(Number(el!.style.opacity)).toBeGreaterThanOrEqual(0.99)
   })
 
-  it("LZ3: a provider that never built unmounts cleanly, and builds nothing on its way out", async () => {
+  it("LZ3: a provider unmounted before it's idle unmounts cleanly, and never builds", async () => {
     const seen = spies()
     let runtime: WardicRuntime | undefined
     const errors: Array<unknown> = []
@@ -93,9 +96,8 @@ describe("a client WardicProvider builds on first need (#51)", () => {
         <Grab into={(r) => (runtime = r)} />
       </WardicProvider>
     ))
-    await frames(2)
     cleanup()
-    await frames(3)
+    await frames(10)
     window.removeEventListener("error", onError)
     window.removeEventListener("unhandledrejection", onError)
     expect(errors).toEqual([])
