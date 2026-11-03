@@ -79,10 +79,26 @@ Code that runs **per key or per element on every Retarget, or per leg**, as well
 - **Built once, applied per call.** A predicate, a matcher or a pipeline over values the call doesn't own is built at module scope, data-last and point-free, and applied: `const isShadowKey = isOneOf(SHADOW_KEYS)`, `const describe = UndefinedOr.match({ onUndefined, onDefined })`, `const step = flow(Arr.map(f), Arr.filter(g))`. Never `pipe(x, Arr.map(f), …)` or `isOneOf(KEYS)(key)` at the call.
 - **A step that needs a value only the call has is a statement:** `if` with an early return, `&&`, `||`, `!`, a `let` set in a guard. Not `Bool.and` / `Bool.or` / `Bool.not`, and not a `Bool.match`, `UndefinedOr.match`, `UndefinedOr.map` or `Option.match` with closures over the call's values.
 - **Effect's and core's operations are called data-first:** `Machine.withSpan(Machine.delay(m, s), name, options)`, `Effect.asVoid(Effect.onExit(run, f))`, not a `.pipe(…)` of data-last steps built at the call.
-- **Loops stay `Arr` / `Iter`:** their closure is the loop's body, and lint's loop rule is the per-frame path's alone.
-- Per mount and below, rule 1's forms as above.
+- **Loops stay `Arr` / `Iter`:** their closure is the loop's body, and lint's loop rule is the per-frame path's and the mount path's alone (below).
+- Per mount and below, rule 1's forms as above, but at the mount path's measured sites.
 
 Why: Effect's `dual` keeps its first argument for the data-last closure it might return, so V8 gives every call a context for it, a data-first call too, unless TurboFan has inlined the wrapper into an optimized caller, and its other forms read `arguments`. Most of a binding's per-leg code runs in Maglev, where a data-first `Bool.or` measured 104 B a call, and a pipe built at the call 472 B against 0 for the same predicate composed once (Node, #460). Core's own operations use core's `dual` (`internal/dual.ts`, [`pipeable.md`](pipeable.md)), which allocates nothing on a data-first call in any tier. On the bench page, `dual`'s wrapper was 18 KB of each element's 139 KB a round.
+
+## The mount path: measured sites
+
+Code that runs **once per element as it mounts** follows the hot path's rules, but at a site a profile shows with a measurable helper cost (#540; ADR-0025, *Amendment (#540)*). There, plain statements and loops take the place of Effect's helpers: an `if` with an early return, a `let` set in a guard, a `for … of`, where the site had an `UndefinedOr.match`, a `Match.type`, a `Bool.match`, an `Arr.reduce` or a `Rec.filter`.
+
+- **Each site is marked** with a comment saying so: `// Per element at mount (#540): statements.`, or `a loop.`
+- **A file whose site loops is listed** in `eslint.config.js` (`MOUNT_PATH_LOOPS`), beside the per-frame files. Lint lets it keep a `for` and holds the rest; its other code follows the full rules by review.
+- **Everything else stays Effect-first.** Ternaries stay banned, and `??`, `?.`, `=== undefined` and `typeof` too: a site checks with `Predicate`.
+- **A new site needs a profile behind it,** and a mount measured before and after (`bench:solid --base main`, or #519's harness for a cold mount).
+
+**The sites (#540):**
+- `@wardic/dom`'s Starting style (`internal/starting-style.ts`): the values filter `valuesAt` and `splitValues` share (`filtered`), `resolveInitial`, the style's layering (`over`, `recordOf`, `recordOfInput`) and its held keys (`without`, `isHeld`);
+- solid's config build (`configBuildOf`, `motion-props.ts`) and its variant tree's `inheritedContext` and `startingValuesOf`;
+- core's `ReducedMotion.applies`.
+
+Measured with `bench:solid --base main`: a warm mount −3.3% on Solid 1 and −1.9% on Solid 2, cold −3.9% and −2.4%, and each element allocating 5.0% and 4.1% less a round.
 
 ## Module state and time
 
@@ -142,12 +158,12 @@ For a single function, a named import is fine: `import { identity } from "effect
 
 ## Checks
 
-- **`bun run lint`** holds what can be held mechanically on every package's source (`eslint.config.js`; dom's per-frame files keep a `for` and plain index reads, as core's do), and no ternaries in every package's tests and benches:
+- **`bun run lint`** holds what can be held mechanically on every package's source (`eslint.config.js`; dom's per-frame files keep a `for` and plain index reads, as core's do, and the mount-path files a `for`), and no ternaries in every package's tests and benches:
   - ternaries;
   - `switch`, and `if … else`;
   - `??`, `??=` and `?.`;
   - `=== undefined`, and `typeof` in a comparison;
-  - loops, except in the per-frame files listed there;
+  - loops, except in the per-frame and mount-path files listed there;
   - `!`;
   - a namespace import that hides a global;
   - `Arr.getUnsafe` in the per-frame loop files and `Easing.ts` (ADR-0030);
@@ -168,7 +184,7 @@ For a single function, a named import is fine: `import { identity } from "effect
 - **Effect's `dual` allocates on every call it isn't inlined in** (#460): a context for its first argument, and `arguments` in its other forms. A data-first call in Maglev, where a binding's per-leg code mostly runs, measured 34–104 B. On the hot path, compose once (above); in core, operations are built with core's `dual`, which allocates only a data-last call's closure.
 - **A Feature's module marks its top-level calls `/*#__PURE__*/`** (#511, ADR-0067). An app ships a Feature only if it imports it, but Rollup keeps what a top-level call's callback reaches, even in a module it drops: `colors`' unmarked `Layer.effect(Colors)(Effect.sync(…))` kept every colour space in an app that never imported it. The same holds for any module the Complete element's forms import that a Slim element's app mustn't ship (`packages/solid/src/features/`); `bun run size`'s Slim apps show it. Outside the Feature modules, a top-level call is marked where a measure shows it keeps code an app doesn't use (#511's end: 22 marks in core's `Recognizer`, `PressClaims`, `SharedSource`, the stepper and solid's `appear.ts`, `motion-props.ts`), and only on a pure construction.
 - **`Arr.fromIterable` copies.** `Arr.forEach(Arr.fromIterable(map), f)` copies a `Map` or `Set` into an array before it walks it: 190 ns a call on a two-entry Map, against 11 ns for `Iter.forEach(map, f)` and 9 for a `for … of` (#69's PR 4). Walk a collection with `Iter.forEach`. Deleting the entry being visited is safe in a `Map`'s or `Set`'s own iteration.
-- **More calls in a hot function can cost its callees their inlining.** V8 inlines callees into an optimized function up to a budget, and escape analysis then drops what they allocate. Core's `ReducedMotion.applies` built a `Match.value` matcher on every call, at no cost on main, inlined into solid's Retarget. Once the Retarget made its own `Arr`, `Rec` and `UndefinedOr` calls, `applies` wasn't inlined, and every element allocated its matcher: 2 KB per element per round (#69's PR 4). Build a matcher with `Match.type` wherever it runs per element, and read a change's allocation as well as its time (`bench:solid`'s bytes gate).
+- **More calls in a hot function can cost its callees their inlining.** V8 inlines callees into an optimized function up to a budget, and escape analysis then drops what they allocate. Core's `ReducedMotion.applies` built a `Match.value` matcher on every call, at no cost on main, inlined into solid's Retarget. Once the Retarget made its own `Arr`, `Rec` and `UndefinedOr` calls, `applies` wasn't inlined, and every element allocated its matcher: 2 KB per element per round (#69's PR 4). Build a matcher with `Match.type` wherever it runs per element, and read a change's allocation as well as its time (`bench:solid`'s bytes gate). `applies` itself is statements now, a mount-path site (#540).
 - **`Effect.forever` and `Effect.repeat` yield to the scheduler on every iteration** (`yieldNow`). A loop that must not touch the scheduler uses `Effect.whileLoop` (ADR-0017, decision 3).
 - **On an input path, nothing waits for the scheduler between an event and its writes** (ADR-0032), and in a browser each hop is a `setTimeout(0)`, after the frame's paint:
   - a `Stream.callback` queue releases its consumer in a task unless the producer calls `Queue.flushUnsafe` after offering (`InputSource.heldPointer` does, once per feed callback);
