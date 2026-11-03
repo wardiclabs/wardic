@@ -108,3 +108,39 @@ Two first survived, and their tests were tightened:
   - a Reorder item: +2.6% / +2.6% (27.15 → 27.84 KB, 26.10 → 26.77).
 
   The heap probe hasn't attributed it. The likely part is what each pointer target now holds for adoption: its `heldPointer` subscribes the adopted feed, a `Set` in the DOM's registry and a few closures, whether or not anything adopts. A drag adds its watch's outside ends and the track's snap and threshold closures. It's for the final review's performance pass (#460).
+
+## Amendment (#507, 2026-11-03): adoption, and the track's controls, only for an element given them
+
+**What happened.** Found by #460's review, as *Measured* above left it:
+- **Every pointer target paid for adoption:** its `heldPointer` subscribed the adopted feed, a `Set` in the DOM's registry and its closures, about 0.25 KB at rest.
+- **Every drag track paid for controls:** it made `threshold`, `snapTo` and `unsnap`, about 0.45 KB, whether or not anything controlled it.
+
+Motion's elements subscribe to their `dragControls` only when given them.
+
+**Decided (#507's grill).**
+1. **Adoption only with controls (Q1).** `InputSource` gets an optional `adoptablePointer(target)`: `pointer(target)` with the downs `adoptPointer` hands it.
+   - **The plain feed** subscribes no adoption. An Environment without `adoptablePointer` delivers them on `pointer` itself, as the Test Environment does (`adoptablePointerOf`).
+   - **A drag given controls** (`watchDrag`'s `adoptable`) and its track's grabs read the adoptable feed. Hover, press, pan and a plain drag read `pointer`, and `createDrag`'s sensor too.
+   - **The DOM** makes the two from the same Held pointer, one with the adopted feed. An element with controls has two listener sets, its drag's beside its hover's and press's.
+   - **Held twice:** both hold a press on it, and the auto-scroller's scroll shift stays right, as each hold clears only its own entry.
+2. **The track's controls only when given (Q2).** `threshold` is made only for a track given controls, which both bindings read once at its start. `snapTo` and `unsnap` are module functions taking the track's state, so no track makes them.
+
+**Rejected:**
+- *Q1:* a cheaper adoption for every feed, a `WeakMap` entry each; leaving it.
+- *Q2:* building them at the first adopted down; leaving it.
+
+**A limit:** a `createDrag` sensor on an element that also has Drag controls no longer hears their adopted downs. They're meant for its drag.
+
+Pinned by:
+- `dom/test/input.browser.test.ts`'s **I20:** a down `adoptPointer` hands a target reaches its adoptable feed alone, not its plain one.
+- DC1–DC6 and the binding's controls tests, unchanged and passing.
+
+Mutation: adoption back on the plain feed, caught by I20.
+
+**Measured.** `bench:solid --base main --features`, 11 paired reps, passes; the noise control +0.0%.
+- **Held at rest,** Solid 1 / Solid 2:
+  - hover + press −1.5% / −1.5% (17.73 → 17.47 KB, 17.18 → 16.93);
+  - a Reorder item −1.3% / −1.3% (29.40 → 29.03 KB, 27.65 → 27.29).
+- **Everything else is flat:** warm tasks within −0.6% and +0.9%, bytes per element within −0.2% and +0.1%, the layout scenes and the feature pages.
+
+The hover + press saving, 0.26 KB, is the adopted feed's, as estimated. A Reorder item's is 0.37 KB, so the track's own controls were about 0.1 KB, not 0.45. What #431 added to a Reorder item beyond the two, about 0.34 KB, is left. The likeliest part is the drag watch's ends from outside (`stop`, `cancel`), which every drag makes.
