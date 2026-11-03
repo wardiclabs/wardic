@@ -607,3 +607,70 @@ Found building the Solid 2 binding (ADR-0045). A burst ended at the first tick w
 - **How it was reached:** the flush gate's hook runs a binding's `batch` (ADR-0033), and Solid 2's `batch` runs its pending effects. A Variant child that its parent's `beforeChildren` released at the parent's last frame Retargeted there, and its legs were interrupted at once. Solid 1 never reached it from the gate, since its effects run at the write, in the step lane; an `onUpdate` (#233) that starts an animation in a burst's last tick would have.
 - **The tick counts the runs left after its hooks:** `entries.length + lastEntries.length === 0`. A run a hook starts takes its first step at the next tick, as one a sink starts does.
 - **Test** (`frame-loop.test.ts`): a hook that starts a run in the tick that ends the burst; the run gets both its Frames and settles. Before the fix it ended at once, with an interrupt.
+
+## Amendment (#542, 2026-11-03): a leg's fiber, without the work nothing reads
+
+#540's profile found a leg's fiber, `runLeg`'s, the largest single Effect cost on a mount: 6.4 ms cold and 3.2 warm per 1,000 elements. Grilled 2026-11-03 (https://github.com/wardiclabs/wardic/issues/542#issuecomment-6601134353). Legs keep a fiber each, on Effect's APIs. What goes is the work around it that nothing reads in an app.
+
+A probe in Node (`.tmp/542/legs.ts`, local) ran 1,000 legs a round through the spine's chain, on a copy of the loop with each layer switchable:
+- **today's chain:** 2.9 µs to start a leg, 1.6 to end it, 9,380 B;
+- **the fiber alone** (a fork, a wait, an exit): 0.4 and 0.6 µs, 2,380 B;
+- **the layers around it, each alone,** in bytes per leg:
+  - the run's log annotation, −1,050;
+  - the element's Key rules, −650;
+  - the run counters, −475;
+  - the start log, −425;
+  - the element's `FiberSet`, −375.
+
+  Each element also made that `FiberSet` in a `Scope` at mount (1.7 µs, 4.0 KB) and closed it at unmount (1.8 µs, 4.4 KB).
+
+1. **A run's start log only when Debug is on** (Q1). The run reads the minimum log level once, in the `withFiber` that checks for a tracer, by Effect's own rule (`LogLevel.isGreaterThan(MinimumLogLevel, "Debug")`). It builds the `<name>: start` log, and the annotation with its span's attributes, only when a Debug log would be kept. With Debug on (a test, the devtools), both are as before. ADR-0040's "the start log stays" holds.
+2. **The run counters once per tick** (Q2). The loop counts a settle or a failure as it ends a run (`end`). It adds them to `wardic_frameloop_settled` and `wardic_frameloop_failed` with one `updateUnsafe` each at the tick's end, as it does its gauge and histogram.
+   - **Where:** in an `afterTick` hook of its own, its first, so `tick`, the per-frame path, is as it was.
+   - **A burst that ends with runs on it** counts their failures as it ends them.
+   - **A run's release no longer counts,** so a superseded or interrupted run is still neither.
+3. **The element's Key rules only where they can take a pair** (Q3, `spine.ts`). Its one rule, its Variable values (#55, ADR-0035), declines a pair with no `var()` at either end. A Retarget or an Imperative animation checks its starts, targets and Keyframes stops once (`holdsVariable`). It builds a blend's machine under `withKeyRules` only when one holds a Variable value. Before, every Blend leg copied its fiber's context for it.
+4. **No `FiberSet` of the element's own** (Q4, revised). Slice 5's set, and the `Scope` it lived in, are gone.
+   - **At its dispose,** an element ends every leg it owns that hasn't landed, as a Retarget ends one (`endLeg`): by its token, and interrupted if its token didn't reach it.
+   - **The provider's runtime is the net for anything left.** `ManagedRuntime` runs every fiber it forks in its own fiber `Scope` and closes it at its disposal (`ManagedRuntime.js:130-135`; ADR-0040, *Amendment (#460)*).
+   - **The grill first chose one set per provider.** It was dropped once the runtime's own `Scope` was found doing the same job, at 375 B a leg.
+   - Rejected: keeping a set per element (the make and close above); a set per provider (the runtime's `Scope` already is one).
+
+Rejected, for the whole: a leg without a fiber, run straight on the loop with a callback for its end. The fiber's own cost is about 1 µs and 2.4 KB a leg, and legs stay on Effect's fibers.
+
+**Measured** (`bench:solid --base main --features`, 11 paired reps; the noise control +0.6%), Solid 1 / Solid 2:
+- **warm:**
+  - mount −5.5% / −7.5% (28.3 → 27.1 ms, 29.8 → 28.1);
+  - Retarget −11.7% / −11.7%;
+  - rest Retarget −7.4% / −11.1%;
+  - unmount −55.4% / −54.0% (4.9 → 2.2 ms, 5.2 → 2.4), mostly the element's `Scope` close, a forked fiber each.
+- **cold** (not gated): mount −8.6% / −7.0% (53.7 → 48.0 ms, 57.9 → 54.0), unmount −66% / −56%.
+- **bytes per element per round:** −10.8% / −11.5% (95.7 → 85.4 KB, 94.5 → 83.7).
+- **retained at rest:** −5.0% / −5.2% a hover + press element, −3.1% / −3.2% a Reorder item. That's the element's `FiberSet` and `Scope`.
+- **every feature page:** mounts −6% to −17%, Retargets −7% to −17%, unmounts −24% to −55%, bytes −8% to −12%.
+- **the layout scenes:** within their gates.
+
+`bench:core --base main` (the loop's run code changed; the per-frame path, `tick` and every step, is `main`'s):
+- **Node and Chromium:** every workload passes. Node's `chase/loop` is −8.8%, and the loop workloads' starts are faster.
+- **Bun:** the loop workloads move both ways.
+  - Faster: `animateValues/loop` −6.6%, `springBlend/loop` −7.0%, `animateComplex/loop` −8.7%, `animateRepeatDelay/loop` −9.9%.
+  - Slower: `animateRepeat/loop` was over its +5% gate in 2 of 6 runs (+15.2%, +6.5%) and under it in 4 (−2.2% to +5.5%). `chase/loop` read +10% to +39%, a 0.04–0.06 ms frame.
+  - The control: `main` against `main` on Bun keeps the loop medians within ±5%, with `chase/loop` spread from −12.5% to +32.8%.
+  - Judged JavaScriptCore's compilation after a different start path, not a per-frame cost, and shipped with the user's OK. Moving the counters' flush out of `tick` (decision 2) left it as it was.
+
+**Tests:**
+- `leg-fibers.browser.test.tsx`, LF1–LF3: elements unmounted mid-flight leave nothing running on the loop, a child's leg waiting on a gated name (#297) and an Imperative animation's (#433) among them.
+- `css-variables.browser.test.tsx`:
+  - VB10: a `var()` start alone takes the rule;
+  - VB11: a `var()` Keyframes stop alone takes it.
+- `frame-loop.test.ts`: a loop failure counts each run it fails, once.
+
+**Mutations, each caught:**
+- a dispose that ends no leg (LF1, LF2);
+- only the targets checked for a Variable value (VB10);
+- no stops checked (VB11);
+- no count in the tick (SU7);
+- none at a burst's end (the new loop-failure test);
+- the start log never built (SF1).
+
+Not caught: a dispose that ends legs by token alone. Every leg a test can build is on the loop when its element unmounts, so its token reaches it. The interrupt is `endLeg`'s, as on a Retarget.

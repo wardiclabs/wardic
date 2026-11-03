@@ -49,6 +49,7 @@ export default defineConfig({
       "effect/Function",
       "effect/Inspectable",
       "effect/Iterable",
+      "effect/LogLevel",
       "effect/Logger",
       "effect/Match",
       "effect/Metric",

@@ -426,6 +426,18 @@ describe("the Frame loop: failure isolation (ADR-0027, decision 7)", () => {
     expect(b.received.length).toBe(1) // a fresh burst, a fresh subscription
   })
 
+  // The loop counts its runs' ends itself (#542): a run a failing burst fails is counted as the burst ends.
+  it("a failure in the loop itself counts each run it fails, once", async () => {
+    const failed = () =>
+      Number((Effect.runSync(Metric.snapshot).find((snapshot) => snapshot.id === "wardic_frameloop_failed")?.state as { readonly count?: number } | undefined)?.count ?? 0)
+    const h = await makeHarness({ clock: scriptedClock([0.01], Stream.die(new Error("ticks broke"))) })
+    const before = failed()
+    h.start(counting(Infinity))
+    expect(failed() - before).toBe(1)
+    h.start(counting(Infinity))
+    expect(failed() - before).toBe(2)
+  })
+
   it("a Clock whose ticks end interrupts every run still on the loop", async () => {
     const h = await makeHarness({ clock: scriptedClock([0.01, 0.01], Stream.empty) })
     const run = h.start(counting(5))
