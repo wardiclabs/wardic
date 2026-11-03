@@ -53,6 +53,8 @@ export interface WorkloadResult {
   readonly startMs: number
   /** Bytes allocated per frame, when the host exposes it. */
   readonly bytesPerFrame?: number
+  /** How many runs it timed: N, or N times its `scale` (#545). A harness before #545 reports none. */
+  readonly runs?: number
 }
 
 /** A host hook for allocations: Node with `--expose-gc` (see `one.mjs`). */
@@ -79,6 +81,11 @@ interface LoopWorkload {
   readonly machine: (core: Core, i: number) => Effect.Effect<CoreModule.Machine.Machine<CoreModule.Frame.Frame<unknown>>, never, any>
   /** As {@link StreamWorkload}'s. */
   readonly runsOn?: (core: Core) => boolean
+  /**
+   * Runs per element of N (#545): a workload whose frame at N runs under 0.1 ms is timed at N times
+   * this, so its frame is well above the timer (Chromium's 5 µs) and the harness's own hop.
+   */
+  readonly scale?: number
 }
 
 /** A machine built with a service (`animateValues`, `springBlend`), as a Stream. */
@@ -90,6 +97,12 @@ const streamOf = <F extends CoreModule.Frame.Frame<unknown>, R>(
 type Workload = StreamWorkload | LoopWorkload
 
 const isLoopWorkload = (workload: Workload): workload is LoopWorkload => "machine" in workload
+
+/** How many runs a workload times: N, times its `scale` (#545). */
+const runsOf = (workload: Workload, options: Options): number => {
+  if (!isLoopWorkload(workload) || workload.scale === undefined) return options.n
+  return options.n * workload.scale
+}
 
 /** A value in [base, base + span), spread over the elements so no call site sees a constant. */
 const spread = (i: number, base: number, span: number): number => base + (((i * 7919) % 1000) / 1000) * span
@@ -223,14 +236,15 @@ const WORKLOADS: ReadonlyArray<Workload> = [
     make: (core, i) => streamOf(core, core.Machine.keyframesValues(KEYFRAMES(i), KEYFRAMES_REPEAT(core, i))),
     runsOn: hasKeyframesValues,
   },
-  // The same eight, on the Frame loop.
-  { name: "springValues/loop", machine: (core, i) => Effect.succeed(core.Machine.springValues(...SPRING(i))) },
+  // The same eight, on the Frame loop. The two under 0.1 ms a frame at N run ten times N (#545):
+  // run against itself, `chase/loop`'s spread was 25–29 points on Bun and Chromium at N.
+  { name: "springValues/loop", machine: (core, i) => Effect.succeed(core.Machine.springValues(...SPRING(i))), scale: 10 },
   {
     name: "animateValues/loop",
     machine: (core, i) => core.Machine.animateValues(STRING_FROM(i), STRING_TO, { duration: 2, ...easeFor(core, core.Easing.easeInOutCubic) }),
   },
   { name: "springBlend/loop", machine: (core, i) => core.Machine.springBlend(STRING_FROM(i), STRING_TO) },
-  { name: "chase/loop", machine: (core, i) => Effect.succeed(core.Machine.chase(() => chaseTarget + (i % 10))) },
+  { name: "chase/loop", machine: (core, i) => Effect.succeed(core.Machine.chase(() => chaseTarget + (i % 10))), scale: 10 },
   {
     name: "animateComplex/loop",
     machine: (core, i) =>
@@ -383,9 +397,10 @@ const runRound = async (
   }
   const sink = Effect.sync(receive)
 
+  const n = runsOf(workload, options)
   const t0 = performance.now()
   if (isLoopWorkload(workload)) {
-    for (let i = 0; i < options.n; i++) {
+    for (let i = 0; i < n; i++) {
       runtime.runFork(
         Effect.gen(function* () {
           const loop = yield* core.FrameLoop.FrameLoop
@@ -394,21 +409,21 @@ const runRound = async (
       )
     }
   } else {
-    for (let i = 0; i < options.n; i++) runtime.runFork(Stream.runForEach(workload.make(core, i), () => sink))
+    for (let i = 0; i < n; i++) runtime.runFork(Stream.runForEach(workload.make(core, i), () => sink))
   }
   // The first frames: a core before #73 delivers them in a Priming tick at the end of this task;
   // since #73 (ADR-0033) the first tick is the first Refresh frame's, requested at the end of
   // this task, which the bench fires. Both are one tick at the nominal dt.
-  for (let i = 0; i < 100 && received < options.n && !frames.requested(); i++) await Promise.resolve()
-  if (received < options.n) frames.fire(1000)
-  await waitFor(options.n)
+  for (let i = 0; i < 100 && received < n && !frames.requested(); i++) await Promise.resolve()
+  if (received < n) frames.fire(1000)
+  await waitFor(n)
   const startMs = performance.now() - t0
 
   let timestamp = 1000
   const step = async () => {
     timestamp += 1000 / 60
     chaseTarget += 3
-    const target = received + options.n
+    const target = received + n
     frames.fire(timestamp)
     await waitFor(target)
   }
@@ -452,6 +467,7 @@ export const register = (core: Core): void => {
         bytes.push(...round.bytes)
       }
       const result: { -readonly [K in keyof WorkloadResult]: WorkloadResult[K] } = {
+        runs: runsOf(workload, options),
         frameMs: quantile(times, 0.5),
         p95Ms: quantile(times, 0.95),
         startMs: quantile(starts, 0.5),
