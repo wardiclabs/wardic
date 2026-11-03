@@ -1047,8 +1047,9 @@ export interface DragOptions {
   readonly listen?: boolean | undefined
   /**
    * `true`: the target was given **Drag controls** (#431, #507), so the drag reads its adoptable
-   * pointer feed (`InputSource.adoptablePointerOf`), which also delivers the downs they hand it.
-   * Default `false`: the plain feed, which subscribes no adoption.
+   * pointer feed (`InputSource.adoptablePointerOf`), which also delivers the downs they hand it, and
+   * its {@link WatchedDrag} ends a gesture from outside (#539). Default `false`: the plain feed, which
+   * subscribes no adoption, and `stop` and `cancel` that do nothing.
    */
   readonly adoptable?: boolean | undefined
   /**
@@ -1095,7 +1096,8 @@ const mappedEvents = (mapPoint: DragOptions["mapPoint"]): ((event: InputSource.P
 /**
  * A drag's watch (#431): its gesture ended from outside its pointer, as Motion's drag controls' `stop`
  * and `cancel` end theirs. Each tells its `"end"` inside the call, and does nothing when no gesture
- * has started.
+ * has started. Only a watch that's `adoptable` (a target given Drag controls) is ended so; any
+ * other's `stop` and `cancel` do nothing (#539).
  */
 export interface WatchedDrag {
   /** End the gesture as its pointer's release would: an `"end"` at its last point, with its moves' velocity. */
@@ -1103,6 +1105,9 @@ export interface WatchedDrag {
   /** End the gesture where it is: an `"end"` with no velocity, marked `cancelled`. */
   readonly cancel: () => void
 }
+
+/** A plain watch's ends from outside (#539): shared, and doing nothing. */
+const NO_ENDS: WatchedDrag = { stop: constVoid, cancel: constVoid }
 
 /** A drag's downs (#431): its own presses unless it doesn't `listen`, and those it adopted; each gesture's threshold its `threshold`'s, else 3. */
 const dragDownsOf = (listen: boolean, threshold: DragOptions["threshold"]): Downs => ({
@@ -1112,6 +1117,20 @@ const dragDownsOf = (listen: boolean, threshold: DragOptions["threshold"]): Down
     onDefined: (of) => (down: InputSource.PointerLikeEvent) => UndefinedOr.match(of(down), { onUndefined: () => THRESHOLD, onDefined: identity }),
   }),
 })
+
+/** The downs of a drag that listens to its presses and gives no `threshold`: every down, past 3 px. */
+const EVERY_DOWN = /*#__PURE__*/ dragDownsOf(true, undefined)
+
+/** A drag's fold, and a direction-locked one's, for {@link EVERY_DOWN}: built once (#539), as most drags have them. */
+const DRAG_FOLD = /*#__PURE__*/ stepOf(pastThreshold, EVERY_DOWN)
+const LOCKED_FOLD = /*#__PURE__*/ stepOf(locks, EVERY_DOWN)
+
+/** A drag's fold (#431): a shared one for {@link EVERY_DOWN} (#539), else built for its own downs. */
+const dragFoldOf = (lock: boolean, listen: boolean, threshold: DragOptions["threshold"]) =>
+  Bool.match(Bool.and(listen, Predicate.isUndefined(threshold)), {
+    onTrue: () => Bool.match(lock, { onTrue: () => LOCKED_FOLD, onFalse: () => DRAG_FOLD }),
+    onFalse: () => stepOf(Bool.match(lock, { onTrue: () => locks, onFalse: () => pastThreshold }), dragDownsOf(listen, threshold)),
+  })
 
 /** `sample` kept to `axis`, and carrying it: a one-axis drag's off-axis offset, delta and velocity zeroed. */
 const keepTo = (sample: Drag.Sample, axis: Drag.Axis): Drag.Sample =>
@@ -1177,8 +1196,9 @@ export const drag = (target: unknown, options: DragOptions = {}): Stream.Stream<
  * no `Clock` — only `InputSource`.
  *
  * A down the target adopted (#431, `InputSource.adoptPointer`) starts a gesture as its own press does,
- * past its `threshold`; with `listen: false` only those do. The watch it returns ends a gesture from
- * outside its pointer ({@link WatchedDrag}), and does nothing once the Scope has closed.
+ * past its `threshold`; with `listen: false` only those do. An `adoptable` watch returns ends from
+ * outside its pointer ({@link WatchedDrag}), which do nothing once the Scope has closed; any other's
+ * do nothing at all (#539).
  */
 export const watchDrag = (
   target: unknown,
@@ -1188,7 +1208,7 @@ export const watchDrag = (
   const attributes = { threshold: THRESHOLD, velocityWindowMs: VELOCITY_WINDOW_MS }
   const mapped = mappedEvents(mapPoint)
   const axisAt = axisAtOf(axis)
-  const fold = stepOf(Bool.match(lock, { onTrue: () => locks, onFalse: () => pastThreshold }), dragDownsOf(listen, threshold))
+  const fold = dragFoldOf(lock, listen, threshold)
   const on = handlers.on
   return Effect.gen(function* () {
     const input = yield* InputSource.InputSource
@@ -1245,22 +1265,9 @@ export const watchDrag = (
 
     // The gesture's state, which a pointer event or an end from outside (#431) folds.
     const state = MutableRef.make(initState)
-    const closed = MutableRef.make(false)
-    /** The gesture ended from outside its pointer (#431): its `"end"` told, unless the Scope has closed. */
-    const endFromOutside = (cancelled: boolean) => (): void => {
-      if (MutableRef.get(closed)) return
-      const [next, samples] = endedFromOutside(MutableRef.get(state), cancelled)
-      MutableRef.set(state, next)
-      Arr.forEach(samples, admit)
-    }
 
     // Added first, so it runs last: after the feed has stopped.
-    yield* Effect.addFinalizer(() =>
-      Effect.sync(() => {
-        MutableRef.set(closed, true)
-        release()
-      })
-    )
+    yield* Effect.addFinalizer(() => Effect.sync(release))
     // The adoptable feed only for a target given Drag controls (#507): a plain one subscribes no adoption.
     const feed = Bool.match(adoptable, { onTrue: () => InputSource.adoptablePointerOf(input, target), onFalse: () => input.pointer(target) })
     yield* watchFeed(
@@ -1275,6 +1282,18 @@ export const watchDrag = (
       },
       handlers,
     )
+    // Its ends from outside its pointer (#431) only for a target given Drag controls (#539): no other
+    // is ended so. Closing the Scope stops them first.
+    if (Bool.not(adoptable)) return NO_ENDS
+    const closed = MutableRef.make(false)
+    yield* Effect.addFinalizer(() => Effect.sync(() => MutableRef.set(closed, true)))
+    /** The gesture ended from outside its pointer (#431): its `"end"` told, unless the Scope has closed. */
+    const endFromOutside = (cancelled: boolean) => (): void => {
+      if (MutableRef.get(closed)) return
+      const [next, samples] = endedFromOutside(MutableRef.get(state), cancelled)
+      MutableRef.set(state, next)
+      Arr.forEach(samples, admit)
+    }
     return { stop: endFromOutside(false), cancel: endFromOutside(true) }
   })
 }

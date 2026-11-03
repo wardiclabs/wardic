@@ -144,3 +144,33 @@ Mutation: adoption back on the plain feed, caught by I20.
 - **Everything else is flat:** warm tasks within −0.6% and +0.9%, bytes per element within −0.2% and +0.1%, the layout scenes and the feature pages.
 
 The hover + press saving, 0.26 KB, is the adopted feed's, as estimated. A Reorder item's is 0.37 KB, so the track's own controls were about 0.1 KB, not 0.45. What #431 added to a Reorder item beyond the two, about 0.34 KB, is left. The likeliest part is the drag watch's ends from outside (`stop`, `cancel`), which every drag makes.
+
+## Amendment (#539, 2026-11-03): a plain drag's watch shares its fold, and has no ends from outside
+
+**What happened.** #507 left about 0.34 KB of what #431 added to each Reorder item at rest. Prototyped and measured on `bench:solid`'s retained pages, per Reorder item on both bindings:
+- **a fold built per watch,** 0.10 KB. Since #431 each drag watch built its own `stepOf(starts, dragDownsOf(listen, threshold))`, a fold closure and its `Downs`, where every drag used to share `step` or `lockedStep`.
+- **the ends from outside,** 0.14 KB: a `closed` ref, two `endFromOutside` closures and the `{ stop, cancel }` object, made by every drag watch. Only a drag given Drag controls calls them, and that's exactly a watch that's `adoptable` (#507).
+- **the rest,** about 0.1 KB, spread thin. That's #431's extra fields on the drag and track states and their contexts' slots. Not chased.
+
+**Decided (#539's grill).**
+1. **The default downs' folds are shared.** A watch that listens to its presses and gives no `threshold`, as every plain drag does, takes `DRAG_FOLD` or `LOCKED_FOLD`. Those are built once over `EVERY_DOWN`, which is `dragDownsOf(true, undefined)`, so its folds are the ones it would have built. Any other watch builds its own, as before. Stated, not asked: nothing changes but where the fold is made.
+2. **Only an `adoptable` watch has ends from outside (Q1).** Any other watch returns the shared `NO_ENDS`, whose `stop` and `cancel` do nothing. Both are documented on `WatchedDrag` and the option.
+   - **The binding** sets `adoptable` exactly when an element has controls (#507).
+   - **`createDrag`'s samples and core's `drag` Stream** never called them.
+   - **An adoptable watch's `closed`** is now set by a finalizer of its own, added after the feed's, so closing the Scope stops its ends before the feed. Nothing calls them in between.
+   - Rejected: renaming `adoptable` to `controlled` to cover both; a separate `endable` option, always set with it; keeping the ends on every watch.
+
+**Pinned by:**
+- DC4 and DC5 now pass `adoptable: true`.
+- **DC7:** a watch that isn't adoptable can't be ended from outside. Its `stop` and `cancel` tell nothing, and its gesture runs on to its pointer's release.
+- DC1–DC3 and every drag, pan and Reorder test on both bindings, unchanged and passing.
+
+**Mutations:**
+- ends for every watch: caught by DC7;
+- the shared fold for every watch: caught by DC2 (`listen: false`) and DC3 (`threshold`). DC4 and DC5 then fail too, but only because DC2 and DC3 leave a drag claim held; alone they pass.
+
+**Measured.** `bench:solid --base main`, 11 paired reps, passes; the noise control +0.2%.
+- **A Reorder item at rest:** −0.24 KB / −0.23 KB (28.10 → 27.86, 26.38 → 26.15), Solid 1 / Solid 2. That's the two parts above.
+- **A hover + press element:** −0.1% / −0.2%.
+- **Everything else is within its gate,** warm mount +1.4% / +3.3% among it, on a page that makes no drag watch.
+

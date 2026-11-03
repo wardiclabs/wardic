@@ -14,6 +14,8 @@
 //   tells anything.
 // - DC6: `heldPointer` holds an adopted down from inside the call: delivered marked, its page-wide
 //   moves and release unmarked; the same press's own down on the target keeps the one hold.
+// - DC7: a watch that isn't `adoptable` can't be ended from outside (#539): its `stop` and `cancel`
+//   tell nothing, and its gesture runs on to its pointer's release.
 import type * as Drag from "@wardic/core/Drag"
 import * as DragActivity from "@wardic/core/DragActivity"
 import * as InputSource from "@wardic/core/InputSource"
@@ -134,7 +136,7 @@ it.effect("DC4: stop ends a started gesture as a release, its claim given back f
       const activity = yield* DragActivity.DragActivity
       const told: Array<Drag.Sample> = []
       const active: Array<boolean> = []
-      const { value: drag } = yield* opened(Recognizer.watchDrag("el", {}, {
+      const { value: drag } = yield* opened(Recognizer.watchDrag("el", { adoptable: true }, {
         on: (s) => {
           told.push(s)
           active.push(activity.isDragActive())
@@ -173,7 +175,7 @@ it.effect("DC5: cancel ends it with no velocity, marked cancelled; once the Scop
     yield* Effect.gen(function* () {
       const activity = yield* DragActivity.DragActivity
       const told: Array<Drag.Sample> = []
-      const { scope, value: drag } = yield* opened(Recognizer.watchDrag("el", { axis: "x" }, { on: (s) => told.push(s) }))
+      const { scope, value: drag } = yield* opened(Recognizer.watchDrag("el", { axis: "x", adoptable: true }, { on: (s) => told.push(s) }))
       yield* input.push(ev("down", 0, 0))
       yield* input.push(ev("move", 10, 10))
       yield* input.push(ev("move", 20, 20))
@@ -231,3 +233,21 @@ it("DC6: heldPointer holds an adopted down from inside the call; its later event
   stop()
   expect(emitAdopted, "stopped with the feed").toBeUndefined()
 })
+
+it.effect("DC7: a watch that isn't adoptable can't be ended from outside: its gesture runs on to its release", () =>
+  Effect.gen(function* () {
+    const input = yield* TestInput.pushable()
+    yield* Effect.gen(function* () {
+      const told: Array<Drag.Sample> = []
+      const { value: drag } = yield* opened(Recognizer.watchDrag("el", { axis: "x" }, { on: (s) => told.push(s) }))
+      yield* input.push(ev("down", 0, 0))
+      yield* input.push(ev("move", 10, 10))
+      yield* input.push(ev("move", 20, 20))
+      drag.stop()
+      drag.cancel()
+      expect(told.map(line), "nothing told by either").toEqual(["start 10,0", "move 20,0"])
+      yield* input.push(ev("move", 30, 30))
+      yield* input.push(ev("up", 30, 40))
+      expect(told.map(line), "its pointer's release ends it").toEqual(["start 10,0", "move 20,0", "move 30,0", "end 30,0"])
+    }).pipe(Effect.provide(input.layer))
+  }))
