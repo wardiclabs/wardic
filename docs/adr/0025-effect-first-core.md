@@ -523,3 +523,31 @@ ADR-0067's decision 9 (grilled 2026-11-01, Q9: A) takes `Schema` out of Wardic's
 - **A fresh bag's resolve** (a probe on the dev host, not gated; ns per bag, cache insert included), Node 22 / Bun 1.3: `Spring.resolve({ stiffness })` 818 → 396 / 687 → 404; an empty spring bag 764 → 372 / 629 → 427; `resolveTween({ duration, ease })` 523 → 268 / 488 → 332; `animate`'s `{ repeat, repeatType }` 957 → 566 / 1,357 → 728. The first resolve in a fresh process, 973 → 254 µs in Node.
 
 **Tests:** `options.test.ts`' rows now expect an `OptionError` naming the field, and it gains 25 rows pinning the messages word for word (each `instanceof Machine.OptionError`): every check's message, a union's lines, the places below a field, the wrong-type and non-object messages, the cross-field one, and the declared order. `motion-ease.test.ts` (ME4) and solid's `ease.ssr.test.tsx` (EA2) expect `OptionError`. solid's `error-reporting.browser.test.tsx` reads the field's name in a failed leg's cause, which the message keeps.
+
+## Amendment (#540, 2026-11-03): the mount path's measured sites take statements
+
+#535's cold-mount profile left a mount of 1,000 elements spending about 13 ms cold and 4.7 ms warm in Effect's small helpers, spread over many call sites, beside its runtime (a fiber per leg, #542). #540 prototyped two steps on #519's harness (`probe/540-helpers`), 11 reps paired against `main`:
+- **within today's rules** (the element's style composed with data-first `Style.over` / `Style.without` calls, not a `pipe` and a closure each; `isHeld` without a two-element array per key): warm −0.0% / +0.3%, cold −2.7% / −2.8%;
+- **with statements at five hot sites as well:** warm **−3.7% / −3.2%** (Solid 1 40.4 → 38.8 ms, beside Motion 14.9's 38.7), cold −2.6% / −3.5%.
+
+Decided in #540's grill (2026-11-03):
+
+1. **Q1, the helpers before the runtime.** They're shallow and measurable; the leg fibers are a design change, #542.
+2. **Q2, measured hot sites only.** Code that runs once per element as it mounts follows the hot path's rules, but at a site a profile shows with a measurable helper cost. There, plain statements and loops take the place of Effect's helpers: an `if` with an early return, a `let` set in a guard, a `for … of`.
+   - **Marked:** each site has a comment, `// Per element at mount (#540): statements.` (or `a loop.`).
+   - **Listed:** a file whose site loops is in `eslint.config.js`'s `MOUNT_PATH_LOOPS`, beside the per-frame files; lint lifts only its loop rule. Ternaries stay banned, and the checks rule holds (`Predicate`, not `=== undefined` or `typeof`).
+   - **Everything else stays Effect-first.** A new site needs a profile behind it.
+   - Rejected: the whole mount path, which lint can't tell from the rest file by file; keeping the rule and shipping the first step alone, which measured nothing warm.
+3. **The sites:**
+   - dom's Starting style (`internal/starting-style.ts`): `filtered` (a `for` in place of `UndefinedOr.match` and `Rec.filter`), `resolveInitial` and `recordOf` (in place of a `Match.type`), `recordOfInput` and `over` (in place of `UndefinedOr.match`es), `isHeld` and `without` (a `for` in place of `Arr.some` and `Rec.filter`);
+   - solid's `configBuildOf` (a `for` in place of `Arr.reduce`), and the variant tree's `inheritedContext` and `startingValuesOf` (in place of `Bool.match`es);
+   - core's `ReducedMotion.applies` (in place of the `Match.type` matcher #69's PR 4 built once).
+
+**Measured** (`bench:solid --base main --features`, 11 paired reps; the noise control −0.0%), Solid 1 / Solid 2:
+- **warm:** mount −3.3% / −1.9%, Retarget −2.7% / −3.5%; rest Retarget +0.3% / +3.0% and unmount +0.9% / +0.8%, within their gates;
+- **cold** (not gated): mount −3.9% / −2.4% (53.6 → 51.0 ms, 60.4 → 59.5);
+- **bytes per element per round:** −5.0% / −4.1% (101.5 → 96.2 KB, 98.6 → 94.6), and −2.3% to −4.3% on every feature page;
+- **the feature pages' mounts:** −1.5% to −3.9%;
+- **retained at rest and the layout scenes:** flat, within their gates.
+
+`bun run size --base main`: −0.1 KB minified in each of core, dom and solid; s1-slim 120.4 of its 121 KB.

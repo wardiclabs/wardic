@@ -393,7 +393,11 @@ export const isVariantChild = (config: VariantConfig): boolean =>
 export const inheritedContext = (
   config: VariantConfig,
   parent: WardicVariantContextValue | undefined,
-): WardicVariantContextValue | undefined => Bool.match(isVariantChild(config), { onFalse: constUndefined, onTrue: () => parent })
+): WardicVariantContextValue | undefined => {
+  // Per element at mount (#540): statements.
+  if (isVariantChild(config)) return parent
+  return undefined
+}
 
 /**
  * The `initial` an element's Starting style resolves: its own, else the `initial` name (or `false`) of
@@ -463,16 +467,23 @@ export const startingValuesOf = (
   const atAnimate = startsAtAnimate(config, inherited, presenceBlocks)
   const animate = animateOf(config, inherited, untrack)
   const initial = initialOf(config, inherited)
+  // Per element at mount (#540): statements. Starting at `animate` resolves as `initial={false}`,
+  // and its first target is `animate`.
+  let from = initial
+  let first = initial
+  if (atAnimate) {
+    from = false
+    first = animate
+  }
   const values = Style.resolveInitial({
-    initial: Bool.match(atAnimate, { onTrue: () => false as const, onFalse: () => initial }),
+    initial: from,
     animate,
     // Dynamic variants resolved first (#277): dom's Starting style reads values maps only.
     variants: startingVariantsOf(config.variants, config.custom) as Readonly<Record<string, object | undefined>> | undefined,
   })
   // The first target's Transition end (#428, Motion's `makeLatestValues`): set at once, so a server
   // renders it, and a hydration finds it.
-  const first = Bool.match(atAnimate, { onTrue: () => animate, onFalse: () => initial })
-  if (Bool.or(Predicate.isUndefined(first), first === false)) return values
+  if (Predicate.isUndefined(first) || first === false) return values
   const end = resolveTarget(first as Entry, config.variants as WardicVariants | undefined, config.custom, NO_VARIANT_STATE).transitionEnd
   if (Predicate.isUndefined(end)) return values
   return { ...values, ...end }

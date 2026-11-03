@@ -102,16 +102,16 @@ type ConfigKey = (typeof CONFIG_KEYS)[number]
 
 /**
  * A config's build from `motion`'s `keys`: each one's value, when it's defined; reading a key tracks
- * it. Its step is made once, an element, so a build allocates its config and the fold alone (#460's
- * compose once, #525).
+ * it. A build allocates its config alone (#525, #540).
  */
-const configBuildOf = (motion: WardicMotionProps, keys: ReadonlyArray<ConfigKey>): Accessor<WardConfig> => {
-  const add = (config: Record<string, unknown>, key: ConfigKey): Record<string, unknown> => {
+const configBuildOf = (motion: WardicMotionProps, keys: ReadonlyArray<ConfigKey>): Accessor<WardConfig> => () => {
+  // Per element at mount (#540): a loop.
+  const config: Record<string, unknown> = {}
+  for (const key of keys) {
     const value = motion[key]
     if (Predicate.isNotUndefined(value)) config[key] = value
-    return config
   }
-  return () => Arr.reduce(keys, {} as Record<string, unknown>, add) as WardConfig
+  return config as WardConfig
 }
 
 /**

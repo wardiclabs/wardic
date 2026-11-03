@@ -137,7 +137,7 @@ const CHECKS = [
 
 /** Rule 1: loops. */
 const LOOPS = ["ForStatement", "ForInStatement", "ForOfStatement", "WhileStatement", "DoWhileStatement"].map((loop) =>
-  restrict(loop, "Loop with Arr / Rec / Iter or Effect.forEach / Effect.all; only the per-frame files in eslint.config.js keep a for"),
+  restrict(loop, "Loop with Arr / Rec / Iter or Effect.forEach / Effect.all; only the per-frame and mount-path files in eslint.config.js keep a for"),
 )
 
 /** The modules that hide a global take a fixed alias (ADR-0025, decision 5). */
@@ -188,6 +188,14 @@ const DOM_PER_FRAME = [
   "packages/dom/src/internal/key-rules.ts",
   "packages/dom/src/internal/measure.ts",
 ]
+
+/**
+ * The mount-path files whose per-element mount code keeps a loop (#540, ADR-0025, *Amendment (#540)*):
+ * a site a profile showed with a measurable helper cost, marked `// Per element at mount (#540)`. The
+ * Starting style's filter, its layering and its held keys, and the Solid 1 config build. The rest of
+ * each file follows the full rules by review.
+ */
+const MOUNT_PATH_LOOPS = ["packages/dom/src/internal/starting-style.ts", "packages/solid/src/motion-props.ts"]
 
 export default defineConfig([
   { ignores: ["**/dist/**"] },
@@ -271,6 +279,13 @@ export default defineConfig([
           message: `An index in range on the per-frame path is a plain read, xs[i], not Arr.getUnsafe (${PAGE}).`,
         },
       ],
+    },
+  },
+  {
+    // The mount-path files keep a loop at their marked sites (#540).
+    files: MOUNT_PATH_LOOPS,
+    rules: {
+      "no-restricted-syntax": ["error", ...SUBPATHS, ...SPANS, ...BRANCHES, ...CHECKS, ...ALIASES],
     },
   },
   {
