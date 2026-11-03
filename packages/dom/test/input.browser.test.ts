@@ -775,4 +775,23 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
         spy.restore()
       }
     }).pipe(Effect.scoped))
+
+  it.effect("I20: a down adoptPointer hands a target reaches its adoptable feed alone, not its plain one (#431, #507)", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource.InputSource
+      const el = document.createElement("div")
+      document.body.append(el)
+      try {
+        const plain = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
+        const adoptable = yield* subscribeIn(InputFeed.toStream(InputSource.adoptablePointerOf(input, el)))
+        const handed = input.adoptPointer(el, pointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1 }))
+        expect(handed?.adopted, "handed as adopted").toBe(true)
+        expect((yield* plain.collect(1)).map((e) => e.type), "the plain feed subscribes no adoption").toEqual([])
+        expect((yield* adoptable.collect(1)).map((e) => `${e.type} ${String(e.adopted)}`), "the adoptable feed hears it").toEqual(["down true"])
+        yield* plain.close
+        yield* adoptable.close
+      } finally {
+        el.remove()
+      }
+    }).pipe(Effect.scoped))
 })

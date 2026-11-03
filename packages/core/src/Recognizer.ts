@@ -1046,6 +1046,12 @@ export interface DragOptions {
    */
   readonly listen?: boolean | undefined
   /**
+   * `true`: the target was given **Drag controls** (#431, #507), so the drag reads its adoptable
+   * pointer feed (`InputSource.adoptablePointerOf`), which also delivers the downs they hand it.
+   * Default `false`: the plain feed, which subscribes no adoption.
+   */
+  readonly adoptable?: boolean | undefined
+  /**
    * How far (px) a gesture from `down` moves before it starts, read at the down (#431, Motion's
    * `distanceThreshold`): `undefined`, or none given, is 3. A direction lock still waits for its 10 px
    * on one axis.
@@ -1176,7 +1182,7 @@ export const drag = (target: unknown, options: DragOptions = {}): Stream.Stream<
  */
 export const watchDrag = (
   target: unknown,
-  { axis = "xy", claim = true, lock = false, listen = true, threshold, mapPoint }: DragOptions,
+  { axis = "xy", claim = true, lock = false, listen = true, adoptable = false, threshold, mapPoint }: DragOptions,
   handlers: InputFeed.Handlers<Drag.Sample>,
 ): Effect.Effect<WatchedDrag, never, Scope.Scope | InputSource.InputSource> => {
   const attributes = { threshold: THRESHOLD, velocityWindowMs: VELOCITY_WINDOW_MS }
@@ -1255,10 +1261,12 @@ export const watchDrag = (
         release()
       })
     )
+    // The adoptable feed only for a target given Drag controls (#507): a plain one subscribes no adoption.
+    const feed = Bool.match(adoptable, { onTrue: () => InputSource.adoptablePointerOf(input, target), onFalse: () => input.pointer(target) })
     yield* watchFeed(
       "wardic.drag",
       attributes,
-      input.pointer(target),
+      feed,
       () => (event) => {
         const [next, samples] = fold(MutableRef.get(state), mapped(event))
         MutableRef.set(state, next)

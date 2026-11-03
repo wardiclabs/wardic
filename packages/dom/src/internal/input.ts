@@ -27,9 +27,10 @@
  *
  * `adoptPointer(target, raw)` (#431, **Drag controls**) hands a pointer that went down elsewhere,
  * a handle or a track, to `target`: its `PointerEvent` (a `pointerdown`, or any other with a button
- * pressed) is delivered on `pointer(target)` as an adopted down, inside the call, and held from
- * there as the target's own downs are. Each target's adopted feed is one more listener in its
- * shared lookup, not a DOM listener: nothing listens for it until the call.
+ * pressed) is delivered on `adoptablePointer(target)` as an adopted down, inside the call, and held
+ * from there as the target's own downs are. Only a target given Drag controls reads that feed (#507):
+ * its adopted feed is one more listener in a shared lookup, not a DOM listener, and `pointer(target)`,
+ * every other target's, subscribes none.
  *
  * A scroll moves a Held pointer (ADR-0019, *Amendment (Reorder)*): while one is held,
  * the target's scroll feed reports the scroll of each of its scrollable ancestors and
@@ -525,6 +526,14 @@ const make = Effect.gen(function* () {
   const pointer = InputFeed.byTarget((target) =>
     InputSource.heldPointer({
       target: feedOf(target as EventTarget, POINTER_EVENTS),
+      global: feedOf(windowOf(target), HELD_POINTER_EVENTS, CAPTURE_PASSIVE, landedOn(target)),
+      scroll: scrollFeedOf(target),
+    })
+  )
+  // A target given Drag controls (#431, #507): the same Held pointer, with the downs handed to it.
+  const adoptablePointer = InputFeed.byTarget((target) =>
+    InputSource.heldPointer({
+      target: feedOf(target as EventTarget, POINTER_EVENTS),
       adopted: adoptedFeedOf(target),
       global: feedOf(windowOf(target), HELD_POINTER_EVENTS, CAPTURE_PASSIVE, landedOn(target)),
       scroll: scrollFeedOf(target),
@@ -535,6 +544,7 @@ const make = Effect.gen(function* () {
 
   return InputSource.InputSource.of({
     pointer,
+    adoptablePointer,
     focus,
     keyboard,
     focusWithin,
