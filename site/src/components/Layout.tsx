@@ -67,12 +67,8 @@ function Sections(props: { readonly marker: string; readonly onNavigate?: () => 
   )
 }
 
-/**
- * The drawer slides in from off the screen's left edge, and back out, quicker, the way it came. It's
- * the screen's width, so it starts that far left, in px: a percentage `initial` isn't applied to an
- * element as it mounts (the exit's `-100%` is), and the drawer only mounts in the browser, on a tap.
- */
-const drawerOff = () => ({ x: -window.innerWidth })
+/** The drawer slides in from off the screen's left edge, its own width, and back out, quicker, the way it came. */
+const DRAWER_OFF = { x: "-100%" } as const
 const DRAWER_IN = { x: 0, transition: { type: "spring", stiffness: 380, damping: 40 } } as const
 const DRAWER_OUT = { x: "-100%", transition: { type: "tween", duration: 0.22, ease: "easeIn" } } as const
 
@@ -129,7 +125,7 @@ export function Layout(props: { readonly children?: JSX.Element }) {
       */}
       <AnimatePresence>
         <Show when={open()}>
-          <w.nav id="drawer" class="sidebar drawer" aria-label="Pages" layoutRoot initial={drawerOff()} animate={DRAWER_IN} exit={DRAWER_OUT}>
+          <w.nav id="drawer" class="sidebar drawer" aria-label="Pages" layoutRoot initial={DRAWER_OFF} animate={DRAWER_IN} exit={DRAWER_OUT}>
             <Sections marker="drawer-marker" onNavigate={() => setOpen(false)} />
           </w.nav>
         </Show>
