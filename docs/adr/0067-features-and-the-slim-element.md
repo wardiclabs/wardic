@@ -203,3 +203,31 @@ Hover, press, focus, inView and pan already started when their Feature arrived. 
 3. **`layout` stays decided at the mount.** An element mounted while it's on its way gets no node (the decision above): its node is made as it mounts, with the measurements taken before each change. `LazyWardic`'s docs now say so.
 
 **Tests.** `FG5` (Solid 1) and `FGV6` (Solid 2): an element mounted while `drag` is on its way doesn't move under a drag on the pushed input, then drags once `drag` arrives; a load that brings only `hover` says nothing while it's on its way and warns once it's here. Both fail without the fix.
+
+## Amendment (#582, #581, 2026-11-04): a layout node is made when `layout` arrives
+
+**Found writing the Shipping less guide (#558).** An element with a layout prop that mounted while a lazy load was on its way got no layout node, even when the load brought `layout`: #551's decision 3 kept `layout` decided at the mount. When the load brought none, development said nothing. Everything inside `<LazyWardic features={() => import(…)}>` mounts while its load is on its way, so lazily loaded `layout` laid out nothing already on screen. Motion makes an element's projection node at any render where the Feature is loaded and the element has none (`useVisualElement`), so an `m.div layout` mounted before `LazyMotion`'s bundle lands gets one once it has.
+
+**Grilled on #582: A.** The rejected options:
+- **B. Keep the rule, and warn either way** when the load lands: lazily loaded `layout` would stay useless for what's on screen.
+- **C. Warn only when the load lacks `layout`,** the bug as filed.
+
+**Decided.**
+1. **An element's layout node is made when `layout` arrives,** in both bindings, as a drag's track is (#551). It registers then, is measured by the next pass, and animates its layout changes from then on; nothing before is replayed. A child that took over from a leaver at its mount (#286) doesn't start from the leaver's box, which was its mount's.
+   - **Solid 1:** an element mounted while a load is pending watches its section's Features (a computation) and makes its node under its mount's owner. What the node is made with is copied into the layout block first, so its closures hold only those copies (#551's lesson).
+   - **Solid 2:** an effect made with the ward makes the mounted element's node. An element that mounts after `layout` arrived, but whose ward read none at its setup, makes its node at the mount.
+2. **A load that arrives without `layout`** gets development's missing-Feature warning then, once per provider, as one given at once does.
+3. **A drag drives the layout node its element has as its track is made:** at the mount, or as `drag` arrives. `drag` and `layout` from one load make the node first, so the element drags through it, as one that had both at its mount does. A track made before `layout` arrived keeps moving `x`/`y`, drawn over the node (#363): the gesture's state is the track's, and switching it mid-gesture would end a projection's drag that never started. The spine reads `projected` where it uses it, through a getter only for an element whose `drag` was on its way, as it reads the track.
+4. **The missing-Feature warning names the Feature and where to add it, and stops there (#581).** It ended "or use a `wardic.*` element, which has every Feature", which a `strict` section makes an error in development, and which is the heavy way round the Feature the warning is there to name.
+
+**Tests** (`features-layout.browser.test.tsx`, Solid 1, and its `v2/` twin):
+- **FL1 / FLV1:** the warning no longer names a Complete element.
+- **FL7 / FLV7:** an element mounted while `layout` is on its way animates its layout change once it's here.
+- **FL8 / FLV8:** a load that lands with only `hover` says nothing while it's on its way, and warns once, for two elements, when it lands.
+- **FL9 / FLV9:** `drag` and `layout` from one load: an element mounted while they're on their way follows a pushed drag, and lands where one that had both at its mount does.
+- All eight fail without the fix.
+
+**Measured** (`bench:solid`, head against `main`, 1,000 elements, Chromium; every gate passes):
+- **Solid 1:** warm mount +0.0%, Retarget −0.7%, unmount +1.2%; allocated +0.3% per element; kept at rest +0.1% (hover and press 16.62 → 16.63 KB, a Reorder item 27.88 → 27.89); the layout scenes within noise.
+- **Solid 2:** warm mount −3.6%, unmount −0.4%; allocated −0.1%; kept at rest −0.2% (16.14 → 16.08 KB) and +0.3% for a Reorder item (26.19 → 26.26).
+- **A first shape** gave Solid 2's mounted record a getter for its node (`get layout()`). A getter of its own on every record gave each record a shape of its own: an element kept 2.7% more at rest (16.13 → 16.56 KB), and its unmount ran 4.9% slower. The node is a plain field of the record, which the late path writes.

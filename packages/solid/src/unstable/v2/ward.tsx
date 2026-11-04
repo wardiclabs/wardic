@@ -102,7 +102,7 @@ import { useLayoutGroupId } from "./layout.tsx"
 import { registerAnimatable } from "../../imperative.ts"
 import { type ControlsChange, controlledConfigOf, controlledElement, isAnimationControls, subscribe, uncontrolledOf, type WardicAnimationControls } from "../../animation-controls.ts"
 import { settingOf, type WardicConfigValue } from "../../wardic-config-value.ts"
-import { presenceBlocksInitial, presenceHold, presenceSeedOf } from "../../presence-record.ts"
+import { type PresenceSeed, presenceBlocksInitial, presenceHold, presenceSeedOf } from "../../presence-record.ts"
 import { handoffOf, setsAnimation } from "../../appear.ts"
 import {
   appearEntryOf,
@@ -904,6 +904,14 @@ const justLeft = new Set<Element>()
 const forgetJustLeft = (): void => justLeft.clear()
 
 /** {@link ward} with a `wardic.<tag>`'s additions. Internal. */
+/**
+ * Makes a mounted element's layout node with `arrive` if it was on its way as the element mounted and
+ * `services` has `layout` now (#582). A module's function, not a ward's: a ward makes none.
+ */
+const layoutArrivedIn = (arrive: ((projection: ProjectionSystem.Shape) => void) | undefined, services: Context.Context<never>): void => {
+  UndefinedOr.map(arrive, (make) => UndefinedOr.map(projectionIn(services), make))
+}
+
 export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   if (Predicate.isFunction(config)) throw new Error(WHOLE_ACCESSOR)
   const runtime = useWardicRuntime()
@@ -1156,7 +1164,10 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   interface Mounted {
     readonly element: HTMLElement
     readonly spine: ElementSpine
-    readonly layout: ProjectionSystem.NodeHandle | undefined
+    /** Its layout node: made at mount, or as `layout` arrives (#582), which writes it here. */
+    layout: ProjectionSystem.NodeHandle | undefined
+    /** Makes its layout node on a `layout` that arrived after it mounted (#582); absent unless one was on its way. */
+    readonly arriveLayout: ((projection: ProjectionSystem.Shape) => void) | undefined
     readonly watch: (watch: Effect.Effect<void, never, Scope.Scope | WardicServices>) => void
     /** Starts its drag track with a `drag` that arrived after it mounted (#551); absent unless one was on its way. */
     readonly startDrag: ((gesture: DragGesture["Service"]) => void) | undefined
@@ -1358,35 +1369,55 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     // Its layout animations' starts and landings, and its drag's release at rest, go to the lifecycle,
     // for `next("layoutStart")`, `next("layoutComplete")` and `next("dragTransitionEnd")` (#257, #273):
     // Solid 2 has no props for them.
-    const layout = UndefinedOr.map(layoutNodes, (projection) => {
-      const started = (): void => lifecycle.layoutStarted()
-      const completed = (): void => lifecycle.layoutCompleted()
-      const released = (): void => lifecycle.released()
-      return projection.register(
-        registrationOf({
-          ...layoutOptionsOf({
-            id,
-            element: el,
-            config: configNow,
-            parent: node.inherited,
-            snapshot,
-            dragTransition,
-            raiseWhileDragged: internal.raiseWhileDragged === true,
-            taken,
-            layoutGroup,
-            reducedMotion,
-            skipAnimations,
-            heldTransform: heldTransformFor(snapshot, templateAtMount, () => template),
-          }),
-          onLayoutAnimationStart: () => started,
-          onLayoutAnimationComplete: () => completed,
-          // Its drag's Release offset at rest, for `next("dragTransitionEnd")` (#273).
-          onReleaseEnd: () => released,
-        }),
-      )
-    })
+    let layout: ProjectionSystem.NodeHandle | undefined
     // A `<Reorder>` item's group registers the node, until the unmount.
-    const handedOver = UndefinedOr.map(layout, (handle) => UndefinedOr.map(internal.onLayoutHandle, (onHandle) => onHandle(handle)))
+    let handedOver: (() => void) | undefined
+    // `layout` on its way as it mounted (#582): its node is made as it arrives (`arriveLayout`), as
+    // Motion's is, and measures from then on; nothing before it is replayed.
+    let arriveLayout: ((projection: ProjectionSystem.Shape) => void) | undefined
+    if (wantsNode) {
+      // `takenNow`: where a child that takes over from a leaver starts, at its mount only (#286).
+      const layoutNodeOn = (projection: ProjectionSystem.Shape, takenNow: PresenceSeed | undefined): void => {
+        const started = (): void => lifecycle.layoutStarted()
+        const completed = (): void => lifecycle.layoutCompleted()
+        const released = (): void => lifecycle.released()
+        const handle = projection.register(
+          registrationOf({
+            ...layoutOptionsOf({
+              id,
+              element: el,
+              config: configNow,
+              parent: node.inherited,
+              snapshot,
+              dragTransition,
+              raiseWhileDragged: internal.raiseWhileDragged === true,
+              taken: takenNow,
+              layoutGroup,
+              reducedMotion,
+              skipAnimations,
+              heldTransform: heldTransformFor(snapshot, templateAtMount, () => template),
+            }),
+            onLayoutAnimationStart: () => started,
+            onLayoutAnimationComplete: () => completed,
+            // Its drag's Release offset at rest, for `next("dragTransitionEnd")` (#273).
+            onReleaseEnd: () => released,
+          }),
+        )
+        layout = handle
+        handedOver = UndefinedOr.map(internal.onLayoutHandle, (onHandle) => onHandle(handle))
+      }
+      // Its section's `layout` as it mounts: had at setup, or arrived since (#582).
+      const now = UndefinedOr.match(layoutNodes, { onDefined: identity, onUndefined: () => projectionIn(untrack(features.services)) })
+      if (Predicate.isNotUndefined(now)) layoutNodeOn(now, taken)
+      if (Predicate.isUndefined(layout)) {
+        arriveLayout = (projection) => {
+          if (Predicate.isNotUndefined(layout)) return
+          layoutNodeOn(projection, undefined)
+          // A plain field, not a getter: a getter of its own on every record gave each its own shape (#582).
+          m.layout = layout
+        }
+      }
+    }
     // Its watch Scope (#318, #379, ADR-0055): its gesture watches and its drag track run in it, each
     // subscribed at once with no fiber of its own, until the unmount closes it. Made at the first
     // watch: a ward with no gesture makes and closes none.
@@ -1402,8 +1433,12 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     // Its section's `drag` Feature drives it (#511): without it, `drag` does nothing, and development
     // says so once, unless `drag` is on its way.
     const dragGesture = gestureIn(untrack(features.services), "drag", DragGesture, Predicate.isNotUndefined(dragAxis))
+    // Whether its track drives its layout node (ADR-0016): the node it has as the track is made, at
+    // mount or as `drag` arrives; a node made later leaves it moving `x`/`y` (#582).
+    let dragProjected = false
     const driveDrag = (gesture: DragGesture["Service"]): DragTrack => {
       const axis = UndefinedOr.getOrThrow(dragAxis)
+      dragProjected = Predicate.isNotUndefined(layout)
       // Motion's `dragConstraints` (#273): a box of numbers, or a container measured against the element.
       const constraints = gesture.constraintsOf(initialConfig.dragConstraints, el, () => untrack(cfg).onMeasureDragConstraints, pagePoint)
       return gesture.drive({
@@ -1482,6 +1517,10 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     let startDrag: ((gesture: DragGesture["Service"]) => void) | undefined
     if (Predicate.isNotUndefined(dragAxis) && Predicate.isUndefined(dragTrack) && untrack(features.pending)) {
       Object.defineProperty(spineOptions, "drag", { get: () => dragTrack })
+      // Whether that track drives the layout node (#582): until it starts, whether the element has one.
+      Object.defineProperty(spineOptions, "projected", {
+        get: () => UndefinedOr.match(dragTrack, { onUndefined: () => Predicate.isNotUndefined(layout), onDefined: () => dragProjected }),
+      })
       startDrag = (gesture) => {
         if (Predicate.isUndefined(dragTrack)) dragTrack = driveDrag(gesture)
       }
@@ -1501,6 +1540,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       element: el,
       spine,
       layout,
+      arriveLayout,
       watch: watchIn,
       startDrag,
       hover: false,
@@ -1551,6 +1591,22 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   }
   if (internal.gestureless !== true) watchLateGestures()
 
+  // `layout` on its way (#582): an element mounted before it arrives makes its node then, as its
+  // gestures and drag start theirs; a load that brings none gets development's word then.
+  if (Bool.and(wantsNode, Predicate.isUndefined(layoutProjection)) && untrack(features.pending)) {
+    createEffect(
+      () => ({ services: features.services(), pending: features.pending() }),
+      // Its apply returns nothing: a function returned there would be its cleanup.
+      ({ services, pending }) => {
+        UndefinedOr.map(mounted, (m) => layoutArrivedIn(m.arriveLayout, services))
+        if (DEV && Predicate.isUndefined(projectionIn(services)) && Bool.not(pending)) {
+          featureRegistry.warnOnce("layout", missingMessage("layout", LAYOUT_PROPS, "@wardic/solid/unstable/v2"))
+        }
+      },
+      CLIENT_ONLY_DEFERRED,
+    )
+  }
+
   // A `drag` on its way (#551): an element mounted before it arrives starts its track then, as its
   // gestures' recognizers do, and nothing before it is replayed; a load that brings none gets
   // development's word then.
@@ -1560,7 +1616,12 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       // Its apply returns nothing: a function returned there would be its cleanup.
       ({ services, pending }) => {
         UndefinedOr.match(serviceIn(services, DragGesture), {
-          onDefined: (gesture) => UndefinedOr.map(mounted, (m) => UndefinedOr.map(m.startDrag, (start) => start(gesture))),
+          // A `layout` from the same load makes its node first, so the track drives it (#582).
+          onDefined: (gesture) =>
+            UndefinedOr.map(mounted, (m) => {
+              layoutArrivedIn(m.arriveLayout, services)
+              UndefinedOr.map(m.startDrag, (start) => start(gesture))
+            }),
           onUndefined: () => {
             if (DEV && Bool.not(pending)) featureRegistry.warnOnce("drag", missingMessage("drag", GESTURE_WORDS.drag, "@wardic/solid/unstable/v2"))
           },
@@ -1573,7 +1634,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   // A `layoutDependency` change re-measures its layout node (not at mount: it measures as it registers).
   // Only a change of its value: a memo, since a Solid 2 effect applies on every re-run of its compute,
   // and `cfg()` is re-read on any of the config's changes (a `style` change re-measured, #209 PR 5's lab).
-  if (Predicate.isNotUndefined(layoutNodes)) {
+  // Its node may be made as `layout` arrives (#582), so it's read at each change.
+  if (wantsNode) {
     const dependency = createMemo(() => cfg().layoutDependency, CLIENT_ONLY)
     createEffect(
       dependency,

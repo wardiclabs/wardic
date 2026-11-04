@@ -449,6 +449,16 @@ const heldBack = (presence: PresenceContextValue | undefined, element: HTMLEleme
   return true
 }
 
+/** A layout node on its way as its element mounted (#582): made by `arrive` if `layout` is here now. */
+interface LateLayout {
+  handle: ProjectionSystem.NodeHandle | undefined
+  readonly arrive: () => void
+}
+
+/** An element's layout node now: made at its mount, or as `layout` arrived (#582). */
+const layoutNodeOf = (atMount: ProjectionSystem.NodeHandle | undefined, later: LateLayout | undefined): ProjectionSystem.NodeHandle | undefined =>
+  UndefinedOr.match(atMount, { onDefined: identity, onUndefined: () => UndefinedOr.match(later, { onDefined: (l) => l.handle, onUndefined: constUndefined }) })
+
 export function runSpine(opts: RunSpineOptions): void {
   const { bindGestures, byName, canStart, cfg, controls, defaultsInProps, el, entersFresh, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, restartStyle, runtime, styleOf, tag } = opts
   // Its Features (#511, ADR-0067): its section's, and those it brings.
@@ -638,25 +648,56 @@ export function runSpine(opts: RunSpineOptions): void {
       if (DEV && wantsLayoutNode(c0) && Predicate.isUndefined(layoutProjection) && Bool.not(untrack(features.pending))) {
         useFeatureRegistry().warnOnce("layout", missingMessage("layout", LAYOUT_PROPS, "@wardic/solid"))
       }
-      if (wantsLayoutNode(c0) && Predicate.isNotUndefined(layoutProjection)) {
-        layoutHandle = layoutMemberOf(
-          layoutProjection,
-          layoutOptionsOf({
-            id,
-            element,
-            config: cfg,
-            parent,
-            snapshot,
-            dragTransition,
-            raiseWhileDragged: internal.raiseWhileDragged === true,
-            taken,
-            layoutGroup,
-            reducedMotion,
-            skipAnimations,
-            heldTransform: heldTransformFor(snapshot, templateAtMount, () => template),
-          }),
-        )
-        if (Predicate.isNotUndefined(internal.onLayoutHandle)) internal.onLayoutHandle(layoutHandle)
+      // `layout` on its way (#582): its node is made as it arrives, under this owner, as Motion's is,
+      // and measures from then on; nothing before it is replayed. A load that brings none gets
+      // development's word then.
+      let lateLayout: LateLayout | undefined
+      if (wantsLayoutNode(c0)) {
+        // What its node is made with, copied into this block: the closures here hold only these, so an
+        // element with no layout prop keeps none of them (#551's lesson).
+        const ward = {
+          id,
+          element,
+          config: cfg,
+          parent,
+          snapshot,
+          dragTransition,
+          raiseWhileDragged: internal.raiseWhileDragged === true,
+          layoutGroup,
+          reducedMotion,
+          skipAnimations,
+          heldTransform: heldTransformFor(snapshot, templateAtMount, () => template),
+        }
+        const onLayoutHandle = internal.onLayoutHandle
+        // Its node on `projection`, handed to a `<Reorder>` item's group; `takenNow`, where a child that
+        // takes over from a leaver starts, at its mount only (#286).
+        const layoutNodeOn = (projection: ProjectionSystem.Shape, takenNow: PresenceSeed | undefined): ProjectionSystem.NodeHandle => {
+          const handle = layoutMemberOf(projection, layoutOptionsOf({ ...ward, taken: takenNow }))
+          if (Predicate.isNotUndefined(onLayoutHandle)) onLayoutHandle(handle)
+          return handle
+        }
+        if (Predicate.isNotUndefined(layoutProjection)) layoutHandle = layoutNodeOn(layoutProjection, taken)
+        if (Predicate.isUndefined(layoutProjection) && untrack(features.pending)) {
+          const owner = getOwner()
+          const registry = useFeatureRegistry()
+          const section = features
+          const later: LateLayout = {
+            handle: undefined,
+            arrive: () => {
+              if (Predicate.isNotUndefined(later.handle)) return
+              UndefinedOr.match(projectionIn(section.services()), {
+                onDefined: (arrived) => {
+                  later.handle = runWithOwner(owner, () => untrack(() => layoutNodeOn(arrived, undefined)))
+                },
+                onUndefined: () => {
+                  if (DEV && Bool.not(section.pending())) registry.warnOnce("layout", missingMessage("layout", LAYOUT_PROPS, "@wardic/solid"))
+                },
+              })
+            },
+          }
+          lateLayout = later
+          createComputed(later.arrive)
+        }
       }
 
       // The app's gesture callbacks (#273, ADR-0047), each read from the config when it's called: made
@@ -678,8 +719,9 @@ export function runSpine(opts: RunSpineOptions): void {
       const [dragging, setDragging] = createSignal(false)
       // Its hold on `x`/`y`, for the spine's Retargets (#340).
       let dragTrack: DragTrack | undefined
-      // Its track's holder while `drag` is on its way (#551): the spine reads the track there.
-      let late: { track: DragTrack | undefined } | undefined
+      // Its track's holder while `drag` is on its way (#551): the spine reads the track there, and
+      // whether it drives the layout node (#582).
+      let late: { track: DragTrack | undefined; projected: boolean } | undefined
       // Its section's `drag` Feature drives it (#511): without it, `drag` does nothing, and development
       // says so once, unless `drag` is on its way.
       const dragGesture = serviceIn(untrack(features.services), DragGesture)
@@ -691,9 +733,13 @@ export function runSpine(opts: RunSpineOptions): void {
         // element that never drags keeps none of them (#551).
         const axis = dragCfg
         const transition = dragTransition
-        const projection = layoutHandle
         const setDrag = draggingWithWillChange(live, setDragging)
+        const nodeAtMount = layoutHandle
+        const nodeLater = lateLayout
+        // It drives the layout node the element has as it's made, at mount or as `drag` arrives: a
+        // node made later leaves it moving `x`/`y` (#582).
         const trackWith = (dragGesture: DragGesture["Service"]): DragTrack => {
+          const projection = layoutNodeOf(nodeAtMount, nodeLater)
           const c0d = untrack(cfg)
           // Motion's `dragConstraints` (#273): a box of numbers, or a container measured against the element.
           const constraints = dragGesture.constraintsOf(c0d.dragConstraints, element, () => untrack(cfg).onMeasureDragConstraints, pagePoint)
@@ -746,7 +792,7 @@ export function runSpine(opts: RunSpineOptions): void {
         // recognizer does, under this owner; nothing before it is replayed. A load that brings none
         // gets development's word then.
         if (Predicate.isUndefined(dragGesture) && untrack(features.pending)) {
-          const held: { track: DragTrack | undefined } = { track: undefined }
+          const held: { track: DragTrack | undefined; projected: boolean } = { track: undefined, projected: false }
           late = held
           const owner = getOwner()
           const registry = useFeatureRegistry()
@@ -755,6 +801,9 @@ export function runSpine(opts: RunSpineOptions): void {
             if (Predicate.isNotUndefined(held.track)) return
             UndefinedOr.match(serviceIn(section.services(), DragGesture), {
               onDefined: (arrived) => {
+                // A `layout` from the same load makes its node first, so the track drives it (#582).
+                if (Predicate.isNotUndefined(nodeLater)) nodeLater.arrive()
+                held.projected = Predicate.isNotUndefined(layoutNodeOf(nodeAtMount, nodeLater))
                 held.track = runWithOwner(owner, () => untrack(() => trackWith(arrived)))
               },
               onUndefined: () => {
@@ -888,6 +937,13 @@ export function runSpine(opts: RunSpineOptions): void {
       if (Predicate.isNotUndefined(late)) {
         const held = late
         Object.defineProperty(spineOptions, "drag", { get: () => held.track })
+        // Whether that track drives the layout node (#582): until it starts, whether the element has one.
+        const nodeAtMount = layoutHandle
+        const nodeLater = lateLayout
+        Object.defineProperty(spineOptions, "projected", {
+          get: () =>
+            UndefinedOr.match(held.track, { onUndefined: () => Predicate.isNotUndefined(layoutNodeOf(nodeAtMount, nodeLater)), onDefined: () => held.projected }),
+        })
       }
       const spine = makeElementSpine(spineOptions)
       onCleanup(spine.dispose)

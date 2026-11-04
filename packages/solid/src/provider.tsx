@@ -209,7 +209,7 @@ const sectionOf = (
  * Given at once, they're built the first time an element below asks. Loaded lazily, the load starts as
  * it renders, on the client, and its elements animate their values at once; each Feature takes effect
  * as it arrives, from then on, and nothing before is replayed: a gesture or a drag (#551) starts then,
- * while `layout` reaches only the elements that mount after it. A failed load is reported once. A server
+ * and an element's layout node is made then (#582). A failed load is reported once. A server
  * render loads nothing, and renders as it would without them. `strict` makes a Complete element
  * (`wardic.*`) below it an error in development. Both props are read once.
  */

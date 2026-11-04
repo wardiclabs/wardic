@@ -6,6 +6,11 @@
 //   through a `useAnimateLayout` taken before anything built `layout`.
 // - FLV3, `layout` loaded lazily: no word while it's on its way, and an element mounted once it's here
 //   animates its layout change.
+// - FLV7 (#582), an element mounted while `layout` is on its way makes its node as it arrives, and
+//   animates its next layout change, as Motion's does.
+// - FLV8 (#582), a lazy load that lands without `layout`: development says so then, once.
+// - FLV9 (#582), `drag` and `layout` from one lazy load: an element mounted while they're on their way
+//   drags as one that had both at mount, through its layout node.
 // - FLV4, what brings no Feature works without `layout`, and builds none: an `AnimatePresence`'s Slim
 //   child exits, and `useAnimateLayout` runs its change and settles. `LayoutGroup` brings it.
 // - FLV6 (#535), a provider builds its own Features at the browser's idle time once it has settled, with
@@ -14,9 +19,14 @@
 //   sections built such Features only when something read them, which no element did. Last, as colour
 //   spaces are the page's.
 import type { JSX } from "@solidjs/web"
+import * as InputSource from "@wardic/core/InputSource"
 import { DomLive } from "@wardic/dom"
-import { AnimatePresence, colors, type FeatureLoad, layout, LayoutGroup, LazyWardic, useAnimateLayout, w, WardicProvider } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, colors, drag, type FeatureLoad, type FeaturesProp, hover, layout, LayoutGroup, LazyWardic, useAnimateLayout, w, WardicProvider } from "@wardic/solid/unstable/v2"
+import { TestInput } from "@wardic/test"
 import * as Bool from "effect/Boolean"
+import * as Effect from "effect/Effect"
+import { constVoid } from "effect/Function"
+import * as Layer from "effect/Layer"
 import { createSignal, flush, For, Show } from "solid-js"
 import { describe, expect, it, vi } from "vitest"
 import { useBuiltProjection } from "../../src/unstable/v2/provider.tsx"
@@ -78,6 +88,7 @@ describe("The layout Feature (#511), Solid 2", () => {
     const words = lines.filter((l) => l.includes(LAYOUT_WORD))
     expect(words, "one word for two elements").toHaveLength(1)
     expect(words[0]).toContain('import { layout } from "@wardic/solid/unstable/v2"')
+    expect(words[0], "no Complete element, which `strict` makes an error (#581)").not.toContain("wardic.*")
   })
 
   it("FLV2: `layout` given at once to the provider: a w.div animates its layout change, declared before it's built", async () => {
@@ -146,6 +157,103 @@ describe("The layout Feature (#511), Solid 2", () => {
     await raf()
     const base = leftOf(el)
     expect((await between(() => el, base, () => setLeft(200))).length, "frames between").toBeGreaterThan(3)
+  })
+
+  it("FLV7: `layout` loaded lazily: an element mounted while it's on its way animates its layout change once it's here (#582)", async () => {
+    let arrive!: () => void
+    const load: FeatureLoad = () =>
+      new Promise((resolve) => {
+        arrive = () => resolve([layout])
+      })
+    const [left, setLeft] = createSignal(0)
+    let el!: HTMLElement
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <div style={stage(left)}>
+          <LazyWardic features={load}>
+            <w.div ref={(n: HTMLElement) => (el = n)} style={{ ...BOX, position: "relative" }} layout layoutDependency={left()} />
+          </LazyWardic>
+        </div>
+      </WardicProvider>
+    ))
+    await settle()
+    arrive()
+    await wait(50)
+    const base = leftOf(el)
+    expect((await between(() => el, base, () => setLeft(200))).length, "frames between").toBeGreaterThan(3)
+    await until(() => Math.abs(leftOf(el) - (base + 200)) < 1)
+  })
+
+  it("FLV8: a lazy load that lands without `layout`: development says so then, once (#582)", async () => {
+    let arrive!: () => void
+    const load: FeatureLoad = () =>
+      new Promise((resolve) => {
+        arrive = () => resolve([hover])
+      })
+    const before = await logged(async () => {
+      mount(() => (
+        <WardicProvider env={DomLive}>
+          <div style={stage(() => 0)}>
+            <LazyWardic features={load}>
+              <For each={[0, 1]}>{() => <w.div style={BOX} layout />}</For>
+            </LazyWardic>
+          </div>
+        </WardicProvider>
+      ))
+      await settle()
+    })
+    expect(before.filter((l) => l.includes(LAYOUT_WORD)), "nothing said while the load is on its way").toEqual([])
+    const after = await logged(async () => {
+      arrive()
+      await wait(50)
+    })
+    expect(after.filter((l) => l.includes(LAYOUT_WORD)), "one word for two elements, once it has landed").toHaveLength(1)
+  })
+
+  it("FLV9: `drag` and `layout` from one lazy load: an element mounted while they're on their way drags as one that had them at mount (#582)", async () => {
+    /** One gesture on a `w.div drag layout` under `features`: where it's drawn as it's held, and once it has landed. */
+    const gesture = async (features: FeaturesProp, arrive: () => void): Promise<{ readonly held: number; readonly after: number }> => {
+      // Pushed input: one draggable on the page at a time, as drags are claimed page-wide (ADR-0019).
+      const input = Effect.runSync(TestInput.pushable())
+      let el!: HTMLElement
+      const scene = mount(() => (
+        <WardicProvider env={input.layer.pipe(Layer.provideMerge(DomLive))}>
+          <div style={stage(() => 0)}>
+            <LazyWardic features={features}>
+              <w.div ref={(n: HTMLElement) => (el = n)} style={BOX} drag="x" dragMomentum={false} layout />
+            </LazyWardic>
+          </div>
+        </WardicProvider>
+      ))
+      await settle()
+      arrive()
+      await wait(50)
+      const x0 = leftOf(el)
+      let t = 0
+      const push = (type: InputSource.PointerLikeEvent["type"], x: number): void => {
+        t += 20
+        Effect.runSync(input.push(InputSource.makePointerLikeEvent({ type, x, y: 0, timeStamp: t })))
+      }
+      push("down", 0)
+      for (let k = 1; k <= 5; k++) push("move", 20 * k)
+      await raf()
+      await raf()
+      const held = leftOf(el) - x0
+      push("up", 100)
+      await wait(1200)
+      const after = leftOf(el) - x0
+      scene.unmount()
+      return { held, after }
+    }
+    let arrive!: () => void
+    const load: FeatureLoad = () =>
+      new Promise((resolve) => {
+        arrive = () => resolve([drag, layout])
+      })
+    const late = await gesture(load, () => arrive())
+    const atMount = await gesture([drag, layout], constVoid)
+    expect(late.held, "it follows the pointer").toBeGreaterThan(90)
+    expect(Math.round(late.after), "and lands as the one that had both at mount").toBe(Math.round(atMount.after))
   })
 
   it("FLV4: an AnimatePresence's Slim child exits and useAnimateLayout settles without `layout`, building none; LayoutGroup brings it", async () => {
