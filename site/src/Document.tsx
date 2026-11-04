@@ -18,6 +18,8 @@ export default function Document(props: ParentProps) {
         <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
         <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+        {/* The headings' face (site.css), fetched with the page so they don't swap in late. */}
+        <link rel="preload" href="/fonts/manrope-latin.woff2" as="font" type="font/woff2" crossorigin="anonymous" />
         <script innerHTML={THEME_SCRIPT} />
         <HydrationScript />
       </head>

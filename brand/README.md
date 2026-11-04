@@ -27,3 +27,6 @@ serves the favicon and touch icon from `site/public/`.
 - Leave room round the mark of at least a quarter of its width.
 - Use the small cut below 48 px; the full mark's faint stars and halos blur there.
 - Don't recolour, stretch, rotate or outline the mark, and don't set the wordmark in another face.
+
+The wordmark is Manrope ExtraBold, under the SIL Open Font License; the docs set their headings in
+Manrope too. Its notice is in `THIRD_PARTY_NOTICES.md`.
