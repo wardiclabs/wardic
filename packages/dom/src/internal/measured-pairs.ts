@@ -27,7 +27,6 @@ import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
-import { identity } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { project } from "./renderer.ts"
 
@@ -174,27 +173,40 @@ interface Saved {
   readonly priority: string
 }
 
+/** An inline property as it is now, to put back. */
+const savedOf = (element: HTMLElement, property: string): Saved => ({ element, property, value: element.style.getPropertyValue(property), priority: element.style.getPropertyPriority(property) })
+
+/**
+ * Write `pairs`' translates at their `end` through the element's whole transform, keeping what was
+ * there: the browser lays out any unit, `-100%` included (#594).
+ */
+const writeTranslates = (request: Request, pairs: ReadonlyArray<MeasuredPair>, end: "from" | "to"): ReadonlyArray<Saved> => {
+  if (pairs.length === 0) return []
+  const { element, values } = request
+  const saved = savedOf(element, "transform")
+  const transform = project({ ...values, ...Rec.fromEntries(Arr.map(pairs, (pair) => [pair.key, pair[end]] as const)) })["transform"]
+  element.style.setProperty("transform", UndefinedOr.match(transform as string | undefined, { onUndefined: () => "none", onDefined: String }))
+  return [saved]
+}
+
 /** Write each pair's target inline on its element, keeping what was there; a translate through the element's whole transform. */
 const writeTargets = (request: Request): ReadonlyArray<Saved> => {
-  const { element, pairs, values } = request
-  const saved: Array<Saved> = []
-  const keep = (property: string): void => {
-    saved.push({ element, property, value: element.style.getPropertyValue(property), priority: element.style.getPropertyPriority(property) })
-  }
-  const unread = Arr.filter(pairs, (pair) => Predicate.isUndefined(pair.toPx))
-  const translates = Arr.filter(unread, (pair) => TRANSLATES.has(pair.key))
-  if (Arr.isArrayNonEmpty(translates)) {
-    const transform = project({ ...values, ...Rec.fromEntries(Arr.map(translates, (pair) => [pair.key, pair.to] as const)) })["transform"]
-    keep("transform")
-    element.style.setProperty("transform", UndefinedOr.match(transform as string | undefined, { onUndefined: () => "none", onDefined: String }))
-  }
+  const unread = Arr.filter(request.pairs, (pair) => Predicate.isUndefined(pair.toPx))
+  const saved: Array<Saved> = [...writeTranslates(request, Arr.filter(unread, (pair) => TRANSLATES.has(pair.key)), "to")]
   Arr.forEach(unread, (pair) => {
     if (TRANSLATES.has(pair.key)) return
-    keep(pair.key)
-    element.style.setProperty(pair.key, cssOf(pair.to))
+    saved.push(savedOf(request.element, pair.key))
+    request.element.style.setProperty(pair.key, cssOf(pair.to))
   })
   return saved
 }
+
+/**
+ * Write each translate pair's start not in px, as a target is (#594): a layout element's transform at
+ * this moment is its projection's, or held off for its Measure pass, so reading it as it is gave 0.
+ */
+const writeTranslateStarts = (request: Request): ReadonlyArray<Saved> =>
+  writeTranslates(request, Arr.filter(request.pairs, (pair) => Bool.and(TRANSLATES.has(pair.key), Predicate.isUndefined(pair.fromPx))), "from")
 
 /** Put back what {@link writeTargets} replaced. */
 const restore = (saved: ReadonlyArray<Saved>): void =>
@@ -214,13 +226,25 @@ const flush = (): void => {
   queued = []
   scheduled = false
   const styles = Arr.map(batch, ({ element }) => getComputedStyle(element))
-  // READ: each start not already in px, as the element lays out now; each end in px as given.
-  Arr.forEach(batch, (request, i) => Arr.forEach(request.pairs, (pair) => {
+  // Each end in px as given.
+  Arr.forEach(batch, (request) => Arr.forEach(request.pairs, (pair) => {
     pair.toPx = givenPx(pair.to)
-    pair.fromPx = UndefinedOr.match(givenPx(pair.from), {
-      onUndefined: () => readPx(request.element, UndefinedOr.getOrThrow(styles[i]), pair.key),
-      onDefined: identity,
-    })
+    pair.fromPx = givenPx(pair.from)
+  }))
+  // WRITE, READ, WRITE: each translate's start not in px, written alone and read (#594).
+  const starts = Arr.flatMap(batch, writeTranslateStarts)
+  if (Arr.isArrayNonEmpty(starts)) {
+    try {
+      Arr.forEach(batch, (request, i) => Arr.forEach(request.pairs, (pair) => {
+        if (Bool.and(TRANSLATES.has(pair.key), Predicate.isUndefined(pair.fromPx))) pair.fromPx = readPx(request.element, UndefinedOr.getOrThrow(styles[i]), pair.key)
+      }))
+    } finally {
+      restore(starts)
+    }
+  }
+  // READ: each other start not already in px, as the element lays out now.
+  Arr.forEach(batch, (request, i) => Arr.forEach(request.pairs, (pair) => {
+    if (Predicate.isUndefined(pair.fromPx)) pair.fromPx = readPx(request.element, UndefinedOr.getOrThrow(styles[i]), pair.key)
   }))
   const scrollY = globalThis.scrollY
   // WRITE: each target, inline.

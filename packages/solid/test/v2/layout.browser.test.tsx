@@ -31,13 +31,17 @@
 // - LY21 (#257): a declared change that moves nothing resolves at its pass's end.
 // - LY22 (#257): the provider's disposal rejects a waiting `animateLayout` with an `AbortError`.
 // - LY23 (#257): `each("layoutComplete")`: each landing, a restart's interrupted flight not among them.
+// - LY24 (#594): an own `x` in another unit than px (`-100%`, `-100vw`), mounted from it, to 0 or to
+//   `0%`, slides a layout and a `layoutRoot` element exactly as it slides a plain one.
 import { DomLive } from "@wardic/dom"
 import {
   AnimatePresence,
+  layout,
   LayoutGroup,
   useAnimateLayout,
   type AnimateLayout,
   type Ward,
+  w,
   ward,
   wardic,
   WardicProvider,
@@ -48,6 +52,7 @@ import { createSignal, flush, For, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
+import { sampleFrames, wait } from "./reorder-scene.tsx"
 
 const leftOf = (el: Element): number => el.getBoundingClientRect().left
 const topOf = (el: Element): number => el.getBoundingClientRect().top
@@ -647,5 +652,49 @@ describe("layout on Solid 2: what reaches the projection from a ward's config", 
     flushed(setMoved)(0)
     await loop
     expect(landings).toBe(2)
+  })
+
+  it("LY24: an own x in % or vw, mounted from it, slides a layout and a layoutRoot element as a plain one (#594)", async () => {
+    const BOX = { width: "40px", height: "40px", background: "teal" } as const
+    const LINEAR = { type: "tween", duration: 0.25, ease: "linear" } as const
+    const xOf = (el: Element): number => new DOMMatrixReadOnly(getComputedStyle(el).transform).m41
+    const round = (n: number): number => Math.round(n * 100) / 100
+    const PAIRS = [
+      ["-100%", 0],
+      ["-100%", "0%"],
+      ["-100vw", "0vw"],
+    ] as const
+    for (const [from, to] of PAIRS) {
+      const [shown, setShown] = createSignal(false)
+      const { host, unmount } = mount(() => (
+        <WardicProvider env={DomLive} features={[layout]}>
+          <Show when={shown()}>
+            <w.div data-k="plain" initial={{ x: from }} animate={{ x: to }} transition={LINEAR} style={BOX} />
+            <w.div data-k="layout" layout initial={{ x: from }} animate={{ x: to }} transition={LINEAR} style={BOX} />
+            <w.div data-k="root" layoutRoot initial={{ x: from }} animate={{ x: to }} transition={LINEAR} style={BOX} />
+          </Show>
+        </WardicProvider>
+      ))
+      await frames(2)
+      const s = sampleFrames(() => {
+        const [plain, lay, root] = (["plain", "layout", "root"] as const).map((k) => host.querySelector(`[data-k="${k}"]`))
+        return Bool.match(plain === null || lay === null || root === null, {
+          onTrue: () => undefined,
+          onFalse: () => ({ plain: xOf(plain!), layout: xOf(lay!), root: xOf(root!) }),
+        })
+      })
+      flushed(setShown)(true)
+      await wait(450)
+      const drawn = s.stop().flatMap((f) => Bool.match(f.v === undefined, { onTrue: () => [], onFalse: () => [f.v!] }))
+      const start = drawn[0]!.plain
+      expect(start, `${from}: the plain one starts off to the left`).toBeLessThan(-30)
+      expect(drawn.filter((f) => f.layout < -1 && f.layout > start + 1).length, `${from}: mid-slide`).toBeGreaterThanOrEqual(5)
+      for (const [i, f] of drawn.entries()) {
+        expect(round(f.layout), `${from} frame ${i}: layout as the plain one`).toBe(round(f.plain))
+        expect(round(f.root), `${from} frame ${i}: layoutRoot as the plain one`).toBe(round(f.plain))
+      }
+      expect(drawn.at(-1)!.layout).toBe(0)
+      unmount()
+    }
   })
 })

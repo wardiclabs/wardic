@@ -112,7 +112,8 @@ describe("RendererDomLive.project (pure)", () => {
 // translate in page pixels, then divided by the tree scale, as Motion's target box carries it.
 // - OT1: at rest, its own x and y are its whole translate.
 // - OT2: on a projection's delta and under a tree scale: (delta + own) / treeScale.
-// - OT3: `translateX`/`translateY` add to `x`/`y`; a px string counts, another unit can't.
+// - OT3: `translateX`/`translateY` add to `x`/`y`; a px string counts; another unit is drawn as CSS before
+//   the projection's pixels (#594), and the engine is handed it as 0.
 // - OT4: `translateZ` adds to `z`; a `z` alone keeps its unit.
 describe("a projected element's own translate (#363)", () => {
   it("OT1: at rest, its own x and y are its whole translate", () => {
@@ -128,9 +129,9 @@ describe("a projected element's own translate (#363)", () => {
     expect(renderer.project({ x: 10, y: 2, [Projection.KEY]: projection }).transform).toBe("translate3d(20px, -2px, 0px) scale(0.5, 0.5) scale(2, 2)")
   })
 
-  it("OT3: translateX and translateY add to x and y; a px string counts, another unit can't", () => {
+  it("OT3: translateX and translateY add to x and y; a px string counts, another unit is drawn as CSS (#594)", () => {
     const values = { x: 10, translateX: "5px", y: "3%", translateY: "2rem" }
-    expect(renderer.project({ ...values, [Projection.KEY]: IDENTITY_PROJECTION }).transform).toBe("translate3d(15px, 0px, 0px)")
+    expect(renderer.project({ ...values, [Projection.KEY]: IDENTITY_PROJECTION }).transform).toBe("translate(0px, 3%) translate(0px, 2rem) translate3d(15px, 0px, 0px)")
     expect(ownTranslateOf(values), "what the engine is handed").toEqual({ x: 15, y: 0 })
     expect(ownTranslateOf({}), "none").toEqual({ x: 0, y: 0 })
   })
