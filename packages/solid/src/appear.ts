@@ -308,6 +308,9 @@ export interface Entry {
   readonly user: boolean
   /** Whether it's skipped (#468): its rule lands on first paint, and its own stagger holds it back no more than its client does. */
   readonly skipped: boolean
+  /** Its tag, and the keys its mount animates: what names it when the provider explains (#585). */
+  readonly tag: string | undefined
+  readonly to: Option.Option<Values.Values>
 }
 
 /** One server render's Appear animations: the provider's (ADR-0044, decisions 3 and 5). */
@@ -323,7 +326,10 @@ export interface ServerAppear {
     animation: { readonly normal: Option.Option<Result.Result<MountAnimation, string>>; readonly reduced: Option.Option<Result.Result<MountAnimation, string>> },
     group: Option.Option<AppearGroup>,
     setting: ReducedMotion.Config | undefined,
-    skipped?: boolean,
+    skipped: boolean,
+    /** Its tag and its targets at mount, which name it when the provider explains (#585). */
+    tag: string | undefined,
+    to: Option.Option<Values.Values>,
   ) => {
     readonly entry: Entry
     readonly animation: Option.Option<string>
@@ -354,8 +360,6 @@ export interface ServerAppear {
    * binding's chunk root's thunk asks for it once the chunk has rendered.
    */
   readonly chunk: () => string
-  /** Why each element that doesn't play doesn't: for the debug log. */
-  readonly reasons: () => ReadonlyArray<string>
 }
 
 /** No transition: no orchestration. */
@@ -380,11 +384,34 @@ const playsUnder = (plays: Entry["plays"], setting: ReducedMotion.Config): Entry
 /** Whether an entry follows the user's preference (#434). */
 const isUser = (entry: Entry): boolean => entry.user
 
-/** A server render's Appear animations, for a provider whose reduced motion is `reducedMotion`. */
-export const serverAppear = (reducedMotion: ReducedMotion.Config): ServerAppear => {
+/**
+ * What a provider's `appear` explains with (#585): with `"explain"`, a Warning for each element that
+ * waits for the JavaScript, logged as the render finds it with Effect's own logger, since a server
+ * builds no runtime from the app's `env`; nothing otherwise.
+ */
+export const explainerOf = (appear: boolean | "explain" | undefined): ((message: string) => void) | undefined => {
+  if (appear !== "explain") return undefined
+  return (message) => Effect.runSync(Effect.logWarning(message))
+}
+
+/** An element as the provider's explanation names it (#585): its tag and the keys its mount animates. */
+const nameOf = (entry: Entry): string => {
+  const element = UndefinedOr.match(entry.tag, { onUndefined: () => "an element", onDefined: (tag) => `<${tag}>` })
+  return Option.match(entry.to, { onNone: () => element, onSome: (to) => `${element} (${Rec.keys(to).join(", ")})` })
+}
+
+/**
+ * A server render's Appear animations, for a provider whose reduced motion is `reducedMotion`. With
+ * `explain` (the provider's `appear="explain"`, #585), it says why each element that doesn't play
+ * waits for the JavaScript, as it finds out; without it, nothing is kept or said.
+ */
+export const serverAppear = (reducedMotion: ReducedMotion.Config, explain?: (message: string) => void): ServerAppear => {
   const sheet = Appear.sheet()
   const entries: Array<Entry> = []
-  const reasons: Array<string> = []
+  /** Says why `entry` waits for the JavaScript, when the provider explains. */
+  const waits = (entry: Entry, reason: string): void => {
+    if (Predicate.isNotUndefined(explain)) explain(`wardic.appear: ${nameOf(entry)} waits for the JavaScript: ${reason}`)
+  }
   // The shell is flushed once the head's CSS is asked for: what enters after is late (#245).
   let flushed = false
   // The entries written so far, and how deep the render is in late elements.
@@ -418,7 +445,7 @@ export const serverAppear = (reducedMotion: ReducedMotion.Config): ServerAppear 
             onNone: () => slot.define(p, undefined, supports(entry)),
             onSome: (r) => Result.flatMap(r, (rp) => slot.define(p, rp, supports(entry))),
           }))
-        Result.match(defined, { onFailure: (reason) => reasons.push(reason), onSuccess: () => undefined })
+        Result.match(defined, { onFailure: (reason) => waits(entry, reason), onSuccess: () => undefined })
       }))
     return sheet.css()
   }
@@ -427,14 +454,17 @@ export const serverAppear = (reducedMotion: ReducedMotion.Config): ServerAppear 
   const chunkCss = (): string => write(nextBatch())
   return {
     reducedMotion,
-    enter: (given, group, setting, skipped = false) => {
+    enter: (given, group, setting, skipped, tag, to) => {
       // Skipped (#468): its one play in both slots, under no media query.
       const own = Bool.match(skipped, { onTrue: (): ReducedMotion.Config => "never", onFalse: () => settingOr(setting, reducedMotion) })
       const animation = playsUnder(given, own)
-      Arr.forEach([animation.normal, animation.reduced], (play) =>
-        Option.map(Option.flatMap(play, (p) => Result.getFailure(p)), (reason) => reasons.push(reason)))
       const slot = Option.liftPredicate(animation, plays).pipe(Option.map(() => sheet.slot()))
-      const entry: Entry = { plays: animation, slot, group, vetoes: [], user: own === "user", skipped }
+      const entry: Entry = { plays: animation, slot, group, vetoes: [], user: own === "user", skipped, tag, to }
+      // Why it plays neither: its normal play's reason, its reduced one's when that differs (#585).
+      if (Predicate.isNotUndefined(explain)) {
+        const reasons = Arr.dedupe(Arr.flatMap([animation.normal, animation.reduced], (play) => Option.toArray(Option.flatMap(play, (p) => Result.getFailure(p)))))
+        Arr.forEach(reasons, (reason) => waits(entry, reason))
+      }
       entries.push(entry)
       Option.map(group, (g) => g.children.push(entry))
       return { entry, animation: Option.map(slot, (s) => s.animation), late: flushed, chunkRoot: Bool.and(flushed, lateDepth === 0) }
@@ -462,7 +492,6 @@ export const serverAppear = (reducedMotion: ReducedMotion.Config): ServerAppear 
       flushed = true
       return write(nextBatch())
     },
-    reasons: () => reasons,
   }
 }
 
@@ -702,7 +731,7 @@ export const enterServer = (
     },
     onFalse: () => ({ normal: play(false), reduced: play(true) }),
   })
-  const { entry, animation: inline, late, chunkRoot } = appear.enter(plays, el.group, el.reducedMotion, skipped)
+  const { entry, animation: inline, late, chunkRoot } = appear.enter(plays, el.group, el.reducedMotion, skipped, el.tag, el.to)
   return {
     late,
     chunkRoot,

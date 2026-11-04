@@ -38,7 +38,7 @@ import * as Context from "effect/Context"
 import * as Report from "@wardic/dom/Report"
 import { type Feature, type FeatureRegistry, type FeatureSection, type FeaturesProp, ROOT, strictMessage } from "../../feature.ts"
 import { FeatureSectionContext, sectionUnder, useLazySection } from "./feature-section.ts"
-import { type ServerAppear, serverAppear } from "../../appear.ts"
+import { explainerOf, type ServerAppear, serverAppear } from "../../appear.ts"
 import {
   animateLayoutOf,
   clientContext,
@@ -88,9 +88,11 @@ export function WardicProvider(props: {
   /**
    * Appear animations (#48, ADR-0044), default `true`: a server render starts each element's mount
    * animation in CSS from first paint, and the client takes it over at mount (the **Handoff**).
-   * `false` renders every element at its Starting style until mount. Read on the server, once.
+   * `false` renders every element at its Starting style until mount. `"explain"` (#585) plays them as
+   * `true` does, and the server says, at Warning, why each element that doesn't play waits for the
+   * JavaScript: its tag, the keys it animates, and the reason. Read on the server, once.
    */
-  readonly appear?: boolean | undefined
+  readonly appear?: boolean | "explain" | undefined
   /**
    * The app's scale correctors (#443, Motion's `addScaleCorrector`, given here), by the value key each
    * corrects, in Motion's form: this provider's alone, read once. One keyed `borderRadius` or
@@ -219,17 +221,10 @@ const disposals = new WeakMap<WardicContextValue, Promise<never>>()
  * them, or `undefined` with `appear={false}`. Each element takes a slot as it renders; the head
  * gets every rule and timing once the shell has rendered.
  */
-const serverAppearOf = (appear: boolean | undefined, reducedMotion: ReducedMotion.Config | undefined): ServerAppear | undefined => {
+const serverAppearOf = (appear: boolean | "explain" | undefined, reducedMotion: ReducedMotion.Config | undefined): ServerAppear | undefined => {
   if (appear === false) return undefined
-  const state = serverAppear(UndefinedOr.match(reducedMotion, { onUndefined: () => "user" as const, onDefined: identity }))
-  useHead(appearStyle(() => {
-    const css = state.css()
-    const reasons = state.reasons()
-    if (reasons.length > 0) {
-      Effect.runSync(Effect.logDebug("wardic.hydration: elements keep their Starting style until mount").pipe(Effect.annotateLogs({ reasons })))
-    }
-    return css
-  }))
+  const state = serverAppear(UndefinedOr.match(reducedMotion, { onUndefined: () => "user" as const, onDefined: identity }), explainerOf(appear))
+  useHead(appearStyle(() => state.css()))
   return state
 }
 
