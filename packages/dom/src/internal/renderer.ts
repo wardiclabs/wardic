@@ -254,8 +254,8 @@ const ownScale = (latest: Record<string, unknown>, axisKey: "scaleX" | "scaleY")
 
 /**
  * A translate key's pixels on a projected element (#363): a number, or a px string. Another unit
- * (`%`, `rem`) can't be added to the projection's pixel translate without measuring, so it's 0, as
- * Motion's target box can't take one either. Per frame.
+ * (`%`, `rem`) can't be added to the projection's pixel translate without measuring, so it's 0 here,
+ * and {@link otherUnitTranslate} draws it as CSS (#594). Per frame.
  */
 const pxOf = (value: unknown): number => {
   if (Predicate.isNumber(value)) return value
@@ -275,6 +275,26 @@ const pxOf = (value: unknown): number => {
  * `translateX`/`translateY` out; nothing set on a layout element is dropped here.
  */
 const ownTranslate = (latest: Record<string, unknown>, key: "x" | "y", translateKey: "translateX" | "translateY"): number => pxOf(latest[key]) + pxOf(latest[translateKey])
+
+/** A length in another unit than px: `-100%`, `1.5rem`, `50vw`. */
+const OTHER_UNIT = /^-?[\d.]+(?!px$)[a-z%]+$/i
+
+/** A translate key's CSS when it's a length in another unit than px (#594), else `0px`: {@link pxOf} reads the rest. */
+const otherUnitOf = (value: unknown): string => {
+  if (Predicate.isString(value) && OTHER_UNIT.test(value)) return value
+  return "0px"
+}
+
+/**
+ * One axis pair's CSS translate when either is in another unit than px (#594), else "". The browser
+ * resolves it against the element's own box, as it would on a plain element.
+ */
+const otherUnitTranslate = (x: unknown, y: unknown): string => {
+  const cssX = otherUnitOf(x)
+  const cssY = otherUnitOf(y)
+  if (cssX === "0px" && cssY === "0px") return ""
+  return `translate(${cssX}, ${cssY})`
+}
 
 /**
  * An element's own translate, from its value-map: what the renderer draws on top of its projection
@@ -356,6 +376,13 @@ const buildProjectionTransform = (
   const sy = delta.y.scale * treeScale.y * ownScale(latest, "scaleY")
   if (sx !== 1 || sy !== 1) funcs.push(`scale(${sx}, ${sy})`)
 
+  // An own translate in another unit than px (`x: "-100%"`) can't be added to the projection's pixels,
+  // so it's drawn before them, and the browser resolves it against the element's own box (#594). The
+  // projection's own math (a handover's start) counts it as 0.
+  const ownByUnit = otherUnitTranslate(latest["x"], latest["y"])
+  const translateByUnit = otherUnitTranslate(latest["translateX"], latest["translateY"])
+  if (translateByUnit !== "") funcs.unshift(translateByUnit)
+  if (ownByUnit !== "") funcs.unshift(ownByUnit)
   if (funcs.length === 0) return "none"
   return funcs.join(" ")
 }
