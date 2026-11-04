@@ -3,7 +3,7 @@ import type * as Drag from "@wardic/core/Drag"
 import * as InputSource from "@wardic/core/InputSource"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Probe from "@wardic/core/Probe"
-import * as Recognizer from "@wardic/core/Recognizer"
+import * as DragRecognizer from "@wardic/core/DragRecognizer"
 import * as Renderer from "@wardic/core/Renderer"
 import { expect, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -55,7 +55,7 @@ layer(Layer.merge(DomLive, DomInput.layer))("DomLive with DomInput.layer", (it) 
     Effect.gen(function* () {
       const el = document.createElement("div")
       // `drag(el)` resolves InputSource from DomInput.layer; R is satisfied by the layer.
-      const sub = yield* subscribeIn(Recognizer.drag(el) as Stream.Stream<Drag.Sample, never, never>)
+      const sub = yield* subscribeIn(DragRecognizer.drag(el) as Stream.Stream<Drag.Sample, never, never>)
 
       // pointerdown claims the gesture (no emission yet).
       el.dispatchEvent(new PointerEvent("pointerdown", { clientX: 0, clientY: 0, buttons: 1, pointerId: 1, pointerType: "mouse", isPrimary: true }))

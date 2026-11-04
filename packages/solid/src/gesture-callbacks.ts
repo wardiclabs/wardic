@@ -12,6 +12,7 @@
  * @module
  */
 import type * as Drag from "@wardic/core/Drag"
+import type * as DragRecognizer from "@wardic/core/DragRecognizer"
 import type * as Recognizer from "@wardic/core/Recognizer"
 import * as Report from "@wardic/dom/Report"
 import * as Bool from "effect/Boolean"
@@ -110,7 +111,7 @@ export interface GestureCallbacks {
   readonly dragged: (sample: Drag.Sample) => void
   /** The drag's release came to rest on its own. */
   readonly released: () => void
-  readonly panned: (sample: Recognizer.PanSample) => void
+  readonly panned: (sample: DragRecognizer.PanSample) => void
   /** An in-view transition: `onViewportEnter` or `onViewportLeave`, with the platform's entry. */
   readonly viewed: (transition: Recognizer.ViewTransition) => void
 }

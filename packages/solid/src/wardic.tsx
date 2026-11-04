@@ -13,7 +13,7 @@
  */
 import type { Accessor, JSX } from "solid-js"
 import { runDirective } from "./directive.ts"
-import { COMPLETE } from "./create-ward.tsx"
+import { COMPLETE } from "./complete.ts"
 import type { WardConfig } from "./config.ts"
 import { type Create, createOf, formOf, type WardicComponent } from "./element.tsx"
 

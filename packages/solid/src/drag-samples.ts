@@ -7,7 +7,7 @@
 import * as Drag from "@wardic/core/Drag"
 import type * as InputFeed from "@wardic/core/InputFeed"
 import type * as InputSource from "@wardic/core/InputSource"
-import * as Recognizer from "@wardic/core/Recognizer"
+import * as DragRecognizer from "@wardic/core/DragRecognizer"
 import type * as Effect from "effect/Effect"
 import type * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -48,5 +48,5 @@ export const watchDragSamples = (
       return (sample: Drag.Sample) => handlers.on(kept(sample))
     },
   })
-  return Recognizer.watchDrag(target, { axis, claim, mapPoint }, { ...handlers, on })
+  return DragRecognizer.watchDrag(target, { axis, claim, mapPoint }, { ...handlers, on })
 }

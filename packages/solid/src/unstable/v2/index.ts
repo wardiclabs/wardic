@@ -42,7 +42,8 @@ export { hover } from "../../features/hover.ts"
 export { inView } from "../../features/in-view.ts"
 export { pan } from "../../features/pan.ts"
 export { press } from "../../features/press.ts"
-export { domAnimation, domMax } from "../../features/presets.ts"
+export { domAnimation } from "../../features/dom-animation.ts"
+export { domMax } from "../../features/dom-max.ts"
 // The Instant change and the Projection reset (#443): Motion's `useInstantTransition` and kin.
 export type { InstantTransition } from "../../instant.ts"
 // `WardicConfig`'s `transformPagePoint` helpers (#443, Motion's): a drag inside a transformed parent, or an SVG's viewBox.
@@ -72,8 +73,8 @@ export {
   type WardRead,
   type WardStyle,
   type WardWithProps,
-  ward,
 } from "./ward.tsx"
+export { ward } from "./complete.ts"
 export type { WardDragInfo, WardElement, WardEvent, WardEvents, WardGestures, WardPoint, WardPointInfo, WardPressInfo, WardSettled } from "./lifecycle.ts"
 export type { WardicAnimationDefinition } from "../../config.ts"
 export type { AnimatedKey, WardKey, WardValueOf } from "../../ward-keys.ts"
@@ -157,16 +158,16 @@ export { measureLayoutBox } from "@wardic/dom/ProjectionSystem"
  */
 export {
   type CreateDragOptions,
-  createDrag,
-  createFocus,
-  createHover,
   createInView,
-  createPress,
   createPageInView,
   createReducedMotion,
   createReducedMotionConfig,
   type Sensor,
 } from "./sensors.ts"
+export { createDrag } from "./drag-sensor.ts"
+export { createFocus } from "./focus-sensor.ts"
+export { createHover } from "./hover-sensor.ts"
+export { createPress } from "./press-sensor.ts"
 // `createCycle` (#443, Motion's `useCycle`): one of a list of states at a time, stepped through.
 export { createCycle, type Cycle } from "./cycle.ts"
 

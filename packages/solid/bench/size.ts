@@ -4,8 +4,10 @@
  *
  * - **The apps:** each binding's plain Solid app, one Complete element (`wardic.div` under a
  *   `WardicProvider`), and the same inside `<AnimatePresence>`; one Slim element (`w.div`) alone, the
- *   Slim element's base, and with each Feature (#511). An app the base can't build, its API new, is
- *   reported as new and not gated.
+ *   Slim element's base, and with each Feature (#511). And a multi-route app (#548): a shell giving
+ *   `domAnimation`, a plain page, a page that drags and one that lays out, each an entry as
+ *   SolidStart's routes are, measured as what the plain page loads, so a Feature that reaches a page
+ *   that never uses it fails the gate. An app the base can't build, its API new, is reported as new and not gated.
  * - **Each side is built as an app ships it,** as `bench:solid` builds its pages (`sides.ts`): Vite,
  *   production mode, minified, tree-shaken, for the browsers an app ships to by default
  *   (`APP_TARGET`, #525); Solid 1 through vite-plugin-solid, Solid 2 through the repo's
@@ -26,6 +28,7 @@ import { build } from "vite"
 import solid from "vite-plugin-solid"
 import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
+import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { solid2 } from "../vite.solid2.ts"
 import { APP_TARGET, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
@@ -53,6 +56,13 @@ interface App {
   readonly name: string
   readonly v2: boolean
   readonly source: string
+  /**
+   * A multi-route app's pages (#548), each its own file and its own entry, as SolidStart's routes are,
+   * which `source` loads with `import()`. Its size is what its first page loads: `source`, that page,
+   * and every chunk they import statically, so a Feature only another page uses shows when it reaches
+   * them.
+   */
+  readonly pages?: ReadonlyArray<string>
 }
 
 const plain = (render: string): string => `import { render } from "${render}"
@@ -89,6 +99,37 @@ render(() => <WardicProvider env={DomLive} features={[${features.join(", ")}]}><
 `
 }
 
+/**
+ * A multi-route app (#548): a shell with a hover under a provider giving `domAnimation`, and three pages
+ * loaded with `import()`: a plain one, one that drags (`LazyWardic features={[drag]}`) and one that
+ * lays out (`features={[layout]}`). Measured, the plain page: what a page that never drags or lays out
+ * downloads.
+ */
+const routes = (render: string, entry: string, name: string): App => ({
+  name,
+  v2: entry.endsWith("v2"),
+  source: `import { lazy, Show } from "solid-js"
+import { render } from "${render}"
+import { DomLive } from "@wardic/dom"
+import { domAnimation, w, WardicProvider } from "${entry}"
+const Plain = lazy(() => import("./${name}-plain.tsx"))
+const Drags = lazy(() => import("./${name}-drags.tsx"))
+const Moves = lazy(() => import("./${name}-moves.tsx"))
+render(() => <WardicProvider env={DomLive} features={[domAnimation]}><w.button whileHover={{ scale: 1.1 }}>menu</w.button><Show when={location.hash === "#drag"} fallback={<Show when={location.hash === "#layout"} fallback={<Plain />}><Moves /></Show>}><Drags /></Show></WardicProvider>, document.body)
+`,
+  pages: [
+    `import { w } from "${entry}"
+export default function Plain() { return <w.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>hi</w.div> }
+`,
+    `import { drag, LazyWardic, w } from "${entry}"
+export default function Drags() { return <LazyWardic features={[drag]}><w.div drag="x">drag me</w.div></LazyWardic> }
+`,
+    `import { layout, LazyWardic, w } from "${entry}"
+export default function Moves() { return <LazyWardic features={[layout]}><w.div layout>moves</w.div></LazyWardic> }
+`,
+  ],
+})
+
 const APPS: ReadonlyArray<App> = [
   { name: "s1-plain", v2: false, source: plain("solid-js/web") },
   { name: "s1-complete", v2: false, source: complete("solid-js/web", "@wardic/solid", false) },
@@ -100,6 +141,7 @@ const APPS: ReadonlyArray<App> = [
   { name: "s1-drag", v2: false, source: slim("solid-js/web", "@wardic/solid", ["drag"]) },
   { name: "s1-dom-animation", v2: false, source: slim("solid-js/web", "@wardic/solid", ["domAnimation"]) },
   { name: "s1-dom-max", v2: false, source: slim("solid-js/web", "@wardic/solid", ["domMax"]) },
+  routes("solid-js/web", "@wardic/solid", "s1-routes"),
   { name: "s2-plain", v2: true, source: plain("@solidjs/web") },
   { name: "s2-complete", v2: true, source: complete("@solidjs/web", "@wardic/solid/unstable/v2", false) },
   { name: "s2-presence", v2: true, source: complete("@solidjs/web", "@wardic/solid/unstable/v2", true) },
@@ -110,6 +152,7 @@ const APPS: ReadonlyArray<App> = [
   { name: "s2-drag", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["drag"]) },
   { name: "s2-dom-animation", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["domAnimation"]) },
   { name: "s2-dom-max", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["domMax"]) },
+  routes("@solidjs/web", "@wardic/solid/unstable/v2", "s2-routes"),
 ]
 
 /** What a source map's sources are counted under. */
@@ -178,6 +221,84 @@ interface Size {
   readonly groups: Record<Group, number>
 }
 
+/** One output chunk as `routedSizeOf` reads it. */
+interface Chunk {
+  readonly type: "chunk" | "asset"
+  readonly fileName: string
+  readonly isEntry?: boolean
+  readonly facadeModuleId?: string | null
+  readonly imports?: ReadonlyArray<string>
+  readonly code?: string
+  readonly map?: { readonly sources: ReadonlyArray<string>; readonly mappings: string } | null
+}
+
+/**
+ * A multi-route app's size (#548): built as SolidStart builds its client, every page an entry beside the
+ * app's (`preserveEntrySignatures: "exports-only"`), and measured as what its first page loads: the
+ * app's chunk, that page's, and every chunk either imports statically, each gzipped on its own as a
+ * page fetches them. `undefined` when the base can't build it.
+ */
+const routedSizeOf = async (root: string, deps: string, app: App, entry: string, side: string): Promise<Size | undefined> => {
+  const pages = (app.pages ?? []).map((source, i) => {
+    const file = join(root, "apps", `${app.name}-${["plain", "drags", "moves"][i]}.tsx`)
+    writeFileSync(file, source)
+    return file
+  })
+  const out = join(root, "dist", app.name)
+  const built = await build({
+    configFile: false,
+    logLevel: "error",
+    mode: "production",
+    root,
+    plugins: [sideResolver(root, deps), Bool.match(app.v2, { onTrue: () => solid2({ dev: false }), onFalse: () => solid() })],
+    define: { "process.env.NODE_ENV": JSON.stringify("production") },
+    build: {
+      outDir: out,
+      emptyOutDir: true,
+      minify: true,
+      target: [...APP_TARGET],
+      sourcemap: true,
+      write: false,
+      rollupOptions: { input: [entry, ...pages], preserveEntrySignatures: "exports-only" },
+    },
+  }).then(
+    (output) => output,
+    (error: unknown) => {
+      if (side === "head") throw error
+      return undefined
+    },
+  )
+  if (Predicate.isUndefined(built)) return undefined
+  const chunks = ([built].flat() as ReadonlyArray<{ readonly output: ReadonlyArray<Chunk> }>).flatMap((o) => o.output).filter((c) => c.type === "chunk")
+  const byName = new Map(chunks.map((c) => [c.fileName, c]))
+  const entryOf = (file: string): Chunk => chunks.find((c) => c.isEntry === true && c.facadeModuleId === file)!
+  // What the first page loads: the app's and that page's chunks, and their static imports.
+  const loaded = new Set<string>()
+  const visit = (chunk: Chunk): void => {
+    if (loaded.has(chunk.fileName)) return
+    loaded.add(chunk.fileName)
+    for (const imported of chunk.imports ?? []) visit(byName.get(imported)!)
+  }
+  visit(entryOf(entry))
+  visit(entryOf(pages[0]!))
+  const groups = Object.fromEntries(GROUPS.map((g) => [g, 0])) as Record<Group, number>
+  let min = 0
+  let gz = 0
+  let br = 0
+  for (const file of loaded) {
+    const chunk = byName.get(file)!
+    const js = Buffer.from(chunk.code!)
+    min += js.length
+    gz += gzipSync(js, { level: 9 }).length
+    br += brotliCompressSync(js).length
+    if (chunk.map) {
+      const per = bytesByGroup(chunk.code!, chunk.map)
+      for (const g of GROUPS) groups[g] += per[g]
+    }
+  }
+  return { min, gz, br, groups }
+}
+
 /** Build every app on one side: its sources from `commit` (the working tree when undefined). */
 const sizesOf = async (side: string, commit: string | undefined, deps: string): Promise<ReadonlyMap<string, Size>> => {
   const root = join(OUT, side)
@@ -191,6 +312,11 @@ const sizesOf = async (side: string, commit: string | undefined, deps: string): 
   for (const app of APPS) {
     const entry = join(root, "apps", `${app.name}.tsx`)
     writeFileSync(entry, app.source)
+    if (Predicate.isNotUndefined(app.pages)) {
+      const routed = await routedSizeOf(root, deps, app, entry, side)
+      if (Predicate.isNotUndefined(routed)) sizes.set(app.name, routed)
+      continue
+    }
     // An app the base can't build is one the head adds (its API is new): reported, not gated.
     const built = await build({
       configFile: false,

@@ -1,6 +1,6 @@
 import type * as Drag from "@wardic/core/Drag"
 import * as InputSource from "@wardic/core/InputSource"
-import * as Recognizer from "@wardic/core/Recognizer"
+import * as DragRecognizer from "@wardic/core/DragRecognizer"
 import * as Velocity from "@wardic/core/Velocity"
 import { TestInput } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
@@ -19,7 +19,7 @@ const ev = (
   InputSource.makePointerLikeEvent({ type, pointerId, x, y, pressed: type !== "up" && type !== "cancel", timeStamp: t })
 
 const collect = (events: ReadonlyArray<InputSource.PointerLikeEvent>) =>
-  Stream.runCollect(Recognizer.drag(undefined)).pipe(Effect.provide(TestInput.layer(events)))
+  Stream.runCollect(DragRecognizer.drag(undefined)).pipe(Effect.provide(TestInput.layer(events)))
 
 it.effect("activation: down + moves past threshold emit start then moves with correct offset/delta", () =>
   Effect.gen(function* () {
@@ -134,7 +134,7 @@ it.effect("a cancel ends at the last move's point, not its own: Chromium's point
 // A drag's `axis` (#29: it replaced `Drag.axisLock`): a one-axis drag's samples have their
 // off-axis offset, delta and velocity zeroed; `point` and `phase` stay as they were.
 const collectOn = (axis: "x" | "y" | "xy", events: ReadonlyArray<InputSource.PointerLikeEvent>) =>
-  Stream.runCollect(Recognizer.drag(undefined, { axis })).pipe(Effect.provide(TestInput.layer(events)))
+  Stream.runCollect(DragRecognizer.drag(undefined, { axis })).pipe(Effect.provide(TestInput.layer(events)))
 
 it.effect("axis 'x' zeroes the off-axis offset, delta and velocity, and keeps point and phase", () =>
   Effect.gen(function* () {

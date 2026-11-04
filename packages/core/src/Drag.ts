@@ -2,7 +2,7 @@
  * The `Drag` module: a drag gesture's `Sample`, its `Axis`, a constraint on one value (`constrain`),
  * the shaping combinator over a stream of them (`withinBounds`, `dual`, the stream first), and the
  * bounds an element constraint makes (`boundsWithin`, `keepPlace`, #273).
- * `Recognizer.drag` recognizes the gesture, kept
+ * `DragRecognizer.drag` recognizes the gesture, kept
  * to its `axis` (ADR-0019, *Amendment (#29)*); a binding composes its response, the Fling included
  * (ADR-0004, *Amendment (#32)*).
  */
@@ -15,7 +15,7 @@ import type * as Point from "./Point.ts"
 import { dual } from "./internal/dual.ts"
 
 /**
- * One emission from the `Recognizer.drag` recognizer — an Effect-free, portable signal.
+ * One emission from the `DragRecognizer.drag` recognizer — an Effect-free, portable signal.
  *
  * - `point`: the current pointer position (environment coordinates).
  * - `offset`: `point - origin`, measured from the down-point that started the
@@ -76,7 +76,7 @@ export interface Bounds {
 }
 
 /**
- * The axes a drag moves on: `"x"` or `"y"` alone, or `"xy"` for a free drag. `Recognizer.drag`'s
+ * The axes a drag moves on: `"x"` or `"y"` alone, or `"xy"` for a free drag. `DragRecognizer.drag`'s
  * `axis` zeroes a one-axis drag's off-axis and claims only its axis (a **Drag claim**, ADR-0019,
  * *Amendment (#29)*).
  */
@@ -228,7 +228,7 @@ export const within: {
  * tracking prior emitted state).
  *
  * @example
- * Recognizer.drag(el).pipe(Drag.withinBounds({ x: { min: 0, max: 200 } }, { elastic: 0.5 }))
+ * DragRecognizer.drag(el).pipe(Drag.withinBounds({ x: { min: 0, max: 200 } }, { elastic: 0.5 }))
  */
 export const withinBounds: {
   (

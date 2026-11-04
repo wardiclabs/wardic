@@ -8,13 +8,10 @@
  */
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Color from "@wardic/dom/Color"
-import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import type { Feature } from "../feature.ts"
-
-/** The `colors` Feature's service: that the page reads every CSS colour space. */
-export class Colors extends /*#__PURE__*/ Context.Service<Colors, true>()("@wardic/solid/Colors") {}
+import { Colors } from "./keys.ts"
 
 /**
  * Every CSS colour space beyond a hex, `rgb()`, `hsl()` and the colour names, which every element

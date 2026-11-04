@@ -422,3 +422,15 @@ Grilled 2026-10-17 (A, A, A, A):
 `DomLive` no longer merges `DomInput.layer`, and its type no longer lists `InputSource` (ADR-0067, decision 14). A binding's gesture Features build `DomInput.layer` with the first one an app uses, unless the Environment gives an `InputSource` of its own, as `@wardic/test`'s `TestLive` does. An app with no gesture ships no input code.
 
 `DomInput.layer` itself is unchanged, and still `@wardic/dom/DomInput`'s. Code that runs core's recognizers straight on `DomLive` provides it beside: `Layer.merge(DomLive, DomInput.layer)`, as dom's own `dom-live` test now does.
+
+## Amendment (#548, 2026-11-04): the projection engine is `DomProjectionSystem`'s
+
+`ProjectionSystem.make` and `ProjectionSystem.layer` move to a new module, `@wardic/dom/DomProjectionSystem`, the name decision 5 gives the DOM's implementations. `ProjectionSystem` keeps the service key, its types, the default transitions and the measure helpers.
+
+**Why:** every element's code reads the key, and with `make` beside it the projection engine was reachable from code every page runs, so it landed in the chunk every page loads once any page used `layout` (ADR-0067, *Amendment (#548)*). For the same reason:
+- the default layout and drag transitions move from `internal/projection.ts` to `internal/projection-defaults.ts`;
+- `scrollersOf` and the scroll-style reads move from `internal/measure.ts` to `internal/scrollers.ts`.
+
+`ProjectionSystem` and `measure.ts` re-export them.
+
+**Callers:** solid's `layout` Feature builds the engine with `DomProjectionSystem.make`. dom's services tests (DS1–DS3) use the new module.

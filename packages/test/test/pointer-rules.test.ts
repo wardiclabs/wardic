@@ -1,6 +1,7 @@
 import type * as Drag from "@wardic/core/Drag"
 import * as InputFeed from "@wardic/core/InputFeed"
 import * as InputSource from "@wardic/core/InputSource"
+import * as DragRecognizer from "@wardic/core/DragRecognizer"
 import * as Recognizer from "@wardic/core/Recognizer"
 import { TestInput } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
@@ -35,7 +36,7 @@ const finger = (extra: EventOptions = {}): EventOptions => ({ kind: "touch", ...
 const secondFinger: EventOptions = { pointerId: 2, kind: "touch", primary: false }
 
 const collectDrag = (events: ReadonlyArray<InputSource.PointerLikeEvent>) =>
-  Stream.runCollect(Recognizer.drag(undefined)).pipe(Effect.provide(TestInput.layer(events)))
+  Stream.runCollect(DragRecognizer.drag(undefined)).pipe(Effect.provide(TestInput.layer(events)))
 
 /** Run a stream in a forked fiber over a pushable input, recording what it emits. */
 const observe = <A>(stream: Stream.Stream<A, never, InputSource.InputSource>) =>
@@ -308,7 +309,7 @@ const scrolledInput = () => {
 const dragOver = (input: ReturnType<typeof scrolledInput>) =>
   Effect.gen(function* () {
     const seen = yield* Ref.make<ReadonlyArray<Drag.Sample>>([])
-    yield* Stream.runForEach(Recognizer.drag(undefined), (s) => Ref.update(seen, (xs) => [...xs, s])).pipe(
+    yield* Stream.runForEach(DragRecognizer.drag(undefined), (s) => Ref.update(seen, (xs) => [...xs, s])).pipe(
       Effect.provide(input.layer),
       Effect.forkChild,
     )

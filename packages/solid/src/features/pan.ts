@@ -4,29 +4,14 @@
  *
  * @module
  */
-import type * as InputFeed from "@wardic/core/InputFeed"
-import * as Recognizer from "@wardic/core/Recognizer"
-import * as Context from "effect/Context"
-import type * as Effect from "effect/Effect"
-import type * as Scope from "effect/Scope"
+import * as DragRecognizer from "@wardic/core/DragRecognizer"
 import type { Feature } from "../feature.ts"
+import { PanGesture } from "./keys.ts"
 import { gestureLayer, withInput } from "./input.ts"
-
-/** The `pan` Feature's service: an element's pans watched, over the gestures' input. */
-export class PanGesture extends /*#__PURE__*/ Context.Service<
-  PanGesture,
-  {
-    readonly watch: (
-      target: unknown,
-      handlers: InputFeed.Handlers<Recognizer.PanSample>,
-      options?: Recognizer.PanOptions,
-    ) => Effect.Effect<void, never, Scope.Scope>
-  }
->()("@wardic/solid/PanGesture") {}
 
 /** Pan gestures: the pan callbacks. */
 export const pan: Feature<PanGesture, PanGesture["Service"]> = {
   name: "pan",
   key: PanGesture,
-  layer: /*#__PURE__*/ gestureLayer(PanGesture, (source) => ({ watch: withInput(source, Recognizer.watchPan) })),
+  layer: /*#__PURE__*/ gestureLayer(PanGesture, (source) => ({ watch: withInput(source, DragRecognizer.watchPan) })),
 }

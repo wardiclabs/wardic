@@ -7,33 +7,12 @@
  * @module
  */
 import * as InputSource from "@wardic/core/InputSource"
-import type * as InputFeed from "@wardic/core/InputFeed"
-import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import type * as Scope from "effect/Scope"
 import { trackConstraintsOf } from "../drag-constraints.ts"
-import { driveDragTrack, type DragTrack, type DragTrackOptions } from "../drag-track.ts"
+import { driveDragTrack } from "../drag-track.ts"
 import type { Feature } from "../feature.ts"
-import type { WardicServices } from "../runtime.ts"
+import { DragGesture } from "./keys.ts"
 import { gestureLayer } from "./input.ts"
-
-/** What an element hands the drag Feature: the track's options, its watches and responses run on its provider. */
-export interface DragRun extends Omit<DragTrackOptions, "watch" | "fork"> {
-  readonly watch: (track: (onDefect: InputFeed.OnDefect) => Effect.Effect<void, never, Scope.Scope | WardicServices>) => void
-  readonly fork: (response: Effect.Effect<void, never, WardicServices>) => void
-}
-
-/**
- * The `drag` Feature's service: an element's drag track driven over the gestures' input, and its
- * `dragConstraints` read (a box, or a container measured against the element).
- */
-export class DragGesture extends /*#__PURE__*/ Context.Service<
-  DragGesture,
-  {
-    readonly drive: (run: DragRun) => DragTrack
-    readonly constraintsOf: typeof trackConstraintsOf
-  }
->()("@wardic/solid/DragGesture") {}
 
 /** Drag gestures: `drag`, `dragControls`, the drag callbacks, and what a `Reorder` item drags with. */
 export const drag: Feature<DragGesture, DragGesture["Service"]> = {

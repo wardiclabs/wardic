@@ -59,7 +59,8 @@ import {
   useContext,
 } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { runWatch, useBrought, useWardicGate, useWardicProjection, useWardicRuntime } from "./provider.tsx"
+import { runWatch, useBrought, useWardicGate, useWardicRuntime } from "./provider.tsx"
+import { useWardicProjection } from "./layout-projection.ts"
 import { watchItemInput } from "./reorder-input.ts"
 import type { Feature } from "./feature.ts"
 import { drag } from "./features/drag.ts"

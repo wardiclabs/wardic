@@ -8,7 +8,7 @@
  *
  * @internal for the Reorder controller.
  */
-import { scrollersOf } from "./measure.ts"
+import { scrollersOf } from "./scrollers.ts"
 import * as Arr from "effect/Array"
 
 /** A box on screen, in client coordinates. */

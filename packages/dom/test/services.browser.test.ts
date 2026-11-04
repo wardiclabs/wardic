@@ -6,7 +6,7 @@
 // - DS2: closing the runtime's Scope ends the engine, then the gate: the engine's watch on the
 //   Environment's viewport (#45) stops before the gate's pending frame is cancelled, and nothing is
 //   written after.
-// - DS3: `ProjectionSystem.make` over a binding's own sink ends with its own Scope: its viewport
+// - DS3: `DomProjectionSystem.make` over a binding's own sink ends with its own Scope: its viewport
 //   watch stops when that Scope closes.
 // - DS4: `FlushGate.inert` does nothing (its `afterFlush` never calls), and `FlushGate.layerInert` provides it.
 //
@@ -29,6 +29,7 @@ import * as Probe from "@wardic/core/Probe"
 import type * as Reorder from "@wardic/core/Reorder"
 import { DomLive } from "@wardic/dom"
 import * as FlushGate from "@wardic/dom/FlushGate"
+import * as DomProjectionSystem from "@wardic/dom/DomProjectionSystem"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as ReorderController from "@wardic/dom/ReorderController"
 import * as Option from "effect/Option"
@@ -74,7 +75,7 @@ const onViewportWatchStopped = (runtime: ManagedRuntime.ManagedRuntime<Probe.Pro
 
 const runtimeOf = () =>
   ManagedRuntime.make(
-    ProjectionSystem.layer().pipe(Layer.provideMerge(FlushGate.layer({ batch: (apply) => apply() })), Layer.provideMerge(DomLive)),
+    DomProjectionSystem.layer().pipe(Layer.provideMerge(FlushGate.layer({ batch: (apply) => apply() })), Layer.provideMerge(DomLive)),
   )
 
 const SPRING = () => Option.some({ type: "tween" as const, duration: 0.2 })
@@ -126,13 +127,13 @@ describe("the gate and the projection system as services (#132)", () => {
     expect(target.style.opacity, "nothing written after").toBe("")
   })
 
-  it("DS3: ProjectionSystem.make over a binding's own sink ends with its own Scope", async () => {
+  it("DS3: DomProjectionSystem.make over a binding's own sink ends with its own Scope", async () => {
     const runtime = ManagedRuntime.make(DomLive)
     let stopped = 0
     onViewportWatchStopped(runtime, () => stopped++)
     const sink = { write: () => {}, flushPass: (pass: () => void) => pass() }
     const scope = Scope.makeUnsafe()
-    const engine = runtime.runSync(ProjectionSystem.make(sink).pipe(Scope.provide(scope)))
+    const engine = runtime.runSync(DomProjectionSystem.make(sink).pipe(Scope.provide(scope)))
     engine.register({ id: "n", element: box("width:40px;height:40px"), transition: SPRING })
     await frames(2)
     expect(stopped).toBe(0)
@@ -205,7 +206,7 @@ const mountGroup = async () => {
     if (text.startsWith("wardic.reorder:")) logs.push(text)
   })
   const runtime = ManagedRuntime.make(
-    ProjectionSystem.layer().pipe(
+    DomProjectionSystem.layer().pipe(
       Layer.provideMerge(FlushGate.layer({ batch: (apply) => apply() })),
       Layer.provideMerge(Layer.mergeAll(DomLive, Logger.layer([logger]), Layer.succeed(References.MinimumLogLevel, "Debug"))),
     ),

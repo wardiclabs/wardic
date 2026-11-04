@@ -109,6 +109,7 @@ import {
   transformStyleFrom,
   transitionRunning,
 } from "./measure.ts"
+import { DEFAULT_DRAG_TRANSITION, DEFAULT_LAYOUT_TRANSITION, type DragTransition, type LayoutTransition } from "./projection-defaults.ts"
 import { counted, watchPage, type Watched } from "./content-watch.ts"
 import { pending as appearRuns } from "./appear.ts"
 import { reportFailure } from "./report.ts"
@@ -140,7 +141,7 @@ const MAX_ROUNDS = 5
 export type ProjectionServices = FrameLoop.FrameLoop | Renderer.Renderer | Probe.Probe | AtomRegistry.AtomRegistry
 
 /**
- * How the engine runs its Effects: synchronously, and forked. `ProjectionSystem.make` builds one
+ * How the engine runs its Effects: synchronously, and forked. `DomProjectionSystem.make` builds one
  * from its Layer's context, forking into its Scope (#132, ADR-0041); a test's `ManagedRuntime`
  * is one too.
  */
@@ -408,41 +409,7 @@ const anchorPointOf = (box: Box.Box, anchor: Point.Point): Point.Point => ({
   y: box.y.min + (box.y.max - box.y.min) * anchor.y,
 })
 
-/**
- * A layout animation's transition (ADR-0009 *Amendment (#171)*): a spring, its fields and its
- * `delay`; or a tween, its `duration`, `ease` (#360) and `delay`. A repeat means nothing for a flight
- * that lands once. A tween with no `duration` or `ease` takes the tween's own defaults, 0.3 s and
- * linear (a binding fills Motion's `easeOut` first, ADR-0051).
- */
-export type LayoutTransition = ({ readonly type: "spring" } & Machine.SpringOptions) | ({ readonly type: "tween" } & Machine.TweenOptions)
 
-/**
- * Motion's default layout transition (ADR-0009 *Amendment (#171)*; motion-dom 13.3.0,
- * `defaultLayoutTransition`): a 0.45 s tween, eased `cubic-bezier(0.4, 0, 0.1, 1)`, so a layout
- * animation lands on time.
- */
-export const DEFAULT_LAYOUT_TRANSITION: LayoutTransition = { type: "tween", duration: 0.45, ease: [0.4, 0, 0.1, 1] }
-
-/**
- * A drag's release (ADR-0016, *Amendment (#140)*, Motion's `dragTransition`): the inertia a node's
- * Release offset runs on, with both edges at its slot, so it springs back there on the bounce. Times in
- * seconds. Its edges are the slot's, never its own.
- */
-export type DragTransition = Omit<Machine.InertiaOptions, "min" | "max">
-
-/**
- * Motion's drag transition (framer-motion 13.4.0, `VisualElementDragControls.startAnimation`), with its
- * default `dragElastic`: a 0.75 s time constant, power 0.8, the bounce 200 / 40, at rest within 1 px and
- * 10 px/s. A node's Release offset runs on it when it's given none (ADR-0016, *Amendment (#140)*).
- */
-export const DEFAULT_DRAG_TRANSITION: DragTransition = {
-  power: 0.8,
-  timeConstant: 0.75,
-  bounceStiffness: 200,
-  bounceDamping: 40,
-  restDelta: 1,
-  restSpeed: 10,
-}
 
 /**
  * A flight's transition, resolved at its start: a spring's options (its delay among them), or a
@@ -5884,3 +5851,5 @@ export const makeProjectionSystem = (
   passEnds.set(system, passEndListeners)
   return system
 }
+
+export { DEFAULT_DRAG_TRANSITION, DEFAULT_LAYOUT_TRANSITION, type DragTransition, type LayoutTransition } from "./projection-defaults.ts"

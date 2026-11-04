@@ -1,5 +1,5 @@
 /**
- * A Layer-built service's runner (#132, ADR-0041): how `FlushGate.make` and `ProjectionSystem.make`
+ * A Layer-built service's runner (#132, ADR-0041): how `FlushGate.make` and `DomProjectionSystem.make`
  * run their Effects after they're built, synchronously and forked, on the context their Layer was
  * built in, forking into its Scope.
  *

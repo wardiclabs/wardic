@@ -38,7 +38,6 @@ import * as Context from "effect/Context"
 import * as Report from "@wardic/dom/Report"
 import { type Feature, type FeatureRegistry, type FeatureSection, type FeaturesProp, ROOT, strictMessage } from "../../feature.ts"
 import { FeatureSectionContext, sectionUnder, useLazySection } from "./feature-section.ts"
-import { projectionBrought } from "../../features/layout.ts"
 import { type ServerAppear, serverAppear } from "../../appear.ts"
 import {
   animateLayoutOf,
@@ -333,13 +332,10 @@ export function useWardicReducedMotionSetting(): () => ReducedMotion.Config {
 }
 
 /**
- * The provider's projection system (ADR-0009), bringing the `layout` Feature (#511, decision 12): built
- * now if nothing has built it yet. For a component that brings it (`LayoutGroup`, `Reorder`). A clear
- * error during a server render, which builds none.
+ * `read` of the nearest provider's context value, named `name` in the error outside one: for a hook in
+ * a module of its own (#548), such as `useWardicProjection`, which brings `layout`.
  */
-export function useWardicProjection(): ProjectionSystem.Shape {
-  return fromContext(contextValue(), "useWardicProjection", projectionBrought)
-}
+export const fromWardicContext = <A,>(name: string, read: (value: WardicContextValue) => A): A => fromContext(contextValue(), name, read)
 
 /**
  * The provider's projection system once its `layout` Feature is built (#511), read as it's needed;

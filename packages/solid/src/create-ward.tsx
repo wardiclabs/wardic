@@ -70,12 +70,11 @@ import { type GestureStates, type NameOrchestration, type ServerVariantNode, ser
 import { registerAnimatable } from "./imperative.ts"
 import { layoutMemberOf, useLayoutGroupId } from "./layout.tsx"
 import { layoutOptionsOf, wantsLayoutNode } from "./layout-member.ts"
-import { DragGesture } from "./features/drag.ts"
-import { FocusGesture } from "./features/focus.ts"
-import { HoverGesture } from "./features/hover.ts"
-import { InViewGesture } from "./features/in-view.ts"
-import { PanGesture } from "./features/pan.ts"
-import { PressGesture } from "./features/press.ts"
+
+
+
+
+
 import { GESTURE_WORDS, hasService, serviceIn } from "./gesture-features.ts"
 import { handoffOf, setsAnimation } from "./appear.ts"
 import { type PresenceContextValue, presenceBlocksInitial, presenceHold, usePresenceContext } from "./presence.tsx"
@@ -84,7 +83,6 @@ import type { PresenceRecord } from "./presence-record.ts"
 import { createWhenWanted, NEVER_STARTED, type Started, stateOf, type Wants } from "./sensors.ts"
 import { type GestureCallbacks, gestureCallbacksOf, inViewOptionsOf, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "./gesture-callbacks.ts"
 import { type Feature, type FeatureRegistry, type FeatureSection, LAYOUT_PROPS, missingMessage, unreadColorIn } from "./feature.ts"
-import { ALL } from "./features/all.ts"
 import { runWatch, useBuiltProjection, useElementFeatures, useFeatureRegistry, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { transformPagePointOf } from "./wardic-config-value.ts"
@@ -130,8 +128,8 @@ import {
   type ServerAppearOf,
 } from "./spine.ts"
 import { type WardicVariantContextValue, useVariantContext, WardicVariantContext } from "./variants.ts"
-import type { WardConfig, WardicTransformShorthands, WardicValues, WardicVariantLabels } from "./config.ts"
-import type { InferredMotion, TargetKey } from "./ward-keys.ts"
+import type { WardConfig, WardicTransformShorthands, WardicValues } from "./config.ts"
+import { DragGesture, FocusGesture, HoverGesture, InViewGesture, PanGesture, PressGesture } from "./features/keys.ts"
 
 /**
  * Optional user-supplied props passed INTO the {@link Ward} callable to be
@@ -909,45 +907,6 @@ const warnUnreadColors = (registry: FeatureRegistry, features: FeatureSection, v
   })
 }
 
-/**
- * Create a **Ward**, one element's motion binding (ADR-0042): spread it onto the element
- * (`<div {...ward()}>`) to drive it through Wardic's motion spine. Solid's `create*`
- * convention: it owns computations under the current owner, as `createDrag` does.
- *
- * `config` may be a plain {@link WardConfig} (back-compat) OR an
- * `Accessor<WardConfig>` for reactive config: when the accessor reads signals,
- * a change recomputes the override-stack `target()` and drives a
- * velocity-preserving Retarget through the existing Snapshot wiring. `animate` /
- * `whileHover` / `whileTap` / `transition` / `variants` are read reactively
- * through `cfg()`; `initial` is read EXACTLY ONCE at setup (`untrack`) — it is
- * the SSR/first-frame seed and must never re-seed after mount (ADR-0003).
- *
- * Its keys are inferred from its targets (#305), as a `wardic.*` element's are, so its `transition`
- * takes entries for the keys it animates, `default` and `layout`, and a target's own takes them and
- * `default` ({@link InferredMotion}). The config keeps its own type, so a name it doesn't know is an
- * error as ever.
- *
- * It puts on a **Complete element**, every Feature brought (#511); `w.createWard` puts on a Slim one.
- *
- * @param config initial/animate/whileHover/whileTap + transition (see {@link WardConfig}), or an accessor of it.
- * @returns the Ward: call it to spread onto a JSX element.
- */
-export function createWard<
-  K extends TargetKey = never,
-  N extends string = never,
-  LI extends WardicVariantLabels = never,
-  LA extends WardicVariantLabels = never,
-  D extends boolean | "x" | "y" = never,
->(config: InferredMotion<WardConfig, K, N, LI, LA, D> | Accessor<InferredMotion<WardConfig, K, N, LI, LA, D>>): Ward {
-  return createWardWith(config as WardConfig | Accessor<WardConfig>, COMPLETE)
-}
-
-/**
- * What a **Complete element** tells the spine (#511, ADR-0067): it brings every Feature. Its forms'
- * (`createWard`, `wardic.*`, `wardic.create`, `use:wardic`) alone: a Slim element's never name it, so
- * its app ships no Feature it doesn't choose.
- */
-export const COMPLETE: SpineInternals = { brings: ALL, complete: true }
 
 /**
  * {@link createWard} with a `<Reorder>` item's additions (internal, ADR-0020; not

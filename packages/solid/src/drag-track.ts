@@ -23,7 +23,7 @@
  *
  * STRUCTURE (ADR-0032, ADR-0055 *Amendment (#379)*): input is handled inside its event, by two
  * watches in the element's watch Scope, with no fiber of the track's own at rest:
- *   - the drag's samples (`Recognizer.watchDrag`): a gesture's bookkeeping, then the direct-set,
+ *   - the drag's samples (`DragRecognizer.watchDrag`): a gesture's bookkeeping, then the direct-set,
  *     or at the "end" the release;
  *   - bare pointer-downs from the Primary pointer ("grabs", `InputFeed.watch`), which stop a
  *     running release, so a re-grab mid-release stops the tail where it is, and the ends of its
@@ -57,7 +57,7 @@ import * as Inertia from "@wardic/core/Inertia"
 import * as InputFeed from "@wardic/core/InputFeed"
 import * as InputSource from "@wardic/core/InputSource"
 import type * as Point from "@wardic/core/Point"
-import * as Recognizer from "@wardic/core/Recognizer"
+import * as DragRecognizer from "@wardic/core/DragRecognizer"
 import type * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
 import * as Microtask from "@wardic/core/Microtask"
@@ -124,7 +124,7 @@ export interface DragTrackConfig {
   readonly snapToOrigin?: boolean | undefined
   /**
    * Motion's `dragDirectionLock` (#273, ADR-0047): each gesture starts once it passes 10 px on one
-   * axis, and drags, claims and releases on that axis alone (`Recognizer.drag`'s `lock`).
+   * axis, and drags, claims and releases on that axis alone (`DragRecognizer.drag`'s `lock`).
    */
   readonly directionLock?: boolean | undefined
   /** What the release runs on: the element's drag transition, resolved ({@link dragTransitionOf}). */
@@ -875,7 +875,7 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
       // Subscribed in this order, so the samples hear an event before the grabs. The constraints
       // bound the element's x/y, so they're applied where the gesture's offset meets its base, in
       // `follow` and at the release (ADR-0016, *Amendment (#140)*).
-      const drag = yield* Recognizer.watchDrag(element, { axis, claim: Bool.not(propagation), lock: config.directionLock === true, listen: listens, adoptable: controlled, threshold, mapPoint: opts.mapPoint }, {
+      const drag = yield* DragRecognizer.watchDrag(element, { axis, claim: Bool.not(propagation), lock: config.directionLock === true, listen: listens, adoptable: controlled, threshold, mapPoint: opts.mapPoint }, {
         on: (sample) => respond(onSample(sample)),
         onDefect,
       })
