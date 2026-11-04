@@ -39,6 +39,7 @@ export const NAV: ReadonlyArray<NavSection> = [
     title: "In production",
     pages: [
       { path: "/guides/server-rendering", title: "Server rendering" },
+      { path: "/guides/features", title: "Shipping less" },
     ],
   },
 ]

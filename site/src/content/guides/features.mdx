@@ -1,0 +1,69 @@
+---
+title: Shipping less
+description: Features, the code an element has only when a page asks for it, and LazyWardic, which loads them for a section.
+---
+
+# Shipping less
+
+A `w.*` element animates its values with nothing else: `initial`, `animate`, `exit`, variants and transitions. Each thing it does beyond that, a gesture, layout or a colour space, is a **Feature**: code a page ships only if it asks for it.
+
+<Demo sample="shipping" />
+
+<CodeTabs sample="shipping" />
+
+## The Features
+
+| Feature | What it brings |
+| --- | --- |
+| `hover` | `whileHover`, `onHoverStart` and `onHoverEnd` |
+| `press` | `whileTap`, `onTap`, `onTapStart` and `onTapCancel`, from the pointer and the keyboard |
+| `focus` | `whileFocus` |
+| `inView` | `whileInView`, `viewport`, `onViewportEnter` and `onViewportLeave` |
+| `pan` | `onPan`, `onPanStart`, `onPanSessionStart` and `onPanEnd` |
+| `drag` | `drag`, its constraints, the glide on release, and `dragControls` |
+| `layout` | `layout`, `layoutId`, `layoutScroll` and `layoutRoot` |
+| `colors` | `oklch()`, `oklab()`, `lab()`, `lch()`, `hwb()` and `color()`. Hex, `rgb()`, `hsl()` and colour names need nothing. |
+
+On Solid 2, the gesture Features bring the ward's events too, such as `"hover"` and `"tap"`. Motion's two sets are here under the same names: `domAnimation` is `hover`, `press`, `focus` and `inView`, and `domMax` is every Feature. Each is a list, so `features={[domAnimation, layout]}` works.
+
+## Where they go
+
+- **`<WardicProvider features>`** gives them to the whole app: usually `domAnimation`.
+- **`<LazyWardic features>`** gives them to a section. Its elements have the provider's Features and the section's, and a sibling section's Features stay its own. A page that drags wraps what drags in `<LazyWardic features={[drag]}>`, so `drag` ships with that page's code, and pages that don't drag never load it.
+- **Components that need a Feature bring it:** `Reorder.Item` brings `drag`, `layout` and the gestures, and `Reorder.Group` brings `layout`. `LayoutGroup` brings `layout` for its own `layoutDependency` only: a layout element under it still needs `layout` from its section.
+
+## Loaded when it's wanted
+
+`features` can be a function that loads them, as in the demo:
+
+```tsx
+// drag-feature.ts holds `export { drag } from "@wardic/solid/unstable/v2"`, so the import is a chunk of its own.
+<LazyWardic features={() => import("./drag-feature.ts").then((m) => m.drag)}>
+```
+
+It loads as the section renders, in the browser only. So a section rendered on a press loads on the press, one rendered as it scrolls into view loads then, and one rendered once the page has mounted loads after the first paint. While it loads:
+
+- Values animate at once, and each Feature takes effect as it arrives. A drag tried before `drag` has arrived does nothing, and isn't replayed.
+- `layout` reaches the elements that mount after it arrives.
+- The server loads nothing: it renders each element at its starting style, as it always does.
+
+## A Feature left out
+
+A prop whose Feature isn't there does nothing: `whileHover` without `hover` doesn't play, `drag` without `drag` doesn't drag, and an `oklch()` colour without `colors` isn't read as a colour. In development, Wardic warns once for each Feature, naming it and where to add it.
+
+## Every Feature at once
+
+`wardic.*` is the element with every Feature, whatever its section has, and so are `wardic.create` and the ward that isn't `w`'s: `createWard` on Solid 1, `ward()` on Solid 2. It's handy for trying something out, and heavy for a page. `strict` on a `WardicProvider` or a `LazyWardic` makes one throw in development, so none reaches a page by accident.
+
+## What it saves
+
+Measured on Solid 1's binding when the Features were split out, gzipped:
+
+| Feature | Size |
+| --- | --- |
+| `hover` | 5 KB, the input every gesture but `inView` stands on included |
+| `press`, `focus` and `inView`, after `hover` | 2 KB |
+| `drag`, after `domAnimation` | 5 KB |
+| `layout` | 21 KB |
+| `colors` | 5 KB |
+| Every Feature, a `wardic.*` element | 41 KB |
