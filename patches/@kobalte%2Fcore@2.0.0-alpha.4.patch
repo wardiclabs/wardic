@@ -1,0 +1,124 @@
+diff --git a/dist/create-list-state/DiJ141L7.js b/dist/create-list-state/DiJ141L7.js
+index 2563c4b1435ac821abe57395b1e33984b5fe4a48..bb22e691d6ed280834556c4cd3c952d9c87bfac6 100644
+--- a/dist/create-list-state/DiJ141L7.js
++++ b/dist/create-list-state/DiJ141L7.js
+@@ -150,6 +150,39 @@ function isAllSameLetter(search) {
+ }
+ //#endregion
+ //#region src/selection/create-selectable-collection.ts
++// Patched by Wardic: scroll the list alone, as Kobalte 0.13 did (@kobalte/utils 0.9's scrollIntoView).
++// The native element.scrollIntoView() scrolls every ancestor, so a list mounted below the fold
++// scrolled the page down to it.
++function scrollWithin(scrollView, element) {
++	const offsetX = relativeOffset(scrollView, element, "left");
++	const offsetY = relativeOffset(scrollView, element, "top");
++	const width = element.offsetWidth;
++	const height = element.offsetHeight;
++	let x = scrollView.scrollLeft;
++	let y = scrollView.scrollTop;
++	const maxX = x + scrollView.offsetWidth;
++	const maxY = y + scrollView.offsetHeight;
++	if (offsetX <= x) x = offsetX;
++	else if (offsetX + width > maxX) x += offsetX + width - maxX;
++	if (offsetY <= y) y = offsetY;
++	else if (offsetY + height > maxY) y += offsetY + height - maxY;
++	scrollView.scrollLeft = x;
++	scrollView.scrollTop = y;
++}
++function relativeOffset(ancestor, child, axis) {
++	const prop = axis === "left" ? "offsetLeft" : "offsetTop";
++	let sum = 0;
++	while (child.offsetParent) {
++		sum += child[prop];
++		if (child.offsetParent === ancestor) break;
++		if (child.offsetParent.contains(ancestor)) {
++			sum -= ancestor[prop];
++			break;
++		}
++		child = child.offsetParent;
++	}
++	return sum;
++}
+ /**
+ * Handles interactions with selectable collections.
+ * @param props Props for the collection.
+@@ -328,7 +361,7 @@ function createSelectableCollection(props, ref, scrollRef) {
+ 				const element = scrollEl.querySelector(`[data-key="${manager.focusedKey()}"]`);
+ 				if (element) {
+ 					element.focus({ preventScroll: true });
+-					element.scrollIntoView({ block: "nearest" });
++					scrollWithin(scrollEl, element);
+ 				}
+ 			}
+ 		}
+@@ -371,7 +404,7 @@ function createSelectableCollection(props, ref, scrollRef) {
+ 		if (isVirtualized) focusedKey && mergedProps.scrollToKey?.(focusedKey);
+ 		else if (focusedKey && scrollEl) {
+ 			const element = scrollEl.querySelector(`[data-key="${focusedKey}"]`);
+-			if (element) element.scrollIntoView({ block: "nearest" });
++			if (element) scrollWithin(scrollEl, element);
+ 		}
+ 	});
+ 	return {
+diff --git a/dist/create-list-state/VJ4P23xP.jsx b/dist/create-list-state/VJ4P23xP.jsx
+index 182b99bb41a8c052f38d39d6e249f3ea3375cd48..8dcb630bc5ed32ffc689c1351b07116bc48b67e9 100644
+--- a/dist/create-list-state/VJ4P23xP.jsx
++++ b/dist/create-list-state/VJ4P23xP.jsx
+@@ -150,6 +150,39 @@ function isAllSameLetter(search) {
+ }
+ //#endregion
+ //#region src/selection/create-selectable-collection.ts
++// Patched by Wardic: scroll the list alone, as Kobalte 0.13 did (@kobalte/utils 0.9's scrollIntoView).
++// The native element.scrollIntoView() scrolls every ancestor, so a list mounted below the fold
++// scrolled the page down to it.
++function scrollWithin(scrollView, element) {
++	const offsetX = relativeOffset(scrollView, element, "left");
++	const offsetY = relativeOffset(scrollView, element, "top");
++	const width = element.offsetWidth;
++	const height = element.offsetHeight;
++	let x = scrollView.scrollLeft;
++	let y = scrollView.scrollTop;
++	const maxX = x + scrollView.offsetWidth;
++	const maxY = y + scrollView.offsetHeight;
++	if (offsetX <= x) x = offsetX;
++	else if (offsetX + width > maxX) x += offsetX + width - maxX;
++	if (offsetY <= y) y = offsetY;
++	else if (offsetY + height > maxY) y += offsetY + height - maxY;
++	scrollView.scrollLeft = x;
++	scrollView.scrollTop = y;
++}
++function relativeOffset(ancestor, child, axis) {
++	const prop = axis === "left" ? "offsetLeft" : "offsetTop";
++	let sum = 0;
++	while (child.offsetParent) {
++		sum += child[prop];
++		if (child.offsetParent === ancestor) break;
++		if (child.offsetParent.contains(ancestor)) {
++			sum -= ancestor[prop];
++			break;
++		}
++		child = child.offsetParent;
++	}
++	return sum;
++}
+ /**
+ * Handles interactions with selectable collections.
+ * @param props Props for the collection.
+@@ -328,7 +361,7 @@ function createSelectableCollection(props, ref, scrollRef) {
+ 				const element = scrollEl.querySelector(`[data-key="${manager.focusedKey()}"]`);
+ 				if (element) {
+ 					element.focus({ preventScroll: true });
+-					element.scrollIntoView({ block: "nearest" });
++					scrollWithin(scrollEl, element);
+ 				}
+ 			}
+ 		}
+@@ -371,7 +404,7 @@ function createSelectableCollection(props, ref, scrollRef) {
+ 		if (isVirtualized) focusedKey && mergedProps.scrollToKey?.(focusedKey);
+ 		else if (focusedKey && scrollEl) {
+ 			const element = scrollEl.querySelector(`[data-key="${focusedKey}"]`);
+-			if (element) element.scrollIntoView({ block: "nearest" });
++			if (element) scrollWithin(scrollEl, element);
+ 		}
+ 	});
+ 	return {

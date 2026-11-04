@@ -22,6 +22,12 @@ export const NAV: ReadonlyArray<NavSection> = [
   },
   {
     title: "Guides",
-    pages: [{ path: "/guides/animate", title: "Animate an element" }],
+    pages: [
+      { path: "/guides/animate", title: "Animate an element" },
+      { path: "/guides/transitions", title: "Transitions" },
+      { path: "/guides/variants", title: "Variants" },
+      { path: "/guides/gestures", title: "Gestures" },
+      { path: "/guides/drag", title: "Drag" },
+    ],
   },
 ]

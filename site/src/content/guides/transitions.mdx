@@ -1,0 +1,67 @@
+---
+title: Transitions
+description: Springs, tweens and keyframes, curved paths, per value, with delays, repeats and what's set at the end.
+---
+
+# Transitions
+
+`transition` says how an element gets to its target: a spring, a tween, or keyframes on the way. Press Move and the three take the same trip their own way.
+
+<Demo sample="transitions" />
+
+<CodeTabs sample="transitions" />
+
+## Springs
+
+A spring is set by its physics, `stiffness`, `damping` and `mass`, or by time:
+
+- `{ type: "spring", duration: 0.5, bounce: 0.25 }` lands on its target at 0.5 s. `bounce` is 0.3 unless you give one.
+- `{ visualDuration: 0.5, bounce: 0.25 }` does most of its move in 0.5 s, then settles. `bounce` is 0 here.
+
+A spring keeps the velocity it's handed: retarget one mid-flight, or release a drag into it, and it carries on from there. With no `type`, any spring field (`stiffness`, `damping`, `mass`, `bounce`, `visualDuration`) makes a spring.
+
+## Tweens
+
+A tween runs for `duration` seconds along `ease`: one of Motion's names (`"easeOut"`, `"easeInOut"`, `"backOut"`, `"anticipate"`…), a cubic Bézier's four numbers (`[0.25, 0.1, 0.35, 1]`), or a function. The functions are exported by the same names: `import { easeOut, cubicBezier, steps } from "@wardic/solid"`.
+
+## Keyframes
+
+A target that's a list plays through its stops: `animate={{ x: [0, 200, 160] }}`. `times` places each stop between 0 and 1, and `ease` can be a list, one per stretch. A first stop of `null` is wherever the value is now.
+
+## Along a curve
+
+`transition.path` moves `x` and `y` together along a path, on `x`'s transition, in place of two straight lines. `arc()` makes one: a curve from where the element is to its target.
+
+<Demo sample="arc" />
+
+<CodeTabs sample="arc" />
+
+- `strength` is how far it bows, and `peak` where along the way it's highest.
+- `direction` picks the side. Without one, an `arc()` made once (in the component, as above) keeps to the same side of the screen on every trip.
+- `rotate` turns the element along the curve, on top of its own `rotate`.
+- Give the target both axes. One it leaves out ends where the path starts, so a toss caught mid-air would land where it was caught, a little lower each time.
+- Under reduced motion, `x` and `y` snap to their target.
+
+A path is any `(from, to) => (t) => ({ x, y, rotate? })`, so a curve of your own works too. Layout animations follow a `path` as well: a move or a `layoutId` handover of 20 px or more curves its centre. [Saved for later](https://solid2.wardic.dev/presence/saved) flies each photo into the cart along one.
+
+## Per value
+
+A value can have a transition of its own, under its name, with `default` for the rest:
+
+```tsx
+<w.div animate={{ x: 100, opacity: 1 }} transition={{ default: { type: "spring" }, opacity: { duration: 0.2 } }} />
+```
+
+`delay` waits before it starts, and `repeat`, `repeatType` (`"loop"`, `"reverse"`, `"mirror"`) and `repeatDelay` play it again.
+
+## At the end
+
+`transitionEnd` sets values once the target's own have landed, such as hiding a panel after it fades:
+
+```tsx
+<w.div animate={{ opacity: 0, transitionEnd: { display: "none" } }} />
+```
+
+## With no transition
+
+Each value runs on Motion's default for it: `x`, `y` and `rotate` on a spring, `scale` on a stiffer one, and everything else, opacity and colours among them, on a 0.3 s ease. A `WardicConfig` sets one for every element below it: `<WardicConfig transition={{ type: "spring", bounce: 0.2 }}>`.
