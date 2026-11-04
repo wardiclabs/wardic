@@ -5,7 +5,7 @@
  * pages, which slide in and out under `AnimatePresence`.
  */
 import { useLocation } from "@solidjs/router"
-import { AnimatePresence, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, w, type WardicVariants } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
 import { createSignal, For, Show } from "solid-js"
 import { Logo } from "~/components/Logo.tsx"
@@ -76,16 +76,38 @@ const drawerOff = () => ({ x: -window.innerWidth })
 const DRAWER_IN = { x: 0, transition: { type: "spring", stiffness: 380, damping: 40 } } as const
 const DRAWER_OUT = { x: "-100%", transition: { type: "tween", duration: 0.22, ease: "easeIn" } } as const
 
+/**
+ * The menu button's three bars, which turn to an X while the drawer is open: the top and bottom meet
+ * in the middle and cross, and the middle one goes.
+ */
+const BAR_SPRING = { type: "spring", stiffness: 500, damping: 34 } as const
+const TOP_BAR: WardicVariants = { closed: { y: 0, rotate: 0, transition: BAR_SPRING }, open: { y: 5, rotate: 45, transition: BAR_SPRING } }
+const MIDDLE_BAR: WardicVariants = { closed: { opacity: 1, scaleX: 1, transition: BAR_SPRING }, open: { opacity: 0, scaleX: 0.3, transition: BAR_SPRING } }
+const BOTTOM_BAR: WardicVariants = { closed: { y: 0, rotate: 0, transition: BAR_SPRING }, open: { y: -5, rotate: -45, transition: BAR_SPRING } }
+const MENU: Record<"true" | "false", "open" | "closed"> = { true: "open", false: "closed" }
+
 export function Layout(props: { readonly children?: JSX.Element }) {
   const [open, setOpen] = createSignal(false)
   return (
     <div class="site">
       <header class="site-header">
-        <button class="icon-button menu-button" type="button" aria-label="Pages" aria-controls="drawer" aria-expanded={String(open()) as "true" | "false"} onClick={() => setOpen(!open())}>
+        {/* Its bars turn to an X as the drawer opens, and back as it closes; at first render, they're as they are. */}
+        <w.button
+          class="icon-button menu-button"
+          type="button"
+          aria-label="Pages"
+          aria-controls="drawer"
+          aria-expanded={String(open()) as "true" | "false"}
+          onClick={() => setOpen(!open())}
+          initial={false}
+          animate={MENU[String(open()) as "true" | "false"]}
+        >
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
-            <path d="M4 7h16M4 12h16M4 17h16" />
+            <w.path d="M4 7h16" variants={TOP_BAR} />
+            <w.path d="M4 12h16" variants={MIDDLE_BAR} />
+            <w.path d="M4 17h16" variants={BOTTOM_BAR} />
           </svg>
-        </button>
+        </w.button>
         {/* The logo draws itself as the page first paints, and again on hover (Logo.tsx). */}
         <w.a class="wordmark" href="/" aria-label="Wardic" initial="hidden" animate="shown" whileHover="hover">
           <Logo />
