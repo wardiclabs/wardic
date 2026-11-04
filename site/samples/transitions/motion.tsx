@@ -15,7 +15,7 @@ export default function Transitions() {
       <motion.div className="sample-box" animate={{ x: moved ? 160 : 0 }} transition={{ duration: 0.6, ease: "easeInOut" }}>
         tween
       </motion.div>
-      <motion.div className="sample-box" animate={{ x: moved ? [0, 200, 160] : [160, -40, 0] }} transition={{ duration: 0.8, times: [0, 0.6, 1] }}>
+      <motion.div className="sample-box" initial={false} animate={{ x: moved ? [0, 200, 160] : [160, -40, 0] }} transition={{ duration: 0.8, times: [0, 0.6, 1] }}>
         keyframes
       </motion.div>
     </div>
