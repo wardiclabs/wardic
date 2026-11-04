@@ -10,6 +10,7 @@
     "./examples": "./src/examples.ts",
     "./server": "./src/server/index.ts",
     "./styles.css": "./src/styles.css",
+    "./tokens.css": "./src/tokens.css",
     "./format": "./src/format.ts",
     "./micro": "./src/micro.ts",
     "./hydration": "./src/hydration.ts",
