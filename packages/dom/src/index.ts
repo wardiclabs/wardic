@@ -2,7 +2,8 @@
  * `@wardic/dom`: the browser Environment, and the framework-free pieces a binding builds on (#132,
  * ADR-0041). It's for binding authors (ADR-0008 Tier 2): Wardic's own, and any other.
  *
- * - **An app** imports {@link DomLive}, the composed Environment it hands its binding.
+ * - **An app** imports {@link DomLive}, the composed Environment it hands its binding, and
+ *   {@link CheckFrames}, to check its Frames in development (#586).
  * - **A binding** imports each module by its subpath, as a namespace
  *   (`import * as FlushGate from "@wardic/dom/FlushGate"`), and the root re-exports each one:
  *   - the DOM's implementations of core's services, each with its `layer` (Effect's platform
@@ -56,6 +57,15 @@ export * as ScrollOffset from "./ScrollOffset.ts"
 export * as Appear from "./Appear.ts"
 export * as OwnValues from "./OwnValues.ts"
 export * as Report from "./Report.ts"
+
+/**
+ * Core's dev check for non-finite Frames (`FrameLoop.CheckFrames`, ADR-0030 decision 7), here for an
+ * app, which installs `@wardic/dom` and not `@wardic/core` (#586). Off by default; merged beside
+ * {@link DomLive} as `Layer.succeed(CheckFrames, true)`, it fails an animation whose Frame holds a NaN
+ * or an Infinity, naming its key and value, where the page would drop it without a word. It checks
+ * every Frame, so it's for development.
+ */
+export { CheckFrames } from "@wardic/core/FrameLoop"
 
 /**
  * The composed browser environment: the DOM's service Layers plus core's

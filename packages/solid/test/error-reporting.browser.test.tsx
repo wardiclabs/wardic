@@ -1,6 +1,5 @@
 import { cleanup, render } from "@solidjs/testing-library"
-import * as FrameLoop from "@wardic/core/FrameLoop"
-import { DomLive } from "@wardic/dom"
+import { CheckFrames, DomLive } from "@wardic/dom"
 import * as Report from "@wardic/dom/Report"
 import { AnimatePresence, createHover, useWardicFiber, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
 import { DevTools } from "effect/devtools"
@@ -416,16 +415,16 @@ describe("what isn't a failure, and what reports once", () => {
   })
 })
 
-describe("the README's env recipe", () => {
-  it("is a WardicEnv: a logger and a level, a reporter, the devtools and CheckFrames, merged beside DomLive", () => {
+describe("the Observability guide's env recipe (#558)", () => {
+  it("is a WardicEnv: a logger and a level, a reporter, the devtools and CheckFrames, merged beside DomLive, all from an app's packages (#586)", () => {
     const reporter = ErrorReporter.make(() => {})
     const env: WardicEnv = Layer.mergeAll(
       DomLive,
-      Logger.layer([Logger.consolePrettyBrowser()]),
+      Logger.layer([Logger.consolePrettyBrowser(), Logger.tracerLogger]),
       Layer.succeed(References.MinimumLogLevel, "Debug"),
       ErrorReporter.layer([reporter]),
       DevTools.layer(),
-      Layer.succeed(FrameLoop.CheckFrames, true),
+      Layer.succeed(CheckFrames, true),
     )
     expect(Layer.isLayer(env)).toBe(true)
   })
