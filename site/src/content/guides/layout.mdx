@@ -47,7 +47,7 @@ Two elements with the same `layoutId` are one element in two places: as one moun
 
 A layout animation runs on `transition`'s `layout` entry, else the element's `transition`, else Motion's 0.45 s tween. A `path`, such as [`arc()`](/guides/transitions#along-a-curve), curves a move of 20 px or more.
 
-The scroll of every scrolling element around it, and the page's under `position: fixed`, is accounted for on its own: `layoutScroll` and `layoutRoot` are taken, as in Motion, and change nothing.
+The scroll of every scrolling element around it, and the page's under `position: fixed`, is accounted for on its own, with no `layoutScroll` or `layoutRoot`. A `position: sticky` element is the exception: its place on the page changes as the page scrolls. Give it `layoutRoot`, as this site's sidebar has, so its own moves don't animate and the elements in it animate only as they move inside it.
 
 - **On Solid 1,** `onLayoutAnimationStart` and `onLayoutAnimationComplete` are called as one starts and lands.
 - **On Solid 2,** the element's ward gives `layoutStart` and `layoutComplete`: `await card.next("layoutComplete")`.
