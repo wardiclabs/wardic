@@ -10,7 +10,7 @@
 //   start on a page hidden before it's made.
 // - SU5: `createReducedMotionConfig`: the provider's `"always"`, a config's `"never"` over it, and a
 //   config's `"user"` the preference; a config's change followed. SU5b: under an emulated preference,
-//   a config's `"user"` reads it.
+//   a config's `"user"` reads it. SU5c (#584): the provider's change is followed too.
 // - SU6: `WardicConfig`'s `isValidProp` keeps a tag's props it says aren't valid off its element, asks
 //   of no `on` prop, hands a wrapped component every prop; an inner config with none passes it on, and
 //   an inner one's replaces it.
@@ -216,6 +216,25 @@ describe("createReducedMotionConfig (#443, Motion's useReducedMotionConfig)", ()
     } finally {
       await commands.emulateReducedMotion(false)
     }
+  })
+})
+
+describe("createReducedMotionConfig, the provider's change (#584)", () => {
+  it("SU5c: a reader under the provider follows a change of the provider's reducedMotion, as one under a config does", () => {
+    const [setting, setSetting] = createSignal<"always" | "never">("never")
+    const Read = (): JSX.Element => {
+      const applies = createReducedMotionConfig()
+      return <p data-name="provider">{String(applies())}</p>
+    }
+    const { container } = render(() => (
+      <WardicProvider env={DomLive} reducedMotion={setting()}>
+        <Read />
+      </WardicProvider>
+    ))
+    const read = (): string | null => container.querySelector('[data-name="provider"]')!.textContent
+    expect(read()).toBe("false")
+    setSetting("always")
+    expect(read(), "the provider's change").toBe("true")
   })
 })
 

@@ -6,6 +6,7 @@
 // - SUV3: `createPageInView`: `true`, `false` while the page is hidden, `true` again.
 // - SUV4: `createReducedMotionConfig`: the provider's `"always"`, a config's `"never"` over it, a
 //   config's change followed. SUV4b: under an emulated preference, a config's `"user"` reads it.
+//   SUV4c (#584): the provider's change is followed too.
 // - SUV5: `WardicConfig`'s `isValidProp` keeps a tag's props off it, asks of no `on` prop, and hands a
 //   wrapped component every prop.
 // - SUV6: `forwardMotionProps` hands a wrapped component the motion props, which still drive the
@@ -127,6 +128,24 @@ describe("#443's hooks on Solid 2", () => {
     setSetting("always")
     flush()
     expect(read("changing")).toBe("true")
+  })
+
+  it("SUV4c: a reader under the provider follows a change of the provider's reducedMotion, as one under a config does (#584)", () => {
+    const [setting, setSetting] = createSignal<"always" | "never">("never")
+    const Read = (): JSX.Element => {
+      const applies = createReducedMotionConfig()
+      return <p data-name="provider">{String(applies())}</p>
+    }
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive} reducedMotion={setting()}>
+        <Read />
+      </WardicProvider>
+    ))
+    const read = (): string | null => host.querySelector('[data-name="provider"]')!.textContent
+    expect(read()).toBe("false")
+    setSetting("always")
+    flush()
+    expect(read(), "the provider's change").toBe("true")
   })
 
   it("SUV4b: under the user's preference for reduced motion, a config's user is true", async () => {

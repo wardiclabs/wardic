@@ -110,7 +110,15 @@ export function WardicProvider(props: {
 }): JSX.Element {
   const value = Bool.match(isServer, {
     onTrue: () => serverContext(props.env, serverAppearOf(props.appear, props.reducedMotion), () => untrack(() => props.reducedMotion)),
-    onFalse: () => clientContext(props.env, applyAndFlush, () => untrack(() => props.reducedMotion), untrack(() => props.scaleCorrectors)),
+    onFalse: () =>
+      clientContext(
+        props.env,
+        applyAndFlush,
+        () => untrack(() => props.reducedMotion),
+        // eslint-disable-next-line solid/reactivity -- the provider's setting, tracked too: `createReducedMotionConfig` reads it where it tracks (#584)
+        () => props.reducedMotion,
+        untrack(() => props.scaleCorrectors),
+      ),
   })
   // Disposing the runtime closes its Scope: the projection system, then the gate (#132). Its
   // disposal rejects first, ending every `animateLayout` still waiting: their flights won't end (#257).
@@ -325,7 +333,7 @@ export function createResetProjection(): () => void {
 
 /**
  * The reduced-motion setting that applies here (#443): the nearest `WardicConfig`'s `reducedMotion`,
- * else the provider's, else `"user"`. Read untracked for the provider's. Internal.
+ * else the provider's, else `"user"`, each tracked (#584). Internal.
  */
 export function useWardicReducedMotionSetting(): () => ReducedMotion.Config {
   const config = useWardicConfig()
