@@ -2,7 +2,7 @@
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { motion } from "motion/react"
+import { m } from "motion/react"
 import { Tabs } from "radix-ui"
 import { Suspense, use, useState } from "react"
 
@@ -43,15 +43,15 @@ function Details(props: { readonly piece: Promise<Product> }) {
               <Tabs.Trigger key={name} className="tab" value={name}>
                 {name}
                 {/* One underline, inside whichever trigger is selected: its layoutId carries it from tab to tab. */}
-                {tab === name && <motion.span className="tab-indicator" layoutId="details-underline" />}
+                {tab === name && <m.span className="tab-indicator" layoutId="details-underline" />}
               </Tabs.Trigger>
             ))}
           </Tabs.List>
           {TABS.map((name, index) => (
             <Tabs.Content key={name} value={name} asChild>
-              <motion.div className="tab-panel" {...fadeIn}>
+              <m.div className="tab-panel" {...fadeIn}>
                 {piece.details[index]}
-              </motion.div>
+              </m.div>
             </Tabs.Content>
           ))}
         </Tabs.Root>

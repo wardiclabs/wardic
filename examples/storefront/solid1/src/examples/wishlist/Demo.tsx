@@ -3,7 +3,7 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, Reorder, wardic } from "@wardic/solid"
+import { AnimatePresence, Reorder, w } from "@wardic/solid"
 import { createSignal, For, Show, Suspense } from "solid-js"
 import { moveInWishlist, resetWishlist, wishlist } from "~/lib/store.ts"
 
@@ -74,9 +74,9 @@ export default function MyWishlist() {
       <div class="wishlist-foot">
         <AnimatePresence initial={false}>
           <Show when={moving.pending}>
-            <wardic.p class="moved-by muted" {...fade}>
+            <w.p class="moved-by muted" {...fade}>
               Saving…
-            </wardic.p>
+            </w.p>
           </Show>
         </AnimatePresence>
         <Show when={moving.error}>

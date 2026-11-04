@@ -4,7 +4,7 @@
  * (`app/transitions/catalogue/layout.tsx`) renders `Catalogue` around its pages, `page.tsx` the
  * `CatalogueList`, and `[id]/page.tsx` a `CataloguePiece` (`./Pages.tsx`).
  */
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, m } from "motion/react"
 import { LayoutRouterContext } from "next/dist/shared/lib/app-router-context.shared-runtime"
 import { useSelectedLayoutSegment } from "next/navigation"
 import { type ReactNode, useContext, useState } from "react"
@@ -30,9 +30,9 @@ export default function Catalogue({ children }: { readonly children: ReactNode }
   return (
     <div className="catalogue">
       <AnimatePresence mode="popLayout">
-        <motion.div key={segment} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ type: "tween", duration: 0.25 }}>
+        <m.div key={segment} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={{ type: "tween", duration: 0.25 }}>
           <FrozenRouter>{children}</FrozenRouter>
-        </motion.div>
+        </m.div>
       </AnimatePresence>
     </div>
   )

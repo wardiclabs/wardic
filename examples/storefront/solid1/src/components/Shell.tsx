@@ -1,9 +1,9 @@
 /** The shop's frame (#296): its header, with the visitor's switches and the store's, and its footer. */
 import { A, createAsync, useAction } from "@solidjs/router"
 import { COG, ICON, turnOf } from "@wardic/example-storefront-shared/micro"
-import { AnimatePresence, arc, wardic } from "@wardic/solid"
+import { AnimatePresence, arc, LazyWardic, w } from "@wardic/solid"
 import { createSignal, For, type JSX, Show, Suspense } from "solid-js"
-import { type Arrival, arrivalId, arrivals, landed } from "~/lib/arrivals.ts"
+import { type Arrival, arrivalId, arrivals, flightLayout, landed } from "~/lib/arrivals.ts"
 import { type Theme, usePreferences } from "~/lib/preferences.tsx"
 import { cart, saveSettings, settings } from "~/lib/store.ts"
 
@@ -11,7 +11,7 @@ const THEME_LABEL: Record<Theme, string> = { system: "Theme: system", light: "Th
 const THEME_ICON: Record<Theme, string> = { system: "◐", light: "☀", dark: "☾" }
 
 /** A header link that answers as the icon buttons do (#365). */
-const IconLink = wardic.create(A)
+const IconLink = w.create(A)
 
 /** The store's switches: the delay on each request, and "fail the next one". */
 function StoreSettings() {
@@ -20,11 +20,11 @@ function StoreSettings() {
   const save = useAction(saveSettings)
   return (
     <div class="settings">
-      <wardic.button class="icon-button" variants={ICON} initial="rest" animate="rest" whileHover="hover" whileTap="press" aria-expanded={open()} aria-label="Store settings" title="Store settings" onClick={() => setOpen(!open())}>
-        <wardic.span class="glyph" variants={COG}>
+      <w.button class="icon-button" variants={ICON} initial="rest" animate="rest" whileHover="hover" whileTap="press" aria-expanded={open()} aria-label="Store settings" title="Store settings" onClick={() => setOpen(!open())}>
+        <w.span class="glyph" variants={COG}>
           ⚙
-        </wardic.span>
-      </wardic.button>
+        </w.span>
+      </w.button>
       <Show when={open()}>
         <div class="settings-panel" role="dialog" aria-label="Store settings">
           <strong>The store</strong>
@@ -75,15 +75,22 @@ function CartButton() {
       <Suspense>
         <Show when={count()} keyed>
           {(n) => (
-            <wardic.span class="cart-count" initial={{ scale: 1.5 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 18 }}>
+            <w.span class="cart-count" initial={{ scale: 1.5 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 18 }}>
               {n}
-            </wardic.span>
+            </w.span>
           )}
         </Show>
       </Suspense>
-      <AnimatePresence>
-        <For each={arrivals()}>{(piece) => <CartArrival piece={piece} />}</For>
-      </AnimatePresence>
+      {/* The fly-in's section, with the `layout` of the page that moved the first piece (#526). */}
+      <Show when={flightLayout()}>
+        {(layout) => (
+          <LazyWardic features={layout()}>
+            <AnimatePresence>
+              <For each={arrivals()}>{(piece) => <CartArrival piece={piece} />}</For>
+            </AnimatePresence>
+          </LazyWardic>
+        )}
+      </Show>
     </IconLink>
   )
 }
@@ -99,7 +106,7 @@ const TOSS = arc()
  */
 function CartArrival(props: { readonly piece: Arrival }) {
   return (
-    <wardic.img
+    <w.img
       class="cart-arrival"
       layoutId={arrivalId(props.piece.id)}
       layoutCrossfade={false}
@@ -136,7 +143,7 @@ export function Shell(props: { readonly children: JSX.Element }) {
               <input type="checkbox" checked={preferences.reduceMotion()} onChange={(event) => preferences.setReduceMotion(event.currentTarget.checked)} />
               <span>Reduce motion</span>
             </label>
-            <wardic.button
+            <w.button
               class="icon-button"
               variants={ICON}
               initial="rest"
@@ -150,10 +157,10 @@ export function Shell(props: { readonly children: JSX.Element }) {
                 preferences.cycleTheme()
               }}
             >
-              <wardic.span class="glyph" animate={turnOf(switches())}>
+              <w.span class="glyph" animate={turnOf(switches())}>
                 {THEME_ICON[preferences.theme()]}
-              </wardic.span>
-            </wardic.button>
+              </w.span>
+            </w.button>
             <StoreSettings />
             <CartButton />
           </div>

@@ -3,7 +3,7 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { type MotionStyle, motion, useMotionValue, useReducedMotionConfig, useSpring, useTransform } from "motion/react"
+import { m, type MotionStyle, useMotionValue, useReducedMotionConfig, useSpring, useTransform } from "motion/react"
 import type { PointerEvent } from "react"
 
 const SHELF = PRODUCTS.filter((product) => ["poppy-plate", "blossom-jar", "slip-dish"].includes(product.id))
@@ -68,7 +68,7 @@ function SpotCard({ product }: { readonly product: Product }) {
   const photo = photoOf(product.id)
   return (
     <li>
-      <motion.article
+      <m.article
         className="spot-card"
         variants={lighting}
         initial="rest"
@@ -86,7 +86,7 @@ function SpotCard({ product }: { readonly product: Product }) {
           <span className="name">{product.name}</span>
           <span className="price">{formatPrice(product.price)}</span>
         </div>
-      </motion.article>
+      </m.article>
     </li>
   )
 }

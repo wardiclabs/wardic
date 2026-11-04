@@ -8,9 +8,10 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, arc, wardic } from "@wardic/solid"
+import { AnimatePresence, arc, LazyWardic, w } from "@wardic/solid"
 import { createSignal, For, type JSX, Match, onCleanup, Show, Switch } from "solid-js"
 import { addToCart } from "~/lib/store.ts"
+import { layout } from "~/lib/layout-feature.ts"
 
 const PIECES = PRODUCTS.slice(0, 6)
 const HOME = "/transitions/catalogue"
@@ -38,7 +39,16 @@ const slide = {
  * nodes, so the page that was there leaves on its own; `popLayout` takes it out of the flow where it
  * was, so the next one is in place at once and a shared `layoutId` flies between them.
  */
+/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
 export default function Catalogue(props: { readonly children?: JSX.Element }) {
+  return (
+    <LazyWardic features={[layout]}>
+      <CatalogueDemo {...props} />
+    </LazyWardic>
+  )
+}
+
+function CatalogueDemo(props: { readonly children?: JSX.Element }) {
   return (
     <div class="catalogue">
       <AnimatePresence mode="popLayout">{props.children}</AnimatePresence>
@@ -53,9 +63,9 @@ function Photo(props: { readonly piece: Product; readonly sizes: string }) {
   const photo = photoOf(props.piece.id)
   return (
     // The card's photo and the piece's hero: one `layoutId`, so it flies from one page to the other.
-    <wardic.div class="photo" layoutId={`catalogue-${props.piece.id}`} transition={FLIGHT}>
+    <w.div class="photo" layoutId={`catalogue-${props.piece.id}`} transition={FLIGHT}>
       <img src={photo.small} srcset={srcsetOf(photo)} sizes={props.sizes} width={photo.width} height={photo.height} alt={props.piece.name} />
-    </wardic.div>
+    </w.div>
   )
 }
 
@@ -85,7 +95,7 @@ function AddButton(props: { readonly piece: Product }) {
     )
   }
   return (
-    <wardic.button
+    <w.button
       class="button catalogue-add"
       aria-label={`Add ${props.piece.name} to the cart`}
       disabled={state() === "adding"}
@@ -98,18 +108,18 @@ function AddButton(props: { readonly piece: Product }) {
         <Match when={state() === "added"}>Added ✓</Match>
         <Match when={state() === "failed"}>Not added</Match>
       </Switch>
-    </wardic.button>
+    </w.button>
   )
 }
 
 /** The catalogue: `/transitions/catalogue`. */
 export function CatalogueList() {
   return (
-    <wardic.ul class="catalogue-list" {...page}>
+    <w.ul class="catalogue-list" {...page}>
       <For each={PIECES}>
         {(piece) => (
           // The card squeezes a little as it's pressed, though not as its "Add" is.
-          <wardic.li class="catalogue-item" whileTap={{ scale: 0.97 }}>
+          <w.li class="catalogue-item" whileTap={{ scale: 0.97 }}>
             {/* noScroll: the demo sits partway down the page, so the router leaves its scroll be. */}
             <A class="catalogue-card" href={`${HOME}/${piece.id}`} noScroll>
               <Photo piece={piece} sizes="160px" />
@@ -119,10 +129,10 @@ export function CatalogueList() {
               </span>
             </A>
             <AddButton piece={piece} />
-          </wardic.li>
+          </w.li>
         )}
       </For>
-    </wardic.ul>
+    </w.ul>
   )
 }
 
@@ -130,7 +140,7 @@ export function CatalogueList() {
 export function CataloguePiece() {
   const params = useParams()
   return (
-    <wardic.article class="catalogue-piece" {...page}>
+    <w.article class="catalogue-piece" {...page}>
       <Show when={pieceOf(params.id)} fallback={<p class="muted">That piece isn't in the catalogue.</p>}>
         {(piece) => (
           <nav class="catalogue-nav">
@@ -148,7 +158,7 @@ export function CataloguePiece() {
       <AnimatePresence mode="popLayout" initial={false}>
         <Show when={pieceOf(params.id)} keyed>
           {(piece) => (
-            <wardic.div class="catalogue-hero" {...slide}>
+            <w.div class="catalogue-hero" {...slide}>
               <Photo piece={piece} sizes="(max-width: 640px) 100vw, 320px" />
               <div class="catalogue-text">
                 <h2>{piece.name}</h2>
@@ -158,10 +168,10 @@ export function CataloguePiece() {
                   <For each={piece.details}>{(detail) => <li>{detail}</li>}</For>
                 </ul>
               </div>
-            </wardic.div>
+            </w.div>
           )}
         </Show>
       </AnimatePresence>
-    </wardic.article>
+    </w.article>
   )
 }

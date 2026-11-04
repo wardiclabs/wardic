@@ -2,7 +2,7 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { createSpring, createTransform, wardic, type WardicPoint } from "@wardic/solid"
+import { createSpring, createTransform, w, type WardicPoint } from "@wardic/solid"
 import { createSignal, For } from "solid-js"
 import { useReducedMotion } from "~/lib/preferences.tsx"
 
@@ -60,7 +60,7 @@ function SpotCard(props: { readonly product: Product }) {
   const photo = photoOf(props.product.id)
   return (
     <li>
-      <wardic.article
+      <w.article
         class="spot-card"
         variants={card}
         initial="rest"
@@ -88,7 +88,7 @@ function SpotCard(props: { readonly product: Product }) {
           <span class="name">{props.product.name}</span>
           <span class="price">{formatPrice(props.product.price)}</span>
         </div>
-      </wardic.article>
+      </w.article>
     </li>
   )
 }

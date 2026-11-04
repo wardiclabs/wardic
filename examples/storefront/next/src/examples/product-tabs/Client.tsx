@@ -2,7 +2,7 @@
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, m } from "motion/react"
 import { Suspense, use, useState } from "react"
 
 const TABS = ["Description", "Details", "Delivery"] as const
@@ -41,16 +41,16 @@ function ProductPage(props: { readonly piece: Promise<Product> }) {
             <button key={name} className="tab" role="tab" aria-selected={tab === name} aria-controls="piece-panel" onClick={() => setTab(name)}>
               {name}
               {/* One indicator, under whichever tab is selected: its layoutId carries it from tab to tab. */}
-              {tab === name && <motion.span className="tab-indicator" layoutId="tab-indicator" />}
+              {tab === name && <m.span className="tab-indicator" layoutId="tab-indicator" />}
             </button>
           ))}
         </div>
         <div className="tab-panel" id="piece-panel" role="tabpanel" aria-label={tab}>
           <AnimatePresence mode="wait" initial={false}>
             {/* A new key for each tab: the last panel leaves before the next enters. */}
-            <motion.div key={tab} {...panel}>
+            <m.div key={tab} {...panel}>
               <PanelFor tab={tab} piece={piece} />
-            </motion.div>
+            </m.div>
           </AnimatePresence>
         </div>
       </div>

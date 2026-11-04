@@ -3,9 +3,9 @@ import { revalidate } from "@solidjs/router"
 import type { JSX } from "@solidjs/web"
 import type { Settings } from "@wardic/example-storefront-shared/server"
 import { COG, ICON, turnOf } from "@wardic/example-storefront-shared/micro"
-import { AnimatePresence, arc, ward, wardic } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, arc, LazyWardic, w } from "@wardic/solid/unstable/v2"
 import { action, createEffect, createMemo, createSignal, For, Loading, Show } from "solid-js"
-import { type Arrival, arrivalId, arrivals, landed } from "~/lib/arrivals.ts"
+import { type Arrival, arrivalId, arrivals, flightLayout, landed } from "~/lib/arrivals.ts"
 import { type Theme, usePreferences } from "~/lib/preferences.tsx"
 import { cart, settings } from "~/lib/store.ts"
 import { setSettings } from "~/server/store.ts"
@@ -18,7 +18,7 @@ function StoreSettings() {
   const [open, setOpen] = createSignal(false)
   return (
     <div class="settings">
-      <wardic.button
+      <w.button
         class="icon-button"
         variants={ICON}
         initial="rest"
@@ -30,10 +30,10 @@ function StoreSettings() {
         title="Store settings"
         onClick={() => setOpen(!open())}
       >
-        <wardic.span class="glyph" variants={COG}>
+        <w.span class="glyph" variants={COG}>
           ⚙
-        </wardic.span>
-      </wardic.button>
+        </w.span>
+      </w.button>
       <Show when={open()}>
         <div class="settings-panel" role="dialog" aria-label="Store settings">
           <strong>The store</strong>
@@ -83,23 +83,30 @@ function CartButton() {
   const current = createMemo(() => cart())
   const count = () => current().lines.reduce((sum, line) => sum + line.quantity, 0)
   return (
-    <wardic.a class="icon-button cart-button" href="/layout/cart-drawer" variants={ICON} initial="rest" animate="rest" whileHover="hover" whileTap="press" title="Cart" aria-label="Cart">
+    <w.a class="icon-button cart-button" href="/layout/cart-drawer" variants={ICON} initial="rest" animate="rest" whileHover="hover" whileTap="press" title="Cart" aria-label="Cart">
       <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true">
         <path d="M6 7h12l-1 13H7L6 7Z M9 7a3 3 0 0 1 6 0" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" />
       </svg>
       <Loading>
         <Show when={count()} keyed>
           {(n) => (
-            <wardic.span class="cart-count" initial={{ scale: 1.5 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 18 }}>
+            <w.span class="cart-count" initial={{ scale: 1.5 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 18 }}>
               {n}
-            </wardic.span>
+            </w.span>
           )}
         </Show>
       </Loading>
-      <AnimatePresence>
-        <For each={arrivals()}>{(piece) => <CartArrival piece={piece} />}</For>
-      </AnimatePresence>
-    </wardic.a>
+      {/* The fly-in's section, with the `layout` of the page that moved the first piece (#526). */}
+      <Show when={flightLayout()}>
+        {(layout) => (
+          <LazyWardic features={layout()}>
+            <AnimatePresence>
+              <For each={arrivals()}>{(piece) => <CartArrival piece={piece} />}</For>
+            </AnimatePresence>
+          </LazyWardic>
+        )}
+      </Show>
+    </w.a>
   )
 }
 
@@ -114,10 +121,10 @@ const TOSS = arc()
  */
 function CartArrival(props: { readonly piece: Arrival }) {
   // Its ward holds what it hears, its layout (#398): its landing lets it go.
-  const flight = ward({ layoutId: arrivalId(props.piece.id) })
+  const flight = w.ward({ layoutId: arrivalId(props.piece.id) })
   createEffect(flight.when("layoutComplete"), () => landed(props.piece.id))
   return (
-    <wardic.img
+    <w.img
       class="cart-arrival"
       wardRef={flight}
       layoutCrossfade={false}
@@ -156,7 +163,7 @@ export function Shell(props: { readonly children: JSX.Element }) {
               <input type="checkbox" checked={preferences.reduceMotion()} onChange={(event) => preferences.setReduceMotion(event.currentTarget.checked)} />
               <span>Reduce motion</span>
             </label>
-            <wardic.button
+            <w.button
               class="icon-button"
               variants={ICON}
               initial="rest"
@@ -170,10 +177,10 @@ export function Shell(props: { readonly children: JSX.Element }) {
                 preferences.cycleTheme()
               }}
             >
-              <wardic.span class="glyph" animate={turnOf(switches())}>
+              <w.span class="glyph" animate={turnOf(switches())}>
                 {THEME_ICON[preferences.theme()]}
-              </wardic.span>
-            </wardic.button>
+              </w.span>
+            </w.button>
             <StoreSettings />
             <CartButton />
           </div>

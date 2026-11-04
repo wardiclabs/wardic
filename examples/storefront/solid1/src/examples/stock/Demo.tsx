@@ -2,7 +2,7 @@ import { createAsync } from "@solidjs/router"
 import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { wardic } from "@wardic/solid"
+import { w } from "@wardic/solid"
 import { createSignal, For, Suspense, useTransition } from "solid-js"
 import { stock } from "~/lib/store.ts"
 
@@ -56,7 +56,7 @@ function StockRow(props: { readonly piece: Product; readonly left: () => number 
       <img src={photoOf(props.piece.id).small} width="48" height="48" alt="" />
       <span class="name">{props.piece.name}</span>
       <span class="meter">
-        <wardic.span
+        <w.span
           class="meter-fill"
           initial={{ scaleX: 0 }}
           animate={{ scaleX: props.left() / SHELF }}

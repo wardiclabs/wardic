@@ -1,9 +1,10 @@
 import { formatDay, formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { Order, Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, useAnimateLayout, wardic } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, LazyWardic, useAnimateLayout, w } from "@wardic/solid/unstable/v2"
 import { createMemo, createSignal, For, Loading, Show } from "solid-js"
 import { orders, products } from "~/lib/store.ts"
+import { layout } from "~/lib/layout-feature.ts"
 
 // An order's pieces fade in once its row has started to open, and out quickly as it closes.
 const reveal = {
@@ -23,7 +24,16 @@ function sortedBy(orders: ReadonlyArray<Order>, sort: Sort): ReadonlyArray<Order
   return orders
 }
 
+/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
 export default function OrderHistory() {
+  return (
+    <LazyWardic features={[layout]}>
+      <OrderHistoryDemo />
+    </LazyWardic>
+  )
+}
+
+function OrderHistoryDemo() {
   const history = createMemo(() => orders())
   const all = createMemo(() => products())
   const [open, setOpen] = createSignal<string>()
@@ -62,23 +72,23 @@ export default function OrderHistory() {
         <ul class="orders" aria-busy={String(sorting()) as "true" | "false"}>
           <For each={sortedBy(history(), sort())}>
             {(order) => (
-              <wardic.li class="order" layout>
-                <wardic.button class="order-summary" layout="position" aria-expanded={String(open() === order.id) as "true" | "false"} onClick={() => toggle(order.id)}>
+              <w.li class="order" layout>
+                <w.button class="order-summary" layout="position" aria-expanded={String(open() === order.id) as "true" | "false"} onClick={() => toggle(order.id)}>
                   <span class="order-id">{order.id}</span>
                   <span class="order-day">{formatDay(order.placedOn)}</span>
                   <span class="status" data-status={order.status}>
                     {order.status}
                   </span>
                   <span class="order-total">{formatPrice(order.total)}</span>
-                </wardic.button>
+                </w.button>
                 <AnimatePresence initial={false} mode="popLayout">
                   <Show when={open() === order.id}>
-                    <wardic.ul class="order-lines" layout="position" {...reveal}>
+                    <w.ul class="order-lines" layout="position" {...reveal}>
                       <For each={order.lines}>{(line) => <OrderLine line={line} product={productOf(line.productId)} />}</For>
-                    </wardic.ul>
+                    </w.ul>
                   </Show>
                 </AnimatePresence>
-              </wardic.li>
+              </w.li>
             )}
           </For>
         </ul>

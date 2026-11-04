@@ -7,7 +7,7 @@ import { Dynamic, dynamic } from "@solidjs/web"
 import { AREAS, exampleById } from "@wardic/example-storefront-shared/examples"
 import { codeParts } from "@wardic/example-storefront-shared/format"
 import { BACK } from "@wardic/example-storefront-shared/micro"
-import { wardic } from "@wardic/solid/unstable/v2"
+import { w } from "@wardic/solid/unstable/v2"
 import { type Component, createSignal, For, Loading, Show } from "solid-js"
 import { codeFiles } from "~/server/code.tsx"
 
@@ -55,12 +55,12 @@ export function ExamplePage(props: { readonly id: string; readonly demo: Compone
   return (
     <main class="page example">
       <nav class="crumbs" aria-label="Breadcrumb">
-        <wardic.a href="/" initial="rest" animate="rest" whileHover="hover" whileFocus="hover">
-          <wardic.span class="glyph" variants={BACK}>
+        <w.a href="/" initial="rest" animate="rest" whileHover="hover" whileFocus="hover">
+          <w.span class="glyph" variants={BACK}>
             ←
-          </wardic.span>{" "}
+          </w.span>{" "}
           Examples
-        </wardic.a>{" "}
+        </w.a>{" "}
         / {area.title}
       </nav>
       <header class="example-head">

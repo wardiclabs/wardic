@@ -1,7 +1,7 @@
 "use client"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import { STUDIO_CHAPTERS } from "@wardic/example-storefront-shared/stories"
-import { motion } from "motion/react"
+import { m } from "motion/react"
 import { useRef } from "react"
 
 // Each chapter names a variant as it comes into view; its photo and words follow, one after another.
@@ -23,13 +23,13 @@ export default function Reveals() {
         const photo = photoOf(story.photo)
         return (
           // In view once a third of it shows in the panel; once, so scrolling back up doesn't hide it.
-          <motion.section key={story.title} className="chapter" variants={chapter} initial="hidden" whileInView="shown" viewport={{ root: panel, once: true, amount: 0.35 }}>
-            <motion.img variants={part} src={photo.small} width={photo.width} height={photo.height} alt="" />
+          <m.section key={story.title} className="chapter" variants={chapter} initial="hidden" whileInView="shown" viewport={{ root: panel, once: true, amount: 0.35 }}>
+            <m.img variants={part} src={photo.small} width={photo.width} height={photo.height} alt="" />
             <div>
-              <motion.h3 variants={part}>{story.title}</motion.h3>
-              <motion.p variants={part}>{story.text}</motion.p>
+              <m.h3 variants={part}>{story.title}</m.h3>
+              <m.p variants={part}>{story.text}</m.p>
             </div>
-          </motion.section>
+          </m.section>
         )
       })}
     </div>

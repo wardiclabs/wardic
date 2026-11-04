@@ -1,12 +1,12 @@
 import { Dialog } from "@kobalte/core/dialog"
-import { AnimatePresence, wardic } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, w } from "@wardic/solid/unstable/v2"
 import { createMemo, createSignal, For, Loading, Show } from "solid-js"
 import { products } from "~/lib/store.ts"
 
 // Kobalte's parts, taking Wardic's motion props: the ward goes on the element each one renders,
 // through the ref Kobalte forwards to it.
-const Shade = wardic.create(Dialog.Overlay)
-const Guide = wardic.create(Dialog.Content)
+const Shade = w.create(Dialog.Overlay)
+const Guide = w.create(Dialog.Content)
 
 const shade = {
   initial: { opacity: 0 },

@@ -1,6 +1,6 @@
 "use client"
 import type { Notice } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, m } from "motion/react"
 import { startTransition, Suspense, use, useEffect, useRef, useState } from "react"
 import { dismissNotice, restoreNotices } from "~/lib/store.ts"
 
@@ -101,18 +101,18 @@ function NoticeRow({ notice, onProblem }: { readonly notice: Notice; readonly on
   }
 
   return (
-    <motion.li className="notice-row" data-id={notice.id} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+    <m.li className="notice-row" data-id={notice.id} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <AnimatePresence>
         {undoable && (
-          <motion.p className="notice-undo" {...fade}>
+          <m.p className="notice-undo" {...fade}>
             Dismissed ·{" "}
             <button className="link-button" onClick={back}>
               Undo
             </button>
-          </motion.p>
+          </m.p>
         )}
       </AnimatePresence>
-      <motion.article
+      <m.article
         className={out ? "notice out" : "notice"}
         data-kind={notice.kind}
         drag="x"
@@ -133,8 +133,8 @@ function NoticeRow({ notice, onProblem }: { readonly notice: Notice; readonly on
       >
         <strong>{notice.title}</strong>
         <span className="muted">{notice.body}</span>
-      </motion.article>
-    </motion.li>
+      </m.article>
+    </m.li>
   )
 }
 

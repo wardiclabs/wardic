@@ -2,7 +2,7 @@
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, m } from "motion/react"
 import Link from "next/link"
 import { startTransition, Suspense, use, useEffect, useOptimistic, useRef, useState } from "react"
 import { addToCart } from "~/lib/store.ts"
@@ -14,7 +14,7 @@ const viewCart = {
   exit: { opacity: 0, x: -12, transition: { type: "tween", duration: 0.12 } },
 } as const
 
-const MotionLink = motion.create(Link)
+const MotionLink = m.create(Link)
 
 export function AddToCart({ piece }: { readonly piece: Promise<Product> }) {
   return (
@@ -75,9 +75,9 @@ function BuyBox(props: { readonly piece: Promise<Product> }) {
           </div>
           {/* The button's width follows its label: layout animates the change, and the label,
               layout="position", travels with it instead of stretching. */}
-          <motion.button className="button accent buy" layout disabled={adding} onClick={buy}>
-            <motion.span layout="position">{labelOf(adding, added)}</motion.span>
-          </motion.button>
+          <m.button className="button accent buy" layout disabled={adding} onClick={buy}>
+            <m.span layout="position">{labelOf(adding, added)}</m.span>
+          </m.button>
           <AnimatePresence>
             {added && (
               <MotionLink className="view-cart" href="/layout/cart-drawer" {...viewCart}>

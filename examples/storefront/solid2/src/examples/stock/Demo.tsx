@@ -1,7 +1,7 @@
 import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { ward, wardic } from "@wardic/solid/unstable/v2"
+import { w } from "@wardic/solid/unstable/v2"
 import { createMemo, createSignal, For, isPending, Loading } from "solid-js"
 import { stock } from "~/lib/store.ts"
 
@@ -47,7 +47,7 @@ export default function Stock() {
 
 function StockRow(props: { readonly piece: Product; readonly left: () => number }) {
   // The bar's ward only listens: its own props fill it.
-  const bar = ward()
+  const bar = w.ward()
   // While its animation runs, its last landing is pending: "filling…", then the count once it lands.
   const label = () => (isPending(() => bar.settled()) ? "filling…" : `✓ ${props.left()} left`)
   return (
@@ -55,7 +55,7 @@ function StockRow(props: { readonly piece: Product; readonly left: () => number 
       <img src={photoOf(props.piece.id).small} width="48" height="48" alt="" />
       <span class="name">{props.piece.name}</span>
       <span class="meter">
-        <wardic.span class="meter-fill" wardRef={bar} initial={{ scaleX: 0 }} animate={{ scaleX: props.left() / SHELF }} transition={FILL} />
+        <w.span class="meter-fill" wardRef={bar} initial={{ scaleX: 0 }} animate={{ scaleX: props.left() / SHELF }} transition={FILL} />
       </span>
       <span class="stock-label">{label()}</span>
     </li>

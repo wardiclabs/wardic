@@ -1,5 +1,5 @@
 "use client"
-import { AnimatePresence, motion, useAnimationFrame, useCycle, useMotionValue, usePageInView } from "motion/react"
+import { AnimatePresence, m, useAnimationFrame, useCycle, useMotionValue, usePageInView } from "motion/react"
 import { useRef, useState } from "react"
 
 const MESSAGES = [
@@ -50,12 +50,12 @@ export default function Announcements() {
     <div className="announcements" onMouseEnter={() => setHovered(true)} onMouseLeave={() => setHovered(false)}>
       <div className="announcement">
         <AnimatePresence mode="wait">
-          <motion.p key={current} className="announcement-message" {...message}>
+          <m.p key={current} className="announcement-message" {...message}>
             {current}
-          </motion.p>
+          </m.p>
         </AnimatePresence>
       </div>
-      <motion.div className="announcement-bar" style={{ scaleX: progress }} />
+      <m.div className="announcement-bar" style={{ scaleX: progress }} />
       <div className="announcement-controls">
         <button type="button" className="button quiet" aria-pressed={held} onClick={() => setHeld(!held)}>
           {held ? "Play" : "Pause"}

@@ -1,5 +1,6 @@
-import { AnimatePresence, createInstantTransition, wardic } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, createInstantTransition, LazyWardic, w } from "@wardic/solid/unstable/v2"
 import { createSignal, For, Show } from "solid-js"
+import { layout } from "~/lib/layout-feature.ts"
 
 const QUESTIONS = [
   {
@@ -32,7 +33,16 @@ const answer = {
 // `duration` makes a tween, eased out.
 const chevron = { shut: { rotate: 0 }, open: { rotate: 180 } } as const
 
+/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
 export default function DeliveryFaq() {
+  return (
+    <LazyWardic features={[layout]}>
+      <DeliveryFaqDemo />
+    </LazyWardic>
+  )
+}
+
+function DeliveryFaqDemo() {
   // Each answer opens on its own; the first is open as the page loads.
   const [open, setOpen] = createSignal<ReadonlySet<number>>(new Set([0]))
   const isOpen = (index: number) => open().has(index)
@@ -67,23 +77,23 @@ export default function DeliveryFaq() {
           {(item, index) => (
             // Each item grows as its answer opens: layout animates its size, its rounded corners and
             // shadow kept as they are while it scales, and the items below slide down to make room.
-            <wardic.li class="faq-item" layout>
-              <wardic.button class="faq-question" layout="position" aria-expanded={String(isOpen(index())) as "true" | "false"} onClick={() => toggle(index())}>
+            <w.li class="faq-item" layout>
+              <w.button class="faq-question" layout="position" aria-expanded={String(isOpen(index())) as "true" | "false"} onClick={() => toggle(index())}>
                 <span>{item.question}</span>
                 {/* initial={false}: the answer open when the page loads has its chevron turned already. */}
-                <wardic.span class="chevron" variants={chevron} initial={false} animate={stateOf(index())} transition={{ duration: 0.2 }} aria-hidden="true">
+                <w.span class="chevron" variants={chevron} initial={false} animate={stateOf(index())} transition={{ duration: 0.2 }} aria-hidden="true">
                   ⌄
-                </wardic.span>
-              </wardic.button>
+                </w.span>
+              </w.button>
               {/* popLayout: a closing answer leaves the flow at once, so its card shrinks while it fades. */}
               <AnimatePresence initial={false} mode="popLayout">
                 <Show when={isOpen(index())}>
-                  <wardic.div class="faq-answer" layout="position" {...answer}>
+                  <w.div class="faq-answer" layout="position" {...answer}>
                     <p>{item.answer}</p>
-                  </wardic.div>
+                  </w.div>
                 </Show>
               </AnimatePresence>
-            </wardic.li>
+            </w.li>
           )}
         </For>
       </ul>

@@ -1,7 +1,7 @@
 import { useLocation } from "@solidjs/router"
 import { type Hydration, hydrationOf } from "@wardic/example-storefront-shared/hydration"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
-import { wardic } from "@wardic/solid"
+import { w } from "@wardic/solid"
 import { createSignal, onMount, Show } from "solid-js"
 
 // The banner names a variant; its photo and lines follow, one after another. Nothing here asks for
@@ -53,21 +53,21 @@ function HydrationStatus() {
 export default function BeforeHydration() {
   return (
     <>
-      <wardic.section class="season" variants={banner} initial="hidden" animate="shown">
+      <w.section class="season" variants={banner} initial="hidden" animate="shown">
         <div class="season-photo">
-          <wardic.img variants={photo} src={vase.large} srcset={srcsetOf(vase)} sizes="(max-width: 640px) 100vw, 480px" width={vase.width} height={vase.height} alt="The Lagoon Vase" />
+          <w.img variants={photo} src={vase.large} srcset={srcsetOf(vase)} sizes="(max-width: 640px) 100vw, 480px" width={vase.width} height={vase.height} alt="The Lagoon Vase" />
         </div>
         <div class="season-copy">
-          <wardic.p class="eyebrow" variants={line}>
+          <w.p class="eyebrow" variants={line}>
             New this season
-          </wardic.p>
-          <wardic.h2 variants={line}>Glazes that ran in the kiln</wardic.h2>
-          <wardic.p variants={line}>Two glazes poured over each other, left to find their own way in the heat. No two came out alike.</wardic.p>
-          <wardic.a class="button accent" href="/entrances/product-grid" variants={line} whileHover={{ y: -2 }} whileTap={{ scale: 0.97 }}>
+          </w.p>
+          <w.h2 variants={line}>Glazes that ran in the kiln</w.h2>
+          <w.p variants={line}>Two glazes poured over each other, left to find their own way in the heat. No two came out alike.</w.p>
+          <w.a class="button accent" href="/entrances/product-grid" variants={line} whileHover={{ y: -2 }} whileTap={{ scale: 0.97 }}>
             See the pieces
-          </wardic.a>
+          </w.a>
         </div>
-      </wardic.section>
+      </w.section>
       <div class="hydration">
         <HydrationStatus />
         {/* Full page loads, not the router's: `rel="external"`. */}

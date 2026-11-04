@@ -1,4 +1,4 @@
-import { correctParentTransform, wardic, WardicConfig } from "@wardic/solid/unstable/v2"
+import { correctParentTransform, drag, LazyWardic, w, WardicConfig } from "@wardic/solid/unstable/v2"
 import { createSignal, For } from "solid-js"
 
 const PIECES = [
@@ -7,7 +7,16 @@ const PIECES = [
   { id: "lamp", name: "Lamp", x: 236, y: 32, width: 44, height: 44 },
 ] as const
 
+/** The demo, with this page's `drag` beside the shell's Features (#526): a page without a drag ships none. */
 export default function ArrangeRoom() {
+  return (
+    <LazyWardic features={[drag]}>
+      <ArrangeRoomDemo />
+    </LazyWardic>
+  )
+}
+
+function ArrangeRoomDemo() {
   // The plan is zoomed with a CSS transform, so the pointer moves in the page's pixels while a
   // piece moves in the plan's: at 140% a piece would run ahead of the pointer, at 60% lag behind.
   const [zoom, setZoom] = createSignal(1)
@@ -27,7 +36,7 @@ export default function ArrangeRoom() {
           <WardicConfig transformPagePoint={correctParentTransform(() => plan)}>
             <For each={PIECES}>
               {(piece) => (
-                <wardic.div
+                <w.div
                   class="room-piece"
                   data-id={piece.id}
                   drag
@@ -38,7 +47,7 @@ export default function ArrangeRoom() {
                   style={{ left: `${piece.x}px`, top: `${piece.y}px`, width: `${piece.width}px`, height: `${piece.height}px` }}
                 >
                   {piece.name}
-                </wardic.div>
+                </w.div>
               )}
             </For>
           </WardicConfig>

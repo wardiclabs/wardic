@@ -2,11 +2,11 @@
 import { A } from "@solidjs/router"
 import { AREAS, examplesIn, routeOf } from "@wardic/example-storefront-shared/examples"
 import { CARD, TAG } from "@wardic/example-storefront-shared/micro"
-import { wardic } from "@wardic/solid"
+import { w } from "@wardic/solid"
 import { For, Show } from "solid-js"
 
-/** A gallery card: the router's link through `wardic.create`, so it lifts, glows and gives (#365). */
-const Card = wardic.create(A)
+/** A gallery card: the router's link through `w.create`, so it lifts, glows and gives (#365). */
+const Card = w.create(A)
 
 export default function Home() {
   const ready = AREAS.filter((area) => examplesIn(area.id, "solid1").length > 0)
@@ -32,7 +32,7 @@ export default function Home() {
                     <h3>{example.title}</h3>
                     <p class="muted">{example.summary}</p>
                     <ul class="tags">
-                      <For each={example.uses}>{(use) => <wardic.li variants={TAG}>{use}</wardic.li>}</For>
+                      <For each={example.uses}>{(use) => <w.li variants={TAG}>{use}</w.li>}</For>
                     </ul>
                   </Card>
                 )}

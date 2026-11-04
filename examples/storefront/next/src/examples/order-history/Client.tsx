@@ -2,7 +2,7 @@
 import { formatDay, formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { Order, Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, m } from "motion/react"
 import { Suspense, use, useRef, useState } from "react"
 
 // An order's pieces fade in once its row has started to open, and out quickly as it closes.
@@ -73,9 +73,9 @@ function Orders({ sort, sorting, landed, ...props }: Props & { readonly sort: So
   return (
     // A scrolling panel: `layoutScroll` has Motion take its scroll out of what it measures, or a
     // row opened lower down would move by however far the panel has scrolled.
-    <motion.ul className="orders" layoutScroll aria-busy={sorting}>
+    <m.ul className="orders" layoutScroll aria-busy={sorting}>
       {sortedBy(orders, sort).map((order) => (
-        <motion.li
+        <m.li
           key={order.id}
           className="order"
           layout
@@ -85,26 +85,26 @@ function Orders({ sort, sorting, landed, ...props }: Props & { readonly sort: So
             if (moving.current.size === 0) landed()
           }}
         >
-          <motion.button className="order-summary" layout="position" aria-expanded={open === order.id} onClick={() => setOpen(open === order.id ? null : order.id)}>
+          <m.button className="order-summary" layout="position" aria-expanded={open === order.id} onClick={() => setOpen(open === order.id ? null : order.id)}>
             <span className="order-id">{order.id}</span>
             <span className="order-day">{formatDay(order.placedOn)}</span>
             <span className="status" data-status={order.status}>
               {order.status}
             </span>
             <span className="order-total">{formatPrice(order.total)}</span>
-          </motion.button>
+          </m.button>
           <AnimatePresence initial={false} mode="popLayout">
             {open === order.id && (
-              <motion.ul key="lines" className="order-lines" layout="position" {...reveal}>
+              <m.ul key="lines" className="order-lines" layout="position" {...reveal}>
                 {order.lines.map((line) => (
                   <OrderLine key={line.productId} line={line} product={products.find((product) => product.id === line.productId)} />
                 ))}
-              </motion.ul>
+              </m.ul>
             )}
           </AnimatePresence>
-        </motion.li>
+        </m.li>
       ))}
-    </motion.ul>
+    </m.ul>
   )
 }
 

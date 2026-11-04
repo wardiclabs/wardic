@@ -1,5 +1,5 @@
 import { photoOf } from "@wardic/example-storefront-shared/images"
-import { createSpring, createTransform, ward, type WardPointInfo, wardic } from "@wardic/solid/unstable/v2"
+import { createSpring, createTransform, LazyWardic, pan, w, type WardPointInfo } from "@wardic/solid/unstable/v2"
 import { createEffect, createSignal, untrack } from "solid-js"
 import { useReducedMotion } from "~/lib/preferences.tsx"
 
@@ -13,7 +13,16 @@ const lens = {
   looking: { opacity: 1, scale: 1, transition: { type: "spring", stiffness: 400, damping: 28 } },
 } as const
 
+/** The demo, with this page's `pan` beside the shell's Features (#526): a finger's moves, which the shell has no use for. */
 export default function Magnifier() {
+  return (
+    <LazyWardic features={[pan]}>
+      <MagnifierDemo />
+    </LazyWardic>
+  )
+}
+
+function MagnifierDemo() {
   const photo = photoOf("lagoon-vase")
   const reduced = useReducedMotion()
   // Where the pointer is over the photo, from its corner, and how wide the photo is drawn.
@@ -30,7 +39,7 @@ export default function Magnifier() {
 
   // The photo's ward, made here beside the effects that hear it, and given to the photo (#349). It
   // only listens: the photo's own props say when the lens shows (#398).
-  const look = ward()
+  const look = w.ward()
   // The lens, put over a point in the viewport, on the photo it's over (#397: no `ref`).
   const follow = ({ point, element }: WardPointInfo) => {
     const box = element.getBoundingClientRect()
@@ -55,9 +64,9 @@ export default function Magnifier() {
 
   return (
     <div class="magnifier">
-      <wardic.div class="magnifier-photo" wardRef={look} variants={frame} initial="rest" animate="rest" whileHover="looking" whileTap="looking">
+      <w.div class="magnifier-photo" wardRef={look} variants={frame} initial="rest" animate="rest" whileHover="looking" whileTap="looking">
         <img src={photo.large} width={photo.width} height={photo.height} alt="The Lagoon Vase, up close" draggable={false} />
-        <wardic.div
+        <w.div
           class="lens"
           aria-hidden="true"
           variants={lens}
@@ -70,7 +79,7 @@ export default function Magnifier() {
             "background-image": `url(${photo.large})`,
           }}
         />
-      </wardic.div>
+      </w.div>
       <p class="muted">Hover over the vase to look closer, or press and drag on a phone.</p>
     </div>
   )

@@ -4,7 +4,7 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { arc, motion } from "motion/react"
+import { arc, m } from "motion/react"
 import Link from "next/link"
 import { startTransition, useEffect, useRef, useState } from "react"
 import { addToCart } from "~/lib/store.ts"
@@ -22,9 +22,9 @@ function Photo({ piece, sizes }: { readonly piece: Product; readonly sizes: stri
   const photo = photoOf(piece.id)
   return (
     // The card's photo and the piece's hero: one `layoutId`, so it flies from one page to the other.
-    <motion.div className="photo" layoutId={`catalogue-${piece.id}`} transition={FLIGHT}>
+    <m.div className="photo" layoutId={`catalogue-${piece.id}`} transition={FLIGHT}>
       <img src={photo.small} srcSet={srcsetOf(photo)} sizes={sizes} width={photo.width} height={photo.height} alt={piece.name} />
-    </motion.div>
+    </m.div>
   )
 }
 
@@ -65,7 +65,7 @@ function AddButton({ piece }: { readonly piece: Product }) {
     })
   }
   return (
-    <motion.button
+    <m.button
       className="button catalogue-add"
       aria-label={`Add ${piece.name} to the cart`}
       disabled={state === "adding"}
@@ -74,7 +74,7 @@ function AddButton({ piece }: { readonly piece: Product }) {
       onClick={buy}
     >
       {labelOf(state)}
-    </motion.button>
+    </m.button>
   )
 }
 
@@ -84,7 +84,7 @@ export function CatalogueList() {
     <ul className="catalogue-list">
       {PIECES.map((piece) => (
         // The card squeezes a little as it's pressed, though not as its "Add" is.
-        <motion.li key={piece.id} className="catalogue-item" whileTap={{ scale: 0.97 }}>
+        <m.li key={piece.id} className="catalogue-item" whileTap={{ scale: 0.97 }}>
           {/* scroll={false}: the demo sits partway down the page, so the router leaves its scroll be. */}
           <Link className="catalogue-card" href={`${HOME}/${piece.id}`} scroll={false}>
             <Photo piece={piece} sizes="160px" />
@@ -94,7 +94,7 @@ export function CatalogueList() {
             </span>
           </Link>
           <AddButton piece={piece} />
-        </motion.li>
+        </m.li>
       ))}
     </ul>
   )

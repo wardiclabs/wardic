@@ -1,6 +1,6 @@
 import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
-import { AnimatePresence, wardic } from "@wardic/solid"
+import { AnimatePresence, drag, LazyWardic, w } from "@wardic/solid"
 import { createSignal, For, Show } from "solid-js"
 import { useReducedMotion } from "~/lib/preferences.tsx"
 
@@ -35,7 +35,16 @@ const PIECES = ["lagoon-vase", "moon-vase", "bottle-vase", "tulip-bowl", "blosso
   return piece
 })
 
+/** The demo, with this page's `drag` beside the shell's Features (#526): a page without a drag ships none. */
 export default function Gallery() {
+  return (
+    <LazyWardic features={[drag]}>
+      <GalleryDemo />
+    </LazyWardic>
+  )
+}
+
+function GalleryDemo() {
   const [at, setAt] = createSignal(0)
   // +1 forward, -1 back: set before the photo changes, so both photos read it.
   const [direction, setDirection] = createSignal(1)
@@ -69,7 +78,7 @@ export default function Gallery() {
             {(piece) => {
               const photo = photoOf(piece.id)
               return (
-                <wardic.img
+                <w.img
                   class="gallery-photo"
                   // Dragged across, held at the centre and followed all the way: a swipe steps, its
                   // photo going on out the way it was thrown.

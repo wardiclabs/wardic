@@ -2,7 +2,7 @@
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import { CATEGORIES, type Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, m } from "motion/react"
 import { Suspense, use, useState } from "react"
 
 const FILTERS = ["All", ...CATEGORIES] as const
@@ -66,21 +66,21 @@ function Items({ filter, view, ...props }: { readonly products: Promise<Readonly
 function Item({ product }: { readonly product: Product }) {
   const photo = photoOf(product.id)
   return (
-    <motion.li className="shop-item" layout {...item}>
+    <m.li className="shop-item" layout {...item}>
       {/* The photo changes size between the views: plain layout, its corners kept round as it scales. */}
-      <motion.div className="photo" layout>
+      <m.div className="photo" layout>
         <img src={photo.small} srcSet={srcsetOf(photo)} sizes="(max-width: 640px) 50vw, 240px" width={photo.width} height={photo.height} alt={product.name} />
-      </motion.div>
+      </m.div>
       {/* Text only travels: layout="position" moves it to its new place without stretching it. */}
-      <motion.span className="name" layout="position">
+      <m.span className="name" layout="position">
         {product.name}
-      </motion.span>
-      <motion.span className="price" layout="position">
+      </m.span>
+      <m.span className="price" layout="position">
         {formatPrice(product.price)}
-      </motion.span>
-      <motion.span className="tagline" layout="position">
+      </m.span>
+      <m.span className="tagline" layout="position">
         {product.tagline}
-      </motion.span>
-    </motion.li>
+      </m.span>
+    </m.li>
   )
 }

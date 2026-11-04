@@ -3,7 +3,7 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, motion, useReducedMotionConfig } from "motion/react"
+import { AnimatePresence, m, useReducedMotionConfig } from "motion/react"
 import { startTransition, useOptimistic, useState } from "react"
 import { arrivalId, arrive, recall } from "~/lib/arrivals.ts"
 import { addToCart } from "~/lib/store.ts"
@@ -74,25 +74,25 @@ function SavedRow({ piece, onMove, onRemove }: { readonly piece: Product; readon
   const photo = photoOf(piece.id)
   return (
     // It fades as it leaves, either way. Moved to the cart, its photo's twin there flies from its own.
-    <motion.li className="saved-row" layout exit={{ opacity: 0, transition: { type: "tween", duration: 0.22, ease: "easeOut" } }}>
+    <m.li className="saved-row" layout exit={{ opacity: 0, transition: { type: "tween", duration: 0.22, ease: "easeOut" } }}>
       {/* One photo flies, not two crossfading: this and its twin in the cart button both have
           layoutCrossfade={false}, so whichever takes over hides the other, out to the cart and back. */}
-      <motion.div className="photo" layoutId={arrivalId(piece.id)} layoutCrossfade={false}>
+      <m.div className="photo" layoutId={arrivalId(piece.id)} layoutCrossfade={false}>
         <img src={photo.small} srcSet={srcsetOf(photo)} sizes="72px" width={photo.width} height={photo.height} alt={piece.name} />
-      </motion.div>
+      </m.div>
       <div className="saved-text">
         <span className="name">{piece.name}</span>
         <span className="price">{formatPrice(piece.price)}</span>
       </div>
       <div className="saved-actions">
-        <motion.button className="button accent" whileTap={{ scale: 0.96 }} onClick={onMove}>
+        <m.button className="button accent" whileTap={{ scale: 0.96 }} onClick={onMove}>
           Move to cart
-        </motion.button>
+        </m.button>
         <button className="button quiet" onClick={onRemove}>
           Remove
         </button>
       </div>
-    </motion.li>
+    </m.li>
   )
 }
 

@@ -9,12 +9,12 @@ import { BACK } from "@wardic/example-storefront-shared/micro"
 import { codeParts } from "@wardic/example-storefront-shared/format"
 import { type Component, createSignal, For, Show, Suspense } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { wardic } from "@wardic/solid"
+import { w } from "@wardic/solid"
 import type { Highlighted } from "~/lib/server.ts"
 import { highlighted } from "~/lib/store.ts"
 
 /** The crumbs' link home: its hover's name passes to its arrow, which nudges toward where it goes (#365). */
-const BackLink = wardic.create(A)
+const BackLink = w.create(A)
 
 /** Text with `backticked` code. */
 export function Prose(props: { readonly text: string }) {
@@ -92,9 +92,9 @@ export function ExamplePage(props: { readonly id: string; readonly demo: Compone
     <main class="page example">
       <nav class="crumbs" aria-label="Breadcrumb">
         <BackLink href="/" initial="rest" animate="rest" whileHover="hover" whileFocus="hover">
-          <wardic.span class="glyph" variants={BACK}>
+          <w.span class="glyph" variants={BACK}>
             ←
-          </wardic.span>{" "}
+          </w.span>{" "}
           Examples
         </BackLink>{" "}
         / {area.title}

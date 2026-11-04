@@ -1,4 +1,4 @@
-import { AnimatePresence, createAnimationFrame, createCycle, createPageInView, wardic } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, createAnimationFrame, createCycle, createPageInView, w } from "@wardic/solid/unstable/v2"
 import { createSignal, Show } from "solid-js"
 
 const MESSAGES = [
@@ -52,14 +52,14 @@ export default function Announcements() {
           {/* keyed: each message is a new child, so the last one leaves before the next enters. */}
           <Show when={current()} keyed>
             {(text) => (
-              <wardic.p class="announcement-message" {...message}>
+              <w.p class="announcement-message" {...message}>
                 {text}
-              </wardic.p>
+              </w.p>
             )}
           </Show>
         </AnimatePresence>
       </div>
-      <wardic.div class="announcement-bar" style={{ scaleX: progress }} />
+      <w.div class="announcement-bar" style={{ scaleX: progress }} />
       <div class="announcement-controls">
         <button type="button" class="button quiet" aria-pressed={String(held()) as "true" | "false"} onClick={() => setHeld(!held())}>
           {held() ? "Play" : "Pause"}

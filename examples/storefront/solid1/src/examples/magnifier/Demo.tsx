@@ -1,5 +1,5 @@
 import { photoOf } from "@wardic/example-storefront-shared/images"
-import { createSpring, createTransform, wardic } from "@wardic/solid"
+import { createSpring, createTransform, w } from "@wardic/solid"
 import { createSignal } from "solid-js"
 import { useReducedMotion } from "~/lib/preferences.tsx"
 
@@ -44,9 +44,9 @@ export default function Magnifier() {
 
   return (
     <div class="magnifier">
-      <wardic.div class="magnifier-photo" variants={frame} initial="rest" animate="rest" whileHover="looking" whileTap="looking" onPointerMove={follow} onPointerDown={follow}>
+      <w.div class="magnifier-photo" variants={frame} initial="rest" animate="rest" whileHover="looking" whileTap="looking" onPointerMove={follow} onPointerDown={follow}>
         <img src={photo.large} width={photo.width} height={photo.height} alt="The Lagoon Vase, up close" draggable={false} />
-        <wardic.div
+        <w.div
           class="lens"
           aria-hidden="true"
           variants={lens}
@@ -59,7 +59,7 @@ export default function Magnifier() {
             "background-image": `url(${photo.large})`,
           }}
         />
-      </wardic.div>
+      </w.div>
       <p class="muted">Hover over the vase to look closer, or press and drag on a phone.</p>
     </div>
   )

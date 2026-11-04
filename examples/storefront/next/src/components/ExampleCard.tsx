@@ -1,10 +1,10 @@
 "use client"
 /** A gallery card (#365): it lifts under the pointer, its tags rising in turn, and sinks under a press. */
 import { CARD } from "@wardic/example-storefront-shared/micro"
-import { motion } from "motion/react"
+import { m } from "motion/react"
 import Link from "next/link"
 
-const MotionLink = motion.create(Link)
+const MotionLink = m.create(Link)
 
 export function ExampleCard({ href, title, summary }: { readonly href: string; readonly title: string; readonly summary: string }) {
   return (

@@ -2,7 +2,7 @@
 /** The header's switches (#296): reduce motion, the theme, the store's settings, and the cart. */
 import type { Cart, Settings } from "@wardic/example-storefront-shared/server"
 import { COG, ICON, turnOf } from "@wardic/example-storefront-shared/micro"
-import { AnimatePresence, arc, motion } from "motion/react"
+import { AnimatePresence, arc, m } from "motion/react"
 import Link from "next/link"
 import { Suspense, startTransition, use, useState } from "react"
 import { type Arrival, arrivalId, landed, useArrivals } from "~/lib/arrivals.ts"
@@ -12,7 +12,7 @@ import { getSettings, setSettings } from "~/lib/store.ts"
 const THEME_LABEL: Record<Theme, string> = { system: "Theme: system", light: "Theme: light", dark: "Theme: dark" }
 const THEME_ICON: Record<Theme, string> = { system: "◐", light: "☀", dark: "☾" }
 
-const MotionLink = motion.create(Link)
+const MotionLink = m.create(Link)
 
 /** The store's switches: the delay on each request, and "fail the next one". */
 function StoreSettings() {
@@ -26,7 +26,7 @@ function StoreSettings() {
     })
   return (
     <div className="settings">
-      <motion.button
+      <m.button
         className="icon-button"
         variants={ICON}
         initial="rest"
@@ -38,10 +38,10 @@ function StoreSettings() {
         title="Store settings"
         onClick={toggle}
       >
-        <motion.span className="glyph" variants={COG}>
+        <m.span className="glyph" variants={COG}>
           ⚙
-        </motion.span>
-      </motion.button>
+        </m.span>
+      </m.button>
       {settings !== null && (
         <div className="settings-panel" role="dialog" aria-label="Store settings">
           <strong>The store</strong>
@@ -78,9 +78,9 @@ function CartCount({ cart }: { readonly cart: Promise<Cart> }) {
   const count = use(cart).lines.reduce((sum, line) => sum + line.quantity, 0)
   if (count === 0) return null
   return (
-    <motion.span key={count} className="cart-count" initial={{ scale: 1.5 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 18 }}>
+    <m.span key={count} className="cart-count" initial={{ scale: 1.5 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 18 }}>
       {count}
-    </motion.span>
+    </m.span>
   )
 }
 
@@ -95,7 +95,7 @@ const TOSS = arc()
  */
 function CartArrival({ piece }: { readonly piece: Arrival }) {
   return (
-    <motion.img
+    <m.img
       className="cart-arrival"
       layoutId={arrivalId(piece.id)}
       layoutCrossfade={false}
@@ -148,7 +148,7 @@ export function HeaderTools({ cart }: { readonly cart: Promise<Cart> }) {
         <input type="checkbox" checked={preferences.reduceMotion} onChange={(event) => preferences.setReduceMotion(event.currentTarget.checked)} />
         <span>Reduce motion</span>
       </label>
-      <motion.button
+      <m.button
         className="icon-button"
         variants={ICON}
         initial="rest"
@@ -162,10 +162,10 @@ export function HeaderTools({ cart }: { readonly cart: Promise<Cart> }) {
           preferences.cycleTheme()
         }}
       >
-        <motion.span className="glyph" animate={turnOf(switches)}>
+        <m.span className="glyph" animate={turnOf(switches)}>
           {THEME_ICON[preferences.theme]}
-        </motion.span>
-      </motion.button>
+        </m.span>
+      </m.button>
       <StoreSettings />
       <CartButton cart={cart} />
     </div>

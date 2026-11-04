@@ -219,10 +219,10 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     why: [
       "A swipe should feel like brushing a card off the table: it follows your finger sideways, and if you let go gently it springs back. Throw it, far enough or fast enough, and it keeps going the way you threw it, at the speed you threw it. Each card is draggable on x only, snapping back to where it was unless the release counts as a throw.",
       "A dismissal you can't take back is unkind, so the request waits. The card flies off, \"Dismissed · Undo\" takes its place for four seconds, and only then is the store told. An undo, or a store that refuses, brings the card back the way it went.",
-      "When the store has it, the row leaves the list at once and the rows below glide up into the gap: the list is an `AnimatePresence` in `popLayout` mode, and each row a `layout` element. On Solid 2 the card's throw, its landing, the undo window and the request are one `action`, waiting on the card's `next(\"settled\")`. The card's ward is made in its row, beside that action and the releases it reads, and given to the card's `wardic.article` through `wardRef`. It holds what it hears, the drag; the card's own `variants`, `animate` and `exit` say where it flies.",
+      "When the store has it, the row leaves the list at once and the rows below glide up into the gap: the list is an `AnimatePresence` in `popLayout` mode, and each row a `layout` element. On Solid 2 the card's throw, its landing, the undo window and the request are one `action`, waiting on the card's `next(\"settled\")`. The card's ward is made in its row, beside that action and the releases it reads, and given to the card's `w.article` through `wardRef`. It holds what it hears, the drag; the card's own `variants`, `animate` and `exit` say where it flies.",
     ],
     reducedMotion: "The card still follows your finger; a throw sends it off at once, and the rows below move up at once.",
-    uses: ["drag=\"x\"", "dragSnapToOrigin", "AnimatePresence mode=\"popLayout\"", "next(\"settled\") in an action (Solid\u00a02)", "ward() given to wardRef (Solid\u00a02)"],
+    uses: ["drag=\"x\"", "dragSnapToOrigin", "AnimatePresence mode=\"popLayout\"", "next(\"settled\") in an action (Solid\u00a02)", "w.ward() given to wardRef (Solid\u00a02)"],
     motion: {
       note: "Motion has no `next(\"settled\")`. Its card says the throw has landed through `onAnimationComplete`, by the variant's name, which offers \"Undo\" and starts a timer; the request goes when the timer ends, as a server action that refreshes the page, and the row leaves with the list read again. Undo, or a refusal, clears the timer and flies the card back. On Solid 2 the throw, its landing, the undo window and the request are one `action`. The throw takes over from `dragSnapToOrigin`'s spring back in both.",
     },
@@ -376,7 +376,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       "A product photo hides what makes a glazed piece worth buying: where its colours run into each other. A magnifier lets you look closer without leaving the page. A lens glued to the pointer jitters with every twitch of the hand; on a spring, it glides after the pointer and settles where you stop.",
       "The pointer's place over the photo is two plain signals. `createSpring` follows each with a spring on the frame loop, idle while it rests, and the lens takes the springs as its `x` and `y` in `style`: live values, which Wardic writes each frame. `createTransform` maps the same springs to where the photo inside the lens sits, as two custom properties the stylesheet's `background-position` reads, so the lens always shows what's under its centre.",
       "The lens grows in under hover or a press: the photo names a variant, and the lens, a Variant child, follows it.",
-      "The photo hears the pointer from Wardic. On Solid 2, its ward only listens (`ward()`), given to the photo through `wardRef`; the photo keeps its own variants, `whileHover` and `whileTap`. An effect over `look.when(\"hover\")` hears a mouse, from where it came in and at each move, and effects over `look.when(\"pressStart\")` and `look.when(\"pan\")` hear a finger, which never hovers: each with the photo it's over (`element`, so no `ref`). On Solid 1, the photo's own `onPointerMove` and `onPointerDown` do the same.",
+      "The photo hears the pointer from Wardic. On Solid 2, its ward only listens (`w.ward()`), given to the photo through `wardRef`; the photo keeps its own variants, `whileHover` and `whileTap`. An effect over `look.when(\"hover\")` hears a mouse, from where it came in and at each move, and effects over `look.when(\"pressStart\")` and `look.when(\"pan\")` hear a finger, which never hovers: each with the photo it's over (`element`, so no `ref`). On Solid 1, the photo's own `onPointerMove` and `onPointerDown` do the same.",
     ],
     reducedMotion: "The lens doesn't glide: it's where the pointer is. A live value is yours, so Wardic's reduced motion leaves it alone; the demo `jump`s its springs to the pointer instead.",
     uses: ["createSpring", "createTransform", "live values in style", "whileHover", "whileTap", "when(\"hover\"), when(\"pan\") (Solid\u00a02)"],
@@ -439,7 +439,7 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     why: [
       "A card that answers the pointer feels like an object: tilting toward where you point, with a light where your pointer is, it invites a closer look without a single extra control.",
       "The pointer's place over the card, from -1 to 1 each way, is two signals that two `createSpring`s follow, so the card eases toward the pointer and back to rest when it leaves. `createTransform` maps the springs twice: to `rotateX` and `rotateY` in the card's `style`, and to where its light sits, as custom properties the stylesheet's radial gradient reads. The light comes on through a variant that animates a custom property of its own, `--light`, from 0 to 1 under hover.",
-      "The card hears its hover from Wardic. On Solid 2, its ward is made beside the effects that read it and given to the element through `wardRef`. It only listens (`ward()`): the card's own props light it and tilt it. An effect over `card.when(\"hover\")` hears the pointer over the card, from where it came in and at each move, with the card it's over (`element`, so no `ref`), and places the light and the tilt; one over `card.when(\"hoverEnd\")` sends the card back flat. A `hover` at each move is Wardic's own: Motion's hover has only a start and an end. On Solid 1, the element's `onHoverStart` and `onHoverEnd` do the same, with its own `pointermove` for the moves in between. Touch never hovers, so on a phone the cards stay still.",
+      "The card hears its hover from Wardic. On Solid 2, its ward is made beside the effects that read it and given to the element through `wardRef`. It only listens (`w.ward()`): the card's own props light it and tilt it. An effect over `card.when(\"hover\")` hears the pointer over the card, from where it came in and at each move, with the card it's over (`element`, so no `ref`), and places the light and the tilt; one over `card.when(\"hoverEnd\")` sends the card back flat. A `hover` at each move is Wardic's own: Motion's hover has only a start and an end. On Solid 1, the element's `onHoverStart` and `onHoverEnd` do the same, with its own `pointermove` for the moves in between. Touch never hovers, so on a phone the cards stay still.",
     ],
     reducedMotion: "The cards don't tilt, and the light is where the pointer is, without the spring. It still comes on and goes off.",
     uses: ["createSpring", "createTransform", "custom properties in style and variants", "whileHover", "when(\"hover\") (Solid\u00a02)"],
@@ -490,14 +490,14 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     summary: "Open the size guide: the shop dims and the guide rises in. Escape, a click outside or ✕ takes it away as smoothly.",
     why: [
       "A dialog's hard part isn't its motion. It's moving focus in and back out, keeping Tab inside, closing on Escape, hiding the page from screen readers, and stopping the page scrolling underneath. A component library does all of that, and on Solid that's Kobalte. The guide is Kobalte's `Dialog`; its motion is Wardic's.",
-      "`wardic.create(Dialog.Overlay)` and `wardic.create(Dialog.Content)` give Kobalte's parts the motion props. Wardic puts its ward on the element each part renders, through the ref Kobalte forwards. Kobalte's own presence waits only for CSS animations, so the dialog is `forceMount`ed, and Wardic's `<AnimatePresence>`, around a `<Show>` of the open state, keeps the parts on the page while they leave. Kobalte still hands focus back to the button the moment it closes.",
+      "`w.create(Dialog.Overlay)` and `w.create(Dialog.Content)` give Kobalte's parts the motion props. Wardic puts its ward on the element each part renders, through the ref Kobalte forwards. Kobalte's own presence waits only for CSS animations, so the dialog is `forceMount`ed, and Wardic's `<AnimatePresence>`, around a `<Show>` of the open state, keeps the parts on the page while they leave. Kobalte still hands focus back to the button the moment it closes.",
       "On Solid 2 it's Kobalte 2.0, still an alpha: the console shows its own development warnings.",
     ],
     reducedMotion: "The guide and the shade fade in and out; the guide doesn't rise.",
-    uses: ["wardic.create(Component)", "Kobalte's Dialog, forceMount", "AnimatePresence", "exit"],
+    uses: ["w.create(Component)", "Kobalte's Dialog, forceMount", "AnimatePresence", "exit"],
     motion: {
       title: "A size guide in Radix's dialog",
-      note: "Motion's version is Radix's `Dialog`, whose API Kobalte follows. Radix renders into Motion's elements through `asChild`, with each part `forceMount`ed inside Motion's `<AnimatePresence>`. Kobalte's parts take the motion props through `wardic.create`, and its `forceMount` is on the dialog itself.",
+      note: "Motion's version is Radix's `Dialog`, whose API Kobalte follows. Radix renders into Motion's elements through `asChild`, with each part `forceMount`ed inside Motion's `<AnimatePresence>`. Kobalte's parts take the motion props through `w.create`, and its `forceMount` is on the dialog itself.",
     },
     interact: ".size-guide-button",
     watch: ".size-guide",
@@ -509,11 +509,11 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     summary: "Pick an order: the list grows out of its button, and the pieces slide to their new places.",
     why: [
       "A select is a list that opens from a button, which the keyboard must reach and walk, with the chosen option announced. Kobalte's `Select` does that, and places the list against its button. Wardic grows the list from the edge it opens from: Kobalte writes that edge into `--kb-select-content-transform-origin`, and the list's `transform-origin` reads it. So it grows down from the button, or up when there's no room below.",
-      "`wardic.create(Select.Content)` gives Kobalte's list the motion props, and `forceMount` with Wardic's `<AnimatePresence>` lets it shrink back before it goes. Choosing an order re-sorts the pieces, each a `layout` card. A re-sort moves them without resizing any, so it's declared to Wardic with `animateLayout`, and they slide to their places as the list closes.",
+      "`w.create(Select.Content)` gives Kobalte's list the motion props, and `forceMount` with Wardic's `<AnimatePresence>` lets it shrink back before it goes. Choosing an order re-sorts the pieces, each a `layout` card. A re-sort moves them without resizing any, so it's declared to Wardic with `animateLayout`, and they slide to their places as the list closes.",
       "On Solid 2 it's Kobalte 2.0, still an alpha: the console shows its own development warnings.",
     ],
     reducedMotion: "The list fades in and out without growing, and the pieces move to their places at once.",
-    uses: ["wardic.create(Component)", "Kobalte's Select, forceMount", "transform-origin from the library", "layout", "animateLayout"],
+    uses: ["w.create(Component)", "Kobalte's Select, forceMount", "transform-origin from the library", "layout", "animateLayout"],
     motion: {
       title: "Sort the shop with Radix's select",
       note: "Motion's version is Radix's `Select`, its list placed against the button (`position=\"popper\"`) and growing from `--radix-select-content-transform-origin`. Its content takes Motion's element through `asChild`, `forceMount`ed inside `<AnimatePresence>`. Motion measures its `layout` cards as React renders them, so the re-sort needs no `animateLayout`.",
@@ -528,11 +528,11 @@ export const EXAMPLES: ReadonlyArray<Example> = [
     summary: "Switch between a piece's size, material and care: the underline slides to the tab, whether you click or use the arrow keys.",
     why: [
       "Tabs need more than buttons: arrow keys between them, Home and End, one tab in the Tab order, and `aria-selected` and `aria-controls` kept right. Kobalte's `Tabs` does all of it. How the selection looks is left to you, and here that's Wardic's: one underline with a `layoutId`, drawn inside whichever of Kobalte's triggers is selected, slides from tab to tab however the selection changed.",
-      "Tabs on a product page builds the same underline on buttons of its own. Here the panels are Kobalte's too: it swaps them as the tab changes, and each new one fades in, a `wardic.create(Tabs.Content)`.",
+      "Tabs on a product page builds the same underline on buttons of its own. Here the panels are Kobalte's too: it swaps them as the tab changes, and each new one fades in, a `w.create(Tabs.Content)`.",
       "On Solid 2 it's Kobalte 2.0, still an alpha: the console shows its own development warnings.",
     ],
     reducedMotion: "The underline moves to its tab at once, and the panels still fade in.",
-    uses: ["layoutId inside a library's parts", "Kobalte's Tabs", "wardic.create(Component)"],
+    uses: ["layoutId inside a library's parts", "Kobalte's Tabs", "w.create(Component)"],
     motion: {
       title: "A piece's details in Radix's tabs",
       note: "Motion's version is Radix's `Tabs`, with the same underline: a `motion.span` with a `layoutId`, inside the selected trigger. Radix's panel takes Motion's element through `asChild`.",

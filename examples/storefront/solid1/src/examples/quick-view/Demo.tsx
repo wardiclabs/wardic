@@ -2,8 +2,9 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, wardic } from "@wardic/solid"
+import { AnimatePresence, LazyWardic, w } from "@wardic/solid"
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js"
+import { layout } from "~/lib/layout-feature.ts"
 
 const SHELF = PRODUCTS.filter((product) => ["moon-vase", "celadon-bowl", "cut-carafe"].includes(product.id))
 
@@ -24,7 +25,16 @@ const pairing = {
   exit: { opacity: 0, x: -16, transition: { type: "tween", duration: 0.16 } },
 } as const
 
+/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
 export default function QuickView() {
+  return (
+    <LazyWardic features={[layout]}>
+      <QuickViewDemo />
+    </LazyWardic>
+  )
+}
+
+function QuickViewDemo() {
   const [open, setOpen] = createSignal<Product>()
   const close = () => setOpen(undefined)
 
@@ -51,9 +61,9 @@ export default function QuickView() {
                   <span class="name">{product.name}</span>
                   <span class="price">{formatPrice(product.price)}</span>
                 </div>
-                <wardic.button class="button quiet" whileHover={{ y: -1 }} whileTap={{ scale: 0.96 }} onClick={() => setOpen(product)}>
+                <w.button class="button quiet" whileHover={{ y: -1 }} whileTap={{ scale: 0.96 }} onClick={() => setOpen(product)}>
                   Quick view
-                </wardic.button>
+                </w.button>
               </li>
             )
           }}
@@ -63,11 +73,11 @@ export default function QuickView() {
         <Show when={open()} keyed>
           {(piece) => (
             <>
-              <wardic.div class="backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: { delay: 0.16 } }} onClick={close} />
+              <w.div class="backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: { delay: 0.16 } }} onClick={close} />
               <div class="detail-frame">
-                <wardic.article class="quick-view" role="dialog" aria-modal="true" aria-label={piece.name} {...panel}>
+                <w.article class="quick-view" role="dialog" aria-modal="true" aria-label={piece.name} {...panel}>
                   <QuickViewBody piece={piece} onClose={close} />
-                </wardic.article>
+                </w.article>
               </div>
             </>
           )}
@@ -98,14 +108,14 @@ function QuickViewBody(props: { readonly piece: Product; readonly onClose: () =>
           <AnimatePresence propagate>
             <For each={shown()}>
               {(other) => (
-                <wardic.li class="pairing" layout {...pairing}>
+                <w.li class="pairing" layout {...pairing}>
                   <img src={photoOf(other.id).small} width="40" height="40" alt="" />
                   <span class="name">{other.name}</span>
                   <span class="price">{formatPrice(other.price)}</span>
                   <button class="icon-button" aria-label={`Not for me: ${other.name}`} onClick={() => setDismissed([...dismissed(), other.id])}>
                     ✕
                   </button>
-                </wardic.li>
+                </w.li>
               )}
             </For>
           </AnimatePresence>

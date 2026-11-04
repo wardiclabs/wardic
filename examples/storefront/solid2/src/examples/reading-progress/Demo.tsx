@@ -1,5 +1,5 @@
 import { LAGOON_ARTICLE } from "@wardic/example-storefront-shared/stories"
-import { createScroll, createTransform, wardic } from "@wardic/solid/unstable/v2"
+import { createScroll, createTransform, w } from "@wardic/solid/unstable/v2"
 import { For } from "solid-js"
 
 export default function ReadingProgress() {
@@ -18,7 +18,7 @@ export default function ReadingProgress() {
         </span>
       </div>
       {/* The bar is the scroll itself, scaled across from its left edge: no animation of its own. */}
-      <wardic.div class="reading-bar" style={{ scaleX: scrollYProgress }} />
+      <w.div class="reading-bar" style={{ scaleX: scrollYProgress }} />
       <div class="reading-panel" ref={panel} tabindex="0" aria-label={LAGOON_ARTICLE.title}>
         <For each={LAGOON_ARTICLE.sections}>
           {(section) => (

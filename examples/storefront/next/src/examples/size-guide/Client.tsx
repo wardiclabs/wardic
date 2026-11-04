@@ -1,6 +1,6 @@
 "use client"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, m } from "motion/react"
 import { Dialog } from "radix-ui"
 import { Suspense, use, useState } from "react"
 
@@ -31,10 +31,10 @@ export function SizeGuide({ pieces }: { readonly pieces: Promise<ReadonlyArray<P
         {open && (
           <Dialog.Portal forceMount>
             <Dialog.Overlay asChild forceMount>
-              <motion.div className="backdrop" {...shade} />
+              <m.div className="backdrop" {...shade} />
             </Dialog.Overlay>
             <Dialog.Content asChild forceMount>
-              <motion.div className="size-guide" {...rise}>
+              <m.div className="size-guide" {...rise}>
                 <header>
                   <Dialog.Title>Size guide</Dialog.Title>
                   <Dialog.Close className="icon-button" aria-label="Close">
@@ -45,7 +45,7 @@ export function SizeGuide({ pieces }: { readonly pieces: Promise<ReadonlyArray<P
                 <Suspense fallback={<p className="muted">Loading the sizes…</p>}>
                   <Sizes pieces={pieces} />
                 </Suspense>
-              </motion.div>
+              </m.div>
             </Dialog.Content>
           </Dialog.Portal>
         )}
