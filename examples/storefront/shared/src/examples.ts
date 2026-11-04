@@ -41,6 +41,11 @@ export interface Example {
    */
   readonly motion?: { readonly note: string; readonly title?: string | undefined; readonly summary?: string | undefined } | undefined
   /**
+   * What the pattern gains and what it costs, where it's a trade (#526 Q6): two short lists, shown
+   * under "Why" in every app.
+   */
+  readonly tradeoffs?: { readonly gains: ReadonlyArray<string>; readonly costs: ReadonlyArray<string> } | undefined
+  /**
    * The apps that have it, where not all three: a pattern only one binding shows (Solid 2's
    * `<Loading>` in a page, #479). Their galleries list it and the smoke test opens it there; the
    * others don't route it.

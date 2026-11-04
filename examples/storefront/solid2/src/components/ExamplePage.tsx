@@ -45,6 +45,38 @@ function CodePanel(props: { readonly id: string; readonly note: string | undefin
   )
 }
 
+/** An example's gains and costs (#526 Q6), where it has them: two short lists. */
+function Tradeoffs(props: { readonly gains: ReadonlyArray<string>; readonly costs: ReadonlyArray<string> }) {
+  return (
+    <section class="tradeoffs" aria-label="Gains and costs">
+      <div class="gains">
+        <h3>Gains</h3>
+        <ul>
+          <For each={props.gains}>
+            {(gain) => (
+              <li>
+                <Prose text={gain} />
+              </li>
+            )}
+          </For>
+        </ul>
+      </div>
+      <div class="costs">
+        <h3>Costs</h3>
+        <ul>
+          <For each={props.costs}>
+            {(cost) => (
+              <li>
+                <Prose text={cost} />
+              </li>
+            )}
+          </For>
+        </ul>
+      </div>
+    </section>
+  )
+}
+
 export function ExamplePage(props: { readonly id: string; readonly demo: Component }) {
   const example = exampleById(props.id)
   if (example === undefined) throw new Error(`No example "${props.id}"`)
@@ -100,6 +132,7 @@ export function ExamplePage(props: { readonly id: string; readonly demo: Compone
             </p>
           )}
         </For>
+        <Show when={example.tradeoffs}>{(tradeoffs) => <Tradeoffs gains={tradeoffs().gains} costs={tradeoffs().costs} />}</Show>
       </section>
       <CodePanel id={props.id} note={example.motion?.note} />
     </main>

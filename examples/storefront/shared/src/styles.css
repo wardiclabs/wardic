@@ -675,6 +675,45 @@ button {
   background: var(--tile);
 }
 
+/* An example's gains and costs (#526): side by side, each list marked by its kind. */
+.tradeoffs {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-2);
+  font-size: var(--text-s);
+}
+
+.tradeoffs > div {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+}
+
+.tradeoffs h3 {
+  font-size: var(--text-s);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.tradeoffs .gains h3 {
+  color: var(--ok);
+}
+
+.tradeoffs .costs h3 {
+  color: var(--warn);
+}
+
+.tradeoffs ul {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+  padding-left: 1.1em;
+}
+
 .note {
   max-width: 760px;
   padding: var(--space-3) var(--space-4);
