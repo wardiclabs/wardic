@@ -168,7 +168,7 @@ export interface WardicOrchestration {
 }
 
 /**
- * A transition's reduced-motion opt-out (ADR-0029), on both arms. An animation honours the
+ * A transition's reduced-motion opt-out, on both arms. An animation honours the
  * provider's `reducedMotion` by default: under it, its positional keys snap and a layout
  * animation lands at once.
  */
@@ -209,7 +209,7 @@ export interface WardicInertia {
 }
 
 /**
- * A transition's **Skipped animation** (#468, Motion's `skipAnimations`), on both arms: `true` lands its
+ * A transition's **Skipped animation** (Motion's `skipAnimations`), on both arms: `true` lands its
  * keys at their ends on the next frame, with no delay, as a `WardicConfig`'s `skipAnimations` does.
  * `false` doesn't undo a config's.
  */
@@ -387,7 +387,7 @@ export interface WardicPropagate {
 export type WardicAnimationDefinition = WardicVariantLabels | WardicValues
 
 /**
- * An app's scale corrector (#443, Motion's `addScaleCorrector` entry), given to `WardicProvider`'s
+ * An app's scale corrector (Motion's `addScaleCorrector` entry), given to `WardicProvider`'s
  * `scaleCorrectors` by the value key it corrects: `correct(latest, { target, treeScale, projectionDelta })`
  * turns the element's value into the one to write while a layout animation scales it (`target` the
  * box it's drawn into, `treeScale` its ancestors' scale, `projectionDelta` its delta, Motion's
@@ -397,7 +397,7 @@ export type WardicAnimationDefinition = WardicVariantLabels | WardicValues
 export type WardicScaleCorrector = ProjectionSystem.ScaleCorrector
 
 /**
- * A point mapping (#443, Motion's `TransformPoint`): handed a point in the viewport's coordinates, it
+ * A point mapping (Motion's `TransformPoint`): handed a point in the viewport's coordinates, it
  * gives the one a drag or a pan uses: `WardicConfig`'s `transformPagePoint`.
  */
 export type WardicTransformPoint = (point: { readonly x: number; readonly y: number }) => { readonly x: number; readonly y: number }

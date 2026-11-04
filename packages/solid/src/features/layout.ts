@@ -16,7 +16,7 @@ import type { Feature } from "../feature.ts"
 import { ProjectionOptions, projectionIn, type WardicContextValue } from "../runtime.ts"
 
 /**
- * Layout animations (ADR-0009): a provider's projection system, built once for the provider, over its
+ * Layout animations: a provider's projection system, built once for the provider, over its
  * flush gate and with its reduced motion and scale correctors. Every section with it shares it, as the
  * projection tree is the page's: a `layoutId` pair in two sections still crossfades.
  */

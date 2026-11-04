@@ -77,36 +77,44 @@ const WardicContext = createContext<WardicContextValue | null>(null)
 const contextValue = (): WardicContextValue | undefined => Option.getOrUndefined(Option.fromNullishOr(useContext(WardicContext)))
 
 /**
- * Provides a single Effect runtime, built once from `env`, to its subtree, as the Solid 1 binding's
- * `WardicProvider` does: built on first need (#51), disposed on unmount, inert during a server
- * render (ADR-0021). `reducedMotion` (ADR-0029) is read when each animation starts; a `WardicConfig`
- * sets it for the elements below it (#434).
+ * Puts Wardic in your app: every Wardic element sits under one. Give it the Environment, `DomLive` in
+ * a browser, and the Features your elements use.
+ *
+ * @example
+ * <WardicProvider env={DomLive} features={[domAnimation]}>
+ *   <App />
+ * </WardicProvider>
+ * @see https://wardic.dev/reference/solid/provider/wardic-provider
  */
+// As the Solid 1 binding's: one runtime made once from `env` (#51: built on first need), disposed on
+// unmount, inert during a server render (ADR-0021). reducedMotion is read as each animation starts
+// (ADR-0029), a WardicConfig's over it (#434); appear (ADR-0044, #585) on the server once.
 export function WardicProvider(props: {
+  /** The Environment Wardic runs in: `DomLive` in a browser, from `@wardic/dom`. Read once. */
   readonly env: WardicEnv
+  /**
+   * How animations honour the visitor's reduced-motion setting: `"user"` follows it (the default),
+   * `"always"` reduces motion, `"never"` doesn't. Under it, what moves or resizes jumps to where it's
+   * going, and the rest, such as opacity, still animates. A `WardicConfig` sets it for a subtree.
+   */
   readonly reducedMotion?: ReducedMotion.Config | undefined
   /**
-   * Appear animations (#48, ADR-0044), default `true`: a server render starts each element's mount
-   * animation in CSS from first paint, and the client takes it over at mount (the **Handoff**).
-   * `false` renders every element at its Starting style until mount. `"explain"` (#585) plays them as
-   * `true` does, and the server says, at Warning, why each element that doesn't play waits for the
-   * JavaScript: its tag, the keys it animates, and the reason. Read on the server, once.
+   * On a server-rendered page, entrances play from the first paint, before the JavaScript has loaded
+   * (the default, `true`). `false` makes them wait for the JavaScript; `"explain"` plays them, and
+   * logs on the server why each element that can't play waits.
    */
   readonly appear?: boolean | "explain" | undefined
   /**
-   * The app's scale correctors (#443, Motion's `addScaleCorrector`, given here), by the value key each
-   * corrects, in Motion's form: this provider's alone, read once. One keyed `borderRadius` or
-   * `boxShadow` replaces the built-in one. Ignored on a server.
+   * Your own corrections of a value a layout animation's scale would distort, by the key each corrects:
+   * Motion's `addScaleCorrector`, given here. Read once.
    */
   readonly scaleCorrectors?: Readonly<Record<string, WardicScaleCorrector>> | undefined
   /**
-   * The **Features** every Slim element (`w.*`) under it has (#511, ADR-0067), as a `LazyWardic`'s
-   * are for its section: given at once (`features={[colors]}`), or loaded lazily
-   * (`features={() => import("./features.ts").then((m) => m.colors)}`), taking effect as they arrive.
-   * A Complete element (`wardic.*`, `ward()`) has every Feature whatever it's given. Read once.
+   * The Features every `w.*` element under it has: at once (`[domAnimation]`), or loaded with a
+   * function (`() => import("./features").then((m) => m.drag)`). Read once.
    */
   readonly features?: FeaturesProp | undefined
-  /** A Complete element under it is an error in development (#511). Read once. */
+  /** In development, a `wardic.*` element under it throws, so every element ships only its Features. */
   readonly strict?: boolean | undefined
   readonly children?: JSX.Element
 }): JSX.Element {
@@ -177,15 +185,25 @@ const sectionOf = (
   })
 
 /**
- * **`LazyWardic`** (#511, ADR-0067; Motion's `LazyMotion`): the **Features** the Slim elements
- * (`w.*`, `w.ward()`) below it have, beside their provider's and every `LazyWardic`'s between them,
- * as the Solid 1 binding's. Given at once, they're built the first time an element below asks;
- * loaded lazily, the load starts as it renders, on the client, and each Feature takes effect as it
- * arrives, from then on: a gesture or a drag (#551) starts then, and an element's layout node is made
- * then (#582). A failed load is reported once. A server render loads nothing. `strict`
- * makes a Complete element below it an error in development. Both props are read once.
+ * Gives the `w.*` elements in its section more Features, beside their provider's: at once
+ * (`features={[drag]}`), or loaded with a function, which runs as the section renders, so a page loads
+ * a Feature only when it needs it. Motion's `LazyMotion`.
+ *
+ * @example
+ * <LazyWardic features={() => import("./drag-feature").then((m) => m.drag)}>
+ *   <w.div drag />
+ * </LazyWardic>
+ * @see https://wardic.dev/reference/solid/provider/lazy-wardic
  */
-export function LazyWardic(props: { readonly features: FeaturesProp; readonly strict?: boolean | undefined; readonly children?: JSX.Element }): JSX.Element {
+// #511, ADR-0067, as the Solid 1 binding's: given at once, built at first need; loaded lazily, each
+// Feature takes effect as it arrives (#551, #582). A failed load is reported once; a server loads nothing.
+export function LazyWardic(props: {
+  /** Its Features: one, a list, or a function that loads them. Read once. */
+  readonly features: FeaturesProp
+  /** In development, a `wardic.*` element under it throws. Read once. */
+  readonly strict?: boolean | undefined
+  readonly children?: JSX.Element
+}): JSX.Element {
   const section = fromContext(contextValue(), "LazyWardic", (value) => sectionOf(value, useFeatureSection(), props))
   return <FeatureSectionContext value={section}>{props.children}</FeatureSectionContext>
 }

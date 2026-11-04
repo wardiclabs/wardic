@@ -396,7 +396,7 @@ const reinsert = (el: Node, parent: ParentNode, next: ChildNode | undefined): vo
 }
 
 /**
- * How a presence's children enter while others exit (#277, ADR-0048), Motion's `mode`: `"sync"`, at
+ * How a presence's children enter while others exit, Motion's `mode`: `"sync"`, at
  * once, beside the leavers; `"wait"`, once every leaver is gone; `"popLayout"`, at once, each leaver
  * popped out of the flow where it was.
  */

@@ -16,7 +16,7 @@ import { Colors } from "./keys.ts"
 /**
  * Every CSS colour space beyond a hex, `rgb()`, `hsl()` and the colour names, which every element
  * reads: `oklch()`, `lab()`, `lch()`, `oklab()`, `hwb()` and `color()`'s spaces (`display-p3`,
- * `rec2020` …). Blends don't change: every colour blends in sRGB (ADR-0026 *Amendment (#156)*). culori
+ * `rec2020` …). Blends don't change: every colour blends in sRGB. culori
  * keeps its spaces in one registry for the page, so once one provider, or a server render, registers
  * them, every element on the page reads them; a pair another provider resolved before stays as it
  * was resolved there.

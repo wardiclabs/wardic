@@ -64,16 +64,16 @@ export interface AnimatePresenceProps {
   /**
    * `false`: the child present at this presence's first render starts at its `animate`, with no
    * enter animation (it and every Wardic element under it, as Motion's); a child that enters later
-   * animates in from its `initial`. Exits are unchanged (#134). On a server, the rendered child.
+   * animates in from its `initial`. Exits are unchanged. On a server, the rendered child.
    */
   readonly initial?: boolean
   /**
-   * Called once every exiting child has animated out and been removed (#257, Motion's prop): not
+   * Called once every exiting child has animated out and been removed (Motion's prop): not
    * when a child comes back mid-exit, nor when the presence itself goes. Read when it's called.
    */
   readonly onExitComplete?: (() => void) | undefined
   /**
-   * How a child enters while another exits (#277, ADR-0048), Motion's `mode`: `"sync"` (the default),
+   * How a child enters while another exits, Motion's `mode`: `"sync"` (the default),
    * at once, beside the leaver; `"popLayout"`, at once, the leaver popped out of the flow where it was
    * (`position: absolute`, its size kept), so the children after it take their places, a `layout`
    * one animating there; `"wait"`, once every leaver has animated out and been removed. A
@@ -82,14 +82,14 @@ export interface AnimatePresenceProps {
    */
   readonly mode?: PresenceMode | undefined
   /**
-   * What a leaving child's dynamic `exit` resolves with (#277, ADR-0048, Motion's `custom`), over the
+   * What a leaving child's dynamic `exit` resolves with (Motion's `custom`), over the
    * child's own `custom`: a child that has left can't take new props, so the presence hands it the
    * latest. Read as each child leaves.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly custom?: any
   /**
-   * Where `mode="popLayout"` pins a leaver (#442, ADR-0048, Motion's): by its inline start (`"left"`,
+   * Where `mode="popLayout"` pins a leaver (Motion's): by its inline start (`"left"`,
    * the default) or end (`"right"`), which a right-to-left layout flips, as Motion's does, and by its
    * `"top"` (the default) or `"bottom"`. Each edge keeps its distance from its container's while the
    * leaver exits, so one pinned by the bottom right stays in that corner as the container resizes.
@@ -98,14 +98,14 @@ export interface AnimatePresenceProps {
   readonly anchorX?: "left" | "right" | undefined
   readonly anchorY?: "top" | "bottom" | undefined
   /**
-   * Whether its children's going and coming moves the `layout` elements around them (#442, Motion's
+   * Whether its children's going and coming moves the `layout` elements around them (Motion's
    * prop): `true` (the default) tells the projection when a child enters, a leaver pops or a leaver is
    * removed, so a `layout` sibling animates into or out of the space; `false` tells it nothing, and a
    * sibling animates only when something else measures it. Read at each change.
    */
   readonly presenceAffectsLayout?: boolean | undefined
   /**
-   * Motion's `propagate` (#277's PR 5c, ADR-0048): inside another presence's child, when that child
+   * Motion's `propagate`: inside another presence's child, when that child
    * leaves, this presence's children all leave too, each running its exit, and that child goes once
    * they've all gone. Without it (the default), its children go with that child, as they are. Read
    * once.
@@ -119,7 +119,7 @@ export interface AnimatePresenceProps {
  * (it drives the exit on the provider runtime) and may wrap any control flow
  * (e.g. `<Show>`). A leaving child runs its own `exit` if it's a `wardic.*` element or a
  * `createWard` spine, and the exits of the Wardic elements inside it either way, staying until
- * they've ended; a plain child with nothing inside it to wait for goes at once (#392).
+ * they've ended; a plain child with nothing inside it to wait for goes at once.
  */
 export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   const runtime = useWardicRuntime()
@@ -217,7 +217,7 @@ const watchOf = (target: unknown, holds: boolean, onLeave: (safeToRemove: () => 
 }
 
 /**
- * Motion's `usePresence` (#277's PR 5b, ADR-0048), in Solid's shape: the leaving child that holds
+ * Motion's `usePresence`, in Solid's shape: the leaving child that holds
  * `target` (an element, or an accessor of one) stays until `safeToRemove` is called. `onLeave` is
  * called when it leaves, once its node is back in place (or popped, `mode="popLayout"`), with the
  * presence's `custom`: the child's own code is already disposed by then, so what it does there is
@@ -236,7 +236,7 @@ export function usePresence(
 }
 
 /**
- * Motion's `useIsPresent` (#277's PR 5b): whether the child that holds `target` is present, `false`
+ * Motion's `useIsPresent`: whether the child that holds `target` is present, `false`
  * from its leave on. The child's own effects are disposed as it leaves, so it's for what still runs
  * on the retained node: an event handler, a timer. Outside a presence, always `true`.
  */
@@ -244,7 +244,7 @@ export function useIsPresent(target: unknown): Accessor<boolean> {
   return watchOf(target, false, () => {})
 }
 
-/** Motion's `usePresenceData` (#277's PR 5b): the nearest presence's `custom`, `undefined` outside one. */
+/** Motion's `usePresenceData`: the nearest presence's `custom`, `undefined` outside one. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export function usePresenceData<T = any>(): Accessor<T | undefined> {
   const presence = usePresenceContext()
