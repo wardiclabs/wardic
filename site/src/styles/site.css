@@ -229,13 +229,12 @@ a {
   text-decoration: none;
 }
 
-.prose p,
-.prose ul,
-.prose ol {
+/* Not inside a demo: a sample's lists and notes keep their own spacing. */
+.prose :is(p, ul, ol):not(.demo *) {
   margin: 0 0 var(--space-4);
 }
 
-.prose li + li {
+.prose li + li:not(.demo *) {
   margin-top: var(--space-1);
 }
 
