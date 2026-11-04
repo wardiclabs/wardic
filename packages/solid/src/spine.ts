@@ -258,6 +258,9 @@ const pickKeys = (t: Values.Values, groups: ReadonlyArray<ReadonlySet<string>> |
 export const delayOf = (transition: WardicTransition | undefined): number =>
   UndefinedOr.match(transition, { onUndefined: () => 0, onDefined: ({ delay = 0 }) => delay })
 
+/** No keys: what a drag moves on a projected element, or one with no drag. */
+const NO_KEYS: ReadonlyArray<string> = []
+
 /** The keys a drag of `axis` moves directly. Built once, at module load. */
 const dragMovesOf: (axis: boolean | "x" | "y") => ReadonlyArray<string> = Match.type<boolean | "x" | "y">().pipe(
   Match.when("x", (): ReadonlyArray<string> => ["x"]),
@@ -1838,7 +1841,10 @@ export interface ElementSpineOptions {
   readonly live: LiveStyle | undefined
   /** Its presence record, under an `<AnimatePresence>`. */
   readonly presence: PresenceRecord | undefined
-  /** Whether a projection node owns its translate keys (ADR-0016). */
+  /**
+   * Whether a projection node owns its translate keys (ADR-0016): its drag drives its layout node. A
+   * getter while its track waits for `drag` (#551, #582), so it's read where it's used.
+   */
   readonly projected: boolean
   /** Its drag axis, `undefined` without a drag (ADR-0004). */
   readonly dragAxis: boolean | "x" | "y" | undefined
@@ -1919,7 +1925,7 @@ export interface ElementSpine {
  * fiber Scope interrupts what's left when the provider ends.
  */
 export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => {
-  const { animation, byName, canStart, config, defaultTransition, element, extraDelay, gate, id, links, live, onFrame, parent, positionalKeys, presence, projected, runtime, snapshot, start, styleNow, tag } = options
+  const { animation, byName, canStart, config, defaultTransition, element, extraDelay, gate, id, links, live, onFrame, parent, positionalKeys, presence, runtime, snapshot, start, styleNow, tag } = options
   const { initialLink, initialValues, startedLink } = start
   const { linksFor, ownValue, startLinkOf } = links
   let handoff = options.handoff
@@ -1946,10 +1952,12 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   // target does (ADR-0016), and its own translate returns as any key does (#363).
   const driven = new Map<string, number | string>()
   let returning = new Map<string, BaseValue.BaseSource>()
-  const dragMoves: ReadonlyArray<string> = Bool.match(projected, {
-    onTrue: (): ReadonlyArray<string> => [],
-    onFalse: () => UndefinedOr.match(options.dragAxis, { onUndefined: (): ReadonlyArray<string> => [], onDefined: dragMovesOf }),
-  })
+  // Read as a drag holds them: `projected` is a getter while the track waits for `drag` (#551), whose
+  // track may drive a layout node that arrived with it (#582).
+  const dragMoves = (): ReadonlyArray<string> => {
+    if (options.projected) return NO_KEYS
+    return UndefinedOr.match(options.dragAxis, { onUndefined: () => NO_KEYS, onDefined: dragMovesOf })
+  }
 
   // A Retarget's returns have settled (ADR-0022, D4). A key back at its `style` value is
   // handed back to the element's style, so a later style change shows at rest and the
@@ -2380,7 +2388,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     Arr.forEach(Rec.keys(resolved), (key) => {
       driven.set(key, resolved[key])
     })
-    if (held) Arr.forEach(dragMoves, (key) => driven.delete(key))
+    if (held) Arr.forEach(dragMoves(), (key) => driven.delete(key))
     returning = new Map()
     // Over the Map itself: copying it into an array first costs ~20 times the walk, per element
     // per Retarget (#69's PR 4). Deleting the entry being visited is safe in a Map's iteration.
@@ -2809,7 +2817,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     const routes = live
     // Built at the first routed key, at mount or later: an element whose `style` routes none builds nothing.
     routes.whenRouted(() => {
-      const dragHolds = Bool.and(Bool.not(projected), Predicate.isNotUndefined(options.dragAxis))
+      // Read at each ask: `projected` is a getter while the track waits for `drag` (#551, #582).
+      const dragHolds = (): boolean => Bool.and(Bool.not(options.projected), Predicate.isNotUndefined(options.dragAxis))
       // Whether something other than the follower moves `key` now.
       const owned = (key: string): boolean =>
         Bool.some([
@@ -2818,7 +2827,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
           // An Imperative animation's (#433).
           taken.has(key),
           // The drag direct-sets both translate keys while it, and its release, run (ADR-0004).
-          Bool.and(dragHolds, Bool.and(now.dragging(), Bool.or(key === "x", key === "y"))),
+          Bool.and(dragHolds(), Bool.and(now.dragging(), Bool.or(key === "x", key === "y"))),
         ])
       // Written as any frame is: into the gate, the Snapshot (at rest) and the presence record.
       const put = (values: Values.Values): void => {
