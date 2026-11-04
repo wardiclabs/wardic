@@ -277,7 +277,7 @@ Grilled 2026-10-25:
    - Rejected: that takeover now; dragging through `x`/`y` as Motion does, which would rebuild Reorder's drag and the Release offset.
 3. **Every own translate key is drawn** (Q3): `x` + `translateX` and `y` + `translateY`, summed, and `translateZ` with `z`.
    - That differs from Motion, which drops `translate*` on a layout element.
-   - A number or a px string is drawn. Another unit (`%`, `rem`) can't be added to a pixel translate without measuring, so it's left out, as Motion can't take one either.
+   - A number or a px string is drawn. Another unit (`%`, `rem`) can't be added to a pixel translate without measuring, so it's left out, as Motion can't take one either. *Superseded by Amendment (#594):* it's drawn as CSS before the projection's pixels.
    - Rejected: Motion's `x` and `y` only.
 
 Following from these:
@@ -427,3 +427,22 @@ The projection system is no longer built with each provider's runtime. It's the 
 ## Note (#504, 2026-11-02): an own-size refresh reads its parents' subtrees
 
 The measure scope above, the whole registered tree per pass, has one exception. The refresh that runs while a node animates its own size measures only the subtree of each resized node's layout parent, the nodes its resize can move. Every other pass, and every repeated round, reads the whole tree. See ADR-0018 *Amendment (#504)*.
+
+## Amendment (#594, 2026-11-05): an own translate in another unit is drawn as CSS
+
+**Found building the docs site's phone drawer (#593).** A `layoutRoot` drawer with `initial={{ x: "-100%" }} animate={{ x: 0 }}` showed at 0 at once and never slid. Amendment (#363) drew a layout element's own translate in px only: another unit counted as 0, "as Motion can't take one either". Two things followed from it:
+- **Drawn:** `x: "-100%"`, and each frame of an animation in `%` or `vw` (`-100%` to `0%`), drew 0.
+- **Measured:** the mixed pair `-100%` to `0`, a Measured pair (#430), read its start from the element's computed transform at the end of the task. On a layout element that's the projection's, or held off for its Measure pass, so the start read 0, and it animated 0 to 0.
+
+Motion 14.6 now resolves a string translate in its target box as a percentage of the layout box (`resolveAxisTranslate` in `transformBox`).
+
+**Measured both, grilled on #594: CSS.** Two prototypes, each benched against `main` (`bench:solid --binding 2`, the 1,331-node layout page):
+- **The CSS way:** every scene's measure and frame within noise; layout bytes per frame +0.2% (−0.8% to +0.2%).
+- **Motion's way,** `%` resolved to px against the layout box carried on each frame's projection value, `vw`/`vh` against the viewport: every scene within noise in time, but layout bytes per frame **+1.2%** (+0.8% to +1.2%) on every layout element, and +0.6% kept at rest. It also needed the CSS way before an element's first measure, with no box yet.
+
+**Decided.**
+1. **An own translate in another unit than px is drawn as CSS,** before the projection's transform: `translate(-100%, 0px)` leads the transform, and the browser resolves it against the element's own box, as it does on a plain element. `%`, `vw`, `rem` and `em` all draw. A number or a px string is in the projection's pixels as before, so an element with none pays nothing new.
+2. **The projection's own math counts it as 0** (`ownTranslateOf`): a `layoutId` handover starting from an element moved by a percentage starts from where it would be at 0. That's the price of not measuring; it needs a shared-layout twin that's also translated by a percentage.
+3. **A Measured pair's translate start is written alone and read,** as its target is (#430's batch): a start not in px, such as `-100%`, is laid out through the element's whole transform with the start, read from its matrix, and the element's transform put back, before the other starts are read as the element lays out.
+
+**Tests:** OT9 (`packages/solid/test/own-translate.browser.test.tsx`) and LY24 (`test/v2/layout.browser.test.tsx`): a layout and a `layoutRoot` element mounted from `-100%` to 0, from `-100%` to `0%`, and from `-100vw` to `0vw`, each painted frame by frame as a plain element beside them is. Both fail without the fix. dom's OT3 now pins the CSS it draws.
