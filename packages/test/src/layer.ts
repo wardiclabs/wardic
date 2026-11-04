@@ -32,7 +32,8 @@ const stillFrames: RefreshFrameSource.Shape = { requestFrame: constUndefined, ca
  * (`viewport`, `prefersReducedMotion`), and a fresh Drag activity, so one test's
  * drag never blocks another's hover or press (ADR-0019), and core's Frame loop over that
  * Clock (ADR-0027). Provide this in place of `DomLive` to test animation code without a
- * browser.
+ * page. It draws nothing on one: an element rendered under it keeps its Starting style, so an
+ * app's components are tested with `DomLive` under the test runner's fake timers instead (#558).
  */
 export const testLayer = (
   frames: ReadonlyArray<number> = [],
@@ -71,5 +72,5 @@ export const testLayer = (
     ),
   )
 
-/** `testLayer()` with an empty clock — for tests that drive their own frames. */
+/** `testLayer()` with an empty clock — for tests that drive their own frames. It never ticks on its own. */
 export const TestLive = testLayer()
