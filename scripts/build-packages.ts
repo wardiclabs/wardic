@@ -7,7 +7,9 @@
  *    `@wardic/solid`'s Solid 1 binding into `dist/solid/`, its JSX kept as JSX: the `solid` export
  *    condition, which Vite and SolidStart compile with the app's own settings.
  * 2. `tsc --build tsconfig.v2.build.json`: the Solid 2 binding, `src/unstable/v2`, the same way.
- * 3. Babel over `dist/solid/`: each module compiled for the browser (`dist/browser/`) and for the
+ * 3. The root's `LICENSE` and `THIRD_PARTY_NOTICES.md` copied into each package, which ships them:
+ *    one source for all four.
+ * 4. Babel over `dist/solid/`: each module compiled for the browser (`dist/browser/`) and for the
  *    server (`dist/server/`), hydratable, for a tool that doesn't read the `solid` condition. Solid
  *    1's compiler for the root entry, Solid 2's for `unstable/v2`, without its dev checks. A `.jsx`
  *    module becomes `.js`, and the imports of it follow. Each map chains to `tsc`'s, so it still
@@ -17,7 +19,7 @@
  */
 import type { PluginObj, types } from "@babel/core"
 import { execFileSync } from "node:child_process"
-import { mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
+import { copyFileSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { dirname, join, relative } from "node:path"
 import { createRequire } from "node:module"
 
@@ -89,6 +91,11 @@ const run = (args: ReadonlyArray<string>): void => {
 }
 
 run(["--build"])
+// The licence files, each package's copy of the root's (ignored by git; #555 writes the root's).
+for (const name of ["LICENSE", "THIRD_PARTY_NOTICES.md"]) {
+  if (!existsSync(join(ROOT, name))) continue
+  for (const pkg of ["core", "dom", "solid", "test"]) copyFileSync(join(ROOT, name), join(ROOT, "packages", pkg, name))
+}
 run(["--build", join(SOLID, "tsconfig.v2.build.json")])
 for (const target of TARGETS) rmSync(join(SOLID, "dist", target.dir), { recursive: true, force: true })
 const modules = filesUnder(join(SOLID, "dist", "solid")).filter((file) => /\.jsx?$/.test(file))

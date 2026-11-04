@@ -1,8 +1,29 @@
 {
   "name": "@wardic/test",
   "version": "0.1.0-alpha.0",
-  "description": "Headless testing Layers for Wardic \u2014 mock implementations of the core services.",
+  "description": "Headless testing Layers for Wardic: a clock that replays the frames you give it, a renderer that records what it's asked to draw, and input you push, so animation code runs without a browser.",
+  "keywords": [
+    "animation",
+    "testing",
+    "effect"
+  ],
+  "homepage": "https://wardic.dev",
+  "bugs": "https://github.com/wardiclabs/wardic/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wardiclabs/wardic.git",
+    "directory": "packages/test"
+  },
   "license": "MIT",
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.map",
+    "src",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
   "type": "module",
   "sideEffects": false,
   "publishConfig": {

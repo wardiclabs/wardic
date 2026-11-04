@@ -1,8 +1,33 @@
 {
   "name": "@wardic/solid",
   "version": "0.1.0-alpha.0",
-  "description": "Solid framework binding for Wardic.",
+  "description": "Motion for React's API on Solid 1 and Solid 2: Wardic's elements, gestures, layout and presence animations.",
+  "keywords": [
+    "animation",
+    "motion",
+    "solid",
+    "solidjs",
+    "framer-motion",
+    "layout-animation",
+    "gestures"
+  ],
+  "homepage": "https://wardic.dev",
+  "bugs": "https://github.com/wardiclabs/wardic/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wardiclabs/wardic.git",
+    "directory": "packages/solid"
+  },
   "license": "MIT",
+  "files": [
+    "dist/solid",
+    "dist/browser",
+    "dist/server",
+    "src",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
   "type": "module",
   "sideEffects": false,
   "publishConfig": {

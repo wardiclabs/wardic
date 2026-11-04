@@ -1,8 +1,31 @@
 {
   "name": "@wardic/core",
   "version": "0.1.0-alpha.0",
-  "description": "Framework-agnostic reactive animation engine built on Effect v4.",
+  "description": "Wardic's animation engine on Effect: springs, tweens, keyframes, variants, the projection geometry, and the services an environment provides.",
+  "keywords": [
+    "animation",
+    "motion",
+    "spring",
+    "effect",
+    "layout-animation"
+  ],
+  "homepage": "https://wardic.dev",
+  "bugs": "https://github.com/wardiclabs/wardic/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wardiclabs/wardic.git",
+    "directory": "packages/core"
+  },
   "license": "MIT",
+  "files": [
+    "dist/**/*.js",
+    "dist/**/*.d.ts",
+    "dist/**/*.map",
+    "src",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
   "type": "module",
   "sideEffects": false,
   "publishConfig": {
