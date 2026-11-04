@@ -7,6 +7,7 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 - **Create an issue**: `gh issue create --title "..." --body "..." --label <type> --label needs-triage`. Use a heredoc for multi-line bodies. Every issue gets both labels when it's filed:
   - **Its type:** `enhancement` for a feature, a cost or a measurement; `bug` for behaviour that's wrong, a type that rejects what works included; `documentation` for docs alone.
   - **`needs-triage`** (see `triage-labels.md`), until a maintainer triages it.
+- **Issues from outside** come through the forms in `.github/ISSUE_TEMPLATE/` (a bug, a feature request), which apply the same two labels; a question or an idea goes to Discussions (#556).
 - **Read an issue**: `gh issue view <number> --comments`, filtering comments by `jq` and also fetching labels.
 - **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
 - **Comment on an issue**: `gh issue comment <number> --body "..."`
