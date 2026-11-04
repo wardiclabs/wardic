@@ -232,11 +232,20 @@ a {
     display: none;
   }
 
+  /* While the drawer, a modal dialog, is open, the page under it takes no pointer: the menu button,
+     its trigger, takes it again, so its X closes the drawer. */
+  .menu-button[aria-expanded="true"] {
+    pointer-events: auto;
+  }
+
+  /* Stretched between its insets, and scrolled inside: the sidebar's align-self: start would size it
+     to its pages, taller than a phone's screen, and the browser would lift it under the header to fit. */
   .drawer {
     position: fixed;
     inset: 60px 0 0;
     z-index: 9;
     display: block;
+    align-self: stretch;
     max-height: none;
     background: var(--paper);
   }
