@@ -1,0 +1,14 @@
+{
+  "// note": "The Solid 2 binding's published output (#554): `src/unstable/v2` into `dist/solid/unstable/v2`, its JSX kept as JSX for the `solid` export condition, with `.d.ts` and maps. The modules it shares with the Solid 1 binding come from that project (tsconfig.json), built first. `scripts/build-packages.ts` runs it.",
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "jsx": "preserve",
+    "jsxImportSource": "@solidjs/web",
+    "outDir": "${configDir}/dist/solid",
+    "tsBuildInfoFile": "${configDir}/dist/solid-v2.tsbuildinfo",
+    "paths": { "solid-js": ["./node_modules/solid-js-2/types/index.d.ts"], "solid-js/attribution": ["./node_modules/solid-js-2/types/attribution.d.ts"] }
+  },
+  "include": ["src/unstable/v2"],
+  "references": [{ "path": "./tsconfig.json" }]
+}

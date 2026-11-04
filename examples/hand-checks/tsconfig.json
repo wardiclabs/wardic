@@ -3,6 +3,7 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "customConditions": ["@wardic/source"],
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
     "strict": true,
     "skipLibCheck": true,

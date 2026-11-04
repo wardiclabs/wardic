@@ -1,8 +1,33 @@
 {
   "name": "@wardic/solid",
   "version": "0.1.0-alpha.0",
-  "description": "Solid framework binding for Wardic.",
+  "description": "Motion for React's API on Solid 1 and Solid 2: Wardic's elements, gestures, layout and presence animations.",
+  "keywords": [
+    "animation",
+    "motion",
+    "solid",
+    "solidjs",
+    "framer-motion",
+    "layout-animation",
+    "gestures"
+  ],
+  "homepage": "https://wardic.dev",
+  "bugs": "https://github.com/wardiclabs/wardic/issues",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wardiclabs/wardic.git",
+    "directory": "packages/solid"
+  },
   "license": "MIT",
+  "files": [
+    "dist/solid",
+    "dist/browser",
+    "dist/server",
+    "src",
+    "README.md",
+    "LICENSE",
+    "THIRD_PARTY_NOTICES.md"
+  ],
   "type": "module",
   "sideEffects": false,
   "publishConfig": {
@@ -10,8 +35,26 @@
   },
   "exports": {
     "./package.json": "./package.json",
-    ".": "./src/index.ts",
-    "./unstable/v2": "./src/unstable/v2/index.ts"
+    ".": {
+      "@wardic/source": "./src/index.ts",
+      "types": "./dist/solid/index.d.ts",
+      "solid": "./dist/solid/index.js",
+      "browser": "./dist/browser/index.js",
+      "worker": "./dist/server/index.js",
+      "deno": "./dist/server/index.js",
+      "node": "./dist/server/index.js",
+      "default": "./dist/browser/index.js"
+    },
+    "./unstable/v2": {
+      "@wardic/source": "./src/unstable/v2/index.ts",
+      "types": "./dist/solid/unstable/v2/index.d.ts",
+      "solid": "./dist/solid/unstable/v2/index.js",
+      "browser": "./dist/browser/unstable/v2/index.js",
+      "worker": "./dist/server/unstable/v2/index.js",
+      "deno": "./dist/server/unstable/v2/index.js",
+      "node": "./dist/server/unstable/v2/index.js",
+      "default": "./dist/browser/unstable/v2/index.js"
+    }
   },
   "scripts": {
     "build": "../../node_modules/typescript-7/bin/tsc --build",
@@ -44,6 +87,7 @@
     "@solidjs/web": "2.0.0-rc.20",
     "@types/babel__core": "^7.20.5",
     "@wardic/test": "workspace:*",
+    "babel-preset-solid": "1.9.12",
     "effect": "4.1.1",
     "solid-js": "^1.9.18",
     "solid-js-2": "npm:solid-js@2.0.0-rc.20"

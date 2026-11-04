@@ -2,6 +2,7 @@ import { playwright } from "@vitest/browser-playwright"
 import solidPlugin from "vite-plugin-solid"
 import { configDefaults, defineConfig } from "vitest/config"
 import type { BrowserCommand } from "vitest/node"
+import { wardicSource } from "../../scripts/wardic-source.ts"
 
 // Server render → hydration test project for @wardic/solid (ADR-0021, decision 10).
 //
@@ -94,7 +95,7 @@ const emulateReducedMotion: BrowserCommand<[reduce: boolean]> = async (ctx, redu
 
 export default defineConfig({
   root: import.meta.dirname,
-  plugins: [solidPlugin({ ssr: true })],
+  plugins: [wardicSource(), solidPlugin({ ssr: true })],
   resolve: {
     conditions: ["development", "browser"],
     dedupe: ["solid-js", "effect"],

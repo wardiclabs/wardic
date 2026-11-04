@@ -10,10 +10,11 @@
     "examples/storefront/*"
   ],
   "scripts": {
-    "build": "node_modules/typescript-7/bin/tsc --build",
+    "build": "bun scripts/build-packages.ts",
+    "pack:check": "bun scripts/pack-check/run.ts",
     "typecheck": "node_modules/typescript-7/bin/tsc --build && bun run --filter='@wardic/*' typecheck:tests && bun run --filter='@wardic/example-*' typecheck",
     "typecheck:tests": "bun run --filter='@wardic/*' typecheck:tests",
-    "clean": "node_modules/typescript-7/bin/tsc --build --clean",
+    "clean": "node_modules/typescript-7/bin/tsc --build --clean && rm -rf packages/*/dist",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:browser": "vitest run --config vitest.browser.config.ts",
@@ -32,6 +33,7 @@
     "playwright-core": "1.59.1"
   },
   "devDependencies": {
+    "@arethetypeswrong/cli": "^0.18.5",
     "@changesets/cli": "^2.31.0",
     "@effect/vitest": "4.1.1",
     "@solidjs/testing-library": "^0.8.10",
@@ -43,6 +45,7 @@
     "happy-dom": "^20.10.1",
     "jsdom": "^29.1.1",
     "playwright": "1.59.1",
+    "publint": "^0.3.25",
     "typescript": "^6.0.3",
     "typescript-7": "npm:typescript@7.0.2",
     "typescript-eslint": "^8.71.1",

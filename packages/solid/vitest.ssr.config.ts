@@ -1,5 +1,6 @@
 import solidPlugin from "vite-plugin-solid"
 import { defineConfig } from "vitest/config"
+import { wardicSource } from "../../scripts/wardic-source.ts"
 
 // Server-render test project for @wardic/solid (ADR-0003, ADR-0020): Solid's SSR
 // compile (`generate: "ssr"`) in the `node` environment, so `renderToString` runs
@@ -12,7 +13,7 @@ import { defineConfig } from "vitest/config"
 // builds no runtime (ADR-0021).
 export default defineConfig({
   root: import.meta.dirname,
-  plugins: [solidPlugin({ ssr: true })],
+  plugins: [wardicSource(), solidPlugin({ ssr: true })],
   resolve: { dedupe: ["solid-js", "effect"] },
   ssr: { noExternal: [/@wardic\//] },
   test: {

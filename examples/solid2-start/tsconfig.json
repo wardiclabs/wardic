@@ -5,6 +5,7 @@
     "target": "ESNext",
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "customConditions": ["@wardic/source"],
     // The @wardic packages ship TS source whose relative imports carry `.ts` extensions.
     "allowImportingTsExtensions": true,
     "allowSyntheticDefaultImports": true,

@@ -34,3 +34,7 @@ dist/
 # The storefront's Next.js app (#366): its build, and the types file `next typegen` writes.
 .next/
 next-env.d.ts
+
+# Each package's copy of the root's licence files, made by `bun run build` (#554).
+packages/*/LICENSE
+packages/*/THIRD_PARTY_NOTICES.md

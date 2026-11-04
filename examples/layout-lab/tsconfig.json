@@ -8,6 +8,7 @@
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "customConditions": ["@wardic/source"],
     // The @wardic/* packages ship TS source whose relative imports carry `.ts`
     // extensions (Effect v4 convention). Vite resolves them; tsc needs this flag.
     "allowImportingTsExtensions": true,

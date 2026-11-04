@@ -1,4 +1,5 @@
 import { defineConfig } from "vitest/config"
+import { wardicSource } from "./scripts/wardic-source.ts"
 
 // Fast node test tier — run via `bun run test`. Two projects:
 //
@@ -23,6 +24,8 @@ export default defineConfig({
   test: {
     projects: [
       {
+        // `@wardic/*` from its source (#554).
+        plugins: [wardicSource()],
         test: {
           name: "node",
           include: [
