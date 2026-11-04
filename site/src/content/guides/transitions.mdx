@@ -26,7 +26,7 @@ A tween runs for `duration` seconds along `ease`: one of Motion's names (`"easeO
 
 ## Keyframes
 
-A target that's a list plays through its stops: `animate={{ x: [0, 200, 160] }}`. `times` places each stop between 0 and 1, and `ease` can be a list, one per stretch. A first stop of `null` is wherever the value is now.
+A target that's a list plays through its stops: `animate={{ x: [0, 200, 160] }}`. `times` places each stop between 0 and 1, and `ease` can be a list, one per stretch. A first stop of `null` is wherever the value is now. Keyframes play at mount too, as Motion's do; with `initial={false}`, the element mounts at the last stop.
 
 ## Along a curve
 
