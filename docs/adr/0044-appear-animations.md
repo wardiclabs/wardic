@@ -52,7 +52,7 @@ This amends ADR-0003 and ADR-0021.
    - **Reduced motion (ADR-0029):**
      - the provider's `"never"` and `"always"` are known on the server and pick the rule;
      - `"user"`, the default, adds the reduced rule under `@media (prefers-reduced-motion: reduce)`, so the browser picks as the client would.
-   - **An element that fails a rule keeps its Starting style,** and the `wardic.hydration` debug log says why.
+   - **An element that fails a rule keeps its Starting style,** and the `wardic.hydration` debug log says why (unreachable: the provider's `appear="explain"` says it since #585).
    - Rejected: qualifying per key, which puts an element's keys out of step.
 5. **Variant orchestration in full, through a custom property (Q5).**
    - The element's inline style names only `animation: var(--wardic-aN)`. The head's `:root` defines it once the render is done, when every element's index, its siblings' total and every settle time are known.
@@ -275,3 +275,19 @@ This amends ADR-0003 and ADR-0021.
 ## Note (#448, 2026-10-28): a key already at its target isn't sampled
 
 The client's first Retarget starts no Leg for a key already at its target (ADR-0005, *Amendment (#448)*), so the server leaves one out too: a key whose `initial`, coerced to its target's shape, is its target isn't in the rule, and an element whose every key is there has none, as one whose `initial` equalled its `animate` had none before. The two specs stay one, and the Handoff matches (`keyOf`). An `auto` already at its target no longer stops the rule. Pinned by AR21 and AH13.
+
+## Amendment (#585, 2026-11-04): the provider's `appear="explain"` says why an element waits
+
+**Found writing the Server rendering guide (#558).** Decision 4 had a `wardic.hydration` debug log say why each element that fails a rule keeps its Starting style. It could never be seen. The provider logged it with `Effect.runSync`, outside the app's `env`, since a server render builds no runtime: Effect's default level, `Info`, dropped it, and no logger or level an app merges into `env` reached it.
+
+**Grilled on #585: C, then `appear="explain"`.** The rejected options:
+- **A. Log it through `env`'s logger and level.** A server can't build `env`: it holds `DomLive`, which needs a page, and Effect builds a Layer whole, not its logging part alone.
+- **B. Warn in development** for an element that has an `initial` but can't play. Solid 1's server build has no `DEV`, so it would rest on `process.env.NODE_ENV`, which some runtimes (Workers) don't have; and most refusals aren't mistakes (`appear={false}`, a key with no `initial` on an element with no entrance).
+- **D. Drop the log,** and rely on the guide's list of what plays.
+
+**Decided.**
+1. **The provider's `appear` also takes `"explain"`** (both bindings). It plays every element as `true` does, and the server says, at Warning, why each element that doesn't play waits for the JavaScript, as the render finds it: `wardic.appear: <div> (width) waits for the JavaScript: width's start and target don't take one shape`. An element is named by its tag and the keys its mount animates: a `w.*` element's `class` and `id` don't reach its ward on a server. It's logged with Effect's own logger (`Effect.runSync`), for the reason above.
+2. **Without it, nothing is kept or said:** the reasons the debug log collected for every element are gone, and so is the log.
+3. **Every refusal is said,** the intentional ones too (`appear={false}`, no `initial`): the provider asked. An element whose two plays, normal and reduced, fail alike is named once.
+
+**Tests:** AR30 (Solid 1) and AR25 (Solid 2): a page with an element that plays, one with no `initial`, one with a length in two units and one whose style sets an `animation` says three lines under `"explain"`, in render order, and nothing under `true` or no `appear`. Both fail without the fix.

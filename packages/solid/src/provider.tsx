@@ -32,7 +32,7 @@ import * as Appear from "@wardic/dom/Appear"
 import * as Report from "@wardic/dom/Report"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
-import { type ServerAppear, serverAppear } from "./appear.ts"
+import { explainerOf, type ServerAppear, serverAppear } from "./appear.ts"
 import * as Context from "effect/Context"
 import { type Feature, type FeatureRegistry, type FeatureSection, type FeaturesProp, ROOT, strictMessage } from "./feature.ts"
 import { FeatureSectionProvider, sectionUnder, useLazySection } from "./feature-section.ts"
@@ -99,7 +99,9 @@ const WardicContext = createContext<WardicContextValue | undefined>(undefined)
  * in CSS from first paint (an **Appear animation**), sampled from Wardic's own machines into a
  * `<style>` in the page's head, and the client takes it over at mount (the **Handoff**). With JS
  * off it plays to its end. `appear={false}` renders every element at its Starting style until mount,
- * as before; an element's own `appear={false}` does that for it alone. Read on the server, once.
+ * as before; an element's own `appear={false}` does that for it alone. `appear="explain"` (#585) plays
+ * them as `true` does, and the server says, at Warning, why each element that doesn't play waits for
+ * the JavaScript: its tag, the keys it animates, and the reason. Read on the server, once.
  *
  * `scaleCorrectors` (#443, Motion's `addScaleCorrector`, given here rather than to a module): the
  * app's own corrections of a value a layout animation's scale would distort, by the value key each
@@ -116,7 +118,7 @@ const WardicContext = createContext<WardicContextValue | undefined>(undefined)
 export function WardicProvider(props: {
   readonly env: WardicEnv
   readonly reducedMotion?: ReducedMotion.Config | undefined
-  readonly appear?: boolean | undefined
+  readonly appear?: boolean | "explain" | undefined
   readonly scaleCorrectors?: Readonly<Record<string, WardicScaleCorrector>> | undefined
   readonly features?: FeaturesProp | undefined
   readonly strict?: boolean | undefined
@@ -132,7 +134,7 @@ export function WardicProvider(props: {
     // Starting style, as they would without it.
     const appear = Bool.match(props.appear === false, {
       onTrue: constUndefined,
-      onFalse: () => serverAppear(Option.getOrElse(Option.fromUndefinedOr(props.reducedMotion), () => "user" as const)),
+      onFalse: () => serverAppear(Option.getOrElse(Option.fromUndefinedOr(props.reducedMotion), () => "user" as const), explainerOf(props.appear)),
     })
     if (Predicate.isNotUndefined(appear)) useAssets(() => appearStyle(appear))
     const value = serverContext(props.env, appear, () => untrack(() => props.reducedMotion))
@@ -260,16 +262,9 @@ export function useWardicAppear(): ServerAppear | undefined {
   return UndefinedOr.match(useContext(WardicContext), { onUndefined: constUndefined, onDefined: (value) => value.appear })
 }
 
-/**
- * The head's `<style>` for a render's Appear animations, or nothing when no element plays one;
- * why each element that doesn't play doesn't, as a debug log (`wardic.hydration`).
- */
+/** The head's `<style>` for a render's Appear animations, or nothing when no element plays one. */
 const appearStyle = (appear: ServerAppear): JSX.Element => {
   const css = appear.css()
-  const reasons = appear.reasons()
-  if (reasons.length > 0) {
-    Effect.runSync(Effect.logDebug("wardic.hydration: elements keep their Starting style until mount").pipe(Effect.annotateLogs({ reasons })))
-  }
   return Bool.match(css === "", { onTrue: () => undefined, onFalse: () => <style data-wardic-appear innerHTML={css} /> })
 }
 

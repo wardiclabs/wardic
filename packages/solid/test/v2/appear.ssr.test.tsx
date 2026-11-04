@@ -44,6 +44,8 @@
 // - AR23 (#436): a `delayChildren: stagger()` times each Variant child's rule by its index.
 // - AR24 (#525): a wrapped component whose element takes its props by a spread, its child pending,
 //   is the shell's too: the pending read waits at the wrap's `children()`, its rule in the head.
+// - AR25 (#585): the provider's `appear="explain"` says, at Warning, why each element that doesn't play
+//   waits for the JavaScript, naming its tag and keys; `true`, or no `appear`, says nothing.
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
@@ -51,11 +53,11 @@ import { stagger, ward, wardic, WardicConfig, WardicProvider, type WardicTransit
 import { type JSX, renderToStream, renderToString } from "@solidjs/web"
 import * as Option from "effect/Option"
 import { createMemo, Errored, For, Loading, Show } from "solid-js"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { keyOf } from "../../src/appear.ts"
 import { tagsOf } from "./ssr.ts"
 
-type ProviderProps = { readonly appear?: boolean; readonly reducedMotion?: "user" | "always" | "never" }
+type ProviderProps = { readonly appear?: boolean | "explain"; readonly reducedMotion?: "user" | "always" | "never" }
 
 /** A whole document with a head, as a start-mode app renders it, and `ui` under a provider. */
 const page = (ui: () => JSX.Element, provider: ProviderProps = {}): string =>
@@ -100,6 +102,26 @@ const appearPatches = (write: string): ReadonlyArray<string> =>
       .map((patch) => String(patch[4])))
 
 const rise = { initial: { opacity: 0, y: 20 }, animate: { opacity: 1, y: 0 } } as const
+
+/** The provider's explanations logged while `render` runs (#585): each `wardic.appear:` line, from its start. */
+const said = (render: () => string): ReadonlyArray<string> => {
+  const lines: Array<string> = []
+  const spies = (["log", "info", "warn", "error", "debug"] as const).map((m) =>
+    vi.spyOn(console, m).mockImplementation((...args: Array<unknown>) => {
+      lines.push(args.map(String).join(" "))
+    }),
+  )
+  try {
+    render()
+  } finally {
+    for (const spy of spies) spy.mockRestore()
+  }
+  return lines.flatMap((line) => {
+    const at = line.indexOf("wardic.appear:")
+    if (at === -1) return []
+    return [line.slice(at).trim()]
+  })
+}
 
 describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
   it("AR1: a qualifying element gets animation: var(--wardic-aN), and the head its rule and timing", () => {
@@ -674,5 +696,23 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
     const line = tagsOf(chunk).find((t) => t.attrs["data-k"] === "wrapped")
     expect(timing(headCss(writes[0]!), propertyOf(line?.style.animation)).normal, "in the head").not.toBe("")
     expect(appearPatches(chunk), "nothing new in its chunk").toEqual([])
+  })
+  it("AR25: appear=\"explain\" says why each element that doesn't play waits, naming it; without it, nothing (#585)", () => {
+    const ui = (): JSX.Element => (
+      <>
+        <wardic.h1 {...rise}>Plays</wardic.h1>
+        <wardic.div animate={{ opacity: 0.5 }} />
+        <wardic.div initial={{ width: "10px" }} animate={{ width: "50%" }} />
+        <wardic.div {...rise} style={{ animation: "spin 1s infinite" }} />
+      </>
+    )
+    const explained = said(() => page(ui, { appear: "explain" }))
+    expect(explained).toEqual([
+      "wardic.appear: <div> (opacity) waits for the JavaScript: opacity starts from the element's own value (no initial)",
+      "wardic.appear: <div> (width) waits for the JavaScript: width's start and target don't take one shape",
+      "wardic.appear: <div> (opacity, y) waits for the JavaScript: its own style sets an animation",
+    ])
+    expect(said(() => page(ui)), "nothing without it").toEqual([])
+    expect(said(() => page(ui, { appear: true })), "nor with true").toEqual([])
   })
 })

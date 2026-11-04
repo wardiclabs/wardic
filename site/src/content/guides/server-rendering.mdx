@@ -44,6 +44,12 @@ An element whose whole entrance the server knows plays it from the first paint. 
 
 The rest waits for the JavaScript: an ease given as a function, an element whose own `style` sets `animation`, and anything over 60 s. `appear={false}` turns it off for one element, and on the `WardicProvider` for the whole app. A `transitionEnd` is set when the client takes the animation over, so not at all with the JavaScript off.
 
+To see why an element waits, give the provider `appear="explain"`. Each element still plays as before, and the server logs a warning for each one that waits, naming its tag, the keys it animates and the reason:
+
+```
+wardic.appear: <div> (width) waits for the JavaScript: width's start and target don't take one shape
+```
+
 ### Reduced motion and skipped animations
 
 Under the default `reducedMotion="user"`, the page carries both plays, the reduced one under `@media (prefers-reduced-motion: reduce)`, so the browser picks one before any script has run. `"always"` and `"never"` pick one on the server. Under `<WardicConfig skipAnimations>`, each element is drawn at its end from the first paint.

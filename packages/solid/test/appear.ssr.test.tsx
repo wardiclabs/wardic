@@ -59,6 +59,8 @@
 // - AR28 (#436): a `delayChildren: stagger()` times each Variant child's rule by its index.
 // - AR29 (#438): an entrance on a `transition.path`: its rule follows the curve, `y` off 0 midway, and
 //   ends on its target; two paths name two rules.
+// - AR30 (#585): the provider's `appear="explain"` says, at Warning, why each element that doesn't play
+//   waits for the JavaScript, naming its tag and keys; `true`, or no `appear`, says nothing.
 // - AR25 (#434): a Variant child that follows the user waits, in its reduced timing too, for a parent
 //   under a config's "never" to settle as that parent plays: its move, not a snap.
 import { DomLive } from "@wardic/dom"
@@ -67,13 +69,13 @@ import * as Easing from "@wardic/core/Easing"
 import { arc, createWard, stagger, wardic, WardicConfig, WardicProvider, type WardicTransition, type WardicVariants } from "@wardic/solid"
 import { createResource, For, type JSX, Suspense } from "solid-js"
 import { renderToStream, renderToString } from "solid-js/web"
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { tagsOf } from "./ssr-helpers.ts"
 import { keyOf } from "../src/appear.ts"
 import * as Option from "effect/Option"
 
 /** A whole document with a head, as SolidStart renders it, and `ui` under a provider. */
-const page = (ui: () => JSX.Element, provider: { readonly appear?: boolean; readonly reducedMotion?: "user" | "always" | "never" } = {}): string =>
+const page = (ui: () => JSX.Element, provider: { readonly appear?: boolean | "explain"; readonly reducedMotion?: "user" | "always" | "never" } = {}): string =>
   renderToString(() => (
     <html>
       <head>
@@ -105,6 +107,26 @@ const timing = (css: string, property: string): { readonly normal: string; reado
 const delayOf = (animation: string): number => Number(/s linear (-?[\d.]+)s/.exec(animation)?.[1] ?? Number.NaN)
 
 const rise = { initial: { opacity: 0, y: 20 }, animate: { opacity: 1, y: 0 } } as const
+
+/** The provider's explanations logged while `render` runs (#585): each `wardic.appear:` line, from its start. */
+const said = (render: () => string): ReadonlyArray<string> => {
+  const lines: Array<string> = []
+  const spies = (["log", "info", "warn", "error", "debug"] as const).map((m) =>
+    vi.spyOn(console, m).mockImplementation((...args: Array<unknown>) => {
+      lines.push(args.map(String).join(" "))
+    }),
+  )
+  try {
+    render()
+  } finally {
+    for (const spy of spies) spy.mockRestore()
+  }
+  return lines.flatMap((line) => {
+    const at = line.indexOf("wardic.appear:")
+    if (at === -1) return []
+    return [line.slice(at).trim()]
+  })
+}
 
 describe("Appear animations on a server (#48, ADR-0044)", () => {
   it("AR1: a qualifying element gets animation: var(--wardic-aN), and the head its rule and timing", () => {
@@ -758,6 +780,24 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     expect(Math.max(...ys), "y off 0 by half the distance midway").toBeGreaterThan(90)
     expect(strong.endsWith("100%{transform:translateX(200px)}"), strong.slice(-80)).toBe(true)
     expect(ruleOf("gentle"), "another path, another rule").not.toBe(strong)
+  })
+  it("AR30: appear=\"explain\" says why each element that doesn't play waits, naming it; without it, nothing (#585)", () => {
+    const ui = (): JSX.Element => (
+      <>
+        <wardic.h1 {...rise}>Plays</wardic.h1>
+        <wardic.div animate={{ opacity: 0.5 }} />
+        <wardic.div initial={{ width: "10px" }} animate={{ width: "50%" }} />
+        <wardic.div {...rise} style={{ animation: "spin 1s infinite" }} />
+      </>
+    )
+    const explained = said(() => page(ui, { appear: "explain" }))
+    expect(explained).toEqual([
+      "wardic.appear: <div> (opacity) waits for the JavaScript: opacity starts from the element's own value (no initial)",
+      "wardic.appear: <div> (width) waits for the JavaScript: width's start and target don't take one shape",
+      "wardic.appear: <div> (opacity, y) waits for the JavaScript: its own style sets an animation",
+    ])
+    expect(said(() => page(ui)), "nothing without it").toEqual([])
+    expect(said(() => page(ui, { appear: true })), "nor with true").toEqual([])
   })
 })
 
