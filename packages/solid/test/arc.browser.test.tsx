@@ -47,6 +47,26 @@ const mountMove = (transition: WardicTransition, initial: Record<string, number>
   return { to: setTarget, box: container.querySelector<HTMLElement>("[data-k=box]")! }
 }
 
+/** A box at `x: 0` and `y`, under a `createAnimate` scope: its `animate`, and the box. */
+const mountAnimate = (y: number) => {
+  let animate!: WardicAnimate
+  const Scene = (): JSX.Element => {
+    const [scope, made] = createAnimate()
+    animate = made
+    return (
+      <div ref={scope}>
+        <wardic.div data-k="box" initial={{ x: 0, y }} animate={{ x: 0, y }} style={BOX} />
+      </div>
+    )
+  }
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      <Scene />
+    </WardicProvider>
+  ))
+  return { animate, box: container.querySelector<HTMLElement>("[data-k=box]")! }
+}
+
 /** Each frame's x, y and drawn angle for `n` frames. */
 const sample = async (box: HTMLElement, n: number) => {
   const seen: Array<{ x: number; y: number; angle: number; transform: string }> = []
@@ -136,23 +156,8 @@ describe("transition.path and arc() on Solid 1 (#438)", () => {
   })
 
   it("PA8: createAnimate's target with x alone: y curves around where it is and ends there", async () => {
-    let animate!: WardicAnimate
-    const Scene = (): JSX.Element => {
-      const [scope, made] = createAnimate()
-      animate = made
-      return (
-        <div ref={scope}>
-          <wardic.div data-k="box" initial={{ x: 0, y: 50 }} animate={{ x: 0, y: 50 }} style={BOX} />
-        </div>
-      )
-    }
-    const { container } = render(() => (
-      <WardicProvider env={DomLive}>
-        <Scene />
-      </WardicProvider>
-    ))
+    const { animate, box } = mountAnimate(50)
     await frames(3)
-    const box = container.querySelector<HTMLElement>("[data-k=box]")!
     expect(yOf(box), "at 50").toBeCloseTo(50, 1)
     void animate(box, { x: 200 }, { ...LINEAR, path: arc({ strength: 1 }) })
     const seen = await sample(box, 50)
@@ -178,23 +183,8 @@ describe("transition.path and arc() on Solid 1 (#438)", () => {
   })
 
   it("PA10 (#460): createAnimate's stop and cancel mid-curve take the turn back to 0", async () => {
-    let animate!: WardicAnimate
-    const Scene = (): JSX.Element => {
-      const [scope, made] = createAnimate()
-      animate = made
-      return (
-        <div ref={scope}>
-          <wardic.div data-k="box" initial={{ x: 0, y: 0 }} animate={{ x: 0, y: 0 }} style={BOX} />
-        </div>
-      )
-    }
-    const { container } = render(() => (
-      <WardicProvider env={DomLive}>
-        <Scene />
-      </WardicProvider>
-    ))
+    const { animate, box } = mountAnimate(0)
     await frames(3)
-    const box = container.querySelector<HTMLElement>("[data-k=box]")!
     for (const end of ["stop", "cancel"] as const) {
       const controls = animate(box, { x: 200 }, { ...LINEAR, path: arc({ strength: 1, rotate: true }) })
       await frames(8)
