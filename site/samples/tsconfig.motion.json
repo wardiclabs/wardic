@@ -1,0 +1,16 @@
+{
+  "// note": "The docs' Motion samples (#558): each sample's Motion for React version, typechecked against Motion and React at the Next.js storefront's versions, for the code tabs' comparison.",
+  "compilerOptions": {
+    "jsx": "react-jsx",
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "lib": ["ESNext", "DOM", "DOM.Iterable"]
+  },
+  "include": ["*/motion.tsx"]
+}

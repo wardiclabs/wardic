@@ -1,0 +1,103 @@
+---
+title: Start on Solid 1
+description: Install Wardic in a Solid 1 app, add the provider, and animate your first element.
+---
+
+# Start on Solid 1
+
+Wardic's root entry, `@wardic/solid`, is its binding for Solid 1 (`1.9`), and it follows semver from `1.0.0`. It works in a plain Solid app and in SolidStart, rendered on the server or not.
+
+## Install
+
+```sh
+npm install @wardic/solid @wardic/dom effect solid-js
+```
+
+`effect` and `solid-js` are peers: Wardic uses the copies your app has.
+
+## The provider
+
+Every animated element sits under one `WardicProvider`. It takes the environment Wardic runs in, `DomLive` in a browser, and the **Features** its elements have: `domAnimation` is hover, press, focus and in-view.
+
+```tsx
+import { DomLive } from "@wardic/dom"
+import { domAnimation, WardicProvider } from "@wardic/solid"
+import { render } from "solid-js/web"
+
+render(
+  () => (
+    <WardicProvider env={DomLive} features={[domAnimation]}>
+      <App />
+    </WardicProvider>
+  ),
+  document.getElementById("app")!,
+)
+```
+
+In SolidStart, put it in `app.tsx`, around the router's root, so every page shares one:
+
+```tsx
+import { Router } from "@solidjs/router"
+import { FileRoutes } from "@solidjs/start/router"
+import { DomLive } from "@wardic/dom"
+import { domAnimation, WardicProvider } from "@wardic/solid"
+import { Suspense } from "solid-js"
+
+export default function App() {
+  return (
+    <Router
+      root={(props) => (
+        <WardicProvider env={DomLive} features={[domAnimation]}>
+          <Suspense>{props.children}</Suspense>
+        </WardicProvider>
+      )}
+    >
+      <FileRoutes />
+    </Router>
+  )
+}
+```
+
+## Your first element
+
+A `w.*` element takes Motion's props: it animates from `initial` to `animate`, and to its `whileHover` target while the pointer is over it.
+
+<Demo sample="enter" />
+
+<CodeTabs sample="enter" show="Solid 1" />
+
+The same motion can go on an element of your own, with a ward: `w.createWard(config)` spread onto it, or the `use:w` directive.
+
+```tsx
+import { w } from "@wardic/solid"
+
+export function Card() {
+  const card = w.createWard({ initial: { opacity: 0 }, animate: { opacity: 1 } })
+  return <div class="card" {...card()} />
+}
+```
+
+## Only what a page uses
+
+A page that drags or lays out brings `drag` or `layout` itself, through `LazyWardic`, so the pages that don't never load them:
+
+```tsx
+import { drag, LazyWardic, w } from "@wardic/solid"
+
+export function Board() {
+  return (
+    <LazyWardic features={[drag]}>
+      <w.div drag />
+    </LazyWardic>
+  )
+}
+```
+
+## Rendered on the server
+
+On a server-rendered page, an element arrives in the HTML already at `initial`, so it never flashes at its target first. Its entrance plays from the first paint, before the JavaScript has loaded, and the client takes it over mid-flight when it hydrates.
+
+## Next
+
+- [Animate an element](/guides/animate): `initial`, `animate` and `transition`.
+- [Coming from Motion](/motion): every Motion API, and its name in Wardic.

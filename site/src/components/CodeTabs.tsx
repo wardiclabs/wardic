@@ -1,8 +1,8 @@
 /**
  * A sample's code, in tabs (#558): one per binding it's written for (Solid 2, Solid 1, Motion), from
- * `samples/<name>/`, each highlighted at build. Kobalte's tabs give the keyboard and the roles. Each
- * sample's code is a chunk of its own, loaded by the page that shows it: the server waits for it, and
- * a page opened by a link loads it.
+ * `samples/<name>/`, each highlighted at build, open on `show`'s tab (Solid 2's unless a page says).
+ * Kobalte's tabs give the keyboard and the roles. Each sample's code is a chunk of its own, loaded by
+ * the page that shows it: the server waits for it, and a page opened by a link loads it.
  */
 import { Tabs } from "@kobalte/core/tabs"
 import { createMemo, For, Loading } from "solid-js"
@@ -32,11 +32,11 @@ const filesOf = (sample: string): Promise<ReadonlyArray<Highlighted & { readonly
   return Promise.all(present)
 }
 
-export function CodeTabs(props: { readonly sample: string }) {
+export function CodeTabs(props: { readonly sample: string; readonly show?: (typeof BINDINGS)[number]["label"] }) {
   const files = createMemo(() => filesOf(props.sample))
   return (
     <Loading fallback={<div class="code-tabs" aria-busy="true" />}>
-      <Tabs class="code-tabs" defaultValue="Solid 2">
+      <Tabs class="code-tabs" defaultValue={props.show ?? "Solid 2"}>
         <Tabs.List class="code-tab-list" aria-label="The code in">
           <For each={files()}>
             {(file) => (

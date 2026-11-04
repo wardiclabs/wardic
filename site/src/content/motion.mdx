@@ -1,0 +1,83 @@
+---
+title: Coming from Motion
+description: Every Motion for React API, its name in Wardic, and where Wardic differs.
+---
+
+# Coming from Motion
+
+Wardic is Motion for React's API on Solid. The props and the components keep Motion's names, and a `w.div` takes what a `motion.div` takes. What changes comes from Solid:
+
+- **A component runs once.** Nothing re-renders: Wardic reads its props as they change. A value you move by hand is a signal given in `style`, not a motion value.
+- **Hooks are `create*` primitives,** as Solid names them: `useScroll` is `createScroll`.
+- **On Solid 2, events come from the element's ward,** `next(name)` and `when(name)`, not from callback props.
+
+The same card, in all three:
+
+<CodeTabs sample="enter" show="Motion" />
+
+## Elements and Features
+
+| Motion | Wardic |
+| --- | --- |
+| `motion.div` | `w.div`, with the Features its provider or a `LazyWardic` above it gives. `wardic.div` has every Feature. |
+| `m.div` under `<LazyMotion features={domAnimation}>` | `w.div` under `<WardicProvider features={[domAnimation]}>` |
+| `<LazyMotion features={() => import(…)}>` | `<LazyWardic features={() => import("./features.ts").then((m) => m.drag)}>`: its elements animate at once, and each Feature takes effect as it arrives. |
+| `<LazyMotion strict>` | `strict` on `WardicProvider` or `LazyWardic`: a `wardic.*` element below it throws in development. |
+| `domAnimation`, `domMax` | The same: `domAnimation` is hover, press, focus and in-view, `domMax` every Feature. |
+| (none) | A Feature per gesture, `hover`, `press`, `focus`, `inView`, `pan` and `drag`, and `layout` and `colors` (every CSS colour space beyond hex, `rgb()`, `hsl()` and the colour names). |
+| `motion.create(Component)`, with `forwardMotionProps` or `type: "svg"` | `w.create(Component)`, with the same options. |
+| `isMotionComponent`, `unwrapMotionComponent`, `isValidMotionProp` | `isWardicComponent`, `unwrapWardicComponent`, `isValidWardicProp` |
+| (none) | A ward on your own element: on Solid 1, `w.createWard(config)` spread onto it, or the `use:w` directive; on Solid 2, `w.ward(config)`, spread or given to a `w.*` element as `wardRef`. |
+
+Motion's Features load for the whole page. Wardic's apply to their section, a provider or a `LazyWardic`, so a page ships only the Features its own elements use.
+
+## Components
+
+| Motion | Wardic |
+| --- | --- |
+| `<AnimatePresence>`: `mode`, `custom`, `propagate`, `initial`, `onExitComplete`, `anchorX`, `anchorY`, `presenceAffectsLayout` | The same. Around many children, each DOM node is one: a `<For>`'s items, a `<Show>`'s child. A `key` on the element lets one that comes back mid-exit start where its leaver is. |
+| `usePresence`, `useIsPresent`, `usePresenceData` | The same names. On Solid 2, `const p = usePresence()`, `<div ref={p}>`, then `await p.next("leave")` and `p.safeToRemove()`. |
+| `<LayoutGroup id inherit>` | The same. |
+| `<Reorder.Group>`, `<Reorder.Item>` | The same, with a keyboard reorder built in. `onReorderEnd` is told once a reorder ends with a changed order, the moment to save it. |
+| `<MotionConfig>`: `transition`, `reducedMotion`, `skipAnimations`, `transformPagePoint`, `isValidProp` | `<WardicConfig>`, with the same props. |
+
+## Hooks
+
+| Motion | Wardic |
+| --- | --- |
+| `useMotionValue(0)` | A signal, given in `style`. |
+| `useTransform(value, input, output, options)` | `createTransform(value, input, output, options)` |
+| `useSpring(value, options)`, `.jump(v)` | `createSpring(value, options)`, the same `jump(v)` |
+| `useFollowValue(value, transition)` | `createFollowValue(value, transition)` |
+| `useScroll({ container, target, offset })` | `createScroll({ container, target, offset })` |
+| `useVelocity`, `useTime`, `useAnimationFrame` | `createVelocity`, `createTime`, `createAnimationFrame` |
+| `useCycle(…)` | `createCycle(…)`, its value an accessor |
+| `useInView`, `usePageInView` | `createInView`, `createPageInView` |
+| `useReducedMotion`, `useReducedMotionConfig` | `createReducedMotion`, `createReducedMotionConfig` |
+| `useWillChange()` | `createWillChange()`, given as `style={{ "will-change": willChange }}` |
+| `useAnimate()` | `createAnimate()`, its scope given as `ref={scope}`. Sequences, `stagger`, and the controls (`pause`, `play`, `time`, `speed`…) are Motion's. |
+| `useAnimationControls()` | `createAnimationControls()` |
+| `useDragControls()` | `createDragControls()` |
+| `useInstantTransition`, `useInstantLayoutTransition`, `useResetProjection` | `createInstantTransition`, `createInstantLayoutTransition`, `createResetProjection` |
+| `addScaleCorrector(…)` | `<WardicProvider scaleCorrectors={…}>`, the same entries |
+| `stagger`, `arc`, `cubicBezier`, `easeOut`, … | The same exports. |
+
+## Props
+
+The props keep Motion's names and meanings: `initial`, `animate`, `exit`, `variants`, `custom`, `transition` and its per-value entries (`default`, `layout`), the `while*` props, `viewport`, `layout`, `layoutId`, `layoutScroll`, `layoutRoot`, `layoutDependency`, `layoutCrossfade`, `drag` and its options, `propagate`, `transformTemplate` and `onUpdate`. Keyframes, `times`, `ease`, `transitionEnd`, `delayChildren: stagger(…)`, `path: arc(…)` and `type: "inertia"` work as Motion's do.
+
+**Callbacks.** On Solid 1, an element takes Motion's callbacks (`onHoverStart`, `onTap`, `onDrag`, `onViewportEnter`, …), each called at its event with `(event, info)`, and `info.point` in the viewport's coordinates. On Solid 2, the element's ward gives each event: `await card.next("tap")`, or an effect over `card.when("hover")`.
+
+## Where Wardic differs
+
+- **A spring field makes a spring.** With no `type`, a spring's field (`stiffness`, `damping`, `mass`, `bounce`, `visualDuration`, …) makes a spring, where Motion quietly tweens `{ stiffness: 300 }`. `repeat` with no `type` makes a tween, since Wardic's springs don't repeat.
+- **`visualDuration` alone is honoured,** with no bounce, where Motion ignores it, and a `visualDuration` spring keeps the velocity it's handed.
+- **An animation lands once every key it set has landed,** the ones it left running included. So a hover that starts mid-entrance is told it landed once the entrance has landed too.
+- **A long stall advances 0.5 s.** After a main-thread stall longer than 0.5 s (a hidden tab, a debugger), an animation moves on 0.5 s and plays out the rest, where Motion's jumps to where the elapsed time puts it.
+- **Layout animations account for scroll on their own:** the scroll of every scrolling element around them, with no `layoutScroll`, and the page's inside a `position: fixed` element, with no `layoutRoot`.
+- **A value you move is never written to.** It's an input the element follows; what Wardic draws comes out of the element, `ward.value(key)`.
+- **`reducedMotion` is followed as it changes,** where Motion reads it once, as each element mounts.
+- **A locked drag starts at its lock.** With `dragDirectionLock`, the drag starts once its axis is decided and claims only that axis, so a card that drags sideways inside a sheet that drags down doesn't start on a vertical swipe.
+- **Space presses too,** as a button takes it, beside Motion's Enter.
+- **`skipAnimations` lands everything,** layout animations and springs included, which Motion's leaves animating.
+- **Mount animations play before hydration.** On a server-rendered page, an element's entrance plays from the first paint, from CSS Wardic writes into the page, and the client takes it over mid-flight. `appear={false}` turns it off.
