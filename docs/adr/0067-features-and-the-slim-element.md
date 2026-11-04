@@ -126,3 +126,49 @@ core's share of a Slim app falls by 23.6 KB minified (`Recognizer`, `Drag`, `Ine
 - Every Feature is code that must load on its own: what a Feature needs from the spine becomes the spine's seam for it, and the Complete element is the Slim element with every Feature registered.
 - `effect-first.md`'s "`Schema` wherever values are decoded and encoded" changes with decision 9.
 - A size change is held like a time change: `bun run size` beside `bench:core` and `bench:solid`.
+
+## Amendment (#548, 2026-11-03): a module holds one Feature's code at most
+
+**Found on #526.** The storefront moved to the Slim element, with a provider giving `[domAnimation, layout]` and three pages bringing `drag` through `LazyWardic`.
+- **The JavaScript every page loads barely moved:** −4.3 KB gzipped on Solid 1.
+- **Its shared chunk still held `drag`:** `Recognizer.ts`, `drag-track.ts`, `features/drag.ts`. Stubbing the pages that drag took it out (143 → 137 KB). A static import, an `import()` and the module's own path all gave the same result.
+
+**Why.** Bundlers assign whole modules to chunks. A module that every page reaches, and that holds a Feature's code, puts that code on every page once any page uses it. Two places did that:
+- **The binding's Feature modules** each held the key every element looks up (`DragGesture`, `HoverGesture`, …) beside the Feature's Layer, which imports its code (`drag-track`, the recognizers).
+- **Core's `Recognizer.ts`** held every gesture's watch. The shell's hover and press put it on every page, and `watchDrag` with it.
+
+The barrel wasn't the cause: the packages declare `"sideEffects": false`, and Rollup and Rolldown both trace an unused re-export away.
+
+**Decided (#548's grill):**
+1. **Core's drag and pan move to `DragRecognizer` (Q1).**
+   - **The new module:** `@wardic/core/DragRecognizer` holds `drag`, `watchDrag`, `pan` and `watchPan`, their options, `WatchedDrag`, `PanSample`, and the pointer fold drag and pan share.
+   - **`Recognizer` keeps** hover, press, focus and inView.
+   - **Shared code:** what both build on (`watchFeed`, `streamOf`) is internal (`internal/watch.ts`), so neither module imports the other.
+   - **A Tier 2 move for binding authors.**
+   - Rejected: a module per gesture (most churn, for little more); `Drag.ts`, which code every page loads reaches.
+2. **Every Feature's key in `features/keys.ts` (Q2).**
+   - **The keys:** `HoverGesture`, `PressGesture`, `FocusGesture`, `InViewGesture`, `PanGesture`, `DragGesture` (with `DragRun`) and `Colors`. The element code imports them from there.
+   - **Each `features/<name>.ts`** keeps its Feature and Layer, and imports its key.
+   - **`layout`'s key** was already dom's `ProjectionSystem`.
+   - Rejected: a key module per Feature.
+3. **The rule (Q3): a module holds one Feature's code at most, and code every page needs never shares a module with a Feature's.** Applied across the binding, with the root exports' names unchanged:
+   - **The Complete forms:** `COMPLETE` and the Complete `createWard` (Solid 1) or `ward()` (Solid 2) move to `complete.ts`, since they hold `ALL`. The spine every element shares no longer reaches every Feature, so a page with one `wardic.*` doesn't put them all on every page.
+   - **`domAnimation` and `domMax`** are in `features/dom-animation.ts` and `features/dom-max.ts`.
+   - **The gesture sensors** `createHover`, `createPress`, `createFocus` and `createDrag` each have a module per binding (`<gesture>-sensor.ts`), apart from `createReducedMotion` and `createPageInView`.
+   - **`useWardicProjection`**, which brings `layout`, is in `layout-projection.ts` per binding, apart from the provider every page renders. The provider exports `fromWardicContext` for it.
+   - Rejected: only the keys and `DragRecognizer`.
+4. **`bun run size` gains multi-route apps** (`s1-routes`, `s2-routes`; stated, not asked).
+   - **Their shape:** a shell giving `domAnimation` with a hover, a plain page, and a page that drags, each an entry as SolidStart's routes are (`preserveEntrySignatures: "exports-only"`).
+   - **Measured** as what the plain page loads: the app's chunk, the page's, and their static imports, each gzipped as it's fetched.
+   - **Gated:** from here a Feature that reaches a page that never uses it fails the gate.
+
+**Measured.**
+- **`bun run size --base main`:**
+  - `s1-routes` 119.7 → 115.4 KB gzipped (−3.6%; core −5.4 KB and solid −7.4 KB minified);
+  - `s2-routes` 145.8 → 141.5 (−2.9%);
+  - every other app within ±0.1%, and the budgets held (120.4 of 121, 156.0 of 157).
+- **#526's storefront conversion** on top (SolidStart 2, Vite 8 / Rolldown), the JavaScript a route loads on a fresh visit, against `main` with every element Complete:
+  - a page that doesn't drag, 212.2 → 203.7 KB (Solid 1) and 267.4 → 259.0 (Solid 2);
+  - a page that drags, 214.1 → 210.9 and 269.0 → 266.3, loading its own `drag` chunk;
+  - with the conversion alone, before this amendment, a page that doesn't drag saved 4.3 KB.
+- **A mutation that puts the `DragGesture` class back in `features/drag.ts`** returns `s1-routes` to 119.7. Against today's `main`, which has that shape, it reads +0.0%. Against a `main` with this amendment it's +3.7%, a failure.
