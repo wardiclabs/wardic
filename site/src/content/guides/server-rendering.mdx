@@ -1,0 +1,70 @@
+---
+title: Server rendering
+description: Elements arrive at their starting style, and their entrances play from the first paint, before the JavaScript has loaded.
+---
+
+# Server rendering
+
+Wardic renders on the server with nothing to set up. Both bindings ship a server build, which SolidStart picks on its own, and the provider takes `DomLive` there as in the browser: a server render builds no runtime, and runs no animation.
+
+## Where an element starts
+
+The server gives each element its **starting style**, its `initial`, over its own `style`. The page hydrates with the same values, so the element never flashes at its target first, and the client switches to its own style in the commit that mounts it, with no paint in between.
+
+- With `initial={false}`, it starts at `animate`.
+- A variant child starts at its own `initial`, or at its parent's `initial` name in its own `variants`.
+- A key that `animate` sets and `initial` doesn't starts from the element's own value, which only the browser can read: give it an `initial` to render it.
+
+Every element form renders on the server: `w.*`, `w.create`, and a ward spread on an element. Two attach in the browser only, so their element can flash: the `use:w` directive on Solid 1, and a ward given as `ref` on Solid 2.
+
+## Entrances before the JavaScript
+
+An element whose whole entrance the server knows plays it from the first paint. The server samples it from the same springs and tweens the browser runs, writes it into the page's head as a CSS animation, and the element plays it before any JavaScript has loaded. As the page hydrates, the client takes it over where the CSS has got to, velocity included. With the JavaScript off, it plays to its end and stays there.
+
+```tsx
+<WardicProvider env={DomLive}>
+  {/* Plays from the first paint, and the client takes it over. */}
+  <w.h1 initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
+    Hello
+  </w.h1>
+  {/* Waits for the JavaScript, as on a page rendered in the browser. */}
+  <w.div appear={false} initial={{ scale: 0.9 }} animate={{ scale: 1 }} />
+</WardicProvider>
+```
+
+[A banner that arrives before the JavaScript](https://solid2.wardic.dev/server/before-hydration) shows it, with links to hold the JavaScript back or turn it off.
+
+### What plays
+
+- Every key it animates starts from `initial`, and CSS can blend its start and target: not `auto`, not a `var()`, and not two units, such as `10px` to `50%`.
+- Springs, tweens with a named ease (Motion's names, `cubicBezier`, `steps`), keyframes and `arc()` paths, a `repeat`, and a tween's `repeat: Infinity`.
+- Variants, with their `staggerChildren`, `delayChildren` and `when`: the whole group plays, or none of it.
+- Layout elements, drawn where the client would draw them.
+- On SVG, the attributes that are CSS properties too: `opacity`, `fill`, `stroke` and its width and dashes (so a line drawing itself with `pathLength`), and the stop and flood colours. `cx`, `cy`, `r`, `rx` and `ry` play where the browser draws them from CSS; `d`, `width` and `height` wait.
+
+The rest waits for the JavaScript: an ease given as a function, an element whose own `style` sets `animation`, and anything over 60 s. `appear={false}` turns it off for one element, and on the `WardicProvider` for the whole app. A `transitionEnd` is set when the client takes the animation over, so not at all with the JavaScript off.
+
+### Reduced motion and skipped animations
+
+Under the default `reducedMotion="user"`, the page carries both plays, the reduced one under `@media (prefers-reduced-motion: reduce)`, so the browser picks one before any script has run. `"always"` and `"never"` pick one on the server. Under `<WardicConfig skipAnimations>`, each element is drawn at its end from the first paint.
+
+### Into the page's head
+
+- **On Solid 1,** the rules go in through Solid's `useAssets`, which SolidStart's document renders. A render with no `</head>` leaves them out, and its elements wait at their starting style.
+- **On Solid 2,** they go in through `@solidjs/web`'s head, which a document with a `<head>` renders.
+
+Content streamed after the page's shell, under a `Suspense` (`Loading` on Solid 2) waiting on data, plays too: its chunk brings its own rules, and its entrances start when it lands.
+
+## On the server
+
+Hooks give their server values, which the page keeps until it mounts:
+
+- `createScroll`, `createVelocity` and `createTime` give 0, and `createSpring` and `createFollowValue` their source's value.
+- `createHover`, `createPress`, `createFocus` and `createInView` give `false`, and `createPageInView` `true`.
+- `createReducedMotion` gives `false`, where Motion's `useReducedMotion` gives `null`.
+
+## What it costs
+
+- **On the server,** about 9 µs for each element, and 8 µs more for each one that plays from the first paint. The first render of an entrance samples it, in about 0.1 ms, and every request after that reuses it.
+- **In the page,** 1 to 2 KB of CSS for each distinct entrance, and about 70 bytes for each element, before compression.
+- **In the browser,** one read for each element as it hydrates, and nothing for each frame.
