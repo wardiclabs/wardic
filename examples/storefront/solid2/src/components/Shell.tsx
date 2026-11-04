@@ -3,9 +3,9 @@ import { revalidate } from "@solidjs/router"
 import type { JSX } from "@solidjs/web"
 import type { Settings } from "@wardic/example-storefront-shared/server"
 import { COG, ICON, turnOf } from "@wardic/example-storefront-shared/micro"
-import { AnimatePresence, arc, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, arc, LazyWardic, w } from "@wardic/solid/unstable/v2"
 import { action, createEffect, createMemo, createSignal, For, Loading, Show } from "solid-js"
-import { type Arrival, arrivalId, arrivals, landed } from "~/lib/arrivals.ts"
+import { type Arrival, arrivalId, arrivals, flightLayout, landed } from "~/lib/arrivals.ts"
 import { type Theme, usePreferences } from "~/lib/preferences.tsx"
 import { cart, settings } from "~/lib/store.ts"
 import { setSettings } from "~/server/store.ts"
@@ -96,9 +96,16 @@ function CartButton() {
           )}
         </Show>
       </Loading>
-      <AnimatePresence>
-        <For each={arrivals()}>{(piece) => <CartArrival piece={piece} />}</For>
-      </AnimatePresence>
+      {/* The fly-in's section, with the `layout` of the page that moved the first piece (#526). */}
+      <Show when={flightLayout()}>
+        {(layout) => (
+          <LazyWardic features={layout()}>
+            <AnimatePresence>
+              <For each={arrivals()}>{(piece) => <CartArrival piece={piece} />}</For>
+            </AnimatePresence>
+          </LazyWardic>
+        )}
+      </Show>
     </w.a>
   )
 }

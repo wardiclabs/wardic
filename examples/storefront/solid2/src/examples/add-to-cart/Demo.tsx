@@ -1,10 +1,11 @@
 import { revalidate } from "@solidjs/router"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
-import { AnimatePresence, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, LazyWardic, w } from "@wardic/solid/unstable/v2"
 import { action, createMemo, createOptimistic, createSignal, Loading, Match, onSettled, Show, Switch } from "solid-js"
 import { cart, product } from "~/lib/store.ts"
 import { addToCart } from "~/server/store.ts"
+import { layout } from "~/lib/layout-feature.ts"
 
 // "View cart" slides out from behind the button once the piece is in the cart.
 const viewCart = {
@@ -13,7 +14,16 @@ const viewCart = {
   exit: { opacity: 0, x: -12, transition: { type: "tween", duration: 0.12 } },
 } as const
 
+/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
 export default function AddToCart() {
+  return (
+    <LazyWardic features={[layout]}>
+      <AddToCartDemo />
+    </LazyWardic>
+  )
+}
+
+function AddToCartDemo() {
   const piece = createMemo(() => product("poppy-plate"))
   const photo = photoOf("poppy-plate")
   const [quantity, setQuantity] = createSignal(1)

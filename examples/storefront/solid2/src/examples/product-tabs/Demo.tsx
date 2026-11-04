@@ -1,9 +1,10 @@
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, LazyWardic, w } from "@wardic/solid/unstable/v2"
 import { createMemo, createSignal, For, Loading, Match, Show, Switch } from "solid-js"
 import { product } from "~/lib/store.ts"
+import { layout } from "~/lib/layout-feature.ts"
 
 const TABS = ["Description", "Details", "Delivery"] as const
 type Tab = (typeof TABS)[number]
@@ -16,7 +17,16 @@ const panel = {
   transition: { type: "tween", duration: 0.18 },
 } as const
 
+/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
 export default function ProductTabs() {
+  return (
+    <LazyWardic features={[layout]}>
+      <ProductTabsDemo />
+    </LazyWardic>
+  )
+}
+
+function ProductTabsDemo() {
   const piece = createMemo(() => product("lagoon-vase"))
   const [tab, setTab] = createSignal<Tab>("Description")
   const photo = photoOf("lagoon-vase")

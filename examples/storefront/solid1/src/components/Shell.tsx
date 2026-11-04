@@ -1,9 +1,9 @@
 /** The shop's frame (#296): its header, with the visitor's switches and the store's, and its footer. */
 import { A, createAsync, useAction } from "@solidjs/router"
 import { COG, ICON, turnOf } from "@wardic/example-storefront-shared/micro"
-import { AnimatePresence, arc, w } from "@wardic/solid"
+import { AnimatePresence, arc, LazyWardic, w } from "@wardic/solid"
 import { createSignal, For, type JSX, Show, Suspense } from "solid-js"
-import { type Arrival, arrivalId, arrivals, landed } from "~/lib/arrivals.ts"
+import { type Arrival, arrivalId, arrivals, flightLayout, landed } from "~/lib/arrivals.ts"
 import { type Theme, usePreferences } from "~/lib/preferences.tsx"
 import { cart, saveSettings, settings } from "~/lib/store.ts"
 
@@ -81,9 +81,16 @@ function CartButton() {
           )}
         </Show>
       </Suspense>
-      <AnimatePresence>
-        <For each={arrivals()}>{(piece) => <CartArrival piece={piece} />}</For>
-      </AnimatePresence>
+      {/* The fly-in's section, with the `layout` of the page that moved the first piece (#526). */}
+      <Show when={flightLayout()}>
+        {(layout) => (
+          <LazyWardic features={layout()}>
+            <AnimatePresence>
+              <For each={arrivals()}>{(piece) => <CartArrival piece={piece} />}</For>
+            </AnimatePresence>
+          </LazyWardic>
+        )}
+      </Show>
     </IconLink>
   )
 }

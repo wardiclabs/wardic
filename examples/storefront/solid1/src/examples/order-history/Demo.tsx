@@ -2,9 +2,10 @@ import { createAsync } from "@solidjs/router"
 import { formatDay, formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { Order, Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, useAnimateLayout, w } from "@wardic/solid"
+import { AnimatePresence, LazyWardic, useAnimateLayout, w } from "@wardic/solid"
 import { createSignal, For, Show, Suspense } from "solid-js"
 import { orders, products } from "~/lib/store.ts"
+import { layout } from "~/lib/layout-feature.ts"
 
 // An order's pieces fade in once its row has started to open, and out quickly as it closes.
 const reveal = {
@@ -24,7 +25,16 @@ function sortedBy(orders: ReadonlyArray<Order>, sort: Sort): ReadonlyArray<Order
   return orders
 }
 
+/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
 export default function OrderHistory() {
+  return (
+    <LazyWardic features={[layout]}>
+      <OrderHistoryDemo />
+    </LazyWardic>
+  )
+}
+
+function OrderHistoryDemo() {
   const history = createAsync(() => orders())
   const all = createAsync(() => products())
   const [open, setOpen] = createSignal<string>()

@@ -2,9 +2,10 @@ import { createAsync, useAction, useSubmissions } from "@solidjs/router"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { CartLine, Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, w } from "@wardic/solid"
+import { AnimatePresence, LazyWardic, w } from "@wardic/solid"
 import { createSignal, For, onCleanup, onMount, Show, Suspense } from "solid-js"
 import { addToCart, cart, products, setCartQuantity } from "~/lib/store.ts"
+import { layout } from "~/lib/layout-feature.ts"
 
 const SUGGESTED = ["white-bowl", "celadon-bowl", "slip-dish", "painted-jug"]
 
@@ -13,7 +14,16 @@ const drawer = { initial: { x: 460 }, animate: { x: 0 }, exit: { x: 460 }, trans
 const line = { initial: { opacity: 0, x: 32 }, animate: { opacity: 1, x: 0 }, exit: { opacity: 0, x: 32 } } as const
 const fade = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } } as const
 
+/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
 export default function CartDrawer() {
+  return (
+    <LazyWardic features={[layout]}>
+      <CartDrawerDemo />
+    </LazyWardic>
+  )
+}
+
+function CartDrawerDemo() {
   const [open, setOpen] = createSignal(false)
   const current = createAsync(() => cart())
   const all = createAsync(() => products())

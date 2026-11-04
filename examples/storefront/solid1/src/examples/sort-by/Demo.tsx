@@ -3,9 +3,10 @@ import { createAsync } from "@solidjs/router"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, useAnimateLayout, w } from "@wardic/solid"
+import { AnimatePresence, LazyWardic, useAnimateLayout, w } from "@wardic/solid"
 import { createSignal, For, Show, Suspense } from "solid-js"
 import { products } from "~/lib/store.ts"
+import { layout } from "~/lib/layout-feature.ts"
 
 // Kobalte's list, taking Wardic's motion props: the ward goes on the element it renders.
 const List = w.create(Select.Content)
@@ -28,7 +29,16 @@ function sortedBy(pieces: ReadonlyArray<Product>, order: string): ReadonlyArray<
   return pieces
 }
 
+/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
 export default function SortBy() {
+  return (
+    <LazyWardic features={[layout]}>
+      <SortByDemo />
+    </LazyWardic>
+  )
+}
+
+function SortByDemo() {
   const pieces = createAsync(() => products())
   const [order, setOrder] = createSignal("Featured")
   const [open, setOpen] = createSignal(false)

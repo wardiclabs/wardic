@@ -4,6 +4,7 @@ import { revalidate } from "@solidjs/router"
 import { action, type Accessor, createEffect, createMemo, createOptimistic, createSignal, For, Loading, refresh, Show, type SourceAccessor } from "solid-js"
 import { notices } from "~/lib/store.ts"
 import { dismissNotice, restoreNotices } from "~/server/store.ts"
+import { layout } from "~/lib/layout-feature.ts"
 
 type Side = "left" | "right"
 
@@ -21,10 +22,10 @@ const FLING_VELOCITY = 600
 /** How long "Undo" is offered, once the card has flown off. */
 const UNDO_MS = 4000
 
-/** The demo, with this page's `drag` beside the shell's Features (#526): a page without a drag ships none. */
+/** The demo, with this page's `drag` and `layout` beside the shell's Features (#526): a page without them ships neither. */
 export default function Notifications() {
   return (
-    <LazyWardic features={[drag]}>
+    <LazyWardic features={[drag, layout]}>
       <NotificationsDemo />
     </LazyWardic>
   )

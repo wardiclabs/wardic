@@ -10,9 +10,10 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, LazyWardic, w } from "@wardic/solid/unstable/v2"
 import { type Accessor, createContext, createMemo, createSignal, For, Loading, Show, useContext } from "solid-js"
 import { getProduct } from "~/server/store.ts"
+import { layout } from "~/lib/layout-feature.ts"
 
 const PIECES = PRODUCTS.slice(0, 6)
 const HOME = "/transitions/waiting"
@@ -34,7 +35,16 @@ const page = {
 } as const
 
 /** The layout: the switch, what the router says while a page is held, and a presence around the outlet. */
+/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
 export default function Waiting(props: { readonly children?: JSX.Element }) {
+  return (
+    <LazyWardic features={[layout]}>
+      <WaitingDemo {...props} />
+    </LazyWardic>
+  )
+}
+
+function WaitingDemo(props: { readonly children?: JSX.Element }) {
   const [wait, setWait] = createSignal<Wait>("skeleton")
   // True while a navigation waits for what its page reads.
   const routing = useIsRouting()

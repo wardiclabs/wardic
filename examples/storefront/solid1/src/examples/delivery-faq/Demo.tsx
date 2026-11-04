@@ -1,5 +1,6 @@
-import { AnimatePresence, createInstantTransition, w } from "@wardic/solid"
+import { AnimatePresence, createInstantTransition, LazyWardic, w } from "@wardic/solid"
 import { createSignal, For, Show } from "solid-js"
+import { layout } from "~/lib/layout-feature.ts"
 
 const QUESTIONS = [
   {
@@ -32,7 +33,16 @@ const answer = {
 // `duration` makes a tween, eased out.
 const chevron = { shut: { rotate: 0 }, open: { rotate: 180 } } as const
 
+/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
 export default function DeliveryFaq() {
+  return (
+    <LazyWardic features={[layout]}>
+      <DeliveryFaqDemo />
+    </LazyWardic>
+  )
+}
+
+function DeliveryFaqDemo() {
   // Each answer opens on its own; the first is open as the page loads.
   const [open, setOpen] = createSignal<ReadonlySet<number>>(new Set([0]))
   const isOpen = (index: number) => open().has(index)
