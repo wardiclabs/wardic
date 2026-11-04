@@ -800,6 +800,35 @@ const keepingOnly = <A,>(kept: ReadonlyArray<string>): ((value: Readonly<Record<
   }
 }
 
+/**
+ * Where `axis` rests when `target` leaves it out (#574): a leg drawing it though its own Retarget
+ * didn't resolve it, a Path's whose target left it out too (#438) or an Imperative animation's (#433,
+ * whose legs resolve nothing), was taking it somewhere, and it rests there. `undefined` with none in
+ * flight.
+ */
+const restOf = (owners: Owners, target: Values.Values, axis: "x" | "y"): number | string | undefined => {
+  if (Object.hasOwn(target, axis)) return undefined
+  const owner = owners.get(axis)
+  if (Predicate.isUndefined(owner)) return undefined
+  if (owner.done) return undefined
+  if (Object.hasOwn(owner.resolution.resolved, axis)) return undefined
+  return owner.targets[axis]
+}
+
+/**
+ * Where a Path's axes that `target` leaves out rest (#574), read before their legs give them up: a
+ * new Path ends them there, so a toss caught mid-air curves back to its line. `undefined` for none:
+ * every element's Retarget asks, nearly always with no Path in flight, so guards, nothing built.
+ */
+const restsOf = (owners: Owners, target: Values.Values): Values.Values | undefined => {
+  const x = restOf(owners, target, "x")
+  const y = restOf(owners, target, "y")
+  if (Bool.and(Predicate.isUndefined(x), Predicate.isUndefined(y))) return undefined
+  if (Predicate.isUndefined(x)) return { y: UndefinedOr.getOrThrow(y) }
+  if (Predicate.isUndefined(y)) return { x }
+  return { x, y }
+}
+
 /** The groups of the keys a carried leg draws (#297, #325): the first alone when the keys aren't split. */
 const groupsOfLeg = (running: Running, groups: ReadonlyArray<ReadonlySet<string>> | undefined, owners: Owners): ReadonlyArray<number> => {
   if (Predicate.isUndefined(groups)) return [0]
@@ -854,6 +883,7 @@ const splitLegsOf = (
   stops: StopsByKey | undefined,
   measured: MeasuredPairs | undefined,
   current: Values.Values,
+  rests: Values.Values | undefined,
 ): SplitLegs => {
   let returnsAt = 0
   if (listed) returnsAt = resolution.layers.length
@@ -865,7 +895,7 @@ const splitLegsOf = (
     if (Rec.isEmptyRecord(picked)) return
     let followed: Follows | undefined
     if (i === returnsAt) followed = follow
-    const groupLegs = legsOf(from, picked, groupTransitionOf(resolution, groups, i, transition, element, extraDelay, reuse), reduce, skipped, positionalKeys, defaultTransition, velocities, followed, stops, measured, current)
+    const groupLegs = legsOf(from, picked, groupTransitionOf(resolution, groups, i, transition, element, extraDelay, reuse), reduce, skipped, positionalKeys, defaultTransition, velocities, followed, stops, measured, current, rests)
     Arr.forEach(groupLegs, (built) => {
       legs.push(built)
       tags.push(i)
@@ -2478,6 +2508,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     let measuring: Array<string> | undefined
     // Each key's velocity, read now (#464), for a key a spring starts or one already there.
     readAt = snapshot.now()
+    // Where a Path's axis this target leaves out rests (#574), before the pass below gives up its leg.
+    const rests = restsOf(owners, t)
     Arr.forEach(Rec.keys(t), (key) => {
       if (!Object.hasOwn(initialValues, key)) ownValue(key)
       const like = t[key]
@@ -2628,11 +2660,12 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     let retargetLegs: ReadonlyArray<Leg> = NO_LEGS
     let legGroups: ReadonlyArray<number> | undefined
     if (Predicate.isUndefined(groups) && hasKeys(fresh)) {
-      // Where every key is now: a Path's axis the target leaves out starts and ends there (#438).
-      retargetLegs = legsOf(from, fresh, transition, reduce, skipped, positionalKeys, defaultTransition, readVelocity, follow, manyStops, measured, snapshot.values)
+      // Where every key is now: a Path's axis the target leaves out starts there (#438), and ends where
+      // it rests (#574).
+      retargetLegs = legsOf(from, fresh, transition, reduce, skipped, positionalKeys, defaultTransition, readVelocity, follow, manyStops, measured, snapshot.values, rests)
     }
     if (Predicate.isNotUndefined(groups)) {
-      const split = splitLegsOf(fresh, from, groups, resolution, listed, transition, elementTransition, extraDelay, options.reuse, reduce, skipped, positionalKeys, defaultTransition, readVelocity, follow, manyStops, measured, snapshot.values)
+      const split = splitLegsOf(fresh, from, groups, resolution, listed, transition, elementTransition, extraDelay, options.reuse, reduce, skipped, positionalKeys, defaultTransition, readVelocity, follow, manyStops, measured, snapshot.values, rests)
       retargetLegs = split.legs
       legGroups = split.tags
     }
@@ -2876,6 +2909,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // Each key taken from whatever runs it, noted with its target now, and started where it's drawn.
     // Its velocity read now (#464), as its legs are built.
     readAt = snapshot.now()
+    // Where a Path's axis this target leaves out rests (#574), before its keys are taken below.
+    const rests = restsOf(owners, to)
     if (taken === NONE_TAKEN) taken = new Map()
     const takenNow = taken
     Arr.forEach(Rec.keys(to), (key) => {
@@ -2904,7 +2939,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     let measured: MeasuredPairs | undefined
     if (Bool.and(Bool.not(Bool.or(reduce, skipped)), Predicate.isNotUndefined(measuring))) measured = measuredOf(element, UndefinedOr.getOrThrow(measuring), from, to, snapshot.values, stops)
     // Built once: a seek or a replay runs the same legs, from the same start, with the same velocities.
-    const built = legsOf(from, to, given, reduce, skipped, positionalKeys, defaultTransition, readVelocity, undefined, stops, measured, snapshot.values)
+    const built = legsOf(from, to, given, reduce, skipped, positionalKeys, defaultTransition, readVelocity, undefined, stops, measured, snapshot.values, rests)
     const variables = holdsVariable(from, to, stops)
     const legs = Arr.map(built, (leg) => mapMachine(leg, Playback.drive(head)))
     let runnings: ReadonlyArray<Running> = NO_RUNNING

@@ -469,6 +469,9 @@ const hasKeys: Predicate.Predicate<Values.Values> = Predicate.not(Rec.isEmptyRec
  * @param follow the returns that follow a moving Live value (#130), given only when the Retarget returns a key
  * @param stops each key's Keyframes of more than two stops (#429, {@link keyframesFrom}), `from` at their first
  * @param measured each key's Measured pair (#430), measured at the end of the task
+ * @param current where every key is now: a Path's axis the target leaves out starts there (#438)
+ * @param rests where a Path's axis the target leaves out comes to rest, when a Path in flight was taking
+ *   it somewhere (#574): it ends there; else where it starts
  */
 /** A Path's two axes (#438). */
 const AXES = ["x", "y"] as const
@@ -540,8 +543,10 @@ const progressOf = (transition: Run): ((dt: number) => Frame.Frame<number>) => {
 
 /**
  * A Retarget's Path (#438): when its transition has one and its target has `x` or `y`, their leg along
- * it, from where they are (an axis it leaves out from where it is now, `current`, and back there), on
- * the transition `x` runs on; and the target without them. `undefined` when there's none to take: no
+ * it, from where they are (an axis it leaves out from where it is now, `current`), on the transition `x`
+ * runs on; and the target without them. An axis it leaves out ends where it rests (#574): where the Path
+ * in flight was taking it, in `rests`, so a toss caught mid-air curves back to its line; else back where
+ * it starts, as Motion's `yTo = yRaw ?? yFrom`. `undefined` when there's none to take: no
  * Path or no axis, reduced motion snapping them, a Skipped animation, an inertia, an axis that isn't a
  * number. Keyframes' ends are their first and last stops.
  */
@@ -554,6 +559,7 @@ const pathOf = (
   defaults: DefaultTransition.DefaultTransition["Service"],
   stops: StopsByKey | undefined,
   current: Values.Values | undefined,
+  rests: Values.Values | undefined,
 ): { readonly leg: Blend; readonly rest: Values.Values } | undefined => {
   // Every element's Retarget asks, nearly always with no `path` (#460): guards, nothing built.
   if (Predicate.isUndefined(given)) return undefined
@@ -571,10 +577,11 @@ const pathOf = (
   if (Predicate.isUndefined(startX)) return undefined
   const startY = axisOf("y", from, current)
   if (Predicate.isUndefined(startY)) return undefined
-  // An axis the target leaves out ends where it starts.
-  const endX = axisOf("x", to, { x: startX })
+  // An axis the target leaves out ends where it rests (#574), else where it starts.
+  const resting: Values.Values = { x: startX, y: startY, ...rests }
+  const endX = axisOf("x", to, resting)
   if (Predicate.isUndefined(endX)) return undefined
-  const endY = axisOf("y", to, { y: startY })
+  const endY = axisOf("y", to, resting)
   if (Predicate.isUndefined(endY)) return undefined
   const at = path({ x: startX, y: startY }, { x: endX, y: endY })
   // A path that turns the element says so at its start, as Motion's `interpolate(0).rotate`.
@@ -598,9 +605,10 @@ export const legsOf = (
   stops?: StopsByKey | undefined,
   measured?: MeasuredPairs | undefined,
   current?: Values.Values | undefined,
+  rests?: Values.Values | undefined,
 ): ReadonlyArray<Leg> => {
   // A Path (#438): `x` and `y` along it, on a leg of their own, and every other key as before.
-  const pathed = pathOf(from, to, given, reducedMotion, skipped, defaults, stops, current)
+  const pathed = pathOf(from, to, given, reducedMotion, skipped, defaults, stops, current, rests)
   if (Predicate.isNotUndefined(pathed)) {
     return Arr.prepend(legsOf(from, pathed.rest, given, reducedMotion, skipped, positionalKeys, defaults, velocities, follow, stops, measured), pathed.leg)
   }

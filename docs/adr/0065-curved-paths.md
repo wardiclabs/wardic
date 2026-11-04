@@ -102,7 +102,7 @@ PR 2's (`.tmp/438/mutate2.py`, run alone): 12 single-point mutations, all caught
 
 ## Consequences
 
-- An axis a target leaves out ends where it starts, as Motion's: a path interrupted with `{ x }` alone leaves `y` where the curve had it. Target both to bring it back.
+- An axis a target leaves out ends where it starts, as Motion's: a path interrupted with `{ x }` alone leaves `y` where the curve had it. Target both to bring it back. *Superseded by the Amendment (#574): it ends where it rests.*
 - A spring path starts at rest at every Retarget, as Motion's: an interrupt visibly stops and sets off again.
 - A layout flight interrupted mid-curve restarts from where it's drawn (#146) on a new curve, from rest.
 - `{ layout: { path } }` alone keeps Motion's default layout tween, as `{ path }` alone keeps `x`'s Default (PR 1).
@@ -114,3 +114,12 @@ PR 2's (`.tmp/438/mutate2.py`, run alone): 12 single-point mutations, all caught
 - **A leg's own keys ride with it while it's whole** (`giveUpUnresolved`, `holdsWhole`): a key its Retarget didn't resolve, the turn or an axis its target left out, stays with the leg while the leg still draws every key it was started for, each resolved now or taken. A Retarget of another key leaves the Path as it was, as Motion's leaves `x`'s animation.
 - **The turn goes back to 0 once no leg draws it** (`turnBack`): after a Retarget whose legs don't turn (the old leg lost `x` or `y`), Animation controls' `stop`, and an Imperative animation's `stop` and `cancel`. An axis its target left out stays where the curve had it, as *Consequences* says.
 - PA9 (another key's Retarget), PA10 (`createAnimate`'s `stop` and `cancel`) and PA11 (a straight Retarget of `x`, the controls' `stop`) pin it; each failed before.
+
+## Amendment (#574, 2026-11-04): an axis the target leaves out ends where it rests
+
+The docs site's arc demo tossed a ball with `animate={{ x: across() ? 240 : 0 }}` alone, and tossing again mid-air left it lower each time: ~106 px a round of quick tosses. *Consequences*' first rule, Motion's `yTo = yRaw ?? yFrom`, ends `y` where the interrupt caught it, so each new curve starts off the line and ends there. Motion's does the same. Grilled on #574: B, beyond Motion.
+
+- **An axis the target leaves out ends where it rests:** where the leg drawing it was taking it, when one in flight draws it though its own Retarget didn't resolve it (a Path's whose target left it out too, or an Imperative animation's, whose legs resolve nothing). With none in flight, it ends where it is now, as before (PA8). A toss caught mid-air curves back to its line.
+- **Read before the old leg gives it up** (`restsOf` in `spine.ts`): a Retarget gives up the old Path's keys before it builds its legs (#325, #460's `holdsWhole`), so where that Path was taking the axis is read first, from its leg's targets, by a Retarget and an Imperative animation alike. Two lookups a Retarget, nothing built without a Path in flight. `legsOf` passes it to `pathOf` as `rests`, which ends the axis there; it still starts where it is (`current`).
+- **Unchanged:** a straight Retarget that interrupts a Path still leaves the axis it gives up where the curve had it (*Amendment (#460)*), and an axis the target names ends at its target.
+- PA12 and PAV3 (a declarative toss caught twice) and PA13 (`createAnimate`'s, caught by another) pin it; each failed before, 141.7 px and 99.7 px off the line.
