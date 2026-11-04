@@ -42,6 +42,7 @@ export const NAV: ReadonlyArray<NavSection> = [
       { path: "/guides/features", title: "Shipping less" },
       { path: "/guides/reduced-motion", title: "Reduced motion" },
       { path: "/guides/testing", title: "Testing" },
+      { path: "/guides/observability", title: "Observability" },
     ],
   },
 ]
