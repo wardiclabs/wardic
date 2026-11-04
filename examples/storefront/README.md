@@ -41,6 +41,7 @@ A made-up ceramics and glass shop whose every feature is a Wardic example: the d
 | With a component library | A size guide in Kobalte's dialog | `w.create` over Kobalte's `Dialog.Overlay` and `Dialog.Content`, `forceMount` with `<AnimatePresence>`: Kobalte keeps focus, Escape and the scroll lock (Motion: Radix's `Dialog` through `asChild`) |
 | With a component library | Sort the shop with Kobalte's select | `w.create(Select.Content)` growing from the edge Kobalte opens it from (`--kb-select-content-transform-origin`); `layout` cards re-sorted through `animateLayout` (Motion: Radix's `Select`) |
 | With a component library | A piece's details in Kobalte's tabs | a `layoutId` underline inside Kobalte's triggers; each panel a `w.create(Tabs.Content)` that fades in whenever Kobalte shows it (Motion: Radix's `Tabs`) |
+| Shipping less | Rearrange the room: drag loads when you ask | `LazyWardic` with `features={() => import(…)}`: the room's section renders on Rearrange and fetches `drag` then, and "Slow connection" holds the import back to show the cost (Motion: `LazyMotion`'s Features are the whole page's, so its room drags at once) |
 
 ## Run it
 

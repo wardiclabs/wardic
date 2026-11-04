@@ -21,6 +21,7 @@ import ProductGrid from "./product-grid/Demo.tsx"
 import ProductTabs from "./product-tabs/Demo.tsx"
 import QuickView from "./quick-view/Demo.tsx"
 import ReadingProgress from "./reading-progress/Demo.tsx"
+import Rearrange from "./rearrange/Demo.tsx"
 import Reveals from "./reveals/Demo.tsx"
 import SavedForLater from "./saved/Demo.tsx"
 import SizeGuide from "./size-guide/Demo.tsx"
@@ -57,4 +58,5 @@ export const DEMOS: Readonly<Record<string, ComponentType>> = {
   "size-guide": SizeGuide,
   "sort-by": SortBy,
   "details-tabs": DetailsTabs,
+  rearrange: Rearrange,
 }
