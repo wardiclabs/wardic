@@ -29,5 +29,13 @@ export type Wardic = { readonly create: Create } & {
   readonly [Tag in keyof JSX.IntrinsicElements]: WardicComponent<Tag>
 }
 
-/** `wardic.<tag>` (cached, so `wardic.div === wardic.div`) and `wardic.create`: the Complete element's. */
+/**
+ * The Complete element: `wardic.div` and every other tag, with every Feature whatever its section
+ * gives, and `wardic.create(Component)`. Handy for trying something out, heavy for a page: under a
+ * `strict` provider it throws in development. Motion's `motion.div`.
+ *
+ * @example <wardic.div drag whileHover={{ scale: 1.05 }} />
+ * @see https://wardic.dev/reference/solid/elements/wardic
+ */
+// `wardic.<tag>` is cached, so `wardic.div === wardic.div` (ADR-0067: the Complete element).
 export const wardic: Wardic = formOf<Wardic>(create, {})

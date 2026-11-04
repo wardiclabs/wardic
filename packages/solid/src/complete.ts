@@ -13,28 +13,20 @@ import { ALL } from "./features/all.ts"
 import type { InferredMotion, TargetKey } from "./ward-keys.ts"
 
 /**
- * Create a **Ward**, one element's motion binding (ADR-0042): spread it onto the element
- * (`<div {...ward()}>`) to drive it through Wardic's motion spine. Solid's `create*`
- * convention: it owns computations under the current owner, as `createDrag` does.
+ * Makes a ward: Wardic's motion for an element of your own. Spread what it returns on the element,
+ * `{...card()}`, or `{...card({ ref, style })}` to keep your own. `config` is the motion props, or an
+ * accessor of them for a config that changes. `card.value(key)` reads what the element shows. This
+ * one has every Feature; `w.createWard` has its section's.
  *
- * `config` may be a plain {@link WardConfig} (back-compat) OR an
- * `Accessor<WardConfig>` for reactive config: when the accessor reads signals,
- * a change recomputes the override-stack `target()` and drives a
- * velocity-preserving Retarget through the existing Snapshot wiring. `animate` /
- * `whileHover` / `whileTap` / `transition` / `variants` are read reactively
- * through `cfg()`; `initial` is read EXACTLY ONCE at setup (`untrack`) — it is
- * the SSR/first-frame seed and must never re-seed after mount (ADR-0003).
- *
- * Its keys are inferred from its targets (#305), as a `wardic.*` element's are, so its `transition`
- * takes entries for the keys it animates, `default` and `layout`, and a target's own takes them and
- * `default` ({@link InferredMotion}). The config keeps its own type, so a name it doesn't know is an
- * error as ever.
- *
- * It puts on a **Complete element**, every Feature brought (#511); `w.createWard` puts on a Slim one.
- *
- * @param config initial/animate/whileHover/whileTap + transition (see {@link WardConfig}), or an accessor of it.
- * @returns the Ward: call it to spread onto a JSX element.
+ * @example
+ * const card = createWard({ initial: { opacity: 0 }, animate: { opacity: 1 } })
+ * <article {...card()} />
+ * @see https://wardic.dev/reference/solid/elements/ward
  */
+// One element's motion binding (ADR-0042), owning computations under the current owner. An accessor
+// config is read reactively (a change Retargets, velocity kept); `initial` once at setup (ADR-0003).
+// Its keys are inferred from its targets (#305, InferredMotion), so `transition` takes entries for
+// them. A Complete element (#511).
 export function createWard<
   K extends TargetKey = never,
   N extends string = never,

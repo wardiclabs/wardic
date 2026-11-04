@@ -36,5 +36,14 @@ export type W = { readonly create: Create; readonly ward: typeof slimWard } & {
   readonly [Tag in keyof JSX.IntrinsicElements]: WardicComponent<Tag>
 }
 
-/** `w`: every form of the Slim element, as `wardic`'s and `ward()` are of the Complete one. */
+/**
+ * The Slim element: `w.div`, `w.button` and every other tag, each taking the element's own props and
+ * Wardic's motion props. It has the Features its `WardicProvider` and any `LazyWardic` above it give.
+ * `w.create(Component)` makes your own component one, and `w.ward(config)` a ward for an element of
+ * your own. Motion's `m.div`.
+ *
+ * @example <w.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} />
+ * @see https://wardic.dev/reference/solid/elements/w
+ */
+// Every form of the Slim element, as `wardic`'s and `ward()` are of the Complete one (ADR-0067).
 export const w: W = formOf<W>(createOf(SLIM), { ward: slimWard })

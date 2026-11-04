@@ -456,18 +456,18 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps, AnyW
   /** Mounts the ward on `element`: Solid calls it as a ref. */
   (element: HTMLElement): void
   /**
-   * Its spread's props alone (#495): what Solid 2's `merge` reads when the ward is spread, calling it
+   * Its spread's props alone: what Solid 2's `merge` reads when the ward is spread, calling it
    * as a function source. Only `ref`, `style` and the Starting style's attributes, on no prototype, so
    * none of the ward's own names (`name`, `length`, `read`, `next`…) shadows the element's props.
    */
   (previous?: unknown): WardProps
   /**
-   * Hands this element's variant context to the subtree (ADR-0007, #50): its Variant children
+   * Hands this element's variant context to the subtree: its Variant children
    * inherit its variant name and transition, and join its stagger and `when`.
    */
   readonly Provider: (props: { readonly children?: JSX.Element }) => JSX.Element
   /**
-   * The element's value for `key`, as an accessor (#130, ADR-0043 decision 5): what Wardic shows
+   * The element's value for `key`, as an accessor: what Wardic shows
    * for it, whoever moves it, as a number for a transform key (`x`, not its `transform`). At rest
    * outside the gate, its `initial`, else its `style` value, else a transform key's identity. One
    * accessor a key, made at the first ask. Read, not `value` (the Solid 1 ward's name): a spread
@@ -477,7 +477,7 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps, AnyW
   /** The element's value for `key` as an `effect/reactivity` Atom, `undefined` while the gate doesn't hold the key. */
   readonly atom: <K extends WardKey<C>>(key: K) => Atom.Atom<WardValueOf<C, K & string> | undefined>
   /**
-   * The element's last landing (#257, ADR-0046), as an async value: `undefined` before the first,
+   * The element's last landing, as an async value: `undefined` before the first,
    * ready from its first read, and pending while a Retarget runs, keeping the last landing meanwhile.
    * `isPending(() => card.settled())` is "animating"; `card.settled()?.definition` is what landed:
    * the variant name `animate` changed to, else the target values. Solid 1's
@@ -485,7 +485,7 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps, AnyW
    */
   readonly settled: Accessor<WardSettled | undefined>
   /**
-   * The element's last tap (#427, ADR-0056), as an async value, as {@link settled} is its last
+   * The element's last tap, as an async value, as {@link settled} is its last
    * landing: `undefined` before the first, ready from its first read, and pending while a press is
    * held, from a pointer or a key (a **Keyboard press**), keeping the last tap meanwhile. So
    * `isPending(() => card.tapped())` is "pressed". A tap resolves it to the tap's event (its `point`,
@@ -499,20 +499,20 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps, AnyW
    */
   readonly tapped: Accessor<WardPressInfo | undefined>
   /**
-   * A promise of the element's next `name` after the call (#257, ADR-0046), to `await` in a handler
+   * A promise of the element's next `name` after the call, to `await` in a handler
    * or an action:
    * - `"settled"`: its next landing. A Retarget the next one interrupts doesn't land; it waits for
    *   one that does.
    * - `"hoverStart"`, `"hoverEnd"`, `"pressStart"`, `"tap"`, `"tapCancel"`: Motion's hover and tap
    *   events, with the pointer's `point` in the viewport. A press a drag took over is neither a
    *   tap nor a cancel.
-   * - `"hover"` (#397): the pointer over the element while it's hovered, its start (after
+   * - `"hover"`: the pointer over the element while it's hovered, its start (after
    *   `"hoverStart"`) and each move, as `"drag"` is a drag's. Wardic's own: Motion's hover has only
    *   a start and an end.
    * - `"dragStart"`, `"drag"` (its start and each move), `"dragEnd"`: a drag's, with its `point`,
    *   `offset`, `delta` and `velocity`; `"dragTransitionEnd"`, its release at rest. A ward that
    *   doesn't drag never has one.
-   * - `"panSessionStart"` (with its `point`), `"panStart"`, `"pan"`, `"panEnd"`: a pan's (#273), as a
+   * - `"panSessionStart"` (with its `point`), `"panStart"`, `"pan"`, `"panEnd"`: a pan's, as a
    *   drag's. A pan moves nothing; once started, a press it took over is neither a tap nor a cancel.
    *
    * A gesture's event starts its recognizer, if its `while*` hasn't. Rejected with a
@@ -520,15 +520,15 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps, AnyW
    */
   readonly next: <E extends WardEvent>(name: E) => Promise<WardEvents[E]>
   /**
-   * Every `name` from the call on, as an async iterable (#257), for a `for await`: each step waits as
+   * Every `name` from the call on, as an async iterable, for a `for await`: each step waits as
    * `next(name)` does, so one that comes while its body runs is missed; the loop ends once the ward is
    * disposed, with no `AbortError`. To act on each one in an effect, use {@link when}: a memo over
    * `each` misses one between its steps, and on a page rendered on the server it needs
-   * `ssrSource: "client"` and a `<Loading>` (#343).
+   * `ssrSource: "client"` and a `<Loading>`.
    */
   readonly each: <E extends WardEvent>(name: E) => AsyncIterable<WardEvents[E]>
   /**
-   * Every `name` (#355), as a memo for an effect: pending until the first, so the effect runs at each
+   * Every `name`, as a memo for an effect: pending until the first, so the effect runs at each
    * one and never before, typed as the event, on any page (no `ssrSource`, no `<Loading>`). It hears
    * each one as it's told, so none is lost between steps; several in one flush run the effect once,
    * with the latest. A failure (`"settled"`'s) goes to the effect's `error` arm
@@ -544,7 +544,7 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps, AnyW
    */
   readonly when: <E extends WardEvent>(name: E) => Accessor<WardEvents[E]>
   /**
-   * The ward's props with the element's own (#264, the Solid 1 ward's `ward({ ref, style })`): its
+   * The ward's props with the element's own (the Solid 1 ward's `ward({ ref, style })`): its
    * `ref` called beside the ward's, and its `style` over the config's, key by key. For a style made
    * after the ward, a value derived from the ward's own:
    *
