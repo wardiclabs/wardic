@@ -1,0 +1,55 @@
+---
+title: Ward events
+description: On Solid 2, a ward tells its element's animations and gestures as events, to await, iterate or run an effect on.
+api: [WardEvents, WardEvent, WardSettled, WardGestures, WardElement, WardPoint, WardPointInfo, WardPressInfo, WardDragInfo]
+---
+
+# Ward events
+
+On Solid 2, a ward tells what happens to its element as events, where Solid 1 takes Motion's callback props (`onTap`, `onDragEnd`…). Hear them from any ward: one you made, or one a Wardic element hands to its `wardRef` callback.
+
+```tsx
+const card = w.ward({ whileTap: { scale: 0.95 } })
+
+// Once:
+await card.next("tap")
+// At each one, in an effect:
+createEffect(card.when("tap"), (info) => console.log(info.point))
+// Every time:
+for await (const info of card.each("drag")) console.log(info.offset)
+
+<w.div wardRef={card} />
+```
+
+| Member | |
+| --- | --- |
+| `next(name)` | A promise of the next such event. |
+| `each(name)` | An async iterable of every one from now on. |
+| `when(name)` | A memo of the latest, for an effect: pending until the first, so the effect runs at each one and never before. Read it in an effect, not in JSX. |
+| `settled()` | The latest landing, pending while an animation runs: `isPending(() => card.settled())` is "animating". |
+| `tapped()` | The latest tap, pending while a press is held: `isPending(() => card.tapped())` is "pressed". |
+
+## The events
+
+| Name | When | Motion's |
+| --- | --- | --- |
+| `settled` | An animation lands. | `onAnimationComplete` |
+| `hoverStart`, `hover`, `hoverEnd` | The pointer comes over the element, moves on it, and leaves. | `onHoverStart`, `onHoverEnd` |
+| `pressStart`, `tap`, `tapCancel` | A press begins, ends on the element, or ends elsewhere or is cancelled. | `onTapStart`, `onTap`, `onTapCancel` |
+| `dragStart`, `drag`, `dragEnd` | A drag starts, moves, and is let go. | `onDragStart`, `onDrag`, `onDragEnd` |
+| `directionLock` | With `dragDirectionLock`, the axis a drag locked to. | `onDirectionLock` |
+| `dragTransitionEnd` | The element comes to rest after it's let go. | `onDragTransitionEnd` |
+| `panSessionStart`, `panStart`, `pan`, `panEnd` | A pan's pointer goes down, it starts, moves, and ends. | `onPan…` |
+| `viewportEnter`, `viewportLeave` | The element comes into view, and leaves it. | `onViewportEnter`, `onViewportLeave` |
+| `layoutStart`, `layoutComplete` | A layout animation starts moving, and lands. | `onLayoutAnimationStart`, `onLayoutAnimationComplete` |
+
+A gesture's events need its [Feature](/guides/features), as its `while*` prop does.
+
+## Types
+
+- **`WardEvents`:** what each event resolves to, by name; **`WardEvent`**, a name.
+- **`WardSettled`:** a landing.
+- **`WardGestures`:** the gesture layers on during an animation: hover's, tap's and drag's.
+- **`WardElement`:** the element an event happened on.
+- **`WardPoint`:** a point in the viewport, as `clientX` and `clientY` measure it.
+- **`WardPointInfo`**, **`WardPressInfo`**, **`WardDragInfo`:** a hover's or a press's event, a press's (with how it was made: `input` is `"pointer"` or `"keyboard"`), and a drag's or a pan's (its `point`, `delta`, `offset` and `velocity`).

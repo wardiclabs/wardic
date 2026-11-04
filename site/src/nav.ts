@@ -53,4 +53,20 @@ export const NAV: ReadonlyArray<NavSection> = [
       { path: "/guides/observability", title: "Observability" },
     ],
   },
+  {
+    title: "Reference",
+    pages: [{ path: "/reference/solid", title: "Solid reference" }],
+    groups: [
+      {
+        title: "Elements",
+        pages: [
+          { path: "/reference/solid/elements/w", title: "w" },
+          { path: "/reference/solid/elements/wardic", title: "wardic" },
+          { path: "/reference/solid/elements/ward", title: "Wards" },
+          { path: "/reference/solid/elements/ward-events", title: "Ward events" },
+          { path: "/reference/solid/elements/props", title: "Motion props" },
+        ],
+      },
+    ],
+  },
 ]

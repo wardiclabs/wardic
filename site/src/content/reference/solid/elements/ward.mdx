@@ -1,0 +1,74 @@
+---
+title: Wards
+description: A ward puts Wardic's motion on an element of your own, and reads its values. createWard on Solid 1, ward() on Solid 2, and their Slim forms.
+api: [createWard, ward, Ward, WardProps, WardStyle, WardUserProps, WardValue, WardValueOf, WardChecked, WardKey, AnimatedKey, WardRead, WardWithProps, WardOptions]
+---
+
+# Wards
+
+A ward is one element's motion: made from a config of [motion props](/reference/solid/elements/props), and put on an element of your own instead of a `w.*` one. It renders on the server as a `w.*` element does.
+
+| | Slim (its section's [Features](/guides/features)) | Complete (every Feature) |
+| --- | --- | --- |
+| Solid 1 | `w.createWard(config)`, `use:w` | `createWard(config)`, `use:wardic` |
+| Solid 2 | `w.ward(config, options?)` | `ward(config, options?)` |
+
+## Solid 1: createWard
+
+```tsx
+import { w } from "@wardic/solid"
+
+function Card() {
+  const card = w.createWard({ initial: { opacity: 0 }, animate: { opacity: 1 } })
+  return <article class="card" {...card()} />
+}
+```
+
+`config` is the motion props, or an accessor of them for a config that changes: `w.createWard(() => ({ animate: { x: open() ? 200 : 0 } }))`. Spread what the ward returns: `{...card()}`, or `{...card({ ref, style })}` to keep a `ref` and a `style` of your own.
+
+| Member | |
+| --- | --- |
+| `card(props?)` | The props to spread on the element: `ref`, `style` and its starting attributes. |
+| `card.value(key)` | An accessor of what the element shows for `key` now: `card.value("x")()`. |
+| `card.atom(key)` | The same as an `effect/reactivity` Atom. |
+| `card.Provider` | Hands the element's variants to the components under it, for a child rendered outside it in the markup. |
+
+## Solid 2: ward()
+
+```tsx
+import { w } from "@wardic/solid/unstable/v2"
+
+function Card() {
+  const card = w.ward({ initial: { opacity: 0 }, animate: { opacity: 1 } })
+  return <article class="card" {...card} />
+}
+```
+
+Each key of `config` is a value, or an accessor of it: `w.ward({ animate: () => ({ x: open() ? 200 : 0 }) })`. Spread the ward on its element (`{...card}`), give it to a Wardic element's `wardRef`, or give it to `ref`, which attaches in the browser only, so on a server-rendered page its element can flash. `card.with({ ref, style })` keeps a `ref` and a `style` of your own.
+
+| Member | |
+| --- | --- |
+| `card.read(key)` | An accessor of what the element shows for `key` now: `card.read("x")()`. A transform key reads a number. |
+| `card.atom(key)` | The same as an `effect/reactivity` Atom. |
+| `card.with(props)` | The ward's props merged with your own `ref` and `style`. |
+| `card.Provider` | Hands the element's variants to the components under it. |
+| `card.settled()`, `card.tapped()`, `card.next(name)`, `card.each(name)`, `card.when(name)` | Its events: see [Ward events](/reference/solid/elements/ward-events). |
+
+`options.parent` makes a ward made outside the element's tree a variant child of another ward, as an element rendered under it would be.
+
+## Coming from Motion
+
+Motion has no ward: its props go on a `motion.*` element. A ward is Wardic's way to put them on your own element, and to read its values, as Motion's `useMotionValue` reads one.
+
+## Types
+
+- **`Ward`:** a ward, as above, on each binding.
+- **`WardProps`:** what a ward spreads: `ref`, `style` and the starting attributes.
+- **`WardStyle`:** a Wardic element's `style`: every CSS property and the transform keys (`x`, `scale`…), each a value or a [live value](/guides/live-values).
+- **`WardUserProps`:** (Solid 1) what `card(props)` takes: your own `ref` and `style`.
+- **`WardValue`:** (Solid 1) `card.value`'s type.
+- **`WardRead`**, **`WardValueOf`:** (Solid 2) `card.read`'s type, and what it reads for a key.
+- **`WardKey`**, **`AnimatedKey`:** (Solid 2) a key a ward can read, and the keys its config animates.
+- **`WardChecked`:** (Solid 2) a config whose per-value transitions are checked against the keys it animates.
+- **`WardWithProps`:** (Solid 2) what `card.with` takes.
+- **`WardOptions`:** (Solid 2) `ward`'s options: `parent`.
