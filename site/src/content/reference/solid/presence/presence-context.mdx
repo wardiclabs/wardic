@@ -1,0 +1,23 @@
+---
+title: PresenceContext
+description: The nearest AnimatePresence's registrar, for building your own presence-aware component.
+api: [PresenceContext, usePresenceContext, PresenceContextValue, PresenceRecord]
+---
+
+# PresenceContext
+
+The nearest [`AnimatePresence`](/reference/solid/presence/animate-presence)'s registrar, which every Wardic element and ward under it registers its exit with. For building a presence-aware component of your own; an app needs `usePresence` or `useIsPresent` instead.
+
+```tsx
+import { usePresenceContext } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+const presence = usePresenceContext() // undefined outside one
+```
+
+- **`usePresenceContext()`:** the nearest presence's registrar, `undefined` outside one.
+- **`PresenceContext`:** the Solid context itself, for providing one of your own.
+
+## Types
+
+- **`PresenceContextValue`:** what a presence publishes to the elements under it.
+- **`PresenceRecord`:** one child's registration: its live values and its exit, which the presence reads as it leaves.

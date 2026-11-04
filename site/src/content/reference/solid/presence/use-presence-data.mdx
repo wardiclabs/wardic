@@ -1,0 +1,16 @@
+---
+title: usePresenceData
+description: The nearest AnimatePresence's custom, as an accessor.
+api: [usePresenceData]
+---
+
+# usePresenceData
+
+The nearest [`AnimatePresence`](/reference/solid/presence/animate-presence)'s `custom`, as an accessor: `undefined` outside one. For a child that shows what the presence was given, such as the direction a carousel is moving in; a leaving element's own `exit` gets it through a function variant's `custom`. Motion's `usePresenceData`.
+
+```tsx
+import { usePresenceData } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+const direction = usePresenceData<1 | -1>()
+<p>{direction() === -1 ? "Back" : "Next"}</p>
+```

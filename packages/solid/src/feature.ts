@@ -29,9 +29,9 @@ import type { Reactivity } from "./reactivity.ts"
 import type { ProviderRuntime, ProviderServices, WardicServices } from "./runtime.ts"
 
 /**
- * A **Feature** (#511): its name, the key of the service its Layer gives (what an element looks up),
+ * A **Feature**: its name, the key of the service its Layer gives (what an element looks up),
  * and that Layer, built on the provider's runtime: its Environment, its flush gate and its projection
- * options. `server` is what a server render, which builds no runtime (ADR-0021), does with it: the
+ * options. `server` is what a server render, which builds no runtime, does with it: the
  * `colors` Feature registers its colour spaces there too, as the render reads colours; the rest do
  * nothing.
  */
@@ -45,7 +45,7 @@ export interface Feature<I = any, S = any> {
 /** Features as an app gives them: one, or a list, a preset's nested in it (`[domAnimation, layout]`). */
 export type Features = Feature | ReadonlyArray<Features>
 
-/** Features loaded lazily (ADR-0067 decision 8): `() => import("./features.ts").then((m) => m.domMax)`. */
+/** Features loaded lazily: `() => import("./features.ts").then((m) => m.domMax)`. */
 export type FeatureLoad = () => Promise<Features>
 
 /** Features given to a `WardicProvider` or a `LazyWardic`: at once, or loaded lazily. */

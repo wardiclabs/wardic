@@ -1,0 +1,36 @@
+---
+title: createPresence
+description: On Solid 2, a handle that hears an AnimatePresence's exits, given to its ref.
+api: [createPresence, Presence, PresenceEvent, PresenceEvents]
+---
+
+# createPresence
+
+On Solid 2, a handle that hears an [`AnimatePresence`](/reference/solid/presence/animate-presence)'s exits, given to its `ref`: where Solid 1 has Motion's `onExitComplete`.
+
+```tsx
+import { AnimatePresence, createPresence } from "@wardic/solid/unstable/v2"
+
+const presence = createPresence()
+
+<AnimatePresence ref={presence}>…</AnimatePresence>
+<button disabled={presence.exiting()} onClick={async () => {
+  setOpen(false)
+  await presence.next("exitComplete")
+  await save()
+}}>Close and save</button>
+```
+
+| Member | |
+| --- | --- |
+| `exiting()` | Whether a child is leaving. |
+| `next(name)` | A promise of the next `"exitStart"`, a child's exit starting, or `"exitComplete"`, every leaving child gone. An exit a returning child interrupts doesn't complete. |
+| `each(name)` | Every one, for `for await`. |
+| `when(name)` | Every one, as a memo for an effect. |
+
+`ref` also takes a callback, `ref={(p) => (presence = p)}`, handed the presence's own handle. On a server nothing leaves: `exiting()` is `false`, and `next` never settles.
+
+## Types
+
+- **`Presence`:** the handle, above.
+- **`PresenceEvents`:** what each event resolves with, by name; **`PresenceEvent`**, a name.

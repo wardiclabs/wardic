@@ -39,16 +39,16 @@ export interface AnimatePresenceProps {
   /**
    * `false`: the child present at this presence's first render starts at its `animate`, with no
    * enter animation (it and every Wardic element under it, as Motion's); a child that enters later
-   * animates in from its `initial`. Exits are unchanged (#134).
+   * animates in from its `initial`. Exits are unchanged.
    */
   readonly initial?: boolean
   /**
-   * Its exits, heard (#257, ADR-0046): a `createPresence()` handle, or a callback handed the
+   * Its exits, heard: a `createPresence()` handle, or a callback handed the
    * presence's own handle. Optional: left out, no handle is made. Read once.
    */
   readonly ref?: ((presence: Presence) => void) | undefined
   /**
-   * How a child enters while another exits (#277, ADR-0048), Motion's `mode`: `"sync"` (the default),
+   * How a child enters while another exits, Motion's `mode`: `"sync"` (the default),
    * at once, beside the leaver; `"popLayout"`, at once, the leaver popped out of the flow where it was
    * (`position: absolute`, its size kept), so the children after it take their places, a `layout`
    * one animating there; `"wait"`, once every leaver has animated out and been removed. A
@@ -57,14 +57,14 @@ export interface AnimatePresenceProps {
    */
   readonly mode?: PresenceMode | undefined
   /**
-   * What a leaving child's dynamic `exit` resolves with (#277, ADR-0048, Motion's `custom`), over the
+   * What a leaving child's dynamic `exit` resolves with (Motion's `custom`), over the
    * child's own `custom`: a child that has left can't take new props, so the presence hands it the
    * latest. Read as each child leaves.
    */
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly custom?: any
   /**
-   * Where `mode="popLayout"` pins a leaver (#442, ADR-0048, Motion's): by its inline start (`"left"`,
+   * Where `mode="popLayout"` pins a leaver (Motion's): by its inline start (`"left"`,
    * the default) or end (`"right"`), which a right-to-left layout flips, as Motion's does, and by its
    * `"top"` (the default) or `"bottom"`. Each edge keeps its distance from its container's while the
    * leaver exits, so one pinned by the bottom right stays in that corner as the container resizes.
@@ -73,14 +73,14 @@ export interface AnimatePresenceProps {
   readonly anchorX?: "left" | "right" | undefined
   readonly anchorY?: "top" | "bottom" | undefined
   /**
-   * Whether its children's going and coming moves the `layout` elements around them (#442, Motion's
+   * Whether its children's going and coming moves the `layout` elements around them (Motion's
    * prop): `true` (the default) tells the projection when a child enters, a leaver pops or a leaver is
    * removed, so a `layout` sibling animates into or out of the space; `false` tells it nothing, and a
    * sibling animates only when something else measures it. Read at each change.
    */
   readonly presenceAffectsLayout?: boolean | undefined
   /**
-   * Motion's `propagate` (#277's PR 5c, ADR-0048): inside another presence's child, when that child
+   * Motion's `propagate`: inside another presence's child, when that child
    * leaves, this presence's children all leave too, each running its exit, and that child goes once
    * they've all gone. Without it (the default), its children go with that child, as they are. Read
    * once.
@@ -90,11 +90,11 @@ export interface AnimatePresenceProps {
 
 /**
  * Wraps its children (a conditional one, `<Show>`, or a `<For>`'s) and animates each one's exit
- * before it's removed (#277): each that leaves exits in its place, and one that comes back mid-exit
+ * before it's removed: each that leaves exits in its place, and one that comes back mid-exit
  * is a new node, entering beside the leaver.
  * A leaving child runs its own `exit` if it's a `wardic.*` element or an element with a ward on
  * it, and the exits of the Wardic elements inside it either way, staying until they've ended; a
- * plain child with nothing inside it to wait for goes at once (#392). Inside a `<WardicProvider>`.
+ * plain child with nothing inside it to wait for goes at once. Inside a `<WardicProvider>`.
  */
 export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   // A server render has no exit to drive: the same boundaries, a context that registers nothing.

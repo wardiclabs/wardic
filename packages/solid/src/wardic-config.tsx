@@ -12,7 +12,7 @@ import { configIsValidPropOf, configReducedMotionOf, configTransformPagePointOf,
 
 const WardicConfigContext = createContext<WardicConfigValue | undefined>(undefined)
 
-/** `WardicConfig`'s props (#434). */
+/** `WardicConfig`'s props. */
 export interface WardicConfigProps {
   /**
    * The **Config transition**: each Wardic element below runs on it when it gives no `transition` of
@@ -22,7 +22,7 @@ export interface WardicConfigProps {
    */
   readonly transition?: WardicVariantTransition | undefined
   /**
-   * How the Wardic elements below honour the user's `prefers-reduced-motion` (ADR-0029), as Motion's
+   * How the Wardic elements below honour the user's `prefers-reduced-motion`, as Motion's
    * `MotionConfig` `reducedMotion`: `"user"` follows it, `"always"` reduces motion whatever it is,
    * `"never"` animates whatever it is. It replaces an enclosing config's, and the `WardicProvider`'s
    * for them; with none, theirs applies. Read when each animation starts.
@@ -30,13 +30,13 @@ export interface WardicConfigProps {
   readonly reducedMotion?: ReducedMotion.Config | undefined
   /**
    * Every animation of the Wardic elements below lands at its end on the next frame, as Motion's
-   * `MotionConfig` `skipAnimations` (#468): its legs, exits, layout animations, a drag's release,
+   * `MotionConfig` `skipAnimations`: its legs, exits, layout animations, a drag's release,
    * `createAnimate` and `createSpring`, each still told. For end-to-end and visual-regression tests.
    * An inner config's `false` animates its subtree again. Read when each animation starts.
    */
   readonly skipAnimations?: boolean | undefined
   /**
-   * Which of the props given a Wardic element's tag below reach the element (#443, Motion's
+   * Which of the props given a Wardic element's tag below reach the element (Motion's
    * `MotionConfig` `isValidProp`): one it returns `false` for is kept off it, for a prop a styling
    * system reads that shouldn't render as an attribute. Asked of no prop starting with `on`, nor a
    * wrapped component's, which get every prop, as Motion's do. It replaces an enclosing config's. Read as
@@ -44,7 +44,7 @@ export interface WardicConfigProps {
    */
   readonly isValidProp?: ((key: string) => boolean) | undefined
   /**
-   * Where the points a drag or a pan below uses are (#443, Motion's `MotionConfig`
+   * Where the points a drag or a pan below uses are (Motion's `MotionConfig`
    * `transformPagePoint`): handed each point in the viewport's coordinates, it gives the one the
    * gesture uses. Read at each drag or pan start, and applied to its down, each move, a drag
    * controls' start and its snap to the cursor, and to the boxes drag constraints are measured from;
@@ -57,8 +57,8 @@ export interface WardicConfigProps {
 }
 
 /**
- * Settings for the Wardic elements below it (#434, Motion's `MotionConfig`): their default
- * `transition`, their `reducedMotion` and `skipAnimations` (#468). Nest it anywhere under a
+ * Settings for the Wardic elements below it (Motion's `MotionConfig`): their default
+ * `transition`, their `reducedMotion` and `skipAnimations`. Nest it anywhere under a
  * `WardicProvider`; an inner one replaces an outer one's, unless its transition inherits it.
  *
  * ```tsx

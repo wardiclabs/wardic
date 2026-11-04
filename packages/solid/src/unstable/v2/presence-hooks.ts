@@ -26,7 +26,7 @@ export interface PresenceLeaveEvents {
   readonly leave: any
 }
 
-/** A `usePresence` handle (#277's PR 5b): see the module. */
+/** A `usePresence` handle: see the module. */
 export interface PresenceHold {
   /** Given to `ref`: the element whose child it holds. */
   (element: Element): void
@@ -80,9 +80,19 @@ const watchOf = (
 }
 
 /**
- * Motion's `usePresence` (#277's PR 5b): see the module. Give it to the `ref` of an element in the
- * child; outside a presence it's always present, and `next("leave")` never settles.
+ * Holds a child of `<AnimatePresence>` on the page as it leaves, until you call `safeToRemove()`: for
+ * an exit of your own, such as a Web Animation. Give it to `ref` on an element in the child. Its
+ * `next("leave")` resolves as the child leaves; `isPresent()` is `false` from then on. Motion's
+ * `usePresence`.
+ *
+ * @example
+ * const hold = usePresence()
+ * void hold.next("leave").then(() => setTimeout(hold.safeToRemove, 300))
+ * <div ref={hold} />
+ * @see https://wardic.dev/reference/solid/presence/use-presence
  */
+// The child's own code is disposed by the time it leaves: what runs after the await is plain work that
+// ends with safeToRemove(). Outside a presence it's always present, and next("leave") never settles.
 export const usePresence = (): PresenceHold => {
   if (isServer) return SERVER_HOLD
   const waiters = new Waiters<PresenceLeaveEvents>(GONE)
@@ -107,7 +117,16 @@ export const usePresence = (): PresenceHold => {
   return hold
 }
 
-/** Motion's `useIsPresent` (#277's PR 5b): see the module. Outside a presence, always `true`. */
+/**
+ * Whether a child of `<AnimatePresence>` is still present: `false` from its leave on, while its exit
+ * plays. Give it to `ref` on an element in the child, and call it to read. Outside a presence, always
+ * `true`. Motion's `useIsPresent`.
+ *
+ * @example
+ * const present = useIsPresent()
+ * <button ref={present} disabled={!present()}>Save</button>
+ * @see https://wardic.dev/reference/solid/presence/use-is-present
+ */
 export const useIsPresent = (): IsPresent => {
   if (isServer) return (() => true) as IsPresent
   const { present, attach } = watchOf(false, () => {}, () => {})
@@ -121,7 +140,7 @@ export const useIsPresent = (): IsPresent => {
   }) as IsPresent
 }
 
-/** Motion's `usePresenceData` (#277's PR 5b): the nearest presence's `custom`, `undefined` outside one. */
+/** Motion's `usePresenceData`: the nearest presence's `custom`, `undefined` outside one. */
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 export const usePresenceData = <T = any,>(): Accessor<T | undefined> => {
   const presence = usePresenceContext()

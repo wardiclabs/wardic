@@ -1,0 +1,41 @@
+---
+title: Features
+description: The parts of an element a page ships only when it uses them, from the gestures to drag, layout and the colour spaces, and Motion's two sets of them.
+api: [hover, press, focus, inView, pan, drag, layout, colors, domAnimation, domMax, Feature, FeatureLoad, Features, FeaturesProp]
+---
+
+# Features
+
+A `w.*` element animates its values with nothing else. Each thing it does beyond that is a Feature, given to a [`WardicProvider`](/reference/solid/provider/wardic-provider) or a [`LazyWardic`](/reference/solid/provider/lazy-wardic), so a page ships only those it uses. A `wardic.*` element has every one.
+
+```tsx
+import { domAnimation, layout } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+<WardicProvider env={DomLive} features={[domAnimation, layout]}>
+```
+
+| Feature | What it brings |
+| --- | --- |
+| `hover` | `whileHover`, and hovering's callbacks or events |
+| `press` | `whileTap`, and the tap's, from a pointer and the keyboard |
+| `focus` | `whileFocus` |
+| `inView` | `whileInView`, `viewport`, and the viewport's callbacks or events |
+| `pan` | The pan's callbacks or events |
+| `drag` | `drag` and its props, `dragControls`, and the drag's callbacks or events |
+| `layout` | `layout`, `layoutId`, `layoutScroll` and `layoutRoot` |
+| `colors` | `oklch()`, `oklab()`, `lab()`, `lch()`, `hwb()` and `color()`. Hex, `rgb()`, `hsl()` and the colour names need none. |
+| `domAnimation` | Motion's set: `hover`, `press`, `focus` and `inView`. |
+| `domMax` | Motion's other set: every Feature. |
+
+A list can nest them: `[domAnimation, layout]`. A prop whose Feature isn't there does nothing, and development warns once, naming the Feature. See [Shipping less](/guides/features) for what each costs.
+
+## Coming from Motion
+
+Motion's `domAnimation` and `domMax` are here by the same names, and Wardic splits them further, a Feature for each gesture. Motion's `layout` comes only in `domMax`; here it's a Feature of its own.
+
+## Types
+
+- **`Feature`:** one Feature.
+- **`Features`:** one, or a list of them, nested or not.
+- **`FeatureLoad`:** a function that loads them: `() => Promise<Features>`.
+- **`FeaturesProp`:** what `features` takes: `Features`, or a `FeatureLoad`.

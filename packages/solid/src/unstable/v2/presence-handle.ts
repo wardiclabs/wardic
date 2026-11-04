@@ -33,7 +33,7 @@ import { type Accessor, createSignal, onCleanup } from "solid-js"
 import type { PresenceEvents as ControllerEvents } from "../../presence-controller.ts"
 import { eachOf, serverWhen, Waiters, whenOf } from "./waiters.ts"
 
-/** What a presence handle's `next(name)` waits for (#257). */
+/** What a presence handle's `next(name)` waits for. */
 export interface PresenceEvents {
   /** A child left, and its exit started. */
   readonly exitStart: undefined
@@ -47,7 +47,7 @@ export interface PresenceEvents {
 /** A presence handle's event names. */
 export type PresenceEvent = keyof PresenceEvents
 
-/** An `<AnimatePresence>`'s exits, heard (#257): see the module. */
+/** An `<AnimatePresence>`'s exits, heard: see the module. */
 export interface Presence {
   /** Given to `<AnimatePresence ref>`: called with that presence's own handle, whose exits it hears from then on. */
   (source: Presence): void
@@ -58,7 +58,7 @@ export interface Presence {
   /** Every `name` from the call on, for `for await`; it ends when the handle's owner is disposed. */
   readonly each: <E extends PresenceEvent>(name: E) => AsyncIterable<PresenceEvents[E]>
   /**
-   * Every `name` (#355), as a memo for an effect: pending until the first, so the effect runs at each
+   * Every `name`, as a memo for an effect: pending until the first, so the effect runs at each
    * one, on any page. `createEffect(presence.when("exitComplete"), () => trigger.focus())`.
    */
   readonly when: <E extends PresenceEvent>(name: E) => Accessor<PresenceEvents[E]>
@@ -127,9 +127,17 @@ export const makePresenceHandle = (): { readonly handle: Presence; readonly even
 }
 
 /**
- * A presence handle (#257, ADR-0046), to give to `<AnimatePresence ref>`: see the module. On a server
- * nothing exits: `exiting()` is `false`, `next` never settles, and `each` ends at once.
+ * Hears an `<AnimatePresence>`'s exits, given to its `ref`: `exiting()` is whether a child is
+ * leaving, and `next("exitComplete")` resolves once every leaving child has gone. Solid 2's form of
+ * Motion's `onExitComplete`.
+ *
+ * @example
+ * const presence = createPresence()
+ * <AnimatePresence ref={presence}>…</AnimatePresence>
+ * await presence.next("exitComplete")
+ * @see https://wardic.dev/reference/solid/presence/create-presence
  */
+// On a server nothing exits: exiting() is false, next never settles, and each ends at once.
 export const createPresence = (): Presence => {
   if (isServer) return SERVER_PRESENCE
   return makePresenceHandle().handle
