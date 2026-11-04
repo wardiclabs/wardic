@@ -330,9 +330,11 @@ export const projectionIn = (services: Context.Context<never>): ProjectionSystem
   Option.getOrUndefined(Context.getOption(services as Context.Context<ProjectionSystem.ProjectionSystem>, ProjectionSystem.ProjectionSystem))
 
 /**
- * A **Declared layout change**: run `fn`, and animate the layout change it makes. Returns `fn`'s
- * result. `onSettled` is called once the change has settled (#191, ADR-0039).
+ * `useAnimateLayout()`'s function: `animateLayout(fn, options?)` runs `fn` at once, animates the
+ * layout change it makes, and returns what `fn` returns. `options.onSettled` is called once every
+ * layout animation the change started has ended.
  */
+// A Declared layout change (#4, ADR-0038); `onSettled` is #191's, ADR-0039.
 export type AnimateLayout = <A>(fn: () => A, options?: ProjectionSystem.AnimateLayoutOptions) => A
 
 const NO_OPTIONS: ProjectionSystem.AnimateLayoutOptions = {}

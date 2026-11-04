@@ -334,40 +334,53 @@ export function useWardicSkipAnimations(): () => boolean {
 }
 
 /**
- * An **Instant change** of the layout (#443, Motion's `useInstantLayoutTransition`): `start(fn)` runs
- * `fn`, and the layout change it makes lands at once, every element on its new box, a running layout
- * animation ended too; the change's other animations run as ever. On a server it runs `fn`.
+ * Makes a layout change land at once: `start(fn)` runs `fn`, and every layout element goes straight
+ * to its new box, a running layout animation ending there too. The change's other animations run as
+ * ever. `start()` with no function does the same for a change made later in the task. Motion's
+ * `useInstantLayoutTransition`. On a server it runs `fn`.
  *
- * ```tsx
+ * @example
  * const start = createInstantLayoutTransition()
  * start(() => setOrder(sorted()))
- * ```
+ * @see https://wardic.dev/reference/solid/layout/create-instant-layout-transition
  */
+// #443: an Instant change of the layout, the projection system's `instant`.
 export function createInstantLayoutTransition(): (fn?: () => void) => void {
   return fromContext(useContext(WardicContext), "createInstantLayoutTransition", (value) => instantLayoutOf(() => value.projection))
 }
 
 /**
- * An **Instant change** (#443, Motion's `useInstantTransition`): `start(fn)` runs `fn`, and what it
- * changes lands at once, its layout and every animation that starts until two frames after the call
- * (a **Skipped animation**, #468). A later call extends it, and `start.end()` ends it now (Motion's
- * `disableInstantTransitions`). For a change that shouldn't animate: a reset, a jump to a route.
+ * Makes a change land at once, with no animation: `start(fn)` runs `fn`, and its layout change and
+ * every animation that starts until two frames after the call land where they're going. A later call
+ * extends it, and `start.end()` ends it now. For a change that shouldn't animate: a reset, a jump to
+ * a route. Motion's `useInstantTransition`.
  *
- * ```tsx
+ * @example
  * const start = createInstantTransition()
  * <button onClick={() => start(() => setOpen(all))}>Open all</button>
- * ```
+ * @see https://wardic.dev/reference/solid/layout/create-instant-transition
  */
+// #443: an Instant change, each animation it covers a Skipped animation (#468); `start.end()` is
+// Motion's `disableInstantTransitions`.
 export function createInstantTransition(): InstantTransition {
   return fromContext(useContext(WardicContext), "createInstantTransition", (value) => instantTransitionOf(() => value.projection, () => value.instant))
 }
 
 /**
- * A **Projection reset** (#443, Motion's `useResetProjection`): `reset()` ends every layout animation
- * on its element's slot, drops every leaving `layoutId` twin and Switch seed, and has the next layout
- * measure take every box afresh, animating none. For a change that replaces the page wholesale. On a
- * server it does nothing.
+ * Starts layout animations afresh: `reset()` ends every running layout animation where the layout puts
+ * its element, lets go of every leaving `layoutId` element, and has the next measure take every box as
+ * it is, animating none. For a change that replaces the page wholesale. Motion's `useResetProjection`.
+ * On a server it does nothing.
+ *
+ * @example
+ * const reset = createResetProjection()
+ * const openWorkspace = (id: string) => {
+ *   reset()
+ *   setWorkspace(id)
+ * }
+ * @see https://wardic.dev/reference/solid/layout/create-reset-projection
  */
+// #443: a Projection reset, the projection system's `reset`: leavers and Switch seeds dropped.
 export function createResetProjection(): () => void {
   return fromContext(useContext(WardicContext), "createResetProjection", (value) => resetOf(() => value.projection))
 }
@@ -397,21 +410,21 @@ export function useBuiltProjection(): () => ProjectionSystem.Shape | undefined {
 }
 
 /**
- * The provider's `animateLayout` (#4, ADR-0038): run `fn`, and animate the layout change it makes
- * from where every layout element is at the call, a **Declared layout change**. It's for a change no
- * trigger sees, such as a keyed `<For>` reordered or a plain element's class, and for one made after
- * an untriggered change left a Measurement out of date:
+ * Animates a layout change you make: `animateLayout(fn)` runs `fn`, and every layout element animates
+ * from where it was at the call to where the change puts it. For a change nothing else sees, such as a
+ * keyed `<For>` reordered or a plain element's class changed. `fn` runs at once, and `animateLayout`
+ * returns what it returns; `{ onSettled }` is called once the animations it started have ended. Only
+ * what `fn` changes synchronously animates. On a server it just runs `fn`. Throws outside a
+ * `WardicProvider`.
  *
- * ```tsx
+ * @example
  * const animateLayout = useAnimateLayout()
  * const shuffle = () => animateLayout(() => setItems(shuffled(items())))
- * ```
- *
- * `fn` runs at once, so the change is there when the call returns, and its error throws to the
- * caller. Calls in one task share the first call's Measurements. Only the synchronous part animates:
- * a promise `fn` returns isn't awaited, and logs a warning. During a server render it just runs `fn`.
- * Throws a clear, named error outside a `WardicProvider`. Must be called within a Solid owner.
+ * @see https://wardic.dev/reference/solid/layout/use-animate-layout
  */
+// #4, ADR-0038: a Declared layout change, from Measurements taken at the call; also for a change made
+// after an untriggered one left a Measurement out of date. Calls in one task share the first call's
+// Measurements. A promise `fn` returns isn't awaited, and logs a warning.
 export function useAnimateLayout(): AnimateLayout {
   return animateLayoutOf(useContext(WardicContext))
 }

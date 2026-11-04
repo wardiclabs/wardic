@@ -318,28 +318,52 @@ export function useWardicSkipAnimations(): () => boolean {
 }
 
 /**
- * An **Instant change** of the layout (#443, Motion's `useInstantLayoutTransition`): `start(fn)` runs
- * `fn`, and the layout change it makes lands at once, a running layout animation ended too. On a
- * server it runs `fn`. As Solid 1's.
+ * Makes a layout change land at once: `start(fn)` runs `fn`, and every layout element goes straight
+ * to its new box, a running layout animation ending there too. The change's other animations run as
+ * ever. `start()` with no function does the same for a change made later in the task. Motion's
+ * `useInstantLayoutTransition`. On a server it runs `fn`.
+ *
+ * @example
+ * const start = createInstantLayoutTransition()
+ * start(() => setOrder(sorted()))
+ * @see https://wardic.dev/reference/solid/layout/create-instant-layout-transition
  */
+// #443, as Solid 1's: an Instant change of the layout, the projection system's `instant`.
 export function createInstantLayoutTransition(): (fn?: () => void) => void {
   return fromContext(contextValue(), "createInstantLayoutTransition", (value) => instantLayoutOf(() => value.projection))
 }
 
 /**
- * An **Instant change** (#443, Motion's `useInstantTransition`): `start(fn)` runs `fn`, and what it
- * changes lands at once, its layout and every animation that starts until two frames after the call.
- * A later call extends it; `start.end()` ends it now. As Solid 1's.
+ * Makes a change land at once, with no animation: `start(fn)` runs `fn`, and its layout change and
+ * every animation that starts until two frames after the call land where they're going. A later call
+ * extends it, and `start.end()` ends it now. For a change that shouldn't animate: a reset, a jump to
+ * a route. Motion's `useInstantTransition`.
+ *
+ * @example
+ * const start = createInstantTransition()
+ * <button onClick={() => start(() => setOpen(all))}>Open all</button>
+ * @see https://wardic.dev/reference/solid/layout/create-instant-transition
  */
+// #443, as Solid 1's: an Instant change, each animation it covers a Skipped animation (#468).
 export function createInstantTransition(): InstantTransition {
   return fromContext(contextValue(), "createInstantTransition", (value) => instantTransitionOf(() => value.projection, () => value.instant))
 }
 
 /**
- * A **Projection reset** (#443, Motion's `useResetProjection`): `reset()` ends every layout animation
- * on its slot, drops every leaving twin and Switch seed, and has the next layout measure take every
- * box afresh. Nothing on a server. As Solid 1's.
+ * Starts layout animations afresh: `reset()` ends every running layout animation where the layout puts
+ * its element, lets go of every leaving `layoutId` element, and has the next measure take every box as
+ * it is, animating none. For a change that replaces the page wholesale. Motion's `useResetProjection`.
+ * On a server it does nothing.
+ *
+ * @example
+ * const reset = createResetProjection()
+ * const openWorkspace = (id: string) => {
+ *   reset()
+ *   setWorkspace(id)
+ * }
+ * @see https://wardic.dev/reference/solid/layout/create-reset-projection
  */
+// #443, as Solid 1's: a Projection reset, the projection system's `reset`: leavers and Switch seeds dropped.
 export function createResetProjection(): () => void {
   return fromContext(contextValue(), "createResetProjection", (value) => resetOf(() => value.projection))
 }
@@ -369,15 +393,26 @@ export function useBuiltProjection(): () => ProjectionSystem.Shape | undefined {
 }
 
 /**
- * A **Declared layout change** on Solid 2 (#4, ADR-0038; #257, ADR-0046): `fn` runs at once, its
- * throw thrown here, and the promise resolves with `fn`'s result once every layout animation its
- * pass started has ended, however each ended (ADR-0039's `onSettled`, which this replaces). Calls in
- * one task share a pass, so they resolve together. It rejects with an `AbortError` if the provider
- * is disposed first. During a server render `fn` just runs, and nothing waits.
+ * `useAnimateLayout()`'s function: `animateLayout(fn)` runs `fn` at once, a throw from it thrown here,
+ * and animates the layout change it makes. Its promise resolves with what `fn` returns once every
+ * layout animation the change started has ended, however each ended; calls in one task resolve
+ * together. It rejects with an `AbortError` if the provider goes first. On a server, `fn` just runs.
  */
+// #4, ADR-0038; #257, ADR-0046: a Declared layout change, its promise replacing ADR-0039's `onSettled`.
 export type AnimateLayout = <A>(fn: () => A) => Promise<Awaited<A>>
 
-/** The provider's {@link AnimateLayout}. */
+/**
+ * Animates a layout change you make: `animateLayout(fn)` runs `fn`, and every layout element animates
+ * from where it was at the call to where the change puts it. For a change nothing else sees, such as a
+ * keyed `<For>` reordered or a plain element's class changed. Its promise resolves with what `fn`
+ * returns once the animations it started have ended. Only what `fn` changes synchronously animates.
+ * Throws outside a `WardicProvider`.
+ *
+ * @example
+ * const animateLayout = useAnimateLayout()
+ * const shuffle = () => animateLayout(() => setItems(shuffled(items())))
+ * @see https://wardic.dev/reference/solid/layout/use-animate-layout
+ */
 export function useAnimateLayout(): AnimateLayout {
   const value = contextValue()
   const declare = animateLayoutOf(value)

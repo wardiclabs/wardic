@@ -1128,7 +1128,8 @@ export interface NodeSnapshot {
   readonly leaving: boolean
 }
 
-/** {@link ProjectionSystem.animateLayout}'s options (#191, ADR-0039). */
+/** `animateLayout`'s options. */
+// #191, ADR-0039.
 export interface AnimateLayoutOptions {
   /** Called once the change has settled: every layout animation it started has ended, however; at once after its pass if it started none. */
   readonly onSettled?: () => void

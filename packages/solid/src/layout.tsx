@@ -28,28 +28,22 @@ import { isServer } from "./server.ts"
 export type { UseLayoutMemberOptions } from "./layout-member.ts"
 
 /**
- * Wire an element into layout projection (ADR-0009 + ADR-0010) — exactly ONE
- * projection node per element, whether it has `layout`, `layoutId`, or both. Called
- * from the `createWard` spine once the element + gate id exist.
+ * Registers an element with its provider's projection system as one layout node, as a `w.*` element
+ * with `layout` or a `layoutId` is: for an element of your own built on Wardic's layout animations.
+ * A `w.*` element or a ward does this itself. Returns the node's handle: `notify()` asks for a
+ * re-measure, and `dispose()` takes the node out, as the owner's cleanup does. It brings the `layout`
+ * Feature. Solid 1 only. Call it within a Solid owner.
  *
- * The provider-owned projection system (built by DOM ancestry) owns measurement
- * (one shared `ResizeObserver` + this node's `notify`) and the per-frame box derive;
- * a `layoutDependency` change requests a re-measure. No FLIP on first measure for a
- * plain `layout` node.
- *
- * SHARED-ELEMENT (`layoutId`, ADR-0010). Passing `layoutId` is all the binding
- * does: the engine enrols the node in its lead/follow stack (a coexisting live twin
- * crossfades) and, when a twin's node is disposed in the same task, seeds this
- * node's first measure from that twin's Root-frame box (a Switch). Both swap
- * orderings — the leaver's cleanup before this mount, or after it — resolve
- * engine-side (ADR-0010 *Amendment (#13)*), so there is no registry, ownership
- * token or layout read here.
- *
- * It brings the `layout` Feature (#511), whatever its section has: a Slim element's own layout node is
- * its section's.
- *
- * Must be called within a Solid owner (registers `createEffect` / `onCleanup`).
+ * @see https://wardic.dev/reference/solid/layout/use-layout-member
  */
+// ADR-0009 + ADR-0010: exactly one projection node per element, whether it has `layout`, `layoutId` or
+// both; the `createWard` spine calls it once the element and its gate id exist. The provider's system
+// (built by DOM ancestry) owns measurement (one shared ResizeObserver, and this node's `notify`) and the
+// per-frame box derive; a `layoutDependency` change asks for a re-measure. A plain `layout` node doesn't
+// FLIP on its first measure. A `layoutId` is all the binding passes: the engine enrols the node in its
+// lead/follow stack, and seeds its first measure from a twin disposed in the same task (a Switch), in
+// either swap order (ADR-0010 *Amendment (#13)*), so there's no registry here. It brings `layout`
+// (#511), whatever its section has: a Slim element's own layout node is its section's.
 export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionSystem.NodeHandle => layoutMemberOf(useWardicProjection(), opts)
 
 /**
@@ -73,34 +67,41 @@ export const useLayoutGroupId = (): string | undefined => useContext(LayoutGroup
 export interface LayoutGroupProps {
   readonly children: JSX.Element
   /**
-   * A namespace for the `layoutId`s made under it (#432, Motion's): `<LayoutGroup id="tabs">` makes a
-   * `layoutId="underline"` pair as `tabs-underline`, so two copies of a component that uses a
-   * `layoutId` keep their own. Read once, at its mount.
+   * An id put before every `layoutId` made under it: under `<LayoutGroup id="tabs">`, a
+   * `layoutId="underline"` is `tabs-underline`, so two copies of a component that uses a `layoutId`
+   * keep their own. Read once, as it mounts.
    */
   readonly id?: string | undefined
   /**
-   * Whether it joins the id of the group it's in (#432, Motion's): `true` (the default) and `"id"`
-   * both do, `outer-inner`, or take the outer one's when it has no `id`; `false` starts its own.
-   * Motion's `true` also joins the outer group's re-measure, which every Measure pass here already
-   * is: it reads the whole tree. Read once, at its mount.
+   * Whether it joins the id of the group it's in: `true` (the default) and `"id"` both do, making
+   * `outer-inner`, or taking the outer id when it has none of its own; `false` starts afresh. Read
+   * once, as it mounts.
    */
+  // Motion's `true` also joins the outer group's re-measure, which every Measure pass here already is:
+  // it reads the whole tree.
   readonly inherit?: LayoutGroupInherit | undefined
-  /** A value/signal whose change requests a full projection re-measure (sibling reflow falls out). */
+  /** A value whose change has every layout element measured again, for a change nothing else sees. */
   readonly layoutDependency?: unknown
 }
 
 /**
- * `<LayoutGroup>` — a **Layout group** (ADR-0009, #432). Its `id` is a namespace for the
- * `layoutId`s made under it, as Motion's (see {@link LayoutGroupProps}). A ward made outside it, in
- * a component body, and spread on an element inside it is outside it, as it is outside a presence
- * or a variant parent there: make it in a component under the group.
+ * Puts an id before every `layoutId` made under it, so two copies of a component that uses a
+ * `layoutId` keep their own: under `<LayoutGroup id="tabs">`, `layoutId="underline"` is
+ * `tabs-underline`. Its `layoutDependency` has every layout element measured again when it changes.
+ * Motion's `LayoutGroup`.
  *
- * With the box-based projection system the FLIP itself is handled by the provider-owned
- * projection tree (built by DOM ancestry; a measure re-reads the WHOLE tree, so
- * sibling reflow and nesting work WITHOUT a group). So `<LayoutGroup>` doesn't drive
- * FLIP: its `layoutDependency` triggers a full re-measure (a convenience for
- * "re-measure my subtree when this value changes").
+ * A ward is in the group it's made under: one made in a component body, and spread on an element
+ * inside a `<LayoutGroup>` there, is outside it. Make it in a component under the group.
+ *
+ * @example
+ * <LayoutGroup id="tabs">
+ *   <Tabs />
+ * </LayoutGroup>
+ * @see https://wardic.dev/reference/solid/layout/layout-group
  */
+// ADR-0009, #432. The provider's projection tree (built by DOM ancestry, each Measure pass reading the
+// whole tree) gets sibling reflow and nesting right without a group, so a group drives no FLIP: its
+// `layoutDependency` is a convenience, a full re-measure.
 export function LayoutGroup(props: LayoutGroupProps): JSX.Element {
   // Its id, from the group around and its own, once (Motion's).
   const outer = useLayoutGroupId()
