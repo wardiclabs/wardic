@@ -1,0 +1,36 @@
+---
+title: LazyWardic
+description: Gives the w.* elements in its section more Features, at once or loaded when the section renders. Motion's LazyMotion.
+api: [LazyWardic]
+---
+
+# LazyWardic
+
+Gives the `w.*` elements in its section more [Features](/reference/solid/provider/features), beside their provider's. Motion's `LazyMotion`.
+
+```tsx
+import { drag, LazyWardic, w } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+// At once: `drag` ships with this page's code.
+<LazyWardic features={[drag]}>
+  <w.div drag />
+</LazyWardic>
+
+// Loaded as the section renders: a module of its own that exports `drag`.
+<LazyWardic features={() => import("./drag-feature").then((m) => m.drag)}>
+  <w.div drag />
+</LazyWardic>
+```
+
+## Props
+
+| Prop | |
+| --- | --- |
+| `features` | Its Features: one, a list, or a function that loads them. Read once. |
+| `strict` | In development, a `wardic.*` element under it throws. Read once. |
+
+A loaded Feature takes effect as it arrives: values animate at once, a gesture or a drag starts when its Feature lands, and a layout element starts laying out then. Nothing tried before is replayed. A server loads nothing, and renders each element at its starting style. See [Shipping less](/guides/features).
+
+## Coming from Motion
+
+Motion's `LazyMotion` loads its Features for the whole page; a `LazyWardic`'s are its section's. Its function returns the Features themselves, not a module: `.then((m) => m.drag)`, not `res.default`.

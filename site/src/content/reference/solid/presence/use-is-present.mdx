@@ -1,0 +1,26 @@
+---
+title: useIsPresent
+description: Whether a child of AnimatePresence is still present, false from its leave on, while its exit plays.
+api: [useIsPresent, IsPresent]
+---
+
+# useIsPresent
+
+Whether a child of an [`AnimatePresence`](/reference/solid/presence/animate-presence) is still present: `false` from its leave on, while its exit plays. Its own effects have ended by then, so it's for what still runs on the element: an event handler, a timer. Motion's `useIsPresent`.
+
+```tsx
+// Solid 1: the child's element, or an accessor of it.
+let el!: HTMLButtonElement
+const present = useIsPresent(() => el)
+<button ref={el} onClick={() => present() && save()}>Save</button>
+
+// Solid 2: given to `ref`, and called to read.
+const present = useIsPresent()
+<button ref={present} onClick={() => present() && save()}>Save</button>
+```
+
+Outside a presence, always `true`.
+
+## Types
+
+- **`IsPresent`:** (Solid 2) what it returns: called with an element, it attaches to it; with nothing, it reads.

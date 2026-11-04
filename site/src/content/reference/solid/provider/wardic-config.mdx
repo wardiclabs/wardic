@@ -1,0 +1,40 @@
+---
+title: WardicConfig
+description: Settings for the Wardic elements under it, Motion's MotionConfig. Their default transition, reduced motion, skipped animations, valid props and gesture points.
+api: [WardicConfig, WardicConfigProps, WardicReducedMotion, WardicSkipAnimations, WardicTransformPoint]
+---
+
+# WardicConfig
+
+Settings for the Wardic elements under it, nested anywhere under a [`WardicProvider`](/reference/solid/provider/wardic-provider): Motion's `MotionConfig`. An inner one's settings replace an outer one's.
+
+```tsx
+import { WardicConfig } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+<WardicConfig transition={{ type: "spring", stiffness: 300, damping: 30 }} reducedMotion="always">
+  <w.div animate={{ x: 100 }} />
+</WardicConfig>
+```
+
+## Props
+
+| Prop | |
+| --- | --- |
+| `transition` | The transition of every element under it that gives none of its own. With `inherit: true`, its fields lay over an outer config's. |
+| `reducedMotion` | `"user"`, `"always"` or `"never"`, over the provider's. See [Reduced motion](/guides/reduced-motion). |
+| `skipAnimations` | Every animation under it lands at its end on the next frame: exits, layout animations and a drag's release included. For tests. An inner `false` animates again. |
+| `isValidProp` | Which props given a tag reach its element: `(key) => boolean`, for a prop a styling system reads. Not asked of `on…` props, or a wrapped component's. |
+| `transformPagePoint` | Maps each point a drag or a pan uses, for a zoomed or rotated parent: `correctParentTransform(parent)` or `transformViewBoxPoint(svg)` make one. |
+
+Each is read as an animation, a gesture or an element starts, so a change applies from the next one.
+
+## Coming from Motion
+
+Motion's `MotionConfig`, with the same props. Motion reads `reducedMotion` once, as each element mounts; Wardic follows it as it changes.
+
+## Types
+
+- **`WardicConfigProps`:** its props, above.
+- **`WardicReducedMotion`:** a transition's `respectReducedMotion`: `false` keeps it moving under reduced motion.
+- **`WardicSkipAnimations`:** a transition's `skipAnimations`: `true` lands it at once.
+- **`WardicTransformPoint`:** `transformPagePoint`'s function, `(point) => point`.

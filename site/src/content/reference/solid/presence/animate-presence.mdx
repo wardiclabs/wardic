@@ -1,0 +1,43 @@
+---
+title: AnimatePresence
+description: Keeps a leaving child on the page until its exit has played, with Motion's modes for how the next one enters.
+api: [AnimatePresence, AnimatePresenceProps, PresenceMode]
+---
+
+# AnimatePresence
+
+Wraps children that come and go, a `<Show>`'s or a `<For>`'s, and keeps each one that leaves on the page until its `exit` has played: its Wardic elements' exits, inner ones included. See [Exit animations](/guides/presence).
+
+```tsx
+import { AnimatePresence, w } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+<AnimatePresence>
+  <Show when={open()}>
+    <w.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} />
+  </Show>
+</AnimatePresence>
+```
+
+A child that swaps for another needs to be told apart: `<Show keyed>`, or a `key` on its root element. One that comes back while one with its key is still leaving takes over from it, from where it's drawn.
+
+## Props
+
+| Prop | |
+| --- | --- |
+| `mode` | How a child enters while another leaves: `"sync"` (the default), at once, beside it; `"wait"`, once every leaver has gone; `"popLayout"`, at once, the leaver taken out of the flow, so the children after it move into its place. |
+| `initial` | `false`: the child present at first render starts at its `animate`, with no entrance. Later ones enter as usual. |
+| `custom` | What a leaving child's function `exit` is given, over its own `custom`, which can't change once it has left. |
+| `anchorX`, `anchorY` | Where `popLayout` pins a leaver: by its `"left"` (the default) or `"right"`, and its `"top"` (the default) or `"bottom"`. |
+| `presenceAffectsLayout` | `false`: children coming and going don't move the `layout` elements around them. Default `true`. |
+| `propagate` | Inside another presence's child: when that child leaves, this presence's children leave too, each playing its exit. |
+| `onExitComplete` | Solid 1: called once every leaving child has gone. |
+| `ref` | Solid 2: a [presence handle](/reference/solid/presence/create-presence), which tells the same, and more. |
+
+## Coming from Motion
+
+Motion's `AnimatePresence`, with its props. Motion tells its children apart by React's `key`; here it's `<Show keyed>`, or the `key` prop on a Wardic element.
+
+## Types
+
+- **`AnimatePresenceProps`:** its props, above.
+- **`PresenceMode`:** `mode`'s values.

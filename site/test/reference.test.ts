@@ -12,13 +12,6 @@ const REFERENCE = join(REPO, "site/src/content/reference/solid")
 
 /** The names whose pages come in a later PR of #558's reference, by family. Each PR empties its own. */
 const PENDING: ReadonlyArray<string> = [
-  // provider
-  ...["WardicProvider", "WardicConfig", "WardicConfigProps", "LazyWardic", "WardicEnv", "VERSION", "WardicScaleCorrector", "WardicReducedMotion", "WardicSkipAnimations", "WardicTransformPoint"],
-  // features
-  ...["colors", "layout", "hover", "press", "focus", "inView", "pan", "drag", "domAnimation", "domMax", "Feature", "FeatureLoad", "Features", "FeaturesProp"],
-  // presence
-  ...["AnimatePresence", "AnimatePresenceProps", "usePresence", "useIsPresent", "usePresenceData", "usePresenceContext", "PresenceContext", "PresenceContextValue", "createPresence", "Presence", "IsPresent"],
-  ...["PresenceEvent", "PresenceEvents", "PresenceHold", "PresenceLeaveEvents", "PresenceMode", "PresenceRecord"],
   // layout
   ...["LayoutGroup", "useAnimateLayout", "AnimateLayout", "AnimateLayoutOptions", "createInstantLayoutTransition", "createInstantTransition", "InstantTransition"],
   ...["createResetProjection", "measureLayoutBox", "useLayoutMember", "UseLayoutMemberOptions"],
@@ -42,7 +35,7 @@ const PENDING: ReadonlyArray<string> = [
   ...["arc", "stagger", "WardicStagger", "WardicStaggerOptions", "anticipate", "backIn", "backInOut", "backOut", "circIn", "circInOut", "circOut", "cubicBezier"],
   ...["easeIn", "easeInOut", "easeOut", "steps"],
   // utilities
-  ...["createCycle", "Cycle", "createReducedMotion", "createReducedMotionConfig", "isValidWardicProp", "isWardicComponent", "unwrapWardicComponent"],
+  ...["VERSION", "createCycle", "Cycle", "createReducedMotion", "createReducedMotionConfig", "isValidWardicProp", "isWardicComponent", "unwrapWardicComponent"],
   ...["transformViewBoxPoint", "correctParentTransform"],
   // advanced
   ...["useWardicRuntime", "WardicRuntime", "WardicServices", "useWardicFiber", "runScoped", "useWardicGate", "FlushGate", "FlushSink", "fromAtom", "streamToSignal"],

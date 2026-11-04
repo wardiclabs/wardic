@@ -67,6 +67,26 @@ export const NAV: ReadonlyArray<NavSection> = [
           { path: "/reference/solid/elements/props", title: "Motion props" },
         ],
       },
+      {
+        title: "Provider",
+        pages: [
+          { path: "/reference/solid/provider/wardic-provider", title: "WardicProvider" },
+          { path: "/reference/solid/provider/wardic-config", title: "WardicConfig" },
+          { path: "/reference/solid/provider/lazy-wardic", title: "LazyWardic" },
+          { path: "/reference/solid/provider/features", title: "Features" },
+        ],
+      },
+      {
+        title: "Presence",
+        pages: [
+          { path: "/reference/solid/presence/animate-presence", title: "AnimatePresence" },
+          { path: "/reference/solid/presence/use-presence", title: "usePresence" },
+          { path: "/reference/solid/presence/use-is-present", title: "useIsPresent" },
+          { path: "/reference/solid/presence/use-presence-data", title: "usePresenceData" },
+          { path: "/reference/solid/presence/create-presence", title: "createPresence" },
+          { path: "/reference/solid/presence/presence-context", title: "PresenceContext" },
+        ],
+      },
     ],
   },
 ]
