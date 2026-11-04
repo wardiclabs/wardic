@@ -257,6 +257,7 @@ a {
   max-width: 760px;
 }
 
+/* A heading that's one long name, `createInstantLayoutTransition`, breaks on a phone rather than run off it. */
 .prose h1 {
   margin: 0 0 var(--space-4);
   font-family: var(--font-display);
@@ -264,6 +265,7 @@ a {
   font-weight: 800;
   line-height: 1.15;
   letter-spacing: -0.02em;
+  overflow-wrap: anywhere;
 }
 
 .prose h2 {
