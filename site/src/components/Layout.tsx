@@ -19,9 +19,7 @@ const pathOf = (path: string): string => path.replace(/(.)\/$/, "$1")
 function Sidebar(props: { readonly onNavigate?: () => void }) {
   const location = useLocation()
   return (
-    // A layout root: the sidebar is sticky, so its place on the page moves as the page scrolls, and a
-    // layout animation elsewhere would see its marker as moved. Its marker animates only inside it.
-    <w.nav class="sidebar" aria-label="Pages" layoutRoot>
+    <nav class="sidebar" aria-label="Pages">
       <For each={NAV}>
         {(section) => (
           <section>
@@ -46,7 +44,7 @@ function Sidebar(props: { readonly onNavigate?: () => void }) {
           </section>
         )}
       </For>
-    </w.nav>
+    </nav>
   )
 }
 
