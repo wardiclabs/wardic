@@ -152,69 +152,65 @@ export interface WardUserProps {
 }
 
 /**
- * A Wardic element's `style` (#130, ADR-0043): every CSS property and the transform keys (`x`,
- * `scale`, `rotate`…), each a value or a **Live value**: an `effect/reactivity` Atom, or an
- * accessor (a signal, a memo, {@link createTransform}'s). A transform key is Wardic's, composed
- * into `transform` with its own (Motion's rule: with one set, a `transform` string is dropped). A
- * key is its Base value's `style` link: while no layer of the Override stack sets it, the element
- * shows it, following a Live value on every change, and a return goes to where it is then.
+ * A Wardic element's `style`: every CSS property and the transform keys (`x`, `scale`, `rotate`…),
+ * each a value, or a live value that moves the element as it changes: a signal, a memo, or
+ * `createSpring`'s or `createTransform`'s. While no animation sets a key, the element shows its
+ * `style` value. With a transform key set, a `transform` string is dropped, as Motion's is.
+ *
+ * @example style={{ x: createSpring(pointerX), opacity: 0.8 }}
  */
+// #130, ADR-0043: a key is its Base value's `style` link; while no layer of the Override stack sets
+// it, the element shows it, following a Live value on every change, and a return goes to where it is.
 export type WardStyle = { readonly [K in keyof WardicValues]?: WardicValues[K] | LiveSource<number | string> | undefined }
 
-/** Spreadable props the {@link createWard} `ward` callable returns. */
+/** The props a ward spreads on its element: `{...card()}`. */
 export interface WardProps {
-  /**
-   * Ref callback — wires the element into the spine on mount (merging any
-   * user-supplied ref via `mergeRefs`).
-   */
+  /** Puts the ward on the element as it mounts, beside a `ref` of your own given to `card({ ref })`. */
+  // Wires the element into the spine on mount, merging the user's ref (mergeRefs).
   readonly ref: (el: HTMLElement) => void
-  /**
-   * Reactive projected `Patch` merged with any user style, typed as
-   * `JSX.CSSProperties` so `{...ward()}` spreads cleanly (the projected keys are
-   * valid CSS props).
-   */
+  /** The element's style as Wardic draws it, over a `style` of your own given to `card({ style })`. */
+  // The reactive projected Patch merged with the user's style, typed as JSX.CSSProperties so the
+  // spread type-checks (the projected keys are CSS properties).
   readonly style: JSX.CSSProperties
-  /** `"false"` on a drag element (Motion's default, ADR-0019 *Amendment (Reorder)*); absent otherwise. */
+  /** `"false"` on an element that drags, so a drag isn't the browser's own drag-and-drop. */
+  // Motion's default, ADR-0019 Amendment (Reorder).
   readonly draggable?: "false"
 }
 
 /**
- * The callable returned by {@link createWard}. Called with no args it returns
- * ward's own ref + animated style (back-compat); called with {@link WardUserProps}
- * it returns the MERGED spreadable (user ref + ward ref; user style with ward's
- * animated style on top).
+ * A ward, from `createWard` or `w.createWard`: call it for the props to spread on its element,
+ * `{...card()}`, or `{...card({ ref, style })}` to keep your own. `card.value(key)` reads what the
+ * element shows, and `card.Provider` hands its variants to the components under it.
  *
- * It also carries a `Provider` property (ADR-0007): `<ward.Provider>{children}</ward.Provider>`
- * publishes THIS instance's current variant NAME + transition down the tree, so
- * descendant `createWard` calls inherit the variant by name (resolving it against
- * their own `variants` map).
+ * @see https://wardic.dev/reference/solid/elements/ward
  */
+// With no args it returns the ward's own ref and style; with WardUserProps, the merged spreadable (the
+// user's ref beside the ward's, the user's style under its animated one). `Provider` (ADR-0007)
+// publishes this instance's variant name and transition down the tree.
 export type Ward = ((userProps?: WardUserProps) => WardProps) & {
   /**
-   * Provides this ward instance's current variant name + transition to the
-   * subtree (ADR-0007 name propagation). Inheriting children resolve the name
-   * against their OWN `variants`.
+   * Hands this element's variants to the components under it: a child with `variants` follows its
+   * names and joins its stagger, as if it were rendered inside the element.
    */
+  // ADR-0007 name propagation: inheriting children resolve the name against their own `variants`.
   readonly Provider: Component<{ readonly children?: JSX.Element }>
   /**
-   * The element's value for `key`, live (#130, ADR-0043 decision 5): what Wardic shows for it,
-   * whoever moves it (an animation, a drag, a Live value in `style`), as a number for a transform
-   * key (`x`, not its `transform`). At rest outside the gate, its `initial`, else its `style`
-   * value, else a transform key's identity (`x` 0, `scale` 1). Derive from it as from any Live
-   * value: `createTransform(ward.value("x"), [-150, 0, 150], [0, 1, 0])`. A value derived from it
-   * and given to another key's `style` moves in the same frame. Call it where you'd create a
-   * signal: one accessor per key.
+   * What the element shows for `key` now, as an accessor: animated, dragged, or set by a live value
+   * in its `style`. A transform key reads a number (`x`, not its `transform`). Derive from it as
+   * from any live value: `createTransform(card.value("x"), [-150, 0, 150], [0, 1, 0])`.
+   *
+   * @example const x = card.value("x")
    */
+  // #130, ADR-0043 decision 5. At rest outside the gate: its `initial`, else its `style` value, else a
+  // transform key's identity. A value derived from it and given to another key's `style` moves in the
+  // same frame. One accessor per key, made where you'd make a signal.
   readonly value: WardValue
-  /**
-   * The element's value for `key` as an `effect/reactivity` Atom (`FlushGate.valueOf`): set as
-   * each write that changes it lands, `undefined` while the gate doesn't hold the key. For Effect
-   * code and core's `LiveValue` helpers; Solid code reads {@link value}.
-   */
+  /** `card.value(key)` as an `effect/reactivity` Atom, for Effect code; `undefined` until the element has a value for it. */
+  // FlushGate.valueOf: set as each write that changes it lands. Core's LiveValue helpers take it.
   readonly atom: (key: string) => Atom.Atom<unknown>
 }
 
-/** {@link Ward.value}: a transform key is always a number or a string; any other key may have no value. */
+/** `card.value`'s type: a transform key always has a value; any other key may have none. */
 export interface WardValue {
   <A extends number | string = number>(key: keyof WardicTransformShorthands): Accessor<A>
   <A extends number | string = number>(key: string): Accessor<A | undefined>

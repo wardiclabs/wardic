@@ -150,6 +150,26 @@ a {
   color: var(--ink);
 }
 
+/* The reference's families (#558): a group per family, its pages indented under it. */
+.nav-group summary {
+  padding: 6px 12px;
+  border-radius: var(--radius-s);
+  color: var(--ink);
+  font-size: var(--text-s);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.nav-group summary:hover {
+  background: var(--accent-soft);
+}
+
+.nav-group ul {
+  margin-left: var(--space-3);
+  padding-left: var(--space-2);
+  border-left: 1px solid var(--line);
+}
+
 /* The page you're on: a `layoutId`, sliding to the next one you open. */
 .nav-marker {
   position: absolute;

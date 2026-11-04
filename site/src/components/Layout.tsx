@@ -9,7 +9,7 @@ import type { JSX } from "@solidjs/web"
 import { createSignal, For, Show } from "solid-js"
 import { Search } from "~/components/Search.tsx"
 import { ThemeToggle } from "~/components/ThemeToggle.tsx"
-import { NAV } from "~/nav.ts"
+import { NAV, type NavPage } from "~/nav.ts"
 
 const GITHUB = "https://github.com/wardiclabs/wardic"
 
@@ -18,29 +18,43 @@ const pathOf = (path: string): string => path.replace(/(.)\/$/, "$1")
 
 function Sidebar(props: { readonly onNavigate?: () => void }) {
   const location = useLocation()
+  const here = () => pathOf(location.pathname)
+  /** A list of pages, the one you're on carrying the marker. */
+  const Pages = (list: { readonly pages: ReadonlyArray<NavPage> }) => (
+    <ul>
+      <For each={list.pages}>
+        {(page) => {
+          const current = () => here() === page.path
+          return (
+            <li>
+              <a href={page.path} aria-current={current() ? "page" : undefined} onClick={() => props.onNavigate?.()}>
+                <Show when={current()}>
+                  <w.span class="nav-marker" layoutId="nav-marker" transition={{ type: "spring", stiffness: 500, damping: 40 }} />
+                </Show>
+                <span>{page.title}</span>
+              </a>
+            </li>
+          )
+        }}
+      </For>
+    </ul>
+  )
   return (
     <nav class="sidebar" aria-label="Pages">
       <For each={NAV}>
         {(section) => (
           <section>
             <h2>{section.title}</h2>
-            <ul>
-              <For each={section.pages}>
-                {(page) => {
-                  const current = () => pathOf(location.pathname) === page.path
-                  return (
-                    <li>
-                      <a href={page.path} aria-current={current() ? "page" : undefined} onClick={() => props.onNavigate?.()}>
-                        <Show when={current()}>
-                          <w.span class="nav-marker" layoutId="nav-marker" transition={{ type: "spring", stiffness: 500, damping: 40 }} />
-                        </Show>
-                        <span>{page.title}</span>
-                      </a>
-                    </li>
-                  )
-                }}
-              </For>
-            </ul>
+            <Pages pages={section.pages} />
+            {/* The reference's families: each open while you're on one of its pages, and to a click. */}
+            <For each={section.groups ?? []}>
+              {(group) => (
+                <details class="nav-group" open={group.pages.some((page) => page.path === here())}>
+                  <summary>{group.title}</summary>
+                  <Pages pages={group.pages} />
+                </details>
+              )}
+            </For>
           </section>
         )}
       </For>

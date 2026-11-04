@@ -5,9 +5,17 @@ export interface NavPage {
   readonly title: string
 }
 
+/** A family of pages in a section, one collapsible group in the sidebar: the reference's (#558). */
+export interface NavGroup {
+  readonly title: string
+  readonly pages: ReadonlyArray<NavPage>
+}
+
 export interface NavSection {
   readonly title: string
   readonly pages: ReadonlyArray<NavPage>
+  /** Its families, after its pages, each open while one of its pages is. */
+  readonly groups?: ReadonlyArray<NavGroup>
 }
 
 export const NAV: ReadonlyArray<NavSection> = [
@@ -43,6 +51,22 @@ export const NAV: ReadonlyArray<NavSection> = [
       { path: "/guides/reduced-motion", title: "Reduced motion" },
       { path: "/guides/testing", title: "Testing" },
       { path: "/guides/observability", title: "Observability" },
+    ],
+  },
+  {
+    title: "Reference",
+    pages: [{ path: "/reference/solid", title: "Solid reference" }],
+    groups: [
+      {
+        title: "Elements",
+        pages: [
+          { path: "/reference/solid/elements/w", title: "w" },
+          { path: "/reference/solid/elements/wardic", title: "wardic" },
+          { path: "/reference/solid/elements/ward", title: "Wards" },
+          { path: "/reference/solid/elements/ward-events", title: "Ward events" },
+          { path: "/reference/solid/elements/props", title: "Motion props" },
+        ],
+      },
     ],
   },
 ]

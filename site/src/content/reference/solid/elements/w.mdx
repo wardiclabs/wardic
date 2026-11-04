@@ -1,0 +1,53 @@
+---
+title: w
+description: The Slim element, w.div and every other tag, which has the Features its section gives; w.create for your own components.
+api: [w, W, WardicCreateOptions]
+---
+
+# w
+
+The Slim element. `w.div`, `w.button`, `w.svg` and every other HTML and SVG tag are each a component that takes the element's own props and Wardic's [motion props](/reference/solid/elements/props).
+
+```tsx
+import { w } from "@wardic/solid" // Solid 1
+import { w } from "@wardic/solid/unstable/v2" // Solid 2
+
+<w.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} whileHover={{ scale: 1.05 }} />
+```
+
+It animates values with nothing else: `initial`, `animate`, `exit`, variants and transitions. Gestures, drag, layout and the wider colour spaces are [Features](/guides/features): it has those its `WardicProvider` and any `LazyWardic` above it give, and a prop whose Feature isn't there does nothing, with a warning in development. A `strict` section allows it, where it throws for [`wardic`](/reference/solid/elements/wardic).
+
+## Its forms
+
+| Form | What it is |
+| --- | --- |
+| `w.<tag>` | The element for that tag. |
+| `w.create(Component, options?)` | Your own component as a Wardic element. It must forward `ref` to its root element, and pass its other props there, `style` among them. |
+| `w.createWard(config)` | Solid 1: a [ward](/reference/solid/elements/ward) to spread on an element of your own. |
+| `use:w={config}` | Solid 1: the same, as a directive. It attaches in the browser only, so on a server-rendered page its element can flash. |
+| `w.ward(config, options?)` | Solid 2: a [ward](/reference/solid/elements/ward) to spread on an element of your own, or to give a component's `wardRef`. |
+
+## w.create
+
+```tsx
+const Card = (props: { ref?: (el: HTMLElement) => void; children?: JSX.Element }) => <article ref={props.ref} {...props} />
+const WCard = w.create(Card)
+
+<WCard animate={{ opacity: 1 }} />
+```
+
+Its options, `WardicCreateOptions`:
+
+| Option | |
+| --- | --- |
+| `forwardMotionProps` | Hand the motion props on to the component as well, as Motion's does. They still drive the element. Default `false`. |
+| `type` | `"svg"` for an element inside an `<svg>`, whose attribute keys (`d`, `cx`, `pathLength`) render as attributes on the server; `"html"` renders every key as style. Left out, a tag's own name decides, and a component's element is HTML. |
+
+## Coming from Motion
+
+`w.div` is Motion's `m.div` under `LazyMotion`, and `w.create` its `motion.create`. Motion's Features load for the whole page; Wardic's apply to the section that gives them.
+
+## Types
+
+- **`W`:** the type of `w`.
+- **`WardicCreateOptions`:** `w.create`'s and `wardic.create`'s options, above.

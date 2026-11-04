@@ -1,0 +1,50 @@
+---
+title: wardic
+description: The Complete element, wardic.div and every other tag, with every Feature; and a component's wardRef on Solid 2.
+api: [wardic, Wardic, WardicComponent, WardicProps, WardicMotion, WardicBeside, WardicWrappable, WardicWrapped, WardRefCallback, GivenWard, AnyWard, WardNodeKey]
+---
+
+# wardic
+
+The Complete element: [`w`](/reference/solid/elements/w) with every [Feature](/guides/features), whatever its section gives. `wardic.div`, `wardic.svg` and every other tag, and `wardic.create(Component, options?)`, take the same [motion props](/reference/solid/elements/props) as `w`'s.
+
+```tsx
+import { wardic } from "@wardic/solid" // Solid 1
+import { wardic } from "@wardic/solid/unstable/v2" // Solid 2
+
+<wardic.div drag layout whileHover={{ scale: 1.05 }} />
+```
+
+It's handy for trying something out, and heavy for a page: it brings every Feature's code, about 40 KB gzipped more than a `w.div`. Under a `strict` `WardicProvider` or `LazyWardic` it throws in development, so none reaches a page by accident.
+
+The Complete forms of a ward are `createWard` and `use:wardic` on Solid 1, and `ward()` on Solid 2: see [Wards](/reference/solid/elements/ward).
+
+## wardRef (Solid 2)
+
+On Solid 2, a Wardic element takes `wardRef`:
+
+- **A ward made elsewhere,** such as with `w.ward()`, to read the element's values and hear its events from outside it. Its config drives the element; motion props beside it set what it leaves out, and a key set by both is an error.
+- **A callback,** `wardRef={(card) => …}`, which gets the ward the element made for itself.
+
+```tsx
+const card = w.ward({ whileHover: { scale: 1.05 } })
+createEffect(card.when("tap"), () => setOpen(true))
+
+<w.div wardRef={card} animate={{ opacity: 1 }} />
+```
+
+## Coming from Motion
+
+`wardic.div` is Motion's `motion.div`, and `wardic.create` its `motion.create`.
+
+## Types
+
+- **`Wardic`:** the type of `wardic`.
+- **`WardicComponent`:** a `wardic.<tag>` component, typed by the config of a ward given to its `wardRef`.
+- **`WardicProps`:** a `wardic.<tag>`'s props: the tag's own and its motion.
+- **`WardicMotion`:** (Solid 2) an element's motion props, with `wardRef`.
+- **`WardicBeside`:** (Solid 2) the motion props allowed beside a given ward: each its config doesn't set.
+- **`WardicWrappable`:** (Solid 2) what `wardic.create` needs of a component: it forwards `ref` to its single root element.
+- **`WardicWrapped`:** (Solid 2) `wardic.create(Component)`'s component.
+- **`WardRefCallback`:** (Solid 2) a `wardRef` callback, `(ward) => void`.
+- **`GivenWard`**, **`AnyWard`**, **`WardNodeKey`:** (Solid 2) a ward given to `wardRef`, any ward whatever its config, and the keys a given ward's variants read.

@@ -46,13 +46,14 @@ export type Wardic = ((el: HTMLElement, value: Accessor<WardConfig>) => void) & 
 }
 
 /**
- * `wardic` — the motion-element proxy and the `use:wardic` directive (ADR-0008 Tier 1,
- * ADR-0042): every way to make a Complete **Wardic element** but `createWard`'s spread.
+ * The Complete element: `wardic.div` and every other tag, with every Feature whatever its section
+ * gives, and `wardic.create(Component)`. Handy for trying something out, heavy for a page: under a
+ * `strict` provider it throws in development. Motion's `motion.div`.
  *
- *   - `wardic(el, accessor)` -> the directive (`<div use:wardic={config}>` compiles to it).
- *   - `wardic.create(tag)` -> the HOC above.
- *   - `wardic.<tag>` (string key) -> `create(tag)`, CACHED so `wardic.div ===
- *     wardic.div` (stable component identity across reads).
- *   - any non-string/symbol key -> `undefined`.
+ * @example <wardic.div drag whileHover={{ scale: 1.05 }} />
+ * @see https://wardic.dev/reference/solid/elements/wardic
  */
+// The motion-element proxy and the `use:wardic` directive (ADR-0008 Tier 1, ADR-0042): every way to
+// make a Complete Wardic element but createWard's spread. `wardic(el, accessor)` is the directive;
+// `wardic.<tag>` is `create(tag)`, cached so `wardic.div === wardic.div`; any other key is undefined.
 export const wardic: Wardic = formOf<Wardic>(wardicDirective, create, {})

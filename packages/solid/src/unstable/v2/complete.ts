@@ -20,13 +20,21 @@ export const COMPLETE: WardInternals = { brings: ALL, complete: true }
 const NO_CONFIG: WardConfig = {}
 
 /**
- * A ward: `config` read per key (#259), each key a value, or an accessor of it, a getter, a store's
- * property or a component's prop (`ward(props)`). Call it where you'd make a signal, in a component
- * or a root, under a `WardicProvider`. Its config's type is kept, so `read` and `atom` complete the
- * keys it animates. With no config (#398), it listens: spread on a plain element, its gestures'
- * events with no motion; given to a Wardic component's `wardRef`, the element's own props set it.
- * It puts on a **Complete element**, every Feature brought (#511); `w.ward()` puts on a Slim one.
+ * Makes a ward: Wardic's motion for an element of your own. Spread it on the element, `{...card}`, or
+ * give it to a Wardic element's `wardRef`. Each key of `config` is a value or an accessor of it.
+ * `card.read(key)` reads what the element shows, and `card.next("tap")`, `card.when("tap")` hear its
+ * events. With no config, it only listens. This one has every Feature; `w.ward` has its section's.
+ *
+ * @example
+ * const card = ward({ initial: { opacity: 0 }, animate: { opacity: 1 } })
+ * <article {...card} />
+ * @see https://wardic.dev/reference/solid/elements/ward
  */
+// `config` is read per key (#259): a value, an accessor, a getter, a store's property or a component's
+// prop (`ward(props)`). Made where you'd make a signal, under a WardicProvider. Its config's type is
+// kept, so `read` and `atom` complete the keys it animates. With no config (#398) it listens: spread on
+// a plain element, its gestures' events with no motion; given to `wardRef`, the element's props set it.
+// A Complete element (#511).
 export function ward<const C extends WardConfig>(config: WardChecked<C>, options?: WardOptions): Ward<C>
 export function ward(): Ward<{}>
 export function ward(config: undefined, options: WardOptions): Ward<{}>

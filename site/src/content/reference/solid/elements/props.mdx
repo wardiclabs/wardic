@@ -1,0 +1,104 @@
+---
+title: Motion props
+description: Every prop a w.* or wardic.* element takes, and a ward's config, from animation and gestures to drag, layout, the callbacks and their types.
+api: [WardConfig, WardicMotionProps, WardicValues, WardicTargetValues, WardicTransformShorthands, WardicVariant, WardicVariants, WardicVariantLabels, WardicVariantResolver, WardicKeyframes, WardicValueKey, WardicTransformTemplate, WardicPropagate, WardicAnimationDefinition, WardicPointInfo, WardicPoint, WardicPressEvent, WardicPressInfo, WardicPressInput, WardicDragInfo, WardicDragConstraints, WardicMeasureDragConstraints, WardicBoundingBox, WardicDragTransition, WardicLayoutBox]
+---
+
+# Motion props
+
+The props every Wardic element takes beside its own, by Motion's names: `w.*` and `wardic.*`, a component made with `create`, and a [ward](/reference/solid/elements/ward)'s config. Give each as a value, and Solid keeps it up to date: `animate={open() ? shown : hidden}`, not a function.
+
+A gesture's, drag's or layout's prop needs its [Feature](/guides/features), which a `wardic.*` element always has.
+
+## Animation
+
+| Prop | |
+| --- | --- |
+| `initial` | Where the element starts: values, a `variants` name, or `false` to start at `animate`, so nothing animates as it mounts. On a server-rendered page, the element arrives in the HTML at `initial`. |
+| `animate` | Where it animates to: values or a `variants` name. Change it, and it animates from wherever it is. Or animation controls from `createAnimationControls()`. |
+| `exit` | Where it animates as it leaves an `<AnimatePresence>`, which keeps it on the page until it has played. |
+| `transition` | How it moves: a spring, a tween, keyframes' `times` or `inertia`, with `delay`, `repeat` and, for variants, `staggerChildren` and `when`. A value's own entry, or `layout`'s, applies to it alone. See [Transitions](/guides/transitions). |
+| `variants` | Named targets the other props can name instead of giving values. Children with `variants` follow their parent's names. See [Variants](/guides/variants). |
+| `custom` | The value passed to this element's function variants. |
+| `inherit` | `false` keeps an element with `variants` out of its parent's names and stagger. |
+| `key` | Which child of an `<AnimatePresence>` this is: one that comes back while one with its key is still leaving takes over from it. |
+| `appear` | `false`: on a server-rendered page, its entrance waits for the JavaScript instead of playing from the first paint. |
+| `transformTemplate` | Builds the element's whole `transform` from its values and the one Wardic would draw. |
+
+## Gestures
+
+| Prop | Feature | |
+| --- | --- | --- |
+| `whileHover` | `hover` | Where it animates while the pointer is over it. |
+| `whileTap` | `press` | Where it animates while it's pressed, by a pointer, or by Enter or Space while it has focus. |
+| `whileFocus` | `focus` | Where it animates while it has the keyboard's focus. |
+| `whileInView` | `inView` | Where it animates while it's in view. |
+| `viewport` | `inView` | What "in view" means: `root`, `margin`, `amount` and `once`. |
+| `propagate` | `press` | `{ tap: false }`: a press on this element isn't also a press of its ancestors. |
+
+## Drag
+
+All need the `drag` Feature, and are read once, as the element mounts, but `whileDrag`.
+
+| Prop | |
+| --- | --- |
+| `drag` | Makes it draggable: `true`, or `"x"` or `"y"` for one axis. On release it carries on at the speed it was thrown. |
+| `whileDrag` | Where it animates while it's dragged. |
+| `dragConstraints` | Bounds, `{ top, left, right, bottom }` in pixels from where it started, or a container element given as an accessor. |
+| `dragElastic` | How far it can be pulled past them, 0 to 1. Default `0.35`. |
+| `dragMomentum` | `false` stops it where it's let go. |
+| `dragSnapToOrigin` | Springs it back to where it started when it's let go. |
+| `dragTransition` | How it carries on after it's let go: Motion's inertia options. |
+| `dragDirectionLock` | Keeps each drag to the axis it first moved 10 px on. |
+| `dragPropagation` | Lets a draggable ancestor drag along with it. |
+| `dragControls` | Controls from `createDragControls()`, to start its drag from somewhere else, such as a handle. |
+| `dragListener` | `false`: only its `dragControls` drag it, not a press on it. |
+| `onMeasureDragConstraints` | With a container constraint: given the bounds measured against it, returns others to use. |
+
+## Layout
+
+All need the `layout` Feature. See [Layout animations](/guides/layout).
+
+| Prop | |
+| --- | --- |
+| `layout` | Animates the element's size and place when they change. `"position"`, `"size"`, `"x"`, `"y"` or `"preserve-aspect"` animates only that part. |
+| `layoutId` | A shared-layout id: a new element with it animates from where the old one was, crossfading. |
+| `layoutDependency` | A value whose change makes the element look for a layout change. In Solid nothing re-renders, so give it what your layout depends on. |
+| `layoutCrossfade` | `false`: a `layoutId` handover hides the old element at once, instead of crossfading. |
+| `layoutScroll` | Marks a scrolling element that is itself a layout element. Other scrolls, `position: sticky` included, need nothing. |
+| `layoutRoot` | Makes it a root for the layout animations inside it: it never animates its own. |
+| `layoutAnchor` | Where in its parent's box it anchors as the parent resizes, 0 to 1 per axis; `false` measures it against the page. |
+
+## Callbacks
+
+On Solid 1, an element takes Motion's callbacks. On Solid 2, its ward tells the same as [events](/reference/solid/elements/ward-events), and `onDrag`, `onDragStart` and `onDragEnd` are the DOM's own drag-and-drop events.
+
+| Prop | Called |
+| --- | --- |
+| `onAnimationStart`, `onAnimationComplete` | When an animation starts and lands, with what it animates to. |
+| `onUpdate` | Once a frame in which its values changed, with every value it holds. On both bindings. |
+| `onHoverStart`, `onHoverEnd` | When the pointer comes over it, and leaves. |
+| `onTapStart`, `onTap`, `onTapCancel` | When a press begins, ends on it, or ends elsewhere or is cancelled. |
+| `onDragStart`, `onDrag`, `onDragEnd` | When a drag starts, moves, and is let go. |
+| `onDirectionLock` | With `dragDirectionLock`, with the axis a drag locked to. |
+| `onDragTransitionEnd` | When it comes to rest after it's let go. |
+| `onPanSessionStart`, `onPanStart`, `onPan`, `onPanEnd` | When a pan's pointer goes down, it starts, moves, and ends. Needs the `pan` Feature. |
+| `onViewportEnter`, `onViewportLeave` | When it comes into view, and leaves it. |
+| `onLayoutAnimationStart`, `onLayoutAnimationComplete` | When a layout animation starts moving, and lands. |
+| `onBeforeLayoutMeasure`, `onLayoutMeasure` | As a layout element is measured, and with its box once it has been. On both bindings. |
+
+Each gesture callback is called `(event, info)`, the DOM's event first, with `info.point` in the viewport, where Motion's is in the page.
+
+## Types
+
+- **`WardConfig`**, **`WardicMotionProps`:** these props: a ward's config, and an element's.
+- **`WardicValues`:** the values an element animates: every CSS property, the transform keys (`x`, `scale`, `rotate`…) and SVG's attributes. **`WardicTransformShorthands`:** the transform keys.
+- **`WardicTargetValues`:** a target's values, each a value or a list of keyframes, **`WardicKeyframes`**.
+- **`WardicVariant`:** a target, with its own `transition`. **`WardicVariants`:** the named ones. **`WardicVariantLabels`:** a name, or a list of them. **`WardicVariantResolver`:** a function variant, of `custom`.
+- **`WardicValueKey`:** a value's name, as a per-value transition gives it.
+- **`WardicTransformTemplate`:** `transformTemplate`'s function, `(values, generated) => transform`.
+- **`WardicPropagate`:** `propagate`'s options.
+- **`WardicAnimationDefinition`:** what an animation animates to, as its callbacks are given it: a variant name, or values.
+- **`WardicPointInfo`**, **`WardicPressInfo`**, **`WardicDragInfo`:** (Solid 1) a hover's or a press's `info`, a press's (with `input`, a **`WardicPressInput`**: `"pointer"` or `"keyboard"`), and a drag's or a pan's: its `point` (a **`WardicPoint`**), `delta`, `offset` and `velocity`. **`WardicPressEvent`:** the event a press callback is given.
+- **`WardicDragConstraints`:** `dragConstraints`'s forms. **`WardicBoundingBox`:** a box's edges, `top`, `left`, `right` and `bottom`. **`WardicMeasureDragConstraints`:** `onMeasureDragConstraints`'s function. **`WardicDragTransition`:** `dragTransition`'s options.
+- **`WardicLayoutBox`:** a layout element's box: each axis's `min` and `max` in page pixels.

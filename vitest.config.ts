@@ -36,6 +36,8 @@ export default defineConfig({
             "examples/layout-lab/test/**/*.test.ts",
             // The storefront showcase's store, in Effect (#296).
             "examples/storefront/shared/test/**/*.test.ts",
+            // The docs site's checks: the Solid reference covers every export (#558).
+            "site/test/**/*.test.ts",
           ],
         },
       },
