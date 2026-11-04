@@ -1,4 +1,9 @@
-# Wardic
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="brand/wardic-lockup-on-dark.svg">
+    <img alt="Wardic" src="brand/wardic-lockup-on-light.svg" height="72">
+  </picture>
+</h1>
 
 Animation for [Solid](https://www.solidjs.com), with the API of [Motion](https://motion.dev) for React.
 

@@ -5,6 +5,24 @@
 
 @import "@wardic/example-storefront-shared/tokens.css";
 
+/*
+ * Headings in Manrope, the wordmark's face (brand/): served from public/fonts, its variable weights 600
+ * to 800, Latin only (24.5 KB), preloaded in the document and swapped in over the system sans. The
+ * storefronts' tokens keep the system sans for their headings (#365); the docs set their own.
+ */
+@font-face {
+  font-family: "Manrope";
+  font-style: normal;
+  font-weight: 600 800;
+  font-display: swap;
+  src: url("/fonts/manrope-latin.woff2") format("woff2");
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+:root {
+  --font-display: "Manrope", var(--font-sans);
+}
+
 *,
 *::before,
 *::after {
@@ -52,25 +70,25 @@ a {
   border-bottom: 1px solid var(--line);
 }
 
+/* The logo (Logo.tsx): the mark's small cut, and the wordmark in the text's colour. */
 .wordmark {
   display: inline-flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   color: var(--ink);
-  font-family: var(--font-display);
-  font-size: 1.15rem;
-  font-weight: 750;
-  letter-spacing: -0.01em;
   text-decoration: none;
 }
 
-/* Northlight's aurora, in one dot. */
-.wordmark-dot {
-  width: 14px;
-  height: 14px;
-  border-radius: 50%;
-  background: conic-gradient(from 210deg, var(--aurora), #8fbcbb);
-  box-shadow: 0 0 12px var(--glow);
+.logo-mark {
+  flex: none;
+  width: 36px;
+  height: 36px;
+}
+
+.logo-word {
+  flex: none;
+  width: 87px;
+  height: 21px;
 }
 
 .header-tools {
@@ -112,6 +130,11 @@ a {
   padding: var(--space-6) var(--space-4) var(--space-6) var(--space-5);
 }
 
+/* The drawer: the sidebar's pages on a narrow screen, where the menu opens it. */
+.drawer {
+  display: none;
+}
+
 .sidebar section + section {
   margin-top: var(--space-5);
 }
@@ -119,6 +142,7 @@ a {
 .sidebar h2 {
   margin: 0 0 var(--space-2);
   color: var(--muted);
+  font-family: var(--font-display);
   font-size: 0.75rem;
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -204,17 +228,17 @@ a {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .sidebar {
-    position: fixed;
-    inset: 60px 0 0;
-    z-index: 9;
-    max-height: none;
-    background: var(--paper);
+  .sidebar:not(.drawer) {
     display: none;
   }
 
-  .site-body[data-menu="open"] .sidebar {
+  .drawer {
+    position: fixed;
+    inset: 60px 0 0;
+    z-index: 9;
     display: block;
+    max-height: none;
+    background: var(--paper);
   }
 }
 
@@ -228,18 +252,21 @@ a {
   margin: 0 0 var(--space-4);
   font-family: var(--font-display);
   font-size: var(--text-xl);
+  font-weight: 800;
   line-height: 1.15;
   letter-spacing: -0.02em;
 }
 
 .prose h2 {
   margin: var(--space-7) 0 var(--space-3);
+  font-family: var(--font-display);
   font-size: 1.45rem;
   letter-spacing: -0.01em;
 }
 
 .prose h3 {
   margin: var(--space-6) 0 var(--space-2);
+  font-family: var(--font-display);
   font-size: 1.15rem;
 }
 
