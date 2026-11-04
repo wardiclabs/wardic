@@ -74,7 +74,7 @@ The props keep Motion's names and meanings: `initial`, `animate`, `exit`, `varia
 - **`visualDuration` alone is honoured,** with no bounce, where Motion ignores it, and a `visualDuration` spring keeps the velocity it's handed.
 - **An animation lands once every key it set has landed,** the ones it left running included. So a hover that starts mid-entrance is told it landed once the entrance has landed too.
 - **A long stall advances 0.5 s.** After a main-thread stall longer than 0.5 s (a hidden tab, a debugger), an animation moves on 0.5 s and plays out the rest, where Motion's jumps to where the elapsed time puts it.
-- **Layout animations account for scroll on their own:** the scroll of every scrolling element around them, with no `layoutScroll`, and the page's inside a `position: fixed` element, with no `layoutRoot`.
+- **Layout animations account for scroll on their own:** the scroll of every scrolling element around them, with no `layoutScroll`, the page's inside a `position: fixed` element, with no `layoutRoot`, and a `position: sticky` element's offset as it sticks.
 - **A value you move is never written to.** It's an input the element follows; what Wardic draws comes out of the element's ward, `ward.read(key)` on Solid 2 and `ward.value(key)` on Solid 1.
 - **`reducedMotion` is followed as it changes,** where Motion reads it once, as each element mounts.
 - **An interrupted path lands back on its line.** An axis the target leaves out, `y` under `animate={{ x }}`, ends where the path in flight was taking it, where Motion's ends where the interruption caught it, a little further off each time.

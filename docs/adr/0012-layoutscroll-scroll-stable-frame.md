@@ -356,3 +356,40 @@ TF1–TF7 and TF9 fail on `main`, about 420 px off (TF7 about 310).
 - Without it, a drag is as decision 4 has it, as Motion's is.
 - **Layout boxes aren't mapped:** the projection reads them through their ancestors' transforms already (#136, #137), so a mapping on top would count the parent's transform twice.
 - The limit stands for a drag with no mapping given, and Motion shares it.
+
+## Amendment (#578, 2026-11-04): a sticky element's offset is folded out
+
+Found on the docs site (#577). Its sidebar is `position: sticky`, and the marker under the current page is a `layoutId`. Each Measure pass on a page re-read the marker, and it jumped by the page's scroll since its last Measurement, then flew back: 250 px at a toggle elsewhere on the page, and 1,150 px after a scroll down and back. A page change from a page scrolled 600 px drew the new marker 600 px off for one frame. #577 worked around the first with `layoutRoot` on the sidebar.
+
+The Scroll-stable frame folds out each scroller's scroll and the page's, and stops at a `position: fixed` element. A sticky element is neither. Its place on the page is its static place plus an offset that changes with the scroll, so a node under it, measured at two scrolls, read as moved. Motion has no such case to handle: it snapshots a node just before an update of its own tree, so a node elsewhere is never compared across two scrolls.
+
+**Grilled on #578: B.** The rejected options:
+
+- **A sticky ancestor as an automatic layout root.** A sticky element's own layout change would no longer animate. It also left the page change's off frame (the site's `layoutRoot` sidebar still showed it).
+- **Refreshing the Measurements under a sticky element on scroll.** A router scrolls and renders in one task, with no scroll event between, and it adds reads while scrolling.
+
+**Decided:**
+
+1. **A sticky element is a folded container.** Its "scroll" is its offset from its static place, negated, so it comes out as a scroller's scroll does.
+   - It's read live each pass, from its computed `position`, as `position: fixed` is.
+   - It's in the fold whether it's stuck or not, so getting stuck is no change of frame.
+   - An element that both scrolls and sticks, such as the docs sidebar, is two containers. A fold's containers now say which kind each is.
+   - A node that is itself sticky folds its own offset. Its own scroll still moves only what's inside it.
+2. **The offset is read by holding the element at its static place** (`holdUnstuck`): `position: relative` with every inset `auto`, inline and `!important`, for one read. It stays positioned, so it's still the containing block of what's absolute inside it. Then every inline value is put back with its priority.
+   - A pass holds all its sticky elements at once: one layout for them all, and one more after the release.
+   - A page with none walks the folds once, as before. The fold walk notes the sticky elements it meets, and only then reads their offsets and walks again.
+3. **Outside a pass, a sticky element's offset now** is read the same way, on its own: for a disconnected leaver's Root-frame box (`containerScrollOf`), and for a frame carry (`scrollNowOf`).
+4. **The scroll since a Switch seed was seen** (#480), when it was made before the pass, comes out at the pass. The docs site's router scrolls before the pass runs, and the pass's write is painted before the flight's first frame. At that first frame, `settleSeen` takes out the rest, plus what each sticky element over the flight moved since the pass: its sampled offset less its offset now, all read in one hold. A stuck element takes up the page's scroll.
+
+**Measured** on the docs sidebar (Chromium):
+- Held at its static place, the marker's page position is 480 at scrolls of 0, 600 and 1,400. The hold, read and release cost 0.2–0.5 ms.
+- The marker holds still at the toggles, with no `layoutRoot`. A page change from a 600 px scroll goes 446 → 449 → … → 514, with no off frame.
+- The sidebar's `layoutRoot` is gone, and the Layout guide's advice to give a sticky element `layoutRoot` with it.
+
+**Tests** (`packages/dom/test/projection-auto-fold.browser.test.ts`, ST1–ST11):
+- **ST1–ST6:** a page scroll, a scroller's, a horizontal one, a node that is itself sticky, and a sticky element that scrolls too all seed nothing. A real move inside a stuck element animates by that move alone.
+- **ST7 and ST8 (guards):** an element pushed down in the flow carries its nodes, and the read leaves its inline style as it was.
+- **ST9–ST11:** a Switch across a router's scroll, made before the pass or after it, starts where its twin was seen, in the page and in a sticky sidebar.
+- ST1–ST6 and ST9–ST11 failed before. ST11 also fails without `settleSeen`'s sticky term, 486 px off.
+
+**Limits:** the offset is sampled at measure, so a sticky element moving mid-flight carries the flight with it. That's the same limit as a scroll during a transition.
