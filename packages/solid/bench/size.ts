@@ -39,10 +39,11 @@ const GATE = 1.01
 /**
  * The Slim element's base apps' budgets (#511, decision 10), in gzipped KB: an app fails past its own,
  * whatever its base. Set at the split's end, at its sizes with a little room, so changes each under the
- * gate can't add up, and kept that room when the build target moved (#525: 119.4 and 154.9); #518
- * lowers them toward Q4's 105 KB after v1.
+ * gate can't add up, and kept that room when the build target moved (#525: 119.4 and 154.9). Raised by
+ * 0.5 KB each for #594's fix, a layout element's translate in `%` (0.2 KB, s1-slim at 121.0 of 121 before
+ * it); #518 lowers them toward Q4's 105 KB after v1.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 121, "s2-slim": 157 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 121.5, "s2-slim": 157.5 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 
