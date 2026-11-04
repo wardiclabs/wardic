@@ -3,6 +3,8 @@
 // - PAV1: `arc({ strength: 1 })` over 200 px bulges by half the distance midway, and lands.
 // - PAV2: `rotate: true` turns it on its own channel; a `rotate` animation beside it composes, and it
 //   ends on that alone.
+// - PAV3 (#574): Solid 1's PA12: a target with `x` alone, caught mid-curve again and again, curves back
+//   to its line.
 import type { JSX } from "@solidjs/web"
 import { DomLive } from "@wardic/dom"
 import { arc, wardic, WardicProvider, type WardicTransition } from "@wardic/solid/unstable/v2"
@@ -56,5 +58,20 @@ describe("transition.path and arc() on Solid 2 (#438)", () => {
     expect(turned, "the path's turn drawn after the element's own").toBe(true)
     const m2 = matrixOf(m.box)
     expect((Math.atan2(m2.b, m2.a) * 180) / Math.PI).toBeCloseTo(90, 1)
+  })
+
+  it("PAV3 (#574): a target with x alone, caught mid-curve again and again, curves back to its line", async () => {
+    // No `y` anywhere, so no Base value returns it: the Path alone moves it.
+    const m = mountMove({ ...LINEAR, path: arc({ strength: 1 }) }, { x: 0 })
+    await frames(3)
+    m.to({ x: 200 })
+    await frames(18)
+    expect(Math.abs(matrixOf(m.box).m42), "mid-curve").toBeGreaterThan(20)
+    m.to({ x: 0 })
+    await frames(12)
+    m.to({ x: 200 })
+    await frames(50)
+    expect(matrixOf(m.box).m41).toBeCloseTo(200, 1)
+    expect(matrixOf(m.box).m42, "back on the line").toBeCloseTo(0, 1)
   })
 })

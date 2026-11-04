@@ -220,6 +220,8 @@ export interface WardicSkipAnimations {
 /**
  * A transition's **Path** (#438, Motion's `path`): `x` and `y` travel along it together, rather than
  * each on its own, on `x`'s transition, from rest. `arc()` makes one; any {@link WardicPath} is one.
+ * An axis the target leaves out ends where it rests (#574): where a Path in flight was taking it, so
+ * one caught mid-air curves back to its line, else where it is.
  * A layout animation reads it where Motion's does, on its layout transition: the `layout` entry when
  * there is one, else the element's transition. On any other value's entry it isn't read.
  */

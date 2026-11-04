@@ -5,8 +5,8 @@
 // - PA2: a per-key `x` entry times the path, over the element's own transition.
 // - PA3: `rotate: true` turns it along the curve on its own channel: a `rotate` animation beside it
 //   composes, and it ends on that rotate alone.
-// - PA4: an interrupt starts the new curve from where it's drawn. (Its target names `y` too: an axis
-//   a target leaves out ends where it starts, as Motion's `yTo = yRaw ?? yFrom`, off the line mid-curve.)
+// - PA4: an interrupt starts the new curve from where it's drawn. (Its target names `y` too; PA12 leaves
+//   it out.)
 // - PA5: Keyframes on `x`: the path runs between their first and last stops.
 // - PA6: reduced motion snaps `x` and `y`: no curve.
 // - PA7: `{ path }` alone keeps `x`'s Default transition (the DOM's spring for `x`, which overshoots).
@@ -16,6 +16,11 @@
 //   target leaves out ride on with it, and land.
 // - PA10 (#460): `createAnimate`'s `stop` and `cancel` mid-curve take the turn back to 0.
 // - PA11 (#460): so do a Retarget of `x` on a path that doesn't turn, and Animation controls' `stop`.
+// - PA12 (#574): a target with `x` alone (and no `y` anywhere, so no Base value returns it), caught
+//   mid-curve again and again, curves back to its line:
+//   an axis the target leaves out ends where the Path in flight was taking it, where Motion's ends
+//   where it was caught (`yTo = yRaw ?? yFrom`), a little further off each time.
+// - PA13 (#574): so does `createAnimate`'s, caught mid-curve by another: back on `y: 50`.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { arc, createAnimate, createAnimationControls, type WardicAnimate, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
@@ -224,5 +229,34 @@ describe("transition.path and arc() on Solid 1 (#438)", () => {
     controls.stop()
     await frames(2)
     expect(angleOf(held), "no turn after its controls' stop").toBeCloseTo(0, 1)
+  })
+
+  it("PA12 (#574): a target with x alone, caught mid-curve again and again, curves back to its line", async () => {
+    // No `y` anywhere, so no Base value returns it: the Path alone moves it.
+    const m = mountMove({ ...LINEAR, path: arc({ strength: 1 }) }, { x: 0 })
+    await frames(3)
+    m.to({ x: 200 })
+    await frames(18)
+    expect(Math.abs(yOf(m.box)), "mid-curve").toBeGreaterThan(20)
+    m.to({ x: 0 })
+    await frames(12)
+    expect(Math.abs(yOf(m.box)), "mid-curve again").toBeGreaterThan(5)
+    m.to({ x: 200 })
+    const seen = await sample(m.box, 50)
+    expect(Math.max(...seen.map((s) => Math.abs(s.y))), "still a curve").toBeGreaterThan(20)
+    expect(xOf(m.box)).toBeCloseTo(200, 1)
+    expect(yOf(m.box), "back on the line").toBeCloseTo(0, 1)
+  })
+
+  it("PA13 (#574): createAnimate's target with x alone, caught mid-curve by another, curves back to where y rests", async () => {
+    const { animate, box } = mountAnimate(50)
+    await frames(3)
+    void animate(box, { x: 200 }, { ...LINEAR, path: arc({ strength: 1 }) })
+    await frames(18)
+    expect(Math.abs(yOf(box) - 50), "mid-curve").toBeGreaterThan(20)
+    void animate(box, { x: 0 }, { ...LINEAR, path: arc({ strength: 1 }) })
+    await frames(50)
+    expect(xOf(box)).toBeCloseTo(0, 1)
+    expect(yOf(box), "back on 50").toBeCloseTo(50, 1)
   })
 })
