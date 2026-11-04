@@ -10,10 +10,10 @@
     "examples/storefront/*"
   ],
   "scripts": {
-    "build": "node_modules/typescript-7/bin/tsc --build",
+    "build": "bun scripts/build-packages.ts",
     "typecheck": "node_modules/typescript-7/bin/tsc --build && bun run --filter='@wardic/*' typecheck:tests && bun run --filter='@wardic/example-*' typecheck",
     "typecheck:tests": "bun run --filter='@wardic/*' typecheck:tests",
-    "clean": "node_modules/typescript-7/bin/tsc --build --clean",
+    "clean": "node_modules/typescript-7/bin/tsc --build --clean && rm -rf packages/*/dist",
     "test": "vitest run",
     "test:watch": "vitest",
     "test:browser": "vitest run --config vitest.browser.config.ts",

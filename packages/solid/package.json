@@ -14,13 +14,21 @@
       "@wardic/source": "./src/index.ts",
       "types": "./dist/solid/index.d.ts",
       "solid": "./dist/solid/index.js",
-      "default": "./dist/solid/index.js"
+      "browser": "./dist/browser/index.js",
+      "worker": "./dist/server/index.js",
+      "deno": "./dist/server/index.js",
+      "node": "./dist/server/index.js",
+      "default": "./dist/browser/index.js"
     },
     "./unstable/v2": {
       "@wardic/source": "./src/unstable/v2/index.ts",
       "types": "./dist/solid/unstable/v2/index.d.ts",
       "solid": "./dist/solid/unstable/v2/index.js",
-      "default": "./dist/solid/unstable/v2/index.js"
+      "browser": "./dist/browser/unstable/v2/index.js",
+      "worker": "./dist/server/unstable/v2/index.js",
+      "deno": "./dist/server/unstable/v2/index.js",
+      "node": "./dist/server/unstable/v2/index.js",
+      "default": "./dist/browser/unstable/v2/index.js"
     }
   },
   "scripts": {
@@ -54,6 +62,7 @@
     "@solidjs/web": "2.0.0-rc.20",
     "@types/babel__core": "^7.20.5",
     "@wardic/test": "workspace:*",
+    "babel-preset-solid": "1.9.12",
     "effect": "4.1.1",
     "solid-js": "^1.9.18",
     "solid-js-2": "npm:solid-js@2.0.0-rc.20"
