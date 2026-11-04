@@ -1,0 +1,31 @@
+name: Feature request
+description: Something Wardic should do that it doesn't yet.
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        An idea still taking shape fits better in [Discussions](https://github.com/wardiclabs/wardic/discussions/categories/ideas); it becomes an issue once accepted.
+  - type: textarea
+    id: use
+    attributes:
+      label: What you're trying to do
+      description: The animation or interaction you want, and where it would be used.
+    validations:
+      required: true
+  - type: textarea
+    id: motion
+    attributes:
+      label: Motion's equivalent
+      description: If Motion for React has it, its name and how it behaves there. Wardic follows Motion's API, so this shapes the answer.
+  - type: textarea
+    id: shape
+    attributes:
+      label: How it might look
+      description: The props, the hook or the component you'd expect, if you have a picture of it.
+      render: tsx
+  - type: textarea
+    id: today
+    attributes:
+      label: What you do today
+      description: How you work around it now, if you do.
