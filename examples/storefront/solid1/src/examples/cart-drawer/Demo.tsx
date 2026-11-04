@@ -2,10 +2,9 @@ import { createAsync, useAction, useSubmissions } from "@solidjs/router"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { CartLine, Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, LazyWardic, w } from "@wardic/solid"
+import { AnimatePresence, layout, LazyWardic, w } from "@wardic/solid"
 import { createSignal, For, onCleanup, onMount, Show, Suspense } from "solid-js"
 import { addToCart, cart, products, setCartQuantity } from "~/lib/store.ts"
-import { layout } from "~/lib/layout-feature.ts"
 
 const SUGGESTED = ["white-bowl", "celadon-bowl", "slip-dish", "painted-jug"]
 

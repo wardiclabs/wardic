@@ -3,10 +3,9 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, LazyWardic, w } from "@wardic/solid"
+import { AnimatePresence, layout, LazyWardic, w } from "@wardic/solid"
 import { createSignal, For, onCleanup } from "solid-js"
 import { addToCart } from "~/lib/store.ts"
-import { layout } from "~/lib/layout-feature.ts"
 
 interface Toast {
   readonly id: number

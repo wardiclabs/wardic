@@ -2,10 +2,9 @@ import { createAsync } from "@solidjs/router"
 import { formatDay, formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { Order, Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, LazyWardic, useAnimateLayout, w } from "@wardic/solid"
+import { AnimatePresence, layout, LazyWardic, useAnimateLayout, w } from "@wardic/solid"
 import { createSignal, For, Show, Suspense } from "solid-js"
 import { orders, products } from "~/lib/store.ts"
-import { layout } from "~/lib/layout-feature.ts"
 
 // An order's pieces fade in once its row has started to open, and out quickly as it closes.
 const reveal = {

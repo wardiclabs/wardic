@@ -1,10 +1,9 @@
 import { Tabs } from "@kobalte/core/tabs"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
-import { LazyWardic, w } from "@wardic/solid/unstable/v2"
+import { layout, LazyWardic, w } from "@wardic/solid/unstable/v2"
 import { createMemo, createSignal, For, Loading, Show } from "solid-js"
 import { product } from "~/lib/store.ts"
-import { layout } from "~/lib/layout-feature.ts"
 
 // Kobalte's panel, taking Wardic's motion props: the ward goes on the element it renders. Kobalte
 // renders a panel only while its tab is chosen, and each time it does, the panel's element enters

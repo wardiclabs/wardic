@@ -1,10 +1,9 @@
 import type { Notice } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, drag, LazyWardic, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, drag, layout, LazyWardic, w } from "@wardic/solid/unstable/v2"
 import { revalidate } from "@solidjs/router"
 import { action, type Accessor, createEffect, createMemo, createOptimistic, createSignal, For, Loading, refresh, Show, type SourceAccessor } from "solid-js"
 import { notices } from "~/lib/store.ts"
 import { dismissNotice, restoreNotices } from "~/server/store.ts"
-import { layout } from "~/lib/layout-feature.ts"
 
 type Side = "left" | "right"
 

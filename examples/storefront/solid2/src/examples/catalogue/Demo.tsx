@@ -9,11 +9,10 @@ import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
 import type { JSX } from "@solidjs/web"
-import { AnimatePresence, arc, LazyWardic, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, arc, layout, LazyWardic, w } from "@wardic/solid/unstable/v2"
 import { action, createSignal, For, Match, onSettled, Show, Switch } from "solid-js"
 import { cart } from "~/lib/store.ts"
 import { addToCart } from "~/server/store.ts"
-import { layout } from "~/lib/layout-feature.ts"
 
 const PIECES = PRODUCTS.slice(0, 6)
 const HOME = "/transitions/catalogue"

@@ -1,6 +1,5 @@
-import { AnimatePresence, createInstantTransition, LazyWardic, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, createInstantTransition, layout, LazyWardic, w } from "@wardic/solid/unstable/v2"
 import { createSignal, For, Show } from "solid-js"
-import { layout } from "~/lib/layout-feature.ts"
 
 const QUESTIONS = [
   {

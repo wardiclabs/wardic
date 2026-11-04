@@ -3,13 +3,12 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, LazyWardic, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, layout, LazyWardic, w } from "@wardic/solid/unstable/v2"
 import { action, createMemo, createOptimisticStore, createSignal, flush, For, Show } from "solid-js"
 import { arrivalId, arrive, recall } from "~/lib/arrivals.ts"
 import { useReducedMotion } from "~/lib/preferences.tsx"
 import { cart } from "~/lib/store.ts"
 import { addToCart } from "~/server/store.ts"
-import { layout } from "~/lib/layout-feature.ts"
 
 const SAVED = PRODUCTS.filter((product) => ["bottle-vase", "tulip-bowl", "painted-jug", "cut-carafe"].includes(product.id))
 
