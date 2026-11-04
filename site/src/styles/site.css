@@ -130,6 +130,11 @@ a {
   padding: var(--space-6) var(--space-4) var(--space-6) var(--space-5);
 }
 
+/* The drawer: the sidebar's pages on a narrow screen, where the menu opens it. */
+.drawer {
+  display: none;
+}
+
 .sidebar section + section {
   margin-top: var(--space-5);
 }
@@ -223,17 +228,17 @@ a {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .sidebar {
-    position: fixed;
-    inset: 60px 0 0;
-    z-index: 9;
-    max-height: none;
-    background: var(--paper);
+  .sidebar:not(.drawer) {
     display: none;
   }
 
-  .site-body[data-menu="open"] .sidebar {
+  .drawer {
+    position: fixed;
+    inset: 60px 0 0;
+    z-index: 9;
     display: block;
+    max-height: none;
+    background: var(--paper);
   }
 }
 

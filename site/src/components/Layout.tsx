@@ -1,10 +1,11 @@
 /**
  * The site's frame (#558): the header, the sidebar of sections and pages, the page, and the footer.
  * The sidebar's marker sits under the page you're on, a `layoutId` that slides to the next one you
- * open. On a narrow screen the sidebar is hidden, and the menu button opens it.
+ * open. On a narrow screen the sidebar is hidden, and the menu button opens the drawer: the same
+ * pages, which slide in and out under `AnimatePresence`.
  */
 import { useLocation } from "@solidjs/router"
-import { w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, w } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
 import { createSignal, For, Show } from "solid-js"
 import { Logo } from "~/components/Logo.tsx"
@@ -17,7 +18,12 @@ const GITHUB = "https://github.com/wardiclabs/wardic"
 /** A path without its trailing slash, `/` kept. */
 const pathOf = (path: string): string => path.replace(/(.)\/$/, "$1")
 
-function Sidebar(props: { readonly onNavigate?: () => void }) {
+/**
+ * The sections, their pages and their families, with the marker under the page you're on. The sidebar
+ * and the drawer each have them, under their own `layoutId`: the drawer's marker never animates from
+ * the hidden sidebar's, whose box, under `display: none`, is nothing at the page's corner.
+ */
+function Sections(props: { readonly marker: string; readonly onNavigate?: () => void }) {
   const location = useLocation()
   const here = () => pathOf(location.pathname)
   /** A list of pages, the one you're on carrying the marker. */
@@ -30,7 +36,7 @@ function Sidebar(props: { readonly onNavigate?: () => void }) {
             <li>
               <a href={page.path} aria-current={current() ? "page" : undefined} onClick={() => props.onNavigate?.()}>
                 <Show when={current()}>
-                  <w.span class="nav-marker" layoutId="nav-marker" transition={{ type: "spring", stiffness: 500, damping: 40 }} />
+                  <w.span class="nav-marker" layoutId={props.marker} transition={{ type: "spring", stiffness: 500, damping: 40 }} />
                 </Show>
                 <span>{page.title}</span>
               </a>
@@ -41,34 +47,41 @@ function Sidebar(props: { readonly onNavigate?: () => void }) {
     </ul>
   )
   return (
-    <nav class="sidebar" aria-label="Pages">
-      <For each={NAV}>
-        {(section) => (
-          <section>
-            <h2>{section.title}</h2>
-            <Pages pages={section.pages} />
-            {/* The reference's families: each open while you're on one of its pages, and to a click. */}
-            <For each={section.groups ?? []}>
-              {(group) => (
-                <details class="nav-group" open={group.pages.some((page) => page.path === here())}>
-                  <summary>{group.title}</summary>
-                  <Pages pages={group.pages} />
-                </details>
-              )}
-            </For>
-          </section>
-        )}
-      </For>
-    </nav>
+    <For each={NAV}>
+      {(section) => (
+        <section>
+          <h2>{section.title}</h2>
+          <Pages pages={section.pages} />
+          {/* The reference's families: each open while you're on one of its pages, and to a click. */}
+          <For each={section.groups ?? []}>
+            {(group) => (
+              <details class="nav-group" open={group.pages.some((page) => page.path === here())}>
+                <summary>{group.title}</summary>
+                <Pages pages={group.pages} />
+              </details>
+            )}
+          </For>
+        </section>
+      )}
+    </For>
   )
 }
+
+/**
+ * The drawer slides in from off the screen's left edge, and back out, quicker, the way it came. It's
+ * the screen's width, so it starts that far left, in px: a percentage `initial` isn't applied to an
+ * element as it mounts (the exit's `-100%` is), and the drawer only mounts in the browser, on a tap.
+ */
+const drawerOff = () => ({ x: -window.innerWidth })
+const DRAWER_IN = { x: 0, transition: { type: "spring", stiffness: 380, damping: 40 } } as const
+const DRAWER_OUT = { x: "-100%", transition: { type: "tween", duration: 0.22, ease: "easeIn" } } as const
 
 export function Layout(props: { readonly children?: JSX.Element }) {
   const [open, setOpen] = createSignal(false)
   return (
     <div class="site">
       <header class="site-header">
-        <button class="icon-button menu-button" type="button" aria-label="Pages" aria-expanded={String(open()) as "true" | "false"} onClick={() => setOpen(!open())}>
+        <button class="icon-button menu-button" type="button" aria-label="Pages" aria-controls="drawer" aria-expanded={String(open()) as "true" | "false"} onClick={() => setOpen(!open())}>
           <svg viewBox="0 0 24 24" width="20" height="20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round">
             <path d="M4 7h16M4 12h16M4 17h16" />
           </svg>
@@ -87,8 +100,22 @@ export function Layout(props: { readonly children?: JSX.Element }) {
           </w.a>
         </div>
       </header>
-      <div class="site-body" data-menu={open() ? "open" : "closed"}>
-        <Sidebar onNavigate={() => setOpen(false)} />
+      {/*
+        The drawer, on a narrow screen: it slides in as it opens and out as it closes, a page you open
+        in it closing it. A layout root: its slide is a transform, and a page that lands as it slides
+        out moves its marker only inside it. Its scroll needs nothing (the Layout guide).
+      */}
+      <AnimatePresence>
+        <Show when={open()}>
+          <w.nav id="drawer" class="sidebar drawer" aria-label="Pages" layoutRoot initial={drawerOff()} animate={DRAWER_IN} exit={DRAWER_OUT}>
+            <Sections marker="drawer-marker" onNavigate={() => setOpen(false)} />
+          </w.nav>
+        </Show>
+      </AnimatePresence>
+      <div class="site-body">
+        <nav class="sidebar" aria-label="Pages">
+          <Sections marker="nav-marker" />
+        </nav>
         <main class="site-main">{props.children}</main>
       </div>
       <footer class="site-footer">
