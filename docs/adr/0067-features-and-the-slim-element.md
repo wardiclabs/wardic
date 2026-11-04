@@ -183,3 +183,23 @@ The barrel wasn't the cause: the packages declare `"sideEffects": false`, and Ro
   - a page that drags, 214.1 → 210.9 and 269.0 → 266.3, loading its own `drag` chunk;
   - with the conversion alone, before this amendment, a page that doesn't drag saved 4.3 KB.
 - **A mutation that puts the `DragGesture` class back in `features/drag.ts`** returns `s1-routes` to 119.7. Against today's `main`, which has that shape, it reads +0.0%. Against a `main` with this amendment it's +3.7%, a failure.
+
+## Amendment (#551, 2026-11-04): a drag starts when `drag` arrives
+
+**Found on #526's lazy card.** Its room's pieces sat in a `LazyWardic` whose `features` loaded `drag` on a press. They mounted with the section, while the load was on its way, and never dragged. Development said nothing.
+
+**Why.** Each binding decided an element's drag once, as it mounted ("A drag is still decided at the mount", PR 4 of #511 above):
+- **Solid 1's mount effect** read its section's `DragGesture` once, untracked; so did **Solid 2's `mount`**.
+- **The missing-Feature warning** is muted while a load is pending, and nothing looked again once it had arrived.
+
+Hover, press, focus, inView and pan already started when their Feature arrived. Motion's elements do too: an `m.div drag` mounted before `LazyMotion`'s bundle loads gets drag at its next render (`updateFeatures`).
+
+**Decided (#551; on #526, 2026-11-04).**
+1. **A drag starts when `drag` arrives,** from then on, in both bindings, as a gesture does. Nothing before it is replayed: a pointer pressed while the load was on its way isn't taken up.
+   - **Solid 1:** an element whose config wants a drag, mounted while a load is pending, watches its section's Features (a computation) and starts its track when `drag` is among them, under its mount's owner. What the track is made with is copied into the drag's own block first, so the closures there hold only those copies. A first shape, whose closure reached the mount's own variables, moved them into its context for every element: a hover-and-press element kept 0.8% more at rest (16.62 → 16.76 KB), back to +0.1% with the copies.
+   - **Solid 2:** the same watch is an effect made with the ward, which starts the mounted element's track.
+   - **The spine** reads the track at each Retarget (#340's takeover). Only an element whose `drag` was on its way as it mounted gets a getter for it: one that has `drag` at the mount, or never wants it, makes nothing new.
+2. **A load that arrives without `drag`** gets development's missing-Feature warning then, once per provider, as one given at once does.
+3. **`layout` stays decided at the mount.** An element mounted while it's on its way gets no node (the decision above): its node is made as it mounts, with the measurements taken before each change. `LazyWardic`'s docs now say so.
+
+**Tests.** `FG5` (Solid 1) and `FGV6` (Solid 2): an element mounted while `drag` is on its way doesn't move under a drag on the pushed input, then drags once `drag` arrives; a load that brings only `hover` says nothing while it's on its way and warns once it's here. Both fail without the fix.
