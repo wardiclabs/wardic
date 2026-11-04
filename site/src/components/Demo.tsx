@@ -1,0 +1,47 @@
+/**
+ * A sample, running (#558): `samples/<name>/solid2.tsx`'s default export, on the site's own Wardic. It
+ * loads once its frame scrolls into view, which a ward on the frame hears (`when("viewportEnter")`), so a
+ * page ships no demo's code until it's wanted. Replay mounts it again, so its entrance plays again.
+ */
+import { Dynamic } from "@solidjs/web"
+import { w } from "@wardic/solid/unstable/v2"
+import type { Component } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Loading, Show } from "solid-js"
+
+const DEMOS = import.meta.glob<{ readonly default: Component }>("../../samples/*/solid2.tsx")
+
+/** A sample's demo: its Solid 2 file's default export. */
+const demoOf = async (sample: string): Promise<Component> => {
+  const load = DEMOS[`../../samples/${sample}/solid2.tsx`]
+  if (load === undefined) throw new Error(`No Solid 2 sample "${sample}" in site/samples`)
+  return (await load()).default
+}
+
+export function Demo(props: { readonly sample: string }) {
+  const [seen, setSeen] = createSignal(false)
+  const [run, setRun] = createSignal(1)
+  // The frame's ward listens for its entry into view, a little before it's on screen.
+  const frame = w.ward({ viewport: { once: true, margin: "200px" } })
+  createEffect(frame.when("viewportEnter"), () => {
+    setSeen(true)
+  })
+  // Loaded in the browser only, once it's in view: never on the server, which couldn't send it.
+  const demo = createMemo(() => (seen() ? demoOf(props.sample) : undefined))
+  return (
+    <div class="demo" {...frame}>
+      <div class="demo-bar">
+        <span class="demo-label">Live demo</span>
+        <button class="demo-replay" type="button" onClick={() => setRun(run() + 1)}>
+          Replay
+        </button>
+      </div>
+      <div class="demo-stage">
+        <Show when={seen()}>
+          <Loading>
+            <For each={[run()]}>{() => <Dynamic component={demo() as Component} />}</For>
+          </Loading>
+        </Show>
+      </div>
+    </div>
+  )
+}

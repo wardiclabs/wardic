@@ -10,6 +10,8 @@ import remarkFrontmatter from "remark-frontmatter"
 import remarkMdxFrontmatter from "remark-mdx-frontmatter"
 import { defineConfig } from "vite"
 import { wardicSource } from "../scripts/wardic-source.ts"
+import { rehypeCodeHtml } from "./plugins/rehype-code-html.ts"
+import { samples } from "./plugins/samples.ts"
 
 // The storefronts' Shiki themes, light and dark as CSS variables (#365).
 const { themes, defaultColor } = highlightOptions("page.tsx")
@@ -18,11 +20,15 @@ const { themes, defaultColor } = highlightOptions("page.tsx")
 // prerendered page by page, as the Solid 2 storefront is set up.
 // - Pages are MDX (src/content), compiled to JSX that Solid's compiler then compiles, each element
 //   through the provider's components (src/mdx/provider.tsx), with HTML's attribute names and CSS's
-//   property names, as Solid takes them; headings get ids and anchors, and code fences Shiki.
+//   property names, as Solid takes them; headings get ids and anchors, and code fences Shiki, each
+//   block one HTML string (plugins/rehype-code-html.ts).
+// - Code samples are real files (samples/), highlighted at build when imported with `?code`
+//   (plugins/samples.ts).
 // - `@wardic/*` from its source in the repo (#554).
 export default defineConfig({
   plugins: [
     wardicSource(),
+    samples(fileURLToPath(new URL("./samples", import.meta.url))),
     {
       enforce: "pre",
       ...mdx({
@@ -32,7 +38,7 @@ export default defineConfig({
         elementAttributeNameCase: "html",
         stylePropertyNameCase: "css",
         remarkPlugins: [remarkFrontmatter, remarkMdxFrontmatter],
-        rehypePlugins: [rehypeSlug, [rehypeAutolinkHeadings, { behavior: "wrap" }], [rehypeShiki, { themes, defaultColor }]],
+        rehypePlugins: [rehypeSlug, [rehypeAutolinkHeadings, { behavior: "wrap" }], [rehypeShiki, { themes, defaultColor }], rehypeCodeHtml],
       }),
     },
     solid({ start: {}, ssr: true, extensions: [".jsx", ".tsx", ".mdx"] }),

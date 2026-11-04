@@ -277,3 +277,116 @@ a {
     color: var(--shiki-dark);
   }
 }
+
+/* --- Code blocks, tabs and demos ---------------------------------------------------------- */
+
+.code-block {
+  margin: 0 0 var(--space-5);
+}
+
+.code-block pre {
+  margin: 0;
+}
+
+.code-tabs {
+  margin: 0 0 var(--space-5);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  overflow: hidden;
+}
+
+.code-tabs[aria-busy] {
+  min-height: 120px;
+}
+
+.code-tab-list {
+  display: flex;
+  gap: var(--space-1);
+  padding: var(--space-2) var(--space-2) 0;
+  background: var(--tile);
+}
+
+.code-tab {
+  padding: 6px 12px;
+  border: 0;
+  border-radius: var(--radius-s) var(--radius-s) 0 0;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-s);
+  cursor: pointer;
+}
+
+.code-tab[data-selected] {
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.code-path {
+  padding: 6px var(--space-4);
+  background: var(--surface);
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+
+.code-tabs .code-block {
+  margin: 0;
+}
+
+.code-tabs pre {
+  border: 0;
+  border-radius: 0;
+}
+
+.demo {
+  margin: 0 0 var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+}
+
+.demo-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3) var(--space-2) var(--space-4);
+  border-bottom: 1px solid var(--line);
+}
+
+.demo-label {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.demo-replay {
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-s);
+  cursor: pointer;
+}
+
+.demo-stage {
+  display: grid;
+  place-items: center;
+  min-height: 200px;
+  padding: var(--space-6);
+}
+
+/* The samples' own classes. */
+.sample-card {
+  padding: var(--space-5) var(--space-6);
+  border-radius: var(--radius-m);
+  background: var(--accent);
+  color: var(--accent-ink);
+  font-weight: 650;
+  box-shadow: var(--shadow-m);
+}

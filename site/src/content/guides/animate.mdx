@@ -1,0 +1,20 @@
+---
+title: Animate an element
+description: initial, animate and transition on a w.* element, and how it moves between them.
+---
+
+# Animate an element
+
+A `w.*` element takes Motion's props. `initial` is where it starts, `animate` where it goes, and `transition` how it gets there. Change `animate`, and it moves from wherever it is to the new target.
+
+<Demo sample="enter" />
+
+<CodeTabs sample="enter" />
+
+## Where it starts
+
+On a server-rendered page, the element arrives in the HTML already at `initial`, so it never flashes at its target first. Its entrance plays from the first paint, before the JavaScript has loaded, and the client takes it over mid-flight.
+
+## How it moves
+
+`transition` takes a spring (`stiffness`, `damping`, `mass`, or a `duration` with a `bounce`), a tween (`duration` and `ease`), or `inertia`. Without one, a key gets Motion's default for it: a spring for position and scale, a tween for opacity and colour.

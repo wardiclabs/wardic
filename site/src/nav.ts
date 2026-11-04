@@ -18,4 +18,8 @@ export const NAV: ReadonlyArray<NavSection> = [
       { path: "/start/solid-2", title: "Start on Solid 2" },
     ],
   },
+  {
+    title: "Guides",
+    pages: [{ path: "/guides/animate", title: "Animate an element" }],
+  },
 ]

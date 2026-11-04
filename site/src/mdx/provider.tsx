@@ -7,6 +7,8 @@
  */
 import { Dynamic } from "@solidjs/web"
 import type { JSX } from "@solidjs/web"
+import { CodeTabs } from "~/components/CodeTabs.tsx"
+import { Demo } from "~/components/Demo.tsx"
 
 type Component = (props: Record<string, unknown>) => JSX.Element
 
@@ -25,8 +27,11 @@ const TAGS = [
 /** A plain element named `tag`. */
 const elementOf = (tag: string): Component => (props) => <Dynamic component={tag} {...props} />
 
-/** The site's own components, over the plain elements. (A link is a plain `<a>`: the router opens a page of the site without a reload.) */
-const OWN: Record<string, Component> = {}
+/**
+ * The site's own components, over the plain elements, and the ones a page uses by name: `<Demo>` and
+ * `<CodeTabs>`. (A link is a plain `<a>`: the router opens a page of the site without a reload.)
+ */
+const OWN: Record<string, Component> = { CodeTabs: CodeTabs as Component, Demo: Demo as Component }
 
 const ALL: Record<string, Component> = { ...Object.fromEntries(TAGS.map((tag) => [tag, elementOf(tag)])), ...OWN }
 
