@@ -417,379 +417,375 @@ export type WardicLayoutBox = Box.Box
  */
 export type WardicTransformTemplate = DomRenderer.TransformTemplate
 
+/**
+ * The motion props a Wardic element takes, and the config a ward is made with: what it animates,
+ * when, how, and what it tells you. Motion's props, by Motion's names.
+ *
+ * @see https://wardic.dev/reference/solid/elements/props
+ */
 export interface WardConfig {
   /**
-   * The per-mount seed — the *entry-from* state the animation departs from.
+   * Where the element starts: values, a `variants` name, or `false` to start at `animate`, so nothing
+   * animates as it mounts. On a server-rendered page, the element arrives in the HTML at `initial`.
    *
-   * READ TIMING: resolved EXACTLY ONCE per mount (via `untrack` at setup); it is
-   * the seed, not a live target, so changing the whole-config accessor does NOT
-   * re-seed mid-life. It IS re-evaluated on every mount, including a re-entry
-   * after an `AnimatePresence` exit.
-   *
-   * FORMS:
-   *   - a `WardicValues` map — used verbatim; SSR-serializable.
-   *   - a string — names a `variants` entry; SSR-serializable.
-   *   - `false` — start at `animate` (resolved once: its map, its `variants` entry, or, for a
-   *     Variant child with none, the name its ancestor hands down), so nothing animates at
-   *     mount (#134, Motion's). An element that names its own variants hands it down. A key it
-   *     started at returns to its `style` value, else to where it started (ADR-0022).
+   * @example initial={{ opacity: 0, y: 12 }}
    */
+  // Read once per mount (untracked), so a later change doesn't re-seed; read again on every mount,
+  // an AnimatePresence re-entry included. `false` resolves `animate` once: its map, its variants
+  // entry, or a Variant child's inherited name (#134). A key started at returns to its `style`
+  // value, else where it started (ADR-0022).
   readonly initial?: WardicVariant | WardicVariantLabels | false
   /**
-   * The resting target. A string names a `variants` entry. Read reactively through the whole-config
-   * accessor `cfg()`. Its own `transition` (#277) drives the animation to it. **Animation controls**
-   * (#433, `createAnimationControls()`, read once) set it instead, at each `start` or `set`.
+   * Where the element animates to: values or a `variants` name. Change it, and the element animates
+   * from wherever it is to the new target. Or animation controls from `createAnimationControls()`,
+   * which set the target when you call `start` or `set`.
+   *
+   * @example animate={{ opacity: open() ? 1 : 0 }}
    */
+  // Read reactively through the whole-config accessor; its own `transition` drives it (#277). Controls
+  // are read once (#433).
   readonly animate?: WardicVariant | WardicVariantLabels | WardicAnimationControls
   /**
-   * Named targets `initial`, `animate` and `exit` strings resolve against: each a target, with its own
-   * `transition` if it has one, or a function of `custom` (#277, Motion's dynamic variants).
+   * Named targets that `initial`, `animate`, `exit` and the `while*` props can name instead of giving
+   * values. A variant can carry its own `transition`, or be a function of `custom`. Children with
+   * `variants` follow their parent's names, staggered by its `transition`.
+   *
+   * @example variants={{ hidden: { opacity: 0 }, shown: { opacity: 1 } }}
    */
+  // Dynamic variants: #277. Orchestration: ADR-0007.
   readonly variants?: WardicVariants
   /**
-   * The value handed to this element's dynamic variants (#277, ADR-0048, Motion's `custom`). A
-   * change re-resolves them, and a value that changes animates. For an exit, a
-   * `<AnimatePresence custom>` given is used instead: the leaving element's own can't change any more.
+   * The value passed to this element's function variants. When it changes, they're resolved again,
+   * and the element animates to what they give. A leaving element uses `<AnimatePresence custom>`
+   * instead, if given.
    */
+  // #277, ADR-0048: a leaver's own `custom` can't change any more.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   readonly custom?: any
   /**
-   * Which child of an `<AnimatePresence>` this element is (#286, ADR-0048, Motion's `key`): a child
-   * back while one with its key is still exiting takes over from it, starting where it is drawn,
-   * and the leaver goes at once. Only on the presence's child itself (its root element); anywhere
-   * else, it does nothing. Read once. Never written to the DOM.
+   * Which child of an `<AnimatePresence>` this is, as React's `key` tells Motion. A child that comes
+   * back while one with its key is still leaving takes over from it, starting where it's drawn. Only
+   * on the presence's child itself; never written to the page.
    */
+  // #286, ADR-0048. Read once.
   readonly key?: string | number
   /**
-   * `false` keeps an element with `variants` out of its ancestors' variants (#50, Motion's
-   * `inherit`): it inherits no names, takes no stagger slot, and hands its children no names
-   * from above it. By default a Variant child (`variants`, no `initial` or `animate` name of
-   * its own) joins its nearest ancestor with variants (CONTEXT.md).
+   * `false` keeps an element with `variants` out of its parent's: it doesn't follow its names or take
+   * part in its stagger, and passes none of them on to its own children.
    */
+  // #50. By default a Variant child (variants, no initial/animate name of its own) joins its nearest
+  // ancestor with variants (CONTEXT.md).
   readonly inherit?: boolean
   /**
-   * Target merged in (highest-but-one priority) while hovered. Each gesture prop takes a target, or a
-   * `variants` name (#291, Motion's), which its Variant children take too while the gesture is on.
+   * Where the element animates while the pointer is over it, and back when it leaves: values or a
+   * `variants` name, which children with `variants` follow too. Needs the `hover` Feature.
+   *
+   * @example whileHover={{ scale: 1.05 }}
    */
+  // Priority: under whileTap and whileDrag, over whileFocus and whileInView. Names reach Variant
+  // children (#291).
   readonly whileHover?: WardicVariant | WardicVariantLabels
-  /** Target merged in (highest priority) while pressed. */
+  /**
+   * Where the element animates while it's pressed, by a pointer or by Enter or Space while it has
+   * focus. Needs the `press` Feature.
+   *
+   * @example whileTap={{ scale: 0.95 }}
+   */
+  // Highest priority with whileDrag. Keyboard presses: #427.
   readonly whileTap?: WardicVariant | WardicVariantLabels
   /**
-   * Whether the element's gestures reach its pressable ancestors (#439, Motion's `propagate`). With
-   * `{ tap: false }`, its press takes a **Press claim** on the pointer down or the key it starts from, and
-   * no ancestor's press starts from it: no `whileTap`, and no tap callbacks or tap events there. By
-   * default every press propagates, a key's too (ADR-0066). Read at each press's start. Only an element
-   * with a press claims (`whileTap`, or a tap callback or event), and a drag isn't stopped: drags hold
-   * their own **Drag claim**.
+   * Whether a press on this element also counts as a press of its ancestors. `{ tap: false }` keeps
+   * it to this element: a pressable parent doesn't play its `whileTap` or hear the tap.
    */
+  // #439, ADR-0066: a Press claim on the pointer down or key. Read at each press's start. Only an
+  // element with a press claims; drags hold their own Drag claim.
   readonly propagate?: WardicPropagate
   /**
-   * Target merged in while the element is in view (Motion's, #273, ADR-0047), under `whileFocus` and
-   * the pointer gestures: what "in view" means is `viewport`'s.
+   * Where the element animates while it's in view, as `viewport` defines it. Needs the `inView`
+   * Feature.
+   *
+   * @example whileInView={{ opacity: 1 }} viewport={{ once: true }}
    */
+  // #273, ADR-0047. Under whileFocus and the pointer gestures.
   readonly whileInView?: WardicVariant | WardicVariantLabels
   /**
-   * Target merged in while the element is focused as the browser shows it (Motion's, #273): a
-   * keyboard's focus (`:focus-visible`), not a pointer's click. Under the pointer gestures, over
-   * `whileInView`.
+   * Where the element animates while it has the keyboard's focus (as `:focus-visible` shows it, not
+   * a click's). Needs the `focus` Feature.
    */
+  // #273. Under the pointer gestures, over whileInView.
   readonly whileFocus?: WardicVariant | WardicVariantLabels
   /**
-   * What "in view" means for `whileInView` and the viewport callbacks (Motion's `viewport`, #273): the
-   * container (`root`, an accessor; the viewport when none), a `margin` grown around it (CSS
-   * `rootMargin`), how much of the element must be in it (`amount`: `"some"`, the default, `"all"`
-   * or 0 to 1), and `once`: in view from its first entry on. Read when the recognizer starts.
+   * What "in view" means for `whileInView` and the viewport callbacks: `root`, a scrolling container
+   * (the window if none); `margin`, grown around it, as CSS `rootMargin`; `amount` of the element that
+   * must show, `"some"`, `"all"` or 0 to 1; and `once`, to stay in view after the first entry.
    */
+  // #273. Read when the recognizer starts.
   readonly viewport?: WardicViewport
   /**
-   * Enable dragging (ADR-0004). `true` = free; `"x"`/`"y"` = axis-locked. While
-   * held (and during the release tail) the drag DIRECT-SETS `x`/`y` (1:1 with
-   * the pointer, NOT sprung); the spring spine keeps driving every other key +
-   * {@link whileDrag}. Ownership of `x`/`y` returns to the spring once the
-   * release settles.
+   * Makes the element draggable: `true` on both axes, `"x"` or `"y"` on one. On release it carries on
+   * at the speed it was thrown and slows to a stop. Needs the `drag` Feature.
    *
-   * STATIC (LOW-3, reactivity-layering rule): the drag CONFIG — this field plus
-   * {@link dragConstraints} / {@link dragElastic} / {@link dragMomentum} /
-   * {@link dragSnapToOrigin} / {@link dragTransition} / {@link dragPropagation} — is read EXACTLY ONCE
-   * at mount (`untrack`); only
-   * {@link whileDrag} participates in the reactive override / `dragging` path. A
-   * reactively-changed axis / constraints is NOT re-read in v0.1.
+   * The element gets `touch-action`, `user-select: none` and `draggable="false"`, so a touch drag
+   * isn't a scroll; its own `style` can override them. Of nested draggables, the innermost drags. With
+   * `layout`, the element moves within its layout and returns to its place on release.
    *
-   * The element gets Motion's drag defaults (ADR-0019, *Amendment (Reorder)*):
-   * `touch-action` `none` (`pan-y` for an `x` drag, `pan-x` for a `y` drag),
-   * `user-select` and `-webkit-user-select` / `-webkit-touch-callout` `none`, and
-   * `draggable="false"`, so a touch drag isn't taken for a scroll and a drag
-   * starting on text isn't a native drag. The element's own `style` overrides them.
-   *
-   * Nested draggables (ADR-0019, *Amendment (#29)*): a drag takes its element's **Drag
-   * claim** on its axis (both for `true`) when it starts, so of an element and a draggable
-   * ancestor that grabs with it, the innermost drags and the other doesn't, unless they
-   * drag on different axes. {@link dragPropagation} opts out.
-   *
-   * With {@link layout} or {@link layoutId} the drag moves the projection target
-   * instead of `x`/`y`, and the release FLIPs to the slot (ADR-0016). To drag the
-   * items of a list or grid into a new order, use `<Reorder>` (ADR-0020).
+   * @example drag="x" dragConstraints={{ left: 0, right: 200 }}
    */
+  // ADR-0004: the pointer direct-sets x/y while the spine drives the rest and whileDrag. The drag
+  // config (this and dragConstraints … dragPropagation) is read once at mount; only whileDrag is
+  // reactive. Defaults: ADR-0019 Amendment (Reorder). Nested drags: Drag claims, ADR-0019 Amendment
+  // (#29). With layout/layoutId it feeds the projection (ADR-0016). Lists: <Reorder> (ADR-0020).
   readonly drag?: boolean | "x" | "y"
   /**
-   * Target merged in (highest priority) while dragging. Driven by the spring
-   * (NOT stripped) so e.g. `scale: 1.1` animates while held and returns after
-   * release. Only consulted when `drag` is on.
+   * Where the element animates while it's dragged, and back once it's let go.
+   *
+   * @example whileDrag={{ scale: 1.1 }}
    */
+  // Driven by the spring, not stripped; only read when `drag` is on.
   readonly whileDrag?: WardicVariant | WardicVariantLabels
   /**
-   * Constrain the element's `x`/`y`, whichever gesture moved it there; a Fling springs back to an edge
-   * it would cross (ADR-0016, *Amendment (#140)*). Only when `drag` is on. Motion's forms (#273,
-   * ADR-0047):
-   * - `{ top, left, right, bottom }`: the range of x (`left` to `right`) and y (`top` to `bottom`), an
-   *   edge left out unbounded;
-   * - an accessor of a container element (`dragConstraints={frame}`, a signal ref, or `() => frame`):
-   *   the element's box stays inside the container's. It's measured at each drag's start, and when
-   *   either resizes, keeping the element's place within them. One bigger than its container can be
-   *   dragged to show what overflows, and no further;
-   * - `false`: none.
+   * Keeps the element within bounds: `{ top, left, right, bottom }` in pixels from where it started
+   * (an edge left out is unbounded), or a container element, given as an accessor, that it stays
+   * inside. A throw past an edge springs back to it.
    *
-   * Static config (LOW-3): read ONCE at mount; an accessor is read at each measure.
+   * @example dragConstraints={() => frame}
    */
+  // ADR-0016 Amendment (#140): x/y whichever gesture moved them. A container is measured at each drag's
+  // start and when either resizes (#273). Read once at mount; an accessor at each measure.
   readonly dragConstraints?: WardicDragConstraints
   /**
-   * Rubber-band resistance past {@link dragConstraints}: 0 a hard clamp, with a wall for a bounce.
-   * Default 0.35, Motion's. Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1.
+   * How far the element can be pulled past `dragConstraints`, 0 to 1: 0 stops it at the edge.
+   * Default `0.35`, Motion's.
    */
+  // Read once at mount.
   readonly dragElastic?: number
   /**
-   * Motion's `onMeasureDragConstraints` (#273, ADR-0047): with a container in `dragConstraints`, the
-   * bounds measured against it, as `{ top, left, right, bottom }`, at each measure. Return other
-   * bounds to use them instead (a margin, say), or nothing to keep these.
+   * With a container in `dragConstraints`: called with the bounds measured against it, at each
+   * measure. Return other bounds to use them instead, such as with a margin, or nothing to keep these.
    */
+  // #273, ADR-0047.
   readonly onMeasureDragConstraints?: WardicMeasureDragConstraints
-  /** Fling on release (default `true`); `false` releases with no velocity. Only when `drag` is on. Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1. */
+  /** `false` stops the element where it's let go, instead of carrying on at the speed it was thrown. Default `true`. */
+  // Read once at mount.
   readonly dragMomentum?: boolean
-  /** Spring `x`/`y` back to the origin on release, on {@link dragTransition}. Only when `drag` is on. Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1. */
+  /** Springs the element back to where it started when it's let go. */
+  // On dragTransition. Read once at mount.
   readonly dragSnapToOrigin?: boolean
   /**
-   * What the release runs on (Motion's `dragTransition`, ADR-0016 *Amendment (#140)*): Motion's
-   * inertia, its options over Motion's defaults. Only when `drag` is on. Static config (LOW-3): read
-   * ONCE at mount; not re-read reactively in v0.1.
+   * How the element carries on after it's let go: Motion's inertia options (`power`, `timeConstant`,
+   * `bounceStiffness`, `bounceDamping`, `min`, `max`…), over Motion's defaults.
    */
+  // ADR-0016 Amendment (#140). Read once at mount.
   readonly dragTransition?: WardicDragTransition
-  /**
-   * `true`: the drag takes no **Drag claim** and is never refused one, so a draggable
-   * ancestor drags with it (Motion's `dragPropagation`, ADR-0019 *Amendment (#29)*). It
-   * still keeps hovers and presses from starting while it runs. Only when `drag` is on.
-   * Static config (LOW-3): read ONCE at mount; not re-read reactively in v0.1.
-   */
+  /** `true` lets a draggable ancestor drag along with this element, instead of only the innermost dragging. */
+  // ADR-0019 Amendment (#29): takes no Drag claim and is never refused one; still keeps hovers and
+  // presses from starting while it runs. Read once at mount.
   readonly dragPropagation?: boolean
   /**
-   * Motion's `dragDirectionLock` (#273, ADR-0047): each drag waits until it has moved 10 px on one
-   * axis (y checked first), then drags on that axis alone, and claims only it, so a parent that drags
-   * the other axis keeps the gesture (a card you swipe sideways inside a sheet you drag down). Until
-   * then nothing has started: `onDragStart` and `whileDrag` come at the lock, after `onDirectionLock`.
-   * A one-axis drag locked the other way doesn't start. Motion's drag starts at 3 px, claiming both
-   * axes, and locks after. Static config (LOW-3): read ONCE at mount.
+   * Waits until a drag has moved 10 px, then keeps it to the axis it moved on. A sideways swipe inside
+   * a sheet you drag down swipes, and a downward one drags the sheet. `onDirectionLock` says which.
    */
+  // #273, ADR-0047: y checked first; claims only the locked axis; onDragStart/whileDrag come at the
+  // lock, after onDirectionLock. Read once at mount.
   readonly dragDirectionLock?: boolean
   /**
-   * Motion's `dragControls` (#431): **Drag controls** from `createDragControls()`, whose `start(event)`
-   * begins this element's drag from a pointer pressed elsewhere (a handle, a track), as if it had
-   * pressed the element. Only when `drag` is on. Static config (LOW-3): read ONCE at mount.
+   * Drag controls from `createDragControls()`: their `start(event)` begins this element's drag from a
+   * press somewhere else, such as a handle.
    */
+  // #431. Read once at mount.
   readonly dragControls?: WardicDragControls
   /**
-   * Motion's `dragListener` (#431): `false`, a press on the element doesn't drag it, nor stop its
-   * release; only its {@link dragControls} do, and it gets none of the drag defaults (`touch-action`,
-   * no text selection, `draggable="false"`), as Motion's go with its listener: a list whose items drag
-   * by a handle still scrolls by touch. Default `true`. Static config (LOW-3): read ONCE at mount.
+   * `false`: pressing the element itself doesn't drag it; only its `dragControls` do. It then gets
+   * none of the drag's touch and selection styles, so a list whose items drag by a handle still
+   * scrolls by touch. Default `true`.
    */
+  // #431. Read once at mount.
   readonly dragListener?: boolean
-  /** Primitive selector + options (default spring). */
+  /**
+   * How the element moves to a target: a spring (`stiffness`, `damping`, `mass`, or `duration` and
+   * `bounce`), a tween (`duration`, `ease`), keyframes' `times`, or `inertia`, with `delay`, `repeat`
+   * and, for variants, `staggerChildren` and `when`. A value's own (`opacity: {…}`) or `layout`'s apply
+   * to it alone. Without one, each value gets Motion's default.
+   *
+   * @example transition={{ type: "spring", stiffness: 300, damping: 20 }}
+   * @see https://wardic.dev/guides/transitions
+   */
+  // Per-value entries: ADR-0049. Default transitions: ADR-0051.
   readonly transition?: WardicTransition
   /**
-   * The exit target — the state this element animates toward when it leaves an
-   * `<AnimatePresence>` (ADR-0007). The child itself never DRIVES this exit (it
-   * is disposed on leave); instead the spine publishes the live exit values into
-   * the presence registration, and the parent `<AnimatePresence>` runs the exit
-   * on the retained DOM node. A string names a `variants` entry, a dynamic one resolved as the
-   * element leaves (#277); the exit runs on its own `transition`, else the element's.
+   * Where the element animates as it leaves an `<AnimatePresence>`: values or a `variants` name. The
+   * element stays on the page until it has played.
+   *
+   * @example exit={{ opacity: 0, scale: 0.9 }}
    */
+  // ADR-0007: the child doesn't drive it (it's disposed); its spine publishes the exit into the
+  // presence registration, and the presence runs it on the retained node. A dynamic variant resolves
+  // as it leaves (#277); its own transition, else the element's.
   readonly exit?: WardicVariant | WardicVariantLabels
   /**
-   * Enable layout FLIP (ADR-0005): on a reflow this element animates from its
-   * prior box to its new one (First/Last/Invert/Play). Under a `<LayoutGroup>`
-   * sibling reflow is animated too; standalone, only this element's own
-   * size/`layoutDependency` change is observed. Whether the element animates its layout is
-   * read once, at mount. A **Layout mode** (ADR-0009, *Amendment (#42)*, Motion's) animates
-   * part of it: `"position"` (its size changes at once), `"size"`, `"x"`, `"y"` or
-   * `"preserve-aspect"` (position only when the width/height ratio changes); it's read at
-   * each layout animation's start. `true` animates position and size.
+   * Animates the element's layout: when its size or place on the page changes, by its own layout or
+   * its siblings', it moves there smoothly instead of jumping. `"position"` or `"size"` animates only
+   * that part, `"x"` or `"y"` one axis, and `"preserve-aspect"` its size only when the aspect ratio
+   * changes. Needs the `layout` Feature.
+   *
+   * @see https://wardic.dev/guides/layout
    */
+  // ADR-0005, ADR-0009. Whether it's a layout node is read once at mount; its Layout mode (Amendment
+  // (#42)) at each layout animation's start. A measure re-reads the whole tree, so sibling reflow
+  // needs no LayoutGroup.
   readonly layout?: boolean | "position" | "size" | "preserve-aspect" | "x" | "y"
   /**
-   * A value/signal whose change re-measures this element and plays a FLIP
-   * (framer-motion's prop name + semantics). Only consulted when `layout` is on.
-   * Read REACTIVELY through the whole-config accessor `cfg()`.
+   * A value whose change makes the element look for a layout change. In Solid nothing re-renders, so
+   * give it what your layout depends on, such as a signal's value; a size change is seen on its own.
+   *
+   * @example layoutDependency={open()}
    */
+  // Motion's prop name. Read reactively through the whole-config accessor.
   readonly layoutDependency?: unknown
   /**
-   * Shared-element (cross-element) FLIP key (ADR-0005, framer-motion `layoutId`
-   * parity). An element entering with the same `layoutId` a prior element left
-   * animates FROM that prior element's box (the {@link Shared layout} from
-   * CONTEXT.md). Works with NO `<LayoutGroup>` — the registry is provided at the
-   * `WardicProvider` root by default. Composes with `layout`/`layoutDependency`
-   * and the element's `animate` (the FLIP keys merge into the same gate id and
-   * project once, ADR-0006). Static field (read once, untracked at mount).
+   * A shared-layout id: when an element with this id mounts as another with it leaves or hides, the
+   * new one animates from where the old one was, crossfading between them. Needs the `layout` Feature.
    *
-   * With {@link drag} the drag moves the projection target (ADR-0016). To drag the
-   * items of a list or grid into a new order, use `<Reorder>` (ADR-0020).
+   * @example <w.span layoutId="underline" />
    */
+  // ADR-0005, ADR-0010. Works with no LayoutGroup (the registry is the provider's). Read once at
+  // mount. With drag, the drag moves the projection target (ADR-0016).
   readonly layoutId?: string
   /**
-   * Mark this a scroll container that is itself a projection node (ADR-0012): its
-   * scroll offset is folded out of its descendants' boxes, so a scroll change between
-   * triggers doesn't leak into their layout animation. Any other container that can
-   * scroll is folded too without it (*Amendment (Reorder)*). Static (read once at
-   * mount).
+   * Marks a scrolling element that is itself a layout element, so its descendants' layout animations
+   * aren't thrown by its scroll. Every other scroll, `position: sticky` included, is accounted for
+   * without it.
    */
+  // ADR-0012 and its Amendments (Reorder, #578). Read once at mount.
   readonly layoutScroll?: boolean
   /**
-   * Mark this a stable projection sub-root (ADR-0013): it never FLIPs its own layout
-   * (self-snaps), bounds delta accumulation for its subtree, and is a persistent
-   * relative anchor for its descendants. Static (read once at mount).
+   * Makes the element a root for the layout animations inside it: it never animates its own layout,
+   * and its descendants' are measured against it.
    */
+  // ADR-0013: it self-snaps, bounds delta accumulation, and anchors its subtree. Read once at mount.
   readonly layoutRoot?: boolean
   /**
-   * The relative-projection anchor (ADR-0013): where in its relativeParent this
-   * element anchors (0–1 per axis, default top-left `{x:0,y:0}`). `false` opts out
-   * of relative projection (force absolute). Static (read once at mount).
+   * Where in its parent's box a layout element anchors as the parent changes size: 0 to 1 on each
+   * axis, top-left `{ x: 0, y: 0 }` by default. `false` measures it against the page instead.
    */
+  // ADR-0013 relative projection. Read once at mount.
   readonly layoutAnchor?: { readonly x: number; readonly y: number } | false
   /**
-   * Whether a `layoutId` handover onto this element crossfades (#442, Motion's prop), read as each
-   * begins. Default `true`: it fades in as the twin it takes over from fades out (ADR-0010). `false`:
-   * that twin is hidden as the handover starts, and this one moves at its own opacity. Only the twin
-   * that becomes the Lead reads it; a Switch, its twin already gone, blends as ever.
+   * Whether this element crossfades with the one it takes a `layoutId` over from. Default `true`.
+   * `false` hides the old one as the move starts, and this one keeps its own opacity.
    */
+  // #442, ADR-0010. Read as each handover begins; only the twin that becomes the Lead reads it.
   readonly layoutCrossfade?: boolean
   /**
-   * Called when an animation of this element starts (#257, Motion's prop): at each Retarget that
-   * starts one, a change of `animate` or of the variant it resolves (the entrance at mount
-   * included), or a gesture layer (`whileHover`, `whileTap`, `whileDrag`) turning on or off. With
-   * its `definition`: the variant name its base layer resolved when no gesture layer moved the
-   * target, else the target values. Not for a change that resolves the same target, a drag's
-   * momentum or return, or a layout animation (its own callbacks). Read at that Retarget.
+   * Called when an animation of the element starts, with what it animates to: the variant name, or
+   * the values. Not for a layout animation, which has its own. Solid 1's.
    */
+  // #257: at each Retarget that starts one (animate, its variant, a gesture layer turning on or off).
+  // Not for a same-target change, a drag's momentum or return. Read at that Retarget.
   readonly onAnimationStart?: (definition: WardicAnimationDefinition) => void
   /**
-   * Called when that animation lands (#257, Motion's prop), with the same `definition`: once every
-   * key it moves has settled. Not for one the next Retarget interrupted, which completes instead.
-   * Read at the Retarget that started it.
+   * Called when that animation lands, with the same definition, once every value it moves has
+   * settled. Not for one interrupted by a new target. Solid 1; on Solid 2, the element's ward gives
+   * `next("settled")`.
    */
+  // #257. Read at the Retarget that started it.
   readonly onAnimationComplete?: (definition: WardicAnimationDefinition) => void
-  // Motion's gesture callbacks (#273, ADR-0047): Motion's `(event, info)`, the DOM's `PointerEvent`
-  // first, called at the event, with `info.point` in the viewport (not Motion's page). A hover's or a
-  // tap's starts its recognizer, as a `while*` does, set at mount or later. Solid 1's: Solid 2 hears the
-  // same through `next(name)`. One that throws is reported, and the gesture goes on.
-  /** The pointer came over the element (touch never hovers). */
+  // Motion's gesture callbacks (#273, ADR-0047): `(event, info)`, the DOM's PointerEvent first, called
+  // at the event, `info.point` in the viewport (not Motion's page). A hover's or a tap's starts its
+  // recognizer, as a while* does, set at mount or later. Solid 1's: Solid 2 hears the same through
+  // next(name). One that throws is reported, and the gesture goes on.
+  /** Called when the pointer comes over the element (a touch never hovers). Solid 1; Solid 2's ward gives `"hoverStart"`. */
   readonly onHoverStart?: (event: PointerEvent, info: WardicPointInfo) => void
-  /** It left, or a press held on it while it left was let go. */
+  /** Called when the pointer leaves the element. Solid 1; Solid 2's ward gives `"hoverEnd"`. */
   readonly onHoverEnd?: (event: PointerEvent, info: WardicPointInfo) => void
   /**
-   * A press began on the element: a primary pointer's down, with no drag active, or Enter or Space
-   * going down while it has focus (a **Keyboard press**, #427: `info.input` says which).
+   * Called when a press begins on the element: a pointer going down, or Enter or Space while it has
+   * focus (`info.input` says which). Solid 1; Solid 2's ward gives `"pressStart"`.
    */
+  // Keyboard presses: #427.
   readonly onTapStart?: (event: WardicPressEvent, info: WardicPressInfo) => void
-  /** That press ended in a release on the element or inside it, or its key coming up. */
+  /** Called when that press ends on the element: a release on it, or its key coming up. Solid 1; Solid 2's ward gives `"tap"`. */
   readonly onTap?: (event: WardicPressEvent, info: WardicPressInfo) => void
   /**
-   * It ended elsewhere, or was cancelled; a key's, when the element lost focus. A press a drag took
-   * over is neither a tap nor a cancel.
+   * Called when that press ends anywhere else, or is cancelled. A press a drag took over is neither a
+   * tap nor a cancel. Solid 1; Solid 2's ward gives `"tapCancel"`.
    */
   readonly onTapCancel?: (event: WardicPressEvent, info: WardicPressInfo) => void
-  /** A drag of the element started, past its threshold. */
+  /** Called when a drag of the element starts. Solid 1; Solid 2's ward gives `"dragStart"`. */
   readonly onDragStart?: (event: PointerEvent, info: WardicDragInfo) => void
-  /** That drag moved: its start, and each move after. */
+  /** Called as the drag moves: at its start, and each move after. Solid 1; Solid 2's ward gives `"drag"`. */
   readonly onDrag?: (event: PointerEvent, info: WardicDragInfo) => void
-  /** That drag ended at its release. */
+  /** Called when the drag is let go. Solid 1; Solid 2's ward gives `"dragEnd"`. */
   readonly onDragEnd?: (event: PointerEvent, info: WardicDragInfo) => void
-  /** The drag's release came to rest on its own: its momentum or its spring back, or at once in place. Not one a grab stopped. */
+  /** Called when the element comes to rest after it's let go. Not when a new grab stops it. Solid 1; Solid 2's ward gives `"dragTransitionEnd"`. */
   readonly onDragTransitionEnd?: () => void
-  /** With `dragDirectionLock`, the axis a drag locked to, at its start, before `onDragStart` (Motion's). */
+  /** With `dragDirectionLock`: called with the axis a drag locked to, before `onDragStart`. Solid 1; Solid 2's ward gives `"directionLock"`. */
   readonly onDirectionLock?: (axis: "x" | "y") => void
-  /**
-   * The element came into view, as `viewport` says (Motion's, #273), with the browser's own
-   * `IntersectionObserverEntry`. An element that starts out of view tells nothing until it enters.
-   */
+  /** Called when the element comes into view, as `viewport` defines it, with the browser's `IntersectionObserverEntry`. Solid 1; Solid 2's ward gives `"viewportEnter"`. */
   readonly onViewportEnter?: (entry: IntersectionObserverEntry) => void
-  /** It left the view (Motion's). With `viewport.once`, never after its first entry. */
+  /** Called when the element leaves the view. With `viewport.once`, never after the first entry. Solid 1; Solid 2's ward gives `"viewportLeave"`. */
   readonly onViewportLeave?: (entry: IntersectionObserverEntry) => void
   /**
-   * A pan's session began: a primary pointer went down on the element (Motion's pan). A pan moves
-   * nothing; once started, it counts as a drag for the element's press and hover: a press it took
-   * over is neither a tap nor a cancel (Wardic's rule, ADR-0047). It sets no `touch-action`: on a
-   * touch screen, give the element one (`pan-y` for a sideways pan in a scrolling page), or the
-   * browser's scroll cancels it.
+   * Called when a pointer goes down on the element, ready to pan. A pan moves nothing itself: read
+   * its offset and velocity in `onPan`. On a touch screen, give the element a `touch-action`, such as
+   * `pan-y` for a sideways pan, or the page's scroll takes the gesture. Solid 1; Solid 2's ward gives
+   * `"panSessionStart"`.
    */
+  // Once started, a pan counts as a drag for the element's press and hover: a press it took over is
+  // neither a tap nor a cancel (ADR-0047).
   readonly onPanSessionStart?: (event: PointerEvent, info: WardicPointInfo) => void
-  /** That pan started, past its threshold. */
+  /** Called when a pan starts, past its threshold. Solid 1; Solid 2's ward gives `"panStart"`. */
   readonly onPanStart?: (event: PointerEvent, info: WardicDragInfo) => void
-  /** That pan moved: its start, and each move after. */
+  /** Called as the pan moves: at its start, and each move after. Solid 1; Solid 2's ward gives `"pan"`. */
   readonly onPan?: (event: PointerEvent, info: WardicDragInfo) => void
-  /** That pan ended at its release, or was cancelled. Only a pan that started. */
+  /** Called when a pan that started ends, or is cancelled. Solid 1; Solid 2's ward gives `"panEnd"`. */
   readonly onPanEnd?: (event: PointerEvent, info: WardicDragInfo) => void
   /**
-   * Called when a layout animation of this element starts (#191, ADR-0039, Motion's prop): at the
-   * frame where it takes its first step, after that frame is painted. A restart fires it again;
-   * restarts in one task are one. A handover's is the new Lead's. No call when nothing animates (a
-   * `layoutRoot`'s snap, a Layout mode with nothing to move). Read when it fires.
+   * Called when a layout animation of the element starts moving. Not when there's nothing to move.
+   * Solid 1; Solid 2's ward gives `"layoutStart"`.
    */
+  // #191, ADR-0039: at the frame of its first step, after it's painted. A restart fires it again;
+  // restarts in one task are one. A handover's is the new Lead's.
   readonly onLayoutAnimationStart?: () => void
   /**
-   * Called when a layout animation of this element lands on its own (#191, ADR-0039, Motion's prop):
-   * at the frame it lands. Not for one a restart interrupted, a window resize finished early, or an
-   * unmount cut off, so a start isn't always followed by a complete; `animateLayout`'s `onSettled`
-   * reports a change's end however it went. Read when it fires.
+   * Called when a layout animation of the element lands. Not for one interrupted or cut short, so a
+   * start isn't always followed by a complete: `animateLayout`'s `onSettled` tells a change's end
+   * however it went. Solid 1; Solid 2's ward gives `"layoutComplete"`.
    */
+  // #191, ADR-0039.
   readonly onLayoutAnimationComplete?: () => void
   /**
-   * Called once a frame in which Wardic changed the element's values, after that frame's commits
-   * (#233, Motion's `onUpdate`), with every value it holds for the element, before it's drawn (`x`
-   * as a number). `latest` is one object per element, reused: read it during the call, copy it to
-   * keep it. Whether the element reports is read once, at mount; the function is read each call. A
-   * signal it sets paints in the next frame. For one key, `ward.value(key)` costs less.
+   * Called once a frame in which the element's values changed, with every value it holds (`x` as a
+   * number). The object is reused: read it during the call, or copy it. For one value, `ward.read(key)`
+   * on Solid 2, or `ward.value(key)` on Solid 1, costs less.
    */
+  // #233. After that frame's commits, before it's drawn. Whether it reports is read once at mount; the
+  // function at each call. A signal it sets paints in the next frame.
   readonly onUpdate?: (latest: Readonly<Record<string, number | string>>) => void
   /**
-   * The element's whole transform, built from its values and the one Wardic would draw (#443, a
-   * **Transform template**, Motion's prop). What it returns is the element's transform wherever it's
-   * drawn: at rest, animating, on a server, in its Appear animation, projected by a layout animation,
-   * and held for a Measure pass, so a static part of it, such as centring, is measured and stays
-   * through the flight. See {@link WardicTransformTemplate} for what it's handed. Whether the element
-   * has one is read at mount; the function is read each frame, and another one is drawn at the next.
+   * Builds the element's whole `transform` from its values and the one Wardic would draw, wherever
+   * it's drawn: at rest, animating, on the server and during a layout animation.
    *
-   * ```tsx
-   * <wardic.div layoutId="modal" transformTemplate={(_, generated) => `translate(-50%, -50%) ${generated}`} />
-   * ```
+   * @example transformTemplate={(_, generated) => `translate(-50%, -50%) ${generated}`}
    */
+  // #443, a Transform template. See WardicTransformTemplate for what it's handed. Whether it has one is
+  // read at mount; the function each frame.
   readonly transformTemplate?: WardicTransformTemplate
-  /**
-   * Called as each layout measure that measures this element begins (#443, Motion's prop), before
-   * its transform is held for the read: for a layout element (`layout`, `layoutId`), resize-blocked
-   * and instant measures included. Whether it's given is read at mount; the function each call. A
-   * throw is reported, and the measure goes on.
-   */
+  /** Called as each layout measure of this layout element begins, before it's measured. */
+  // #443. Resize-blocked and instant measures included. A throw is reported, and the measure goes on.
   readonly onBeforeLayoutMeasure?: () => void
   /**
-   * Called with this layout element's box each layout measure measures it (#443, Motion's prop), and
-   * its box before, `undefined` at its first: each axis's `min` and `max` in the page's pixels, its
-   * transforms left out (Motion's layout box). After the read, before any animation starts.
-   * Whether it's given is read at mount; the function each call. A throw is reported.
+   * Called with this layout element's box each time it's measured, and its box before (`undefined`
+   * the first time): each axis's `min` and `max` in page pixels, its transforms left out.
    */
+  // #443: after the read, before any animation starts. A throw is reported.
   readonly onLayoutMeasure?: (box: WardicLayoutBox, prev: WardicLayoutBox | undefined) => void
   /**
-   * `false` keeps this element at its Starting style until mount during a server render, when the
-   * provider would start its mount animation in CSS from first paint (an Appear animation, #48,
-   * ADR-0044), for an animation that should start only once the page responds. Read on the server,
-   * once; the provider's `appear` turns it off for every element.
+   * `false`: on a server-rendered page, this element's entrance waits for the JavaScript instead of
+   * playing from the first paint. The provider's `appear` sets it for every element.
+   *
+   * @see https://wardic.dev/guides/server-rendering
    */
+  // #48, ADR-0044. Read on the server, once.
   readonly appear?: boolean
 }
