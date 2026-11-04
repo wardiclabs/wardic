@@ -1,0 +1,59 @@
+---
+title: Start on Solid 2
+description: Install Wardic in a Solid 2 app, add the provider, and animate your first element.
+---
+
+# Start on Solid 2
+
+Wardic's binding for Solid 2 is `@wardic/solid/unstable/v2`: the same elements and props as Solid 1's, built on Solid 2's reactivity. It stays outside semver until Solid 2 itself is stable.
+
+## Install
+
+```sh
+npm install @wardic/solid @wardic/dom effect solid-js@next @solidjs/web@next
+```
+
+## The provider
+
+Every animated element sits under one `WardicProvider`. It takes the environment Wardic runs in, `DomLive` in a browser, and the **Features** its elements have: `domAnimation` is hover, press, focus and in-view.
+
+```tsx
+import { DomLive } from "@wardic/dom"
+import { domAnimation, WardicProvider } from "@wardic/solid/unstable/v2"
+
+export default function App() {
+  return (
+    <WardicProvider env={DomLive} features={[domAnimation]}>
+      <Page />
+    </WardicProvider>
+  )
+}
+```
+
+## Your first element
+
+A `w.*` element animates from `initial` to `animate`, and back as its state changes:
+
+```tsx
+import { w } from "@wardic/solid/unstable/v2"
+
+export function Card() {
+  return <w.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} whileHover={{ scale: 1.03 }} />
+}
+```
+
+## Only what a page uses
+
+A page that drags or lays out brings `drag` or `layout` itself, through `LazyWardic`, so the pages that don't never load them:
+
+```tsx
+import { drag, LazyWardic, w } from "@wardic/solid/unstable/v2"
+
+export function Board() {
+  return (
+    <LazyWardic features={[drag]}>
+      <w.div drag />
+    </LazyWardic>
+  )
+}
+```
