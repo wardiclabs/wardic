@@ -108,6 +108,8 @@ import {
   takesFlowSpace,
   transformStyleFrom,
   transitionRunning,
+  holdUnstuck,
+  releaseUnstuck,
 } from "./measure.ts"
 import { DEFAULT_DRAG_TRANSITION, DEFAULT_LAYOUT_TRANSITION, type DragTransition, type LayoutTransition } from "./projection-defaults.ts"
 import { counted, watchPage, type Watched } from "./content-watch.ts"
@@ -1517,17 +1519,23 @@ const ZERO_POINT: Point.Point = { x: 0, y: 0 }
 /** No nodes: the depth order before its first build, and once dropped (#418). */
 const NO_NODES: ReadonlyArray<NodeState> = []
 
-/** A container whose scroll is folded out of a node's box, and its scroll at that pass. */
+/**
+ * A container whose scroll is folded out of a node's box, and its scroll at that pass. A
+ * `position: sticky` element is one too (ADR-0012, *Amendment (#578)*): its scroll is its offset
+ * from its static place, negated, so it comes out as a scroll's does.
+ */
 interface FoldedContainer {
   readonly element: HTMLElement
   readonly scroll: Point.Point
+  readonly sticky: boolean
 }
 
 /**
  * The scroll folded out of a node's box (ADR-0012, *Amendment (Reorder)*): every
- * container between it and the page that can scroll, nearest first, with their summed
- * scroll, up to the first `position: fixed` element (a scroll root: nothing outside it
- * folds), and whether the page's scroll folds too (no scroll root on the way).
+ * container between it and the page that can scroll, and every sticky element (*Amendment
+ * (#578)*), nearest first, with their summed scroll, up to the first `position: fixed`
+ * element (a scroll root: nothing outside it folds), and whether the page's scroll folds too
+ * (no scroll root on the way).
  */
 interface Fold {
   readonly containers: ReadonlyArray<FoldedContainer>
@@ -1535,6 +1543,9 @@ interface Fold {
   readonly y: number
   readonly root: boolean
 }
+
+/** No sticky element's offset read: a pass that met none, or before the first (#578). */
+const NO_STICKY_SHIFTS: ReadonlyMap<Element, Point.Point> = new Map()
 
 /** No container, the page's scroll folds: a node at the top level. */
 const ROOT_FOLD: Fold = { containers: [], x: 0, y: 0, root: true }
@@ -3025,10 +3036,11 @@ export const makeProjectionSystem = (
     })
 
   /**
-   * Whether `el` is `position: fixed` now (ADR-0012, *Amendment (#7)*): read from its live
-   * declaration each pass, a property read, so an element switching it is seen. Read phase only.
+   * `el`'s `position` now: `fixed` makes it a scroll root (ADR-0012, *Amendment (#7)*), `sticky`
+   * folds its offset (*Amendment (#578)*). Read from its live declaration each pass, a property read
+   * once for both, so an element switching it is seen. Read phase only.
    */
-  const isFixedNow = (el: Element): boolean => computedOf(el).position === "fixed"
+  const positionOf = (el: Element): string => computedOf(el).position
 
   /** The twins that carry paint deltas (ADR-0012, *Amendment (#136)*): a pass that moves one sets them again. */
   const painted = new Set<NodeState>()
@@ -3039,12 +3051,18 @@ export const makeProjectionSystem = (
    */
   let passScroll: Point.Point = ZERO_POINT
 
+  /** Each sticky element's offset from its static place this pass (#578): read once a pass, all at once. */
+  let stickyShifts: ReadonlyMap<Element, Point.Point> = NO_STICKY_SHIFTS
+  /** The sticky elements a fold walk met before their offsets were read this pass (#578). */
+  const stickyMet = new Set<HTMLElement>()
+
   /**
    * The fold of everything from `el` up to the page (inclusive of `el`), memoized per
    * pass by element so the nodes under one container share it and each container's
    * scroll is read once. A `layoutScroll` node contributes its sampled scroll and is a
    * scroll root when fixed; any other element contributes its scroll when it can
-   * scroll, and is a scroll root when it is `position: fixed`. Read phase only.
+   * scroll, and is a scroll root when it is `position: fixed`. A sticky element contributes
+   * its offset too (#578). Read phase only.
    */
   const foldFrom = (el: HTMLElement | null, memo: Map<Element, Fold>): Fold => {
     if (el === null) return ROOT_FOLD
@@ -3053,16 +3071,63 @@ export const makeProjectionSystem = (
     const hit = memo.get(el)
     if (Predicate.isNotUndefined(hit)) return hit
     const node = elementToNode.get(el)
+    const position = positionOf(el)
     // A `layoutScroll` node holds its own scroll and whether it's a scroll root; any other element is read.
-    if (Predicate.isNotUndefined(node) && node.isScroll) return foldAt(el, memo, node.scroll, node.isScrollRoot)
-    return foldAt(el, memo, readScrollOf(el), isFixedNow(el))
+    if (Predicate.isNotUndefined(node) && node.isScroll) return foldAt(el, memo, node.scroll, node.isScrollRoot, position)
+    return foldAt(el, memo, readScrollOf(el), position === "fixed", position)
   }
 
-  /** `el`'s fold, kept in `memo`: its scroll, if it scrolls, on top of the fold above it, unless it stops the walk. */
-  const foldAt = (el: HTMLElement, memo: Map<Element, Fold>, scroll: Point.Point | undefined, stop: boolean): Fold => {
-    const fold = withScroll(el, scroll, foldAbove(el, memo, stop))
+  /**
+   * `el`'s fold, kept in `memo`: its scroll, if it scrolls, and its offset, if it's sticky, on top
+   * of the fold above it, unless it stops the walk.
+   */
+  const foldAt = (el: HTMLElement, memo: Map<Element, Fold>, scroll: Point.Point | undefined, stop: boolean, position: string): Fold => {
+    const fold = withSticky(el, stickyOf(el, position), withScroll(el, scroll, foldAbove(el, memo, stop)))
     memo.set(el, fold)
     return fold
+  }
+
+  /**
+   * `el`'s offset from its static place this pass, when it's `position: sticky` (ADR-0012,
+   * *Amendment (#578)*): read live, as `position: fixed` is. Met before this pass read the
+   * offsets, it's noted for the read, and 0 meanwhile. Read phase only.
+   */
+  const stickyOf = (el: HTMLElement, position: string): Point.Point | undefined => {
+    if (position !== "sticky") return undefined
+    const read = stickyShifts.get(el)
+    if (Predicate.isNotUndefined(read)) return read
+    stickyMet.add(el)
+    return ZERO_POINT
+  }
+
+  /**
+   * Each of `els`' offsets from its static place (#578): its box as it's drawn, less its box held
+   * unstuck. All held at once, so it costs one layout for them all, then one more after the release.
+   */
+  const readStickyShifts = (els: Iterable<HTMLElement>): Map<Element, Point.Point> => {
+    const list = Arr.fromIterable(els)
+    const stuck = Arr.map(list, (el) => el.getBoundingClientRect())
+    const holds = Arr.map(list, holdUnstuck)
+    let unstuck: ReadonlyArray<DOMRect> = []
+    try {
+      unstuck = Arr.map(list, (el) => el.getBoundingClientRect())
+    } finally {
+      releaseUnstuck(holds)
+    }
+    return new Map(Arr.map(list, (el, i) => [el, { x: stuck[i].left - unstuck[i].left, y: stuck[i].top - unstuck[i].top }] as const))
+  }
+
+  /** `el`'s offset from its static place now (#578): 0 once it isn't sticky. Outside the pass, a read of its own. */
+  const stickyShiftNow = (el: HTMLElement): Point.Point => {
+    if (positionOf(el) !== "sticky") return ZERO_POINT
+    return UndefinedOr.match(readStickyShifts([el]).get(el), { onUndefined: () => ZERO_POINT, onDefined: identity })
+  }
+
+  /** A container's scroll now: a scroller's scroll, or a sticky element's offset, negated (#578). */
+  const scrollNowOfElement = (container: FoldedContainer): Point.Point => {
+    if (Bool.not(container.sticky)) return measureScroll(container.element)
+    const offset = stickyShiftNow(container.element)
+    return { x: -offset.x, y: -offset.y }
   }
 
   /** The fold above `el`: none past a scroll root. */
@@ -3074,7 +3139,18 @@ export const makeProjectionSystem = (
   /** `above`, with `el`'s scroll added when it has one. */
   const withScroll = (el: HTMLElement, scroll: Point.Point | undefined, above: Fold): Fold => {
     if (Predicate.isUndefined(scroll)) return above
-    return { containers: [{ element: el, scroll }, ...above.containers], x: above.x + scroll.x, y: above.y + scroll.y, root: above.root }
+    return { containers: [{ element: el, scroll, sticky: false }, ...above.containers], x: above.x + scroll.x, y: above.y + scroll.y, root: above.root }
+  }
+
+  /**
+   * `above`, with `el`'s sticky offset taken out when it's sticky (ADR-0012, *Amendment (#578)*):
+   * a container whose scroll is the offset negated, there whether it's stuck or not, so getting
+   * stuck is no switch of frame.
+   */
+  const withSticky = (el: HTMLElement, offset: Point.Point | undefined, above: Fold): Fold => {
+    if (Predicate.isUndefined(offset)) return above
+    const scroll = { x: -offset.x, y: -offset.y }
+    return { containers: [{ element: el, scroll, sticky: true }, ...above.containers], x: above.x + scroll.x, y: above.y + scroll.y, root: above.root }
   }
 
   /** An element's scroll, read, when its style lets it scroll. */
@@ -3131,13 +3207,13 @@ export const makeProjectionSystem = (
   const sameFrame = (a: Fold, b: Fold): boolean => {
     if (a.root !== b.root) return false
     if (a.containers.length !== b.containers.length) return false
-    return Arr.every(Arr.zip(a.containers, b.containers), ([p, q]) => p.element === q.element)
+    return Arr.every(Arr.zip(a.containers, b.containers), ([p, q]) => Bool.and(p.element === q.element, p.sticky === q.sticky))
   }
 
   /** A container's scroll this pass: as `current` sampled it, else read now, else as last sampled. Read phase only. */
   const scrollNowOf = (container: FoldedContainer, current: Fold): Point.Point => {
-    for (const c of current.containers) if (c.element === container.element) return c.scroll
-    if (container.element.isConnected) return measureScroll(container.element)
+    for (const c of current.containers) if (c.element === container.element && c.sticky === container.sticky) return c.scroll
+    if (container.element.isConnected) return scrollNowOfElement(container)
     return container.scroll
   }
 
@@ -3187,16 +3263,20 @@ export const makeProjectionSystem = (
     return foldScroll(node, read, documentScroll)
   }
 
-  /** `node`'s fold this pass: nothing when it is itself a scroll root, else its ancestors'. */
+  /**
+   * `node`'s fold this pass: nothing when it is itself a scroll root, else its ancestors', and its
+   * own offset when it's sticky itself (#578): its own scroll moves only what's inside it.
+   */
   const foldOf = (node: NodeState, memo: Map<Element, Fold>): Fold => {
-    if (isOwnRoot(node)) return NO_FOLD
-    return foldFrom(node.element.parentElement, memo)
+    const position = positionOf(node.element)
+    if (isOwnRoot(node, position)) return NO_FOLD
+    return withSticky(node.element, stickyOf(node.element, position), foldFrom(node.element.parentElement, memo))
   }
 
-  /** Whether `node` is itself a scroll root: a fixed `layoutScroll` node, or a plain one `position: fixed`, read live (ADR-0012, *Amendment (#7)*). */
-  const isOwnRoot = (node: NodeState): boolean => {
+  /** Whether `node` is itself a scroll root: a fixed `layoutScroll` node, or a plain one at `position` `fixed`, read live (ADR-0012, *Amendment (#7)*). */
+  const isOwnRoot = (node: NodeState, position: string): boolean => {
     if (node.isScroll) return node.isScrollRoot
-    return isFixedNow(node.element)
+    return position === "fixed"
   }
 
   /**
@@ -3293,9 +3373,9 @@ export const makeProjectionSystem = (
     return offsetBox(stable, { x: dx, y: dy })
   }
 
-  /** A scroll container's scroll: read live while it's in the document, else as last read. */
+  /** A container's scroll: read live while it's in the document, else as last read. A sticky element's offset too (#578). */
   const containerScrollOf = (container: Fold["containers"][number]): Point.Point => {
-    if (container.element.isConnected) return measureScroll(container.element)
+    if (container.element.isConnected) return scrollNowOfElement(container)
     return container.scroll
   }
 
@@ -3691,8 +3771,17 @@ export const makeProjectionSystem = (
       // Each node's fold (ADR-0012, *Amendment (Reorder)*), now every `layoutScroll`
       // sample is in: every container that can scroll, read once this pass.
       const before = Arr.map(ordered, (node) => node.fold)
-      const folds = new Map<Element, Fold>()
+      stickyShifts = NO_STICKY_SHIFTS
+      stickyMet.clear()
+      let folds = new Map<Element, Fold>()
       for (const node of ordered) node.fold = foldOf(node, folds)
+      // A sticky element on the way (*Amendment (#578)*): every one's offset read at once, and the
+      // folds taken again with them. A page with none walks once, as before.
+      if (stickyMet.size > 0) {
+        stickyShifts = readStickyShifts(stickyMet)
+        folds = new Map<Element, Fold>()
+        for (const node of ordered) node.fold = foldOf(node, folds)
+      }
       // A scroll root that switched, or a scrolled container gained or lost (ADR-0012, *Amendment
       // (#7)*): each node's stored boxes are carried into its new frame, so the switch moves nothing.
       for (const [node, old] of Arr.zip(ordered, before)) carryAcrossFrames(node, old, documentScroll)

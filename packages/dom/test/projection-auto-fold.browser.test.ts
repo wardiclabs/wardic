@@ -370,3 +370,125 @@ describe("every scrollable ancestor is folded (ADR-0012, Amendment (Reorder))", 
     e.dispose()
   })
 })
+
+/**
+ * A page 3,000 px tall with a 100 px spacer, then a `position: sticky` element (`css`, after
+ * `position:sticky;top:0`) holding a column of `n` flow children.
+ */
+const stickyPage = (n: number, css = "") => {
+  const page = document.createElement("div")
+  page.style.cssText = "position:relative;height:3000px"
+  stage().append(page)
+  const spacer = document.createElement("div")
+  spacer.style.cssText = "height:100px"
+  page.append(spacer)
+  const sticky = document.createElement("div")
+  sticky.style.cssText = `position:sticky;top:0;width:220px;${css}`
+  page.append(sticky)
+  return { page, spacer, sticky, children: column(sticky, n) }
+}
+
+describe("a sticky element's offset is folded (ADR-0012, Amendment (#578))", () => {
+  it("ST1: nodes inside a sticky element, stuck by a 500 px page scroll between passes, seed nothing", async () => {
+    const e = makeEngine(makeSink().sink)
+    const { children } = stickyPage(3)
+    const handles = await mount(e.system, children)
+    window.scrollTo(0, 500)
+    expect(children[0]!.getBoundingClientRect().top, "stuck at the top").toBeCloseTo(0, 0)
+    expect((await unrelatedPass(e, handles[0]!))?.seeded).toBe(0)
+    e.dispose()
+  })
+
+  it("ST2: a node that is itself sticky: a page scroll between passes seeds nothing", async () => {
+    const e = makeEngine(makeSink().sink)
+    const { sticky } = stickyPage(2)
+    const [handle] = await mount(e.system, [sticky])
+    window.scrollTo(0, 500)
+    expect((await unrelatedPass(e, handle!))?.seeded).toBe(0)
+    e.dispose()
+  })
+
+  it("ST3: a sticky element that scrolls too, a docs sidebar: the page scrolled 500 and it scrolled 40, nothing seeds", async () => {
+    const e = makeEngine(makeSink().sink)
+    const { sticky, children } = stickyPage(8, "height:200px;overflow-y:auto")
+    const handles = await mount(e.system, children)
+    window.scrollTo(0, 500)
+    sticky.scrollTop = 40
+    expect((await unrelatedPass(e, handles[0]!))?.seeded).toBe(0)
+    e.dispose()
+  })
+
+  it("ST4: a sticky element inside a scroll container, stuck by its scroll: nothing seeds", async () => {
+    const e = makeEngine(makeSink().sink)
+    const box = scroller(stage(), "width:260px;height:300px;overflow:auto")
+    const spacer = document.createElement("div")
+    spacer.style.cssText = "height:120px"
+    box.append(spacer)
+    const sticky = document.createElement("div")
+    sticky.style.cssText = "position:sticky;top:0;width:220px"
+    box.append(sticky)
+    const tail = document.createElement("div")
+    tail.style.cssText = "height:900px"
+    box.append(tail)
+    const handles = await mount(e.system, column(sticky, 2))
+    box.scrollTop = 300
+    expect((await unrelatedPass(e, handles[0]!))?.seeded).toBe(0)
+    e.dispose()
+  })
+
+  it("ST5: across: a sticky element at left 0 in a horizontal scroller scrolled 200 px seeds nothing", async () => {
+    const e = makeEngine(makeSink().sink)
+    const box = scroller(stage(), "width:300px;height:120px;overflow:auto;white-space:nowrap")
+    const row = document.createElement("div")
+    row.style.cssText = "display:flex;width:1200px"
+    box.append(row)
+    const lead = document.createElement("div")
+    lead.style.cssText = "flex:none;width:100px;height:60px"
+    row.append(lead)
+    const sticky = document.createElement("div")
+    sticky.style.cssText = "position:sticky;left:0;flex:none;width:120px;height:80px"
+    row.append(sticky)
+    const handles = await mount(e.system, column(sticky, 1))
+    box.scrollLeft = 200
+    expect((await unrelatedPass(e, handles[0]!))?.seeded).toBe(0)
+    e.dispose()
+  })
+
+  it("ST6: a real move inside a stuck sticky element animates by that move alone", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const { children } = stickyPage(3)
+    const handles = await mount(e.system, children)
+    window.scrollTo(0, 500)
+    children[0]!.style.height = "80px"
+    const span = await unrelatedPass(e, handles[1]!)
+    expect(span?.seeded, "the taller one, and the two below it").toBe(3)
+    const first = sk.writes.find((w) => w.id === "n1" && w.ty !== 0)!
+    expect(first.ty, "from 30 px up, not by the scroll").toBeCloseTo(-30, 0)
+    e.dispose()
+  })
+
+  it("ST7: a sticky element pushed down in the flow (not stuck) carries its nodes, which animate by the push", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const { spacer, children } = stickyPage(2)
+    const handles = await mount(e.system, children)
+    spacer.style.height = "140px"
+    expect((await unrelatedPass(e, handles[0]!))?.seeded).toBe(2)
+    expect(sk.writes.find((w) => w.id === "n0" && w.ty !== 0)!.ty).toBeCloseTo(-40, 0)
+    e.dispose()
+  })
+
+  it("ST8: the read leaves the sticky element's inline style as it was", async () => {
+    const e = makeEngine(makeSink().sink)
+    const { sticky, children } = stickyPage(2, "top:12px !important;left:3px")
+    const before = sticky.getAttribute("style")
+    const handles = await mount(e.system, children)
+    window.scrollTo(0, 500)
+    await unrelatedPass(e, handles[0]!)
+    expect(sticky.getAttribute("style")).toBe(before)
+    expect(getComputedStyle(sticky).position).toBe("sticky")
+    e.dispose()
+  })
+
+})

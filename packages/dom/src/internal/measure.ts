@@ -262,6 +262,39 @@ export const releaseTransforms = (holds: ReadonlyArray<TransformHold>): void => 
     }))
 }
 
+/** The inline properties a sticky element is held unstuck through (#578). */
+const UNSTUCK: ReadonlyArray<readonly [string, string]> = [
+  ["position", "relative"],
+  ["top", "auto"],
+  ["right", "auto"],
+  ["bottom", "auto"],
+  ["left", "auto"],
+]
+
+/** A `position: sticky` element held at its static place for a read (#578), and what to put back. */
+export interface StickyHold {
+  readonly element: Holdable
+  /** Each held property's own inline value and priority (`""` for none). */
+  readonly saved: ReadonlyArray<readonly [string, string, string]>
+}
+
+/**
+ * Hold a `position: sticky` element at its static place (ADR-0012, *Amendment (#578)*):
+ * `position: relative` with every inset `auto`, inline and `!important`, so it's offset by
+ * nothing and still positioned, the containing block of what's absolute inside it. Neither
+ * the flow around it nor the scroll moves: a sticky element's offset takes no space.
+ */
+export const holdUnstuck = (el: Holdable): StickyHold => {
+  const inline = el.style
+  const saved = Arr.map(UNSTUCK, ([property]) => [property, inline.getPropertyValue(property), inline.getPropertyPriority(property)] as const)
+  Arr.forEach(UNSTUCK, ([property, value]) => inline.setProperty(property, value, "important"))
+  return { element: el, saved }
+}
+
+/** Put back what {@link holdUnstuck} replaced. */
+export const releaseUnstuck = (holds: ReadonlyArray<StickyHold>): void =>
+  Arr.forEach(holds, (hold) => Arr.forEach(hold.saved, ([property, value, priority]) => restoreProperty(hold.element.style, property, value, priority)))
+
 /**
  * The document's scroll offset (the page/window scroll, ADR-0012, Motion's
  * `DocumentProjectionNode` root). Folded into every box unless it sits in a scroll
