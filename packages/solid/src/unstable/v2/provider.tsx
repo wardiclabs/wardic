@@ -171,7 +171,8 @@ const sectionOf = (
  * (`w.*`, `w.ward()`) below it have, beside their provider's and every `LazyWardic`'s between them,
  * as the Solid 1 binding's. Given at once, they're built the first time an element below asks;
  * loaded lazily, the load starts as it renders, on the client, and each Feature takes effect as it
- * arrives, from then on. A failed load is reported once. A server render loads nothing. `strict`
+ * arrives, from then on: a gesture or a drag (#551) starts then, while `layout` reaches only the
+ * elements that mount after it. A failed load is reported once. A server render loads nothing. `strict`
  * makes a Complete element below it an error in development. Both props are read once.
  */
 export function LazyWardic(props: { readonly features: FeaturesProp; readonly strict?: boolean | undefined; readonly children?: JSX.Element }): JSX.Element {

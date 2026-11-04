@@ -49,14 +49,17 @@ import { Atom } from "effect/reactivity"
 import {
   type Accessor,
   type Component,
+  createComputed,
   createEffect,
   createMemo,
   createSignal,
   createUniqueId,
   DEV,
+  getOwner,
   type JSX,
   on,
   onCleanup,
+  runWithOwner,
   untrack,
 } from "solid-js"
 import { type ControlsChange, controlledConfigOf, controlledElement, isAnimationControls, subscribe, uncontrolledOf, type WardicAnimationControls } from "./animation-controls.ts"
@@ -104,6 +107,7 @@ import {
   flagStartingStyle,
   isLayoutNode,
   madeWith,
+  type ElementSpineOptions,
   makeElementSpine,
   makeReuse,
   exitConfigOf,
@@ -674,59 +678,91 @@ export function runSpine(opts: RunSpineOptions): void {
       const [dragging, setDragging] = createSignal(false)
       // Its hold on `x`/`y`, for the spine's Retargets (#340).
       let dragTrack: DragTrack | undefined
+      // Its track's holder while `drag` is on its way (#551): the spine reads the track there.
+      let late: { track: DragTrack | undefined } | undefined
       // Its section's `drag` Feature drives it (#511): without it, `drag` does nothing, and development
       // says so once, unless `drag` is on its way.
       const dragGesture = serviceIn(untrack(features.services), DragGesture)
       if (DEV && Predicate.isNotUndefined(dragCfg) && Predicate.isUndefined(dragGesture) && Bool.not(untrack(features.pending))) {
         useFeatureRegistry().warnOnce("drag", missingMessage("drag", GESTURE_WORDS.drag, "@wardic/solid"))
       }
-      if (Predicate.isNotUndefined(dragCfg) && Predicate.isNotUndefined(dragGesture)) {
-        const c0d = untrack(cfg)
-        // Motion's `dragConstraints` (#273): a box of numbers, or a container measured against the element.
-        const constraints = dragGesture.constraintsOf(c0d.dragConstraints, element, () => untrack(cfg).onMeasureDragConstraints, pagePoint)
-        const trackConfig: DragTrackConfig = {
-          axis: dragCfg,
-          constraints: constraints.constraints,
-          elastic: c0d.dragElastic,
-          momentum: c0d.dragMomentum,
-          snapToOrigin: c0d.dragSnapToOrigin,
-          propagation: c0d.dragPropagation,
-          directionLock: c0d.dragDirectionLock,
-          transition: dragTransition,
-          listen: c0d.dragListener,
+      if (Predicate.isNotUndefined(dragCfg)) {
+        // What the track is made with, copied into this block: a closure here holds only these, so an
+        // element that never drags keeps none of them (#551).
+        const axis = dragCfg
+        const transition = dragTransition
+        const projection = layoutHandle
+        const setDrag = draggingWithWillChange(live, setDragging)
+        const trackWith = (dragGesture: DragGesture["Service"]): DragTrack => {
+          const c0d = untrack(cfg)
+          // Motion's `dragConstraints` (#273): a box of numbers, or a container measured against the element.
+          const constraints = dragGesture.constraintsOf(c0d.dragConstraints, element, () => untrack(cfg).onMeasureDragConstraints, pagePoint)
+          const trackConfig: DragTrackConfig = {
+            axis,
+            constraints: constraints.constraints,
+            elastic: c0d.dragElastic,
+            momentum: c0d.dragMomentum,
+            snapToOrigin: c0d.dragSnapToOrigin,
+            propagation: c0d.dragPropagation,
+            directionLock: c0d.dragDirectionLock,
+            transition,
+            listen: c0d.dragListener,
+          }
+          return runDragTrackWith(dragGesture.drive, {
+            runtime,
+            gate,
+            id,
+            element,
+            snapshot,
+            recordFrame,
+            // A drag's start turns its `style`'s will-change value on (#443).
+            setDragging: setDrag,
+            mapPoint: pagePoint,
+            config: trackConfig,
+            skipAnimations,
+            container: constraints.container,
+            controls: c0d.dragControls,
+            // ADR-0016: a drag on a LAYOUT node feeds the projection, not its own x/y
+            // (drawn on top, #363), so the dragged item follows the pointer and FLIPs to
+            // its slot on release. Free drag (no handle) is unchanged.
+            ...UndefinedOr.match(projection, { onUndefined: () => ({}), onDefined: (node) => ({ projection: node }) }),
+            ...UndefinedOr.match(internal.dragAxis, { onUndefined: () => ({}), onDefined: (axisAt) => ({ axisAt }) }),
+            // Its samples to a `<Reorder>` item's group, and to the app's drag callbacks (#273).
+            onSample: UndefinedOr.match(internal.onDragSample, {
+              onUndefined: () => gesturesOf().dragged,
+              onDefined: (onSample) => {
+                const { dragged } = gesturesOf()
+                return (sample: Drag.Sample) => {
+                  onSample(sample)
+                  dragged(sample)
+                }
+              },
+            }),
+            onReleaseEnd: gesturesOf().released,
+          })
         }
-        dragTrack = runDragTrackWith(dragGesture.drive, {
-          runtime,
-          gate,
-          id,
-          element,
-          snapshot,
-          recordFrame,
-          // A drag's start turns its `style`'s will-change value on (#443).
-          setDragging: draggingWithWillChange(live, setDragging),
-          mapPoint: pagePoint,
-          config: trackConfig,
-          skipAnimations,
-          container: constraints.container,
-          controls: c0d.dragControls,
-          // ADR-0016: a drag on a LAYOUT node feeds the projection, not its own x/y
-          // (drawn on top, #363), so the dragged item follows the pointer and FLIPs to
-          // its slot on release. Free drag (no handle) is unchanged.
-          ...UndefinedOr.match(layoutHandle, { onUndefined: () => ({}), onDefined: (projection) => ({ projection }) }),
-          ...UndefinedOr.match(internal.dragAxis, { onUndefined: () => ({}), onDefined: (axisAt) => ({ axisAt }) }),
-          // Its samples to a `<Reorder>` item's group, and to the app's drag callbacks (#273).
-          onSample: UndefinedOr.match(internal.onDragSample, {
-            onUndefined: () => gesturesOf().dragged,
-            onDefined: (onSample) => {
-              const { dragged } = gesturesOf()
-              return (sample: Drag.Sample) => {
-                onSample(sample)
-                dragged(sample)
-              }
-            },
-          }),
-          onReleaseEnd: gesturesOf().released,
-        })
+        if (Predicate.isNotUndefined(dragGesture)) dragTrack = trackWith(dragGesture)
+        // `drag` on its way (#551): the track starts as it arrives, from then on, as a gesture's
+        // recognizer does, under this owner; nothing before it is replayed. A load that brings none
+        // gets development's word then.
+        if (Predicate.isUndefined(dragGesture) && untrack(features.pending)) {
+          const held: { track: DragTrack | undefined } = { track: undefined }
+          late = held
+          const owner = getOwner()
+          const registry = useFeatureRegistry()
+          const section = features
+          createComputed(() => {
+            if (Predicate.isNotUndefined(held.track)) return
+            UndefinedOr.match(serviceIn(section.services(), DragGesture), {
+              onDefined: (arrived) => {
+                held.track = runWithOwner(owner, () => untrack(() => trackWith(arrived)))
+              },
+              onUndefined: () => {
+                if (DEV && Bool.not(section.pending())) registry.warnOnce("drag", missingMessage("drag", GESTURE_WORDS.drag, "@wardic/solid"))
+              },
+            })
+          })
+        }
       }
 
       // Recognizers over the live element, each started the first time its config wants it, as
@@ -817,7 +853,7 @@ export function runSpine(opts: RunSpineOptions): void {
 
       // The spine (`spine.ts`): on each target change, end the running legs and reseed a fresh
       // primitive from the Snapshot (velocity-preserving), into the gate.
-      const spine = makeElementSpine({
+      const spineOptions: ElementSpineOptions = {
         runtime,
         gate,
         id,
@@ -846,7 +882,14 @@ export function runSpine(opts: RunSpineOptions): void {
         handoff,
         // Motion's onAnimationStart / onAnimationComplete (#257).
         animation: animationCallbacks(runtime, id),
-      })
+      }
+      // A track that starts once `drag` arrives (#551) is read at each Retarget from then on: only
+      // then is `drag` a getter, so an element that has it at mount, or never wants it, pays nothing.
+      if (Predicate.isNotUndefined(late)) {
+        const held = late
+        Object.defineProperty(spineOptions, "drag", { get: () => held.track })
+      }
+      const spine = makeElementSpine(spineOptions)
       onCleanup(spine.dispose)
       // Its Imperative animations (#433) go through its spine while it's mounted.
       onCleanup(registerAnimatable(element, spine))

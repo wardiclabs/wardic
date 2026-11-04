@@ -9,6 +9,8 @@
 //   input. Without `drag`, `drag` does nothing, and development says so.
 // - FGV5 (#525), an element given no gesture key watches for a late gesture only from its first want:
 //   its `next("hoverStart")`, asked before `domAnimation` arrives lazily, is heard once it's here.
+// - FGV6 (#551), `drag` loaded lazily: an element mounted while it's on its way drags once it arrives,
+//   a drag before then doing nothing; a load that brings no `drag` gets development's word then.
 import type { JSX } from "@solidjs/web"
 import * as InputSource from "@wardic/core/InputSource"
 import { DomLive } from "@wardic/dom"
@@ -188,5 +190,69 @@ describe("The gesture Features (#511), Solid 2", () => {
       await settle()
     })
     expect(lines.filter((l) => l.includes(word("drag"))), "one word").toHaveLength(1)
+  })
+  it("FGV6 (#551): `drag` loaded lazily: an element mounted while it's on its way drags once it's here, and a load without it says so then", async () => {
+    const input = Effect.runSync(TestInput.pushable())
+    let arrive!: () => void
+    const load: FeatureLoad = () =>
+      new Promise((resolve) => {
+        arrive = () => resolve([drag])
+      })
+    let el!: HTMLElement
+    let first!: ReturnType<typeof mount>
+    const lines = await logged(async () => {
+      first = mount(() => (
+        <WardicProvider env={input.layer.pipe(Layer.provideMerge(DomLive))}>
+          <LazyWardic features={load}>
+            <w.div ref={(n: HTMLElement) => (el = n)} style={BOX} drag="x" dragMomentum={false} />
+          </LazyWardic>
+        </WardicProvider>
+      ))
+      await settle()
+    })
+    expect(lines.filter((l) => l.includes(word("drag"))), "nothing said while the load is on its way").toEqual([])
+    const x0 = el.getBoundingClientRect().left
+    let t = 0
+    const push = (type: InputSource.PointerLikeEvent["type"], x: number): void => {
+      t += 20
+      Effect.runSync(input.push(InputSource.makePointerLikeEvent({ type, x, y: 0, timeStamp: t })))
+    }
+    const fling = (): void => {
+      push("down", 0)
+      for (let k = 1; k <= 5; k++) push("move", 20 * k)
+      push("up", 100)
+    }
+    fling()
+    await wait(100)
+    expect(el.getBoundingClientRect().left - x0, "a drag before it arrives does nothing").toBe(0)
+    arrive()
+    await wait(50)
+    fling()
+    await until(() => el.getBoundingClientRect().left - x0 > 90, 2000)
+    expect(el.getBoundingClientRect().left - x0, "dragged once it's here").toBeGreaterThan(90)
+
+    first.unmount()
+    // A load that brings no `drag`: nothing said while it's on its way, and one word once it's here.
+    let arriveHover!: () => void
+    const hoverOnly: FeatureLoad = () =>
+      new Promise((resolve) => {
+        arriveHover = () => resolve([hover])
+      })
+    const before = await logged(async () => {
+      mount(() => (
+        <WardicProvider env={DomLive}>
+          <LazyWardic features={hoverOnly}>
+            <w.div style={BOX} drag="x" />
+          </LazyWardic>
+        </WardicProvider>
+      ))
+      await settle()
+    })
+    expect(before.filter((l) => l.includes(word("drag"))), "nothing said while the load is on its way").toEqual([])
+    const after = await logged(async () => {
+      arriveHover()
+      await wait(50)
+    })
+    expect(after.filter((l) => l.includes(word("drag"))), "one word once it's here").toHaveLength(1)
   })
 })
