@@ -54,4 +54,4 @@ The scroll of every scrolling element around it, the page's under `position: fix
 
 ## The Feature
 
-Layout animations are the `layout` Feature. A page that lays out brings it through `<LazyWardic features={[layout]}>`, as the demos do, so pages that don't never load it. `<LayoutGroup>` and `<Reorder>` bring it themselves.
+Layout animations are the `layout` Feature. A page that lays out brings it through `<LazyWardic features={[layout]}>`, as the demos do, so pages that don't never load it. `<Reorder>` brings it itself. `<LayoutGroup>` brings it only for its own `layoutDependency`, so the layout elements under it still need it from a provider or a `LazyWardic`. See [Shipping less](/guides/features).
