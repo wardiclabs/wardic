@@ -38,3 +38,9 @@ next-env.d.ts
 # Each package's copy of the root's licence files, made by `bun run build` (#554).
 packages/*/LICENSE
 packages/*/THIRD_PARTY_NOTICES.md
+
+# The OpenAgents Control plugin's starter context and its config (#555): a contributor's own tooling,
+# none of it about Wardic. Kept on disk, not in the repo.
+.claude/context/
+.claude/.context-manifest.json
+.oac.json
