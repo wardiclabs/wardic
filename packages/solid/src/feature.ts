@@ -315,9 +315,9 @@ export const LAYOUT_PROPS = "A layout prop (`layout`, `layoutId`, `layoutScroll`
 
 /**
  * Development's word on a missing Feature (#511, ADR-0067 decision 7): what needed it, its import from
- * the binding's `entry`, and where to add it.
+ * the binding's `entry`, and where to add it. Not a Complete element, which a `strict` section makes
+ * an error (#581).
  */
 export const missingMessage = (feature: string, what: string, entry: string): string =>
   `wardic: ${what} needs the \`${feature}\` Feature, which no WardicProvider or LazyWardic above this element has. ` +
-  `Add it: \`import { ${feature} } from "${entry}"\`, then \`<WardicProvider features={[${feature}]}>\` or \`<LazyWardic features={[${feature}]}>\`; ` +
-  `or use a \`wardic.*\` element, which has every Feature.`
+  `Add it: \`import { ${feature} } from "${entry}"\`, then \`<WardicProvider features={[${feature}]}>\` or \`<LazyWardic features={[${feature}]}>\`.`

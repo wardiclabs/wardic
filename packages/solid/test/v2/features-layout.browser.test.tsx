@@ -78,6 +78,7 @@ describe("The layout Feature (#511), Solid 2", () => {
     const words = lines.filter((l) => l.includes(LAYOUT_WORD))
     expect(words, "one word for two elements").toHaveLength(1)
     expect(words[0]).toContain('import { layout } from "@wardic/solid/unstable/v2"')
+    expect(words[0], "no Complete element, which `strict` makes an error (#581)").not.toContain("wardic.*")
   })
 
   it("FLV2: `layout` given at once to the provider: a w.div animates its layout change, declared before it's built", async () => {
