@@ -2,7 +2,7 @@
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, m } from "motion/react"
 import { Select } from "radix-ui"
 import { Suspense, use, useState } from "react"
 
@@ -46,7 +46,7 @@ export function SortBy({ pieces }: { readonly pieces: Promise<ReadonlyArray<Prod
                 {/* position="popper" places the list against its button, and writes the edge it opens
                     from into this variable: it grows from there. */}
                 <Select.Content asChild forceMount position="popper" sideOffset={6}>
-                  <motion.div className="select-list" style={{ transformOrigin: "var(--radix-select-content-transform-origin)" }} {...grow}>
+                  <m.div className="select-list" style={{ transformOrigin: "var(--radix-select-content-transform-origin)" }} {...grow}>
                     <Select.Viewport>
                       {ORDERS.map((name) => (
                         <Select.Item key={name} value={name} className="select-item">
@@ -55,7 +55,7 @@ export function SortBy({ pieces }: { readonly pieces: Promise<ReadonlyArray<Prod
                         </Select.Item>
                       ))}
                     </Select.Viewport>
-                  </motion.div>
+                  </m.div>
                 </Select.Content>
               </Select.Portal>
             )}
@@ -84,12 +84,12 @@ function Pieces(props: { readonly pieces: Promise<ReadonlyArray<Product>>; reado
 function Card({ piece }: { readonly piece: Product }) {
   const photo = photoOf(piece.id)
   return (
-    <motion.li className="shop-item" layout>
+    <m.li className="shop-item" layout>
       <div className="photo">
         <img src={photo.small} srcSet={srcsetOf(photo)} sizes="(max-width: 640px) 50vw, 240px" width={photo.width} height={photo.height} alt={piece.name} />
       </div>
       <span className="name">{piece.name}</span>
       <span className="price">{formatPrice(piece.price)}</span>
-    </motion.li>
+    </m.li>
   )
 }

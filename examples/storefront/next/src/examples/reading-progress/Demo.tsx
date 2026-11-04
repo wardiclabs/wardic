@@ -1,6 +1,6 @@
 "use client"
 import { LAGOON_ARTICLE } from "@wardic/example-storefront-shared/stories"
-import { motion, useScroll, useTransform } from "motion/react"
+import { m, useScroll, useTransform } from "motion/react"
 import { useRef } from "react"
 
 export default function ReadingProgress() {
@@ -16,12 +16,12 @@ export default function ReadingProgress() {
     <div className="reading">
       <div className="reading-head">
         <strong>{LAGOON_ARTICLE.title}</strong>
-        <motion.span className="muted" aria-live="polite">
+        <m.span className="muted" aria-live="polite">
           {label}
-        </motion.span>
+        </m.span>
       </div>
       {/* The bar is the scroll itself, scaled across from its left edge: no animation of its own. */}
-      <motion.div className="reading-bar" style={{ scaleX: scrollYProgress }} />
+      <m.div className="reading-bar" style={{ scaleX: scrollYProgress }} />
       <div className="reading-panel" ref={panel} tabIndex={0} aria-label={LAGOON_ARTICLE.title}>
         {LAGOON_ARTICLE.sections.map((section) => (
           <section key={section.heading}>

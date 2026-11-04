@@ -1,7 +1,7 @@
 "use client"
 import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
-import { AnimatePresence, motion, useReducedMotionConfig } from "motion/react"
+import { AnimatePresence, m, useReducedMotionConfig } from "motion/react"
 import { useState } from "react"
 
 // The photo coming in arrives from the side you're heading to, and the one leaving goes out the
@@ -66,7 +66,7 @@ export default function Gallery() {
         {/* initial={false}: the first photo is there when the page opens; only changes slide. A new
             `key` makes a new photo: React unmounts the old one, which the presence keeps for its exit. */}
         <AnimatePresence custom={way} initial={false}>
-          <motion.img
+          <m.img
             key={at}
             className="gallery-photo"
             custom={way}

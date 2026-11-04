@@ -3,7 +3,7 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, m } from "motion/react"
 import { useEffect, useRef, useState } from "react"
 import { addToCart } from "~/lib/store.ts"
 
@@ -74,9 +74,9 @@ export default function Toasts() {
                 <span className="name">{product.name}</span>
                 <span className="price">{formatPrice(product.price)}</span>
               </div>
-              <motion.button className="button quiet" whileHover={{ y: -1 }} whileTap={{ scale: 0.96 }} onClick={() => buy(product)}>
+              <m.button className="button quiet" whileHover={{ y: -1 }} whileTap={{ scale: 0.96 }} onClick={() => buy(product)}>
                 Add to cart
-              </motion.button>
+              </m.button>
             </li>
           )
         })}
@@ -84,12 +84,12 @@ export default function Toasts() {
       <ol className="toasts" aria-live="polite" aria-label="Notifications">
         <AnimatePresence mode="popLayout" anchorX="right" anchorY="bottom">
           {toasts.map((toast) => (
-            <motion.li key={toast.id} className="toast" data-kind={toast.kind} layout {...toastMotion}>
+            <m.li key={toast.id} className="toast" data-kind={toast.kind} layout {...toastMotion}>
               <span>{toast.text}</span>
               <button className="icon-button" aria-label="Dismiss" onClick={() => dismiss(toast.id)}>
                 ✕
               </button>
-            </motion.li>
+            </m.li>
           ))}
         </AnimatePresence>
       </ol>

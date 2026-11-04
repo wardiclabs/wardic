@@ -1,7 +1,7 @@
 "use client"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import { type Collection, LOOKBOOK } from "@wardic/example-storefront-shared/stories"
-import { motion, useReducedMotionConfig, useScroll, useTransform } from "motion/react"
+import { m, useReducedMotionConfig, useScroll, useTransform } from "motion/react"
 import { type RefObject, useRef } from "react"
 
 export default function Parallax() {
@@ -32,11 +32,11 @@ function Banner({ collection, panel }: { readonly collection: Collection; readon
   const photo = photoOf(collection.photo)
   return (
     <section className="lookbook-banner" ref={banner}>
-      <motion.img className="lookbook-photo" style={{ y: photoY }} src={photo.large} srcSet={srcsetOf(photo)} sizes="(max-width: 640px) 100vw, 720px" alt="" />
-      <motion.div className="lookbook-words" style={{ y: wordsY }}>
+      <m.img className="lookbook-photo" style={{ y: photoY }} src={photo.large} srcSet={srcsetOf(photo)} sizes="(max-width: 640px) 100vw, 720px" alt="" />
+      <m.div className="lookbook-words" style={{ y: wordsY }}>
         <h3>{collection.title}</h3>
         <p>{collection.blurb}</p>
-      </motion.div>
+      </m.div>
     </section>
   )
 }

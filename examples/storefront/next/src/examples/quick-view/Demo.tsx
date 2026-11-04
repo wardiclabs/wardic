@@ -3,7 +3,7 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, motion } from "motion/react"
+import { AnimatePresence, m } from "motion/react"
 import { useEffect, useState } from "react"
 
 const SHELF = PRODUCTS.filter((product) => ["moon-vase", "celadon-bowl", "cut-carafe"].includes(product.id))
@@ -51,20 +51,20 @@ export default function QuickView() {
                 <span className="name">{product.name}</span>
                 <span className="price">{formatPrice(product.price)}</span>
               </div>
-              <motion.button className="button quiet" whileHover={{ y: -1 }} whileTap={{ scale: 0.96 }} onClick={() => setOpen(product)}>
+              <m.button className="button quiet" whileHover={{ y: -1 }} whileTap={{ scale: 0.96 }} onClick={() => setOpen(product)}>
                 Quick view
-              </motion.button>
+              </m.button>
             </li>
           )
         })}
       </ul>
       <AnimatePresence>
-        {open && <motion.div key="backdrop" className="backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: { delay: 0.16 } }} onClick={close} />}
+        {open && <m.div key="backdrop" className="backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0, transition: { delay: 0.16 } }} onClick={close} />}
         {open && (
           <div key={open.id} className="detail-frame">
-            <motion.article className="quick-view" role="dialog" aria-modal="true" aria-label={open.name} {...panel}>
+            <m.article className="quick-view" role="dialog" aria-modal="true" aria-label={open.name} {...panel}>
               <QuickViewBody piece={open} onClose={close} />
-            </motion.article>
+            </m.article>
           </div>
         )}
       </AnimatePresence>
@@ -92,14 +92,14 @@ function QuickViewBody({ piece, onClose }: { readonly piece: Product; readonly o
               dialog waits for them. Without it, they'd vanish with it. */}
           <AnimatePresence propagate>
             {shown.map((other) => (
-              <motion.li key={other.id} className="pairing" layout {...pairing}>
+              <m.li key={other.id} className="pairing" layout {...pairing}>
                 <img src={photoOf(other.id).small} width="40" height="40" alt="" />
                 <span className="name">{other.name}</span>
                 <span className="price">{formatPrice(other.price)}</span>
                 <button className="icon-button" aria-label={`Not for me: ${other.name}`} onClick={() => setDismissed([...dismissed, other.id])}>
                   ✕
                 </button>
-              </motion.li>
+              </m.li>
             ))}
           </AnimatePresence>
         </ul>

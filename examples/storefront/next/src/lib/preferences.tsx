@@ -1,14 +1,15 @@
 "use client"
 /**
  * The visitor's preferences (#296 Q12): the theme, and "Reduce motion", which sets `MotionConfig`'s
- * `reducedMotion`, so anyone can see the reduced version of every demo (#366 Q7).
+ * `reducedMotion`, so anyone can see the reduced version of every demo (#366 Q7). And the app's one
+ * `LazyMotion` (#526).
  *
  * Motion reads `reducedMotion` as each element mounts, and never again. So the switch is a cookie,
  * for the visit, which the server reads to render with it, and the page's content mounts again when
  * it changes (`PageScope`). The theme is kept for the visit too (`sessionStorage`), read once the
  * page has hydrated, so the server's markup and hydration agree.
  */
-import { MotionConfig } from "motion/react"
+import { domMax, LazyMotion, MotionConfig } from "motion/react"
 import { createContext, Fragment, type ReactNode, use, useEffect, useState } from "react"
 import { REDUCE_MOTION_COOKIE } from "./reduce-motion.ts"
 
@@ -74,7 +75,14 @@ export function Preferences({ reduceMotion: fromCookie, children }: { readonly r
   return (
     <PreferencesContext value={preferences}>
       {/* "user" follows the system's setting; the switch makes it "always". */}
-      <MotionConfig reducedMotion={reduceMotion ? "always" : "user"}>{children}</MotionConfig>
+      <MotionConfig reducedMotion={reduceMotion ? "always" : "user"}>
+        {/* Every element is Motion's `m` (#526), with the shell's Features: its cart's fly-in needs
+            `layoutId`, which only `domMax` has, so every page has `drag` too. `strict` makes a
+            `motion` element an error. */}
+        <LazyMotion features={domMax} strict>
+          {children}
+        </LazyMotion>
+      </MotionConfig>
     </PreferencesContext>
   )
 }

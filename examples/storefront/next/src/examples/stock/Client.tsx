@@ -2,7 +2,7 @@
 import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { motion } from "motion/react"
+import { m } from "motion/react"
 import { Suspense, use, useState, useTransition } from "react"
 import { getStock } from "~/lib/store.ts"
 
@@ -73,7 +73,7 @@ function StockRow({ piece, left }: { readonly piece: Product; readonly left: num
       <img src={photoOf(piece.id).small} width="48" height="48" alt="" />
       <span className="name">{piece.name}</span>
       <span className="meter">
-        <motion.span
+        <m.span
           className="meter-fill"
           initial={{ scaleX: 0 }}
           animate={{ scaleX: left / SHELF }}

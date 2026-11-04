@@ -1,5 +1,5 @@
 "use client"
-import { correctParentTransform, motion, MotionConfig } from "motion/react"
+import { correctParentTransform, m, MotionConfig } from "motion/react"
 import { useRef, useState } from "react"
 
 const PIECES = [
@@ -27,7 +27,7 @@ export default function ArrangeRoom() {
               stays under the pointer at any zoom, and its constraints are measured in the plan's pixels. */}
           <MotionConfig transformPagePoint={correctParentTransform(plan)}>
             {PIECES.map((piece) => (
-              <motion.div
+              <m.div
                 key={piece.id}
                 className="room-piece"
                 data-id={piece.id}
@@ -39,7 +39,7 @@ export default function ArrangeRoom() {
                 style={{ left: piece.x, top: piece.y, width: piece.width, height: piece.height }}
               >
                 {piece.name}
-              </motion.div>
+              </m.div>
             ))}
           </MotionConfig>
         </div>

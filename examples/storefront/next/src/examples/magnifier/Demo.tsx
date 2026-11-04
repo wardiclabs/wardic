@@ -1,6 +1,6 @@
 "use client"
 import { photoOf } from "@wardic/example-storefront-shared/images"
-import { motion, useMotionTemplate, useMotionValue, useReducedMotionConfig, useSpring, useTransform } from "motion/react"
+import { m, useMotionTemplate, useMotionValue, useReducedMotionConfig, useSpring, useTransform } from "motion/react"
 import { type PointerEvent, useState } from "react"
 
 const ZOOM = 2.5
@@ -47,15 +47,15 @@ export default function Magnifier() {
 
   return (
     <div className="magnifier">
-      <motion.div className="magnifier-photo" initial="rest" animate="rest" whileHover="looking" whileTap="looking" onPointerMove={follow} onPointerDown={follow}>
+      <m.div className="magnifier-photo" initial="rest" animate="rest" whileHover="looking" whileTap="looking" onPointerMove={follow} onPointerDown={follow}>
         <img src={photo.large} width={photo.width} height={photo.height} alt="The Lagoon Vase, up close" draggable={false} />
-        <motion.div
+        <m.div
           className="lens"
           aria-hidden="true"
           variants={lens}
           style={{ x, y, backgroundPosition, backgroundImage: `url(${photo.large})`, backgroundSize: `${width * ZOOM}px auto` }}
         />
-      </motion.div>
+      </m.div>
       <p className="muted">Hover over the vase to look closer, or press and drag on a phone.</p>
     </div>
   )

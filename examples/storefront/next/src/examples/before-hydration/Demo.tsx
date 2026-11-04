@@ -1,7 +1,7 @@
 "use client"
 import { type Hydration, hydrationOf } from "@wardic/example-storefront-shared/hydration"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
-import { motion } from "motion/react"
+import { m } from "motion/react"
 import { useSearchParams } from "next/navigation"
 import { useEffect, useState } from "react"
 
@@ -53,21 +53,21 @@ function HydrationStatus() {
 export default function BeforeHydration() {
   return (
     <>
-      <motion.section className="season" variants={banner} initial="hidden" animate="shown">
+      <m.section className="season" variants={banner} initial="hidden" animate="shown">
         <div className="season-photo">
-          <motion.img variants={photo} src={vase.large} srcSet={srcsetOf(vase)} sizes="(max-width: 640px) 100vw, 480px" width={vase.width} height={vase.height} alt="The Lagoon Vase" />
+          <m.img variants={photo} src={vase.large} srcSet={srcsetOf(vase)} sizes="(max-width: 640px) 100vw, 480px" width={vase.width} height={vase.height} alt="The Lagoon Vase" />
         </div>
         <div className="season-copy">
-          <motion.p className="eyebrow" variants={line}>
+          <m.p className="eyebrow" variants={line}>
             New this season
-          </motion.p>
-          <motion.h2 variants={line}>Glazes that ran in the kiln</motion.h2>
-          <motion.p variants={line}>Two glazes poured over each other, left to find their own way in the heat. No two came out alike.</motion.p>
-          <motion.a className="button accent" href="/entrances/product-grid" variants={line} whileHover={{ y: -2 }} whileTap={{ scale: 0.97 }}>
+          </m.p>
+          <m.h2 variants={line}>Glazes that ran in the kiln</m.h2>
+          <m.p variants={line}>Two glazes poured over each other, left to find their own way in the heat. No two came out alike.</m.p>
+          <m.a className="button accent" href="/entrances/product-grid" variants={line} whileHover={{ y: -2 }} whileTap={{ scale: 0.97 }}>
             See the pieces
-          </motion.a>
+          </m.a>
         </div>
-      </motion.section>
+      </m.section>
       <div className="hydration">
         <HydrationStatus />
         {/* Full page loads, not the router's: plain links. */}

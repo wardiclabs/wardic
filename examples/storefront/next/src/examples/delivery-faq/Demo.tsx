@@ -1,5 +1,5 @@
 "use client"
-import { AnimatePresence, motion, useInstantTransition } from "motion/react"
+import { AnimatePresence, m, useInstantTransition } from "motion/react"
 import { useState } from "react"
 
 const QUESTIONS = [
@@ -61,23 +61,23 @@ export default function DeliveryFaq() {
         {QUESTIONS.map((item, index) => (
           // Each item grows as its answer opens: layout animates its size, its rounded corners and
           // shadow kept as they are while it scales, and the items below slide down to make room.
-          <motion.li key={item.question} className="faq-item" layout>
-            <motion.button className="faq-question" layout="position" aria-expanded={open.has(index)} onClick={() => toggle(index)}>
+          <m.li key={item.question} className="faq-item" layout>
+            <m.button className="faq-question" layout="position" aria-expanded={open.has(index)} onClick={() => toggle(index)}>
               <span>{item.question}</span>
               {/* initial={false}: the answer open when the page loads has its chevron turned already. */}
-              <motion.span className="chevron" variants={chevron} initial={false} animate={open.has(index) ? "open" : "shut"} transition={{ duration: 0.2 }} aria-hidden="true">
+              <m.span className="chevron" variants={chevron} initial={false} animate={open.has(index) ? "open" : "shut"} transition={{ duration: 0.2 }} aria-hidden="true">
                 ⌄
-              </motion.span>
-            </motion.button>
+              </m.span>
+            </m.button>
             {/* popLayout: a closing answer leaves the flow at once, so its card shrinks while it fades. */}
             <AnimatePresence initial={false} mode="popLayout">
               {open.has(index) && (
-                <motion.div className="faq-answer" layout="position" {...answer}>
+                <m.div className="faq-answer" layout="position" {...answer}>
                   <p>{item.answer}</p>
-                </motion.div>
+                </m.div>
               )}
             </AnimatePresence>
-          </motion.li>
+          </m.li>
         ))}
       </ul>
     </div>

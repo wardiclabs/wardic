@@ -2,7 +2,7 @@
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { Cart, CartLine, Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, LayoutGroup, motion } from "motion/react"
+import { AnimatePresence, LayoutGroup, m } from "motion/react"
 import { startTransition, Suspense, use, useEffect, useOptimistic, useState } from "react"
 import { addToCart, setCartQuantity } from "~/lib/store.ts"
 
@@ -39,9 +39,9 @@ export function CartDrawer(props: Props) {
         <OpenButton cart={props.cart} open={() => setOpen(true)} />
       </Suspense>
       <AnimatePresence>
-        {open && <motion.div key="backdrop" className="backdrop" {...fade} onClick={() => setOpen(false)} />}
+        {open && <m.div key="backdrop" className="backdrop" {...fade} onClick={() => setOpen(false)} />}
         {open && (
-          <motion.aside key="drawer" className="drawer" role="dialog" aria-modal="true" aria-label="Your cart" {...drawer}>
+          <m.aside key="drawer" className="drawer" role="dialog" aria-modal="true" aria-label="Your cart" {...drawer}>
             <header className="drawer-head">
               <h2>Your cart</h2>
               <button className="icon-button" aria-label="Close" onClick={() => setOpen(false)}>
@@ -51,7 +51,7 @@ export function CartDrawer(props: Props) {
             <Suspense fallback={<p className="muted">Loading your cart…</p>}>
               <Lines {...props} />
             </Suspense>
-          </motion.aside>
+          </m.aside>
         )}
       </AnimatePresence>
     </div>
@@ -124,7 +124,7 @@ function Lines(props: Props) {
               {lines.map((one) => {
                 const product = productOf(one.productId)
                 return (
-                  <motion.li key={one.productId} className="cart-line" layout {...line}>
+                  <m.li key={one.productId} className="cart-line" layout {...line}>
                     {product && (
                       <>
                         <img src={photoOf(one.productId).small} width="56" height="56" alt="" />
@@ -146,29 +146,29 @@ function Lines(props: Props) {
                         </button>
                       </>
                     )}
-                  </motion.li>
+                  </m.li>
                 )
               })}
             </AnimatePresence>
           </ul>
           <AnimatePresence initial={false}>
             {lines.length === 0 && (
-              <motion.p className="cart-empty" {...fade}>
+              <m.p className="cart-empty" {...fade}>
                 Your cart is empty.
-              </motion.p>
+              </m.p>
             )}
           </AnimatePresence>
           {/* The suggestions sit under the lines and slide down as lines arrive: layout="position",
               as their block only travels. One added to the cart leaves, and the rest close up. */}
           {suggestions.length > 0 && (
-            <motion.section className="suggestions" layout="position">
+            <m.section className="suggestions" layout="position">
               <h3>You might also like</h3>
               <ul>
                 <AnimatePresence mode="popLayout" initial={false}>
                   {suggestions.map((id) => {
                     const product = productOf(id)
                     return (
-                      <motion.li key={id} layout="position" {...fade}>
+                      <m.li key={id} layout="position" {...fade}>
                         {product && (
                           <button className="suggestion" onClick={() => add(id)}>
                             <img src={photoOf(id).small} width="44" height="44" alt="" />
@@ -178,12 +178,12 @@ function Lines(props: Props) {
                             </span>
                           </button>
                         )}
-                      </motion.li>
+                      </m.li>
                     )
                   })}
                 </AnimatePresence>
               </ul>
-            </motion.section>
+            </m.section>
           )}
         </LayoutGroup>
       </div>

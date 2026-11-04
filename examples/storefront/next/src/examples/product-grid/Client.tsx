@@ -2,7 +2,7 @@
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { motion } from "motion/react"
+import { m } from "motion/react"
 import { Suspense, use, useState } from "react"
 
 // The grid names a variant; each card under it follows, delayed by its place.
@@ -33,11 +33,11 @@ export function ProductGrid({ products }: { readonly products: Promise<ReadonlyA
 
 function Grid(props: { readonly products: Promise<ReadonlyArray<Product>> }) {
   return (
-    <motion.ul className="product-grid" variants={grid} initial="hidden" animate="shown">
+    <m.ul className="product-grid" variants={grid} initial="hidden" animate="shown">
       {use(props.products).map((product) => (
         <Card key={product.id} product={product} />
       ))}
-    </motion.ul>
+    </m.ul>
   )
 }
 
@@ -45,9 +45,9 @@ function Card({ product }: { readonly product: Product }) {
   const [hovered, setHovered] = useState(false)
   const image = photoOf(product.id)
   return (
-    <motion.li className="product-card" variants={card} whileHover={lift} onHoverStart={() => setHovered(true)} onHoverEnd={() => setHovered(false)}>
+    <m.li className="product-card" variants={card} whileHover={lift} onHoverStart={() => setHovered(true)} onHoverEnd={() => setHovered(false)}>
       <div className="photo">
-        <motion.img
+        <m.img
           animate={{ scale: hovered ? 1.05 : 1 }}
           src={image.small}
           srcSet={srcsetOf(image)}
@@ -62,6 +62,6 @@ function Card({ product }: { readonly product: Product }) {
         <span className="price">{formatPrice(product.price)}</span>
       </div>
       <p className="tagline">{product.tagline}</p>
-    </motion.li>
+    </m.li>
   )
 }

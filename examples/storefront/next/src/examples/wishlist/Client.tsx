@@ -3,7 +3,7 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { Wishlist } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, motion, Reorder } from "motion/react"
+import { AnimatePresence, m, Reorder } from "motion/react"
 import { Suspense, startTransition, use, useEffect, useOptimistic, useRef, useState } from "react"
 import { moveInSharedWishlist, resetSharedWishlist } from "~/lib/store.ts"
 
@@ -128,9 +128,9 @@ function List(props: Props) {
       <div className="wishlist-foot">
         <AnimatePresence initial={false}>
           {server.lastMove && (
-            <motion.p key={server.version} className="moved-by muted" {...fade}>
+            <m.p key={server.version} className="moved-by muted" {...fade}>
               {server.lastMove.by === me ? "You" : server.lastMove.by} moved the {nameOf(server.lastMove.productId)}.
-            </motion.p>
+            </m.p>
           )}
         </AnimatePresence>
         {problem && (
