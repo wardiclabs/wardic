@@ -1,0 +1,44 @@
+---
+title: useAnimateLayout
+description: Animates a layout change you make, from where every layout element was to where the change puts it, for a change nothing else sees.
+api: [useAnimateLayout, AnimateLayout, AnimateLayoutOptions]
+---
+
+# useAnimateLayout
+
+Returns `animateLayout(fn)`, which runs `fn` and animates the layout change it makes: every layout element, from where it was at the call to where the change puts it. It's for a change nothing else sees, such as a keyed `<For>` reordered or a plain element's class changed. See [What starts one](/guides/layout#what-starts-one).
+
+```tsx
+import { useAnimateLayout } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+const animateLayout = useAnimateLayout()
+const shuffle = () => animateLayout(() => setItems(shuffled(items())))
+```
+
+`fn` runs at once, so the change is there when the call returns, and an error it throws is thrown to you. Only what `fn` changes synchronously animates: a change after an `await` is in a later task, and Wardic warns. Calls in one task share one measure. On a server, `fn` just runs. Outside a `WardicProvider`, `useAnimateLayout` throws.
+
+## Solid 1
+
+`animateLayout(fn, options?)` returns what `fn` returns. `options.onSettled` is called once every layout animation the change started has ended, however each ended, or once the change is measured if it started none.
+
+```tsx
+animateLayout(() => setOrder(sorted()), { onSettled: () => setBusy(false) })
+```
+
+## Solid 2
+
+`animateLayout(fn)` returns a promise of what `fn` returns, which resolves once every layout animation the change started has ended. Calls in one task resolve together. It rejects with an `AbortError` if the provider goes first.
+
+```tsx
+await animateLayout(() => setOrder(sorted()))
+setBusy(false)
+```
+
+## Coming from Motion
+
+Motion measures after every React render, so a reorder there animates with no call. Solid has no render to measure after, so a change Wardic can't see is declared with `animateLayout`.
+
+## Types
+
+- **`AnimateLayout`:** `animateLayout`'s function, as above.
+- **`AnimateLayoutOptions`:** (Solid 1) its options: `onSettled`.

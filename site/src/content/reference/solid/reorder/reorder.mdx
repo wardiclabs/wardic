@@ -1,0 +1,71 @@
+---
+title: Reorder
+description: Reorder.Group and Reorder.Item, a list put in order by dragging its items or from the keyboard, with their props on both bindings.
+api: [Reorder, ReorderGroupProps, ReorderItemProps, ReorderGroupComponentProps, ReorderItemComponentProps, ReorderGroupOf, ReorderItemOf, GroupRefCallback, ReorderElementTag, ReorderItemLayout]
+---
+
+# Reorder
+
+`Reorder.Group` and `Reorder.Item` make a list the reader puts in order by dragging its items, or from the keyboard. Your app owns the order: the group takes it as `values`, and `onReorder` hands each new one back, as an item crosses another. See [Reorder](/guides/reorder).
+
+```tsx
+import { Reorder } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+const [items, setItems] = createSignal(["Bowls", "Plates", "Cups"])
+<Reorder.Group values={items()} onReorder={setItems}>
+  <For each={items()}>{(item) => <Reorder.Item value={item}>{item}</Reorder.Item>}</For>
+</Reorder.Group>
+```
+
+Key the items with `<For>`, by their values. An item brings its own drag, layout and gestures, so a list works under any provider.
+
+## Reorder.Group
+
+| Prop | |
+| --- | --- |
+| `values` | The list's values, in order. |
+| `onReorder` | Given each new order, as an item crosses another: set `values` from it. |
+| `axis` | `"y"`, a column (the default), or `"x"`, a row. Left out, it's found from the items' boxes. |
+| `as` | The element it renders: `"ul"` by default. Read once. |
+| `keyboard` | `false` turns the keyboard reorder off: the items have no keys, no tab stop and no instructions. |
+| `announcements` | What a screen reader hears at each step of a keyboard reorder, over the English defaults: `lift`, `step`, `drop`, `cancel`, and `move`, each a function of the item's `label`, `position` and the list's `count`. |
+| `instructions` | What each item's `aria-describedby` reads, over the English default. |
+
+Beside them, the element's own props and [motion props](/reference/solid/elements/props). It gives the element `overflow-anchor: none`, so the browser doesn't scroll the page as items move.
+
+To hear a reorder end, say to save it once:
+
+- **On Solid 1,** `onReorderEnd={(end) => save(end.values)}`, with `onHoldStart` and `onHoldEnd` for an item taken in hand and let go.
+- **On Solid 2,** make the group with [`reorderGroup`](/reference/solid/reorder/reorder-group) and give it as `groupRef`, the options its config doesn't set beside it, or give a function as `groupRef`, which is handed the group the component makes. Either way, its `reorderEnd`, `holdStart` and `holdEnd` events.
+
+```tsx
+// Solid 2
+const list = reorderGroup({ values: items, onReorder: setItems })
+createEffect(list.when("reorderEnd"), (end) => save(end.values))
+<Reorder.Group groupRef={list} axis="x">…</Reorder.Group>
+```
+
+## Reorder.Item
+
+| Prop | |
+| --- | --- |
+| `value` | Its value in the group's `values`. Read once. |
+| `layout` | `true`, its place and size animating (the default), or `"position"`, its place alone, its size changing at once. |
+| `as` | The element it renders: `"li"` by default. Read once. |
+
+Beside them, the element's own props and any motion prop but `drag` and `layoutId`, which the group sets: `whileDrag` for the item in hand, say. Each item is a tab stop for the keyboard reorder; your own `tabIndex` (Solid 2: `tabindex`) wins over its `0`, and your `aria-describedby` ids come before its instructions. Outside a `Reorder.Group` it throws.
+
+On Solid 2, an item made with [`reorderItem`](/reference/solid/reorder/reorder-item) can be given as `wardRef`, to hear its events, with the props its config doesn't set beside it; or a function as `wardRef` is handed the item's ward.
+
+## Coming from Motion
+
+Motion's `Reorder`, with its props. Wardic adds the keyboard reorder, which Motion's lacks, and the events for a reorder's end and an item taken in hand.
+
+## Types
+
+- **`ReorderGroupProps`:** (Solid 1) `Reorder.Group`'s props. On Solid 2, the props a group's spread gives its element, as on [its page](/reference/solid/reorder/reorder-group).
+- **`ReorderItemProps`:** (Solid 1) `Reorder.Item`'s props.
+- **`ReorderGroupComponentProps`**, **`ReorderItemComponentProps`:** (Solid 2) `Reorder.Group`'s and `Reorder.Item`'s props. **`ReorderGroupOf`**, **`ReorderItemOf`:** their group and item: the config as props, or one made beforehand given as `groupRef` or `wardRef`.
+- **`GroupRefCallback`:** (Solid 2) a function `groupRef` hands the component's group.
+- **`ReorderElementTag`:** a tag `as` takes.
+- **`ReorderItemLayout`:** an item's `layout`, `true` or `"position"`.

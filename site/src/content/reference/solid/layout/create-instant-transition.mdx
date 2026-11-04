@@ -1,0 +1,28 @@
+---
+title: createInstantTransition
+description: Makes a change land at once, its layout and every animation it starts, for a change that shouldn't animate.
+api: [createInstantTransition, InstantTransition]
+---
+
+# createInstantTransition
+
+Returns `start(fn)`, which runs `fn` and makes what it changes land at once: its layout change, and every animation that starts until two frames after the call, each landing where it's going. For a change that shouldn't animate, such as a reset or a jump to another route.
+
+```tsx
+import { createInstantTransition } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+const start = createInstantTransition()
+<button onClick={() => start(() => setOpen(all))}>Open all</button>
+```
+
+A later call extends it, and `start.end()` ends it now, so an animation started after it animates again. On a server, `fn` just runs.
+
+To make only the layout land at once, and let the change's other animations run, use [`createInstantLayoutTransition`](/reference/solid/layout/create-instant-layout-transition).
+
+## Coming from Motion
+
+Motion's `useInstantTransition`. `start.end()` is its `disableInstantTransitions`.
+
+## Types
+
+- **`InstantTransition`:** `start`, with its `end`.

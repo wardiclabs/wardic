@@ -1,0 +1,82 @@
+---
+title: Reorder groups
+description: A reorderable list of your own elements, the group its items join. createReorderGroup on Solid 1, reorderGroup on Solid 2.
+api: [createReorderGroup, reorderGroup, ReorderGroup, ReorderGroupConfig, ReorderGroupSpread, ReorderGroupUserProps, ReorderGroupEvents, AnyReorderGroup]
+---
+
+# Reorder groups
+
+A Reorder group makes a list of your own elements reorderable, by dragging or from the keyboard: the group its items join, spread on the list's element. [`Reorder.Group`](/reference/solid/reorder/reorder) is built on it. Make each item with [`createReorderItem` or `reorderItem`](/reference/solid/reorder/reorder-item), keyed with `<For>`.
+
+Its config is `Reorder.Group`'s props, but `as`: `values`, `onReorder`, and the options `axis`, `keyboard`, `announcements` and `instructions`. Your app owns `values`, and sets them from `onReorder`; a reorder it makes itself animates too. The group gives its element `overflow-anchor: none`, so the browser doesn't scroll the page as items move.
+
+## Solid 1: createReorderGroup
+
+```tsx
+import { createReorderGroup, createReorderItem } from "@wardic/solid"
+
+const list = createReorderGroup(() => ({ values: items(), onReorder: setItems }))
+<ul {...list()}>
+  <For each={items()}>
+    {(item) => {
+      const row = createReorderItem(list, { value: item })
+      return <li {...row()}>{item}</li>
+    }}
+  </For>
+</ul>
+```
+
+`config` is the config, or an accessor of it for values that change. Its `onReorderEnd`, `onHoldStart` and `onHoldEnd` are called as on [`Reorder.Group`](/reference/solid/reorder/reorder#reordergroup). Spread what it returns: `{...list()}`, or `{...list({ ref, style })}` to keep a `ref` and a `style` of your own.
+
+| Member | |
+| --- | --- |
+| `list(props?)` | The props to spread on the list's element: `ref` and `style`. |
+| `list.move(value, toIndex)` | Moves `value` to `toIndex`, as a button of your own would, and announces it to a screen reader. |
+| `list.axis()` | The list's direction: the config's, else the one found from the items' boxes. |
+| `list.keyboard()`, `list.instructions()` | Whether the items reorder from the keyboard, and the instructions they read. |
+| `list.group` | The group's state, `@wardic/core`'s `Reorder.Group`. |
+
+## Solid 2: reorderGroup
+
+```tsx
+import { reorderGroup, reorderItem } from "@wardic/solid/unstable/v2"
+
+const list = reorderGroup({ values: items, onReorder: setItems })
+<ul {...list}>
+  <For each={items()}>
+    {(item) => {
+      const row = reorderItem(list, { value: item })
+      return <li {...row}>{item}</li>
+    }}
+  </For>
+</ul>
+```
+
+Each key of `config` is a value or an accessor of it, such as a signal, a getter, a store's property or a component's prop, and `style` is the list element's, over `overflow-anchor: none`. Call it where you'd make a signal, under a `WardicProvider`. Spread it on the list's element, give it to `ref`, or give it to `Reorder.Group` as `groupRef`.
+
+It has `move`, `axis`, `keyboard`, `instructions` and `group`, as Solid 1's, and its events, as a [ward's](/reference/solid/elements/ward-events):
+
+| Event | |
+| --- | --- |
+| `reorderEnd` | Once at the end of a reorder that changed the order: a drag let go, or a keyboard lift dropped, with the order, the item that moved, and its index `from` and `to`. What an app saves. Not for a keyboard cancel, nor for `move`. |
+| `holdStart` | As an item is taken in hand, by a drag starting or a keyboard lift, with its index then. |
+| `holdEnd` | Once as an item in hand is let go, however: `how` is `"drop"`, `"cancel"` (Escape put it back) or `"unmount"`. After `reorderEnd` when it moved. |
+
+`list.next(name)` is a promise of the next one, `list.each(name)` an async iterable of each one, and `list.when(name)` a memo of the latest, for an effect:
+
+```tsx
+const reordered = list.when("reorderEnd")
+createEffect(reordered, (end) => save(end.values.map((task) => task.id)))
+```
+
+## Coming from Motion
+
+Motion has only the components. A group of your own elements is Wardic's, for a list `Reorder.Group` can't render.
+
+## Types
+
+- **`ReorderGroup`:** the group, as above.
+- **`ReorderGroupConfig`:** its config.
+- **`ReorderGroupSpread`**, **`ReorderGroupUserProps`:** (Solid 1) what its spread gives the element, and what it takes from you.
+- **`ReorderGroupEvents`:** (Solid 2) its events.
+- **`AnyReorderGroup`:** (Solid 2) a group of any config, as `groupRef` takes it.

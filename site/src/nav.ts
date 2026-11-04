@@ -87,6 +87,26 @@ export const NAV: ReadonlyArray<NavSection> = [
           { path: "/reference/solid/presence/presence-context", title: "PresenceContext" },
         ],
       },
+      {
+        title: "Layout",
+        pages: [
+          { path: "/reference/solid/layout/layout-group", title: "LayoutGroup" },
+          { path: "/reference/solid/layout/use-animate-layout", title: "useAnimateLayout" },
+          { path: "/reference/solid/layout/create-instant-transition", title: "createInstantTransition" },
+          { path: "/reference/solid/layout/create-instant-layout-transition", title: "createInstantLayoutTransition" },
+          { path: "/reference/solid/layout/create-reset-projection", title: "createResetProjection" },
+          { path: "/reference/solid/layout/measure-layout-box", title: "measureLayoutBox" },
+          { path: "/reference/solid/layout/use-layout-member", title: "useLayoutMember" },
+        ],
+      },
+      {
+        title: "Reorder",
+        pages: [
+          { path: "/reference/solid/reorder/reorder", title: "Reorder" },
+          { path: "/reference/solid/reorder/reorder-group", title: "Reorder groups" },
+          { path: "/reference/solid/reorder/reorder-item", title: "Reorder items" },
+        ],
+      },
     ],
   },
 ]

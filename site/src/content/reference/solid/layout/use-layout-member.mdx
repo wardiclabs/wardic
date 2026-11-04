@@ -1,0 +1,51 @@
+---
+title: useLayoutMember
+description: Solid 1. Registers an element of your own with the provider's projection system as one layout node, as a w.* element with layout is.
+api: [useLayoutMember, UseLayoutMemberOptions]
+---
+
+# useLayoutMember
+
+**Solid 1 only.** Registers an element with its provider's projection system as one layout node, as a `w.*` element with `layout` or a `layoutId` is. It's for building an element of your own on Wardic's layout animations, such as a binding for another kind of component. An app gives `layout` to a `w.*` element or a [ward](/reference/solid/elements/ward) instead, which does this itself.
+
+```tsx
+import { useLayoutMember } from "@wardic/solid"
+
+const node = useLayoutMember({
+  id,
+  element,
+  layoutDependency: () => props.items,
+  transition: () => props.transition,
+})
+```
+
+Call it within a Solid owner, once the element exists. It brings the `layout` Feature. The node is taken out as the owner is cleaned up.
+
+## Options
+
+The four it needs:
+
+| Option | |
+| --- | --- |
+| `id` | The element's id in the provider's gate, the entry its values are written under. |
+| `element` | The element to measure and animate. |
+| `layoutDependency` | An accessor whose change has it measured again. |
+| `transition` | An accessor of its `transition`: the `layout` entry, else the whole transition, runs its layout animations. |
+
+The rest are what a `w.*` element's [motion props](/reference/solid/elements/props#layout) give it: `layoutId`, `layoutScroll`, `layoutRoot`, `layoutAnchor`, its `layout` value as `layoutMode`, `layoutCrossfade` as `crossfade`, its `dragTransition`, its own `scale`, `x`, `y`, `rotate` and `opacity` for handovers, and its layout callbacks. Each function is read when the projection needs it, outside Solid's tracking.
+
+## Returns
+
+The node's handle:
+
+| Member | |
+| --- | --- |
+| `notify()` | Asks for a measure at the end of the task. |
+| `layoutBox()` | Its box as of its last measure, an `Option`. |
+| `dispose()` | Takes the node out, as the owner's cleanup does. |
+
+It also has the drag methods a draggable element's drag drives it through.
+
+## Types
+
+- **`UseLayoutMemberOptions`:** its options.

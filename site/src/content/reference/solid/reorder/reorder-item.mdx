@@ -1,0 +1,56 @@
+---
+title: Reorder items
+description: Makes an element of your own an item of a Reorder group. createReorderItem and use:reorderItem on Solid 1, reorderItem on Solid 2.
+api: [createReorderItem, reorderItem, ReorderItem, ReorderItemConfig, ReorderItemWard, ReorderItemSpread, ReorderItemUserProps, ReorderItemDirectiveValue, AnyReorderItem]
+---
+
+# Reorder items
+
+A Reorder item makes an element of your own an item of a [Reorder group](/reference/solid/reorder/reorder-group): a [ward](/reference/solid/elements/ward) in the group, which drags along the group's axis and animates to its place as the order changes. [`Reorder.Item`](/reference/solid/reorder/reorder) is built on it.
+
+Its config is `value`, its value in the group's `values`, read once, then `layout`, `true` or `"position"`, and any motion prop but `drag` and `layoutId`, which the group sets. The element takes the drag defaults, with the group's axis's `touch-action`, which its `style` can override. It's a tab stop for the keyboard reorder, its `aria-describedby` the group's instructions.
+
+## Solid 1: createReorderItem
+
+```tsx
+import { createReorderItem } from "@wardic/solid"
+
+const row = createReorderItem(list, { value: item, whileDrag: { scale: 1.05 } })
+<li {...row()}>{item.name}</li>
+```
+
+`config` is the config, or an accessor of it. Spread what it returns, `{...row()}`, as a ward's; give your own `ref`, `style`, `tabIndex` and `aria-describedby` in its props, `{...row({ tabIndex: -1 })}`. Your `tabIndex` wins over its `0`, and your ids come before its instructions. `row.Provider` hands its variants to children rendered outside it.
+
+### use:reorderItem
+
+The directive form, as `use:wardic` is a ward's:
+
+```tsx
+import { reorderItem } from "@wardic/solid"
+
+<li use:reorderItem={{ group: list, value: item, whileDrag: { scale: 1.05 } }}>{item.name}</li>
+```
+
+In the browser only: its drag defaults and `touch-action` are set as it mounts, not in the server's markup, so a server-rendered item takes `createReorderItem` or `Reorder.Item`. Import `reorderItem` in the module that uses it, so the import isn't dropped as unused.
+
+## Solid 2: reorderItem
+
+```tsx
+import { reorderItem } from "@wardic/solid/unstable/v2"
+
+const row = reorderItem(list, { value: item, whileDrag: { scale: 1.05 } })
+<li {...row}>{item.name}</li>
+```
+
+A ward, with a ward's [reads and events](/reference/solid/elements/ward#solid-2-ward): `row.read("y")`, `await row.next("dragEnd")`. Each key of its config is a value or an accessor of it, as a ward's. Your own `tabindex` and `aria-describedby` go in its config, not after the spread, where they'd replace the item's. Call it where you'd make a signal, in a `<For>` callback. Spread it on the element, give it to `ref`, or give it to `Reorder.Item` as `wardRef`.
+
+## Coming from Motion
+
+Motion has only the components. An item of your own element is Wardic's.
+
+## Types
+
+- **`ReorderItemConfig`:** its config.
+- **`ReorderItemWard`**, **`ReorderItemSpread`**, **`ReorderItemUserProps`:** (Solid 1) `createReorderItem`'s result, what its spread gives the element, and what it takes from you.
+- **`ReorderItemDirectiveValue`:** (Solid 1) `use:reorderItem`'s value.
+- **`ReorderItem`:** (Solid 2) `reorderItem`'s ward. **`AnyReorderItem`:** an item of any config, as `wardRef` takes it.

@@ -1,0 +1,40 @@
+---
+title: LayoutGroup
+description: Puts an id before every layoutId made under it, so two copies of a component keep their own, and re-measures every layout element when a value changes.
+api: [LayoutGroup]
+---
+
+# LayoutGroup
+
+Puts an id before every `layoutId` made under it, so two copies of a component that uses a `layoutId` keep their own: under `<LayoutGroup id="tabs">`, `layoutId="underline"` is `tabs-underline`. See [One element, two places](/guides/layout#one-element-two-places).
+
+```tsx
+import { LayoutGroup } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+<LayoutGroup id="settings">
+  <Tabs />
+</LayoutGroup>
+<LayoutGroup id="profile">
+  <Tabs />
+</LayoutGroup>
+```
+
+Each `<Tabs />` slides its own underline: without the groups, both underlines would have one `layoutId`, and one would fly to the other's tabs.
+
+A group isn't needed for layout animations themselves: every measure reads every layout element, so the ones a change pushes aside animate too, nested or not.
+
+## Props
+
+| Prop | |
+| --- | --- |
+| `id` | The id put before the `layoutId`s made under it. Read once, as it mounts. |
+| `inherit` | Whether it joins the id of the group it's in: `true` (the default) and `"id"` both make `outer-inner`, or take the outer id when it has none of its own; `false` starts afresh. Read once. |
+| `layoutDependency` | A value whose change has every layout element measured again, for a change nothing else sees. |
+
+A ward is in the group it's made under: one made in a component body, and given to an element inside a `<LayoutGroup>` in that body's markup, is outside it. Make it in a component under the group.
+
+It brings the `layout` Feature for its own `layoutDependency` only: the layout elements under it need it from their provider or a `LazyWardic`. See [Shipping less](/guides/features).
+
+## Coming from Motion
+
+Motion's `LayoutGroup`, with its props. Motion's `inherit={true}` also joins the outer group's re-measure, which every measure here already does.
