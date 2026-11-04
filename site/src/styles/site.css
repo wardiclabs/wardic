@@ -232,6 +232,12 @@ a {
     display: none;
   }
 
+  /* While the drawer, a modal dialog, is open, the page under it takes no pointer: the menu button,
+     its trigger, takes it again, so its X closes the drawer. */
+  .menu-button[aria-expanded="true"] {
+    pointer-events: auto;
+  }
+
   .drawer {
     position: fixed;
     inset: 60px 0 0;
