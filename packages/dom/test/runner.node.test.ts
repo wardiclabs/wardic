@@ -1,5 +1,5 @@
 // A Layer-built service's runner (#132, ADR-0041; `internal/runner.ts`), as `FlushGate.make` and
-// `ProjectionSystem.make` use it.
+// `DomProjectionSystem.make` use it.
 //
 // - RN1: built inside a `ManagedRuntime.runSync` (a binding's first read), a fork resumes from a
 //   yield on Effect's default scheduler, a macrotask, not on that `runSync`'s sync scheduler, a

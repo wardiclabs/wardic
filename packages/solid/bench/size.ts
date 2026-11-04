@@ -5,9 +5,9 @@
  * - **The apps:** each binding's plain Solid app, one Complete element (`wardic.div` under a
  *   `WardicProvider`), and the same inside `<AnimatePresence>`; one Slim element (`w.div`) alone, the
  *   Slim element's base, and with each Feature (#511). And a multi-route app (#548): a shell giving
- *   `domAnimation`, a plain page and a page that drags, each an entry as SolidStart's routes are,
- *   measured as what the plain page loads, so a Feature that reaches a page that never uses it fails
- *   the gate. An app the base can't build, its API new, is reported as new and not gated.
+ *   `domAnimation`, a plain page, a page that drags and one that lays out, each an entry as
+ *   SolidStart's routes are, measured as what the plain page loads, so a Feature that reaches a page
+ *   that never uses it fails the gate. An app the base can't build, its API new, is reported as new and not gated.
  * - **Each side is built as an app ships it,** as `bench:solid` builds its pages (`sides.ts`): Vite,
  *   production mode, minified, tree-shaken, for the browsers an app ships to by default
  *   (`APP_TARGET`, #525); Solid 1 through vite-plugin-solid, Solid 2 through the repo's
@@ -100,9 +100,10 @@ render(() => <WardicProvider env={DomLive} features={[${features.join(", ")}]}><
 }
 
 /**
- * A multi-route app (#548): a shell with a hover under a provider giving `domAnimation`, and two pages
- * loaded with `import()`, a plain one and one that drags (`LazyWardic features={[drag]}`). Measured, the
- * plain page: what a page that never drags downloads.
+ * A multi-route app (#548): a shell with a hover under a provider giving `domAnimation`, and three pages
+ * loaded with `import()`: a plain one, one that drags (`LazyWardic features={[drag]}`) and one that
+ * lays out (`features={[layout]}`). Measured, the plain page: what a page that never drags or lays out
+ * downloads.
  */
 const routes = (render: string, entry: string, name: string): App => ({
   name,
@@ -113,7 +114,8 @@ import { DomLive } from "@wardic/dom"
 import { domAnimation, w, WardicProvider } from "${entry}"
 const Plain = lazy(() => import("./${name}-plain.tsx"))
 const Drags = lazy(() => import("./${name}-drags.tsx"))
-render(() => <WardicProvider env={DomLive} features={[domAnimation]}><w.button whileHover={{ scale: 1.1 }}>menu</w.button><Show when={location.hash === "#drag"} fallback={<Plain />}><Drags /></Show></WardicProvider>, document.body)
+const Moves = lazy(() => import("./${name}-moves.tsx"))
+render(() => <WardicProvider env={DomLive} features={[domAnimation]}><w.button whileHover={{ scale: 1.1 }}>menu</w.button><Show when={location.hash === "#drag"} fallback={<Show when={location.hash === "#layout"} fallback={<Plain />}><Moves /></Show>}><Drags /></Show></WardicProvider>, document.body)
 `,
   pages: [
     `import { w } from "${entry}"
@@ -121,6 +123,9 @@ export default function Plain() { return <w.div initial={{ opacity: 0 }} animate
 `,
     `import { drag, LazyWardic, w } from "${entry}"
 export default function Drags() { return <LazyWardic features={[drag]}><w.div drag="x">drag me</w.div></LazyWardic> }
+`,
+    `import { layout, LazyWardic, w } from "${entry}"
+export default function Moves() { return <LazyWardic features={[layout]}><w.div layout>moves</w.div></LazyWardic> }
 `,
   ],
 })
@@ -235,7 +240,7 @@ interface Chunk {
  */
 const routedSizeOf = async (root: string, deps: string, app: App, entry: string, side: string): Promise<Size | undefined> => {
   const pages = (app.pages ?? []).map((source, i) => {
-    const file = join(root, "apps", `${app.name}-${["plain", "drags"][i]}.tsx`)
+    const file = join(root, "apps", `${app.name}-${["plain", "drags", "moves"][i]}.tsx`)
     writeFileSync(file, source)
     return file
   })

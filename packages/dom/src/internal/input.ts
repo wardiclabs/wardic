@@ -56,7 +56,7 @@ import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { scrollersOf } from "./measure.ts"
+import { scrollersOf } from "./scrollers.ts"
 import { requireGlobal } from "./require-global.ts"
 
 /** DOM `pointer*` type → the engine's portable phase. */

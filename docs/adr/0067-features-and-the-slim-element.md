@@ -157,15 +157,26 @@ The barrel wasn't the cause: the packages declare `"sideEffects": false`, and Ro
    - **The gesture sensors** `createHover`, `createPress`, `createFocus` and `createDrag` each have a module per binding (`<gesture>-sensor.ts`), apart from `createReducedMotion` and `createPageInView`.
    - **`useWardicProjection`**, which brings `layout`, is in `layout-projection.ts` per binding, apart from the provider every page renders. The provider exports `fromWardicContext` for it.
    - Rejected: only the keys and `DragRecognizer`.
-4. **`bun run size` gains multi-route apps** (`s1-routes`, `s2-routes`; stated, not asked).
-   - **Their shape:** a shell giving `domAnimation` with a hover, a plain page, and a page that drags, each an entry as SolidStart's routes are (`preserveEntrySignatures: "exports-only"`).
+4. **`layout` too** (found discussing the keys, added as a commit of its own).
+   - **Its key isn't in `keys.ts`.** It's dom's `ProjectionSystem` service, whose module held `make` beside the key, and `make` imports the engine.
+   - **Two small values tied the engine's modules to code every page runs:**
+     - the default layout transition, which the binding's layout element code reads, lived in `internal/projection.ts`;
+     - `scrollersOf`, which the gesture input reads, lived in `internal/measure.ts` beside the Measure pass.
+   - **The fix:**
+     - the engine's `make` and `layer` move to `@wardic/dom/DomProjectionSystem` (ADR-0041, *Amendment (#548)*);
+     - the default transitions move to `internal/projection-defaults.ts`;
+     - the scroll reads move to `internal/scrollers.ts`, a per-frame file as `measure.ts` is.
+   - **Measured:** a page beside one that lays out loaded the engine, about 17 KB gzipped (132.4 KB with the engine against 115.2 without, on Solid 1), until this fix.
+5. **`bun run size` gains multi-route apps** (`s1-routes`, `s2-routes`; stated, not asked).
+   - **Their shape:** a shell giving `domAnimation` with a hover, a plain page, a page that drags and a page that lays out, each an entry as SolidStart's routes are (`preserveEntrySignatures: "exports-only"`).
    - **Measured** as what the plain page loads: the app's chunk, the page's, and their static imports, each gzipped as it's fetched.
    - **Gated:** from here a Feature that reaches a page that never uses it fails the gate.
 
 **Measured.**
-- **`bun run size --base main`:**
-  - `s1-routes` 119.7 → 115.4 KB gzipped (−3.6%; core −5.4 KB and solid −7.4 KB minified);
-  - `s2-routes` 145.8 → 141.5 (−2.9%);
+- **`bun run size --base main`,** with the layout page in:
+  - `s1-routes` 138.2 → 116.2 KB gzipped (−15.9%; dom −51.2 KB, core −6.3 KB and solid −7.2 KB minified);
+  - `s2-routes` 164.4 → 142.3 (−13.4%);
+  - before the `layout` fix, with only the drag page, they read 119.7 → 115.4 and 145.8 → 141.5;
   - every other app within ±0.1%, and the budgets held (120.4 of 121, 156.0 of 157).
 - **#526's storefront conversion** on top (SolidStart 2, Vite 8 / Rolldown), the JavaScript a route loads on a fresh visit, against `main` with every element Complete:
   - a page that doesn't drag, 212.2 → 203.7 KB (Solid 1) and 267.4 → 259.0 (Solid 2);

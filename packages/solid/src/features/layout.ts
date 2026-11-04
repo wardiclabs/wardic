@@ -6,6 +6,7 @@
  *
  * @module
  */
+import * as DomProjectionSystem from "@wardic/dom/DomProjectionSystem"
 import * as FlushGate from "@wardic/dom/FlushGate"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Effect from "effect/Effect"
@@ -23,7 +24,7 @@ export const layout: Feature<ProjectionSystem.ProjectionSystem, ProjectionSystem
   name: "layout",
   key: ProjectionSystem.ProjectionSystem,
   layer: /*#__PURE__*/ Layer.effect(ProjectionSystem.ProjectionSystem)(
-    /*#__PURE__*/ Effect.flatMap(FlushGate.FlushGate, (gate) => Effect.flatMap(ProjectionOptions, (options) => ProjectionSystem.make(gate, options))),
+    /*#__PURE__*/ Effect.flatMap(FlushGate.FlushGate, (gate) => Effect.flatMap(ProjectionOptions, (options) => DomProjectionSystem.make(gate, options))),
   ),
 }
 
