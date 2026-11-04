@@ -661,8 +661,14 @@ a {
   cursor: pointer;
 }
 
-.sample-tab[aria-selected="true"] {
+.sample-tab[aria-selected="true"],
+.sample-tab[aria-pressed="true"] {
   color: var(--ink);
+}
+
+/* The reduced-motion sample's settings: the one in force is underlined. */
+.sample-tab[aria-pressed="true"] {
+  box-shadow: inset 0 -3px var(--accent);
 }
 
 .sample-underline {
