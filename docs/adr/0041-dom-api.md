@@ -434,3 +434,11 @@ Grilled 2026-10-17 (A, A, A, A):
 `ProjectionSystem` and `measure.ts` re-export them.
 
 **Callers:** solid's `layout` Feature builds the engine with `DomProjectionSystem.make`. dom's services tests (DS1–DS3) use the new module.
+
+## Amendment (#586, 2026-11-04): the root re-exports core's `CheckFrames` for an app
+
+Decision 2's root keeps `DomLive` and `VERSION` for an app. An app turning on the dev check for non-finite Frames (`FrameLoop.CheckFrames`, ADR-0030 decision 7) had to import it from `@wardic/core`, which it doesn't install: the install line is `@wardic/solid @wardic/dom effect`, and a strict package manager won't resolve a package an app doesn't list. It was the only thing an app imported from core.
+
+**Grilled on #586: re-export the reference.** The root re-exports core's `CheckFrames` itself, beside `DomLive`: `Layer.succeed(CheckFrames, true)` merged into `env`, as Effect's own references are set (`References.MinimumLogLevel`). Rejected: a ready Layer (`checkFrames`), a second name for the same thing and a new shape; and leaving it in core, with the Observability guide telling apps to install it.
+
+Pinned by EX1 (`packages/dom/test/exports.node.test.ts`: the root's `CheckFrames` is core's) and by the Observability guide's recipe, typechecked in `error-reporting.browser.test.tsx` and in the site's samples. The site no longer lists `@wardic/core`.
