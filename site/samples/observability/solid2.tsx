@@ -1,6 +1,5 @@
 import type { JSX } from "@solidjs/web"
-import * as FrameLoop from "@wardic/core/FrameLoop"
-import { DomLive } from "@wardic/dom"
+import { CheckFrames, DomLive } from "@wardic/dom"
 import { domAnimation, WardicProvider } from "@wardic/solid/unstable/v2"
 import { DevTools } from "effect/devtools"
 import * as ErrorReporter from "effect/ErrorReporter"
@@ -21,7 +20,7 @@ export const devEnv = Layer.mergeAll(
   // Every animation's span, and the Frame loop's metrics, to the Effect devtools.
   DevTools.layer(),
   // A frame with a NaN or an Infinity in it fails its animation, naming the key.
-  Layer.succeed(FrameLoop.CheckFrames, true),
+  Layer.succeed(CheckFrames, true),
 )
 
 export default function App(props: { readonly children: JSX.Element }) {

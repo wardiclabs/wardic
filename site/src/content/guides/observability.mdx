@@ -9,7 +9,7 @@ Wardic is built on [Effect](https://effect.website), and speaks its observabilit
 
 <CodeTabs sample="observability" />
 
-That's a development setup: give it where the app runs in development, such as under `import.meta.env.DEV`, and plain `DomLive` in production. `FrameLoop` is `@wardic/core`'s, so add `@wardic/core` to the app's dependencies to check frames.
+That's a development setup: give it where the app runs in development, such as under `import.meta.env.DEV`, and plain `DomLive` in production.
 
 ## Logs
 
@@ -51,6 +51,6 @@ const env = Layer.mergeAll(DomLive, tracing)
 
 ## Checking frames
 
-`FrameLoop.CheckFrames` fails an animation whose frame holds a NaN or an Infinity, naming the key and the value (`a non-finite Frame: x is NaN`), where the page would quietly drop a `NaNpx`. It checks every value of every frame, which costs up to 40% of a frame's work, so it's for development.
+`CheckFrames`, from `@wardic/dom`, fails an animation whose frame holds a NaN or an Infinity, naming the key and the value (`a non-finite Frame: x is NaN`), where the page would quietly drop a `NaNpx`. It checks every value of every frame, which costs up to 40% of a frame's work, so it's for development.
 
 `effect/ErrorReporter`, `effect/devtools` and `effect/observability` are marked unstable in Effect 4.1, so their names can change in a minor release.
