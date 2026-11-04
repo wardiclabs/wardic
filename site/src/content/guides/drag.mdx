@@ -1,0 +1,52 @@
+---
+title: Drag
+description: Dragging on one axis or both, inside constraints, with momentum, and from somewhere else.
+---
+
+# Drag
+
+`drag` makes an element follow the pointer. `drag="x"` or `drag="y"` keeps it to one axis. On release it carries on at the speed it was thrown, and slows to a stop.
+
+<Demo sample="drag" />
+
+<CodeTabs sample="drag" />
+
+## The Feature
+
+Dragging is the `drag` Feature. A page that drags brings it itself, through `<LazyWardic features={[drag]}>`, as the demo above does, so the pages that don't never load its code.
+
+## Constraints
+
+`dragConstraints` keeps the element inside a box, `{ left, right, top, bottom }` in pixels from where it started, or inside another element, given as an accessor (`() => arena`). `dragElastic`, 0 to 1, is how far it can be pulled past them; it springs back on release.
+
+## Release
+
+- `dragMomentum={false}` stops it where it's released.
+- `dragSnapToOrigin` springs it back to where it started.
+- `dragTransition` tunes the glide (`power`, `timeConstant`, `bounceStiffness`, `bounceDamping`).
+
+## While dragging
+
+`whileDrag` applies while it's dragged, as `whileTap` does while it's pressed.
+
+## One axis, decided by the gesture
+
+`dragDirectionLock` waits for the pointer to move 10 px along an axis, then drags on that one alone. The drag starts at that moment, so a card that drags sideways inside a sheet that drags down doesn't start on a vertical swipe.
+
+## Drags inside drags
+
+A drag claims its axes as it starts, so a draggable inside a draggable drags on its own, and its ancestor stays put for that gesture. `dragPropagation` claims nothing, so the ancestor drags with it.
+
+## Starting from somewhere else
+
+`createDragControls()` starts a drag from another element, such as a handle:
+
+```tsx
+const controls = createDragControls()
+<div class="handle" onPointerDown={(event) => controls.start(event)} />
+<w.div drag="y" dragControls={controls} dragListener={false} />
+```
+
+## Inside a zoomed parent
+
+An element inside a scaled or rotated parent moves in the parent's pixels, so it runs ahead of the pointer or lags behind it. `<WardicConfig transformPagePoint={correctParentTransform(() => plan)}>` maps the pointer through the parent's transform, so it stays under the pointer at any zoom. [Arrange a room](https://solid2.wardic.dev/gestures/arrange-room) shows it.

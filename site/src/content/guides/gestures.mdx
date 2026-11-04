@@ -1,0 +1,39 @@
+---
+title: Gestures
+description: Hover, press, focus and in-view targets, and how to hear each gesture.
+---
+
+# Gestures
+
+Each gesture has a target that applies while it's on: `whileHover`, `whileTap`, `whileFocus`, `whileInView`, and `whileDrag` for [drag](/guides/drag). When it ends, the element goes back to its `animate`.
+
+<Demo sample="gestures" />
+
+<CodeTabs sample="gestures" />
+
+## Press
+
+`whileTap` applies while the pointer is down on the element, and a tap is a press released over it. The keyboard presses too: Enter, and Space as a button takes it. An element that can't take focus gets `tabIndex = 0`, so a keyboard can reach it.
+
+A press inside a pressable element presses both, as in Motion. `propagate={{ tap: false }}` keeps an element's press from reaching its ancestors.
+
+## Focus
+
+`whileFocus` applies to the keyboard's focus (`:focus-visible`), not a pointer's click.
+
+## In view
+
+`whileInView` applies while the element is in the viewport. `viewport` tunes it: `once` keeps it on after the first time, `margin` grows or shrinks the area, `amount` is how much of the element must show, and `root` watches a scrolling element in place of the page.
+
+```tsx
+<w.section initial={{ opacity: 0 }} whileInView={{ opacity: 1 }} viewport={{ once: true, amount: 0.4 }} />
+```
+
+## Hearing a gesture
+
+- **On Solid 1,** an element takes Motion's callbacks: `onHoverStart`, `onHoverEnd`, `onTapStart`, `onTap`, `onTapCancel`, `onViewportEnter`, `onViewportLeave` and the drag and pan ones, each `(event, info)`, with `info.point` in the viewport's coordinates.
+- **On Solid 2,** the element's ward gives them: make one with `w.ward()`, give it to the element as `wardRef`, then `await button.next("tap")`, or run an effect over `button.when("tap")`.
+
+## The Features they need
+
+Hover, press, focus and in-view are `domAnimation`'s, which a provider usually gives every page. Each is also a Feature of its own (`hover`, `press`, `focus`, `inView`), for a page that needs only one.
