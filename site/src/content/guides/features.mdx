@@ -44,7 +44,7 @@ On Solid 2, the gesture Features bring the ward's events too, such as `"hover"` 
 It loads as the section renders, in the browser only. So a section rendered on a press loads on the press, one rendered as it scrolls into view loads then, and one rendered once the page has mounted loads after the first paint. While it loads:
 
 - Values animate at once, and each Feature takes effect as it arrives. A drag tried before `drag` has arrived does nothing, and isn't replayed.
-- `layout` reaches the elements that mount after it arrives.
+- An element with a layout prop starts laying out when `layout` arrives: it animates its next layout change.
 - The server loads nothing: it renders each element at its starting style, as it always does.
 
 ## A Feature left out
