@@ -1,6 +1,6 @@
 ---
 title: Transitions
-description: Springs, tweens and keyframes, per value, with delays, repeats and what's set at the end.
+description: Springs, tweens and keyframes, curved paths, per value, with delays, repeats and what's set at the end.
 ---
 
 # Transitions
@@ -27,6 +27,21 @@ A tween runs for `duration` seconds along `ease`: one of Motion's names (`"easeO
 ## Keyframes
 
 A target that's a list plays through its stops: `animate={{ x: [0, 200, 160] }}`. `times` places each stop between 0 and 1, and `ease` can be a list, one per stretch. A first stop of `null` is wherever the value is now.
+
+## Along a curve
+
+`transition.path` moves `x` and `y` together along a path, on `x`'s transition, in place of two straight lines. `arc()` makes one: a curve from where the element is to its target.
+
+<Demo sample="arc" />
+
+<CodeTabs sample="arc" />
+
+- `strength` is how far it bows, and `peak` where along the way it's highest.
+- `direction` picks the side. Without one, an `arc()` made once (in the component, as above) keeps to the same side of the screen on every trip.
+- `rotate` turns the element along the curve, on top of its own `rotate`.
+- Under reduced motion, `x` and `y` snap to their target.
+
+A path is any `(from, to) => (t) => ({ x, y, rotate? })`, so a curve of your own works too. Layout animations follow a `path` as well: a move or a `layoutId` handover of 20 px or more curves its centre. [Saved for later](https://solid2.wardic.dev/presence/saved) flies each photo into the cart along one.
 
 ## Per value
 

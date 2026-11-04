@@ -606,3 +606,14 @@ a {
 .sample-ball-alt {
   background: conic-gradient(from 210deg, var(--aurora), #8fbcbb);
 }
+
+/* The arc sample's ball starts at the top: with no direction, its arc dips below the straight line. */
+.sample-track {
+  display: flex;
+  align-items: flex-start;
+  width: min(100%, 340px);
+  height: 160px;
+  padding: var(--space-3);
+  border: 2px dashed var(--line);
+  border-radius: var(--radius-m);
+}
