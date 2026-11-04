@@ -1,0 +1,40 @@
+---
+title: Testing
+description: Test components that animate with your own test runner, moving time yourself or skipping the animations.
+---
+
+# Testing
+
+Wardic runs in a component test as it does on a page. Render under a provider with `DomLive` in jsdom or happy-dom, and fake the timers to move time yourself. These tests run with Vitest in jsdom, on both bindings, as part of Wardic's own test suite:
+
+<CodeTabs sample="testing" />
+
+On Solid 2, render with `@solidjs/web`'s `render`, since `@solidjs/testing-library` is Solid 1's.
+
+## Moving time
+
+Wardic draws on animation frames, and fake timers fake them with the rest. After `vi.useFakeTimers()`, nothing moves until the test says so:
+
+- `await vi.advanceTimersByTimeAsync(100)` moves time on 100 ms, frame by frame, and each element's `style` is then what the page would draw. Await it: there's work between frames that isn't timed, and `vi.advanceTimersByTime` alone moves nothing.
+- An animation starts on the frame after it's asked for, so a 0.2 s one lands a frame after 200 ms: move past the end to see it land.
+- The values are the same on every run.
+
+## Skipping the animations
+
+To test what a component shows rather than how it moves, wrap it in `<WardicConfig skipAnimations>`. Every animation lands on its next frame, exits and layout animations included, so after one frame each element is at its end. Put it in the test's provider once, and every test gets it.
+
+## Gestures
+
+Fire the pointer events: `pointerenter` plays `whileHover`, and `pointerdown` then `pointerup` play `whileTap` and call `onTap`, as in the test above.
+
+## What needs a browser
+
+jsdom and happy-dom don't lay anything out: every box measures 0. jsdom has no `IntersectionObserver` or `ResizeObserver` either. So layout animations, `layoutId`, dragging within constraints and in-view animations belong in a real browser, with Vitest's browser mode or Playwright.
+
+## Reduced motion
+
+Give the test's provider `reducedMotion="always"`. jsdom has no `matchMedia`, so there `"user"` never reduces. In a browser test, emulate the system setting instead, as Playwright's `page.emulateMedia({ reducedMotion: "reduce" })` does.
+
+## @wardic/test
+
+`@wardic/test` is a different tool, for testing Wardic's core and a new Environment with no page at all: a clock that replays the frames it's given, a renderer that records what it's asked to draw, and input and a page that a test scripts. Its `TestLive` draws nothing on a page, so for a component's test, use `DomLive` as above.
