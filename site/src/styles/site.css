@@ -529,3 +529,75 @@ a {
     display: none;
   }
 }
+
+.sample-stack {
+  display: grid;
+  justify-items: start;
+  gap: var(--space-3);
+  width: min(100%, 360px);
+}
+
+.sample-button {
+  padding: 8px 18px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent);
+  color: var(--accent-ink);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.sample-box {
+  padding: 8px 14px;
+  border-radius: var(--radius-s);
+  background: var(--accent-soft);
+  font-family: var(--font-mono);
+  font-size: var(--text-s);
+}
+
+.sample-list {
+  display: grid;
+  gap: var(--space-2);
+  width: 100%;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sample-item {
+  padding: 10px 14px;
+  border-radius: var(--radius-s);
+  background: var(--accent-soft);
+}
+
+.sample-note {
+  margin: 0;
+  color: var(--muted);
+  font-size: var(--text-s);
+}
+
+.sample-arena {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-around;
+  width: min(100%, 360px);
+  height: 180px;
+  border: 2px dashed var(--line);
+  border-radius: var(--radius-m);
+}
+
+.sample-ball {
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: var(--shadow-m);
+  cursor: grab;
+  touch-action: none;
+}
+
+.sample-ball-alt {
+  background: conic-gradient(from 210deg, var(--aurora), #8fbcbb);
+}
