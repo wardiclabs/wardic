@@ -1,0 +1,35 @@
+---
+title: Reorder
+description: A list put in order by dragging its items, or from the keyboard.
+---
+
+# Reorder
+
+`<Reorder.Group>` and `<Reorder.Item>` make a list the reader puts in order by dragging. Your app owns the order: the group takes it as `values`, and `onReorder` hands each new order back, as an item crosses another.
+
+<Demo sample="reorder" />
+
+<CodeTabs sample="reorder" />
+
+## From the keyboard
+
+Every group has a keyboard reorder built in, which Motion's doesn't. Each item is a tab stop. Space or Enter lifts the focused item, the arrows move it one place a press (Home and End to the ends), Space or Enter drops it, and Escape puts it back. Each step is read out to a screen reader, from one live region the page shares.
+
+The words are English by default. The group's `announcements` replaces any of them, and `instructions` the instructions read when an item takes focus. `keyboard={false}` turns it off.
+
+## Saving the order
+
+`onReorder` is called at every step, as items cross. To save the order once, say to a server, use the moment a reorder ends with the order changed:
+
+- **On Solid 1,** `onReorderEnd={(end) => save(end.values)}` on the group.
+- **On Solid 2,** the group's `reorderEnd` event, from `reorderGroup({ values, onReorder })` given to the group as `groupRef`.
+
+## Its props
+
+- `axis` is `"y"` (a column, the default) or `"x"` (a row).
+- `as` picks the elements: the group is a `ul` and each item an `li` by default.
+- An item takes any motion prop but `drag` and `layoutId`, which it sets itself: `whileDrag` for the item in hand, say. Its `layout` is `true` or `"position"`.
+
+## The Features
+
+An item brings its own drag, layout and gestures, so a list works under any provider.

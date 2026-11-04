@@ -1,0 +1,48 @@
+---
+title: Exit animations
+description: Keeping an element on the page while it animates out, with AnimatePresence.
+---
+
+# Exit animations
+
+An element that Solid removes is gone at once. Inside `<AnimatePresence>`, one with an `exit` stays on the page until that animation has played, then goes.
+
+<Demo sample="presence" />
+
+<CodeTabs sample="presence" />
+
+## What counts as a child
+
+Each DOM node directly inside is a child of its own: a `<Show>`'s element, or each of a `<For>`'s. For one element that swaps for another, a `<Show keyed>` makes each value a new child, so the last one leaves as the next one enters:
+
+```tsx
+<AnimatePresence mode="wait">
+  <Show when={tab()} keyed>
+    {(name) => <w.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>{name}</w.div>}
+  </Show>
+</AnimatePresence>
+```
+
+A `key` on the element, as in Motion, lets one that comes back while it's still leaving pick up from where its leaver is, rather than enter again.
+
+## Modes
+
+- **`"sync"`** (the default): the leaving and the entering children animate at once.
+- **`"wait"`**: the entering child waits until the leaving one has gone.
+- **`"popLayout"`**: a leaving child is taken out of the layout as it starts to leave, so the others move into its place as it goes, with `layout` on them. `anchorX` and `anchorY` say which edge it keeps while it's popped.
+
+## Its other props
+
+- `initial={false}` skips the children's entrance at the first render.
+- `custom` is handed to each leaving child's `exit` variants, for an exit that depends on something only known as it leaves, such as the direction a slider went.
+- `onExitComplete` is called once every leaving child has gone.
+- `propagate` plays the exits of nested presences when their parent leaves.
+
+## Your own exit
+
+`usePresence` takes over a child's exit from the code: it stays on the page until you say it can go.
+
+- **On Solid 1,** `usePresence(element, (safeToRemove, custom) => { … })` calls you when it leaves.
+- **On Solid 2,** `const presence = usePresence()`, given as `ref={presence}`; then `await presence.next("leave")`, and `presence.safeToRemove()`.
+
+`useIsPresent` is whether the child is still present, `false` from the moment it starts to leave.

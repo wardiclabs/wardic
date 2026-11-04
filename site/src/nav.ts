@@ -28,6 +28,11 @@ export const NAV: ReadonlyArray<NavSection> = [
       { path: "/guides/variants", title: "Variants" },
       { path: "/guides/gestures", title: "Gestures" },
       { path: "/guides/drag", title: "Drag" },
+      { path: "/guides/layout", title: "Layout animations" },
+      { path: "/guides/presence", title: "Exit animations" },
+      { path: "/guides/reorder", title: "Reorder" },
+      { path: "/guides/scroll", title: "Scroll" },
+      { path: "/guides/live-values", title: "Live values" },
     ],
   },
 ]
