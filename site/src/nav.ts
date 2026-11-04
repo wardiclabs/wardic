@@ -5,9 +5,17 @@ export interface NavPage {
   readonly title: string
 }
 
+/** A family of pages in a section, one collapsible group in the sidebar: the reference's (#558). */
+export interface NavGroup {
+  readonly title: string
+  readonly pages: ReadonlyArray<NavPage>
+}
+
 export interface NavSection {
   readonly title: string
   readonly pages: ReadonlyArray<NavPage>
+  /** Its families, after its pages, each open while one of its pages is. */
+  readonly groups?: ReadonlyArray<NavGroup>
 }
 
 export const NAV: ReadonlyArray<NavSection> = [
