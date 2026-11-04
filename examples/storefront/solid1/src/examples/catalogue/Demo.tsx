@@ -8,10 +8,9 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, arc, LazyWardic, w } from "@wardic/solid"
+import { AnimatePresence, arc, layout, LazyWardic, w } from "@wardic/solid"
 import { createSignal, For, type JSX, Match, onCleanup, Show, Switch } from "solid-js"
 import { addToCart } from "~/lib/store.ts"
-import { layout } from "~/lib/layout-feature.ts"
 
 const PIECES = PRODUCTS.slice(0, 6)
 const HOME = "/transitions/catalogue"

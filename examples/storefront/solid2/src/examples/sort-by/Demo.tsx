@@ -2,10 +2,9 @@ import { Select } from "@kobalte/core/select"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, LazyWardic, useAnimateLayout, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, layout, LazyWardic, useAnimateLayout, w } from "@wardic/solid/unstable/v2"
 import { createMemo, createSignal, For, Loading, Show } from "solid-js"
 import { products } from "~/lib/store.ts"
-import { layout } from "~/lib/layout-feature.ts"
 
 // Kobalte's list, taking Wardic's motion props: the ward goes on the element it renders.
 const List = w.create(Select.Content)

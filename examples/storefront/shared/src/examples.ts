@@ -15,6 +15,7 @@ export const AREAS = [
   { id: "live", title: "Live values", blurb: "Values that follow the pointer, the scroll or each other." },
   { id: "server", title: "Server rendering", blurb: "Animations that play before the JavaScript has loaded." },
   { id: "library", title: "With a component library", blurb: "Dialogs, selects and tabs from a component library: its keyboard and accessibility, animated." },
+  { id: "shipping", title: "Shipping less", blurb: "Load only the animation code a page uses, and the rest when it's wanted." },
 ] as const
 
 export type AreaId = (typeof AREAS)[number]["id"]
@@ -40,6 +41,11 @@ export interface Example {
    * component library Wardic's is built on, #387). Its code is that app's `src/examples/<id>/`.
    */
   readonly motion?: { readonly note: string; readonly title?: string | undefined; readonly summary?: string | undefined } | undefined
+  /**
+   * What the pattern gains and what it costs, where it's a trade (#526 Q6): two short lists, shown
+   * under "Why" in every app.
+   */
+  readonly tradeoffs?: { readonly gains: ReadonlyArray<string>; readonly costs: ReadonlyArray<string> } | undefined
   /**
    * The apps that have it, where not all three: a pattern only one binding shows (Solid 2's
    * `<Loading>` in a page, #479). Their galleries list it and the smoke test opens it there; the
@@ -543,6 +549,38 @@ export const EXAMPLES: ReadonlyArray<Example> = [
       EFFECT_RELAY_TEAR: "Kobalte 2.0's Tabs.List copies the selected trigger into its context from an effect, and Tabs.Content's presence relays its own state (alpha.4)",
       EFFECT_WRITES_OWN_SOURCE: "Tabs.Content's presence (@solid-primitives/presence 1.0.0-next.2) sets `isVisible` from an effect that reads it",
     },
+  },
+  {
+    id: "rearrange",
+    area: "shipping",
+    title: "Rearrange the room: drag loads when you ask",
+    summary: "The room's pieces stay put until you press Rearrange. Only then does the page fetch Wardic's drag, and the card says how long it took to arrive.",
+    why: [
+      "Most visitors look at a room plan and never move a thing, so the code that drags is weight they'd pay for nothing. Every page here gets the shell's `domAnimation` from the provider (hover, press, focus and in-view) and nothing else. This room's pieces sit in a `LazyWardic` whose `features` is a function, `() => import(\"~/lib/drag-feature.ts\").then((m) => m.drag)`, and a lazy Feature loads as its section renders. The section renders when you press Rearrange, so that's when the page fetches `drag`. Until then the pieces are plain markup.",
+      "The cost is the wait. Switch on \"Slow connection\" and the import is held back 1.5 s: drag a piece meanwhile and nothing happens, and once `drag` arrives, the drag you tried isn't replayed. Props whose Feature hasn't arrived do nothing; values still animate at once. Replay the demo and `drag` arrives at once: the browser keeps a module it has loaded, as it would after a page that drags, such as Arrange a room.",
+      "A press is one trigger of several. Load on view, rendering the section as it scrolls in, for something below the fold that most visitors reach. Load after the first paint, rendering it once the page has mounted, for something nearly everyone uses that needn't hold up the first frame. Load on intent, as here, for something few use. And a page that uses a Feature from the start brings it with its route: every page in this shop that drags or lays out wraps its demo in `<LazyWardic features={[drag]}>`, so the Feature is in the route's own chunk, there when the page is.",
+    ],
+    tradeoffs: {
+      gains: [
+        "A smaller first load: the page ships without `drag`'s code, about 7 KB gzipped here, fetched on the press.",
+        "The cost only on intent: a visitor who never rearranges never fetches it.",
+        "The server's render is unchanged: the room is there, in place, before any script runs.",
+      ],
+      costs: [
+        "Until `drag` arrives, its props do nothing, and nothing is replayed: a drag begun mid-load is lost.",
+        "One more request, made just as the visitor wants to drag.",
+        "A Feature to remember: each section names the Features it uses, and development warns of one left out.",
+      ],
+    },
+    reducedMotion: "Nothing changes: once `drag` has arrived, a piece follows your pointer, and nothing moves by itself.",
+    uses: ["LazyWardic", "features={() => import(…)}", "drag", "dragConstraints"],
+    motion: {
+      title: "Rearrange the room, its drag already loaded",
+      summary: "Press Rearrange, then drag the pieces about. Motion's Features load for the whole page, so drag came with it.",
+      note: "Motion's Features load for the whole page: `LazyMotion`'s `loadFeatures` writes into one page-wide set, and its `layout` comes only in `domMax`, with `drag`. This app's shell needs `layoutId` for the cart's fly-in, so every page here has `drag` already, and the room drags before Rearrange is pressed. Wardic's Features load per section: the Solid apps' pages fetch `drag` only on the press.",
+    },
+    interact: [".rearrange", 'drag:.room-plan[data-drag="arrived"] .room-piece[data-id="sofa"]:80:40'],
+    watch: '.room-piece[data-id="sofa"]',
   },
 ]
 

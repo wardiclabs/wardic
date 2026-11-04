@@ -203,6 +203,12 @@ declare module "virtual:file-routes" {
       $$route?: undefined;
     },
     {
+      path: "/shipping/rearrange";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/shipping/rearrange")>;
+      $$route?: undefined;
+    },
+    {
       path: "/transitions/catalogue";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/transitions/catalogue")>;
@@ -376,6 +382,14 @@ declare module "virtual:file-routes" {
       id: "/live/announcements";
       page: true;
       $component: FileRouteLazyRef<typeof import("./src/routes/live/announcements")>;
+      $$route?: undefined;
+      children?: undefined;
+    },
+    {
+      path: "/shipping/rearrange";
+      id: "/shipping/rearrange";
+      page: true;
+      $component: FileRouteLazyRef<typeof import("./src/routes/shipping/rearrange")>;
       $$route?: undefined;
       children?: undefined;
     },

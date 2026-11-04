@@ -2,9 +2,8 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, LazyWardic, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, layout, LazyWardic, w } from "@wardic/solid/unstable/v2"
 import { createSignal, For, onSettled, Show } from "solid-js"
-import { layout } from "~/lib/layout-feature.ts"
 
 const SHELF = PRODUCTS.filter((product) => ["moon-vase", "celadon-bowl", "cut-carafe"].includes(product.id))
 

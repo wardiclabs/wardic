@@ -1,12 +1,11 @@
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { CartLine, Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, LazyWardic, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, layout, LazyWardic, w } from "@wardic/solid/unstable/v2"
 import { revalidate } from "@solidjs/router"
 import { action, createMemo, createOptimisticStore, createSignal, For, Loading, onSettled, refresh, Show } from "solid-js"
 import { cart, products } from "~/lib/store.ts"
 import { addToCart, setCartQuantity } from "~/server/store.ts"
-import { layout } from "~/lib/layout-feature.ts"
 
 const SUGGESTED = ["white-bowl", "celadon-bowl", "slip-dish", "painted-jug"]
 

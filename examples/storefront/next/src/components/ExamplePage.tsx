@@ -23,6 +23,34 @@ function Prose({ text }: { readonly text: string }) {
   return codeParts(text).map((part, i) => (part.code ? <code key={i}>{part.text}</code> : part.text))
 }
 
+/** An example's gains and costs (#526 Q6), where it has them: two short lists. */
+function Tradeoffs({ gains, costs }: { readonly gains: ReadonlyArray<string>; readonly costs: ReadonlyArray<string> }) {
+  return (
+    <section className="tradeoffs" aria-label="Gains and costs">
+      <div className="gains">
+        <h3>Gains</h3>
+        <ul>
+          {gains.map((gain) => (
+            <li key={gain}>
+              <Prose text={gain} />
+            </li>
+          ))}
+        </ul>
+      </div>
+      <div className="costs">
+        <h3>Costs</h3>
+        <ul>
+          {costs.map((cost) => (
+            <li key={cost}>
+              <Prose text={cost} />
+            </li>
+          ))}
+        </ul>
+      </div>
+    </section>
+  )
+}
+
 /** An example's page around its demo: the example's `Demo`, or a layout's pages (#479). */
 export async function ExamplePage({ example, children }: { readonly example: Example; readonly children: ReactNode }) {
   const area = AREAS.find((one) => one.id === example.area)
@@ -56,12 +84,16 @@ export async function ExamplePage({ example, children }: { readonly example: Exa
       <p className="note">
         <strong>Reduced motion:</strong> <Prose text={example.reducedMotion} />
       </p>
-      {example.motion !== undefined && (
+      {(example.motion !== undefined || example.tradeoffs !== undefined) && (
         <section className="why">
           <h2>Beside Wardic</h2>
-          <p>
-            <Prose text={example.motion.note} />
-          </p>
+          {example.motion !== undefined && (
+            <p>
+              <Prose text={example.motion.note} />
+            </p>
+          )}
+          {/* Wardic's gains and costs (#526 Q6), where the example has them. */}
+          {example.tradeoffs !== undefined && <Tradeoffs gains={example.tradeoffs.gains} costs={example.tradeoffs.costs} />}
         </section>
       )}
       <section className="code" aria-labelledby="code-title">

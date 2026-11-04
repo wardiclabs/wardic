@@ -1,10 +1,9 @@
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, LazyWardic, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, layout, LazyWardic, w } from "@wardic/solid/unstable/v2"
 import { createMemo, createSignal, For, Loading, onSettled, Show } from "solid-js"
 import { products } from "~/lib/store.ts"
-import { layout } from "~/lib/layout-feature.ts"
 
 // The detail view's text fades in once the card has grown into it, and out at once when it closes.
 const content = {

@@ -1,10 +1,9 @@
 import { createAsync, useAction, useSubmission } from "@solidjs/router"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
-import { AnimatePresence, LazyWardic, w } from "@wardic/solid"
+import { AnimatePresence, layout, LazyWardic, w } from "@wardic/solid"
 import { createSignal, Match, onCleanup, Show, Suspense, Switch } from "solid-js"
 import { addToCart, product } from "~/lib/store.ts"
-import { layout } from "~/lib/layout-feature.ts"
 
 // "View cart" slides out from behind the button once the piece is in the cart.
 const viewCart = {

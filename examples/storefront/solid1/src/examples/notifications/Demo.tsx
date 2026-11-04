@@ -1,9 +1,8 @@
 import { createAsyncStore, useAction } from "@solidjs/router"
 import type { Notice } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, drag, LazyWardic, w, type WardicDragInfo } from "@wardic/solid"
+import { AnimatePresence, drag, layout, LazyWardic, w, type WardicDragInfo } from "@wardic/solid"
 import { createSignal, For, onCleanup, Show, Suspense } from "solid-js"
 import { dismissNotice, notices, restoreNotices } from "~/lib/store.ts"
-import { layout } from "~/lib/layout-feature.ts"
 
 type Side = "left" | "right"
 

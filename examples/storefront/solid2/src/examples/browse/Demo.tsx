@@ -1,10 +1,9 @@
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import { CATEGORIES, type Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, LazyWardic, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, layout, LazyWardic, w } from "@wardic/solid/unstable/v2"
 import { createMemo, createSignal, For, Loading } from "solid-js"
 import { products } from "~/lib/store.ts"
-import { layout } from "~/lib/layout-feature.ts"
 
 const FILTERS = ["All", ...CATEGORIES] as const
 type Filter = (typeof FILTERS)[number]
