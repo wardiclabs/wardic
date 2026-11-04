@@ -1,6 +1,6 @@
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import { STUDIO_CHAPTERS } from "@wardic/example-storefront-shared/stories"
-import { wardic } from "@wardic/solid/unstable/v2"
+import { w } from "@wardic/solid/unstable/v2"
 import { For } from "solid-js"
 
 // Each chapter names a variant as it comes into view; its photo and words follow, one after another.
@@ -23,13 +23,13 @@ export default function Reveals() {
           const photo = photoOf(story.photo)
           return (
             // In view once a third of it shows in the panel; once, so scrolling back up doesn't hide it.
-            <wardic.section class="chapter" variants={chapter} initial="hidden" whileInView="shown" viewport={{ root: () => panel, once: true, amount: 0.35 }}>
-              <wardic.img variants={part} src={photo.small} width={photo.width} height={photo.height} alt="" />
+            <w.section class="chapter" variants={chapter} initial="hidden" whileInView="shown" viewport={{ root: () => panel, once: true, amount: 0.35 }}>
+              <w.img variants={part} src={photo.small} width={photo.width} height={photo.height} alt="" />
               <div>
-                <wardic.h3 variants={part}>{story.title}</wardic.h3>
-                <wardic.p variants={part}>{story.text}</wardic.p>
+                <w.h3 variants={part}>{story.title}</w.h3>
+                <w.p variants={part}>{story.text}</w.p>
               </div>
-            </wardic.section>
+            </w.section>
           )
         }}
       </For>

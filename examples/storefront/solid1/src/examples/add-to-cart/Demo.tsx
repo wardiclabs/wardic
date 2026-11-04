@@ -1,7 +1,7 @@
 import { createAsync, useAction, useSubmission } from "@solidjs/router"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
-import { AnimatePresence, wardic } from "@wardic/solid"
+import { AnimatePresence, w } from "@wardic/solid"
 import { createSignal, Match, onCleanup, Show, Suspense, Switch } from "solid-js"
 import { addToCart, product } from "~/lib/store.ts"
 
@@ -56,19 +56,19 @@ export default function AddToCart() {
                   </div>
                   {/* The button's width follows its label: layout animates the change, and the label,
                       layout="position", travels with it instead of stretching. */}
-                  <wardic.button class="button accent buy" layout disabled={adding.pending} onClick={() => buy(shown().id).catch(() => undefined)}>
-                    <wardic.span layout="position">
+                  <w.button class="button accent buy" layout disabled={adding.pending} onClick={() => buy(shown().id).catch(() => undefined)}>
+                    <w.span layout="position">
                       <Switch fallback="Add to cart">
                         <Match when={adding.pending}>Adding…</Match>
                         <Match when={added()}>Added ✓</Match>
                       </Switch>
-                    </wardic.span>
-                  </wardic.button>
+                    </w.span>
+                  </w.button>
                   <AnimatePresence>
                     <Show when={added()}>
-                      <wardic.a class="view-cart" href="/layout/cart-drawer" {...viewCart}>
+                      <w.a class="view-cart" href="/layout/cart-drawer" {...viewCart}>
                         View cart →
-                      </wardic.a>
+                      </w.a>
                     </Show>
                   </AnimatePresence>
                 </div>

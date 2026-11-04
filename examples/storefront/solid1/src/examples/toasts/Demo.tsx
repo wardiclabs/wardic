@@ -3,7 +3,7 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, wardic } from "@wardic/solid"
+import { AnimatePresence, w } from "@wardic/solid"
 import { createSignal, For, onCleanup } from "solid-js"
 import { addToCart } from "~/lib/store.ts"
 
@@ -72,9 +72,9 @@ export default function Toasts() {
                   <span class="name">{product.name}</span>
                   <span class="price">{formatPrice(product.price)}</span>
                 </div>
-                <wardic.button class="button quiet" whileHover={{ y: -1 }} whileTap={{ scale: 0.96 }} onClick={() => void buy(product)}>
+                <w.button class="button quiet" whileHover={{ y: -1 }} whileTap={{ scale: 0.96 }} onClick={() => void buy(product)}>
                   Add to cart
-                </wardic.button>
+                </w.button>
               </li>
             )
           }}
@@ -84,12 +84,12 @@ export default function Toasts() {
         <AnimatePresence mode="popLayout" anchorX="right" anchorY="bottom">
           <For each={toasts()}>
             {(toast) => (
-              <wardic.li class="toast" data-kind={toast.kind} layout {...toastMotion}>
+              <w.li class="toast" data-kind={toast.kind} layout {...toastMotion}>
                 <span>{toast.text}</span>
                 <button class="icon-button" aria-label="Dismiss" onClick={() => dismiss(toast.id)}>
                   ✕
                 </button>
-              </wardic.li>
+              </w.li>
             )}
           </For>
         </AnimatePresence>

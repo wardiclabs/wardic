@@ -2,7 +2,7 @@ import { createAsync } from "@solidjs/router"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, wardic } from "@wardic/solid"
+import { AnimatePresence, w } from "@wardic/solid"
 import { createSignal, For, onCleanup, onMount, Show, Suspense } from "solid-js"
 import { products } from "~/lib/store.ts"
 
@@ -33,17 +33,17 @@ export default function ProductDetail() {
           {(product) => (
             <li>
               {/* Each part of the card has a twin in the detail view: the same layoutId. */}
-              <wardic.button class="product-card" layoutId={`card-${product.id}`} onClick={() => setOpen(product)} aria-label={`Open ${product.name}`}>
+              <w.button class="product-card" layoutId={`card-${product.id}`} onClick={() => setOpen(product)} aria-label={`Open ${product.name}`}>
                 <Photo product={product} />
                 <div class="line">
-                  <wardic.span class="name" layoutId={`name-${product.id}`} layout="position">
+                  <w.span class="name" layoutId={`name-${product.id}`} layout="position">
                     {product.name}
-                  </wardic.span>
-                  <wardic.span class="price" layoutId={`price-${product.id}`} layout="position">
+                  </w.span>
+                  <w.span class="price" layoutId={`price-${product.id}`} layout="position">
                     {formatPrice(product.price)}
-                  </wardic.span>
+                  </w.span>
                 </div>
-              </wardic.button>
+              </w.button>
             </li>
           )}
         </For>
@@ -52,30 +52,30 @@ export default function ProductDetail() {
         <Show when={open()}>
           {(product) => (
             <>
-              <wardic.div class="backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={close} />
+              <w.div class="backdrop" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} onClick={close} />
               {/* A position: fixed frame: the twins meet where each is drawn, however far the page has scrolled. */}
               <div class="detail-frame">
-                <wardic.article class="detail" layoutId={`card-${product().id}`} role="dialog" aria-modal="true" aria-label={product().name}>
+                <w.article class="detail" layoutId={`card-${product().id}`} role="dialog" aria-modal="true" aria-label={product().name}>
                   <Photo product={product()} />
                   <div class="detail-body">
-                    <wardic.h2 class="name" layoutId={`name-${product().id}`} layout="position">
+                    <w.h2 class="name" layoutId={`name-${product().id}`} layout="position">
                       {product().name}
-                    </wardic.h2>
-                    <wardic.p class="price" layoutId={`price-${product().id}`} layout="position">
+                    </w.h2>
+                    <w.p class="price" layoutId={`price-${product().id}`} layout="position">
                       {formatPrice(product().price)}
-                    </wardic.p>
-                    <wardic.div class="detail-text" {...content}>
+                    </w.p>
+                    <w.div class="detail-text" {...content}>
                       <p>{product().description}</p>
                       <ul class="details">
                         <For each={product().details}>{(detail) => <li>{detail}</li>}</For>
                       </ul>
                       <button class="button accent">Add to cart</button>
-                    </wardic.div>
+                    </w.div>
                   </div>
                   <button class="icon-button close" onClick={close} aria-label="Close">
                     ✕
                   </button>
-                </wardic.article>
+                </w.article>
               </div>
             </>
           )}
@@ -88,8 +88,8 @@ export default function ProductDetail() {
 function Photo(props: { readonly product: Product }) {
   const photo = photoOf(props.product.id)
   return (
-    <wardic.div class="photo" layoutId={`photo-${props.product.id}`}>
+    <w.div class="photo" layoutId={`photo-${props.product.id}`}>
       <img src={photo.small} srcset={srcsetOf(photo)} sizes="(max-width: 640px) 100vw, 480px" width={photo.width} height={photo.height} alt={props.product.name} />
-    </wardic.div>
+    </w.div>
   )
 }

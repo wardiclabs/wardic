@@ -3,7 +3,7 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, wardic } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, w } from "@wardic/solid/unstable/v2"
 import { action, createMemo, createOptimisticStore, createSignal, flush, For, Show } from "solid-js"
 import { arrivalId, arrive, recall } from "~/lib/arrivals.ts"
 import { useReducedMotion } from "~/lib/preferences.tsx"
@@ -80,25 +80,25 @@ function SavedRow(props: { readonly piece: Product; readonly onMove: () => void;
   const photo = createMemo(() => photoOf(props.piece.id))
   return (
     // It fades as it leaves, either way. Moved to the cart, its photo's twin there flies from its own.
-    <wardic.li class="saved-row" layout exit={{ opacity: 0, transition: { type: "tween", duration: 0.22, ease: "easeOut" } }}>
+    <w.li class="saved-row" layout exit={{ opacity: 0, transition: { type: "tween", duration: 0.22, ease: "easeOut" } }}>
       {/* One photo flies, not two crossfading: this and its twin in the cart button both have
           layoutCrossfade={false}, so whichever takes over hides the other, out to the cart and back. */}
-      <wardic.div class="photo" layoutId={arrivalId(props.piece.id)} layoutCrossfade={false}>
+      <w.div class="photo" layoutId={arrivalId(props.piece.id)} layoutCrossfade={false}>
         <img src={photo().small} srcset={srcsetOf(photo())} sizes="72px" width={photo().width} height={photo().height} alt={props.piece.name} />
-      </wardic.div>
+      </w.div>
       <div class="saved-text">
         <span class="name">{props.piece.name}</span>
         <span class="price">{formatPrice(props.piece.price)}</span>
       </div>
       <div class="saved-actions">
-        <wardic.button class="button accent" whileTap={{ scale: 0.96 }} onClick={() => props.onMove()}>
+        <w.button class="button accent" whileTap={{ scale: 0.96 }} onClick={() => props.onMove()}>
           Move to cart
-        </wardic.button>
+        </w.button>
         <button class="button quiet" onClick={() => props.onRemove()}>
           Remove
         </button>
       </div>
-    </wardic.li>
+    </w.li>
   )
 }
 

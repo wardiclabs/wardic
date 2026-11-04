@@ -1,7 +1,7 @@
 /** The showcase's gallery (#296 Q3): each area, with its examples. */
 import { AREAS, examplesIn, routeOf } from "@wardic/example-storefront-shared/examples"
 import { CARD, TAG } from "@wardic/example-storefront-shared/micro"
-import { wardic } from "@wardic/solid/unstable/v2"
+import { w } from "@wardic/solid/unstable/v2"
 import { For, Show } from "solid-js"
 
 export default function Home() {
@@ -32,13 +32,13 @@ export default function Home() {
             <div class="example-cards">
               <For each={examplesIn(area.id, "solid2")}>
                 {(example) => (
-                  <wardic.a class="example-card" href={routeOf(example)} variants={CARD} initial="rest" animate="rest" whileHover="hover" whileFocus="hover" whileTap="press">
+                  <w.a class="example-card" href={routeOf(example)} variants={CARD} initial="rest" animate="rest" whileHover="hover" whileFocus="hover" whileTap="press">
                     <h3>{example.title}</h3>
                     <p class="muted">{example.summary}</p>
                     <ul class="tags">
-                      <For each={example.uses}>{(use) => <wardic.li variants={TAG}>{use}</wardic.li>}</For>
+                      <For each={example.uses}>{(use) => <w.li variants={TAG}>{use}</w.li>}</For>
                     </ul>
-                  </wardic.a>
+                  </w.a>
                 )}
               </For>
             </div>

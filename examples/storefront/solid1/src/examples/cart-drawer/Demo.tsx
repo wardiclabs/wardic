@@ -2,7 +2,7 @@ import { createAsync, useAction, useSubmissions } from "@solidjs/router"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { CartLine, Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, wardic } from "@wardic/solid"
+import { AnimatePresence, w } from "@wardic/solid"
 import { createSignal, For, onCleanup, onMount, Show, Suspense } from "solid-js"
 import { addToCart, cart, products, setCartQuantity } from "~/lib/store.ts"
 
@@ -64,8 +64,8 @@ export default function CartDrawer() {
       </button>
       <AnimatePresence>
         <Show when={open()}>
-          <wardic.div class="backdrop" {...fade} onClick={() => setOpen(false)} />
-          <wardic.aside class="drawer" role="dialog" aria-modal="true" aria-label="Your cart" {...drawer}>
+          <w.div class="backdrop" {...fade} onClick={() => setOpen(false)} />
+          <w.aside class="drawer" role="dialog" aria-modal="true" aria-label="Your cart" {...drawer}>
             <header class="drawer-head">
               <h2>Your cart</h2>
               <button class="icon-button" aria-label="Close" onClick={() => setOpen(false)}>
@@ -80,7 +80,7 @@ export default function CartDrawer() {
                   <AnimatePresence mode="popLayout" initial={false}>
                     <For each={ids()}>
                       {(id) => (
-                        <wardic.li class="cart-line" layout {...line}>
+                        <w.li class="cart-line" layout {...line}>
                           <Show when={productOf(id)}>
                             {(product) => (
                               <>
@@ -104,28 +104,28 @@ export default function CartDrawer() {
                               </>
                             )}
                           </Show>
-                        </wardic.li>
+                        </w.li>
                       )}
                     </For>
                   </AnimatePresence>
                 </ul>
                 <AnimatePresence initial={false}>
                   <Show when={ids().length === 0}>
-                    <wardic.p class="cart-empty" {...fade}>
+                    <w.p class="cart-empty" {...fade}>
                       Your cart is empty.
-                    </wardic.p>
+                    </w.p>
                   </Show>
                 </AnimatePresence>
                 {/* The suggestions sit under the lines and slide down as lines arrive: layout="position",
                     as their block only travels. One added to the cart leaves, and the rest close up. */}
                 <Show when={suggestions().length > 0}>
-                  <wardic.section class="suggestions" layout="position">
+                  <w.section class="suggestions" layout="position">
                     <h3>You might also like</h3>
                     <ul>
                       <AnimatePresence mode="popLayout" initial={false}>
                         <For each={suggestions()}>
                           {(id) => (
-                            <wardic.li layout="position" {...fade}>
+                            <w.li layout="position" {...fade}>
                               <Show when={productOf(id)}>
                                 {(product) => (
                                   <button class="suggestion" onClick={() => add(id, 1)}>
@@ -137,12 +137,12 @@ export default function CartDrawer() {
                                   </button>
                                 )}
                               </Show>
-                            </wardic.li>
+                            </w.li>
                           )}
                         </For>
                       </AnimatePresence>
                     </ul>
-                  </wardic.section>
+                  </w.section>
                 </Show>
               </div>
               <footer class="drawer-foot">
@@ -153,7 +153,7 @@ export default function CartDrawer() {
                 </button>
               </footer>
             </Suspense>
-          </wardic.aside>
+          </w.aside>
         </Show>
       </AnimatePresence>
     </div>

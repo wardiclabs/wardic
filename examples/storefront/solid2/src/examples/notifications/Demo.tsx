@@ -1,5 +1,5 @@
 import type { Notice } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, ward, wardic } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, drag, LazyWardic, w } from "@wardic/solid/unstable/v2"
 import { revalidate } from "@solidjs/router"
 import { action, type Accessor, createEffect, createMemo, createOptimistic, createSignal, For, Loading, refresh, Show, type SourceAccessor } from "solid-js"
 import { notices } from "~/lib/store.ts"
@@ -21,7 +21,16 @@ const FLING_VELOCITY = 600
 /** How long "Undo" is offered, once the card has flown off. */
 const UNDO_MS = 4000
 
+/** The demo, with this page's `drag` beside the shell's Features (#526): a page without a drag ships none. */
 export default function Notifications() {
+  return (
+    <LazyWardic features={[drag]}>
+      <NotificationsDemo />
+    </LazyWardic>
+  )
+}
+
+function NotificationsDemo() {
   const list = createMemo(() => notices())
   const [problem, setProblem] = createSignal<string>()
 
@@ -72,7 +81,7 @@ function NoticeRow(props: { notice: Accessor<Notice>; list: SourceAccessor<Reado
   const [gone, setGone] = createSignal<Side>("right")
   // The card's ward, made here with what reads it (`next`, `when`), and given to its element (#349).
   // It holds what it hears, the drag; the card's own props say where it flies (#398).
-  const card = ward({ drag: "x", dragSnapToOrigin: true })
+  const card = w.ward({ drag: "x", dragSnapToOrigin: true })
 
   // A gesture, its animation and a request, as one sequence: the request goes only once the card
   // has landed off to the side and the undo window has passed. An undo, or a store that refuses,
@@ -102,18 +111,18 @@ function NoticeRow(props: { notice: Accessor<Notice>; list: SourceAccessor<Reado
   })
 
   return (
-    <wardic.li class="notice-row" data-id={props.notice().id} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+    <w.li class="notice-row" data-id={props.notice().id} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <AnimatePresence>
         <Show when={undoable()}>
-          <wardic.p class="notice-undo" {...fade}>
+          <w.p class="notice-undo" {...fade}>
             Dismissed ·{" "}
             <button class="link-button" onClick={() => undoNow()}>
               Undo
             </button>
-          </wardic.p>
+          </w.p>
         </Show>
       </AnimatePresence>
-      <wardic.article
+      <w.article
         class={["notice", { out: out() !== undefined }]}
         data-kind={props.notice().kind}
         wardRef={card}
@@ -124,8 +133,8 @@ function NoticeRow(props: { notice: Accessor<Notice>; list: SourceAccessor<Reado
       >
         <strong>{props.notice().title}</strong>
         <span class="muted">{props.notice().body}</span>
-      </wardic.article>
-    </wardic.li>
+      </w.article>
+    </w.li>
   )
 }
 

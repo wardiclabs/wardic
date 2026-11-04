@@ -2,7 +2,7 @@ import { createAsync } from "@solidjs/router"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import { CATEGORIES, type Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, wardic } from "@wardic/solid"
+import { AnimatePresence, w } from "@wardic/solid"
 import { createSignal, For, Show, Suspense } from "solid-js"
 import { products } from "~/lib/store.ts"
 
@@ -66,21 +66,21 @@ export default function Browse() {
 function Item(props: { readonly product: Product }) {
   const photo = photoOf(props.product.id)
   return (
-    <wardic.li class="shop-item" layout {...item}>
+    <w.li class="shop-item" layout {...item}>
       {/* The photo changes size between the views: plain layout, its corners kept round as it scales. */}
-      <wardic.div class="photo" layout>
+      <w.div class="photo" layout>
         <img src={photo.small} srcset={srcsetOf(photo)} sizes="(max-width: 640px) 50vw, 240px" width={photo.width} height={photo.height} alt={props.product.name} />
-      </wardic.div>
+      </w.div>
       {/* Text only travels: layout="position" moves it to its new place without stretching it. */}
-      <wardic.span class="name" layout="position">
+      <w.span class="name" layout="position">
         {props.product.name}
-      </wardic.span>
-      <wardic.span class="price" layout="position">
+      </w.span>
+      <w.span class="price" layout="position">
         {formatPrice(props.product.price)}
-      </wardic.span>
-      <wardic.span class="tagline" layout="position">
+      </w.span>
+      <w.span class="tagline" layout="position">
         {props.product.tagline}
-      </wardic.span>
-    </wardic.li>
+      </w.span>
+    </w.li>
   )
 }

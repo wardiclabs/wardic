@@ -1,14 +1,14 @@
 import { Tabs } from "@kobalte/core/tabs"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
-import { wardic } from "@wardic/solid/unstable/v2"
+import { w } from "@wardic/solid/unstable/v2"
 import { createMemo, createSignal, For, Loading, Show } from "solid-js"
 import { product } from "~/lib/store.ts"
 
 // Kobalte's panel, taking Wardic's motion props: the ward goes on the element it renders. Kobalte
 // renders a panel only while its tab is chosen, and each time it does, the panel's element enters
 // afresh, from `initial`.
-const Panel = wardic.create(Tabs.Content)
+const Panel = w.create(Tabs.Content)
 
 // A panel fades up in each time its tab is chosen.
 const fadeIn = {
@@ -42,7 +42,7 @@ export default function DetailsTabs() {
                     {name}
                     {/* One underline, inside whichever trigger is selected: its layoutId carries it from tab to tab. */}
                     <Show when={tab() === name}>
-                      <wardic.span class="tab-indicator" layoutId="details-underline" />
+                      <w.span class="tab-indicator" layoutId="details-underline" />
                     </Show>
                   </Tabs.Trigger>
                 )}

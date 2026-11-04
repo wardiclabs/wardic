@@ -1,6 +1,6 @@
 import { createAsyncStore, useAction } from "@solidjs/router"
 import type { Notice } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, wardic, type WardicDragInfo } from "@wardic/solid"
+import { AnimatePresence, drag, LazyWardic, w, type WardicDragInfo } from "@wardic/solid"
 import { createSignal, For, onCleanup, Show, Suspense } from "solid-js"
 import { dismissNotice, notices, restoreNotices } from "~/lib/store.ts"
 
@@ -20,7 +20,16 @@ const FLING_VELOCITY = 600
 /** How long "Undo" is offered, once the card has flown off. */
 const UNDO_MS = 4000
 
+/** The demo, with this page's `drag` beside the shell's Features (#526): a page without a drag ships none. */
 export default function Notifications() {
+  return (
+    <LazyWardic features={[drag]}>
+      <NotificationsDemo />
+    </LazyWardic>
+  )
+}
+
+function NotificationsDemo() {
   // A store, reconciled by id: a notice read again is the same row, so only the one that went leaves.
   const list = createAsyncStore(() => notices(), { reconcile: { key: "id" } })
   const restore = useAction(restoreNotices)
@@ -92,18 +101,18 @@ function NoticeRow(props: { notice: Notice; onProblem: (message: string) => void
   }
 
   return (
-    <wardic.li class="notice-row" data-id={props.notice.id} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+    <w.li class="notice-row" data-id={props.notice.id} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <AnimatePresence>
         <Show when={undoable()}>
-          <wardic.p class="notice-undo" {...fade}>
+          <w.p class="notice-undo" {...fade}>
             Dismissed ·{" "}
             <button class="link-button" onClick={putBack}>
               Undo
             </button>
-          </wardic.p>
+          </w.p>
         </Show>
       </AnimatePresence>
-      <wardic.article
+      <w.article
         class="notice"
         classList={{ out: side() !== undefined }}
         data-kind={props.notice.kind}
@@ -117,8 +126,8 @@ function NoticeRow(props: { notice: Notice; onProblem: (message: string) => void
       >
         <strong>{props.notice.title}</strong>
         <span class="muted">{props.notice.body}</span>
-      </wardic.article>
-    </wardic.li>
+      </w.article>
+    </w.li>
   )
 }
 

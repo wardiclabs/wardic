@@ -1,6 +1,6 @@
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import { type Collection, LOOKBOOK } from "@wardic/example-storefront-shared/stories"
-import { createScroll, createTransform, wardic } from "@wardic/solid"
+import { createScroll, createTransform, w } from "@wardic/solid"
 import { For } from "solid-js"
 import { useReducedMotion } from "~/lib/preferences.tsx"
 
@@ -29,11 +29,11 @@ function Banner(props: { readonly collection: Collection; readonly panel: () => 
   const photo = photoOf(props.collection.photo)
   return (
     <section class="lookbook-banner" ref={banner}>
-      <wardic.img class="lookbook-photo" style={{ y: photoY }} src={photo.large} srcset={srcsetOf(photo)} sizes="(max-width: 640px) 100vw, 720px" alt="" />
-      <wardic.div class="lookbook-words" style={{ y: wordsY }}>
+      <w.img class="lookbook-photo" style={{ y: photoY }} src={photo.large} srcset={srcsetOf(photo)} sizes="(max-width: 640px) 100vw, 720px" alt="" />
+      <w.div class="lookbook-words" style={{ y: wordsY }}>
         <h3>{props.collection.title}</h3>
         <p>{props.collection.blurb}</p>
-      </wardic.div>
+      </w.div>
     </section>
   )
 }

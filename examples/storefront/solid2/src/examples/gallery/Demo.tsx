@@ -1,6 +1,6 @@
 import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
-import { AnimatePresence, ward, wardic } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, drag, LazyWardic, w } from "@wardic/solid/unstable/v2"
 import { createEffect, createSignal, For, Show } from "solid-js"
 import { useReducedMotion } from "~/lib/preferences.tsx"
 
@@ -35,7 +35,16 @@ const PIECES = ["lagoon-vase", "moon-vase", "bottle-vase", "tulip-bowl", "blosso
   return piece
 })
 
+/** The demo, with this page's `drag` beside the shell's Features (#526): a page without a drag ships none. */
 export default function Gallery() {
+  return (
+    <LazyWardic features={[drag]}>
+      <GalleryDemo />
+    </LazyWardic>
+  )
+}
+
+function GalleryDemo() {
   const [at, setAt] = createSignal(0)
   // +1 forward, -1 back: set before the photo changes, so both photos read it.
   const [direction, setDirection] = createSignal(1)
@@ -53,7 +62,7 @@ export default function Gallery() {
   // presence doesn't count. It holds what it hears, the drag: across, held at the centre, followed
   // all the way (#398). Each release, through `when` (#355): a swipe steps, its photo going on out
   // the way it was thrown.
-  const swipe = ward({ drag: "x", dragConstraints: { left: 0, right: 0 }, dragElastic: 1 })
+  const swipe = w.ward({ drag: "x", dragConstraints: { left: 0, right: 0 }, dragElastic: 1 })
   createEffect(swipe.when("dragEnd"), ({ offset, velocity }) => {
     const step = stepOf(offset.x, velocity.x)
     if (step !== 0) go(at() + step)
@@ -78,7 +87,7 @@ export default function Gallery() {
             {(piece) => {
               const photo = photoOf(piece.id)
               return (
-                <wardic.img
+                <w.img
                   class="gallery-photo"
                   wardRef={swipe}
                   custom={way()}

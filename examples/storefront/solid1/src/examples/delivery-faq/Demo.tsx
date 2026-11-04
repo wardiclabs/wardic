@@ -1,4 +1,4 @@
-import { AnimatePresence, createInstantTransition, wardic } from "@wardic/solid"
+import { AnimatePresence, createInstantTransition, w } from "@wardic/solid"
 import { createSignal, For, Show } from "solid-js"
 
 const QUESTIONS = [
@@ -67,23 +67,23 @@ export default function DeliveryFaq() {
           {(item, index) => (
             // Each item grows as its answer opens: layout animates its size, its rounded corners and
             // shadow kept as they are while it scales, and the items below slide down to make room.
-            <wardic.li class="faq-item" layout>
-              <wardic.button class="faq-question" layout="position" aria-expanded={isOpen(index())} onClick={() => toggle(index())}>
+            <w.li class="faq-item" layout>
+              <w.button class="faq-question" layout="position" aria-expanded={isOpen(index())} onClick={() => toggle(index())}>
                 <span>{item.question}</span>
                 {/* initial={false}: the answer open when the page loads has its chevron turned already. */}
-                <wardic.span class="chevron" variants={chevron} initial={false} animate={stateOf(index())} transition={{ duration: 0.2 }} aria-hidden="true">
+                <w.span class="chevron" variants={chevron} initial={false} animate={stateOf(index())} transition={{ duration: 0.2 }} aria-hidden="true">
                   ⌄
-                </wardic.span>
-              </wardic.button>
+                </w.span>
+              </w.button>
               {/* popLayout: a closing answer leaves the flow at once, so its card shrinks while it fades. */}
               <AnimatePresence initial={false} mode="popLayout">
                 <Show when={isOpen(index())}>
-                  <wardic.div class="faq-answer" layout="position" {...answer}>
+                  <w.div class="faq-answer" layout="position" {...answer}>
                     <p>{item.answer}</p>
-                  </wardic.div>
+                  </w.div>
                 </Show>
               </AnimatePresence>
-            </wardic.li>
+            </w.li>
           )}
         </For>
       </ul>

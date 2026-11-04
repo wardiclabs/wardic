@@ -10,7 +10,7 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, wardic } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, w } from "@wardic/solid/unstable/v2"
 import { type Accessor, createContext, createMemo, createSignal, For, Loading, Show, useContext } from "solid-js"
 import { getProduct } from "~/server/store.ts"
 
@@ -65,16 +65,16 @@ function Photo(props: { readonly piece: Product; readonly sizes: string }) {
   const photo = createMemo(() => photoOf(props.piece.id))
   return (
     // The card's photo and the piece's hero: one `layoutId`, so it flies from one page to the other.
-    <wardic.div class="photo" layoutId={`waiting-${props.piece.id}`}>
+    <w.div class="photo" layoutId={`waiting-${props.piece.id}`}>
       <img src={photo().small} srcset={srcsetOf(photo())} sizes={props.sizes} width={photo().width} height={photo().height} alt={props.piece.name} />
-    </wardic.div>
+    </w.div>
   )
 }
 
 /** The catalogue: `/transitions/waiting`. Its names and photos are the page's own; the store isn't asked. */
 export function WaitingList() {
   return (
-    <wardic.ul class="catalogue-list" {...page}>
+    <w.ul class="catalogue-list" {...page}>
       <For each={PIECES}>
         {(piece) => (
           <li>
@@ -88,7 +88,7 @@ export function WaitingList() {
           </li>
         )}
       </For>
-    </wardic.ul>
+    </w.ul>
   )
 }
 
@@ -96,7 +96,7 @@ export function WaitingList() {
 export function WaitingPiece() {
   const params = useParams()
   return (
-    <wardic.article class="catalogue-piece" {...page}>
+    <w.article class="catalogue-piece" {...page}>
       <nav class="catalogue-nav">
         <a href={HOME} noscroll>
           ← The catalogue
@@ -105,7 +105,7 @@ export function WaitingPiece() {
       <Show when={pieceOf(params.id)} fallback={<p class="muted">That piece isn't in the catalogue.</p>}>
         {(piece) => <PieceBody piece={piece()} />}
       </Show>
-    </wardic.article>
+    </w.article>
   )
 }
 

@@ -2,7 +2,7 @@ import { createAsync } from "@solidjs/router"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, wardic } from "@wardic/solid"
+import { AnimatePresence, w } from "@wardic/solid"
 import { createSignal, For, Match, Show, Suspense, Switch } from "solid-js"
 import { product } from "~/lib/store.ts"
 
@@ -40,7 +40,7 @@ export default function ProductTabs() {
                         {name}
                         {/* One indicator, under whichever tab is selected: its layoutId carries it from tab to tab. */}
                         <Show when={tab() === name}>
-                          <wardic.span class="tab-indicator" layoutId="tab-indicator" />
+                          <w.span class="tab-indicator" layoutId="tab-indicator" />
                         </Show>
                       </button>
                     )}
@@ -51,9 +51,9 @@ export default function ProductTabs() {
                     {/* keyed: each tab is a new child, so the last one leaves before it enters. */}
                     <Show when={tab()} keyed>
                       {(name) => (
-                        <wardic.div {...panel}>
+                        <w.div {...panel}>
                           <PanelFor tab={name} piece={shown()} />
-                        </wardic.div>
+                        </w.div>
                       )}
                     </Show>
                   </AnimatePresence>

@@ -2,7 +2,7 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { Product, Wishlist } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, Reorder, reorderGroup, wardic } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, Reorder, reorderGroup, w } from "@wardic/solid/unstable/v2"
 import { action, createEffect, createMemo, createOptimistic, createSignal, For, Loading, Show, until, untrack } from "solid-js"
 import { visitorName } from "~/lib/store.ts"
 import { moveInSharedWishlist, resetSharedWishlist } from "~/server/store.ts"
@@ -121,9 +121,9 @@ export default function SharedWishlist() {
           <AnimatePresence initial={false}>
             <Show when={server().lastMove} keyed>
               {(last) => (
-                <wardic.p class="moved-by muted" {...fade}>
+                <w.p class="moved-by muted" {...fade}>
                   {who(last.by)} moved the {nameOf(last.productId)}.
-                </wardic.p>
+                </w.p>
               )}
             </Show>
           </AnimatePresence>

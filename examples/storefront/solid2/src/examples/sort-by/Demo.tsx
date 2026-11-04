@@ -2,12 +2,12 @@ import { Select } from "@kobalte/core/select"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, useAnimateLayout, wardic } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, useAnimateLayout, w } from "@wardic/solid/unstable/v2"
 import { createMemo, createSignal, For, Loading, Show } from "solid-js"
 import { products } from "~/lib/store.ts"
 
 // Kobalte's list, taking Wardic's motion props: the ward goes on the element it renders.
-const List = wardic.create(Select.Content)
+const List = w.create(Select.Content)
 
 // The list grows from the edge it opens from, and shrinks back there as it goes.
 const grow = {
@@ -89,12 +89,12 @@ export default function SortBy() {
 function Card(props: { readonly piece: Product }) {
   const photo = photoOf(props.piece.id)
   return (
-    <wardic.li class="shop-item" layout>
+    <w.li class="shop-item" layout>
       <div class="photo">
         <img src={photo.small} srcset={srcsetOf(photo)} sizes="(max-width: 640px) 50vw, 240px" width={photo.width} height={photo.height} alt={props.piece.name} />
       </div>
       <span class="name">{props.piece.name}</span>
       <span class="price">{formatPrice(props.piece.price)}</span>
-    </wardic.li>
+    </w.li>
   )
 }
