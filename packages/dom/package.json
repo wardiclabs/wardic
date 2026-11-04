@@ -1,7 +1,7 @@
 {
   "name": "@wardic/dom",
   "version": "0.1.0-alpha.0",
-  "description": "Browser environment Layers for Wardic — rAF clock, DOM renderer, input, probe, interpolators.",
+  "description": "Browser environment Layers for Wardic \u2014 rAF clock, DOM renderer, input, probe, interpolators.",
   "license": "MIT",
   "type": "module",
   "sideEffects": false,
@@ -10,8 +10,16 @@
   },
   "exports": {
     "./package.json": "./package.json",
-    ".": "./src/index.ts",
-    "./*": "./src/*.ts",
+    ".": {
+      "@wardic/source": "./src/index.ts",
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    },
+    "./*": {
+      "@wardic/source": "./src/*.ts",
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    },
     "./internal/*": null
   },
   "scripts": {

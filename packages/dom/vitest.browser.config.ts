@@ -1,6 +1,7 @@
 import { playwright } from "@vitest/browser-playwright"
 import { defineConfig } from "vitest/config"
 import type { BrowserCommand } from "vitest/node"
+import { wardicSource } from "../../scripts/wardic-source.ts"
 
 // Real-browser test project for @wardic/dom — the DOM realization of the engine's
 // ports (Clock/Input/Probe/Renderer). happy-dom has no layout engine and never
@@ -27,6 +28,8 @@ const collectGarbage: BrowserCommand<[]> = async (ctx) => {
 }
 
 export default defineConfig({
+  // `@wardic/*` from its source (#554).
+  plugins: [wardicSource()],
   root: import.meta.dirname,
   // Pre-bundled up front: Vite otherwise discovers a test's first import of it
   // mid-run and reloads the page once ("optimized dependencies changed. reloading").

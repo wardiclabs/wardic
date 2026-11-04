@@ -1,6 +1,7 @@
 import { defaultClientConditions, defineConfig } from "vite"
 import { solid2 } from "../../packages/solid/vite.solid2.ts"
 import { saveLogPlugin } from "./vite.save-log.ts"
+import { wardicSource } from "../../scripts/wardic-source.ts"
 
 // The lab on Solid 2 (`bun dev:v2`, #209 PR 5): the same page, its UI, probes and judging
 // compiled by Solid 2, and its scenarios the Solid 2 binding's (`src/scenarios-v2`).
@@ -14,7 +15,7 @@ import { saveLogPlugin } from "./vite.save-log.ts"
 // - One copy of effect, as on Solid 1 (vite.config.ts).
 // - Its own pre-bundle cache: sharing Solid 1's, two dev servers re-optimize each other's deps.
 export default defineConfig({
-  plugins: [solid2(), saveLogPlugin()],
+  plugins: [wardicSource(), solid2(), saveLogPlugin()],
   cacheDir: "node_modules/.vite-v2",
   resolve: {
     conditions: ["solid2", ...defaultClientConditions],

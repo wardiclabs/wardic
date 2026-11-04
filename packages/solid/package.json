@@ -10,8 +10,18 @@
   },
   "exports": {
     "./package.json": "./package.json",
-    ".": "./src/index.ts",
-    "./unstable/v2": "./src/unstable/v2/index.ts"
+    ".": {
+      "@wardic/source": "./src/index.ts",
+      "types": "./dist/solid/index.d.ts",
+      "solid": "./dist/solid/index.js",
+      "default": "./dist/solid/index.js"
+    },
+    "./unstable/v2": {
+      "@wardic/source": "./src/unstable/v2/index.ts",
+      "types": "./dist/solid/unstable/v2/index.d.ts",
+      "solid": "./dist/solid/unstable/v2/index.js",
+      "default": "./dist/solid/unstable/v2/index.js"
+    }
   },
   "scripts": {
     "build": "../../node_modules/typescript-7/bin/tsc --build",

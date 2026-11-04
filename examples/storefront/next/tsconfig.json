@@ -8,6 +8,7 @@
     ],
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    "customConditions": ["@wardic/source"],
     "jsx": "react-jsx",
     "allowImportingTsExtensions": true,
     "isolatedModules": true,

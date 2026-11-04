@@ -1,6 +1,7 @@
 import solid from "@solidjs/vite-plugin"
 import { fileRoutes } from "filesystem-routing/vite"
 import { defineConfig } from "vite"
+import { wardicSource } from "../../scripts/wardic-source.ts"
 
 // The Solid 2 binding's sandbox (#209 PR 4b) in @solidjs/vite-plugin's start mode, with streaming
 // SSR: the plugin generates the request handler around the authored entry pair in src/
@@ -9,6 +10,8 @@ import { defineConfig } from "vite"
 // writes dist/server/node.js for `bun run start`.
 export default defineConfig({
   plugins: [
+    // `@wardic/*` from its source (#554).
+    wardicSource(),
     // `extensions`: the plugin also compiles the `?pick=` route modules fileRoutes emits.
     solid({ start: { nodeServer: true, middleware: "./src/middleware.ts" }, ssr: true, extensions: [".jsx", ".tsx"] }),
     // `httpMethods`: route modules may export POST (src/routes/api/save-log.ts).

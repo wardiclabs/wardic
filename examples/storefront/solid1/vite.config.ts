@@ -1,5 +1,6 @@
 import { solidStart } from "@solidjs/start/config"
 import { defineConfig, type Plugin } from "vite"
+import { wardicSource } from "../../../scripts/wardic-source.ts"
 
 /**
  * `vite preview` serves compressed responses through a middleware whose `writeHead` copies headers
@@ -21,7 +22,7 @@ const previewUncompressed: Plugin = {
 
 // The storefront showcase on Solid 1 (#296): SolidStart 2.1, server-rendered.
 export default defineConfig({
-  plugins: [solidStart({ ssr: true }), previewUncompressed],
+  plugins: [wardicSource(), solidStart({ ssr: true }), previewUncompressed],
   resolve: {
     // @wardic/solid's source sits in packages/solid, whose own `solid-js` is an older 1.9: resolve
     // Solid from this app, so the binding, the router and the app share one copy.

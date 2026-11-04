@@ -2,6 +2,7 @@ import solid from "@solidjs/vite-plugin"
 import { fileRoutes } from "filesystem-routing/vite"
 import { fileURLToPath } from "node:url"
 import { defineConfig } from "vite"
+import { wardicSource } from "../../../scripts/wardic-source.ts"
 
 // The storefront showcase on Solid 2 (#296): the plugin's start mode, generating both entries from
 // src/App.tsx and src/Document.tsx, streaming server rendering, and server components (the plugin's
@@ -9,6 +10,8 @@ import { defineConfig } from "vite"
 // the client setup holds hydration when a page's `?hydrate=` asks (#388).
 export default defineConfig({
   plugins: [
+    // `@wardic/*` from its source (#554).
+    wardicSource(),
     solid({ start: { middleware: "./src/middleware.ts", clientSetup: "./src/client-setup.ts" }, ssr: true, serverFunctions: { components: true }, extensions: [".jsx", ".tsx"] }),
     fileRoutes({ types: true }),
   ],

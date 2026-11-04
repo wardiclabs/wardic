@@ -3,6 +3,7 @@ import type { CDPSession } from "playwright"
 import solidPlugin from "vite-plugin-solid"
 import { configDefaults, defineConfig } from "vitest/config"
 import type { BrowserCommand, BrowserCommandContext } from "vitest/node"
+import { wardicSource } from "../../scripts/wardic-source.ts"
 
 // Real-browser test project for @wardic/solid — layout/projection behaviours that
 // happy-dom CANNOT verify (it has no layout engine, so getBoundingClientRect is
@@ -156,7 +157,7 @@ export default defineConfig({
   // `test/**` resolves to packages/solid/test (mirrors how the project config's
   // root is its own dir).
   root: import.meta.dirname,
-  plugins: [solidPlugin()],
+  plugins: [wardicSource(), solidPlugin()],
   resolve: {
     conditions: ["development", "browser"],
   },

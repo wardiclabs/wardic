@@ -7,7 +7,7 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "jsxImportSource": "@solidjs/web",
-    "customConditions": ["solid2"],
+    "customConditions": ["solid2", "@wardic/source"],
     // Node's types for `globalThis.setImmediate` (lab.ts), which Solid 1's graph brings in.
     "types": ["vite/client", "node"],
     "paths": {
