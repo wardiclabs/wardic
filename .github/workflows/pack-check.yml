@@ -1,0 +1,50 @@
+name: Pack check
+
+# The four packages checked from their packed tarballs (#554, `bun run pack:check`): packed as npm
+# will have them, linted (are-the-types-wrong, publint), installed into four fixture apps outside the
+# workspace, built, served and opened in Chromium. On demand, on a PR that changes how the packages
+# are built or what they ship, and from the release workflow (#559) before it publishes.
+
+on:
+  workflow_dispatch:
+  workflow_call:
+  pull_request:
+    paths:
+      - "packages/*/package.json"
+      - "packages/*/tsconfig*.json"
+      - "tsconfig.base.json"
+      - "scripts/build-packages.ts"
+      - "scripts/pack-check/**"
+      - "bun.lock"
+      - ".github/workflows/pack-check.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  pack-check:
+    # Pinned with CI's: Playwright 1.59.1 can't install Chromium on ubuntu 26.04.
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      # The fixtures install with npm, and SolidStart 2 needs Node 24.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Install Playwright browser
+        run: bunx playwright install --with-deps chromium
+
+      # Builds the packages first; installs each fixture's other dependencies from the registry.
+      - name: Pack check
+        run: bun run pack:check
