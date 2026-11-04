@@ -19,6 +19,9 @@ The mark carries its own ground, the disc, so it's the same on light and dark pa
 | `wardic-lockup-small-on-dark.svg`, `wardic-lockup-small-on-light.svg` | The lockup on the small cut, at 40 px tall and under |
 | `apple-touch-icon.png` (180 px), `icon-512.png` | App and touch icons: the mark on its disc's colour, filling the square |
 
+The docs site's header draws the small cut inline, so it can animate (`site/src/components/Logo.tsx`), and
+serves the favicon and touch icon from `site/public/`.
+
 ## Using it
 
 - Leave room round the mark of at least a quarter of its width.

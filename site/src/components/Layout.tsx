@@ -7,6 +7,7 @@ import { useLocation } from "@solidjs/router"
 import { w } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
 import { createSignal, For, Show } from "solid-js"
+import { Logo } from "~/components/Logo.tsx"
 import { Search } from "~/components/Search.tsx"
 import { ThemeToggle } from "~/components/ThemeToggle.tsx"
 import { NAV, type NavPage } from "~/nav.ts"
@@ -72,10 +73,10 @@ export function Layout(props: { readonly children?: JSX.Element }) {
             <path d="M4 7h16M4 12h16M4 17h16" />
           </svg>
         </button>
-        <a class="wordmark" href="/">
-          <span class="wordmark-dot" aria-hidden="true" />
-          Wardic
-        </a>
+        {/* The logo draws itself as the page first paints, and again on hover (Logo.tsx). */}
+        <w.a class="wordmark" href="/" aria-label="Wardic" initial="hidden" animate="shown" whileHover="hover">
+          <Logo />
+        </w.a>
         <div class="header-tools">
           <Search />
           <ThemeToggle />
