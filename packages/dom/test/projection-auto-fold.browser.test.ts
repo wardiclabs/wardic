@@ -388,6 +388,9 @@ const stickyPage = (n: number, css = "") => {
   return { page, spacer, sticky, children: column(sticky, n) }
 }
 
+/** A layoutId twin's first write, from `from` (the box its leaver was seen at) to where `to` is now, as a check reads it. */
+const startsAt = (first: Write, from: DOMRect, to: DOMRect) => ({ dx: to.left + first.tx - from.left, dy: to.top + first.ty - from.top })
+
 describe("a sticky element's offset is folded (ADR-0012, Amendment (#578))", () => {
   it("ST1: nodes inside a sticky element, stuck by a 500 px page scroll between passes, seed nothing", async () => {
     const e = makeEngine(makeSink().sink)
@@ -491,4 +494,75 @@ describe("a sticky element's offset is folded (ADR-0012, Amendment (#578))", () 
     e.dispose()
   })
 
+  it("ST9 (#480): a layoutId twin seen at a 600 px scroll, the page scrolled to its top before the pass, starts where it was seen", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const root = stage()
+    const page = document.createElement("div")
+    page.style.cssText = "position:relative;height:3000px"
+    root.append(page)
+    const leaverEl = document.createElement("div")
+    leaverEl.style.cssText = "position:absolute;left:40px;top:900px;width:80px;height:40px"
+    page.append(leaverEl)
+    const leaver = e.system.register({ id: "leaver", element: leaverEl, transition: () => Option.some({ type: "spring" }), layoutId: "t" })
+    await endOfTask()
+    fireFrame()
+    window.scrollTo(0, 600)
+    const from = leaverEl.getBoundingClientRect()
+    // A navigation: the old page goes, the router scrolls to the top, the new page comes, in one task.
+    leaverEl.remove()
+    leaver.dispose()
+    window.scrollTo(0, 0)
+    const enterEl = document.createElement("div")
+    enterEl.style.cssText = "position:absolute;left:300px;top:100px;width:80px;height:40px"
+    page.append(enterEl)
+    e.system.register({ id: "enter", element: enterEl, transition: () => Option.some({ type: "spring" }), layoutId: "t" })
+    await endOfTask()
+    const at = startsAt(sk.writes.find((w) => w.id === "enter")!, from, enterEl.getBoundingClientRect())
+    expect(at.dx).toBeCloseTo(0, 0)
+    expect(at.dy, "where it was seen, not 600 px below").toBeCloseTo(0, 0)
+    e.dispose()
+  })
+
+  it("ST10: the same inside a sticky sidebar, stuck when the twin was seen: it starts where it was seen", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const { sticky } = stickyPage(0, "height:300px")
+    const [leaverEl, enterEl] = column(sticky, 2)
+    const leaver = e.system.register({ id: "leaver", element: leaverEl!, transition: () => Option.some({ type: "spring" }), layoutId: "t" })
+    await endOfTask()
+    fireFrame()
+    window.scrollTo(0, 600)
+    const from = leaverEl!.getBoundingClientRect()
+    leaverEl!.style.visibility = "hidden"
+    leaver.dispose()
+    window.scrollTo(0, 0)
+    e.system.register({ id: "enter", element: enterEl!, transition: () => Option.some({ type: "spring" }), layoutId: "t" })
+    await endOfTask()
+    const at = startsAt(sk.writes.find((w) => w.id === "enter")!, from, enterEl!.getBoundingClientRect())
+    expect(at.dy, "where it was seen").toBeCloseTo(0, 0)
+    e.dispose()
+  })
+
+  it("ST11: the router's scroll after the pass, before the first frame: inside a sticky sidebar, still from where it was seen", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const { sticky } = stickyPage(0, "height:300px")
+    const [leaverEl, enterEl] = column(sticky, 2)
+    const leaver = e.system.register({ id: "leaver", element: leaverEl!, transition: () => Option.some({ type: "spring" }), layoutId: "t" })
+    await endOfTask()
+    fireFrame()
+    window.scrollTo(0, 600)
+    const from = leaverEl!.getBoundingClientRect()
+    leaverEl!.style.visibility = "hidden"
+    leaver.dispose()
+    e.system.register({ id: "enter", element: enterEl!, transition: () => Option.some({ type: "spring" }), layoutId: "t" })
+    await endOfTask()
+    window.scrollTo(0, 0)
+    fireFrame()
+    const writes = sk.writes.filter((w) => w.id === "enter")
+    const at = startsAt(writes[writes.length - 1]!, from, enterEl!.getBoundingClientRect())
+    expect(Math.abs(at.dy), "where it was seen, within a frame's step, px").toBeLessThan(4)
+    e.dispose()
+  })
 })

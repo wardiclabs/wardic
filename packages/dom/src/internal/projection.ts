@@ -4065,8 +4065,11 @@ export const makeProjectionSystem = (
         //     measured box (a move, no crossfade — the leaver is gone). ADR-0012 /
         //     ADR-0010 *Amendment (#13)*.
         if (Predicate.isNotUndefined(seed)) {
-          // Drawn there on its first frame, its own scale divided out (ADR-0010 *Amendment (#8)*).
-          const origin = undrawnFor(node, unpaintedOf(node, offsetUnlessZero(seed, rootFrameShift(node, documentScroll))))
+          // Drawn there on its first frame, its own scale divided out (ADR-0010 *Amendment (#8)*). A
+          // scroll since its twin was seen, a router's made before this pass, comes out here (#578),
+          // as #480's does at the first frame: this pass's write can paint before that frame.
+          const since = scrollSince(seedScroll, documentScroll)
+          const origin = undrawnFor(node, unpaintedOf(node, offsetUnlessZero(offsetUnlessZero(seed, since), rootFrameShift(node, documentScroll))))
           // It blends from the leaver's look as drawn (ADR-0010 *Amendment (#166)*), so a Switch at an
           // equal box animates too when the two look different (Motion's: any `resumeFrom` animates).
           const differs = UndefinedOr.match(seedBlend, { onUndefined: constFalse, onDefined: (look) => looksOtherThan(node, look) })
@@ -4077,8 +4080,8 @@ export const makeProjectionSystem = (
             node.flight = startFlight(node) // progress restarts at 0
             // A handover: a leaver re-introduced as a Follower (`handleLeave`) fades out with it.
             beginHandover(node)
-            // From where its twin was seen as it went (#480).
-            UndefinedOr.map(seedScroll, (scroll) => seenFrom(node, scroll))
+            // From where its twin was seen as it went (#480), the scroll up to now taken out above.
+            UndefinedOr.map(seedScroll, () => seenFrom(node, documentScroll))
             node.animating = true
             active.add(node)
             start(node)
@@ -4852,17 +4855,57 @@ export const makeProjectionSystem = (
       shiftLeavingWithin(el, by)
     }
     seenKeeps.clear()
+    // The sticky elements over these flights, each one's offset now read once for them all (#578).
+    const stuckNow = stickyShiftsOver(unseen)
     for (const node of unseen) {
       const seen = node.seenScroll
       node.seenScroll = undefined
       const origin = node.origin
       if (Predicate.isUndefined(seen)) continue
       if (Predicate.isUndefined(origin)) continue
-      const by = rootShareOf(node.fold, { x: now.x - seen.x, y: now.y - seen.y })
+      const page = rootShareOf(node.fold, { x: now.x - seen.x, y: now.y - seen.y })
+      // A sticky element over it took up some of that scroll since the pass, by moving with it (#578).
+      const stuck = stickyMovedSince(node.fold, stuckNow)
+      const by = { x: page.x + stuck.x, y: page.y + stuck.y }
       if (by.x === 0 && by.y === 0) continue
       node.origin = offsetBox(origin, by)
     }
     unseen.clear()
+  }
+
+  /** The sticky elements in `nodes`' folds, still in the document, with their offsets now (#578): none read when there are none. */
+  const stickyShiftsOver = (nodes: Iterable<NodeState>): ReadonlyMap<Element, Point.Point> => {
+    const els = new Set<HTMLElement>()
+    for (const node of nodes) for (const c of node.fold.containers) if (Bool.and(c.sticky, c.element.isConnected)) els.add(c.element)
+    if (els.size === 0) return NO_STICKY_SHIFTS
+    return readStickyShifts(els)
+  }
+
+  /**
+   * What the sticky elements in `fold` moved by since its pass sampled them (#578), as a scroll
+   * adds: each one's sampled offset less its offset now, from `now`.
+   */
+  const stickyMovedSince = (fold: Fold, now: ReadonlyMap<Element, Point.Point>): Point.Point => {
+    let x = 0
+    let y = 0
+    for (const c of fold.containers) {
+      if (Bool.not(c.sticky)) continue
+      const offset = now.get(c.element)
+      if (Predicate.isUndefined(offset)) continue
+      x += -offset.x - c.scroll.x
+      y += -offset.y - c.scroll.y
+    }
+    if (x === 0 && y === 0) return ZERO_POINT
+    return { x, y }
+  }
+
+  /** The page's scroll since `seen`, at `now`: none when nothing was seen (#480, #578). */
+  const scrollSince = (seen: Point.Point | undefined, now: Point.Point): Point.Point => {
+    if (Predicate.isUndefined(seen)) return ZERO_POINT
+    const x = now.x - seen.x
+    const y = now.y - seen.y
+    if (x === 0 && y === 0) return ZERO_POINT
+    return { x, y }
   }
 
   /** The leaving nodes inside `el`, and the leavers held there, moved with it by `by` in the page (#480). */
