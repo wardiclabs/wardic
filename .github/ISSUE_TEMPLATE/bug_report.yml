@@ -1,0 +1,53 @@
+name: Bug report
+description: Something in Wardic doesn't behave as it should.
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting it. A question or an idea fits better in [Discussions](https://github.com/wardiclabs/wardic/discussions), and a security problem goes through [SECURITY.md](https://github.com/wardiclabs/wardic/blob/main/SECURITY.md), not here.
+  - type: textarea
+    id: what
+    attributes:
+      label: What happens
+      description: What you see, and what you expected instead.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: How to reproduce it
+      description: The smallest code that shows it, inline or as a link (StackBlitz, a repository). If Motion for React does it differently, say what Motion does.
+      render: tsx
+    validations:
+      required: true
+  - type: dropdown
+    id: binding
+    attributes:
+      label: Binding
+      options:
+        - Solid 1 (@wardic/solid)
+        - Solid 2 (@wardic/solid/unstable/v2)
+        - Another (say which below)
+    validations:
+      required: true
+  - type: input
+    id: versions
+    attributes:
+      label: Versions
+      description: "@wardic/solid, solid-js, and your framework if you use one (SolidStart, …)."
+      placeholder: "@wardic/solid 1.0.0-rc.1, solid-js 1.9.18, @solidjs/start 2.1.0"
+    validations:
+      required: true
+  - type: input
+    id: environment
+    attributes:
+      label: Browser and OS
+      placeholder: Chrome 147 on macOS 15
+  - type: checkboxes
+    id: searched
+    attributes:
+      label: Before filing
+      options:
+        - label: I looked through the open issues for this one.
+          required: true
