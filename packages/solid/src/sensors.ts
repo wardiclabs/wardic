@@ -135,8 +135,9 @@ export const createInView = (
  * the engine reads it when each one starts, and snaps its positional keys.
  */
 export const createReducedMotion = (): Accessor<boolean> => {
-  const runtime = useWardicRuntime()
+  // Before the provider is asked for: a server render needs none, as Solid 2's doesn't (#583).
   if (isServer) return () => false
+  const runtime = useWardicRuntime()
   // Resolve the Probe service once to read its reactive atom; a Context.Service
   // key is itself an Effect, so running it yields the service instance.
   const probe = runtime.runSync(Probe.Probe)
