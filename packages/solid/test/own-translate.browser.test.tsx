@@ -14,6 +14,10 @@
 // - OT8: a `layoutId` twin at its own `x` taking over from one drawn at its own `x` starts drawn
 //   where that one was, its own `x` taken back through the binding's `ownTranslate`, and lands home
 //   at its own place plus its own `x`.
+// - OT9 (#594): an own `x` in another unit than px (`-100%`, `-100vw`), mounted from it, to 0 or to
+//   `0%`, slides a layout or a `layoutRoot` element exactly as it slides a plain one. Before, it was
+//   drawn as 0: the projection's translate is in px, and the mixed pair read its start from the
+//   transform the projection was holding.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, wardic, WardicProvider, type WardicTransition } from "@wardic/solid"
@@ -63,6 +67,46 @@ describe("a layout element's own translate (#363)", () => {
     expect(frames.filter((f) => f.layout > 1 && f.layout < 31).length, "mid-slide").toBeGreaterThanOrEqual(5)
     for (const [i, f] of frames.entries()) expect(round(f.layout), `frame ${i}: as the plain one`).toBe(round(f.plain))
     expect(frames.at(-1)!.layout).toBe(0)
+  })
+
+  it("OT9: an own x in % or vw, mounted from it, slides a layout and a layoutRoot element as a plain one (#594)", async () => {
+    const PAIRS = [
+      ["-100%", 0],
+      ["-100%", "0%"],
+      ["-100vw", "0vw"],
+    ] as const
+    for (const [from, to] of PAIRS) {
+      const [shown, setShown] = createSignal(false)
+      render(() => (
+        <WardicProvider env={DomLive}>
+          <Show when={shown()}>
+            <wardic.div data-k="plain" initial={{ x: from }} animate={{ x: to }} transition={LINEAR} style={BOX} />
+            <wardic.div data-k="layout" layout initial={{ x: from }} animate={{ x: to }} transition={LINEAR} style={BOX} />
+            <wardic.div data-k="root" layoutRoot initial={{ x: from }} animate={{ x: to }} transition={LINEAR} style={BOX} />
+          </Show>
+        </WardicProvider>
+      ))
+      await settle()
+      const s = sampleFrames(() => {
+        const [plain, layout, root] = (["plain", "layout", "root"] as const).map((k) => document.querySelector(`[data-k="${k}"]`))
+        return Bool.match(plain === null || layout === null || root === null, {
+          onTrue: () => undefined,
+          onFalse: () => ({ plain: xOf(plain!), layout: xOf(layout!), root: xOf(root!) }),
+        })
+      })
+      setShown(true)
+      await wait(450)
+      const frames = s.stop().flatMap((f) => UndefinedOr.match(f.v, { onUndefined: () => [], onDefined: (v) => [v] }))
+      const start = frames[0]!.plain
+      expect(start, `${from}: the plain one starts off to the left`).toBeLessThan(-30)
+      expect(frames.filter((f) => f.layout < -1 && f.layout > start + 1).length, `${from}: mid-slide`).toBeGreaterThanOrEqual(5)
+      for (const [i, f] of frames.entries()) {
+        expect(round(f.layout), `${from} frame ${i}: layout as the plain one`).toBe(round(f.plain))
+        expect(round(f.root), `${from} frame ${i}: layoutRoot as the plain one`).toBe(round(f.plain))
+      }
+      expect(frames.at(-1)!.layout).toBe(0)
+      cleanup()
+    }
   })
 
   it("OT2: at rest at x: 32 it's drawn there; changed to 0, it slides there", async () => {
