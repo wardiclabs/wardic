@@ -115,6 +115,7 @@ import {
   heldTransformFor,
   registeredValuesOf,
   type ElementSpine,
+  type ElementSpineOptions,
   flagStartingStyle,
   isLayoutNode,
   makeElementSpine,
@@ -163,6 +164,7 @@ import { Lifecycle, type WardEvent, type WardEvents, type WardPressInfo, type Wa
 import { neverLands, NO_EVENTS, serverWhen } from "./waiters.ts"
 import { usePresenceContext } from "./presence.tsx"
 import { createVariantNode, useVariantContext, type VariantNode, WardicVariantContext } from "./variant-node.ts"
+import type { DragTrack } from "../../drag-track.ts"
 import { DragGesture, FocusGesture, HoverGesture, InViewGesture, PanGesture, PressGesture } from "../../features/keys.ts"
 
 /**
@@ -1156,6 +1158,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     readonly spine: ElementSpine
     readonly layout: ProjectionSystem.NodeHandle | undefined
     readonly watch: (watch: Effect.Effect<void, never, Scope.Scope | WardicServices>) => void
+    /** Starts its drag track with a `drag` that arrived after it mounted (#551); absent unless one was on its way. */
+    readonly startDrag: ((gesture: DragGesture["Service"]) => void) | undefined
     hover: boolean
     press: boolean
     pan: boolean
@@ -1398,7 +1402,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     // Its section's `drag` Feature drives it (#511): without it, `drag` does nothing, and development
     // says so once, unless `drag` is on its way.
     const dragGesture = gestureIn(untrack(features.services), "drag", DragGesture, Predicate.isNotUndefined(dragAxis))
-    const dragTrack = UndefinedOr.map(dragGesture, (gesture) => {
+    const driveDrag = (gesture: DragGesture["Service"]): DragTrack => {
       const axis = UndefinedOr.getOrThrow(dragAxis)
       // Motion's `dragConstraints` (#273): a box of numbers, or a container measured against the element.
       const constraints = gesture.constraintsOf(initialConfig.dragConstraints, el, () => untrack(cfg).onMeasureDragConstraints, pagePoint)
@@ -1441,8 +1445,9 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         // Its release at rest, for `next("dragTransitionEnd")` (#273).
         onReleaseEnd: () => lifecycle.released(),
       })
-    })
-    const spine = makeElementSpine({
+    }
+    let dragTrack = UndefinedOr.map(dragGesture, driveDrag)
+    const spineOptions: ElementSpineOptions = {
       runtime,
       gate,
       id,
@@ -1470,7 +1475,18 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       drag: dragTrack,
       handoff,
       animation: lifecycle,
-    })
+    }
+    // A `drag` on its way as it mounted (#551): its track starts as the Feature arrives (`startDrag`),
+    // and the spine reads it at each Retarget from then on. Only then is `drag` a getter, so an
+    // element that has it at mount, or never wants it, pays nothing.
+    let startDrag: ((gesture: DragGesture["Service"]) => void) | undefined
+    if (Predicate.isNotUndefined(dragAxis) && Predicate.isUndefined(dragTrack) && untrack(features.pending)) {
+      Object.defineProperty(spineOptions, "drag", { get: () => dragTrack })
+      startDrag = (gesture) => {
+        if (Predicate.isUndefined(dragTrack)) dragTrack = driveDrag(gesture)
+      }
+    }
+    const spine = makeElementSpine(spineOptions)
     // A child back under its key starts where its leaver is drawn (#286), before its first Retarget.
     if (Predicate.isNotUndefined(taken)) spine.seed(taken)
     // Live values in `style` (#130, ADR-0043): followed from the first routed key on.
@@ -1486,6 +1502,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       spine,
       layout,
       watch: watchIn,
+      startDrag,
       hover: false,
       press: false,
       pan: false,
@@ -1533,6 +1550,25 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     )
   }
   if (internal.gestureless !== true) watchLateGestures()
+
+  // A `drag` on its way (#551): an element mounted before it arrives starts its track then, as its
+  // gestures' recognizers do, and nothing before it is replayed; a load that brings none gets
+  // development's word then.
+  if (Predicate.isNotUndefined(dragAxis) && untrack(features.pending)) {
+    createEffect(
+      () => ({ services: features.services(), pending: features.pending() }),
+      // Its apply returns nothing: a function returned there would be its cleanup.
+      ({ services, pending }) => {
+        UndefinedOr.match(serviceIn(services, DragGesture), {
+          onDefined: (gesture) => UndefinedOr.map(mounted, (m) => UndefinedOr.map(m.startDrag, (start) => start(gesture))),
+          onUndefined: () => {
+            if (DEV && Bool.not(pending)) featureRegistry.warnOnce("drag", missingMessage("drag", GESTURE_WORDS.drag, "@wardic/solid/unstable/v2"))
+          },
+        })
+      },
+      CLIENT_ONLY_DEFERRED,
+    )
+  }
 
   // A `layoutDependency` change re-measures its layout node (not at mount: it measures as it registers).
   // Only a change of its value: a memo, since a Solid 2 effect applies on every re-run of its compute,
