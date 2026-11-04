@@ -37,11 +37,11 @@ import { settingOf as configSettingOf, type WardicConfigValue } from "./wardic-c
 /**
  * The full Wardic environment a `WardicProvider` requires: core's service contracts but the
  * `InputSource`, the `RefreshFrameSource` the Clock ticks on and the flush gate requests its
- * flushes from (ADR-0031), core's Frame loop over the Clock (`FrameLoop.layer`, which runs every
- * animation the binding starts, ADR-0027), and the `AtomRegistry` that backs reactive service
+ * flushes from, core's Frame loop over the Clock (`FrameLoop.layer`, which runs every
+ * animation the binding starts), and the `AtomRegistry` that backs reactive service
  * inputs. Satisfied by `@wardic/dom`'s `DomLive` (real browser) or `@wardic/test`'s
  * `TestLive` (headless). `ER` and `R` are `never`: a fully self-contained Layer. The `InputSource` is
- * the gesture Features' (#511, ADR-0067 decision 14): built with the first one, over the page, unless
+ * the gesture Features': built with the first one, over the page, unless
  * the Environment gives one, as `TestLive` does, which they take.
  */
 export type WardicEnv = Layer.Layer<WardicServices, never, never>

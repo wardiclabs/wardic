@@ -11,7 +11,7 @@ import { identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 
-/** `wardic.create`'s options (#443, Motion's `motion.create(Component, options)`). */
+/** `wardic.create`'s options (Motion's `motion.create(Component, options)`). */
 export interface WardicCreateOptions {
   /**
    * Hand the motion props on to what it renders as well (Motion's `forwardMotionProps`): a wrapped

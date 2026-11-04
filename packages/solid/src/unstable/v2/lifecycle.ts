@@ -45,13 +45,13 @@ export interface WardGestures {
   readonly hover: boolean
   readonly tap: boolean
   readonly drag: boolean
-  /** In view (#273): `whileInView` applied. */
+  /** In view: `whileInView` applied. */
   readonly inView: boolean
-  /** Focused as the browser shows it (#273): `whileFocus` applied. */
+  /** Focused as the browser shows it: `whileFocus` applied. */
   readonly focus: boolean
 }
 
-/** An animation's landing (#257, ADR-0046). */
+/** An animation's landing. */
 export interface WardSettled {
   /**
    * Motion's `definition` of it: the variant name its `animate` changed to, else its target values
@@ -64,25 +64,25 @@ export interface WardSettled {
   readonly gestures: WardGestures
 }
 
-/** A point in the viewport, as `clientX` / `clientY` and `getBoundingClientRect()` measure (#257). */
+/** A point in the viewport, as `clientX` / `clientY` and `getBoundingClientRect()` measure. */
 export type WardPoint = WardicPoint
 
 /**
- * The element a gesture's event happened on (#397): the ward's, or, for a ward given to `wardRef`,
+ * The element a gesture's event happened on: the ward's, or, for a ward given to `wardRef`,
  * the element it drives. Motion's `event.currentTarget`: Solid 2's events have no DOM event.
  */
 export type WardElement = HTMLElement | SVGElement
 
 /**
- * A hover's or a press's event (#257, Motion's `EventInfo` / `TapInfo`): where the pointer was, in
- * the viewport, and the element it was on (#397).
+ * A hover's or a press's event (Motion's `EventInfo` / `TapInfo`): where the pointer was, in
+ * the viewport, and the element it was on.
  */
 export interface WardPointInfo extends WardicPointInfo {
   readonly element: WardElement
 }
 
 /**
- * A press's event (#257, #427): where it was, in the viewport, how it was made (`input: "pointer" |
+ * A press's event: where it was, in the viewport, how it was made (`input: "pointer" |
  * "keyboard"`), and the element it was on. A **Keyboard press**'s point is the element's centre,
  * measured at the key.
  */
@@ -91,21 +91,21 @@ export interface WardPressInfo extends WardicPressInfo {
 }
 
 /**
- * A drag's event (#257, Motion's `PanInfo`): where the pointer was, in the viewport, the drag's
- * `offset`, `delta` and `velocity` (`gesture-info.ts`), and the element dragged (#397).
+ * A drag's event (Motion's `PanInfo`): where the pointer was, in the viewport, the drag's
+ * `offset`, `delta` and `velocity` (`gesture-info.ts`), and the element dragged.
  */
 export interface WardDragInfo extends WardicDragInfo {
   readonly element: WardElement
 }
 
-/** What each of `next(name)`'s names resolves to (#257). */
+/** What each of `next(name)`'s names resolves to. */
 export interface WardEvents {
   /** The next landing. */
   readonly settled: WardSettled
   /** The pointer came over the element (Motion's `onHoverStart`); touch never hovers. */
   readonly hoverStart: WardPointInfo
   /**
-   * The pointer over the element while it's hovered (#397): its start, told after `hoverStart` at the
+   * The pointer over the element while it's hovered: its start, told after `hoverStart` at the
    * same point, then each move until `hoverEnd`, as `drag` is a drag's. Wardic's own: Motion's hover
    * has only a start and an end.
    */
@@ -114,7 +114,7 @@ export interface WardEvents {
   readonly hoverEnd: WardPointInfo
   /**
    * A press began on the element (Motion's `onTapStart`): a primary pointer's down, or Enter or Space
-   * going down while it has focus (a **Keyboard press**, #427).
+   * going down while it has focus (a **Keyboard press**).
    */
   readonly pressStart: WardPressInfo
   /** That press ended in a release on the element or inside it, or its key coming up (Motion's `onTap`). */
@@ -128,22 +128,22 @@ export interface WardEvents {
   readonly dragStart: WardDragInfo
   /**
    * With `dragDirectionLock`, the axis a drag locked to, at its start, before its `dragStart`
-   * (Motion's `onDirectionLock`, #273).
+   * (Motion's `onDirectionLock`).
    */
   readonly directionLock: "x" | "y"
-  /** That drag moved: its start and each move after (Motion's `onDrag`, #273). */
+  /** That drag moved: its start and each move after (Motion's `onDrag`). */
   readonly drag: WardDragInfo
   /** That drag ended at its release (Motion's `onDragEnd`). */
   readonly dragEnd: WardDragInfo
   /**
-   * The drag's release came to rest on its own (Motion's `onDragTransitionEnd`, #273): its momentum
+   * The drag's release came to rest on its own (Motion's `onDragTransitionEnd`): its momentum
    * or its spring back, or at once for one released in place. Not for one a grab stopped.
    */
   readonly dragTransitionEnd: undefined
   /**
    * A pan's session began: a primary pointer went down on the element (Motion's
-   * `onPanSessionStart`, #273). A pan moves nothing; once started, it counts as a drag for the
-   * element's press and hover (ADR-0047). It sets no `touch-action`: give the element one for touch.
+   * `onPanSessionStart`). A pan moves nothing; once started, it counts as a drag for the
+   * element's press and hover. It sets no `touch-action`: give the element one for touch.
    */
   readonly panSessionStart: WardPointInfo
   /** That pan started, past its threshold (Motion's `onPanStart`). */
@@ -153,7 +153,7 @@ export interface WardEvents {
   /** That pan ended at its release, or was cancelled (Motion's `onPanEnd`). Only a pan that started. */
   readonly panEnd: WardDragInfo
   /**
-   * The element came into view, as its `viewport` says (Motion's `onViewportEnter`, #273). One that
+   * The element came into view, as its `viewport` says (Motion's `onViewportEnter`). One that
    * starts out of view tells nothing until it enters.
    */
   readonly viewportEnter: undefined
@@ -161,7 +161,7 @@ export interface WardEvents {
   readonly viewportLeave: undefined
   /**
    * A layout animation of the element started, at the frame it takes its first step, after that
-   * frame is painted (Motion's `onLayoutAnimationStart`, ADR-0039). A restart starts again.
+   * frame is painted (Motion's `onLayoutAnimationStart`). A restart starts again.
    */
   readonly layoutStart: undefined
   /**

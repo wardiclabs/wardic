@@ -221,7 +221,7 @@ export const isValidWardicPropV2 = (key: string): boolean => MOTION_PROP_SET_V2.
 // config accessor (motionToConfig) tracks whatever signals back it.
 export type WardicMotionProps = WardConfig
 
-/** {@link WardicMotionProps} on Solid 2 (#257): all but Solid 1's callbacks. */
+/** {@link WardicMotionProps} on Solid 2: all but Solid 1's callbacks, which its ward's events tell. */
 export type WardicMotionPropsV2 = Omit<WardicMotionProps, (typeof SOLID_1_CALLBACKS)[number]>
 
 /**

@@ -22,7 +22,7 @@ export interface WardicBoundingBox {
 }
 
 /**
- * `dragConstraints` (#273, ADR-0047, Motion's): the range of the element's x (`left` to `right`) and y
+ * `dragConstraints` (Motion's): the range of the element's x (`left` to `right`) and y
  * (`top` to `bottom`), an edge left out unbounded; the container its box must stay inside, an accessor
  * read at each measure (a drag's start, a resize of either); or `false`, none.
  */

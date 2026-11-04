@@ -55,7 +55,7 @@ export { MOTION_PROPS, motionToConfig, type WardicMotionProps } from "./motion-p
 
 /**
  * Props for a `wardic.<tag>` element: the tag's intrinsic props + motion props `M`, with a `style`
- * that takes the transform keys and Live values too ({@link WardStyle}, #130). A `wardic.<tag>`
+ * that takes the transform keys and Live values too ({@link WardStyle}). A `wardic.<tag>`
  * component's `M` has its keys inferred ({@link WardicComponent}).
  */
 export type WardicProps<Tag extends keyof JSX.IntrinsicElements, M = WardicMotionProps> =
@@ -65,7 +65,7 @@ export type WardicProps<Tag extends keyof JSX.IntrinsicElements, M = WardicMotio
   & { readonly style?: WardStyle | string | undefined }
 
 /**
- * A `wardic.<tag>` component (#305): generic over the keys its targets set, so its `transition` takes
+ * A `wardic.<tag>` component: generic over the keys its targets set, so its `transition` takes
  * entries for those keys, `default` and `layout`, and a target's own takes them and `default`
  * ({@link InferredMotion}). A name an entry gives that the element doesn't animate is an error, and
  * completion inside a `transition` offers the keys it drives.

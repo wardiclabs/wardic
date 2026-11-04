@@ -168,7 +168,7 @@ import type { DragTrack } from "../../drag-track.ts"
 import { DragGesture, FocusGesture, HoverGesture, InViewGesture, PanGesture, PressGesture } from "../../features/keys.ts"
 
 /**
- * A Wardic element's `style` (#130, ADR-0043): every CSS property and the transform keys (`x`,
+ * A Wardic element's `style`: every CSS property and the transform keys (`x`,
  * `scale`, `rotate`…), each a value or a **Live value**: an `effect/reactivity` Atom, or an
  * accessor, uncalled (a signal, a memo, a ward's `read(key)`). A called value is a resting value:
  * the element shows it at rest, and a return goes to where it is then. A Live value reading
@@ -176,11 +176,11 @@ import { DragGesture, FocusGesture, HoverGesture, InViewGesture, PanGesture, Pre
  */
 export type WardStyle = { readonly [K in keyof WardicValues]?: WardicValues[K] | LiveSource<number | string | undefined> | undefined }
 
-/** A ward's config values (ADR-0042): the element's motion, and its `style`. */
+/** A ward's config values: the element's motion, and its `style`. */
 export interface WardConfigValues extends Omit<SharedWardConfig, SolidOneCallback> {
   /**
    * The element's style: Wardic's animated keys go over it, and a key no layer of the Override
-   * stack sets returns to it (ADR-0022). Its Live values are followed through the gate (#130).
+   * stack sets returns to it. Its Live values are followed through the gate.
    */
   readonly style?: WardStyle | string | undefined
 }
@@ -193,7 +193,7 @@ export interface WardConfigValues extends Omit<SharedWardConfig, SolidOneCallbac
 type WardCallbackKey = "onUpdate" | "dragConstraints" | "onMeasureDragConstraints" | "transformTemplate" | "onBeforeLayoutMeasure" | "onLayoutMeasure"
 
 /**
- * A ward's config (ADR-0042, #259): each key a value, or an accessor of it, read per key. A getter,
+ * A ward's config: each key a value, or an accessor of it, read per key. A getter,
  * a store's property or a component's prop is tracked as it's read, and an accessor is called as
  * it's read, so a change re-runs only what reads that key; a plain value is a constant. `initial`,
  * `drag` and its settings, and `layout` and the rest of its keys are read once, at setup.
@@ -201,8 +201,7 @@ type WardCallbackKey = "onUpdate" | "dragConstraints" | "onMeasureDragConstraint
 export type WardConfig = PerKey<WardConfigValues, WardCallbackKey>
 
 /**
- * A ward's config `C` with its transitions' entries checked against the keys each drives (#301's
- * PR 2, ADR-0049). A wrapper that hands its config on takes `config: WardChecked<C>` for its own
+ * A ward's config `C` with its transitions' entries checked against the keys each drives. A wrapper that hands its config on takes `config: WardChecked<C>` for its own
  * `<const C extends WardConfig>`, and passes `C` on: `ward<C>(config)`.
  */
 export type WardChecked<C> = WardCheckedConfig<C, PerKeyApart<WardConfigValues, WardCallbackKey>>
@@ -285,7 +284,7 @@ const WHOLE_ACCESSOR =
   "(`ward(() => ({ … }))`)."
 
 /**
- * {@link Ward.read} (#209 PR 3's Q4): completion offers the keys its config animates, and any other
+ * {@link Ward.read}: completion offers the keys its config animates, and any other
  * key is accepted; a transform key reads a number, any other the type its config gives it.
  */
 export interface WardRead<C> {
@@ -294,7 +293,7 @@ export interface WardRead<C> {
 
 /** The props a spread of a {@link Ward} applies. */
 /**
- * What {@link Ward.with} takes (#264, the Solid 1 ward's `ward({ ref, style })`): the element's own
+ * What {@link Ward.with} takes (the Solid 1 ward's `ward({ ref, style })`): the element's own
  * `ref` and `style`, given where the ward is spread.
  */
 export interface WardWithProps {
@@ -304,12 +303,13 @@ export interface WardWithProps {
   readonly style?: WardStyle | string | undefined
 }
 
+/** What a ward's spread gives its element: the ward itself as its `ref`, and its `style`. */
 export interface WardProps {
   /** The ward: Solid calls it with the element. */
   readonly ref: (element: HTMLElement) => void
   /**
    * The element's style: the Starting style over the config's `style` until the gate's first
-   * commit, then the config's `style` without the keys the gate holds (ADR-0034). Never per frame.
+   * commit, then the config's `style` without the keys the gate holds. Never per frame.
    */
   readonly style: JSX.CSSProperties
 }
@@ -320,7 +320,7 @@ export interface WardProps {
  */
 export const WARD: unique symbol = Symbol("wardic.ward")
 
-/** Any ward, whatever its config: what `wardRef` takes in, and `parent` (#349). */
+/** Any ward, whatever its config: what `wardRef` takes in, and `parent`. */
 export interface AnyWard {
   readonly [WARD]: unknown
 }
@@ -436,10 +436,10 @@ const WARD_MEMBER_KEYS: PropertyDescriptorMap = {
 /** {@link WARD_MEMBER_KEYS} on one prototype over `Function.prototype`. */
 const WARD_MEMBERS: object = /*#__PURE__*/ Object.create(Function.prototype, WARD_MEMBER_KEYS)
 
-/** `ward(config, options)`'s options (#349). */
+/** `ward(config, options)`'s options. */
 export interface WardOptions {
   /**
-   * Its variant parent (ADR-0007, #50), for a ward made outside the tree its element renders in: it
+   * Its variant parent, for a ward made outside the tree its element renders in: it
    * inherits that ward's variant names and transition, and joins its stagger and `when`, as an
    * element rendered under it would. Stagger counts children in the order they're made. Left out,
    * it's the one where the ward is made. A ward given to a component with none, under another
@@ -450,7 +450,7 @@ export interface WardOptions {
 
 /**
  * One element's motion binding: a ref carrying its props (see the module). Spread it, give it to
- * `ref` (alone, or in an array with your own), or give it to a Wardic component's `wardRef` (#349).
+ * `ref` (alone, or in an array with your own), or give it to a Wardic component's `wardRef`.
  */
 export interface Ward<C extends WardConfig = WardConfig> extends WardProps, AnyWard {
   /** Mounts the ward on `element`: Solid calls it as a ref. */
