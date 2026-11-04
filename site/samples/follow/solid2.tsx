@@ -1,5 +1,5 @@
 import { createSpring, w } from "@wardic/solid/unstable/v2"
-import { createSignal } from "solid-js"
+import { createEffect, createSignal } from "solid-js"
 
 /** A dot that follows the pointer: the pointer sets two signals, and two springs follow them. */
 export default function Follow() {
@@ -7,14 +7,16 @@ export default function Follow() {
   const [y, setY] = createSignal(0)
   const springX = createSpring(x, { stiffness: 300, damping: 20 })
   const springY = createSpring(y, { stiffness: 300, damping: 20 })
-  const follow = (event: PointerEvent & { currentTarget: HTMLDivElement }) => {
-    const box = event.currentTarget.getBoundingClientRect()
-    setX(event.clientX - box.left - 20)
-    setY(event.clientY - box.top - 20)
-  }
+  // A ward that only listens: it hears the pointer over the field, where it comes in and at each move.
+  const field = w.ward()
+  createEffect(field.when("hover"), ({ point, element }) => {
+    const box = element.getBoundingClientRect()
+    setX(point.x - box.left - 20)
+    setY(point.y - box.top - 20)
+  })
   return (
-    <div class="sample-field" onPointerMove={follow}>
+    <w.div class="sample-field" wardRef={field}>
       <w.div class="sample-dot" style={{ x: springX, y: springY }} />
-    </div>
+    </w.div>
   )
 }
