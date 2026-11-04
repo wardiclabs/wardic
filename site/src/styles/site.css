@@ -390,3 +390,114 @@ a {
   font-weight: 650;
   box-shadow: var(--shadow-m);
 }
+
+/* --- Search -------------------------------------------------------------------------------- */
+
+.search-button {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  height: 36px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface);
+  color: var(--muted);
+  font: inherit;
+  font-size: var(--text-s);
+  cursor: pointer;
+}
+
+.search-button kbd {
+  padding: 1px 6px;
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.search-shade {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  background: rgb(46 52 64 / 0.4);
+}
+
+.search-panel {
+  position: fixed;
+  top: 12vh;
+  left: 50%;
+  z-index: 21;
+  width: min(640px, calc(100vw - 32px));
+  margin-left: calc(min(640px, calc(100vw - 32px)) / -2);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-l);
+  background: var(--surface);
+  box-shadow: var(--shadow-l);
+}
+
+.search-input {
+  width: 100%;
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--paper);
+  color: var(--ink);
+  font: inherit;
+}
+
+.search-hits {
+  max-height: 60vh;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+
+.search-hits a {
+  display: grid;
+  gap: 2px;
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-m);
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.search-hits a:hover,
+.search-hits a:focus-visible {
+  background: var(--accent-soft);
+}
+
+.search-hits span {
+  color: var(--muted);
+  font-size: var(--text-s);
+}
+
+.search-hits mark {
+  background: transparent;
+  color: var(--accent);
+  font-weight: 650;
+}
+
+.search-note {
+  margin: var(--space-3) var(--space-2) var(--space-1);
+  color: var(--muted);
+  font-size: var(--text-s);
+}
+
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  .search-button span,
+  .search-button kbd {
+    display: none;
+  }
+}

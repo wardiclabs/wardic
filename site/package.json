@@ -5,7 +5,7 @@
   "description": "Wardic's docs site, at wardic.dev (#558): SolidStart on Solid 2, MDX pages, prerendered.",
   "scripts": {
     "dev": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/prerender.ts",
     "preview": "vite preview",
     "typecheck": "../node_modules/typescript-7/bin/tsc --noEmit && ../node_modules/typescript-7/bin/tsc --noEmit -p samples/tsconfig.solid2.json && ../node_modules/typescript-7/bin/tsc --noEmit -p samples/tsconfig.solid1.json"
   },
@@ -27,6 +27,7 @@
     "@solidjs/vite-plugin": "3.0.0-next.54",
     "filesystem-routing": "0.4.0",
     "hast-util-to-html": "9.0.5",
+    "pagefind": "1.6.0",
     "rehype-autolink-headings": "7.1.0",
     "rehype-slug": "6.0.0",
     "remark-frontmatter": "5.0.0",

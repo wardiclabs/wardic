@@ -35,7 +35,7 @@ export default function Page() {
       {(found) => (
         <For each={[found()]}>
           {(current) => (
-            <w.article class="prose" initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, ease: "easeOut" }}>
+            <w.article class="prose" data-pagefind-body initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, ease: "easeOut" }}>
               <Dynamic component={current.default} />
             </w.article>
           )}

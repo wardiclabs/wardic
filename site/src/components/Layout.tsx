@@ -7,6 +7,7 @@ import { useLocation } from "@solidjs/router"
 import { w } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
 import { createSignal, For, Show } from "solid-js"
+import { Search } from "~/components/Search.tsx"
 import { ThemeToggle } from "~/components/ThemeToggle.tsx"
 import { NAV } from "~/nav.ts"
 
@@ -62,6 +63,7 @@ export function Layout(props: { readonly children?: JSX.Element }) {
           Wardic
         </a>
         <div class="header-tools">
+          <Search />
           <ThemeToggle />
           <w.a class="icon-button" href={GITHUB} aria-label="Wardic on GitHub" title="Wardic on GitHub" whileHover={{ scale: 1.08 }} whileTap={{ scale: 0.94 }}>
             <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="currentColor">
