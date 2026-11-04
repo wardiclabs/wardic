@@ -482,7 +482,7 @@ An element with a **Ward** on it.
 _Avoid_: motion element, animated element.
 
 **Feature**:
-A part of the binding an element pays for only when it needs it (#511): a gesture each (`hover`, `press`, `focus`, `inView`, `pan`, `drag`), `layout` (layout, `layoutId`, projection), and `colors` (every CSS colour space beyond hex, `rgb()`, `hsl()` and colour names, which the base reads). Motion's presets name two sets of them: `domAnimation` (the hover, press, focus and in-view gestures) and `domMax` (every Feature). A component that exists for a Feature brings it for the elements under it: `LayoutGroup` brings `layout`, `Reorder` brings `drag` and `layout`. A **Slim element** has the Features chosen above it, by its `WardicProvider` and any `LazyWardic` between them, together; a **Complete element** has every one.
+A part of the binding an element pays for only when it needs it (#511): a gesture each (`hover`, `press`, `focus`, `inView`, `pan`, `drag`), `layout` (layout, `layoutId`, projection), and `colors` (every CSS colour space beyond hex, `rgb()`, `hsl()` and colour names, which the base reads). Motion's presets name two sets of them: `domAnimation` (the hover, press, focus and in-view gestures) and `domMax` (every Feature). A component that needs a Feature brings it for itself: `Reorder`'s items bring `drag`, `layout` and the gestures, and `LayoutGroup` brings `layout` for its own `layoutDependency`, not for the elements under it. A **Slim element** has the Features chosen above it, by its `WardicProvider` and any `LazyWardic` between them, together; a **Complete element** has every one.
 _Avoid_: plugin, addon, module.
 
 **Slim element**:

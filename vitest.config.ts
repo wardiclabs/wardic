@@ -19,7 +19,8 @@ import { wardicSource } from "./scripts/wardic-source.ts"
 //
 // happy-dom has been retired: it has no layout engine and never fires real
 // observers, so DOM behaviour can only be truly verified in a real browser. Both
-// gates run in CI; both must pass.
+// gates run in CI; both must pass. The two jsdom projects here are the docs' testing
+// guide, run as a reader's own tests would, not tests of Wardic's DOM behaviour.
 export default defineConfig({
   test: {
     projects: [
@@ -41,6 +42,9 @@ export default defineConfig({
       "packages/solid/vitest.ssr.config.ts",
       // The Solid 2 binding's server renders, `@wardic/solid/unstable/v2` (#209).
       "packages/solid/vitest.ssr-v2.config.ts",
+      // The docs' testing guide, its samples run in jsdom as a reader's tests would (#558).
+      "packages/solid/vitest.jsdom.config.ts",
+      "packages/solid/vitest.jsdom-v2.config.ts",
     ],
   },
 })

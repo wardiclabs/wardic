@@ -35,4 +35,14 @@ export const NAV: ReadonlyArray<NavSection> = [
       { path: "/guides/live-values", title: "Live values" },
     ],
   },
+  {
+    title: "In production",
+    pages: [
+      { path: "/guides/server-rendering", title: "Server rendering" },
+      { path: "/guides/features", title: "Shipping less" },
+      { path: "/guides/reduced-motion", title: "Reduced motion" },
+      { path: "/guides/testing", title: "Testing" },
+      { path: "/guides/observability", title: "Observability" },
+    ],
+  },
 ]

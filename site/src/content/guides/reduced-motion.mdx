@@ -1,0 +1,63 @@
+---
+title: Reduced motion
+description: How Wardic follows a visitor's reduced-motion setting, what it changes, and how to read it yourself.
+---
+
+# Reduced motion
+
+Some people turn motion down in their system's settings, because it makes them unwell or pulls their eye away. Wardic follows that setting unless told otherwise: what moves an element across the page or resizes it jumps to where it's going, and the rest, such as opacity and colour, still animates.
+
+<Demo sample="reduced-motion" />
+
+<CodeTabs sample="reduced-motion" />
+
+## The setting
+
+`reducedMotion`, on the `WardicProvider` or a `<WardicConfig>` anywhere under it, the nearest one winning:
+
+- `"user"`, the default: follow the visitor's system.
+- `"always"`: reduce, whatever the system says.
+- `"never"`: don't reduce.
+
+It's read as each animation starts, so a change applies from the next one, and a change to the system's setting is followed as it happens. Motion's default is `"never"`, and it reads the setting once, as each element mounts.
+
+## What changes
+
+- **Keys that move or resize jump:** `x`, `y`, `z`, `scale`, `rotate`, `skew` and their axes, and `width`, `height`, `top`, `left`, `right` and `bottom`. Each waits out the delay it would have had, stagger included, and lands as the other keys start.
+- **Every other key animates as it would:** opacity, colours, filters and shadows.
+- **Where it lands** is where the animation would end: a spring's or tween's target, keyframes' last stop, where an `inertia` glide would rest, and with a `repeat`, where its last run would finish. A key that repeats forever lands where its first run ends, and the keys that still animate repeat on.
+- **Layout animations** land on the new box at once, and a `layoutId` crossfade switches at once. `onLayoutAnimationStart` and `onLayoutAnimationComplete` are both called, in that frame.
+- **Exits** are reduced the same way.
+- **Drag isn't reduced:** the element follows the pointer, and on release it glides on, or springs back, as Motion's does. It's the visitor's own gesture carrying on, not motion they didn't ask for.
+- **Live values aren't reduced:** `createSpring` and `createFollowValue` follow their source as they would, and a scroll value is the scroll. To calm one, read the setting, below.
+
+To keep one animation moving whatever the setting, give its transition `respectReducedMotion: false`, as for a spinner, which says something is happening:
+
+```tsx
+<w.div animate={{ rotate: 360 }} transition={{ duration: 1, ease: "linear", repeat: Infinity, respectReducedMotion: false }} />
+```
+
+## Reading it
+
+- **`createReducedMotion()`** is the visitor's system setting, as an accessor: Motion's `useReducedMotion`. On the server, and as the page hydrates, it's `false`.
+- **`createReducedMotionConfig()`** is whether animations here are reduced: the nearest `reducedMotion` over the system's setting. It's Motion's `useReducedMotionConfig`.
+
+Read one to change what moves, not only how:
+
+```tsx
+const reduced = createReducedMotionConfig()
+// A card that slides in, or only fades in when motion is reduced.
+<w.div initial={reduced() ? { opacity: 0 } : { opacity: 0, x: 60 }} animate={{ opacity: 1, x: 0 }} />
+```
+
+## Before the JavaScript
+
+On a server-rendered page, the entrances that play from the first paint carry both plays, the reduced one under `@media (prefers-reduced-motion: reduce)`, so the browser picks one before any script has run. See [Server rendering](/guides/server-rendering).
+
+## Skipping animations
+
+`skipAnimations` on a `<WardicConfig>` is something else: every key lands on its next frame, with no delay, exits, layout animations and a drag's release included. It wins over `reducedMotion`. It's for tests, and for a page that wants no motion at all; see [Testing](/guides/testing).
+
+## Testing it
+
+Give the test's provider `reducedMotion="always"`, or, in a browser test, emulate the system setting, as Playwright's `page.emulateMedia({ reducedMotion: "reduce" })` does.

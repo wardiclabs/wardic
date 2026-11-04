@@ -1,0 +1,56 @@
+---
+title: Observability
+description: Wardic's logs, failure reports, traces and metrics, through Effect's own, in development and in production.
+---
+
+# Observability
+
+Wardic is built on [Effect](https://effect.website), and speaks its observability: logs, failure reports, traces and metrics. It installs no logger or reporter of its own. The provider's `env` takes any Layer that gives Wardic's services, so an app merges Effect's own beside `DomLive`:
+
+<CodeTabs sample="observability" />
+
+That's a development setup: give it where the app runs in development, such as under `import.meta.env.DEV`, and plain `DomLive` in production. `FrameLoop` is `@wardic/core`'s, so add `@wardic/core` to the app's dependencies to check frames.
+
+## Logs
+
+Effect's defaults are production's: Wardic's Debug logs are dropped, and its warnings and errors print to the console. With the level at `"Debug"`, you see:
+
+- each animation as it starts, such as `wardic.springValues: start`, with the keys it moves;
+- the layout system's nodes, as they're registered and disposed, and presence's exits as they're decided.
+
+Its warnings point at a mistake, for example:
+
+- `wardic.style`: a `transform` string is dropped while `style` sets a transform key, such as `x` or `scale`.
+- `wardic.interpolator`: a pair of values that can't be blended, such as `10px` and `50%`, switches at the first frame.
+- In development only, a prop whose [Feature](/guides/features) no provider or `LazyWardic` above it gives.
+
+## Failures
+
+Every failure Wardic stops is logged at Error, and handed to the app's `ErrorReporter`s: a failed animation (`wardic.spine: a leg failed`), a callback that threw (`wardic.gesture: onTap failed`), an exit, a drag's release, a layout pass, a lazy load of Features. An interruption, such as a new target or an unmount, is neither. A reporter made with `ErrorReporter.make` hears each failure once, even when it crosses two of Wardic's boundaries.
+
+## Traces and metrics
+
+With a tracer installed, such as the devtools' or OpenTelemetry's, each animation runs in a span named for what it is: `wardic.springValues`, `wardic.animateValues`, `wardic.keyframesValues`, or `wardic.reducedMotion.snap` for a key that jumps. Each burst of frames is a `wardic.frameloop` span, and each layout pass a `wardic.projection.measure`. With no tracer, Wardic makes no spans at all.
+
+The frame loop's metrics are `wardic_frameloop_animations`, the animations running now; `wardic_frameloop_settled` and `wardic_frameloop_failed`, counts of those that ended; and `wardic_frameloop_tick_ms`, each frame's work, as a histogram.
+
+`DevTools.layer()` streams spans and metrics to Effect's devtools, on `ws://localhost:34437` by default. To send them to OpenTelemetry instead, use Effect's OTLP exporter:
+
+```ts
+import { FetchHttpClient } from "effect/http"
+import { OtlpSerialization, OtlpTracer } from "effect/observability"
+
+// Wardic's spans, and the app's own, to an OpenTelemetry collector.
+const tracing = OtlpTracer.layer({ url: "http://localhost:4318/v1/traces", resource: { serviceName: "shop" } }).pipe(
+  Layer.provide(OtlpSerialization.layerJson),
+  Layer.provide(FetchHttpClient.layer),
+)
+
+const env = Layer.mergeAll(DomLive, tracing)
+```
+
+## Checking frames
+
+`FrameLoop.CheckFrames` fails an animation whose frame holds a NaN or an Infinity, naming the key and the value (`a non-finite Frame: x is NaN`), where the page would quietly drop a `NaNpx`. It checks every value of every frame, which costs up to 40% of a frame's work, so it's for development.
+
+`effect/ErrorReporter`, `effect/devtools` and `effect/observability` are marked unstable in Effect 4.1, so their names can change in a minor release.

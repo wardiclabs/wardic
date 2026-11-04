@@ -2,13 +2,17 @@
  * A sample, running (#558): `samples/<name>/solid2.tsx`'s default export, on the site's own Wardic. It
  * loads once its frame scrolls into view, which a ward on the frame hears (`when("viewportEnter")`), so a
  * page ships no demo's code until it's wanted. Replay mounts it again, so its entrance plays again.
+ * The samples shown only as code, such as a test or an app's setup, aren't demos and aren't built.
  */
 import { Dynamic } from "@solidjs/web"
 import { w } from "@wardic/solid/unstable/v2"
 import type { Component } from "solid-js"
 import { createEffect, createMemo, createSignal, For, Loading, Show } from "solid-js"
 
-const DEMOS = import.meta.glob<{ readonly default: Component }>("../../samples/*/solid2.tsx")
+const DEMOS = import.meta.glob<{ readonly default: Component }>([
+  "../../samples/*/solid2.tsx",
+  "!../../samples/{testing,observability}/*",
+])
 
 /** A sample's demo: its Solid 2 file's default export. */
 const demoOf = async (sample: string): Promise<Component> => {
