@@ -54,7 +54,8 @@ export { hover } from "./features/hover.ts"
 export { inView } from "./features/in-view.ts"
 export { pan } from "./features/pan.ts"
 export { press } from "./features/press.ts"
-export { domAnimation, domMax } from "./features/presets.ts"
+export { domAnimation } from "./features/dom-animation.ts"
+export { domMax } from "./features/dom-max.ts"
 // The Instant change and the Projection reset (#443): Motion's `useInstantTransition` and kin.
 export type { InstantTransition } from "./instant.ts"
 // `WardicConfig`'s `transformPagePoint` helpers (#443, Motion's): a drag inside a transformed parent, or an SVG's viewBox.
@@ -117,15 +118,15 @@ export { createAnimationControls, type WardicAnimationControls, type WardicContr
  */
 export {
   type CreateDragOptions,
-  createDrag,
-  createFocus,
-  createHover,
   createInView,
   createPageInView,
-  createPress,
   createReducedMotion,
   createReducedMotionConfig,
 } from "./sensors.ts"
+export { createDrag } from "./drag-sensor.ts"
+export { createFocus } from "./focus-sensor.ts"
+export { createHover } from "./hover-sensor.ts"
+export { createPress } from "./press-sensor.ts"
 // `createCycle` (#443, Motion's `useCycle`): one of a list of states at a time, stepped through.
 export { createCycle, type Cycle } from "./cycle.ts"
 
@@ -158,7 +159,8 @@ export type { FollowAccessor, FollowValueOptions, Live, LiveSource, SpringAccess
  * element (ADR-0034), with an SSR-correct synchronous initial (ADR-0003). Returns a callable
  * `Ward` to spread onto a JSX element (`<div {...ward()}>`).
  */
-export { type Ward, type WardStyle, type WardValue, type WardProps, type WardUserProps, createWard } from "./create-ward.tsx"
+export { createWard } from "./complete.ts"
+export { type Ward, type WardStyle, type WardValue, type WardProps, type WardUserProps } from "./create-ward.tsx"
 export type {
   WardConfig,
   WardicDragTransition,

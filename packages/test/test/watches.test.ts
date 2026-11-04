@@ -26,6 +26,7 @@
 //   for the release.
 import * as DragActivity from "@wardic/core/DragActivity"
 import * as InputSource from "@wardic/core/InputSource"
+import * as DragRecognizer from "@wardic/core/DragRecognizer"
 import * as Recognizer from "@wardic/core/Recognizer"
 import { TestInput, TestProbe } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
@@ -154,7 +155,7 @@ it.effect("WT7: a pan's count in the Drag activity is given back when the Scope 
     yield* Effect.gen(function* () {
       const activity = yield* DragActivity.DragActivity
       const phases: Array<string> = []
-      const scope = yield* opened(Recognizer.watchPan("el", { on: (s) => phases.push(s.phase) }))
+      const scope = yield* opened(DragRecognizer.watchPan("el", { on: (s) => phases.push(s.phase) }))
       yield* input.push(ev("down", 0, 0))
       yield* input.push(ev("move", 20, 16))
       expect(phases).toContain("start")
@@ -191,7 +192,7 @@ it.effect("WT9: watchDrag tells a gesture inside the push, kept to its axis; its
     yield* Effect.gen(function* () {
       const activity = yield* DragActivity.DragActivity
       const told: Array<string> = []
-      yield* opened(Recognizer.watchDrag("el", { axis: "x" }, {
+      yield* opened(DragRecognizer.watchDrag("el", { axis: "x" }, {
         on: (s) => told.push(`${s.phase} ${s.offset.x},${s.offset.y} ${s.axis} active:${activity.isDragActive()}`),
       }))
       const [down, start, move, up] = gesture(0)
@@ -211,7 +212,7 @@ it.effect("WT10: a throw from on at the start goes to onDefect and keeps no clai
       const activity = yield* DragActivity.DragActivity
       const defects: Array<Cause.Cause<never>> = []
       const phases: Array<string> = []
-      yield* opened(Recognizer.watchDrag("el", {}, {
+      yield* opened(DragRecognizer.watchDrag("el", {}, {
         on: (s) => {
           phases.push(s.phase)
           if (phases.length === 1) throw new Error("the response broke")
@@ -231,7 +232,7 @@ it.effect("WT11: closing the Scope mid-gesture gives the claim back", () =>
     const input = yield* TestInput.pushable()
     yield* Effect.gen(function* () {
       const activity = yield* DragActivity.DragActivity
-      const scope = yield* opened(Recognizer.watchDrag("el", {}, { on: () => undefined }))
+      const scope = yield* opened(DragRecognizer.watchDrag("el", {}, { on: () => undefined }))
       const [down, start] = gesture(0)
       yield* input.push(down!)
       yield* input.push(start!)
@@ -248,8 +249,8 @@ it.effect("WT12: a gesture another target's claim refuses tells nothing, its end
       const activity = yield* DragActivity.DragActivity
       const refused: Array<string> = []
       const free: Array<string> = []
-      yield* opened(Recognizer.watchDrag("el", { axis: "x" }, { on: (s) => refused.push(s.phase) }))
-      yield* opened(Recognizer.watchDrag("el", { axis: "x", claim: false }, { on: (s) => free.push(s.phase) }))
+      yield* opened(DragRecognizer.watchDrag("el", { axis: "x" }, { on: (s) => refused.push(s.phase) }))
+      yield* opened(DragRecognizer.watchDrag("el", { axis: "x", claim: false }, { on: (s) => free.push(s.phase) }))
       const other = activity.claim("other", "x")
       expect(Option.isSome(other), "another target holds x").toBe(true)
       yield* Effect.forEach(gesture(0), input.push, { discard: true })

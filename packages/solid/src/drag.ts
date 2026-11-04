@@ -8,10 +8,11 @@ import * as Effect from "effect/Effect"
 import { DEFAULT_DRAG_ELASTIC, dragTransitionOf } from "./drag-transition.ts"
 import { driveDragTrack, type DragTrack, type DragTrackOptions } from "./drag-track.ts"
 import type { Feature } from "./feature.ts"
-import { drag, type DragGesture } from "./features/drag.ts"
+import { drag } from "./features/drag.ts"
 import { inputIn } from "./gesture-features.ts"
 import { runWatch, useBrought } from "./provider.tsx"
 import type { WardicRuntime } from "./runtime.ts"
+import { type DragGesture } from "./features/keys.ts"
 
 export { DEFAULT_DRAG_ELASTIC, dragTransitionOf }
 export type { DragSnapshot, DragTrack, DragTrackConfig } from "./drag-track.ts"

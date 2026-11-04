@@ -1,6 +1,7 @@
 import type * as Drag from "@wardic/core/Drag"
 import * as DragActivity from "@wardic/core/DragActivity"
 import * as InputSource from "@wardic/core/InputSource"
+import * as DragRecognizer from "@wardic/core/DragRecognizer"
 import * as Recognizer from "@wardic/core/Recognizer"
 import { TestInput } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
@@ -65,7 +66,7 @@ const dragTo = (x: number, t: number) => ev("move", x, 0, t)
 it.effect("A1: a drag claims at its start sample, not at the down or a sub-threshold move", () =>
   Effect.gen(function* () {
     const activity = DragActivity.make()
-    const h = yield* rig(activity, [Recognizer.drag(undefined)])
+    const h = yield* rig(activity, [DragRecognizer.drag(undefined)])
     // No claim at the down, none at a move inside the 3 px threshold
     yield* h.push(ev("down", 0, 0, 0))
     expect(activity.isDragActive()).toBe(false)
@@ -80,7 +81,7 @@ it.effect("A2: a drag releases at the end of an up, of rule A and of rule B (and
   Effect.gen(function* () {
     // (a) an up
     const a = DragActivity.make()
-    const ha = yield* rig(a, [Recognizer.drag(undefined)])
+    const ha = yield* rig(a, [DragRecognizer.drag(undefined)])
     yield* ha.push(ev("down", 0, 0, 0))
     yield* ha.push(dragTo(10, 10))
     expect(a.isDragActive()).toBe(true)
@@ -89,7 +90,7 @@ it.effect("A2: a drag releases at the end of an up, of rule A and of rule B (and
 
     // (b) rule A: the release is lost; the owner moves unpressed
     const b = DragActivity.make()
-    const hb = yield* rig(b, [Recognizer.drag(undefined)])
+    const hb = yield* rig(b, [DragRecognizer.drag(undefined)])
     yield* hb.push(ev("down", 0, 0, 0))
     yield* hb.push(dragTo(10, 10))
     expect(b.isDragActive()).toBe(true)
@@ -98,7 +99,7 @@ it.effect("A2: a drag releases at the end of an up, of rule A and of rule B (and
 
     // (c) rule B: a new down from the owner releases, the new gesture's start claims again
     const c = DragActivity.make()
-    const hc = yield* rig(c, [Recognizer.drag(undefined)])
+    const hc = yield* rig(c, [DragRecognizer.drag(undefined)])
     yield* hc.push(ev("down", 0, 0, 0))
     yield* hc.push(dragTo(10, 10))
     expect(c.isDragActive()).toBe(true)
@@ -112,7 +113,7 @@ it.effect("A3: interrupting the drag stream mid-gesture releases the claim (fina
   Effect.gen(function* () {
     // A drag past its threshold, holding the claim
     const activity = DragActivity.make()
-    const h = yield* rig(activity, [Recognizer.drag(undefined)])
+    const h = yield* rig(activity, [DragRecognizer.drag(undefined)])
     yield* h.push(ev("down", 0, 0, 0))
     yield* h.push(dragTo(10, 10))
     expect(activity.isDragActive()).toBe(true)
@@ -123,7 +124,7 @@ it.effect("A3: interrupting the drag stream mid-gesture releases the claim (fina
     // Interrupting a drag that never started must not release another's claim
     const shared = DragActivity.make()
     const other = shared.count()
-    const idle = yield* rig(shared, [Recognizer.drag(undefined)])
+    const idle = yield* rig(shared, [DragRecognizer.drag(undefined)])
     yield* idle.push(ev("down", 0, 0, 0)) // no start yet
     yield* Fiber.interrupt(idle.fibers[0]!)
     expect(shared.isDragActive()).toBe(true)
@@ -147,7 +148,7 @@ it.effect("A4: a press can't start while the activity is claimed; a press alread
 
     // (b) a press already on stays on when a drag claims (no end-side check)
     const activity = DragActivity.make()
-    const hb = yield* rig<boolean | string>(activity, [Recognizer.press(undefined), Recognizer.drag(undefined).pipe(Stream.map((s) => s.phase))])
+    const hb = yield* rig<boolean | string>(activity, [Recognizer.press(undefined), DragRecognizer.drag(undefined).pipe(Stream.map((s) => s.phase))])
     yield* hb.push(ev("down", 0, 0, 0))
     yield* hb.push(dragTo(10, 10)) // the drag starts and claims
     expect(activity.isDragActive()).toBe(true)
@@ -194,7 +195,7 @@ it.effect("A6: two drags claim twice; releasing one leaves the activity active",
 
     // (b) two drag streams on one input: both claim at the same start
     const activity = DragActivity.make()
-    const h = yield* rig(activity, [Recognizer.drag(undefined), Recognizer.drag(undefined)])
+    const h = yield* rig(activity, [DragRecognizer.drag(undefined), DragRecognizer.drag(undefined)])
     yield* h.push(ev("down", 0, 0, 0))
     yield* h.push(dragTo(10, 10))
     expect(activity.isDragActive()).toBe(true)
@@ -248,7 +249,7 @@ const OUTER = { name: "outer" }
 it.effect("A7: the drag that starts first claims; another target's is refused for its whole gesture, then claims at its own", () =>
   Effect.gen(function* () {
     const activity = DragActivity.make()
-    const h = yield* rigApart(activity, { inner: Recognizer.drag(INNER), outer: Recognizer.drag(OUTER) })
+    const h = yield* rigApart(activity, { inner: DragRecognizer.drag(INNER), outer: DragRecognizer.drag(OUTER) })
     yield* wholeGesture(h.push)
     expect(phases(h.seen.inner!)).toBe("start move end")
     expect(phases(h.seen.outer!)).toBe("")
@@ -262,7 +263,7 @@ it.effect("A7: the drag that starts first claims; another target's is refused fo
 it.effect("A8: a refused drag stays refused when the claim frees mid-gesture (the inner unmounts)", () =>
   Effect.gen(function* () {
     const activity = DragActivity.make()
-    const h = yield* rigApart(activity, { inner: Recognizer.drag(INNER), outer: Recognizer.drag(OUTER) })
+    const h = yield* rigApart(activity, { inner: DragRecognizer.drag(INNER), outer: DragRecognizer.drag(OUTER) })
     yield* h.push(ev("down", 0, 0, 0))
     yield* h.push(ev("move", 10, 0, 10))
     expect(phases(h.seen.inner!)).toBe("start")
@@ -295,8 +296,8 @@ it.effect("A9: claims are per axis: drags on different axes both run, a drag nee
     for (const row of rows) {
       const activity = DragActivity.make()
       const h = yield* rigApart(activity, {
-        inner: Recognizer.drag(INNER, { axis: row.inner }),
-        outer: Recognizer.drag(OUTER, { axis: row.outer }),
+        inner: DragRecognizer.drag(INNER, { axis: row.inner }),
+        outer: DragRecognizer.drag(OUTER, { axis: row.outer }),
       })
       yield* wholeGesture(h.push)
       expect(phases(h.seen.inner!), `${row.inner} in ${row.outer}`).toBe("start move end")
@@ -305,7 +306,7 @@ it.effect("A9: claims are per axis: drags on different axes both run, a drag nee
     }
     // Each runs on its own axis: y in x.
     const activity = DragActivity.make()
-    const h = yield* rigApart(activity, { inner: Recognizer.drag(INNER, { axis: "y" }), outer: Recognizer.drag(OUTER, { axis: "x" }) })
+    const h = yield* rigApart(activity, { inner: DragRecognizer.drag(INNER, { axis: "y" }), outer: DragRecognizer.drag(OUTER, { axis: "x" }) })
     yield* wholeGesture(h.push)
     expect(h.seen.inner!.at(-1)!.offset).toEqual({ x: 0, y: 20 })
     expect(h.seen.outer!.at(-1)!.offset).toEqual({ x: 20, y: 0 })
@@ -315,9 +316,9 @@ it.effect("A10: a target's subscriptions share its claim; another target is refu
   Effect.gen(function* () {
     const activity = DragActivity.make()
     const h = yield* rigApart(activity, {
-      track: Recognizer.drag(INNER),
-      observer: Recognizer.drag(INNER, { axis: "x" }),
-      outer: Recognizer.drag(OUTER),
+      track: DragRecognizer.drag(INNER),
+      observer: DragRecognizer.drag(INNER, { axis: "x" }),
+      outer: DragRecognizer.drag(OUTER),
     })
     yield* wholeGesture(h.push)
     expect(phases(h.seen.track!)).toBe("start move end")
@@ -330,13 +331,13 @@ it.effect("A11: claim: false neither claims nor is refused, but keeps the activi
   Effect.gen(function* () {
     // On the outer: it runs beside the inner's claim.
     const a = DragActivity.make()
-    const ha = yield* rigApart(a, { inner: Recognizer.drag(INNER), outer: Recognizer.drag(OUTER, { claim: false }) })
+    const ha = yield* rigApart(a, { inner: DragRecognizer.drag(INNER), outer: DragRecognizer.drag(OUTER, { claim: false }) })
     yield* wholeGesture(ha.push)
     expect(phases(ha.seen.inner!)).toBe("start move end")
     expect(phases(ha.seen.outer!)).toBe("start move end")
     // On the inner: it leaves the claim to the outer (Motion's dragPropagation).
     const b = DragActivity.make()
-    const hb = yield* rigApart(b, { inner: Recognizer.drag(INNER, { claim: false }), outer: Recognizer.drag(OUTER) })
+    const hb = yield* rigApart(b, { inner: DragRecognizer.drag(INNER, { claim: false }), outer: DragRecognizer.drag(OUTER) })
     yield* hb.push(ev("down", 0, 0, 0))
     yield* hb.push(ev("move", 10, 10, 10))
     expect(phases(hb.seen.inner!)).toBe("start")
@@ -344,7 +345,7 @@ it.effect("A11: claim: false neither claims nor is refused, but keeps the activi
     yield* hb.push(ev("up", 10, 10, 20))
     // Alone, it keeps the activity on while it runs.
     const c = DragActivity.make()
-    const hc = yield* rigApart(c, { only: Recognizer.drag(INNER, { claim: false }) })
+    const hc = yield* rigApart(c, { only: DragRecognizer.drag(INNER, { claim: false }) })
     yield* hc.push(ev("down", 0, 0, 0))
     yield* hc.push(ev("move", 10, 10, 10))
     expect(c.isDragActive()).toBe(true)
@@ -359,8 +360,8 @@ it.effect("A12: an axis function is read at each gesture's start, and its axis h
     let next: Drag.Axis = "x"
     const activity = DragActivity.make()
     const h = yield* rigApart(activity, {
-      inner: Recognizer.drag(INNER, { axis: () => next }),
-      outer: Recognizer.drag(OUTER, { axis: "y" }),
+      inner: DragRecognizer.drag(INNER, { axis: () => next }),
+      outer: DragRecognizer.drag(OUTER, { axis: "y" }),
     })
     // On x: the outer, on y, runs too; a change mid-gesture doesn't apply until the next start.
     yield* h.push(ev("down", 0, 0, 0))
@@ -380,7 +381,7 @@ it.effect("A12: an axis function is read at each gesture's start, and its axis h
 it.effect("A13: a Stale gesture's end releases the claim (rule A)", () =>
   Effect.gen(function* () {
     const activity = DragActivity.make()
-    const h = yield* rigApart(activity, { inner: Recognizer.drag(INNER), outer: Recognizer.drag(OUTER) })
+    const h = yield* rigApart(activity, { inner: DragRecognizer.drag(INNER), outer: DragRecognizer.drag(OUTER) })
     yield* h.push(ev("down", 0, 0, 0))
     yield* h.push(ev("move", 10, 0, 10))
     // The release is lost: the owner moves with no button pressed.
@@ -397,7 +398,7 @@ it.effect("A14 (#257): a press a drag took over ends dragged; one that stayed un
   Effect.gen(function* () {
     for (const pressFirst of [false, true]) {
       const activity = DragActivity.make()
-      const streams = [Recognizer.drag(undefined), Recognizer.pressEvents(undefined)] as const
+      const streams = [DragRecognizer.drag(undefined), Recognizer.pressEvents(undefined)] as const
       const h = yield* rig(activity, Bool.match(pressFirst, { onTrue: () => [streams[1], streams[0]], onFalse: () => [streams[0], streams[1]] }) as ReadonlyArray<Stream.Stream<unknown, never, InputSource.InputSource>>)
       const phases = Effect.map(h.seen, (seen) => seen.filter((e): e is Recognizer.PressEvent => Predicate.hasProperty(e, "event")).map((e) => e.phase).join(" "))
       // A drag: past the threshold, released on the target.

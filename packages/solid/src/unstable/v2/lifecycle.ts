@@ -31,6 +31,7 @@ import { constUndefined, identity } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Drag from "@wardic/core/Drag"
 import type * as InputSource from "@wardic/core/InputSource"
+import type * as DragRecognizer from "@wardic/core/DragRecognizer"
 import type * as Recognizer from "@wardic/core/Recognizer"
 import { type Accessor, createMemo, createSignal, type Owner, runWithOwner } from "solid-js"
 import type { WardicAnimationDefinition, WardicValues } from "../../config.ts"
@@ -385,7 +386,7 @@ export class Lifecycle implements AnimationHooks {
   }
 
   /** A pan's sample (#273): its session's start, then as a drag's. */
-  panned(sample: Recognizer.PanSample, element: WardElement): void {
+  panned(sample: DragRecognizer.PanSample, element: WardElement): void {
     if (Predicate.isUndefined(this.events)) return
     if (sample.phase === "session") {
       this.tell("panSessionStart", () => ({ ...pointOfSample(sample), element }))

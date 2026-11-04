@@ -1,5 +1,6 @@
 import * as DragActivity from "@wardic/core/DragActivity"
 import * as InputSource from "@wardic/core/InputSource"
+import * as DragRecognizer from "@wardic/core/DragRecognizer"
 import * as Recognizer from "@wardic/core/Recognizer"
 import { TestInput } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
@@ -9,7 +10,7 @@ import * as Fiber from "effect/Fiber"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
 
-// A direction-locked drag (`Recognizer.drag`'s `lock`, #273, ADR-0047): it starts only once its
+// A direction-locked drag (`DragRecognizer.drag`'s `lock`, #273, ADR-0047): it starts only once its
 // offset passes 10 px on one axis (y first, as Motion's), and moves on, claims and counts on that axis
 // alone. Motion's starts at 3 px, claiming both axes, and locks after.
 //
@@ -50,7 +51,7 @@ const labelled = (label: string, stream: Stream.Stream<{ readonly phase: string;
 
 it.effect("DL1: nothing before the lock; its start at the lock, the whole offset kept to the locked axis; y first", () =>
   Effect.gen(function* () {
-    const h = yield* rig(DragActivity.make(), [labelled("d", Recognizer.drag({ name: "d" }, { lock: true }))])
+    const h = yield* rig(DragActivity.make(), [labelled("d", DragRecognizer.drag({ name: "d" }, { lock: true }))])
     yield* h.push(ev("down", 0, 0, 0))
     yield* h.push(ev("move", 6, 2, 10))
     yield* h.push(ev("move", 10, 4, 20))
@@ -69,7 +70,7 @@ it.effect("DL1: nothing before the lock; its start at the lock, the whole offset
 it.effect("DL2: a one-axis drag locked the other way doesn't start: nothing, and nothing counted", () =>
   Effect.gen(function* () {
     const activity = DragActivity.make()
-    const h = yield* rig(activity, [labelled("d", Recognizer.drag({ name: "d" }, { axis: "y", lock: true }))])
+    const h = yield* rig(activity, [labelled("d", DragRecognizer.drag({ name: "d" }, { axis: "y", lock: true }))])
     yield* h.push(ev("down", 0, 0, 0))
     yield* h.push(ev("move", 20, 2, 10))
     expect(activity.isDragActive(), "refused: not counted").toBe(false)
@@ -93,8 +94,8 @@ it.effect("DL3: nested: each drag starts only for the axis it locks to and can t
     // A card that drags sideways in a sheet that drags down, both locked: each takes its own swipe, and
     // the card's drag doesn't start on a vertical one (Motion's would, at 3 px, with its `whileDrag`).
     const opposite = yield* rig(DragActivity.make(), [
-      labelled("card", Recognizer.drag({ name: "card" }, { axis: "x", lock: true })),
-      labelled("sheet", Recognizer.drag({ name: "sheet" }, { axis: "y", lock: true })),
+      labelled("card", DragRecognizer.drag({ name: "card" }, { axis: "x", lock: true })),
+      labelled("sheet", DragRecognizer.drag({ name: "sheet" }, { axis: "y", lock: true })),
     ])
     yield* swipe(opposite, 20, 3, 0)
     yield* swipe(opposite, 3, 20, 100)
@@ -105,8 +106,8 @@ it.effect("DL3: nested: each drag starts only for the axis it locks to and can t
     // swipe is the sheet's; a sideways one locks the card to x, which it takes (Motion's card, asking both
     // axes at 3 px, is refused every gesture).
     const free = yield* rig(DragActivity.make(), [
-      labelled("card", Recognizer.drag({ name: "card" }, { lock: true })),
-      labelled("sheet", Recognizer.drag({ name: "sheet" }, { axis: "y" })),
+      labelled("card", DragRecognizer.drag({ name: "card" }, { lock: true })),
+      labelled("sheet", DragRecognizer.drag({ name: "sheet" }, { axis: "y" })),
     ])
     yield* swipe(free, 3, 20, 0)
     expect(starts(yield* free.seen), "vertical: the sheet").toEqual(["sheet start y 0,5"])
@@ -117,8 +118,8 @@ it.effect("DL3: nested: each drag starts only for the axis it locks to and can t
     // Both locked, the card free on both axes: they lock at the same move, and the inner claims first, as
     // in Motion: a vertical swipe is the card's.
     const both = yield* rig(DragActivity.make(), [
-      labelled("card", Recognizer.drag({ name: "card" }, { lock: true })),
-      labelled("sheet", Recognizer.drag({ name: "sheet" }, { axis: "y", lock: true })),
+      labelled("card", DragRecognizer.drag({ name: "card" }, { lock: true })),
+      labelled("sheet", DragRecognizer.drag({ name: "sheet" }, { axis: "y", lock: true })),
     ])
     yield* swipe(both, 3, 20, 0)
     expect(starts(yield* both.seen)).toEqual(["card start y 0,15"])
@@ -129,7 +130,7 @@ it.effect("DL4: not a drag before its lock: a press that moved 8 px still taps; 
   Effect.gen(function* () {
     for (const lock of [true, false]) {
       const h = yield* rig(DragActivity.make(), [
-        labelled("d", Recognizer.drag({ name: "d" }, { lock })),
+        labelled("d", DragRecognizer.drag({ name: "d" }, { lock })),
         Stream.map(Recognizer.pressEvents({ name: "d" }), (p) => `press ${p.phase}`),
       ])
       yield* h.push(ev("down", 0, 0, 0))

@@ -33,7 +33,7 @@ export interface TimedPoint {
  * flick doesn't dilute it. Motion's `getVelocity` (gestures/pan/PanSession.ts:383-440
  * at 16c61222c4166bbef5ff6ab0051192faa79fa8c8,
  * https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/gestures/pan/PanSession.ts#L383-L440),
- * ported. `Recognizer.drag`'s velocity is this, over each gesture's points (ADR-0004,
+ * ported. `DragRecognizer.drag`'s velocity is this, over each gesture's points (ADR-0004,
  * *Amendment (#139)*).
  *
  * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
