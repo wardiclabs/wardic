@@ -48,7 +48,9 @@ export function CodeTabs(props: { readonly sample: string; readonly show?: (type
         </Tabs.List>
         <For each={files()}>
           {(file) => (
-            <Tabs.Content class="code-tab-panel" value={file.label}>
+            // Every panel stays mounted, the unselected ones hidden by the stylesheet: Kobalte's own
+            // presence mounts the next before it removes the last, so both showed for a frame.
+            <Tabs.Content class="code-tab-panel" value={file.label} forceMount>
               <div class="code-path">{file.path}</div>
               <div class="code-block" innerHTML={file.html} />
             </Tabs.Content>

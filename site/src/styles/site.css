@@ -351,6 +351,11 @@ a {
   font-weight: 600;
 }
 
+/* Every panel is mounted (CodeTabs.tsx); the one Kobalte marks selected shows. */
+.code-tab-panel:not([data-selected]) {
+  display: none;
+}
+
 .code-path {
   padding: 6px var(--space-4);
   background: var(--surface);
