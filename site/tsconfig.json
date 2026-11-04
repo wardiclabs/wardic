@@ -1,0 +1,23 @@
+{
+  "compilerOptions": {
+    "jsx": "preserve",
+    "jsxImportSource": "@solidjs/web",
+    "target": "ESNext",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "customConditions": ["@wardic/source"],
+    "allowImportingTsExtensions": true,
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true,
+    "noEmit": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "types": ["vite/client", "node", "@solidjs/vite-plugin/virtual-modules"],
+    // @wardic/solid's source imports `solid-js`, which from packages/solid is Solid 1: map every
+    // importer's to this app's Solid 2, as packages/solid/tsconfig.v2.json does.
+    "paths": { "solid-js": ["./node_modules/solid-js/types/index.d.ts"], "~/*": ["./src/*"] }
+  },
+  "include": ["src", "file-routes.d.ts"]
+}

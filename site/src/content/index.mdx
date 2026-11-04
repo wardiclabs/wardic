@@ -1,0 +1,34 @@
+---
+title: Wardic
+description: Animation for Solid, with the API of Motion for React.
+---
+
+# Animation for Solid
+
+Wardic gives [Solid](https://www.solidjs.com) the API of [Motion](https://motion.dev) for React: elements that animate (`initial`, `animate`, `exit`, `transition`), variants that pass down the tree, hover, press, focus, drag and pan, layout and shared-element animations, presence, and values that follow the scroll or the pointer.
+
+On a server-rendered page, mount animations play before the JavaScript has loaded, and the client takes them over mid-flight. And each page ships only the animation code it uses.
+
+```sh
+npm install @wardic/solid @wardic/dom effect
+```
+
+```tsx
+import { DomLive } from "@wardic/dom"
+import { domAnimation, w, WardicProvider } from "@wardic/solid"
+
+export function App() {
+  return (
+    <WardicProvider env={DomLive} features={[domAnimation]}>
+      <w.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} whileHover={{ scale: 1.05 }}>
+        Hello
+      </w.div>
+    </WardicProvider>
+  )
+}
+```
+
+## Where next
+
+- [Start on Solid 2](/start/solid-2): install, the provider, your first element.
+- [The storefront showcase](https://solid2.wardic.dev): a shop whose every feature is an example, with its code.
