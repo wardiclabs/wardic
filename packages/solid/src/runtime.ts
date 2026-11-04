@@ -101,7 +101,10 @@ export interface WardicContextValue {
    * provider's, with the user's preference. Read when each animation starts.
    */
   readonly reducedMotionUnder: (setting: ReducedMotion.Config | undefined) => boolean
-  /** The provider's own `reducedMotion` setting (#443), read untracked: `undefined` when it gives none. */
+  /**
+   * The provider's own `reducedMotion` setting (#443): `undefined` when it gives none. Tracked, so a
+   * hook that reads it follows a change of it (#584); animations read it untracked, as each starts.
+   */
   readonly reducedMotionSetting: () => ReducedMotion.Config | undefined
   /** The Environment's Positional keys (ADR-0036), read once: which keys reduced motion Snaps. */
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
@@ -151,6 +154,7 @@ export const clientContext = (
   env: WardicEnv,
   batch: (apply: () => void) => void,
   reducedMotion: () => ReducedMotion.Config | undefined,
+  reducedMotionSetting: () => ReducedMotion.Config | undefined,
   scaleCorrectors?: ProjectionSystem.Options["scaleCorrectors"],
 ): WardicContextValue => {
   let built: Built | undefined
@@ -191,7 +195,7 @@ export const clientContext = (
   }
   return {
     runtime,
-    reducedMotionSetting: reducedMotion,
+    reducedMotionSetting,
     instant,
     features,
     prepare,

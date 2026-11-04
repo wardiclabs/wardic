@@ -14,6 +14,7 @@
 //   `createResetProjection` does nothing, and `scaleCorrectors` and the measure callbacks render nothing.
 // - SUS9: on a server, a `WardicConfig` with `transformPagePoint` renders its children, and the
 //   helpers pass a point through with no element.
+// - SUS10 (#583): on a server, `createReducedMotion` is `false` with no provider around it, as Solid 2's.
 import {
   correctParentTransform,
   createAnimationFrame,
@@ -23,6 +24,7 @@ import {
   transformViewBoxPoint,
   createPageInView,
   createWillChange,
+  createReducedMotion,
   createReducedMotionConfig,
   isValidWardicProp,
   isWardicComponent,
@@ -33,6 +35,7 @@ import {
 } from "@wardic/solid"
 import { DomLive } from "@wardic/dom"
 import type { Component, JSX } from "solid-js"
+import { renderToString } from "solid-js/web"
 import { describe, expect, it } from "vitest"
 import { serve, tagsOf } from "./ssr-helpers.ts"
 
@@ -133,6 +136,15 @@ describe("the hooks on a server (#443)", () => {
     expect(html).toMatch(/data-name="never"[^>]*>false</)
     expect(html).toMatch(/data-name="user"[^>]*>false</)
     expect(frames).toBe(0)
+  })
+
+  it("SUS10: createReducedMotion is false with no provider around it (#583)", () => {
+    const Read = (): JSX.Element => {
+      const prefers = createReducedMotion()
+      return <p>{String(prefers())}</p>
+    }
+    // Solid's own render, not `serve`'s, which puts a provider around it.
+    expect(renderToString(() => <Read />)).toMatch(/<p[^>]*>false</)
   })
 
   it("SUS6: forwardMotionProps hands a wrapped component the motion props on a server too", () => {

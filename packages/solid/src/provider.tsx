@@ -154,6 +154,8 @@ export function WardicProvider(props: {
     props.env,
     batch,
     () => untrack(() => props.reducedMotion),
+    // Tracked, for `createReducedMotionConfig` (#584).
+    () => props.reducedMotion,
     untrack(() => props.scaleCorrectors),
   )
   // Its Features end first, then the runtime they stand on (#511).
@@ -381,7 +383,7 @@ export function createResetProjection(): () => void {
 
 /**
  * The reduced-motion setting that applies here (#443): the nearest `WardicConfig`'s `reducedMotion`,
- * else the provider's, else `"user"`. Read untracked for the provider's. Internal.
+ * else the provider's, else `"user"`, each tracked (#584). Internal.
  */
 export function useWardicReducedMotionSetting(): () => ReducedMotion.Config {
   const config = useWardicConfig()
