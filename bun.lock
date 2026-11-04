@@ -252,6 +252,9 @@
       },
     },
   },
+  "patchedDependencies": {
+    "@kobalte/core@2.0.0-alpha.4": "patches/@kobalte%2Fcore@2.0.0-alpha.4.patch",
+  },
   "overrides": {
     "playwright": "1.59.1",
     "playwright-core": "1.59.1",

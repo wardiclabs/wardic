@@ -20,6 +20,7 @@ on:
       - "examples/storefront/shared/src/code.ts"
       - "scripts/wardic-source.ts"
       - "bun.lock"
+      - "patches/**"
       - ".github/workflows/site.yml"
   pull_request:
     paths:
@@ -30,6 +31,7 @@ on:
       - "examples/storefront/shared/src/code.ts"
       - "scripts/wardic-source.ts"
       - "bun.lock"
+      - "patches/**"
       - ".github/workflows/site.yml"
   workflow_dispatch:
 
