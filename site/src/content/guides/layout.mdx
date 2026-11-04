@@ -1,0 +1,57 @@
+---
+title: Layout animations
+description: Animating an element to its new size and place as the layout changes, and one element flying from one place to another.
+---
+
+# Layout animations
+
+`layout` animates an element from where it was to where the layout puts it now: a new size, a new place in a list, the other end of a flex row. The CSS makes the change at once, and Wardic plays it with transforms, so it stays smooth whatever changed.
+
+<Demo sample="layout" />
+
+<CodeTabs sample="layout" />
+
+## What starts one
+
+Nothing re-renders in Solid, so Wardic doesn't look for a layout change after every update, as Motion does after every render. It measures at the end of a task in which:
+
+- an element with `layout` or a `layoutId` mounted;
+- one of their sizes changed, a child's or an ancestor's included;
+- a `layoutDependency` changed: give it whatever moves the element, as the switch above gives `on()`;
+- the app made the change inside `animateLayout(fn)`, from `useAnimateLayout()`. That's for a change nothing else sees, such as a plain list sorted:
+
+```tsx
+const animateLayout = useAnimateLayout()
+const sort = () => animateLayout(() => setItems(sorted(items())))
+```
+
+Each time it measures every layout element, so the ones a change pushes aside move too. `animateLayout`'s promise resolves once the animations it started have ended.
+
+## Part of the change
+
+`layout="position"` animates the move alone: the size changes at once. `"size"` animates the size alone, `"x"` and `"y"` one axis, and `"preserve-aspect"` the position unless the width-to-height ratio changes.
+
+A layout animation stretches the element as it goes. `border-radius` and `box-shadow` are corrected for it, so a rounded card stays round, and a child with `layout` of its own isn't stretched with it.
+
+## One element, two places
+
+Two elements with the same `layoutId` are one element in two places: as one mounts while the other leaves, it flies from where the other was.
+
+<Demo sample="layout-id" />
+
+<CodeTabs sample="layout-id" />
+
+`<LayoutGroup id="…">` puts an id before each `layoutId` made under it, so two copies of the same tabs keep their own underline.
+
+## Transitions and timing
+
+A layout animation runs on `transition`'s `layout` entry, else the element's `transition`, else Motion's 0.45 s tween. A `path`, such as [`arc()`](/guides/transitions#along-a-curve), curves a move of 20 px or more.
+
+The scroll of every scrolling element around it, and the page's under `position: fixed`, is accounted for on its own, with no `layoutScroll` or `layoutRoot`. A `position: sticky` element is the exception: its place on the page changes as the page scrolls. Give it `layoutRoot`, as this site's sidebar has, so its own moves don't animate and the elements in it animate only as they move inside it.
+
+- **On Solid 1,** `onLayoutAnimationStart` and `onLayoutAnimationComplete` are called as one starts and lands.
+- **On Solid 2,** the element's ward gives `layoutStart` and `layoutComplete`: `await card.next("layoutComplete")`.
+
+## The Feature
+
+Layout animations are the `layout` Feature. A page that lays out brings it through `<LazyWardic features={[layout]}>`, as the demos do, so pages that don't never load it. `<LayoutGroup>` and `<Reorder>` bring it themselves.

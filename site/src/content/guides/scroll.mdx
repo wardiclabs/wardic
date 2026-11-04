@@ -1,0 +1,49 @@
+---
+title: Scroll
+description: Values that follow a scroll, for progress bars, parallax and scroll-linked effects.
+---
+
+# Scroll
+
+`createScroll()` gives how far something is scrolled, as values that change as it scrolls. Given to an element's `style`, they move it with the scroll itself, with no animation of their own.
+
+<Demo sample="scroll" />
+
+<CodeTabs sample="scroll" />
+
+## What it gives
+
+`createScroll` returns Motion's four values, each an accessor:
+
+- `scrollX` and `scrollY`: how far it's scrolled, in pixels.
+- `scrollXProgress` and `scrollYProgress`: the same, from 0 at the start to 1 at the end.
+
+Without options it's the page's scroll. `container` is a scrolling element of your own, given as an accessor of its ref, as above; until the ref is there, every value reads 0.
+
+They're set in the scroll's own event, so a value worked out from one paints in the frame that shows the scroll.
+
+## An element's way through
+
+With a `target`, the progress is the target's way through the container, between two `offset`s, in Motion's terms: each pairs an edge of the target with an edge of the container.
+
+```tsx
+let card!: HTMLElement
+// 0 as the card's top meets the bottom of the view, 1 as its bottom leaves the top.
+const { scrollYProgress } = createScroll({ target: () => card, offset: ["start end", "end start"] })
+const y = createTransform(scrollYProgress, [0, 1], [60, -60])
+<w.figure ref={card} style={{ y }} />
+```
+
+`axis` is the axis the offsets read, `"y"` unless it's `"x"`.
+
+## Shaping it
+
+A scroll value is a [live value](/guides/live-values), so every live value works on it:
+
+- `createTransform(scrollYProgress, [0, 1], ["0%", "100%"])` maps it, to any unit or colour.
+- `createSpring(scrollYProgress)` smooths it, so the effect trails the scroll a little.
+- `createVelocity(scrollY)` is how fast it's scrolling, to skew or blur with the speed.
+
+## Once it's in view
+
+To play an animation as an element scrolls into view, rather than follow the scroll, use `whileInView` with `viewport={{ once: true }}`: see [Gestures](/guides/gestures#in-view).

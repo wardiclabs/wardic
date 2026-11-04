@@ -229,13 +229,12 @@ a {
   text-decoration: none;
 }
 
-.prose p,
-.prose ul,
-.prose ol {
+/* Not inside a demo: a sample's lists and notes keep their own spacing. */
+.prose :is(p, ul, ol):not(.demo *) {
   margin: 0 0 var(--space-4);
 }
 
-.prose li + li {
+.prose li + li:not(.demo *) {
   margin-top: var(--space-1);
 }
 
@@ -616,4 +615,148 @@ a {
   padding: var(--space-3);
   border: 2px dashed var(--line);
   border-radius: var(--radius-m);
+}
+
+/* The layout sample's switch: the knob's side is the stylesheet's, `layout` animates the move. */
+.sample-switch {
+  display: flex;
+  justify-content: flex-start;
+  width: 96px;
+  padding: 6px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--line);
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.sample-switch[aria-checked="true"] {
+  justify-content: flex-end;
+  background: var(--accent);
+}
+
+.sample-knob {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--surface);
+  box-shadow: var(--shadow-m);
+}
+
+/* The layoutId sample's tabs, one underline among them. */
+.sample-tabs {
+  display: flex;
+  gap: var(--space-1);
+  border-bottom: 1px solid var(--line);
+}
+
+.sample-tab {
+  position: relative;
+  padding: 10px 16px;
+  border: 0;
+  background: none;
+  color: var(--muted);
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.sample-tab[aria-selected="true"] {
+  color: var(--ink);
+}
+
+.sample-underline {
+  position: absolute;
+  right: 10px;
+  bottom: -2px;
+  left: 10px;
+  height: 3px;
+  border-radius: 3px;
+  background: var(--accent);
+}
+
+/* The presence sample's chips. */
+.sample-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  min-height: 40px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sample-chip button {
+  padding: 8px 14px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--accent-soft);
+  color: var(--ink);
+  font: inherit;
+  font-family: var(--font-mono);
+  font-size: var(--text-s);
+  cursor: pointer;
+}
+
+/* The Reorder sample's rows: opaque, so one dragged over the others hides them. */
+.sample-reorder {
+  width: min(100%, 280px);
+}
+
+.sample-row {
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  box-shadow: var(--shadow-m);
+  cursor: grab;
+  user-select: none;
+}
+
+/* The scroll sample's panel, its progress bar scaled across from the left. */
+.sample-scroller {
+  width: min(100%, 360px);
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+  background: var(--surface);
+}
+
+.sample-progress {
+  height: 4px;
+  background: var(--accent);
+  transform-origin: left;
+}
+
+.sample-scroll {
+  height: 140px;
+  overflow-y: auto;
+  padding: 0 var(--space-4);
+}
+
+.sample-scroll p {
+  margin: var(--space-3) 0;
+}
+
+/* The live values sample's field, where the dot follows the pointer. */
+.sample-field {
+  position: relative;
+  width: min(100%, 360px);
+  height: 180px;
+  overflow: hidden;
+  border: 2px dashed var(--line);
+  border-radius: var(--radius-m);
+  touch-action: none;
+}
+
+.sample-dot {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: var(--shadow-m);
+  pointer-events: none;
 }

@@ -1,0 +1,53 @@
+---
+title: Live values
+description: Signals, springs, transforms, velocity and time, given to an element's style as values that change every frame.
+---
+
+# Live values
+
+A value that changes as the page is used, a pointer's place or a slider's, goes straight into an element's `style`. Where Motion needs a motion value, Wardic takes a signal: the element follows it, and nothing re-renders.
+
+```tsx
+const [x, setX] = createSignal(0)
+<w.div style={{ x }} />
+```
+
+The `create*` primitives make values from values, each an accessor that `style` takes too. Here, two springs follow the pointer's place:
+
+<Demo sample="follow" />
+
+<CodeTabs sample="follow" />
+
+## From one value to another
+
+- **`createSpring(source, options)`** follows `source` on a spring, `stiffness`, `damping` and `mass`, or a `visualDuration` and `bounce`. A change mid-way keeps its speed. `jump(value)` puts it somewhere at once.
+- **`createFollowValue(source, transition)`** follows on any transition: a tween, a spring or an inertia.
+- **`createTransform(source, input, output)`** maps ranges: a source at `input[i]` gives `output[i]`, and blends between them, numbers, units and colours alike. `createTransform(source, fn)` maps through a function.
+- **`createVelocity(source)`** is how fast `source` is changing, in its units a second. A velocity is a value too, so `createVelocity(createVelocity(x))` is its acceleration.
+
+```tsx
+const opacity = createTransform(x, [-150, 0, 150], [0, 1, 0])
+const background = createTransform(x, [-150, 150], ["#bf616a", "#a3be8c"])
+```
+
+## From time
+
+- **`createTime()`** is the milliseconds since it was made, for something that turns forever: `createTransform(createTime(), (ms) => (ms / 1000) * 90)` is 90° a second.
+- **`createAnimationFrame((time, delta) => …)`** calls you every frame, for drawing that isn't an element's style.
+
+## Where an element is
+
+A value you give is never written to: it's what the element follows. What Wardic draws, mid-animation, comes from the element's ward, as an accessor of the value it's drawn at, to drive another value from a drag, say:
+
+- **On Solid 2,** `card.read("x")`, from `const card = w.ward({ drag: "x" })` given as `wardRef={card}`.
+- **On Solid 1,** `card.value("x")`, from `const card = w.createWard({ drag: "x" })` spread onto the element.
+
+```tsx
+const card = w.ward({ drag: "x" })
+const opacity = createTransform(card.read("x"), [-150, 0, 150], [0, 1, 0])
+<w.div wardRef={card} style={{ opacity }} />
+```
+
+## Where they live
+
+Make them in a component's body, where you'd make a signal: each one lives as long as its owner. On the server, each is its source's value at that moment. [Scroll](/guides/scroll) values are live values too.
