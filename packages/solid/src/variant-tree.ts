@@ -5,7 +5,8 @@
  * `unstable/v2/variant-node.ts` for Solid 2) runs the orchestration over them, with its own Solid.
  *
  * Motion's rule (CONTEXT.md, **Variant child**):
- * - An element that names its own `initial` or `animate` hands its children those names, and an
+ * - An element that names its own variants, a name on any variant prop (`initial`, `animate`, the
+ *   `while*` gestures, `exit`; #618), hands its children its `initial` and `animate` names, and an
  *   `initial={false}` with them (#134). Any other passes its parent's through, unless it sets
  *   `inherit={false}`, which passes none.
  * - A **Variant child** (`variants`, no names of its own, `inherit` not `false`) inherits its
@@ -338,6 +339,7 @@ export interface WardicVariantContextValue {
 export interface VariantConfig extends GestureConfig {
   readonly initial?: object | WardicVariantLabels | false | undefined
   readonly animate?: object | WardicVariantLabels | undefined
+  readonly exit?: object | WardicVariantLabels | undefined
   readonly variants?: object | undefined
   readonly inherit?: boolean | undefined
   readonly transition?: WardicTransition | undefined
@@ -359,12 +361,23 @@ export const nameOf = (entry: object | WardicVariantLabels | undefined): WardicV
   Bool.match(isLabels(entry), { onTrue: () => entry as WardicVariantLabels, onFalse: constUndefined })
 
 /**
- * Whether `config` names its own variants: its `initial` or `animate` is a name or a list, or its
- * `animate` is **Animation controls** (#433), as given or as its binding marks the config it reads
- * (Motion's `isControllingVariants`, `isVariantLabel`).
+ * Whether `config` names its own variants: any of its variant props, `initial`, `animate`, the five
+ * `while*` and `exit`, is a name or a list, or its `animate` is **Animation controls** (#433), as given
+ * or as its binding marks the config it reads (Motion's `isControllingVariants`, `isVariantLabel`).
  */
+// #618 (decision 8): Motion's `variantProps` (motion-dom 14.6 render/utils/variant-props.mjs); only
+// `initial` and `animate` counted before. Statements, not a loop over the keys: it's read per change.
 export const namesOwnVariants = (config: VariantConfig): boolean =>
-  isLabels(config.initial) || isLabels(config.animate) || config.controlled === true || isAnimationControls(config.animate)
+  config.controlled === true ||
+  isAnimationControls(config.animate) ||
+  isLabels(config.initial) ||
+  isLabels(config.animate) ||
+  isLabels(config.whileInView) ||
+  isLabels(config.whileFocus) ||
+  isLabels(config.whileHover) ||
+  isLabels(config.whileTap) ||
+  isLabels(config.whileDrag) ||
+  isLabels(config.exit)
 
 /** Whether an element has variants of its own, so Variant children join it (Motion's `isVariantNode`). */
 export const hasOwnVariants = (config: VariantConfig): boolean =>
