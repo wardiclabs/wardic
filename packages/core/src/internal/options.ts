@@ -26,10 +26,11 @@ import * as Rec from "effect/Record"
 import * as Str from "effect/String"
 
 /**
- * An option bag a resolver rejected (#511): its message names the field and what it expected, as
- * `Expected a value greater than 0` then `  at ["stiffness"]`. Thrown when an animation is built or
- * started, a defect. `Machine.OptionError`.
+ * Options an animation can't take, a negative duration say: its message names the field and what it
+ * expected, `Expected a value greater than 0` then `  at ["stiffness"]`. Thrown as the animation is
+ * built or started: a bug to fix, not a failure to handle. `Machine.OptionError`.
  */
+// #511: checked by hand since then.
 export class OptionError extends Data.TaggedError("OptionError")<{
   readonly message: string
 }> {}

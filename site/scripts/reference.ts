@@ -41,7 +41,8 @@ const slugOf = (name: string): string =>
  * adds its modules (#558).
  */
 const READY: Readonly<Record<(typeof PACKAGES)[number]["dir"], ReadonlyArray<string>>> = {
-  core: ["Arc", "Playback", "Scalar", "Stagger", "Velocity", "Wave"],
+  // Animation.
+  core: ["Arc", "Easing", "Inertia", "Machine", "Playback", "Scalar", "Sequence", "Spring", "Stagger", "Velocity", "Wave"],
   dom: [],
 }
 

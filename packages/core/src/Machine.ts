@@ -1,28 +1,37 @@
 /**
- * The `Machine` module (ADR-0028): a Primitive's motion as a value. A machine is what a
- * Primitive does on each tick, apart from how the ticks reach it, so a Primitive is its machine
- * (ADR-0027, ADR-0028 decision 4). Two drivers run it, with the same Frames either way:
- * - **`toStream`,** a `Stream` over `Clock.ticks`, one fiber per subscriber (Tier 2, ADR-0001);
- * - **`run(sink)`,** the **Frame loop**, which steps every running machine in one pass per tick.
+ * Machines: an animation as a value. A machine is what an animation does each frame, apart from what
+ * drives it: `start()` it, and the step it returns takes each frame's `dt`, in seconds, and gives that
+ * frame, `{ value, done }`. Each run has its own state, so one machine can run any number of times.
  *
- * Each opens the machine's one span per run (`span`), with its `<name>: subscribe` or
- * `<name>: start` debug log.
+ * - **Build** one with a constructor: `tween`, `spring`, `chase`, `decay`, `inertia`, `animate`,
+ *   `keyframes`; for a bag of values, `springValues`, `inertiaValues`, `animateValues`, `springBlend`
+ *   and `keyframesValues`. Or with `make`, for a motion of your own.
+ * - **Compose** with `map`, `concat`, `concatAll`, `forever`, `delay`, `holdAfter`, `startAt`, `clampDt`
+ *   and `withSpan`. A machine is `Pipeable`: `m.pipe(Machine.delay(0.1))`. Never spread one, which
+ *   loses what makes it a machine.
+ * - **Run** one on the Frame loop with `run`, which steps every running machine in one pass a frame,
+ *   or as a `Stream` over the Clock's ticks with `toStream`. Both give the same frames.
  *
- * - **Build** one with a constructor, one per Primitive (`tween`, `spring`, `decay`, `chase`,
- *   `animate`, `keyframes`, `springValues`, `decayVec`; `springBlend`, `animateValues` and
- *   `keyframesValues` return an `Effect` needing the `InterpolatorRegistry`), or with `make`.
- * - **Compose** with the combinators, each `dual` where it takes more than the machine: `map`,
- *   `concat`, `concatAll`, `forever`, `delay`, `holdAfter`, `startAt`, `clampDt`, `withSpan`. They run when
- *   a machine is built, never per step: a combinator's `start()` starts its inner machine, and
- *   its step makes plain calls only, allocating only the Frame it returns, and only when it
- *   changes it (ADR-0028, decision 7). Defaults add no layer: `delay(0)`, `holdAfter(0)` and a
- *   one-segment `concatAll` return their input.
- * - **A machine is `Pipeable`, never a literal.** `make` and the constructors build it on a
- *   prototype, so `m.pipe(Machine.delay(0.1))` works and `isMachine` recognises it. Never
- *   spread one: `{ ...m, span }` has no prototype. `withSpan` replaces a span.
+ * @example
+ * import * as Machine from "@wardic/core/Machine"
  *
- * Tier 2 (ADR-0008): for binding and Environment authors.
+ * const fadeIn = Machine.tween(0, 1, { duration: 0.3, ease: "easeOut" }).pipe(Machine.delay(0.1))
+ * // On the Frame loop, its value onto an element each frame:
+ * yield* Machine.run(fadeIn, (frame) => {
+ *   element.style.opacity = String(frame.value)
+ * })
+ * // Or stepped by hand:
+ * const step = fadeIn.start()
+ * step(1 / 60) // { value: 0, done: false }: still in its delay
  */
+// ADR-0028: a Primitive's motion as a value, so a Primitive is its machine (ADR-0027, ADR-0028 decision
+// 4). Each driver opens the machine's one span per run (`span`), with its `<name>: subscribe` or
+// `<name>: start` debug log; `toStream` is one fiber per subscriber (Tier 2, ADR-0001). Combinators run
+// when a machine is built, never per step: a combinator's `start()` starts its inner machine, and its
+// step makes plain calls only, allocating only the Frame it returns, and only when it changes it
+// (ADR-0028, decision 7). Defaults add no layer: `delay(0)`, `holdAfter(0)` and a one-segment `concatAll`
+// return their input. `springBlend`, `animateValues` and `keyframesValues` return an `Effect` needing the
+// `InterpolatorRegistry`. Tier 2 (ADR-0008): for binding and Environment authors.
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
@@ -76,9 +85,10 @@ import { tracedStream } from "./internal/tracing.ts"
 const TypeId = "~@wardic/core/Machine"
 
 /**
- * A Primitive's motion as a value (ADR-0027): what it does on each tick, apart from how the
- * ticks reach it. Built by a constructor or `make`, never written as a literal.
+ * An animation as a value: what it does each frame, apart from what drives it. Build one with a
+ * constructor or `make`, never as a literal: a literal, or a spread of a machine, isn't one.
  */
+// ADR-0027.
 export interface Machine<out F extends Frame.Frame<unknown>> extends Pipeable, Inspectable.Inspectable {
   readonly [TypeId]: { readonly _F: Covariant<F> }
   /**
@@ -91,7 +101,8 @@ export interface Machine<out F extends Frame.Frame<unknown>> extends Pipeable, I
    * the run goes on until it's removed. Nor does `forever`, whose Frames never settle.
    */
   readonly settles: boolean
-  /** The span each run gets, on either driver: its Primitive's name and attributes (decision 6). */
+  /** The span each run gets, on either driver: its name and attributes, for traces and logs. */
+  // ADR-0028, decision 6.
   readonly span: Span
 }
 
@@ -117,7 +128,25 @@ const Proto = {
   },
 }
 
-/** A machine from its fields: a run's `start`, whether it `settles`, and its `span` (decision 6). */
+/**
+ * A machine from its fields: a run's `start`, whether it `settles`, and its `span`. For a motion of your
+ * own; the constructors cover the common ones.
+ *
+ * @example
+ * // A blink: 1 and 0 by turns, twice a second, for ever.
+ * const blink = Machine.make({
+ *   settles: false,
+ *   span: { name: "app.blink", attributes: {} },
+ *   start: () => {
+ *     let time = 0
+ *     return (dt) => {
+ *       time += dt
+ *       return { value: Math.floor(time * 2) % 2, done: false }
+ *     }
+ *   },
+ * })
+ */
+// Decision 6.
 export const make = <F extends Frame.Frame<unknown>>(fields: {
   readonly start: () => (dt: number) => F
   readonly settles: boolean
@@ -128,23 +157,18 @@ export const make = <F extends Frame.Frame<unknown>>(fields: {
 export const isMachine = (u: unknown): u is Machine<Frame.Frame<unknown>> => Predicate.hasProperty(u, TypeId)
 
 /**
- * Maximum delta-time (seconds) any Primitive simulates in one step.
- *
- * Every constructor clamps each step's `dt` here once (#78), in its leaves' steps and in `delay`'s
- * hold, so both drivers clamp and no stepper needs to defend itself; dom's projection pass clamps
- * its own. Inline, not a `clampDt` layer: a layer is one more call per element per frame, which V8
- * doesn't inline (ADR-0028, *Implementation in #94*).
- *
- * Why 500 ms (#23, ADR-0017 *Amendment (#23)*):
- * - **A stall up to it reaches each consumer whole,** so a tween, a spring, decay, inertia or a
- *   layout animation lands where wall time puts it, as Motion's time-based animations do: every
- *   jank short of a tab switch or a debugger pause.
- * - **A longer one (a hidden tab) advances it 500 ms,** and the animation plays out the rest, where
- *   Motion's jumps to its end. It once bounded the spring's cost too, integrated in 1/240 s substeps;
- *   since #370 a spring steps in closed form, one step whatever the `dt`.
- *
- * A sequence's seams drop the rest of a tick, a stall's included (#226).
+ * The most time a machine moves in one step: 0.5 s. A frame that took longer, such as the first back
+ * from a hidden tab, moves it 0.5 s, and the animation plays the rest out from there, where Motion's
+ * jumps to its end. Every constructor holds each step to it.
  */
+// Every constructor clamps each step's `dt` here once (#78), in its leaves' steps and in `delay`'s hold,
+// so both drivers clamp and no stepper needs to defend itself; dom's projection pass clamps its own.
+// Inline, not a `clampDt` layer: a layer is one more call per element per frame, which V8 doesn't
+// inline (ADR-0028, *Implementation in #94*). Why 500 ms (#23, ADR-0017 *Amendment (#23)*): a stall up
+// to it reaches each consumer whole, so a tween, a spring, decay, inertia or a layout animation lands
+// where wall time puts it, as Motion's time-based animations do; a longer one advances it 500 ms. It
+// once bounded the spring's cost too; since #370 a spring steps in closed form. A sequence's seams
+// drop the rest of a tick, a stall's included (#226).
 export const MAX_DT = 0.5
 
 // --- The option bags ---------------------------------------------------------
@@ -158,14 +182,16 @@ export const MAX_DT = 0.5
 // …, and `Easing.spring`).
 export { OptionError } from "./internal/options.ts"
 
-/** Options for a definite, duration-based animation. */
+/** A tween's options: its `duration`, `ease` and `delay`. */
 export interface TweenOptions {
-  /** Duration in seconds. Default 0.3 s: a missing duration leaves the other options as they are (#107). */
+  /** Seconds it takes. Default 0.3. */
+  // A missing duration leaves the other options as they are (#107).
   readonly duration?: number
   /**
-   * How it eases (#360, ADR-0052), as Motion's `ease`: one of Motion's names (`"easeOut"`), a
-   * cubic bézier's four numbers (`[0.25, 0.1, 0.35, 1]`), or a function. Default linear.
+   * How it eases, as Motion's `ease`: one of Motion's names (`"easeOut"`), a cubic Bézier's four numbers
+   * (`[0.25, 0.1, 0.35, 1]`), or a function. Default linear.
    */
+  // #360, ADR-0052.
   readonly ease?: Easing.Definition
   /**
    * Delay before the animation starts, in seconds. With `animate`'s `repeat` / `repeatType`, or across
@@ -176,17 +202,17 @@ export interface TweenOptions {
 }
 
 /**
- * `keyframes`' and `keyframesValues`' options: a tween's, with an `ease` per Segment if it likes, as
- * Motion's keyframes take an array of easings, one per Segment, wrapping round when there are fewer
- * (#360); each stop's place in time; and `animate`'s {@link Modifiers}, over the whole run of stops
- * (#429).
+ * `keyframes`' and `keyframesValues`' options: a tween's, its `ease` one easing or one per stretch
+ * between stops (wrapping round when there are fewer, as Motion's), each stop's place in `times`, and
+ * the repeats, over the whole run of stops.
  */
+// #360, #429.
 export interface KeyframesOptions extends Omit<TweenOptions, "ease">, Modifiers {
   readonly ease?: Easing.Definition | ReadonlyArray<Easing.Definition>
   /**
-   * Each stop's place in the run, from 0 (its start) to 1 (its `duration`), in order (Motion's
-   * `times`, #429): `[0, 0.2, 1]` reaches the second of three stops a fifth of the way in. Used for
-   * stops of the same number; any other number of stops is evenly spaced, as Motion's are.
+   * Each stop's place in the run, from 0 (its start) to 1 (its `duration`), in order, as Motion's
+   * `times`: `[0, 0.2, 1]` reaches the second of three stops a fifth of the way in. Used when there's one
+   * per stop; otherwise the stops are evenly spaced.
    */
   readonly times?: ReadonlyArray<number>
 }
@@ -203,49 +229,56 @@ export { type ResolvedTween, resolveTween } from "./internal/stepper.ts"
  */
 const NO_OPTIONS = {}
 
-/** Options for interruptible spring motion. */
+/**
+ * A spring's options: its physics (`stiffness`, `damping`, `mass`) or its time (`duration` or
+ * `visualDuration`, with `bounce`), where it starts and how fast, its rest thresholds, and a delay.
+ */
 export interface SpringOptions {
-  /** Starting position. Default 0. */
+  /** Where it starts. Default 0. */
   readonly from?: number
-  /** Spring constant — higher is snappier. Default 170. */
+  /** How stiff it is: higher is snappier. Default 170. */
   readonly stiffness?: number
-  /** Damping — higher settles faster with less overshoot. Default 26. */
+  /** How damped it is: higher settles sooner, with less overshoot. Default 26. */
   readonly damping?: number
-  /** Mass of the moving object. Default 1. */
+  /** The mass it moves: heavier is slower. Default 1. */
   readonly mass?: number
-  /** Initial velocity (units/second). Default 0. */
+  /** The velocity it starts with, per second. Default 0. */
   readonly velocity?: number
   /**
-   * At rest within this of the target. Default, as Motion's (#344): 0.5 for a move of 5 or more,
-   * 0.005 for one shorter (opacity, scale, a nudge), by each value's distance at each Retarget.
+   * At rest within this of its target. By default, as Motion's: 0.5 for a move of 5 or more, 0.005 for
+   * one shorter (an opacity, a scale, a nudge), by each value's distance each time its target changes.
    */
+  // #344.
   readonly restDelta?: number
-  /** At rest no faster than this, per second. Default, as Motion's (#344): 2 for a move of 5 or more, 0.01 for one shorter. */
+  /** At rest below this speed, per second. By default, as Motion's: 2 for a move of 5 or more, 0.01 for one shorter. */
+  // #344.
   readonly restSpeed?: number
   /** Delay before the animation starts, in seconds. */
   readonly delay?: number
   /**
-   * A **Time-based spring**'s duration, in seconds (#359, Motion's): solved, with `bounce`, to a
-   * stiffness and damping, and ended at it, landing on the target, from rest. Within 0.01 to 10 s. A
-   * `stiffness`, `damping` or `mass` given beside wins over it; `visualDuration` does too.
+   * A spring set by time: it lands on its target at `duration` seconds, from rest, its stiffness and
+   * damping solved from it and `bounce`. Within 0.01 to 10 s. A `stiffness`, `damping` or `mass` given
+   * beside wins over it, and so does a `visualDuration`.
    */
+  // A Time-based spring (#359), as Motion's.
   readonly duration?: number
   /**
-   * How much a time-based spring bounces (#359, Motion's): 0 none, toward 1 a lot (its damping ratio
-   * is `1 − bounce`, within 0.05 to 1). Default 0.3 with a `duration`, 0 with a `visualDuration`.
-   * Alone, a 0.8 s duration spring.
+   * How much a spring set by time bounces: 0 none, toward 1 a lot. Default 0.3 with a `duration`, 0 with
+   * a `visualDuration`; alone, it's a 0.8 s `duration` spring.
    */
+  // #359: its damping ratio is `1 − bounce`, within 0.05 to 1.
   readonly bounce?: number
   /**
-   * A time-based spring that has done most of its move by this time, in seconds, and ends at rest
-   * after (#359, Motion's closed form), keeping the velocity it's handed. With `bounce`, or alone.
+   * A spring set by time that has done most of its move by `visualDuration` seconds, and ends at rest
+   * after, keeping the velocity it's handed. With `bounce`, or alone.
    */
+  // #359, Motion's closed form.
   readonly visualDuration?: number
 }
 
-/** Options for momentum/decay motion (fling math). */
+/** A decay's options: how quickly it slows, when it rests, and a delay. */
 export interface DecayOptions {
-  /** Exponential friction coefficient — higher stops sooner. Default 3. */
+  /** How quickly it slows: higher stops sooner. Default 3. */
   readonly friction?: number
   /** At rest below this speed, per second. Default 0.1. */
   readonly restSpeed?: number
@@ -254,11 +287,10 @@ export interface DecayOptions {
 }
 
 /**
- * Options for an inertia (ADR-0016, *Amendment (#140)*, Motion's `inertia`): a glide toward
- * `power` × the velocity that eases out over `timeConstant`, and springs back on the bounce at an
- * edge it would cross, or starts past. Times in seconds, as every option bag here (Motion's
- * `timeConstant` is in milliseconds).
+ * An inertia's options: how far it glides and how it eases out, its edges and the spring back from
+ * them, and where it rests. Times in seconds, where Motion's `timeConstant` is in milliseconds.
  */
+// ADR-0016, *Amendment (#140)*, Motion's `inertia`.
 export interface InertiaOptions {
   /** How far the glide carries, as a multiple of the velocity: it rests at `initial + power × velocity`. Default 0.8. */
   readonly power?: number
@@ -291,22 +323,23 @@ export interface InertiaVecOptions extends Omit<InertiaOptions, "min" | "max"> {
   readonly y?: InertiaEdges
 }
 
-/** Repeat / lifecycle modifiers shared across primitives. */
+/** How a tween repeats: `repeat`, `repeatType` and `repeatDelay`, and `reverse`. */
 export interface Modifiers {
   /**
-   * Additional repeats after the first run: a whole number, or `Infinity` to loop forever.
-   * Default 0. Each repeat starts the moment the one before it ends, or its `repeatDelay` after,
-   * wherever that falls in a tick (#226): `delay` holds once, before the first run (#77).
+   * How many more times it plays after the first: a whole number, or `Infinity` for ever. Default 0.
+   * Each starts the moment the one before ends, or `repeatDelay` after; `delay` holds once, before the
+   * first.
    */
+  // Wherever that falls in a tick (#226); `delay` once (#77).
   readonly repeat?: number
   /**
-   * A gap between repeats, in seconds (Motion's `repeatDelay`, #91). Default 0. Each run but the
-   * last holds where it ended (a turned run, at its turning point) for this long; an infinite
-   * `repeat` holds after every run.
+   * Seconds between plays, as Motion's `repeatDelay`. Default 0. Each play but the last holds where it
+   * ended for this long; with an infinite `repeat`, every play does.
    */
+  // #91.
   readonly repeatDelay?: number
   /**
-   * How every other repeat runs (Motion's `repeatType`, #226). Default `"loop"`.
+   * How every other repeat runs, as Motion's `repeatType`. Default `"loop"`.
    * - `"loop"`: each run starts at `from` again.
    * - `"reverse"`: every other run plays backwards in time, from `to` to `from` on the easing's
    *   curve reversed: an `easeOut` run comes back easing in.
@@ -314,7 +347,8 @@ export interface Modifiers {
    *   comes back easing out.
    */
   readonly repeatType?: "loop" | "reverse" | "mirror"
-  /** Run the animation from `to` back to `from`; keyframes, through their stops from last to first (#429). Default false. */
+  /** Plays it from `to` back to `from`; keyframes, through their stops from last to first. Default `false`. */
+  // #429.
   readonly reverse?: boolean
 }
 
@@ -326,7 +360,13 @@ export interface AnimateOptions extends TweenOptions, Modifiers {}
 /** `frame`, re-stamped `done: false`: a seam's one allocation. */
 const unsettled = <F extends Frame.Frame<unknown>>(frame: F): F => ({ ...frame, done: false })
 
-/** `self` with each Frame mapped by `f`, which runs per frame (ADR-0025). Keeps `self`'s span. */
+/**
+ * `self` with each frame mapped by `f`. Keeps `self`'s span.
+ *
+ * @example
+ * const turn = Machine.spring(1).pipe(Machine.map((frame) => ({ ...frame, value: frame.value * 360 })))
+ */
+// `f` runs per frame (ADR-0025).
 export const map: {
   <F extends Frame.Frame<unknown>, G extends Frame.Frame<unknown>>(f: (frame: F) => G): (self: Machine<F>) => Machine<G>
   <F extends Frame.Frame<unknown>, G extends Frame.Frame<unknown>>(self: Machine<F>, f: (frame: F) => G): Machine<G>
@@ -344,17 +384,20 @@ export const map: {
 )
 
 /**
- * Segments played one after another, as one run: `Stream.concat`'s seam over N segments, flat,
- * with one step through them (ADR-0027, decision 4). A segment's settled Frame is re-stamped
- * `done: false` unless it's the last, and the next segment starts on the next tick, from its
- * beginning, with no leftover time carried over: the rest of the tick a segment ends in is
- * dropped, so a sequence runs up to a frame a seam behind wall time. For tweens in sequence, time-
- * exact, `keyframes` and `animate` are one leaf over one time (#226).
+ * Machines played one after another, as one run: each starts on the frame after the one before it
+ * settles, so a long sequence runs up to a frame a seam behind wall time. For tweens back to back,
+ * exactly on time, use `keyframes`. A machine that never settles, a `chase` or a `forever`, is the last
+ * one reached. One machine is returned as it is. Keeps the first's span.
  *
- * A segment that never settles (`chase`, `forever`) is the last one reached, as a `Stream` that
- * never ends is in `Stream.concat`: the rest are dropped. One segment is returned as it is. Keeps
- * the first segment's span. Effect v3's name: v4 has no `Stream.concatAll`.
+ * @example
+ * const there = Machine.tween(0, 100, { duration: 0.3 })
+ * const back = Machine.tween(100, 0, { duration: 0.3 })
+ * const trip = Machine.concatAll([there, back])
  */
+// `Stream.concat`'s seam over N segments, flat, with one step through them (ADR-0027, decision 4): a
+// segment's settled Frame is re-stamped `done: false` unless it's the last, and the next starts on the
+// next tick with no leftover time; `keyframes` and `animate` are one leaf over one time (#226). Effect
+// v3's name: v4 has no `Stream.concatAll`.
 export const concatAll = <F extends Frame.Frame<unknown>>(segments: Arr.NonEmptyReadonlyArray<Machine<F>>): Machine<F> => {
   const reached = Option.match(
     Arr.findFirstIndex(segments, (segment) => !segment.settles),
@@ -391,10 +434,13 @@ export const concatAll = <F extends Frame.Frame<unknown>>(segments: Arr.NonEmpty
 }
 
 /**
- * `that` on the tick after `self` settles: `Stream.concat`'s seam, `self`'s settled Frame
- * re-stamped `done: false`, the rest of that tick dropped (`concatAll`'s, #226). A `self` that
- * never settles never reaches `that`. `concatAll` of the two; keeps `self`'s span.
+ * `that` after `self`, on the frame after `self` settles: `concatAll` of the two. A `self` that never
+ * settles never reaches `that`. Keeps `self`'s span.
+ *
+ * @example
+ * const trip = there.pipe(Machine.concat(back))
  */
+// `Stream.concat`'s seam (#226).
 export const concat: {
   <G extends Frame.Frame<unknown>>(that: Machine<G>): <F extends Frame.Frame<unknown>>(self: Machine<F>) => Machine<F | G>
   <F extends Frame.Frame<unknown>, G extends Frame.Frame<unknown>>(self: Machine<F>, that: Machine<G>): Machine<F | G>
@@ -405,12 +451,11 @@ export const concat: {
 )
 
 /**
- * `self` restarted on the tick after it settles, without end: `Stream.forever`'s. Each settled
- * Frame is re-stamped `done: false`, so a run never settles, and the rest of the tick it settled
- * in is dropped, so each restart runs up to a frame behind wall time; `animate`'s `repeat:
- * Infinity` is time-exact (#226). A `self` that never settles is returned as it is. Keeps `self`'s
- * span.
+ * `self` started again each time it settles, for ever, so a run never settles. Each restart is up to a
+ * frame behind wall time; `animate`'s `repeat: Infinity` is exact. A `self` that never settles is
+ * returned as it is. Keeps `self`'s span.
  */
+// `Stream.forever`'s; each settled Frame re-stamped `done: false`, the rest of its tick dropped (#226).
 export const forever = <F extends Frame.Frame<unknown>>(self: Machine<F>): Machine<F> =>
   Bool.match(self.settles, {
     onFalse: () => self,
@@ -432,16 +477,17 @@ export const forever = <F extends Frame.Frame<unknown>>(self: Machine<F>): Machi
   })
 
 /**
- * A hold before `self`'s first step: `Effect.delay`'s word. For `seconds`, each tick returns
- * the Frame `self` starts at (its step at 0, re-stamped `done: false`), the same object every
- * held tick. The held time counts each tick's `dt` at most `MAX_DT`, as a step does, and on the
- * tick it reaches `seconds`, `self` steps the time left over. A negative `seconds` starts `self`
- * that far in. `delay(0)` is `self`. Keeps `self`'s span.
+ * A wait before `self` starts: for `seconds`, each frame is the frame `self` starts at; then `self`
+ * steps on with the time left over. A negative `seconds` starts it that far in. `delay(0)` is `self`.
+ * Keeps `self`'s span.
  *
- * Not the steppers' own `delay`, which a leaf keeps (dom's projection pass steps springs by hand
- * with it): a Frame after this hold can differ from the stepper's in its last bit, since the
- * hold is subtracted at a different point (ADR-0028, decision 9).
+ * @example
+ * const late = Machine.spring(1).pipe(Machine.delay(0.2))
  */
+// `Effect.delay`'s word. The held time counts each tick's `dt` at most `MAX_DT`, as a step does; the same
+// Frame object every held tick. Not the steppers' own `delay`, which a leaf keeps (dom's projection pass
+// steps springs by hand with it): a Frame after this hold can differ in its last bit, since the hold is
+// subtracted at a different point (ADR-0028, decision 9).
 export const delay: {
   (seconds: number): <F extends Frame.Frame<unknown>>(self: Machine<F>) => Machine<F>
   <F extends Frame.Frame<unknown>>(self: Machine<F>, seconds: number): Machine<F>
@@ -474,15 +520,15 @@ export const delay: {
 )
 
 /**
- * A hold after `self` settles (CONTEXT.md's Hold): its settled Frame, re-stamped `done: false`
- * once, is returned on the tick it settles and on every held tick, the same object, until the
- * held time reaches `seconds`; on that tick it settles with `self`'s settled Frame. The held
- * time counts each tick's `dt` at most `MAX_DT`, as a step does, and starts on the tick after
- * `self` settles, so the rest of that tick is dropped (`animate`'s `repeatDelay` is time-exact,
- * #226). A `self` that never settles is returned as it is, and so is `holdAfter(0)` (or a negative
- * hold).
- * Keeps `self`'s span. Effect has no hold after; #91's name.
+ * A wait after `self` settles: its settled frame for `seconds` more, then it settles. A `self` that
+ * never settles, or a hold of 0 or less, is returned as it is. Keeps `self`'s span.
+ *
+ * @example
+ * const pause = Machine.tween(0, 1, { duration: 0.3 }).pipe(Machine.holdAfter(1))
  */
+// CONTEXT.md's Hold; #91's name: Effect has no hold after. Re-stamped `done: false` once; starts on the
+// tick after `self` settles, so the rest of that tick is dropped (`animate`'s `repeatDelay` is
+// time-exact, #226).
 export const holdAfter: {
   (seconds: number): <F extends Frame.Frame<unknown>>(self: Machine<F>) => Machine<F>
   <F extends Frame.Frame<unknown>>(self: Machine<F>, seconds: number): Machine<F>
@@ -521,30 +567,25 @@ export const holdAfter: {
     }),
 )
 
-/**
- * The step `startAt` catches up in: a 60 Hz frame (ADR-0044). A run caught up to `k / 60` seconds
- * has taken the steps a 60 Hz driver would have by then, and drawn the Frame the DOM's Appear
- * sampler samples there (`@wardic/dom/Appear`), which steps `0` and then this.
- */
+/** The step `startAt` catches up in: a 60 Hz frame. */
+// ADR-0044: a run caught up to `k / 60` seconds has taken the steps a 60 Hz driver would have by then,
+// and drawn the Frame the DOM's Appear sampler samples there (`@wardic/dom/Appear`).
 export const CATCH_UP_DT = 1 / 60
 
 /**
- * `self` started partway through: each run's first tick steps it from its start to `at()` seconds
- * in, in place of that tick's own `dt`, and every later tick steps as usual (ADR-0044's Handoff).
+ * `self` started partway through: its first frame steps it from its start to `at()` seconds in, a 60 Hz
+ * frame at a time, and every frame after steps as usual. `at` is read once a run, at its first frame. A
+ * negative `at()` is a start still to come: it holds at its start that long. For an animation the CSS
+ * began before the JavaScript loaded, taken over where it has got to. Keeps `self`'s span, and whether
+ * it settles.
  *
- * - **The catch-up** steps `0`, then {@link CATCH_UP_DT} at a time, the last step the time left
- *   over: what a 60 Hz driver would have stepped, so the Frame at `k / 60` is the one the Appear
- *   sampler drew there. It stops at a settled Frame, which the first tick returns.
- * - **`at` is read once a run, at its first tick:** a Handoff reads there how far the CSS has got in
- *   the frame that draws the run's first Frame.
- * - **A negative `at()`** is a start still to come: the first tick is `self`'s step at 0, held for
- *   `-at()` seconds of the ticks after it (each counting at most `MAX_DT`, as a step does), and the
- *   time left over goes to the first step. A Handoff's child that its parent let go a frame before
- *   the server's timing said starts when the CSS would have started it.
- *
- * Keeps `self`'s span and whether it settles. The catch-up is one step per 1/60 s caught up, once
- * a run.
+ * @example
+ * const resumed = Machine.tween(0, 1, { duration: 1 }).pipe(Machine.startAt(() => elapsedSeconds))
  */
+// ADR-0044's Handoff: the catch-up steps `0`, then `CATCH_UP_DT` at a time, the Frame at `k / 60` the
+// one the Appear sampler drew; it stops at a settled Frame. A Handoff reads `at` in the frame that draws
+// the run's first Frame. A negative `at()`: a child its parent let go a frame early starts when the CSS
+// would have started it.
 export const startAt: {
   (at: LazyArg<number>): <F extends Frame.Frame<unknown>>(self: Machine<F>) => Machine<F>
   <F extends Frame.Frame<unknown>>(self: Machine<F>, at: LazyArg<number>): Machine<F>
@@ -585,18 +626,18 @@ export const startAt: {
     }),
 )
 
-/**
- * How long a run of a machine is let go to settle when its duration is asked (#433): Motion's
- * `maxGeneratorDuration`, 20 s.
- */
+/** How long `durationOf` lets a run go to settle: 20 s, as Motion's `maxGeneratorDuration`. */
+// #433.
 export const MAX_DURATION = 20
 
 /**
- * How long a run of `self` takes to settle, in seconds (#433, Motion's `duration`): stepped from its
- * start, `CATCH_UP_DT` a step, as `startAt` catches up. `Infinity` for one that doesn't settle
- * (`chase`, `forever`) or hasn't by {@link MAX_DURATION} (a `repeat: Infinity`). Cold: a run of up to
- * 1,200 steps, at each ask.
+ * How long a run of `self` takes to settle, in seconds: `Infinity` for one that doesn't, a `chase` or a
+ * `forever`, or hasn't by `MAX_DURATION`. It runs the machine to find out, up to 1,200 steps a call.
+ *
+ * @example
+ * Machine.durationOf(Machine.spring(1, Spring.gentle)) // ≈ 1.1
  */
+// #433, Motion's `duration`: stepped from its start, `CATCH_UP_DT` a step, as `startAt` catches up.
 export const durationOf = <F extends Frame.Frame<unknown>>(self: Machine<F>): number => {
   if (Bool.not(self.settles)) return Number.POSITIVE_INFINITY
   const step = self.start()
@@ -626,10 +667,8 @@ const catchUp = <F extends Frame.Frame<unknown>>(step: (dt: number) => F, second
   return step(rest)
 }
 
-/**
- * `self` with each `dt` clamped at `max` before its step. Keeps `self`'s span. The constructors
- * clamp at `MAX_DT` already, inline (#78); this is for a machine built with `make`.
- */
+/** `self` with each `dt` held to `max` before its step: for a machine built with `make`. The constructors hold theirs to `MAX_DT`. */
+// #78: the constructors clamp inline. Keeps `self`'s span.
 export const clampDt: {
   (max: number): <F extends Frame.Frame<unknown>>(self: Machine<F>) => Machine<F>
   <F extends Frame.Frame<unknown>>(self: Machine<F>, max: number): Machine<F>
@@ -648,11 +687,14 @@ export const clampDt: {
 )
 
 /**
- * `self` under the span `name`, with `options.attributes` as given: it replaces `self`'s span,
- * since a machine's span is data until a driver opens it (decision 6). A composite names
- * itself this way, and so can an app (`m.pipe(Machine.withSpan("app.bounce"))`). `dual` as
- * `Stream.withSpan` is, told apart by its first argument.
+ * `self` under the span `name`, with `options.attributes`, in place of its own: its runs' traces and
+ * logs carry that name.
+ *
+ * @example
+ * const bounce = Machine.spring(1).pipe(Machine.withSpan("app.bounce", { attributes: { card: id } }))
  */
+// A machine's span is data until a driver opens it (decision 6). `dual` as `Stream.withSpan` is, told
+// apart by its first argument.
 export const withSpan: {
   (name: string, options?: SpanOptions): <F extends Frame.Frame<unknown>>(self: Machine<F>) => Machine<F>
   <F extends Frame.Frame<unknown>>(self: Machine<F>, name: string, options?: SpanOptions): Machine<F>
@@ -684,14 +726,16 @@ const owned = <F extends Frame.Frame<unknown>>(frame: F): F => {
 }
 
 /**
- * Run `self` over `Clock.ticks`: one Frame per tick, through its first settled Frame when it
- * settles. Each subscription starts its own run, under the machine's one span, with a
- * `<name>: subscribe` debug log annotated with the span's attributes. Per-frame work is
- * un-logged: it is the hot path.
+ * `self` as a `Stream` over the Clock's ticks: a frame a tick, through its settled frame when it settles.
+ * Each subscriber gets a run of its own, and each frame is its to keep. For one value in an Effect
+ * program; `run` steps every running machine in one pass a frame, which is cheaper for many.
  *
- * Each emission is its consumer's to keep: a record Frame is copied (`owned`) before it's
- * emitted, so a consumer that collects Frames never sees one rewritten (ADR-0030, decision 11).
+ * @example
+ * yield* Machine.toStream(fadeIn).pipe(Stream.runForEach((frame) => Effect.sync(() => draw(frame.value))))
  */
+// Each subscription's run under the machine's one span, with a `<name>: subscribe` debug log annotated
+// with its attributes; per-frame work is unlogged. A record Frame is copied (`owned`) before it's
+// emitted, so a consumer that collects Frames never sees one rewritten (ADR-0030, decision 11).
 export const toStream = <F extends Frame.Frame<unknown>>(self: Machine<F>): Stream.Stream<F, never, Clock.Clock> =>
   Stream.unwrap(
     Effect.gen(function* () {
@@ -708,23 +752,22 @@ export const toStream = <F extends Frame.Frame<unknown>>(self: Machine<F>): Stre
   ).pipe((frames) => tracedStream(frames, self.span.name, { attributes: self.span.attributes }))
 
 /**
- * Run `self` on the Frame loop, from the loop's next tick, handing each Frame to `sink`: a plain
- * call, typed `(frame) => undefined`, so a sink that returns an Effect doesn't compile (ADR-0027,
- * decision 8). Succeeds with the settled Frame; a machine that never settles runs until
- * interrupted. Dies if the step or the sink throws, or with the loop's own failure. Interrupting
- * it removes the run at once. One span per run, with a `<name>: start` debug log.
+ * Runs `self` on the Frame loop, from its next tick, handing each frame to `sink`. It succeeds with the
+ * settled frame; one that never settles runs until it's interrupted, and interrupting removes it at
+ * once. A frame handed to `sink` is the run's until the next tick: copy one to keep it. Given
+ * `{ supersede }`, it ends with the other runs given the same token, succeeding with
+ * `Supersede.Superseded`.
  *
- * Given a token (`{ supersede }`, #200, ADR-0027 *Amendment (#200)*), the run joins it, and
- * `Supersede.end(token)` ends it with the others given it: it leaves the loop at once, as an
- * interrupted run does, and succeeds with `Supersede.Superseded` instead of an interruption, about
- * a sixth of the cost. Only a run given a token can end so, and only its type says so.
- *
- * A Frame handed to `sink` is the run's until the next tick, so a sink that keeps one copies it:
- * `springValues` rewrites one Frame per run (ADR-0030, decision 11). The settled Frame it succeeds
- * with is stable: nothing steps after a settle.
- *
- * A machine built with a service runs under its Effect: `Effect.flatMap(Machine.run(sink))`.
+ * @example
+ * const landed = yield* Machine.run(Machine.spring(200), (frame) => {
+ *   element.style.transform = `translateX(${frame.value}px)`
+ * })
  */
+// A plain call, typed `(frame) => undefined`, so a sink that returns an Effect doesn't compile
+// (ADR-0027, decision 8). Dies if the step or the sink throws, or with the loop's own failure. One span
+// per run, with a `<name>: start` debug log. The token (#200, ADR-0027 *Amendment (#200)*): it leaves the
+// loop at once, as an interrupted run does, about a sixth of the cost. `springValues` rewrites one Frame
+// per run (ADR-0030, decision 11). A machine built with a service: `Effect.flatMap(Machine.run(sink))`.
 export const run: {
   <F extends Frame.Frame<unknown>>(sink: FrameLoop.Sink<F>): (self: Machine<F>) => Effect.Effect<F, never, FrameLoop.FrameLoop>
   <F extends Frame.Frame<unknown>>(
@@ -744,7 +787,8 @@ export const run: {
     FrameLoop.FrameLoop.use((loop) => loop.run(self, sink, options as RunOptions)),
 )
 
-/** `run`'s options: the token the run joins (#200). */
+/** `run`'s options: the token the run joins, so `Supersede.end` ends it with the others. */
+// #200.
 export interface RunOptions {
   readonly supersede: Supersede.Supersede
 }
@@ -773,7 +817,12 @@ const tweenSpan = (from: number, to: number, duration: number): Span => ({
   attributes: { from, to, duration },
 })
 
-/** A definite, duration-based animation from `from` to `to`. Its `delay` is its stepper's. */
+/**
+ * A tween from `from` to `to` over `options.duration`, eased by its `ease`, after its `delay`.
+ *
+ * @example
+ * const slide = Machine.tween(0, 240, { duration: 0.4, ease: "easeInOut" })
+ */
 export const tween = (from: number, to: number, options: TweenOptions): Machine<Frame.Frame<number>> => {
   const resolved = resolveTween(options)
   return tweenLeaf(from, to, resolved, tweenSpan(from, to, resolved.seconds))
@@ -863,8 +912,11 @@ const springRun =
   }
 
 /**
- * Spring motion toward a static `target`, from `options.from` (default 0), settling at rest. A
- * moving target is `chase`'s.
+ * A spring toward `target`, from `options.from` (0 by default), settling at rest. A moving target is
+ * `chase`'s.
+ *
+ * @example
+ * const pop = Machine.spring(1, { from: 0.8, stiffness: 400, damping: 15 })
  */
 export const spring = (target: number, options: SpringOptions = NO_OPTIONS): Machine<Frame.Physics> => {
   const resolved = Spring.resolve(options)
@@ -876,10 +928,12 @@ export const spring = (target: number, options: SpringOptions = NO_OPTIONS): Mac
 }
 
 /**
- * Spring motion that follows a continuously moving target. `getTarget()` is read on every
- * step, so the chase tracks a target that keeps moving (a cursor follower, scroll-linked UI, a
- * retargeted snap). Its Frames report rest, but it never settles: a run ends only when it's
- * removed (the Stream's subscriber cancels, or the run is interrupted).
+ * A spring that follows a moving target: `getTarget()` is read every step, so it tracks a cursor, a
+ * scroll position or a target that changes often. Its frames report rest, but it never settles: a run
+ * ends only when it's removed.
+ *
+ * @example
+ * const follow = Machine.chase(() => pointer.x, Spring.gentle)
  */
 export const chase = (getTarget: () => number, options: SpringOptions = NO_OPTIONS): Machine<Frame.Physics> => {
   const resolved = Spring.resolve(options)
@@ -891,9 +945,13 @@ export const chase = (getTarget: () => number, options: SpringOptions = NO_OPTIO
 }
 
 /**
- * Momentum/decay motion: fling from `initial` at `velocity`, slowed by friction. Stepped in closed
- * form (#23), so it comes to rest `velocity / friction` from `initial` whatever the frame rate.
+ * A fling: from `initial` at `velocity`, slowing by friction, to rest `velocity / friction` away,
+ * whatever the frame rate.
+ *
+ * @example
+ * const coast = Machine.decay(x, 900, { friction: 4 })
  */
+// Stepped in closed form (#23).
 export const decay = (initial: number, velocity: number, options: DecayOptions = NO_OPTIONS): Machine<Frame.Physics> => {
   const resolved = resolveDecay(options)
   return make({
@@ -911,10 +969,7 @@ export const decay = (initial: number, velocity: number, options: DecayOptions =
   })
 }
 
-/**
- * Two-axis decay: both axes stepped together, one `Point` per tick, settling once both rest. A
- * Fling's tail: the Solid binding's release.
- */
+/** A fling on two axes together: a point each frame, settling once both rest. */
 export const decayVec = (initial: Point.Point, velocity: Point.Point, options: DecayOptions): Machine<Frame.Frame<Point.Point>> => {
   const resolved = resolveDecay(options)
   return make({
@@ -938,11 +993,15 @@ export const decayVec = (initial: Point.Point, velocity: Point.Point, options: D
 }
 
 /**
- * Inertia (ADR-0016, *Amendment (#140)*, Motion's `inertia`): a glide from `initial` at `velocity`
- * toward `initial + power × velocity` (or where `modifyTarget` moves it), easing out over
- * `timeConstant`; where it would cross `min` or `max`, or starts past one, a spring back to that edge
- * on the bounce. What a drag's release runs: a Fling, and a snap back to the origin (both edges 0).
+ * An inertia: a glide from `initial` at `velocity` toward `initial + power × velocity`, or where
+ * `modifyTarget` moves that, easing out over `timeConstant`; where it would pass `min` or `max`, or
+ * starts past one, it springs back to that edge. What a drag's release runs.
+ *
+ * @example
+ * // A flick that rests on a 100 px grid, within 0 and 800.
+ * const snap = Machine.inertia(x, velocity, { modifyTarget: (end) => Math.round(end / 100) * 100, min: 0, max: 800 })
  */
+// ADR-0016, *Amendment (#140)*, Motion's `inertia`: a Fling, and a snap back to the origin (both edges 0).
 export const inertia = (initial: number, velocity: number, options: InertiaOptions = NO_OPTIONS): Machine<Frame.Physics> =>
   make({
     settles: true,
@@ -968,15 +1027,16 @@ export interface InertiaValuesOptions extends InertiaOptions {
 }
 
 /**
- * Inertia on a bag of numbers (#435, Motion's `type: "inertia"` transition): one glide per key from
- * `from`, at its velocity in `velocity` (else `options.velocity`, else 0), on the shared `options`,
- * after `options.delay`, settling once every key rests. It takes no target: each key rests where its
- * glide does, through `modifyTarget`, held within `min` / `max` ({@link Inertia.restOf}). With no
- * velocity, a key rests where it starts, on its first step past the delay.
+ * Inertia on a bag of numbers, as a transition's `type: "inertia"`: one glide per key from `from`, at
+ * its velocity in `velocity` (else `options.velocity`, else 0), on the shared `options`, after
+ * `options.delay`, settling once every key rests. It takes no target: each key rests where its glide
+ * does, through `modifyTarget`, held within `min` and `max`. With no velocity, a key rests where it
+ * starts.
  *
- * Each Frame carries a per-key `velocity` beside `value`, as {@link springValues}' does, and is
- * rewritten in place every tick (ADR-0030, decision 11): a sink that keeps one copies it.
+ * Each frame carries a per-key `velocity` beside `value`, and is rewritten every tick: copy a frame to
+ * keep it.
  */
+// #435, Motion's `type: "inertia"` transition; rewritten in place (ADR-0030, decision 11).
 export const inertiaValues = (
   from: Record<string, number>,
   options: InertiaValuesOptions = NO_OPTIONS,
@@ -1027,10 +1087,10 @@ export interface PointPhysics extends Frame.Frame<Point.Point> {
 }
 
 /**
- * Two-axis inertia: both axes stepped together, one `Point` per tick, each with its own edges,
- * settling once both rest. A drag's release in the Solid binding (ADR-0016, *Amendment (#140)*),
- * whose velocity an animation that takes the release over starts from (#340).
+ * Inertia on two axes together: a point each frame, each axis with its own edges, settling once both
+ * rest. What a drag's release runs; an animation that takes the release over starts from its velocity.
  */
+// The Solid binding's release (ADR-0016, *Amendment (#140)*); taken over from its velocity (#340).
 export const inertiaVec = (initial: Point.Point, velocity: Point.Point, options: InertiaVecOptions = NO_OPTIONS): Machine<PointPhysics> =>
   make({
     settles: true,
@@ -1053,18 +1113,17 @@ export const inertiaVec = (initial: Point.Point, velocity: Point.Point, options:
   })
 
 /**
- * Spring a bag of numeric values toward `target`: one spring per key with the shared `options`,
- * from `from` / `velocity` (default 0 / `options.from` / `options.velocity`), settling once
- * every key is at rest.
+ * A bag of numbers sprung toward `target`: one spring per key on the shared `options`, from `from` and
+ * `velocity` (else `options.from` and `options.velocity`, else 0), settling once every key rests.
  *
- * Each Frame carries a per-key `velocity` map beside `value`, straight from each spring's step;
- * a settled key reports 0. Seeding both `from` and `velocity` from a prior Frame makes a
- * velocity-preserving retarget: momentum stays continuous across the handoff.
+ * Each frame carries a per-key `velocity` beside `value`; a settled key reports 0. Seeding `from` and
+ * `velocity` from a frame of the run before keeps its momentum when the target changes. Each frame is
+ * rewritten every tick: copy one, or its records, to keep it; the settled frame is stable.
  *
- * Each run steps in place (ADR-0030, decision 11): it rewrites one Frame, its `value` and its
- * `velocity`, every tick. A sink that keeps a Frame, or either record, copies it; the settled
- * Frame is stable, since nothing steps after a settle. `toStream` copies each one it emits.
+ * @example
+ * const card = Machine.springValues({ x: 0, y: 0, scale: 1 }, { x: 120, y: 40, scale: 1.1 }, {}, Spring.stiff)
  */
+// Each run steps in place (ADR-0030, decision 11); `toStream` copies each Frame it emits.
 export const springValues = (
   target: Record<string, number>,
   options: SpringOptions = NO_OPTIONS,
@@ -1240,18 +1299,18 @@ const resolveAnimate: (options: AnimateOptions) => ResolvedAnimate = cachedResol
 )
 
 /**
- * A tween with modifiers: `reverse` swaps the endpoints, `repeat` replays, and `repeatType` turns
- * every other replay (`"reverse"`, `"mirror"`). `delay` holds once, before the first run, as
- * Motion's does (#77), and `repeatDelay` holds after each run but the last, where it ended (#91).
+ * A tween that repeats: `repeat` plays it again, `repeatType` turns every other play (`"reverse"`,
+ * `"mirror"`), and `reverse` swaps its ends. `delay` holds once, before the first play, as Motion's
+ * does, and `repeatDelay` after each play but the last, where it ended. Each play starts the moment the
+ * one before ends; a finite `repeat` settles once the last ends, and `repeat: Infinity` never settles.
  *
- * One leaf over one frame time, as Motion's `JSAnimation` is (#226): each step adds its `dt`
- * (clamped at `MAX_DT`) and reads the run's pass, the time into it and its direction off the total,
- * so a pass starts the moment the one before it ends, wherever that falls in a tick, and a tick
- * across a turn paints that tick's value, not the turn. A finite `repeat` settles once its last
- * pass ends; `repeat: Infinity` never settles, and ends when its run is removed.
- *
- * Then `delay(options.delay)`, and its own span, `wardic.animate`.
+ * @example
+ * const breathe = Machine.animate(1, 1.08, { duration: 1.2, ease: "easeInOut", repeat: Infinity, repeatType: "mirror" })
  */
+// #77, #91. One leaf over one frame time, as Motion's `JSAnimation` is (#226): each step adds its `dt`
+// (clamped at `MAX_DT`) and reads the run's pass, the time into it and its direction off the total, so a
+// tick across a turn paints that tick's value, not the turn. Then `delay(options.delay)`, and its own
+// span, `wardic.animate`.
 export const animate = (from: number, to: number, options: AnimateOptions = NO_OPTIONS): Machine<Frame.Frame<number>> => {
   const resolved = resolveAnimate(options)
   const { run, repeat, repeatDelay, repeatType, reverse } = resolved
@@ -1356,17 +1415,17 @@ const keyframesAttributes = (resolved: ResolvedKeyframes, own: Readonly<Record<s
 })
 
 /**
- * Animate through a sequence of stops, as Motion's keyframes (#429): each Segment between two stops
- * eased whole, on its own easing from `ease` (one, or one per Segment, wrapping round), each stop at
- * its place in `times` (evenly spaced without one per stop). The {@link Modifiers} run the whole
- * sequence: `repeat` replays it, `"reverse"` plays every other pass backwards in time, `"mirror"`
- * plays every other pass through the stops from last to first on the same easings, Motion's mirrored
- * generator, and `reverse` plays every pass through them from last to first.
+ * A tween through a list of stops, as Motion's keyframes: each stretch between two stops eased whole by
+ * `ease` (one, or one per stretch, wrapping round), each stop at its place in `times` (evenly spaced
+ * without one per stop). The repeats run the whole list: `repeat` plays it again, `"reverse"` plays
+ * every other pass backwards, `"mirror"` every other pass through the stops from last to first, and
+ * `reverse` every pass so. One stop, or none, holds still. `delay` holds once, before the first.
  *
- * One leaf over one frame time (#226): the next Segment starts the moment one ends, wherever that
- * falls in a tick. A single stop, or none, holds still. `delay` holds once, before the first
- * Segment (#77). Its own span, `wardic.keyframes`.
+ * @example
+ * const shake = Machine.keyframes([0, -12, 12, -6, 6, 0], { duration: 0.5 })
  */
+// #429; one leaf over one frame time (#226): the next stretch starts the moment one ends; `delay` once
+// (#77). Its own span, `wardic.keyframes`.
 export const keyframes = (stops: ReadonlyArray<number>, options: KeyframesOptions = NO_OPTIONS): Machine<Frame.Frame<number>> => {
   const resolved = resolveKeyframes(options)
   const { run, eases, reverse } = resolved
@@ -1453,16 +1512,18 @@ const blendAt = (
 }
 
 /**
- * Animate a bag of values from `from` to `to`, each key through the `InterpolatorRegistry`
- * (numbers, unit strings, complex values, and its Environment's own kinds, the DOM's colours).
- * One `animate(0, 1, options)` progress drives every key, so the modifiers (`reverse`, `repeat`,
- * `repeatType`, `repeatDelay`, `delay`) apply to the bag as a whole, and `done` is the progress
- * Frame's. A Discrete pair switches at the first Frame; an Environment's Key rule can hold a key
- * until the last (the DOM's `display` and `visibility`, ADR-0024 and ADR-0035).
+ * A bag of values tweened from `from` to `to`, each key blended as its Environment blends it: numbers,
+ * unit strings, complex values, and its own kinds, such as the DOM's colours. One tween drives every
+ * key, so the repeats and `delay` apply to the whole bag. A pair that can't blend switches at the first
+ * frame; the Environment can hold a key until the last, as the DOM does `display` and `visibility`.
+ * Building it needs the `InterpolatorRegistry`, once.
  *
- * Building it needs the `InterpolatorRegistry`, consulted once: each key resolves to a pure
- * blender. Its steps don't: per tick, `keys.length` direct calls.
+ * @example
+ * const fade = yield* Machine.animateValues({ opacity: 0, color: "#bf616a" }, { opacity: 1, color: "#a3be8c" }, { duration: 0.3 })
  */
+// One `animate(0, 1, options)` progress drives every key; `done` is its Frame's. Key rules: ADR-0024,
+// ADR-0035. The registry is consulted once: each key resolves to a pure blender; per tick,
+// `keys.length` direct calls.
 export const animateValues = (
   from: Values.Values,
   to: Values.Values,
@@ -1477,23 +1538,19 @@ export const animateValues = (
     ))
 
 /**
- * Blend a bag of values from `from` to `to` by one spring's progress (ADR-0024, decision 5):
- * a spring with `options` (stiffness, damping, mass, rest thresholds, `delay`) runs from rest on
- * a 0→100 progress (`springValues`), and each key is blended through the `InterpolatorRegistry`
- * at progress / 100. It's how a spring's string keys follow the spring, as Motion runs a spring
- * on a string (motion-dom animation/JSAnimation.ts:132-148 at
- * 16c61222c4166bbef5ff6ab0051192faa79fa8c8).
+ * A bag of values blended from `from` to `to` by one spring's progress: the spring runs from rest on a
+ * 0 to 100 progress, and each key is blended at progress / 100. It's how a spring moves values that
+ * aren't numbers, a colour or a unit string, as Motion's spring does.
  *
- * - The progress spans 0–100 as a numeric key travelling 100 would, so `restDelta` and
- *   `restSpeed` mean the same for both (its default thresholds a move of 100's, #344), and a string
- *   key beside an `x` going 0 → 100 lands with it.
- * - It always starts from rest: `options.from` and `options.velocity` don't move it. A velocity
- *   in a key's units has no meaning on the progress.
- * - Past 1, a key does what its Interpolator does past 1: a unit string or number overshoots, and
- *   one that clamps its progress holds at its target (the DOM's colours). A Discrete pair switches
- *   at the first Frame past the delay; an Environment's Key rule can hold a key until the settle
- *   Frame (the DOM's `display` and `visibility`).
+ * - **The progress spans 0 to 100**, as a number going 100 would, so `restDelta` and `restSpeed` mean
+ *   the same for both, and a string key beside an `x` going 0 to 100 lands with it.
+ * - **It starts from rest:** `options.from` and `options.velocity` don't move it.
+ * - **Past 1**, a key does what its blend does past 1: a number or a unit string overshoots, and a DOM
+ *   colour holds at its target. A pair that can't blend switches at its first frame.
  */
+// ADR-0024, decision 5: `springValues` on a 0→100 progress, each key through the `InterpolatorRegistry`.
+// As Motion runs a spring on a string (motion-dom animation/JSAnimation.ts:132-148 at
+// 16c61222c4166bbef5ff6ab0051192faa79fa8c8); its default thresholds a move of 100's (#344).
 export const springBlend = (
   from: Values.Values,
   to: Values.Values,
@@ -1548,20 +1605,16 @@ const trackFor = (
 }
 
 /**
- * Animate a bag of values through each key's stops, as Motion's keyframes (#429), each key through
- * the `InterpolatorRegistry` as `animateValues`' are (numbers, unit strings, complex values, and its
- * Environment's own kinds, the DOM's colours). One run drives every key, as `keyframes`' drives its
- * one: its `duration`, `ease` (one, or one per Segment) and {@link Modifiers} are the bag's, and
- * `done` is the run's. Each key has its own stops, at their places in `times` when there's one per
- * stop and evenly spaced otherwise, as each of Motion's values does. A key with one stop holds it,
- * and one with none is left out.
- *
- * A Segment blends as a pair does: a Discrete pair switches at its first Frame past 0, and an
- * Environment's Key rule that holds a key until the run's last Frame (the DOM's `display` and
- * `visibility`) sees only the last Segment's. Building it needs the `InterpolatorRegistry`,
- * consulted once: each Segment of each key resolves to a pure blender. Its steps don't: per tick,
- * one direct call a key. Its own span, `wardic.keyframesValues`.
+ * A bag of values through each key's stops, as Motion's keyframes, each key blended as its Environment
+ * blends it, as `animateValues`' are. One run drives every key: its `duration`, `ease` (one, or one per
+ * stretch) and repeats are the bag's. Each key has its own stops, at their places in `times` when there's
+ * one per stop, evenly spaced otherwise. A key with one stop holds it, and one with none is left out.
+ * Building it needs the `InterpolatorRegistry`, once.
  */
+// #429. A Segment blends as a pair does: a Discrete pair switches at its first Frame past 0, and a Key
+// rule that holds a key until the run's last Frame (the DOM's `display` and `visibility`) sees only the
+// last Segment's. Each Segment of each key resolves to a pure blender; per tick, one direct call a key.
+// Its own span, `wardic.keyframesValues`.
 export const keyframesValues: (
   stops: Readonly<Record<string, ReadonlyArray<number | string>>>,
   options?: KeyframesOptions,
