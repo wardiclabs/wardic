@@ -816,7 +816,7 @@ const NO_CHANGE: Accessor<ControlsChange | undefined> = constUndefined
  */
 const controlsOf = (given: WardConfigValues, animate: WardConfigValues["animate"]): Controls | undefined => {
   if (Bool.not(isAnimationControls(animate))) return undefined
-  const [change, setChange] = createSignal<ControlsChange | undefined>(undefined, { ownedWrite: true })
+  const [change, setChange] = createSignal<ControlsChange | undefined>(undefined)
   const view = Object.create(given, {
     animate: { enumerable: true, get: () => UndefinedOr.map(change(), (made) => made.definition) },
     controlled: { enumerable: true, value: true },

@@ -58,7 +58,7 @@ const watchOf = (
   onLeave: (custom: unknown, release: () => void) => void,
   onGone: () => void,
 ): { readonly present: Accessor<boolean>; readonly attach: (element: Element) => void } => {
-  const [present, setPresent] = createSignal(true, { ownedWrite: true })
+  const [present, setPresent] = createSignal(true)
   let element: Element | undefined
   UndefinedOr.map(usePresenceContext(), (presence) =>
     UndefinedOr.map(presence.watch, (watch) =>

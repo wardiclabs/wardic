@@ -231,6 +231,8 @@ const ownOrchestration = (
 
   // What it hands down for its gestures (#291), whether each is on and its label: its spine's states, bound at its ward's
   // setup. Changed only when a name does, so its children re-resolve only then; a change is a trigger.
+  // Written where its ward binds its spine's states, at setup, in a component's body: an owned scope,
+  // so said (`ownedWrite`, #257's audit; #618).
   const [states, setStates] = createSignal<Accessor<GestureStates> | undefined>(undefined, { ownedWrite: true })
   const gestures: Accessor<GestureHandDown> = createMemo(
     (previous: GestureHandDown | undefined) => {
