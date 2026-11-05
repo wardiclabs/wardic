@@ -11,8 +11,12 @@
 // - SS6: `idleTimeToLive` keeps an idle source for a rapid re-subscribe, then releases it.
 // - SS7: `make`'s subscribers share one acquire and the same events, released with the last.
 // - SS8: `make` re-acquires after the last unsubscribe.
+// - SS9: a source that ends ends every subscriber, on each constructor (#618, decision 6).
+// - SS10: a source that dies fails every subscriber with its defect, on each constructor (#618).
 import { describe, expect, it } from "@effect/vitest"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as PubSub from "effect/PubSub"
 import * as Ref from "effect/Ref"
@@ -257,5 +261,40 @@ describe("SharedSource.make", () => {
       expect(yield* probe.getAcquired).toBe(2)
       yield* b.close
       expect(yield* probe.getReleased).toBe(2)
+    }))
+})
+
+describe("a shared source's end and failure reach its subscribers (#618)", () => {
+  /** Each of two subscribers' `Exit`, joined, for a source that `acquire` gives. */
+  const exitsOf = (shared: Stream.Stream<number>) =>
+    Effect.gen(function* () {
+      const a = yield* Effect.forkChild(Stream.runCollect(shared))
+      const b = yield* Effect.forkChild(Stream.runCollect(shared))
+      return [yield* Fiber.await(a), yield* Fiber.await(b)] as const
+    })
+  const ending = Effect.succeed(Stream.fromIterable([1, 2]))
+  const dying = Effect.succeed(Stream.concat(Stream.make(1), Stream.die(new Error("source broke"))))
+
+  it.effect("SS9: a source that ends ends every subscriber, by target and for the whole Environment", () =>
+    Effect.gen(function* () {
+      const byTarget = yield* SharedSource.byTarget(() => ending)
+      const made = yield* SharedSource.make(ending)
+      for (const shared of [byTarget("card"), made]) {
+        const exits = yield* exitsOf(shared)
+        for (const exit of exits) expect(Exit.isSuccess(exit), "ended, not hung").toBe(true)
+      }
+    }))
+
+  it.effect("SS10: a source that dies fails every subscriber with its defect", () =>
+    Effect.gen(function* () {
+      const byTarget = yield* SharedSource.byTarget(() => dying)
+      const made = yield* SharedSource.make(dying)
+      for (const shared of [byTarget("card"), made]) {
+        const exits = yield* exitsOf(shared)
+        for (const exit of exits) {
+          expect(Exit.isFailure(exit), "failed, not silently stopped").toBe(true)
+          expect(String(Exit.isFailure(exit) && Cause.squash(exit.cause))).toContain("source broke")
+        }
+      }
     }))
 })
