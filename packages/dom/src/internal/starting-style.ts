@@ -20,7 +20,6 @@ import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
-import * as Str from "effect/String"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { project } from "./renderer.ts"
 import { dashCase, type SplitPatch, splitPatchForTag } from "./svg.ts"
@@ -226,60 +225,54 @@ export const resolveInitial = (config: InitialConfig): Values.Values => {
  */
 export const parseCssText = (text: string): Record<string, string> => {
   const out: Record<string, string> = {}
-  const take = (start: number, end: number): void => {
-    const declaration = text.slice(start, end)
-    const colon = declaration.indexOf(":")
-    if (colon > 0) {
-      const key = declaration.slice(0, colon).trim()
-      const value = declaration.slice(colon + 1).trim()
-      if (key !== "" && value !== "") out[key] = value
+  // A counted scan over UTF-16 units, as `slice` counts: a `;` outside parentheses and quotes ends a
+  // declaration, and a backslash in a quote escapes the next unit (#618, F6: a reduce built a scan
+  // state and a matcher each character, 15-25 times as slow).
+  let depth = 0
+  let quote = 0
+  let escaped = false
+  let start = 0
+  for (let i = 0; i < text.length; i++) {
+    const c = text.charCodeAt(i)
+    if (escaped) {
+      escaped = false
+      continue
+    }
+    if (quote !== 0) {
+      if (c === BACKSLASH) escaped = true
+      if (c === quote) quote = 0
+      continue
+    }
+    if (c === DOUBLE_QUOTE || c === SINGLE_QUOTE) quote = c
+    if (c === OPEN) depth++
+    if (c === CLOSE) depth = Math.max(0, depth - 1)
+    if (c === SEMICOLON && depth === 0) {
+      takeDeclaration(text, start, i, out)
+      start = i + 1
     }
   }
-  // Character by character (UTF-16 units, as `slice` counts): a `;` outside parentheses and
-  // quotes ends a declaration.
-  const scanned = Arr.reduce(Str.split(text, ""), SCAN_START, (scan, c, i) =>
-    Bool.match(scan.escaped, {
-      onTrue: (): CssScan => ({ ...scan, escaped: false }),
-      onFalse: () =>
-        Option.match(scan.quote, {
-          onNone: () =>
-            Match.value(c).pipe(
-              Match.when(isQuote, (quote): CssScan => ({ ...scan, quote: Option.some(quote) })),
-              Match.when("(", (): CssScan => ({ ...scan, depth: scan.depth + 1 })),
-              Match.when(")", (): CssScan => ({ ...scan, depth: Math.max(0, scan.depth - 1) })),
-              Match.when(
-                () => c === ";" && scan.depth === 0,
-                (): CssScan => {
-                  take(scan.start, i)
-                  return { ...scan, start: i + 1 }
-                },
-              ),
-              Match.orElse(() => scan),
-            ),
-          onSome: (quote) =>
-            Match.value(c).pipe(
-              Match.when("\\", (): CssScan => ({ ...scan, escaped: true })),
-              Match.when(quote, (): CssScan => ({ ...scan, quote: Option.none() })),
-              Match.orElse(() => scan),
-            ),
-        }),
-    }))
-  take(scanned.start, text.length)
+  takeDeclaration(text, start, text.length, out)
   return out
 }
 
-/** Where {@link parseCssText} is: the parentheses open, the string's quote, a backslash just read in it, the declaration's start. */
-interface CssScan {
-  readonly depth: number
-  readonly quote: Option.Option<string>
-  readonly escaped: boolean
-  readonly start: number
+const BACKSLASH = 92
+const DOUBLE_QUOTE = 34
+const SINGLE_QUOTE = 39
+const OPEN = 40
+const CLOSE = 41
+const SEMICOLON = 59
+
+/** The declaration in `text` from `start` to `end` into `out`: its property and value, trimmed, when it has both. */
+const takeDeclaration = (text: string, start: number, end: number, out: Record<string, string>): void => {
+  const declaration = text.slice(start, end)
+  const colon = declaration.indexOf(":")
+  if (colon <= 0) return
+  const key = declaration.slice(0, colon).trim()
+  const value = declaration.slice(colon + 1).trim()
+  if (key !== "" && value !== "") out[key] = value
 }
 
-const SCAN_START: CssScan = { depth: 0, quote: Option.none(), escaped: false, start: 0 }
-
-const isQuote = (c: string): boolean => c === '"' || c === "'"
-
+/** Where {@link parseCssText} is: the parentheses open, the string's quote, a backslash just read in it, the declaration's start. */
 /**
  * A style as a binding hands it over: a record of CSS properties, CSS text (`"color: red"`, which
  * JSX allows), or none.

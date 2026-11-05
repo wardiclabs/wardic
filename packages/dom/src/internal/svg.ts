@@ -143,11 +143,14 @@ export const isSvgInner = (el: unknown): boolean => {
 
 /** A style patch, split: the keys written as CSS, and the ones written as attributes. */
 export interface SplitPatch {
-  /** The keys written as CSS: the whole patch for HTML and an `<svg>` root. */
-  readonly style: Record<string, unknown>
+  /** The keys written as CSS: the whole patch for HTML and an `<svg>` root, the very object given. */
+  readonly style: Readonly<Record<string, unknown>>
   /** The keys written with `setAttribute`: none for HTML and an `<svg>` root. */
-  readonly attrs: Record<string, string>
+  readonly attrs: Readonly<Record<string, string>>
 }
+
+/** An HTML element's attributes from a patch: none, one shared frozen record (#618: one a split). */
+const NO_ATTRS: Readonly<Record<string, string>> = Object.freeze({})
 
 /**
  * A style patch split for `el`: an HTML element's, or an `<svg>` root's, is all style. An SVG element
@@ -160,7 +163,7 @@ export interface SplitPatch {
 // The CSS keys: `SVG_STYLE_KEYS`.
 export const splitPatch = (el: unknown, patch: Renderer.Patch): SplitPatch => {
   if (isSvgInner(el)) return routeSvgInner(patch)
-  return { style: patch as Record<string, unknown>, attrs: {} }
+  return { style: patch as Readonly<Record<string, unknown>>, attrs: NO_ATTRS }
 }
 
 /**
@@ -205,7 +208,7 @@ export const isSvgInnerTag = (tag: string): boolean => !tag.includes("-") && (SV
 export const splitPatchForTag = (tag: string | undefined, patch: Renderer.Patch): SplitPatch =>
   Bool.match(Predicate.isNotUndefined(tag) && isSvgInnerTag(tag), {
     onTrue: () => routeSvgInner(patch),
-    onFalse: () => ({ style: patch as Record<string, unknown>, attrs: {} }),
+    onFalse: () => ({ style: patch as Readonly<Record<string, unknown>>, attrs: NO_ATTRS }),
   })
 
 /** The svg-inner routing {@link splitPatch} and {@link splitPatchForTag} share. */

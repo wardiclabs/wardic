@@ -194,4 +194,12 @@ describe("The fallback style (ADR-0034)", () => {
   it("FS8 (#151): a server routes an svg-inner tag's custom property to style", () => {
     expect(Svg.splitPatchForTag("circle", { "--brandLevel": 0.4, r: 10 })).toEqual({ style: { "--brandLevel": 0.4 }, attrs: { r: "10" } })
   })
+
+  it("ST-CSS (#618): CSS text parses as before: a ; inside parentheses or quotes, an escaped quote, an empty or keyless declaration", () => {
+    const parse = (text: string) => pipe({}, Style.over(text))
+    expect(parse(`background: url("a;b"); content: 'x;y'; color: red`)).toEqual({ background: `url("a;b")`, content: "'x;y'", color: "red" })
+    expect(parse(`content: "a\\";b"; opacity: 1`)).toEqual({ content: `"a\\";b"`, opacity: "1" })
+    expect(parse(`transform: translate(calc(1px + (2px)), 3px); ;; :x; y:; z: 2`)).toEqual({ transform: "translate(calc(1px + (2px)), 3px)", z: "2" })
+    expect(parse(`width: 1px)); height: 2px`)).toEqual({ width: "1px))", height: "2px" })
+  })
 })

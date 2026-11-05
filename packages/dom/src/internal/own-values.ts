@@ -97,9 +97,21 @@ export const styleValueOf = (style: object | string | undefined, key: string): O
     },
   )
 
+/** The last CSS text parsed, and its record. */
+// Module state (#460, Q7): a one-entry cache keyed by the text it parsed, read only: a Retarget asks
+// for each of a style's keys in a row, and parsed the whole text again for each (#618, F6).
+let last: { readonly text: string; readonly record: Readonly<Record<string, unknown>> } = { text: "", record: {} }
+
+/** `text` parsed, once for as long as it's the text asked for. */
+const parsedOnce = (text: string): Readonly<Record<string, unknown>> => {
+  if (text === last.text) return last.record
+  last = { text, record: parseCssText(text) }
+  return last.record
+}
+
 /** A style given as CSS text, parsed; a record as it is. */
 const recordOf: (style: object | string) => Readonly<Record<string, unknown>> = Match.type<object | string>().pipe(
-  Match.when(Predicate.isString, parseCssText),
+  Match.when(Predicate.isString, parsedOnce),
   Match.orElse((record) => record as Readonly<Record<string, unknown>>),
 )
 

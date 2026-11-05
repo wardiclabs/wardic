@@ -168,31 +168,21 @@ const progressThrough = (stops: ReadonlyArray<number>, current: number): number 
 const insetOf = (element: Element | null, container: Element, x: number, y: number): Point => {
   if (Bool.or(element === null, element === container)) return { x, y }
   const current = element as Element
-  // Checked as the chain arrives, not with a match at each step: a read per scroll event allocates nothing more.
+  // Per scroll event, and per step of the chain: statements, no matcher or Option built (#618, F6).
   if (Bool.not(container.contains(current))) return fromContainer(container, current, x, y)
-  return Match.value(current).pipe(
-    Match.when(isHTMLElement, (e) => insetOf(e.offsetParent, container, x + e.offsetLeft, y + e.offsetTop)),
-    Match.when(
-      (e: Element) => e.tagName === "svg",
-      (e) =>
-        Option.match(Option.fromNullOr(e.parentElement), {
-          onNone: () => ({ x, y }),
-          onSome: (parent) => {
-            const own = e.getBoundingClientRect()
-            const box = parent.getBoundingClientRect()
-            return insetOf(parent, container, x + own.left - box.left, y + own.top - box.top)
-          },
-        }),
-    ),
-    Match.when(
-      (e: Element): e is SVGGraphicsElement => e instanceof SVGGraphicsElement,
-      (e) => {
-        const box = e.getBBox()
-        return insetOf(e.ownerSVGElement, container, x + box.x, y + box.y)
-      },
-    ),
-    Match.orElse(() => ({ x, y })),
-  )
+  if (isHTMLElement(current)) return insetOf(current.offsetParent, container, x + current.offsetLeft, y + current.offsetTop)
+  if (current.tagName === "svg") {
+    const parent = current.parentElement
+    if (parent === null) return { x, y }
+    const own = current.getBoundingClientRect()
+    const box = parent.getBoundingClientRect()
+    return insetOf(parent, container, x + own.left - box.left, y + own.top - box.top)
+  }
+  if (current instanceof SVGGraphicsElement) {
+    const box = current.getBBox()
+    return insetOf(current.ownerSVGElement, container, x + box.x, y + box.y)
+  }
+  return { x, y }
 }
 
 const isHTMLElement = (e: Element): e is HTMLElement => e instanceof HTMLElement
@@ -282,58 +272,17 @@ const sameScroll = (a: Probe.Scroll, b: Probe.Scroll): boolean =>
 /** The page's scroller: `document.scrollingElement`, else the root element. */
 const pageOf = (): Element => Option.getOrElse(Option.fromNullOr(document.scrollingElement), () => document.documentElement)
 
-/** The DOM's `Probe.scroll`, its Atoms set through `registry`. */
-export const makeScroll = (registry: AtomRegistry.AtomRegistry): ((options?: Probe.ScrollOptions) => Effect.Effect<Atom.Atom<Probe.Scroll>, never, Scope.Scope>) => {
-  const containers = new Map<Element, Container>()
-
-  /** A container's listener set, added for its first reader. */
-  const open = (element: Element): Container => {
-    const readers = new Set<() => void>()
-    const readAll = (): void => Iter.forEach(readers, (read) => read())
-    // The page's scroll is the window's event, and its range changes with the window.
-    const page = Bool.or(element === document.scrollingElement, element === document.documentElement)
-    const scrolls: EventTarget = Bool.match(page, { onTrue: (): EventTarget => window, onFalse: () => element })
-    scrolls.addEventListener("scroll", readAll, { passive: true })
-    window.addEventListener("resize", readAll)
-    // Sizes (#239): a container's own box, its content's, and its readers' targets'. One observer,
-    // each box counted by the reasons it's watched for (a target can be a child too).
-    const sizes = new ResizeObserver(readAll)
-    const watched = counted(sizes)
-    // Its own resize changes a container's range (the page's is the window's), and so does its
-    // content's: its direct children, kept as they come and go. A removed child resizes nothing still
-    // watched, and changes the range all the same.
-    const stopChildren = Bool.match(page, {
-      onTrue: () => watchPage(watched, readAll),
-      onFalse: () => {
-        watched.observe(element)
-        return watchChildren(element, watched, readAll)
-      },
-    })
-    const container: Container = {
-      readers,
-      count: 0,
-      watch: (target) => {
-        watched.observe(target)
-        return () => watched.unobserve(target)
-      },
-      remove: () => {
-        scrolls.removeEventListener("scroll", readAll)
-        window.removeEventListener("resize", readAll)
-        sizes.disconnect()
-  return container
-}
-        stopChildren()
-      },
-    }
-    containers.set(element, container)
-    return container
-  }
-
-  const acquire = (element: Element): Container => {
-    const container = Option.getOrElse(Option.fromUndefinedOr(containers.get(element)), () => open(element))
-    container.count++
-    return container
-  }
+/** The DOM's `Probe.scroll`, its Atoms set through `registry`: its containers held in the current Scope. */
+export const makeScroll = (
+  registry: AtomRegistry.AtomRegistry,
+): Effect.Effect<(options?: Probe.ScrollOptions) => Effect.Effect<Atom.Atom<Probe.Scroll>, never, Scope.Scope>, never, Scope.Scope> =>
+  Effect.map(
+    // Each container's listeners while a reader holds them, the last one out removing them (#618, M7:
+    // Effect's `RcMap` where a count was kept by hand). An element is keyed by reference: Effect's
+    // structural `Hash` would walk a DOM node.
+    RcMap.make({ lookup: (element: Element) => Effect.acquireRelease(Effect.sync(() => open(element)), (container) => Effect.sync(container.remove)) }),
+    (containers) => readerOf(registry, containers),
+  )
 
 /** A container's listener set, opened for its first reader. */
 const open = (element: Element): Container => {
@@ -371,6 +320,8 @@ const open = (element: Element): Container => {
       stopChildren()
     },
   }
+  return container
+}
 
 /** A reader of a container's scroll: the container's listeners held from `containers` while its Scope is open. */
 const readerOf = (registry: AtomRegistry.AtomRegistry, containers: RcMap.RcMap<Element, Container>) =>
