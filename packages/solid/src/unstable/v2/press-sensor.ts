@@ -15,10 +15,16 @@ import { type Sensor, watchSensorOf } from "./sensors.ts"
 const PRESS: ReadonlyArray<Feature> = [press]
 
 /**
- * `true` while the pointer is held down on the element, or a **Keyboard press** holds Enter or Space
- * on it (#427, the element made focusable for one), `false` once released or cancelled (the core
- * press watch).
+ * `true` while the element it's given to as a `ref` is pressed, by a pointer held down on it or by
+ * Enter or Space while it has focus, `false` once it's released or the press is cancelled. An element
+ * that takes no focus of itself is given `tabindex="0"`, so a keyboard can press it.
+ *
+ * @example
+ * const pressed = createPress()
+ * <button ref={pressed}>{pressed() ? "Holding" : "Press and hold"}</button>
+ * @see https://wardic.dev/reference/solid/gestures/create-press
  */
+// The core press watch; a Keyboard press (#427).
 export const createPress = (): Sensor<boolean> => {
   const services = useBrought(PRESS)
   return watchSensorOf<boolean>((target, { on, onDefect }) => serviceOf(services(), PressGesture).watch(target, { on: (press) => on(press.phase === "start"), onDefect }), false)

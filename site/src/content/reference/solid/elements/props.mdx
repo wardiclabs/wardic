@@ -1,7 +1,7 @@
 ---
 title: Motion props
 description: Every prop a w.* or wardic.* element takes, and a ward's config, from animation and gestures to drag, layout, the callbacks and their types.
-api: [WardConfig, WardicMotionProps, WardicValues, WardicTargetValues, WardicTransformShorthands, WardicVariant, WardicVariants, WardicVariantLabels, WardicVariantResolver, WardicKeyframes, WardicValueKey, WardicTransformTemplate, WardicPropagate, WardicAnimationDefinition, WardicPointInfo, WardicPoint, WardicPressEvent, WardicPressInfo, WardicPressInput, WardicDragInfo, WardicDragConstraints, WardicMeasureDragConstraints, WardicBoundingBox, WardicDragTransition, WardicLayoutBox]
+api: [WardConfig, WardicMotionProps, WardicValues, WardicTargetValues, WardicTransformShorthands, WardicVariant, WardicVariants, WardicVariantLabels, WardicVariantResolver, WardicKeyframes, WardicValueKey, WardicTransformTemplate, WardicPropagate, WardicAnimationDefinition, WardicPointInfo, WardicPoint, WardicPressEvent, WardicPressInfo, WardicPressInput, WardicDragInfo, WardicDragConstraints, WardicMeasureDragConstraints, WardicBoundingBox, WardicDragTransition, WardicLayoutBox, WardicViewport]
 ---
 
 # Motion props
@@ -33,7 +33,7 @@ A gesture's, drag's or layout's prop needs its [Feature](/guides/features), whic
 | `whileTap` | `press` | Where it animates while it's pressed, by a pointer, or by Enter or Space while it has focus. |
 | `whileFocus` | `focus` | Where it animates while it has the keyboard's focus. |
 | `whileInView` | `inView` | Where it animates while it's in view. |
-| `viewport` | `inView` | What "in view" means: `root`, `margin`, `amount` and `once`. |
+| `viewport` | `inView` | What "in view" means: `root`, `margin`, `amount` and `once`, as [`createInView`](/reference/solid/gestures/create-in-view#what-in-view-means) takes them. |
 | `propagate` | `press` | `{ tap: false }`: a press on this element isn't also a press of its ancestors. |
 
 ## Drag
@@ -102,3 +102,4 @@ Each gesture callback is called `(event, info)`, the DOM's event first, with `in
 - **`WardicPointInfo`**, **`WardicPressInfo`**, **`WardicDragInfo`:** (Solid 1) a hover's or a press's `info`, a press's (with `input`, a **`WardicPressInput`**: `"pointer"` or `"keyboard"`), and a drag's or a pan's: its `point` (a **`WardicPoint`**), `delta`, `offset` and `velocity`. **`WardicPressEvent`:** the event a press callback is given.
 - **`WardicDragConstraints`:** `dragConstraints`'s forms. **`WardicBoundingBox`:** a box's edges, `top`, `left`, `right` and `bottom`. **`WardicMeasureDragConstraints`:** `onMeasureDragConstraints`'s function. **`WardicDragTransition`:** `dragTransition`'s options.
 - **`WardicLayoutBox`:** a layout element's box: each axis's `min` and `max` in page pixels.
+- **`WardicViewport`:** `viewport`'s options, and `createInView`'s.

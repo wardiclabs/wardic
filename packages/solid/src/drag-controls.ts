@@ -10,36 +10,34 @@ import * as Arr from "effect/Array"
 import { constVoid } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 
-/** {@link WardicDragControls.start}'s options (Motion's). */
+/** `controls.start`'s options, as Motion's. */
 export interface WardicDragControlsOptions {
-  /**
-   * Move the element so its centre is under the pointer as the drag begins (Motion's `snapToCursor`):
-   * measured from its box, on the axes it drags. Default `false`.
-   */
+  /** Moves the element so its centre is under the pointer as the drag begins, on the axes it drags. Default `false`. */
   readonly snapToCursor?: boolean | undefined
-  /** How far (px) the pointer moves before the drag starts (Motion's `distanceThreshold`). Default 3. */
+  /** How far the pointer moves, in pixels, before the drag starts. Default 3. */
   readonly distanceThreshold?: number | undefined
 }
 
 /**
- * Drag controls (#431, Motion's `DragControls`): give them to elements with `dragControls={controls}`,
- * then start their drags from anywhere.
+ * `createDragControls()`'s controls: give them to elements as `dragControls`, then start, stop or
+ * cancel their drags from anywhere.
  */
+// #431, Motion's `DragControls`.
 export interface WardicDragControls {
   /**
-   * Begin a drag on each element given these controls, from `event`, a pointer pressed elsewhere
-   * (call it from that pointer's `pointerdown`): it follows the pointer as if it had pressed the
-   * element, past the threshold. Each takes its **Drag claim** as any drag does, so of two given the
-   * same controls on one axis only the first drags, unless the other has `dragPropagation` (Motion's
-   * drag lock). An element leaving an `<AnimatePresence>` starts none. The handle wants
-   * `touch-action: none`, or a touch on it scrolls the page.
+   * Starts a drag on each element given these controls, from `event`, a pointer pressed elsewhere: call
+   * it from that pointer's `pointerdown`. Each follows the pointer as if it had been pressed itself,
+   * once the pointer has moved past the threshold. Of two elements given the same controls on one axis,
+   * only the first drags, unless the other has `dragPropagation`. One leaving an `<AnimatePresence>`
+   * doesn't start. Give the handle `touch-action: none`, or a touch on it scrolls the page.
    */
+  // Each takes its Drag claim as any drag does (Motion's drag lock).
   readonly start: (event: PointerEvent, options?: WardicDragControlsOptions) => void
-  /** End each drag as its pointer's release would: its release runs, and `onDragEnd` (Solid 2's `dragEnd`) is told. */
+  /** Ends each drag as letting go of the pointer would: it carries on as released, and `onDragEnd` (Solid 2: `dragEnd`) is called. */
   readonly stop: () => void
   /**
-   * End each drag where it is: no release and no `onDragEnd`, `whileDrag` off, its claim given back.
-   * A layout node goes back to its slot, at rest, as its drag always does.
+   * Ends each drag where it is: it doesn't carry on, `onDragEnd` isn't called, and `whileDrag` goes off.
+   * A `layout` element goes back to its place, as after any drag.
    */
   readonly cancel: () => void
 }
@@ -57,15 +55,18 @@ const subscribed = new WeakMap<WardicDragControls, Set<ControlledDrag>>()
 const NO_OPTIONS: WardicDragControlsOptions = {}
 
 /**
- * Make **Drag controls** (#431, Motion's `useDragControls`): made outside the elements they drive, and
- * given to each as `dragControls` (on a `wardic.*` element, in a ward's config, or on a `Reorder.Item`),
- * with `dragListener={false}` when the element's own presses shouldn't drag it. Needs no owner.
+ * Makes drag controls, which start an element's drag from somewhere else, such as a handle: give them
+ * to each element they drive as `dragControls`, on a `w.*` element, in a ward's config or on a
+ * `Reorder.Item`, and add `dragListener={false}` when a press on the element itself shouldn't drag it.
+ * Needs no owner. Motion's `useDragControls`.
  *
  * @example
  * const controls = createDragControls()
  * <div onPointerDown={(e) => controls.start(e)} style={{ "touch-action": "none" }}>handle</div>
- * <wardic.div drag="x" dragControls={controls} dragListener={false} />
+ * <w.div drag="x" dragControls={controls} dragListener={false} />
+ * @see https://wardic.dev/reference/solid/gestures/create-drag-controls
  */
+// #431: made outside the elements they drive; each element's drag track subscribes while it's mounted.
 export const createDragControls = (): WardicDragControls => {
   const tracks = new Set<ControlledDrag>()
   // A track that subscribes or leaves while the controls call each is left out of that call.

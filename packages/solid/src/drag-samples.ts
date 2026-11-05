@@ -15,16 +15,17 @@ import type { WardicTransformPoint } from "./config.ts"
 
 /** The axis, claim and bounds options for {@link createDrag}. */
 export interface CreateDragOptions {
-  /** Keep the drag to a single axis, zeroing the off-axis components; it claims only that axis. */
+  /** Keeps the drag to one axis, `"x"` or `"y"`: the other reads 0, and only that axis is taken. */
   readonly axis?: "x" | "y"
   /**
-   * `false`: take no **Drag claim** (ADR-0019, *Amendment (#29)*), so watching a pan over an area
-   * blocks no draggable inside it, and a draggable inside it blocks nothing here. Default `true`.
+   * `false`: takes no drag from the element, so watching a drag over an area blocks no draggable
+   * inside it, and a draggable inside it blocks nothing here. Default `true`.
    */
+  // A Drag claim (ADR-0019, *Amendment (#29)*).
   readonly claim?: boolean
-  /** Constrain `offset` to a static numeric region (optionally elastic). */
+  /** Keeps `offset` within bounds, each axis's `min` and `max` in pixels: `{ x: { min: 0, max: 200 } }`. */
   readonly bounds?: Drag.Bounds
-  /** Rubber-band resistance past `bounds` (0 = hard clamp, 1 = free). */
+  /** How far `offset` can be pulled past `bounds`: 0 stops it at them (the default), 1 lets it go freely. */
   readonly elastic?: number
 }
 

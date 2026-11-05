@@ -107,6 +107,18 @@ export const NAV: ReadonlyArray<NavSection> = [
           { path: "/reference/solid/reorder/reorder-item", title: "Reorder items" },
         ],
       },
+      {
+        title: "Gestures",
+        pages: [
+          { path: "/reference/solid/gestures/create-hover", title: "createHover" },
+          { path: "/reference/solid/gestures/create-press", title: "createPress" },
+          { path: "/reference/solid/gestures/create-focus", title: "createFocus" },
+          { path: "/reference/solid/gestures/create-in-view", title: "createInView" },
+          { path: "/reference/solid/gestures/create-page-in-view", title: "createPageInView" },
+          { path: "/reference/solid/gestures/create-drag", title: "createDrag" },
+          { path: "/reference/solid/gestures/create-drag-controls", title: "createDragControls" },
+        ],
+      },
     ],
   },
 ]

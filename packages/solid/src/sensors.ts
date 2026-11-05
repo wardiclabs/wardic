@@ -22,6 +22,8 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createComputed, createSignal, getOwner, runWithOwner, untrack } from "solid-js"
 import { fromAtom, watchToSignal } from "./bridge.ts"
+import type { WardicViewport } from "./config.ts"
+import { inViewOptionsOf } from "./gesture-callbacks.ts"
 import { useWardicReducedMotionSetting, useWardicRuntime } from "./provider.tsx"
 import { isServer } from "./server.ts"
 
@@ -112,15 +114,20 @@ export const createWhenWanted = <C,>(config: Accessor<C>, wants: Wants<C>, start
 }
 
 /**
- * `true` while `target` intersects the viewport, `false` otherwise. Wraps the
- * core in-view watch (#318; `{ once: true }` settles after the first `true`);
- * `false` until the first entry.
+ * `true` while `target` is in view, `false` otherwise. What "in view" means is a `viewport`'s, as on a
+ * Wardic element: `root`, a scrolling container (the window if none); `margin`, grown around it, as
+ * CSS `rootMargin`; `amount` of the element that must show, `"some"`, `"all"` or 0 to 1; and `once`,
+ * to stay `true` after the first entry. `false` until the first entry. `target` is the element itself,
+ * and `root` is read as it's called, so call it where both exist. Motion's `useInView`.
+ *
+ * @example
+ * const visible = createInView(props.card, { amount: "all", once: true })
+ * @see https://wardic.dev/reference/solid/gestures/create-in-view
  */
-export const createInView = (
-  target: unknown,
-  options?: { readonly once?: boolean },
-): Accessor<boolean> =>
-  watchToSignal<boolean>(({ on, onDefect }) => Recognizer.watchInView(target, { ...options }, { on: (transition) => on(transition.active), onDefect }), false)
+// The core in-view watch (#318), its options mapped as the element's `viewport` is (#273): `root` read
+// as it starts.
+export const createInView = (target: unknown, viewport?: WardicViewport): Accessor<boolean> =>
+  watchToSignal<boolean>(({ on, onDefect }) => Recognizer.watchInView(target, inViewOptionsOf(viewport), { on: (transition) => on(transition.active), onDefect }), false)
 
 /**
  * Reactive `prefers-reduced-motion` preference as a boolean `Accessor`. Resolves
@@ -160,18 +167,17 @@ export const createReducedMotionConfig = (): Accessor<boolean> => {
 }
 
 /**
- * Whether the page is shown (#443, Motion's `usePageInView`): `false` while it's hidden, in a tab in
- * the background or a minimised window, from the Probe's `pageVisible`. Pause what nobody can see,
- * such as a carousel's autoplay.
+ * Whether the page is shown: `false` while it's hidden, in a tab in the background or a minimised
+ * window. Pause what nobody can see, such as a carousel's autoplay. A server renders `true`, and a
+ * hydrating page keeps it until it has mounted. Motion's `usePageInView`.
  *
- * A server renders `true`, and a hydrating client keeps it until mount (the Hydration hold), as
- * Motion's starts `true` and corrects itself after its first render.
- *
- * ```tsx
+ * @example
  * const visible = createPageInView()
  * createEffect(() => (visible() ? player.play() : player.pause()))
- * ```
+ * @see https://wardic.dev/reference/solid/gestures/create-page-in-view
  */
+// #443, the Probe's `pageVisible`. The Hydration hold keeps `true` until mount, as Motion's starts
+// `true` and corrects itself after its first render.
 export const createPageInView = (): Accessor<boolean> => {
   const runtime = useWardicRuntime()
   if (isServer) return () => true

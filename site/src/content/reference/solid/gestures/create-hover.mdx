@@ -1,0 +1,45 @@
+---
+title: createHover
+description: Whether the pointer is over an element, as a signal, for what isn't an animation.
+api: [createHover, Sensor]
+---
+
+# createHover
+
+Whether the pointer is over an element: `true` while it's over it, `false` once it leaves. It's a hover as state, for what isn't an animation, such as a hint shown or a label changed. To animate on hover, give the element `whileHover`.
+
+A touch never hovers. On a server, and until the pointer first comes over it, it's `false`.
+
+## Solid 1
+
+```tsx
+import { createHover } from "@wardic/solid"
+
+function Hint(props: { readonly card: HTMLElement }) {
+  const hovered = createHover(props.card)
+  return <Show when={hovered()}><p class="hint">Drag to reorder</p></Show>
+}
+```
+
+`createHover(target)` takes the element itself, so call it where the element exists: in a component it's given to.
+
+## Solid 2
+
+```tsx
+import { createHover } from "@wardic/solid/unstable/v2"
+
+const hovered = createHover()
+<article ref={hovered}>{hovered() ? "Over" : "Away"}</article>
+```
+
+`createHover()` returns a sensor: give it to the element's `ref`, and call it with nothing to read it. Beside a ward, give both in an array: `ref={[card, hovered]}`. Given another element, it follows that one. On a Wardic element, its ward's `hoverStart` and `hoverEnd` [events](/reference/solid/elements/ward-events) tell the same moments, and `hover` each move.
+
+It brings the `hover` Feature.
+
+## Coming from Motion
+
+Motion has no hover hook: it has `whileHover` and the `onHoverStart` and `onHoverEnd` callbacks, which Wardic has too.
+
+## Types
+
+- **`Sensor`:** (Solid 2) a sensor of a value: a ref, and its reading. Every Solid 2 gesture sensor is one.

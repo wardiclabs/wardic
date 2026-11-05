@@ -16,9 +16,16 @@ import { useBrought } from "./provider.tsx"
 const FOCUS: ReadonlyArray<Feature> = [focus]
 
 /**
- * `true` while `target` is focused, `false` once blurred. Wraps the core focus
- * watch (#318); `false` until the first transition.
+ * `true` while `target` has focus, `false` once it loses it, however it got it: a pointer's click
+ * counts, where `whileFocus` counts only a focus the browser shows. `target` is the element itself, so
+ * call it where it exists.
+ *
+ * @example
+ * const focused = createFocus(props.input)
+ * <p class="hint" hidden={!focused()}>Press Enter to search</p>
+ * @see https://wardic.dev/reference/solid/gestures/create-focus
  */
+// The core focus watch (#318), not `visible` only. `false` until its first transition.
 export const createFocus = (target: unknown): Accessor<boolean> => {
   const services = useBrought(FOCUS)
   return watchToSignal<boolean>((handlers) => serviceOf(services(), FocusGesture).watch(target, {}, handlers), false)

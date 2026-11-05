@@ -16,10 +16,17 @@ import { useBrought } from "./provider.tsx"
 const PRESS: ReadonlyArray<Feature> = [press]
 
 /**
- * `true` while the pointer is held down on `target`, or a **Keyboard press** holds Enter or Space on
- * it (#427, `target` made focusable for one), `false` once released or cancelled. Wraps the core
- * press watch (#318); `false` until the first transition.
+ * `true` while `target` is pressed, by a pointer held down on it or by Enter or Space while it has
+ * focus, `false` once it's released or the press is cancelled. `target` is the element itself, so call
+ * it where it exists. An element that takes no focus of itself is given `tabindex="0"`, so a keyboard
+ * can press it.
+ *
+ * @example
+ * const pressed = createPress(props.button)
+ * <span>{pressed() ? "Holding" : "Press and hold"}</span>
+ * @see https://wardic.dev/reference/solid/gestures/create-press
  */
+// The core press watch (#318); a Keyboard press (#427). `false` until its first transition.
 export const createPress = (target: unknown): Accessor<boolean> => {
   const services = useBrought(PRESS)
   return watchToSignal<boolean>(({ on, onDefect }) => serviceOf(services(), PressGesture).watch(target, { on: (press) => on(press.phase === "start"), onDefect }), false)

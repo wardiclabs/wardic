@@ -1,0 +1,27 @@
+---
+title: createFocus
+description: Whether an element has focus, however it got it, as a signal.
+api: [createFocus]
+---
+
+# createFocus
+
+Whether an element has focus: `true` while it has it, `false` once it loses it.
+
+```tsx
+import { createFocus } from "@wardic/solid/unstable/v2"
+
+const focused = createFocus()
+<input ref={focused} />
+<p class="hint" hidden={!focused()}>Press Enter to search</p>
+```
+
+On Solid 1, `createFocus(target)` takes the element itself, so call it where the element exists, as [`createHover`](/reference/solid/gestures/create-hover#solid-1) does. On Solid 2, `createFocus()` is a sensor, given to the element's `ref`.
+
+It counts every focus, a pointer's click included. `whileFocus` counts only a focus the browser shows, as `:focus-visible` does: a keyboard's. On a server, and until the first focus, it's `false`.
+
+It brings the `focus` Feature.
+
+## Coming from Motion
+
+Motion has no focus hook: it has `whileFocus`, which Wardic has too.

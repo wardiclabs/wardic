@@ -1,0 +1,45 @@
+---
+title: createDragControls
+description: Drag controls start an element's drag from somewhere else, such as a handle, and stop or cancel it.
+api: [createDragControls, WardicDragControls, WardicDragControlsOptions]
+---
+
+# createDragControls
+
+Makes drag controls, which start an element's drag from somewhere else, such as a handle or a track. Give them to each element they drive as `dragControls`, then call `start` from a pointer's `pointerdown`.
+
+```tsx
+import { createDragControls, w } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+const controls = createDragControls()
+<div class="handle" onPointerDown={(event) => controls.start(event)} style={{ "touch-action": "none" }} />
+<w.div drag="x" dragControls={controls} dragListener={false} />
+```
+
+`dragListener={false}` keeps a press on the element itself from dragging it, so only the handle does. Give the handle `touch-action: none`, or a touch on it scrolls the page. The controls go to a `w.*` element, a ward's config or a `Reorder.Item`, and need no owner.
+
+## Members
+
+| Member | |
+| --- | --- |
+| `start(event, options?)` | Starts a drag on each element given the controls, from `event`: each follows the pointer as if it had been pressed itself, once the pointer has moved past the threshold. |
+| `stop()` | Ends each drag as letting go would: it carries on as released, and `onDragEnd` (Solid 2: `dragEnd`) is called. |
+| `cancel()` | Ends each drag where it is: it doesn't carry on, `onDragEnd` isn't called, and `whileDrag` goes off. |
+
+`start`'s options:
+
+| Option | |
+| --- | --- |
+| `snapToCursor` | Moves the element so its centre is under the pointer as the drag begins. Default `false`. |
+| `distanceThreshold` | How far the pointer moves, in pixels, before the drag starts. Default 3. |
+
+Of two elements given the same controls on one axis, only the first drags, unless the other has `dragPropagation`. An element leaving an `<AnimatePresence>` doesn't start.
+
+## Coming from Motion
+
+Motion's `useDragControls`, with `start`, `stop` and `cancel`, and `start`'s `snapToCursor` and `distanceThreshold`.
+
+## Types
+
+- **`WardicDragControls`:** the controls.
+- **`WardicDragControlsOptions`:** `start`'s options.

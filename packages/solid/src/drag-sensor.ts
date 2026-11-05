@@ -21,12 +21,20 @@ import { transformPagePointOf } from "./wardic-config-value.ts"
 const DRAG: ReadonlyArray<Feature> = [drag]
 
 /**
- * Latest `Drag.Sample` from a drag gesture on `target`, or `null` before the first sample.
- * Runs the core drag watch (#379) with `options`' axis and claim, each sample kept within
- * `bounds` when present. Like the element's own drag, it holds `target`'s **Drag claim** while a gesture
- * is on, which it shares with every other drag on `target`; refused one, it gets no samples
- * for that gesture.
+ * The latest sample of a drag on `target`, `null` before the first: where the pointer is, how far it
+ * has come, its velocity, and the gesture's `phase`. It moves nothing: it reports, for a drag that
+ * drives something else, such as a slider's value. `target` is the element itself, so call it where
+ * it exists. Like an element's own drag, it takes the element's drag while a gesture is on, unless
+ * `claim: false`.
+ *
+ * @example
+ * const drag = createDrag(props.track, { axis: "x" })
+ * const value = () => (drag()?.offset.x ?? 0) / 2
+ * @see https://wardic.dev/reference/solid/gestures/create-drag
  */
+// The core drag watch (#379), each sample kept within `bounds` when given. It holds `target`'s Drag
+// claim while a gesture is on, shared with every other drag on it; refused one, it gets no samples for
+// that gesture.
 export const createDrag = (target: unknown, options?: CreateDragOptions): Accessor<Drag.Sample | null> => {
   // Its points through the nearest WardicConfig's `transformPagePoint` (#443), read at each down.
   const pagePoint = transformPagePointOf(useWardicConfig())

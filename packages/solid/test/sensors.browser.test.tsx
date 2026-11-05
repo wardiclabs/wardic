@@ -18,7 +18,7 @@ import {
   createTransform,
   WardicProvider,
 } from "@wardic/solid"
-import { retryGesture } from "./browser-helpers.ts"
+import { retryGesture, until } from "./browser-helpers.ts"
 
 afterEach(cleanup)
 
@@ -108,6 +108,41 @@ describe("createInView", () => {
     })
     expect(typeof visible!()).toBe("boolean")
     expect(visible!()).toBe(false)
+  })
+
+  it("takes Motion's viewport: its root, amount and margin decide what's in view", async () => {
+    // A 100 px scrolling container far below the viewport, its child 40 px tall from 80 px down: half
+    // of it shows in the container.
+    const scroller = document.createElement("div")
+    scroller.style.cssText = "position: absolute; top: 5000px; height: 100px; overflow: auto"
+    const half = document.createElement("div")
+    half.style.cssText = "margin-top: 80px; width: 40px; height: 40px"
+    scroller.appendChild(half)
+    document.body.appendChild(scroller)
+    let outside!: Accessor<boolean>
+    let some!: Accessor<boolean>
+    let all!: Accessor<boolean>
+    let grown!: Accessor<boolean>
+    function Probe() {
+      outside = createInView(half)
+      some = createInView(half, { root: () => scroller })
+      all = createInView(half, { root: () => scroller, amount: "all" })
+      grown = createInView(half, { root: () => scroller, amount: "all", margin: "0px 0px 40px 0px" })
+      return null
+    }
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <Probe />
+      </WardicProvider>
+    ))
+    await until(() => some() && grown())
+    // The rest have had their first report too: the observers deliver theirs in the same frame.
+    for (let frame = 0; frame < 3; frame++) await new Promise((done) => requestAnimationFrame(done))
+    expect(outside(), "no root: the window, which the container is far below").toBe(false)
+    expect(some(), "half of it shows in the container").toBe(true)
+    expect(all(), "amount all: half isn't all").toBe(false)
+    expect(grown(), "amount all, the container grown 40 px at the bottom").toBe(true)
+    scroller.remove()
   })
 })
 
