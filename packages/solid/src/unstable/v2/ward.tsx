@@ -156,7 +156,7 @@ import {
   useFeatureRegistry,
 } from "./provider.tsx"
 import { type Feature, type FeatureRegistry, type FeatureSection, LAYOUT_PROPS, missingMessage, unreadColorIn } from "../../feature.ts"
-import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
+import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, CLIENT_ONLY_SYNC, CLIENT_ONLY_SYNC_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { transformPagePointOf } from "../../wardic-config-value.ts"
 import { configView, type Fixed, type PerKey, type PerKeyApart } from "./config-view.ts"
@@ -1585,7 +1585,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         () => {
           UndefinedOr.map(mounted, startRecognizers)
         },
-        CLIENT_ONLY_DEFERRED,
+        CLIENT_ONLY_SYNC_DEFERRED,
       ),
     )
   }
@@ -1684,7 +1684,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       const spine = mounted.spine
       untrack(() => spine.retarget(resolution))
     },
-    CLIENT_ONLY,
+    CLIENT_ONLY_SYNC,
   )
 
   // `<card.Provider>` hands down what this element hands its children (#50).
