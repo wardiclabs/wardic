@@ -5,7 +5,7 @@
  * Each page enters as you open it.
  */
 import { useParams } from "@solidjs/router"
-import { Dynamic, useHead } from "@solidjs/web"
+import { dynamic, useHead } from "@solidjs/web"
 import { w } from "@wardic/solid/unstable/v2"
 import type { Component } from "solid-js"
 import { createMemo, For, lazy, Show } from "solid-js"
@@ -44,11 +44,15 @@ export default function Page() {
     <Show when={page()} fallback={<NotFound />}>
       {(found) => (
         <For each={[found().page]}>
-          {(current) => (
-            <w.article class="prose" data-pagefind-body initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, ease: "easeOut" }}>
-              <Dynamic component={current} />
-            </w.article>
-          )}
+          {(current) => {
+            // Not static: its memo holds the page's chunk while it loads, as `<Dynamic>`'s did (#618, S2).
+            const Current = dynamic(() => current)
+            return (
+              <w.article class="prose" data-pagefind-body initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, ease: "easeOut" }}>
+                <Current />
+              </w.article>
+            )
+          }}
         </For>
       )}
     </Show>
