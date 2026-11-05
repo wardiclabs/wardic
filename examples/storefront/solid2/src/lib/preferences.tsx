@@ -65,11 +65,8 @@ export function PreferencesProvider(props: { readonly children: JSX.Element }) {
   return <PreferencesContext value={preferences}>{props.children}</PreferencesContext>
 }
 
-export const usePreferences = (): Preferences => {
-  const preferences = useContext(PreferencesContext)
-  if (preferences === undefined) throw new Error("usePreferences outside <PreferencesProvider>")
-  return preferences
-}
+/** The visitor's preferences. Outside `<PreferencesProvider>`, Solid throws its `ContextNotFoundError` (#618, S4). */
+export const usePreferences = (): Preferences => useContext(PreferencesContext)
 
 /**
  * Whether to reduce motion (#388): the system's setting, through `createReducedMotion`, or the

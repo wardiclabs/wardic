@@ -5,7 +5,7 @@ import type { Settings } from "@wardic/example-storefront-shared/server"
 import { COG, ICON, turnOf } from "@wardic/example-storefront-shared/micro"
 import { AnimatePresence, arc, LazyWardic, w } from "@wardic/solid/unstable/v2"
 import { action, createEffect, createMemo, createSignal, For, Loading, Show } from "solid-js"
-import { type Arrival, arrivalId, arrivals, flightLayout, landed } from "~/lib/arrivals.ts"
+import { type Arrival, arrivalId, ArrivalsProvider, useArrivals } from "~/lib/arrivals.tsx"
 import { type Theme, usePreferences } from "~/lib/preferences.tsx"
 import { cart, settings } from "~/lib/store.ts"
 import { setSettings } from "~/server/store.ts"
@@ -80,6 +80,7 @@ function SettingsForm() {
 
 /** The cart's count, which pops each time it changes: a new count is a new element, growing in. */
 function CartButton() {
+  const { arrivals, flightLayout } = useArrivals()
   const current = createMemo(() => cart())
   const count = () => current().lines.reduce((sum, line) => sum + line.quantity, 0)
   return (
@@ -120,6 +121,7 @@ const TOSS = arc()
  * hidden as this one takes over.
  */
 function CartArrival(props: { readonly piece: Arrival }) {
+  const { landed } = useArrivals()
   // Its ward holds what it hears, its layout (#398): its landing lets it go.
   const flight = w.ward({ layoutId: arrivalId(props.piece.id) })
   createEffect(flight.when("layoutComplete"), () => landed(props.piece.id))
@@ -141,7 +143,7 @@ export function Shell(props: { readonly children: JSX.Element }) {
   // Each theme switch turns its icon half a turn on (#365).
   const [switches, setSwitches] = createSignal(0)
   return (
-    <>
+    <ArrivalsProvider>
       <header class="site-header">
         <div class="page">
           <a class="brand" href="/">
@@ -193,6 +195,6 @@ export function Shell(props: { readonly children: JSX.Element }) {
           <span>Photos: CC0, from museums' open-access collections.</span>
         </div>
       </footer>
-    </>
+    </ArrivalsProvider>
   )
 }
