@@ -1,14 +1,21 @@
 /**
- * A **Reorder group**'s controller in the DOM: the group, its drag, its keyboard and its announcements (ADR-0019 *Amendment (Reorder)*, ADR-0037). A server render gets `inert` (ADR-0021).
+ * A Reorder group on the DOM: the group, its items' drags, its keyboard and its announcements, one
+ * controller a group. `make` builds one over the context's Projection system and `Announcer`; a binding
+ * attaches its group element, gets a driver for each item, and closing the Scope ends the controller. A
+ * server render gets `inert`.
  *
- * `@wardic/dom/ReorderController` (#132, ADR-0041).
+ * @example
+ * import * as ReorderController from "@wardic/dom/ReorderController"
  *
- * It's built by a scoped constructor, one per group (#132's PR 3): `make` takes the projection system
- * and the `Announcer` from its context, logs its `wardic.reorder:` events through the context's
- * Logger, and ends with its Scope, which stops its listening to Measure passes, resets its
- * Auto-scroll and clears a pending announcement. Its items' drivers stay plain, each with its own
- * `dispose`, since one is made per element.
+ * const controller = yield* ReorderController.make({ values: () => items, onReorder: (next) => (items = next) })
+ * controller.attach(list)
+ * const driver = controller.item(item, () => Option.some(element))
  */
+// A **Reorder group**'s controller (ADR-0019 *Amendment (Reorder)*, ADR-0037); a server render's `inert`
+// (ADR-0021). `@wardic/dom/ReorderController` (#132, ADR-0041). A scoped constructor, one per group (#132's
+// PR 3): `make` logs its `wardic.reorder:` events through the context's Logger, and ends with its Scope,
+// which stops its listening to Measure passes, resets its Auto-scroll and clears a pending announcement.
+// Its items' drivers stay plain, each with its own `dispose`, since one is made per element.
 import * as Announcer from "@wardic/core/Announcer"
 import * as Effect from "effect/Effect"
 import type * as Scope from "effect/Scope"
@@ -52,7 +59,8 @@ export const make: <V>(options: Options<V>) => Effect.Effect<ReorderController<V
   })
 
 /**
- * The controller a server render gets (ADR-0021): its group has no values, so every operation on
- * it does nothing, the axis is `"y"`, and an item's driver is inert too.
+ * The controller a server render gets: its group has no values, so every operation on it does nothing,
+ * its axis is `"y"`, and an item's driver does nothing too.
  */
+// ADR-0021.
 export const inert: ReorderController<never> = internal.INERT_REORDER_CONTROLLER
