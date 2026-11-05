@@ -81,10 +81,11 @@ export interface ReorderControllerWiring {
 }
 
 /**
- * A user's reorder that changed the order, at its end (#257 item 3): a pointer drag released, or a
- * keyboard lift dropped, with the item at another index than at its start. What an app saves: the
- * whole order, or the one item that moved and where.
+ * A user's reorder that changed the order, at its end: a pointer drag released, or a keyboard lift
+ * dropped, with the item at another index than at its start. What an app saves: the whole order, or the
+ * one item that moved and where.
  */
+// #257 item 3.
 export interface ReorderEnd<V> {
   /** The order at the end. */
   readonly values: Array<V>
@@ -96,42 +97,51 @@ export interface ReorderEnd<V> {
   readonly to: number
 }
 
-/** A **Reorder hold**'s start (#348): the item taken in hand, by its drag's start or a keyboard lift, and its index then. */
+/** A **Reorder hold**'s start: the item taken in hand, by its drag's start or a keyboard lift, and its index then. */
+// #348.
 export interface ReorderHoldStart<V> {
+  /** The item taken in hand. */
   readonly value: V
+  /** Its index at the start. */
   readonly from: number
 }
 
 /**
- * How a **Reorder hold** ended (#348): `"drop"`, released or dropped where it is (a pointer's release or
- * cancel, a drop key, focus leaving, a press, the app's `values`, another hold); `"cancel"`, Escape,
- * the order put back; `"unmount"`, its item went away.
+ * How a **Reorder hold** ended: `"drop"`, released or dropped where it is (a pointer's release or
+ * cancel, a drop key, focus leaving, a press, the app's `values`, another hold); `"cancel"`, Escape, the
+ * order put back; `"unmount"`, its item went away.
  */
+// #348.
 export type ReorderHoldHow = "drop" | "cancel" | "unmount"
 
 /**
- * A **Reorder hold**'s end (#348), whatever ended it, once: the order then, the item, its index at the start
- * and now (`-1` once it's out of the values), and how. After `onReorderEnd`, in the same task, when
- * the order changed.
+ * A **Reorder hold**'s end, whatever ended it, once: the order then, the item, its index at the start
+ * and now (`-1` once it's out of the values), and how. After `onReorderEnd`, in the same task, when the
+ * order changed.
  */
+// #348.
 export interface ReorderHoldEnd<V> extends ReorderEnd<V> {
+  /** How it ended. */
   readonly how: ReorderHoldHow
 }
 
-/** {@link makeReorderController}'s options: what a binding hands its group. */
+/** What a binding hands its group's controller. */
 export interface ReorderControllerOptions<V> {
   /** The app's values, in order. */
   readonly values: () => ReadonlyArray<V>
   /** Receives a new order; the app sets `values` from it. */
   readonly onReorder: (values: Array<V>) => void
   /**
-   * Hears a user's reorder that changed the order, at its end (#257 item 3): once a gesture, not at
-   * each step, as `onReorder` is. Not a keyboard cancel, which puts the order back, nor `move`.
+   * Hears a user's reorder that changed the order, at its end: once a gesture, not at each step, as
+   * `onReorder` is. Not a keyboard cancel, which puts the order back, nor `move`.
    */
+  // #257 item 3.
   readonly onReorderEnd?: ((end: ReorderEnd<V>) => void) | undefined
-  /** Hears each **Reorder hold**'s start (#348): a drag of an item past its threshold, or a keyboard lift. */
+  /** Hears each **Reorder hold**'s start: a drag of an item past its threshold, or a keyboard lift. */
+  // #348.
   readonly onHoldStart?: ((start: ReorderHoldStart<V>) => void) | undefined
-  /** Hears each **Reorder hold**'s end (#348), once, whatever ended it; after `onReorderEnd` when it moved. */
+  /** Hears each **Reorder hold**'s end, once, whatever ended it; after `onReorderEnd` when it moved. */
+  // #348.
   readonly onHoldEnd?: ((end: ReorderHoldEnd<V>) => void) | undefined
   /** The app's axis, overriding detection; `None` to detect. */
   readonly axis?: (() => Option.Option<Reorder.Axis>) | undefined
@@ -144,9 +154,11 @@ export interface ReorderControllerOptions<V> {
    * `"<For>"`; by default "their value".
    */
   readonly keyedWith?: string | undefined
-  /** Whether the items reorder by keyboard (ADR-0037), read at each key; `false` turns it off. On when left out. */
+  /** Whether the items reorder by keyboard, read at each key; `false` turns it off. On when left out. */
+  // ADR-0037.
   readonly keyboard?: (() => boolean) | undefined
-  /** The group's announcements over the defaults (ADR-0037), read at each announcement. */
+  /** The group's announcements over the defaults, read at each announcement. */
+  // ADR-0037.
   readonly announcements?: (() => Option.Option<Partial<Reorder.Announcements<V>>>) | undefined
 }
 
@@ -158,11 +170,14 @@ export interface ReorderItemDriver {
   readonly dragAxis: () => Reorder.Axis
   /** The item's drag samples, as the drag delivers them. */
   readonly onSample: (sample: Drag.Sample) => void
-  /** A key at the item or inside it (ADR-0037), inside its dispatch: a keyboard reorder's. */
+  /** A key at the item or inside it, inside its dispatch: a keyboard reorder's. */
+  // ADR-0037.
   readonly onKey: (event: InputSource.KeyboardLikeEvent) => void
-  /** Focus left the item: a lift drops where it is, unless focus is back on the item (ADR-0037). */
+  /** Focus left the item: a lift drops where it is, unless focus is back on the item. */
+  // ADR-0037.
   readonly onBlur: () => void
-  /** A press on the item: a lift drops where it is, before any drag (ADR-0037). */
+  /** A press on the item: a lift drops where it is, before any drag. */
+  // ADR-0037.
   readonly onPress: () => void
   /** The item is going away: end a gesture or a lift still in progress. */
   readonly dispose: () => void
@@ -172,10 +187,11 @@ export interface ReorderItemDriver {
 export const REPEAT_ANNOUNCE: Duration.Duration = Duration.millis(150)
 
 /**
- * A Reorder item's default instructions on the web (ADR-0037, the NVDA pass): core's keys, and
- * focus mode. A screen reader in browse mode (NVDA's, JAWS's) keeps Space and the arrows for itself
- * until its user switches to focus mode, and it doesn't switch by itself on a list item.
+ * A Reorder item's default instructions on the web: core's keys, and focus mode. A
+ * screen reader in browse mode (NVDA's, JAWS's) keeps Space and the arrows for itself until its user
+ * switches to focus mode, and it doesn't switch by itself on a list item.
  */
+// ADR-0037: the NVDA pass.
 export const DEFAULT_REORDER_INSTRUCTIONS = `${Reorder.DEFAULT_INSTRUCTIONS} Some screen readers need focus mode for these keys.`
 
 /** How an item is spoken: its `aria-label`, else its text with its whitespace collapsed, else its value. */
@@ -191,7 +207,8 @@ const labelOf = (element: Option.Option<Element>, value: unknown): string =>
 /** A text, `None` when it's empty. */
 const nonEmpty = (text: Option.Option<string>): Option.Option<string> => Option.filter(text, Str.isNonEmpty)
 
-/** A **Reorder group** on the DOM (ADR-0020). */
+/** A **Reorder group** on the DOM. */
+// ADR-0020.
 export interface ReorderController<V> {
   /** Core's Reorder group (`Reorder.move(group, value, toIndex)` reorders in code). */
   readonly group: Reorder.Group<V>
@@ -204,16 +221,18 @@ export interface ReorderController<V> {
    * focus and its reveal), and `onLift` hears its keyboard lift start and end (the binding's `whileDrag`).
    */
   readonly item: (value: V, element: () => Option.Option<Element>, onLift?: (lifted: boolean) => void) => ReorderItemDriver
-  /** Move `value` to `toIndex` in code (`Reorder.move`), and announce it (ADR-0037). */
+  /** Move `value` to `toIndex` in code (`Reorder.move`), and announce it. */
+  // ADR-0037.
   readonly move: (value: V, toIndex: number) => void
   /**
-   * The axis now: the app's, else detected from the items' boxes as they are, reporting nothing.
-   * A binding derives its axis with it when the app's is cleared (#257's audit).
+   * The axis now: the app's, else detected from the items' boxes as they are, reporting nothing. A
+   * binding derives its axis with it when the app's is cleared.
    */
+  // #257's audit.
   readonly detect: () => Reorder.Axis
   /** The app's values changed: re-measure, so the items animate to their slots. */
   readonly valuesChanged: () => void
-  /** Stop listening to Measure passes and end Auto-scroll. */
+  /** Stops listening to measures and ends the auto-scroll. The Scope calls it. */
   readonly dispose: () => void
 }
 

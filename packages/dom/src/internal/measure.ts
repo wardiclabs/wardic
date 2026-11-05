@@ -68,12 +68,13 @@ export const measureLayoutBox = (el: HTMLElement): Probe.Bounds => {
 }
 
 /**
- * The bounds on `element`'s x/y that keep it inside `container` (#273, ADR-0047, Motion's element
- * `dragConstraints`): `element` measured without its own transform (its layout box, as Motion's
- * projection measures it), `container` as it renders. With `mapPoint` (#443, Motion's
- * `transformPagePoint`), each box's corners are mapped through it first, as Motion's `measurePageBox`
- * maps them: a container inside a zoomed parent bounds the element in its own pixels.
+ * The bounds on `element`'s x/y that keep it inside `container` (Motion's element `dragConstraints`):
+ * `element` measured without its own transform (its layout box, as Motion's projection measures it),
+ * `container` as it renders. With `mapPoint` (Motion's `transformPagePoint`), each box's corners are
+ * mapped through it first, as Motion's `measurePageBox` maps them: a container inside a zoomed parent
+ * bounds the element in its own pixels.
  */
+// #273, ADR-0047; #443.
 export const dragBoundsWithin = (element: HTMLElement, container: Element, mapPoint?: (point: Point.Point) => Point.Point): Drag.Bounds =>
   Drag.boundsWithin(mappedEdges(measureLayoutBox(element), mapPoint), mappedEdges(container.getBoundingClientRect(), mapPoint))
 

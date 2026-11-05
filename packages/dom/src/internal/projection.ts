@@ -119,15 +119,17 @@ import { blendRadius, borderRadiusCorrector, isUnitScale, SCALE_CORRECTORS, type
 import { dashCase } from "./svg.ts"
 
 /**
- * The binding seam the coordinator writes through — structurally satisfied by the
- * binding's flush gate (e.g. `@wardic/solid`'s `FlushGate`), so the engine never
- * imports a framework. `write` merges a per-element projection value-map into the
- * gate (applied on the gate's next Refresh frame, ADR-0006); `flushPass` runs a
- * Measure pass now and applies exactly what it wrote before returning (ADR-0018),
- * so a new layout never paints without its projection.
+ * What the engine writes each node's projection through: a `FlushGate` is one, so the engine never
+ * imports a framework. `write` merges an element's projection into what it draws at the next frame;
+ * `flushPass` runs a measure now, and draws what it wrote before it returns, so a new layout never paints
+ * without its projection.
  */
+// The binding seam the coordinator writes through, structurally satisfied by the binding's flush gate
+// (e.g. `@wardic/solid`'s). ADR-0006; ADR-0018.
 export interface ProjectionSink {
+  /** Merges `partial` into element `id`'s values, drawn at the next frame. */
   readonly write: (id: string, partial: Record<string, unknown>) => void
+  /** Runs `pass`, a measure, now, and draws what it wrote before it returns. */
   readonly flushPass: (pass: () => void) => void
 }
 
@@ -135,11 +137,12 @@ export interface ProjectionSink {
 const MAX_ROUNDS = 5
 
 /**
- * What the engine needs from its Environment: the {@link FrameLoop} it runs the coordinator on
- * (ADR-0027, #75), the `Renderer` (to drive a presence-retained leaving Follower whose gate
- * registration was torn down on owner disposal — ADR-0010), and the `Probe`'s viewport, read
- * through the Environment's `AtomRegistry`, for the Resize block (ADR-0018, *Amendment (#45)*).
+ * What the engine needs from its Environment: the Frame loop it runs on, the renderer, which draws a
+ * leaving follower whose gate is gone, and the Probe's viewport, read through the Environment's
+ * `AtomRegistry`, so it lands rather than animates through a resize.
  */
+// ADR-0027, #75; the Renderer: a presence-retained leaving Follower whose gate registration was torn down
+// on owner disposal (ADR-0010); the Resize block (ADR-0018, *Amendment (#45)*).
 export type ProjectionServices = FrameLoop.FrameLoop | Renderer.Renderer | Probe.Probe | AtomRegistry.AtomRegistry
 
 /**
@@ -743,178 +746,196 @@ const resizeAboutCentre = (box: Box.Box, size: Box.Box): Box.Box => {
 
 /** Options to register a layout element as a projection node. */
 export interface RegisterNodeOptions {
-  /** The element's gate id (shared with its spine — `@projection` writes merge there). */
+  /** The element's id in the flush gate: the engine writes its projection there, beside its animated values. */
+  // Shared with its spine: `@projection` writes merge there.
   readonly id: string
   /** The live DOM element to measure + project. */
   readonly element: HTMLElement
   /**
-   * The node's layout transition, read at each layout animation's (re)start (ADR-0009 *Amendment
-   * (#171)*): a spring or a tween, or `None` for Motion's default,
-   * {@link DEFAULT_LAYOUT_TRANSITION}.
+   * The node's layout transition, read at each layout animation's (re)start: a spring or a tween, or
+   * `None` for Motion's default, {@link DEFAULT_LAYOUT_TRANSITION}.
    */
+  // ADR-0009 *Amendment (#171)*.
   readonly transition: () => Option.Option<LayoutTransition>
   /**
-   * The element's Path (#438, ADR-0065), read at each layout animation's start: a flight of 20 px or
-   * more curves its centre along it, from where it starts to its box, its size still mixed straight,
-   * as Motion's `interpolateProjection`. Left out, every flight is straight.
+   * The element's Path, read at each layout animation's start: a flight of 20 px or more curves its
+   * centre along it, from where it starts to its box, its size still mixed straight, as Motion's
+   * `interpolateProjection`. Left out, every flight is straight.
    */
+  // #438, ADR-0065.
   readonly path?: (() => Arc.Path | undefined) | undefined
   /**
-   * The app's `onLayoutAnimationStart` (#191, ADR-0039), read when it fires: at the frame where a
-   * layout animation of this node takes its first step, once per animation (restarts in one task
-   * are one). Not for a node that is a **Follower**: a handover is its Lead's. `None` when the app
-   * has none.
+   * The app's `onLayoutAnimationStart`, read when it fires: at the frame where a layout animation of
+   * this node takes its first step, once per animation (restarts in one task are one). Not for a node
+   * that is a **Follower**: a handover is its Lead's. `None` when the app has none.
    */
+  // #191, ADR-0039.
   readonly onLayoutAnimationStart?: () => Option.Option<() => void>
   /**
-   * The app's `onLayoutAnimationComplete` (#191, ADR-0039), read when it fires: at the frame where
-   * a layout animation of this node lands on its own. Not for one interrupted by a restart, finished
-   * early by a window resize, or cut off by an unmount; not for a Follower. `None` when the app has
-   * none.
+   * The app's `onLayoutAnimationComplete`, read when it fires: at the frame where a layout animation of
+   * this node lands on its own. Not for one interrupted by a restart, finished early by a window resize,
+   * or cut off by an unmount; not for a Follower. `None` when the app has none.
    */
+  // #191, ADR-0039.
   readonly onLayoutAnimationComplete?: () => Option.Option<() => void>
   /**
-   * The app's `onDragTransitionEnd` (#273, Motion's), read when it fires: once a drag's release (its
-   * **Release offset**) comes to rest on its own, after that frame's flush; for a drag released in
-   * place at rest, which starts none, from a microtask after the release. Not for one a grab stopped
-   * and a drag took over, nor one an unmount or a resize ended. `None` when the app has none.
+   * The app's `onDragTransitionEnd` (Motion's), read when it fires: once a drag's release (its **Release
+   * offset**) comes to rest on its own, after that frame's flush; for a drag released in place at rest,
+   * which starts none, from a microtask after the release. Not for one a grab stopped and a drag took
+   * over, nor one an unmount or a resize ended. `None` when the app has none.
    */
+  // #273.
   readonly onReleaseEnd?: () => Option.Option<() => void>
   /**
-   * The node's drag transition, read at each release (ADR-0016, *Amendment (#140)*): what its Release
-   * offset runs on, or `None` for Motion's, {@link DEFAULT_DRAG_TRANSITION}.
+   * The node's drag transition, read at each release: what its Release offset runs on, or `None` for
+   * Motion's, {@link DEFAULT_DRAG_TRANSITION}.
    */
+  // ADR-0016, *Amendment (#140)*.
   readonly dragTransition?: () => Option.Option<DragTransition>
   /**
-   * Whether the node's layout animations honour reduced motion (ADR-0029), read at each
-   * (re)start: `false` animates them whatever the system's `reducedMotion` says (a binding's
-   * per-transition opt-out). Default `true`.
+   * Whether the node's layout animations honour reduced motion, read at each (re)start: `false` animates
+   * them whatever the system's `reducedMotion` says (a binding's per-transition opt-out). Default
+   * `true`.
    */
+  // ADR-0029.
   readonly respectReducedMotion?: () => boolean
   /**
-   * Whether reduced motion applies to the node now (ADR-0029), read at each layout animation's
-   * (re)start: a binding's setting for its subtree with the user's preference (Wardic's
-   * `WardicConfig`, #434). Default: the system's `reducedMotion`.
+   * Whether reduced motion applies to the node now, read at each layout animation's (re)start: a
+   * binding's setting for its subtree with the user's preference (Wardic's `WardicConfig`). Default: the
+   * system's `reducedMotion`.
    */
+  // ADR-0029; #434.
   readonly reducedMotion?: () => boolean
   /**
-   * Whether the node's animations are skipped now (#468, a binding's `skipAnimations`), read at each
-   * layout animation's (re)start and each drag release: it lands at once, whatever reduced motion
-   * says, and a release lands on its slot. Default: never.
+   * Whether the node's animations are skipped now (a binding's `skipAnimations`), read at each layout
+   * animation's (re)start and each drag release: it lands at once, whatever reduced motion says, and a
+   * release lands on its slot. Default: never.
    */
+  // #468.
   readonly skipAnimations?: () => boolean
   /**
-   * The node's **Layout mode** (ADR-0009, *Amendment (#42)*), read at each layout animation's
-   * start: which parts of a layout change it animates. Default `true`, position and size.
+   * The node's **Layout mode**, read at each layout animation's start: which parts of a layout change it
+   * animates. Default `true`, position and size.
    */
+  // ADR-0009, *Amendment (#42)*.
   readonly layoutMode?: () => Projection.LayoutMode
   /**
-   * The element's own scale per axis (ADR-0010 *Amendment (#8)*): its `scale` times its `scaleX` or
-   * `scaleY`, which the renderer draws on top of its projection (`ownScaleOf`). Read at each
-   * handover, and each frame a Follower is derived. Default `{ x: 1, y: 1 }`.
+   * The element's own scale per axis: its `scale` times its `scaleX` or `scaleY`, which the renderer
+   * draws on top of its projection (`ownScaleOf`). Read at each handover, and each frame a Follower is
+   * derived. Default `{ x: 1, y: 1 }`.
    */
+  // ADR-0010 *Amendment (#8)*.
   readonly ownScale?: () => Point.Point
   /**
-   * The element's own translate (#363): its `x` plus `translateX` and `y` plus `translateY`, in
-   * page pixels, which the renderer adds to its projection's (`ownTranslateOf`). Read where its own
-   * scale is. Default `{ x: 0, y: 0 }`.
+   * The element's own translate: its `x` plus `translateX` and `y` plus `translateY`, in page pixels,
+   * which the renderer adds to its projection's (`ownTranslateOf`). Read where its own scale is. Default
+   * `{ x: 0, y: 0 }`.
    */
+  // #363.
   readonly ownTranslate?: () => Point.Point
   /**
-   * The element's own `rotate` in degrees (ADR-0010 *Amendment (#166)*), which the renderer weaves
-   * into its projection (`ownRotateOf`): what a handover blends a twin's rotation into, read each
-   * frame of one. Default 0.
+   * The element's own `rotate` in degrees, which the renderer weaves into its projection
+   * (`ownRotateOf`): what a handover blends a twin's rotation into, read each frame of one. Default 0.
    */
+  // ADR-0010 *Amendment (#166)*.
   readonly ownRotate?: () => number
   /**
-   * The element's own opacity (ADR-0010 *Amendment (#166)*, `ownOpacityOf`): what a Switch blends the
-   * leaver's opacity into, read each frame of one, and a leaver's when it's already off the page.
-   * Default 1.
+   * The element's own opacity (`ownOpacityOf`): what a Switch blends the leaver's opacity into, read
+   * each frame of one, and a leaver's when it's already off the page. Default 1.
    */
+  // ADR-0010 *Amendment (#166)*.
   readonly ownOpacity?: () => number
   /**
-   * The transform a Measure pass holds the element at (#443, Motion's `transformTemplate(values, "")`):
-   * its **Transform template**'s with no transform of Wardic's, so a static part of it, such as
-   * centring, is in the boxes it flies between. Read at each pass. Without one, the pass clears it.
+   * The transform a Measure pass holds the element at (Motion's `transformTemplate(values, "")`): its
+   * **Transform template**'s with no transform of Wardic's, so a static part of it, such as centring, is
+   * in the boxes it flies between. Read at each pass. Without one, the pass clears it.
    */
+  // #443.
   readonly heldTransform?: () => string
   /**
-   * Called as each Measure pass that measures the node begins (#443, Motion's `onBeforeLayoutMeasure`):
-   * in its write phase, before its transform is held for the read, blocked passes included. A throw
-   * is reported, and the pass goes on.
+   * Called as each Measure pass that measures the node begins (Motion's `onBeforeLayoutMeasure`): in its
+   * write phase, before its transform is held for the read, blocked passes included. A throw is
+   * reported, and the pass goes on.
    */
+  // #443.
   readonly onBeforeMeasure?: () => void
   /**
-   * Called with the node's box each Measure pass measures it (#443, Motion's `onLayoutMeasure`), after
-   * the read: in its Scroll-stable frame (ADR-0012), Motion's page layout box, and the box before it,
-   * `undefined` at its first. Blocked passes included. A throw is reported, and the pass goes on.
+   * Called with the node's box each Measure pass measures it (Motion's `onLayoutMeasure`), after the
+   * read: in its Scroll-stable frame, Motion's page layout box, and the box before it, `undefined` at
+   * its first. Blocked passes included. A throw is reported, and the pass goes on.
    */
+  // #443; ADR-0012.
   readonly onMeasure?: (box: Box.Box, prev: Box.Box | undefined) => void
   /**
-   * Shared-element match key (ADR-0010). Enrols the node in the per-`layoutId`
-   * lead/follow stack so coexisting twins crossfade, and lets a twin disposed in the
-   * same task seed its first measure (a Switch, *Amendment (#13)*). Omitted for a
-   * plain `layout` node.
+   * Its shared-element key: nodes with the same `layoutId` are twins, and one flies into the other, the
+   * newest leading and the others following, crossfading. A twin removed in the same task as its twin
+   * arrives hands it where it was. Left out for a plain layout node.
    */
+  // ADR-0010; *Amendment (#13)*.
   readonly layoutId?: string
   /**
-   * Mark this element a scroll container that is itself a projection node (ADR-0012,
-   * Motion's `layoutScroll`): its scroll offset is sampled at measure and folded out
-   * of its descendants' boxes, so a scroll change BETWEEN triggers doesn't leak into
-   * their FLIP delta, and as a `position: fixed` scroll root its style is read every
-   * pass. Every other ancestor that can scroll is folded too, unmarked (*Amendment
-   * (Reorder)*).
+   * Marks the element a scroll container, as Motion's `layoutScroll`: its scroll is read at each measure
+   * and taken out of its descendants' boxes, so a scroll between two layout changes doesn't animate them;
+   * as a `position: fixed` scroll root, its style is read at every measure. Every other ancestor that can
+   * scroll is taken out too, unmarked.
    */
+  // ADR-0012; ADR-0012 *Amendment (Reorder)*.
   readonly layoutScroll?: boolean
   /**
-   * Mark this element a stable projection sub-root (ADR-0013, Motion's `layoutRoot`):
-   * it never FLIPs its own layout (self-snaps), bounds delta accumulation /
-   * relativeParent search for its subtree, and is a persistent relative anchor.
+   * Marks the element a layout root, as Motion's `layoutRoot`: it never animates its own layout change,
+   * landing on it at once, and its subtree's projections stop at it, so a change outside it doesn't move
+   * what's inside.
    */
+  // Self-snaps; bounds delta accumulation and the relativeParent search for its subtree; a persistent
+  // relative anchor.
+  // ADR-0013.
   readonly layoutRoot?: boolean
   /**
-   * The anchor (0–1 per axis, ADR-0013, Motion's `layoutAnchor`) for this node's
-   * RELATIVE projection — where in its relativeParent it anchors (default top-left
-   * `{0,0}`). `false` opts out of relative projection (force absolute).
+   * Where in its parent the node is anchored, as Motion's `layoutAnchor`, from 0 to 1 on each axis: its
+   * top-left, `{ x: 0, y: 0 }`, by default. Its box is kept relative to that point while its parent
+   * animates. `false` keeps it absolute.
    */
+  // ADR-0013.
   readonly layoutAnchor?: Point.Point | false
   /**
-   * Whether a handover onto this node crossfades (#442, Motion's `layoutCrossfade`), read as each
-   * begins: `false` hides its Followers as it starts, and it moves at its own opacity. A Switch
-   * blends as ever. Left out, every handover crossfades.
+   * Whether a handover onto this node crossfades (Motion's `layoutCrossfade`), read as each begins:
+   * `false` hides its Followers as it starts, and it moves at its own opacity. A Switch blends as ever.
+   * Left out, every handover crossfades.
    */
+  // #442.
   readonly crossfade?: (() => boolean) | undefined
   /**
-   * Raise the node while it's dragged (ADR-0016, *Amendment (Reorder)*): from the drag
-   * start until its release settles (at once for a release in place) its projection
-   * carries a raise the renderer emits as `z-index`, so it paints above its siblings, as
-   * Motion's Reorder items do; then one last write drops it. It is `2` while dragged and
-   * `1` once released, so the item under the pointer paints above one flying back
-   * (*Amendment (velocity family)*, decision 6). A `<Reorder>` item sets it.
+   * Raises the node while it's dragged: from the drag's start until its release settles, at once for a
+   * release in place, its projection carries a raise the renderer draws as `z-index`, so it paints above
+   * its siblings, as Motion's Reorder items do; then one last write drops it. It's `2` while dragged and
+   * `1` once released, so the item under the pointer paints above one flying back. A Reorder item sets it.
    */
+  // ADR-0016, *Amendment (Reorder)*; the 2 and 1: *Amendment (velocity family)*, decision 6.
   readonly raiseWhileDragged?: boolean
   /**
-   * Where a presence child taking over from its leaver starts (#286, ADR-0048): the leaver's box in
-   * the **Root frame**, as it painted ({@link ProjectionSystem.rootBoxOf}). The node's first measure
-   * moves it from there to its own box, as a layout change, with no handover. A live twin to
-   * crossfade from comes first; this comes before a Switch seed.
+   * Where a presence child taking over from its leaver starts: the leaver's box in the **Root frame**,
+   * as it painted ({@link ProjectionSystem.rootBoxOf}). The node's first measure moves it from there to
+   * its own box, as a layout change, with no handover. A live twin to crossfade from comes first; this
+   * comes before a Switch seed.
    */
+  // #286, ADR-0048.
   readonly enteredFrom?: Box.Box
   /**
-   * Where the handover its first measure begins starts its fade (#286, ADR-0048): a keyed twin back
-   * while its leaver crossfades out goes on from the factor that leaver had faded to
-   * ({@link ProjectionSystem.dropLeaver}). Omitted, 0.
+   * Where the handover its first measure begins starts its fade: a keyed twin back while its leaver
+   * crossfades out goes on from the factor that leaver had faded to ({@link
+   * ProjectionSystem.dropLeaver}). Omitted, 0.
    */
+  // #286, ADR-0048.
   readonly fadeFrom?: number
 }
 
 /**
- * The drag seam (ADR-0016): a draggable LAYOUT node drives its drag through the
- * projection target, not a raw `x`/`y` transform: the node's own `x`/`y` are its
- * animations', drawn on top (#363). The binding's drag track
- * calls these so the dragged element follows the pointer and FLIPs to its slot on
- * release. A subset of {@link ProjectionNodeHandle}.
+ * How a draggable layout node is dragged: through its projection, not its own `x` and `y`, which stay its
+ * animations', drawn on top. A binding's drag calls these, so the element follows the pointer and flies to
+ * its place at the release. Part of `ProjectionNodeHandle`.
  */
+// The drag seam.
+// ADR-0016; #363.
 export interface DragProjectionHandle {
   /**
    * Begin a drag: capture the grab-time slot box as the pointer anchor, from where a stopped
@@ -944,13 +965,13 @@ export interface DragProjectionHandle {
 
 /** Handle returned from {@link ProjectionSystem.register}. */
 export interface ProjectionNodeHandle extends DragProjectionHandle {
-  /** Request a (coalesced) measure pass — e.g. this node's `layoutDependency` changed. */
+  /** Asks for a measure at the end of the task, however many ask: this node's `layoutDependency` changed, say. */
   readonly notify: () => void
   /**
-   * The node's slot (its layout box) in the Scroll-stable frame, as of its last
-   * Measure pass; `undefined` before the first (ADR-0016, *Amendment (Reorder)*). A
-   * plain read: no layout read.
+   * The node's slot (its layout box) in the Scroll-stable frame, as of its last Measure pass;
+   * `undefined` before the first. A plain read: no layout read.
    */
+  // ADR-0016, *Amendment (Reorder)*.
   readonly layoutBox: () => Option.Option<Box.Box>
   /**
    * How far the node paints from its slot while dragged (the drag target minus the
@@ -966,142 +987,156 @@ export interface ProjectionNodeHandle extends DragProjectionHandle {
    */
   readonly layoutVersion: () => number
   /**
-   * A **Keyboard reorder**'s lift (ADR-0037): `true` raises the node as a drag does (`2`) while it's
-   * lifted, through the layout animations its steps start; `false` (its drop or cancel) leaves it
-   * raised (`1`) until its last one lands, as a drag's release does, or drops the raise now at rest.
+   * A **Keyboard reorder**'s lift: `true` raises the node as a drag does (`2`) while it's lifted,
+   * through the layout animations its steps start; `false` (its drop or cancel) leaves it raised (`1`)
+   * until its last one lands, as a drag's release does, or drops the raise now at rest.
    */
+  // ADR-0037.
   readonly lift: (on: boolean) => void
-  /** Unregister the node, finalising any in-flight animation. */
+  /** Unregisters the node, ending an animation in flight. */
   readonly dispose: () => void
 }
 
-/** The provider-owned projection system. */
+/** The Projection system: what a binding registers its layout elements with, one per provider. */
 export interface ProjectionSystem extends Inspectable.Inspectable {
+  /**
+   * Registers a layout element: its node, from then on measured at each layout change and animated from
+   * where it was. The handle tells the engine what changed, and its `dispose` removes the node.
+   */
   readonly register: (opts: RegisterNodeOptions) => ProjectionNodeHandle
   /**
-   * Request a (coalesced) re-measure of the WHOLE tree (Q5). Used by a
-   * group-level trigger such as `<LayoutGroup layoutDependency>` — any one trigger
-   * re-measures every node, so sibling reflow falls out.
+   * Asks for a measure of the whole tree at the end of the task, however many ask: for a change a group
+   * declares, as a layout group's `layoutDependency` does, so every node its change moves animates.
    */
+  // Q5: any one trigger re-measures every node, so sibling reflow falls out.
   readonly notify: () => void
   /**
-   * A **Declared layout change** (#4, ADR-0038): run `fn`, and animate the layout change it makes
-   * from where every node is at the call, even where no trigger sees the change or a node's last
-   * Measurement is out of date. Returns `fn`'s result; its error throws to the caller.
+   * A **Declared layout change**: run `fn`, and animate the layout change it makes from where every node
+   * is at the call, even where no trigger sees the change or a node's last Measurement is out of date.
+   * Returns `fn`'s result; its error throws to the caller.
    *
-   * - **The Measurements.** The first call in a task measures every node before `fn` runs. A
-   *   Measure pass already due in the task runs then instead, so what triggered it animates as
-   *   before, and its reads are the Measurements. Later calls in the task share them, so a node
-   *   one call's change pushes animates from before the first change (Motion's
-   *   `parallel-calls-intersecting`).
-   * - **The pass.** The Measure pass at the end of the task animates every node that moved from
-   *   those Measurements. A running animation `fn` moves restarts from where it paints (ADR-0013,
-   *   *Amendment (#146)*); one it doesn't move carries on.
-   * - **What stays as in any pass.** A **Resize block** wins: `fn` runs and nothing animates. A
-   *   dragged subtree takes its slot-only update. A call from inside a pass's own flush uses the
-   *   reads that pass just made.
-   * - **Synchronous only.** A promise `fn` returns isn't awaited: a change after an `await` is in
-   *   a later task. Such a call logs a warning.
-   * - **`onSettled`** (#191, ADR-0039) is called once the change has settled: every layout animation
-   *   the end-of-task pass started has ended, however each ended (landed, cut short by a resize or an
-   *   unmount, or restarted by a later change), or at the end of that pass if it started none. Calls
-   *   in one task share that pass, so they settle together.
+   * - **The Measurements.** The first call in a task measures every node before `fn` runs. A Measure
+   *   pass already due in the task runs then instead, so what triggered it animates as before, and its
+   *   reads are the Measurements. Later calls in the task share them, so a node one call's change pushes
+   *   animates from before the first change (Motion's `parallel-calls-intersecting`).
+   * - **The pass.** The Measure pass at the end of the task animates every node that moved from those
+   *   Measurements. A running animation `fn` moves restarts from where it paints; one it doesn't move
+   *   carries on.
+   * - **What stays as in any pass.** A **Resize block** wins: `fn` runs and nothing animates. A dragged
+   *   subtree takes its slot-only update. A call from inside a pass's own flush uses the reads that pass
+   *   just made.
+   * - **Synchronous only.** A promise `fn` returns isn't awaited: a change after an `await` is in a
+   *   later task. Such a call logs a warning.
+   * - **`onSettled`** is called once the change has settled: every layout animation the end-of-task pass
+   *   started has ended, however each ended (landed, cut short by a resize or an unmount, or restarted
+   *   by a later change), or at the end of that pass if it started none. Calls in one task share that
+   *   pass, so they settle together.
    */
+  // #4, ADR-0038; ADR-0013, *Amendment (#146)*; #191, ADR-0039.
   readonly animateLayout: <A>(fn: () => A, options?: AnimateLayoutOptions) => A
   /**
-   * An **Instant change** (#443, Motion's `useInstantLayoutTransition`): run `fn`, and the Measure
-   * pass at the end of the task gives every node its new box and starts nothing, as a Resize block's
-   * does. Every running layout animation but a dragged node's ends on its slot as that pass begins.
+   * An **Instant change** (Motion's `useInstantLayoutTransition`): run `fn`, and the Measure pass at the
+   * end of the task gives every node its new box and starts nothing, as a Resize block's does. Every
+   * running layout animation but a dragged node's ends on its slot as that pass begins.
    */
+  // #443.
   readonly instant: (fn?: () => void) => void
   /**
-   * A **Projection reset** (#443, Motion's `useResetProjection`): every running layout animation and
-   * Release offset ends on its slot, every leaver and Switch seed goes (each `layoutId` stack keeps
-   * its live nodes), and the next Measure pass measures every box afresh, animating none.
+   * A **Projection reset** (Motion's `useResetProjection`): every running layout animation and Release
+   * offset ends on its slot, every leaver and Switch seed goes (each `layoutId` stack keeps its live
+   * nodes), and the next Measure pass measures every box afresh, animating none.
    */
+  // #443.
   readonly reset: () => void
   /**
-   * Shared-element exit coupling (ADR-0010). A binding's presence layer calls this
-   * for a leaving `layoutId` element it has RETAINED (kept in the DOM mid-exit).
-   * Returns `true` if there is a live twin (Lead) to crossfade toward — the engine
-   * then drives `el` as a transient leaving Follower (locked onto the lead, fading
-   * out, driven directly via the Renderer since its gate registration is gone) and
-   * calls `onDone` once the crossfade settles, so presence removes the DOM node.
-   * Returns `false` for a lone leave (no twin) — presence runs its normal `exit`.
-   *
-   * A method on the shared engine (the binding already holds it), NOT a service:
-   * the flow is unidirectional (presence → engine), and `onDone` is the only
-   * callback back. Presence keeps ADR-0007 ownership of retention + DOM removal.
+   * A leaving `layoutId` element its exit keeps in the document: `true` when there's a live twin, the
+   * lead, to crossfade toward. The engine then draws `el` as a leaving follower, on the lead's box and
+   * fading out, through the renderer since its gate is gone, and calls `onDone` once the crossfade settles,
+   * so the exit removes it. `false` for one with no twin: its own exit runs as usual.
    */
+  // A binding's presence layer calls it for an element it has retained. A method on the shared engine (the
+  // binding already holds it), not a service: the flow is one way (presence to engine), and `onDone` is
+  // the only callback back. Presence keeps ADR-0007's ownership of retention and DOM removal.
+  // ADR-0010.
   readonly handleLeave: (el: HTMLElement, onDone: () => void) => boolean
   /**
-   * Hand back the twins inside a leaving element that isn't a twin (ADR-0010 *Amendment (#181)*), for
-   * a presence child {@link handleLeave} declined: each crossfades onto its other twin, following the
-   * leaver's own exit. `onDone` once every handover has ended; the returned call drops them at once.
-   * `None` when it held none, so presence runs its exit alone.
+   * Hand back the twins inside a leaving element that isn't a twin, for a presence child {@link
+   * handleLeave} declined: each crossfades onto its other twin, following the leaver's own exit.
+   * `onDone` once every handover has ended; the returned call drops them at once. `None` when it held
+   * none, so presence runs its exit alone.
    */
+  // ADR-0010 *Amendment (#181)*.
   readonly handBackWithin: (el: HTMLElement, onDone: () => void) => Option.Option<() => void>
   /**
-   * A presence child leaving with nobody to take its twins over (ADR-0010 *Amendment (#402)*): the
-   * twins it held as it went, inside it or it a twin itself, stay a later twin's to take over while
-   * it's on the page, until the returned call: the presence removing it, which ends their records at
-   * once (a held leaver otherwise lasts until a task ends with it off the page). A twin that registers
-   * meanwhile brings one back as its leaving Follower, as if it were live in its stack, and tells the
-   * presence through `taken` ({@link LateTaken}), which holds the child for that handover.
+   * A presence child leaving with nobody to take its twins over: the twins it held as it went, inside it
+   * or it a twin itself, stay a later twin's to take over while it's on the page, until the returned
+   * call: the presence removing it, which ends their records at once (a held leaver otherwise lasts
+   * until a task ends with it off the page). A twin that registers meanwhile brings one back as its
+   * leaving Follower, as if it were live in its stack, and tells the presence through `taken` ({@link
+   * LateTaken}), which holds the child for that handover.
    *
-   * Its layout nodes with no `layoutId`, it included, come back as nodes it carries (ADR-0048 *A
-   * leaver's layout nodes (#407)*): corrected for an ancestor's layout animation while it exits, its
-   * exit's own values drawn on the correction, and gone with the returned call.
+   * Its layout nodes with no `layoutId`, it included, come back as nodes it carries: corrected for an
+   * ancestor's layout animation while it exits, its exit's own values drawn on the correction, and gone
+   * with the returned call.
    */
+  // ADR-0010 *Amendment (#402)*; ADR-0048 *A leaver's layout nodes (#407)*.
   readonly keepLeaving: (el: HTMLElement, taken: LateTaken) => () => void
   /**
-   * Whether a twin that `el` is, or holds, left in this task with no live twin in its stack yet
-   * (ADR-0010 *Amendment (#482)*): a twin arriving later in the same update takes it over, so a
-   * presence decides on `el`'s leave at the task's end, when {@link handleLeave} or
-   * {@link handBackWithin} finds that twin.
+   * Whether a twin that `el` is, or holds, left in this task with no live twin in its stack yet: a twin
+   * arriving later in the same update takes it over, so a presence decides on `el`'s leave at the task's
+   * end, when {@link handleLeave} or {@link handBackWithin} finds that twin.
    */
+  // ADR-0010 *Amendment (#482)*.
   readonly awaitsTwin: (el: HTMLElement) => boolean
   /**
-   * A leaver its presence popped out of the flow (ADR-0048 *Amendment (#480)*): at the first frame
-   * after, if the page scrolled since (a router's scroll to the top at a navigation), `move` takes it
-   * by that scroll, so it stays where it was seen, and the leaving nodes inside it go with it. Once:
-   * scrolling after moves it with the page.
+   * A leaver its presence popped out of the flow: at the first frame after, if the page scrolled since
+   * (a router's scroll to the top at a navigation), `move` takes it by that scroll, so it stays where it
+   * was seen, and the leaving nodes inside it go with it. Once: scrolling after moves it with the page.
    */
+  // ADR-0048 *Amendment (#480)*.
   readonly keepSeen: (el: HTMLElement, move: (by: Point.Point) => void) => void
   /**
-   * Register an element's values (ADR-0012, *Amendment (#137)*): a binding hands every element's,
-   * read from what it last wrote, so a `layoutId` twin's flight follows the translate and scale
-   * Wardic animates on its ancestors each frame, an element that isn't a projection node included.
-   * A presence registers a leaver's drawn values in their place, its Transform template among them
-   * (#443), so it's drawn through it as it leaves. Returns the unregistration, for the element's dispose.
+   * Register an element's values: a binding hands every element's, read from what it last wrote, so a
+   * `layoutId` twin's flight follows the translate and scale Wardic animates on its ancestors each
+   * frame, an element that isn't a projection node included. A presence registers a leaver's drawn
+   * values in their place, its Transform template among them, so it's drawn through it as it leaves.
+   * Returns the unregistration, for the element's dispose.
    */
+  // ADR-0012, *Amendment (#137)*; #443.
   readonly registerValues: (el: Element, read: () => Readonly<Record<string, unknown>>) => () => void
   /**
-   * An element's box in the **Root frame** as it paints now, its transforms included (#286, ADR-0048):
-   * where a presence child taking over from it starts ({@link RegisterNodeOptions.enteredFrom}).
-   * `None` for one off the page.
+   * An element's box in the **Root frame** as it paints now, its transforms included: where a presence
+   * child taking over from it starts ({@link RegisterNodeOptions.enteredFrom}). `None` for one off the
+   * page.
    */
+  // #286, ADR-0048.
   readonly rootBoxOf: (el: HTMLElement) => Option.Option<Box.Box>
   /**
-   * End a leaving Follower at once (#286, ADR-0048): a keyed presence child is back while its twin
-   * crossfades out, and takes over. Its `onDone` is called, as at its handover's end. Returns the
-   * crossfade factor it had faded to, for the child's new node to go on from
-   * ({@link RegisterNodeOptions.fadeFrom}); `None` for an element that isn't one.
+   * End a leaving Follower at once: a keyed presence child is back while its twin crossfades out, and
+   * takes over. Its `onDone` is called, as at its handover's end. Returns the crossfade factor it had
+   * faded to, for the child's new node to go on from ({@link RegisterNodeOptions.fadeFrom}); `None` for
+   * an element that isn't one.
    */
+  // #286, ADR-0048.
   readonly dropLeaver: (el: HTMLElement) => Option.Option<number>
-  /** Stop the coordinator's run + tear down the observer (wired into the provider's onCleanup). */
+  /** Stops the engine: its run, its observers and its listeners. The Layer's Scope calls it. */
+  // Stops the coordinator's run and tears down the observer (wired into the provider's onCleanup).
   readonly dispose: () => void
   /**
-   * The tree as plain data, for a diagnostic read (#384): every node now, in the order it was
-   * registered. `console.log(system)` shows it (Effect's `Inspectable`). Parent links are the last
-   * Measure pass's, as the engine reads them.
+   * The tree as plain data, for a diagnostic read: every node now, in the order it was registered.
+   * `console.log(system)` shows it (Effect's `Inspectable`). Parent links are the last Measure pass's,
+   * as the engine reads them.
    */
+  // #384.
   readonly toJSON: () => Snapshot
 }
 
-/** {@link ProjectionSystem.toJSON}'s tree (#384). */
+/** {@link ProjectionSystem.toJSON}'s tree. */
+// #384.
 export interface Snapshot {
+  /** What it is, as Effect's `Inspectable` names it. */
   readonly _id: "ProjectionSystem"
+  /** Every node, in the order it was registered. */
   readonly nodes: ReadonlyArray<NodeSnapshot>
 }
 
@@ -1111,20 +1146,26 @@ export interface NodeSnapshot {
   readonly id: string
   /** Its element's tag, lower-case. */
   readonly tag: string
+  /** Its `layoutId`, if it has one. */
   readonly layoutId: string | undefined
   /** Its parent's id, as the last Measure pass found it by DOM ancestry; `undefined` for a root. */
   readonly parent: string | undefined
+  /** Whether it's a layout root. */
   readonly layoutRoot: boolean
-  /** A `layoutId` twin's part (ADR-0010): the Lead, the newest live one, or a Follower; `undefined` for none. */
+  /** A `layoutId` twin's part: the Lead, the newest live one, or a Follower; `undefined` for none. */
+  // ADR-0010.
   readonly twin: "lead" | "follower" | undefined
   /** A Follower's Lead's id. */
   readonly lead: string | undefined
   /** A layout animation in flight. */
   readonly animating: boolean
+  /** A drag in progress. */
   readonly dragging: boolean
-  /** A drag's release, running on its Release offset (ADR-0016). */
+  /** A drag's release, running on its Release offset. */
+  // ADR-0016.
   readonly releasing: boolean
-  /** Kept by a presence while it leaves (ADR-0010). */
+  /** Kept by a presence while it leaves. */
+  // ADR-0010.
   readonly leaving: boolean
 }
 
@@ -1435,10 +1476,10 @@ interface HeldSeed {
 }
 
 /**
- * A late take-over of a twin inside a leaving presence child, told to its presence (ADR-0010
- * *Amendment (#402)*), with `drop` to end the handover at once. Returns what ends it as one of the
- * child's parts.
+ * A late take-over of a twin inside a leaving presence child, told to its presence, with `drop` to end
+ * the handover at once. Returns what ends it as one of the child's parts.
  */
+// ADR-0010 *Amendment (#402)*.
 export type LateTaken = (drop: () => void) => () => void
 
 /**
@@ -1580,24 +1621,25 @@ export const onPassEnd = (system: Omit<ProjectionSystem, "dispose">, listener: (
   }
 }
 
-/** {@link makeProjectionSystem}'s options. */
+/** What a binding hands its engine. */
 export interface ProjectionSystemOptions {
   /**
-   * Whether reduced motion applies now (ADR-0029), read when a layout animation starts: the
-   * binding's `ReducedMotion.applies` of its app's setting and the user's preference. Under it,
-   * a layout animation lands on its new box at once, and a crossfade switches at once; a drag's
-   * release still returns to its slot, since it continues the gesture (as Motion's does). By
-   * default, never.
+   * Whether reduced motion applies now, read when a layout animation starts: the binding's
+   * `ReducedMotion.applies` of its app's setting and the user's preference. Under it, a layout animation
+   * lands on its new box at once, and a crossfade switches at once; a drag's release still returns to
+   * its slot, since it continues the gesture (as Motion's does). By default, never.
    */
+  // ADR-0029.
   readonly reducedMotion?: () => boolean
   /**
-   * The app's own scale correctors (#443, Motion's `addScaleCorrector` entries), by the value key
-   * each corrects, for this system's nodes alone. Each is handed the element's own value for its key
-   * each frame (from its `style` or an animation), else its computed value read at its first
-   * Measurement, and writes nothing while the projection doesn't scale it, putting the value back
-   * once. One keyed `borderRadius` or `boxShadow` replaces the built-in one, and a replaced radius
-   * isn't blended across a handover (ADR-0010 *Amendment (#166)*).
+   * The app's own scale correctors (Motion's `addScaleCorrector` entries), by the value key each
+   * corrects, for this system's nodes alone. Each is handed the element's own value for its key each
+   * frame (from its `style` or an animation), else its computed value read at its first Measurement, and
+   * writes nothing while the projection doesn't scale it, putting the value back once. One keyed
+   * `borderRadius` or `boxShadow` replaces the built-in one, and a replaced radius isn't blended across
+   * a handover.
    */
+  // #443; ADR-0010 *Amendment (#166)*.
   readonly scaleCorrectors?: Readonly<Record<string, ScaleCorrectorEntry>> | undefined
 }
 

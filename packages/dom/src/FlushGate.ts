@@ -1,16 +1,23 @@
 /**
- * The **Flush gate**: the accumulator a binding writes each element's values into, committed once
- * per Refresh frame (ADR-0006, ADR-0031, ADR-0033, ADR-0034). `@wardic/dom/FlushGate` (#132,
- * ADR-0041).
+ * The Flush gate: where a binding writes each element's animated values, drawn onto the elements once a
+ * frame. A binding registers each element with its target, writes values as its animations step, and the
+ * gate draws them together, at the end of the frame's animation tick, through the Environment's renderer;
+ * a write made outside a tick, as a drag's move is, asks for a frame of its own. A server render gets
+ * `inert`, which does nothing.
  *
- * It's a service built by a Layer (`layer`) and ended by that Layer's Scope: closing it takes the
- * gate's hook off the Frame loop, cancels a pending frame and clears what it held. Its members
- * are plain functions, called per element and per frame. `make` is the scoped constructor, for a
- * binding that wires it itself.
+ * @example
+ * import * as FlushGate from "@wardic/dom/FlushGate"
  *
- * A server render gets `inert`, which does nothing (ADR-0021, decision 9): a value for a binding
- * whose server builds no runtime, or `layerInert` for one whose server runs an Effect program.
+ * const gate = yield* FlushGate.FlushGate
+ * const unregister = gate.register("card", { target: card })
+ * gate.write("card", { opacity: 0.5 }) // drawn at the next frame
  */
+// The **Flush gate** (ADR-0006, ADR-0031, ADR-0033, ADR-0034). `@wardic/dom/FlushGate` (#132, ADR-0041). A
+// service built by a Layer (`layer`) and ended by that Layer's Scope: closing it takes the gate's hook off
+// the Frame loop, cancels a pending frame and clears what it held. Its members are plain functions, called
+// per element and per frame. `make` is the scoped constructor, for a binding that wires it itself. `inert`
+// (ADR-0021, decision 9): a value for a binding whose server builds no runtime, or `layerInert` for one
+// whose server runs an Effect program.
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -56,10 +63,11 @@ const noop = (): void => {}
 const NO_VALUE: Atom.Atom<unknown> = Atom.make<unknown>(undefined)
 
 /**
- * The gate a server render gets (ADR-0021, decision 9): it flushes nothing, so `register` returns a
- * no-op unregister and the rest do nothing (an `afterFlush` call included: no flush comes). Code that grabs the gate at setup and uses it after
- * mount keeps working on a server.
+ * The gate a server render gets: it flushes nothing, so `register` returns an unregister that does
+ * nothing, and the rest do nothing, `afterFlush` included, since no flush comes. Code that takes the gate
+ * at setup and uses it after mount keeps working on a server.
  */
+// ADR-0021, decision 9.
 export const inert: Shape = Object.freeze({
   register: () => noop,
   write: noop,

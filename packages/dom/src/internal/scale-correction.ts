@@ -22,24 +22,30 @@ import type * as Projection from "@wardic/core/Projection"
 import * as Predicate from "effect/Predicate"
 
 /**
- * What an app's scale corrector is handed beside the value (#443): the projection node's fields
- * Motion's correctors read, as Motion names them. `target` is the box the node is drawn into this
- * frame, `treeScale` its ancestors' scale, `projectionDelta` its delta.
+ * What an app's scale corrector is handed beside the value: the projection node's fields Motion's
+ * correctors read, as Motion names them. `target` is the box the node is drawn into this frame,
+ * `treeScale` its ancestors' scale, `projectionDelta` its delta.
  */
+// #443.
 export interface CorrectorInfo {
+  /** The box the node is drawn into this frame. */
   readonly target: Box.Box
+  /** Its ancestors' scale, multiplied together. */
   readonly treeScale: Point.Point
+  /** Its delta, from its layout box to `target`. */
   readonly projectionDelta: Projection.Delta
 }
 
 /**
- * An app's scale corrector (#443, Motion's `addScaleCorrector` entry), given to a provider by the
- * value key it corrects (`borderRadius`, `--card-radius`): `correct` turns the element's value into
- * the one to write while its projection scales it, written under `applyTo`'s keys when given, else
- * its own.
+ * An app's scale corrector (Motion's `addScaleCorrector` entry), given to a provider by the value key it
+ * corrects (`borderRadius`, `--card-radius`): `correct` turns the element's value into the one to write
+ * while its projection scales it, written under `applyTo`'s keys when given, else its own.
  */
+// #443.
 export interface ScaleCorrectorEntry {
+  /** The value to write while the projection scales the element, from its own value, `latest`, and the node's fields. */
   readonly correct: (latest: string | number, info: CorrectorInfo) => string | number
+  /** The keys the corrected value is written under: its own key when left out. */
   readonly applyTo?: ReadonlyArray<string> | undefined
 }
 
