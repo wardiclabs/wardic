@@ -9,7 +9,7 @@ The latest release of each `@wardic/*` package gets security fixes: `1.0.0`'s re
 Please don't open a public issue for it. Report it privately:
 
 - **Through GitHub:** the repository's **Security** tab → **Report a vulnerability** (private vulnerability reporting). This is preferred: the report, the fix and the advisory stay in one place.
-- **By email:** kookikodes@gmail.com.
+- **By email:** security@wardic.dev.
 
 Say what's affected (the package and its version, the binding, the browser or runtime), how to reproduce it, and what it lets someone do.
 
