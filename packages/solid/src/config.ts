@@ -18,11 +18,16 @@ import type { WardicDragConstraints, WardicMeasureDragConstraints } from "./drag
 import type { WardicDragControls } from "./drag-controls.ts"
 import type { WardicDragInfo, WardicPointInfo, WardicPressEvent, WardicPressInfo } from "./gesture-info.ts"
 
-/** Motion's `viewport` (#273, ADR-0047): see `WardConfig.viewport`. */
+/** What "in view" means: an element's `viewport`, and `createInView`'s. Motion's `viewport` and `useInView` options. */
+// #273, ADR-0047.
 export interface WardicViewport {
+  /** Stays in view after its first entry. */
   readonly once?: boolean
+  /** Grown around the root, as CSS `rootMargin`: `"0px 0px -100px 0px"` counts it in 100 px later at the bottom. */
   readonly margin?: string
+  /** How much of the element must show: `"some"` (the default), `"all"`, or 0 to 1. */
   readonly amount?: "some" | "all" | number
+  /** The scrolling container it's in view of, as an accessor; the window if none. Read as it starts watching. */
   readonly root?: () => Element | undefined
 }
 

@@ -12,6 +12,7 @@
 // - SN8: `createReducedMotion` follows the user's preference.
 // - SN9: `fromAtom` follows an Atom; `streamToSignal` a core Stream.
 // - SN10: `createInView` is `true` for an element in the viewport, `false` for one below it.
+// - SN11: `createInView` takes Motion's viewport: its `root`, `amount` and `margin` decide what's in view.
 import { DomLive } from "@wardic/dom"
 import {
   createDrag,
@@ -305,5 +306,40 @@ describe("sensors on Solid 2: refs that are their readings", () => {
     await until(() => (flush(), shown()))
     expect(shown()).toBe(true)
     expect(below()).toBe(false)
+  })
+
+  it("SN11: createInView takes Motion's viewport: its root, amount and margin decide what's in view", async () => {
+    // A 100 px scrolling container far below the viewport, its child 40 px tall from 80 px down: half
+    // of it shows in the container. The container's ref is applied before its child's, so `root` has it
+    // as the sensors attach.
+    let scroller!: HTMLElement
+    let outside!: ReturnType<typeof createInView>
+    let some!: ReturnType<typeof createInView>
+    let all!: ReturnType<typeof createInView>
+    let grown!: ReturnType<typeof createInView>
+    const Box = () => {
+      outside = createInView()
+      some = createInView({ root: () => scroller })
+      all = createInView({ root: () => scroller, amount: "all" })
+      grown = createInView({ root: () => scroller, amount: "all", margin: "0px 0px 40px 0px" })
+      return (
+        <div ref={(n: HTMLElement) => (scroller = n)} style={{ position: "absolute", top: "5000px", height: "100px", overflow: "auto" }}>
+          <div ref={[outside, some, all, grown]} style={{ "margin-top": "80px", width: "40px", height: "40px" }} />
+        </div>
+      )
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Box />
+      </WardicProvider>
+    ))
+    await until(() => (flush(), some() && grown()))
+    // The rest have had their first report too: the observers deliver theirs in the same frame.
+    for (let frame = 0; frame < 3; frame++) await new Promise((done) => requestAnimationFrame(done))
+    flush()
+    expect(outside(), "no root: the window, which the container is far below").toBe(false)
+    expect(some(), "half of it shows in the container").toBe(true)
+    expect(all(), "amount all: half isn't all").toBe(false)
+    expect(grown(), "amount all, the container grown 40 px at the bottom").toBe(true)
   })
 })

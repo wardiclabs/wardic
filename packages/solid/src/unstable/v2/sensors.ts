@@ -30,6 +30,8 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { isServer } from "@solidjs/web"
 import { type Accessor, createSignal, onCleanup } from "solid-js"
+import type { WardicViewport } from "../../config.ts"
+import { inViewOptionsOf } from "../../gesture-callbacks.ts"
 import type { WardicServices } from "../../runtime.ts"
 import { fromAtom } from "./bridge.ts"
 import { useWardicReducedMotionSetting, useWardicRuntime } from "./provider.tsx"
@@ -88,10 +90,24 @@ export const watchSensorOf = <A>(
   }) as Sensor<A>
 }
 
-/** `true` while the element intersects the viewport (the core in-view watch); `{ once: true }` settles at the first `true`. */
-export const createInView = (options?: { readonly once?: boolean }): Sensor<boolean> =>
+/**
+ * `true` while the element it's given to as a `ref` is in view, `false` otherwise. What "in view"
+ * means is a `viewport`'s, as on a Wardic element: `root`, a scrolling container (the window if none);
+ * `margin`, grown around it, as CSS `rootMargin`; `amount` of the element that must show, `"some"`,
+ * `"all"` or 0 to 1; and `once`, to stay `true` after the first entry. `root` is read as it's
+ * attached: an ancestor's `ref`, which Solid applies before its children's, has it by then. Motion's
+ * `useInView`.
+ *
+ * @example
+ * const visible = createInView({ amount: "all", once: true })
+ * <section ref={visible}>{visible() ? "Seen" : "Not yet"}</section>
+ * @see https://wardic.dev/reference/solid/gestures/create-in-view
+ */
+// The core in-view watch, its options mapped as the element's `viewport` is (#273): `root` read as
+// it's attached.
+export const createInView = (viewport?: WardicViewport): Sensor<boolean> =>
   watchSensorOf<boolean>(
-    (target, { on, onDefect }) => Recognizer.watchInView(target, { ...options }, { on: (transition) => on(transition.active), onDefect }),
+    (target, { on, onDefect }) => Recognizer.watchInView(target, inViewOptionsOf(viewport), { on: (transition) => on(transition.active), onDefect }),
     false,
   )
 

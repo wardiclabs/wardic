@@ -164,6 +164,7 @@ export { type Ward, type WardStyle, type WardValue, type WardProps, type WardUse
 export type {
   WardConfig,
   WardicDragTransition,
+  WardicViewport,
   WardicReducedMotion,
   WardicSkipAnimations,
   WardicInertia,
