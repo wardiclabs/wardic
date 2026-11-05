@@ -1183,6 +1183,14 @@ export interface NodeSnapshot {
 export interface AnimateLayoutOptions {
   /** Called once the change has settled: every layout animation it started has ended, however; at once after its pass if it started none. */
   readonly onSettled?: () => void
+  /**
+   * Where the change animates from: the boxes at the call (`"call"`, the default), or the last Measure
+   * pass's (`"lastPass"`), for a change a framework applied after the call, such as a write Solid 2
+   * held, which no pass has seen yet. With `"lastPass"` the call takes no Measurements of its own: the
+   * pass it asks for compares with the boxes the last one kept.
+   */
+  // #618 (decision 13): a write Solid 2 held landed after the call's pass, and nothing measured it.
+  readonly from?: "call" | "lastPass" | undefined
 }
 
 /** Per-node mutable state held by the system. */
@@ -4352,7 +4360,7 @@ export const makeProjectionSystem = (
   }
 
   const animateLayout: ProjectionSystem["animateLayout"] = (fn, options = NO_ANIMATE_LAYOUT_OPTIONS) => {
-    if (Bool.not(Bool.some([disposed, declared, inPass]))) takeMeasurements()
+    if (Bool.not(Bool.some([disposed, declared, inPass, options.from === "lastPass"]))) takeMeasurements()
     // Its end-of-task pass takes it, whatever `fn` does (#191).
     if (Bool.not(disposed)) UndefinedOr.map(options.onSettled, (onSettled) => settleCallbacks.push(onSettled))
     try {

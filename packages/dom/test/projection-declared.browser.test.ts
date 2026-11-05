@@ -19,6 +19,11 @@
 //   on the layout after its change); the end-of-task pass does both.
 // - DL7: a call from inside a pass's own flush animates from that pass's reads, in a second round.
 // - DL8: a call in a later task takes its own Measurements.
+// - DL9: `from: "lastPass"` (#618, decision 13): a change made before the call, as a write a framework
+//   held lands after the call's pass, animates from the last pass's boxes; from the call's, it jumps.
+//   Its onSettled waits for that animation.
+// - DL10: in a task with a plain call, it takes no Measurements of its own and joins the call's pass:
+//   one pass, both onSettled after it.
 // (The Resize block winning is RB10, in projection-resize-block.)
 import { describe, expect, it } from "@effect/vitest"
 import * as Easing from "@wardic/core/Easing"
@@ -272,6 +277,55 @@ describe("a Declared layout change (#4, ADR-0038)", () => {
     const at = sk.writes.length
     await endOfTask()
     expect(seedOf(sk, "n0", at)?.ty, "from the second call's Measurement: 30 px above").toBeCloseTo(-30, 6)
+    e.dispose()
+  })
+
+  it("DL9: from the last pass, a change made before the call animates from that pass's boxes, and onSettled waits for it", async () => {
+    const run = async (from: "call" | "lastPass") => {
+      const sk = makeSink()
+      const e = makeEngine(sk.sink)
+      const s = stage("position:relative;width:400px;height:600px")
+      const node = absolute(s, 0)
+      await mount(e, [node], LINEAR)
+      node.style.top = "60px" // landed after the last pass, unmeasured
+      const settled: Array<number> = []
+      e.system.animateLayout(() => {}, { from, onSettled: () => settled.push(sk.writes.length) })
+      const at = sk.writes.length
+      await endOfTask()
+      const ty = seedOf(sk, "n0", at)?.ty
+      const early = settled.length
+      fireFrames(30)
+      e.dispose()
+      return { ty, early, settled: settled.length }
+    }
+    const last = await run("lastPass")
+    expect(last.ty, "from the last pass's box: 60 px above").toBeCloseTo(-60, 6)
+    expect(last.early, "not before the animation ends").toBe(0)
+    expect(last.settled).toBe(1)
+    expect((await run("call")).ty, "from the call's: nothing to animate").toBeUndefined()
+  })
+
+  it("DL10: beside a plain call in the task, it joins the call's pass: one pass, both settled after it", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const s = stage("position:relative;width:400px;height:600px")
+    const node = absolute(s, 0)
+    await mount(e, [node])
+    const passes = e.spans.length
+    const settled: Array<string> = []
+    e.system.animateLayout(
+      () => {
+        node.style.top = "40px"
+      },
+      { onSettled: () => settled.push("call") },
+    )
+    e.system.animateLayout(() => {}, { from: "lastPass", onSettled: () => settled.push("lastPass") })
+    const at = sk.writes.length
+    await endOfTask()
+    expect(e.spans.length - passes, "one pass").toBe(1)
+    expect(seedOf(sk, "n0", at)?.ty, "from the plain call's Measurement").toBeCloseTo(-40, 6)
+    fireFrames(120)
+    expect(settled).toEqual(["call", "lastPass"])
     e.dispose()
   })
 })
