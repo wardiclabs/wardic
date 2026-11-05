@@ -19,9 +19,9 @@ import * as Effect from "effect/Effect"
 import * as ErrorReporter from "effect/ErrorReporter"
 
 /**
- * `cause` logged at Error as `message`, with the cause, and reported to the Environment's
- * `ErrorReporter`s. An interruption is neither: it's how a run is removed (a Retarget, an
- * unmount, a dispose). Annotate the log by piping `Effect.annotateLogs` onto the result.
+ * `cause` logged at Error as `message`, with the cause, and handed to the Environment's
+ * `ErrorReporter`s. An interruption is neither: it's how a run is removed, by a retarget, an unmount or a
+ * dispose. Annotate the log by piping `Effect.annotateLogs` onto it.
  */
 export const reportFailure = (message: string, cause: Cause.Cause<unknown>): Effect.Effect<void> =>
   Bool.match(Cause.hasInterruptsOnly(cause), {

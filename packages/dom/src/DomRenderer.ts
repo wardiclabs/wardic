@@ -1,8 +1,16 @@
 /**
- * The DOM's `Renderer`: a Frame's values projected into a style patch (`project`) and committed onto an element, the own transform and opacity an element's values carry, its **Transform template** (ADR-0006, ADR-0034, #443), and the CSS lengths a bare number is drawn in `px` on (`LENGTH_KEYS`, #522).
+ * The DOM's Renderer: `project` turns a Frame's values into a style patch, grouping the transform keys
+ * into one `transform` and drawing a bare number on a length in `px`, and its `commit` writes the patch
+ * onto an element. The rest is for a binding's layout projection: an element's own move, scale, rotation
+ * and opacity, read from its values, and its transform template.
  *
- * `@wardic/dom/DomRenderer` (#132, ADR-0041).
+ * @example
+ * import * as DomRenderer from "@wardic/dom/DomRenderer"
+ *
+ * DomRenderer.project({ x: 100, opacity: 0.5 }) // { transform: "translateX(100px)", opacity: 0.5 }
  */
+// `@wardic/dom/DomRenderer` (#132, ADR-0041): ADR-0006, ADR-0034; the **Transform template** (#443);
+// `LENGTH_KEYS` (#522).
 export {
   RendererDomLive as layer,
   project,

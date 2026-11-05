@@ -353,5 +353,5 @@ export const animatableNone: InterpolatorRegistry.KeyRule = {
       )),
 }
 
-/** The DOM Environment's Key rules, in precedence order. */
+/** The DOM's Key rules, in the order they're asked. */
 export const keyRules: ReadonlyArray<InterpolatorRegistry.KeyRule> = [visibility, animatableNone]

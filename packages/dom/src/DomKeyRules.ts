@@ -1,8 +1,15 @@
 /**
- * The DOM's Key rules: `display` and `visibility` hold until the run's last Frame, and an empty end grows from its Animatable none (ADR-0015, ADR-0035).
+ * The DOM's Key rules, for the keys it blends by name. `visibility` keeps `display` and `visibility` at
+ * their start until an animation's last frame when they're hiding the element, and `animatableNone`
+ * grows a shadow, a filter or a fill from nothing when one end is empty. `all` is both, in the order
+ * they're asked.
  *
- * `@wardic/dom/DomKeyRules` (#132, ADR-0041).
+ * @example
+ * import * as DomKeyRules from "@wardic/dom/DomKeyRules"
+ *
+ * const registry = yield* InterpolatorRegistry.make(DomInterpolators.all, [DomKeyRules.visibility])
  */
+// `@wardic/dom/DomKeyRules` (#132, ADR-0041): ADR-0015, ADR-0035.
 export {
   keyRules as all,
   visibility,
