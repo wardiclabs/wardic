@@ -1,15 +1,17 @@
 /**
- * The DOM's **Projection system** engine (#548, ADR-0041's `Dom` implementations): `make` and `layer`,
- * apart from `ProjectionSystem`'s key and types, which every element's code reads. Only a binding's
- * `layout` Feature imports this, so a page that never lays out ships none of the engine (ADR-0067,
- * *Amendment (#548)*).
+ * The DOM's layout engine: `layer` builds the Projection system, writing through the Environment's
+ * `FlushGate`, and `make` builds it over any sink, for a binding that wires it itself. Only a binding's
+ * layout feature imports it, so a page that never lays out ships none of it. Closing its Scope stops the
+ * engine: its run, its observers and listeners, and what it forked. Built after the gate, it ends before
+ * it.
  *
- * The engine is a service built by a Layer (`layer`, which writes through the Environment's
- * `FlushGate`) and ended by that Layer's Scope: closing it stops the coordinator's run, drops its
- * observers and listeners, and ends what it forked. Built after the gate, it ends before it. Its
- * members are plain functions. `make` is the scoped constructor over any sink, for a binding that
- * wires it itself.
+ * @example
+ * import * as DomProjectionSystem from "@wardic/dom/DomProjectionSystem"
+ *
+ * const layout = DomProjectionSystem.layer().pipe(Layer.provide(FlushGate.layer({ batch: (apply) => apply() })))
  */
+// The DOM's **Projection system** engine (#548, ADR-0041's `Dom` implementations), apart from
+// `ProjectionSystem`'s key and types (ADR-0067, *Amendment (#548)*). Its members are plain functions.
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import type * as Scope from "effect/Scope"
