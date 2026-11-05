@@ -1,0 +1,25 @@
+---
+title: createResetProjection
+description: Starts layout animations afresh, ending every running one and letting go of every leaving layoutId element, for a change that replaces the page.
+api: [createResetProjection]
+---
+
+# createResetProjection
+
+Returns `reset()`, which starts layout animations afresh: it ends every running layout animation where the layout puts its element, lets go of every leaving `layoutId` element, and has the next measure take every box as it is, animating none. For a change that replaces the page wholesale, where nothing should fly from where it was.
+
+```tsx
+import { createResetProjection } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+const reset = createResetProjection()
+const openWorkspace = (id: string) => {
+  reset()
+  setWorkspace(id)
+}
+```
+
+The elements with a `layoutId` that are on the page keep it: the next one to mount with theirs still flies from them. On a server, `reset()` does nothing.
+
+## Coming from Motion
+
+Motion's `useResetProjection`.

@@ -43,16 +43,18 @@ export const readLayoutBox = (el: HTMLElement): Probe.Bounds => {
 }
 
 /**
- * Measure `el`'s box with its OWN in-flight transform cleared, so an active FLIP /
- * `animate` transform never distorts the reading. The inline `transform` is
- * temporarily blanked, the rect read, then the exact prior value restored — in a
- * `finally`, so a throwing `getBoundingClientRect` can't leave the element reset.
+ * Measures `el`'s box where the layout puts it: its own `transform` is cleared for the read and put
+ * back, so an animation running on it doesn't move the reading. Its ancestors' transforms still
+ * count. The box is in the viewport: `x`, `y`, `width`, `height`, and its edges.
  *
- * Single-element use only. It is NOT enough inside a tree pass: `getBoundingClientRect` is
- * viewport-space, so an ANCESTOR's transform pollutes the reading too, and the
- * `finally` restores before the next element is read — which is why the projection
- * pass hoists the reset out to pass level rather than widening it here.
+ * @example
+ * const box = measureLayoutBox(card)
+ * @see https://wardic.dev/reference/solid/layout/measure-layout-box
  */
+// The inline transform is blanked, the rect read, and the exact prior value restored in a `finally`, so
+// a throwing getBoundingClientRect can't leave the element reset. For one element only: inside a tree
+// pass an ancestor's transform pollutes the reading too, and the `finally` restores before the next
+// element is read, which is why the projection pass hoists the reset out to pass level instead.
 export const measureLayoutBox = (el: HTMLElement): Probe.Bounds => {
   const saved = el.style.transform
   el.style.transform = ""

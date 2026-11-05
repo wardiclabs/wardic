@@ -49,65 +49,83 @@ const defaultLayoutAfter = (delay: number | undefined): ProjectionSystem.LayoutT
 const toLayoutTransition = (t: WardicTransition | undefined): Option.Option<ProjectionSystem.LayoutTransition> =>
   Option.map(Option.fromUndefinedOr(transitionForKey(t, "layout")), asLayoutTransition)
 
-/** A layout node's options: what a binding's `useLayoutMember` registers with the projection system. */
+/**
+ * `useLayoutMember`'s options: the element, its id, and what its motion props would give a `w.*`
+ * element's layout node. Each function is read when the projection needs it, outside Solid's tracking.
+ */
 export interface UseLayoutMemberOptions {
-  /** The element's gate id (the spine's entry — `@projection` writes merge here). */
+  /** The element's id in the provider's gate, the entry its values are written under. */
+  // The spine's entry: the projection's `@projection` writes merge there.
   readonly id: string
-  /** The live DOM element to measure + project. */
+  /** The element to measure and animate. */
   readonly element: HTMLElement
-  /** The element's `layoutDependency` accessor (a re-measure trigger). */
+  /** Its `layoutDependency`: a change has it measured again. */
   readonly layoutDependency: () => unknown
-  /** The element's effective transition: its `layout` key, else itself, drives its layout animations (ADR-0009 *Amendment (#171)*). */
+  /** Its `transition`: the `layout` entry, else the whole transition, runs its layout animations. */
+  // ADR-0009 *Amendment (#171)*.
   readonly transition: () => WardicTransition | undefined
-  /** The element's drag transition, resolved: what its Release offset runs on (ADR-0016, *Amendment (#140)*). */
+  /** Its `dragTransition`, resolved: what it carries on with after a drag is let go. */
+  // ADR-0016, *Amendment (#140)*: what its Release offset runs on.
   readonly dragTransition?: () => ProjectionSystem.DragTransition
-  /** Whether reduced motion applies to it now (ADR-0029): its nearest `WardicConfig`'s, else the provider's (#434). Default: the system's. */
+  /** Whether reduced motion applies to it now: its nearest `WardicConfig`'s, else the provider's. Default: the system's. */
+  // ADR-0029, #434.
   readonly reducedMotion?: () => boolean
-  /** Whether its animations are skipped now (#468): its nearest `WardicConfig`'s `skipAnimations`. Default: never. */
+  /** Whether its animations land at once now: its nearest `WardicConfig`'s `skipAnimations`. Default: never. */
+  // #468.
   readonly skipAnimations?: () => boolean
-  /**
-   * The element's `layoutId` (shared-element key, ADR-0010), or omitted for a plain
-   * `layout` element. When set, the one node joins the engine's per-`layoutId`
-   * lead/follow stack (crossfade for coexisting twins) and takes a Switch seed from
-   * a twin disposed in the same task — both engine-side (*Amendment (#13)*).
-   */
+  /** Its `layoutId`: an element with the same one, mounting as it leaves, flies from it. Left out, it's a plain `layout` element. */
+  // ADR-0010: the one node joins the engine's per-`layoutId` lead/follow stack (coexisting twins
+  // crossfade) and takes a Switch seed from a twin disposed in the same task, both engine-side
+  // (*Amendment (#13)*).
   readonly layoutId?: string
-  /**
-   * Mark this element a scroll container (ADR-0012): its scroll offset is sampled at
-   * measure and folded out of its descendants' boxes, so a scroll change between
-   * triggers doesn't leak into their FLIP delta.
-   */
+  /** Its `layoutScroll`: it scrolls, and its scroll isn't read as its children moving. */
+  // ADR-0012: its scroll offset is sampled at measure and folded out of its descendants' boxes, so a
+  // scroll between triggers doesn't leak into their FLIP delta.
   readonly layoutScroll?: boolean
-  /** Mark this element a stable projection sub-root (ADR-0013): self-snap + boundary + persistent relative anchor. */
+  /** Its `layoutRoot`: a root for the layout animations inside it, which never animates its own. */
+  // ADR-0013: a stable projection sub-root, self-snap, boundary and persistent relative anchor.
   readonly layoutRoot?: boolean
-  /** This element's relative-projection anchor (ADR-0013): a 0–1 Point, or `false` to force absolute. */
+  /** Its `layoutAnchor`: where in its parent's box it anchors, 0 to 1 per axis, or `false` to measure it against the page. */
+  // ADR-0013: its relative-projection anchor; `false` forces absolute.
   readonly layoutAnchor?: Point.Point | false
-  /** Whether a handover onto it crossfades (#442, `layoutCrossfade`), read as each begins. Default: always. */
+  /** Its `layoutCrossfade`: whether a `layoutId` handover onto it crossfades, read as each begins. Default: always. */
+  // #442.
   readonly crossfade?: () => boolean
-  /** Raise the node while it's dragged (ADR-0016 *Amendment (Reorder)*; internal, a `<Reorder>` item's). */
+  /** Raises it above its siblings while it's dragged, as a `<Reorder>` item is. */
+  // ADR-0016 *Amendment (Reorder)*.
   readonly raiseWhileDragged?: boolean
-  /** The element's Layout mode, read at each layout animation's start (ADR-0009, *Amendment (#42)*). Default `true`. */
+  /** Its `layout` value: which part of a change it animates, read as each layout animation starts. Default `true`. */
+  // ADR-0009, *Amendment (#42)*: its Layout mode.
   readonly layoutMode?: () => Projection.LayoutMode
-  /** The element's own scale, read at each handover and each frame it follows (ADR-0010 *Amendment (#8)*). */
+  /** Its own `scale`, read at each handover and each frame it follows another element. */
+  // ADR-0010 *Amendment (#8)*.
   readonly ownScale?: () => Point.Point
-  /** The element's own translate, in page pixels, read where its own scale is (#363). */
+  /** Its own `x` and `y`, in page pixels, read where its own scale is. */
+  // #363.
   readonly ownTranslate?: () => Point.Point
-  /** The element's own `rotate` and opacity, which a handover blends into (ADR-0010 *Amendment (#166)*). */
+  /** Its own `rotate` and `opacity`, which a `layoutId` handover blends into. */
+  // ADR-0010 *Amendment (#166)*.
   readonly ownRotate?: () => number
   readonly ownOpacity?: () => number
-  /** What a Measure pass holds its transform at (#443): its Transform template's. Left out with none. */
+  /** The `transform` it's held at while it's measured: its `transformTemplate`'s. Left out without one. */
+  // #443.
   readonly heldTransform?: () => string
-  /** The app's `onBeforeLayoutMeasure` and `onLayoutMeasure` (#443), each left out when it had none at mount. */
+  /** Its `onBeforeLayoutMeasure` and `onLayoutMeasure`. Left out when it has none at mount. */
+  // #443.
   readonly onBeforeMeasure?: () => void
   readonly onMeasure?: (box: Box.Box, prev: Box.Box | undefined) => void
-  /** The app's layout animation callbacks, read when they fire (#191, ADR-0039). */
+  /** Its `onLayoutAnimationStart` and `onLayoutAnimationComplete`, read when they're called. */
+  // #191, ADR-0039.
   readonly onLayoutAnimationStart?: () => (() => void) | undefined
   readonly onLayoutAnimationComplete?: () => (() => void) | undefined
-  /** The app's `onDragTransitionEnd` (#273): a drag's Release offset at rest, read when it fires. */
+  /** Its `onDragTransitionEnd`, read when it's called: once it comes to rest after a drag. */
+  // #273: a drag's Release offset at rest.
   readonly onReleaseEnd?: () => (() => void) | undefined
-  /** Where a presence take-over starts its first layout animation (#286): its leaver's box, in the Root frame. */
+  /** Where its first layout animation starts, when it takes over from a leaving element with its `key`: that element's box. */
+  // #286: a presence take-over, its leaver's box in the Root frame.
   readonly enteredFrom?: Box.Box
-  /** Where a keyed twin's take-over starts its handover's fade (#286): the factor its leaver had faded to. */
+  /** Where its handover's fade starts, when it takes over from a leaving twin with its `key`: how far that one had faded. */
+  // #286.
   readonly fadeFrom?: number
 }
 

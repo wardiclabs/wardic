@@ -34,11 +34,11 @@ export interface WardicDragInfo {
   readonly velocity: WardicPoint
 }
 
-/** How a press was made (#427): by a pointer, or a **Keyboard press**. */
+/** How a press was made: by a pointer, or a **Keyboard press**. */
 export type WardicPressInput = "pointer" | "keyboard"
 
 /**
- * A press's event (#257, #427): where it was, in the viewport, and how it was made. A **Keyboard
+ * A press's event: where it was, in the viewport, and how it was made. A **Keyboard
  * press**'s point is its element's centre, measured at the key, so code that places something at a
  * press works for one.
  */
@@ -47,7 +47,7 @@ export interface WardicPressInfo extends WardicPointInfo {
 }
 
 /**
- * The platform's event a press's callback hears (#427): a pointer's; a **Keyboard press**'s key, or
+ * The platform's event a press's callback hears: a pointer's; a **Keyboard press**'s key, or
  * the blur that cancelled it.
  */
 export type WardicPressEvent = PointerEvent | KeyboardEvent | FocusEvent

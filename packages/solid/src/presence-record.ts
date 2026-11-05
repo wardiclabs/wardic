@@ -23,37 +23,37 @@ export interface PresenceRecord {
   /** The latest emitted value-map, updated by the spine each frame. */
   readonly snapshot: { current: Values.Values }
   /**
-   * The exit, resolved as the child leaves (#277): its target, a variant name or a dynamic variant
+   * The exit, resolved as the child leaves: its target, a variant name or a dynamic variant
    * resolved with `custom` (the presence's, when it has one, else the child's last), and the
    * transition it runs on. The child keeps what it's resolved from current while alive.
    */
   readonly exitOf: (custom: unknown, inherited: WardicVariantLabels | undefined) => PresenceExit
   /**
-   * Where it sits in the variant tree (#290), decided at setup as the tree is: whether it joins the
+   * Where it sits in the variant tree, decided at setup as the tree is: whether it joins the
    * nearest element that provides a context (a **Variant child**, which then exits on that one's
    * exit name, in its stagger), whether its own Variant children join it, and whether it's a twin
    * (a `layoutId`, whose crossfade replaces its exit). Left out: none of them.
    */
   readonly tree?: PresenceTree
   /**
-   * Where an exit key with no value in `snapshot` starts (ADR-0022): its `style` value, else
+   * Where an exit key with no value in `snapshot` starts: its `style` value, else
    * the element's Own value, read from the retained node at the exit, in the shape of `like`
    * (the key's exit target). `undefined` starts it at its target. Optional: a record without
    * it starts such a key at its target.
    */
   readonly startOf?: ((key: string, like: number | string) => number | string | undefined) | undefined
   /**
-   * Its velocities now, each numeric key's (#286): what a child back under its key starts with, when
+   * Its velocities now, each numeric key's: what a child back under its key starts with, when
    * this one is taken over without an exit running. Optional: left out, 0.
    */
   readonly velocities?: (() => Readonly<Record<string, number>>) | undefined
   /**
-   * Whether reduced motion applies to it now (ADR-0029): its nearest `WardicConfig`'s, else the
-   * provider's (#434), read as its exit starts. Optional: left out, the presence's.
+   * Whether reduced motion applies to it now: its nearest `WardicConfig`'s, else the
+   * provider's, read as its exit starts. Optional: left out, the presence's.
    */
   readonly reducedMotion?: (() => boolean) | undefined
   /**
-   * Whether its animations are skipped now (#468): its nearest `WardicConfig`'s, read as its exit
+   * Whether its animations are skipped now: its nearest `WardicConfig`'s, read as its exit
    * starts. Optional: left out, never.
    */
   readonly skipAnimations?: (() => boolean) | undefined
@@ -112,32 +112,32 @@ export interface PresenceContextValue {
   readonly register: (rec: PresenceRecord) => () => void
   /**
    * Whether an element setting up now starts at its `animate`, with nothing animating at mount:
-   * `<AnimatePresence initial={false}>`, during its first render (#134, Motion's
+   * `<AnimatePresence initial={false}>`, during its first render (Motion's
    * `presenceContext.initial`). A child that enters later animates in. Optional: left out, never.
    */
   readonly blocksInitial?: () => boolean
   /**
-   * Whether an element setting up now is inside a child `mode="wait"` holds off the page (#277,
-   * ADR-0048): `undefined` when it isn't, and it starts now. Else `start` is called once the child is
-   * on the page, and the call returned cancels that (the element gone first). Optional: left out, never.
+   * Whether an element setting up now is inside a child `mode="wait"` holds off the page: `undefined`
+   * when it isn't, and it starts now. Else `start` is called once the child is on the page, and the
+   * call returned cancels that (the element gone first). Optional: left out, never.
    */
   readonly hold?: (el: HTMLElement, start: () => void) => (() => void) | undefined
   /**
-   * A presence hook's registration (#277's PR 5b, ADR-0048): `usePresence`'s and `useIsPresent`'s.
+   * A presence hook's registration: `usePresence`'s and `useIsPresent`'s.
    * Optional: left out, nothing is watched.
    */
   readonly watch?: (watch: PresenceWatch) => void
-  /** The presence's `custom` (#277's PR 5b), reactive: `usePresenceData`'s. Left out, `undefined`. */
+  /** The presence's `custom`, reactive: `usePresenceData`'s. Left out, `undefined`. */
   readonly data?: () => unknown
   /**
-   * A Wardic element made (#286, ADR-0048): its `key` and whether it's a twin, told as its element is
+   * A Wardic element made: its `key` and whether it's a twin, told as its element is
    * made, before the presence decides what goes on the page (so `mode="wait"` doesn't hold a child
    * back under its key), and before any of its child's wards mount (so the elements inside pair).
    * Optional: left out, no child is keyed.
    */
   readonly made?: (el: Element, key: string | number | undefined, twin: boolean) => void
   /**
-   * Where an element mounting now starts, when its child takes over from a leaver (#286): asked once,
+   * Where an element mounting now starts, when its child takes over from a leaver: asked once,
    * before its first Retarget. `undefined`: as it would. Optional: left out, never.
    */
   readonly takeOverOf?: (el: Element) => PresenceSeed | undefined

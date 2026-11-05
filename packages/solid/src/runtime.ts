@@ -37,11 +37,11 @@ import { settingOf as configSettingOf, type WardicConfigValue } from "./wardic-c
 /**
  * The full Wardic environment a `WardicProvider` requires: core's service contracts but the
  * `InputSource`, the `RefreshFrameSource` the Clock ticks on and the flush gate requests its
- * flushes from (ADR-0031), core's Frame loop over the Clock (`FrameLoop.layer`, which runs every
- * animation the binding starts, ADR-0027), and the `AtomRegistry` that backs reactive service
+ * flushes from, core's Frame loop over the Clock (`FrameLoop.layer`, which runs every
+ * animation the binding starts), and the `AtomRegistry` that backs reactive service
  * inputs. Satisfied by `@wardic/dom`'s `DomLive` (real browser) or `@wardic/test`'s
  * `TestLive` (headless). `ER` and `R` are `never`: a fully self-contained Layer. The `InputSource` is
- * the gesture Features' (#511, ADR-0067 decision 14): built with the first one, over the page, unless
+ * the gesture Features': built with the first one, over the page, unless
  * the Environment gives one, as `TestLive` does, which they take.
  */
 export type WardicEnv = Layer.Layer<WardicServices, never, never>
@@ -330,9 +330,11 @@ export const projectionIn = (services: Context.Context<never>): ProjectionSystem
   Option.getOrUndefined(Context.getOption(services as Context.Context<ProjectionSystem.ProjectionSystem>, ProjectionSystem.ProjectionSystem))
 
 /**
- * A **Declared layout change**: run `fn`, and animate the layout change it makes. Returns `fn`'s
- * result. `onSettled` is called once the change has settled (#191, ADR-0039).
+ * `useAnimateLayout()`'s function: `animateLayout(fn, options?)` runs `fn` at once, animates the
+ * layout change it makes, and returns what `fn` returns. `options.onSettled` is called once every
+ * layout animation the change started has ended.
  */
+// A Declared layout change (#4, ADR-0038); `onSettled` is #191's, ADR-0039.
 export type AnimateLayout = <A>(fn: () => A, options?: ProjectionSystem.AnimateLayoutOptions) => A
 
 const NO_OPTIONS: ProjectionSystem.AnimateLayoutOptions = {}

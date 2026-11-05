@@ -99,7 +99,7 @@ type DragKeys<C> = [DragOf<C>] extends [never]
         ? "x" | "y"
         : never
 
-/** The keys a config animates, and the ones its targets' Transition ends set (#428). */
+/** The keys a config animates, and the ones its targets' Transition ends set. */
 export type AnimatedKey<C> = KeysOf<Layers<C>> | EndKeysOf<MotionLayers<C>> | DragKeys<C>
 
 /**

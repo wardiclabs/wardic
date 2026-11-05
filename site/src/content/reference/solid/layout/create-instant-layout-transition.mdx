@@ -1,0 +1,24 @@
+---
+title: createInstantLayoutTransition
+description: Makes a layout change land at once, every layout element going straight to its new box, while the change's other animations run.
+api: [createInstantLayoutTransition]
+---
+
+# createInstantLayoutTransition
+
+Returns `start(fn)`, which runs `fn` and makes the layout change it makes land at once: every layout element goes straight to its new box, and a running layout animation ends there too. The change's other animations run as ever.
+
+```tsx
+import { createInstantLayoutTransition } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+const start = createInstantLayoutTransition()
+const sortNow = () => start(() => setOrder(sorted()))
+```
+
+`start()` with no function does the same for a layout change made later in the same task. On a server, `fn` just runs.
+
+To make every animation the change starts land at once too, use [`createInstantTransition`](/reference/solid/layout/create-instant-transition).
+
+## Coming from Motion
+
+Motion's `useInstantLayoutTransition`.

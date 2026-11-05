@@ -1,0 +1,20 @@
+---
+title: measureLayoutBox
+description: Measures an element's box where the layout puts it, without the transform an animation is drawing on it.
+api: [measureLayoutBox]
+---
+
+# measureLayoutBox
+
+Measures an element's box where the layout puts it. Its own `transform` is cleared for the read and put back, so an animation running on it doesn't move the reading: a card sliding across still measures where it'll land.
+
+```tsx
+import { measureLayoutBox } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+const box = measureLayoutBox(card)
+console.log(box.top, box.left, box.width, box.height)
+```
+
+The box is in the viewport, as `getBoundingClientRect()` gives it: `x`, `y`, `width`, `height`, `top`, `right`, `bottom` and `left`. An ancestor's transform still counts.
+
+It reads layout, so call it when you need the box, not in a loop: each call can make the browser lay out the page. It's `@wardic/dom`'s, exported by both bindings.

@@ -23,33 +23,44 @@ const LayoutGroupContext = createContext<string | null>(null)
 /** The id of the **Layout group** a ward made here is in (#432), or none. Internal. */
 export const useLayoutGroupId = (): string | undefined => Option.getOrUndefined(Option.fromNullishOr(useContext(LayoutGroupContext)))
 
-/** `<LayoutGroup>`'s props on Solid 2: the Solid 1 binding's (#432). */
+/** `<LayoutGroup>`'s props, as Solid 1's. */
 export interface LayoutGroupProps {
   readonly children?: JSX.Element
   /**
-   * A namespace for the `layoutId`s made under it (#432, Motion's): `<LayoutGroup id="tabs">` makes a
-   * `layoutId="underline"` pair as `tabs-underline`, so two copies of a component that uses a
-   * `layoutId` keep their own. Read once, at its mount.
+   * An id put before every `layoutId` made under it: under `<LayoutGroup id="tabs">`, a
+   * `layoutId="underline"` is `tabs-underline`, so two copies of a component that uses a `layoutId`
+   * keep their own. Read once, as it mounts.
    */
   readonly id?: string | undefined
   /**
-   * Whether it joins the id of the group it's in (#432, Motion's): `true` (the default) and `"id"`
-   * both do, `outer-inner`, or take the outer one's when it has no `id`; `false` starts its own.
-   * Motion's `true` also joins the outer group's re-measure, which every Measure pass here already
-   * is: it reads the whole tree. Read once, at its mount.
+   * Whether it joins the id of the group it's in: `true` (the default) and `"id"` both do, making
+   * `outer-inner`, or taking the outer id when it has none of its own; `false` starts afresh. Read
+   * once, as it mounts.
    */
+  // Motion's `true` also joins the outer group's re-measure, which every Measure pass here already is:
+  // it reads the whole tree.
   readonly inherit?: LayoutGroupInherit | undefined
-  /** A value whose change requests a re-measure of every layout node (sibling reflow falls out). */
+  /** A value whose change has every layout element measured again, for a change nothing else sees. */
   readonly layoutDependency?: unknown
 }
 
 /**
- * A **Layout group** (#432): its `id` is a namespace for the `layoutId`s made under it, as Motion's.
- * A ward is in the group it's made under, as it's under the presence and the variant parent it's
- * made under: one made in a component body and spread on an element inside a `<LayoutGroup>` there
- * is outside it, so make it in a component under the group. Its `layoutDependency`, a value whose
- * change requests a re-measure of every layout node (sibling reflow falls out), is read in an effect.
+ * Puts an id before every `layoutId` made under it, so two copies of a component that uses a
+ * `layoutId` keep their own: under `<LayoutGroup id="tabs">`, `layoutId="underline"` is
+ * `tabs-underline`. Its `layoutDependency` has every layout element measured again when it changes.
+ * Motion's `LayoutGroup`.
+ *
+ * A ward is in the group it's made under: one made in a component body, and given to an element
+ * inside a `<LayoutGroup>` there, is outside it. Make it in a component under the group.
+ *
+ * @example
+ * <LayoutGroup id="tabs">
+ *   <Tabs />
+ * </LayoutGroup>
+ * @see https://wardic.dev/reference/solid/layout/layout-group
  */
+// #432, as Solid 1's: a ward is under the group it's made under, as it's under its presence and its
+// variant parent. Its `layoutDependency` is read in an effect.
 export function LayoutGroup(props: LayoutGroupProps): JSX.Element {
   // Its id, from the group around and its own, once (Motion's).
   const outer = useLayoutGroupId()

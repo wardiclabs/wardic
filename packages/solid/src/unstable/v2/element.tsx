@@ -41,8 +41,8 @@ import { useWardicConfig } from "./wardic-config.tsx"
 
 /**
  * Props for a `wardic.<tag>` element: the tag's own props and its motion ({@link WardicMotion}), with
- * a `style` that takes the transform keys and Live values too ({@link WardStyle}, #130). `C` is the
- * config of a ward given to its `wardRef` (#398), `{}` with none; `P` the motion props, a
+ * a `style` that takes the transform keys and Live values too ({@link WardStyle}). `C` is the
+ * config of a ward given to its `wardRef`, `{}` with none; `P` the motion props, a
  * `wardic.<tag>` component's with its keys inferred ({@link WardicComponent}).
  */
 export type WardicProps<Tag extends keyof JSX.IntrinsicElements, C = {}, P = WardicMotionProps> =
@@ -51,14 +51,14 @@ export type WardicProps<Tag extends keyof JSX.IntrinsicElements, C = {}, P = War
   & WardicMotion<C, P>
 
 /**
- * A component's ward, handed over (#257, ADR-0046): `wardRef={(card) => …}` gets the ward the
+ * A component's ward, handed over: `wardRef={(card) => …}` gets the ward the
  * component puts on its element, once, as it's made, as `ref` gets the element. Its `settled()` and
  * `next(name)` are how a component's user hears its animations and gestures on Solid 2, which has no
- * callbacks for them. Never a ward: one given to `wardRef` is taken in (#349).
+ * callbacks for them. Never a ward: one given to `wardRef` is taken in.
  */
 export type WardRefCallback = ((ward: Ward) => void) & { readonly [WARD]?: never }
 
-/** The keys a given ward's variant node reads (#398's Q11): a ward that carries its variants keeps them. */
+/** The keys a given ward's variant node reads: a ward that carries its variants keeps them. */
 export type WardNodeKey = "variants" | "inherit" | "initial" | "animate" | "transition" | "custom" | "whileHover" | "whileTap" | "whileFocus" | "whileDrag" | "whileInView"
 
 /**
@@ -72,22 +72,23 @@ export type WardSetKey<C> = { readonly [K in keyof C]-?: {} extends Pick<C, K> ?
 type CarriesVariants<C> = "variants" extends WardSetKey<C> ? true : "inherit" extends WardSetKey<C> ? true : false
 
 /**
- * The motion props `P` beside a ward given to `wardRef` (#398), its config `C`: each but the keys `C`
- * sets ({@link WardSetKey}, Q1), and, when `C` carries its variants, the keys its variant node reads
- * (Q11). With no ward given, `C` is `{}`, and every one goes.
+ * The motion props `P` beside a ward given to `wardRef`, its config `C`: each but the keys `C` sets
+ * ({@link WardSetKey}), and, when `C` carries its variants, the keys its variant node reads. With no
+ * ward given, `C` is `{}`, and every one goes.
  */
+// #398's Q1 and Q11.
 export type WardicBeside<C, P = WardicMotionProps> = {
   readonly [K in keyof P]?: K extends WardSetKey<C> ? never : CarriesVariants<C> extends true ? (K extends WardNodeKey ? never : P[K]) : P[K]
 }
 
 /**
- * A ward given to `wardRef` (#349), its config's type `C` carried with no call signature, so a
+ * A ward given to `wardRef`, its config's type `C` carried with no call signature, so a
  * callback's `(card) => …` keeps its contextual type.
  */
 export type GivenWard<C> = AnyWard & { readonly read: WardRead<C> }
 
 /**
- * A Wardic component's motion (#349, #398): its motion props, with `wardRef` handing its own ward out
+ * A Wardic component's motion: its motion props, with `wardRef` handing its own ward out
  * ({@link WardRefCallback}), or taking a ward made outside it ({@link GivenWard}), which the component
  * drives its element with. Beside a given ward go the motion props it doesn't set
  * ({@link WardicBeside}), each laid over its config; `style` and `ref` by `ward.with()`'s rules.
@@ -96,7 +97,7 @@ export type WardicMotion<C = {}, P = WardicMotionProps> = { readonly wardRef?: W
 
 /**
  * A `wardic.<tag>` component: generic over the config `C` of a ward given to its `wardRef`, `{}` with
- * none (#398), and over the keys its targets set (#305), so its `transition` takes entries for those
+ * none, and over the keys its targets set, so its `transition` takes entries for those
  * keys and the given ward's, `default` and `layout`, and a target's own takes them and `default`
  * ({@link InferredMotion}).
  */
@@ -109,7 +110,7 @@ export type WardicComponent<Tag extends keyof JSX.IntrinsicElements> = <
   D extends boolean | "x" | "y" = never,
 >(props: WardicProps<Tag, C, InferredMotion<WardicMotionProps, K, N, LI, LA, D, DrivenKey<C>>>) => JSX.Element
 
-/** `wardic.create(Component)`'s component (#398, #305): the component's props and its motion, generic as {@link WardicComponent}. */
+/** `wardic.create(Component)`'s component: the component's props and its motion, generic as {@link WardicComponent}. */
 export type WardicWrapped<P> = <
   C = {},
   K extends TargetKey = never,
@@ -237,8 +238,9 @@ export const drivenWard = (name: string, props: object, share: WardShare, intern
  * What `wardic.create(Component)` requires of a component: it forwards `ref` to its single root
  * element (`<div ref={props.ref}>`). The ref is an array: the user's, then the ward's. Checked once
  * the component has settled, not by `create`'s type: a component library's part declares the ref of
- * the element it renders (`Ref<HTMLDivElement>`), which a `Ref<HTMLElement>` isn't (#387).
+ * the element it renders (`Ref<HTMLDivElement>`), which a `Ref<HTMLElement>` isn't.
  */
+// #387.
 export type WardicWrappable = { readonly ref?: JSX.Ref<HTMLElement> }
 
 

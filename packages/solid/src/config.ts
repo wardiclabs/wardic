@@ -113,7 +113,7 @@ export type WardicValues =
 export type WardicLengths = { readonly [K in DomRenderer.LengthKey]?: number | CSSProperties[K] }
 
 /**
- * A **Keyframes** value (#429, Motion's): the stops a key passes through in order, as
+ * A **Keyframes** value (Motion's): the stops a key passes through in order, as
  * `animate={{ scale: [1, 1.2, 1] }}`. A first `null` is where the key is now; a later one repeats the
  * stop before it. An explicit first stop is jumped to as its animation starts. More than two stops run
  * on a tween (Motion's 0.8 s one with no transition defined; `times` places them, `ease` may be one per
@@ -122,7 +122,7 @@ export type WardicLengths = { readonly [K in DomRenderer.LengthKey]?: number | C
 export type WardicKeyframes<V> = ReadonlyArray<V | null>
 
 /**
- * A target's values (#429): {@link WardicValues}, each a value or its {@link WardicKeyframes}. Every
+ * A target's values: {@link WardicValues}, each a value or its {@link WardicKeyframes}. Every
  * target takes them (`animate`, `exit`, each `while*`, a variant); `initial` reads one at its first
  * stop. `style` and a Transition end take one value, as does CSS's own `transition` string.
  */
@@ -273,7 +273,7 @@ export interface WardicInherit {
   readonly inherit?: boolean
 }
 
-/** The name of a value a transition can have an entry for (#301): a style, a transform shorthand, an SVG attribute. */
+/** The name of a value a transition can have an entry for: a style, a transform shorthand, an SVG attribute. */
 export type WardicValueKey = Exclude<keyof WardicValues & string, "transition">
 
 /**
@@ -296,7 +296,7 @@ export type WardicValueEntries<K extends string> = { readonly default?: WardicVa
 export type WardicVariantTransition = WardicTransition & WardicInherit
 
 /**
- * A target's **Transition end** (#428, Motion's `transitionEnd`): values set at once, with no
+ * A target's **Transition end** (Motion's `transitionEnd`): values set at once, with no
  * animation, once the keys the target animates have landed, `{ opacity: 0, transitionEnd: { display:
  * "none" } }`. Its keys are the target's, so they return to their base when it's no longer active;
  * a target interrupted before it lands never sets them; the target an element renders first sets its
@@ -305,17 +305,17 @@ export type WardicVariantTransition = WardicTransition & WardicInherit
 export type WardicTransitionEnd = Omit<WardicValues, "transition">
 
 /**
- * A target, as a variant, `animate` or `exit` gives it (#277, Motion's `TargetAndTransition`): its
- * values, each a value or its Keyframes (#429, {@link WardicTargetValues}), optionally the transition
- * the animation to it runs on, as an object, and its Transition end ({@link WardicTransitionEnd},
- * #428). A plain {@link WardicValues} map fits too, its CSS `transition` string a value as any other.
+ * A target, as a variant, `animate` or `exit` gives it (Motion's `TargetAndTransition`): its
+ * values, each a value or its Keyframes ({@link WardicTargetValues}), optionally the transition
+ * the animation to it runs on, as an object, and its Transition end ({@link WardicTransitionEnd}).
+ * A plain {@link WardicValues} map fits too, its CSS `transition` string a value as any other.
  */
 export type WardicVariant =
   | (WardicTargetValues & { readonly transitionEnd?: WardicTransitionEnd })
   | (Omit<WardicTargetValues, "transition"> & { readonly transition?: WardicVariantTransition; readonly transitionEnd?: WardicTransitionEnd })
 
 /**
- * Variant names (#297, Motion's `VariantLabels`): one name, or a list of them. A list merges its
+ * Variant names (Motion's `VariantLabels`): one name, or a list of them. A list merges its
  * names' values in order, a later name's winning a key both set. Each key animates on the own
  * transition of the last name that sets it, and each name orchestrates the keys it sets in the
  * element's Variant children. An empty list is no name.
@@ -323,7 +323,7 @@ export type WardicVariant =
 export type WardicVariantLabels = string | ReadonlyArray<string>
 
 /**
- * A dynamic variant (#277, ADR-0048, Motion's `TargetResolver`): called each time the variant is
+ * A dynamic variant (Motion's `TargetResolver`): called each time the variant is
  * resolved with the element's `custom` (or, for an exit, its `<AnimatePresence custom>`), its values
  * now and their velocities, and returns its target, or another variant's name.
  */
@@ -335,11 +335,11 @@ export type WardicVariantResolver = (
   velocity: Readonly<Record<string, number>>,
 ) => WardicVariant | string
 
-/** Named targets, each a target or a {@link WardicVariantResolver} (#277). */
+/** Named targets, each a target or a {@link WardicVariantResolver}. */
 export type WardicVariants = Readonly<Record<string, WardicVariant | WardicVariantResolver>>
 
 /**
- * A drag's release (ADR-0016, *Amendment (#140)*), Motion's `dragTransition`: the inertia every
+ * A drag's release, Motion's `dragTransition`: the inertia every
  * release runs on, a Fling, a snap back to the origin, and a layout node's Release offset. A glide
  * toward `power` × the release velocity that eases out over `timeConstant`, springing back on the
  * bounce at an edge it would cross. Motion's names and units: `timeConstant` in milliseconds. The
@@ -373,7 +373,7 @@ export interface WardicDragTransition {
  * boundary a config field is always a plain value.
  */
 /**
- * Which of an element's gestures reach its pressable ancestors (#439, Motion's `PropagateOptions`): only
+ * Which of an element's gestures reach its pressable ancestors (Motion's `PropagateOptions`): only
  * `tap` so far. `false` stops it; left out or `true`, it propagates.
  */
 export interface WardicPropagate {
@@ -381,8 +381,8 @@ export interface WardicPropagate {
 }
 
 /**
- * Motion's `definition` of an animation (#257): a variant name, or its target values. A list of names
- * (#297) on Solid 2's landing, where `animate` gave one; Solid 1's callbacks are told each name.
+ * Motion's `definition` of an animation: a variant name, or its target values. A list of names
+ * on Solid 2's landing, where `animate` gave one; Solid 1's callbacks are told each name.
  */
 export type WardicAnimationDefinition = WardicVariantLabels | WardicValues
 
@@ -402,11 +402,11 @@ export type WardicScaleCorrector = ProjectionSystem.ScaleCorrector
  */
 export type WardicTransformPoint = (point: { readonly x: number; readonly y: number }) => { readonly x: number; readonly y: number }
 
-/** A layout box (#443, Motion's `Box`): each axis's `min` and `max`, in the page's pixels. */
+/** A layout box (Motion's `Box`): each axis's `min` and `max`, in the page's pixels. */
 export type WardicLayoutBox = Box.Box
 
 /**
- * A **Transform template** (#443, Motion's `transformTemplate`): `(values, generated) => transform`.
+ * A **Transform template** (Motion's `transformTemplate`): `(values, generated) => transform`.
  *
  * - **At rest and animating:** `values` holds the element's transform keys in their units, as
  *   Motion's do (`x: "10px"`, `rotate: "45deg"`, `scale: 1.5`), and `generated` is the transform

@@ -77,30 +77,35 @@ import { w } from "./w.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
 import { eachOf, neverLands, NO_EVENTS, serverWhen, Waiters, whenOf } from "./waiters.ts"
 
-/**
- * A **Reorder group**'s config: the app's `values` in order, `onReorder` to receive a new order (the
- * app sets `values` from it), an optional `axis` over the one detected from the items' boxes, the
- * keyboard reorder's settings (ADR-0037), and the element's `style`. Read reactively through an
- * accessor or getters.
- */
+/** A Reorder group's config, each key read as a value. */
 export interface ReorderGroupConfigValues<V> {
+  /** The list's values, in order. Your app owns them. */
   readonly values: ReadonlyArray<V>
+  /** Given each new order, as an item crosses another: set `values` from it. */
   readonly onReorder: (values: Array<V>) => void
+  /** The list's direction: `"y"`, a column, or `"x"`, a row. Left out, it's found from the items' boxes. */
   readonly axis?: CoreReorder.Axis | undefined
-  /** The **Keyboard reorder** (ADR-0037): on unless `false`. Off, items get no keys, no tab stop and no instructions. */
+  /** The keyboard reorder: on unless `false`. Off, the items have no keys, no tab stop and no instructions. */
+  // ADR-0037.
   readonly keyboard?: boolean | undefined
-  /** The group's announcements, over the English defaults (`CoreReorder.defaultAnnouncements`). */
+  /**
+   * What a screen reader hears at each step of a keyboard reorder, over the English defaults: `lift`,
+   * `step`, `drop`, `cancel`, and `move` for a move in code, each a function of the item's `label`,
+   * `position` and the list's `count`.
+   */
   readonly announcements?: Partial<CoreReorder.Announcements<V>> | undefined
-  /** What each item's `aria-describedby` reads, over the English default (`@wardic/dom`'s `DEFAULT_REORDER_INSTRUCTIONS`). */
+  /** What each item's `aria-describedby` reads, over the English default. */
   readonly instructions?: string | undefined
-  /** The group element's style, over `overflow-anchor: none`. */
+  /** The list element's style, over `overflow-anchor: none`. */
   readonly style?: JSX.CSSProperties | string | undefined
 }
 
 /**
- * A **Reorder group**'s config, read per key (#259): each key a value or an accessor of it (a
- * getter, a store's property, a component's prop), `onReorder` a callback.
+ * A Reorder group's config: its `values` in order, `onReorder`, given each new order to set them from,
+ * and its options. Each key is a value or an accessor of it, such as a signal, a getter, a store's
+ * property or a component's prop; `onReorder` is a function.
  */
+// Read per key (#259).
 export type ReorderGroupConfig<V> = PerKey<ReorderGroupConfigValues<V>, "onReorder">
 
 /** A group's config read per key (#259). */
@@ -118,33 +123,33 @@ interface GroupLayer {
 }
 const GROUP_LAYERS = new WeakMap<object, GroupLayer>()
 
-/**
- * A **Reorder group**'s events (#257 item 3), as a ward's are (ADR-0046): `list.next(name)` and
- * `list.each(name)`.
- */
+/** A Reorder group's events, as a ward's: `list.next(name)`, `list.each(name)` and `list.when(name)`. */
+// #257 item 3, ADR-0046.
 export interface ReorderGroupEvents<V> {
   /**
-   * A user's reorder that changed the order, once, at its end: a drag released, or a keyboard lift
-   * dropped, with the final order and the item that moved. What an app saves. Not a keyboard
-   * cancel, nor `list.move`.
+   * Once at the end of a reorder that changed the order: a drag let go, or a keyboard lift dropped,
+   * with the order, the item that moved, and its index `from` and `to`. What an app saves. Not for a
+   * keyboard cancel, nor for `list.move`.
    */
   readonly reorderEnd: ReorderController.End<V>
   /**
-   * A **Reorder hold**'s start (#348, ADR-0020 *Amendment (#348)*): an item taken in hand, by its drag's
-   * start (past the threshold, not the press) or a keyboard lift, with its index then.
+   * As an item is taken in hand, by a drag starting (past its threshold, not at the press) or a
+   * keyboard lift, with its index then.
    */
+  // A Reorder hold's start (#348, ADR-0020 *Amendment (#348)*).
   readonly holdStart: ReorderController.HoldStart<V>
   /**
-   * A **Reorder hold**'s end (#348), once, whatever ended it: a release or a drop (`how: "drop"`), Escape
-   * (`"cancel"`), or the item unmounting (`"unmount"`). After `reorderEnd` when it moved.
+   * Once as an item in hand is let go, however: let go or dropped (`how: "drop"`), put back with Escape
+   * (`"cancel"`), or unmounted (`"unmount"`). After `reorderEnd` when it moved.
    */
+  // A Reorder hold's end (#348).
   readonly holdEnd: ReorderController.HoldEnd<V>
 }
 
 /** The `AbortError`'s message for a group's `next` its disposal cut off. */
 const GROUP_GONE = "The Reorder group was disposed before its next event."
 
-/** The props a spread of a {@link ReorderGroup} applies. */
+/** What a group's spread gives its element: its `ref`, and its `style` over `overflow-anchor: none`. */
 export interface ReorderGroupProps {
   /** The group: Solid calls it with the element. */
   readonly ref: (element: HTMLElement) => void
@@ -153,20 +158,21 @@ export interface ReorderGroupProps {
 }
 
 /**
- * A **Reorder group**: a ref carrying its props (spread it on the list's element, or give it to
- * `ref`), the group items join, and its reads and `move`.
- */
-/**
  * A **Reorder group**'s mark (#349): what tells a group given to `Reorder.Group`'s `groupRef` from a
  * function handed the component's own. Internal.
  */
 export const REORDER_GROUP: unique symbol = Symbol("wardic.reorderGroup")
 
-/** A **Reorder group** of `V`, whatever made it: what `Reorder.Group`'s `groupRef` takes in (#349). */
+/** A Reorder group of `V`, whatever its config: what `Reorder.Group`'s `groupRef` takes. */
+// #349.
 export interface AnyReorderGroup<V> {
   readonly [REORDER_GROUP]: V
 }
 
+/**
+ * `reorderGroup()`'s group: spread it on the list's element, `<ul {...list}>`, or give it to `ref`.
+ * Its items join it, and it gives its direction, `move`, and its events.
+ */
 export interface ReorderGroup<V> extends ReorderGroupProps, AnyReorderGroup<V> {
   /** Attaches the group to `element`: Solid calls it as a ref. */
   (element: HTMLElement): void
@@ -175,27 +181,23 @@ export interface ReorderGroup<V> extends ReorderGroupProps, AnyReorderGroup<V> {
    * as a function source, on no prototype, so none of the group's own names shadows the element's props.
    */
   (previous?: unknown): ReorderGroupProps
-  /** Core's Reorder group. */
+  /** The group's state: `@wardic/core`'s `Reorder.Group`. */
   readonly group: CoreReorder.Group<V>
-  /** The axis: the config's, else the one detected from the items' boxes. */
+  /** The list's direction: the config's, else the one found from the items' boxes. */
   readonly axis: Accessor<CoreReorder.Axis>
-  /** Move a value in code, and announce it (ADR-0037). */
+  /** Moves `value` to `toIndex`, as a button of your own would, and announces it to a screen reader. */
   readonly move: (value: V, toIndex: number) => void
-  /**
-   * A promise of the group's next `name` after the call (#257 item 3). It rejects with an
-   * `AbortError` once the group is disposed.
-   */
+  /** A promise of the group's next `name` after the call. It rejects with an `AbortError` once the group is gone. */
   readonly next: <E extends keyof ReorderGroupEvents<V>>(name: E) => Promise<ReorderGroupEvents<V>[E]>
   /**
-   * Every `name` from the call on, as an async iterable (#257 item 3), for a `for await`: each step
-   * waits for the next one, so one that comes while a step's work runs is missed; it ends once the
-   * group is disposed. To act on each one in an effect, use {@link when}.
+   * Every `name` from the call on, as an async iterable, for a `for await`: each step waits for the
+   * next one, so one that comes while a step's work runs is missed. It ends once the group is gone. To
+   * act on each one in an effect, use {@link when}.
    */
   readonly each: <E extends keyof ReorderGroupEvents<V>>(name: E) => AsyncIterable<ReorderGroupEvents<V>[E]>
   /**
-   * Every `name` (#355), as a memo for an effect, as a ward's `when` is: pending until the first, so
-   * the effect runs at each one, on any page. An optimistic save at each reorder (the README's
-   * pattern):
+   * Every `name`, as a memo for an effect, as a ward's `when` is: pending until the first, so the
+   * effect runs at each one, on any page. An optimistic save at each reorder:
    *
    * ```tsx
    * const [tasks, setTasks] = createOptimisticStore<Task[]>(() => api.listTasks(), [])
@@ -211,24 +213,25 @@ export interface ReorderGroup<V> extends ReorderGroupProps, AnyReorderGroup<V> {
    * ```
    */
   readonly when: <E extends keyof ReorderGroupEvents<V>>(name: E) => Accessor<ReorderGroupEvents<V>[E]>
-  /** Whether the items reorder by keyboard (ADR-0037). */
+  /** Whether the items reorder from the keyboard. */
   readonly keyboard: Accessor<boolean>
-  /** The items' instructions text (ADR-0037). */
+  /** The instructions the items' `aria-describedby` reads. */
   readonly instructions: Accessor<string>
   /** @internal for the items: the group's controller. */
   readonly controller: ReorderController.ReorderController<V>
 }
 
 /**
- * A `<Reorder>` item's Layout mode (ADR-0009, *Amendment (#42)*): `true`, its position and size (the
- * default), or `"position"`, its size changing at once, as Motion's `Reorder.Item` takes.
+ * A `<Reorder>` item's `layout`: `true`, its place and size animating (the default), or `"position"`,
+ * its place alone, its size changing at once, as Motion's `Reorder.Item` takes.
  */
+// Its Layout mode (ADR-0009, *Amendment (#42)*).
 export type ReorderItemLayout = true | "position"
 
 /**
- * A `<Reorder>` item's config: its `value` (read once), its `layout` mode, the app's own `tabindex`
- * and `aria-describedby` (merged with the keyboard reorder's), and any motion config but `layoutId`
- * and `drag`.
+ * A `<Reorder>` item's config: its `value`, read once, its `layout`, your own `tabindex` and
+ * `aria-describedby`, kept beside the keyboard reorder's, and any motion prop but `layoutId` and
+ * `drag`, which the group sets.
  */
 export type ReorderItemConfig<V> =
   & PerKey<ReorderItemOwn<V>>
@@ -236,7 +239,9 @@ export type ReorderItemConfig<V> =
 
 /** A `<Reorder>` item's own keys, beside a ward's. */
 interface ReorderItemOwn<V> {
+  /** Its value in the group's `values`. Read once. */
   readonly value: V
+  /** `true`, its place and size animating (the default), or `"position"`, its place alone. */
   readonly layout?: ReorderItemLayout
   /** The app's own tab stop (Solid 2's attribute spelling): it wins over the keyboard reorder's `0`. */
   readonly tabindex?: number | undefined
@@ -299,15 +304,27 @@ const refCarrying = <G,>(attach: (element: HTMLElement) => void, props: Property
 }
 
 /**
- * Create a **Reorder group** (ADR-0020): spread it on the list's element (`<ul {...list}>`), or give
- * it to `ref` (client-only). Items are made with {@link reorderItem}, keyed with `<For>`. Its axis is
- * the config's, else detected from the items' boxes after every Measure pass (for their
- * `touch-action`); a drag resolves its own axis at its start. A `values` change re-measures, so a
- * reorder the app makes itself animates. Call it where you'd make a signal, under a `WardicProvider`.
+ * Makes a list of your own elements reorderable, by dragging or from the keyboard: spread the group on
+ * the list's element, and make each item with `reorderItem`, keyed with `<For>`. Your app owns
+ * `values`, and sets them from `onReorder`; a reorder it makes itself animates too. Call it where you'd
+ * make a signal, under a `WardicProvider`. `Reorder.Group` is built on it.
  *
- * On a server it renders the element's style and nothing else: no controller, no runtime; its
- * `group`, `move` and `controller` do nothing (ADR-0021).
+ * @example
+ * const list = reorderGroup({ values: items, onReorder: setItems })
+ * <ul {...list}>
+ *   <For each={items()}>
+ *     {(item) => {
+ *       const row = reorderItem(list, { value: item })
+ *       return <li {...row}>{item.name}</li>
+ *     }}
+ *   </For>
+ * </ul>
+ * @see https://wardic.dev/reference/solid/reorder/reorder-group
  */
+// ADR-0020. Given to `ref` alone, it's client-only. Its axis is the config's, else detected from the
+// items' boxes after every Measure pass (for their touch-action); a drag resolves its own at its start.
+// A `values` change re-measures. On a server it renders the element's style and nothing else: no
+// controller, no runtime; its `group`, `move` and `controller` do nothing (ADR-0021).
 export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> {
   if (Predicate.isFunction(config)) throw new Error(WHOLE_GROUP_ACCESSOR)
   const beside = {}
@@ -482,14 +499,19 @@ const keyboardAttributes = <V,>(
 })
 
 /**
- * Create a `<Reorder>` item in `list` (ADR-0020): a ward, spread on the item's element
- * (`<li {...row}>`) or given to `ref` (client-only). Its `value` is its value in the group's
- * `values`, read once; the rest is a ward's config, but `layout` (its Layout mode), `layoutId` and
- * `drag` (the group decides the axis), plus the app's own `tabindex` and `aria-describedby`. The
- * element gets the drag defaults, with the group's axis's `touch-action` (its `style` can override
- * it), and the keyboard reorder's tab stop and instructions. Call it where you'd make a signal: in
- * a `<For>` callback, under a `WardicProvider`.
+ * Makes an element an item of a Reorder group: a ward, spread on the element, `<li {...row}>`, or given
+ * to `Reorder.Item`'s `wardRef`. `value` is its value in the group's `values`, read once; the rest is a
+ * ward's config, but `layout` (`true` or `"position"`), `layoutId` and `drag`, which the group sets. It's
+ * a tab stop for the keyboard reorder: your own `tabindex` and `aria-describedby` go in its config.
+ * Call it where you'd make a signal: in a `<For>` callback.
+ *
+ * @example
+ * const row = reorderItem(list, { value: item, whileDrag: { scale: 1.05 } })
+ * <li {...row}>{item.name}</li>
+ * @see https://wardic.dev/reference/solid/reorder/reorder-item
  */
+// ADR-0020. Given to `ref` alone, it's client-only. The element takes the drag defaults, with the
+// group's axis's touch-action, which its `style` can override.
 export function reorderItem<V, const C extends ReorderItemConfig<V>>(list: ReorderGroup<V>, config: C, options?: WardOptions): ReorderItem<V, C> {
   return reorderItemWith(list, config as ReorderItemConfig<V>, UndefinedOr.map(options, (o) => o.parent), undefined) as unknown as ReorderItem<V, C>
 }
@@ -497,14 +519,15 @@ export function reorderItem<V, const C extends ReorderItemConfig<V>>(list: Reord
 /** A `<Reorder>` item's mark (#349): the group it's in. Internal. */
 export const REORDER_ITEM: unique symbol = Symbol("wardic.reorderItem")
 
-/** A `<Reorder>` item of `V`, whatever its config: what `Reorder.Item`'s `wardRef` takes in (#349). */
+/** A `<Reorder>` item of `V`, whatever its config: what `Reorder.Item`'s `wardRef` takes. */
+// #349.
 export interface AnyReorderItem<V> extends AnyWard {
   readonly [REORDER_ITEM]: V
 }
 
 /**
- * A `<Reorder>` item made with {@link reorderItem}: a ward in its group. Spread it on the item's
- * element, or give it to `Reorder.Item`'s `wardRef` (#349).
+ * `reorderItem()`'s item: a ward in its group. Spread it on the item's element, or give it to
+ * `Reorder.Item`'s `wardRef`.
  */
 export type ReorderItem<V, C extends ReorderItemConfig<V> = ReorderItemConfig<V>> = Ward<C> & AnyReorderItem<V>
 
@@ -587,11 +610,12 @@ const GroupContext = createContext<ReorderGroup<unknown> | null>(null)
 export type ReorderElementTag = keyof JSX.IntrinsicElements
 
 /**
- * `Reorder.Group`'s group (#349): its config as props, with `groupRef` handing the group out, or a
- * group made with {@link reorderGroup} given to `groupRef`, the config props it doesn't set beside it
- * (#398). A key its config sets too is an error at setup; in the types only for `values` and
- * `onReorder`, which every group sets: a group's type doesn't carry its config.
+ * `Reorder.Group`'s group: its config as props, `groupRef` handing the group out, or a group made with
+ * `reorderGroup` given to `groupRef`, with the options its config doesn't set beside it. A key given
+ * both ways is an error.
  */
+// #349, #398. A key set twice is caught at setup; in the types only for `values` and `onReorder`, which
+// every group sets: a group's type doesn't carry its config.
 export type ReorderGroupOf<V> =
   | {
     readonly values: ReadonlyArray<V>
@@ -601,15 +625,15 @@ export type ReorderGroupOf<V> =
     readonly announcements?: Partial<CoreReorder.Announcements<V>> | undefined
     readonly instructions?: string | undefined
     /**
-     * The group, handed over once, as it's made (#257 item 3), as `wardRef` hands over a ward: its
-     * `next(name)` and `each(name)` (`"reorderEnd"`) and its `move`.
+     * Given the group once, as it's made, as `wardRef` is given a ward: for its `next(name)`,
+     * `when(name)` and `move`.
      */
     readonly groupRef?: GroupRefCallback<V> | undefined
   }
   | {
     /**
-     * A group made with {@link reorderGroup}, which the component renders (#349), the config props it
-     * doesn't set beside it (#398): never its `values` or `onReorder` (a group is made with them).
+     * A group made with `reorderGroup`, which the component renders, with the options its config
+     * doesn't set beside it: never `values` or `onReorder`, which a group is made with.
      */
     readonly groupRef: AnyReorderGroup<V>
     readonly values?: never
@@ -620,12 +644,12 @@ export type ReorderGroupOf<V> =
     readonly instructions?: string | undefined
   }
 
-/** A function `groupRef` hands the component's group (#257): never a group, which it would take in (#349). */
+/** A function `groupRef` gives the component's group: never a group, which it would take instead. */
 export type GroupRefCallback<V> = ((list: ReorderGroup<V>) => void) & { readonly [REORDER_GROUP]?: never }
 
 /**
- * `Reorder.Group`'s props: its group ({@link ReorderGroupOf}), `as` (the tag, `"ul"` by default,
- * static), and the tag's own props and its element's motion.
+ * `Reorder.Group`'s props: its group ({@link ReorderGroupOf}), `as`, the element it renders (`"ul"` by
+ * default, read once), and that element's own props and motion props.
  */
 export type ReorderGroupComponentProps<V, Tag extends ReorderElementTag = "ul"> =
   & ReorderGroupOf<V>
@@ -638,11 +662,11 @@ export type ReorderGroupComponentProps<V, Tag extends ReorderElementTag = "ul"> 
 type ItemMotionProps = Omit<WardicMotionProps, "layout" | "layoutId" | "drag">
 
 /**
- * `Reorder.Item`'s item (#349): its `value` (static), its `layout` mode and its motion props, with
- * `wardRef` handing its ward out, or an item made with {@link reorderItem} given to `wardRef`, in the
- * group around it, `C` its config (#398): beside it go the keys it doesn't set, as beside a ward, its
- * `value` never (an item is made with one).
+ * `Reorder.Item`'s item: its `value`, its `layout` and its motion props, `wardRef` handing its ward out,
+ * or an item made with `reorderItem` given to `wardRef`, with the keys its config `C` doesn't set
+ * beside it, as beside a ward: never `value`, which an item is made with.
  */
+// #349, #398.
 export type ReorderItemOf<V, C = {}> =
   | (ItemMotionProps & { readonly value: V; readonly layout?: ReorderItemLayout; readonly wardRef?: WardRefCallback | undefined })
   | (WardicBeside<C, ItemMotionProps> & {
@@ -654,8 +678,8 @@ export type ReorderItemOf<V, C = {}> =
   })
 
 /**
- * `Reorder.Item`'s props: its item ({@link ReorderItemOf}), `as` (the tag, `"li"` by default,
- * static), and the tag's own props.
+ * `Reorder.Item`'s props: its item ({@link ReorderItemOf}), `as`, the element it renders (`"li"` by
+ * default, read once), and that element's own props.
  */
 export type ReorderItemComponentProps<V, Tag extends ReorderElementTag = "li", C = {}> =
   & ReorderItemOf<V, C>
@@ -714,10 +738,13 @@ const givenGroupOf = <V,>(local: GroupLocal<V>): ReorderGroup<V> | undefined => 
 }
 
 /**
- * `Reorder.Group` (ADR-0020): a {@link reorderGroup} on `wardic[as]` (`"ul"` by default), the group
- * in context for its `Reorder.Item`s, made from its props or given to `groupRef` (#349). Key the
- * items with `<For>`.
+ * A list put in order by dragging its items, or from the keyboard, rendered as `as`, `"ul"` by
+ * default. Your app owns `values`, and sets them from `onReorder`; or give it a group made with
+ * `reorderGroup` as `groupRef`. Key its `Reorder.Item`s with `<For>`.
+ *
+ * @see https://wardic.dev/reference/solid/reorder/reorder
  */
+// ADR-0020, #349: a `reorderGroup` on `w[as]`, the group in context for its items.
 function Group<V, Tag extends ReorderElementTag = "ul">(props: ReorderGroupComponentProps<V, Tag>): JSX.Element {
   const local = props as unknown as GroupLocal<V>
   const given = givenGroupOf(local)
@@ -782,10 +809,12 @@ const givenItem = <V,>(list: ReorderGroup<V>, local: ItemLocal<V>, share: WardSh
 }
 
 /**
- * `Reorder.Item` (ADR-0020): a {@link reorderItem} on the nearest `Reorder.Group`, made from its props
- * or given to `wardRef` (#349), rendered as `as` (`"li"` by default). Outside a group it throws, as
- * Motion's does.
+ * An item of the `Reorder.Group` around it, rendered as `as`, `"li"` by default: made from its props,
+ * or an item made with `reorderItem` given as `wardRef`. Outside a group it throws, as Motion's does.
+ *
+ * @see https://wardic.dev/reference/solid/reorder/reorder
  */
+// ADR-0020, #349: a `reorderItem` on the nearest group.
 function Item<V, Tag extends ReorderElementTag = "li", C = {}>(props: ReorderItemComponentProps<V, Tag, C>): JSX.Element {
   const list = useContext(GroupContext) as ReorderGroup<V> | null
   if (Predicate.isNull(list)) throw new Error("Reorder.Item must be a child of Reorder.Group")
@@ -832,5 +861,16 @@ function Item<V, Tag extends ReorderElementTag = "li", C = {}>(props: ReorderIte
   })
 }
 
-/** `<Reorder>`: `Reorder.Group` and `Reorder.Item` (ADR-0020), as Motion's `Reorder`. */
+/**
+ * A list put in order by dragging its items, or from the keyboard: `Reorder.Group` and `Reorder.Item`.
+ * Your app owns the order: the group takes it as `values`, and `onReorder` hands each new one back.
+ * Motion's `Reorder`.
+ *
+ * @example
+ * <Reorder.Group values={items()} onReorder={setItems}>
+ *   <For each={items()}>{(item) => <Reorder.Item value={item}>{item}</Reorder.Item>}</For>
+ * </Reorder.Group>
+ * @see https://wardic.dev/reference/solid/reorder/reorder
+ */
+// ADR-0020.
 export const Reorder = { Group, Item } as const

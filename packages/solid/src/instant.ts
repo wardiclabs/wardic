@@ -50,10 +50,11 @@ export const makeInstantAnimations = (requestFrame: () => (callback: () => void)
 export const NO_INSTANT: InstantAnimations = { active: constFalse, start: constVoid, end: constVoid }
 
 /**
- * `createInstantTransition`'s start (#443, Motion's `useInstantTransition`): `start(fn)` runs `fn` as
- * an Instant change of the layout and of every animation started until two frames after it; a later
- * call extends it, and `start.end()` ends it at once (Motion's `disableInstantTransitions`).
+ * `createInstantTransition()`'s start: `start(fn)` runs `fn`, and its layout change and every
+ * animation that starts until two frames after the call land at once. A later call extends it, and
+ * `start.end()` ends it now.
  */
+// #443, Motion's `useInstantTransition`; `end` is its `disableInstantTransitions`.
 export interface InstantTransition {
   (fn: () => void): void
   readonly end: () => void
