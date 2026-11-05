@@ -9,10 +9,10 @@
 import { isServer, type JSX } from "@solidjs/web"
 import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
-import { createContext, createEffect, untrack, useContext } from "solid-js"
+import { createContext, createEffect, createMemo, untrack, useContext } from "solid-js"
 import { layoutGroupIdOf, type LayoutGroupInherit } from "../../layout-group.ts"
 import { useWardicProjection } from "./layout-projection.ts"
-import { CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
+import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
 
 /**
  * The id of the **Layout group** around (#432): the namespace a `layoutId` made here goes in. `null`
@@ -69,8 +69,10 @@ export function LayoutGroup(props: LayoutGroupProps): JSX.Element {
   // themselves as they register.
   if (Bool.not(isServer)) {
     const projection = useWardicProjection()
+    // Compared before it measures, as Motion's is: an effect never compares (#618).
+    const dependency = createMemo(() => props.layoutDependency, CLIENT_ONLY)
     createEffect(
-      () => props.layoutDependency,
+      dependency,
       () => {
         projection.notify()
       },

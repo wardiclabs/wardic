@@ -156,7 +156,7 @@ import {
   useFeatureRegistry,
 } from "./provider.tsx"
 import { type Feature, type FeatureRegistry, type FeatureSection, LAYOUT_PROPS, missingMessage, unreadColorIn } from "../../feature.ts"
-import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
+import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, CLIENT_ONLY_SYNC, CLIENT_ONLY_SYNC_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { transformPagePointOf } from "../../wardic-config-value.ts"
 import { configView, type Fixed, type PerKey, type PerKeyApart } from "./config-view.ts"
@@ -816,7 +816,7 @@ const NO_CHANGE: Accessor<ControlsChange | undefined> = constUndefined
  */
 const controlsOf = (given: WardConfigValues, animate: WardConfigValues["animate"]): Controls | undefined => {
   if (Bool.not(isAnimationControls(animate))) return undefined
-  const [change, setChange] = createSignal<ControlsChange | undefined>(undefined, { ownedWrite: true })
+  const [change, setChange] = createSignal<ControlsChange | undefined>(undefined)
   const view = Object.create(given, {
     animate: { enumerable: true, get: () => UndefinedOr.map(change(), (made) => made.definition) },
     controlled: { enumerable: true, value: true },
@@ -1585,7 +1585,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         () => {
           UndefinedOr.map(mounted, startRecognizers)
         },
-        CLIENT_ONLY_DEFERRED,
+        CLIENT_ONLY_SYNC_DEFERRED,
       ),
     )
   }
@@ -1684,7 +1684,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       const spine = mounted.spine
       untrack(() => spine.retarget(resolution))
     },
-    CLIENT_ONLY,
+    CLIENT_ONLY_SYNC,
   )
 
   // `<card.Provider>` hands down what this element hands its children (#50).
@@ -1742,11 +1742,12 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     onTrue: () => constVoid,
     onFalse: () => {
       const config = cfg() as unknown as Readonly<Record<string, unknown>>
+      // Client-only, so transparent to hydration ids as every computation of the binding's is (#618).
       const loaded = createMemo((): true => {
         Arr.forEach(setup.pending, (key) => void config[key])
         target()
         return true
-      })
+      }, CLIENT_ONLY)
       return () => {
         loaded()
       }

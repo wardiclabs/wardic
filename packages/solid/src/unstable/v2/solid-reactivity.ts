@@ -3,9 +3,10 @@
  * per ward under its owner.
  *
  * - A trigger's signal is written where Solid 2 allows a write: the flush gate's hooks, an effect's
- *   apply, an event. No internal signal is written in an owned scope but three, which say why
- *   (`ownedWrite`, #257's audit): a Variant child's registration, a ward given its element in a
- *   component's body, and a ward given its `.with()` props in a spread's run (#264).
+ *   apply, an event. No internal signal is written in an owned scope but four, which say why
+ *   (`ownedWrite`, #257's audit; checked again in #618): a Variant child's registration, the gesture
+ *   states a ward binds to its variant node at setup, a ward given its element in a component's body,
+ *   and a ward given its `.with()` props in a spread's run (#264).
  * - A watch is an effect in a root of its own under the ward's owner, so it ends with the ward, or
  *   at its stop. Not under the computation it's made in: Solid 2 disposes a root with the
  *   computation it's made in (a 1.x root outlived it), and a `style` re-run must not end a Live
@@ -26,6 +27,17 @@ import type { Reactivity } from "../../reactivity.ts"
 export const CLIENT_ONLY = { transparent: true } as const
 /** {@link CLIENT_ONLY}, deferred: an effect that skips its first run. */
 export const CLIENT_ONLY_DEFERRED = { transparent: true, defer: true } as const
+
+/**
+ * {@link CLIENT_ONLY} for a computation whose compute builds the value it returns, so it never
+ * returns a promise: Solid 2 skips its check of each result's shape (`sync`, which it documents for
+ * library code that returns sync values). Never for one that returns a value it was given, which an
+ * app may make a promise of, and never for a waiter (`lifecycle.ts`), which returns one by design.
+ */
+// #618 (M2): a computation returning an object paid `handleAsync`'s probe each run (rc.20), 15-55 ns.
+export const CLIENT_ONLY_SYNC = { transparent: true, sync: true } as const
+/** {@link CLIENT_ONLY_SYNC}, deferred: an effect that skips its first run. */
+export const CLIENT_ONLY_SYNC_DEFERRED = { transparent: true, sync: true, defer: true } as const
 
 const SETTLED = { name: "onSettled", ...CLIENT_ONLY }
 

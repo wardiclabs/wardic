@@ -62,7 +62,7 @@ import {
   type WardicStaggerConfig,
   type WardicVariantContextValue,
 } from "../../variant-tree.ts"
-import { CLIENT_ONLY } from "./solid-reactivity.ts"
+import { CLIENT_ONLY, CLIENT_ONLY_SYNC } from "./solid-reactivity.ts"
 import { ownTransitionOf, sameLabels, transitionOfTarget } from "../../variant-target.ts"
 
 /**
@@ -231,6 +231,8 @@ const ownOrchestration = (
 
   // What it hands down for its gestures (#291), whether each is on and its label: its spine's states, bound at its ward's
   // setup. Changed only when a name does, so its children re-resolve only then; a change is a trigger.
+  // Written where its ward binds its spine's states, at setup, in a component's body: an owned scope,
+  // so said (`ownedWrite`, #257's audit; #618).
   const [states, setStates] = createSignal<Accessor<GestureStates> | undefined>(undefined, { ownedWrite: true })
   const gestures: Accessor<GestureHandDown> = createMemo(
     (previous: GestureHandDown | undefined) => {
@@ -239,7 +241,7 @@ const ownOrchestration = (
       stale = true
       return next
     },
-    { ...CLIENT_ONLY, equals: (a: GestureHandDown, b: GestureHandDown) => sameHandDown(a, b) },
+    { ...CLIENT_ONLY_SYNC, equals: (a: GestureHandDown, b: GestureHandDown) => sameHandDown(a, b) },
   )
 
   // The Controls change its latest trigger came with (#433): while it's the latest, its override is
@@ -248,7 +250,7 @@ const ownOrchestration = (
     const made = changeAtTrigger(change(), triggerKeyOf(variant(), gestures(), change()), previous)
     if (Bool.and(Predicate.isNotUndefined(previous), made.change !== UndefinedOr.map(previous, (p) => p.change))) stale = true
     return made
-  }, CLIENT_ONLY)
+  }, CLIENT_ONLY_SYNC)
   // Its orchestration (#277, #291, Motion's): the own transition of its highest active gesture's name,
   // else of its target (the variant it names), else its `transition`; a Controls change's override at
   // the trigger it came with (#433).
@@ -266,7 +268,7 @@ const ownOrchestration = (
   )
   // What its `beforeChildren` settles at: its variant, its gestures' names (#291), and a Controls change (#433).
   const trigger: Accessor<string> = createMemo(() => at().key, CLIENT_ONLY)
-  const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(orchestration()), { ...CLIENT_ONLY, equals: sameStagger })
+  const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(orchestration()), { ...CLIENT_ONLY_SYNC, equals: sameStagger })
   // A list's names have each their own (#297's PR 2): none for the list as a whole.
   const when: Accessor<"beforeChildren" | "afterChildren" | undefined> = () => {
     if (Array.isArray(variant())) return undefined
@@ -283,7 +285,7 @@ const ownOrchestration = (
     void c.custom
     void c.transition
     return new Map<string, NameConfig>()
-  }, CLIENT_ONLY)
+  }, CLIENT_ONLY_SYNC)
   const configOf = (name: string): NameConfig => {
     // A Controls change's override orchestrates every name at its trigger (#433).
     const changed = changeConfigOf(untrack(at))

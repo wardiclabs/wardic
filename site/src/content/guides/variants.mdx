@@ -13,7 +13,7 @@ A variant is a named target. An element lists them in `variants`, and `initial`,
 
 ## Children follow
 
-A child with `variants` and no `initial` or `animate` of its own starts from its parent's `initial` and follows its `animate`. On a server-rendered page, every child arrives at its `initial` already, so the entrance starts from there with no flash. An element in between, without `variants`, passes the names through; `inherit={false}` keeps a child out.
+A child with `variants` that names none of its own (no name on `initial`, `animate`, a `while*` prop or `exit`) starts from its parent's `initial` and follows its `animate`, as in Motion. A child that names one, such as `whileHover="hover"`, keeps its own: it follows no name from above, and takes no stagger slot. On a server-rendered page, every child arrives at its `initial` already, so the entrance starts from there with no flash. An element in between, without `variants`, passes the names through; `inherit={false}` keeps a child out.
 
 ## Orchestration
 

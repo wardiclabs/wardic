@@ -189,7 +189,7 @@ What one start or set of **Animation controls** makes of one element: its new `a
 _Avoid_: command, controls update.
 
 **Variant child**:
-A Wardic element with `variants` that names neither its own `initial` nor `animate`, and doesn't set `inherit={false}`. It joins its nearest Wardic ancestor that has variants of its own (`variants`, or a named `initial` or `animate`): it inherits that ancestor's `initial` and `animate` names, resolved against its own `variants` (the `initial` name as its **Starting style**, read once; an inherited `initial={false}` starts it at its `animate`, #134), takes a stagger slot among the ancestor's variant children, and counts for its `when`. Any other Wardic element passes the names through to its children untouched, except one with `inherit={false}`, which passes none from above it (#50, Motion's rule).
+A Wardic element with `variants` that names none of its variant props (`initial`, `animate`, the five `while*` gestures, `exit`), and doesn't set `inherit={false}`. It joins its nearest Wardic ancestor that has variants of its own (`variants`, or a name on any variant prop): it inherits that ancestor's `initial` and `animate` names, resolved against its own `variants` (the `initial` name as its **Starting style**, read once; an inherited `initial={false}` starts it at its `animate`, #134), takes a stagger slot among the ancestor's variant children, and counts for its `when`. Any other Wardic element passes the names through to its children untouched, except one with `inherit={false}`, which passes none from above it (#50, Motion's rule).
 _Avoid_: registered child, orchestrated child.
 
 ### Interaction

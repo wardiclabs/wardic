@@ -19,7 +19,7 @@
  */
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Bool from "effect/Boolean"
-import { createContext, createEffect, type JSX, on, onCleanup, untrack, useContext } from "solid-js"
+import { createContext, createEffect, createMemo, type JSX, on, onCleanup, untrack, useContext } from "solid-js"
 import { layoutGroupIdOf, type LayoutGroupInherit } from "./layout-group.ts"
 import { registrationOf, type UseLayoutMemberOptions } from "./layout-member.ts"
 import { useWardicProjection } from "./layout-projection.ts"
@@ -53,7 +53,10 @@ export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionSystem.
 export const layoutMemberOf = (projection: ProjectionSystem.Shape, opts: UseLayoutMemberOptions): ProjectionSystem.NodeHandle => {
   const handle = projection.register(registrationOf(opts))
   onCleanup(handle.dispose)
-  createEffect(on(() => opts.layoutDependency(), () => handle.notify(), { defer: true }))
+  // Compared before it measures, as Motion's `prevProps.layoutDependency !== layoutDependency`: an
+  // effect re-runs at any change of what it read, and the config is read again at any prop's (#618).
+  const dependency = createMemo(() => opts.layoutDependency())
+  createEffect(on(dependency, () => handle.notify(), { defer: true }))
   return handle // ADR-0016: the spine forwards the drag methods to runDragTrack
 }
 
@@ -109,9 +112,10 @@ export function LayoutGroup(props: LayoutGroupProps): JSX.Element {
   // A server render has no projection system to re-measure (ADR-0021).
   if (Bool.not(isServer)) {
     const projection = useWardicProjection()
-    // A group-level dependency change re-measures the whole tree (Q5). `defer: true`
-    // skips the mount read (nodes seed themselves on registration).
-    createEffect(on(() => props.layoutDependency, () => projection.notify(), { defer: true }))
+    // A group-level dependency change re-measures the whole tree (Q5), compared first as Motion's is
+    // (#618). `defer: true` skips the mount read (nodes seed themselves on registration).
+    const dependency = createMemo(() => props.layoutDependency)
+    createEffect(on(dependency, () => projection.notify(), { defer: true }))
   }
   // Its children in JSX, so they're read where they track: returned from the body, they were read
   // once, and `<LayoutGroup>{open() ? a : b}</LayoutGroup>` never switched (#257's audit). A group that
