@@ -1,0 +1,67 @@
+---
+title: Roadmap
+description: "What 1.0 is, and what comes after it, in order: size and speed, Foldkit, a performance viewer, a Timeline, Environments beyond the DOM, then Solid 2 by default."
+---
+
+# Roadmap
+
+What comes next, in the order it's planned. The order is the plan, and this page gives no dates. Each milestone and its issues are on GitHub, where you can follow them.
+
+## 1.0: Motion's API on Solid
+
+Wardic 1.0 gives Solid the components, props and hooks of Motion for React, on Solid 1 and on Solid 2. A release candidate comes first; from `1.0.0`, its stable entries follow semver: `@wardic/solid`'s root, for Solid 1, and `@wardic/dom`, `@wardic/core` and `@wardic/test`. The Solid 2 binding is `@wardic/solid/unstable/v2`, outside semver until Solid 2 is stable and 2.0 makes it the root.
+
+[The 1.0.0 milestone](https://github.com/wardiclabs/wardic/milestone/1): [#533](https://github.com/wardiclabs/wardic/issues/533), [#554](https://github.com/wardiclabs/wardic/issues/554), [#555](https://github.com/wardiclabs/wardic/issues/555), [#556](https://github.com/wardiclabs/wardic/issues/556), [#557](https://github.com/wardiclabs/wardic/issues/557), [#558](https://github.com/wardiclabs/wardic/issues/558), [#559](https://github.com/wardiclabs/wardic/issues/559), [#560](https://github.com/wardiclabs/wardic/issues/560)
+
+## 1.1: size and speed
+
+Smaller and faster. Speed came first for 1.0, so the size work that's left waited, and each change is weighed against speed:
+
+- **The bundle's size:** what's left of it after 1.0, measured, from Effect's optional modules to the colour library's base.
+- **Scroll on the compositor:** scroll-linked values handed to the browser's own scroll-driven animations (`ScrollTimeline`), as Motion hands some, so they don't trail the scroll by a frame.
+- **Typed Feature instances:** given an app's Features, one call returns the elements and hooks they allow, so the type checker knows what each element can do.
+
+[The 1.1 milestone](https://github.com/wardiclabs/wardic/milestone/2): [#518](https://github.com/wardiclabs/wardic/issues/518), [#240](https://github.com/wardiclabs/wardic/issues/240), [#516](https://github.com/wardiclabs/wardic/issues/516)
+
+## 1.2: Foldkit
+
+A Wardic binding for [Foldkit](https://www.npmjs.com/package/foldkit), the Effect-native UI framework. `@wardic/dom` was designed to serve it beside the Solid bindings.
+
+[The 1.2 milestone](https://github.com/wardiclabs/wardic/milestone/3): [#561](https://github.com/wardiclabs/wardic/issues/561)
+
+## 1.3: a performance viewer
+
+A panel in the page, in development only, so you can see what each animation costs: every running animation, the element it's on, and its cost each frame, in JavaScript time, style writes and layout reads, from the spans Wardic already emits. A dropped or long frame shows which animations ran in it.
+
+[The 1.3 milestone](https://github.com/wardiclabs/wardic/milestone/4): [#562](https://github.com/wardiclabs/wardic/issues/562)
+
+## 1.4: Timeline
+
+A Timeline you can scrub, in the style of GSAP, for choreography that Motion's sequences can't nest, reverse or seek: animations placed at times or at labels, Timelines inside Timelines, and the whole played, paused, sought, reversed and sped up as one, or scrubbed by the scroll or any value. It builds on core's Sequence, which matches Motion's sequences today.
+
+[The 1.4 milestone](https://github.com/wardiclabs/wardic/milestone/5): [#563](https://github.com/wardiclabs/wardic/issues/563)
+
+## 1.5: beyond the DOM
+
+Environments other than the browser's DOM:
+
+- **Any object's numeric properties,** whatever draws them, as Motion's `animate(object, …)` does: the base for canvas and WebGL, with the library you draw with, Three.js, PixiJS or Canvas 2D, say.
+- **The terminal,** through [OpenTUI](https://github.com/sst/opentui)'s Solid renderer.
+
+Layout animations there need the Projection system moved into core, behind a service each Environment provides.
+
+[The 1.5 milestone](https://github.com/wardiclabs/wardic/milestone/6): [#564](https://github.com/wardiclabs/wardic/issues/564), [#565](https://github.com/wardiclabs/wardic/issues/565), [#16](https://github.com/wardiclabs/wardic/issues/16)
+
+## 2.0: Solid 2 by default
+
+Once Solid 2 is stable, its binding becomes `@wardic/solid`'s root, and Solid 1's moves to `@wardic/solid/v1`; `@wardic/solid/unstable/v2` stays for a while, as an alias. That's a breaking change for Solid 1 apps, which the changelog and these docs will walk through. The docs then have a version for 1.x and one for 2.x.
+
+[The 2.0 milestone](https://github.com/wardiclabs/wardic/milestone/7): [#566](https://github.com/wardiclabs/wardic/issues/566)
+
+## Not planned
+
+Bindings for React, Vue or web components: Motion already serves React, Vue and plain JavaScript.
+
+## Have a say
+
+A question, or an idea taking shape, goes to [Discussions](https://github.com/wardiclabs/wardic/discussions), where an accepted idea becomes an issue. A bug goes to [an issue](https://github.com/wardiclabs/wardic/issues/new/choose), through its form.
