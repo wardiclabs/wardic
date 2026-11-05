@@ -12,9 +12,6 @@ const REFERENCE = join(REPO, "site/src/content/reference/solid")
 
 /** The names whose pages come in a later PR of #558's reference, by family. Each PR empties its own. */
 const PENDING: ReadonlyArray<string> = [
-  // gestures
-  ...["createHover", "createPress", "createFocus", "createInView", "createDrag", "CreateDragOptions", "createDragControls", "WardicDragControls", "WardicDragControlsOptions"],
-  ...["createPageInView", "Sensor"],
   // live-values
   ...["createSpring", "createFollowValue", "createTransform", "createScroll", "createVelocity", "createTime", "createAnimationFrame", "createWillChange", "SpringAccessor"],
   ...["FollowAccessor", "FollowValueOptions", "Live", "LiveSource", "ElementSource", "ScrollOptions", "ScrollValues", "WillChange"],

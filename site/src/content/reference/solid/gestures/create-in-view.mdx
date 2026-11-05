@@ -1,0 +1,50 @@
+---
+title: createInView
+description: Whether an element is in view, as a signal, with Motion's root, margin, amount and once.
+api: [createInView]
+---
+
+# createInView
+
+Whether an element is in view: `true` while it shows in the viewport, or in the scrolling container you give, and `false` otherwise. To animate as it comes into view, give the element `whileInView`.
+
+```tsx
+import { createInView } from "@wardic/solid/unstable/v2"
+
+const visible = createInView({ amount: "all", once: true })
+<section ref={visible}>{visible() ? "Seen" : "Not yet"}</section>
+```
+
+On Solid 1, `createInView(target, viewport?)` takes the element itself, so call it where the element exists, as [`createHover`](/reference/solid/gestures/create-hover#solid-1) does. On Solid 2, `createInView(viewport?)` is a sensor, given to the element's `ref`. On a server, and until its first report, it's `false`.
+
+## What "in view" means
+
+Its options are a Wardic element's `viewport`, a [`WardicViewport`](/reference/solid/elements/props#types):
+
+| Option | |
+| --- | --- |
+| `root` | The scrolling container it's in view of, as an accessor: `() => list`. The window if none. |
+| `margin` | Grown around the root, as CSS `rootMargin`: `"0px 0px -100px 0px"` counts it in 100 px later at the bottom. |
+| `amount` | How much of the element must show: `"some"` (the default), `"all"`, or 0 to 1. |
+| `once` | Stays `true` after its first entry. |
+
+`root` is read as the sensor attaches, on Solid 2, or as `createInView` is called, on Solid 1. An ancestor's `ref` that sets a plain variable has it by then, since Solid applies a parent's `ref` before its children's:
+
+```tsx
+// Solid 2
+let list!: HTMLUListElement
+<ul ref={list} class="scroller">
+  <For each={items()}>
+    {(item) => {
+      const seen = createInView({ root: () => list })
+      return <li ref={seen}>{item}</li>
+    }}
+  </For>
+</ul>
+```
+
+It needs no Feature.
+
+## Coming from Motion
+
+Motion's `useInView(ref, options)`, with its `root`, `margin`, `amount` and `once`; `root` is an accessor here, where Motion's is a ref object. Its `initial`, the value before the first report, is always `false` here.

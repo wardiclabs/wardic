@@ -1,0 +1,52 @@
+---
+title: createDrag
+description: The latest sample of a drag on an element, for a drag that drives something other than the element.
+api: [createDrag, CreateDragOptions]
+---
+
+# createDrag
+
+The latest sample of a drag on an element, `null` before the first: where the pointer is, how far it has come, its velocity, and the gesture's phase. It moves nothing: it reports, for a drag that drives something else, such as a slider's value or a canvas. To drag the element itself, give it `drag`.
+
+```tsx
+import { createDrag } from "@wardic/solid/unstable/v2"
+
+const drag = createDrag({ axis: "x" })
+const value = () => (drag()?.offset.x ?? 0) / 2
+<div class="track" ref={drag} />
+```
+
+On Solid 1, `createDrag(target, options?)` takes the element itself, so call it where the element exists, as [`createHover`](/reference/solid/gestures/create-hover#solid-1) does. On Solid 2, `createDrag(options?)` is a sensor, given to the element's `ref`. On a server it's `null`.
+
+## A sample
+
+| Field | |
+| --- | --- |
+| `phase` | `"start"` as the drag begins, past its threshold; `"move"` as it moves; `"end"` as it's let go or cancelled. |
+| `point` | Where the pointer is, in the viewport. |
+| `offset` | How far it has come from where it went down. |
+| `delta` | How far it moved since the last sample. |
+| `velocity` | Its speed per axis, in pixels a second, over the last 100 ms. |
+| `axis` | The axes it moves on: `"x"`, `"y"` or `"xy"`. |
+| `timeStamp` | When, in milliseconds. |
+
+## Options
+
+| Option | |
+| --- | --- |
+| `axis` | `"x"` or `"y"`: the other axis reads 0. |
+| `bounds` | Keeps `offset` within bounds, each axis's `min` and `max`: `{ x: { min: 0, max: 200 } }`. |
+| `elastic` | How far `offset` can be pulled past `bounds`: 0 stops it at them (the default), 1 lets it go freely. |
+| `claim` | `false`: it takes no drag from the element. |
+
+Like an element's own drag, it takes the element's drag while a gesture is on, so a draggable inside it doesn't drag at the same time, and of nested ones the innermost drags. `claim: false` watches without taking it, to follow a pan over an area that has draggables inside.
+
+It brings the `drag` Feature.
+
+## Coming from Motion
+
+Motion has no drag hook. Its `onPan` callbacks, which Wardic's elements have too, report a pan without moving the element; `createDrag` is the same as a signal, on any element.
+
+## Types
+
+- **`CreateDragOptions`:** its options.
