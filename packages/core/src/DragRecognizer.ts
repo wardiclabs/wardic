@@ -16,8 +16,7 @@
  *   },
  * })
  */
-// #548, ADR-0067 *Amendment (#548)*: apart from `Recognizer`, so a page that drags ships it with that
-// page. `drag` and `pan` share one fold: a gesture's owner, its threshold, and its velocity over the last
+// #548, ADR-0067 *Amendment (#548)*: apart from `Recognizer`, so an app ships it only where it drags. `drag` and `pan` share one fold: a gesture's owner, its threshold, and its velocity over the last
 // 100 ms. The watches are #318's (ADR-0055); the Streams are built over them. Tier 2 (ADR-0008), for
 // binding authors.
 import * as Arr from "effect/Array"

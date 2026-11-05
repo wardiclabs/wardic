@@ -1,7 +1,7 @@
 /**
  * The `SharedSource` module: how an Environment meets CONTEXT.md's **Shared source** contract
  * for the Streams it hands out (#37, ADR-0041 *Amendment (#37)*): each is hot and ref-counted, its
- * subscribers sharing one underlying source (one observer per target, one page-wide feed),
+ * subscribers sharing one underlying source (one observer per target, one feed for the whole Environment),
  * established on first subscribe and torn down when the last unsubscribes. An Environment's
  * **Input feeds** are shared by `InputFeed.byTarget` instead, with no `PubSub` or fiber (#318).
  *
@@ -10,8 +10,7 @@
  *
  * - {@link byTarget} keys on the target (`RcMap`): one entry per distinct target, the cold `lookup`
  *   running once per target while a subscriber holds it. An Environment's `Probe.observeResize`.
- * - {@link make} is the keyless case (`RcRef`): one shared source for the whole Environment, a
- *   page-wide feed.
+ * - {@link make} is the keyless case (`RcRef`): one shared source for the whole Environment.
  *
  * Either way the result is a hot multicast Stream. The cold source is acquired by the first
  * subscriber and released when the last subscriber's scope closes: `Stream.unwrap` holds the Rc
@@ -154,7 +153,7 @@ export const byTarget: <A>(
  * One Shared source for the whole Environment: a single hot, ref-counted Stream<A>. The first
  * subscriber acquires the cold source via `acquire`; concurrent subscribers share it; it's released
  * when the last unsubscribes (after `idleTimeToLive`, if given). The keyless counterpart of
- * {@link byTarget}, as `RcRef.make` is `RcMap.make`'s: for a page-wide feed.
+ * {@link byTarget}, as `RcRef.make` is `RcMap.make`'s: for one feed for the whole Environment.
  *
  * @example
  * // `viewportChanges`: an Environment's cold Stream of its viewport's size

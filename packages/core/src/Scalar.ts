@@ -5,7 +5,7 @@
  * @example
  * import * as Scalar from "@wardic/core/Scalar"
  *
- * const scale = Scalar.remap(scrollY, 0, 400, 1, 0.6) // a header that shrinks as the page scrolls
+ * const scale = Scalar.remap(scrollY, 0, 400, 1, 0.6) // a header that shrinks as you scroll
  */
 // They run per frame (ADR-0025), so a piecewise result is a statement `if` with an early return. Not
 // `Math`, which would hide the global (ADR-0028, decision 12).

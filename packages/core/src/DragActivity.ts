@@ -1,11 +1,11 @@
 /**
- * Drag activity: how many drags are active on the page, and which element holds each axis. While a
+ * Drag activity: how many drags are active, and which element holds each axis. While a
  * drag is active no hover and no press starts, as Motion's; and a drag that claims an axis another
  * element holds is refused, so a nested drag on the same axis doesn't move both. A drag counts in once
  * it's past its threshold, and counts off at its end or when it's interrupted. `DragRecognizer`'s drags
  * keep it; a recognizer of your own reads it, or counts in and claims as a drag does.
  *
- * Every runtime shares one by default, page-wide, as Motion's is; a runtime can provide its own, as the
+ * By default every runtime shares one, as Motion's is shared; a runtime can provide its own, as the
  * test Environment does, so tests stay apart. It's synchronous, so a fold reads it inline.
  *
  * @example
@@ -31,7 +31,7 @@ import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import type * as Drag from "./Drag.ts"
 
-/** The page's active drags and the axes they hold: what `DragActivity` gives. */
+/** The active drags and the axes they hold: what `DragActivity` gives. */
 export interface Shape {
   /**
    * Claims `axis` for `target` (both axes for `"xy"`) and counts one more active drag. `None` when

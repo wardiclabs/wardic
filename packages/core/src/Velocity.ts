@@ -31,7 +31,7 @@ export interface TimedPoint {
 }
 
 /**
- * A pointer's velocity over its last `windowMs` (100 by default), in pixels a second, from its points
+ * A pointer's velocity over its last `windowMs` (100 by default), in its units a second, from its points
  * oldest first: from the newest point older than the window to the last. A pause before a flick doesn't
  * slow it: when that point is the first, more than twice the window old, and there are more, it starts
  * from the second instead. `{ x: 0, y: 0 }` for fewer than two points. Motion's `getVelocity`, as a
@@ -39,8 +39,10 @@ export interface TimedPoint {
  *
  * @example
  * const points: Array<Velocity.TimedPoint> = []
- * element.addEventListener("pointermove", (e) => points.push({ x: e.clientX, y: e.clientY, timeStamp: e.timeStamp }))
- * element.addEventListener("pointerup", () => fling(Velocity.trailing(points)))
+ * // At each move of the pointer:
+ * points.push({ x, y, timeStamp })
+ * // At its release:
+ * fling(Velocity.trailing(points))
  */
 // Motion's getVelocity, gestures/pan/PanSession.ts:383-440 at 16c61222c4166bbef5ff6ab0051192faa79fa8c8,
 // ported. DragRecognizer.drag's velocity is this, over each gesture's points (ADR-0004, *Amendment (#139)*).

@@ -28,13 +28,13 @@ import type * as Values from "./Values.ts"
 
 /**
  * An app's reduced-motion setting (Motion's `MotionConfig` `reducedMotion`): `"user"` follows the
- * user's `prefers-reduced-motion`, `"always"` reduces motion whatever it is, and `"never"`
- * animates whatever it is. A binding's default is `"user"`; Motion's is `"never"`.
+ * user's preference, as their Environment reports it, `"always"` reduces motion whatever it is, and
+ * `"never"` animates whatever it is. A binding's default is `"user"`; Motion's is `"never"`.
  */
 export type Config = "user" | "always" | "never"
 
 /**
- * Whether reduced motion applies under `config`, given the user's `prefers-reduced-motion`. A binding
+ * Whether reduced motion applies under `config`, given whether the user prefers reduced motion. A binding
  * reads it as each element's animation starts.
  */
 export const applies = (config: Config, prefersReducedMotion: boolean): boolean => {
@@ -49,10 +49,10 @@ export const isTransform = (key: string): boolean => Option.isSome(BaseValue.tra
 
 /**
  * An Environment's Positional keys: the keys that move or resize its elements, which reduced motion lands
- * at once. Core names only the transforms (`transformsOnly`); an Environment adds its own, as the DOM adds
- * an element's box, `width`, `top` and the rest.
+ * at once. Core names only the transforms (`transformsOnly`); an Environment adds its own, as `@wardic/dom`
+ * adds the keys that size and place an element's box.
  */
-// CONTEXT.md; ADR-0029, ADR-0036; the DOM's: `@wardic/dom`'s `PositionalKeysDomLive`. A binding reads it
+// CONTEXT.md; ADR-0029, ADR-0036; `@wardic/dom`'s `PositionalKeysDomLive`. A binding reads it
 // once, as it reads the Probe, and passes it to `split`.
 export class PositionalKeys extends Context.Service<PositionalKeys, {
   /** Whether reduced motion Snaps `key`. */

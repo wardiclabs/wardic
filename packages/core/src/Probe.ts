@@ -48,7 +48,7 @@ export interface Scroll {
 
 /** What {@link Probe}'s `scroll` reads, Motion's `scroll` options. */
 export interface ScrollOptions {
-  /** The scroll container: the Environment's page when left out. */
+  /** The scroll container: the Environment's own when left out. */
   readonly container?: unknown
   /** An element whose progress through the container `progress` reads, on `axis`. */
   readonly target?: unknown

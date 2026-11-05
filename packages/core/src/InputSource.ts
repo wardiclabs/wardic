@@ -1,8 +1,9 @@
 /**
  * Input from the Environment: the `InputSource` service, which gives each target's pointer, keys and
  * focus as Input feeds, and the events they carry, in core's own terms, so no recognizer reads a
- * platform's events. An Environment provides it: the DOM's maps the browser's events onto these. A
- * target is the Environment's own, opaque to core: an element in the DOM, a node in a scene graph.
+ * platform's events. An Environment provides it, mapping its platform's events onto these, as
+ * `@wardic/dom` does. A target is the Environment's own, opaque to core: an element, a node in a scene
+ * graph.
  * `heldPointer` is how an Environment builds a target's pointer feed: once a pointer goes down on the
  * target, its moves and its release keep reaching it wherever they land.
  *
@@ -63,7 +64,7 @@ export interface PointerLikeEvent {
   // #189.
   readonly button: PointerButton
   /**
-   * Whether it's its kind's first contact on the page: the mouse always is, a second finger isn't. It
+   * Whether it's the first of its kind in contact: the mouse always is, a second finger isn't. It
    * isn't the primary pointer itself: `isPrimaryPointer` decides that, from it.
    */
   // #189: the **Primary pointer**.
@@ -77,7 +78,7 @@ export interface PointerLikeEvent {
   readonly scroll: Point.Point
   /**
    * Whether it landed on the target or inside it: the target's own events do, and a held pointer's
-   * events from elsewhere on the page say where they landed. A release that does is a tap; one that
+   * events from elsewhere say where they landed. A release that does is a tap; one that
    * doesn't cancels it.
    */
   // #257: Motion's press, `isNodeOrChild`.
@@ -91,7 +92,7 @@ export interface PointerLikeEvent {
    * find the event by it. An Environment with no platform event hands every target the same event
    * object instead.
    */
-  // #273: Motion's `(event, info)` and `lastMoveEvent`; #439: the page's **Press claims**.
+  // #273: Motion's `(event, info)` and `lastMoveEvent`; #439: the runtime's **Press claims**.
   readonly raw?: unknown
   /**
    * `true` on a down the target adopted: its pointer went down elsewhere, on a handle or a track, and
@@ -203,7 +204,7 @@ export interface KeyboardLikeEvent {
    * The platform's own event, which core never reads, as a pointer event's `raw`: a binding hands it to
    * an app's callback. One key that reaches several targets carries the same `raw` on each copy.
    */
-  // #427; #439, for the page's **Press claims**.
+  // #427; #439, for the runtime's **Press claims**.
   readonly raw?: unknown
 }
 
@@ -224,8 +225,8 @@ export interface FocusLikeEvent {
   // #427.
   readonly raw?: unknown
   /**
-   * Whether the Environment shows this focus, as the DOM's `:focus-visible` does a keyboard's focus and
-   * not a click's. Absent: shown. `Recognizer.focus`'s `visible` counts only these.
+   * Whether the Environment shows this focus: a keyboard's, say, and not a click's. Absent: shown.
+   * `Recognizer.focus`'s `visible` counts only these.
    */
   // #273.
   readonly visible?: boolean
@@ -245,7 +246,7 @@ export class InputSource extends Context.Service<InputSource, {
    * innermost first, so a press inside marks it before its ancestors' presses read it. `heldPointer` builds
    * it for an Environment.
    */
-  // ADR-0019 (a **Held pointer**); #439 (the page's **Press claims**).
+  // ADR-0019 (a **Held pointer**); #439 (the runtime's **Press claims**).
   readonly pointer: (target: unknown) => InputFeed.InputFeed<PointerLikeEvent>
   /**
    * The keys at `target` or inside it, heard after the app's own handlers, so a consumer reads whether
@@ -303,7 +304,7 @@ export type PointerFeed = (emit: (event: PointerLikeEvent, raw: unknown) => void
 
 /**
  * A source of scroll positions, for `heldPointer`: called with `emit`, it reports where every scroller
- * it tracks is at once (the page, the target's scrolling ancestors), then each new position as it
+ * it tracks is at once (the Environment's own, the target's scrolling ancestors), then each new position as it
  * scrolls, and returns the function that stops it. `source` is the same object for the same scroller.
  */
 // Tier 2 (ADR-0008), for Environment authors.
@@ -320,7 +321,7 @@ export interface HeldPointerOptions {
    */
   // #431.
   readonly adopted?: PointerFeed | undefined
-  /** Page-wide pointer events, subscribed only while a pointer is held. */
+  /** Pointer events anywhere in the Environment, subscribed only while a pointer is held. */
   readonly global?: PointerFeed | undefined
   /** Scroll positions, subscribed only while a pointer is held: a scroll moves a held pointer. */
   readonly scroll?: ScrollFeed | undefined
@@ -358,7 +359,7 @@ const isUnpressedMove: Predicate.Predicate<PointerLikeEvent> = Predicate.and(ofT
 const endsHold: Predicate.Predicate<PointerLikeEvent> = Predicate.some([ofType("up"), ofType("cancel"), isUnpressedMove])
 
 /**
- * Whether a page-wide `down` means `held`'s release was lost: the same pointer went down
+ * Whether a `down` anywhere in the Environment means `held`'s release was lost: the same pointer went down
  * again, or a new primary pointer of its type did (only one is primary per type).
  */
 const supersedes = (down: PointerLikeEvent, held: PointerLikeEvent): boolean =>
@@ -380,14 +381,14 @@ const stopFeed = (stop: Stop): void =>
  * The Environment hands it its own feeds (`HeldPointerOptions`), and each event reaches the consumer
  * inside the platform's dispatch.
  * - **`target`**: the pointer's events on the target, for the feed's whole life.
- * - **`global`**: the page's pointer events, subscribed only while a pointer that went down on the target
+ * - **`global`**: pointer events anywhere in the Environment, subscribed only while a pointer that went down on the target
  *   is held, from inside that down, so no event after it is missed. A platform that keeps a held pointer
  *   on its target already, as native touch does, leaves it out.
  * - **`adopted`**: the downs handed to the target from elsewhere, held as a down on it is.
- * - **`scroll`**: a scroll moves a held pointer, as Motion's pan counts it, since the page under it moved.
+ * - **`scroll`**: a scroll moves a held pointer, as Motion's pan counts it, since what's under it moved.
  *   Each scroll moves every held pointer that has moved since its down, and its later events arrive
  *   shifted by the scroll since then. Before its first move a scroll only adds to the shift, so a press
- *   held still while the page scrolls stays a press.
+ *   held still while what's under it scrolls stays a press.
  *
  * A hold ends at its pointer's release, its cancel, or a move with no button pressed: a lost release.
  * A new down by the held pointer, or by a new pointer of its kind, means its release was lost too: the
@@ -401,7 +402,7 @@ const stopFeed = (stop: Stop): void =>
 // scheduler hop loses the first 8–32 ms of input in a browser. While a pointer is held, a target event
 // that is the same platform event (`raw`) as the last global one is dropped: the DOM delivers a window
 // capture-phase listener first, then the target. A lost release: a move with `buttons === 0` (ADR-0019,
-// decision 4), or a page-wide down by the held pointer, or by a new primary pointer of its type (a new
+// decision 4), or a global down by the held pointer, or by a new primary pointer of its type (a new
 // finger: the old one has lifted), ended with an unpressed move at its last position (decision 7); the
 // down itself is left to the target it lands on. `global` is unsubscribed synchronously when no pointer
 // is held, and when the feed stops.
@@ -422,7 +423,7 @@ export const heldPointer = (options: HeldPointerOptions): InputFeed.InputFeed<Po
   const held = new Map<number, Held>()
   const stopGlobal: Stop = MutableRef.make(Option.none())
   const stopScroll: Stop = MutableRef.make(Option.none())
-  // The platform event the page-wide feed forwarded last, so the target's copy of it is dropped.
+  // The platform event the global feed forwarded last, so the target's copy of it is dropped.
   const lastGlobalRaw = MutableRef.make(Option.none<unknown>())
   // Each scrolled source's last position, for the hold.
   const scrollPositions = new Map<unknown, { x: number; y: number }>()
@@ -518,7 +519,7 @@ export const heldPointer = (options: HeldPointerOptions): InputFeed.InputFeed<Po
       Match.orElse(constVoid),
     )
 
-  /** Subscribe the page-wide and scroll feeds, at the first hold. */
+  /** Subscribe the global and scroll feeds, at the first hold. */
   const startFeeds = (): void => {
     Option.fromUndefinedOr(options.global).pipe(
       Option.filter(() => Option.isNone(MutableRef.get(stopGlobal))),
@@ -569,7 +570,7 @@ export const heldPointer = (options: HeldPointerOptions): InputFeed.InputFeed<Po
   }
 
   const fromTarget = (event: PointerLikeEvent, raw: unknown): void => {
-    // The same platform event, already forwarded from the page-wide feed.
+    // The same platform event, already forwarded from the global feed.
     if (Option.exists(MutableRef.get(lastGlobalRaw), (last) => last === raw)) {
       MutableRef.set(lastGlobalRaw, Option.none())
       return

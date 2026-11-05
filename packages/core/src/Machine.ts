@@ -157,8 +157,8 @@ export const make = <F extends Frame.Frame<unknown>>(fields: {
 export const isMachine = (u: unknown): u is Machine<Frame.Frame<unknown>> => Predicate.hasProperty(u, TypeId)
 
 /**
- * The most time a machine moves in one step: 0.5 s. A frame that took longer, such as the first back
- * from a hidden tab, moves it 0.5 s, and the animation plays the rest out from there, where Motion's
+ * The most time a machine moves in one step: 0.5 s. A frame that took longer, such as the first after
+ * the app was hidden, moves it 0.5 s, and the animation plays the rest out from there, where Motion's
  * jumps to its end. Every constructor holds each step to it.
  */
 // Every constructor clamps each step's `dt` here once (#78), in its leaves' steps and in `delay`'s hold,
@@ -575,8 +575,8 @@ export const CATCH_UP_DT = 1 / 60
 /**
  * `self` started partway through: its first frame steps it from its start to `at()` seconds in, a 60 Hz
  * frame at a time, and every frame after steps as usual. `at` is read once a run, at its first frame. A
- * negative `at()` is a start still to come: it holds at its start that long. For an animation the CSS
- * began before the JavaScript loaded, taken over where it has got to. Keeps `self`'s span, and whether
+ * negative `at()` is a start still to come: it holds at its start that long. For an animation that
+ * began before the app's code loaded, as a server-rendered one does, taken over where it has got to. Keeps `self`'s span, and whether
  * it settles.
  *
  * @example
@@ -584,8 +584,8 @@ export const CATCH_UP_DT = 1 / 60
  */
 // ADR-0044's Handoff: the catch-up steps `0`, then `CATCH_UP_DT` at a time, the Frame at `k / 60` the
 // one the Appear sampler drew; it stops at a settled Frame. A Handoff reads `at` in the frame that draws
-// the run's first Frame. A negative `at()`: a child its parent let go a frame early starts when the CSS
-// would have started it.
+// the run's first Frame. A negative `at()`: a child its parent let go a frame early starts when the
+// Appear animation would have started it.
 export const startAt: {
   (at: LazyArg<number>): <F extends Frame.Frame<unknown>>(self: Machine<F>) => Machine<F>
   <F extends Frame.Frame<unknown>>(self: Machine<F>, at: LazyArg<number>): Machine<F>
@@ -1465,9 +1465,9 @@ type Blender = InterpolatorRegistry.KeyBlend
  * `InterpolatorRegistry`.
  *
  * - **A Key rule first** (ADR-0035): the Environment's rule for the key by name, when one takes the
- *   pair, gives the key's whole blend. Core holds none. The DOM's turn `display` / `visibility` to
- *   `none` / `hidden` on the run's last Frame (ADR-0024, decision 4), grow a shadow, filter or fill
- *   from its Animatable none (ADR-0015, *Amendment (#61)*), and blend shadow lists shadow by shadow.
+ *   pair, gives the key's whole blend. Core holds none. `@wardic/dom`'s keep a key that hides an
+ *   element at its old value until the run's last Frame (ADR-0024, decision 4), grow a value from its
+ *   Animatable none (ADR-0015, *Amendment (#61)*), and blend a list item by item.
  * - **Else by value**: the registry's blend. A pair it can't blend is a Discrete pair and switches
  *   at the first Frame past 0 (ADR-0024, decision 3).
  */
@@ -1513,9 +1513,9 @@ const blendAt = (
 
 /**
  * A bag of values tweened from `from` to `to`, each key blended as its Environment blends it: numbers,
- * unit strings, complex values, and its own kinds, such as the DOM's colours. One tween drives every
+ * unit strings, complex values, and its own kinds, such as `@wardic/dom`'s colours. One tween drives every
  * key, so the repeats and `delay` apply to the whole bag. A pair that can't blend switches at the first
- * frame; the Environment can hold a key until the last, as the DOM does `display` and `visibility`.
+ * frame; the Environment can hold a key until the last, as `@wardic/dom` does a key that hides an element.
  * Building it needs the `InterpolatorRegistry`, once.
  *
  * @example
@@ -1545,8 +1545,8 @@ export const animateValues = (
  * - **The progress spans 0 to 100**, as a number going 100 would, so `restDelta` and `restSpeed` mean
  *   the same for both, and a string key beside an `x` going 0 to 100 lands with it.
  * - **It starts from rest:** `options.from` and `options.velocity` don't move it.
- * - **Past 1**, a key does what its blend does past 1: a number or a unit string overshoots, and a DOM
- *   colour holds at its target. A pair that can't blend switches at its first frame.
+ * - **Past 1**, a key does what its blend does past 1: a number or a unit string overshoots, and
+ *   `@wardic/dom`'s colour holds at its target. A pair that can't blend switches at its first frame.
  */
 // ADR-0024, decision 5: `springValues` on a 0→100 progress, each key through the `InterpolatorRegistry`.
 // As Motion runs a spring on a string (motion-dom animation/JSAnimation.ts:132-148 at
@@ -1612,7 +1612,7 @@ const trackFor = (
  * Building it needs the `InterpolatorRegistry`, once.
  */
 // #429. A Segment blends as a pair does: a Discrete pair switches at its first Frame past 0, and a Key
-// rule that holds a key until the run's last Frame (the DOM's `display` and `visibility`) sees only the
+// rule that holds a key until the run's last Frame (`@wardic/dom`'s for a key that hides an element) sees only the
 // last Segment's. Each Segment of each key resolves to a pure blender; per tick, one direct call a key.
 // Its own span, `wardic.keyframesValues`.
 export const keyframesValues: (

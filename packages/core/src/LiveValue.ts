@@ -190,8 +190,8 @@ const progressOf = <O>(stretch: Stretch<O>, v: number): number => {
 export interface FollowSkips {
   /**
    * The source's first change lands at once, as a `jump`, and only the changes after it animate
-   * (Motion's `skipInitialAnimation`): for a source set once after it starts, as a scroll the
-   * browser restores after the page mounts. Default `false`.
+   * (Motion's `skipInitialAnimation`): for a source set once after it starts, as a scroll position
+   * restored after the app mounts. Default `false`.
    */
   readonly skipInitialAnimation?: boolean
   /**
@@ -603,7 +603,7 @@ export const velocity: (source: Atom.Atom<number>) => Effect.Effect<Atom.Atom<nu
   })
 
 /**
- * Milliseconds since it started, as Motion's `useTime`: wall time, a hidden tab's minutes included. It
+ * Milliseconds since it started, as Motion's `useTime`: wall time, minutes the app spent hidden included. It
  * keeps the Clock ticking every frame while it runs; its run ends with the Scope.
  *
  * @example
@@ -649,7 +649,7 @@ const FRAME_DELTA = { minimum: 1, maximum: 40 } as const
  * every frame while it runs; its run ends with the Scope.
  *
  * - **`time`** is 0 at its first frame, then wall time, as `time`'s.
- * - **`delta`** is the frame's own, held to 1–40 ms, so the first frame back from a hidden tab steps
+ * - **`delta`** is the frame's own, held to 1–40 ms, so the first frame after the app was hidden steps
  *   40 ms, not minutes.
  *
  * A throw from `callback` ends the run: a binding catches it first.

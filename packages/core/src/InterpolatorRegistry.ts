@@ -1,8 +1,8 @@
 /**
  * The registry of value kinds: given two values, it finds the kind that blends them and returns the
  * blend each frame calls. An Environment builds one over core's kinds and its own (`make`, or `layer`
- * for core's alone), and adds Key rules, which blend a key by its name, as the DOM's can hold `display`
- * until an animation's last frame. A binding resolves each pair once, as it builds an animation.
+ * for core's alone), and adds Key rules, which blend a key by its name, as `@wardic/dom`'s keep a key
+ * that hides an element at its old value until an animation's last frame. A binding resolves each pair once, as it builds an animation.
  *
  * @example
  * import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
@@ -53,7 +53,7 @@ export class InterpolatorRegistry extends Context.Service<InterpolatorRegistry, 
   readonly keyBlendOf: (key: string, from: number | string, to: number | string) => Option.Option<Effect.Effect<KeyBlend>>
   /**
    * Forgets every pair resolved so far, so a pair resolves again when next asked: for when a kind now
-   * reads what it didn't, as the DOM's colours do once an app registers more colour spaces.
+   * reads what it didn't, as `@wardic/dom`'s colours do once an app registers more colour spaces.
    */
   // #511.
   readonly forget: Effect.Effect<void>
@@ -68,8 +68,9 @@ export type ResolveByValue = <From, To>(from: From, to: To) => Effect.Effect<(t:
 
 /**
  * A key's pair as the rules after one rule, then the kinds, blend it: what a rule that rewrites a pair
- * hands it on to, so the rules after it still apply. The DOM's rule for CSS variables resolves one, then
- * blends what it resolved to through `next`, so `"none"` to `var(--shadow)` still grows from nothing.
+ * hands it on to, so the rules after it still apply. A rule that reads a value from elsewhere, as
+ * `@wardic/dom`'s for an element's own variables, resolves it, then blends what it resolved to through
+ * `next`, so the key's other rules still apply to it.
  */
 // ADR-0035, *Amendment (#55)*: its Animatable none.
 export type NextKeyBlend = (key: string, from: number | string, to: number | string) => Effect.Effect<KeyBlend>
@@ -78,12 +79,12 @@ export type NextKeyBlend = (key: string, from: number | string, to: number | str
 export type KeyBlendOf = (key: string, from: number | string, to: number | string) => Option.Option<Effect.Effect<KeyBlend>>
 
 /**
- * An Environment's Key rule: how one key's pair blends, picked by the key's name, as the DOM's can hold
- * `display` and `visibility` until an animation's last frame. Core holds none; the DOM's know CSS
- * properties. Most hold for the whole Environment (`make`, `registerKeyRule`); one that reads an element
+ * An Environment's Key rule: how one key's pair blends, picked by the key's name, as `@wardic/dom`'s keep
+ * a key that hides an element at its old value until an animation's last frame. Core holds none: which
+ * keys need one is the Environment's to know. Most hold for the whole Environment (`make`, `registerKeyRule`); one that reads an element
  * is added for that element's animations with `withKeyRules`.
  */
-// CONTEXT.md, ADR-0035; the DOM's are `@wardic/dom`'s `keyRules`. The registry asks every rule for every
+// CONTEXT.md, ADR-0035; `@wardic/dom`'s are its `keyRules`. The registry asks every rule for every
 // key of every leg it builds, so a key no rule wants costs what it did with none (ADR-0035, *Amendment
 // (#55)*).
 export interface KeyRule {
@@ -192,7 +193,7 @@ const CACHE_CAPACITY = 1024
 
 /**
  * Resolved blends of string pairs, by `from`, then `to` (ADR-0026, decision 9). Elements often
- * animate the same pair (a hover state's value, `display`), so each pair is decoded
+ * animate the same pair (a hover state's value, say), so each pair is decoded
  * and built once per registry, and every stream that resolves it shares the closure. That's safe:
  * the closures are pure, and `complex`'s, which reuses one numbers array, rewrites every number and
  * formats them within each call.
@@ -307,14 +308,15 @@ export const make = (
 
 /**
  * `self` run with `rules` asked first, ahead of the registry's own Key rules, for that run alone: how a
- * binding adds a rule bound to one element, as the DOM's CSS variables, to that element's animations.
+ * binding adds a rule bound to one element, as `@wardic/dom`'s for its own variables, to that element's
+ * animations.
  * Each rule's `next` is the rules after it, then the registry's, then by value. The registry itself is
  * unchanged, so one element's rule never reaches another's.
  *
  * @example
- * yield* buildLegs.pipe(InterpolatorRegistry.withKeyRules([variableValues(element)]))
+ * yield* buildLegs.pipe(InterpolatorRegistry.withKeyRules([ruleOf(element)]))
  */
-// ADR-0035, *Amendment (#55)*: the DOM's `variableValues(element)`.
+// ADR-0035, *Amendment (#55)*: `@wardic/dom`'s `variableValues(element)`.
 export const withKeyRules: {
   (rules: ReadonlyArray<KeyRule>): <A, E, R>(self: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R | InterpolatorRegistry>
   <A, E, R>(self: Effect.Effect<A, E, R>, rules: ReadonlyArray<KeyRule>): Effect.Effect<A, E, R | InterpolatorRegistry>

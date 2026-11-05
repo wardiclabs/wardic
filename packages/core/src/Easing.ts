@@ -159,8 +159,8 @@ export const easeInOutBounce: Easing = (t) => {
 }
 
 /**
- * A cubic Bézier easing through the control points `(x1, y1)` and `(x2, y2)`, as CSS's
- * `cubic-bezier()`. An `ease` of `[x1, y1, x2, y2]` is the same.
+ * A cubic Bézier easing through the control points `(x1, y1)` and `(x2, y2)`. An `ease` of
+ * `[x1, y1, x2, y2]` is the same.
  *
  * @example
  * const standard = Easing.cubicBezier(0.4, 0, 0.2, 1)
@@ -173,7 +173,7 @@ export const cubicBezier = (x1: number, y1: number, x2: number, y2: number): Eas
 export type StepPosition = "start" | "end"
 
 /**
- * An easing in `count` jumps, as CSS's `steps()`: each at the end of its interval (the default), or its
+ * An easing in `count` jumps: each at the end of its interval (the default), or its
  * start. For a value that should tick, not glide.
  *
  * @example
@@ -284,8 +284,8 @@ export const spring = (options: SpringOptions = NO_SPRING): Easing => {
 
 /**
  * The name each easing Wardic makes was made with. A server names a mount animation's transition
- * by it (an Appear animation's spec), so the same easing names the same CSS rule on the server and
- * the client, where each made its own function.
+ * by it (an Appear animation's spec), so the same easing has the same name on the server and the
+ * client, where each made its own function.
  */
 const NAMES = new WeakMap<Easing, string>()
 
@@ -309,8 +309,8 @@ Arr.forEach(
 /**
  * The name an easing Wardic made was made with: a curve's own (`"easeOutCubic"`), or a factory's call
  * with its arguments (`"cubicBezier(0.4,0,0.2,1)"`, `"steps(4,end)"`). `None` for a function you wrote,
- * which can't be told from another. A server names a mount animation's CSS easing by it, so the server
- * and the client agree.
+ * which can't be told from another. A server names a mount animation's easing by it, so the server and
+ * the client agree.
  */
 // #48, ADR-0044: an Appear animation's spec.
 export const nameOf = (easing: Easing): Option.Option<string> => Option.fromUndefinedOr(NAMES.get(easing))
@@ -330,14 +330,14 @@ const mirrored = (easing: Easing): Easing => (t) => {
   return (2 - easing(2 * (1 - t))) / 2
 }
 
-/** Motion's `easeIn`: `cubic-bezier(0.42, 0, 1, 1)`, CSS's `ease-in`. */
+/** Motion's `easeIn`: `cubicBezier(0.42, 0, 1, 1)`. */
 export const easeIn: Easing = named(bezier(0.42, 0, 1, 1), "easeIn")
 
-/** Motion's `easeOut`: `cubic-bezier(0, 0, 0.58, 1)`, CSS's `ease-out`. A tween's default. */
+/** Motion's `easeOut`: `cubicBezier(0, 0, 0.58, 1)`. A tween's default. */
 // ADR-0051.
 export const easeOut: Easing = named(bezier(0, 0, 0.58, 1), "easeOut")
 
-/** Motion's `easeInOut`: `cubic-bezier(0.42, 0, 0.58, 1)`, CSS's `ease-in-out`. */
+/** Motion's `easeInOut`: `cubicBezier(0.42, 0, 0.58, 1)`. */
 export const easeInOut: Easing = named(bezier(0.42, 0, 0.58, 1), "easeInOut")
 
 /** Motion's `circIn`: a quarter circle, slow then steep (the Penner `easeInCirc`'s curve). */
@@ -349,7 +349,7 @@ export const circOut: Easing = named(reverse(circIn), "circOut")
 /** Motion's `circInOut`: {@link circIn} mirrored. */
 export const circInOut: Easing = named(mirrored(circIn), "circInOut")
 
-/** Motion's `backOut`: `cubic-bezier(0.33, 1.53, 0.69, 0.99)`, past its end and back. Not the Penner `easeOutBack`. */
+/** Motion's `backOut`: `cubicBezier(0.33, 1.53, 0.69, 0.99)`, past its end and back. Not the Penner `easeOutBack`. */
 export const backOut: Easing = named(bezier(0.33, 1.53, 0.69, 0.99), "backOut")
 
 /** Motion's `backIn`: {@link backOut} reversed, back before it goes. */

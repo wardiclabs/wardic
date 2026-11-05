@@ -14,7 +14,7 @@
  *   },
  * })
  */
-// CONTEXT.md's Recognizers. Drag and pan are `DragRecognizer`'s (#548), so a page that doesn't drag
+// CONTEXT.md's Recognizers. Drag and pan are `DragRecognizer`'s (#548), so an app that doesn't drag
 // ships none of their fold. The watches are #318's (ADR-0055); the Streams are built over them.
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
@@ -407,7 +407,7 @@ export const pressEvents = (target: unknown, options?: PressOptions): Stream.Str
  * feed.
  */
 // #318, ADR-0055. One fold over the target's pointer, keys and focus, each feed watched with its own
-// step; a **Keyboard press** (#427). Each press marks the down or the key it starts from in the page's
+// step; a **Keyboard press** (#427). Each press marks the down or the key it starts from in the runtime's
 // **Press claims** (#439), claimed when it doesn't propagate. Keys while focus is within:
 // `InputSource.focusWithin` (#460), from a `focus` to the `blur` after, or from the start when focus is
 // already there. Tier 2.
@@ -555,7 +555,7 @@ const booleanFold = <Ev>(activeOf: (event: Ev) => boolean): Fold<boolean, Ev> =>
  * inside it changes nothing. With `visible: true`, as Motion's `whileFocus`, only a focus the Environment
  * shows counts: a keyboard's, not a click's.
  */
-// #273: `FocusLikeEvent.visible`, the DOM's `:focus-visible`. #439: a focus inside.
+// #273: `FocusLikeEvent.visible`. #439: a focus inside.
 export const focus = (target: unknown, options: FocusOptions = {}): Stream.Stream<boolean, never, InputSource.InputSource> =>
   streamOf<boolean, InputSource.InputSource>((handlers) => watchFocus(target, options, handlers))
 
@@ -644,7 +644,7 @@ export const inView = (target: unknown, options: InViewOptions = {}): Stream.Str
 export interface ViewTransition {
   /** Whether it's in view now. */
   readonly active: boolean
-  /** The platform's record of it, which core never reads: the DOM's `IntersectionObserverEntry`. */
+  /** The platform's record of it, which core never reads: a binding hands it to an app's callback. */
   readonly raw?: unknown
 }
 

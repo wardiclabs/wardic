@@ -5,8 +5,8 @@
  * pressable ancestors too, as a pointer's down does. `Recognizer`'s presses mark and read them; a
  * recognizer of your own that presses does the same.
  *
- * Every runtime shares one by default, page-wide, as Motion's are; a runtime can provide its own, as
- * the test Environment does. It's synchronous, so a press reads it as it decides.
+ * By default every runtime shares one, as Motion's are shared; a runtime can provide its own, as the
+ * test Environment does. It's synchronous, so a press reads it as it decides.
  *
  * @example
  * import * as PressClaims from "@wardic/core/PressClaims"
@@ -45,7 +45,7 @@ export interface Markable {
   readonly raw?: unknown
 }
 
-/** The page's Press claims: what `PressClaims` gives. */
+/** A set of Press claims: what `PressClaims` gives. */
 export interface Shape {
   /**
    * Note that a press on `target` started from `event`: claimed when that press doesn't propagate. A claim

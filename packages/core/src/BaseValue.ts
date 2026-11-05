@@ -11,7 +11,7 @@
  * // Option.some({ value: 0, source: "initial" }): where opacity returns once nothing sets it
  */
 // Base values (ADR-0022). The read of an element's own value is the Environment's (`@wardic/dom`'s
-// `ownValues` for the DOM). Tier 2, for binding and Environment authors, and Effect-native: a missing
+// `ownValues`). Tier 2, for binding and Environment authors, and Effect-native: a missing
 // value is an `Option` (ADR-0008 as amended by ADR-0025). Pure and per element, so quiet: no span, no log.
 import * as Option from "effect/Option"
 import * as Rec from "effect/Record"
@@ -24,7 +24,7 @@ import type * as Values from "./Values.ts"
  */
 // Motion's `defaultTransformValue` (motion-dom parse-transform.ts:62-64 at 16c61222c4166bbef5ff6ab0051192faa79fa8c8),
 // and what Motion uses at runtime, since every motion element's read takes its projected branch
-// (HTMLVisualElement.ts:51). The DOM renderer derives its set from this one.
+// (HTMLVisualElement.ts:51). `@wardic/dom`'s renderer derives its set from this one.
 export const TRANSFORM_IDENTITY: Readonly<Record<string, number>> = Object.freeze({
   x: 0,
   y: 0,
