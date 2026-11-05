@@ -14,6 +14,7 @@
     "@kobalte/core": "2.0.0-alpha.4",
     "@solidjs/router": "2.0.0-next.43",
     "@solidjs/web": "2.0.0-rc.20",
+    "@wardic/core": "workspace:*",
     "@wardic/dom": "workspace:*",
     "@wardic/example-storefront-shared": "workspace:*",
     "@wardic/solid": "workspace:*",
