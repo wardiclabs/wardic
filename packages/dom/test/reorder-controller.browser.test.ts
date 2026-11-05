@@ -76,7 +76,7 @@ const mountList = async (
   const container = el(o.parent ?? stage(), CONTAINER[kind])
   // The factory itself, over the harness's engine; `ReorderController.make`, its scoped
   // constructor, is services.browser.test.ts's (DS5-DS7).
-  const c = internalReorder.makeReorderController<string>({ runtime: e.runtime, projection: e.system }, {
+  const c = internalReorder.makeReorderController<string>({ runtime: e.runtime, projection: e.system, onPassEnd: e.system.onPassEnd }, {
     values: () => order,
     onReorder: (next) => {
       reorders.push(next)

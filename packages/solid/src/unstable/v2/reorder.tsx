@@ -40,7 +40,6 @@
 import * as InputSource from "@wardic/core/InputSource"
 import type * as CoreReorder from "@wardic/core/Reorder"
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
-import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as ReorderController from "@wardic/dom/ReorderController"
 import * as Style from "@wardic/dom/Style"
 import * as Arr from "effect/Array"
@@ -69,7 +68,7 @@ import { watchItemInput } from "../../reorder-input.ts"
 import { changesContext } from "../../variant-tree.ts"
 import { configView, type PerKey } from "./config-view.ts"
 import { useBrought, useWardicRuntime } from "./provider.tsx"
-import { useWardicProjection } from "./layout-projection.ts"
+import { useLayoutServices } from "./layout-projection.ts"
 import { type AnyWard, spreadPropsOf, type Ward, withSpreadProps, type WardConfig, type WardConfigValues, wardConfigView, type WardOptions, type WardShare, type WardStyle, wardWith } from "./ward.tsx"
 import { drivenWard, type GivenWard, givenOf, handOver, listOf, refsOf, sets, setKeysOf, type WardicBeside, type WardicMotion, type WardRefCallback, type WardSetKey } from "./element.tsx"
 import { w } from "./w.tsx"
@@ -363,7 +362,7 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> 
       keyedWith: "<For>",
       keyboard: () => untrack(() => cfg().keyboard) !== false,
       announcements: () => Option.fromUndefinedOr(untrack(() => cfg().announcements)),
-    }).pipe(Effect.provideService(ProjectionSystem.ProjectionSystem, useWardicProjection()), Scope.provide(scope)),
+    }).pipe(Effect.provide(useLayoutServices()), Scope.provide(scope)),
   )
   // The app's axis, else the detected one. When the app's is cleared, detected here, from the boxes the
   // engine holds, so the items' touch-action follows in the same flush (#257's audit: an effect that

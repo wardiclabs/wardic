@@ -6,9 +6,12 @@
  *
  * @module
  */
+import type * as Announcer from "@wardic/core/Announcer"
 import * as DomProjectionSystem from "@wardic/dom/DomProjectionSystem"
 import * as FlushGate from "@wardic/dom/FlushGate"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
+import type * as ReorderController from "@wardic/dom/ReorderController"
+import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -23,10 +26,14 @@ import { ProjectionOptions, projectionIn, type WardicContextValue } from "../run
 export const layout: Feature<ProjectionSystem.ProjectionSystem, ProjectionSystem.Shape> = {
   name: "layout",
   key: ProjectionSystem.ProjectionSystem,
-  layer: /*#__PURE__*/ Layer.effect(ProjectionSystem.ProjectionSystem)(
+  // The engine, and what its Reorder controllers hear each Measure pass by, beside it (#618).
+  layer: /*#__PURE__*/ Layer.effectContext(
     /*#__PURE__*/ Effect.flatMap(FlushGate.FlushGate, (gate) => Effect.flatMap(ProjectionOptions, (options) => DomProjectionSystem.make(gate, options))),
   ),
 }
+
+/** What `layout` brings: the projection system, and what a Reorder controller over it takes beside it. */
+export type LayoutServices = Exclude<ReorderController.Services, Announcer.Announcer>
 
 /** What a component that brings `layout` asks its provider for: one list, so the provider joins it once. */
 const BRINGS: ReadonlyArray<Feature> = [layout]
@@ -39,3 +46,9 @@ const BRINGS: ReadonlyArray<Feature> = [layout]
  */
 export const projectionBrought = (value: WardicContextValue): ProjectionSystem.Shape =>
   UndefinedOr.getOrThrowWith(projectionIn(value.features.build(BRINGS)), () => new Error("useWardicProjection: there is no projection system during a server render (ADR-0021)"))
+
+/** {@link projectionBrought}'s services, all of them: what a Reorder controller is built with (#618). */
+export const layoutBrought = (value: WardicContextValue): Context.Context<LayoutServices> => {
+  projectionBrought(value)
+  return value.features.build(BRINGS) as Context.Context<LayoutServices>
+}

@@ -24,7 +24,6 @@ import { describe, expect, it } from "@effect/vitest"
 import * as Easing from "@wardic/core/Easing"
 import { afterEach, beforeEach } from "vitest"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
-import { onPassEnd } from "../src/internal/projection.ts"
 import { clearStages, el, endOfTask, type Engine, fireFrame, fireFrames, makeEngine, makeSink, stage, stubFrames, unstubFrames } from "./projection-harness.ts"
 import * as Option from "effect/Option"
 
@@ -208,7 +207,7 @@ describe("a Declared layout change (#4, ADR-0038)", () => {
     const b = absolute(s, 0)
     const [h] = await mount(e, [b])
     let ends = 0
-    const off = onPassEnd(e.system, () => ends++)
+    const off = e.system.onPassEnd(() => ends++)
     const version = h!.layoutVersion()
     e.system.animateLayout(() => {
       b.style.top = "100px"

@@ -1126,6 +1126,11 @@ export interface ProjectionSystem extends Inspectable.Inspectable {
   readonly dispose: () => void
   /**
    * The tree as plain data, for a diagnostic read: every node now, in the order it was registered.
+  /**
+   * Run `listener` at the end of every Measure pass; returns the unsubscribe. The engine's Layer hands
+   * it out as the internal `PassEnds` service, beside the engine, not on it (internal/pass-ends.ts).
+   */
+  readonly onPassEnd: (listener: () => void) => () => void
    * `console.log(system)` shows it (Effect's `Inspectable`). Parent links are the last Measure pass's,
    * as the engine reads them.
    */
@@ -1602,27 +1607,6 @@ const rootShareOf = (fold: Fold, rootScroll: Point.Point): Point.Point => {
   return ZERO_POINT
 }
 
-/** Each system's pass-end listeners ({@link onPassEnd}). */
-const passEnds = new WeakMap<Omit<ProjectionSystem, "dispose">, Set<() => void>>()
-
-/**
- * Run `listener` at the end of every Measure pass of `system`: once per pass, after
- * every round's boxes are stored (a blocked pass and one whose flush triggered more
- * rounds included). Returns the unsubscribe. A listener that
- * throws is logged and doesn't stop the pass or the others.
- *
- * @internal for the Reorder controller (ADR-0020): not exported from `@wardic/dom`, so
- * there is no public push hook (ADR-0020 decision 2).
- */
-export const onPassEnd = (system: Omit<ProjectionSystem, "dispose">, listener: () => void): (() => void) => {
-  const listeners = passEnds.get(system)
-  if (Predicate.isUndefined(listeners)) return () => {}
-  listeners.add(listener)
-  return () => {
-    listeners.delete(listener)
-  }
-}
-
 /** What a binding hands its engine. */
 export interface ProjectionSystemOptions {
   /**
@@ -1746,7 +1730,7 @@ export const makeProjectionSystem = (
       return releaseFrom(ZERO_POINT, ZERO_POINT, DEFAULT_DRAG_TRANSITION)
     }
   }
-  // {@link onPassEnd}'s listeners, run at the end of each Measure pass.
+  // `onPassEnd`'s listeners, run at the end of each Measure pass (the `PassEnds` service, internal/pass-ends.ts).
   const passEndListeners = new Set<() => void>()
   const nodes = new Set<NodeState>()
   // The nodes in depth order, ancestors first, stable in `nodes`' order (#383): every top-down walk
@@ -5990,6 +5974,12 @@ export const makeProjectionSystem = (
       tag: node.element.tagName.toLowerCase(),
       layoutId: node.layoutId,
       parent: UndefinedOr.map(node.parent, (parent) => parent.id),
+    onPassEnd: (listener) => {
+      passEndListeners.add(listener)
+      return () => {
+        passEndListeners.delete(listener)
+      }
+    },
       layoutRoot: node.layoutRoot,
       twin,
       lead: Bool.match(twin === "follower", { onTrue: () => UndefinedOr.map(lead, (l) => l.id), onFalse: constUndefined }),
@@ -6019,7 +6009,6 @@ export const makeProjectionSystem = (
     dropLeaver,
     toJSON,
   }
-  passEnds.set(system, passEndListeners)
   return system
 }
 
