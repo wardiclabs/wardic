@@ -2,14 +2,16 @@
  * Every page (#558): its MDX file under `src/content/`, by the path asked for, its front matter's
  * `title` in the document's head. Each page is a chunk of its own, loaded as it's opened (prerendered,
  * and preloaded before the page hydrates), so a page ships its own content and not every other's.
- * Each page enters as you open it.
+ * Each page enters as you open it. A page that fails to render says so in its place, and the frame
+ * around it, the sidebar included, stays.
  */
 import { useParams } from "@solidjs/router"
 import { dynamic, useHead } from "@solidjs/web"
 import { w } from "@wardic/solid/unstable/v2"
 import type { Component } from "solid-js"
-import { createMemo, For, lazy, Show } from "solid-js"
+import { createMemo, Errored, For, lazy, Show } from "solid-js"
 import TITLES from "virtual:page-titles"
+import { Failed } from "~/components/Failed.tsx"
 
 /**
  * Each page, by its glob key, as a `lazy` component. Its `moduleUrl` is the file's path from the
@@ -49,7 +51,10 @@ export default function Page() {
             const Current = dynamic(() => current)
             return (
               <w.article class="prose" data-pagefind-body initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.25, ease: "easeOut" }}>
-                <Current />
+                {/* #618 (S3): with no boundary, a page's error took the whole site down with it. */}
+                <Errored fallback={(error, reset) => <Failed what="This page" error={error()} retry={reset} />}>
+                  <Current />
+                </Errored>
               </w.article>
             )
           }}
