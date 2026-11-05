@@ -16,9 +16,9 @@
  * import * as Machine from "@wardic/core/Machine"
  *
  * const fadeIn = Machine.tween(0, 1, { duration: 0.3, ease: "easeOut" }).pipe(Machine.delay(0.1))
- * // On the Frame loop, its value onto an element each frame:
+ * // On the Frame loop, each Frame drawn:
  * yield* Machine.run(fadeIn, (frame) => {
- *   element.style.opacity = String(frame.value)
+ *   draw(frame.value)
  * })
  * // Or stepped by hand:
  * const step = fadeIn.start()
@@ -760,7 +760,7 @@ export const toStream = <F extends Frame.Frame<unknown>>(self: Machine<F>): Stre
  *
  * @example
  * const landed = yield* Machine.run(Machine.spring(200), (frame) => {
- *   element.style.transform = `translateX(${frame.value}px)`
+ *   moveTo(frame.value)
  * })
  */
 // A plain call, typed `(frame) => undefined`, so a sink that returns an Effect doesn't compile
@@ -1121,7 +1121,7 @@ export const inertiaVec = (initial: Point.Point, velocity: Point.Point, options:
  * rewritten every tick: copy one, or its records, to keep it; the settled frame is stable.
  *
  * @example
- * const card = Machine.springValues({ x: 0, y: 0, scale: 1 }, { x: 120, y: 40, scale: 1.1 }, {}, Spring.stiff)
+ * const card = Machine.springValues({ x: 120, y: 40, scale: 1.1 }, Spring.stiff, { x: 0, y: 0, scale: 1 })
  */
 // Each run steps in place (ADR-0030, decision 11); `toStream` copies each Frame it emits.
 export const springValues = (

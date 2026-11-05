@@ -75,9 +75,10 @@ import { isTraced, traced } from "./tracing.ts"
 // refresh-frame-clock.ts). It is a host global in every Environment Wardic targets.
 declare const performance: { readonly now: () => number }
 
-/** The Frame loop's service shape. */
-/** A run's options: the token it joins, so its caller can end it with others (#200). */
+/** A run's options: the token it joins, so its caller can end it with others. */
+// #200.
 export interface RunOptions {
+  /** The token: `Supersede.end` on it ends every run that joined it. */
   readonly supersede: Supersede.Supersede
 }
 
@@ -87,31 +88,33 @@ export interface Run {
   <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, sink: FrameLoop.Sink<F>, options: RunOptions): Effect.Effect<F | Supersede.Superseded>
 }
 
+/** The Frame loop's members: what `FrameLoop` gives. */
 export interface Shape {
   /**
-   * Run `machine` on the loop, handing each of its Frames to `sink`, from the loop's next tick
-   * until it settles. Succeeds with the settled Frame (a machine that never settles, `chase`,
-   * runs until interrupted or superseded); dies with the defect if its step or its sink throws.
-   * Interrupting it removes it at once. One span per run, named after its Primitive.
+   * Runs `machine` on the loop, handing each of its Frames to `sink`, from the loop's next tick until it
+   * settles. Succeeds with the settled Frame; a machine that never settles, `chase`, runs until it's
+   * interrupted or superseded. Dies with the defect if its step or its sink throws. Interrupting it
+   * removes it at once.
    *
-   * Given a token (`{ supersede }`, #200), the run joins it, and `Supersede.end(token)` ends it
-   * as an interrupt would, at once, but its fiber succeeds with `Superseded`, with no interrupt
-   * cause to build; its span ends with `superseded: true`.
+   * Given a `Supersede` token (`{ supersede }`), the run joins it, and `Supersede.end(token)` ends it at
+   * once, as an interrupt would, but its fiber succeeds with `Superseded`.
    */
+  // One span per run, named after its Primitive. #200: no interrupt cause to build; its span ends with
+  // `superseded: true`.
   readonly run: Run
   /**
-   * `run`, but stepped after every run `run` added, in each tick (ADR-0027, *Amendment (#137)*):
-   * for a machine that reads what the others' sinks wrote in the same tick. The projection's
-   * coordinator is the one caller. Among themselves, these runs step in add order too.
+   * `run`, but stepped after every run `run` added, in each tick: for a machine that reads what the
+   * others' sinks wrote in the same tick. Among themselves, these runs step in the order they were added.
    */
+  // ADR-0027, *Amendment (#137)*: the projection's coordinator is the one caller.
   readonly runLast: Run
   /**
-   * Call `hook` at the end of every tick, after every run's step and sink and the continuations
-   * of the runs that settled in it, until the `Scope` closes (ADR-0033). Hooks run in the order
-   * they were added. A plain call, typed like a `Sink`, so a hook that returns an Effect doesn't
-   * compile. A hook doesn't throw: one that does fails the tick, and with it every run on the
-   * loop, as a failure of the loop itself does. The flush gate is the one caller.
+   * Calls `hook` at the end of every tick, after every run's step and sink and the continuations of the
+   * runs that settled in it, until the `Scope` closes. Hooks run in the order they were added. A plain
+   * call, typed like a `Sink`, so a hook that returns an Effect doesn't compile. A hook doesn't throw:
+   * one that does fails the tick, and with it every run on the loop.
    */
+  // ADR-0033: the flush gate is the one caller.
   readonly afterTick: (hook: () => undefined) => Effect.Effect<void, never, Scope.Scope>
 }
 
@@ -141,20 +144,21 @@ const tickMs = Metric.histogram("wardic_frameloop_tick_ms", {
 })
 
 /**
- * The dev check for non-finite Frames (ADR-0030, decision 7), `false` by default: with it on, each
- * run started from a fiber that sees it checks every Frame before its sink gets it, and fails with
- * `NonFiniteFrame` on a NaN or an Infinity. Read once per run, from the caller's fiber, so an app
- * that merges it beside its Environment with `Layer.mergeAll` turns it on. `FrameLoop.CheckFrames`.
+ * A check for development, off by default: on, every run started where it's on checks each Frame before
+ * its sink gets it, and fails with `NonFiniteFrame` on a NaN or an Infinity. Read once a run, from the
+ * caller's fiber, so an app turns it on by merging `Layer.succeed(CheckFrames, true)` beside its
+ * Environment.
  */
+// ADR-0030, decision 7. `FrameLoop.CheckFrames`.
 export const CheckFrames: Context.Reference<boolean> = Context.Reference<boolean>("@wardic/FrameLoop/CheckFrames", {
   defaultValue: () => false,
 })
 
 /**
- * A Frame with a NaN or an Infinity in its `value` (ADR-0030, decision 7): the defect a checked run
- * dies with. `key` is the record key that held it, `None` when the value is the number itself, and
- * `value` is what it held. The run's span names the run (decision 3). `FrameLoop.NonFiniteFrame`.
+ * A Frame with a NaN or an Infinity in its `value`: the defect a checked run dies with. `key` is the key
+ * that held it, `None` when the value is the number itself, and `value` is what it held.
  */
+// ADR-0030, decision 7; the run's span names the run (decision 3). `FrameLoop.NonFiniteFrame`.
 export class NonFiniteFrame extends Data.TaggedError("NonFiniteFrame")<{
   readonly key: Option.Option<string>
   readonly value: unknown

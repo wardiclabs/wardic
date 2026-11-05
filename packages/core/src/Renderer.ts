@@ -1,8 +1,15 @@
 /**
- * The `Renderer` module: the output sink an Environment writes values to, behind the
- * `Renderer.Renderer` service (ADR-0002), its `Patch`, and `applyTo`, which drains a Frame
- * stream into a target through it (ADR-0028, decisions 11 and 12).
+ * The Renderer: how an Environment writes animated values to what it draws, an element, a canvas
+ * context, a native view. It has two halves: `project`, pure, turns a Frame's values into the
+ * Environment's own `Patch`, grouping keys as it likes; and `commit` writes a patch onto a target, now.
+ * A binding writes its elements through its flush; `applyTo` writes a Frame stream outside one.
+ *
+ * @example
+ * import * as Renderer from "@wardic/core/Renderer"
+ *
+ * yield* Machine.toStream(Machine.springValues({ x: 100 })).pipe(Renderer.applyTo(target))
  */
+// ADR-0002; `applyTo` (ADR-0028, decisions 11 and 12).
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Stream from "effect/Stream"
@@ -11,62 +18,40 @@ import { dual } from "./internal/dual.ts"
 import { traced } from "./internal/tracing.ts"
 
 /**
- * Output of `Renderer.project` — the environment-specific representation of a
- * frame's values, ready to be written by `Renderer.commit`. Structurally an
- * opaque `Record<string, unknown>` so each environment (DOM, canvas, native)
- * is free to encode grouped fields (e.g. an aggregated `transform` string)
- * without leaking that shape into engine code.
+ * What `project` gives: a Frame's values in the Environment's own form, ready for `commit`. Opaque to
+ * core, so an Environment can group keys as it draws them: `@wardic/dom` writes `x`, `y` and `scale` as
+ * one transform.
  */
 export type Patch = Record<string, unknown>
 
 /**
- * Output sink. Writes computed animation values onto whatever the environment
- * renders to — a DOM element's style, a canvas context, a native view, etc.
- *
- * Split into two halves (see ADR-0002):
- *   - `project` — pure, synchronous: translates engine values into the
- *     environment's representation (`Patch`). Side-effect-free; the Starting style
- *     reuses it, so DOM grouping/unit logic isn't duplicated.
- *   - `commit` — imperative: writes a `Patch` to `target`, now. The flush gate commits
- *     every binding element's patch once per Refresh frame (ADR-0006, ADR-0034), and
- *     `applyTo` commits a Frame stream outside a binding.
- *
- * Both are plain functions, not Effects: they run once per element per frame, where an
- * Effect round trip per call costs a fiber each (ADR-0034, docs/agents/effect-first.md).
- *
- * `target` is environment-defined and opaque to the engine; the DOM renderer
- * treats it as an `HTMLElement`, a canvas renderer as a draw context, and so on.
+ * An Environment's renderer. Both halves are plain functions, not Effects: they run once per element per
+ * frame. `target` is the Environment's own, opaque to core.
  */
+// ADR-0002. `project` is pure, so the Starting style reuses it and no grouping or unit logic is
+// duplicated. The flush gate commits every binding element's patch once per Refresh frame (ADR-0006,
+// ADR-0034); an Effect round trip per call would cost a fiber each (ADR-0034,
+// docs/agents/effect-first.md). `@wardic/dom`'s renderer takes an element as its target.
 export class Renderer extends Context.Service<Renderer, {
-  /** Pure: translate engine values into the environment's patch shape. */
+  /** Turns a Frame's values into the Environment's patch: pure, so a binding can project values it doesn't write yet. */
   readonly project: (values: Record<string, unknown>) => Patch
-  /** Imperative: write a projected patch onto `target`, synchronously. */
+  /** Writes a patch onto `target`, now. */
   readonly commit: (target: unknown, patch: Patch) => void
 }>()("@wardic/Renderer") {}
 
 /**
- * Imperative-path entry point (see ADR 0002).
+ * Writes each Frame of `stream` onto `target`, projecting its values and committing them, one commit per
+ * Frame: for a Frame stream outside a binding, a canvas's, a native view's, a test's. A binding's
+ * elements go through its flush instead. `stream` gives Frames of a record of values, as
+ * `Machine.springValues` and `Machine.animateValues` do.
  *
- * Drains a frame stream into `target` by routing every emission through the
- * `Renderer`'s two halves: `project` translates the engine values into the
- * environment's patch shape (e.g. grouping `x`/`y`/`scale` into one DOM
- * `transform` string), and `commit` writes that patch onto the target.
- *
- * A binding's elements go through its flush gate instead (ADR-0006, ADR-0034): this is
- * the combinator for a Frame stream rendered outside a binding (canvas, native, tests),
- * where the engine pushes values into a sink each tick, one commit per Frame.
- *
- * The typed surface accepts a `Frame<Record<string, unknown>>`, which is the
- * shape `springValues` and `animateValues` already emit (their `Values` map is
- * assignable to `Record<string, unknown>`); single-scalar primitives are wrapped
- * by the binding layer before reaching `applyTo`. `dual`, the stream first:
- * `stream.pipe(Renderer.applyTo(target))` (ADR-0028, decision 12).
- *
- * Observability: a single `wardic.applyTo` span wraps the stream and one
- * annotated `Effect.logDebug("wardic.applyTo: subscribe")` fires when the
- * stream starts. Per-frame work is deliberately un-logged — this is the
- * hot path.
+ * @example
+ * yield* frames.pipe(Renderer.applyTo(target))
  */
+// ADR-0002; ADR-0006, ADR-0034 (the flush gate). Single-scalar primitives are wrapped by the binding
+// before reaching it. `dual`, the stream first (ADR-0028, decision 12). Observability: one
+// `wardic.applyTo` span around the stream and one `wardic.applyTo: subscribe` debug log; per-frame work
+// is un-logged, the hot path.
 export const applyTo: {
   <T>(target: T): <E, R>(
     stream: Stream.Stream<Frame.Frame<Record<string, unknown>>, E, R>,

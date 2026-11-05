@@ -1,28 +1,31 @@
 /**
- * The `SharedSource` module: how an Environment meets CONTEXT.md's **Shared source** contract
- * for the Streams it hands out (#37, ADR-0041 *Amendment (#37)*): each is hot and ref-counted, its
- * subscribers sharing one underlying source (one observer per target, one feed for the whole Environment),
- * established on first subscribe and torn down when the last unsubscribes. An Environment's
- * **Input feeds** are shared by `InputFeed.byTarget` instead, with no `PubSub` or fiber (#318).
+ * Shared sources, for the Streams an Environment hands out: each hot and counted, so however many
+ * subscribe, one underlying source runs, started by the first subscriber and stopped when the last one
+ * leaves. `byTarget` keeps one per target, one observer on each element, and `make` one for the whole
+ * Environment. An Environment builds its sources with these, as `@wardic/dom` does.
  *
- * Two constructors, both built on the same primitive (a `PubSub` fed by a `forkScoped` pump that
- * drains the cold source), wrapped in Effect's reference-counted resource caches:
+ * @example
+ * import * as SharedSource from "@wardic/core/SharedSource"
  *
- * - {@link byTarget} keys on the target (`RcMap`): one entry per distinct target, the cold `lookup`
- *   running once per target while a subscriber holds it. An Environment's `Probe.observeResize`.
- * - {@link make} is the keyless case (`RcRef`): one shared source for the whole Environment.
- *
- * Either way the result is a hot multicast Stream. The cold source is acquired by the first
- * subscriber and released when the last subscriber's scope closes: `Stream.unwrap` holds the Rc
- * reference for the subscriber stream's lifetime, so when the last one ends the cache releases the
- * entry, the pump is interrupted, and the cold source's finalizers run (a listener is removed).
- *
- * Tier 2 (ADR-0008), for Environment authors, as `InputSource.heldPointer` is (#31's rule: Wardic
- * ships what makes a new Environment little work). The DOM's Environment builds its sources with it.
- *
- * Observability: each constructor emits a `wardic.sharedSource.*` span and a debug log on
- * subscribe; the per-event publish path stays quiet (the hot path).
+ * const resize = yield* SharedSource.byTarget((target) => Effect.succeed(resizesOf(target)))
+ * // Both share one observer on `card`:
+ * Stream.runForEach(resize(card), onLayout)
+ * Stream.runForEach(resize(card), onScroll)
  */
+// CONTEXT.md's **Shared source** contract (#37, ADR-0041 *Amendment (#37)*). An Environment's **Input
+// feeds** are shared by `InputFeed.byTarget` instead, with no `PubSub` or fiber (#318).
+//
+// Two constructors, both built on the same primitive (a `PubSub` fed by a `forkScoped` pump that drains
+// the cold source), wrapped in Effect's reference-counted resource caches: `byTarget` keys on the target
+// (`RcMap`), the cold `lookup` running once per target while a subscriber holds it (an Environment's
+// `Probe.observeResize`); `make` is the keyless case (`RcRef`). The cold source is acquired by the first
+// subscriber and released when the last subscriber's scope closes: `Stream.unwrap` holds the Rc reference
+// for the subscriber stream's lifetime, so when the last one ends the cache releases the entry, the pump
+// is interrupted, and the cold source's finalizers run (a listener is removed).
+//
+// Tier 2 (ADR-0008), for Environment authors, as `InputSource.heldPointer` is (#31's rule: Wardic ships
+// what makes a new Environment little work). Observability: each constructor emits a
+// `wardic.sharedSource.*` span and a debug log on subscribe; the per-event publish path stays quiet.
 import type * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Equal from "effect/Equal"
@@ -39,14 +42,13 @@ import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { tracedStream } from "./internal/tracing.ts"
 
-/** Options for both constructors. */
+/** `byTarget`'s and `make`'s options. */
 export interface Options {
   /**
-   * Debounce teardown of an idle (zero-reference) source by this duration: the cold source is
-   * kept alive for this long after the last subscriber leaves, so a rapid re-subscribe reuses it
-   * instead of re-acquiring. Maps straight onto Rc{Map,Ref}'s `idleTimeToLive`. Default: none
-   * (teardown is immediate on the last unsubscribe).
+   * How long a source with no subscriber left keeps running before it stops, so a quick re-subscribe
+   * reuses it. Default: none, stopped at once.
    */
+  // Rc{Map,Ref}'s `idleTimeToLive`.
   readonly idleTimeToLive?: Duration.Input | undefined
 }
 
@@ -100,17 +102,13 @@ const idleOf = (options: Options = {}): { readonly idleTimeToLive?: Duration.Inp
   UndefinedOr.match(options.idleTimeToLive, { onUndefined: () => ({}), onDefined: (idleTimeToLive) => ({ idleTimeToLive }) })
 
 /**
- * A Shared source per target: a function `(target) => Stream<A>` whose Stream is hot and
- * ref-counted per `target`. The first subscriber for a target acquires the cold source via
- * `lookup(target)`; concurrent subscribers to that target share it; it's released when the last
- * subscriber for that target unsubscribes (after `idleTimeToLive`, if given).
+ * A shared source per target: a function from a target to a Stream that's hot and counted for that
+ * target. The first subscriber for a target starts `lookup(target)`'s source, later ones share it, and it
+ * stops when the last one for that target leaves, after `idleTimeToLive` if it's given.
  *
  * @example
- * // `resizesOf(target)`: an Environment's cold Stream of a target's sizes
+ * // `resizesOf(target)`: an Environment's own Stream of a target's sizes
  * const resize = yield* SharedSource.byTarget((target) => Effect.succeed(resizesOf(target)))
- * // both share one observer on `target`:
- * Stream.runForEach(resize(target), onLayout)
- * Stream.runForEach(resize(target), onScroll)
  */
 export const byTarget: <A>(
   lookup: (target: unknown) => Effect.Effect<Stream.Stream<A>, never, Scope.Scope>,
@@ -150,16 +148,16 @@ export const byTarget: <A>(
   })
 
 /**
- * One Shared source for the whole Environment: a single hot, ref-counted Stream<A>. The first
- * subscriber acquires the cold source via `acquire`; concurrent subscribers share it; it's released
- * when the last unsubscribes (after `idleTimeToLive`, if given). The keyless counterpart of
- * {@link byTarget}, as `RcRef.make` is `RcMap.make`'s: for one feed for the whole Environment.
+ * One shared source for the whole Environment: a Stream that's hot and counted. The first subscriber
+ * starts `acquire`'s source, later ones share it, and it stops when the last one leaves, after
+ * `idleTimeToLive` if it's given. `byTarget`'s form without a target.
  *
  * @example
- * // `viewportChanges`: an Environment's cold Stream of its viewport's size
+ * // `viewportChanges`: an Environment's own Stream of its viewport's size
  * const viewport = yield* SharedSource.make(Effect.succeed(viewportChanges))
  * Stream.runForEach(viewport, onResize) // one listener, however many subscribe
  */
+// As `RcRef.make` is `RcMap.make`'s.
 export const make: <A>(
   acquire: Effect.Effect<Stream.Stream<A>, never, Scope.Scope>,
   options?: Options,

@@ -1,46 +1,46 @@
 /**
- * The `Clock` module: the engine's time source (`Clock.Clock`), and `fromRefreshFrames`, the
- * shared, DOM-free realization of it every Environment builds its Clock from: one
- * shared Refresh frame loop over an Environment's `RefreshFrameSource`. `layer` builds
- * it from the Environment's member (ADR-0031): `@wardic/dom` provides
- * `requestAnimationFrame`/`cancelAnimationFrame`; a native or canvas Environment provides
- * its own pair and gets the same Clock (ADR-0004: no per-Environment re-implementation).
+ * The Clock: the engine's time. Its `ticks` give the seconds since the frame before, once a frame, which
+ * every running animation counts, and `now` the Environment's time, the same for the rest of a
+ * synchronous block. An Environment builds it with `layer`, over its `RefreshFrameSource`, so every
+ * Environment's Clock runs the same loop: it starts at its first subscription, ticks once a frame, and
+ * stops at the first frame that finds no one subscribed.
  *
- * The loop is the **single update path**: every Refresh frame computes `dt` from
- * successive timestamps and calls `tick`, the only publisher to the internal tick `PubSub`. There is deliberately no `MAX_DT` clamp
- * here — clamping is a consumer-boundary concern (each leaf's step clamps at
- * `Machine.MAX_DT`, #78), so the Clock reports raw deltas.
+ * @example
+ * import * as Clock from "@wardic/core/Clock"
  *
- * **Cold start** (ADR-0017, ADR-0033): the subscription that starts an idle loop gets its
- * first tick at the next Refresh frame, as a warm start does, with `dt = NOMINAL_DT`: `dt`
- * stays nominal until two Refresh frame timestamps exist (the first Refresh frame has nothing
- * to measure against), then it is the measured interval. The flush gate paints what a tick
- * writes at the end of the Frame loop's tick, in that Refresh frame, so a Cold start's first
- * step paints in the first Refresh frame, as a warm start's does. (Until #73 the gate painted
- * a frame later, and a Priming tick at the end of the subscribing task made up for it.) The
- * loop never goes through the Effect scheduler: it starts synchronously, waits for the end of
- * its task via `Microtask.next` (so a subscription made and dropped in one task requests no
- * Refresh frame), and requests each next Refresh frame inside the current one's callback,
- * after the tick is delivered — so timing is the same in browsers (scheduler =
- * `setTimeout(0)`), React Native and the test harness (scheduler = microtask).
- *
- * Per CONTEXT.md's **Shared source** contract, the loop is shared and counted:
- * the first subscriber to `ticks` starts it, concurrent subscribers share it, and
- * it requests no Refresh frame once nothing is subscribed. It stops the way
- * Motion's frame loop does (ADR-0017, decision 9): the last subscriber leaving
- * does not stop it; the first Refresh frame that finds no subscriber ends it
- * without ticking or requesting another. A subscriber that arrives before that
- * frame — the new animation of a retarget, which `createWard` starts right after
- * interrupting the old one — joins warm, with a measured dt.
- *
- * Tier 2 (ADR-0008): Effect-typed, stability tracks Effect. It is for Environment
- * authors; `InterpolatorRegistry.layer` is the precedent for a shared constructor
- * living in core.
- *
- * Observability (CONTEXT.md observability convention): each subscription to
- * `ticks` runs inside a `wardic.clock` span and emits a debug log on subscribe;
- * the per-frame `tick` path stays quiet — it is the hot path.
+ * const clock = yield* Clock.Clock
+ * yield* clock.ticks.pipe(Stream.take(3), Stream.runForEach((dt) => Effect.log(dt)))
  */
+// `fromRefreshFrames` is the shared, DOM-free realization every Environment builds its Clock from: one
+// shared Refresh frame loop over an Environment's `RefreshFrameSource` (ADR-0031); ADR-0004: no
+// per-Environment re-implementation.
+//
+// The loop is the single update path: every Refresh frame computes `dt` from successive timestamps and
+// calls `tick`, the only publisher to the internal tick `PubSub`. There is deliberately no `MAX_DT` clamp
+// here: clamping is a consumer-boundary concern (each leaf's step clamps at `Machine.MAX_DT`, #78), so the
+// Clock reports raw deltas.
+//
+// Cold start (ADR-0017, ADR-0033): the subscription that starts an idle loop gets its first tick at the
+// next Refresh frame, as a warm start does, with `dt = NOMINAL_DT`: `dt` stays nominal until two Refresh
+// frame timestamps exist, then it is the measured interval. The flush gate paints what a tick writes at
+// the end of the Frame loop's tick, in that Refresh frame, so a Cold start's first step paints in the
+// first Refresh frame. (Until #73 the gate painted a frame later, and a Priming tick at the end of the
+// subscribing task made up for it.) The loop never goes through the Effect scheduler: it starts
+// synchronously, waits for the end of its task via `Microtask.next` (so a subscription made and dropped
+// in one task requests no Refresh frame), and requests each next Refresh frame inside the current one's
+// callback, after the tick is delivered, so timing is the same in browsers (scheduler = `setTimeout(0)`),
+// React Native and the test harness (scheduler = microtask).
+//
+// Per CONTEXT.md's **Shared source** contract, the loop is shared and counted. It stops the way Motion's
+// frame loop does (ADR-0017, decision 9): the last subscriber leaving does not stop it; the first Refresh
+// frame that finds no subscriber ends it without ticking or requesting another. A subscriber that arrives
+// before that frame (the new animation of a retarget, which `createWard` starts right after interrupting
+// the old one) joins warm, with a measured dt.
+//
+// Tier 2 (ADR-0008): Effect-typed, stability tracks Effect, for Environment authors;
+// `InterpolatorRegistry.layer` is the precedent for a shared constructor living in core. Observability:
+// each subscription to `ticks` runs inside a `wardic.clock` span and emits a debug log on subscribe; the
+// per-frame `tick` path stays quiet, the hot path.
 import * as Bool from "effect/Boolean"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -56,37 +56,35 @@ import * as RefreshFrameSource from "./RefreshFrameSource.ts"
 import { tracedStream } from "./internal/tracing.ts"
 
 /**
- * Time source for the engine.
- *
- * Exposes a stream of `dt` values, which primitives subscribe to: frame time
- * (CONTEXT.md) is what they count of it. Environments drive it by calling `tick`.
- *
- * Cold start contract (ADR-0017, ADR-0033), which `fromRefreshFrames` implements for
- * every Environment driven by Refresh frames: a subscription that starts an idle
- * Clock gets its first tick at the next Refresh frame, with `dt = NOMINAL_DT`; `dt`
- * stays nominal until two Refresh frame timestamps exist; no tick depends on the
- * Effect scheduler; and the Clock goes idle only at the first Refresh frame that
- * finds no subscriber, so an unsubscribe followed by a subscribe before it (a
- * retarget) is a warm start.
+ * The engine's time: each frame's seconds, and the Environment's time now. A subscription that starts an
+ * idle Clock gets its first tick at the next frame, with `NOMINAL_DT`, and a measured interval from the
+ * second frame on. The Clock goes idle only at the first frame that finds no subscriber, so an animation
+ * replaced by another in the same task keeps it ticking.
  */
+// Frame time (CONTEXT.md) is what Primitives count of it; Environments drive it by calling `tick`. The
+// Cold start contract (ADR-0017, ADR-0033), which `fromRefreshFrames` implements: no tick depends on the
+// Effect scheduler, and an unsubscribe followed by a subscribe before the next frame (a retarget) is a
+// warm start.
 export class Clock extends Context.Service<Clock, {
-  /** Stream of `dt` values, one per frame. */
+  /** The seconds since the frame before, one per frame: what animations count. */
   readonly ticks: Stream.Stream<number>
-  /** Advance the clock to absolute time `t` (environments call this). */
+  /** Advances the Clock to time `t`: what an Environment that drives its own Clock calls. */
   readonly tick: (t: number) => Effect.Effect<void>
   /**
-   * The Environment's time now, in ms, the same for the rest of a synchronous block (Motion's
-   * `sync-time`): what a key's velocity is read against (#464), the provider's, so a test
-   * Environment's Clock drives velocities too (#460, Q7).
+   * The Environment's time now, in ms, the same for the rest of a synchronous block, as Motion's
+   * `sync-time`: what a key's velocity is read against, so a test Environment's Clock drives velocities
+   * too.
    */
+  // #464; #460, Q7.
   readonly now: () => number
 }>()("@wardic/Clock") {}
 
 /**
- * The delta-time (seconds) a Clock reports while it has no measured Refresh frame
- * interval yet: the first Refresh frame of a Cold start (ADR-0017). One frame at 60 Hz — Motion's first-frame `delta = 1000 / 60`
- * after its frame loop wakes (motion-dom `frameloop/batcher.ts:47-49` @16c6122).
+ * The seconds a Clock ticks while it has no measured interval yet, at its first frame: one frame at
+ * 60 Hz, as Motion's first frame after its loop wakes.
  */
+// A Cold start (ADR-0017). Motion's first-frame `delta = 1000 / 60` (motion-dom `frameloop/batcher.ts:47-49`
+// @16c6122).
 export const NOMINAL_DT = 1 / 60
 
 // @wardic/core compiles against ES2022 alone (no DOM lib, no Node types), which does
@@ -96,10 +94,14 @@ declare const performance: { readonly now: () => number }
 declare const queueMicrotask: (callback: () => void) => void
 
 /**
- * `read`, read once a synchronous block: the first call reads it and keeps it until the microtask
- * that clears it, so every sink a tick runs, and a Retarget in the same task, read one time
- * (Motion's `sync-time`, #464). A Clock's `now` for an Environment whose time is a wall clock.
+ * `read`, read once a synchronous block: the first call reads it and keeps it until the end of the task,
+ * so every sink a tick runs, and an animation replaced in the same task, read one time, as Motion's
+ * `sync-time`. A Clock's `now` for an Environment whose time is a wall clock.
+ *
+ * @example
+ * const now = Clock.syncNow(() => performance.now())
  */
+// #464: cleared by a microtask.
 export const syncNow = (read: () => number): (() => number) => {
   let kept: number | undefined
   const clear = (): void => {
@@ -115,13 +117,11 @@ export const syncNow = (read: () => number): (() => number) => {
 }
 
 /**
- * Build a `Clock` service driven by `source`'s Refresh frames. Requires a `Scope`
- * (the loop runs in it, and is interrupted — its pending request cancelled — when it
- * closes). An Environment provides its source as a member and builds its Clock with
- * {@link layer}; this is for a source that isn't in the Environment.
- *
- * Tier 2 (ADR-0008): Effect-typed, for Environment authors.
+ * A Clock driven by `source`'s frames, its loop running in the Scope, and its frame asked for cancelled
+ * when the Scope closes. An Environment provides its source as a member and builds its Clock with
+ * `layer`; this is for a source that isn't in the Environment.
  */
+// Tier 2 (ADR-0008): Effect-typed, for Environment authors.
 export const fromRefreshFrames: <Handle>(
   source: RefreshFrameSource.Shape<Handle>,
 ) => Effect.Effect<Context.Service.Shape<typeof Clock>, never, Scope.Scope> = Effect.fnUntraced(
@@ -284,12 +284,10 @@ export const fromRefreshFrames: <Handle>(
   })
 
 /**
- * The Clock over the Environment's `RefreshFrameSource` (ADR-0031): `fromRefreshFrames` on the
- * member, the loop in the Layer's scope. An Environment provides both, from one source, so the
- * Clock and the flush gate run on the same Refresh frames (`ClockDomLive`).
- *
- * Tier 2 (ADR-0008): for Environment authors.
+ * The Clock over the Environment's `RefreshFrameSource`, its loop in the Layer's scope. An Environment
+ * provides both from one source, so the Clock and a binding's flush run on the same frames.
  */
+// ADR-0031; `ClockDomLive`. Tier 2 (ADR-0008): for Environment authors.
 export const layer: Layer.Layer<Clock, never, RefreshFrameSource.RefreshFrameSource> = Layer.effect(Clock)(
   Effect.flatMap(Effect.service(RefreshFrameSource.RefreshFrameSource), fromRefreshFrames),
 )
