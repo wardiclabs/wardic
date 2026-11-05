@@ -14,14 +14,18 @@ import * as UndefinedOr from "effect/UndefinedOr"
  * A deterministic Clock for frame-level tests. `ticks` replays the supplied `dt`
  * sequence (in seconds) exactly once, so a primitive's per-frame output can be
  * collected with `Stream.runCollect` and asserted. Its `now` is the time those
- * ticks have reached, in ms, from 0 (#460). A live Clock (rAF-driven) is
- * `@wardic/dom`'s.
+ * ticks have reached, in ms, from 0 (#460): the furthest any subscriber has
+ * reached, so two subscribers replaying the same frames don't run it twice as
+ * fast. A live Clock (rAF-driven) is `@wardic/dom`'s.
  */
 export const makeTestClock = (frames: ReadonlyArray<number> = []): Clock.Clock["Service"] => {
   const time = MutableRef.make(0)
+  // Each frame with the time it reaches, in ms from 0 (#618, decision 7: each subscriber added its
+  // frames to one sum).
+  const reached = Arr.zip(frames, Arr.drop(Arr.scan(frames, 0, (at, dt) => at + dt * 1000), 1))
   return {
-    ticks: Stream.map(Stream.fromIterable(frames), (dt) => {
-      MutableRef.update(time, (t) => t + dt * 1000)
+    ticks: Stream.map(Stream.fromIterable(reached), ([dt, at]) => {
+      MutableRef.update(time, (t) => Math.max(t, at))
       return dt
     }),
     tick: (_t: number) => Effect.sync(() => {}),
@@ -31,7 +35,8 @@ export const makeTestClock = (frames: ReadonlyArray<number> = []): Clock.Clock["
 
 /** Clock Layer that emits `frames` (dt values, seconds) then completes. */
 export const layer = (frames: ReadonlyArray<number> = []): Layer.Layer<Clock.Clock> =>
-  Layer.succeed(Clock.Clock, makeTestClock(frames))
+  // A Clock per build: one Layer built twice shares no time (#618).
+  Layer.sync(Clock.Clock, () => makeTestClock(frames))
 
 /**
  * Convenience: `n` frames of a fixed `dt` (default 1/60s) — e.g. `frames(30)`

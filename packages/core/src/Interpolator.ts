@@ -58,7 +58,11 @@ export interface Entry<Decoded, Encoded> {
   readonly parse: (value: unknown) => Option.Option<Decoded>
   /** Writes a read value back. */
   readonly format: (value: Decoded) => Encoded
-  /** Two read endpoints' blend: the closure the frame calls with `t`, or `None`. */
+  /**
+   * Two read endpoints' blend: the closure the frame calls with `t`, or `None`. Pure, and so is the
+   * closure: a blend is kept and shared, so one pair's closure serves every element animating it, and
+   * state kept between calls would leak from one to the next.
+   */
   readonly blend: (from: Decoded, to: Decoded) => Option.Option<(t: number) => Encoded>
 }
 

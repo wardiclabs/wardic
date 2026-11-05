@@ -71,7 +71,7 @@ export interface Split {
 }
 
 /** Split a run's target into the keys reduced motion snaps, by `keys`, and the rest. */
-export const split = (values: Values.Values, keys: PositionalKeys["Service"]): Split => ({
+export const split = (values: Readonly<Values.Values>, keys: PositionalKeys["Service"]): Split => ({
   positional: Rec.filter(values, (_, key) => keys.isPositional(key)),
   rest: Rec.filter(values, (_, key) => !keys.isPositional(key)),
 })

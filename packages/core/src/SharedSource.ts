@@ -21,17 +21,22 @@
 // `Probe.observeResize`); `make` is the keyless case (`RcRef`). The cold source is acquired by the first
 // subscriber and released when the last subscriber's scope closes: `Stream.unwrap` holds the Rc reference
 // for the subscriber stream's lifetime, so when the last one ends the cache releases the entry, the pump
-// is interrupted, and the cold source's finalizers run (a listener is removed).
+// is interrupted, and the cold source's finalizers run (a listener is removed). The source's end ends
+// every subscriber, and its failure fails them (#618, decision 6). Effect's own `Stream.share` and
+// `Stream.broadcast` do this too, but put 2.2 KB gzip on every app (`bun run size`), so the pump stays.
 //
 // Tier 2 (ADR-0008), for Environment authors, as `InputSource.heldPointer` is (#31's rule: Wardic ships
 // what makes a new Environment little work). Observability: each constructor emits a
 // `wardic.sharedSource.*` span and a debug log on subscribe; the per-event publish path stays quiet.
+import * as Cause from "effect/Cause"
 import type * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
 import * as Equal from "effect/Equal"
+import * as Exit from "effect/Exit"
 import { identity } from "effect/Function"
 import * as Hash from "effect/Hash"
 import * as Match from "effect/Match"
+import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as PubSub from "effect/PubSub"
@@ -52,21 +57,54 @@ export interface Options {
   readonly idleTimeToLive?: Duration.Input | undefined
 }
 
+/** A source fanned out: its `PubSub`, and how it ended, once it has. */
+interface FannedIn<A> {
+  readonly pubsub: PubSub.PubSub<A>
+  readonly ended: MutableRef.MutableRef<Option.Option<Exit.Exit<void>>>
+}
+
 /**
  * The hot `PubSub` that fronts a cold source: acquire the source via `acquire`, fork a scoped pump
  * that republishes every element into the PubSub, and hand back the PubSub. The pump is bound to
  * the Rc cache entry's scope, so when the cache releases the entry the pump is interrupted and the
- * cold source's finalizers run. Per-element publishing is un-logged: it's the hot path.
+ * cold source's finalizers run. When the source ends, how it ended is kept and the PubSub shut down,
+ * which ends every subscription. Per-element publishing is un-logged: it's the hot path.
  */
 const fanIn: <A>(
   acquire: Effect.Effect<Stream.Stream<A>, never, Scope.Scope>,
-) => Effect.Effect<PubSub.PubSub<A>, never, Scope.Scope> = /*#__PURE__*/ Effect.fnUntraced(
+) => Effect.Effect<FannedIn<A>, never, Scope.Scope> = /*#__PURE__*/ Effect.fnUntraced(
   function* <A>(acquire: Effect.Effect<Stream.Stream<A>, never, Scope.Scope>) {
     const pubsub = yield* PubSub.unbounded<A>()
     const source = yield* acquire
-    yield* Effect.forkScoped(Stream.runForEach(source, (a) => PubSub.publish(pubsub, a)))
-    return pubsub
+    const ended = MutableRef.make(Option.none<Exit.Exit<void>>())
+    yield* Effect.forkScoped(
+      Stream.runForEach(source, (a) => PubSub.publish(pubsub, a)).pipe(
+        Effect.onExit((exit) => Effect.andThen(Effect.sync(() => MutableRef.set(ended, Option.some(exit))), PubSub.shutdown(pubsub))),
+      ),
+    )
+    return { pubsub, ended }
   })
+
+/** A source's failure, if it failed: an interruption is how its cache ends it, not a failure. */
+const failureOf = (exit: Exit.Exit<void>): Option.Option<Cause.Cause<never>> => {
+  if (Exit.isSuccess(exit)) return Option.none()
+  if (Cause.hasInterruptsOnly(exit.cause)) return Option.none()
+  return Option.some(exit.cause as Cause.Cause<never>)
+}
+
+/** How a subscriber ends after its source has: failed with the source's failure, else at once. */
+const endOf = (ended: Option.Option<Exit.Exit<void>>): Effect.Effect<void> =>
+  Option.match(Option.flatMap(ended, failureOf), { onNone: () => Effect.void, onSome: (cause) => Effect.failCause(cause) })
+
+/**
+ * A subscriber to a fanned-out source, made as it subscribes: its events, then the source's end. One that
+ * subscribes after the end gets the end alone.
+ */
+const subscriberOf = <A>({ pubsub, ended }: FannedIn<A>): Stream.Stream<A> =>
+  Stream.onEnd(
+    Option.match(MutableRef.get(ended), { onNone: () => Stream.fromPubSub(pubsub), onSome: (): Stream.Stream<A> => Stream.empty }),
+    Effect.suspend(() => endOf(MutableRef.get(ended))),
+  )
 
 /**
  * An identity key for `RcMap`. `RcMap` hashes its keys with Effect's structural `Hash`, which
@@ -139,8 +177,7 @@ export const byTarget: <A>(
         Stream.unwrap(
           Effect.gen(function* () {
             yield* Effect.logDebug("wardic.sharedSource.byTarget: subscribe")
-            const pubsub = yield* RcMap.get(map, keyFor(target))
-            return Stream.fromPubSub(pubsub)
+            return subscriberOf(yield* RcMap.get(map, keyFor(target)))
           }),
         ),
         "wardic.sharedSource.byTarget",
@@ -172,8 +209,7 @@ export const make: <A>(
       Stream.unwrap(
         Effect.gen(function* () {
           yield* Effect.logDebug("wardic.sharedSource.make: subscribe")
-          const pubsub = yield* RcRef.get(ref)
-          return Stream.fromPubSub(pubsub)
+          return subscriberOf(yield* RcRef.get(ref))
         }),
       ),
       "wardic.sharedSource.make",

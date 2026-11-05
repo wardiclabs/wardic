@@ -38,7 +38,7 @@ export interface Split {
  * `values`' keys by kind: its numbers and its strings. A key holding neither, an `undefined` that reached
  * the bag at run time, is in neither.
  */
-export const split = (values: Values): Split => ({
+export const split = (values: Readonly<Values>): Split => ({
   numbers: Rec.filter(values, Predicate.isNumber),
   strings: Rec.filter(values, Predicate.isString),
 })
@@ -51,11 +51,11 @@ export const split = (values: Values): Split => ({
  * const from = Values.pick(current, target) // current's values for target's keys
  */
 export const pick: {
-  (keysFrom: Values): (self: Values) => Values
-  (self: Values, keysFrom: Values): Values
+  (keysFrom: Readonly<Values>): (self: Readonly<Values>) => Values
+  (self: Readonly<Values>, keysFrom: Readonly<Values>): Values
 } = dual(
   2,
-  (self: Values, keysFrom: Values): Values => {
+  (self: Readonly<Values>, keysFrom: Readonly<Values>): Values => {
     // Per leg (#460): one record, a statement a key, no `Option` made.
     const picked: Record<string, number | string> = {}
     Iter.forEach(Object.keys(keysFrom), (key) => {

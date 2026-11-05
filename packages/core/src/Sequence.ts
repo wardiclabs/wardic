@@ -39,6 +39,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import type * as DefaultTransition from "./DefaultTransition.ts"
 import * as Easing from "./Easing.ts"
 import * as Machine from "./Machine.ts"
+import { OptionError } from "./internal/options.ts"
 import * as Scalar from "./Scalar.ts"
 
 /** One of a key's stops: a value, or `null`, the stop before it (the key's value now, first). */
@@ -159,15 +160,24 @@ const isFromEnd = (at: string): boolean => Bool.or(Str.startsWith("+")(at), Str.
 /** Whether a time is relative to the start of the Segment before: `"<"`, `"<+0.5"`, `"<-0.5"`. */
 const isFromStart = (at: string): boolean => Str.startsWith("<")(at)
 
+const NOT_A_TIME = 'Expected a number after "+", "-" or "<"\n  at ["at"]'
+
+/** The seconds `text` gives after an `at`'s `+`, `-` or `<`: a time Motion's `parseFloat` would make NaN is rejected (#618). */
+const offsetOf = (text: string, at: string): number => {
+  const seconds = Number.parseFloat(text)
+  if (Number.isFinite(seconds)) return seconds
+  throw new OptionError({ message: `${NOT_A_TIME}: "${at}"` })
+}
+
 /** The time `at` gives (Motion's `calcNextTime`), the Segment before having started at `previous` and ended at `current`. */
 const timeOf = (current: number, at: Time, previous: number, labels: ReadonlyMap<string, number>): number =>
   Bool.match(Predicate.isNumber(at), {
     onTrue: () => at as number,
     onFalse: () =>
       Match.value(at as string).pipe(
-        Match.when(isFromEnd, (given) => Math.max(0, current + Number.parseFloat(given))),
+        Match.when(isFromEnd, (given) => Math.max(0, current + offsetOf(given, given))),
         Match.when("<", () => previous),
-        Match.when(isFromStart, (given) => Math.max(0, previous + Number.parseFloat(given.slice(1)))),
+        Match.when(isFromStart, (given) => Math.max(0, previous + offsetOf(given.slice(1), given))),
         Match.orElse((name) => UndefinedOr.match(labels.get(name), { onUndefined: () => current, onDefined: identity })),
       ),
   })

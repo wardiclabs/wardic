@@ -265,6 +265,18 @@ const jumpIn = (registry: AtomRegistry.AtomRegistry, atom: Atom.Writable<number>
   registry.set(atom, value)
 }
 
+declare const FollowedBrand: unique symbol
+
+/**
+ * A Live value that follows another on a transition: what `follow` and `spring` make. Read as any Atom
+ * of a number; beside a writable Atom of yours, the one Atom `jump` takes.
+ */
+// #618 (F2): `jump` took any Atom and died unless it was writable. A spring's output is writable
+// underneath, but typed as one an app can set with `registry.set` it would skip `jump`'s listeners.
+export interface Followed extends Atom.Atom<number> {
+  readonly [FollowedBrand]: true
+}
+
 /**
  * Sets `atom` to `value` at once, not as motion, as Motion's `MotionValue.jump`: a `spring` whose output
  * it is ends its run there with no velocity, and rests there until its source next changes, then springs
@@ -274,13 +286,13 @@ const jumpIn = (registry: AtomRegistry.AtomRegistry, atom: Atom.Writable<number>
  * @example
  * yield* LiveValue.jump(x, 0) // back to the start, without a spring
  */
-// #257 item 7. Any other Atom is a defect.
+// #257 item 7. Its type takes no other Atom (#618); one cast past it is a defect.
 export const jump: {
-  (value: number): (atom: Atom.Atom<number>) => Effect.Effect<void, never, AtomRegistry.AtomRegistry>
-  (atom: Atom.Atom<number>, value: number): Effect.Effect<void, never, AtomRegistry.AtomRegistry>
+  (value: number): (atom: Followed | Atom.Writable<number>) => Effect.Effect<void, never, AtomRegistry.AtomRegistry>
+  (atom: Followed | Atom.Writable<number>, value: number): Effect.Effect<void, never, AtomRegistry.AtomRegistry>
 } = dual(
   2,
-  Effect.fnUntraced(function* (atom: Atom.Atom<number>, value: number): Effect.fn.Return<void, never, AtomRegistry.AtomRegistry> {
+  Effect.fnUntraced(function* (atom: Followed | Atom.Writable<number>, value: number): Effect.fn.Return<void, never, AtomRegistry.AtomRegistry> {
     if (Bool.not(Atom.isWritable(atom))) {
       return yield* Effect.die(new Error("LiveValue.jump: the Atom isn't writable (a spring's output, or one of your own)"))
     }
@@ -392,7 +404,7 @@ export const follow: (
   source: Atom.Atom<number>,
   options?: FollowOptions,
   skipped?: () => boolean,
-) => Effect.Effect<Atom.Atom<number>, never, FrameLoop.FrameLoop | AtomRegistry.AtomRegistry | Scope.Scope> = Effect.fnUntraced(
+) => Effect.Effect<Followed, never, FrameLoop.FrameLoop | AtomRegistry.AtomRegistry | Scope.Scope> = Effect.fnUntraced(
   function* (source: Atom.Atom<number>, options: FollowOptions = {}, skipped: () => boolean = constFalse) {
     const registry = yield* AtomRegistry.AtomRegistry
     const { skipInitialAnimation, skipAnimations, ...transition } = options
@@ -482,7 +494,7 @@ export const follow: (
         Supersede.end(token)
         unmount()
       }))
-    return out
+    return out as unknown as Followed
   })
 
 /**
@@ -498,7 +510,7 @@ export const spring = (
   source: Atom.Atom<number>,
   options: SpringOptions = {},
   skipped: () => boolean = constFalse,
-): Effect.Effect<Atom.Atom<number>, never, FrameLoop.FrameLoop | AtomRegistry.AtomRegistry | Scope.Scope> =>
+): Effect.Effect<Followed, never, FrameLoop.FrameLoop | AtomRegistry.AtomRegistry | Scope.Scope> =>
   follow(source, { ...options, type: "spring" }, skipped)
 
 /** What `scroll` gives: Motion's four values, each an Atom. */

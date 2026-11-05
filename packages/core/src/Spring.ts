@@ -253,7 +253,8 @@ const physicsOf: (d: Decoded) => Physics = Match.type<Decoded>().pipe(
  * is a 0.8 s duration) ends at that duration, landing on its target, and a `visualDuration` (with a
  * `bounce`, 0 by default) has done most of its move by then and ends at rest. A `stiffness`, `damping`
  * or `mass` given beside wins over them. A value no spring can take, a stiffness at or below 0 say,
- * throws an `OptionError` naming the field.
+ * throws an `OptionError` naming the field. A bag is resolved once and kept by its identity: one changed
+ * after it's handed over isn't seen, so pass a new one.
  *
  * @example
  * const spring = Spring.resolve({ visualDuration: 0.4, bounce: 0.2 })
