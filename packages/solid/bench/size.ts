@@ -41,9 +41,10 @@ const GATE = 1.01
  * whatever its base. Set at the split's end, at its sizes with a little room, so changes each under the
  * gate can't add up, and kept that room when the build target moved (#525: 119.4 and 154.9). Raised by
  * 0.5 KB each for #594's fix, a layout element's translate in `%` (0.2 KB, s1-slim at 121.0 of 121 before
- * it); #518 lowers them toward Q4's 105 KB after v1.
+ * it), and again for #618's checks on values no animation can take and a shared source's end (0.5 KB,
+ * s1-slim at 121.4 of 121.5 before them); #518 lowers them toward Q4's 105 KB after v1.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 121.5, "s2-slim": 157.5 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 122, "s2-slim": 158 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 
