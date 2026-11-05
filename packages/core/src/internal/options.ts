@@ -115,6 +115,27 @@ const NAN = expected("a number, not NaN")
 /** A finite number. */
 export const finite: Check<number> = refine(number, (n) => Number.isFinite(n) || NOT_FINITE)
 
+const OUTSIDE_UNIT = expected("a number from 0 to 1")
+
+/** A finite number from 0 to 1. */
+export const unit: Check<number> = refine(finite, (n) => (n >= 0 && n <= 1) || OUTSIDE_UNIT)
+
+/**
+ * `value` as `check` takes it, outside a bag: as given, or an {@link OptionError} with its failure, placed
+ * at `name` when it's given (`  at ["count"]`).
+ */
+export const checked = <A>(check: Check<A>, value: unknown, name?: string): A => {
+  const failure = check(value)
+  if (failure === true) return value as A
+  if (Predicate.isUndefined(name)) throw new OptionError({ message: failure })
+  throw new OptionError({ message: under(`["${name}"]`, failure) })
+}
+
+const NO_STEPS = expected("a count of 1 or more")
+
+/** A count of steps: a finite number, 1 or more. */
+export const stepCount: Check<number> = refine(finite, (n) => n >= 1 || NO_STEPS)
+
 /** A finite number above 0. */
 export const positive: Check<number> = refine(finite, (n) => n > 0 || NOT_POSITIVE)
 
@@ -203,6 +224,14 @@ export const tuple = <const Cs extends ReadonlyArray<Check<any>>>(elements: Cs):
     if (value.length > elements.length) return under(`[${elements.length}]`, EXCESS)
     return true
   })
+
+/**
+ * A cubic Bézier's four numbers, `[x1, y1, x2, y2]`: its x's from 0 to 1, as CSS's `cubic-bezier()`
+ * takes them, its y's any finite number, so a curve may overshoot.
+ */
+// #618 (decision 9): any four finite numbers passed, and an x outside 0-1 threw bezier-easing's own
+// Error as the curve was made.
+export const bezierPoints: Check<readonly [number, number, number, number]> = tuple([unit, finite, unit, finite])
 
 /** A bag's field: its check, and the value it takes when it's missing or `undefined`. */
 export interface Field<A> {

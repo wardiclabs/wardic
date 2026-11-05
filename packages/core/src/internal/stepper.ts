@@ -13,7 +13,7 @@ import * as Predicate from "effect/Predicate"
 import * as Easing from "../Easing.ts"
 import type { DecayOptions, TweenOptions } from "../Machine.ts"
 import * as Scalar from "../Scalar.ts"
-import { cachedResolver, type Check, field, finite, fn, literals, make, nonNegative, optionalField, positive, tuple, union } from "./options.ts"
+import { bezierPoints, cachedResolver, type Check, field, fn, literals, make, nonNegative, optionalField, positive, union } from "./options.ts"
 
 /** A step's result: the next state, the value to emit, and whether motion has settled. */
 export interface StepResult<S, V> {
@@ -61,7 +61,7 @@ export interface ResolvedTween {
 /** An `ease` (#360, ADR-0052): one of Motion's names, a bézier's four numbers, or a function. */
 export const EaseDefinition: Check<Easing.Definition> = /*#__PURE__*/ union([
   literals(Easing.NAMES_LIST),
-  tuple([finite, finite, finite, finite]),
+  bezierPoints,
   fn<Easing.Easing>("an easing function"),
 ])
 

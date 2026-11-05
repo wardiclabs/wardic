@@ -620,6 +620,9 @@ describe("createScroll, createVelocity and createTime on Solid 2", () => {
     await wait(100)
     const set = moving.stop()
     expect(Math.min(...set), `velocities ${set.join(" ")}`).toBeLessThan(-1000)
-    expect(() => runtime.runSync(LiveValue.jump(derived, 1))).toThrow(/isn't writable/)
+    // A derived Atom is a type error now (#618); one cast past the type still dies.
+    // @ts-expect-error: `jump` takes a follow's Atom or a writable one.
+    const jumpDerived = LiveValue.jump(derived, 1)
+    expect(() => runtime.runSync(jumpDerived)).toThrow(/isn't writable/)
   })
 })

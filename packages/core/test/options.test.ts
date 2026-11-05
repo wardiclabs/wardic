@@ -106,10 +106,21 @@ describe("TweenOptions: a non-negative, finite duration and delay, an Easing def
     ["ease", { ease: "wobble" }],
     ["ease", { ease: [0.25, 0.1, 0.35] }],
     ["ease", { ease: [0.25, 0.1, Number.NaN, 1] }],
+    // A Bézier's x outside 0 to 1, as CSS's cubic-bezier() rejects it (#618).
+    ["ease", { ease: [2, 0, 1, 1] }],
+    ["ease", { ease: [0.2, 0, -0.1, 1] }],
     // Wardic's old name, rejected naming the new one, so a hoisted bag can't lose its easing silently.
     ["`ease`", { easing: Easing.linear }],
   ])
-  accepts(Machine.resolveTween, [{ ease: "easeOut" }, { ease: "anticipate" }, { ease: [0.25, 0.1, 0.35, 1] }, { ease: Easing.easeOutCubic }])
+  accepts(Machine.resolveTween, [
+    { ease: "easeOut" },
+    { ease: "anticipate" },
+    { ease: [0.25, 0.1, 0.35, 1] },
+    { ease: Easing.easeOutCubic },
+    // A y beyond 0 to 1 overshoots, and the x's ends are in (#618).
+    { ease: [0.3, 1.6, 0.6, 1] },
+    { ease: [0, 0, 1, 1] },
+  ])
   rejects((bag) => Machine.tween(0, 1, bag), [["duration", { duration: -1 }]])
   rejects((bag) => Machine.keyframes([0, 1, 0], bag), [
     ["delay", { delay: Number.NaN }],
@@ -216,6 +227,14 @@ describe("OptionError's messages: Schema's, word for word (#511)", () => {
     ["a bézier of three numbers", () => Machine.resolveTween({ ease: [0.25, 0.1, 0.35] as never }), 'Missing key\n  at ["ease"][3]\nExpected an easing function\n  at ["ease"]'],
     ["a bézier of five numbers", () => Machine.resolveTween({ ease: [0.25, 0.1, 0.35, 1, 2] as never }), 'Expected no excess property\n  at ["ease"][4]\nExpected an easing function\n  at ["ease"]'],
     ["a bézier with a NaN", () => Machine.resolveTween({ ease: [0.25, 0.1, Number.NaN, 1] }), 'Expected a finite number\n  at ["ease"][2]\nExpected an easing function\n  at ["ease"]'],
+    ["a bézier with an x outside 0 to 1", () => Machine.resolveTween({ ease: [2, 0, 1, 1] }), 'Expected a number from 0 to 1\n  at ["ease"][0]\nExpected an easing function\n  at ["ease"]'],
+    ["Easing.cubicBezier with an x outside 0 to 1", () => Easing.cubicBezier(0.2, 0, 1.5, 1), "Expected a number from 0 to 1\n  at [2]"],
+    // Values outside a bag, rejected as they're made, not at the first frame or never (#618).
+    ["Easing.resolve with a name none of Motion's", () => Easing.resolve("bogus" as never), `Expected ${NAMES}`],
+    ["Easing.steps with a NaN count", () => Easing.steps(Number.NaN), 'Expected a finite number\n  at ["count"]'],
+    ["Easing.steps with no step", () => Easing.steps(0), 'Expected a count of 1 or more\n  at ["count"]'],
+    ["Machine.delay by NaN", () => Machine.delay(Machine.tween(0, 1, {}), Number.NaN), 'Expected a finite number\n  at ["seconds"]'],
+    ["Machine.delay by Infinity", () => Machine.delay(Machine.tween(0, 1, {}), Number.POSITIVE_INFINITY), 'Expected a finite number\n  at ["seconds"]'],
     ["an ease of the wrong type", () => Machine.resolveTween({ ease: 5 as never }), 'Expected an easing function\n  at ["ease"]'],
     ["a leftover `easing`", () => Machine.animate(0, 1, { easing: "linear" } as never), "Expected `ease`: Wardic's `easing` is `ease` now, as Motion's (#360)\n  at [\"easing\"]"],
     ["a repeatType that's none of three", () => Machine.animate(0, 1, { repeatType: "x" as never }), 'Expected "loop" | "reverse" | "mirror"\n  at ["repeatType"]'],

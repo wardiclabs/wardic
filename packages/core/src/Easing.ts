@@ -18,6 +18,7 @@ import * as Bool from "effect/Boolean"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import { bezierPoints, checked, literals, stepCount } from "./internal/options.ts"
 import * as Scalar from "./Scalar.ts"
 import * as Spring from "./Spring.ts"
 
@@ -160,14 +161,19 @@ export const easeInOutBounce: Easing = (t) => {
 
 /**
  * A cubic Bézier easing through the control points `(x1, y1)` and `(x2, y2)`. An `ease` of
- * `[x1, y1, x2, y2]` is the same.
+ * `[x1, y1, x2, y2]` is the same. `x1` and `x2` are from 0 to 1, as CSS's `cubic-bezier()` takes them;
+ * `y1` and `y2` may be any finite number, so the curve may overshoot. Anything else throws an
+ * `OptionError` naming the point, as an `ease` given in a transition does.
  *
  * @example
  * const standard = Easing.cubicBezier(0.4, 0, 0.2, 1)
+ * const overshoot = Easing.cubicBezier(0.3, 1.6, 0.6, 1)
  */
-// Backed by `bezier-easing`.
-export const cubicBezier = (x1: number, y1: number, x2: number, y2: number): Easing =>
-  named(bezier(x1, y1, x2, y2), `cubicBezier(${x1},${y1},${x2},${y2})`)
+// Backed by `bezier-easing`, which threw its own Error for an x outside 0-1 (#618, decision 9).
+export const cubicBezier = (x1: number, y1: number, x2: number, y2: number): Easing => {
+  checked(bezierPoints, [x1, y1, x2, y2])
+  return named(bezier(x1, y1, x2, y2), `cubicBezier(${x1},${y1},${x2},${y2})`)
+}
 
 /** Where each of `steps`' jumps happens: at the `"start"` of its interval, or its `"end"`. */
 export type StepPosition = "start" | "end"
@@ -180,7 +186,7 @@ export type StepPosition = "start" | "end"
  * const tick = Easing.steps(12) // a clock hand's twelve jumps
  */
 export const steps = (count: number, position: StepPosition = "end"): Easing => {
-  const n = Math.max(1, Math.floor(count))
+  const n = Math.floor(checked(stepCount, count, "count"))
   // Chosen once, so the easing itself, which runs per frame, only rounds (ADR-0025).
   const round = Bool.match(position === "start", { onTrue: () => Math.ceil, onFalse: () => Math.floor })
   return named((t) => {
@@ -376,6 +382,9 @@ const BY_NAME: Readonly<Record<Name, Easing>> = { linear, easeIn, easeOut, easeI
 /** Motion's names, for a decode to check an `ease` string against. */
 export const NAMES_LIST: ReadonlyArray<Name> = Object.keys(BY_NAME) as ReadonlyArray<Name>
 
+/** Motion's easing names, as a check. */
+const NAME_CHECK = literals(NAMES_LIST)
+
 /** A cubic bézier's control points, `[x1, y1, x2, y2]`: Motion's `BezierDefinition`. */
 export type Bezier = readonly [number, number, number, number]
 
@@ -394,7 +403,8 @@ export const isBezier = (definition: unknown): definition is Bezier =>
 const resolveDefinition: (definition: Definition) => Easing = Match.type<Definition>().pipe(
   Match.when(Predicate.isFunction, (easing) => easing as Easing),
   Match.when(isBezier, ([x1, y1, x2, y2]) => cubicBezier(x1, y1, x2, y2)),
-  Match.orElse((name) => BY_NAME[name as Name]),
+  // A name none of Motion's, from JS or data TypeScript didn't see, is rejected here, not at the first frame (#618).
+  Match.orElse((name) => BY_NAME[checked(NAME_CHECK, name)]),
 )
 
 /**

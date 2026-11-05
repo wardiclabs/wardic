@@ -50,7 +50,7 @@ import * as Easing from "./Easing.ts"
 import type * as Frame from "./Frame.ts"
 import * as FrameLoop from "./FrameLoop.ts"
 import * as InterpolatorRegistry from "./InterpolatorRegistry.ts"
-import { array, boolean, cachedResolver, field, finite, literals, nonEmptyArray, nonNegative, number, optionalField, refine, union } from "./internal/options.ts"
+import { array, boolean, cachedResolver, checked, field, finite, literals, nonEmptyArray, nonNegative, number, optionalField, refine, union } from "./internal/options.ts"
 import {
   EaseDefinition,
   initDecay,
@@ -494,7 +494,8 @@ export const delay: {
 } = dual(
   2,
   <F extends Frame.Frame<unknown>>(self: Machine<F>, seconds: number): Machine<F> =>
-    Bool.match(seconds === 0, {
+    // NaN or an infinity would hold it for ever, never settling (#618); a negative delay starts it that far in.
+    Bool.match(checked(finite, seconds, "seconds") === 0, {
       onTrue: () => self,
       onFalse: () =>
         make({

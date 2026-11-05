@@ -125,7 +125,8 @@ export const numberOf = (value: number | string): number =>
 /** `accessor`, carrying a follow's Atom, with `jump` run on `runtime`. */
 export const followAccessorOf = <A extends number | string>(runtime: WardicRuntime, accessor: Accessor<A>): FollowAccessor<A> => {
   const atom = atomOf(accessor) as Atom.Atom<A>
-  const numbers = UndefinedOr.match(UNIT_NUMBERS.get(atom), { onUndefined: () => atom as unknown as Atom.Atom<number>, onDefined: (n) => n })
+  // A follow's own Atom, by construction: the one kind `jump` takes (#618).
+  const numbers = UndefinedOr.match(UNIT_NUMBERS.get(atom), { onUndefined: () => atom, onDefined: (n) => n }) as unknown as LiveValue.Followed
   return Object.assign(accessor, {
     jump: (value: A): void => {
       runtime.runSync(LiveValue.jump(numbers, numberOf(value)))

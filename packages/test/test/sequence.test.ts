@@ -145,6 +145,12 @@ describe("Sequence.compile (#433)", () => {
     // An unknown label is the end of the Segment before.
     const unknown = Sequence.compile([tween(a, { x: 100 }, { duration: 1 }), tween(b, { y: 500 }, { duration: 1 }, "nowhere")])
     expect(of(unknown, b).transition.y.times).toEqual([0, 0.5, 1])
+
+    // A "+", "-" or "<" with no number after it is rejected, naming `at`, where Motion's makes every later time NaN (#618).
+    expect(() => Sequence.compile([tween(a, { x: 100 }, { duration: 1 }), tween(b, { y: 500 }, { duration: 1 }, "+abc")])).toThrow(
+      /Expected a number after "\+", "-" or "<"\n {2}at \["at"\]: "\+abc"/,
+    )
+    expect(() => Sequence.compile([tween(a, { x: 100 }, { duration: 1 }), tween(b, { y: 500 }, { duration: 1 }, "<x")])).toThrow(/at \["at"\]: "<x"/)
   })
 
   it("SQ7: a Segment lasts its longest key; several subjects, a delay function staggering them", () => {

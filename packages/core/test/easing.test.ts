@@ -100,3 +100,19 @@ it("nameOf (#48, ADR-0044): a Penner easing's own name, a factory's call; None f
   expect(Easing.nameOf(Easing.cubicBezier(0.1, 0.2, 0.3, 0.4))).toEqual(Easing.nameOf(Easing.cubicBezier(0.1, 0.2, 0.3, 0.4)))
   expect(Option.isNone(Easing.nameOf((t) => t * t))).toBe(true)
 })
+
+it("cubicBezier: a y beyond 0 to 1 overshoots; an x outside it throws an OptionError naming the point (#618)", () => {
+  const overshoot = Easing.cubicBezier(0.3, 1.6, 0.6, 1)
+  expect(Math.max(...[0.2, 0.4, 0.6].map(overshoot))).toBeGreaterThan(1)
+  expect(overshoot(1)).toBeCloseTo(1, 6)
+  expect(() => Easing.cubicBezier(2, 0, 1, 1)).toThrow(/Expected a number from 0 to 1\n {2}at \[0\]/)
+  const thrown = ((): unknown => {
+    try {
+      Easing.cubicBezier(0.2, 0, -0.1, 1)
+    } catch (error) {
+      return error
+    }
+    return undefined
+  })()
+  expect((thrown as { readonly _tag?: string } | undefined)?._tag).toBe("OptionError")
+})
