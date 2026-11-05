@@ -18,12 +18,18 @@ import * as Effect from "effect/Effect"
 import type * as Fiber from "effect/Fiber"
 import * as FiberSet from "effect/FiberSet"
 import * as Scheduler from "effect/Scheduler"
-import type * as Scope from "effect/Scope"
+import * as Scope from "effect/Scope"
 
 /** Runs Effects synchronously, and forked into the Scope it was made in. */
 export interface Runner<R> {
   readonly runSync: <A, E>(effect: Effect.Effect<A, E, R>) => A
   readonly runFork: <A, E>(effect: Effect.Effect<A, E, R>) => Fiber.Fiber<A, E>
+  /**
+   * The Scope it was made in: what a service built with it keeps its own fibers in, so closing the
+   * Scope ends them, after the service's own cleanup, and awaits them.
+   */
+  // #618 (L1): each service opened a detached Scope of its own, closed by a fork or a throwing runSync.
+  readonly scope: Scope.Scope
 }
 
 /**
@@ -42,7 +48,7 @@ export const makeRunner = <R>(): Effect.Effect<Runner<R>, never, R | Scope.Scope
       FiberSet.addUnsafe(fibers, fiber)
       return fiber
     }
-    return { runSync: Effect.runSyncWith(context), runFork }
+    return { runSync: Effect.runSyncWith(context), runFork, scope: Context.get(context, Scope.Scope) }
   })
 
 /**

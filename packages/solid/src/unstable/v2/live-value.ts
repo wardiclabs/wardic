@@ -30,7 +30,6 @@ import type * as ScrollOffset from "@wardic/dom/ScrollOffset"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import { Atom, AtomRegistry } from "effect/reactivity"
@@ -58,6 +57,7 @@ import {
 } from "../../live-style.ts"
 import type { WardicRuntime, WardicServices } from "../../runtime.ts"
 import { eachFrameOf } from "../../animation-frame.ts"
+import * as OwnerScope from "../../owner-scope.ts"
 import { followAtom } from "./bridge.ts"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, onSettledClientOnly } from "./solid-reactivity.ts"
 import { useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
@@ -86,15 +86,13 @@ const sourceAtomOf = <A>(source: LiveSource<A>, registry: AtomRegistry.AtomRegis
     onDefined: (atom) => atom,
   })
 
-/** Close a helper's Scope on the provider's runtime. */
-const closeScope = (runtime: WardicRuntime, scope: Scope.Closeable): void => {
-  runtime.runFork(Scope.close(scope, Exit.void))
-}
+/** What a helper's Scope reports when one of its finalizers fails as its owner goes. */
+const CLOSE_FAILED = "wardic.liveValue: a finalizer failed"
 
 /** A helper's Atom, made on the provider's runtime in a Scope its owner's disposal closes, as an accessor carrying it. */
 const liveOf = <A, R>(runtime: WardicRuntime, live: Effect.Effect<Atom.Atom<A>, never, R>): Accessor<A> => {
-  const scope = Scope.makeUnsafe()
-  onCleanup(() => closeScope(runtime, scope))
+  const scope = OwnerScope.open(runtime)
+  onCleanup(() => OwnerScope.close(runtime, scope, CLOSE_FAILED))
   const out = runtime.runSync((live as Effect.Effect<Atom.Atom<A>, never, WardicServices | Scope.Scope>).pipe(Scope.provide(scope)))
   return followAtom(runtime.runSync(AtomRegistry.AtomRegistry), out)
 }
@@ -139,19 +137,16 @@ export function createTransform(
   // On an Atom: derived on it, so it's set where its source is. What `fn` reads of Solid besides its
   // source is tracked here, and a change of it re-derives the Atom.
   const registry = useWardicRuntime().runSync(AtomRegistry.AtomRegistry)
-  const version = Atom.make(0)
-  onCleanup(registry.mount(version))
+  const derived = Atom.make((get) => untrack(() => fn(get(atom))))
+  // A change of what `fn` reads of Solid derives it again: the registry's own refresh, where a counter
+  // Atom it read was bumped (#618, L2).
   createEffect(
     () => fn(registry.get(atom)),
     () => {
-      registry.update(version, (n) => n + 1)
+      registry.refresh(derived)
     },
     CLIENT_ONLY_DEFERRED,
   )
-  const derived = Atom.make((get) => {
-    get(version)
-    return untrack(() => fn(get(atom)))
-  })
   return followAtom(registry, derived)
 }
 
@@ -309,8 +304,8 @@ const SERVER_AUTO: Accessor<WillChange> = () => "auto"
 export const createAnimationFrame = (callback: (time: number, delta: number) => void): void => {
   if (isServer) return
   const runtime = useWardicRuntime()
-  const scope = Scope.makeUnsafe()
-  onCleanup(() => closeScope(runtime, scope))
+  const scope = OwnerScope.open(runtime)
+  onCleanup(() => OwnerScope.close(runtime, scope, CLOSE_FAILED))
   runtime.runSync(eachFrameOf(runtime, callback).pipe(Scope.provide(scope)))
 }
 
@@ -397,7 +392,7 @@ export const createScroll = (options: ScrollOptions = {}): ScrollValues => {
     ({ container, target }) => {
       // A ref not there yet: the values hold until it is.
       if (Bool.or(Option.isNone(container), Option.isNone(target))) return undefined
-      const scope = Scope.makeUnsafe()
+      const scope = OwnerScope.open(runtime)
       const values = runtime.runSync(
         LiveValue.scroll({
           ...UndefinedOr.match(Option.getOrUndefined(container), { onUndefined: () => ({}), onDefined: (element) => ({ container: element }) }),
@@ -410,7 +405,7 @@ export const createScroll = (options: ScrollOptions = {}): ScrollValues => {
       const stops = Arr.map(SCROLL_KEYS, (key) => registry.subscribe(values[key], (v) => registry.set(outs[key], v), { immediate: true }))
       return () => {
         Arr.forEach(stops, (stop) => stop())
-        closeScope(runtime, scope)
+        OwnerScope.close(runtime, scope, CLOSE_FAILED)
       }
     },
     CLIENT_ONLY,

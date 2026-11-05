@@ -60,7 +60,6 @@ import * as Bool from "effect/Boolean"
 import type * as Context from "effect/Context"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
 import * as Scope from "effect/Scope"
 import { constFalse, constTrue, constUndefined, constVoid, identity, pipe } from "effect/Function"
 import * as Option from "effect/Option"
@@ -85,6 +84,7 @@ import {
 } from "solid-js"
 import type { WardConfig as SharedWardConfig, WardicValues } from "../../config.ts"
 import { MOTION_PROPS_V2, type SolidOneCallback } from "../../motion-props.ts"
+import * as OwnerScope from "../../owner-scope.ts"
 
 
 
@@ -1423,7 +1423,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     // watch: a ward with no gesture makes and closes none.
     let watchScope: Scope.Closeable | undefined
     const watchIn = (watch: Effect.Effect<void, never, Scope.Scope | WardicServices>): void => {
-      if (Predicate.isUndefined(watchScope)) watchScope = Scope.makeUnsafe()
+      if (Predicate.isUndefined(watchScope)) watchScope = OwnerScope.open(runtime)
       runtime.runSync(watch.pipe(Scope.provide(watchScope)))
     }
     if (internal.defaultsOnElement === true) UndefinedOr.map(dragDefaults, (defaults) => applyDragDefaults(el, defaults))
@@ -1555,7 +1555,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         unsubscribe()
         spine.dispose()
         // Its gesture watches' and drag track's listeners go, a running release stops, and their spans end.
-        UndefinedOr.map(watchScope, (scope) => runtime.runSync(Scope.close(scope, Exit.void)))
+        UndefinedOr.map(watchScope, (scope) => OwnerScope.close(runtime, scope, "wardic.ward: a finalizer failed"))
         // The group lets go of the node before it's disposed.
         UndefinedOr.map(handedOver, (release) => release())
         UndefinedOr.map(layout, (node) => node.dispose())

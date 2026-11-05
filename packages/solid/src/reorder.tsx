@@ -35,7 +35,6 @@ import { mergeRefs } from "@solid-primitives/refs"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
 import { constUndefined, identity, pipe } from "effect/Function"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
@@ -59,6 +58,7 @@ import {
   useContext,
 } from "solid-js"
 import { Dynamic } from "solid-js/web"
+import * as OwnerScope from "./owner-scope.ts"
 import { runWatch, useBrought, useWardicGate, useWardicRuntime } from "./provider.tsx"
 import { useWardicProjection } from "./layout-projection.ts"
 import { watchItemInput } from "./reorder-input.ts"
@@ -174,6 +174,9 @@ export type ReorderItemConfig<V> = { readonly value: V; readonly layout?: Reorde
 const itemLayoutOf = (layout: unknown): ReorderItemLayout =>
   Bool.match(layout === "position", { onTrue: (): ReorderItemLayout => "position", onFalse: (): ReorderItemLayout => true })
 
+/** What a group's Scope reports when one of its finalizers fails as its owner goes. */
+const CLOSE_FAILED = "wardic.reorder: a finalizer failed"
+
 /**
  * Makes a list of your own elements reorderable, by dragging or from the keyboard: spread the group on
  * the list's element, and make each item with `createReorderItem`, keyed with `<For>`. Your app owns
@@ -206,8 +209,10 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
   const [detected, setDetected] = createSignal<CoreReorder.Axis>("y")
   const runtime = useWardicRuntime()
   // The group's controller, over the provider's projection system and the Environment's channel to
-  // assistive technology (ADR-0037), in a Scope of the group's own, closed on unmount (#132's PR 3).
-  const scope = runtime.runSync(Scope.make())
+  // assistive technology (ADR-0037), in a Scope of the group's own, closed on unmount (#132's PR 3),
+  // set before the controller is built, so one that fails as it's built leaves nothing (#618).
+  const scope = OwnerScope.open(runtime)
+  onCleanup(() => OwnerScope.close(runtime, scope, CLOSE_FAILED))
   const controller = runtime.runSync(
     ReorderController.make<V>({
       values: () => untrack(cfg).values,
@@ -222,7 +227,6 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
       announcements: () => Option.fromUndefinedOr(untrack(cfg).announcements),
     }).pipe(Effect.provideService(ProjectionSystem.ProjectionSystem, useWardicProjection()), Scope.provide(scope)),
   )
-  onCleanup(() => runtime.runSync(Scope.close(scope, Exit.void)))
   // The app's axis, else the detected one. When the app's is cleared, detected here, from the boxes the
   // engine holds, so the items' touch-action follows in the same update (#257's audit: an effect that
   // detected it wrote a signal the items read a step late). A Measure pass's change comes through `onAxis`.

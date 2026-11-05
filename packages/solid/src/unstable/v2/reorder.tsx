@@ -46,7 +46,6 @@ import * as Style from "@wardic/dom/Style"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
 import { constUndefined, identity, pipe } from "effect/Function"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
@@ -65,7 +64,7 @@ import { layout } from "../../features/layout.ts"
 import { pan } from "../../features/pan.ts"
 import { press } from "../../features/press.ts"
 import { inputIn } from "../../gesture-features.ts"
-import type { WardicRuntime } from "../../runtime.ts"
+import * as OwnerScope from "../../owner-scope.ts"
 import { watchItemInput } from "../../reorder-input.ts"
 import { changesContext } from "../../variant-tree.ts"
 import { configView, type PerKey } from "./config-view.ts"
@@ -339,8 +338,10 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> 
   // Whether the app's `move` is the call under way: its reorder isn't flushed.
   let moving = false
   // The group's controller, over the provider's projection system and the Environment's channel to
-  // assistive technology (ADR-0037), in a Scope of the group's own, closed with its owner.
-  const scope = runtime.runSync(Scope.make())
+  // assistive technology (ADR-0037), in a Scope of the group's own, closed with its owner: set before
+  // the controller is built, so one that fails as it's built leaves nothing (#618).
+  const scope = OwnerScope.open(runtime)
+  onCleanup(() => OwnerScope.close(runtime, scope, CLOSE_FAILED))
   const controller = runtime.runSync(
     ReorderController.make<V>({
       values: () => untrack(() => cfg().values),
@@ -364,7 +365,6 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> 
       announcements: () => Option.fromUndefinedOr(untrack(() => cfg().announcements)),
     }).pipe(Effect.provideService(ProjectionSystem.ProjectionSystem, useWardicProjection()), Scope.provide(scope)),
   )
-  onCleanupScope(runtime, scope)
   // The app's axis, else the detected one. When the app's is cleared, detected here, from the boxes the
   // engine holds, so the items' touch-action follows in the same flush (#257's audit: an effect that
   // detected it wrote a signal the items read a flush late, EFFECT_RELAY_TEAR). A Measure pass's change
@@ -446,10 +446,8 @@ const besideGroup = (local: object, group: object): void => {
     Object.defineProperty(layer.beside, key, { enumerable: true, configurable: true, get: () => (local as Readonly<Record<string, unknown>>)[key] }))
 }
 
-/** Close `scope` with the owner. */
-const onCleanupScope = (runtime: WardicRuntime, scope: Scope.Closeable): void => {
-  onCleanup(() => runtime.runSync(Scope.close(scope, Exit.void)))
-}
+/** What a group's Scope reports when one of its finalizers fails as its owner goes. */
+const CLOSE_FAILED = "wardic.reorder: a finalizer failed"
 
 /**
  * {@link reorderGroup} during a server render (ADR-0021): the group element's style and the app's

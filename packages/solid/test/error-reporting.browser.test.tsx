@@ -1,15 +1,17 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { CheckFrames, DomLive } from "@wardic/dom"
 import * as Report from "@wardic/dom/Report"
-import { AnimatePresence, createHover, useWardicFiber, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
+import { AnimatePresence, createHover, type Feature, useWardicFiber, useWardicRuntime, w, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
 import { DevTools } from "effect/devtools"
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as ErrorReporter from "effect/ErrorReporter"
 import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as References from "effect/References"
-import { createEffect, createSignal, Show } from "solid-js"
+import { createEffect, createSignal, ErrorBoundary, onCleanup, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
+import { runWatch } from "../src/provider.tsx"
 import { BROKEN, envWith, errorsNamed, type Logged } from "./report-env.ts"
 import { opacityOf, raf, retryGesture, until } from "./browser-helpers.ts"
 
@@ -412,6 +414,87 @@ describe("what isn't a failure, and what reports once", () => {
     await until(() => errorsNamed(logs, "wardic.runScoped: a fiber failed").length === 1)
     expect(errorsNamed(logs, "test.inner: failed")).toHaveLength(1)
     expect(reports).toEqual(["reported twice"])
+  })
+})
+
+describe("what an owner opened closes, a failure reported, never thrown (#618)", () => {
+  it("a Feature whose finalizer fails: the Environment still ends after it, and the failure is logged and reported (decision 4)", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    const ended: Array<string> = []
+    // The Environment telling when it ends: a Layer beside it whose finalizer records it.
+    const watched = Layer.effectDiscard(Effect.addFinalizer(() => Effect.sync(() => void ended.push("environment"))))
+    class Breaking extends Context.Service<Breaking, { readonly on: true }>()("test/BreakingFeature") {}
+    const breaking: Feature = {
+      name: "breaking",
+      key: Breaking,
+      layer: Layer.effect(Breaking)(
+        Effect.as(Effect.addFinalizer(() => Effect.sync(() => void ended.push("feature")).pipe(Effect.andThen(Effect.die(new Error("feature finalizer broke"))))), { on: true as const }),
+      ),
+    }
+    const { unmount } = render(() => (
+      <WardicProvider env={Layer.mergeAll(envWith({ logs, reports }), watched)} features={[breaking]}>
+        <w.div animate={{ opacity: 0.5 }} />
+      </WardicProvider>
+    ))
+    await raf()
+    unmount()
+    await until(() => reports.length > 0)
+    expect(ended, "the Feature ends first, then the Environment it stands on").toEqual(["feature", "environment"])
+    expect(errorsNamed(logs, "wardic.provider: a finalizer failed as it was disposed")).toHaveLength(1)
+    expect(reports).toEqual(["feature finalizer broke"])
+  })
+
+  it("a watch whose finalizer fails: the rest of its owner's cleanup runs, and the failure is reported (decision 5)", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    let after = false
+    const Watching = () => {
+      // Registered first, so run last: Solid runs an owner's cleanups in reverse.
+      onCleanup(() => {
+        after = true
+      })
+      runWatch(useWardicRuntime(), () => Effect.addFinalizer(() => Effect.die(new Error("watch finalizer broke"))))
+      return <div />
+    }
+    const { unmount } = render(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <Watching />
+      </WardicProvider>
+    ))
+    expect(() => unmount()).not.toThrow()
+    expect(after, "the cleanup after it ran").toBe(true)
+    await until(() => reports.length > 0)
+    expect(errorsNamed(logs, "wardic.runWatch: a finalizer failed")).toHaveLength(1)
+    expect(reports).toEqual(["watch finalizer broke"])
+  })
+
+  it("a watch that throws as it subscribes leaves nothing subscribed (decision 5)", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    let listening = false
+    const Throwing = () => {
+      runWatch(useWardicRuntime(), () =>
+        Effect.acquireRelease(
+          Effect.sync(() => {
+            listening = true
+          }),
+          () =>
+            Effect.sync(() => {
+              listening = false
+            }),
+        ).pipe(Effect.andThen(Effect.die(new Error("subscribe broke")))))
+      return <div />
+    }
+    render(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <ErrorBoundary fallback={<p>broke</p>}>
+          <Throwing />
+        </ErrorBoundary>
+      </WardicProvider>
+    ))
+    await raf()
+    expect(listening, "its listener went with the owner the throw ended").toBe(false)
   })
 })
 

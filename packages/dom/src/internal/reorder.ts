@@ -43,7 +43,6 @@ import * as Reorder from "@wardic/core/Reorder"
 import * as Bool from "effect/Boolean"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
 import * as FiberHandle from "effect/FiberHandle"
 import { constTrue, constVoid, identity } from "effect/Function"
 import * as Match from "effect/Match"
@@ -294,9 +293,8 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
   // The item whose new place the next Measure pass lays out, to scroll into view then.
   const reveal = MutableRef.make(Option.none<V>())
   // A held arrow's latest announcement, waiting for the next repeat (ADR-0025, *Amendment (#69)*): a
-  // fiber in the controller's own Scope, which `dispose` closes.
-  const scope = Scope.makeUnsafe()
-  const pending = runtime.runSync(FiberHandle.make<void, never>().pipe(Scope.provide(scope)))
+  // fiber in the Scope the controller was built in, which closes it after `dispose`.
+  const pending = runtime.runSync(FiberHandle.make<void, never>().pipe(Scope.provide(runtime.scope)))
 
   const announceNow = (message: string): void => {
     runtime.runFork(FiberHandle.clear(pending))
@@ -578,7 +576,6 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
     dispose: () => {
       stopPassEnd()
       resetAutoScroll()
-      runtime.runFork(Scope.close(scope, Exit.void))
     },
   }
 }

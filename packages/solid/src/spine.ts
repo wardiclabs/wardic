@@ -2060,7 +2060,9 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     const fiber = running.fiber
     if (Predicate.isUndefined(fiber)) return
     if (Predicate.isNotUndefined(fiber.pollUnsafe())) return
-    runtime.runFork(Fiber.interrupt(fiber))
+    // Interrupted here, nothing waiting on its end, as `runCallback`'s interruptor does: a forked
+    // `Fiber.interrupt` was a fiber of its own per ended leg (#618, L2).
+    fiber.interruptUnsafe()
   }
 
   // A leg takes its keys (#325): each key's owner from now on. One callback a spine, not one a leg.
