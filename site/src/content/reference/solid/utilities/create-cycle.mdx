@@ -1,0 +1,26 @@
+---
+title: createCycle
+description: One of a list of values at a time, stepped through with cycle().
+api: [createCycle, Cycle]
+---
+
+# createCycle
+
+One of a list of values at a time: the first to begin with, and `cycle()` steps to the next, the first after the last.
+
+```tsx
+import { createCycle, w } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+const [x, cycleX] = createCycle(0, 50, 100)
+<w.div animate={{ x: x() }} onClick={() => cycleX()} />
+```
+
+`cycle(i)` goes to index `i`. Two steps in one handler step twice, as Motion's do. The value is an accessor, read where it tracks.
+
+## Coming from Motion
+
+Motion's `useCycle`, its value an accessor.
+
+## Types
+
+- **`Cycle`:** `cycle`, the step.

@@ -1,0 +1,32 @@
+---
+title: runDragTrack
+description: Solid 1. Runs a drag on an element of your own as a Wardic element's own drag runs.
+api: [runDragTrack, RunDragTrackOptions, DragSnapshot, DragTrackConfig]
+---
+
+# runDragTrack
+
+**Solid 1 only.** Runs a drag on an element as a Wardic element's own drag runs: its gesture, constraints, elastic, release and drag claims, writing `x` and `y` through the element's values. For an element of your own built on Wardic's drag; an app gives `drag` to a `w.*` element or a [ward](/reference/solid/elements/ward) instead.
+
+```tsx
+import { runDragTrack, useWardicGate, useWardicRuntime } from "@wardic/solid"
+
+const track = runDragTrack({ element, id, config, snapshot, recordFrame, setDragging, gate: useWardicGate(), runtime: useWardicRuntime() })
+```
+
+Call it within a Solid owner, once the element exists: it stops, with any release in flight, as the owner is cleaned up. It brings the `drag` Feature.
+
+## Options
+
+- **`element`** and **`id`**: the element, and its id in the [flush gate](/reference/solid/advanced/flush-gate), which the drag writes `x` and `y` into.
+- **`config`**: its drag config, a **`DragTrackConfig`**, read once: `drag`'s axis, constraints, elastic, momentum, snap to origin, release transition, direction lock, propagation and listener, as a Wardic element's props give them.
+- **`snapshot`**: a **`DragSnapshot`**, the element's values and velocities, which the drag reads to start from where the element is and writes as it moves.
+- **`runtime`** and **`gate`**: the provider's.
+- **`recordFrame`** and **`setDragging`**: what the drag tells the element each frame it moves it, and as a drag starts and ends.
+- The rest are a Wardic element's: its layout node, its drag controls, its container constraint, its page-point mapping, and its callbacks.
+
+## Types
+
+- **`RunDragTrackOptions`:** its options.
+- **`DragTrackConfig`:** its drag config.
+- **`DragSnapshot`:** the element's values as the drag reads and writes them.

@@ -1,0 +1,25 @@
+---
+title: createReducedMotion
+description: Whether the visitor asks for reduced motion, and whether it applies here, as accessors.
+api: [createReducedMotion, createReducedMotionConfig]
+---
+
+# createReducedMotion
+
+Wardic's animations honour reduced motion by themselves. These are for what isn't an animation: a video that shouldn't autoplay, a path left straight. See [Reduced motion](/guides/reduced-motion).
+
+```tsx
+import { createReducedMotion, createReducedMotionConfig } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+const prefers = createReducedMotion()
+<Show when={!prefers()} fallback={<img src={still} />}><video autoplay src={clip} /></Show>
+```
+
+- **`createReducedMotion()`** is the visitor's system setting, as an accessor.
+- **`createReducedMotionConfig()`** is whether reduced motion applies here, as Wardic's animations here honour it: the nearest `WardicConfig`'s `reducedMotion`, else the provider's, over the system setting. `"always"` is `true`, `"never"` `false`, and `"user"` follows the system.
+
+A server can't know the setting: it renders `false`, and `"always"` as `true` for the config's, and a hydrating page keeps that until it has mounted, then reads the live value. Markup that depends on it hydrates without a mismatch.
+
+## Coming from Motion
+
+Motion's `useReducedMotion` and `useReducedMotionConfig`. Motion's `useReducedMotion` gives `null` on a server and the live value on the client's first render, which can break hydration.

@@ -1,0 +1,36 @@
+---
+title: The flush gate
+description: What every Wardic element writes its values into, committed onto the page once a frame.
+api: [useWardicGate, FlushGate, FlushSink]
+---
+
+# The flush gate
+
+Every Wardic element writes its values into its provider's flush gate, which commits them onto the page once a frame, together. For an element of your own built on Wardic's rendering, register it with the gate and write into it.
+
+```tsx
+import { useWardicGate } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+const gate = useWardicGate()
+const unregister = gate.register("dial", { target: dial })
+gate.write("dial", { rotate: 45 })
+```
+
+`useWardicGate()` is the nearest provider's gate. It throws outside a provider; during a server render it's an inert gate that does nothing.
+
+## Members
+
+| Member | |
+| --- | --- |
+| `register(id, sink, values?)` | Registers an element under `id`, its `sink` the element and its hooks. Returns the function that takes it out. |
+| `write(id, values)` | Merges `values` into the element's, committed at the end of the frame's tick, or the next frame. |
+| `release(id, keys, restore?)` | Hands `keys` back to the element's own style. |
+| `valueOf(id, key)` | The element's value for `key`, live, as an Atom: what the next commit draws. |
+| `afterFlush(fn)` | Calls `fn` once, after the next flush. |
+| `flushPass(pass)` | Runs a layout measure now, and commits what it wrote before it returns. |
+
+A sink is `{ target }`, the element, with optional hooks: `beforeFirstCommit`, `onHeld`, the keys the gate holds, and `onCommit`, the values after each frame's commit.
+
+## Types
+
+- **`FlushGate`:** (Solid 1) the gate. **`FlushSink`:** (Solid 1) an element's sink. On Solid 2, `@wardic/dom/FlushGate`'s `Shape` and `Sink`.

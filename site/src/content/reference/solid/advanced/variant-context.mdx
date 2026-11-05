@@ -1,0 +1,34 @@
+---
+title: Variant context
+description: What a variant parent hands its children, for an element of your own that follows a parent's variants.
+api: [useVariantContext, WardicVariantContext, WardicVariantContextValue]
+---
+
+# Variant context
+
+A Wardic element with `variants` hands its names, transition and orchestration to the elements under it, through the variant context. For an element of your own that follows a parent's variants, read it.
+
+```tsx
+import { useVariantContext } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+const parent = useVariantContext()
+const name = () => parent?.variant()
+```
+
+`useVariantContext()` is the nearest variant parent's context, or `undefined` outside one. `WardicVariantContext` is the context itself, to provide one.
+
+## What it holds
+
+| Member | |
+| --- | --- |
+| `variant()` | The parent's current variant name, or list of names; `undefined` when its target is values. |
+| `initial` | The parent's `initial` name, or `false`. |
+| `transition()` | The parent's transition, its children's default. |
+| `when()`, `stagger()` | How the parent times its children. |
+| `register()` | A child's registration, in mount order, for that timing. |
+
+The rest is the protocol Wardic's elements follow among themselves.
+
+## Types
+
+- **`WardicVariantContextValue`:** what it holds.

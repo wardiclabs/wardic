@@ -1,0 +1,26 @@
+---
+title: Component checks
+description: Whether a component is a Wardic element's, what it wraps, and whether a prop is a motion prop.
+api: [isWardicComponent, unwrapWardicComponent, isValidWardicProp]
+---
+
+# Component checks
+
+For a component library or a wrapper that handles Wardic's elements and props.
+
+```ts
+import { isValidWardicProp, isWardicComponent, unwrapWardicComponent, wardic } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+isWardicComponent(wardic.div) // true
+unwrapWardicComponent(wardic.div) // "div"
+isValidWardicProp("animate") // true
+isValidWardicProp("href") // false
+```
+
+- **`isWardicComponent(component)`** is whether it's a Wardic element's component: one `w.<tag>`, `wardic.<tag>` or `wardic.create` made, on either binding.
+- **`unwrapWardicComponent(component)`** is what it wraps: its tag, or the component given to `wardic.create`; `undefined` for anything else.
+- **`isValidWardicProp(key)`** is whether `key` is a [motion prop](/reference/solid/elements/props), one a Wardic element takes for itself and keeps off its element. It's Wardic's own list, exactly: `whileHover` is one, `whileAnything` isn't. On Solid 2, the callbacks that are the DOM's own events there (`onAnimationStart`, `onDrag`…) aren't, as the element hands them on.
+
+## Coming from Motion
+
+Motion's `isMotionComponent`, `unwrapMotionComponent` and `isValidMotionProp`. Motion's `isValidMotionProp` also takes props by their prefixes.

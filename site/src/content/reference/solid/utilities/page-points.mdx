@@ -1,0 +1,43 @@
+---
+title: Page points
+description: transformPagePoint mappings for a drag inside a transformed parent, or inside an SVG viewBox.
+api: [correctParentTransform, transformViewBoxPoint]
+---
+
+# Page points
+
+A drag moves its element in its own pixels. Inside a parent that's scaled or rotated, or an SVG whose `viewBox` isn't the size it renders at, those aren't the pointer's, so the element runs ahead of the pointer or lags behind it. A `WardicConfig`'s `transformPagePoint` maps each pointer point first; these make one.
+
+## correctParentTransform
+
+Maps each point through the inverse of a parent's CSS transform, rotated, scaled or skewed, so the element stays under the pointer at any zoom. The transform is read at each point, so a parent that animates is followed.
+
+```tsx
+import { correctParentTransform, WardicConfig, w } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+let plan!: HTMLDivElement
+<div ref={plan} style={{ transform: `scale(${zoom()})` }}>
+  <WardicConfig transformPagePoint={correctParentTransform(() => plan)}>
+    <w.div drag />
+  </WardicConfig>
+</div>
+```
+
+## transformViewBoxPoint
+
+Scales each point into an SVG's `viewBox` units, so a dragged shape stays under the pointer.
+
+```tsx
+let svg!: SVGSVGElement
+<WardicConfig transformPagePoint={transformViewBoxPoint(() => svg)}>
+  <svg ref={svg} viewBox="0 0 100 100" width="500" height="500">
+    <w.rect drag width="10" height="10" />
+  </svg>
+</WardicConfig>
+```
+
+Each takes its element as it is, or as an accessor of a ref. Points pass as they are while the element is gone, or has no transform or no `viewBox`. A pan's points are mapped too.
+
+## Coming from Motion
+
+Motion's `correctParentTransform` and `transformViewBoxPoint`. Wardic's points are the viewport's, where Motion's are the page's, so neither adds the page's scroll.
