@@ -1,0 +1,42 @@
+---
+title: arc
+description: A curved path for x and y to travel along together, in place of two straight lines.
+api: [arc, WardicPath, WardicArcOptions]
+---
+
+# arc
+
+A curved path for a transition: `x` and `y` travel along a curve between where they start and their target, on `x`'s transition, in place of two straight lines. See [Along a curve](/guides/transitions#along-a-curve).
+
+```tsx
+import { arc, w } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+const path = arc({ strength: 0.4, rotate: true })
+<w.div animate={{ x: 200, y: 80 }} transition={{ path, duration: 0.6 }} />
+```
+
+Make it once, in a component's body or at module level: with no `direction`, it remembers which side of the screen it bulged to, and keeps to it on every trip.
+
+## Options
+
+| Option | |
+| --- | --- |
+| `strength` | How far it bows off the straight line, as a share of the distance. Default 0.5. |
+| `peak` | Where along the way, 0 to 1, it's highest. Default 0.5. |
+| `direction` | `"cw"` or `"ccw"`: the side it bows to, turning with the direction of travel. |
+| `rotate` | Turns the element to follow the curve: `true` all the way, or a number, 0 to 1, that share of it. |
+
+Caught mid-air, it curves back to its line: an axis the target leaves out ends where the path in flight was taking it. Under reduced motion, `x` and `y` snap to their target. A layout animation of 20 px or more follows a `path` on its layout transition too.
+
+## Your own path
+
+A path is any `(from, to) => (t) => ({ x, y, rotate? })`: given where `x` and `y` start and end, the point at each progress, 0 to 1.
+
+## Coming from Motion
+
+Motion's `arc()`, with its options. Motion's ends where it was caught, mid-air, where Wardic's curves back to its line.
+
+## Types
+
+- **`WardicPath`:** a path.
+- **`WardicArcOptions`:** `arc()`'s options.

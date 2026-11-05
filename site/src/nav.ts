@@ -140,6 +140,15 @@ export const NAV: ReadonlyArray<NavSection> = [
           { path: "/reference/solid/animation/create-animation-controls", title: "createAnimationControls" },
         ],
       },
+      {
+        title: "Transitions",
+        pages: [
+          { path: "/reference/solid/transitions/transition", title: "transition" },
+          { path: "/reference/solid/transitions/easing", title: "Easing" },
+          { path: "/reference/solid/transitions/stagger", title: "stagger" },
+          { path: "/reference/solid/transitions/arc", title: "arc" },
+        ],
+      },
     ],
   },
 ]

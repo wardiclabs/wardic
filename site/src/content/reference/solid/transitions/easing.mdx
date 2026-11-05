@@ -1,0 +1,43 @@
+---
+title: Easing
+description: The easing functions a tween runs along, Motion's named curves, a cubic Bézier and steps.
+api: [easeIn, easeOut, easeInOut, circIn, circOut, circInOut, backIn, backOut, backInOut, anticipate, cubicBezier, steps]
+---
+
+# Easing
+
+How a tween moves along its time: slow then fast, fast then slow, past its end and back. A tween's `ease` takes a name, a cubic Bézier's four numbers, or one of these functions.
+
+```tsx
+import { backOut, cubicBezier, steps } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+<w.div animate={{ x: 100 }} transition={{ duration: 0.5, ease: "backOut" }} />
+<w.div animate={{ x: 100 }} transition={{ duration: 0.5, ease: [0.25, 0.1, 0.35, 1] }} />
+<w.div animate={{ x: 100 }} transition={{ duration: 0.5, ease: steps(5) }} />
+```
+
+## The named curves
+
+Each is a function, and a name an `ease` takes as a string, `"linear"` too.
+
+| Easing | |
+| --- | --- |
+| `easeIn` | Slow, then fast: CSS's `ease-in`, `cubic-bezier(0.42, 0, 1, 1)`. |
+| `easeOut` | Fast, then slow: CSS's `ease-out`, `cubic-bezier(0, 0, 0.58, 1)`. A tween's default. |
+| `easeInOut` | Slow, fast, slow: CSS's `ease-in-out`, `cubic-bezier(0.42, 0, 0.58, 1)`. |
+| `circIn`, `circOut`, `circInOut` | A quarter circle: slow then steep, and its reverse and mirror. |
+| `backOut` | Past its end and back: `cubic-bezier(0.33, 1.53, 0.69, 0.99)`. |
+| `backIn`, `backInOut` | Back before it goes, and its mirror. |
+| `anticipate` | Back before it goes over the first half, then an exponential ease out. |
+
+## Your own
+
+- **`cubicBezier(x1, y1, x2, y2)`** is a curve through two control points, as CSS's `cubic-bezier()`. `ease: [x1, y1, x2, y2]` is the same.
+- **`steps(count, position?)`** jumps in `count` steps, at the `"end"` of each (the default) or its `"start"`, as CSS's `steps()`.
+- **Any function** of progress, 0 to 1, to progress is an easing: `ease: (t) => t * t`.
+
+Through keyframes, `ease` takes a list, one per stretch between stops.
+
+## Coming from Motion
+
+Motion's easing functions and names, with its curves. Wardic's `backOut` is Motion's, not the Penner `easeOutBack`.
