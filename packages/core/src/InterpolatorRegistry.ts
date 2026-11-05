@@ -1,11 +1,18 @@
 /**
- * The `InterpolatorRegistry` module: the service that resolves a pair of values to the blend a
- * frame calls (ADR-0026), and a key's pair to its Environment's Key rule (ADR-0035); `make` to
- * build one over a list of `Interpolator.Entry`s and `KeyRule`s, and `layer`, one pre-loaded with
- * `Interpolator.defaults` and no Key rules.
+ * The registry of value kinds: given two values, it finds the kind that blends them and returns the
+ * blend each frame calls. An Environment builds one over core's kinds and its own (`make`, or `layer`
+ * for core's alone), and adds Key rules, which blend a key by its name, as the DOM's can hold `display`
+ * until an animation's last frame. A binding resolves each pair once, as it builds an animation.
  *
- * Tier 2 (ADR-0008): Effect-typed, for binding and Environment authors.
+ * @example
+ * import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
+ *
+ * const registry = yield* InterpolatorRegistry.InterpolatorRegistry
+ * const blend = yield* registry.resolve("0px", "120px")
+ * blend(0.5) // "60px"
  */
+// ADR-0026 (the pairs), ADR-0035 (Key rules). Tier 2 (ADR-0008): Effect-typed, for binding and
+// Environment authors.
 import * as Arr from "effect/Array"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -19,25 +26,24 @@ import { dual } from "./internal/dual.ts"
 // The registry is heterogeneous by design: its entries are `Interpolator.Entry<any, any>`.
 
 /**
- * Registry of value-kind interpolators. The engine resolves the interpolation
- * strategy for a value through this service rather than hard-coding type checks,
- * so new value kinds are added by registering an entry — no engine changes.
- *
- * `resolve` is the hot-path entry point: it decodes a `from`/`to` pair once, picks
- * the entry that decodes it, and returns a pure `(t) => From | To`. `interpolate`
- * is sugar that resolves and applies in one step for callers that already have `t`;
- * it decodes on every call.
- *
- * The signature is intentionally `<From, To>` rather than `<T>` so mixed-type
- * pairs (`0` → `"10px"`) type-check cleanly — pair-aware selection in the
- * registry picks an interpolator that can produce one of the input value types
- * (often the string side, after coercion), which `From | To` honestly reflects.
+ * The registry of value kinds: a pair of values in, and out the blend each frame calls. A new kind is
+ * added by registering it, with no change to the engine.
  */
+// `resolve` is the hot-path entry point: it decodes a pair once and returns a pure `(t) => From | To`;
+// `interpolate` decodes on every call. `<From, To>` rather than `<T>`, so a mixed pair (`0` → `"10px"`)
+// type-checks: the registry picks a kind that produces one of the two, often the string side.
 export class InterpolatorRegistry extends Context.Service<InterpolatorRegistry, {
+  /** Adds a kind, ahead of those already registered. */
   readonly register: <Decoded, Encoded>(entry: Interpolator.Entry<Decoded, Encoded>) => Effect.Effect<void>
+  /**
+   * The blend for `from` and `to`: the first kind that reads both, once, and the function each frame
+   * calls with its progress. A pair no kind blends switches to `to` at the first frame, with a warning.
+   */
   readonly resolve: <From, To>(from: From, to: To) => Effect.Effect<(t: number) => From | To>
+  /** `resolve` applied at `t`, once: for a one-off value. It reads both values each call. */
   readonly interpolate: <From, To>(from: From, to: To, t: number) => Effect.Effect<From | To>
-  /** Add a Key rule, ahead of those already registered (ADR-0035). */
+  /** Adds a Key rule, ahead of those already registered. */
+  // ADR-0035.
   readonly registerKeyRule: (rule: KeyRule) => Effect.Effect<void>
   /**
    * The blend of the first Key rule, latest registered first, that takes `key`'s pair: the Effect
@@ -46,49 +52,48 @@ export class InterpolatorRegistry extends Context.Service<InterpolatorRegistry, 
    */
   readonly keyBlendOf: (key: string, from: number | string, to: number | string) => Option.Option<Effect.Effect<KeyBlend>>
   /**
-   * Forget every pair resolved so far (#511): an Interpolator now decodes what it didn't, as the DOM's
-   * colours do once an app registers more colour spaces, so a pair resolves again when next asked.
+   * Forgets every pair resolved so far, so a pair resolves again when next asked: for when a kind now
+   * reads what it didn't, as the DOM's colours do once an app registers more colour spaces.
    */
+  // #511.
   readonly forget: Effect.Effect<void>
 }>()("@wardic/InterpolatorRegistry") {}
 
-/**
- * A key's blend for a whole leg (ADR-0035): its value at progress `t`, given whether that progress
- * Frame is the run's last. What a Key rule hands back, and on the per-frame path (ADR-0025): plain
- * calls and statement `if`s, nothing allocated but the value.
- */
+/** A key's blend for a whole animation: its value at progress `t`, given whether that's the run's last frame. What a Key rule returns. */
+// ADR-0035. On the per-frame path (ADR-0025): plain calls and statement `if`s, nothing allocated but the value.
 export type KeyBlend = (t: number, done: boolean) => number | string
 
 /** Resolve a pair by value: the registry's `resolve`, which a Key rule calls for the pairs it blends. */
 export type ResolveByValue = <From, To>(from: From, to: To) => Effect.Effect<(t: number) => From | To>
 
 /**
- * A key's pair as the rules after one rule, then the Interpolators, blend it (ADR-0035, *Amendment
- * (#55)*): what a rule that rewrites a pair hands it on to, so the rules after it still apply. The
- * DOM's element-bound rule resolves a Variable value, then blends what it resolved to through
- * `next`, so `"none"` → `var(--shadow)` still grows from its Animatable none.
+ * A key's pair as the rules after one rule, then the kinds, blend it: what a rule that rewrites a pair
+ * hands it on to, so the rules after it still apply. The DOM's rule for CSS variables resolves one, then
+ * blends what it resolved to through `next`, so `"none"` to `var(--shadow)` still grows from nothing.
  */
+// ADR-0035, *Amendment (#55)*: its Animatable none.
 export type NextKeyBlend = (key: string, from: number | string, to: number | string) => Effect.Effect<KeyBlend>
 
 /** The first Key rule's blend for a key's pair, or `None`: `keyBlendOf`'s shape. */
 export type KeyBlendOf = (key: string, from: number | string, to: number | string) => Option.Option<Effect.Effect<KeyBlend>>
 
 /**
- * An Environment's **Key rule** (CONTEXT.md, ADR-0035): how one key's pair blends, picked by the
- * key's name. Core holds none; the DOM Environment's know CSS properties (`@wardic/dom`'s
- * `keyRules`).
- *
- * `blend` declines with `None`, synchronously and allocating nothing: the registry asks every rule
- * for every key of every leg it builds, so a key no rule wants costs what it did with none. Taking
- * the key, it returns the Effect that builds the key's `KeyBlend`, which may resolve pairs by value
- * through `resolve`, or hand a pair on through `next` to the rules after it (ADR-0035, *Amendment
- * (#55)*).
- *
- * Most rules hold for the whole Environment (`make`, `registerKeyRule`). A rule that reads an element
- * is bound to it for a run instead, with {@link withKeyRules}.
+ * An Environment's Key rule: how one key's pair blends, picked by the key's name, as the DOM's can hold
+ * `display` and `visibility` until an animation's last frame. Core holds none; the DOM's know CSS
+ * properties. Most hold for the whole Environment (`make`, `registerKeyRule`); one that reads an element
+ * is added for that element's animations with `withKeyRules`.
  */
+// CONTEXT.md, ADR-0035; the DOM's are `@wardic/dom`'s `keyRules`. The registry asks every rule for every
+// key of every leg it builds, so a key no rule wants costs what it did with none (ADR-0035, *Amendment
+// (#55)*).
 export interface KeyRule {
+  /** Its name, for a warning or a trace. */
   readonly name: string
+  /**
+   * Whether it takes `key`'s pair: `None` to decline, at once and allocating nothing, or the Effect that
+   * builds the key's blend, which may resolve pairs by value through `resolve`, or hand a pair on to the
+   * rules after it through `next`.
+   */
   readonly blend: (
     key: string,
     from: number | string,
@@ -233,17 +238,16 @@ const makeBlendCache = (capacity: number): BlendCache => {
 }
 
 /**
- * Builds the `InterpolatorRegistry` service shape over a mutable entry list and a mutable Key
- * rule list, each in precedence order (`keyRules` as given: the first that takes a key wins).
- * `register` and `registerKeyRule` prepend, so later registrations take precedence.
+ * A registry over `initial`, core's kinds by default, and `keyRules`, each in precedence order: the
+ * first that takes a pair wins, and `register` and `registerKeyRule` add ahead. A pair is resolved by
+ * the first kind that reads both of it, once; a pair of strings is resolved once per registry and kept.
  *
- * `resolve` is the hot-path entry: it picks the first entry that decodes both
- * endpoints, once, and returns the pure `(t) => From | To` its `blend` built,
- * which only blends and encodes per frame (ADR-0026). A pair no entry decodes
- * both endpoints of is a Discrete pair. A pair of strings is resolved once per
- * registry and kept (decision 9). `interpolate` is sugar — the same `resolve`,
- * applied once.
+ * @example
+ * const registry = yield* InterpolatorRegistry.make([colors, ...Interpolator.defaults], displayRules)
  */
+// `resolve` is the hot-path entry, returning the pure `(t) => From | To` its `blend` built, which only
+// blends and encodes per frame (ADR-0026); a pair no entry decodes both of is a Discrete pair; the string
+// cache is decision 9.
 export const make = (
   initial: ReadonlyArray<Interpolator.Entry<any, any>> = Interpolator.defaults,
   keyRules: ReadonlyArray<KeyRule> = [],
@@ -302,12 +306,15 @@ export const make = (
   })
 
 /**
- * Run `self` with `rules` asked first, ahead of the registry's own Key rules, for that run only
- * (ADR-0035, *Amendment (#55)*): how a binding adds a rule bound to one element, the DOM's
- * `variableValues(element)`, to each leg it builds. Each rule's `next` is the rules after it, then
- * the registry's rules, then by value. The registry itself isn't changed, so one element's rule never
- * reaches another's legs.
+ * `self` run with `rules` asked first, ahead of the registry's own Key rules, for that run alone: how a
+ * binding adds a rule bound to one element, as the DOM's CSS variables, to that element's animations.
+ * Each rule's `next` is the rules after it, then the registry's, then by value. The registry itself is
+ * unchanged, so one element's rule never reaches another's.
+ *
+ * @example
+ * yield* buildLegs.pipe(InterpolatorRegistry.withKeyRules([variableValues(element)]))
  */
+// ADR-0035, *Amendment (#55)*: the DOM's `variableValues(element)`.
 export const withKeyRules: {
   (rules: ReadonlyArray<KeyRule>): <A, E, R>(self: Effect.Effect<A, E, R>) => Effect.Effect<A, E, R | InterpolatorRegistry>
   <A, E, R>(self: Effect.Effect<A, E, R>, rules: ReadonlyArray<KeyRule>): Effect.Effect<A, E, R | InterpolatorRegistry>
