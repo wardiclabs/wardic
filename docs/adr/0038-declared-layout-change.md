@@ -106,3 +106,25 @@ Defaults stated, not asked:
   - `test/animate-layout.browser.test.tsx` AL1–AL3: a keyed `<For>` reorder animating declared and jumping plain, the synchronous change and result, the error outside a provider;
   - `test/server.ssr.test.tsx` SV17: on the server, the call runs its callback.
 - **Lab:** scenario 17, by hand.
+
+## Amendment (#618, 2026-11-05): a write Solid 2 holds
+
+Found in the review of 2026-11-05 (decision 13), then probed. Solid 2 holds a write made inside an `action`, or in the frame of a write that starts async work, until what it waits for settles. A keyed `<For>` reordered through Solid 2's `animateLayout` that way jumped: the call's end-of-task pass ran before the write moved the DOM, and nothing measured it once it did. The promise resolved at that first pass, before the move.
+
+- **Decided** (A): Solid 2's `animateLayout` also asks for a pass once what the call is part of has settled (Solid's `onSettled`), and its promise waits for that pass's animations, not the first one's.
+  - **Nothing held:** Solid settles before the end-of-task pass, so the second request joins the call's own pass. One pass, as before.
+  - **A write held:** the end-of-task pass sees nothing move. The pass after the settle animates the write from the boxes the last pass kept.
+  - The request is unowned, so the caller's owner being disposed first can't drop it, and the promise with it.
+- **The engine:** `animateLayout`'s options take `from`. `"call"`, the default, is unchanged. `"lastPass"` takes no Measurements at the call: its pass compares with the boxes the last pass kept, for a change a framework applied after the call.
+- **Solid 1** is unchanged. Its `startTransition` holds writes too, and could use `from: "lastPass"` the same way if a case shows up.
+- **What it can't see** now leaves out Solid 2's held writes. A change after an `await` in the callback still isn't seen.
+- **Pinned by:**
+  - **dom:** `test/projection-declared.browser.test.ts`:
+    - DL9: a change made before a `lastPass` call animates from the last pass's boxes and jumps from the call's; its onSettled waits for the animation;
+    - DL10: beside a plain call, it joins that call's pass.
+  - **Solid 2:** `test/v2/animate-layout-held.browser.test.tsx`:
+    - AH-1 and AH-2: plain and in a sync action, as before;
+    - AH-3 and AH-4: in an action that waits, and beside an async write, now animate;
+    - AH-5 and AH-6: their promises resolve once the item has landed.
+
+    AH-3 to AH-6 fail on `main`.
