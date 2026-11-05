@@ -12,9 +12,6 @@ const REFERENCE = join(REPO, "site/src/content/reference/solid")
 
 /** The names whose pages come in a later PR of #558's reference, by family. Each PR empties its own. */
 const PENDING: ReadonlyArray<string> = [
-  // live-values
-  ...["createSpring", "createFollowValue", "createTransform", "createScroll", "createVelocity", "createTime", "createAnimationFrame", "createWillChange", "SpringAccessor"],
-  ...["FollowAccessor", "FollowValueOptions", "Live", "LiveSource", "ElementSource", "ScrollOptions", "ScrollValues", "WillChange"],
   // animation
   ...["createAnimate", "WardicAnimate", "WardicAnimateOptions", "WardicAnimationScope", "WardicAnimationScopeV2", "WardicScopeLanding", "WardicAnimationSequence"],
   ...["WardicAnimationSubject", "WardicElementSegment", "WardicFunctionSegment", "WardicPlayState", "WardicPlaybackControls", "WardicSegment", "WardicSegmentOptions"],

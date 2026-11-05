@@ -1,0 +1,57 @@
+---
+title: createTransform
+description: A live value mapped from another, through a function or through ranges, numbers, units and colours alike.
+api: [createTransform, Live, LiveSource]
+---
+
+# createTransform
+
+A value mapped from another, which an element's `style` follows. See [Live values](/guides/live-values).
+
+```tsx
+import { createTransform, w } from "@wardic/solid/unstable/v2" // or "@wardic/solid"
+
+const [x, setX] = createSignal(0)
+const opacity = createTransform(x, [-150, 0, 150], [0, 1, 0])
+const background = createTransform(x, [-150, 150], ["#bf616a", "#a3be8c"])
+const double = createTransform(x, (x) => x * 2)
+<w.div style={{ x, opacity, background }} />
+```
+
+## Through ranges
+
+`createTransform(source, input, output, options?)`: a source at `input[i]` gives `output[i]`, and one between two stops blends their outputs by how far it is between them, numbers, unit strings (`"0px"`, `"100%"`) and colours alike, as `animate` blends them. `input` is as long as `output`, ascending or descending.
+
+| Option | |
+| --- | --- |
+| `clamp` | `false` lets the output carry on past the ends; by default they hold. |
+| `ease` | Eases each stretch between stops: one easing for all, or a list, one each. |
+| `mixer` | `(from, to) => (t) => value`: blends two outputs in place of `animate`'s blends, so they can be any type. |
+
+## Through a function
+
+`createTransform(source, fn)`: `fn` of the source's value. A signal read inside `fn` is tracked too, so its change maps again. On Solid 1, this form needs no `WardicProvider` when its source is a signal.
+
+For several sources, a plain accessor does: `style={{ x: () => x() + offset() }}`.
+
+## The source
+
+The source is a live value: a signal, a memo, another live value, or an `effect/reactivity` Atom. A ward's value, `card.read("x")` on Solid 2 or `card.value("x")` on Solid 1, is one too, for a value that follows what Wardic draws:
+
+```tsx
+// Solid 2
+const card = w.ward({ drag: "x" })
+const opacity = createTransform(card.read("x"), [-150, 0, 150], [0, 1, 0])
+<w.div wardRef={card} style={{ opacity }} />
+```
+
+Make it where you'd make a signal, in a component's body: it lives as long as its owner. On a server it's the mapping of its source's value then.
+
+## Coming from Motion
+
+Motion's `useTransform(value, input, output, options)` and `useTransform(value, fn)`, with its `clamp`, `ease` and `mixer`. Motion's forms over several values are a plain accessor here.
+
+## Types
+
+- **`LiveSource`:** a live value: an accessor, or an `effect/reactivity` Atom.
+- **`Live`:** a `style` value: a plain value, or a live one.

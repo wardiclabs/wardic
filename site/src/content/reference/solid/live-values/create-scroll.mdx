@@ -1,0 +1,56 @@
+---
+title: createScroll
+description: A scroll as live values, how far and how far through, the page's or a container's, or a target's way through it.
+api: [createScroll, ScrollOptions, ScrollValues, ElementSource]
+---
+
+# createScroll
+
+A scroll as values that change as it scrolls: how far it's scrolled, and how far through. Given to an element's `style`, they move it with the scroll itself. See [Scroll](/guides/scroll).
+
+```tsx
+import { createScroll, w } from "@wardic/solid/unstable/v2" // or "@wardic/solid"
+
+const { scrollYProgress } = createScroll()
+<w.div class="progress" style={{ scaleX: scrollYProgress }} />
+```
+
+## Its values
+
+| Value | |
+| --- | --- |
+| `scrollX`, `scrollY` | How far it's scrolled across and down, in pixels. |
+| `scrollXProgress`, `scrollYProgress` | The same from 0 to 1: through its range, or, with a `target` or `offset`, through theirs. |
+
+They're set in the scroll's own event, so a value derived from one paints in the frame that shows the scroll.
+
+## Options
+
+| Option | |
+| --- | --- |
+| `container` | The scrolling element, as an accessor of its ref: `() => box`. The page's scroll when left out. |
+| `target` | An element whose way through the container the progress reads, as an accessor of its ref. |
+| `offset` | Where the progress runs: stops, each pairing an edge of the target with an edge of the container. With a target, `["start start", "end end"]` by default. |
+| `axis` | The axis `target` and `offset` read: `"y"` (the default) or `"x"`. |
+
+An edge is `start`, `center` or `end`, a fraction (`0.5`), or a length (`"100px"`, `"50%"`). A stop is one string of both, `"start end"`: the target's start meeting the container's end. Progress runs from 0 at the first stop to 1 at the last.
+
+```tsx
+let card!: HTMLElement
+// 0 as the card's top meets the bottom of the view, 1 as its bottom leaves the top.
+const { scrollYProgress } = createScroll({ target: () => card, offset: ["start end", "end start"] })
+const y = createTransform(scrollYProgress, [0, 1], [60, -60])
+<w.figure ref={card} style={{ y }} />
+```
+
+A `container` or `target` given as an accessor is read once it's there: until then every value reads 0, as Motion's do, and a change of either follows the new one. Make it where you'd make a signal, in a component's body: it lives as long as its owner. On a server, every value is 0.
+
+## Coming from Motion
+
+Motion's `useScroll`, with its four values and its `container`, `target`, `offset` and `axis`. A ref is given as an accessor here, where Motion's is a ref object.
+
+## Types
+
+- **`ScrollOptions`:** its options.
+- **`ScrollValues`:** its four values.
+- **`ElementSource`:** an element, or an accessor of one.

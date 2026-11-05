@@ -1,0 +1,46 @@
+---
+title: createFollowValue
+description: A live value that follows another on any transition, a spring, a tween or an inertia.
+api: [createFollowValue, FollowAccessor, FollowValueOptions]
+---
+
+# createFollowValue
+
+A value that follows another on a transition: from each change of its source, it animates there, then rests. For a spring alone, [`createSpring`](/reference/solid/live-values/create-spring) is the same.
+
+```tsx
+import { createFollowValue, w } from "@wardic/solid/unstable/v2" // or "@wardic/solid"
+
+const [x, setX] = createSignal(0)
+const eased = createFollowValue(x, { type: "tween", duration: 0.4, ease: "easeOut" })
+<w.div style={{ x: eased }} />
+```
+
+## The transition
+
+Its second argument is a transition, in seconds, as a `transition` prop's:
+
+- **No `type`** is a spring: `stiffness`, `damping` and `mass`, 100 / 10 / 1 by default, or set by time, a `duration` or `visualDuration` and a `bounce`.
+- **`type: "tween"`** is a `duration` and an `ease`: 0.3 s `easeInOut` by default.
+- **`type: "inertia"`** glides with its speed, as a drag's release does: `power`, `timeConstant` in milliseconds, `min` and `max`.
+
+A change mid-way: a spring steers to it, keeping its speed; a tween starts again from where it is, its full duration; an inertia glides again from there. A `velocity` given is the one every run starts with.
+
+`delay` waits at every change, then goes on toward the latest: a source that never rests moves it once it does. `skipInitialAnimation` makes the source's first change land at once, for a source set once after mount, such as a scroll the browser restores. `skipAnimations` makes every change land at once.
+
+A string with a unit, `"10px"`, is followed as its number, and shown with the unit its source started with.
+
+## jump
+
+`eased.jump(value)` puts it at `value` at once, not as motion: it rests there until its source next changes, then animates from there. A [`createVelocity`](/reference/solid/live-values/create-velocity) of it reads 0 across the jump.
+
+Nothing runs while it rests. Make it where you'd make a signal, in a component's body: it lives as long as its owner. On a server it's its source's value, and `jump` does nothing.
+
+## Coming from Motion
+
+Motion's `useFollowValue`, with its options and `jump`.
+
+## Types
+
+- **`FollowAccessor`:** the value, with its `jump`.
+- **`FollowValueOptions`:** its transition.

@@ -1,0 +1,23 @@
+---
+title: createVelocity
+description: How fast a live value is changing, in its units a second, as a live value.
+api: [createVelocity]
+---
+
+# createVelocity
+
+How fast a value is changing, in its units a second: 0 to begin with, then each frame while the source moves, and 0 once it stops.
+
+```tsx
+import { createScroll, createTransform, createVelocity, w } from "@wardic/solid/unstable/v2" // or "@wardic/solid"
+
+const { scrollY } = createScroll()
+const skewY = createTransform(createVelocity(scrollY), [-1000, 1000], [-8, 8])
+<w.article style={{ skewY }} />
+```
+
+A velocity is a value too: `createVelocity(createVelocity(x))` is the acceleration. Make it where you'd make a signal, in a component's body: it lives as long as its owner. On a server it's 0.
+
+## Coming from Motion
+
+Motion's `useVelocity`.
