@@ -145,7 +145,7 @@ const inlineValueOf = (target: unknown, key: string): string => {
   return style.getPropertyValue(dashCase(key))
 }
 
-/** The provider-owned flush gate (one per `WardicProvider`). */
+/** A Flush gate: what a binding registers its elements with and writes their values into, one per provider. */
 export interface FlushGate {
   /**
    * Register an element under `id` with its `sink`. Returns an unregister fn
@@ -175,9 +175,8 @@ export interface FlushGate {
    * Hand `keys` back to the element's own style: drop each from the element's
    * value-map and schedule a flush, which writes `restore[key]` (CSS text) for a key it had
    * written, or else the inline value it overwrote, and tells the sink (`onHeld`). A key the
-   * entry doesn't hold, or an unknown id, is a no-op. The spine releases a key back at its
-   * `style` value, so a later `style` change shows at rest. A later `write` brings the key
-   * back.
+   * entry doesn't hold, or an unknown id, is a no-op. A binding releases a key back at its `style`
+   * value, so a later `style` change shows at rest. A later `write` brings the key back.
    */
   readonly release: (id: string, keys: ReadonlyArray<string>, restore?: Readonly<Record<string, string>>) => void
   /**
@@ -193,19 +192,18 @@ export interface FlushGate {
   /**
    * Call `fn` once, after the gate's next flush: the end of the Frame loop's tick, for a call
    * made in one, else the next Refresh frame's, so what was written before it is on the elements.
-   * It schedules that flush if none is pending. The spine tells a Retarget's settle here, as Motion's
+   * It schedules that flush if none is pending. A binding tells an animation's end here, as Motion's
    * `onAnimationComplete` comes with the final value set. One that throws is reported, and the rest
    * still run.
    */
   readonly afterFlush: (fn: () => void) => void
-  /**
-   * Take the gate's hook off the Frame loop, cancel any pending frame and clear the
-   * accumulator. Wired into the provider's `onCleanup`.
-   */
+  /** Takes the gate off the Frame loop, cancels a pending frame and clears what it held. The Layer's Scope calls it. */
+  // Wired into the provider's `onCleanup`.
   readonly dispose: () => void
 }
 
-/** What a flush gate needs from its Environment: the `Renderer`, the Frame loop it flushes at the end of each tick of (ADR-0033), and the `RefreshFrameSource` (ADR-0031). */
+/** What a flush gate needs from its Environment: the `Renderer`, the Frame loop it flushes at the end of each tick of, and the `RefreshFrameSource`. */
+// ADR-0033; ADR-0031.
 export type FlushGateServices = Renderer.Renderer | RefreshFrameSource.RefreshFrameSource | FrameLoop.FrameLoop | AtomRegistry.AtomRegistry
 
 /**
@@ -220,14 +218,14 @@ export interface FlushGateRuntime {
 /** What a binding hands its flush gate. */
 export interface FlushGateOptions {
   /**
-   * Apply a flush's hooks together: run `apply`, and return once every update inside it has
-   * reached the elements, before the gate commits (ADR-0031, decision 3; ADR-0034). Solid 1 passes
-   * its `batch`; Solid 2 runs `apply` then `flush()`; React would pass `flushSync` (inferred). A
-   * binding with no hook passes `(apply) => apply()`. Called at most twice a flush: once for the
-   * Starting-style switches (`beforeFirstCommit`) when an element commits for the first time,
-   * before anything is read off the elements, and once for the keys held (`onHeld`) when an
-   * element's change (*Amendment (#209)*).
+   * Runs a flush's hooks together: calls `apply`, and returns once every update inside it has reached
+   * the elements, before the gate commits. Solid 1 passes its `batch`, Solid 2 runs `apply` then
+   * `flush()`, and React would pass `flushSync`, untried; a binding with nothing to batch passes
+   * `(apply) => apply()`. Called at most twice a flush: once for the starting-style switches
+   * (`beforeFirstCommit`) of the elements committing for the first time, before anything is read off the
+   * elements; and once for the held keys (`onHeld`) of the elements whose held keys changed.
    */
+  // ADR-0031, decision 3, ADR-0034; *Amendment (#209)*.
   readonly batch: (apply: () => void) => void
 }
 
