@@ -1,20 +1,27 @@
 /**
- * The `DragActivity` module. **Drag activity** (ADR-0019, decision 3b): how many drags are active on the page,
- * and the **Drag claims** they hold (ADR-0019, *Amendment (#29)*). The `drag` recognizer counts in it once
- * past its threshold and counts off at its end or when interrupted; while it is non-zero, no hover and no
- * press starts (Motion's `isDragging` flags, `motion-dom/src/gestures/drag/state/is-active.ts` @ `16c6122`).
+ * Drag activity: how many drags are active on the page, and which element holds each axis. While a
+ * drag is active no hover and no press starts, as Motion's; and a drag that claims an axis another
+ * element holds is refused, so a nested drag on the same axis doesn't move both. A drag counts in once
+ * it's past its threshold, and counts off at its end or when it's interrupted. `DragRecognizer`'s drags
+ * keep it; a recognizer of your own reads it, or counts in and claims as a drag does.
  *
- * A drag that claims takes its target's Drag claim on the axes it moves on, each held on its own (Motion's
- * `setDragLock`, `motion-dom/src/gestures/drag/state/set-active.ts` @ `16c6122`). A claim on an axis another
- * target holds is refused; claims by one target share its hold, which ends at the last one's release.
+ * Every runtime shares one by default, page-wide, as Motion's is; a runtime can provide its own, as the
+ * test Environment does, so tests stay apart. It's synchronous, so a fold reads it inline.
  *
- * It is a `Context.Reference`, so it needs no Layer and stays out of the recognizers'
- * requirements: by default every runtime shares one instance, page-wide like Motion's.
- * A runtime can provide its own (the test Environment does, so tests stay isolated).
- * The API is synchronous so the hover and press folds read it inline.
+ * @example
+ * import * as DragActivity from "@wardic/core/DragActivity"
  *
- * Tier 2 (ADR-0008): Effect-typed, stability tracks Effect.
+ * const activity = yield* DragActivity.DragActivity
+ * const release = activity.claim(card, "x") // None when another element holds x
+ * activity.isDragActive() // true until it's released
  */
+// ADR-0019, decision 3b (Drag activity), and *Amendment (#29)* (Drag claims): Motion's `isDragging`
+// flags, `motion-dom/src/gestures/drag/state/is-active.ts` @ `16c6122`, and `setDragLock`,
+// `motion-dom/src/gestures/drag/state/set-active.ts` @ `16c6122`. Each axis is held on its own; claims by
+// one target share its hold, which ends at the last one's release.
+//
+// A `Context.Reference`, so it needs no Layer and stays out of the recognizers' requirements. Tier 2
+// (ADR-0008): Effect-typed, stability tracks Effect.
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Context from "effect/Context"
@@ -24,15 +31,16 @@ import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import type * as Drag from "./Drag.ts"
 
-/** The Drag activity counter and the page's Drag claims. */
+/** The page's active drags and the axes they hold: what `DragActivity` gives. */
 export interface Shape {
   /**
-   * Take `target`'s Drag claim on `axis` (both axes for `"xy"`) and count one more active drag. `None`
-   * when another target holds one of those axes: the drag is refused, and nothing is counted or claimed.
-   * Otherwise its release, which counts it off and gives up its axes once, however often it is called.
+   * Claims `axis` for `target` (both axes for `"xy"`) and counts one more active drag. `None` when
+   * another target holds one of those axes: the drag is refused, and nothing is counted or claimed.
+   * Otherwise its release, which counts it off and gives up its axes, once, however often it's called.
+   * A target's own claims share its hold, which ends at the last one's release.
    */
   readonly claim: (target: unknown, axis: Drag.Axis) => Option.Option<() => void>
-  /** Count one more active drag that claims no axis (`claim: false`). Returns its release, which counts it off once. */
+  /** Counts one more active drag that claims no axis (`claim: false`). Its release counts it off, once. */
   readonly count: () => () => void
   /** Whether any drag is active. */
   readonly isDragActive: () => boolean
@@ -56,7 +64,7 @@ const axesOf = (axis: Drag.Axis): ReadonlyArray<"x" | "y"> =>
     Match.orElse(() => BOTH),
   )
 
-/** A fresh Drag activity, with no drag active and no axis claimed. */
+/** A fresh Drag activity, with no drag active and no axis held: for a runtime that provides its own. */
 export const make = (): Shape => {
   const active = MutableRef.make(0)
   const holders = { x: MutableRef.make(Option.none<Holder>()), y: MutableRef.make(Option.none<Holder>()) }
@@ -113,7 +121,7 @@ export const make = (): Shape => {
   }
 }
 
-/** The runtime's Drag activity: one shared default instance unless a runtime provides its own. */
+/** The runtime's Drag activity: one shared by every runtime unless a runtime provides its own. */
 export const DragActivity: Context.Reference<Shape> = Context.Reference<Shape>("@wardic/DragActivity", {
   defaultValue: make,
 })

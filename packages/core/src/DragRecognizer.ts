@@ -1,14 +1,25 @@
 /**
- * The `DragRecognizer` module (#548, ADR-0067 *Amendment (#548)*): the pointer's drag and pan, apart
- * from `Recognizer`'s hover, press, focus and in-view, so an app that never drags or pans ships none
- * of it, and one that does on a page ships it with that page. `drag`, whose samples are
- * `Drag.Sample`s, and `pan`, whose are a drag's and its session's start, share one fold: a gesture's
- * owner, its threshold, and its velocity over the last 100 ms.
+ * The pointer's drags and pans. `drag` is a Stream of `Drag.Sample`s as a pointer drags `target`, kept
+ * to its axis, and refused when another element holds that axis; `pan` gives the same samples with a
+ * session's start at each down, moves nothing, and stops no drag. `watchDrag` and `watchPan` call you
+ * with each sample inside its pointer event's dispatch while a Scope is open, with no fiber of their own:
+ * a binding's drags run on these. They're apart from `Recognizer`'s gestures, so an app that never drags
+ * ships none of this.
  *
- * Each is a watch (#318, ADR-0055), `watchDrag` and `watchPan`, running a callback inside each event's
- * dispatch while a Scope is open, with no fiber or Stream of its own; the Streams are built over them.
- * Tier 2 (ADR-0008), for binding authors.
+ * @example
+ * import * as DragRecognizer from "@wardic/core/DragRecognizer"
+ *
+ * yield* DragRecognizer.watchDrag(card, { axis: "x" }, {
+ *   on: (sample) => {
+ *     if (sample.phase === "end") fling(sample.velocity.x)
+ *     else moveTo(sample.offset.x)
+ *   },
+ * })
  */
+// #548, ADR-0067 *Amendment (#548)*: apart from `Recognizer`, so a page that drags ships it with that
+// page. `drag` and `pan` share one fold: a gesture's owner, its threshold, and its velocity over the last
+// 100 ms. The watches are #318's (ADR-0055); the Streams are built over them. Tier 2 (ADR-0008), for
+// binding authors.
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
@@ -350,60 +361,68 @@ const stepOf = (starts: Starts, downs: Downs) => (state: DragState, event: Input
 /** A pan's fold: its own presses, each starting past the threshold. */
 const panFold = /*#__PURE__*/ stepOf(pastThreshold, OWN_DOWNS)
 
-/** `drag`'s options (ADR-0019, *Amendment (#29)*). */
+/** `drag`'s and `watchDrag`'s options. */
+// ADR-0019, *Amendment (#29)*.
 export interface DragOptions {
   /**
-   * The axes the drag moves on, and claims (`"xy"` by default). A one-axis drag's samples have
-   * their off-axis `offset`, `delta` and `velocity` zeroed; `point` and `phase` are left as they
-   * are. A function is read at each gesture's start and holds to its end (a `<Reorder>` item's
-   * axis, decided per gesture, ADR-0020).
+   * The axes the drag moves on, and claims: `"xy"` by default. A one-axis drag's samples have their other
+   * axis's `offset`, `delta` and `velocity` at 0; `point` and `phase` are left as they are. A function is
+   * read at each gesture's start and holds to its end, as a Reorder item's axis is decided per gesture.
    */
+  // ADR-0020.
   readonly axis?: Drag.Axis | LazyArg<Drag.Axis> | undefined
   /**
-   * `false`: the drag takes no **Drag claim** and is never refused (Motion's `dragPropagation`).
-   * It still counts in the **Drag activity**, so no hover or press starts while it is on.
+   * `false`: the drag claims no axis and is never refused, as Motion's `dragPropagation`. It still counts
+   * as an active drag, so no hover or press starts while it's on. Default `true`.
    */
+  // A **Drag claim**; the **Drag activity**.
   readonly claim?: boolean | undefined
   /**
-   * A direction lock (Motion's `dragDirectionLock`, #273, ADR-0047): the gesture starts only once its
-   * offset passes 10 px on one axis (y first, as Motion's), and moves on, claims and counts on that axis
-   * alone: a parent that drags the other axis keeps its gesture. A lock on an axis the drag doesn't move
-   * on (`axis: "y"`, swiped sideways) refuses it. Motion's drag starts at 3 px, claiming both axes, and
-   * locks after.
+   * A direction lock, as Motion's `dragDirectionLock`: the gesture starts only once it's moved 10 px on one
+   * axis, y first, as Motion's, and moves on that axis alone, so a parent that drags the other axis keeps
+   * its gesture. A lock on an axis the drag doesn't move on, `axis: "y"` swiped sideways, refuses it.
+   * Default `false`.
    */
+  // #273, ADR-0047. Motion's drag starts at 3 px, claiming both axes, and locks after.
   readonly lock?: boolean | undefined
   /**
-   * `false`: a press on the target starts no gesture, only a down it adopted does (#431, **Drag
-   * controls**, Motion's `dragListener={false}`). Default `true`: both do.
+   * `false`: a press on the target starts no gesture, only a down handed to it does, as Motion's
+   * `dragListener={false}` with drag controls. Default `true`: both do.
    */
+  // #431, **Drag controls**.
   readonly listen?: boolean | undefined
   /**
-   * `true`: the target was given **Drag controls** (#431, #507), so the drag reads its adoptable
-   * pointer feed (`InputSource.adoptablePointerOf`), which also delivers the downs they hand it, and
-   * its {@link WatchedDrag} ends a gesture from outside (#539). Default `false`: the plain feed, which
-   * subscribes no adoption, and `stop` and `cancel` that do nothing.
+   * `true`: the target was given drag controls, so the drag reads the pointer feed that also delivers the
+   * downs they hand it (`InputSource.adoptablePointerOf`), and its `WatchedDrag` ends a gesture from
+   * outside. Default `false`: the plain feed, and a `stop` and `cancel` that do nothing.
    */
+  // #431, #507, #539: **Drag controls**.
   readonly adoptable?: boolean | undefined
   /**
-   * How far (px) a gesture from `down` moves before it starts, read at the down (#431, Motion's
-   * `distanceThreshold`): `undefined`, or none given, is 3. A direction lock still waits for its 10 px
-   * on one axis.
+   * How far, in px, a gesture from `down` moves before it starts, read at the down, as Motion's
+   * `distanceThreshold`: `undefined`, or none given, is 3. A direction lock still waits for its 10 px on
+   * one axis.
    */
+  // #431.
   readonly threshold?: ((down: InputSource.PointerLikeEvent) => number | undefined) | undefined
   /**
-   * Where each pointer point is, for the gesture (#443, Motion's `transformPagePoint`): read at each
-   * down, and applied to that gesture's every point, its down's and each move's, before they're
-   * folded. `undefined` (or none given) leaves them as they are. It's handed and gives the point on
-   * the screen, the scroll a hold counts in added back after.
+   * Where each pointer point is for the gesture, as Motion's `transformPagePoint`: read at each down, and
+   * applied to all that gesture's points, its down's and each move's. `undefined`, or none given, leaves
+   * them as they are. It's handed the point on the screen and gives one; the scroll a hold counts in is
+   * added back after.
    */
+  // #443.
   readonly mapPoint?: LazyArg<PointMap | undefined> | undefined
 }
 
-/** A point mapped (#443, Motion's `transformPagePoint`): the Environment's coordinates in, the gesture's out. */
+/** A point mapped, as Motion's `transformPagePoint`: the Environment's coordinates in, the gesture's out. */
+// #443.
 export type PointMap = (point: Point.Point) => Point.Point
 
-/** Pan options (#443): see {@link DragOptions}'s `mapPoint`. */
+/** `watchPan`'s options. */
+// #443.
 export interface PanOptions {
+  /** Where each pointer point is for the gesture, as `DragOptions`' `mapPoint`. */
   readonly mapPoint?: LazyArg<PointMap | undefined> | undefined
 }
 
@@ -426,15 +445,16 @@ const mappedEvents = (mapPoint: DragOptions["mapPoint"]): ((event: InputSource.P
 }
 
 /**
- * A drag's watch (#431): its gesture ended from outside its pointer, as Motion's drag controls' `stop`
- * and `cancel` end theirs. Each tells its `"end"` inside the call, and does nothing when no gesture
- * has started. Only a watch that's `adoptable` (a target given Drag controls) is ended so; any
- * other's `stop` and `cancel` do nothing (#539).
+ * A drag's watch, which can end its gesture from outside its pointer, as Motion's drag controls' `stop`
+ * and `cancel` do. Each tells its `"end"` inside the call, and does nothing when no gesture has started.
+ * Only an `adoptable` watch, a target given drag controls, is ended so; any other's `stop` and `cancel`
+ * do nothing.
  */
+// #431, #539.
 export interface WatchedDrag {
-  /** End the gesture as its pointer's release would: an `"end"` at its last point, with its moves' velocity. */
+  /** Ends the gesture as its pointer's release would: an `"end"` at its last point, with its moves' velocity. */
   readonly stop: () => void
-  /** End the gesture where it is: an `"end"` with no velocity, marked `cancelled`. */
+  /** Ends the gesture where it is: an `"end"` with no velocity, marked `cancelled`. */
   readonly cancel: () => void
 }
 
@@ -499,39 +519,46 @@ const axisAtOf = (axis: Drag.Axis | LazyArg<Drag.Axis>): LazyArg<Drag.Axis> =>
   )
 
 /**
- * Recognize a drag gesture on `target`, emitting a `Drag.Sample` stream, kept to its `axis`: a Stream
- * over {@link watchDrag} (#379), whose rules it has. Each sample is offered and flushed inside its
- * pointer event's dispatch (ADR-0032), and the Stream ends when the input does (a test's script).
+ * A drag on `target`, as a Stream of samples kept to its `axis`, with `watchDrag`'s rules: each sample
+ * arrives inside its pointer event's dispatch, and the Stream ends when the input does, as a test's
+ * script does.
+ *
+ * @example
+ * DragRecognizer.drag(card, { axis: "x" }).pipe(Drag.withinBounds({ x: { min: 0, max: 200 } }))
  */
+// A Stream over `watchDrag` (#379); each sample offered and flushed inside its event (ADR-0032).
 export const drag = (target: unknown, options: DragOptions = {}): Stream.Stream<Drag.Sample, never, InputSource.InputSource> =>
   streamOf<Drag.Sample, InputSource.InputSource>((handlers) => watchDrag(target, options, handlers))
 
 /**
- * Watch drags on `target` (#379, ADR-0055): `handlers.on` told each of a gesture's samples, kept to its
- * `axis`, inside its pointer event's dispatch, while the Scope is open. No fiber and no Stream: a
- * scoped subscription to the target's pointer feed, folded as {@link pan}'s is. Tier 2, for bindings.
+ * Watches drags on `target` while the Scope is open: `handlers.on` hears each of a gesture's samples, kept
+ * to its `axis`, inside its pointer event's dispatch.
+ * - **It starts** once the pointer has moved `threshold` px, 3 by default, from its down.
+ * - **Its axis is claimed** at its `"start"`, before `on` hears it, and counts as an active drag, so no
+ *   hover or press starts elsewhere while it's on. Every watch on one target shares the claim. When
+ *   another element holds an axis it needs, the gesture is refused: it tells nothing until its end, as a
+ *   tap tells nothing, and doesn't retry. Of nested drags, the innermost claims first. With `claim: false`
+ *   it only counts.
+ * - **Its claim is given back** at its `"end"`, before `on` hears it, or when the Scope closes mid-drag,
+ *   so a throw from `on` can't keep it.
+ * - **Velocity** is the pointer's on each axis over the last 100 ms, read from the events' times.
  *
- * At its `"start"` the drag reads its axis and takes its target's **Drag claim** on it, which
- * also counts it in the runtime's **Drag activity**, so a hover or press elsewhere can't start
- * while it is on (ADR-0019). Every watch on one target shares the claim. When another
- * target holds an axis it needs, the gesture is refused: it tells nothing until its end, as a tap
- * tells nothing, and doesn't retry. Of nested draggables the innermost claims first: a pointer's
- * moves reach the targets it went down on innermost first, and each is handled inside its event
- * (ADR-0032). With `claim: false` the drag only counts in the Drag activity. Either is taken before
- * `handlers.on` hears the `"start"`, and given back at the gesture's `"end"`, before it hears that,
- * or when the Scope closes mid-gesture (ADR-0019, *Amendment (#29)*), so a throw from `on` can't keep
- * it. A Stale gesture's end is the one cold-path log: `wardic.drag: stale gesture` with its rule.
+ * A down handed to the target starts a gesture as its own press does; with `listen: false`, only those
+ * do. An `adoptable` watch gives back a `WatchedDrag` that ends a gesture from outside.
  *
- * Velocity is the pointer's per axis over the gesture's last 100 ms (Motion's `getVelocity`,
- * `Velocity.trailing`), on every sample; the `"end"` sample counts the release point too
- * (ADR-0004, *Amendment (#139)*). It's read from event `timeStamp`s, so the recognizer needs
- * no `Clock` — only `InputSource`.
- *
- * A down the target adopted (#431, `InputSource.adoptPointer`) starts a gesture as its own press does,
- * past its `threshold`; with `listen: false` only those do. An `adoptable` watch returns ends from
- * outside its pointer ({@link WatchedDrag}), which do nothing once the Scope has closed; any other's
- * do nothing at all (#539).
+ * @example
+ * const watched = yield* DragRecognizer.watchDrag(slider, { axis: "x", adoptable: true }, { on: move })
+ * watched.cancel() // ends the gesture where it is
  */
+// #379, ADR-0055: no fiber and no Stream, a scoped subscription to the target's pointer feed, folded as
+// `pan`'s is. Tier 2, for bindings. The claim is the target's **Drag claim**, which counts it in the
+// runtime's **Drag activity** (ADR-0019, *Amendment (#29)*). Innermost first: a pointer's moves reach the
+// targets it went down on innermost first, and each is handled inside its event (ADR-0032). A Stale
+// gesture's end is the one cold-path log: `wardic.drag: stale gesture` with its rule. Velocity: Motion's
+// `getVelocity`, `Velocity.trailing`, on every sample; the `"end"` sample counts the release point too
+// (ADR-0004, *Amendment (#139)*); from event `timeStamp`s, so it needs no `Clock`, only `InputSource`.
+// Adopted downs: #431 (`InputSource.adoptPointer`); a `WatchedDrag`'s ends do nothing once the Scope has
+// closed, and any other watch's nothing at all (#539).
 export const watchDrag = (
   target: unknown,
   { axis = "xy", claim = true, lock = false, listen = true, adoptable = false, threshold, mapPoint }: DragOptions,
@@ -631,11 +658,12 @@ export const watchDrag = (
 }
 
 /**
- * A pan's sample (#273, ADR-0047): a drag's, or its session's start (`"session"`, Motion's
- * `onPanSessionStart`): at a **Primary pointer**'s down on the target, at its point, with no offset,
- * delta or velocity.
+ * A pan's sample: a drag's, or its session's start, `"session"`, as Motion's `onPanSessionStart`: at the
+ * primary pointer's down on the target, at its point, with no offset, delta or velocity.
  */
+// #273, ADR-0047.
 export interface PanSample extends Omit<Drag.Sample, "phase"> {
+  /** `"session"` at the down, then a drag's: `"start"` past the threshold, `"move"`, `"end"`. */
   readonly phase: "session" | Drag.Sample["phase"]
 }
 
@@ -668,23 +696,26 @@ const panStep = (state: DragState, event: InputSource.PointerLikeEvent): PanStep
 }
 
 /**
- * Recognize a pan on `target` (#273, ADR-0047, Motion's pan gesture): its session's start at each
- * **Primary pointer**'s down, then a drag's `"start"` past its threshold, a `"move"` at each move, and
- * an `"end"` at the release, a cancel or a lost release, for a pan that started. It moves nothing.
+ * A pan on `target`, as Motion's pan gesture: its session's start at the primary pointer's down, then a
+ * drag's `"start"` past its threshold, a `"move"` at each move, and an `"end"` at the release, a cancel
+ * or a lost release. It moves nothing.
  *
- * A pan takes no **Drag claim**: it never stops a drag, nested or not, and none stops it. Once
- * started it counts in the **Drag activity** until its end, so a press it took over ends as neither
- * a tap nor a cancel, and no hover starts meanwhile. That's Wardic's rule, not Motion's: Motion's pan
- * is invisible to its drag lock, so a swipe that's let go over a tappable element taps it too (ADR-0047).
+ * A pan claims no axis, so it never stops a drag, nested or not, and no drag stops it. Once started it
+ * counts as an active drag until its end, so a press it took over ends as neither a tap nor a cancel,
+ * and no hover starts meanwhile: that's Wardic's, not Motion's, whose swipe let go over a tappable
+ * element taps it too.
  */
+// #273, ADR-0047: no **Drag claim**; counted in the **Drag activity**. Motion's pan is invisible to its
+// drag lock.
 export const pan = (target: unknown): Stream.Stream<PanSample, never, InputSource.InputSource> =>
   streamOf<PanSample, InputSource.InputSource>((handlers) => watchPan(target, handlers))
 
 /**
- * Watch pans on `target` (#318, ADR-0055): `handlers.on` told each of {@link pan}'s samples inside the pointer
- * event's dispatch, while the Scope is open. A started pan's count in the **Drag activity** is held
- * from its `"start"` to its `"end"`, and given back when the Scope closes on one still going. Tier 2.
+ * Watches pans on `target` while the Scope is open: `handlers.on` hears each of `pan`'s samples inside the
+ * pointer event's dispatch. A started pan counts as an active drag from its `"start"` to its `"end"`, or
+ * until the Scope closes on one still going.
  */
+// #318, ADR-0055: its count in the **Drag activity**. Tier 2.
 export const watchPan = (target: unknown, handlers: InputFeed.Handlers<PanSample>, options: PanOptions = {}): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> => {
   const attributes = { threshold: THRESHOLD, velocityWindowMs: VELOCITY_WINDOW_MS }
   return Effect.gen(function* () {
