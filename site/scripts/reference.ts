@@ -46,6 +46,8 @@ const READY: Readonly<Record<(typeof PACKAGES)[number]["dir"], ReadonlyArray<str
     "Arc", "Easing", "Inertia", "Machine", "Playback", "Scalar", "Sequence", "Spring", "Stagger", "Velocity", "Wave",
     // Values.
     "BaseValue", "DefaultTransition", "Interpolator", "InterpolatorRegistry", "LiveValue", "Override", "ReducedMotion", "Supersede", "Values",
+    // Input and gestures.
+    "AutoScroll", "Drag", "DragActivity", "DragRecognizer", "InputFeed", "InputSource", "PressClaims", "Recognizer", "Reorder",
   ],
   dom: [],
 }
