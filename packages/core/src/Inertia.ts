@@ -138,6 +138,8 @@ const decode: (options: InertiaOptions) => Decoded = cachedResolver(
 /**
  * An inertia's defaults filled in, and its glide worked out from `initial` at `velocity`: once each
  * run. A value no inertia can take, a negative `timeConstant` say, throws an `OptionError` naming it.
+ * Its options are checked once a bag, kept by its identity: one changed after it's handed over isn't
+ * seen, so pass a new one.
  */
 // The options are checked once a bag (#66).
 export const resolve = (initial: number, velocity: number, options: InertiaOptions): Resolved => {

@@ -183,7 +183,10 @@ export const MAX_DT = 0.5
 // …, and `Easing.spring`).
 export { OptionError } from "./internal/options.ts"
 
-/** A tween's options: its `duration`, `ease` and `delay`. */
+/**
+ * A tween's options: its `duration`, `ease` and `delay`. A bag is read once and kept by its identity:
+ * one changed after it's handed over isn't seen, so pass a new one.
+ */
 export interface TweenOptions {
   /** Seconds it takes. Default 0.3. */
   // A missing duration leaves the other options as they are (#107).
@@ -233,6 +236,8 @@ const NO_OPTIONS = {}
 /**
  * A spring's options: its physics (`stiffness`, `damping`, `mass`) or its time (`duration` or
  * `visualDuration`, with `bounce`), where it starts and how fast, its rest thresholds, and a delay.
+ * A bag is read once and kept by its identity: one changed after it's handed over isn't seen, so pass
+ * a new one.
  */
 export interface SpringOptions {
   /** Where it starts. Default 0. */
@@ -277,7 +282,10 @@ export interface SpringOptions {
   readonly visualDuration?: number
 }
 
-/** A decay's options: how quickly it slows, when it rests, and a delay. */
+/**
+ * A decay's options: how quickly it slows, when it rests, and a delay. A bag is read once and kept by
+ * its identity: one changed after it's handed over isn't seen, so pass a new one.
+ */
 export interface DecayOptions {
   /** How quickly it slows: higher stops sooner. Default 3. */
   readonly friction?: number
@@ -289,7 +297,9 @@ export interface DecayOptions {
 
 /**
  * An inertia's options: how far it glides and how it eases out, its edges and the spring back from
- * them, and where it rests. Times in seconds, where Motion's `timeConstant` is in milliseconds.
+ * them, and where it rests. Times in seconds, where Motion's `timeConstant` is in milliseconds. A bag
+ * is read once and kept by its identity: one changed after it's handed over isn't seen, so pass a new
+ * one.
  */
 // ADR-0016, *Amendment (#140)*, Motion's `inertia`.
 export interface InertiaOptions {
@@ -1041,9 +1051,9 @@ export interface InertiaValuesOptions extends InertiaOptions {
  */
 // #435, Motion's `type: "inertia"` transition; rewritten in place (ADR-0030, decision 11).
 export const inertiaValues = (
-  from: Record<string, number>,
+  from: Readonly<Record<string, number>>,
   options: InertiaValuesOptions = NO_OPTIONS,
-  velocity: Record<string, number> = {},
+  velocity: Readonly<Record<string, number>> = {},
 ): Machine<Frame.MultiPhysics> => {
   const keys = Rec.keys(from)
   const delay = UndefinedOr.match(options.delay, { onUndefined: () => 0, onDefined: identity })
@@ -1128,10 +1138,10 @@ export const inertiaVec = (initial: Point.Point, velocity: Point.Point, options:
  */
 // Each run steps in place (ADR-0030, decision 11); `toStream` copies each Frame it emits.
 export const springValues = (
-  target: Record<string, number>,
+  target: Readonly<Record<string, number>>,
   options: SpringOptions = NO_OPTIONS,
-  from: Record<string, number> = {},
-  velocity: Record<string, number> = {},
+  from: Readonly<Record<string, number>> = {},
+  velocity: Readonly<Record<string, number>> = {},
 ): Machine<Frame.MultiPhysics> => {
   const keys = Rec.keys(target)
   /** A key's start: its own value, else the options', else 0. */
@@ -1475,11 +1485,11 @@ type Blender = InterpolatorRegistry.KeyBlend
  *   at the first Frame past 0 (ADR-0024, decision 3).
  */
 const blendersFor: (
-  from: Values.Values,
-  to: Values.Values,
+  from: Readonly<Values.Values>,
+  to: Readonly<Values.Values>,
 ) => Effect.Effect<ReadonlyArray<readonly [key: string, blend: Blender]>, never, InterpolatorRegistry.InterpolatorRegistry> =
   // Per leg (#460): one Effect a key, in `to`'s order, and no record built between.
-  Effect.fnUntraced(function* (from: Values.Values, to: Values.Values) {
+  Effect.fnUntraced(function* (from: Readonly<Values.Values>, to: Readonly<Values.Values>) {
     const registry = yield* InterpolatorRegistry.InterpolatorRegistry
     const keys = Rec.keys(to)
     const blenders = yield* Effect.forEach(keys, (key) => blenderFor(registry, key, startOf(from, key, to[key]), to[key]))
@@ -1528,8 +1538,8 @@ const blendAt = (
 // ADR-0035. The registry is consulted once: each key resolves to a pure blender; per tick,
 // `keys.length` direct calls.
 export const animateValues = (
-  from: Values.Values,
-  to: Values.Values,
+  from: Readonly<Values.Values>,
+  to: Readonly<Values.Values>,
   options: AnimateOptions = NO_OPTIONS,
 ): Effect.Effect<Machine<Frame.Frame<Values.Values>>, never, InterpolatorRegistry.InterpolatorRegistry> =>
   // Per leg (#460): the combinators called data-first.
@@ -1555,8 +1565,8 @@ export const animateValues = (
 // As Motion runs a spring on a string (motion-dom animation/JSAnimation.ts:132-148 at
 // 16c61222c4166bbef5ff6ab0051192faa79fa8c8); its default thresholds a move of 100's (#344).
 export const springBlend = (
-  from: Values.Values,
-  to: Values.Values,
+  from: Readonly<Values.Values>,
+  to: Readonly<Values.Values>,
   options: SpringOptions = NO_OPTIONS,
 ): Effect.Effect<Machine<Frame.Frame<Values.Values>>, never, InterpolatorRegistry.InterpolatorRegistry> =>
   // Per leg (#460): the combinators called data-first.

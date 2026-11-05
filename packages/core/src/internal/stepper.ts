@@ -94,7 +94,8 @@ export const resolvedTweenOf = (decoded: { readonly delay: number; readonly dura
 /**
  * A tween's options with its defaults filled in: 0.3 s, no delay, linear. A negative or non-finite
  * duration or delay, or an `ease` that's none of Motion's names, four numbers or a function, throws an
- * `OptionError`. For a tween you step yourself, as `@wardic/dom`'s layout animations do.
+ * `OptionError`. For a tween you step yourself, as `@wardic/dom`'s layout animations do. A bag is
+ * resolved once and kept by its identity: one changed after it's handed over isn't seen, so pass a new one.
  */
 // Checked once a bag (#66); a leftover `easing` throws too (#360). Public as `Machine.resolveTween`, Tier 3.
 export const resolveTween: (options: TweenOptions) => ResolvedTween = /*#__PURE__*/ cachedResolver(TweenFields, resolvedTweenOf)
@@ -194,10 +195,12 @@ const RUN_PASS: Pass = { within: 0, reversed: false, flipped: false }
  */
 export const runAt = (t: number, from: number, to: number, run: ResolvedRun): Sample => {
   const done = passAt(t, run, false, RUN_PASS)
+  // Read before the ease runs: it's the app's code, and may step another run, which writes the scratch (#618).
+  const flipped = RUN_PASS.flipped
   let s = RUN_PASS.within / run.tween.duration
   if (RUN_PASS.reversed) s = 1 - s
   const eased = run.tween.ease(s)
-  if (RUN_PASS.flipped) return { value: Scalar.lerp(to, from, eased), done }
+  if (flipped) return { value: Scalar.lerp(to, from, eased), done }
   return { value: Scalar.lerp(from, to, eased), done }
 }
 
