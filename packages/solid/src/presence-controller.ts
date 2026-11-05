@@ -40,7 +40,7 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
-import * as Fiber from "effect/Fiber"
+import type * as Fiber from "effect/Fiber"
 import { constFalse, constUndefined, constVoid, identity } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -753,7 +753,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     const fiber = exiting.get(el)
     if (Predicate.isNotUndefined(fiber)) {
       debug("exit: interrupt")
-      runtime.runFork(Fiber.interrupt(fiber))
+      // Nothing waits on its end: interrupted here, not by a fiber forked for it (#618, L2).
+      fiber.interruptUnsafe()
     }
     const drop = handovers.get(el)
     if (Predicate.isNotUndefined(drop)) drop()

@@ -137,19 +137,16 @@ export function createTransform(
   // On an Atom: derived on it, so it's set where its source is. What `fn` reads of Solid besides its
   // source is tracked here, and a change of it re-derives the Atom.
   const registry = useWardicRuntime().runSync(AtomRegistry.AtomRegistry)
-  const version = Atom.make(0)
-  onCleanup(registry.mount(version))
+  const derived = Atom.make((get) => untrack(() => fn(get(atom))))
+  // A change of what `fn` reads of Solid derives it again: the registry's own refresh, where a counter
+  // Atom it read was bumped (#618, L2).
   createEffect(
     () => fn(registry.get(atom)),
     () => {
-      registry.update(version, (n) => n + 1)
+      registry.refresh(derived)
     },
     CLIENT_ONLY_DEFERRED,
   )
-  const derived = Atom.make((get) => {
-    get(version)
-    return untrack(() => fn(get(atom)))
-  })
   return followAtom(registry, derived)
 }
 

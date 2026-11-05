@@ -455,19 +455,15 @@ export function runScoped<A, E>(
     const latch = Latch.makeUnsafe(false)
     const held = runtime.runFork(Effect.andThen(latch.await, run))
     onMount(() => {
-      Effect.runSync(latch.open)
+      latch.openUnsafe()
     })
-    onCleanup(() => {
-      runtime.runFork(Fiber.interrupt(held))
-    })
+    onCleanup(() => held.interruptUnsafe())
     return held
   }
   const fiber = runtime.runFork(run)
-  onCleanup(() => {
-    // Interrupting is itself an Effect; fork it on the runtime so it runs
-    // without blocking the synchronous cleanup pass.
-    runtime.runFork(Fiber.interrupt(fiber))
-  })
+  // Interrupted where the cleanup runs, nothing waiting on its end, as `runCallback`'s interruptor
+  // does: a forked `Fiber.interrupt` was a fiber of its own for each (#618, L2).
+  onCleanup(() => fiber.interruptUnsafe())
   return fiber
 }
 

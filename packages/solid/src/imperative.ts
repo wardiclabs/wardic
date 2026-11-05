@@ -33,7 +33,7 @@ import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
-import * as Fiber from "effect/Fiber"
+import type * as Fiber from "effect/Fiber"
 import { constVoid, identity } from "effect/Function"
 import * as Match from "effect/Match"
 import * as Predicate from "effect/Predicate"
@@ -681,7 +681,8 @@ const callbackTrackOf = (env: AnimateEnv, callback: Callback, animation: Sequenc
     if (Predicate.isUndefined(fiber)) return
     const running = fiber
     fiber = undefined
-    if (Predicate.isUndefined(running.pollUnsafe())) env.runtime.runFork(Fiber.interrupt(running))
+    // Nothing waits on its end: interrupted here, not by a fiber forked for it (#618, L2).
+    if (Predicate.isUndefined(running.pollUnsafe())) running.interruptUnsafe()
   }
   const landed = (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
     Exit.match(exit, {
