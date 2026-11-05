@@ -16,7 +16,6 @@ import type * as InputFeed from "@wardic/core/InputFeed"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as Scope from "effect/Scope"
 import * as Bool from "effect/Boolean"
@@ -36,6 +35,7 @@ import { explainerOf, type ServerAppear, serverAppear } from "./appear.ts"
 import * as Context from "effect/Context"
 import { type Feature, type FeatureRegistry, type FeatureSection, type FeaturesProp, ROOT, strictMessage } from "./feature.ts"
 import { FeatureSectionProvider, sectionUnder, useLazySection } from "./feature-section.ts"
+import * as OwnerScope from "./owner-scope.ts"
 import {
   type AnimateLayout,
   animateLayoutOf,
@@ -483,7 +483,10 @@ export function runWatch(
   watch: (onDefect: InputFeed.OnDefect) => Effect.Effect<void, never, Scope.Scope | WardicServices>,
 ): void {
   if (isServer) return
-  const scope = Scope.makeUnsafe()
+  const scope = OwnerScope.open(runtime)
+  // Closed with the owner, set before the watch starts, so one that throws as it subscribes leaves no
+  // listener behind (#618, decision 5).
+  onCleanup(() => OwnerScope.close(runtime, scope, "wardic.runWatch: a finalizer failed"))
   const onDefect = (cause: Cause.Cause<never>): void => {
     runtime.runFork(Report.failure("wardic.runWatch: a gesture handler failed", cause))
   }
@@ -491,9 +494,6 @@ export function runWatch(
     runtime.runSync(watch(onDefect).pipe(Scope.provide(scope)))
   }
   Bool.match(isHydrating(), { onTrue: () => onMount(start), onFalse: start })
-  onCleanup(() => {
-    runtime.runSync(Scope.close(scope, Exit.void))
-  })
 }
 
 /**

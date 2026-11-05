@@ -24,7 +24,6 @@ import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Report from "@wardic/dom/Report"
 import type * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
 import * as Scope from "effect/Scope"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -32,6 +31,7 @@ import { isServer } from "@solidjs/web"
 import { type Accessor, createSignal, onCleanup } from "solid-js"
 import type { WardicViewport } from "../../config.ts"
 import { inViewOptionsOf } from "../../gesture-callbacks.ts"
+import * as OwnerScope from "../../owner-scope.ts"
 import type { WardicServices } from "../../runtime.ts"
 import { fromAtom } from "./bridge.ts"
 import { useWardicReducedMotionSetting, useWardicRuntime } from "./provider.tsx"
@@ -69,7 +69,7 @@ export const watchSensorOf = <A>(
   // The element it's attached to, and its watch's Scope there.
   let attached: { readonly element: Element; readonly scope: Scope.Closeable } | undefined
   const detach = (): void => {
-    UndefinedOr.map(attached, ({ scope }) => runtime.runSync(Scope.close(scope, Exit.void)))
+    UndefinedOr.map(attached, ({ scope }) => OwnerScope.close(runtime, scope, "wardic.sensor: a finalizer failed"))
     attached = undefined
   }
   onCleanup(detach)
@@ -79,9 +79,10 @@ export const watchSensorOf = <A>(
   const attach = (element: Element): void => {
     if (Predicate.isNotUndefined(attached) && attached.element === element) return
     detach()
-    const scope = Scope.makeUnsafe()
-    runtime.runSync(watchOf(element, { on: (next) => setValue(() => next as Exclude<A, Function>), onDefect }).pipe(Scope.provide(scope)))
+    // Attached before its watch starts, so one that throws as it subscribes is closed all the same (#618).
+    const scope = OwnerScope.open(runtime)
     attached = { element, scope }
+    runtime.runSync(watchOf(element, { on: (next) => setValue(() => next as Exclude<A, Function>), onDefect }).pipe(Scope.provide(scope)))
   }
   // eslint-disable-next-line solid/reactivity -- the sensor: a ref Solid calls with its element, and an accessor its caller reads where it tracks
   return ((element?: unknown): A | undefined => {

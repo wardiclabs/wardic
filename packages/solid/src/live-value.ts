@@ -26,7 +26,6 @@ import type * as ScrollOffset from "@wardic/dom/ScrollOffset"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import { identity } from "effect/Function"
-import * as Exit from "effect/Exit"
 import * as Predicate from "effect/Predicate"
 import { Atom, AtomRegistry } from "effect/reactivity"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -38,6 +37,7 @@ import { eachFrameOf } from "./animation-frame.ts"
 import { fromAtom } from "./bridge.ts"
 import type { FollowAccessor, FollowValueOptions, LiveSource, SpringAccessor, WillChange } from "./live-style.ts"
 import { atomOf, carry, followAccessorOf, followOptionsOf, numberOf, readLive, serverFollowOf, serverRegistryOf, unitOf, willChangeOf, withUnit } from "./live-style.ts"
+import * as OwnerScope from "./owner-scope.ts"
 import { useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import { isServer } from "./server.ts"
@@ -219,8 +219,8 @@ const derivedOf = <A, R>(
 
 /** A helper's Atom on the provider's runtime, in a Scope its owner's disposal closes, as an accessor carrying it. */
 const liveOf = <A, R>(runtime: WardicRuntime, live: Effect.Effect<Atom.Atom<A>, never, R>): Accessor<A> => {
-  const scope = Scope.makeUnsafe()
-  onCleanup(() => closeScope(runtime, scope))
+  const scope = OwnerScope.open(runtime)
+  onCleanup(() => OwnerScope.close(runtime, scope, CLOSE_FAILED))
   const out = runtime.runSync((live as Effect.Effect<Atom.Atom<A>, never, WardicServices | Scope.Scope>).pipe(Scope.provide(scope)))
   return carry(fromAtom(out), out)
 }
@@ -265,8 +265,8 @@ const SERVER_AUTO: Accessor<WillChange> = () => "auto"
 export const createAnimationFrame = (callback: (time: number, delta: number) => void): void => {
   if (isServer) return
   const runtime = useWardicRuntime()
-  const scope = Scope.makeUnsafe()
-  onCleanup(() => closeScope(runtime, scope))
+  const scope = OwnerScope.open(runtime)
+  onCleanup(() => OwnerScope.close(runtime, scope, CLOSE_FAILED))
   runtime.runSync(eachFrameOf(runtime, callback).pipe(Scope.provide(scope)))
 }
 
@@ -341,7 +341,8 @@ export const createScroll = (options: ScrollOptions = {}): ScrollValues => {
     // A ref not there yet: the values hold until it is.
     if (Bool.or(Option.isNone(container), Option.isNone(target))) return
     const registry = runtime.runSync(AtomRegistry.AtomRegistry)
-    const scope = Scope.makeUnsafe()
+    const scope = OwnerScope.open(runtime)
+    onCleanup(() => OwnerScope.close(runtime, scope, CLOSE_FAILED))
     const values = runtime.runSync(
       LiveValue.scroll({
         ...UndefinedOr.match(Option.getOrUndefined(container), { onUndefined: () => ({}), onDefined: (element) => ({ container: element }) }),
@@ -360,10 +361,7 @@ export const createScroll = (options: ScrollOptions = {}): ScrollValues => {
       ] as const,
       ([atom, set]) => registry.subscribe(atom, (v) => void set(v), { immediate: true }),
     )
-    onCleanup(() => {
-      Arr.forEach(stops, (stop) => stop())
-      closeScope(runtime, scope)
-    })
+    onCleanup(() => Arr.forEach(stops, (stop) => stop()))
   })
   return { scrollX, scrollY, scrollXProgress, scrollYProgress }
 }
@@ -376,7 +374,5 @@ const mirrorOf = <A>(accessor: Accessor<A>, registry: AtomRegistry.AtomRegistry)
   return atom
 }
 
-/** Close a helper's Scope on the provider's runtime. */
-const closeScope = (runtime: WardicRuntime, scope: Scope.Closeable): void => {
-  runtime.runFork(Scope.close(scope, Exit.void))
-}
+/** What a helper's Scope reports when one of its finalizers fails as its owner goes. */
+const CLOSE_FAILED = "wardic.liveValue: a finalizer failed"
