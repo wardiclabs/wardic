@@ -20,10 +20,19 @@ import { useWardicConfig } from "./wardic-config.tsx"
 const DRAG: ReadonlyArray<Feature> = [drag]
 
 /**
- * The latest sample of a drag gesture on the element, `null` before the first: the core drag watch
- * (#379) with `options`' axis, claim and bounds. Like an element's own drag, it holds the
- * element's **Drag claim** while a gesture is on, unless `claim: false`.
+ * The latest sample of a drag on the element it's given to as a `ref`, `null` before the first: where
+ * the pointer is, how far it has come, its velocity, and the gesture's `phase`. It moves nothing: it
+ * reports, for a drag that drives something else, such as a slider's value. Like an element's own
+ * drag, it takes the element's drag while a gesture is on, unless `claim: false`.
+ *
+ * @example
+ * const drag = createDrag({ axis: "x" })
+ * const value = () => (drag()?.offset.x ?? 0) / 2
+ * <div class="track" ref={drag} />
+ * @see https://wardic.dev/reference/solid/gestures/create-drag
  */
+// The core drag watch (#379), with `options`' axis, claim and bounds; the element's Drag claim held
+// while a gesture is on.
 export const createDrag = (options?: CreateDragOptions): Sensor<Drag.Sample | null> => {
   // Its points through the nearest WardicConfig's `transformPagePoint` (#443), read at each down.
   const pagePoint = transformPagePointOf(useWardicConfig())

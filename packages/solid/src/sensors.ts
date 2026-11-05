@@ -167,18 +167,17 @@ export const createReducedMotionConfig = (): Accessor<boolean> => {
 }
 
 /**
- * Whether the page is shown (#443, Motion's `usePageInView`): `false` while it's hidden, in a tab in
- * the background or a minimised window, from the Probe's `pageVisible`. Pause what nobody can see,
- * such as a carousel's autoplay.
+ * Whether the page is shown: `false` while it's hidden, in a tab in the background or a minimised
+ * window. Pause what nobody can see, such as a carousel's autoplay. A server renders `true`, and a
+ * hydrating page keeps it until it has mounted. Motion's `usePageInView`.
  *
- * A server renders `true`, and a hydrating client keeps it until mount (the Hydration hold), as
- * Motion's starts `true` and corrects itself after its first render.
- *
- * ```tsx
+ * @example
  * const visible = createPageInView()
  * createEffect(() => (visible() ? player.play() : player.pause()))
- * ```
+ * @see https://wardic.dev/reference/solid/gestures/create-page-in-view
  */
+// #443, the Probe's `pageVisible`. The Hydration hold keeps `true` until mount, as Motion's starts
+// `true` and corrects itself after its first render.
 export const createPageInView = (): Accessor<boolean> => {
   const runtime = useWardicRuntime()
   if (isServer) return () => true

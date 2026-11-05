@@ -38,7 +38,10 @@ import { useWardicReducedMotionSetting, useWardicRuntime } from "./provider.tsx"
 
 export type { CreateDragOptions } from "../../drag-samples.ts"
 
-/** A sensor: a ref that attaches it to an element, and, called with nothing, its reading. */
+/**
+ * A sensor: give it to an element's `ref` (alone, or in an array beside a ward), and call it with
+ * nothing to read it, tracked as any signal. Given another element, it follows that one.
+ */
 export interface Sensor<A> {
   /** Its reading, tracked. */
   (): A
@@ -136,10 +139,16 @@ export const createReducedMotionConfig = (): Accessor<boolean> => {
 }
 
 /**
- * Whether the page is shown (#443, Motion's `usePageInView`): `false` while it's hidden, in a tab in
- * the background or a minimised window, from the Probe's `pageVisible`. A server renders `true`, and
- * a hydrating client keeps it until it has settled (the Hydration hold).
+ * Whether the page is shown: `false` while it's hidden, in a tab in the background or a minimised
+ * window. Pause what nobody can see, such as a carousel's autoplay. A server renders `true`, and a
+ * hydrating page keeps it until it has settled. Motion's `usePageInView`.
+ *
+ * @example
+ * const visible = createPageInView()
+ * createEffect(visible, (shown) => (shown ? player.play() : player.pause()))
+ * @see https://wardic.dev/reference/solid/gestures/create-page-in-view
  */
+// #443, the Probe's `pageVisible`, held until settled (the Hydration hold).
 export const createPageInView = (): Accessor<boolean> => {
   if (isServer) return () => true
   const probe = useWardicRuntime().runSync(Probe.Probe)

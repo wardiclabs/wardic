@@ -16,9 +16,16 @@ import { useBrought } from "./provider.tsx"
 const HOVER: ReadonlyArray<Feature> = [hover]
 
 /**
- * `true` while the pointer is inside `target`, `false` once it leaves. Wraps the
- * core hover watch (#318); `false` until the first transition.
+ * `true` while the pointer is over `target`, `false` once it leaves: a hover as state, for what isn't
+ * an animation, where `whileHover` would do. `target` is the element itself, so call it where it
+ * exists: in a component it's given to. A touch never hovers.
+ *
+ * @example
+ * const hovered = createHover(props.card)
+ * <Show when={hovered()}><p class="hint">Drag to reorder</p></Show>
+ * @see https://wardic.dev/reference/solid/gestures/create-hover
  */
+// The core hover watch (#318); `false` until its first transition.
 export const createHover = (target: unknown): Accessor<boolean> => {
   const services = useBrought(HOVER)
   return watchToSignal<boolean>(({ on, onDefect }) => serviceOf(services(), HoverGesture).watch(target, { on: (transition) => on(transition.active), onDefect }), false)
