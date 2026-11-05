@@ -1,16 +1,20 @@
 /**
- * The `ReducedMotion` module: how Wardic honours the user's `prefers-reduced-motion` (ADR-0029).
+ * Reduced motion, as Motion does it: under it, a run's positional keys, the transforms and an element's
+ * position and size, land where the run would end, and every other key, an opacity or a colour, animates
+ * as ever. `applies` says whether it's on, `split` divides a target by its Environment's
+ * `PositionalKeys`, and `snap` lands the positional ones.
  *
- * The policy is Motion's (`visual-element-target.ts:146` at 16c6122): under reduced motion, a
- * run's positional keys (the transforms, and the box's position and size) snap to where the run
- * would end, and every other key (opacity, colour, filters) animates as it would. A binding reads
- * its app's {@link Config} and `Probe.prefersReducedMotion` when a run starts ({@link applies}),
- * splits the run's target by its Environment's {@link PositionalKeys} ({@link split}), and runs the
- * positional keys as a {@link snap}. Which keys are positional beyond the transforms is the
- * Environment's (ADR-0036).
+ * @example
+ * import * as ReducedMotion from "@wardic/core/ReducedMotion"
  *
- * Tier 2 (ADR-0008), for binding authors.
+ * if (ReducedMotion.applies(config, prefersReducedMotion)) {
+ *   const { positional, rest } = ReducedMotion.split(target, positionalKeys)
+ *   // positional keys land through ReducedMotion.snap(from, to); the rest animate as usual
+ * }
  */
+// ADR-0029. Motion's policy (`visual-element-target.ts:146` at 16c6122). A binding reads its app's
+// `Config` and `Probe.prefersReducedMotion` when a run starts. Which keys are positional beyond the
+// transforms is the Environment's (ADR-0036). Tier 2 (ADR-0008), for binding authors.
 import * as Bool from "effect/Boolean"
 import * as Context from "effect/Context"
 import * as Layer from "effect/Layer"
@@ -44,11 +48,12 @@ export const applies = (config: Config, prefersReducedMotion: boolean): boolean 
 export const isTransform = (key: string): boolean => Option.isSome(BaseValue.transformIdentity(key))
 
 /**
- * An Environment's **Positional keys** (CONTEXT.md; ADR-0029, ADR-0036): which keys move or resize
- * its elements, which reduced motion Snaps. Core names only the transforms ({@link transformsOnly});
- * an Environment adds its own box keys (the DOM's: `@wardic/dom`'s `PositionalKeysDomLive`). A
- * binding reads it once, as it reads the Probe, and passes it to {@link split}.
+ * An Environment's Positional keys: the keys that move or resize its elements, which reduced motion lands
+ * at once. Core names only the transforms (`transformsOnly`); an Environment adds its own, as the DOM adds
+ * an element's box, `width`, `top` and the rest.
  */
+// CONTEXT.md; ADR-0029, ADR-0036; the DOM's: `@wardic/dom`'s `PositionalKeysDomLive`. A binding reads it
+// once, as it reads the Probe, and passes it to `split`.
 export class PositionalKeys extends Context.Service<PositionalKeys, {
   /** Whether reduced motion Snaps `key`. */
   readonly isPositional: (key: string) => boolean
@@ -100,12 +105,15 @@ export interface SnapOptions {
 }
 
 /**
- * Reduced motion's snap (ADR-0029): `from` until `delay` seconds have passed, then `to`, settled.
- * It lands on the tick a `Machine.delay` of the same length lets its run start, so a snapped key
- * lands with the keys that animate; with no delay, on its first tick. The held time counts each
- * tick's `dt` at most `Machine.MAX_DT`, as `Machine.delay` does. Its span is
- * `wardic.reducedMotion.snap`.
+ * Reduced motion's landing: `from` until `delay` seconds have passed, then `to`, settled. It lands on the
+ * frame a `Machine.delay` of the same length starts its run, so a key that lands does so with the keys
+ * that animate; with no delay, on its first frame.
+ *
+ * @example
+ * const land = ReducedMotion.snap(0, 240, { delay: 0.1 })
  */
+// ADR-0029. The held time counts each tick's `dt` at most `Machine.MAX_DT`, as `Machine.delay` does. Its
+// span is `wardic.reducedMotion.snap`.
 export const snap = <A>(from: A, to: A, options: SnapOptions = {}): Machine.Machine<Frame.Frame<A>> => {
   const delay = Option.getOrElse(Option.fromUndefinedOr(options.delay), () => 0)
   return Machine.make({
