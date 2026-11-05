@@ -213,6 +213,8 @@ export type FlushGateServices = Renderer.Renderer | RefreshFrameSource.RefreshFr
 export interface FlushGateRuntime {
   readonly runSync: <A, E>(effect: Effect.Effect<A, E, FlushGateServices>) => A
   readonly runFork: <A, E>(effect: Effect.Effect<A, E, FlushGateServices>) => Fiber.Fiber<A, E>
+  /** The Scope it was built in: its own fibers live there, ended as it closes (#618). */
+  readonly scope: Scope.Scope
 }
 
 /** What a binding hands its flush gate. */
@@ -565,7 +567,9 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   }
 
   const dispose: FlushGate["dispose"] = () => {
-    Effect.runSync(Scope.close(ticks, Exit.void))
+    // Off the loop first, so no tick flushes what follows; a failure reported, never thrown (#618).
+    const unhooked = Effect.runSyncExit(Scope.close(ticks, Exit.void))
+    if (Exit.isFailure(unhooked)) runtime.runFork(reportFailure("wardic.gate: its tick hook failed to close", unhooked.cause))
     if (scheduled) {
       cancelFrame(frame)
       scheduled = false
@@ -578,8 +582,9 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     for (const id of [...outputsById.keys()]) endOutputs(id)
   }
 
-  // The gate's hook on the loop, for the gate's lifetime.
-  const ticks = Scope.makeUnsafe()
+  // The gate's hook on the loop, for the gate's lifetime: a child of the Scope it's built in, so a gate
+  // its `dispose` never reached is unhooked as that Scope closes.
+  const ticks = Scope.forkUnsafe(runtime.scope, "sequential")
   runtime.runSync(afterTick(flushTicked).pipe(Scope.provide(ticks)))
 
   return { register, write, flushPass, release, valueOf, afterFlush, dispose }

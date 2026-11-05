@@ -8,12 +8,18 @@
 // - RN3: built under a host's async scheduler (Foldkit's shape: a microtask `MixedScheduler`
 //   provided as a Layer), a fork resumes from a yield on that scheduler (#208).
 // - RN4: a host's *sync* scheduler is dropped like `runSync`'s: a fork resumes on Effect's default.
+// - RN5: its `scope` is the Scope it was built in (#618): a fiber a service keeps there ends as that
+//   Scope closes, after the service's own cleanup, and the close awaits it; a finalizer beside it that
+//   fails lands in the close's Exit, and the rest still run.
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import type * as Fiber from "effect/Fiber"
+import * as FiberSet from "effect/FiberSet"
 import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Scheduler from "effect/Scheduler"
+import * as Scope from "effect/Scope"
 import { describe, expect, it } from "vitest"
 import { makeRunner, type Runner } from "../src/internal/runner.ts"
 
@@ -89,5 +95,26 @@ describe("a Layer-built service's runner (#132)", () => {
     expect(resumed, "on a macrotask, Effect's default").toBe(true)
     expect(host.counted.dispatches, "never dispatched by the host's sync scheduler").toBe(before)
     await runtime.dispose()
+  })
+
+  it("RN5: its scope is the one it was built in: a kept fiber ends after the service's cleanup, a failure lands in the Exit", async () => {
+    const ran: Array<string> = []
+    let kept: Fiber.Fiber<void> | undefined
+    // A service as the dom's are built: its fiber kept in the runner's Scope, its cleanup a finalizer added after.
+    const service = Layer.effectDiscard(
+      Effect.gen(function* () {
+        const runner = yield* makeRunner<never>()
+        const fibers = runner.runSync(FiberSet.make<void>().pipe(Scope.provide(runner.scope)))
+        kept = runner.runSync(FiberSet.run(fibers, Effect.never.pipe(Effect.onInterrupt(() => Effect.sync(() => void ran.push("fiber"))))))
+        yield* Effect.addFinalizer(() => Effect.sync(() => void ran.push("cleanup")))
+      }),
+    )
+    const failing = Layer.effectDiscard(Effect.addFinalizer(() => Effect.die(new Error("finalizer broke"))))
+    const runtime = ManagedRuntime.make(Layer.mergeAll(failing, service))
+    await runtime.runPromise(Effect.void)
+    const exit = await Effect.runPromiseExit(runtime.disposeEffect)
+    expect(ran, "the service's cleanup, then its fiber, awaited").toEqual(["cleanup", "fiber"])
+    expect(kept?.pollUnsafe() !== undefined, "ended by the close").toBe(true)
+    expect(Exit.isFailure(exit), "the failure in the close's Exit").toBe(true)
   })
 })

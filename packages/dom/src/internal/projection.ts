@@ -153,6 +153,8 @@ export type ProjectionServices = FrameLoop.FrameLoop | Renderer.Renderer | Probe
 export interface ProjectionRuntime {
   readonly runSync: <A, E>(effect: Effect.Effect<A, E, ProjectionServices>) => A
   readonly runFork: <A, E>(effect: Effect.Effect<A, E, ProjectionServices>) => Fiber.Fiber<A, E>
+  /** The Scope it was built in: its own fibers live there, ended as it closes (#618). */
+  readonly scope: Scope.Scope
 }
 
 /**
@@ -1807,10 +1809,9 @@ export const makeProjectionSystem = (
   // Flights from a twin gone or leaving, their origin taken through the page's scroll since at their first frame (#480).
   const unseen = new Set<NodeState>()
   let leaversHeld = false
-  // The end-of-task hold fibers. A `FiberSet` (a native `Set`, reference identity)
-  // inside a Scope the system owns: disposing the system closes it, interrupting any
-  // hold still pending.
-  const scope = Scope.makeUnsafe()
+  // The end-of-task hold fibers. A `FiberSet` (a native `Set`, reference identity) in the Scope the
+  // system was built in: closing it, after `dispose`, interrupts any hold still pending and awaits it.
+  const scope = runtime.scope
   const taskFibers = runtime.runSync(FiberSet.make<void, never>().pipe(Scope.provide(scope)))
   // The coordinator's run on the Frame loop (#75): at most one, from the first node that
   // animates until none does. In the same Scope, so disposing the system interrupts it.
@@ -1854,11 +1855,7 @@ export const makeProjectionSystem = (
 
   // The Renderer's pure halves, resolved once (like the gate) — used to drive a
   // presence-retained leaving Follower DIRECTLY (its gate registration is gone).
-  const renderer = runtime.runSync(
-    Effect.gen(function* () {
-      return yield* Renderer.Renderer
-    }),
-  )
+  const renderer = runtime.runSync(Renderer.Renderer)
 
   /**
    * Emit a debug-level lifecycle log on a COLD path (register / dispose / leave /
@@ -5954,8 +5951,7 @@ export const makeProjectionSystem = (
       stopViewport()
     }
     stopTicking()
-    // Interrupt any end-of-task hold still pending, then drop what they held.
-    runtime.runFork(Scope.close(scope, Exit.void))
+    // The end-of-task holds, the coordinator and the resize wait end as its Scope closes, next.
     seeds.clear()
     leavers.clear()
     stopPage()
