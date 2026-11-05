@@ -35,10 +35,13 @@ import type { WardicInertia } from "./config.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
 import type { WardicRuntime } from "./runtime.ts"
 
-/** A Live value as Solid takes it: an `effect/reactivity` Atom, or an accessor (a signal, a memo). */
+/**
+ * A live value as Solid takes it: an accessor, such as a signal, a memo or another live value, or an
+ * `effect/reactivity` Atom. An element's `style` follows it, and the `create*` live values take it.
+ */
 export type LiveSource<A> = Atom.Atom<A> | Accessor<A>
 
-/** A `style` value: as it is, or live. */
+/** A `style` value: a plain value, or a live one ({@link LiveSource}), which the element follows. */
 export type Live<A> = A | LiveSource<A>
 
 /** A user's style as a binding hands it over: a record, CSS text, or none. */
@@ -60,10 +63,11 @@ export const carry = <A>(accessor: Accessor<A>, atom: Atom.Atom<A>): Accessor<A>
   Object.defineProperty(accessor, CARRIED, { value: atom })
 
 /**
- * `createFollowValue`'s options (#441, Motion's `FollowValueOptions`): a transition, in seconds, with
- * Motion's follower's defaults for what it leaves out (`LiveValue.FollowTransition`); an inertia's
- * `timeConstant` in milliseconds, as a `transition`'s (#435); and the skips.
+ * `createFollowValue`'s transition, in seconds: a spring (with no `type`), a tween or an inertia, an
+ * inertia's `timeConstant` in milliseconds, as a `transition`'s; and `skipInitialAnimation`, to make
+ * the source's first change a jump. Motion's `FollowValueOptions`.
  */
+// #441; an inertia's `timeConstant` in milliseconds, as a transition's (#435).
 export type FollowValueOptions = (Exclude<LiveValue.FollowTransition, { readonly type: "inertia" }> | WardicInertia) & LiveValue.FollowSkips
 
 /** `options` as core's `LiveValue.follow` takes them: an inertia's `timeConstant` in seconds. */
@@ -78,9 +82,10 @@ export const followOptionsOf = (options: FollowValueOptions): LiveValue.FollowOp
   })
 
 /**
- * A **Follow value** as an accessor (#441; `createSpring`'s since #257 item 7): carrying its Atom,
- * with Motion's `jump`. A number, or a string with its unit, as its source is.
+ * A followed value, as an accessor: a number, or a string with its unit, as its source is. Its `jump`
+ * puts it somewhere at once.
  */
+// A Follow value (#441), carrying its Atom; `createSpring`'s since #257 item 7.
 export interface FollowAccessor<A extends number | string = number> extends Accessor<A> {
   /**
    * Set it to `value` at once, not as motion (Motion's `MotionValue.jump`): its run ends there with
@@ -388,7 +393,8 @@ export const createLiveStyle = (options: LiveStyleOptions): LiveStyle => {
   return Object.assign(Object.create(Proto), state)
 }
 
-/** A `createWillChange` value (#443, Motion's `useWillChange`): `"auto"` until its element animates, then `"transform"`. */
+/** A `createWillChange` value: `"auto"` until its element animates, then `"transform"`. */
+// #443, Motion's `useWillChange`.
 export type WillChange = "auto" | "transform"
 
 /** Each `createWillChange` value's turn-on (#443), by its accessor and by the Atom it carries. */

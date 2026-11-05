@@ -169,8 +169,9 @@ export interface TweenOptions {
   readonly ease?: Easing.Definition
   /**
    * Delay before the animation starts, in seconds. With `animate`'s `repeat` / `repeatType`, or across
-   * `keyframes`' stops, it holds once, before the first segment (#77): `Machine.delay`.
+   * `keyframes`' stops, it holds once, before the first segment: `Machine.delay`.
    */
+  // #77.
   readonly delay?: number
 }
 

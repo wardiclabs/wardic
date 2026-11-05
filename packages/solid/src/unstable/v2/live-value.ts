@@ -100,20 +100,20 @@ const liveOf = <A, R>(runtime: WardicRuntime, live: Effect.Effect<Atom.Atom<A>, 
 }
 
 /**
- * `source` mapped: through `fn` (Motion's `useTransform(value, fn)`), or through ranges: an input at
- * `input[i]` gives `output[i]`, and one between two stops blends their outputs by its progress
- * between them, colours and unit strings as `animate` blends them (Motion's
- * `useTransform(value, input, output)`). `input` is as long as `output`, ascending or descending
- * (#440, Motion's). Outside the range the ends hold, unless `clamp: false`. `ease` eases each stretch,
- * one for every stretch or one each (#360), and a `mixer`, `(from, to) => (t) => value`, blends the
- * outputs in place of `animate`'s blends, so they can be any type it blends (#440, Motion's).
+ * A value mapped from another: through a function, `createTransform(x, (x) => x * 2)`, or through
+ * ranges, `createTransform(x, input, output)`: a source at `input[i]` gives `output[i]`, and one between
+ * two stops blends their outputs, numbers, units and colours alike. `input` is as long as `output`,
+ * ascending or descending; outside it the ends hold, unless `clamp: false`. `ease` eases each stretch,
+ * one for all or one each, and a `mixer`, `(from, to) => (t) => value`, blends outputs of any type. A signal read inside `fn` is tracked too: its change maps again.
+ * Motion's `useTransform`.
  *
- * ```tsx
- * const card = ward({ drag: "x" })
+ * @example
+ * const card = w.ward({ drag: "x" })
  * const opacity = createTransform(card.read("x"), [-150, 0, 150], [0, 1, 0])
- * const label = ward({ style: { opacity } })  // in the frame the card moves
- * ```
+ * <w.div wardRef={card} style={{ opacity }} />
+ * @see https://wardic.dev/reference/solid/live-values/create-transform
  */
+// #440 (descending ranges, `mixer`), #360 (`ease`).
 export function createTransform<A, B>(source: LiveSource<A>, fn: (a: A) => B): Accessor<B>
 export function createTransform<O extends number | string>(
   source: LiveSource<number>,
@@ -176,29 +176,21 @@ const interpolatorOf = <O>(
 }
 
 /**
- * A **Follow value** (#441, Motion's `useFollowValue`): a value that animates toward `source` on a
- * transition, `options`, in seconds. It starts where its source is, and from each change on, a run
- * toward it runs on the Frame loop until it rests there. Nothing runs while it rests, and its owner's
- * disposal ends it. What `options` leave out is Motion's follower's: no `type` is a spring, of 100 /
- * 10 / 1 unless it's set by time, and `type: "tween"` is 0.3 s `easeInOut`.
+ * A value that follows `source` on a transition, in seconds: from each change of `source`, it animates
+ * there, then rests. No `type` is a spring, 100 / 10 / 1 unless it's set by time; `type: "tween"` is
+ * 0.3 s `easeInOut`; `type: "inertia"` glides. A change mid-way: a spring steers to it, keeping its
+ * speed; a tween starts again from where it is; an inertia glides again from there. `delay` waits at
+ * every change, so a source that never rests moves it once it does. A string with a unit, `"10px"`,
+ * is followed as its number. `jump(value)` puts it somewhere at once. Motion's `useFollowValue`.
  *
- * - **A change mid-flight:** a spring steers toward it, keeping its velocity; a tween starts again
- *   from where it is, its full duration and ease; an inertia glides again from there, its target
- *   unread (#435). A `velocity` given is the one every run starts or steers with.
- * - **`delay`** holds it where it is at every change, then it goes on toward the latest: a source
- *   that never rests doesn't move it until it does, as Motion's.
- * - **A string with a unit** (`"10px"`) is followed as its number, and shown with the unit its
- *   source started with, as Motion's.
- * - **`jump(value)`** sets it at once, not as motion (Motion's `jump`): it rests there until its
- *   source next changes, then animates from there, and a `createVelocity` of it reads 0 across it.
- * - **`skipInitialAnimation`**: the source's first change is a jump, as Motion's option, for a source
- *   set once after mount (a scroll the browser restores).
- *
- * ```tsx
+ * @example
  * const [x, setX] = createSignal(0)
- * const card = ward({ style: { x: createFollowValue(x, { type: "tween", duration: 0.4, ease: "easeOut" }) } })
- * ```
+ * const eased = createFollowValue(x, { type: "tween", duration: 0.4, ease: "easeOut" })
+ * <w.div style={{ x: eased }} />
+ * @see https://wardic.dev/reference/solid/live-values/create-follow-value
  */
+// #441: on the Frame loop, idle while it rests, ended with its owner. An inertia mid-flight glides again,
+// its target unread (#435). A `velocity` given is the one every run starts or steers with.
 export function createFollowValue(source: LiveSource<number>, options?: FollowValueOptions): FollowAccessor<number>
 export function createFollowValue(source: LiveSource<string>, options?: FollowValueOptions): FollowAccessor<string>
 export function createFollowValue(source: LiveSource<number | string>, options: FollowValueOptions = {}): FollowAccessor<number | string> {
@@ -226,23 +218,21 @@ export function createFollowValue(source: LiveSource<number | string>, options: 
 }
 
 /**
- * A value that follows `source` with a spring (Motion's `useSpring`): `createFollowValue`'s spring
- * case (#441), `options` as `transition`'s spring options, Motion's follower's for what they leave
- * out (100 / 10 / 1 unless it's set by time, at rest within 0.001). A change mid-flight keeps its
- * velocity. A string with a unit is followed as its number, as `createFollowValue`'s.
+ * A value that follows `source` on a spring: from each change, it springs there, a change mid-way
+ * keeping its speed. `stiffness`, `damping` and `mass`, 100 / 10 / 1 by default, or a `visualDuration`
+ * and `bounce`. A string with a unit, `"10px"`, is followed as its number. `jump(value)` puts it
+ * somewhere at once, and `skipInitialAnimation` makes the source's first change a jump. On a source that's both derived and
+ * set, Solid 2's `createSignal(fn)`, a write springs there, and the next change of what it derives from
+ * springs on to that.
+ * Motion's `useSpring`.
  *
- * - **`jump(value)`** sets it at once, not as motion (Motion's `jump`): it rests there until its
- *   source next changes, then springs from there, and a `createVelocity` of it reads 0 across it.
- * - **`skipInitialAnimation`**: the source's first change is a jump, as Motion's option, for a
- *   source set once after mount (a scroll the browser restores).
- * - **A source that's derived and also set** is Solid's writable memo, `createSignal(fn)`: a write
- *   springs there, and the next change of what it derives from springs to that (#257 item 7).
- *
- * ```tsx
+ * @example
  * const [x, setX] = createSignal(0)
- * const card = ward({ style: { x: createSpring(x, { stiffness: 300, damping: 30 }) } })
- * ```
+ * const followX = createSpring(x, { stiffness: 300, damping: 30 })
+ * <w.div style={{ x: followX }} />
+ * @see https://wardic.dev/reference/solid/live-values/create-spring
  */
+// `createFollowValue`'s spring case (#441), at rest within 0.001. A writable memo source: #257 item 7.
 export function createSpring(source: LiveSource<number>, options?: LiveValue.SpringOptions): SpringAccessor<number>
 export function createSpring(source: LiveSource<string>, options?: LiveValue.SpringOptions): SpringAccessor<string>
 export function createSpring(source: LiveSource<number | string>, options: LiveValue.SpringOptions = {}): SpringAccessor<number | string> {
@@ -250,9 +240,14 @@ export function createSpring(source: LiveSource<number | string>, options: LiveV
 }
 
 /**
- * `source`'s velocity, in its units a second (Motion's `useVelocity`): 0 to begin with, then, each
- * frame while the source moves, its change since the frame before over the frame's time, and 0 once
- * it stops. A velocity is a value too: `createVelocity(createVelocity(x))` is acceleration.
+ * How fast `source` is changing, in its units a second: 0 to begin with, then each frame while it
+ * moves, and 0 once it stops. A velocity is a value too: `createVelocity(createVelocity(x))` is its
+ * acceleration. Motion's `useVelocity`.
+ *
+ * @example
+ * const { scrollY } = createScroll()
+ * const skewY = createTransform(createVelocity(scrollY), [-1000, 1000], [-8, 8])
+ * @see https://wardic.dev/reference/solid/live-values/create-velocity
  */
 export const createVelocity = (source: LiveSource<number>): Accessor<number> => {
   if (isServer) return SERVER_ZERO
@@ -261,8 +256,13 @@ export const createVelocity = (source: LiveSource<number>): Accessor<number> => 
 }
 
 /**
- * Milliseconds since it was created, wall time (Motion's `useTime`): set every frame, so it keeps
- * the Clock ticking every frame while its owner lives.
+ * The milliseconds since it was made, wall time, set every frame while its owner lives: for something
+ * that turns forever. It keeps Wardic's frames running while it lives. Motion's `useTime`.
+ *
+ * @example
+ * const rotate = createTransform(createTime(), (ms) => (ms / 1000) * 90)
+ * <w.div style={{ rotate }} />
+ * @see https://wardic.dev/reference/solid/live-values/create-time
  */
 export const createTime = (): Accessor<number> => {
   if (isServer) return SERVER_ZERO
@@ -272,17 +272,17 @@ export const createTime = (): Accessor<number> => {
 const SERVER_ZERO: Accessor<number> = () => 0
 
 /**
- * A `willChange` for an element's `style` (#443, Motion's `useWillChange`): `"auto"` until that
- * element starts animating a transform key, `opacity`, `clipPath`, `filter` or `backgroundColor`, or
- * starts a drag; then `"transform"`, for good, so the browser keeps the element on a layer of its own
- * from its first move on. A key already at its target and a layout animation don't count. `"auto"`
- * on a server, where nothing animates.
+ * A `will-change` for an element's `style`: `"auto"` until the element first animates a transform key,
+ * `opacity`, `clipPath`, `filter` or `backgroundColor`, or is dragged; then `"transform"`, for good, so
+ * the browser keeps it on a layer of its own from its first move on. A key already at its target and a
+ * layout animation don't count. `"auto"` on a server. Motion's `useWillChange`.
  *
- * ```tsx
+ * @example
  * const willChange = createWillChange()
- * <wardic.div whileHover={{ scale: 1.1 }} style={{ "will-change": willChange }} />
- * ```
+ * <w.div whileHover={{ scale: 1.1 }} style={{ "will-change": willChange }} />
+ * @see https://wardic.dev/reference/solid/live-values/create-will-change
  */
+// #443.
 export const createWillChange = (): Accessor<WillChange> => {
   if (isServer) return SERVER_AUTO
   const registry = useWardicRuntime().runSync(AtomRegistry.AtomRegistry)
@@ -292,24 +292,20 @@ export const createWillChange = (): Accessor<WillChange> => {
 const SERVER_AUTO: Accessor<WillChange> = () => "auto"
 
 /**
- * `callback` told each frame's time and delta, in milliseconds, while its owner lives (#443, Motion's
- * `useAnimationFrame`), for what a frame should draw itself: a canvas, a 3D scene, a value no target
- * describes. It keeps the Clock ticking every frame.
+ * Calls `callback` every frame while its owner lives, with the frame's `time` and `delta` in
+ * milliseconds: for what a frame draws itself, such as a canvas or a 3D scene. `time` is 0 at the
+ * first frame, then wall time since, a hidden tab's minutes included; `delta` is the frame's own, held
+ * to 1–40 ms, so the first frame back from a hidden tab steps 40 ms. A throw is logged, and the next
+ * frame calls it again. Nothing runs on a server. Motion's `useAnimationFrame`.
  *
- * - **`time`** is 0 at its first frame, then wall time since: a hidden tab's minutes count, as
- *   `createTime`'s do.
- * - **`delta`** is the frame's own time, held to 1–40 ms as Motion's is: the first frame back from a
- *   hidden tab steps 40 ms, not minutes.
- *
- * A throw from `callback` is logged at the first of a run of throws, and the next frame calls it as
- * ever, as `onUpdate`. Nothing runs on a server.
- *
- * ```tsx
+ * @example
  * createAnimationFrame((time) => {
  *   cube.style.transform = `rotateY(${time / 10}deg)`
  * })
- * ```
+ * @see https://wardic.dev/reference/solid/live-values/create-animation-frame
  */
+// #443. It keeps the Clock ticking every frame. A throw is logged at the first of a run of throws, as
+// `onUpdate`'s.
 export const createAnimationFrame = (callback: (time: number, delta: number) => void): void => {
   if (isServer) return
   const runtime = useWardicRuntime()
@@ -318,26 +314,35 @@ export const createAnimationFrame = (callback: (time: number, delta: number) => 
   runtime.runSync(eachFrameOf(runtime, callback).pipe(Scope.provide(scope)))
 }
 
-/** An element given as it is, or as an accessor of one (a ref's, set at mount). */
+/** An element, or an accessor of one, such as `() => box` for a ref: read once it's there. */
 export type ElementSource = Element | Accessor<Element | undefined>
 
-/** `createScroll`'s options, Motion's `useScroll`'s. */
+/** `createScroll`'s options, as Motion's `useScroll`'s. */
 export interface ScrollOptions {
-  /** The scroll container; the page when left out. */
+  /** The scrolling element, as an accessor of its ref: `() => box`. The page's scroll when left out. */
   readonly container?: ElementSource
-  /** An element whose progress through the container `offset` reads, on `axis`. */
+  /** An element whose way through the container the progress reads, between the `offset`s. */
   readonly target?: ElementSource
-  /** Where the target's progress runs: Motion's syntax, the DOM's (`@wardic/dom/ScrollOffset`). `All` with a target. */
+  /**
+   * Where the progress runs, as Motion's: each stop pairs an edge of the target with an edge of the
+   * container, `["start end", "end start"]`, 0 at the first and 1 at the last. An edge is `start`,
+   * `center` or `end`, a fraction, or a length. With a target, `["start start", "end end"]` by default.
+   */
+  // The DOM's syntax (`@wardic/dom/ScrollOffset`); with a target and none given, its `All`.
   readonly offset?: ScrollOffset.ScrollOffset
-  /** The axis `target` and `offset` apply to. Default `"y"`. */
+  /** The axis `target` and `offset` read: `"y"` (the default) or `"x"`. */
   readonly axis?: "x" | "y"
 }
 
-/** `createScroll`'s values, Motion's four. */
+/** `createScroll`'s values, Motion's four, each an accessor. */
 export interface ScrollValues {
+  /** How far it's scrolled across, in pixels. */
   readonly scrollX: Accessor<number>
+  /** How far it's scrolled down, in pixels. */
   readonly scrollY: Accessor<number>
+  /** Its progress across, from 0 to 1: through its range, or, with a `target` or `offset`, through theirs. */
   readonly scrollXProgress: Accessor<number>
+  /** Its progress down, from 0 to 1: through its range, or, with a `target` or `offset`, through theirs. */
   readonly scrollYProgress: Accessor<number>
 }
 
@@ -354,20 +359,22 @@ const elementOf = (source: ElementSource | undefined): Option.Option<Element | u
   })
 
 /**
- * A container's scroll (Motion's `useScroll`): how far it's scrolled across and down, and the
- * progress through its range, or, with a `target` or an `offset`, through the offsets the target
- * passes on `axis`. Set within the scroll's own event, so a value derived from one paints in the
- * frame that shows the scroll. A `container` or `target` given as an accessor (a ref's) is read in
- * an effect: until it's there every value reads 0, as Motion's do, and a change of either follows
- * the new one. Each value carries one Atom for its life. On a server, 0s.
+ * A scroll as values: `scrollX` and `scrollY`, how far it's scrolled, in pixels, and `scrollXProgress`
+ * and `scrollYProgress`, from 0 to 1 through its range. The page's, or a `container`'s. With a
+ * `target`, the progress is the target's way through, between two `offset`s, on `axis`. Each is set in
+ * the scroll's own event, so a value derived from one paints in the frame that shows the scroll. A
+ * `container` or `target` given as an accessor of a ref reads 0s until the ref is there. 0s on a
+ * server. Motion's `useScroll`.
  *
- * ```tsx
+ * @example
  * let box!: HTMLDivElement
  * const { scrollYProgress } = createScroll({ container: () => box })
  * <div ref={box}>…</div>
- * <wardic.div style={{ scaleX: scrollYProgress }} />
- * ```
+ * <w.div style={{ scaleX: scrollYProgress }} />
+ * @see https://wardic.dev/reference/solid/live-values/create-scroll
  */
+// #234. An accessor `container` or `target` is read in an effect, and a change of either follows the
+// new one. Each value carries one Atom for its life.
 export const createScroll = (options: ScrollOptions = {}): ScrollValues => {
   if (isServer) return SERVER_SCROLL
   const runtime = useWardicRuntime()

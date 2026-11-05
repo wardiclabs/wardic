@@ -189,9 +189,10 @@ export interface FollowSkips {
    */
   readonly skipInitialAnimation?: boolean
   /**
-   * Every change of the source lands at once, as a `jump` (#468, Motion's transition
-   * `skipAnimations`): a **Skipped animation**. Default `false`.
+   * Every change of the source lands at once, as a `jump` (Motion's transition `skipAnimations`): a
+   * **Skipped animation**. Default `false`.
    */
+  // #468.
   readonly skipAnimations?: boolean
 }
 
