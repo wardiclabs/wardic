@@ -1,17 +1,23 @@
 /**
- * The `Supersede` module (#200, ADR-0027 *Amendment (#200)*): a token a caller passes to the runs it
- * may replace (`Machine.run(sink, { supersede })`), to end them all at once without interrupting
- * their fibers. Each run a token ends is **Superseded**: it leaves the Frame loop at once, as an
- * interrupted run does (ADR-0027, decision 5), and its fiber succeeds with `Superseded`, so it ends
- * normally, neither settled nor failed.
+ * A token that ends many runs at once without interrupting them: give it to each run you might replace,
+ * `Machine.run(machine, sink, { supersede: token })`, then `end` it, and each run still going leaves the
+ * Frame loop and succeeds with `Superseded`, neither settled nor failed. It costs about a sixth of
+ * interrupting each run's fiber, which counts when one change replaces thousands of runs.
  *
- * An interrupt costs about six times as much as ending the same fiber normally: Effect combines
- * the interrupted cause at each finalizer and de-duplicates its reasons by structural hash (about
- * 5 µs a fiber through a run's layers, against 0.9; the amendment's *Measured*). The binding's
- * Retargets and unmounts end thousands of runs a time, so they supersede.
+ * @example
+ * import * as Supersede from "@wardic/core/Supersede"
  *
- * Tier 2 (ADR-0008): for binding authors, beside `Machine.run`.
+ * const token = Supersede.make()
+ * // each run a later change replaces:
+ * Machine.run(machine, sink, { supersede: token }) // succeeds with Supersede.Superseded once ended
+ * // the change:
+ * Supersede.end(token)
  */
+// #200, ADR-0027 *Amendment (#200)*: it leaves the loop as an interrupted run does (ADR-0027, decision
+// 5). An interrupt costs about six times as much as ending the same fiber normally: Effect combines the
+// interrupted cause at each finalizer and de-duplicates its reasons by structural hash (about 5 µs a
+// fiber through a run's layers, against 0.9; the amendment's *Measured*). The binding's Retargets and
+// unmounts end thousands of runs a time, so they supersede. Tier 2 (ADR-0008): for binding authors.
 import * as Arr from "effect/Array"
 import * as Deferred from "effect/Deferred"
 import * as Exit from "effect/Exit"
@@ -31,16 +37,16 @@ export type Superseded = typeof Superseded
 /** Whether a run's outcome is {@link Superseded}. */
 export const isSuperseded = (u: unknown): u is Superseded => u === Superseded
 
-/** A run a token can end: the Frame loop's entry for it, with its flag and its fiber's `Deferred`. */
+/** A run a token can end: the Frame loop's entry for it. */
 export interface Run {
+  /** Whether it has left the Frame loop. */
   removed: boolean
+  /** Its fiber's outcome: its settled frame, or `Superseded`. */
   readonly settled: Deferred.Deferred<Frame.Frame<unknown> | Superseded>
 }
 
-/**
- * A token for the runs a caller may replace together: one per Retarget, in the binding. Each run
- * given it (`Machine.run(sink, { supersede })`) joins it, and {@link end} ends them all.
- */
+/** A token for the runs a caller may replace together: each run given it joins it, and `end` ends them all. */
+// One per Retarget, in the binding.
 export interface Supersede extends Pipeable, Inspectable.Inspectable {
   readonly [TypeId]: typeof TypeId
   /** The runs given this token and not yet ended by it. The Frame loop adds to it. */
@@ -58,7 +64,8 @@ const Proto = {
   },
 }
 
-/** A fresh token, with no runs. Built in place: the binding makes one per Leg (#325). */
+/** A fresh token, with no runs. */
+// Built in place: the binding makes one per Leg (#325).
 export const make = (): Supersede => {
   const token = Object.create(Proto)
   token.runs = []

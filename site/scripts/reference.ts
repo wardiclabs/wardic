@@ -17,7 +17,7 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, normalize, relative } from "node:path"
-import { Application } from "typedoc"
+import { Application, type Context, Converter, ReferenceType, ReflectionKind, ReflectionType } from "typedoc"
 
 const SITE = join(import.meta.dirname, "..")
 const REPO = join(SITE, "..")
@@ -41,8 +41,12 @@ const slugOf = (name: string): string =>
  * adds its modules (#558).
  */
 const READY: Readonly<Record<(typeof PACKAGES)[number]["dir"], ReadonlyArray<string>>> = {
-  // Animation.
-  core: ["Arc", "Easing", "Inertia", "Machine", "Playback", "Scalar", "Sequence", "Spring", "Stagger", "Velocity", "Wave"],
+  core: [
+    // Animation.
+    "Arc", "Easing", "Inertia", "Machine", "Playback", "Scalar", "Sequence", "Spring", "Stagger", "Velocity", "Wave",
+    // Values.
+    "BaseValue", "DefaultTransition", "Interpolator", "InterpolatorRegistry", "LiveValue", "Override", "ReducedMotion", "Supersede", "Values",
+  ],
   dom: [],
 }
 
@@ -154,6 +158,27 @@ const routeOf = (dir: string, from: string, target: string): string => {
 /** The module a TypeDoc output file is, or a link's target is in: `Box.mdx#box` and `Box/README.mdx` are `Box`. */
 const moduleOfFile = (file: string): string => file.split("/")[0]!.replace(/\.mdx$/, "")
 
+/**
+ * Each Effect service's members as its class's own: a `Context.Service` class's instance is the service,
+ * but TypeDoc shows the class it extends (Effect's `ServiceClass.Shape<…>`, the members in its type,
+ * their docs left out) and a constructor no one calls. Its members are lifted onto it before TypeDoc
+ * groups them, its constructor left out, and it extends `Context.Service`.
+ */
+const liftServices = (context: Context): void => {
+  for (const service of context.project.getReflectionsByKind(ReflectionKind.Class)) {
+    if (!service.isDeclaration()) continue
+    const shape = service.extendedTypes?.find((type) => type instanceof ReferenceType && type.package === "effect" && type.qualifiedName === "ServiceClass.Shape")
+    const members = shape instanceof ReferenceType ? shape.typeArguments?.[1] : undefined
+    if (!(members instanceof ReflectionType)) continue
+    for (const constructor of service.getChildrenByKind(ReflectionKind.Constructor)) context.project.removeReflection(constructor)
+    for (const member of members.declaration.children ?? []) {
+      member.parent = service
+      service.addChild(member)
+    }
+    service.extendedTypes = [ReferenceType.createBrokenReference("Context.Service", context.project, "effect")]
+  }
+}
+
 /** One package's ready modules as MDX pages in `CONTENT/<dir>`. */
 const generate = async (pkg: (typeof PACKAGES)[number]): Promise<number> => {
   const source = join(REPO, "packages", pkg.dir)
@@ -185,6 +210,7 @@ const generate = async (pkg: (typeof PACKAGES)[number]): Promise<number> => {
     indexFormat: "table",
     useCodeBlocks: true,
   } as Parameters<typeof Application.bootstrapWithPlugins>[0])
+  app.converter.on(Converter.EVENT_RESOLVE_BEGIN, liftServices)
   const project = await app.convert()
   if (project === undefined) throw new Error(`reference: TypeDoc couldn't convert ${pkg.name}`)
   await app.generateOutputs(project)

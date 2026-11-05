@@ -1,26 +1,30 @@
 /**
- * The `BaseValue` module. Base values (ADR-0022): where a key with no value starts, and where it returns. Pure and
- * framework-free, so every binding and Environment shares them; the read of an element's
- * own value is the Environment's (`@wardic/dom`'s `ownValues` for the DOM).
+ * Where a key starts, and where it returns: an element's Base value for a key is the first of its base
+ * target (its `animate`, else an inherited variant, else its `initial`), its `initial`, its own `style`,
+ * the values it started at, and its Own value, which its Environment reads off it. `of` finds it, and
+ * `start` finds where a key with no value yet starts. Pure, and shared by every binding and Environment.
  *
- * Tier 2, for binding and Environment authors, and Effect-native: a missing value is an
- * `Option` (ADR-0008 as amended by ADR-0025). Observability: pure and per element, so
- * quiet (no span, no log).
+ * @example
+ * import * as BaseValue from "@wardic/core/BaseValue"
+ *
+ * BaseValue.of("opacity", { base: {}, initial: { opacity: 0 }, style: () => Option.none(), own: readOwn })
+ * // Option.some({ value: 0, source: "initial" }): where opacity returns once nothing sets it
  */
+// Base values (ADR-0022). The read of an element's own value is the Environment's (`@wardic/dom`'s
+// `ownValues` for the DOM). Tier 2, for binding and Environment authors, and Effect-native: a missing
+// value is an `Option` (ADR-0008 as amended by ADR-0025). Pure and per element, so quiet: no span, no log.
 import * as Option from "effect/Option"
 import * as Rec from "effect/Record"
 import type * as Values from "./Values.ts"
 
 /**
- * The identity of each transform key: the value that leaves an element untransformed, 1 for
- * a scale and 0 for a translation, rotation or skew. A transform key's Own value is its
- * identity: Motion's rule (`defaultTransformValue`, motion-dom parse-transform.ts:62-64 at
- * 16c61222c4166bbef5ff6ab0051192faa79fa8c8), and what Motion uses at runtime, since every
- * motion element's read takes its projected branch (HTMLVisualElement.ts:51).
- *
- * The key set is the transform shorthands an Environment groups into one transform (the
- * DOM renderer derives its set from this one).
+ * Each transform key's identity: the value that leaves an element untransformed, 1 for a scale and 0 for
+ * a translation, rotation or skew. A transform key's Own value is its identity, as Motion's is. These are
+ * the keys an Environment builds one `transform` from.
  */
+// Motion's `defaultTransformValue` (motion-dom parse-transform.ts:62-64 at 16c61222c4166bbef5ff6ab0051192faa79fa8c8),
+// and what Motion uses at runtime, since every motion element's read takes its projected branch
+// (HTMLVisualElement.ts:51). The DOM renderer derives its set from this one.
 export const TRANSFORM_IDENTITY: Readonly<Record<string, number>> = Object.freeze({
   x: 0,
   y: 0,
@@ -59,18 +63,17 @@ export type ValueLookup = (key: string) => Option.Option<number | string>
 /**
  * The links of a key's chain, in order.
  *
- * - `base`: the resolved base layer of the Override stack (local `animate` > an inherited
- *   variant > `initial`, ADR-0007).
- * - `initial`: the element's resolved `initial` values. An inherited `initial` (#50) joins
- *   here.
+ * - `base`: the base of the element's Override stack: its own `animate`, else an inherited variant,
+ *   else its `initial`.
+ * - `initial`: the element's `initial` values, an inherited `initial` among them.
  * - `style`: the element's user style for the key, coerced to the key's shape; a surface
  *   with no style link passes `() => Option.none()`.
- * - `started`: the values an element with `initial={false}` started at, its `animate` at
- *   mount (#134, Motion's `baseTarget`); such an element passes an empty `initial`. Optional:
- *   left out, no value.
+ * - `started`: the values an element with `initial={false}` started at, its `animate` at mount, as
+ *   Motion's `baseTarget`; such an element passes an empty `initial`. Optional: left out, no value.
  * - `own`: the element's Own value, read by its Environment; asked only when every earlier
  *   link misses.
  */
+// ADR-0007 (the base); #50 (an inherited `initial`); #134 (`started`).
 export interface BaseSources {
   readonly base: Values.Values
   readonly initial: Values.Values
@@ -103,11 +106,11 @@ export const of = (key: string, sources: BaseSources): Option.Option<BaseValue> 
   )
 
 /**
- * Where a key with no value yet starts: its `style` value, then its Own value (`initial`
- * already seeds the element's values, ADR-0003). `None` means neither has it; the
- * caller's last resort is to start the key at its target, with no motion (Motion's
- * `unresolvedKeyframes[0] = finalKeyframe`, KeyframesResolver.ts:226-228).
+ * Where a key with no value yet starts: its `style` value, else its Own value. `None` when neither has
+ * one: start the key at its target, with no motion, as Motion does.
  */
+// `initial` already seeds the element's values (ADR-0003). Motion's `unresolvedKeyframes[0] =
+// finalKeyframe` (KeyframesResolver.ts:226-228).
 export const start = (key: string, sources: Pick<BaseSources, "style" | "own">): Option.Option<BaseValue> =>
   Option.map(sources.style(key), (value): BaseValue => ({ value, source: "style" })).pipe(
     Option.orElse(() => Option.map(sources.own(key), (value): BaseValue => ({ value, source: "own" }))),

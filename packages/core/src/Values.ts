@@ -1,36 +1,42 @@
 /**
- * The `Values` module: a flat bag of animatable values, the variants a component tree names
- * (CONTEXT.md's Variant), and the operations a binding runs on a value-map when it builds a
- * leg: `split`, by kind, and `pick`. Plain shapes callers write, so no prototype (ADR-0028,
- * decision 1). The operations run when a leg is built, at a Retarget, never per frame.
+ * Value bags: `Values`, a flat map of keys to numbers or strings, the shape every animation target
+ * takes, and what a binding does with one as it builds an animation: `split` it by kind, and `pick`
+ * from it.
+ *
+ * @example
+ * import * as Values from "@wardic/core/Values"
+ *
+ * const { numbers, strings } = Values.split({ x: 100, opacity: 1, color: "#a3be8c" })
+ * // numbers: { x: 100, opacity: 1 }, which a spring moves; strings: { color: "#a3be8c" }, blended
  */
+// CONTEXT.md's Variant. Plain shapes callers write, so no prototype (ADR-0028, decision 1). The
+// operations run when a leg is built, at a Retarget, never per frame.
 import * as Iter from "effect/Iterable"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import { dual } from "./internal/dual.ts"
 
-/** A flat bag of animatable values: numbers, or strings its Environment's Interpolators blend. */
+/** A flat bag of values: numbers, or strings an Environment blends, such as `"12px"` or a colour. */
 export type Values = Record<string, number | string>
 
-/** A named animation state. */
+/** A named animation state's values. */
 export type Variant = Record<string, number | string>
 
-/** A map of variant name → values, propagated through the component tree. */
+/** Named animation states, which the elements of a component tree share by name. */
 export type Variants = Record<string, Variant>
 
-/**
- * A value-map's keys by kind: its numbers, which a spring drives (`Machine.springValues`), and
- * its strings, blended through the `InterpolatorRegistry` by a progress (`Machine.springBlend`,
- * ADR-0024).
- */
+/** A bag's keys by kind: its numbers, which a spring moves, and its strings, which are blended by a progress. */
+// `Machine.springValues` and `Machine.springBlend` (ADR-0024).
 export interface Split {
+  /** Its keys that hold a number. */
   readonly numbers: Record<string, number>
+  /** Its keys that hold a string. */
   readonly strings: Values
 }
 
 /**
- * `values`' keys by kind: its numbers and its strings. A key whose value is neither (an
- * `undefined` that reached the map at run time) is in neither.
+ * `values`' keys by kind: its numbers and its strings. A key holding neither, an `undefined` that reached
+ * the bag at run time, is in neither.
  */
 export const split = (values: Values): Split => ({
   numbers: Rec.filter(values, Predicate.isNumber),
@@ -38,9 +44,11 @@ export const split = (values: Values): Split => ({
 })
 
 /**
- * The keys of `keysFrom` read out of `self`: for each, `self`'s value, and a key `self` doesn't
- * have (or holds `undefined` for) is skipped. A spring's string keys start this way, from the
- * values the element had (`self`) for the keys it animates to (`keysFrom`).
+ * `self`'s values for the keys `keysFrom` has, leaving out a key `self` lacks or holds `undefined` for:
+ * where an animation's keys start, from the element's values for the keys it animates to.
+ *
+ * @example
+ * const from = Values.pick(current, target) // current's values for target's keys
  */
 export const pick: {
   (keysFrom: Values): (self: Values) => Values

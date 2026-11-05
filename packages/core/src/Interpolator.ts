@@ -1,12 +1,25 @@
 /**
- * The `Interpolator` module: the value kinds core blends (ADR-0026), each an `Entry` the
- * `InterpolatorRegistry` resolves a pair through: `number`, `array`, `unit` and `complex`, in
- * `defaults`' order, each with its plain `parse` and `format` (`unit.parse`, `complex.format`), and
- * `unitOf`. An Environment registers its own kinds beside them, and names the spans and kinds of
- * token in its complex values (`complexWith`): the DOM's colours are `@wardic/dom`'s, since core
- * names no Environment's syntax (ADR-0036). A plain shape callers write to register their own kinds,
- * so no prototype (ADR-0028, decision 1). The blends' closures are on the per-frame path (ADR-0025).
+ * The kinds of value Wardic blends: numbers, arrays of numbers, numbers with units (`"10px"`), and
+ * complex values, strings with numbers among other text, a `box-shadow` or an SVG path. Each is an
+ * `Entry`: how an endpoint of its kind is read, written, and blended with another. An Environment
+ * registers these in its `InterpolatorRegistry` beside its own kinds, as the DOM adds its colours, and
+ * you can register yours.
+ *
+ * @example
+ * import * as Interpolator from "@wardic/core/Interpolator"
+ *
+ * // A kind of your own: angles in turns, `"0.25turn"`.
+ * const turns: Interpolator.Entry<number, string> = {
+ *   name: "turns",
+ *   parse: (value) => (typeof value === "string" && value.endsWith("turn") ? Option.some(parseFloat(value)) : Option.none()),
+ *   format: (amount) => `${amount}turn`,
+ *   blend: (from, to) => Option.some((t) => `${from + (to - from) * t}turn`),
+ * }
  */
+// ADR-0026: each an `Entry` the `InterpolatorRegistry` resolves a pair through, in `defaults`' order, each
+// with its plain `parse` and `format`. Core names no Environment's syntax (ADR-0036): the DOM's colours,
+// spans and kinds of token are `@wardic/dom`'s (`complexWith`). A plain shape callers write, so no
+// prototype (ADR-0028, decision 1). The blends' closures are on the per-frame path (ADR-0025).
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { identity, pipe } from "effect/Function"
@@ -20,24 +33,24 @@ import { type Tokenizer, tokenizerOf } from "./internal/complexTokens.ts"
 import * as Scalar from "./Scalar.ts"
 
 /**
- * A value kind the registry can blend (ADR-0026): how an endpoint of it is read and written, and
- * how two of it blend. Plain functions since #511 (ADR-0067 decision 9, ADR-0026 *Amendment (#511)*),
- * where they were a Schema codec built on the same two.
+ * A kind of value the registry can blend: how an endpoint of it is read and written, and how two of it
+ * blend.
  *
- * - **`parse`** reads an endpoint of the kind, any value at all: `Some` of what it read, `None` for
- *   a value of another kind, its type checked first (a string, a number). An endpoint it reads is
- *   this entry's, and one it rejects isn't: reading is matching. The registry parses once, when a
- *   stream is built (`resolve`), never per frame.
- * - **`format`** writes a read value back: what the frame's closure writes with.
- * - **`blend`** takes two read endpoints, once, and returns the closure the frame calls, which
- *   blends and then writes with `format`'s function. The pair's own work (comparing two
- *   structures, settling a unit) happens here, once. `None` when the pair can't blend: a Discrete
- *   pair (CONTEXT.md), which the registry switches at the first frame and warns about.
+ * - **`parse`** reads an endpoint of the kind, any value at all: `Some` of what it read, `None` for a
+ *   value of another kind, its type checked first. An endpoint it reads is this kind's, and one it
+ *   rejects isn't: reading is matching. The registry parses once, when an animation is built, never per
+ *   frame.
+ * - **`format`** writes a read value back: what each frame writes with.
+ * - **`blend`** takes two read endpoints, once, and returns the function each frame calls with its
+ *   progress `t`, which blends and writes. Work on the pair, comparing two structures or settling a
+ *   unit, happens here, once. `None` when the pair can't blend: a Discrete pair, which the registry
+ *   switches at the first frame, with a warning.
  *
- * The built-in entries (number, array, unit string, complex value) are registered when the
- * Environment is set up, beside the Environment's own (the DOM's colours, ADR-0036), and consumers
- * can register their own.
+ * The built-in kinds (a number, an array, a unit string, a complex value) are registered as an
+ * Environment is set up, beside its own, as the DOM's colours, and yours can be too.
  */
+// ADR-0026. Plain functions since #511 (ADR-0067 decision 9, ADR-0026 *Amendment (#511)*), where they
+// were a Schema codec built on the same two. CONTEXT.md's Discrete pair; the DOM's colours, ADR-0036.
 export interface Entry<Decoded, Encoded> {
   /** Unique name for the value kind, e.g. "number", "unit". */
   readonly name: string
@@ -52,9 +65,11 @@ export interface Entry<Decoded, Encoded> {
 /** A number with an optional unit suffix: `10`, `"10px"`, `"-0.5em"`, `"50%"`. */
 const UNIT_RE = /^(-?\d*\.?\d+)([a-z%]*)$/i
 
-/** A parsed number-with-unit string. `unit` is `""` for a bare number. */
+/** A number with its unit, as the `unit` kind reads a string: `"10px"` is 10 and `"px"`. */
 interface ParsedUnit {
+  /** The number: 10 for `"10px"`. */
   readonly value: number
+  /** The unit: `"px"` for `"10px"`, `""` for a bare number. */
   readonly unit: string
 }
 
@@ -142,25 +157,25 @@ const parseUnitValue = (value: unknown): Option.Option<ParsedUnit> => {
 const formatParsedUnit = (parsed: ParsedUnit): string => formatUnit(parsed.value, parsed.unit)
 
 /**
- * The unit of a number-with-unit string as the `unit` interpolator parses it (`""` for a bare
- * number), or `None` when `value` isn't one (`"auto"`, `"M0,0 L1,1"`). Two strings whose units are
- * both non-empty and differ are a Discrete pair (ADR-0026, decision 4).
+ * The unit of a number-with-unit string, as the `unit` kind reads it (`""` for a bare number), or `None`
+ * for another string (`"auto"`, `"M0,0 L1,1"`). Two strings whose units differ, both present, can't blend.
  */
+// ADR-0026, decision 4: a Discrete pair.
 export const unitOf = (value: string): Option.Option<string> => Option.map(parseUnit(value), (parsed) => parsed.unit)
 
 /** Two units that can blend: the same, or one of them absent (a bare number). */
 const compatible: Predicate.Predicate<readonly [ParsedUnit, ParsedUnit]> = Predicate.not(incompatible)
 
 /**
- * Interpolates a number with a unit suffix, e.g. `"10px" → "20px"`, `"0%" → "100%"`, and a bare
- * number paired with one, `0 → "10px"`: the unit is taken from whichever endpoint has one, once,
- * when a stream is built, and the frame lerps the value and formats it with `formatUnit`, as
- * `format` does (ADR-0026). `unit.parse` reads a string or a number (`" 10px "` → `{ value: 10,
- * unit: "px" }`, `120` → `{ value: 120, unit: "" }`), and `unit.format` writes one back (`"10px"`).
+ * A number with a unit, `"10px"` to `"20px"`, `"0%"` to `"100%"`, or a bare number paired with one, `0`
+ * to `"10px"`: the unit is taken from whichever endpoint has one, and each frame blends the number and
+ * writes it with the unit. `unit.parse` reads a string or a number (`" 10px "` is `{ value: 10, unit:
+ * "px" }`, `120` is `{ value: 120, unit: "" }`), and `unit.format` writes one back (`"10px"`).
  *
- * Two different units, both present (`"10px"`, `"1em"`), can't blend: `None`, a Discrete pair,
- * which `resolve` switches at the first frame and warns about (decision 4).
+ * Two different units, both present (`"10px"`, `"1em"`), can't blend: a Discrete pair, switched at the
+ * first frame, with a warning.
  */
+// ADR-0026, decision 4.
 export const unit: Entry<ParsedUnit, string | number> = {
   name: "unit",
   parse: parseUnitValue,
@@ -172,33 +187,33 @@ export const unit: Entry<ParsedUnit, string | number> = {
     }),
 }
 
-/**
- * A token of one of its Environment's kinds, decoded (#160, ADR-0036): the kind, its Interpolator's
- * name, and the value that Interpolator decoded.
- */
+/** A token of one of an Environment's kinds, read: its kind, its Interpolator's name, and the value that Interpolator read. */
+// #160, ADR-0036.
 export interface KindToken {
   readonly kind: string
   readonly value: unknown
 }
 
-/** A complex value's token, decoded: a number, or a token of one of its Environment's kinds (#160). */
+/** A complex value's token, read: a number, or a token of one of its Environment's kinds. */
+// #160.
 export type ComplexToken = number | KindToken
 
 /**
- * A complex value, decoded (CONTEXT.md): the pieces around its tokens, and the tokens, numbers and
- * its Environment's kinds, in document order. `parts.length === tokens.length + 1`.
+ * A complex value, read: the text around its tokens, and the tokens, numbers and its Environment's
+ * kinds, in order. `parts.length === tokens.length + 1`.
  */
+// CONTEXT.md.
 export interface Complex {
   readonly parts: ReadonlyArray<string>
   readonly tokens: ReadonlyArray<ComplexToken>
 }
 
 /**
- * A kind of token an Environment names in its complex values besides numbers (#160, ADR-0036):
- * what one looks like, and the Interpolator that reads, blends and writes it, usually the one the
- * Environment registers for a value of that kind on its own (the DOM's colours). Its tokens are
- * told apart by that Interpolator's name.
+ * A kind of token an Environment names in its complex values besides numbers: what one looks like, and
+ * the Interpolator that reads, blends and writes it, usually the one it registers for a value of that
+ * kind on its own, as the DOM's colours. Its tokens are told apart by that Interpolator's name.
  */
+// #160, ADR-0036.
 export interface TokenKind<Decoded = any> {
   /**
    * What a token of the kind looks like: matched case-insensitively, after the text spans and
@@ -319,21 +334,22 @@ const formatComplexWith = (kinds: ReadonlyArray<Kind>) => {
     Arr.reduce(complex.tokens, complex.parts[0], (out, token, i) => out + formatToken(token) + complex.parts[i + 1])
 }
 
-/** The spans and kinds of token an Environment names in its complex values (#158, #160; ADR-0036). */
+/** The spans and kinds of token an Environment names in its complex values. */
+// #158, #160; ADR-0036.
 export interface ComplexOptions {
   /**
-   * Patterns for spans that are only text: matched whole, before tokens and numbers, so the digits
-   * in them are never numbers; kept as text; and counted when two values match. No capturing
-   * groups. None by default: core names no Environment's syntax (the DOM's are in `@wardic/dom`,
-   * ADR-0035 *Amendment (#158)*).
+   * Patterns for spans that are only text: matched whole, before tokens and numbers, so the digits in
+   * them are never numbers; kept as text; and counted when two values match. No capturing groups. None
+   * by default: core names no Environment's syntax, and the DOM's are in `@wardic/dom`.
    */
+  // ADR-0035 *Amendment (#158)*.
   readonly text?: ReadonlyArray<RegExp>
   /**
-   * Kinds of token besides numbers (#160): each a pattern and the Interpolator its tokens decode,
-   * blend and encode through. Two values blend with the same count of each kind, the n-th token of
-   * a kind blending with the n-th of the same kind. None by default (the DOM's colours are in
-   * `@wardic/dom`, ADR-0036).
+   * Kinds of token besides numbers: each a pattern, and the Interpolator its tokens are read, blended
+   * and written through. Two values blend with the same count of each kind, the n-th token of a kind
+   * with the n-th of that kind. None by default: the DOM's colours are in `@wardic/dom`.
    */
+  // #160, ADR-0036.
   readonly tokens?: ReadonlyArray<TokenKind>
 }
 
@@ -419,34 +435,30 @@ const slotsOf = (kinds: Readonly<Record<string, Kind>>, from: Complex, to: Compl
 }
 
 /**
- * Generic "complex value" interpolator (Motion's complex value type) for an Environment's text
- * spans and kinds of token: a string carrying one or more numbers or tokens of a kind among other
- * text, an SVG `d`/`points`, a `filter`, a `box-shadow`, a gradient, blended token by token (#61).
- * Two blend when they hold the same count of each kind and the start holds at least as many numbers
- * as the target: the n-th number blends with the n-th number and the n-th token of a kind with the
- * n-th of that kind, through that kind's Interpolator, written in the target's parts (Motion's
- * `mixComplex`). With the DOM's colours a computed `rgba(0, 0, 0, 0.2) 0px 1px 2px 0px` blends into
- * an authored `0px 8px 24px rgba(0, 0, 0, 0.3)`. Any other two can't: `None`, a Discrete pair,
- * which `resolve` switches to `to` at the first frame past 0 and warns about (ADR-0024, ADR-0026).
+ * The complex value kind, for an Environment's text spans and kinds of token: a string with numbers or
+ * tokens among other text, an SVG `d` or `points`, a `filter`, a `box-shadow`, a gradient, blended
+ * token by token, as Motion's `mixComplex`. Two blend when they hold the same count of each kind and the
+ * start has at least as many numbers as the target: the n-th number with the n-th, and the n-th token
+ * of a kind with the n-th of it, written in the target's text. With the DOM's colours, a computed
+ * `rgba(0, 0, 0, 0.2) 0px 1px 2px 0px` blends into `0px 8px 24px rgba(0, 0, 0, 0.3)`. Any other two
+ * can't: a Discrete pair, switched to the target at the first frame, with a warning.
  *
- * This is the **same-structure tier of path morphing** (ADR-0015): two `d`/`points` with the same
- * command sequence morph for free. **Arbitrary-structure** morphing (aligning paths with
- * *different* command counts) is a separate, opt-in, heavier interpolator (`@wardic/path-morph`,
- * deferred), registered at higher precedence when wanted; it never enters the default bundle.
+ * Two SVG paths with the same commands morph; paths with different commands don't. Register it last,
+ * so the specific kinds win: `"10px"` is a unit, and a lone colour the DOM's colour kind. As Motion's,
+ * an arc command's flags are blended as numbers, so an arc path can pass through invalid flags.
  *
- * Registered LAST so the specific interpolators win: `"10px"` → unit, a lone token of a kind → its
- * kind's own Interpolator, registered before it (the DOM's colours), and only strings with tokens
- * among other text land here.
+ * Its `parse` reads a string into its parts and tokens, and its `format` writes them back, numbers in
+ * JavaScript's shortest form, so `"M0.50,1e3"` writes back as `"M0.5,1000"`.
  *
- * Known limit (as Motion, without a path normalizer): SVG arc flags in an `A`/`a` command are
- * treated as plain numbers, so an arc path can interpolate through invalid flag values.
- *
- * Its `parse` reads a string carrying one or more numbers or tokens of a kind among other text into
- * its parts and tokens (`complexWith(options).parse`), and its `format` writes them back, numbers
- * in JavaScript's shortest form and each token by its kind's `format`, so `"M0.50,1e3"` writes back
- * as `"M0.5,1000"`. Both strings are read once, when a stream is built, and the closure `blend`
- * returns is on the per-frame path (ADR-0025): it only lerps, calls each kind's blend and formats.
+ * @example
+ * // An Environment's colours as a kind of token among the numbers, as the DOM's are:
+ * const complex = Interpolator.complexWith({ tokens: [{ pattern: colorPattern, entry: colorEntry }] })
  */
+// #61; Motion's complex value type; a Discrete pair (ADR-0024, ADR-0026). The same-structure tier of
+// path morphing (ADR-0015); arbitrary-structure morphing is a separate, opt-in interpolator
+// (`@wardic/path-morph`, deferred), registered at higher precedence, never in the default bundle. Both
+// strings are read once, when a stream is built; the closure `blend` returns is on the per-frame path
+// (ADR-0025): it only lerps, calls each kind's blend and formats.
 export const complexWith = (options: ComplexOptions): Entry<Complex, string> => {
   const kinds = kindsOf(options)
   const byName: Readonly<Record<string, Kind>> = Rec.fromEntries(Arr.map(kinds, (kind) => [kind.name, kind] as const))
@@ -464,14 +476,13 @@ export const complexWith = (options: ComplexOptions): Entry<Complex, string> => 
   }
 }
 
-/** The complex value Interpolator with no text spans and no kinds: core's default (see {@link complexWith}). */
+/** The complex value kind with no text spans and no kinds of token: core's own (see `complexWith`). */
 export const complex: Entry<Complex, string> = complexWith({})
 
 /**
- * The interpolators core ships with, in resolution order. `number` and `array` are checked first
- * (cheap, unambiguous); `unit` before `complex` so `"10px"` routes to unit; `complex` LAST so it
- * only catches strings with numbers among other text (SVG `d`/`points`, `filter`, `box-shadow`)
- * the specific entries didn't claim (ADR-0015). An Environment adds its own kinds among them (the
- * DOM's colours, before `unit`; ADR-0036).
+ * The kinds core ships, in the order a pair is tried: `number` and `array` first, `unit` before
+ * `complex`, so `"10px"` is a unit, and `complex` last, for the strings the others didn't take. An
+ * Environment adds its own among them, as the DOM's colours before `unit`.
  */
+// ADR-0015, ADR-0036.
 export const defaults: ReadonlyArray<Entry<any, any>> = [number, array, unit, complex]

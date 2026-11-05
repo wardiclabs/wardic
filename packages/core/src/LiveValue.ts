@@ -1,29 +1,23 @@
 /**
- * The `LiveValue` module (#130, ADR-0043): helpers that derive one **Live value** from another. A
- * Live value is a value the user moves themselves, given in an element's `style`: the key's
- * `style` link, which the element follows while no entry of the Override stack sets the key
- * (CONTEXT.md). Its shared form is an `effect/reactivity` `Atom`, as core's other live data is
- * (`Probe.viewport`); each binding also takes its framework's own reactive value.
+ * Live values: values derived from other values as they change, each an `effect/reactivity` Atom an
+ * element's `style` can follow. `transform` maps one through ranges, `follow` and `spring` follow one on
+ * a transition, `velocity` tracks how fast one moves, `scroll` gives a container's scroll, `time` the
+ * time since it started, and `eachFrame` calls you every frame. A binding wraps them in its own
+ * reactive values, as Solid's `createSpring` and `createTransform` do.
  *
- * - `transform`: a value mapped from another through ranges (Motion's `useTransform`), each pair
- *   of outputs blended through the `InterpolatorRegistry`, so colours and unit strings map as
- *   `animate` blends them, or through a `mixer` of the app's (#440). `interpolate` is its mapping as
- *   a plain function (Motion's `interpolate`), for a binding that maps its own reactive value.
- * - `follow`: a **Follow value**, which follows another on any transition (Motion's `followValue`,
- *   #441), stepped on the Frame loop while it moves and idle once it rests; `spring` is its spring
- *   case (Motion's `useSpring`).
- * - `jump`: a value set at once, not as motion (Motion's `MotionValue.jump`, #257 item 7): a
- *   spring's output ends its run there, and a `velocity` of it reads no motion.
- * - `scroll`: a container's scroll and progress (Motion's `useScroll`), from the Environment's
- *   `Probe.scroll` (#234).
- * - `velocity`: another value's velocity, per frame while it moves (Motion's `useVelocity`).
- * - `time`: milliseconds since it started, wall time (Motion's `useTime`).
- * - `eachFrame`: no value, a callback told each frame's time and delta (Motion's `useAnimationFrame`,
- *   #443), on the same run as `time`.
+ * @example
+ * import * as LiveValue from "@wardic/core/LiveValue"
  *
- * Tier 2 (ADR-0008): Effect-typed, for bindings, which wrap them (Solid's `createTransform`,
- * `createFollowValue`, `createSpring`).
+ * const pointerX = Atom.make(0)
+ * const x = yield* LiveValue.spring(pointerX, { stiffness: 300, damping: 30 })
+ * const opacity = yield* LiveValue.transform(x, [0, 200], [1, 0])
  */
+// #130, ADR-0043: a Live value is one the user moves themselves, given in an element's `style`: the
+// key's `style` link, which the element follows while no entry of the Override stack sets it
+// (CONTEXT.md). Its shared form is an Atom, as core's other live data is (`Probe.viewport`). Motion's
+// `useTransform` (with a `mixer`, #440), `interpolate`, `followValue` (#441), `useSpring`,
+// `MotionValue.jump` (#257 item 7), `useScroll` (#234), `useVelocity`, `useTime`, `useAnimationFrame`
+// (#443). Tier 2 (ADR-0008): Effect-typed, for bindings, which wrap them.
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Context from "effect/Context"
@@ -47,10 +41,8 @@ import * as Probe from "./Probe.ts"
 import * as Supersede from "./Supersede.ts"
 import { dual } from "./internal/dual.ts"
 
-/**
- * A blend between two outputs (#440, Motion's `MixerFactory`): made once per stretch from its two
- * outputs, then read at each progress through it, 0 to 1.
- */
+/** A blend between two outputs, as Motion's `MixerFactory`: made once per stretch, then read at each progress through it, 0 to 1. */
+// #440.
 export type Mixer<O> = (from: O, to: O) => (t: number) => O
 
 /** `transform`'s options. */
@@ -58,20 +50,23 @@ export interface TransformOptions<O = number | string> {
   /** Hold the first and last output outside the input's range. Default `true`, as Motion's is. */
   readonly clamp?: boolean
   /**
-   * How each stretch of the input range eases (#360), as Motion's `useTransform`'s `ease`: one
-   * Easing definition for every stretch, or an array with one per stretch, linear for any it's
-   * short of. Default linear. A descending range's stretches take it reversed, as Motion's (#440).
+   * How each stretch of the input range eases, as Motion's `useTransform`'s `ease`: one easing for every
+   * stretch, or a list, one each, linear for any it's short of. Default linear. A descending range's
+   * stretches take it reversed, as Motion's.
    */
+  // #360, #440.
   readonly ease?: Easing.Definition | ReadonlyArray<Easing.Definition>
   /**
-   * How two outputs blend (#440, Motion's `mixer`): made once per stretch from its two outputs, read
-   * through the stretch's `ease`. Given, it takes the place of the `InterpolatorRegistry`, so the
-   * outputs can be any type it blends. Default: the registry's blends, of numbers and strings.
+   * How two outputs blend, as Motion's `mixer`: made once per stretch from its two outputs, read through
+   * the stretch's `ease`. Given, it takes the place of the `InterpolatorRegistry`'s blends, so the
+   * outputs can be any type it blends. Default: the registry's, of numbers and strings.
    */
+  // #440.
   readonly mixer?: Mixer<O>
 }
 
-/** `transform`'s options with a `mixer` (#440): its outputs any type the mixer blends. */
+/** `transform`'s options with a `mixer`: its outputs any type the mixer blends. */
+// #440.
 export interface MixedTransformOptions<O> extends TransformOptions<O> {
   readonly mixer: Mixer<O>
 }
@@ -101,7 +96,10 @@ const blendsOf = <O>(mixer: Mixer<O> | undefined, registry: Context.Service.Shap
     onDefined: (mix) => (a: O, b: O) => Effect.sync(() => mix(a, b)),
   })
 
-/** Motion's mapping, as {@link interpolate} gives it. */
+/**
+ * `interpolate`'s two forms: outputs of numbers or strings, which the `InterpolatorRegistry` blends, or
+ * of any type, with a `mixer` to blend them.
+ */
 interface Interpolate {
   <O extends number | string>(input: ReadonlyArray<number>, output: ReadonlyArray<O>, options?: TransformOptions<O>): Effect.Effect<(v: number) => O, never, InterpolatorRegistry.InterpolatorRegistry>
   <O>(input: ReadonlyArray<number>, output: ReadonlyArray<O>, options: MixedTransformOptions<O>): Effect.Effect<(v: number) => O, never, InterpolatorRegistry.InterpolatorRegistry>
@@ -109,16 +107,21 @@ interface Interpolate {
 
 /**
  * The mapping `transform` applies, as a plain function, Motion's `interpolate`: an input at `input[i]`
- * gives `output[i]`, and one between two stops blends their outputs by its progress between them, each
- * pair through the `InterpolatorRegistry`, or the `mixer` given (#440), resolved once, here. `input` and
- * `output` are as long, one stop or more; anything else is a defect. As Motion's (#440):
+ * gives `output[i]`, and one between two stops blends their outputs by its progress between them,
+ * through the `InterpolatorRegistry` or the `mixer` given, resolved once. `input` and `output` are as
+ * long, one stop or more. As Motion's:
  * - **one stop**, or two with one output, gives that output;
- * - **a descending range** is mapped reversed, both arrays, so its `ease`, a list too, goes to the
- *   reversed stretches, each curve running toward the higher input;
+ * - **a descending range** is mapped reversed, both lists, its `ease` list too;
  * - **a stretch of no length** gives its second output at or past it, and, the first one, its first
  *   output before it;
  * - outside the range the ends hold, unless `clamp: false`, which carries the first or last stretch on.
+ *
+ * @example
+ * const width = yield* LiveValue.interpolate([0, 1, 2], ["0px", "80px", "120px"])
+ * width(1.5) // "100px"
+ * width(3) // "120px": the end holds
  */
+// #440. Anything else is a defect.
 export const interpolate: Interpolate = <O>(input: ReadonlyArray<number>, output: ReadonlyArray<O>, options?: TransformOptions<O>) =>
   interpolateWith(input, output, options)
 
@@ -160,8 +163,11 @@ const interpolateWith: <O>(
   })
 
 /**
- * `source` mapped through ranges, as `interpolate` maps a number: an Atom that follows `source`,
- * mapped afresh on each change.
+ * `source` mapped through ranges, as `interpolate` maps a number: an Atom that follows `source`, mapped
+ * afresh at each change.
+ *
+ * @example
+ * const scale = yield* LiveValue.transform(scrollY, [0, 300], [1, 0.8])
  */
 export const transform: {
   <O extends number | string>(source: Atom.Atom<number>, input: ReadonlyArray<number>, output: ReadonlyArray<O>, options?: TransformOptions<O>): Effect.Effect<Atom.Atom<O>, never, InterpolatorRegistry.InterpolatorRegistry>
@@ -200,12 +206,13 @@ export interface FollowSkips {
 export interface SpringOptions extends Machine.SpringOptions, FollowSkips {}
 
 /**
- * A **Follow value**'s transition (#441, Motion's `useFollowValue`'s), in seconds: a spring, which
- * one with no `type` is, a tween, or an inertia. What it leaves out is Motion's follower's: a spring's
- * physics 100 / 10 / 1 unless it's set by time, at rest within 0.001 and below 0.01 a second (an
- * inertia's too), and a tween's 0.3 s `easeInOut`. Its `delay` holds the value where it is at every
- * change of the source, then it goes on toward the latest: a debounce, as Motion's.
+ * A follow's transition, in seconds, as Motion's `useFollowValue`'s: a spring (one with no `type` is), a
+ * tween, or an inertia. What it leaves out is Motion's follower's: a spring's physics 100 / 10 / 1
+ * unless it's set by time, at rest within 0.001 and below 0.01 a second (an inertia's too), and a
+ * tween's 0.3 s `easeInOut`. Its `delay` holds the value where it is at each change of the source, then
+ * it goes on toward the latest: a debounce, as Motion's.
  */
+// #441.
 export type FollowTransition =
   | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from">)
   | ({ readonly type: "tween" } & Machine.TweenOptions)
@@ -259,12 +266,15 @@ const jumpIn = (registry: AtomRegistry.AtomRegistry, atom: Atom.Writable<number>
 }
 
 /**
- * Jump `atom` to `value` (Motion's `MotionValue.jump`, #257 item 7): set at once, not as motion.
- * A `spring` whose output it is ends its run there with no velocity, and rests there until its
- * source next changes, then springs from there; a `velocity` of it reads the jump as no motion, 0
- * in that frame. `atom` is writable, a `spring`'s output or one of the user's; any other is a
- * defect.
+ * Sets `atom` to `value` at once, not as motion, as Motion's `MotionValue.jump`: a `spring` whose output
+ * it is ends its run there with no velocity, and rests there until its source next changes, then springs
+ * from there; a `velocity` of it reads the jump as no motion. `atom` is a `spring`'s output, or a
+ * writable Atom of yours.
+ *
+ * @example
+ * yield* LiveValue.jump(x, 0) // back to the start, without a spring
  */
+// #257 item 7. Any other Atom is a defect.
 export const jump: {
   (value: number): (atom: Atom.Atom<number>) => Effect.Effect<void, never, AtomRegistry.AtomRegistry>
   (atom: Atom.Atom<number>, value: number): Effect.Effect<void, never, AtomRegistry.AtomRegistry>
@@ -357,25 +367,27 @@ const velocityOfFrame = (frame: Frame.Frame<number>): number => {
 const FOLLOW_SPAN: Machine.Span = { name: "wardic.follow", attributes: {} }
 
 /**
- * A **Follow value** (#441, Motion's `followValue`): a value that animates toward `source` on
- * `options`' transition. It starts where the source is, and from each change on, a run toward the
- * source runs on the Frame loop until it comes to rest there; then nothing runs until the source
- * moves again.
- * - **A spring** with no `delay` or `velocity` steers toward the source, read afresh every step,
- *   keeping its velocity through a change.
- * - **Anything else** starts again at the step after a change, from where it's reached: a tween with
- *   its full duration and ease, and no velocity; an inertia gliding again, its target unread (#435);
- *   a spring with the transition's `velocity`, or its own. Several changes in one frame start it
- *   once, as Motion's `FollowAnimation` retargets at its next tick.
+ * A value that follows `source` on a transition, as Motion's `followValue`: it starts where the source
+ * is, and from each change on, a run toward the source runs on the Frame loop until it rests there;
+ * nothing runs while it rests.
+ * - **A spring** with no `delay` or `velocity` steers toward the source, read afresh every step, keeping
+ *   its velocity through a change.
+ * - **Anything else** starts again at the step after a change, from where it has got to: a tween with
+ *   its full duration, an inertia gliding again, a spring with the transition's `velocity`, or its own.
+ *   Several changes in one frame start it once.
  * - **A `delay`** holds it where it is at every change, then it goes on toward the latest: a source
  *   that never rests doesn't move it until it does.
  *
- * At its source already, a change starts nothing. With `skipInitialAnimation`, the source's first
- * change is a `jump`; with `skipAnimations`, or while `skipped()` says so (#468, read at each change:
- * a binding's subtree setting), every change is. A `jump` of its output ends the run there, with no
- * velocity. The run and the subscription end with the Scope; the Atom is held in the registry until
- * then, and after it only while subscribed.
+ * At its source already, a change starts nothing. With `skipInitialAnimation`, the source's first change
+ * is a `jump`; with `skipAnimations`, or while `skipped()` says so, every change is. Its run and its
+ * subscription end with the Scope.
+ *
+ * @example
+ * const eased = yield* LiveValue.follow(target, { type: "tween", duration: 0.4, ease: "easeOut" })
  */
+// #441; an inertia's target unread (#435); several changes start it once, as Motion's `FollowAnimation`
+// retargets at its next tick; `skipped()` is a binding's subtree setting, read at each change (#468). The
+// Atom is held in the registry until the Scope ends, and after it only while subscribed.
 export const follow: (
   source: Atom.Atom<number>,
   options?: FollowOptions,
@@ -474,10 +486,14 @@ export const follow: (
   })
 
 /**
- * A value that follows `source` with a spring (Motion's `useSpring`): `follow`'s spring case (#441),
- * `options` as `Machine.spring`'s, and Motion's follower's for what it leaves out: 100 / 10 / 1 unless
- * it's set by time, at rest within 0.001 and below 0.01 a second.
+ * A value that follows `source` on a spring, as Motion's `useSpring`: `follow`'s spring, `options` a
+ * spring's, and Motion's follower's for what it leaves out: 100 / 10 / 1 unless it's set by time, at
+ * rest within 0.001 and below 0.01 a second.
+ *
+ * @example
+ * const smooth = yield* LiveValue.spring(scrollYProgress, { visualDuration: 0.3 })
  */
+// #441.
 export const spring = (
   source: Atom.Atom<number>,
   options: SpringOptions = {},
@@ -498,13 +514,15 @@ export interface ScrollValues {
 }
 
 /**
- * A container's scroll as Motion's four values (`useScroll`): how far it's scrolled on each axis,
- * and the progress through its range, or, with a `target` or an `offset`, through the offsets the
- * target passes on `axis` (#234, ADR-0043 *Amendment (#233, #234)*). Each is derived from the
- * Environment's `Probe.scroll`, which the Environment sets within the scroll's events, so a value
- * derived from one is written in the frame that shows the scroll. The container's listeners are
- * held while the Scope is.
+ * A container's scroll as Motion's four values, as `useScroll`: how far it's scrolled on each axis, and
+ * the progress through its range, or, with a `target` or an `offset`, through the offsets the target
+ * passes on `axis`. Each is set within the scroll's own event, so a value derived from one is written in
+ * the frame that shows the scroll. The container's listeners are held while the Scope is.
+ *
+ * @example
+ * const { scrollYProgress } = yield* LiveValue.scroll({ container })
  */
+// #234, ADR-0043 *Amendment (#233, #234)*: derived from the Environment's `Probe.scroll`.
 export const scroll: (options?: Probe.ScrollOptions) => Effect.Effect<ScrollValues, never, Probe.Probe | Scope.Scope> = Effect.fnUntraced(
   function* (options: Probe.ScrollOptions = {}) {
     const probe = yield* Probe.Probe
@@ -522,15 +540,17 @@ const numberMachine = (name: string, settles: boolean, start: () => (dt: number)
   Machine.make({ settles, span: { name, attributes: {} }, start })
 
 /**
- * `source`'s velocity, in its units a second (Motion's `useVelocity`): 0 to begin with, and from
- * each change on, a run on the Frame loop that reads the source each tick and sets the velocity to
- * its change since the end of the tick before over the tick's `dt` (clamped at `Machine.MAX_DT`, as
- * every run is). The first tick that finds no change sets 0 and ends the run, so nothing runs while
- * the source rests. "Since the end of the tick before", read by an `afterTick` hook, not the run's
- * own last read: a run started inside a tick takes its first step at the next one, and would
- * otherwise count two frames' change over one `dt`. Velocity is a value too: `velocity(velocity(x))`
- * is acceleration. The run, the hook and the subscription end with the Scope.
+ * How fast `source` is changing, in its units a second, as Motion's `useVelocity`: 0 to begin with, and
+ * from each change on, each frame's change over the frame's time, until a frame finds no change, sets 0
+ * and stops. Nothing runs while the source rests. A velocity is a value too: `velocity(velocity(x))` is
+ * acceleration. Its run ends with the Scope.
+ *
+ * @example
+ * const speed = yield* LiveValue.velocity(scrollY)
  */
+// Each tick's `dt` is clamped at `Machine.MAX_DT`, as every run's is. "Since the end of the tick before",
+// read by an `afterTick` hook, not the run's own last read: a run started inside a tick takes its first
+// step at the next one, and would otherwise count two frames' change over one `dt`.
 export const velocity: (source: Atom.Atom<number>) => Effect.Effect<Atom.Atom<number>, never, FrameLoop.FrameLoop | AtomRegistry.AtomRegistry | Scope.Scope> = Effect.fnUntraced(
   function* (source: Atom.Atom<number>) {
     const registry = yield* AtomRegistry.AtomRegistry
@@ -583,11 +603,13 @@ export const velocity: (source: Atom.Atom<number>) => Effect.Effect<Atom.Atom<nu
   })
 
 /**
- * Milliseconds since it started (Motion's `useTime`): a run on the Frame loop that never settles,
- * adding each tick's `dt` as the Clock gives it, unclamped, so it keeps wall time (a hidden tab's
- * minutes count in full, as Motion's do). It keeps the Clock ticking every frame for as long as it
- * runs; the run ends with the Scope.
+ * Milliseconds since it started, as Motion's `useTime`: wall time, a hidden tab's minutes included. It
+ * keeps the Clock ticking every frame while it runs; its run ends with the Scope.
+ *
+ * @example
+ * const rotate = yield* LiveValue.transform(yield* LiveValue.time(), [0, 4000], [0, 360], { clamp: false })
  */
+// A run on the Frame loop that never settles, adding each tick's `dt` as the Clock gives it, unclamped.
 export const time: () => Effect.Effect<Atom.Atom<number>, never, FrameLoop.FrameLoop | AtomRegistry.AtomRegistry | Scope.Scope> = Effect.fnUntraced(
   function* () {
     const registry = yield* AtomRegistry.AtomRegistry
@@ -622,20 +644,21 @@ export const time: () => Effect.Effect<Atom.Atom<number>, never, FrameLoop.Frame
 const FRAME_DELTA = { minimum: 1, maximum: 40 } as const
 
 /**
- * `callback` told each frame's time and delta, in milliseconds (Motion's `useAnimationFrame`, #443): a
- * run on the Frame loop that never settles, so it keeps the Clock ticking every frame for as long as
- * it runs; the run ends with the Scope.
+ * Calls `callback` every frame with the frame's time and delta, in milliseconds, as Motion's
+ * `useAnimationFrame`: for what a frame draws itself, a canvas or a 3D scene. It keeps the Clock ticking
+ * every frame while it runs; its run ends with the Scope.
  *
- * - **`time`** is 0 at its first frame, then the total of each tick's `dt` as the Clock gives it,
- *   unclamped, so it keeps wall time as {@link time} does (a hidden tab's minutes count in full, as
- *   Motion's do).
- * - **`delta`** is the tick's `dt` held to 1–40 ms, as Motion's frame loop holds its delta: a step
- *   after a hidden tab is 40 ms, not minutes. A run's first frame after the Clock wakes is the Clock's
- *   nominal frame, 16.7 ms, as Motion's is.
+ * - **`time`** is 0 at its first frame, then wall time, as `time`'s.
+ * - **`delta`** is the frame's own, held to 1–40 ms, so the first frame back from a hidden tab steps
+ *   40 ms, not minutes.
  *
- * A throw from `callback` ends the run, as any run's defect does (ADR-0027, decision 7): a binding
- * catches it first.
+ * A throw from `callback` ends the run: a binding catches it first.
+ *
+ * @example
+ * yield* LiveValue.eachFrame((time) => draw(context, time))
  */
+// #443. A run's first frame after the Clock wakes is the Clock's nominal frame, 16.7 ms, as Motion's is.
+// A throw is a run's defect (ADR-0027, decision 7).
 export const eachFrame: (callback: (time: number, delta: number) => void) => Effect.Effect<void, never, FrameLoop.FrameLoop | Scope.Scope> = Effect.fnUntraced(
   function* (callback: (time: number, delta: number) => void) {
     const run = yield* FiberHandle.makeRuntime<FrameLoop.FrameLoop, never, unknown>()
