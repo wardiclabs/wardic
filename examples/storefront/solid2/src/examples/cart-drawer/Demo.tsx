@@ -23,6 +23,12 @@ export default function CartDrawer() {
   )
 }
 
+/** A cart line as the drawer's draft writes it: its quantity changed in place. */
+type DraftLine = { -readonly [K in keyof CartLine]: CartLine[K] }
+
+/** The most of one piece a line holds. */
+const MAX_QUANTITY = 99
+
 function CartDrawerDemo() {
   const [open, setOpen] = createSignal(false)
   const [problem, setProblem] = createSignal<string>()
@@ -31,10 +37,17 @@ function CartDrawerDemo() {
   // The cart's lines, derived from the store's, keyed by product. A write inside an action shows at
   // once as a prediction over them, and is dropped when the action settles: the refreshed lines
   // then take its place, or, if the store refused, the line goes back to what it was.
-  const [lines, setLines] = createOptimisticStore<Array<CartLine>>(async () => [...(await cart()).lines], [], { key: "productId" })
+  const [lines, setLines] = createOptimisticStore<Array<DraftLine>>(async () => [...(await cart()).lines], [], { key: "productId" })
 
+  // The writes change the draft in place, so each line stays the one its row renders: a setter returning
+  // new lines replaced each one, and its row was made again (#618, decision 3).
   const change = action(function* (id: string, quantity: number) {
-    setLines((draft) => draft.map((one) => lineAt(one, id, quantity)).filter((one) => one.quantity > 0))
+    setLines((draft) => {
+      const at = draft.findIndex((one) => one.productId === id)
+      if (at === -1) return
+      if (quantity <= 0) draft.splice(at, 1)
+      else draft[at]!.quantity = Math.min(quantity, MAX_QUANTITY)
+    })
     setProblem(undefined)
     try {
       yield setCartQuantity(id, quantity)
@@ -47,7 +60,11 @@ function CartDrawerDemo() {
   })
 
   const add = action(function* (id: string) {
-    setLines((draft) => withOneMore(draft, id))
+    setLines((draft) => {
+      const line = draft.find((one) => one.productId === id)
+      if (line === undefined) draft.push({ productId: id, quantity: 1 })
+      else line.quantity = Math.min(line.quantity + 1, MAX_QUANTITY)
+    })
     setProblem(undefined)
     try {
       yield addToCart(id, 1)
@@ -189,17 +206,6 @@ function CartDrawerDemo() {
   )
 }
 
-/** `lines` with one more of a product: its line, or a new one at the end. */
-function withOneMore(lines: ReadonlyArray<CartLine>, productId: string): Array<CartLine> {
-  if (lines.some((one) => one.productId === productId)) return lines.map((one) => lineAt(one, productId, one.quantity + 1))
-  return [...lines, { productId, quantity: 1 }]
-}
-
-/** `one` at `quantity` if it's `productId`'s line, capped at 99. */
-function lineAt(one: CartLine, productId: string, quantity: number): CartLine {
-  if (one.productId !== productId) return one
-  return { productId, quantity: Math.min(quantity, 99) }
-}
 
 function messageOf(error: unknown): string {
   if (error instanceof Error) return error.message

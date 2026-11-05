@@ -10,7 +10,7 @@ import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
 import type { JSX } from "@solidjs/web"
 import { AnimatePresence, arc, layout, LazyWardic, w } from "@wardic/solid/unstable/v2"
-import { action, createSignal, For, Match, onSettled, Show, Switch } from "solid-js"
+import { action, createEffect, createOptimistic, createSignal, For, Match, Show, Switch } from "solid-js"
 import { cart } from "~/lib/store.ts"
 import { addToCart } from "~/server/store.ts"
 
@@ -70,8 +70,10 @@ function Photo(props: { readonly piece: Product; readonly sizes: string }) {
   )
 }
 
-/** What a card's "Add" says: its piece going into the cart, then whether it went. */
-type Adding = "idle" | "adding" | "added" | "failed"
+/** How a card's last "Add" ended, while it says so: a new one each time, so each shows for its own two seconds. */
+interface Ended {
+  readonly added: boolean
+}
 
 /**
  * A card's "Add" (#439): its press is its own (`propagate={{ tap: false }}`), so the card around it
@@ -79,38 +81,41 @@ type Adding = "idle" | "adding" | "added" | "failed"
  * nothing: `propagate` keeps a press from the card's, not a click from the link's.
  */
 function AddButton(props: { readonly piece: Product }) {
-  const [state, setState] = createSignal<Adding>("idle")
-  let reset: ReturnType<typeof setTimeout> | undefined
-  onSettled(() => () => clearTimeout(reset))
-  const settle = (ended: Adding) => {
-    setState(ended)
-    clearTimeout(reset)
-    reset = setTimeout(() => setState("idle"), 2000)
-  }
+  // "Adding…" is an optimistic value, as add-to-cart's is: set inside the action, it shows at once, and
+  // goes back by itself as the action settles. A plain signal set there lands only at the action's end
+  // (#618, decision 3), so "Adding…" never showed.
+  const [adding, setAdding] = createOptimistic(false)
+  const [ended, setEnded] = createSignal<Ended>()
+  // "Added ✓" or "Not added" stays two seconds from when it shows, then the button offers to add again.
+  createEffect(ended, (shown) => {
+    if (shown === undefined) return
+    const reset = setTimeout(() => setEnded(undefined), 2000)
+    return () => clearTimeout(reset)
+  })
   const buy = action(function* (id: string) {
-    setState("adding")
+    setAdding(true)
     try {
       yield addToCart(id, 1)
       // The cart has changed: the header's count reads it again.
       revalidate(cart.key)
-      settle("added")
+      setEnded({ added: true })
     } catch {
-      settle("failed")
+      setEnded({ added: false })
     }
   })
   return (
     <w.button
       class="button catalogue-add"
       aria-label={`Add ${props.piece.name} to the cart`}
-      disabled={state() === "adding"}
+      disabled={adding()}
       whileTap={{ scale: 0.9 }}
       propagate={{ tap: false }}
       onClick={() => buy(props.piece.id)}
     >
       <Switch fallback="Add">
-        <Match when={state() === "adding"}>Adding…</Match>
-        <Match when={state() === "added"}>Added ✓</Match>
-        <Match when={state() === "failed"}>Not added</Match>
+        <Match when={adding()}>Adding…</Match>
+        <Match when={ended()?.added === true}>Added ✓</Match>
+        <Match when={ended()?.added === false}>Not added</Match>
       </Switch>
     </w.button>
   )
