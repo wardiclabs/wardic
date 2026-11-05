@@ -238,3 +238,11 @@ On the controller before this change, all but "a click is no hold" fail in both.
 ## Note (#349, 2026-10-24): a group and its items, made outside the components
 
 On Solid 2, `Reorder.Group`'s `groupRef` takes a group made with `reorderGroup()` as well as a function, and `Reorder.Item`'s `wardRef` takes an item made with `reorderItem(list, …)`. The components then render them. Their config props go beside them, laid over their config, and a key set in both places is an error (ADR-0046, *Amendment (#398)*). A plain ward, or another group's item, is an error, and a plain ward is a type error too (`reorderItem` returns a `ReorderItem<V>`). `reorderItem(list, config, { parent })` takes a variant parent, as `ward()` does. The decisions are ADR-0046's, *Amendment (#349)*.
+
+## Amendment (#618, 2026-11-05): the controller hears each Measure pass through a service
+
+The controller found the engine's pass-end listeners in a WeakMap keyed by the engine object. A binding that wrapped or replaced the `ProjectionSystem` in the controller's context got a silent no-op: no axis re-detected, no scroll into view after a keyboard step.
+
+**Decision (2026-11-05, #618 decision 12):** the engine's pass ends are a `@wardic/dom`-internal service, `PassEnds` (`internal/pass-ends.ts`), which `DomProjectionSystem.make` and `layer` provide beside the engine, and `ReorderController.make` requires. Its tag isn't exported, so decision 2's reason holds: there's still no public push hook. The WeakMap goes. Rejected: keeping the WeakMap and documenting the wrapper case.
+
+**Tests:** DS8 (`services.browser.test.ts`), a controller over a wrapped `ProjectionSystem` detects the row, and a type check that `make` takes `PassEnds` from its context.

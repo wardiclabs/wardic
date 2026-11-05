@@ -1,14 +1,13 @@
 // The engine's internal pass-end listener (ADR-0020's Reorder controller reads the axis
 // from it), checked against a fake ProjectionSink with Refresh frames fired by hand.
 //
-// `onPassEnd(system, listener)` runs `listener` once per Measure pass, after every
+// The engine's `onPassEnd(listener)` runs `listener` once per Measure pass, after every
 // round's boxes are stored: a blocked pass (after a
 // window width change) and a pass whose flush triggered more rounds included. It isn't
 // exported from `@wardic/dom`: a binding reaches it only through the controller.
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
 import { page } from "vitest/browser"
-import { onPassEnd } from "../src/internal/projection.ts"
 import * as Dom from "../src/index.ts"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames, wait } from "./projection-harness.ts"
 import * as Option from "effect/Option"
@@ -36,7 +35,7 @@ describe("the pass-end listener (internal, for the Reorder controller)", () => {
     const ha = e.system.register({ id: "a", element: a, transition: () => Option.some({ type: "spring" }) })
     const hb = e.system.register({ id: "b", element: b, transition: () => Option.some({ type: "spring" }) })
     const seen: Array<{ va: number; vb: number; top: number | undefined }> = []
-    onPassEnd(e.system, () => seen.push({ va: ha.layoutVersion(), vb: hb.layoutVersion(), top: Option.getOrUndefined(hb.layoutBox())?.y.min }))
+    e.system.onPassEnd(() => seen.push({ va: ha.layoutVersion(), vb: hb.layoutVersion(), top: Option.getOrUndefined(hb.layoutBox())?.y.min }))
     await endOfTask()
     fireFrame()
     expect(seen.map(({ va, vb }) => [va, vb])).toEqual([[1, 1]])
@@ -71,7 +70,7 @@ describe("the pass-end listener (internal, for the Reorder controller)", () => {
     await endOfTask()
     fireFrame()
     const versions: Array<number> = []
-    onPassEnd(e.system, () => versions.push(h.layoutVersion()))
+    e.system.onPassEnd(() => versions.push(h.layoutVersion()))
     retrigger = () => h.notify()
     h.notify()
     await endOfTask()
@@ -88,7 +87,7 @@ describe("the pass-end listener (internal, for the Reorder controller)", () => {
     await endOfTask()
     fireFrame()
     let calls = 0
-    onPassEnd(e.system, () => calls++)
+    e.system.onPassEnd(() => calls++)
     await page.viewport(width - 200, height)
     await wait(350)
     expect(e.spans.at(-1)?.blocked).toBe(true)
@@ -103,12 +102,12 @@ describe("the pass-end listener (internal, for the Reorder controller)", () => {
     await endOfTask()
     fireFrame()
     let calls = 0
-    const stop = onPassEnd(e.system, () => calls++)
-    onPassEnd(e.system, () => {
+    const stop = e.system.onPassEnd(() => calls++)
+    e.system.onPassEnd(() => {
       throw new Error("listener failed")
     })
     let after = 0
-    onPassEnd(e.system, () => after++)
+    e.system.onPassEnd(() => after++)
     h.notify()
     await endOfTask()
     expect([calls, after]).toEqual([1, 1])

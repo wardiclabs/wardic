@@ -17,6 +17,9 @@ import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as ErrorReporter from "effect/ErrorReporter"
+import * as LogLevel from "effect/LogLevel"
+import * as Predicate from "effect/Predicate"
+import * as References from "effect/References"
 
 /**
  * `cause` logged at Error as `message`, with the cause, and handed to the Environment's
@@ -28,3 +31,32 @@ export const reportFailure = (message: string, cause: Cause.Cause<unknown>): Eff
     onTrue: () => Effect.void,
     onFalse: () => Effect.logError(message, cause).pipe(Effect.andThen(ErrorReporter.report(cause))),
   })
+
+/**
+ * A lifecycle debug log for `scope` (`wardic.projection`, say): `log(event, annotations?)` logs
+ * `scope: event` at Debug, forked on `runner`, with the annotations. Whether a Debug log would be kept
+ * is read once, here, as Effect's `MinimumLogLevel` says: when it wouldn't, `on` is `false` and `log`
+ * returns at once, forking nothing. A site that builds its annotations per element checks `on` first.
+ */
+// #618 (M4): each call forked a fiber whatever the level, 0.3-0.5 µs to log nothing (one per layout
+// node's mount and unmount); core's Frame loop reads the level once as this does (frameLoop.ts).
+export const debugOf = (runner: { readonly runSync: <A>(effect: Effect.Effect<A>) => A; readonly runFork: <A>(effect: Effect.Effect<A>) => unknown }, scope: string): DebugLog => {
+  const on = runner.runSync(Effect.map(References.MinimumLogLevel, (level) => Bool.not(LogLevel.isGreaterThan(level, "Debug"))))
+  const log = (event: string, annotations?: Record<string, unknown>): void => {
+    if (!on) return
+    const logged = Effect.logDebug(`${scope}: ${event}`)
+    if (Predicate.isUndefined(annotations)) {
+      runner.runFork(logged)
+      return
+    }
+    runner.runFork(Effect.annotateLogs(logged, annotations))
+  }
+  return Object.assign(log, { on })
+}
+
+/** {@link debugOf}'s log: called with an event and its annotations, and `on` when a Debug log is kept. */
+export interface DebugLog {
+  (event: string, annotations?: Record<string, unknown>): void
+  /** Whether a Debug log would be kept: when it's `false`, a call logs nothing. */
+  readonly on: boolean
+}

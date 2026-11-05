@@ -442,3 +442,7 @@ Decision 2's root keeps `DomLive` and `VERSION` for an app. An app turning on th
 **Grilled on #586: re-export the reference.** The root re-exports core's `CheckFrames` itself, beside `DomLive`: `Layer.succeed(CheckFrames, true)` merged into `env`, as Effect's own references are set (`References.MinimumLogLevel`). Rejected: a ready Layer (`checkFrames`), a second name for the same thing and a new shape; and leaving it in core, with the Observability guide telling apps to install it.
 
 Pinned by EX1 (`packages/dom/test/exports.node.test.ts`: the root's `CheckFrames` is core's) and by the Observability guide's recipe, typechecked in `error-reporting.browser.test.tsx` and in the site's samples. The site no longer lists `@wardic/core`.
+
+## Amendment (#618, 2026-11-05): `DomProjectionSystem.make` gives a context
+
+ADR-0020's *Amendment (#618)* moves the Reorder controller's pass-end hook into an internal service. `DomProjectionSystem.make` gives back a `Context` holding the engine as `ProjectionSystem` beside that `PassEnds`, and `layer` provides both (`Layer.effectContext`). The note above that `make` returns the factory's object itself, for the WeakMap's sake, no longer applies. `ReorderController.Services` names `PassEnds`; a binding builds a controller with the layout Feature's whole context (solid's `useLayoutServices`), not the engine alone.

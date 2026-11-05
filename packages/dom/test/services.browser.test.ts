@@ -15,7 +15,11 @@
 //   Announcer, and a change of axis is logged through the context's Logger.
 // - DS6: closing its Scope ends it: no Measure pass reports an axis after, and nothing is logged.
 // - DS7: `ReorderController.inert` does nothing.
+// - DS8: over a ProjectionSystem its context wraps, it still hears each Measure pass: the engine's Layer
+//   gives what tells it the pass's end beside the engine (#618), and `make` takes it from its context.
 import { afterEach, describe, expect, it, vi } from "vitest"
+import * as Bool from "effect/Boolean"
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
@@ -133,7 +137,7 @@ describe("the gate and the projection system as services (#132)", () => {
     onViewportWatchStopped(runtime, () => stopped++)
     const sink = { write: () => {}, flushPass: (pass: () => void) => pass() }
     const scope = Scope.makeUnsafe()
-    const engine = runtime.runSync(DomProjectionSystem.make(sink).pipe(Scope.provide(scope)))
+    const engine = Context.get(runtime.runSync(DomProjectionSystem.make(sink).pipe(Scope.provide(scope))), ProjectionSystem.ProjectionSystem)
     engine.register({ id: "n", element: box("width:40px;height:40px"), transition: SPRING })
     await frames(2)
     expect(stopped).toBe(0)
@@ -180,6 +184,18 @@ describe("the gate and the projection system as services (#132)", () => {
     await group.dispose()
   })
 
+  it("DS8: over a ProjectionSystem its context wraps, it still hears each Measure pass", async () => {
+    const group = await mountGroup(true)
+    group.row()
+    await frames(3)
+    expect(group.axes, "the pass detects the row through the wrapper").toEqual(["x"])
+    await group.dispose()
+    // `make` takes the engine's pass ends from its context: without them, its context isn't met.
+    type Needs = Effect.Services<ReturnType<typeof ReorderController.make<string>>>
+    const needsPassEnds: Exclude<Needs, ProjectionSystem.ProjectionSystem | Announcer.Announcer | Scope.Scope> extends never ? false : true = true
+    expect(needsPassEnds).toBe(true)
+  })
+
   it("DS7: ReorderController.inert does nothing", () => {
     const item = ReorderController.inert.item(undefined as never, Option.none)
     expect(() => {
@@ -199,7 +215,7 @@ describe("the gate and the projection system as services (#132)", () => {
  * runtime with the gate, the engine and a Logger over DomLive, as a binding builds one, and a
  * recording Announcer.
  */
-const mountGroup = async () => {
+const mountGroup = async (wrapped = false) => {
   const logs: Array<string> = []
   const logger = Logger.make(({ message }) => {
     const text = String(Match.value(message).pipe(Match.when(Array.isArray, (parts) => parts[0]), Match.orElse((one) => one)))
@@ -223,7 +239,12 @@ const mountGroup = async () => {
         order = next
       },
       onAxis: (axis) => axes.push(axis),
-    }).pipe(Effect.provideService(Announcer.Announcer, { announce: (message) => said.push(message) }), Scope.provide(scope)),
+    }).pipe(
+      Effect.provideService(Announcer.Announcer, { announce: (message) => said.push(message) }),
+      // A binding's own wrapper around the engine, in the controller's context (#618).
+      Effect.provideService(ProjectionSystem.ProjectionSystem, Bool.match(wrapped, { onTrue: () => ({ ...engine }), onFalse: () => engine })),
+      Scope.provide(scope),
+    ),
   )
   const container = box("display:flex;flex-direction:column;gap:10px;width:200px")
   controller.attach(container)

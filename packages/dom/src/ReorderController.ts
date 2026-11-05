@@ -19,6 +19,7 @@
 import * as Announcer from "@wardic/core/Announcer"
 import * as Effect from "effect/Effect"
 import type * as Scope from "effect/Scope"
+import { PassEnds } from "./internal/pass-ends.ts"
 import * as internal from "./internal/reorder.ts"
 import { makeRunner } from "./internal/runner.ts"
 import * as ProjectionSystem from "./ProjectionSystem.ts"
@@ -39,8 +40,12 @@ export type ReorderController<V> = Omit<internal.ReorderController<V>, "dispose"
 /** What a binding hands its group: the app's values, its axis, its keyboard and its announcements. */
 export type Options<V> = internal.ReorderControllerOptions<V>
 
-/** The services a controller takes from its context. */
-export type Services = ProjectionSystem.ProjectionSystem | Announcer.Announcer
+/**
+ * The services a controller takes from its context: the projection system its items are nodes of,
+ * with what tells it each Measure pass's end (`DomProjectionSystem`'s Layer provides both), and the
+ * Environment's `Announcer`.
+ */
+export type Services = ProjectionSystem.ProjectionSystem | PassEnds | Announcer.Announcer
 
 /**
  * Build a group's controller over the context's projection system, announcing through its
@@ -49,9 +54,10 @@ export type Services = ProjectionSystem.ProjectionSystem | Announcer.Announcer
 export const make: <V>(options: Options<V>) => Effect.Effect<ReorderController<V>, never, Services | Scope.Scope> = Effect.fnUntraced(
   function* <V>(options: Options<V>) {
     const projection = yield* ProjectionSystem.ProjectionSystem
+    const passEnds = yield* PassEnds
     const announcer = yield* Announcer.Announcer
     const controller = internal.makeReorderController(
-      { runtime: yield* makeRunner<never>(), projection, announce: announcer.announce },
+      { runtime: yield* makeRunner<never>(), projection, announce: announcer.announce, onPassEnd: passEnds.onPassEnd },
       options,
     )
     yield* Effect.addFinalizer(() => Effect.sync(controller.dispose))

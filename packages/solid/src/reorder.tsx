@@ -28,7 +28,6 @@
 import * as InputSource from "@wardic/core/InputSource"
 import * as CoreReorder from "@wardic/core/Reorder"
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
-import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as ReorderController from "@wardic/dom/ReorderController"
 import * as Style from "@wardic/dom/Style"
 import { mergeRefs } from "@solid-primitives/refs"
@@ -60,7 +59,7 @@ import {
 import { Dynamic } from "solid-js/web"
 import * as OwnerScope from "./owner-scope.ts"
 import { runWatch, useBrought, useWardicGate, useWardicRuntime } from "./provider.tsx"
-import { useWardicProjection } from "./layout-projection.ts"
+import { useLayoutServices } from "./layout-projection.ts"
 import { watchItemInput } from "./reorder-input.ts"
 import type { Feature } from "./feature.ts"
 import { drag } from "./features/drag.ts"
@@ -225,7 +224,7 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
       keyedWith: "<For>",
       keyboard: () => untrack(cfg).keyboard !== false,
       announcements: () => Option.fromUndefinedOr(untrack(cfg).announcements),
-    }).pipe(Effect.provideService(ProjectionSystem.ProjectionSystem, useWardicProjection()), Scope.provide(scope)),
+    }).pipe(Effect.provide(useLayoutServices()), Scope.provide(scope)),
   )
   // The app's axis, else the detected one. When the app's is cleared, detected here, from the boxes the
   // engine holds, so the items' touch-action follows in the same update (#257's audit: an effect that

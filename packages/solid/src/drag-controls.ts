@@ -50,6 +50,7 @@ export interface ControlledDrag {
 }
 
 /** Each controls' subscribed tracks. */
+// Module state (#460, Q7): each controls object's drags, held weakly by it.
 const subscribed = new WeakMap<WardicDragControls, Set<ControlledDrag>>()
 
 const NO_OPTIONS: WardicDragControlsOptions = {}

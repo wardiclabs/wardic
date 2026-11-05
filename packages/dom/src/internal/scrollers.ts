@@ -7,7 +7,7 @@
  */
 
 /** The overflow values that never scroll: anything else can (`hidden` too, from code). */
-const UNSCROLLED = new Set(["visible", "clip"])
+const UNSCROLLED: ReadonlySet<string> = new Set(["visible", "clip"])
 
 /**
  * What the scroll fold and a scroll feed need from an element's style, from one

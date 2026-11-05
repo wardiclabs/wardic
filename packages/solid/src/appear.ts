@@ -118,6 +118,7 @@ const keyedTransitionOf = (m: MountAnimation): unknown =>
 const canonical = (value: unknown): Option.Option<string> => Option.filter(Option.some(textOf(value)), (text) => Bool.not(text.includes(UNNAMED)))
 
 /** Each mount animation's canonical starts, targets and transition, by its `from`: both its plays share one. */
+// Module state (#460, Q7): a cache held weakly by the object it's for, so it goes with it.
 const baseKeys = /*#__PURE__*/ new WeakMap<Values.Values, Option.Option<string>>()
 
 /**

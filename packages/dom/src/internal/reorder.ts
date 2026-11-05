@@ -54,7 +54,8 @@ import * as Str from "effect/String"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { documentOf, prepareAnnouncer } from "./announcer.ts"
 import { type AutoScroller, makeAutoScroller } from "./auto-scroll.ts"
-import { onPassEnd, type ProjectionNodeHandle, type ProjectionSystem } from "./projection.ts"
+import type { ProjectionNodeHandle, ProjectionSystem } from "./projection.ts"
+import { debugOf } from "./report.ts"
 import { revealLayoutOf } from "./reveal.ts"
 import type { Runner } from "./runner.ts"
 
@@ -74,9 +75,11 @@ export interface ReorderControllerWiring {
   /** The runner the controller logs through and waits in. */
   readonly runtime: Runner<never>
   /** The projection system the items are nodes of. */
-  readonly projection: Omit<ProjectionSystem, "dispose">
+  readonly projection: Omit<ProjectionSystem, "dispose" | "onPassEnd">
   /** Speak an **Announcement**: the Environment's `Announcer`. Left out, nothing is announced. */
   readonly announce?: ((message: string) => void) | undefined
+  /** The engine's Measure-pass ends: its `PassEnds` service (internal/pass-ends.ts). */
+  readonly onPassEnd: (listener: () => void) => () => void
 }
 
 /**
@@ -238,9 +241,7 @@ export interface ReorderController<V> {
 /** Build a {@link ReorderController}: a **Reorder group** over `wiring.projection`'s nodes. */
 export const makeReorderController = <V>(wiring: ReorderControllerWiring, options: ReorderControllerOptions<V>): ReorderController<V> => {
   const { runtime, projection, announce } = wiring
-  const debug = (event: string, annotations: Record<string, unknown>): void => {
-    runtime.runFork(Effect.logDebug(`wardic.reorder: ${event}`).pipe(Effect.annotateLogs(annotations)))
-  }
+  const debug = debugOf(runtime, "wardic.reorder")
   // Speak an Announcement, or nothing without an `announce`.
   const speak = UndefinedOr.match(announce, { onUndefined: () => constVoid, onDefined: identity })
   const keyboardOn = (): boolean => UndefinedOr.match(options.keyboard, { onUndefined: constTrue, onDefined: (on) => on() })
@@ -455,7 +456,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
 
   // Every Measure pass measures every node, so its end is when the boxes are fresh, and when a
   // stepped item's new place is laid out.
-  const stopPassEnd = onPassEnd(projection, () => {
+  const stopPassEnd = wiring.onPassEnd(() => {
     resolve()
     const stepped = MutableRef.get(reveal)
     MutableRef.set(reveal, Option.none())

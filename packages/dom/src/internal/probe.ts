@@ -67,7 +67,7 @@ const toBounds = (r: DOMRect): Probe.Bounds => ({
  */
 const make = Effect.gen(function* () {
   // Client-only (ADR-0021, decision 7): the viewport below reads `window`.
-  yield* requireGlobal("ProbeDomLive", "window")
+  yield* requireGlobal("DomProbe.layer", "window")
 
   // The shared Environment registry — the one consumers read these atoms from.
   const registry = yield* AtomRegistry.AtomRegistry
@@ -96,13 +96,14 @@ const make = Effect.gen(function* () {
   })
   const prefersReducedMotion = Atom.keepAlive(Atom.make(Option.exists(mql, (query) => query.matches)))
   if (Option.isSome(mql)) {
-    // The MediaQueryList "change" event is the only writer of the Atom. Forked
-    // into the layer scope; the finalizer removes the listener on teardown.
-    yield* Effect.forkScoped(
-      Stream.runForEach(
-        Stream.fromEventListener<MediaQueryListEvent>(mql.value as unknown as Stream.EventListener<MediaQueryListEvent>, "change"),
-        (ev) => Effect.sync(() => registry.set(prefersReducedMotion, ev.matches)),
-      ),
+    // The MediaQueryList's `change` listener is the Atom's only writer, and it writes inside the
+    // event, as `viewport`'s and `pageVisible`'s do: a reader sees the new preference before the next
+    // frame (#618, M8: a fiber over `Stream.fromEventListener` set it a task later).
+    const query = mql.value
+    const writeReduced = (event: MediaQueryListEvent): void => registry.set(prefersReducedMotion, event.matches)
+    yield* Effect.acquireRelease(
+      Effect.sync(() => query.addEventListener("change", writeReduced)),
+      () => Effect.sync(() => query.removeEventListener("change", writeReduced)),
     )
   }
 
@@ -156,7 +157,7 @@ const make = Effect.gen(function* () {
     prefersReducedMotion,
     pageVisible,
     // A container's scroll, set within its events (#234): `scroll.ts`.
-    scroll: makeScroll(registry),
+    scroll: yield* makeScroll(registry),
     observeResize,
     observeIntersection,
   })

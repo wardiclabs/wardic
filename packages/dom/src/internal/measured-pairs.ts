@@ -93,6 +93,7 @@ interface Request {
 /** The pairs this task asked for, measured at its end. */
 // Module state (#460, Q7): the page's one batch, so every provider's pairs share one read pass a task.
 let queued: Array<Request> = []
+// Module state (#460, Q7): the page's one end-of-task batch across providers.
 let scheduled = false
 
 /**

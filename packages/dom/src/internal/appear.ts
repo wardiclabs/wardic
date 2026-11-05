@@ -119,6 +119,7 @@ const hash53 = (text: string): string => {
 }
 
 /** Each spec's name by its text, so a page's elements sharing a spec hash it once; the oldest dropped past `NAMES_SIZE`. */
+// Module state (#460, Q7): a cache keyed by what it caches: a bounded set of names.
 const names = new Map<string, string>()
 
 const NAMES_SIZE = 4096
@@ -484,6 +485,7 @@ const conditionOf = (properties: ReadonlyArray<string>): string => Arr.map(prope
  * The rules sampled so far, across requests, by name, each with whether every CSS colour space was
  * registered when it was (#511); the oldest dropped past `CACHE_SIZE`.
  */
+// Module state (#460, Q7): a cache keyed by what it caches: each mount animation's sampled keyframes, by its text.
 const cache = new Map<string, Sampled>()
 
 /** A spec's rule as sampled, and whether the colour spaces were registered then. */
@@ -640,6 +642,7 @@ export const chunkStyle = (css: string): string =>
   Bool.match(css === "", { onTrue: () => "", onFalse: () => `<style ${CHUNK_ATTRIBUTE}>${css}</style>` })
 
 /** The documents {@link adoptChunks} watches, or has: one observer a document. */
+// Module state (#460, Q7): the documents already watched, held weakly.
 const watched = new WeakSet<Document>()
 
 /**

@@ -24,6 +24,8 @@
 //   above the container's own offset parent), a fixed target (from the viewport in either, Motion's),
 //   on x, and an SVG shape. The positioned one's own is
 //   pinned to the box; the page keeps its document offsets, a border on `<html>` not taken off.
+// - PS13 (#618): a container its last reader let go of, its element off the page, is collected: the
+//   map of containers (an `RcMap` now) keeps no element it has released.
 import * as Probe from "@wardic/core/Probe"
 import { expect, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -33,6 +35,8 @@ import { AtomRegistry } from "effect/reactivity"
 import * as Scope from "effect/Scope"
 import { ProbeDomLive } from "../src/internal/probe.ts"
 import * as ScrollOffset from "../src/ScrollOffset.ts"
+import { commands } from "vitest/browser"
+import "./browser-commands.ts"
 
 const TestLayer = Layer.provideMerge(ProbeDomLive, AtomRegistry.layer)
 
@@ -469,5 +473,23 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
       target.remove()
       tail.remove()
       document.documentElement.style.border = ""
+    }))
+
+  it.effect("PS13: a released container's element isn't kept (#618)", () =>
+    Effect.gen(function* () {
+      const probe = yield* Probe.Probe
+      // Each read in a call of its own, so no local of the test's holds its element after.
+      const readAndRelease = Effect.fnUntraced(function* () {
+        const s = scene()
+        const scope = yield* Scope.make()
+        yield* probe.scroll({ container: s.box, target: s.target }).pipe(Scope.provide(scope))
+        yield* Scope.close(scope, Exit.void)
+        s.remove()
+        return new WeakRef(s.box)
+      })
+      const refs = [yield* readAndRelease(), yield* readAndRelease(), yield* readAndRelease()]
+      yield* Effect.promise(() => new Promise((resolve) => setTimeout(resolve, 0)))
+      yield* Effect.promise(() => commands.collectGarbage())
+      expect(refs.filter((ref) => ref.deref() !== undefined).length, "every released container collected").toBe(0)
     }))
 })

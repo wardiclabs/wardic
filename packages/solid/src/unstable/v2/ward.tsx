@@ -900,6 +900,7 @@ const configAtSetup = (setup: { readonly config: WardConfigValues; readonly pend
  * Elements a ward has left in this task: a ward mounting one is {@link REMADE}. Cleared once, at the
  * task's end, by one microtask however many leave (#259: one a ward cost 0.2 ms an unmount of 1,000).
  */
+// Module state (#460, Q7): the page's one end-of-task batch: cleared by one microtask at the task's end.
 const justLeft = new Set<Element>()
 const forgetJustLeft = (): void => justLeft.clear()
 
@@ -1861,6 +1862,7 @@ interface ReadEntry {
 const NO_WITH: WardWithProps = {}
 
 /** The last `.with()` merge, by its two styles: `style` reads it more than once a run. */
+// Module state (#460, Q7): a cache held weakly by the object it's for, so it goes with it.
 const withMerges = new WeakMap<object, { readonly own: unknown; readonly merged: WardStyle | string | undefined }>()
 
 /**
@@ -1925,6 +1927,7 @@ const SpreadProps = function SpreadProps(): void {} as unknown as new () => obje
 SpreadProps.prototype = Object.create(null)
 
 /** The props a Reorder item adds to its ward's spread (#495): its keyboard attributes. Only items have them. */
+// Module state (#460, Q7): a cache held weakly by the object it's for, so it goes with it.
 const SPREAD_EXTRAS = new WeakMap<object, PropertyDescriptorMap>()
 
 /**

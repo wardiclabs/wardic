@@ -101,6 +101,7 @@ export interface FollowAccessor<A extends number | string = number> extends Acce
 export type SpringAccessor<A extends number | string = number> = FollowAccessor<A>
 
 /** The Atom of numbers each unit follow's Atom of strings shows ({@link withUnit}), for its `jump`. */
+// Module state (#460, Q7): a cache held weakly by the object it's for, so it goes with it.
 const UNIT_NUMBERS = new WeakMap<object, Atom.Atom<number>>()
 
 /** A unit string's unit, as Motion's follower reads it (#441): what's left after its digits, `.` and `-`. */
@@ -399,6 +400,7 @@ export const createLiveStyle = (options: LiveStyleOptions): LiveStyle => {
 export type WillChange = "auto" | "transform"
 
 /** Each `createWillChange` value's turn-on (#443), by its accessor and by the Atom it carries. */
+// Module state (#460, Q7): a cache held weakly by the object it's for, so it goes with it.
 const WILL_CHANGE = new WeakMap<object, () => void>()
 
 /**

@@ -166,6 +166,7 @@ export function WardicProvider(props: {
  * Each provider's own section (#511): its Features, the first section of its tree. Kept beside its
  * context value, not in a context of its own, so a provider renders one Provider, as before.
  */
+// Module state (#460, Q7): each provider's root section, held weakly by its context value.
 const sections = new WeakMap<WardicContextValue, FeatureSection>()
 
 /**

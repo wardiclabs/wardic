@@ -5,7 +5,8 @@
  * @module
  */
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
-import { projectionBrought } from "./features/layout.ts"
+import type * as Context from "effect/Context"
+import { layoutBrought, type LayoutServices, projectionBrought } from "./features/layout.ts"
 import { fromWardicContext } from "./provider.tsx"
 
 /**
@@ -16,4 +17,12 @@ import { fromWardicContext } from "./provider.tsx"
  */
 export function useWardicProjection(): ProjectionSystem.Shape {
   return fromWardicContext("useWardicProjection", projectionBrought)
+}
+
+/**
+ * {@link useWardicProjection}'s services, all of them, for a Reorder controller: the projection system
+ * and what it hears each Measure pass by (#618). Internal.
+ */
+export function useLayoutServices(): Context.Context<LayoutServices> {
+  return fromWardicContext("useWardicProjection", layoutBrought)
 }

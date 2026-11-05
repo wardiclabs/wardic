@@ -175,3 +175,27 @@ it_.live("ProbeDomLive > observeIntersection emits the REAL intersection state, 
         el.remove()
       }
     }).pipe(Effect.provide(TestLayer)))
+
+// #618 (M8): the reduced-motion preference is written inside its `change` event, as `viewport` and
+// `pageVisible` are, so a reader sees it before `dispatchEvent` returns. `matchMedia` is stubbed with a
+// MediaQueryList that's an EventTarget: a real one fires `change` only when the OS setting does.
+it_.effect("prefersReducedMotion is written inside its change event: read before dispatchEvent returns (#618)", () =>
+  Effect.gen(function* () {
+    const query = Object.assign(new EventTarget(), { matches: false, media: "(prefers-reduced-motion: reduce)" })
+    const real = window.matchMedia
+    window.matchMedia = (() => query) as unknown as typeof window.matchMedia
+    try {
+      yield* Effect.scoped(
+        Effect.gen(function* () {
+          const probe = yield* Probe.Probe
+          const registry = yield* AtomRegistry.AtomRegistry
+          expect(registry.get(probe.prefersReducedMotion)).toBe(false)
+          const change = Object.assign(new Event("change"), { matches: true })
+          query.dispatchEvent(change)
+          expect(registry.get(probe.prefersReducedMotion), "set inside the event, not a task later").toBe(true)
+        }).pipe(Effect.provide(Layer.fresh(TestLayer))),
+      )
+    } finally {
+      window.matchMedia = real
+    }
+  }))

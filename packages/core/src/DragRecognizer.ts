@@ -109,6 +109,7 @@ type StaleRule = "unpressed move" | "second down"
  * The `"end"` samples that close a Stale gesture, and why (read by {@link drag}'s
  * cold-path log). A WeakMap, so the fold stays pure and allocates nothing more.
  */
+// Module state (#460, Q7): a cache held weakly by the object it's for, so it goes with it.
 const staleEnds = /*#__PURE__*/ new WeakMap<Drag.Sample, StaleRule>()
 
 /** No samples: the event changes nothing a consumer sees. */

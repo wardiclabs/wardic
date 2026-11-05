@@ -2,6 +2,7 @@ import * as InputFeed from "@wardic/core/InputFeed"
 import * as InputSource from "@wardic/core/InputSource"
 import { expect, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import { constVoid } from "effect/Function"
 import * as Fiber from "effect/Fiber"
 import * as Match from "effect/Match"
@@ -789,6 +790,25 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
         expect((yield* plain.collect(1)).map((e) => e.type), "the plain feed subscribes no adoption").toEqual([])
         expect((yield* adoptable.collect(1)).map((e) => `${e.type} ${String(e.adopted)}`), "the adoptable feed hears it").toEqual(["down true"])
         yield* plain.close
+        yield* adoptable.close
+      } finally {
+        el.remove()
+      }
+    }).pipe(Effect.scoped))
+
+  it.effect("I21: two Environments on a page don't hear each other's adopted downs (#618)", () =>
+    Effect.gen(function* () {
+      const mine = yield* InputSource.InputSource
+      // Another Environment's input, built apart from this suite's.
+      const theirs = yield* InputSource.InputSource.pipe(Effect.provide(Layer.fresh(InputDomLive)))
+      const el = document.createElement("div")
+      document.body.append(el)
+      try {
+        const adoptable = yield* subscribeIn(InputFeed.toStream(InputSource.adoptablePointerOf(mine, el)))
+        theirs.adoptPointer(el, pointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1 }))
+        expect((yield* adoptable.collect(1)).map((e) => e.type), "the other's adoption isn't heard here").toEqual([])
+        mine.adoptPointer(el, pointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1 }))
+        expect((yield* adoptable.collect(1)).map((e) => e.type), "its own is").toEqual(["down"])
         yield* adoptable.close
       } finally {
         el.remove()

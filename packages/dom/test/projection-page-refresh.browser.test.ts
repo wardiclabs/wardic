@@ -25,7 +25,6 @@
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
 import * as Option from "effect/Option"
-import { onPassEnd } from "../src/internal/projection.ts"
 import { clearStages, el, endOfTask, type Engine, makeEngine, makeSink, stage, wait } from "./projection-harness.ts"
 import { resizeTo, viewportSettled } from "./viewport.ts"
 
@@ -124,7 +123,7 @@ describe("the page-size refresh: a node moved by content elsewhere starts from w
     const hb = e.system.register({ id: "b", element: el(s, "width:50px;height:30px"), transition: spring })
     await wait(SETTLE_MS)
     let ends = 0
-    const off = onPassEnd(e.system, () => ends++)
+    const off = e.system.onPassEnd(() => ends++)
     const versions = [ha.layoutVersion(), hb.layoutVersion()]
     const top = Option.map(hb.layoutBox(), (b) => b.y.min)
     spacer.style.height = "100px"

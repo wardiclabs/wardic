@@ -14,7 +14,7 @@
  * })
  */
 // **Refresh frames**, one of an Environment's members (ADR-0031). The Clock: ADR-0017. The flush gate's
-// requests: ADR-0033. `@wardic/dom`'s `ClockDomLive` provides `requestAnimationFrame` /
+// requests: ADR-0033. `@wardic/dom`'s `DomClock.layer` provides `requestAnimationFrame` /
 // `cancelAnimationFrame`. Tier 2 (ADR-0008): Effect-typed, for Environment and binding authors.
 import * as Context from "effect/Context"
 import * as Layer from "effect/Layer"

@@ -120,6 +120,7 @@ const ORCHESTRATION = ["staggerChildren", "delayChildren", "from", "staggerDirec
 export type MotionTransition = WardicTransition extends infer T ? (T extends unknown ? Omit<T, (typeof ORCHESTRATION)[number]> : never) : never
 
 /** Each transition without its orchestration, by the transition: one object each, so core's decode cache hits (#66). */
+// Module state (#460, Q7): a cache held weakly by the object it's for, so it goes with it.
 const MOTIONS = new WeakMap<WardicTransition, MotionTransition>()
 
 /**
@@ -159,6 +160,7 @@ interface Entries {
 const NONE: unique symbol = Symbol("wardic.noEntries")
 
 /** Each transition's entries, worked out once per object (#301). */
+// Module state (#460, Q7): a cache held weakly by the object it's for, so it goes with it.
 const ENTRIES = new WeakMap<object, Entries | typeof NONE>()
 
 /** The entries that aren't a value's. */
@@ -341,6 +343,7 @@ const springStopsError = (stops: StopsByKey, kind = "a spring"): Error =>
   )
 
 /** Each tween's answer to {@link keyframedOptions}, by its options: one object each, as {@link RUNS}' (#452). */
+// Module state (#460, Q7): a cache held weakly by the object it's for, so it goes with it.
 const KEYFRAMED = new WeakMap<object, boolean>()
 
 /**
@@ -383,6 +386,7 @@ const MOTION_SPRING = { stiffness: 100, damping: 10, mass: 1 } as const
 const NOT_DEFINED: unique symbol = Symbol("wardic.notDefined")
 
 /** Each transition as its legs run it, by the transition: one object each, so core's decode cache hits (#66). */
+// Module state (#460, Q7): a cache held weakly by the object it's for, so it goes with it.
 const RUNS = new WeakMap<object, Run | typeof NOT_DEFINED>()
 
 /** A field a transition gives: set, and not an entry (#301). */

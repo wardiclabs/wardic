@@ -378,7 +378,7 @@ describe("a server render on DomLive (ADR-0021)", () => {
     serve(() => <Runs />)
     expect(caught).toBeInstanceOf(Error)
     expect((caught as Error).message).toContain("can't be built here")
-    expect((caught as Error).message).toContain("ADR-0003")
+    expect((caught as Error).message).toContain("client-only")
   })
 
   it("SV17: a reactive prop named like a key Wardic sets renders, and Wardic's value wins (as on the client)", () => {

@@ -11,4 +11,6 @@
 // `@wardic/dom/Report` (#132, ADR-0041): ADR-0030, decision 4.
 export {
   reportFailure as failure,
+  debugOf,
+  type DebugLog,
 } from "./internal/report.ts"

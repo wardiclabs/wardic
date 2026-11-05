@@ -77,6 +77,7 @@ export interface Controlled {
 }
 
 /** The elements each controls reach, by the controls. */
+// Module state (#460, Q7): each controls object's subscribers, held weakly by it.
 const subscribers = new WeakMap<WardicAnimationControls, Set<Controlled>>()
 
 /** `set`'s transition (#433, Motion's `setValues`): none to speak of, and no orchestration. */

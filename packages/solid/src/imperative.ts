@@ -49,6 +49,7 @@ import { NO_VARIANT_STATE, resolveTarget } from "./variant-target.ts"
 type Animatable = Pick<ElementSpine, "animate">
 
 /** Each mounted Wardic element's spine (Motion's `visualElementStore`). */
+// Module state (#460, Q7): each Wardic element's animatable, held weakly by the element.
 const wardicElements = new WeakMap<Element, Animatable>()
 
 /**
@@ -86,6 +87,7 @@ interface Plain {
 }
 
 /** Each gate's plain elements: a provider's own, kept while the element is. */
+// Module state (#460, Q7): each gate's plain elements, held weakly by the gate.
 const plainByGate = new WeakMap<FlushGate.Shape, WeakMap<Element, Plain>>()
 
 /** The plain elements' gate ids, counted. */

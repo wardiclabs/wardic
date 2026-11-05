@@ -35,7 +35,7 @@ export type { ScaleCorrectorEntry as ScaleCorrector, CorrectorInfo } from "./int
 export { dragBoundsWithin, measureLayoutBox } from "./internal/measure.ts"
 
 /** The engine: what a binding registers its layout elements with. */
-export type Shape = Omit<internal.ProjectionSystem, "dispose">
+export type Shape = Omit<internal.ProjectionSystem, "dispose" | "onPassEnd">
 
 /** What the engine writes each node's projection through: a `FlushGate`'s `write` and `flushPass`. */
 export type Sink = internal.ProjectionSink

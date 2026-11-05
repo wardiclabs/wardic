@@ -293,6 +293,7 @@ export const spring = (options: SpringOptions = NO_SPRING): Easing => {
  * by it (an Appear animation's spec), so the same easing has the same name on the server and the
  * client, where each made its own function.
  */
+// Module state (#460, Q7): each easing's name, held weakly by the easing.
 const NAMES = new WeakMap<Easing, string>()
 
 /** `easing`, remembered under `name`. */
