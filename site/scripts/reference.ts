@@ -17,7 +17,7 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join, normalize, relative } from "node:path"
-import { Application, type Context, Converter, ReferenceType, ReflectionKind, ReflectionType } from "typedoc"
+import { Application, type Context, Converter, ReferenceType, ReflectionKind, type ReflectionSymbolId, ReflectionType } from "typedoc"
 
 const SITE = join(import.meta.dirname, "..")
 const REPO = join(SITE, "..")
@@ -189,6 +189,19 @@ const liftServices = (context: Context): void => {
   }
 }
 
+/**
+ * A link to a core type from dom's pages: core is dom's dependency, with pages of its own, so a type dom
+ * names from a core module links to it there, `Clock` to `/reference/core/clock#clock`. A type from core's
+ * internal files, or any other package's, stays its name.
+ */
+const coreLink = (_ref: unknown, _reflection: unknown, _part: unknown, symbol: ReflectionSymbolId | undefined): string | undefined => {
+  if (symbol?.packageName !== "@wardic/core") return undefined
+  const module = /^src\/(\w+)\.ts$/.exec(symbol.packagePath)?.[1]
+  if (module === undefined) return undefined
+  const name = symbol.qualifiedName.split(".").at(-1) ?? symbol.qualifiedName
+  return `/reference/core/${slugOf(module)}#${slugOfHeading(name)}`
+}
+
 /** One package's ready modules as MDX pages in `CONTENT/<dir>`. */
 const generate = async (pkg: (typeof PACKAGES)[number]): Promise<number> => {
   const source = join(REPO, "packages", pkg.dir)
@@ -199,6 +212,8 @@ const generate = async (pkg: (typeof PACKAGES)[number]): Promise<number> => {
   const out = mkdtempSync(join(tmpdir(), `wardic-reference-${pkg.dir}-`))
   const app = await Application.bootstrapWithPlugins({
     entryPoints: [join(source, "src", "*.ts")],
+    // Core, which dom depends on from its source, is documented on its own pages: dom's link to them.
+    externalPattern: ["**/node_modules/**", ...(pkg.dir === "core" ? [] : [join(REPO, "packages", "core", "**")])],
     exclude: [join(source, "src", "index.ts")],
     tsconfig: join(source, "tsconfig.json"),
     plugin: ["typedoc-plugin-markdown", "typedoc-plugin-missing-exports"],
@@ -221,6 +236,7 @@ const generate = async (pkg: (typeof PACKAGES)[number]): Promise<number> => {
     useCodeBlocks: true,
   } as Parameters<typeof Application.bootstrapWithPlugins>[0])
   app.converter.on(Converter.EVENT_RESOLVE_BEGIN, liftServices)
+  if (pkg.dir !== "core") app.converter.addUnknownSymbolResolver(coreLink)
   const project = await app.convert()
   if (project === undefined) throw new Error(`reference: TypeDoc couldn't convert ${pkg.name}`)
   await app.generateOutputs(project)
