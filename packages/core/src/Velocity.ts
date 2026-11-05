@@ -1,24 +1,29 @@
 /**
- * The `Velocity` module: a velocity between two samples (`between`), and a pointer's over a
- * trailing window (`trailing`), every Drag sample's velocity. A Physics primitive's velocity
- * is on its Frames (`Frame.Physics`).
+ * Velocity from samples: `between` for two values a frame apart, and `trailing` for a pointer's last
+ * 100 ms, as a drag's release reads it. A value an animation moves carries its own velocity on its
+ * frames, so it needs neither.
+ *
+ * @example
+ * import * as Velocity from "@wardic/core/Velocity"
+ *
+ * const { x, y } = Velocity.trailing(points) // pixels a second, from the pointer's recent points
  */
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
 import type * as Point from "./Point.ts"
 
-/** Instantaneous velocity from two samples and the delta time between them. */
+/**
+ * The velocity between two samples `dt` seconds apart, in their units a second: `between(10, 16, 1 / 60)`
+ * is 360. 0 when `dt` is 0.
+ */
 export const between = (previous: number, current: number, dt: number): number => {
   if (dt === 0) return 0
   return (current - previous) / dt
 }
 
-/**
- * A pointer position at a time (ms, the event's `timeStamp`).
- *
- * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
- */
+/** A pointer's position, and when it was there, in milliseconds, as an event's `timeStamp` gives it. */
+// Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
 export interface TimedPoint {
   readonly x: number
   readonly y: number
@@ -26,18 +31,20 @@ export interface TimedPoint {
 }
 
 /**
- * The velocity (units/s) over the trailing `windowMs` of `history`, oldest first: from
- * the newest point more than `windowMs` older than the last one (or the oldest point)
- * to the last. When that is the first point, there are more than two, and it's more
- * than twice the window old, the second point is used instead, so a hold before a
- * flick doesn't dilute it. Motion's `getVelocity` (gestures/pan/PanSession.ts:383-440
- * at 16c61222c4166bbef5ff6ab0051192faa79fa8c8,
- * https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/gestures/pan/PanSession.ts#L383-L440),
- * ported. `DragRecognizer.drag`'s velocity is this, over each gesture's points (ADR-0004,
- * *Amendment (#139)*).
+ * A pointer's velocity over its last `windowMs` (100 by default), in pixels a second, from its points
+ * oldest first: from the newest point older than the window to the last. A pause before a flick doesn't
+ * slow it: when that point is the first, more than twice the window old, and there are more, it starts
+ * from the second instead. `{ x: 0, y: 0 }` for fewer than two points. Motion's `getVelocity`, as a
+ * drag's release reads it.
  *
- * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
+ * @example
+ * const points: Array<Velocity.TimedPoint> = []
+ * element.addEventListener("pointermove", (e) => points.push({ x: e.clientX, y: e.clientY, timeStamp: e.timeStamp }))
+ * element.addEventListener("pointerup", () => fling(Velocity.trailing(points)))
  */
+// Motion's getVelocity, gestures/pan/PanSession.ts:383-440 at 16c61222c4166bbef5ff6ab0051192faa79fa8c8,
+// ported. DragRecognizer.drag's velocity is this, over each gesture's points (ADR-0004, *Amendment (#139)*).
+// Tier 2 (ADR-0008).
 export const trailing = (history: ReadonlyArray<TimedPoint>, windowMs = 100): Point.Point =>
   Arr.match(history, {
     onEmpty: still,

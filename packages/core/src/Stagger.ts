@@ -1,25 +1,33 @@
 /**
- * The `Stagger` module: a per-child delay, growing from an origin across a set of children
- * (ADR-0007).
+ * Delays that grow across a set of children, from the first, the last, the centre or any index: what a
+ * transition's `delayChildren: stagger()` and `createAnimate`'s `delay` run on. Motion's `stagger`.
+ *
+ * @example
+ * import * as Stagger from "@wardic/core/Stagger"
+ *
+ * const delay = Stagger.make(0.05, { from: "center" })
+ * delay(0, 5) // 0.1: the first of five is two steps from the centre
  */
+// ADR-0007.
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as Easing from "./Easing.ts"
 
-/** Where a stagger originates within the set of children. */
+/** The child a stagger grows from: `"first"`, `"last"`, `"center"`, or an index. */
 export type Origin = "first" | "last" | "center" | number
 
-/** A stagger's options, Motion's `stagger`'s. */
+/** A stagger's options, as Motion's `stagger`'s. */
 export interface Options {
-  /** Seconds before the first delay: every child's delay starts from it (#436). Default 0. */
+  /** Seconds before the first child's delay: every delay starts from it. Default 0. */
   readonly startDelay?: number
-  /** Origin index the delay grows outward from. Default `"first"`. */
+  /** The child the delay grows from. Default `"first"`. */
   readonly from?: Origin
   /**
-   * How the delay grows across the children: an Easing definition (#360), Motion's `stagger`'s
-   * `ease`, across `amount × total` as Motion's (#436). Default linear.
+   * How the delay grows across the children, eased across `amount × total`: an easing's name, a cubic
+   * Bézier's four numbers, or a function. Default linear.
    */
+  // #360, #436: Motion's `stagger`'s `ease`.
   readonly ease?: Easing.Definition
 }
 
@@ -32,15 +40,15 @@ const resolveOrigin = (from: Origin, total: number): number =>
   )
 
 /**
- * Builds a per-child delay function, `(index, total) => delaySeconds`, Motion's `stagger` (#436):
- * `startDelay` plus `amount` for each step from the origin. An easing reshapes the curve across
- * `amount × total`, Motion's `maxDelay`, one step past the last child.
+ * A stagger: a child's delay in seconds from its index and the count, `startDelay` plus `amount` for
+ * each step from `from`. With `ease`, the steps are eased across `amount × total`, as Motion's.
  *
- * ```ts
- * const d = Stagger.make(0.05, { from: "center" })
- * d(0, 5) // delay for the first child
- * ```
+ * @example
+ * const delay = Stagger.make(0.1, { from: "last", ease: "easeOut" })
+ * const delays = [0, 1, 2, 3].map((i) => delay(i, 4))
  */
+// Motion's `stagger` (#436); with an easing, `amount × total` is Motion's `maxDelay`, one step past the
+// last child.
 export const make = (
   amount: number,
   options: Options = {},

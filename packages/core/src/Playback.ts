@@ -1,12 +1,20 @@
 /**
- * The `Playback` module (#433, Motion's playback controls): a **Playhead** the machines of one
- * **Imperative animation** share, and a machine driven through it ({@link drive}): held, played at
- * a speed, backwards, or from a time it was sought to. Machines step by `dt` (a design principle),
- * so a time is reached by starting a machine partway through (`Machine.startAt`), as an Appear
- * animation's Handoff is (ADR-0044).
+ * A playhead the machines of one animation share, so they play, pause, seek, change speed or run
+ * backwards together: `make` one, `drive` each machine through it, then set its `paused` or `speed`, or
+ * `seek` it. It's what `createAnimate`'s playback controls run on.
  *
- * Tier 2 (ADR-0008): for binding authors.
+ * @example
+ * import * as Machine from "@wardic/core/Machine"
+ * import * as Playback from "@wardic/core/Playback"
+ *
+ * const head = Playback.make()
+ * const x = Machine.tween(0, 200, { duration: 1 }).pipe(Playback.drive(head))
+ * head.speed = 0.5 // slow motion
+ * head.paused = true // held where it is
  */
+// #433, Motion's playback controls. Machines step by `dt` (a design principle), so a time is reached by
+// starting a machine partway through (`Machine.startAt`), as an Appear animation's Handoff is
+// (ADR-0044). Tier 2 (ADR-0008): for binding authors.
 import { constant } from "effect/Function"
 import * as Inspectable from "effect/Inspectable"
 import { type Pipeable, pipeArguments } from "effect/Pipeable"
@@ -19,8 +27,9 @@ import { dual } from "./internal/dual.ts"
 const TypeId = "~@wardic/core/Playback"
 
 /**
- * What the machines of one Imperative animation read each tick: mutable, and read per frame. A
- * binding's playback controls write it; each machine driven through it ({@link drive}) keeps `time`.
+ * What the machines of one animation read each frame: its `time`, its `speed`, and whether it's
+ * `paused`. Each machine driven through it sets `time` as it steps; set `speed` and `paused` to
+ * control them all.
  */
 export interface Playhead extends Pipeable, Inspectable.Inspectable {
   readonly [TypeId]: typeof TypeId
@@ -43,7 +52,7 @@ const Proto = {
   },
 }
 
-/** A Playhead at 0, playing at speed 1. */
+/** A playhead at 0, playing at speed 1. */
 export const make = (): Playhead => {
   const head = Object.create(Proto)
   head.time = 0
@@ -78,19 +87,22 @@ const ZERO = constant(0)
 const settled = <F extends Frame.Frame<unknown>>(frame: F): F => ({ ...frame, done: true })
 
 /**
- * `self` driven through `head` (#433):
- * - **Started at `head.time`:** a run started after a seek starts there, its first tick landing
- *   there (`Machine.startAt`); one started at 0 steps as `self` does.
- * - **Each tick's `dt`** is scaled by `head.speed`, at most `Machine.MAX_DT` a step either way, and
- *   added to its time, which it sets on `head`, so the machines of one head, started on one tick,
- *   keep its time together.
- * - **Held** while `head.paused`: the Frame it drew last, again, moving nothing: a velocity it gives
- *   reads 0 (#464), as a held MotionValue's frames read in Motion. Made once per pause.
- * - **Backwards** below speed 0: each tick starts it again at the time it went back to, a run of
- *   `time × 60` steps; it settles at 0.
+ * `self` driven through `head`:
+ * - **It starts where `head.time` is,** its first frame landing there, so a machine started after a
+ *   seek starts at the seek's time.
+ * - **Each frame's `dt` is scaled by `head.speed`,** and the machine sets `head.time` as it goes, so
+ *   machines started together keep one time.
+ * - **While `head.paused`,** it holds its last frame, with a velocity of 0.
+ * - **Below speed 0,** it runs backwards, and settles at 0.
  *
- * Keeps `self`'s span and whether it settles.
+ * It keeps `self`'s span, and whether it settles.
+ *
+ * @example
+ * const driven = Machine.spring(1).pipe(Playback.drive(head))
  */
+// #433. Each step is at most Machine.MAX_DT either way. Held, a velocity reads 0, as a held
+// MotionValue's frames read in Motion (#464), made once per pause. Backwards, each tick starts it again
+// at the time it went back to, a run of `time × 60` steps.
 export const drive: {
   (head: Playhead): <F extends Frame.Frame<unknown>>(self: Machine.Machine<F>) => Machine.Machine<F>
   <F extends Frame.Frame<unknown>>(self: Machine.Machine<F>, head: Playhead): Machine.Machine<F>
@@ -140,7 +152,13 @@ export const drive: {
     }),
 )
 
-/** Seek `head` to `time` seconds (0 at least): the machines started through it next start there. */
+/**
+ * Moves `head` to `time` seconds, 0 at least: the machines driven through it start there when they're
+ * next started.
+ *
+ * @example
+ * Playback.seek(head, 0.5) // then start the machines again
+ */
 export const seek: {
   (time: number): (head: Playhead) => void
   (head: Playhead, time: number): void

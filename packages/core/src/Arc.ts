@@ -1,9 +1,15 @@
 /**
- * The `Arc` module: curved paths between two points (#438), Motion's `arc()`. A path is what a
- * transition's `path` takes: from where `x` and `y` start to where they end, the point at each
- * progress, so the two travel along a curve together rather than a straight line. An arc is a
- * quadratic Bézier bulging off the straight line between them.
+ * Curved paths between two points, for a transition's `path`: `x` and `y` travel along the curve
+ * together, rather than each on a straight line. `make` makes Motion's `arc()`, a curve that bulges off
+ * the straight line between them; any function of `Path`'s shape is a path too.
+ *
+ * @example
+ * import * as Arc from "@wardic/core/Arc"
+ *
+ * const at = Arc.make({ strength: 0.3 })({ x: 0, y: 0 }, { x: 200, y: 80 })
+ * at(0.5) // the curve's middle: { x, y }
  */
+// #438: an arc is a quadratic Bézier.
 import * as Bool from "effect/Boolean"
 import { identity } from "effect/Function"
 import * as Match from "effect/Match"
@@ -11,15 +17,23 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Point from "./Point.ts"
 
-/** A point along a path: where `x` and `y` are, and, for a path that turns the element, its angle in degrees. */
+/** A point along a path: `x` and `y`, and, for a path that turns the element, `rotate` in degrees. */
 export interface PathPoint extends Point.Point {
   readonly rotate?: number | undefined
 }
 
 /**
- * A path for `x` and `y` (#438): from where they start to where they end, the point at progress `t`,
- * 0 at the start, 1 at the end. Open: `arc` makes one, and any function of this shape is one.
+ * A path for `x` and `y`: given where they start and end, the point at each progress `t`, 0 at the start
+ * and 1 at the end. `make` makes one; any function of this shape is one.
+ *
+ * @example
+ * // A hop: a straight line that lifts 40 px at its middle.
+ * const hop: Arc.Path = (from, to) => (t) => ({
+ *   x: from.x + (to.x - from.x) * t,
+ *   y: from.y + (to.y - from.y) * t - Math.sin(Math.PI * t) * 40,
+ * })
  */
+// #438.
 export type Path = (from: Point.Point, to: Point.Point) => (t: number) => PathPoint
 
 /** An arc's options, Motion's `arc`'s. */
@@ -78,16 +92,13 @@ const rotationOf = (rotate: boolean | number | undefined): number =>
   )
 
 /**
- * A curved path, Motion's `arc` (#438), for a transition's `path`:
- *
- * ```ts
- * const path = Arc.make({ strength: 0.3 })
- * // transition={{ path }}: x and y travel along it together
- * ```
- *
- * Make one and keep it (a component's body runs once): with no `direction`, it remembers the side of
+ * A curved path, Motion's `arc()`. Make one and keep it: with no `direction`, it remembers the side of
  * the screen it bulged to, and keeps to it when the direction of travel turns.
+ *
+ * @example
+ * const path = Arc.make({ strength: 0.4, rotate: true }) // a binding's transition={{ path }}
  */
+// #438.
 export const make = (options: Options = {}): Path => {
   const strength = UndefinedOr.match(options.strength, { onUndefined: () => 0.5, onDefined: identity })
   const peak = UndefinedOr.match(options.peak, { onUndefined: () => 0.5, onDefined: identity })
