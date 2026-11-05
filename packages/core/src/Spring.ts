@@ -1,9 +1,23 @@
 /**
- * The `Spring` module: the spring's presets, and its stepper, `init`, `resolve` and `step`.
- * The stepper is Tier 3 (ADR-0008, ADR-0028 decision 2): `@wardic/dom`'s projection pass steps
- * a progress spring per node per frame with it; everything else runs a spring as a machine
- * (`Machine.spring`, `Machine.springValues`). It's on the per-frame path (ADR-0025).
+ * Springs: presets to give `Machine.spring` or a transition, and a spring as a stepper (`resolve`,
+ * `init`, `step`) for something you step yourself each frame. A spring is set by its physics,
+ * `stiffness`, `damping` and `mass`, or by time, a `duration` or `visualDuration` with a `bounce`. It
+ * steps exactly whatever the frame's `dt`, and keeps the velocity it's handed.
+ *
+ * @example
+ * import * as Spring from "@wardic/core/Spring"
+ *
+ * const spring = Spring.resolve(Spring.stiff)
+ * const rest = Spring.restFor(spring, target - x)
+ * let state = Spring.init({ from: x })
+ * // each frame:
+ * const frame = Spring.step(state, dt, target, spring, rest)
+ * state = frame.state
+ * x = frame.value // and `frame.done` once it rests on `target`
  */
+// The stepper is Tier 3 (ADR-0008, ADR-0028 decision 2): `@wardic/dom`'s projection pass steps a
+// progress spring per node per frame with it; everything else runs a spring as a machine
+// (`Machine.spring`, `Machine.springValues`). It's on the per-frame path (ADR-0025).
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Match from "effect/Match"
@@ -13,20 +27,28 @@ import type { SpringOptions } from "./Machine.ts"
 import { cachedResolver, field, finite, nonNegative, optionalField, positive } from "./internal/options.ts"
 import type { PhysicsStepResult } from "./internal/stepper.ts"
 
-// --- Presets: drop into `Machine.spring(…)` or a `transition`. `gentle` and `stiff` are the
-// everyday choices; `wobbly` and `bouncy` overshoot.
+// --- Presets: drop into `Machine.spring(…)` or a `transition`.
 
+/** A soft spring that settles without fuss: stiffness 120, damping 14. An everyday choice. */
 export const gentle = { stiffness: 120, damping: 14 } as const satisfies SpringOptions
+/** A spring that overshoots and wobbles a little: stiffness 180, damping 12. */
 export const wobbly = { stiffness: 180, damping: 12 } as const satisfies SpringOptions
+/** A quick, firm spring that barely overshoots: stiffness 210, damping 20. An everyday choice. */
 export const stiff = { stiffness: 210, damping: 20 } as const satisfies SpringOptions
+/** A slow, heavily damped spring with no overshoot: stiffness 280, damping 60. */
 export const slow = { stiffness: 280, damping: 60 } as const satisfies SpringOptions
+/** Slower still, creeping to its target: stiffness 280, damping 120. */
 export const molasses = { stiffness: 280, damping: 120 } as const satisfies SpringOptions
+/** A spring that overshoots and bounces: stiffness 400, damping 10. */
 export const bouncy = { stiffness: 400, damping: 10 } as const satisfies SpringOptions
 
 /** A spring's state between steps: where it is, how fast it moves, and how long it has run. */
 export interface State {
+  /** Where it is. */
   readonly position: number
+  /** How fast it moves, per second. */
   readonly velocity: number
+  /** Seconds it has run, its delay included. */
   readonly elapsed: number
 }
 
@@ -35,32 +57,38 @@ export interface State {
  * thresholds: those given are kept, and the rest are a leg's, by its distance ({@link restFor}).
  */
 export interface Resolved {
+  /** Its stiffness: higher is snappier. */
   readonly stiffness: number
+  /** Its damping: higher settles sooner, with less overshoot. */
   readonly damping: number
+  /** The mass it moves: heavier is slower. */
   readonly mass: number
   /** The rest threshold for the distance to the target, if given: else by distance ({@link restFor}). */
   readonly restDelta: number | undefined
   /** The rest threshold for the speed, per second, if given: else by distance ({@link restFor}). */
   readonly restSpeed: number | undefined
+  /** Seconds before it moves. */
   readonly delay: number
   /**
-   * How long it runs after its delay, in seconds: a `duration` spring's (#359), which ends at it,
-   * landing on its target; `Infinity` for one that ends at rest, every other.
+   * How long it runs after its delay, in seconds: a `duration` spring's, which ends then, landing on its
+   * target; `Infinity` for every other, which ends at rest.
    */
+  // A Time-based spring (#359).
   readonly duration: number
-  /** Its step as Motion's closed form, and the last one worked out (#370): internal, see {@link Exact}. */
+  /** Its step as a matrix, and the last one worked out: read it through `matrixFor`. */
+  // Motion's closed form (#370).
   readonly exact: Exact
 }
 
 /**
- * A spring's step over a `dt`, as Motion's closed form (#370, `motion-dom`'s `generators/spring.ts` at
- * 16c6122): exact for any `dt`, from wherever it is. The solution is linear in the displacement from
- * the target `d` and the velocity `v`, so a step is a matrix on them: `d' = dd·d + dv·v`, `v' = vd·d + vv·v`.
- * Its physics' constants are worked out when the spring is resolved. The matrix for the last `dt`
- * it stepped is kept, so every element on one spring config, which share its `Resolved`, shares one
- * `exp`/`sin`/`cos` a frame. Internal: written through {@link matrixFor}, by {@link step},
- * `Machine.springValues` and `Easing.spring`.
+ * A spring's step over a `dt`, exact for any `dt`, from wherever it is: a matrix on its distance from
+ * the target `d` and its velocity `v`, `d' = dd·d + dv·v` and `v' = vd·d + vv·v`. For a stepper written
+ * out in place; `step` is the one to call otherwise. The matrix for the last `dt` is kept, so every
+ * value on one resolved spring shares one `exp`/`sin`/`cos` a frame.
  */
+// Motion's closed form (#370, `motion-dom`'s `generators/spring.ts` at 16c6122). Its physics' constants
+// are worked out when the spring is resolved. Written through `matrixFor`, by `step`,
+// `Machine.springValues` and `Easing.spring`.
 export interface Exact {
   /** How it's damped: 0 under (it oscillates), 1 critically, 2 over. */
   readonly kind: 0 | 1 | 2
@@ -78,7 +106,8 @@ export interface Exact {
   vv: number
 }
 
-/** A leg's rest thresholds (#344): at rest within `delta` of its target and `speed` per second. */
+/** A leg's rest thresholds: at rest within `delta` of its target, below `speed` per second. */
+// #344.
 export interface Rest {
   readonly delta: number
   readonly speed: number
@@ -219,15 +248,18 @@ const physicsOf: (d: Decoded) => Physics = Match.type<Decoded>().pipe(
 )
 
 /**
- * Fill in a spring's defaults: 170 / 26 / 1, no delay, and its rest thresholds as given (else a
- * leg's, by its distance: {@link restFor}). A spring set by time (#359, a **Time-based spring**, as
- * Motion's) is solved to its physics instead: a `duration` (with a `bounce`, default 0.3, or a
- * `bounce` alone, a duration of 0.8 s) by Motion's `findSpring`, ending at that duration; a
- * `visualDuration` (with a `bounce`, default 0) by Motion's closed form, ending at rest. A
- * `stiffness`, `damping` or `mass` given beside wins over them. Checked once a bag (#66): a value no
- * spring can take (a stiffness or mass at or below 0, a negative damping or duration, NaN,
- * Infinity) throws its `OptionError` (`Machine.OptionError`), naming the field.
+ * A spring's options with its defaults filled in: stiffness 170, damping 26, mass 1, no delay. A spring
+ * set by time is solved to its physics: a `duration` (with a `bounce`, 0.3 by default; a `bounce` alone
+ * is a 0.8 s duration) ends at that duration, landing on its target, and a `visualDuration` (with a
+ * `bounce`, 0 by default) has done most of its move by then and ends at rest. A `stiffness`, `damping`
+ * or `mass` given beside wins over them. A value no spring can take, a stiffness at or below 0 say,
+ * throws an `OptionError` naming the field.
+ *
+ * @example
+ * const spring = Spring.resolve({ visualDuration: 0.4, bounce: 0.2 })
  */
+// A Time-based spring (#359), as Motion's: `duration` by Motion's `findSpring`, `visualDuration` by
+// Motion's closed form. Checked once a bag (#66); rest thresholds left for `restFor`.
 export const resolve: (options: SpringOptions) => Resolved = cachedResolver(Options, (decoded): Resolved => {
   const physics = physicsOf(decoded)
   // One literal, not a spread of `physics`: a spread's object read slower on the per-frame path
@@ -317,11 +349,11 @@ const refresh = (m: Exact, dt: number): void => {
 }
 
 /**
- * `spring`'s step matrix for `dt` (#370, {@link Exact}): the one it keeps when `dt` is the last
- * one's, else worked out and kept. Tier 3, for a stepper written out in place (`Machine.springValues`,
- * `Easing.spring`); `step` is the one to call. The matrix is the spring's, overwritten by the next
- * `dt`: read it before stepping anything else on it.
+ * A resolved spring's step matrix for `dt`: the one it kept when `dt` is the last one's, else worked out
+ * and kept. For a stepper written out in place; `step` is the one to call otherwise. The next `dt`
+ * overwrites it, so read it before stepping anything else on the spring.
  */
+// #370. Tier 3, for `Machine.springValues` and `Easing.spring`.
 export const matrixFor = (spring: Resolved, dt: number): Exact => {
   const m = spring.exact
   if (m.dt !== dt) refresh(m, dt)
@@ -329,11 +361,11 @@ export const matrixFor = (spring: Resolved, dt: number): Exact => {
 }
 
 /**
- * Motion's default rest thresholds (#344, `motion-dom` `spring.ts`'s `springDefaults` at
- * `16c6122`): for a leg of 5 or more, 0.5 and 2 per second; for one shorter (opacity, scale, a
- * nudge: "granular"), 0.005 and 0.01.
+ * The distance under which a leg rests by finer thresholds: 0.005 and 0.01 a second, for opacity, a
+ * scale or a nudge, where a leg of 5 or more rests within 0.5 and below 2 a second. Motion's
+ * `isGranularScale`.
  */
-/** Under this distance a leg is granular (#344): Motion's `isGranularScale`. */
+// Motion's default rest thresholds (#344, `motion-dom` `spring.ts`'s `springDefaults` at `16c6122`).
 export const GRANULAR = 5
 const REST_DELTA = 0.5
 const REST_SPEED = 2
@@ -341,22 +373,25 @@ const GRANULAR_REST_DELTA = 0.005
 const GRANULAR_REST_SPEED = 0.01
 
 /**
- * A leg's rest thresholds (#344), as Motion's are: each given one, else by how far the leg goes,
- * `distance` (its target less its start), in the spring's units. A spring stepped on a progress of
- * its own (a layout animation's, 0 → 1) passes the distance Motion's progress spans (1000), and
- * that as `scale`: its thresholds, given ones among them, are read in Motion's units and divided
- * by it. Called at a leg's start, and again at each new target: never per frame.
+ * A leg's rest thresholds, as Motion's are: each one the spring gives, else by how far the leg goes,
+ * `distance`, its target less its start. A spring on a progress of its own, 0 to 1, passes a distance
+ * of 1000 and that as `scale`, so its thresholds are read in Motion's units. Once a leg: at its start,
+ * and at each new target.
+ *
+ * @example
+ * const rest = Spring.restFor(spring, target - from)
  */
+// #344: a layout animation's progress spans Motion's 1000.
 export const restFor = (spring: Resolved, distance: number, scale = 1): Rest => ({
   delta: restDeltaFor(spring, distance, scale),
   speed: restSpeedFor(spring, distance, scale),
 })
 
-/** {@link restFor}'s `delta` alone: allocation-free, for a run that keeps its keys' thresholds in arrays. */
+/** `restFor`'s `delta` alone, allocating nothing: for a run that keeps its keys' thresholds in arrays. */
 export const restDeltaFor = (spring: Resolved, distance: number, scale = 1): number =>
   thresholdOf(spring.restDelta, distance, GRANULAR_REST_DELTA, REST_DELTA) / scale
 
-/** {@link restFor}'s `speed` alone: allocation-free. */
+/** `restFor`'s `speed` alone, allocating nothing. */
 export const restSpeedFor = (spring: Resolved, distance: number, scale = 1): number =>
   thresholdOf(spring.restSpeed, distance, GRANULAR_REST_SPEED, REST_SPEED) / scale
 
@@ -371,16 +406,15 @@ const thresholdOf = (given: number | undefined, distance: number, granular: numb
 const ZERO = { onUndefined: () => 0, onDefined: (n: number) => n }
 
 /**
- * Whether a spring ends at its duration (#359): a `duration` spring, which starts from rest whatever
- * velocity it's handed, as Motion's does, so it lands on time. It steps by {@link stepTimed}.
+ * Whether a resolved spring ends at its duration: one set by `duration`, which starts from rest
+ * whatever velocity it's handed, as Motion's does, so it lands on time. Step it with `stepTimed`.
  */
+// #359.
 export const endsOnTime = (spring: Resolved): boolean => spring.duration !== Infinity
 
-/**
- * A spring at rest at `options.from` (default 0), moving at `options.velocity` (default 0). Read
- * through `UndefinedOr`, so this module loads nothing of `internal/stepper.ts`, which loads `Easing`:
- * `Easing.spring` decodes its bag here (#225).
- */
+/** A spring at `options.from` (0 by default), moving at `options.velocity` (0 by default). */
+// Read through `UndefinedOr`, so this module loads nothing of `internal/stepper.ts`, which loads
+// `Easing`: `Easing.spring` decodes its bag here (#225).
 export const init = (options: SpringOptions): State => ({
   position: UndefinedOr.match(options.from, ZERO),
   velocity: UndefinedOr.match(options.velocity, ZERO),
@@ -392,11 +426,12 @@ const atRest = (position: number, velocity: number, target: number, rest: Rest):
   Math.abs(velocity) <= rest.speed && Math.abs(position - target) <= rest.delta
 
 /**
- * One frame of a resolved spring toward `target`. Only the part of `dt` past the spring's `delay`
- * moves it, in one exact step, Motion's closed form (#370, {@link Exact}); it settles at rest within
- * `rest` (the leg's, from {@link restFor}), landing exactly on `target`. A caller stepping by hand
- * per frame resolves its options with `resolve`, and its thresholds with `restFor`, once a leg.
+ * One frame of a resolved spring toward `target`: its next state, value, velocity, and whether it's
+ * done. Only the part of `dt` past its delay moves it, in one exact step; it settles within `rest`,
+ * landing exactly on `target`. Resolve its options with `resolve`, and its thresholds with `restFor`,
+ * once a leg.
  */
+// Motion's closed form (#370).
 export const step = (state: State, dt: number, target: number, spring: Resolved, rest: Rest): PhysicsStepResult<State> => {
   const elapsed = state.elapsed + dt
   let position = state.position
@@ -423,11 +458,11 @@ export const step = (state: State, dt: number, target: number, spring: Resolved,
 const NEVER_AT_REST: Rest = { delta: -1, speed: -1 }
 
 /**
- * One frame of a spring that ends at its duration (#359, {@link endsOnTime}) toward `target`: a
- * {@link step} that never rests, landing exactly on `target` once its duration has run after its
- * delay. Its own function, around `step`, so `step`, which every other spring takes per frame, stays
- * as it was: a read of the duration in it cost a chase ~20% a frame on Bun (#359).
+ * One frame of a spring that ends at its duration (`endsOnTime`) toward `target`: a `step` that doesn't
+ * rest early, landing exactly on `target` once its duration has run after its delay.
  */
+// #359. Its own function, around `step`, so `step`, which every other spring takes per frame, stays as
+// it was: a read of the duration in it cost a chase ~20% a frame on Bun.
 export const stepTimed = (state: State, dt: number, target: number, spring: Resolved): PhysicsStepResult<State> => {
   const result = step(state, dt, target, spring, NEVER_AT_REST)
   const elapsed = result.state.elapsed

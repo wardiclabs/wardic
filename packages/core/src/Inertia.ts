@@ -1,17 +1,29 @@
 /**
- * The `Inertia` module: Motion's `inertia` generator (motion-dom 13.3.0, `animation/generators/inertia.ts`)
- * as a stepper, `resolve`, `init` and `step` (ADR-0016, *Amendment (#140)*). A glide from `initial`
- * toward its resting point, `initial + power × velocity` (passed through `modifyTarget`), easing out as
- * `target − amplitude · e^(−t / timeConstant)`, done within `restDelta` of it. Where the glide would
- * cross `min` or `max`, or starts past one, it hands over to a spring toward the nearest edge on the
- * bounce (`bounceStiffness`, `bounceDamping`), from the glide's speed there, its exact derivative.
+ * An inertia as a stepper: a glide that carries a value on from its velocity and eases to a stop, as a
+ * flick or a drag's release does, springing back from `min` or `max` if it would pass one. `resolve`
+ * works out the glide once, `init` starts it, and `step` moves it a frame. For something you step
+ * yourself each frame; otherwise `Machine.inertia` runs one as a machine.
  *
- * In seconds, as every option bag in core: Motion's `timeConstant` is in milliseconds. Resolved once
- * per run (its glide depends on where it starts); each step is pure, a plain call. The stepper is
- * Tier 3 (ADR-0008, ADR-0028 decision 2), as `Spring`'s: `@wardic/dom`'s projection pass steps a
- * node's Release offset with it per frame; everything else runs one as a machine (`Machine.inertia`,
- * `Machine.inertiaVec`). It's on the per-frame path (ADR-0025).
+ * It rests at `initial + power × velocity`, or where `modifyTarget` moves that, easing out over
+ * `timeConstant` seconds. Where the glide would cross an edge, or starts past one, a spring takes it to
+ * the nearest edge, from the glide's speed there.
+ *
+ * @example
+ * import * as Inertia from "@wardic/core/Inertia"
+ *
+ * const glide = Inertia.resolve(x, velocity, { min: 0, max: 400 })
+ * let state = Inertia.init(x, glide)
+ * // each frame:
+ * const frame = Inertia.step(state, dt, glide)
+ * state = frame.state
+ * x = frame.value // and `frame.done` once it rests
  */
+// Motion's `inertia` generator (motion-dom 13.3.0, animation/generators/inertia.ts) as a stepper
+// (ADR-0016, *Amendment (#140)*): `target − amplitude · e^(−t / timeConstant)`, done within `restDelta`;
+// the bounce from the glide's exact derivative. In seconds, as every option bag in core: Motion's
+// `timeConstant` is in milliseconds. Resolved once per run; each step is pure. Tier 3 (ADR-0008,
+// ADR-0028 decision 2): `@wardic/dom`'s projection pass steps a node's Release offset with it per frame.
+// On the per-frame path (ADR-0025).
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
 import { cachedResolver, field, finite, fn, nonNegative, notNaN, positive } from "./internal/options.ts"
@@ -123,9 +135,10 @@ const decode: (options: InertiaOptions) => Decoded = cachedResolver(
 )
 
 /**
- * Fill in an inertia's defaults and work out its glide from `initial` at `velocity`. Once per run;
- * the options are checked once a bag (#66), and a value no inertia can take throws its `OptionError`.
+ * An inertia's defaults filled in, and its glide worked out from `initial` at `velocity`: once each
+ * run. A value no inertia can take, a negative `timeConstant` say, throws an `OptionError` naming it.
  */
+// The options are checked once a bag (#66).
 export const resolve = (initial: number, velocity: number, options: InertiaOptions): Resolved => {
   const o = decode(options)
   const target = o.modifyTarget(initial + o.power * velocity)
@@ -146,11 +159,10 @@ export const resolve = (initial: number, velocity: number, options: InertiaOptio
 }
 
 /**
- * Where an inertia from `initial` at `velocity` comes to rest (#468): its glide's resting point, held
- * to its edges (one the glide crosses is where the bounce rests), or the edge nearest a start past one.
- * What a skipped one lands on at once. A value no inertia can take throws its `OptionError`, as
- * {@link resolve}'s.
+ * Where an inertia from `initial` at `velocity` comes to rest: its glide's end, held to its edges, or the
+ * edge nearest a start past one. Where one that's skipped lands at once. Throws as `resolve` does.
  */
+// #468.
 export const restOf = (initial: number, velocity: number, options: InertiaOptions): number => {
   const inertia = resolve(initial, velocity, options)
   if (outOfBounds(initial, inertia)) return nearestEdge(initial, inertia)
@@ -221,11 +233,12 @@ export const init = (initial: number, inertia: Resolved): State =>
   })
 
 /**
- * One frame of a resolved inertia. While it glides, its value is the glide's at its time; the frame
- * that crosses an edge shows the glide's value past it, and the bounce takes over from there (Motion's
- * `spring.next(t − timeReachedBoundary)`), resting on the edge once within `restDelta` and `restSpeed`.
- * Per frame: statement `if`s, one state object.
+ * One frame of a resolved inertia: its next state, value, velocity, and whether it's done. While it
+ * glides, its value is the glide's at its time; the frame that crosses an edge shows the glide past it,
+ * and the bounce takes over from there, resting on the edge within `restDelta` and `restSpeed`.
  */
+// Motion's `spring.next(t − timeReachedBoundary)` from the crossing. Per frame: statement `if`s, one
+// state object.
 export const step = (state: State, dt: number, inertia: Resolved): PhysicsStepResult<State> => {
   const elapsed = state.elapsed + dt
   const bounce = state.bounce

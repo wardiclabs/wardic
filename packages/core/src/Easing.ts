@@ -1,11 +1,17 @@
 /**
- * The `Easing` module: an easing maps normalized time `t` in [0, 1] to eased progress. The
- * Penner set (names kept), `cubicBezier`, `steps`, and `spring`, a spring baked into a curve; and
- * Motion's named easings (`easeIn`, `easeOut`, `backIn`, `anticipate`…), which an `ease` names as
- * a string, beside a bézier's four numbers or a function: a {@link Definition} (#360, ADR-0052).
- * Plain functions callers write as well as take (`(t) => t * t`), so no prototype (ADR-0028,
- * decision 1); every easing runs per frame (ADR-0025).
+ * Easings: a tween's curve, from its progress in time to its progress along the way, each a function of
+ * `t` from 0 to 1. Motion's named curves (`easeIn`, `easeOut`, `backOut`, `anticipate`…), which an
+ * `ease` gives as a string; the Penner set (`easeOutCubic`…); `cubicBezier`, `steps`, and `spring`, a
+ * spring as a curve. Any `(t) => number` is an easing too.
+ *
+ * @example
+ * import * as Easing from "@wardic/core/Easing"
+ *
+ * const ease = Easing.resolve("easeOut") // or [0.25, 0.1, 0.35, 1], or Easing.easeOutCubic
+ * ease(0.5) // ≈ 0.69: past halfway at half the time
  */
+// #360, ADR-0052. Plain functions callers write as well as take (`(t) => t * t`), so no prototype
+// (ADR-0028, decision 1); every easing runs per frame (ADR-0025).
 import bezier from "bezier-easing"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
@@ -15,16 +21,11 @@ import * as Predicate from "effect/Predicate"
 import * as Scalar from "./Scalar.ts"
 import * as Spring from "./Spring.ts"
 
-/** Easing function mapping normalized time `t` in [0, 1] to eased progress. */
+/** An easing: a function from a tween's progress in time, 0 to 1, to its progress along the way. `(t) => t * t` is one. */
 export type Easing = (t: number) => number
 
-/**
- * The standard Penner easing set, normalized to `t` in [0, 1].
- * `easeOutX` is the most useful family for UI; `easeInOutX` for symmetric motion.
- *
- * Every easing runs per frame (ADR-0025): a piecewise curve is a statement `if` per piece,
- * with an early return, not a ternary or a match.
- */
+// The standard Penner easing set, normalized to `t` in [0, 1]. Every easing runs per frame (ADR-0025): a
+// piecewise curve is a statement `if` per piece, with an early return, not a ternary or a match.
 
 const c1 = 1.70158
 const c2 = c1 * 1.525
@@ -32,48 +33,67 @@ const c3 = c1 + 1
 const c4 = (2 * Math.PI) / 3
 const c5 = (2 * Math.PI) / 4.5
 
+/** No easing: progress as time goes, at an even pace. */
 export const linear: Easing = (t) => t
 
+/** Penner's quadratic curve, `t²`: a gentle one; it starts slow and speeds up. */
 export const easeInQuad: Easing = (t) => t * t
+/** Penner's quadratic curve, `t²`: a gentle one; it starts fast and slows to a stop. */
 export const easeOutQuad: Easing = (t) => 1 - (1 - t) * (1 - t)
+/** Penner's quadratic curve, `t²`: a gentle one; it slow at both ends and fast in the middle. */
 export const easeInOutQuad: Easing = (t) => {
   if (t < 0.5) return 2 * t * t
   return 1 - Math.pow(-2 * t + 2, 2) / 2
 }
 
+/** Penner's cubic curve, `t³`; it starts slow and speeds up. */
 export const easeInCubic: Easing = (t) => t * t * t
+/** Penner's cubic curve, `t³`; it starts fast and slows to a stop. */
 export const easeOutCubic: Easing = (t) => 1 - Math.pow(1 - t, 3)
+/** Penner's cubic curve, `t³`; it slow at both ends and fast in the middle. */
 export const easeInOutCubic: Easing = (t) => {
   if (t < 0.5) return 4 * t * t * t
   return 1 - Math.pow(-2 * t + 2, 3) / 2
 }
 
+/** Penner's quartic curve, `t⁴`: sharper; it starts slow and speeds up. */
 export const easeInQuart: Easing = (t) => t * t * t * t
+/** Penner's quartic curve, `t⁴`: sharper; it starts fast and slows to a stop. */
 export const easeOutQuart: Easing = (t) => 1 - Math.pow(1 - t, 4)
+/** Penner's quartic curve, `t⁴`: sharper; it slow at both ends and fast in the middle. */
 export const easeInOutQuart: Easing = (t) => {
   if (t < 0.5) return 8 * t * t * t * t
   return 1 - Math.pow(-2 * t + 2, 4) / 2
 }
 
+/** Penner's quintic curve, `t⁵`: the sharpest of the powers; it starts slow and speeds up. */
 export const easeInQuint: Easing = (t) => t * t * t * t * t
+/** Penner's quintic curve, `t⁵`: the sharpest of the powers; it starts fast and slows to a stop. */
 export const easeOutQuint: Easing = (t) => 1 - Math.pow(1 - t, 5)
+/** Penner's quintic curve, `t⁵`: the sharpest of the powers; it slow at both ends and fast in the middle. */
 export const easeInOutQuint: Easing = (t) => {
   if (t < 0.5) return 16 * t * t * t * t * t
   return 1 - Math.pow(-2 * t + 2, 5) / 2
 }
 
+/** Penner's sine curve: the softest; it starts slow and speeds up. */
 export const easeInSine: Easing = (t) => 1 - Math.cos((t * Math.PI) / 2)
+/** Penner's sine curve: the softest; it starts fast and slows to a stop. */
 export const easeOutSine: Easing = (t) => Math.sin((t * Math.PI) / 2)
+/** Penner's sine curve: the softest; it slow at both ends and fast in the middle. */
 export const easeInOutSine: Easing = (t) => -(Math.cos(Math.PI * t) - 1) / 2
 
+/** Penner's exponential curve: very sharp; it starts slow and speeds up. */
 export const easeInExpo: Easing = (t) => {
   if (t === 0) return 0
   return Math.pow(2, 10 * t - 10)
 }
+/** Penner's exponential curve: very sharp; it starts fast and slows to a stop. */
 export const easeOutExpo: Easing = (t) => {
   if (t === 1) return 1
   return 1 - Math.pow(2, -10 * t)
 }
+/** Penner's exponential curve: very sharp; it slow at both ends and fast in the middle. */
 export const easeInOutExpo: Easing = (t) => {
   if (t === 0) return 0
   if (t === 1) return 1
@@ -81,30 +101,39 @@ export const easeInOutExpo: Easing = (t) => {
   return (2 - Math.pow(2, -20 * t + 10)) / 2
 }
 
+/** Penner's circular curve, a quarter circle; it starts slow and speeds up. */
 export const easeInCirc: Easing = (t) => 1 - Math.sqrt(1 - Math.pow(t, 2))
+/** Penner's circular curve, a quarter circle; it starts fast and slows to a stop. */
 export const easeOutCirc: Easing = (t) => Math.sqrt(1 - Math.pow(t - 1, 2))
+/** Penner's circular curve, a quarter circle; it slow at both ends and fast in the middle. */
 export const easeInOutCirc: Easing = (t) => {
   if (t < 0.5) return (1 - Math.sqrt(1 - Math.pow(2 * t, 2))) / 2
   return (Math.sqrt(1 - Math.pow(-2 * t + 2, 2)) + 1) / 2
 }
 
+/** Penner's back curve: it draws back past its start, then goes. */
 export const easeInBack: Easing = (t) => c3 * t * t * t - c1 * t * t
+/** Penner's back curve: it goes past its end, then comes back to it. */
 export const easeOutBack: Easing = (t) => 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2)
+/** Penner's back curve: past its start, then past its end, then back. */
 export const easeInOutBack: Easing = (t) => {
   if (t < 0.5) return (Math.pow(2 * t, 2) * ((c2 + 1) * 2 * t - c2)) / 2
   return (Math.pow(2 * t - 2, 2) * ((c2 + 1) * (t * 2 - 2) + c2) + 2) / 2
 }
 
+/** Penner's elastic curve: it winds up, springing back and forth, then goes. */
 export const easeInElastic: Easing = (t) => {
   if (t === 0) return 0
   if (t === 1) return 1
   return -Math.pow(2, 10 * t - 10) * Math.sin((t * 10 - 10.75) * c4)
 }
+/** Penner's elastic curve: it springs past its end and back several times before it rests. */
 export const easeOutElastic: Easing = (t) => {
   if (t === 0) return 0
   if (t === 1) return 1
   return Math.pow(2, -10 * t) * Math.sin((t * 10 - 0.75) * c4) + 1
 }
+/** Penner's elastic curve at both ends. */
 export const easeInOutElastic: Easing = (t) => {
   if (t === 0) return 0
   if (t === 1) return 1
@@ -112,6 +141,7 @@ export const easeInOutElastic: Easing = (t) => {
   return (Math.pow(2, -20 * t + 10) * Math.sin((20 * t - 11.125) * c5)) / 2 + 1
 }
 
+/** Penner's bounce curve: it lands and bounces to rest at its end, like a dropped ball. */
 export const easeOutBounce: Easing = (t) => {
   const n1 = 7.5625
   const d1 = 2.75
@@ -120,25 +150,34 @@ export const easeOutBounce: Easing = (t) => {
   if (t < 2.5 / d1) return n1 * (t -= 2.25 / d1) * t + 0.9375
   return n1 * (t -= 2.625 / d1) * t + 0.984375
 }
+/** Penner's bounce curve, reversed: it bounces at its start, then goes. */
 export const easeInBounce: Easing = (t) => 1 - easeOutBounce(1 - t)
+/** Penner's bounce curve at both ends. */
 export const easeInOutBounce: Easing = (t) => {
   if (t < 0.5) return (1 - easeOutBounce(1 - 2 * t)) / 2
   return (1 + easeOutBounce(2 * t - 1)) / 2
 }
 
 /**
- * A CSS-style cubic-bezier easing through control points (x1, y1, x2, y2).
- * Backed by `bezier-easing`.
+ * A cubic Bézier easing through the control points `(x1, y1)` and `(x2, y2)`, as CSS's
+ * `cubic-bezier()`. An `ease` of `[x1, y1, x2, y2]` is the same.
+ *
+ * @example
+ * const standard = Easing.cubicBezier(0.4, 0, 0.2, 1)
  */
+// Backed by `bezier-easing`.
 export const cubicBezier = (x1: number, y1: number, x2: number, y2: number): Easing =>
   named(bezier(x1, y1, x2, y2), `cubicBezier(${x1},${y1},${x2},${y2})`)
 
-/** Step position — where the jump happens within each step. */
+/** Where each of `steps`' jumps happens: at the `"start"` of its interval, or its `"end"`. */
 export type StepPosition = "start" | "end"
 
 /**
- * A stepped easing (CSS `steps()`). `count` discrete steps; `position` controls
- * whether the value jumps at the start or end of each interval.
+ * An easing in `count` jumps, as CSS's `steps()`: each at the end of its interval (the default), or its
+ * start. For a value that should tick, not glide.
+ *
+ * @example
+ * const tick = Easing.steps(12) // a clock hand's twelve jumps
  */
 export const steps = (count: number, position: StepPosition = "end"): Easing => {
   const n = Math.max(1, Math.floor(count))
@@ -152,20 +191,23 @@ export const steps = (count: number, position: StepPosition = "end"): Easing => 
 }
 
 /**
- * Options shaping a {@link spring} curve: its `stiffness`, `damping` and `mass`, or its time (#359,
- * `Machine.SpringOptions`'s `duration`, `bounce` and `visualDuration`). The bag is a spring's
- * (`Spring.resolve` decodes it, #225), so a spring's other fields may come with it, and are checked,
- * but don't shape the curve.
+ * A spring curve's options: its physics, `stiffness`, `damping` and `mass`, or its time, `duration`,
+ * `bounce` and `visualDuration`. They're a spring's options, so its other fields may come too: they're
+ * checked, but don't shape the curve.
  */
+// #359 for time; `Spring.resolve` decodes the bag (#225).
 export interface SpringOptions {
+  /** How stiff it is: higher is snappier. Default 170. */
   readonly stiffness?: number
+  /** How damped it is: higher settles sooner, with less overshoot. Default 26. */
   readonly damping?: number
+  /** The mass it moves: heavier is slower. Default 1. */
   readonly mass?: number
-  /** A time-based spring's duration, in seconds (#359): its curve runs to it, ending on 1. */
+  /** A spring set by time: its curve runs to `duration` seconds, ending on 1. */
   readonly duration?: number
-  /** A time-based spring's bounce (#359). */
+  /** How much a spring set by time bounces: 0 none, toward 1 a lot. */
   readonly bounce?: number
-  /** A time-based spring's visual duration, in seconds (#359): its curve runs to rest. */
+  /** A spring set by time that has done most of its move by `visualDuration` seconds: its curve runs to rest. */
   readonly visualDuration?: number
 }
 
@@ -181,21 +223,19 @@ interface SpringSim {
 }
 
 /**
- * Bakes spring physics into a fixed-duration easing curve normalized to [0, 1].
+ * A spring as an easing: the spring's run from 0 to 1, until it rests, as a curve, so a tween of any
+ * duration moves as that spring would, its overshoot included. For whatever takes an easing; a value
+ * that should keep its velocity when its target changes runs on `Machine.spring` instead. A `duration`
+ * spring's curve ends at its duration, landing on 1. A value no spring can take, a stiffness at or below
+ * 0 say, throws an `OptionError` naming the field.
  *
- * Unlike the live `Machine.spring` primitive (which settles to a static target;
- * interruption is the binding's responsibility, and moving-target follow lives
- * in `chase` — see ADR-0001), this is a one-shot easing for cases that need a
- * `(t) => progress` function — the spring is run 0 → 1 to rest, sampled every
- * 1/240 s on its exact solution (Motion's closed form, #370), then re-normalized.
- *
- * Its bag is checked as every spring bag is (`Spring.resolve`, #225, ADR-0025 *Amendment (#225)*), when
- * it's called: a value no spring can take (a stiffness or mass at or below 0, a negative damping, NaN,
- * Infinity) throws its `OptionError` (`Machine.OptionError`), naming the field. Only `stiffness`, `damping` and `mass` shape
- * the curve, or a time-based spring's `duration`, `bounce` and `visualDuration` (#359): a `duration`
- * spring's curve is its run to that duration, landing on 1 there, as its machine does. It bakes its
- * own rest thresholds and step.
+ * @example
+ * const ease = Easing.spring({ visualDuration: 0.5, bounce: 0.3 })
  */
+// Unlike `Machine.spring` (ADR-0001: a live primitive settling to a static target; `chase` follows a
+// moving one), a one-shot curve: run 0 → 1 to rest, sampled every 1/240 s on its exact solution
+// (Motion's closed form, #370), re-normalized. Its bag is checked as every spring bag is (#225, ADR-0025
+// *Amendment (#225)*); a time-based spring (#359). It bakes its own rest thresholds and step.
 export const spring = (options: SpringOptions = NO_SPRING): Easing => {
   const resolved = Spring.resolve(options)
   const { stiffness, damping, mass, duration } = resolved
@@ -267,19 +307,18 @@ Arr.forEach(
 )
 
 /**
- * The name an easing was made with (#48, ADR-0044): a Penner easing's own (`"easeOutCubic"`), or a
- * factory's call with its arguments (`"cubicBezier(0.4,0,0.2,1)"`, `"steps(4,end)"`,
- * `"spring(170,26,1)"`). `None` for a function an app wrote itself, which a server can't tell from
- * another.
+ * The name an easing Wardic made was made with: a curve's own (`"easeOutCubic"`), or a factory's call
+ * with its arguments (`"cubicBezier(0.4,0,0.2,1)"`, `"steps(4,end)"`). `None` for a function you wrote,
+ * which can't be told from another. A server names a mount animation's CSS easing by it, so the server
+ * and the client agree.
  */
+// #48, ADR-0044: an Appear animation's spec.
 export const nameOf = (easing: Easing): Option.Option<string> => Option.fromUndefinedOr(NAMES.get(easing))
 
 // --- Motion's easings (#360, ADR-0052) --------------------------------------------------------
 
-/**
- * `easing` played backwards: Motion's `reverseEasing`, which turns an ease-in into an ease-out. A
- * sequence's `repeatType: "reverse"` plays every other pass of a Segment on it (#433). Per frame.
- */
+/** An easing played backwards, which turns an ease-in into an ease-out: Motion's `reverseEasing`. */
+// A sequence's `repeatType: "reverse"` plays every other pass of a Segment on it (#433). Per frame.
 export const reverse = (easing: Easing): Easing => (t) => 1 - easing(1 - t)
 
 /**
@@ -327,7 +366,8 @@ export const anticipate: Easing = named((t) => {
   return 0.5 * (2 - Math.pow(2, -10 * (p - 1)))
 }, "anticipate")
 
-/** Motion's names for its easings (`motion-utils`' `easingLookup`, at 16c6122): what an `ease` string can be. */
+/** Motion's names for its easings: what an `ease` string can be. */
+// `motion-utils`' `easingLookup`, at 16c6122.
 export type Name = "linear" | "easeIn" | "easeOut" | "easeInOut" | "circIn" | "circOut" | "circInOut" | "backIn" | "backOut" | "backInOut" | "anticipate"
 
 /** Each of Motion's names, and its curve. */
@@ -340,9 +380,10 @@ export const NAMES_LIST: ReadonlyArray<Name> = Object.keys(BY_NAME) as ReadonlyA
 export type Bezier = readonly [number, number, number, number]
 
 /**
- * An Easing as an `ease` gives it (CONTEXT.md **Easing definition**, #360), as Motion's `Easing`:
- * one of Motion's names, a cubic bézier's four numbers, or the function itself.
+ * An easing as an `ease` takes it, as Motion's: one of Motion's names, a cubic Bézier's four numbers,
+ * or a function.
  */
+// CONTEXT.md **Easing definition**, #360.
 export type Definition = Name | Bezier | Easing
 
 /** Whether `definition` is a bézier's points: an array whose first item is a number (Motion's `isBezierDefinition`). */
@@ -357,9 +398,13 @@ const resolveDefinition: (definition: Definition) => Easing = Match.type<Definit
 )
 
 /**
- * The Easing `definition` names (#360): a name's curve, a bézier through its points
- * ({@link cubicBezier}, named, so Appear keys it), or the function as it is. Not per frame: an
- * option bag's decode resolves its `ease` once (#66).
+ * The easing a definition gives: a name's curve, a Bézier through its points, or the function itself.
+ * Resolve once, where an animation is built, not each frame.
+ *
+ * @example
+ * const ease = Easing.resolve(options.ease ?? "easeOut")
  */
+// #360: a Bézier through `cubicBezier`, named, so Appear keys it; an option bag's decode resolves its
+// `ease` once (#66).
 export const resolve = (definition: Definition): Easing => resolveDefinition(definition)
 

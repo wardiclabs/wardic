@@ -48,12 +48,13 @@ export interface TweenState {
 
 /** A tween's options with every default filled in. */
 export interface ResolvedTween {
+  /** Seconds before it moves. */
   readonly delay: number
   /** The duration, at least `Number.EPSILON`, so a zero duration still divides. */
   readonly duration: number
   /** The duration as given (0 for an instant tween): its span's, and what `keyframes` splits. */
   readonly seconds: number
-  /** Its `ease`, resolved to the curve (#360). */
+  /** Its `ease`, resolved to the curve. */
   readonly ease: Easing.Easing
 }
 
@@ -91,11 +92,11 @@ export const resolvedTweenOf = (decoded: { readonly delay: number; readonly dura
 })
 
 /**
- * Fill in a tween's defaults: 0.3 s, no delay, linear. Checked once a bag (#66): a negative or
- * non-finite duration or delay, an `ease` that's none of Motion's names, four numbers or a function,
- * or a leftover `easing` (#360), throws its `OptionError`. Public as `Machine.resolveTween`, Tier 3,
- * for dom's layout tween.
+ * A tween's options with its defaults filled in: 0.3 s, no delay, linear. A negative or non-finite
+ * duration or delay, or an `ease` that's none of Motion's names, four numbers or a function, throws an
+ * `OptionError`. For a tween you step yourself, as `@wardic/dom`'s layout animations do.
  */
+// Checked once a bag (#66); a leftover `easing` throws too (#360). Public as `Machine.resolveTween`, Tier 3.
 export const resolveTween: (options: TweenOptions) => ResolvedTween = /*#__PURE__*/ cachedResolver(TweenFields, resolvedTweenOf)
 
 export const initTween = (): TweenState => ({ elapsed: 0 })

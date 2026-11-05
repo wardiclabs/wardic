@@ -41,7 +41,8 @@ const slugOf = (name: string): string =>
  * adds its modules (#558).
  */
 const READY: Readonly<Record<(typeof PACKAGES)[number]["dir"], ReadonlyArray<string>>> = {
-  core: [],
+  // Animation.
+  core: ["Arc", "Easing", "Inertia", "Machine", "Playback", "Scalar", "Sequence", "Spring", "Stagger", "Velocity", "Wave"],
   dom: [],
 }
 
@@ -67,10 +68,15 @@ const overviewOf = (file: string): string | undefined => {
     .join("\n")
     .trim()
     .replace(/\{@link\s+([^}\s|]+)[^}]*\}/g, "`$1`")
-  return text
+  // Its `@example`, to the comment's end, as a TypeScript block; the prose before it, escaped.
+  const [prose, example] = text.split(/^@example[ \t]*\n/m)
+  const escaped = prose!
+    .trim()
     .split(/(`+[^`]*`+)/)
     .map((part, i) => (i % 2 === 1 ? part : part.replace(/[<{}]/g, (c) => `\\${c}`)))
     .join("")
+  if (example === undefined) return escaped
+  return `${escaped}\n\n\`\`\`ts\n${example.trim()}\n\`\`\``
 }
 
 /**
