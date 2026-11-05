@@ -12,6 +12,7 @@ import remarkMdxFrontmatter from "remark-mdx-frontmatter"
 import { defineConfig } from "vite"
 import { wardicSource } from "../scripts/wardic-source.ts"
 import { rehypeCodeHtml } from "./plugins/rehype-code-html.ts"
+import { pageTitles } from "./plugins/page-titles.ts"
 import { samples } from "./plugins/samples.ts"
 
 // The storefronts' Shiki themes, light and dark as CSS variables (#365).
@@ -25,11 +26,14 @@ const { themes, defaultColor } = highlightOptions("page.tsx")
 //   block one HTML string (plugins/rehype-code-html.ts).
 // - Code samples are real files (samples/), highlighted at build when imported with `?code`
 //   (plugins/samples.ts).
+// - Each page is a chunk of its own, its title read from its front matter at build
+//   (plugins/page-titles.ts), so the route doesn't import every page to know it.
 // - `@wardic/*` from its source in the repo (#554).
 export default defineConfig({
   plugins: [
     wardicSource(),
     samples(fileURLToPath(new URL("./samples", import.meta.url))),
+    pageTitles(fileURLToPath(new URL("./src/content", import.meta.url))),
     {
       enforce: "pre",
       ...mdx({
