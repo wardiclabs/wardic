@@ -33,15 +33,22 @@ export const reportFailure = (message: string, cause: Cause.Cause<unknown>): Eff
   })
 
 /**
+ * Whether a Debug log would be kept, as Effect's `MinimumLogLevel` says. Run it once (a runtime, a
+ * build) and keep the answer, not once a log.
+ */
+// #618: the spine reads it alone, so an app that logs nothing else doesn't ship debugOf's log.
+export const debugKept: Effect.Effect<boolean> = /*#__PURE__*/ Effect.map(References.MinimumLogLevel, (level) => Bool.not(LogLevel.isGreaterThan(level, "Debug")))
+
+/**
  * A lifecycle debug log for `scope` (`wardic.projection`, say): `log(event, annotations?)` logs
  * `scope: event` at Debug, forked on `runner`, with the annotations. Whether a Debug log would be kept
- * is read once, here, as Effect's `MinimumLogLevel` says: when it wouldn't, `on` is `false` and `log`
- * returns at once, forking nothing. A site that builds its annotations per element checks `on` first.
+ * is read once, here ({@link debugKept}): when it wouldn't, `on` is `false` and `log` returns at once,
+ * forking nothing. A site that builds its annotations per element checks `on` first.
  */
 // #618 (M4): each call forked a fiber whatever the level, 0.3-0.5 µs to log nothing (one per layout
 // node's mount and unmount); core's Frame loop reads the level once as this does (frameLoop.ts).
 export const debugOf = (runner: { readonly runSync: <A>(effect: Effect.Effect<A>) => A; readonly runFork: <A>(effect: Effect.Effect<A>) => unknown }, scope: string): DebugLog => {
-  const on = runner.runSync(Effect.map(References.MinimumLogLevel, (level) => Bool.not(LogLevel.isGreaterThan(level, "Debug"))))
+  const on = runner.runSync(debugKept)
   const log = (event: string, annotations?: Record<string, unknown>): void => {
     if (!on) return
     const logged = Effect.logDebug(`${scope}: ${event}`)

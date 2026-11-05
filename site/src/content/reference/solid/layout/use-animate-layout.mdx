@@ -19,7 +19,7 @@ const shuffle = () => animateLayout(() => setItems(shuffled(items())))
 
 ## Solid 1
 
-`animateLayout(fn, options?)` returns what `fn` returns. `options.onSettled` is called once every layout animation the change started has ended, however each ended, or once the change is measured if it started none.
+`animateLayout(fn, options?)` returns what `fn` returns. `options.onSettled` is called once every layout animation the change started has ended, however each ended, or once the change is measured if it started none. `options.from` is where the change animates from: the boxes at the call (`"call"`, the default), or the last measure's (`"lastPass"`), for a change applied after the call that no measure has seen yet.
 
 ```tsx
 animateLayout(() => setOrder(sorted()), { onSettled: () => setBusy(false) })
@@ -28,6 +28,8 @@ animateLayout(() => setOrder(sorted()), { onSettled: () => setBusy(false) })
 ## Solid 2
 
 `animateLayout(fn)` returns a promise of what `fn` returns, which resolves once every layout animation the change started has ended. Calls in one task resolve together. It rejects with an `AbortError` if the provider goes first.
+
+A write Solid holds still animates, once it lands: one inside an `action`, or one made beside a write that starts async work. The promise waits for it.
 
 ```tsx
 await animateLayout(() => setOrder(sorted()))
@@ -41,4 +43,4 @@ Motion measures after every React render, so a reorder there animates with no ca
 ## Types
 
 - **`AnimateLayout`:** `animateLayout`'s function, as above.
-- **`AnimateLayoutOptions`:** (Solid 1) its options: `onSettled`.
+- **`AnimateLayoutOptions`:** (Solid 1) its options: `onSettled` and `from`.

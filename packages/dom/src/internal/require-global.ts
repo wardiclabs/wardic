@@ -31,16 +31,14 @@ const FROM: Readonly<Record<ClientLayer, string>> = {
  * Make it the first step of the build: anything that reads the global must come after it.
  */
 // #618 (D7): the error named the Layers ADR-0041 renamed (`ClockDomLive`…), and an ADR; `layer` is a
-// union of today's names, so a rename can't leave it behind.
+// union of today's names, so a rename can't leave it behind. Short, as every app ships it.
 export const requireGlobal = (layer: ClientLayer, global: BrowserGlobal): Effect.Effect<void> =>
   Effect.suspend(() =>
     Bool.match(Predicate.isUndefined((globalThis as Record<string, unknown>)[global]), {
       onTrue: () =>
         Effect.die(
           new Error(
-            `${layer} (${FROM[layer]}) can't be built here: there is no ${global} (a server render?). ` +
-              "Wardic's runtime is client-only: build it on the client, once the element has mounted, " +
-              "never during a server render.",
+            `${layer} (${FROM[layer]}) needs ${global}: Wardic's runtime is client-only, never built during a server render.`,
           ),
         ),
       onFalse: () => Effect.void,

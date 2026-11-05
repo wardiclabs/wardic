@@ -33,7 +33,7 @@ import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { type HeadTag, isServer, type JSX, useHead } from "@solidjs/web"
-import { createContext, DEV, flush, isHydrating, onCleanup, untrack, useContext } from "solid-js"
+import { createContext, DEV, flush, isHydrating, onCleanup, onSettled, runWithOwner, untrack, useContext } from "solid-js"
 import * as Context from "effect/Context"
 import * as Report from "@wardic/dom/Report"
 import { type Feature, type FeatureRegistry, type FeatureSection, type FeaturesProp, ROOT, strictMessage } from "../../feature.ts"
@@ -423,9 +423,10 @@ export type AnimateLayout = <A>(fn: () => A) => Promise<Awaited<A>>
 /**
  * Animates a layout change you make: `animateLayout(fn)` runs `fn`, and every layout element animates
  * from where it was at the call to where the change puts it. For a change nothing else sees, such as a
- * keyed `<For>` reordered or a plain element's class changed. Its promise resolves with what `fn`
- * returns once the animations it started have ended. Only what `fn` changes synchronously animates.
- * Throws outside a `WardicProvider`.
+ * keyed `<For>` reordered or a plain element's class changed. A write Solid holds, inside an `action`
+ * or beside a write that starts async work, animates once it lands. Its promise resolves with what
+ * `fn` returns once the animations it started have ended. Only what `fn` changes synchronously
+ * animates. Throws outside a `WardicProvider`.
  *
  * @example
  * const animateLayout = useAnimateLayout()
@@ -437,12 +438,24 @@ export function useAnimateLayout(): AnimateLayout {
   const declare = animateLayoutOf(value)
   const disposed = UndefinedOr.match(value, { onUndefined: constUndefined, onDefined: (v) => disposals.get(v) })
   return <A,>(fn: () => A): Promise<Awaited<A>> => {
+    // A server render has nothing to animate, and never settles.
+    if (isServer) return Promise.resolve(declare(fn)) as Promise<Awaited<A>>
     let settle = constUndefined as () => void
     const settled = new Promise<void>((resolve) => {
       settle = resolve
     })
     // A throw from `fn` is thrown here: `settled` is just dropped, unsettled.
-    const result = declare(fn, { onSettled: () => settle() })
+    const result = declare(fn)
+    // Once what the call is part of has settled, a pass from the boxes the last one kept: it folds into
+    // the call's own when nothing was held, and measures a write Solid 2 held (inside an action, or in
+    // the frame of a write that started async work) once it lands. The promise waits for that pass's
+    // animations (#618, decision 13). Unowned, so it runs once whatever the caller's owner does: an
+    // owner disposed first would drop it, and the promise with it.
+    runWithOwner(null, () =>
+      onSettled(() => {
+        declare(constUndefined, { from: "lastPass", onSettled: () => settle() })
+      }),
+    )
     const waiting = UndefinedOr.match(disposed, { onUndefined: () => settled, onDefined: (gone) => Promise.race([settled, gone]) })
     return waiting.then(() => result) as Promise<Awaited<A>>
   }
