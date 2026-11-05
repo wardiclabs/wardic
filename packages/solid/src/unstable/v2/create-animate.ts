@@ -23,20 +23,20 @@ import {
 import { useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
 
-/**
- * A scope's landing (#433's Q8): the animation that landed last. Held in an object, as the controls
- * are awaitable, which an async value would wait on rather than hold.
- */
+/** A scope's landing: the animation that landed last, as `scope.settled()` gives it. */
+// #433's Q8: held in an object, as the controls are awaitable, which an async value would wait on
+// rather than hold.
 export interface WardicScopeLanding {
   readonly animation: WardicPlaybackControls
 }
 
-/** An **Animation scope** on Solid 2 (#433): the Solid 1 binding's, with {@link settled}. */
+/** An animation scope on Solid 2: Solid 1's, with `settled()`. */
+// #433.
 export interface WardicAnimationScopeV2<T extends Element = HTMLElement> extends WardicAnimationScope<T> {
   /**
-   * Its last landing (#433's Q8), `undefined` before the first: an async value, pending while any
-   * animation it started is in flight, as a ward's `settled()` is (ADR-0046). One stopped or cancelled
-   * ends its flight without landing.
+   * Its last landing, `undefined` before the first: an async value, pending while any animation it
+   * started is in flight, as a ward's `settled()` is, so `isPending(() => scope.settled())` reads
+   * "animating". One stopped or cancelled ends its flight without landing.
    */
   readonly settled: () => WardicScopeLanding | undefined
 }
@@ -89,16 +89,21 @@ const settledOf = (): { readonly watch: AnimationWatch; readonly read: () => War
 }
 
 /**
- * An **Animation scope** and its `animate` (#433, Motion's `useAnimate`), as the Solid 1 binding's
- * `createAnimate`, its scope with `settled()`. Made in a component under a `WardicProvider`, whose
- * cleanup stops its animations.
+ * Animates elements from code, Wardic's and plain ones alike: returns a scope, given to an element's
+ * `ref`, and `animate`. `animate(subject, target, options?)` animates an element, the elements a
+ * selector finds inside the scope, or a list; `animate(sequence)` plays a sequence. Each returns its
+ * playback controls, which can be awaited. `scope.settled()` is pending while its animations are in
+ * flight. Call it in a component under a `WardicProvider`; the component's cleanup stops its
+ * animations. Motion's `useAnimate`.
  *
  * @example
  * const [scope, animate] = createAnimate()
- * const reveal = () => animate("li", { opacity: [0, 1] }, { delay: (i) => i * 0.05 })
- * <button disabled={isPending(() => scope.settled())} onClick={reveal}>…</button>
+ * const reveal = () => animate("li", { opacity: [0, 1] }, { delay: stagger(0.05) })
+ * <button disabled={isPending(() => scope.settled())} onClick={reveal}>Reveal</button>
  * <ul ref={scope}>…</ul>
+ * @see https://wardic.dev/reference/solid/animation/create-animate
  */
+// #433, as Solid 1's; `settled()` is #433's Q8, as a ward's (ADR-0046).
 export function createAnimate<T extends Element = HTMLElement>(): readonly [WardicAnimationScopeV2<T>, WardicAnimate] {
   const settled = settledOf()
   const made = scopeOf<T>(settled.watch)
