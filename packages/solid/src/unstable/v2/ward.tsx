@@ -1742,11 +1742,12 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     onTrue: () => constVoid,
     onFalse: () => {
       const config = cfg() as unknown as Readonly<Record<string, unknown>>
+      // Client-only, so transparent to hydration ids as every computation of the binding's is (#618).
       const loaded = createMemo((): true => {
         Arr.forEach(setup.pending, (key) => void config[key])
         target()
         return true
-      })
+      }, CLIENT_ONLY)
       return () => {
         loaded()
       }
