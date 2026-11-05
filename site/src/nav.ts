@@ -149,6 +149,26 @@ export const NAV: ReadonlyArray<NavSection> = [
           { path: "/reference/solid/transitions/arc", title: "arc" },
         ],
       },
+      {
+        title: "Utilities",
+        pages: [
+          { path: "/reference/solid/utilities/create-cycle", title: "createCycle" },
+          { path: "/reference/solid/utilities/create-reduced-motion", title: "createReducedMotion" },
+          { path: "/reference/solid/utilities/page-points", title: "Page points" },
+          { path: "/reference/solid/utilities/component-checks", title: "Component checks" },
+          { path: "/reference/solid/utilities/version", title: "VERSION" },
+        ],
+      },
+      {
+        title: "Advanced",
+        pages: [
+          { path: "/reference/solid/advanced/runtime", title: "The runtime" },
+          { path: "/reference/solid/advanced/bridges", title: "Bridges" },
+          { path: "/reference/solid/advanced/flush-gate", title: "The flush gate" },
+          { path: "/reference/solid/advanced/variant-context", title: "Variant context" },
+          { path: "/reference/solid/advanced/run-drag-track", title: "runDragTrack" },
+        ],
+      },
     ],
   },
 ]

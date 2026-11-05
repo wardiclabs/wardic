@@ -192,21 +192,26 @@ const MOTION_PROP_SET: ReadonlySet<string> = /*#__PURE__*/ new Set(MOTION_PROPS)
 const MOTION_PROP_SET_V2: ReadonlySet<string> = /*#__PURE__*/ new Set(MOTION_PROPS_V2)
 
 /**
- * Whether `key` is one of a Wardic element's motion props on Solid 1 (#443, Motion's
- * `isValidMotionProp`): what `wardic.*` takes for itself and keeps off its element. Wardic's own list,
- * exactly, not Motion's prefixes: `whileHover` is one, `whileAnything` isn't.
+ * Whether `key` is one of a Wardic element's motion props: what `wardic.*` takes for itself and keeps
+ * off its element. Wardic's own list, exactly: `whileHover` is one, `whileAnything` isn't. Motion's
+ * `isValidMotionProp`.
  *
- * ```ts
+ * @example
  * isValidWardicProp("animate") // true
  * isValidWardicProp("href") // false
- * ```
+ * @see https://wardic.dev/reference/solid/utilities/component-checks
  */
+// #443.
 export const isValidWardicProp = (key: string): boolean => MOTION_PROP_SET.has(key)
 
 /**
- * {@link isValidWardicProp} on Solid 2 (#443): its own list, without the callbacks that are the DOM's
- * events there (`onAnimationStart`, `onDrag`…), which a Wardic element hands on.
+ * Whether `key` is one of a Wardic element's motion props on Solid 2: Solid 1's list, without the
+ * callbacks that are the DOM's own events there (`onAnimationStart`, `onDrag`…), which an element
+ * hands on. Motion's `isValidMotionProp`.
+ *
+ * @see https://wardic.dev/reference/solid/utilities/component-checks
  */
+// #443.
 export const isValidWardicPropV2 = (key: string): boolean => MOTION_PROP_SET_V2.has(key)
 
 /**

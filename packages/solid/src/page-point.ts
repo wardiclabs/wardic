@@ -37,22 +37,21 @@ const inverseOf = (element: Element): Linear | undefined => {
 }
 
 /**
- * A `transformPagePoint` for a drag or a pan inside a parent with a CSS transform: rotated, scaled
- * or skewed (#443, Motion's `correctParentTransform`). Each point is turned through the inverse of
- * the parent's transform about its centre, read at each point, so a parent that animates is
- * followed, and the drag moves its element in the parent's own pixels: inside a parent zoomed to 2×,
- * the element stays under the pointer. Points pass as they are while the parent is gone or has no
- * transform.
+ * A `transformPagePoint` for a drag or a pan inside a parent with a CSS transform, rotated, scaled or
+ * skewed: each pointer point is turned through the inverse of the parent's transform, read at each
+ * point, so the element stays under the pointer at any zoom, and a parent that animates is followed.
+ * The parent is an element, or an accessor of a ref. Motion's `correctParentTransform`.
  *
- * ```tsx
+ * @example
  * let plan!: HTMLDivElement
  * <div ref={plan} style={{ transform: `scale(${zoom()})` }}>
  *   <WardicConfig transformPagePoint={correctParentTransform(() => plan)}>
- *     <wardic.div drag />
+ *     <w.div drag />
  *   </WardicConfig>
  * </div>
- * ```
+ * @see https://wardic.dev/reference/solid/utilities/page-points
  */
+// #443. Points pass as they are while the parent is gone or has no transform.
 export const correctParentTransform =
   (parent: ElementGiven<Element>): WardicTransformPoint =>
   (point) => {
@@ -70,19 +69,19 @@ export const correctParentTransform =
 
 /**
  * A `transformPagePoint` for a drag or a pan inside an SVG whose `viewBox` differs from the size it
- * renders at (#443, Motion's `transformViewBoxPoint`): each point is scaled about the SVG's top left
- * corner into its viewBox's units, read at each point. Points pass as they are while the SVG is gone,
- * has no viewBox, or renders at no size.
+ * renders at: each pointer point is scaled into the viewBox's units, so a dragged shape stays under
+ * the pointer. The SVG is an element, or an accessor of a ref. Motion's `transformViewBoxPoint`.
  *
- * ```tsx
+ * @example
  * let svg!: SVGSVGElement
  * <WardicConfig transformPagePoint={transformViewBoxPoint(() => svg)}>
  *   <svg ref={svg} viewBox="0 0 100 100" width="500" height="500">
- *     <wardic.rect drag width="10" height="10" />
+ *     <w.rect drag width="10" height="10" />
  *   </svg>
  * </WardicConfig>
- * ```
+ * @see https://wardic.dev/reference/solid/utilities/page-points
  */
+// #443. Points pass as they are while the SVG is gone, has no viewBox, or renders at no size.
 export const transformViewBoxPoint =
   (svg: ElementGiven<SVGSVGElement>): WardicTransformPoint =>
   (point) => {

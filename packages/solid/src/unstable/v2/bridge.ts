@@ -19,10 +19,15 @@ import { runScoped, useWardicRuntime } from "./provider.tsx"
 import { onSettledClientOnly } from "./solid-reactivity.ts"
 
 /**
- * A core `Stream` as an accessor: `initial` until its first value, then its latest, the stream run
- * on the provider's runtime until the owner is disposed (`runScoped`). Call it where you'd make a
- * signal.
+ * A core `Stream` as an accessor: `initial` until its first value, then its latest, the stream run on
+ * the provider's runtime until the owner is cleaned up. Call it where you'd make a signal.
+ *
+ * @example
+ * const point = streamToSignal(pointerMoves, { x: 0, y: 0 })
+ * @see https://wardic.dev/reference/solid/advanced/bridges
  */
+// `Stream.runForEach` through `runScoped`; `set(() => v)`, so an object or function value is stored as
+// it is. The stream's `R` is the provider runtime's services.
 export const streamToSignal = <A>(stream: Stream.Stream<A, never, WardicServices>, initial: A): Accessor<A> => {
   const runtime = useWardicRuntime()
   const [value, setValue] = createSignal<A>(initial as Exclude<A, Function>)
@@ -43,13 +48,17 @@ export const followAtom = <A>(registry: AtomRegistry.AtomRegistry, atom: Atom.At
 }
 
 /**
- * An Effect `Atom` as an accessor, read through the provider runtime's `AtomRegistry` and followed
- * until the owner is disposed; it carries the Atom, so a `style` given it follows the Atom itself. A
- * server builds no registry (ADR-0021): give `serverValue` for an atom read during a server render,
- * which a hydrating client keeps until it has settled (the Hydration hold), then reads and follows
- * the atom. That held accessor carries nothing: until it has settled it doesn't read what its Atom
- * holds.
+ * An Effect `Atom` as an accessor: read through the provider's `AtomRegistry`, and followed until the
+ * owner is cleaned up. For a server render, give `serverValue`: the server renders it, and a hydrating
+ * page keeps it until it has settled, then follows the atom. It carries the Atom, so a `style` given it
+ * follows the Atom itself.
+ *
+ * @example
+ * const visible = fromAtom(probe.pageVisible, { serverValue: true })
+ * @see https://wardic.dev/reference/solid/advanced/bridges
  */
+// Solid's `from`, seeded with the atom's value; `set(() => v)`, so an object or function value is stored
+// as it is. A server builds no registry (ADR-0021); the Hydration hold is decision 8.
 export const fromAtom = <A>(atom: Atom.Atom<A>, options?: { readonly serverValue?: A }): Accessor<A> => {
   const runtime = useWardicRuntime()
   const held = Predicate.isNotUndefined(options) && "serverValue" in options

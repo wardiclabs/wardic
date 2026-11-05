@@ -46,7 +46,7 @@ import { settingOf as configSettingOf, type WardicConfigValue } from "./wardic-c
  */
 export type WardicEnv = Layer.Layer<WardicServices, never, never>
 
-/** The runtime services a `WardicProvider` makes available to its subtree. */
+/** The services a `WardicProvider`'s runtime gives the code run on it: Wardic's Environment, as a union of Effect services. */
 export type WardicServices =
   | Clock.Clock
   | RefreshFrameSource.RefreshFrameSource
@@ -59,7 +59,7 @@ export type WardicServices =
   | Announcer.Announcer
   | AtomRegistry.AtomRegistry
 
-/** The `ManagedRuntime` flavour built from a {@link WardicEnv}. */
+/** A `WardicProvider`'s Effect runtime: a `ManagedRuntime` of its {@link WardicServices}. */
 export type WardicRuntime = ManagedRuntime.ManagedRuntime<WardicServices, never>
 
 /**

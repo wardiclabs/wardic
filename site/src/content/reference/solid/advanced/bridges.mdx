@@ -1,0 +1,21 @@
+---
+title: Bridges
+description: An Effect Atom or a core Stream as a Solid accessor, followed for as long as the owner lives.
+api: [fromAtom, streamToSignal]
+---
+
+# Bridges
+
+Effect's reactive values as Solid's, for reading Wardic's own or building on them.
+
+```tsx
+import { fromAtom, streamToSignal, useWardicRuntime } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+const visible = fromAtom(probe.pageVisible, { serverValue: true })
+const point = streamToSignal(pointerMoves, { x: 0, y: 0 })
+```
+
+- **`fromAtom(atom, { serverValue? })`** is an `effect/reactivity` Atom as an accessor, read through the provider's `AtomRegistry` and followed until the owner is cleaned up. A server builds no registry: give `serverValue` for an atom read during a server render, which a hydrating page keeps until it has mounted, then follows the atom.
+- **`streamToSignal(stream, initial)`** is a core `Stream` as an accessor: `initial` until its first value, then its latest, the stream run on the provider's runtime until the owner is cleaned up.
+
+On Solid 2, each accessor carries its Atom, so a `style` given it follows the Atom itself, and paints in the frame the value changes. Call them where you'd make a signal, under a `WardicProvider`.

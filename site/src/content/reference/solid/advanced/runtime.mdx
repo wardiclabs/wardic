@@ -1,0 +1,41 @@
+---
+title: The runtime
+description: The provider's Effect runtime, its services, and running Effect code on it for as long as a component lives.
+api: [useWardicRuntime, WardicRuntime, WardicServices, runScoped, useWardicFiber]
+---
+
+# The runtime
+
+A `WardicProvider` builds one Effect runtime for everything under it, over its Environment: the clock, the frame loop, the renderer, the probe and the rest. These run Effect code of your own on it, for building on Wardic, or reading what it reads.
+
+```tsx
+import { runScoped, useWardicRuntime } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+const runtime = useWardicRuntime()
+runScoped(runtime, Stream.runForEach(ticks, (tick) => Effect.sync(() => setTick(tick))))
+```
+
+- **`useWardicRuntime()`** is the nearest provider's runtime. It throws outside a provider. A server render doesn't build it: hold it, but run on it only once the element has mounted (Solid 1's `onMount`, Solid 2's `onSettled`).
+- **`runScoped(runtime, effect)`** runs `effect` and interrupts it as the current owner is cleaned up, its Scope closed with it, and returns its fiber. A failure is logged as `wardic.runScoped: a fiber failed` and reported to the Environment's error reporters; an interruption is neither. On a server it starts nothing, and while hydrating it starts once the page has mounted.
+- **`useWardicFiber(() => effect)`** is `runScoped` on the provider's runtime, the thunk called once.
+
+## The services
+
+Code run on the runtime can use the Environment's services, each an Effect service:
+
+| Service | |
+| --- | --- |
+| `Clock`, `RefreshFrameSource`, `FrameLoop` | Time, the screen's frames, and the loop every animation steps on. |
+| `Renderer` | What writes values onto elements. |
+| `Probe` | What reads the page: sizes, scroll, the reduced-motion setting, whether the page is shown. |
+| `InterpolatorRegistry` | How each kind of value blends: numbers, colours, units. |
+| `PositionalKeys`, `DefaultTransition` | Which keys reduced motion snaps, and each value's default transition. |
+| `Announcer` | What speaks to a screen reader. |
+| `AtomRegistry` | Where Wardic's reactive values live. |
+
+`@wardic/dom`'s `DomLive` provides them in a browser, and `@wardic/test`'s `TestLive` in a test. See [Observability](/guides/observability) for the logs and traces they give.
+
+## Types
+
+- **`WardicRuntime`:** the runtime, a `ManagedRuntime` of its services.
+- **`WardicServices`:** the services, as a union.

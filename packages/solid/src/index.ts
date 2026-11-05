@@ -6,6 +6,11 @@
  * `effect`'s in-core reactivity (`effect/reactivity`) — there is no `@effect-atom/atom-solid`
  * dependency.
  */
+/**
+ * The version of `@wardic/solid` this is.
+ *
+ * @see https://wardic.dev/reference/solid/utilities/version
+ */
 export const VERSION = "0.1.0-alpha.0"
 
 /**

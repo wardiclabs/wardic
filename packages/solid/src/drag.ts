@@ -17,18 +17,23 @@ import { type DragGesture } from "./features/keys.ts"
 export { DEFAULT_DRAG_ELASTIC, dragTransitionOf }
 export type { DragSnapshot, DragTrack, DragTrackConfig } from "./drag-track.ts"
 
-/** Options for {@link runDragTrack}: the shared track's, on a provider runtime. */
+/** `runDragTrack`'s options: the element, its drag config, the spine's snapshot and callbacks, and the provider's runtime. */
 export interface RunDragTrackOptions extends Omit<DragTrackOptions, "watch" | "fork"> {
   /** The provider runtime the track's watches and responses run on. */
   readonly runtime: WardicRuntime
 }
 
 /**
- * Run the drag track on `opts.element` (`drag-track.ts`): its watches in a Scope of their own via
- * `runWatch`, with no fiber at rest, which the caller's owner closes (stopping the watches and any
- * in-flight release, #379). Must be called within a Solid owner. Its hold on `x`/`y` goes to the
- * spine (#340).
+ * Runs a drag on `opts.element` as a Wardic element's own drag runs: its gesture, constraints, elastic,
+ * release and drag claims, writing `x` and `y` through the element's snapshot. For an element of your
+ * own built on Wardic's drag. Stopped as the current owner is cleaned up. Brings the `drag` Feature.
+ * Solid 1 only.
+ *
+ * @see https://wardic.dev/reference/solid/advanced/run-drag-track
  */
+// `drag-track.ts`, ADR-0004: its watches in a Scope of their own via `runWatch`, no fiber at rest, closed
+// by the caller's owner, which stops the watches and an in-flight release (#379). Its hold on x/y goes
+// to the spine (#340).
 export const runDragTrack = (opts: RunDragTrackOptions): DragTrack => {
   // The gestures' input, read as the track first watches, on the client: a server render runs no watch.
   const services = useBrought(BRINGS)

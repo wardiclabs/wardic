@@ -66,12 +66,26 @@ import { CLIENT_ONLY } from "./solid-reactivity.ts"
 import { ownTransitionOf, sameLabels, transitionOfTarget } from "../../variant-target.ts"
 
 /**
- * The variant context: the nearest element's names, transition and orchestration, `null` outside
- * one. Solid 2 takes an `undefined` default for none and then throws in `useContext`.
+ * The variant context: what the nearest variant parent hands its children, its names, transition and
+ * orchestration. Wardic's elements read it to follow their parent's variants; a binding of your own
+ * provides or reads it the same way. `null` outside a parent.
+ *
+ * @see https://wardic.dev/reference/solid/advanced/variant-context
  */
+// ADR-0007.
+// Solid 2 reads a context made with `undefined` as having none, and throws in `useContext`.
 export const WardicVariantContext = createContext<WardicVariantContextValue | null>(null)
 
-/** The nearest variant context, `undefined` outside one. */
+/**
+ * The nearest variant parent's context, or `undefined` outside one: its current variant name,
+ * `initial`, transition and orchestration, for an element of your own that follows a parent's variants.
+ *
+ * @example
+ * const parent = useVariantContext()
+ * const name = () => parent?.variant()
+ * @see https://wardic.dev/reference/solid/advanced/variant-context
+ */
+// ADR-0007: local `animate` over the inherited name over `initial`.
 export const useVariantContext = (): WardicVariantContextValue | undefined =>
   Option.getOrUndefined(Option.fromNullishOr(useContext(WardicVariantContext)))
 

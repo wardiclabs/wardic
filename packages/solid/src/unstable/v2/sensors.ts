@@ -115,10 +115,17 @@ export const createInView = (viewport?: WardicViewport): Sensor<boolean> =>
   )
 
 /**
- * Whether the user prefers reduced motion, from the Probe's preference. A server renders `false`,
- * and a hydrating client keeps it until it has settled (the Hydration hold), so markup that
- * depends on it hydrates. Animations honour the preference either way (ADR-0029).
+ * Whether the visitor's system asks for reduced motion, as an accessor. A server renders `false`, and a
+ * hydrating page keeps it until it has mounted, so markup that depends on it hydrates. Wardic's
+ * animations honour the setting either way. Motion's `useReducedMotion`, which gives `null` on a server.
+ *
+ * @example
+ * const reduced = createReducedMotion()
+ * <Show when={!reduced()} fallback={<img src={still} />}><video autoplay src={clip} /></Show>
+ * @see https://wardic.dev/reference/solid/utilities/create-reduced-motion
  */
+// The Probe's `prefersReducedMotion` Atom, held until mount (the Hydration hold, ADR-0021 decision 8).
+// The engine reads the preference as each animation starts, and snaps its positional keys (ADR-0029).
 export const createReducedMotion = (): Accessor<boolean> => {
   if (isServer) return () => false
   const probe = useWardicRuntime().runSync(Probe.Probe)
@@ -126,12 +133,17 @@ export const createReducedMotion = (): Accessor<boolean> => {
 }
 
 /**
- * Whether reduced motion applies here, as Wardic's animations here honour it (#443, Motion's
- * `useReducedMotionConfig`): the nearest `WardicConfig`'s `reducedMotion`, else the provider's, over
- * the user's preference. `"always"` is `true`, `"never"` `false`, and `"user"` follows
- * {@link createReducedMotion}. A server renders `"always"` as `true` and the rest as `false`, and a
- * hydrating client keeps that until it has settled (the Hydration hold).
+ * Whether reduced motion applies here, as Wardic's animations here honour it: the nearest
+ * `WardicConfig`'s `reducedMotion`, else the provider's, over the visitor's setting. `"always"` is
+ * `true`, `"never"` `false`, and `"user"` follows the system. A server renders `"always"` as `true` and
+ * the rest as `false`, kept until the page has mounted. Motion's `useReducedMotionConfig`.
+ *
+ * @example
+ * const reduced = createReducedMotionConfig()
+ * const path = () => (reduced() ? undefined : arc())
+ * @see https://wardic.dev/reference/solid/utilities/create-reduced-motion
  */
+// #443; tracked since #584.
 export const createReducedMotionConfig = (): Accessor<boolean> => {
   const setting = useWardicReducedMotionSetting()
   const prefers = createReducedMotion()

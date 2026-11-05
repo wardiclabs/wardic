@@ -263,19 +263,26 @@ export const topGestureName = (names: GestureNames): WardicVariantLabels | undef
       }),
   })
 
+/**
+ * What a variant parent hands its children: `variant()`, its current name or names; `initial`;
+ * `transition()`; `when()` and its stagger; and the registration its children make, in mount order,
+ * for that orchestration.
+ *
+ * @see https://wardic.dev/reference/solid/advanced/variant-context
+ */
 export interface WardicVariantContextValue {
-  /** The parent's current variant NAME, or list of names (#297), reactive (undefined if it's a values map). */
+  /** The parent's current variant NAME, or list of names, reactive (undefined if it's a values map). */
   readonly variant: Accessor<WardicVariantLabels | undefined>
   /**
    * The parent's `initial` variant NAME, or `false`, read once (undefined if it's a values map or
-   * absent): a Variant child with no `initial` of its own starts from it (#50), or, for `false`,
-   * at its `animate` (#134, Motion's `getCurrentTreeVariants`).
+   * absent): a Variant child with no `initial` of its own starts from it, or, for `false`,
+   * at its `animate` (Motion's `getCurrentTreeVariants`).
    */
   readonly initial: WardicVariantLabels | false | undefined
   /** The parent's transition, inherited as the default for children. */
   readonly transition: Accessor<WardicTransition | undefined>
   /**
-   * What the parent hands down for its gestures (#291, Motion's): whether each is on, and its label.
+   * What the parent hands down for its gestures (Motion's): whether each is on, and its label.
    * A Variant child's gesture is on while the parent's is, on its own `while*`, else that label.
    * Optional: left out, nothing.
    */
@@ -283,9 +290,10 @@ export interface WardicVariantContextValue {
   /**
    * Register this child with the parent's ordered registry (call on mount).
    * Returns the child's reactive snapshot index/total + a settle reporter +
-   * a disposer. Children register in mount order; the Provider snapshots that
-   * order at each transition trigger (ADR-0007 snapshot-at-trigger).
+   * a disposer. Children register in mount order; the parent snapshots that
+   * order at each change it hands down.
    */
+  // ADR-0007: snapshot at trigger.
   readonly register: () => WardicChildRegistration
   /**
    * The parent's resolved stagger config (from `config.transition`): amount =
@@ -293,13 +301,13 @@ export interface WardicVariantContextValue {
    */
   readonly stagger: Accessor<WardicStaggerConfig>
   /**
-   * The parent's stagger config for one of its names (#297, Motion's `animateVariant` a name): that
+   * The parent's stagger config for one of its names (Motion's `animateVariant` a name): that
    * name's own transition's, else the parent's `transition`. A Variant child's keys of that name take
    * their delay from it. `undefined` asks for {@link stagger}. Optional: left out, `stagger` for all.
    */
   readonly staggerFor?: (name: string | undefined) => WardicStaggerConfig
   /**
-   * For a list (#297's PR 2): whether a Variant child's keys of `name` may start, that name's own
+   * For a list: whether a Variant child's keys of `name` may start, that name's own
    * `beforeChildren`: true unless it has one and this element's keys of that name haven't settled
    * since its list last changed. Optional: left out, always.
    */
@@ -315,12 +323,12 @@ export interface WardicVariantContextValue {
   /** Whether EVERY registered child has reported its spine as settled. */
   readonly allChildrenSettled: Accessor<boolean>
   /**
-   * The **Controls change** in effect (#433): its own controls' latest, else the one it inherits. A
+   * The **Controls change** in effect: its own controls' latest, else the one it inherits. A
    * Variant child joins it, and runs its first Retarget for it on its override. Optional: none.
    */
   readonly change?: Accessor<ControlsChange | undefined>
   /**
-   * During a server render, the parent's Appear group (#48, ADR-0044 decision 5): its Variant
+   * During a server render, the parent's Appear group: its Variant
    * children join it in render order, for their stagger and `when` before hydration.
    */
   readonly appearGroup?: AppearGroup | undefined

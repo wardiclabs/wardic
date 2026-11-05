@@ -275,12 +275,29 @@ export function useWardicAppear(): ServerAppear | undefined {
   return UndefinedOr.match(contextValue(), { onUndefined: constUndefined, onDefined: (value) => value.appear })
 }
 
-/** The provider's Effect runtime; a clear error outside one. Unbuilt during a server render (ADR-0021). */
+/**
+ * The nearest `WardicProvider`'s Effect runtime, for running Effect code on Wardic's services: its
+ * clock, frame loop, renderer, probe and the rest. Throws outside a provider. During a server render
+ * it isn't built: hold it, but run on it only once the element has mounted.
+ *
+ * @example
+ * const runtime = useWardicRuntime()
+ * onSettled(() => runtime.runFork(Effect.log("mounted")))
+ * @see https://wardic.dev/reference/solid/advanced/runtime
+ */
+// ADR-0021: a server builds no runtime, and DomLive refuses with its client-only error.
 export function useWardicRuntime(): WardicRuntime {
   return fromContext(contextValue(), "useWardicRuntime", (value) => value.runtime)
 }
 
-/** The provider's flush gate (ADR-0006); inert during a server render. */
+/**
+ * The nearest `WardicProvider`'s flush gate: what a binding registers its elements with, and writes
+ * their values into, committed once a frame. For building an element of your own on Wardic's
+ * rendering. Throws outside a provider; during a server render it's an inert gate that does nothing.
+ *
+ * @see https://wardic.dev/reference/solid/advanced/flush-gate
+ */
+// ADR-0006; inert on a server (ADR-0021, decision 9).
 export function useWardicGate(): FlushGate.Shape {
   return fromContext(contextValue(), "useWardicGate", (value) => value.gate)
 }
@@ -430,10 +447,17 @@ export function useAnimateLayout(): AnimateLayout {
 }
 
 /**
- * Forks `effect` on `runtime` and interrupts the fiber when the current owner is disposed, as the
- * Solid 1 binding's `runScoped` does. A server render starts nothing; while hydrating the fiber
- * exists at once and its effect starts once the owner has settled (the Hydration hold, ADR-0021).
+ * Runs `effect` on `runtime`, and interrupts it as the current owner is cleaned up, its Scope closed
+ * with it. Returns its fiber. A failure is logged and reported to the Environment's error reporters;
+ * an interruption is neither. On a server it starts nothing, and while hydrating it starts once its owner has settled.
+ * Call it within a Solid owner.
+ *
+ * @example
+ * runScoped(runtime, Stream.runForEach(ticks, (t) => Effect.sync(() => setTick(t))))
+ * @see https://wardic.dev/reference/solid/advanced/runtime
  */
+// ADR-0006: the per-element fiber lifecycle; a failure is `wardic.runScoped: a fiber failed`
+// (ADR-0030, decision 4); the Hydration hold (ADR-0021 decisions 8 and 9).
 export function runScoped<A, E>(runtime: WardicRuntime, effect: Effect.Effect<A, E, WardicServices>): Fiber.Fiber<A, E> {
   if (isServer) return interrupted<A, E>()
   const run = reported(effect)
@@ -455,7 +479,14 @@ export function runScoped<A, E>(runtime: WardicRuntime, effect: Effect.Effect<A,
   return fiber
 }
 
-/** {@link runScoped}s the Effect `effectThunk` makes, on the provider's runtime. Evaluated once; not on a server. */
+/**
+ * Runs the Effect `effectThunk` makes on the provider's runtime, as `runScoped` does, until the
+ * current owner is cleaned up. The thunk is called once; not on a server. Returns its fiber.
+ *
+ * @example
+ * useWardicFiber(() => Stream.runForEach(ticks, (t) => Effect.sync(() => setTick(t))))
+ * @see https://wardic.dev/reference/solid/advanced/runtime
+ */
 export function useWardicFiber<A, E>(effectThunk: () => Effect.Effect<A, E, WardicServices>): Fiber.Fiber<A, E> {
   const runtime = useWardicRuntime()
   if (isServer) return interrupted<A, E>()

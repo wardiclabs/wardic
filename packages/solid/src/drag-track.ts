@@ -86,33 +86,33 @@ import { DEFAULT_DRAG_ELASTIC, dragTransitionOf, elasticOf } from "./drag-transi
 
 
 /**
- * The spine's mutable Snapshot object (the SAME object `runSpine` holds): each
- * key's last emitted value, a number or a string (ADR-0024), plus the numeric
- * velocities. The drag track reads `values.x`/`values.y` to continue from the
- * rested position and writes them (plus zeroed velocities) each direct-set frame
- * so the post-drag handoff continues from where the drag left the element.
+ * The element's values as its drag reads and writes them: `values` and `velocities` by key, when `x`
+ * and `y` last moved, and the clock's time. The drag goes on from where the element is, and leaves it
+ * where the drag left it, its speed with it.
  */
+// The spine's mutable Snapshot, the same object `runSpine` holds: each key's last value, a number or a
+// string (ADR-0024).
 export interface DragSnapshot {
   values: Values.Values
   velocities: Record<string, number>
-  /** When the drag last moved `x` and `y` (#464): their velocity holds 30 ms from then. */
+  /** When the drag last moved `x` and `y`: their velocity holds 30 ms from then. */
   drawnAt: Record<string, number>
-  /** The time now, on the element's provider's Clock (#460, Q7). */
+  /** The time now, on the element's provider's Clock. */
   readonly now: () => number
 }
 
-/** The static drag config (read ONCE, untracked, at setup — drag config is a document). */
+/** A drag's config, read once as it starts: the `drag` props of a Wardic element. */
 export interface DragTrackConfig {
   /** `true` = free; `"x"`/`"y"` = axis-locked. */
   readonly axis: boolean | "x" | "y"
   /**
    * `true`: the drag takes no **Drag claim** and is never refused, so a draggable ancestor can
-   * drag with it (Motion's `dragPropagation`, ADR-0019 *Amendment (#29)*). Default `false`.
+   * drag with it (Motion's `dragPropagation`). Default `false`.
    */
   readonly propagation?: boolean | undefined
   /**
    * Optional numeric constraints (per axis) on the element's x/y, whichever gesture moved it there
-   * (Motion's, ADR-0016 *Amendment (#140)*): the drag keeps it within them, and a Fling springs back
+   * (Motion's): the drag keeps it within them, and a Fling springs back
    * to an edge it would cross. A projection node's x/y is its drag offset.
    */
   readonly constraints?: Drag.Bounds | undefined
@@ -123,14 +123,14 @@ export interface DragTrackConfig {
   /** Spring back to the origin on release: both edges at 0. */
   readonly snapToOrigin?: boolean | undefined
   /**
-   * Motion's `dragDirectionLock` (#273, ADR-0047): each gesture starts once it passes 10 px on one
+   * Motion's `dragDirectionLock`: each gesture starts once it passes 10 px on one
    * axis, and drags, claims and releases on that axis alone (`DragRecognizer.drag`'s `lock`).
    */
   readonly directionLock?: boolean | undefined
   /** What the release runs on: the element's drag transition, resolved ({@link dragTransitionOf}). */
   readonly transition: ProjectionSystem.DragTransition
   /**
-   * Motion's `dragListener` (#431): `false`, the element's own presses start no drag and stop no
+   * Motion's `dragListener`: `false`, the element's own presses start no drag and stop no
    * release; only its **Drag controls**' starts do. Default `true`.
    */
   readonly listen?: boolean | undefined
@@ -142,19 +142,19 @@ export type TrackServices = WardicServices | InputSource.InputSource
 /** Options for {@link driveDragTrack}. */
 export interface DragTrackOptions {
   /**
-   * Runs the track in the element's watch Scope (#379, ADR-0055): its watches subscribed now, with no
+   * Runs the track in the element's watch Scope: its watches subscribed now, with no
    * fiber, until the element goes and the Scope closes, which stops a running release. A throw from a
    * watch's fold goes to the `onDefect` it's given (#209: each binding's Solid owns the Scope).
    */
   readonly watch: (track: (onDefect: InputFeed.OnDefect) => Effect.Effect<void, never, Scope.Scope | TrackServices>) => void
   /**
-   * Runs a response forked on the provider runtime (#379): its fiber starts at once and runs to its
-   * end inside the event. A release it forks keeps the runtime's scheduler, a host's if it gave one
-   * (ADR-0027 decision 6, ADR-0041 *Amendment (#208)*), not a `runSync`'s sync one, which would resume
+   * Runs a response forked on the provider runtime: its fiber starts at once and runs to its
+   * end inside the event. A release it forks keeps the runtime's scheduler, a host's if it gave one,
+   * not a `runSync`'s sync one, which would resume
    * the release's yields on a microtask.
    */
   readonly fork: (response: Effect.Effect<void, never, TrackServices>) => void
-  /** The provider-owned flush gate (ADR-0006); the drag writes `x`/`y` into `id`. */
+  /** The provider-owned flush gate; the drag writes `x`/`y` into `id`. */
   readonly gate: FlushGate.Shape
   /** The element's gate id (shared with the spine, so writes merge). */
   readonly id: string
@@ -169,8 +169,8 @@ export interface DragTrackOptions {
   /** The static drag config (read once at setup). */
   readonly config: DragTrackConfig
   /**
-   * When the element is a projection node (ADR-0016), the drag feeds the projection
-   * instead of writing raw `x`/`y`, which stay the element's own, drawn on top (#363):
+   * When the element is a projection node, the drag feeds the projection
+   * instead of writing raw `x`/`y`, which stay the element's own, drawn on top:
    * grab → `dragStart`, each sample → `dragMove(offset)`, release →
    * `dragEnd(velocity)` (its Release offset — the free tail is skipped), a press →
    * `stopRelease`, a press that ends with no drag → `resumeRelease`. Absent ⇒ free drag.
@@ -189,19 +189,19 @@ export interface DragTrackOptions {
    */
   readonly onSample?: ((sample: Drag.Sample) => void) | undefined
   /**
-   * The release came to rest on its own (#273, Motion's `onDragTransitionEnd`): its momentum or its
+   * The release came to rest on its own (Motion's `onDragTransitionEnd`): its momentum or its
    * spring back finished, or it was dropped where it rests. Told after the gate's flush of the rest
    * value. Not for one a grab stopped. A free drag's only: a layout node's release is its Release
    * offset, which the projection tells.
    */
   readonly onReleaseEnd?: (() => void) | undefined
   /**
-   * Whether its animations are skipped (#468, its nearest `WardicConfig`'s `skipAnimations`), read at
+   * Whether its animations are skipped (its nearest `WardicConfig`'s `skipAnimations`), read at
    * each release: a skipped one lands at once where it would come to rest. Omitted, never.
    */
   readonly skipAnimations?: (() => boolean) | undefined
   /**
-   * An element constraint (#273, ADR-0047, Motion's `dragConstraints={ref}`): the container whose box
+   * An element constraint (Motion's `dragConstraints={ref}`): the container whose box
    * the element's must stay inside, in place of `config.constraints`. It's measured at each drag's
    * start, and again when the element or the container resizes; a resize that changes the bounds
    * moves an element at rest (or releasing, which it stops) to keep its place within them (Motion's
@@ -209,12 +209,12 @@ export interface DragTrackOptions {
    */
   readonly container?: DragContainer | undefined
   /**
-   * The **Drag controls** given to the element (#431, Motion's `dragControls`): the track subscribes to
+   * The **Drag controls** given to the element (Motion's `dragControls`): the track subscribes to
    * them while its watch Scope is open.
    */
   readonly controls?: WardicDragControls | undefined
   /**
-   * Where the drag's points are (#443, its nearest `WardicConfig`'s `transformPagePoint`): read at
+   * Where the drag's points are (its nearest `WardicConfig`'s `transformPagePoint`): read at
    * each down, and applied to its every point and to the box its snap to the cursor measures.
    * Omitted, as they are.
    */
