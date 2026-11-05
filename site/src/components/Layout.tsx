@@ -10,7 +10,7 @@ import { Dialog } from "@kobalte/core/dialog"
 import { useLocation } from "@solidjs/router"
 import { AnimatePresence, w, type WardicVariants } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
-import { createSignal, For, Show } from "solid-js"
+import { createSignal, For, onFlush, Show } from "solid-js"
 import { Logo } from "~/components/Logo.tsx"
 import { Search } from "~/components/Search.tsx"
 import { ThemeToggle } from "~/components/ThemeToggle.tsx"
@@ -134,7 +134,11 @@ export function Layout(props: { readonly children?: JSX.Element }) {
               <DrawerPanel class="sidebar drawer" layoutRoot initial={DRAWER_OFF} animate={DRAWER_IN} exit={DRAWER_OUT}>
                 <Dialog.Title class="visually-hidden">Pages</Dialog.Title>
                 <nav aria-label="Pages">
-                  <Sections marker="drawer-marker" onNavigate={() => setOpen(false)} />
+                  {/*
+                    Closed after the click's own flush: written beside the navigation, the close would be held
+                    with it until the next page's chunk arrived (#618).
+                  */}
+                  <Sections marker="drawer-marker" onNavigate={() => onFlush(() => setOpen(false))} />
                 </nav>
                 {/* For a screen reader on a phone, which has no Escape: the menu button is outside the dialog. */}
                 <Dialog.CloseButton class="visually-hidden">Close the pages</Dialog.CloseButton>

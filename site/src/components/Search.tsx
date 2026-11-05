@@ -6,7 +6,7 @@
  */
 import { Dialog } from "@kobalte/core/dialog"
 import { AnimatePresence, w } from "@wardic/solid/unstable/v2"
-import { createSignal, For, onSettled, Show } from "solid-js"
+import { createSignal, For, onFlush, onSettled, Show } from "solid-js"
 
 const Shade = w.create(Dialog.Overlay)
 const Panel = w.create(Dialog.Content)
@@ -95,7 +95,8 @@ export function Search() {
                   <For each={hits()}>
                     {(hit) => (
                       <li>
-                        <a href={hit.url} onClick={() => setOpen(false)}>
+                        {/* Closed after the click's flush, not held with the navigation (#618), as the drawer is. */}
+                        <a href={hit.url} onClick={() => onFlush(() => setOpen(false))}>
                           <strong>{hit.title}</strong>
                           <span innerHTML={hit.excerpt} />
                         </a>

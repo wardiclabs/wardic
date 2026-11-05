@@ -32,11 +32,19 @@ const TAGS = [
 // #618 (S2): `<Dynamic>` is deprecated, and made a memo over its `component` for every element.
 const elementOf = (tag: string): Component => dynamic(() => tag, { static: true }) as Component
 
+const Anchor = elementOf("a")
+
 /**
- * The site's own components, over the plain elements, and the ones a page uses by name: `<Demo>` and
- * `<CodeTabs>`. (A link is a plain `<a>`: the router opens a page of the site without a reload.)
+ * A link: a plain `<a>`, which the router opens without a reload when it's a page of the site. A `#`
+ * one, a heading's own or one to a part of the page, says it isn't the page you're on: the router
+ * marks every link to the page it's showing `aria-current="page"`, but leaves one a page set.
  */
-const OWN: Record<string, Component> = { CodeTabs: CodeTabs as Component, Demo: Demo as Component }
+// #618 (decision 2): every heading's anchor read as "current page" to a screen reader, 4,572 over the
+// built pages.
+const Link: Component = (props) => <Anchor aria-current={String(props.href ?? "").startsWith("#") ? "false" : undefined} {...props} />
+
+/** The site's own components, over the plain elements, and the ones a page uses by name: `<Demo>` and `<CodeTabs>`. */
+const OWN: Record<string, Component> = { a: Link, CodeTabs: CodeTabs as Component, Demo: Demo as Component }
 
 const ALL: Record<string, Component> = { ...Object.fromEntries(TAGS.map((tag) => [tag, elementOf(tag)])), ...OWN }
 
