@@ -12,10 +12,6 @@ const REFERENCE = join(REPO, "site/src/content/reference/solid")
 
 /** The names whose pages come in a later PR of #558's reference, by family. Each PR empties its own. */
 const PENDING: ReadonlyArray<string> = [
-  // animation
-  ...["createAnimate", "WardicAnimate", "WardicAnimateOptions", "WardicAnimationScope", "WardicAnimationScopeV2", "WardicScopeLanding", "WardicAnimationSequence"],
-  ...["WardicAnimationSubject", "WardicElementSegment", "WardicFunctionSegment", "WardicPlayState", "WardicPlaybackControls", "WardicSegment", "WardicSegmentOptions"],
-  ...["WardicSegmentTarget", "WardicSequenceLabel", "WardicSequenceOptions", "WardicSequenceTime", "createAnimationControls", "WardicAnimationControls", "WardicControlsDefinition"],
   // transitions
   ...["WardicTransition", "WardicTransitionEntries", "WardicValueTransition", "WardicVariantTransition", "WardicOrchestration", "WardicInertia", "WardicPath", "WardicArcOptions"],
   ...["arc", "stagger", "WardicStagger", "WardicStaggerOptions", "anticipate", "backIn", "backInOut", "backOut", "circIn", "circInOut", "circOut", "cubicBezier"],

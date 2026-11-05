@@ -25,27 +25,28 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardConfig, WardicTransition, WardicVariant, WardicVariantLabels, WardicVariantResolver } from "./config.ts"
 
-/** What controls start or set an element to (Motion's `AnimationDefinition`): a target, a variant name or list, or a resolver of each element's `custom`. */
+/** What controls start or set an element to: a target, a variant name or a list of them, or a function of each element's `custom`. Motion's `AnimationDefinition`. */
 export type WardicControlsDefinition = WardicVariant | WardicVariantLabels | WardicVariantResolver
 
 /** The mark that tells controls from a target. */
 const CONTROLS: unique symbol = Symbol("wardic.animationControls")
 
 /**
- * **Animation controls** (#433, Motion's `LegacyAnimationControls`): give them as `animate={controls}`;
- * every element given them follows `start`, `set` and `stop`.
+ * `createAnimationControls()`'s controls: give them as `animate={controls}`, and every element given
+ * them follows `start`, `set` and `stop`. Motion's `LegacyAnimationControls`.
  */
+// #433.
 export interface WardicAnimationControls {
   readonly [CONTROLS]: true
   /**
-   * Set every element's `animate` entry to `definition`, on `transitionOverride` for that change when
-   * given: it beats the definition's own transition there and in the Variant children, and is their
-   * orchestration. Resolves once each element and its Variant children have landed.
+   * Animates every element given these controls to `definition`, as a change of its `animate` would,
+   * its variant children following. `transitionOverride`, when given, is the transition of this change,
+   * over the definition's own, and its stagger. Resolves once each element and its children have landed.
    */
   readonly start: (definition: WardicControlsDefinition, transitionOverride?: WardicTransition) => Promise<void>
-  /** Set every element, and its Variant children, at `definition` at once. */
+  /** Sets every element given these controls, and its variant children, at `definition` at once. */
   readonly set: (definition: WardicControlsDefinition) => void
-  /** End every element's running animation where it is. */
+  /** Ends every element's running animation where it is. */
   readonly stop: () => void
 }
 
@@ -82,15 +83,17 @@ const subscribers = new WeakMap<WardicAnimationControls, Set<Controlled>>()
 export const INSTANT: WardicTransition = { type: "tween", duration: 0 }
 
 /**
- * Make **Animation controls** (#433, Motion's `useAnimationControls`): outside a component or in one,
- * with no owner needed, and given as `animate={controls}` to `wardic.*`, a ward's config or a
- * `Reorder.Item`.
+ * Makes animation controls, which animate elements from code by their variants or targets: give them
+ * to each element as `animate={controls}`, on a `w.*` element, in a ward's config or on a
+ * `Reorder.Item`, then `start`, `set` or `stop` them. Needs no owner. Motion's `useAnimationControls`.
  *
  * @example
  * const controls = createAnimationControls()
- * <wardic.ul initial="hidden" animate={controls} variants={list}>…</wardic.ul>
+ * <w.ul initial="hidden" animate={controls} variants={list}>…</w.ul>
  * await controls.start("visible")
+ * @see https://wardic.dev/reference/solid/animation/create-animation-controls
  */
+// #433's PR 3: each `start` or `set` is a Controls change of each element's `animate` entry.
 export const createAnimationControls = (): WardicAnimationControls => {
   const reached = new Set<Controlled>()
   const controls: WardicAnimationControls = {

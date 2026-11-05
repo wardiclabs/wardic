@@ -203,7 +203,7 @@ const trackOf = (env: AnimateEnv, element: Element, target: WardicVariant, given
   }
 }
 
-/** What `animate` animates (Motion's `ElementOrSelector`): an element, a selector inside the scope, or a list of elements. */
+/** What `animate` animates: an element, a selector looked up inside the scope, or a list of elements. Motion's `ElementOrSelector`. */
 export type WardicAnimationSubject = Element | string | ArrayLike<Element> | Iterable<Element> | null | undefined
 
 /** A transition without its `delay`, each arm: `animate`'s and a Segment's take their own. */
@@ -215,8 +215,8 @@ interface EachDelay {
 }
 
 /**
- * `animate`'s options (Motion's): a transition, its `delay` a function of each element's index and
- * their count when there are many (`stagger()` is #436), and `onComplete`, at the landing.
+ * `animate`'s options: a transition, its `delay` a number, or a function of each element's index and
+ * their count, such as `stagger(0.05)`; and `onComplete`, called as it lands. Motion's.
  */
 export type WardicAnimateOptions = WithoutDelay & EachDelay & {
   readonly onComplete?: (() => void) | undefined
@@ -242,10 +242,14 @@ const transitionFor = (options: WardicAnimateOptions | undefined, index: number,
     return { ...rest, delay } as WardicTransition
   })
 
-/** A **Playback controls**'s state (Motion's `AnimationPlayState`). */
+/** Where an animation is: `"idle"`, `"running"`, `"paused"` or `"finished"`. Motion's `AnimationPlayState`. */
 export type WardicPlayState = "idle" | "running" | "paused" | "finished"
 
-/** What an Imperative animation returns (#433, Motion's `AnimationPlaybackControls`): awaitable. */
+/**
+ * What `animate` returns: an animation's controls, and a promise of its landing, so it can be awaited.
+ * Motion's `AnimationPlaybackControls`.
+ */
+// #433: every element's legs run through one Playhead.
 export interface WardicPlaybackControls extends PromiseLike<void> {
   /** Seconds played, a delay included. Set, it seeks: each key starts again there, holding while paused. */
   time: number
@@ -421,35 +425,36 @@ const finishedControls = (): WardicPlaybackControls => {
 }
 
 /**
- * Where a Segment starts in a sequence, or a label's time (#433, Motion's `SequenceTime`): seconds in;
- * `"+0.5"` / `"-0.5"` after or before the end of the Segment before; `"<"` at its start, `"<+0.5"` /
- * `"<-0.5"` around it; or a label's name.
+ * Where a Segment starts in a sequence: seconds in, `1.5`; after or before the end of the Segment
+ * before, `"+0.5"` or `"-0.5"`; at its start, `"<"`, or around it, `"<+0.5"` or `"<-0.5"`; or a label's
+ * name. Motion's `SequenceTime`.
  */
 export type WardicSequenceTime = number | "<" | `+${number}` | `-${number}` | `<+${number}` | `<-${number}` | (string & {})
 
-/** A label in a sequence (Motion's): a name for the end of the Segment before, or `{ name, at }`. */
+/** A label in a sequence: a name for where the Segment before ends, or `{ name, at }` for a time of its own. Motion's. */
 export type WardicSequenceLabel = string | { readonly name: string; readonly at: WardicSequenceTime }
 
 /**
- * A Segment's options (Motion's): a transition, a value's own laid over it, its `delay` a function of
- * each element's index and count when it likes, and `at`, where it starts. A spring through two
- * stops or fewer is played as an easing over its time to rest. `repeat` below 20 repeats the Segment.
+ * A Segment's options: a transition, with a value's own entries laid over it; its `delay`, a number or
+ * a function of each element's index and count, such as `stagger(0.05)`; and `at`, where it starts. A
+ * spring through two stops or fewer plays as an easing over its time to rest. Motion's.
  */
 export type WardicSegmentOptions = WithoutDelay & EachDelay & {
   readonly at?: WardicSequenceTime | undefined
 }
 
-/** A Segment's values: each a value or its Keyframes, as a target's. */
+/** A Segment's values: each a value or a list of keyframes, as a target's. */
 export type WardicSegmentTarget = Omit<WardicTargetValues, "transition">
 
-/** A Segment of elements (Motion's `[subject, keyframes, options]`): an element, a selector inside the scope, or a list. */
+/** A Segment of elements, `[subject, target, options?]`: an element, a selector inside the scope, or a list. Motion's. */
 export type WardicElementSegment =
   | readonly [subject: WardicAnimationSubject, target: WardicSegmentTarget]
   | readonly [subject: WardicAnimationSubject, target: WardicSegmentTarget, options: WardicSegmentOptions]
 
 /**
- * A function Segment (Motion's, standing in for its MotionValue Segments): its callback told a value
- * each frame, from 0 to 1 unless it gives its own stops, a first `null` 0.
+ * A function Segment, `[callback, value?, options?]`: its callback is given a value each frame, from 0
+ * to 1 unless it gives its own stops, for what isn't an element's style. Motion's, in place of its
+ * motion value Segments.
  */
 export type WardicFunctionSegment =
   | readonly [callback: (value: number) => void]
@@ -457,16 +462,27 @@ export type WardicFunctionSegment =
   | readonly [callback: (value: number) => void, value: number | WardicKeyframes<number>, options: WardicSegmentOptions]
   | readonly [callback: (value: string) => void, value: string | WardicKeyframes<string>, options: WardicSegmentOptions]
 
-/** One step of a sequence: a label, or a Segment. */
+/** One step of a sequence: a label, a Segment of elements, or a function Segment. */
 export type WardicSegment = WardicSequenceLabel | WardicElementSegment | WardicFunctionSegment
 
-/** A sequence (#433, Motion's `AnimationSequence`): Segments one after another, unless an `at` says otherwise. */
+/**
+ * A sequence: Segments played one after another, unless an `at` says where one starts, and labels to
+ * start them at. `animate(sequence, options)` plays it. Motion's `AnimationSequence`.
+ *
+ * @example
+ * animate([
+ *   ["ul", { opacity: 1 }],
+ *   ["li", { x: [-20, 0] }, { delay: stagger(0.05), at: "-0.1" }],
+ * ])
+ * @see https://wardic.dev/reference/solid/animation/sequences
+ */
+// #433's PR 2.
 export type WardicAnimationSequence = ReadonlyArray<WardicSegment>
 
 /**
- * A sequence's options (Motion's `SequenceOptions`): its `duration`, the whole timeline scaled to
- * it; its `delay` and repeat; `defaultTransition`, each Segment's when it gives none (Motion's 0.3 s
- * `easeOut` tween otherwise); and `onComplete`, at its landing.
+ * A sequence's options: `duration`, the whole sequence scaled to it; `delay`; `repeat`, `repeatType`
+ * and `repeatDelay`; `defaultTransition`, each Segment's when it gives none (a 0.3 s `easeOut` tween
+ * otherwise); and `onComplete`, called as it lands. Motion's `SequenceOptions`.
  */
 export interface WardicSequenceOptions {
   readonly duration?: number | undefined
@@ -478,7 +494,12 @@ export interface WardicSequenceOptions {
   readonly onComplete?: (() => void) | undefined
 }
 
-/** A scope's `animate` (#433, Motion's): `subject`'s elements to `target`, on `options`, through one Playhead; or a sequence. */
+/**
+ * A scope's `animate`: `animate(subject, target, options?)` animates the subject's elements to
+ * `target`, and `animate(sequence, options?)` plays a sequence. Either returns its playback controls.
+ * Motion's `animate`, as `useAnimate` gives it.
+ */
+// #433: through one Playhead.
 export interface WardicAnimate {
   (subject: WardicAnimationSubject, target: WardicVariant, options?: WardicAnimateOptions): WardicPlaybackControls
   (sequence: WardicAnimationSequence, options?: WardicSequenceOptions): WardicPlaybackControls
@@ -712,7 +733,11 @@ const sequenceOf = (env: AnimateEnv, scope: Element | undefined, watch: Animatio
       )))
 }
 
-/** An **Animation scope** (#433, Motion's `AnimationScope`): the element its selectors are looked up in, given as its `ref`. */
+/**
+ * An animation scope: give it as an element's `ref`, and `animate`'s selectors are looked up inside
+ * that element. Motion's `AnimationScope`.
+ */
+// #433.
 export interface WardicAnimationScope<T extends Element = HTMLElement> {
   /** Give it as the element's `ref`. */
   (element: T): void

@@ -1,0 +1,40 @@
+---
+title: createAnimationControls
+description: Controls that animate elements by their variants or targets from code, start, set and stop, given as animate={controls}.
+api: [createAnimationControls, WardicAnimationControls, WardicControlsDefinition]
+---
+
+# createAnimationControls
+
+Makes animation controls, which animate elements by their variants or targets from code. Give them to each element as `animate={controls}`, then call `start`, `set` or `stop`.
+
+```tsx
+import { createAnimationControls, w } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+const controls = createAnimationControls()
+<w.ul initial="hidden" animate={controls} variants={list}>…</w.ul>
+<button onClick={() => controls.start("visible")}>Show</button>
+```
+
+The controls go to a `w.*` element, a ward's config or a `Reorder.Item`, and as many as you like. They need no owner: make them in a component or outside one. An element follows them from its mount to its unmount.
+
+## Members
+
+| Member | |
+| --- | --- |
+| `start(definition, transitionOverride?)` | Animates every element to `definition`, as a change of its `animate` would, its variant children following. Resolves once each element and its children have landed. |
+| `set(definition)` | Sets every element, and its variant children, at `definition` at once. |
+| `stop()` | Ends every element's running animation where it is. |
+
+A definition is a target, a variant name or a list of names, or a function called once per element with its `custom`: give each element `custom={i}`, then `controls.start((i) => ({ x: i * 20 }))`.
+
+`transitionOverride` is the transition of that one change: it's used over the definition's own, on the element and its variant children, and its stagger orchestrates them. Their next animation, a gesture's say, runs on their own transitions again.
+
+## Coming from Motion
+
+Motion's `useAnimationControls`, with `start`, `set` and `stop`. For elements of your own, rather than by variants, [`createAnimate`](/reference/solid/animation/create-animate) is Motion's newer `useAnimate`.
+
+## Types
+
+- **`WardicAnimationControls`:** the controls.
+- **`WardicControlsDefinition`:** what `start` and `set` take.

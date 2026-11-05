@@ -156,9 +156,10 @@ export interface WardicOrchestration {
   readonly staggerChildren?: number
   /**
    * Fixed delay added to every child before its staggered offset; or, as Motion's, a function of a
-   * child's index and the count, `stagger()`'s (#436), which decides each child's whole delay:
+   * child's index and the count, `stagger()`'s, which decides each child's whole delay:
    * `staggerChildren`, `staggerDirection` and `from` aren't read beside it.
    */
+  // #436.
   readonly delayChildren?: number | WardicStagger
   /** `-1` reverses the stagger order (last child leads). Default `1`. */
   readonly staggerDirection?: 1 | -1
