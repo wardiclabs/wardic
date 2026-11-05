@@ -1,0 +1,42 @@
+---
+title: stagger
+description: Delays each child by its place in the list, for a parent's delayChildren or createAnimate's delay.
+api: [stagger, WardicStagger, WardicStaggerOptions]
+---
+
+# stagger
+
+Delays each child by its place: `stagger(duration, options?)` gives each child a delay of `startDelay`, plus `duration` seconds for each step from `from`.
+
+```tsx
+import { stagger, w } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+<w.ul animate="shown" variants={list} transition={{ delayChildren: stagger(0.05, { from: "center" }) }}>
+  <For each={items()}>{(item) => <w.li variants={row}>{item}</w.li>}</For>
+</w.ul>
+```
+
+Give it as a transition's `delayChildren`, where it decides each variant child's whole delay, or as [`createAnimate`](/reference/solid/animation/create-animate)'s `delay`, for each element it animates:
+
+```tsx
+animate("li", { opacity: [0, 1] }, { delay: stagger(0.05) })
+```
+
+## Options
+
+| Option | |
+| --- | --- |
+| `startDelay` | Seconds before the first child's delay. Default 0. |
+| `from` | The child the delay grows from: `"first"` (the default), `"last"`, `"center"` or an index. |
+| `ease` | How the delay grows across the children, eased across `duration × count`. Default linear. |
+
+`duration` is 0.1 s when left out. A stagger is any `(index, count) => seconds`, so a function of your own works too.
+
+## Coming from Motion
+
+Motion's `stagger()`, with its options.
+
+## Types
+
+- **`WardicStagger`:** a stagger, `(index, count) => seconds`.
+- **`WardicStaggerOptions`:** its options.

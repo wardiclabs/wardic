@@ -1,0 +1,101 @@
+---
+title: transition
+description: Every field a transition takes, a spring's, a tween's and an inertia's, its per-value entries, and its children's orchestration.
+api: [WardicTransition, WardicTransitionEntries, WardicValueTransition, WardicVariantTransition, WardicOrchestration, WardicInertia]
+---
+
+# transition
+
+How an element gets to its target: a spring, a tween or an inertia. It's the `transition` prop, a target's or a variant's own `transition`, a `WardicConfig`'s, and `createAnimate`'s options. See [Transitions](/guides/transitions).
+
+```tsx
+<w.div animate={{ x: 100, opacity: 1 }} transition={{ type: "spring", bounce: 0.2, opacity: { duration: 0.2 } }} />
+```
+
+With no `type`, a spring field (`stiffness`, `damping`, `mass`, `velocity`, `restDelta`, `restSpeed`, `bounce`, `visualDuration`) makes it a spring, and anything else a tween: `{ duration: 0.5 }` is a 0.5 s tween. With neither, as `{ delay: 0.2 }`, each value runs on its default: `x`, `y` and `rotate` on a spring, `scale` on a stiffer one, the rest on a 0.3 s tween.
+
+## A spring
+
+`type: "spring"`. It keeps the velocity it's handed, from a retarget mid-flight or a drag's release.
+
+| Field | |
+| --- | --- |
+| `stiffness`, `damping`, `mass` | Its physics. Default 100, 10 and 1. |
+| `duration`, `bounce` | Set by time: it lands at `duration` seconds, `bounce` from 0 to near 1 (default 0.3). Physics given beside wins. |
+| `visualDuration`, `bounce` | Set by time: most of its move done by `visualDuration`, then it settles (`bounce` default 0). |
+| `velocity` | The velocity it starts with, per second: the value's own when left out. |
+| `restDelta`, `restSpeed` | At rest within this of the target, and below this speed. By default, by how far it goes: 0.5 and 2 for 5 or more, 0.005 and 0.01 below. |
+
+## A tween
+
+`type: "tween"`.
+
+| Field | |
+| --- | --- |
+| `duration` | Seconds. Default 0.3. |
+| `ease` | An [easing](/reference/solid/transitions/easing): a name (`"easeOut"`, the default), a cubic Bézier's four numbers, or a function. Through keyframes, a list, one per stretch. |
+| `times` | Each keyframe's place, 0 to 1: `[0, 0.2, 1]`. |
+| `repeat` | How many more times it plays: a number, or `Infinity`. |
+| `repeatType` | `"loop"` (the default) starts each again; `"reverse"` plays every other one backwards; `"mirror"` plays it from the end on the same easing. |
+| `repeatDelay` | Seconds between plays. |
+
+Keyframes, more than two stops, run on a tween: with no transition at all, a 0.8 s one.
+
+## An inertia
+
+`type: "inertia"`: each number glides from where it is at its velocity, and comes to rest `power × velocity` on. Its target isn't read. A value that isn't a number runs on its default instead.
+
+| Field | |
+| --- | --- |
+| `velocity` | The velocity it glides from, per second: the value's own when left out. |
+| `power` | How far it carries, as a multiple of its velocity. Default 0.8. |
+| `timeConstant` | The glide's time constant, in milliseconds. Default 325. |
+| `min`, `max` | Edges: past one, it springs back to it. |
+| `bounceStiffness`, `bounceDamping` | That spring back. Default 500 and 10. |
+| `modifyTarget` | Moves where it rests: `(ideal) => Math.round(ideal / 100) * 100` snaps it to a grid. |
+| `restDelta`, `restSpeed` | At rest within this, and below this speed. Default 0.5 and 2. |
+
+## On every kind
+
+| Field | |
+| --- | --- |
+| `delay` | Seconds before it starts. |
+| `path` | A path `x` and `y` travel along together, such as [`arc()`](/reference/solid/transitions/arc). |
+| `respectReducedMotion` | `false` keeps it moving under reduced motion. |
+| `skipAnimations` | `true` lands it at once. |
+
+## Per value
+
+A value's own transition goes under its name, `default` for every value without one, and `layout` for the element's layout animations:
+
+```tsx
+transition={{ default: { type: "spring" }, opacity: { duration: 0.2 }, layout: { duration: 0.3 } }}
+```
+
+A value runs on its entry, else `default`, else the transition's own fields. An entry stands alone, unless `inherit: true` lays it over the transition's fields.
+
+## Children
+
+On a parent whose variants its children follow, these time the children against it and each other:
+
+| Field | |
+| --- | --- |
+| `when` | `"beforeChildren"` animates the parent, then the children; `"afterChildren"` the children, then the parent. Left out, together. |
+| `delayChildren` | Seconds before the children start, or a [`stagger()`](/reference/solid/transitions/stagger), which decides each child's whole delay. |
+| `staggerChildren` | Seconds between one child's start and the next's. |
+| `staggerDirection` | `-1` staggers from the last child. |
+| `from` | The child the stagger grows from: `"first"`, `"last"`, `"center"` or an index. |
+
+## A variant's own
+
+A target or a variant can carry its own `transition`, which runs the animation it starts in place of the element's. `inherit: true` lays it over the element's instead, its own fields winning.
+
+## Coming from Motion
+
+Motion's transition, with its fields, defaults and per-value entries.
+
+## Types
+
+- **`WardicTransition`:** a transition. **`WardicTransitionEntries`:** its per-value entries. **`WardicValueTransition`:** one value's own.
+- **`WardicVariantTransition`:** a target's or a variant's own, with `inherit`.
+- **`WardicOrchestration`:** the children's fields. **`WardicInertia`:** an inertia's fields.

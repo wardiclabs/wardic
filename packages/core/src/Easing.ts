@@ -294,7 +294,8 @@ const mirrored = (easing: Easing): Easing => (t) => {
 /** Motion's `easeIn`: `cubic-bezier(0.42, 0, 1, 1)`, CSS's `ease-in`. */
 export const easeIn: Easing = named(bezier(0.42, 0, 1, 1), "easeIn")
 
-/** Motion's `easeOut`: `cubic-bezier(0, 0, 0.58, 1)`, CSS's `ease-out`. A tween's default (ADR-0051). */
+/** Motion's `easeOut`: `cubic-bezier(0, 0, 0.58, 1)`, CSS's `ease-out`. A tween's default. */
+// ADR-0051.
 export const easeOut: Easing = named(bezier(0, 0, 0.58, 1), "easeOut")
 
 /** Motion's `easeInOut`: `cubic-bezier(0.42, 0, 0.58, 1)`, CSS's `ease-in-out`. */

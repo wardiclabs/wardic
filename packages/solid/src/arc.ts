@@ -20,13 +20,15 @@ export interface WardicArcOptions {
 }
 
 /**
- * A curved path, Motion's `arc()`: `x` and `y` travel along a curve between their start and end, on
- * `x`'s transition. Make it once, in the component's body or at module level: with no `direction`, it
- * remembers the side of the screen it bulged to.
+ * A curved path for a transition: `x` and `y` travel along a curve between where they start and their
+ * target, on `x`'s transition, in place of two straight lines. Make it once, in a component's body or
+ * at module level: with no `direction`, it remembers which side of the screen it bulged to. Motion's
+ * `arc()`.
  *
- * ```tsx
+ * @example
  * const path = arc({ strength: 0.4, rotate: true })
- * <wardic.div animate={{ x: 200, y: 80 }} transition={{ path, duration: 0.6 }} />
- * ```
+ * <w.div animate={{ x: 200, y: 80 }} transition={{ path, duration: 0.6 }} />
+ * @see https://wardic.dev/reference/solid/transitions/arc
  */
+// #438.
 export const arc = (options: WardicArcOptions = {}): WardicPath => Arc.make(options)
