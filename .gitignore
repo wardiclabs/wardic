@@ -44,3 +44,7 @@ packages/*/THIRD_PARTY_NOTICES.md
 .claude/context/
 .claude/.context-manifest.json
 .oac.json
+
+# The docs' core and dom references, generated before each build (site/scripts/reference.ts)
+site/src/content/reference/core/
+site/src/content/reference/dom/

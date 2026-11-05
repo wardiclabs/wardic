@@ -1,4 +1,5 @@
 /** The sidebar (#558): each section's pages, in reading order. A page not listed here is still served. */
+import TITLES from "virtual:page-titles"
 
 export interface NavPage {
   readonly path: string
@@ -17,6 +18,23 @@ export interface NavSection {
   /** Its families, after its pages, each open while one of its pages is. */
   readonly groups?: ReadonlyArray<NavGroup>
 }
+
+/**
+ * A generated reference's modules, `reference/core/*` say, from the page titles: each module's page,
+ * by its title, leaving out the package's index and each module's internal types.
+ */
+const modulesOf = (dir: string): ReadonlyArray<NavPage> =>
+  Object.entries(TITLES)
+    .filter(([name]) => name.startsWith(`reference/${dir}/`) && !name.endsWith("/index") && !name.endsWith("/internal"))
+    .map(([name, title]) => ({ path: `/${name}`, title }))
+    .sort((a, b) => a.title.localeCompare(b.title))
+
+/** A generated reference's index page, once its package has a module published. */
+const indexOf = (dir: string, title: string): ReadonlyArray<NavPage> =>
+  TITLES[`reference/${dir}/index`] === undefined ? [] : [{ path: `/reference/${dir}`, title }]
+
+/** A group of a generated reference's modules, once it has one. */
+const groupOf = (title: string, pages: ReadonlyArray<NavPage>): ReadonlyArray<NavGroup> => (pages.length === 0 ? [] : [{ title, pages }])
 
 export const NAV: ReadonlyArray<NavSection> = [
   {
@@ -55,7 +73,11 @@ export const NAV: ReadonlyArray<NavSection> = [
   },
   {
     title: "Reference",
-    pages: [{ path: "/reference/solid", title: "Solid reference" }],
+    pages: [
+      { path: "/reference/solid", title: "Solid reference" },
+      ...indexOf("core", "Core reference"),
+      ...indexOf("dom", "DOM reference"),
+    ],
     groups: [
       {
         title: "Elements",
@@ -169,6 +191,9 @@ export const NAV: ReadonlyArray<NavSection> = [
           { path: "/reference/solid/advanced/run-drag-track", title: "runDragTrack" },
         ],
       },
+      // Core's and dom's modules, generated at build (scripts/reference.ts), as each is published.
+      ...groupOf("Core", modulesOf("core")),
+      ...groupOf("DOM", modulesOf("dom")),
     ],
   },
 ]

@@ -4,8 +4,9 @@
   "type": "module",
   "description": "Wardic's docs site, at wardic.dev (#558): SolidStart on Solid 2, MDX pages, prerendered.",
   "scripts": {
-    "dev": "vite",
-    "build": "vite build && node scripts/prerender.ts",
+    "dev": "node scripts/reference.ts && vite",
+    "build": "node scripts/reference.ts && vite build && node scripts/prerender.ts",
+    "reference": "node scripts/reference.ts",
     "preview": "vite preview",
     "typecheck": "../node_modules/typescript-7/bin/tsc --noEmit && ../node_modules/typescript-7/bin/tsc --noEmit -p samples/tsconfig.solid2.json && ../node_modules/typescript-7/bin/tsc --noEmit -p samples/tsconfig.solid1.json && ../node_modules/typescript-7/bin/tsc --noEmit -p samples/tsconfig.motion.json"
   },
@@ -35,6 +36,9 @@
     "remark-frontmatter": "5.0.0",
     "remark-gfm": "4.0.1",
     "remark-mdx-frontmatter": "5.2.0",
+    "typedoc": "0.28.20",
+    "typedoc-plugin-markdown": "4.14.1",
+    "typedoc-plugin-missing-exports": "4.1.4",
     "vite": "8.3.4"
   }
 }
