@@ -48,6 +48,8 @@ const READY: Readonly<Record<(typeof PACKAGES)[number]["dir"], ReadonlyArray<str
     "BaseValue", "DefaultTransition", "Interpolator", "InterpolatorRegistry", "LiveValue", "Override", "ReducedMotion", "Supersede", "Values",
     // Input and gestures.
     "AutoScroll", "Drag", "DragActivity", "DragRecognizer", "InputFeed", "InputSource", "PressClaims", "Recognizer", "Reorder",
+    // Layout and the Environment.
+    "Announcer", "Box", "Clock", "Flip", "Frame", "FrameLoop", "Microtask", "Point", "Probe", "Projection", "RefreshFrameSource", "Renderer", "SharedSource",
   ],
   dom: [],
 }
