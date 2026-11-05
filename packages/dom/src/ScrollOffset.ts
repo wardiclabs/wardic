@@ -1,19 +1,24 @@
 /**
- * Scroll offsets, the DOM's (#234, ADR-0043 *Amendment (#233, #234)*): Motion's syntax for where a
- * target's progress through its scroll container runs, which the DOM's `Probe.scroll` resolves
- * (`internal/scroll.ts`). Core takes an offset as its Environment's own and passes it through, so the
- * syntax, its names and its units are the DOM's alone.
+ * Scroll offsets, the DOM's: Motion's syntax for where a target's progress through its scroll container
+ * runs, from 0 to 1, which the DOM's `Probe.scroll` resolves. Core takes an offset as its Environment's
+ * own and passes it through, so its syntax, its names and its units are the DOM's.
  *
  * - **An edge** is a name (`start`, `center`, `end`), a fraction of a length (`0.5`), or a CSS length:
- *   `"100px"` a distance, `"50%"` a fraction, `"10vw"` / `"10vh"` a share of the viewport.
- * - **A stop** is a pair of edges, `[target, container]`: the scroll position where the target's
- *   edge meets the container's. A string holds both (`"start end"`); one edge alone is both for a
- *   name or a number (`"end"`, `0.5`), else the target's against the container's start (`"100px"`).
+ *   `"100px"` a distance, `"50%"` a fraction, `"10vw"` or `"10vh"` a share of the viewport.
+ * - **A stop** is a pair of edges, `[target, container]`: the scroll position where the target's edge
+ *   meets the container's. A string holds both (`"start end"`); one edge alone is both for a name or a
+ *   number (`"end"`, `0.5`), else the target's against the container's start (`"100px"`).
  * - **An offset** is two stops or more: progress runs from 0 at the first to 1 at the last, evenly
- *   between them, clamped.
+ *   between them, and holds past them.
  *
- * `@wardic/dom/ScrollOffset` (ADR-0041): the type a binding gives its `scroll` helper's `offset`.
+ * @example
+ * import * as ScrollOffset from "@wardic/dom/ScrollOffset"
+ *
+ * // From the target's top meeting the container's bottom, to its bottom meeting the container's top:
+ * const across: ScrollOffset.ScrollOffset = ["start end", "end start"]
  */
+// #234, ADR-0043 *Amendment (#233, #234)*; resolved in `internal/scroll.ts`. `@wardic/dom/ScrollOffset`
+// (ADR-0041): the type a binding gives its `scroll` helper's `offset`.
 
 /** One edge of a stop: a name, a fraction, or a CSS length (see the module's doc). */
 export type Edge = string | number

@@ -1,17 +1,26 @@
 /**
- * Appear animations (#48, ADR-0044): a server-rendered mount animation played in CSS from first
- * paint, which the engine takes over at mount, the **Handoff**. The DOM's half, for any binding:
+ * Appear animations: a mount animation a server renders as CSS, played from the first paint, before any
+ * code runs, which the engine takes over at mount from where it has got to. The DOM's half, for any
+ * binding:
+ * - **On a server:** `keyframes` samples an element's spec, its mount animation built with core's
+ *   machines, into one `@keyframes` rule, cached across requests. A render's `sheet` gives each element a
+ *   slot, whose `animation` goes in its inline style, and writes the head's `<style>` once every slot's
+ *   timing is defined.
+ * - **At mount:** `find` the element's animation, check it `matches` the client's own spec, start the run
+ *   `elapsedOf` it in (`Machine.startAt`), and `release` the element in the task that writes the engine's
+ *   first frame.
  *
- * - **On a server:** `keyframes` samples a spec (the element's mount animation, built with core's
- *   machines) into one `@keyframes` rule, cached across requests; a render's `sheet` gives each
- *   element a slot, whose `animation` goes in its inline style, and writes the head's `<style>`
- *   text once the render has defined each slot's timing.
- * - **At mount:** `find` the element's animation, check it `matches` the client's own spec, start
- *   the run `elapsedOf` it in (`Machine.startAt`), and `release` the element in the task that
- *   writes the engine's first frame.
+ * @example
+ * import * as Appear from "@wardic/dom/Appear"
  *
- * `@wardic/dom/Appear` (ADR-0041).
+ * // On a server, a sheet a render:
+ * const render = Appear.sheet()
+ * const slot = render.slot()
+ * slot.define({ spec, delay: 0 }) // `slot.animation` goes in the element's style, `render.css()` in the head
+ * // At mount:
+ * const elapsed = Option.map(Appear.find(element), Appear.elapsedOf)
  */
+// #48, ADR-0044: the **Handoff**. `@wardic/dom/Appear` (ADR-0041).
 export {
   adoptChunks,
   animationOf,

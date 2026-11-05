@@ -40,9 +40,10 @@ export const dragDefaultStyle: (axis: boolean | "x" | "y") => DragDefaultStyle =
 )
 
 /**
- * A **Reorder group** item's `touch-action` for the group's axis: a `y` list keeps
- * horizontal panning, an `x` row vertical panning, and a grid none.
+ * A Reorder group item's `touch-action` for the group's axis: a `y` list keeps sideways panning, an `x`
+ * row vertical panning, and a grid none.
  */
+// A **Reorder group**.
 export const reorderTouchAction: (axis: "x" | "y" | "xy") => string = Match.type<"x" | "y" | "xy">().pipe(
   Match.when("y", () => "pan-x"),
   Match.when("x", () => "pan-y"),

@@ -55,9 +55,10 @@ const kindOf = (value: number | string): string | undefined => {
 }
 
 /**
- * Whether `key` from `from` to `to` is a **Measured pair** (#430): a measurable key whose two ends are
+ * Whether `key` from `from` to `to` is a Measured pair: a key that can be measured, whose two ends are
  * lengths, `auto` or a `calc()`, of different types. Two of one type blend as ever.
  */
+// #430.
 export const isMeasuredPair = (key: string, from: number | string, to: number | string): boolean => {
   if (Bool.not(isMeasurable(key))) return false
   const a = kindOf(from)
@@ -67,15 +68,18 @@ export const isMeasuredPair = (key: string, from: number | string, to: number | 
   return a !== b
 }
 
-/**
- * One Measured pair (#430): its key, its ends as given, and each in px once its batch has run.
- * `undefined` until then, and for an end that couldn't be read, which the leg takes as a switch.
- */
+/** One Measured pair: its key, its ends as given, and each end in px once its batch has run. */
+// #430.
 export interface MeasuredPair {
+  /** The key. */
   readonly key: string
+  /** Its start, as given. */
   readonly from: number | string
+  /** Its target, as given. */
   readonly to: number | string
+  /** Its start in px: `undefined` until its batch has run, and if it couldn't be read, which the animation takes as a switch. */
   fromPx: number | undefined
+  /** Its target in px: `undefined` until its batch has run, and if it couldn't be read. */
   toPx: number | undefined
 }
 
@@ -92,10 +96,11 @@ let queued: Array<Request> = []
 let scheduled = false
 
 /**
- * Measure `pairs` on `element` at the end of this task (#430's Q2), with every other element's in
- * the same batch: each pair's px, filled in before the next tick. `values` are what the element draws
- * now, a translate's other transforms among them.
+ * Measures `pairs` on `element` at the end of this task, with every other element's in the same batch:
+ * each pair's px, filled in before the next tick. `values` are what the element draws now, its other
+ * transforms among them.
  */
+// #430's Q2.
 export const measure = (
   element: HTMLElement,
   pairs: Readonly<Record<string, { readonly from: number | string; readonly to: number | string }>>,

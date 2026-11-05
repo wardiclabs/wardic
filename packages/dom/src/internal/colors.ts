@@ -45,10 +45,8 @@ import * as Predicate from "effect/Predicate"
 import * as Str from "effect/String"
 import * as UndefinedOr from "effect/UndefinedOr"
 
-/**
- * A colour as culori holds it: its colour space (`mode`) and its channels. The DOM's own type, so
- * the declarations it emits don't lean on `culori.d.ts`.
- */
+/** A colour as culori holds it: its colour space (`mode`) and its channels. */
+// The DOM's own type, so the declarations it emits don't lean on `culori.d.ts`.
 export type Color = { readonly mode: string; readonly [channel: string]: number | string | undefined }
 
 /** A culori colour: an object tagged with its colour space. */
@@ -65,22 +63,19 @@ const culoriParseOption = Option.liftThrowable(culoriParse)
 const parseColorString = (input: string): Option.Option<Color> =>
   Option.filter(Option.flatMap(culoriParseOption(Str.trim(input)), Option.fromUndefinedOr), isColor)
 
-/**
- * A colour string read (ADR-0026; CONTEXT.md's "color string"): a culori colour, or `None` for any
- * other value. A string is a colour iff culori's `parse` accepts it, trimmed. `Color.parse`, and
- * the colour Interpolator's `parse` (plain functions since #511, where they were a Schema codec,
- * `ColorString`).
- */
+/** A colour string read: a culori colour, or `None` for any other value. A string is a colour when culori reads it, trimmed. */
+// ADR-0026; CONTEXT.md's "color string". `Color.parse`, and the colour Interpolator's `parse` (plain
+// functions since #511, where they were a Schema codec, `ColorString`).
 export const parseColor = (value: unknown): Option.Option<Color> => {
   if (!Predicate.isString(value)) return Option.none()
   return parseColorString(value)
 }
 
 /**
- * A colour written as `rgb(…)` / `rgba(…)` with culori's `formatRgb`, the function the frame
- * calls, so `"#000"` reads and writes back as `"rgb(0, 0, 0)"`. `Color.format`, and the colour
- * Interpolator's `format`.
+ * A colour written as `rgb(…)` or `rgba(…)`, as culori's `formatRgb` writes it, so `"#fff"` reads and
+ * writes back as `"rgb(255, 255, 255)"`: what a blend's every frame writes.
  */
+// `Color.format`, and the colour Interpolator's `format`.
 export const formatColor = (color: Color): string => formatRgb(color)
 
 // --- sRGB, Wardic's own (#156, ADR-0026 *Amendment (#156)*) ------------------------------------
@@ -101,13 +96,13 @@ const toRgb = useMode(modeRgb)
 useMode(modeHsl)
 
 /**
- * Register every CSS colour space beyond sRGB's syntaxes (#511, ADR-0067 decision 5): `lab()`,
- * `lch()`, `oklab()`, `oklch()`, `hwb()`, and `color()`'s `display-p3`, `rec2020`, `a98-rgb`,
- * `prophoto-rgb`, `srgb-linear`, `xyz`, `xyz-d50` and `xyz-d65`, the spaces culori's `culori/css`
- * registers but for its non-CSS `hsv`, `lab65` and `lch65`. From then on such a string is a colour
- * everywhere on the page; before, it isn't one (a `lab()` value is read as a complex value, its
- * numbers blended as written). Calling it again does nothing new. The `colors` Feature's.
+ * Registers every CSS colour space beyond sRGB's syntaxes: `lab()`, `lch()`, `oklab()`, `oklch()`,
+ * `hwb()`, and `color()`'s `display-p3`, `rec2020`, `a98-rgb`, `prophoto-rgb`, `srgb-linear`, `xyz`,
+ * `xyz-d50` and `xyz-d65`. From then on such a string is a colour everywhere on the page; before, it
+ * isn't one, and a `lab()` value's numbers blend as written. Calling it again does nothing new.
  */
+// #511, ADR-0067 decision 5: the spaces culori's `culori/css` registers but for its non-CSS `hsv`, `lab65`
+// and `lch65`. The `colors` Feature's.
 export const registerSpaces = (): void => {
   Arr.forEach(CSS_SPACES, (mode) => {
     useMode(mode)
@@ -115,9 +110,10 @@ export const registerSpaces = (): void => {
 }
 
 /**
- * Whether the spaces {@link registerSpaces} registers are registered on the page: by it, or by culori's
- * own bundle, which registers every space as it loads. Asked of culori's registry, the page's.
+ * Whether the spaces `registerSpaces` registers are registered on the page: by it, or by culori's own
+ * bundle, which registers every space as it loads.
  */
+// Asked of culori's registry, the page's.
 export const spacesRegistered = (): boolean => Predicate.isNotUndefined(getMode("oklch"))
 
 const CSS_SPACES = [modeA98, modeHwb, modeLab, modeLch, modeLrgb, modeOklab, modeOklch, modeP3, modeProphoto, modeRec2020, modeXyz50, modeXyz65]
@@ -221,26 +217,22 @@ const throughCulori = (mode: string, from: Color, to: Color): ((t: number) => st
 }
 
 /**
- * Interpolates colours (ADR-0026). `mode` is the colour space the blend runs in: `"rgb"` by default
- * (sRGB, as WAAPI blends, ADR-0024); pass `"oklch"` / `"lab"` for perceptual blends, once
- * {@link registerSpaces} has registered them (#511).
+ * Blends colours in the colour space `mode`: `"rgb"` by default, sRGB, as the browser's own animations
+ * blend. `"oklch"` or `"lab"` blend perceptually, once `registerSpaces` has registered them. A string is
+ * a colour when culori reads it, trimmed, so a keyword like `"auto"` isn't, and named colours and the
+ * modern forms culori knows are. Past the end of a blend a colour holds at its target.
  *
- * Built as a factory so an app can register the space it prefers, over the one `parseColor` and
- * `formatColor`; the DOM's registry uses `"rgb"` (`cssColor`). A string is a colour iff culori
- * parses it, trimmed, so CSS keywords like `"auto"` / `"inherit"` aren't, and named colours and
- * modern forms culori supports are.
- *
- * `blend` resolves the pair once, when a stream is built, and the frame writes the string `format`
- * (`formatRgb`) would:
- * - **`"rgb"`** blends with Wardic's own lerp and format (#156, ADR-0026 *Amendment (#156)*), the
- *   strings culori writes, with no colour object per frame; two ends of the same colour write one
- *   string.
- * - **Any other mode** goes through culori's interpolator, which returns a new colour object on
- *   each call.
- *
- * Either clamps `t` to [0, 1], as culori does, so past 1 a colour holds at its target (ADR-0024,
- * decision 5).
+ * @example
+ * Color.registerSpaces()
+ * yield* registry.register(Color.interpolator("oklch")) // colours now blend in OKLCH
  */
+// ADR-0026. A factory, so an app can register the space it prefers over the one `parseColor` and
+// `formatColor` use; the DOM's registry uses `"rgb"` (`cssColor`). `blend` resolves the pair once, when a
+// stream is built, and the frame writes the string `format` (`formatRgb`) would:
+// - `"rgb"` blends with Wardic's own lerp and format (#156, ADR-0026 *Amendment (#156)*), the strings
+//   culori writes, with no colour object per frame; two ends of the same colour write one string.
+// - Any other mode goes through culori's interpolator, which returns a new colour object on each call.
+// Either clamps `t` to [0, 1], as culori does (ADR-0024, decision 5).
 export const color = (mode = "rgb"): Interpolator.Entry<Color, string> => ({
   name: `color(${mode})`,
   parse: parseColor,
@@ -255,11 +247,12 @@ export const color = (mode = "rgb"): Interpolator.Entry<Color, string> => ({
 })
 
 /**
- * A colour inside a complex value: a hex, or an `rgb()`, `rgba()`, `hsl()` or `hsla()` (Motion's
- * colour token, motion-dom value/types/utils/color-regex.ts at 16c6122). A named colour (`red`)
- * isn't one: it stays part of the text around the tokens (#61).
+ * A colour inside a longer value: a hex, or an `rgb()`, `rgba()`, `hsl()` or `hsla()`, as Motion's colour
+ * token is. A named colour, `red`, isn't one: it stays part of the text around the tokens.
  */
+// Motion's motion-dom value/types/utils/color-regex.ts at 16c6122; #61.
 export const COLOR_TOKEN = /#[\da-f]{3,8}|(?:rgb|hsl)a?\((?:-?[\d.]+%?[,\s]+){2}-?[\d.]+%?\s*(?:[,/]\s*)?(?:\b\d+(?:\.\d+)?|\.\d+)?%?\)/
 
-/** The DOM's colours: CSS Color syntax, blended in sRGB as WAAPI blends (ADR-0024), its registry's colour tier. */
+/** The DOM's colours: CSS's colour syntax, blended in sRGB, as the browser's own animations blend. Its registry's colour kind. */
+// ADR-0024: as WAAPI blends.
 export const cssColor: Interpolator.Entry<Color, string> = color("rgb")
