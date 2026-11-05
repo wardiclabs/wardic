@@ -1,60 +1,64 @@
 /**
- * The `AutoScroll` module: **Auto-scroll**'s edge math for a **Reorder group** (ADR-0020),
- * Motion's `autoScrollIfNeeded`, ported. Effect-free and DOM-free: the binding measures the
- * scroller and applies the amount.
+ * Auto-scroll for a Reorder group, as Motion's: while an item is dragged near a scroller's edge, the
+ * scroller scrolls toward it, faster the nearer. This is its math, one update on one axis at a time; the
+ * binding measures the scroller, calls `step` at each move of the drag, and scrolls by what it says.
+ *
+ * @example
+ * import * as AutoScroll from "@wardic/core/AutoScroll"
+ *
+ * let state = Option.none<AutoScroll.State>()
+ * // At each move of the drag:
+ * const next = AutoScroll.step(state, {
+ *   pointer: point.y,
+ *   start: visible.top,
+ *   end: visible.bottom,
+ *   velocity: velocity.y,
+ *   scroll: offset,
+ *   maxScroll: () => range,
+ * })
+ * scrollBy(next.amount)
+ * state = next.state
  */
+// ADR-0020: Motion's `autoScrollIfNeeded`, ported (Reorder/utils/auto-scroll.ts @ 16c6122). Effect-free
+// and DOM-free. Tier 2 (ADR-0008): for binding and Environment authors.
 import * as Bool from "effect/Boolean"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import type * as Point from "./Point.ts"
 import type * as Reorder from "./Reorder.ts"
 
-/**
- * How near (px) the pointer must be to a scroller's visible edge for **Auto-scroll**.
- * Motion's `threshold` (Reorder/utils/auto-scroll.ts:1 at 16c6122).
- *
- * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
- */
+/** How near a scroller's visible edge, in px, the pointer starts it scrolling: 50, as Motion's. */
+// Motion's `threshold` (Reorder/utils/auto-scroll.ts:1 @ 16c6122).
 export const THRESHOLD = 50
 
-/**
- * The most **Auto-scroll** moves a scroller per update (px), at its edge. Motion's
- * `maxSpeed` (Reorder/utils/auto-scroll.ts:2 at 16c6122).
- *
- * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
- */
+/** The most a scroller scrolls in one update, in px, with the pointer at its edge: 25, as Motion's. */
+// Motion's `maxSpeed` (Reorder/utils/auto-scroll.ts:2 @ 16c6122).
 export const MAX_SPEED = 25
 
-/**
- * The edge **Auto-scroll** is scrolling toward, and the scroll range it had when that
- * edge activated (it never scrolls past it, so content that grows while scrolling
- * doesn't scroll forever).
- *
- * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
- */
+/** The edge a scroller is scrolling toward, between one `step` and the next. */
 export interface State {
+  /** The edge: `"start"` at the top or left, `"end"` at the bottom or right. */
   readonly edge: "start" | "end"
+  /**
+   * The scroll range when it started toward that edge: it never scrolls past it, so content that grows
+   * while it scrolls doesn't keep it scrolling.
+   */
   readonly limit: number
 }
 
 /**
- * One update of **Auto-scroll** on one axis: how far to scroll the scroller, and the
- * state for the next update. Motion's algorithm (Reorder/utils/auto-scroll.ts at
- * 16c61222c4166bbef5ff6ab0051192faa79fa8c8,
- * https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/components/Reorder/utils/auto-scroll.ts),
- * as a pure step.
- *
- * `pointer`, `start` and `end` are viewport px: the scroller's visible edges on the
- * axis, clamped to the viewport by the caller. Within {@link THRESHOLD} of
- * an edge it scrolls {@link MAX_SPEED} x (1 - distance / threshold)^2
- * toward it (negative toward the start). An edge starts only while the pointer moves
- * toward it (`velocity` on the axis), and records `maxScroll()` then (the only time
- * it's read); once active it keeps scrolling while the pointer stays in the zone, and
- * stops toward the end at that recorded range (`scroll` is the scroller's offset).
- * Outside both zones there is no state.
- *
- * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
+ * One update on one axis: how far to scroll, negative toward the start, and the state for the next.
+ * `pointer`, `start` and `end` are in the viewport's px: the pointer, and the scroller's visible edges,
+ * held within the viewport. Within `THRESHOLD` of an edge it scrolls `MAX_SPEED` × (1 − distance ÷
+ * `THRESHOLD`)² toward it.
+ * - **It starts** only while the pointer moves toward that edge (`velocity`), and reads `maxScroll()`
+ *   then, the only time it's read.
+ * - **It keeps on** while the pointer stays near the edge, and stops at the end at the range it read.
+ *   `scroll` is how far the scroller is scrolled.
+ * - **Away from both edges** there's no state.
  */
+// Motion's algorithm, as a pure step:
+// https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/components/Reorder/utils/auto-scroll.ts
 export const step = (
   state: Option.Option<State>,
   input: {
@@ -112,12 +116,10 @@ const movingToward = (edge: "start" | "end", velocity: number): boolean =>
   )
 
 /**
- * The axis **Auto-scroll** follows: a single-axis group's own, and in a grid the axis
- * the pointer moves faster on (`y` on a tie, as Motion's `>` gives: Reorder/Item.tsx
- * at 16c6122).
- *
- * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
+ * The axis Auto-scroll follows: a one-axis group's own, and in a grid the one the pointer moves faster
+ * on, `y` on a tie, as Motion's.
  */
+// Motion's `>` (Reorder/Item.tsx @ 16c6122).
 export const axis = (axis: Reorder.Axis, velocity: Point.Point): "x" | "y" =>
   Match.value(axis).pipe(
     Match.when("xy", () =>
