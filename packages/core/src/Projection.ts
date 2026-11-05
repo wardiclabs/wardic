@@ -1,24 +1,25 @@
 /**
- * The `Projection` module: the projection tree's geometry (ADR-0009), its {@link Delta} and the
- * value the coordinator writes under {@link KEY}. The operations are ported from
- * framer-motion's `motion-dom/src/projection/geometry/{delta-calc,delta-apply}.ts`.
+ * Layout projection's geometry, as Motion's: the `Delta` that maps one box onto another
+ * (`calcBoxDelta`), a delta applied to a box (`applyBoxDelta`), a box drawn through its ancestors' deltas
+ * (`applyTreeDeltas`), and a box relative to its parent's (`calcRelativeBox`, `placeRelativeBox`). A
+ * binding's projection pass composes them each frame, and writes each node's `Value` under `KEY` for its
+ * Environment's renderer to draw. `LayoutMode` says which parts of a layout change animate.
  *
- * These are the load-bearing formulas of the projection tree: compute the
- * {@link Delta} that maps a source {@link Box.Box} onto a target ({@link calcBoxDelta}),
- * apply a delta to project a box forward ({@link applyBoxDelta}), express a child
- * box relative to its parent ({@link calcRelativeBox}), and interpolate between
- * two boxes (`Box.mix`). The binding's per-frame projection pass (P1b)
- * composes these; this module is PURE (no DOM/Effect/Clock).
+ * @example
+ * import * as Projection from "@wardic/core/Projection"
  *
- * Three deliberate deviations from Motion's source, all documented inline:
- *   1. IMMUTABLE — every function returns a fresh object (ADR-0009 Option C);
- *      Motion mutates a caller-owned output to avoid per-frame allocation. A
- *      mutate-into-output variant is a measured optimisation for later.
- *   2. ZERO-LENGTH GUARD — a zero-size source axis yields `scale: 1` rather than
- *      `Infinity`/`NaN` (matches `Flip.make`'s guard).
- *   3. The snapping precisions + arithmetic are copied verbatim so results
- *      cross-check against Motion.
+ * const delta = Projection.calcBoxDelta(layout, target)
+ * Projection.applyBoxDelta(layout, delta) // `target`
  */
+// ADR-0009: ported from Motion's `motion-dom/src/projection/geometry/{delta-calc,delta-apply}.ts`. Pure:
+// no Effect, no Clock. Three deliberate deviations from Motion's source, all documented inline:
+//   1. Immutable: every function returns a fresh object (ADR-0009 Option C); Motion mutates a
+//      caller-owned output to avoid per-frame allocation. A mutate-into-output variant is a measured
+//      optimisation for later.
+//   2. A zero-length guard: a zero-size source axis yields `scale: 1` rather than `Infinity`/`NaN`
+//      (matches `Flip.make`'s guard).
+//   3. The snapping precisions and arithmetic are copied verbatim, so results cross-check against
+//      Motion.
 import * as Bool from "effect/Boolean"
 import * as Match from "effect/Match"
 import * as Predicate from "effect/Predicate"
@@ -26,82 +27,80 @@ import * as Box from "./Box.ts"
 import type * as Point from "./Point.ts"
 import * as Scalar from "./Scalar.ts"
 
-/**
- * The transform that maps one {@link Box.Axis} onto another (the per-axis half of a
- * {@link Delta}), as framer-motion computes it:
- * - `origin`: the 0–1 anchor fraction the scale/translate are resolved around.
- * - `originPoint`: that anchor as an absolute coordinate in the *source* axis
- *   (`mix(source.min, source.max, origin)`).
- * - `scale`: `len(target) / len(source)`.
- * - `translate`: the shift that places the anchor at its target position.
- */
+/** What maps one axis onto another: half a `Delta`. */
 export interface AxisDelta {
+  /** The move that puts the origin point where it is on the target. */
   readonly translate: number
+  /** The target's length over the source's. */
   readonly scale: number
+  /** Where along the source it scales about, from 0 to 1: 0.5, its middle, by default. */
   readonly origin: number
+  /** That point, on the source: its `min`, plus `origin` of its length. */
   readonly originPoint: number
 }
 
-/** A box transform — an {@link AxisDelta} per axis. Maps a source {@link Box.Box} onto a target. */
+/** What maps one box onto another: an `AxisDelta` on each axis. */
 export interface Delta {
+  /** Across. */
   readonly x: AxisDelta
+  /** Down. */
   readonly y: AxisDelta
 }
 
 /**
- * The reserved gate value-map key under which the projection coordinator writes
- * a node's per-frame {@link Value} (ADR-0009). The DOM renderer's
- * `project()` reads this key to assemble the projection transform (weaving the
- * element's own animated `rotate`/`skew` from the same value-map) instead of the
- * normal transform grouping. Namespaced (`@…`) so it never collides with a CSS
- * property or animated value key. This is the contract between the binding
- * coordinator (writer) and the renderer (reader); it lives in core because that
- * is their only shared dependency.
+ * The key a projection pass writes each node's `Value` under, each frame, for its Environment's renderer
+ * to draw as one transform with the element's own rotation and skew. Namespaced, `@projection`, so it
+ * never collides with an animated key.
  */
+// ADR-0009. `@wardic/dom`'s renderer's `project()` reads it in place of its normal transform grouping.
+// The contract between the binding's coordinator (the writer) and the renderer (the reader); it lives in
+// core because that is their only shared dependency.
 export const KEY = "@projection"
 
 /**
- * The payload the projection coordinator writes under {@link KEY}: the
- * node's projection {@link Delta} (layout box → animating target box) plus the
- * cumulative ancestor `treeScale`. The renderer turns these into the transform
- * `translate3d(...) scale(1/treeScale) [user rotate/skew] scale(delta*treeScale)`.
+ * What a projection pass writes under `KEY` for a node, each frame: its `Delta`, from its layout box to
+ * where it's drawn, and its ancestors' scale, which the renderer takes back out so the node isn't scaled
+ * twice.
  */
+// `@wardic/dom`'s renderer draws `translate3d(...) scale(1/treeScale) [user rotate/skew]
+// scale(delta*treeScale)`.
 export interface Value {
+  /** From the node's layout box to where it's drawn. */
   readonly delta: Delta
+  /** Its ancestors' scale, multiplied together. */
   readonly treeScale: Point.Point
   /**
-   * Optional shared-element crossfade factor (ADR-0010), 0–1. When present the
-   * renderer composes `finalOpacity = (userOpacity ?? 1) × opacity` in the
-   * `@projection` branch — the lead fades in (`mix(0,1,progress)`), followers fade
-   * out (`mix(1,0,progress)`). Absent for a plain layout node (no crossfade), so
-   * the user's opacity passes through untouched.
+   * A shared element's crossfade, from 0 to 1: the element's own opacity is multiplied by it. The lead
+   * fades in, the followers fade out. Absent for a plain layout node, so its own opacity shows.
    */
+  // ADR-0010.
   readonly opacity?: number
   /**
-   * A Switch's blended opacity (ADR-0010, *Amendment (#166)*), 0–1: drawn as the element's opacity
-   * as it is, in place of its own and of any crossfade factor, from the leaver's opacity to the
-   * element's own over the handover. Absent otherwise.
+   * A handover's blended opacity, from 0 to 1: drawn as the element's opacity in place of its own and of
+   * any crossfade, from the leaving element's opacity to its own over the handover. Absent otherwise.
    */
+  // A Switch's (ADR-0010, *Amendment (#166)*).
   readonly blendOpacity?: number
   /**
-   * A handover's blended rotation in degrees (ADR-0010, *Amendment (#166)*): woven in place of the
-   * element's own `rotate`, from the twin's to its own over the handover; a Follower is drawn with
-   * its Lead's. Absent otherwise, so the element's own `rotate` shows.
+   * A handover's blended rotation, in degrees: drawn in place of the element's own `rotate`, from its
+   * twin's to its own over the handover. A follower is drawn with its lead's. Absent otherwise, so the
+   * element's own `rotate` shows.
    */
+  // ADR-0010, *Amendment (#166)*.
   readonly rotate?: number
   /**
-   * Optional stacking raise (ADR-0016, *Amendment (Reorder)*): while present the
-   * renderer emits it as `z-index`, so a dragged node paints above its siblings (Motion's
-   * Reorder item, `zIndex: 1` while it's off its slot). Absent at rest, so the element's
-   * own z-index shows.
+   * A raise above its siblings: while it's set, the renderer draws the node above them, as a dragged
+   * Reorder item is while it's off its place. Absent at rest, so the element's own stacking shows.
    */
+  // ADR-0016, *Amendment (Reorder)*: Motion's Reorder item, `zIndex: 1`; `@wardic/dom` writes it as
+  // `z-index`.
   readonly raise?: number
   /**
-   * Present on a Follower (ADR-0010, *Amendment (#165)*): pointer input passes through it to
-   * what's beneath, so a Follower locked onto its Lead's box never takes the Lead's input,
-   * fading out or hidden at rest (Motion's). How a renderer lets it through is its Environment's
-   * (the DOM's: `@wardic/dom`'s renderer). Absent on a Lead, so the element's own value shows.
+   * Set on a follower: pointer input passes through it to what's beneath, so a follower drawn on its
+   * lead's box never takes the lead's input, fading out or hidden at rest, as Motion's. How a renderer
+   * lets it through is its Environment's. Absent on a lead, so the element's own value shows.
    */
+  // ADR-0010, *Amendment (#165)*; `@wardic/dom`'s renderer.
   readonly passesPointer?: true
 }
 
@@ -109,11 +108,12 @@ export interface Value {
 const REST_AXIS: AxisDelta = { translate: 0, scale: 1, origin: 0.5, originPoint: 0 }
 
 /**
- * A node drawn at its own box (#245): no delta, no ancestors' scale. The renderer draws it with the
- * element's own rotate, skew and scale and leaves its own translate out (the projection owns it,
- * ADR-0016), as it draws a layout node at rest. What a server, which measures nothing (ADR-0021),
- * projects a layout node's Starting style and Appear animation with.
+ * A node drawn at its own box: no delta, no ancestors' scale. The renderer draws it with the element's
+ * own rotation, skew and scale, and leaves its own move out, as it draws a layout node at rest. What a
+ * server, which measures nothing, draws a layout node's starting style and mount animation with.
  */
+// #245; the projection owns its translate (ADR-0016); ADR-0021 (the server measures nothing): the
+// Starting style and the Appear animation.
 export const AT_REST: Value = { delta: { x: REST_AXIS, y: REST_AXIS }, treeScale: { x: 1, y: 1 } }
 
 /** Below this distance from 1, a computed scale snaps to exactly 1 (Motion's `SCALE_PRECISION`). */
@@ -138,7 +138,7 @@ const scalePoint = (point: number, scale: number, originPoint: number): number =
 
 /**
  * The scale from `source` to `target`: their length ratio, or 1 for a zero-length `source`.
- * On the per-frame path (ADR-0025), dom's projection pass calls it per node: an early return.
+ * On the per-frame path (ADR-0025), `@wardic/dom`'s projection pass calls it per node: an early return.
  */
 const scaleOf = (source: Box.Axis, target: Box.Axis): number => {
   const sourceLength = Box.length(source)
@@ -147,14 +147,12 @@ const scaleOf = (source: Box.Axis, target: Box.Axis): number => {
 }
 
 /**
- * The {@link AxisDelta} that maps `source` onto `target`, resolved around the
- * 0–1 `origin` fraction (default `0.5` = the axis centre, the transform-origin a
- * node scales/translates about; `layoutAnchor` overrides this in P4).
- *
- * `scale = len(target)/len(source)` (a zero-length source ⇒ scale 1, our guard);
- * `translate` shifts the origin point to its target position. Scale/translate
- * snap to 1/0 within Motion's precisions to avoid sub-pixel transform churn.
+ * The `AxisDelta` that maps `source` onto `target`, about `origin`, from 0 to 1 along it: 0.5, its middle,
+ * by default. The scale is the lengths' ratio, 1 for a `source` of no length; the move puts the origin
+ * point where it is on `target`. Both snap to 1 and 0 within Motion's precisions, so no transform
+ * changes by a fraction of a pixel.
  */
+// `layoutAnchor` overrides the origin (P4).
 export const calcAxisDelta = (source: Box.Axis, target: Box.Axis, origin = 0.5): AxisDelta => {
   const originPoint = Scalar.lerp(source.min, source.max, origin)
   let scale = scaleOf(source, target)
@@ -164,20 +162,18 @@ export const calcAxisDelta = (source: Box.Axis, target: Box.Axis, origin = 0.5):
   return { translate, scale, origin, originPoint }
 }
 
-/**
- * The {@link Delta} mapping `source` onto `target`, per axis. `origin` is the
- * transform-origin as 0–1 fractions per axis (default centre `{x:0.5,y:0.5}`).
- */
+/** The `Delta` that maps `source` onto `target`, about `origin`, from 0 to 1 on each axis: the middle by default. */
 export const calcBoxDelta = (source: Box.Box, target: Box.Box, origin: Point.Point = { x: 0.5, y: 0.5 }): Delta => ({
   x: calcAxisDelta(source.x, target.x, origin.x),
   y: calcAxisDelta(source.y, target.y, origin.y),
 })
 
 /**
- * Project a single coordinate forward by a delta (Motion's `applyPointDelta`):
- * optional `boxScale` first (the ancestor/tree scale, used by P1b's tree pass),
- * then the delta's own `scale` about `originPoint`, then `translate`.
+ * A coordinate projected by a delta, as Motion's `applyPointDelta`: scaled by `boxScale` first, when it's
+ * given, the ancestors' scale, then by the delta's own `scale` about `originPoint`, then moved by
+ * `translate`.
  */
+// `boxScale` is the tree pass's (P1b).
 export const applyPointDelta = (
   point: number,
   translate: number,
@@ -190,36 +186,29 @@ export const applyPointDelta = (
   return scalePoint(p, scale, originPoint) + translate
 }
 
-/** Project an {@link Box.Axis} forward by an {@link AxisDelta} — returns a fresh axis. */
+/** An axis projected by an `AxisDelta`: a fresh axis. */
 export const applyAxisDelta = (axis: Box.Axis, delta: AxisDelta): Box.Axis => ({
   min: applyPointDelta(axis.min, delta.translate, delta.scale, delta.originPoint),
   max: applyPointDelta(axis.max, delta.translate, delta.scale, delta.originPoint),
 })
 
-/**
- * Project a {@link Box.Box} forward by a {@link Delta} — returns a fresh box.
- * `applyBoxDelta(source, calcBoxDelta(source, target))` reproduces `target`.
- */
+/** A box projected by a `Delta`: a fresh box. `applyBoxDelta(source, calcBoxDelta(source, target))` is `target`. */
 export const applyBoxDelta = (box: Box.Box, delta: Delta): Box.Box => ({
   x: applyAxisDelta(box.x, delta.x),
   y: applyAxisDelta(box.y, delta.y),
 })
 
 /**
- * Project a node's `layout` box through its ancestors' projection deltas to get
- * where it currently APPEARS on screen, plus the cumulative ancestor scale
- * (`treeScale`) — ported from Motion's `applyTreeDeltas`.
- *
- * `ancestorDeltas` is the node's ancestor projection deltas in ROOT-FIRST order
- * (outermost ancestor first, the node's parent last); each is applied in turn and
- * its scale multiplied into `treeScale`. `treeScale` snaps to 1 strictly inside Motion's
- * `TREE_SCALE_SNAP_MIN`–`TREE_SCALE_SNAP_MAX`. Returns a fresh corrected box + the `treeScale` point (the binding
- * feeds `treeScale` to `buildProjectionTransform`).
- *
- * Pure: the `display:contents` skip, scroll compensation (P3), and shared-element
- * transform (crossfade) that Motion folds in here are binding/DOM concerns — the
- * caller decides which ancestor deltas to pass.
+ * Where a node's `layout` box is drawn, through its ancestors' deltas, and its ancestors' scale, as
+ * Motion's `applyTreeDeltas`. `ancestorDeltas` are its ancestors' deltas, the outermost first and its
+ * parent last: each is applied in turn, and its scale multiplied into `treeScale`, which snaps to 1 when
+ * it's within float noise of it. The caller decides which ancestors' deltas to pass: what Motion also
+ * folds in here, a node with no box of its own, a scroll's compensation, a shared element's transform,
+ * is the caller's.
  */
+// Motion's `TREE_SCALE_SNAP_MIN`–`TREE_SCALE_SNAP_MAX`. The binding feeds `treeScale` to
+// `buildProjectionTransform`. What's skipped: `display:contents`, scroll compensation (P3), the
+// crossfade's transform.
 export const applyTreeDeltas = (
   layout: Box.Box,
   ancestorDeltas: ReadonlyArray<Delta>,
@@ -238,29 +227,23 @@ export const applyTreeDeltas = (
 }
 
 /**
- * Express `child` relative to `parent` at the 0–1 `anchor` fraction: subtract the
- * parent's anchor point (`mix(parent.min, parent.max, anchor)`) from the child's
- * coordinates. At `anchor: 0` (top/left) the result is the child measured from
- * the parent's top-left; at `0.5` it is measured from the parent's centre. This
- * is how a node's box is expressed in its parent's frame for the projection tree.
+ * `child` relative to `parent`, measured from the point `anchor`, from 0 to 1, along `parent`: at 0, from
+ * its start; at 0.5, from its middle. How a node's box is put in its parent's terms.
  */
 export const calcRelativeAxis = (child: Box.Axis, parent: Box.Axis, anchor: number): Box.Axis => {
   const anchorPoint = Scalar.lerp(parent.min, parent.max, anchor)
   return { min: child.min - anchorPoint, max: child.max - anchorPoint }
 }
 
-/**
- * Express `child` relative to `parent`, per axis, at the 0–1 `anchor` (default
- * top-left `{x:0,y:0}` — the `layoutAnchor` default).
- */
+/** `child` relative to `parent` on each axis, at `anchor`: their top-left by default, as Motion's `layoutAnchor`. */
 export const calcRelativeBox = (child: Box.Box, parent: Box.Box, anchor: Point.Point = { x: 0, y: 0 }): Box.Box => ({
   x: calcRelativeAxis(child.x, parent.x, anchor.x),
   y: calcRelativeAxis(child.y, parent.y, anchor.y),
 })
 
 /**
- * Inverse of {@link calcRelativeAxis}: place a relative axis back into `parent`
- * at the 0–1 `anchor` — ADD the parent's anchor point. `placeRelativeAxis(calcRelativeAxis(c, p, a), p, a) === c`.
+ * `calcRelativeAxis` undone: a relative axis placed back into `parent` at `anchor`.
+ * `placeRelativeAxis(calcRelativeAxis(c, p, a), p, a)` is `c`.
  */
 export const placeRelativeAxis = (relative: Box.Axis, parent: Box.Axis, anchor: number): Box.Axis => {
   const anchorPoint = Scalar.lerp(parent.min, parent.max, anchor)
@@ -268,24 +251,23 @@ export const placeRelativeAxis = (relative: Box.Axis, parent: Box.Axis, anchor: 
 }
 
 /**
- * Place a relative {@link Box.Box} into `parent`, per axis (the inverse of
- * {@link calcRelativeBox}). Used by relative projection: a child's offset within
- * its parent, placed into the parent's CURRENT (animating) target, yields the
- * child's viewport target — so the child tracks the parent regardless of their
- * relative progress (ADR-0009, "not left behind").
+ * `calcRelativeBox` undone, on each axis. Placing a child's box relative to its parent into the parent's
+ * box as it's animating gives where the child goes, so a child keeps up with its parent whatever their
+ * progress.
  */
+// Relative projection (ADR-0009, "not left behind").
 export const placeRelativeBox = (relative: Box.Box, parent: Box.Box, anchor: Point.Point = { x: 0, y: 0 }): Box.Box => ({
   x: placeRelativeAxis(relative.x, parent.x, anchor.x),
   y: placeRelativeAxis(relative.y, parent.y, anchor.y),
 })
 
 /**
- * A projection node's **Layout mode** (CONTEXT.md; ADR-0009, *Amendment (#42)*): which parts of
- * a layout change its layout animation animates. `true` animates both position and size;
- * `"position"` its position only, its size taking the new value at once; `"size"` its size only;
- * `"x"` / `"y"` that axis only; `"preserve-aspect"` both while the width/height ratio stays
- * within 0.2, else its position only. Motion's `animationType`.
+ * Which parts of a layout change a node's layout animation animates, as Motion's: `true`, its position
+ * and size; `"position"`, its position, its size taking the new one at once; `"size"`, its size; `"x"` or
+ * `"y"`, that axis; `"preserve-aspect"`, both while its width-to-height ratio stays within 0.2, else its
+ * position.
  */
+// A **Layout mode** (CONTEXT.md; ADR-0009, *Amendment (#42)*): Motion's `animationType`.
 export type LayoutMode = true | "position" | "size" | "preserve-aspect" | "x" | "y"
 
 /** How far two width/height ratios may be apart for `"preserve-aspect"` to animate both (Motion's `isNear(…, 0.2)`). */
@@ -295,15 +277,16 @@ const ASPECT_NEAR = 0.2
 const aspectOf = (box: Box.Box): number => Box.length(box.x) / Box.length(box.y)
 
 /**
- * Whether `mode` animates only the position of a layout change from `from` to `to`: `"position"`,
- * or `"preserve-aspect"` when the two width/height ratios are more than 0.2 apart (Motion's
- * `shouldAnimatePositionOnly`, create-projection-node.ts:2449-2459 at
- * 16c61222c4166bbef5ff6ab0051192faa79fa8c8). Plain operators: a Follower reads it every frame.
+ * Whether `mode` animates only the position of a layout change from `from` to `to`: `"position"`, or
+ * `"preserve-aspect"` when their width-to-height ratios are more than 0.2 apart, as Motion's.
  */
+// Motion's `shouldAnimatePositionOnly`, create-projection-node.ts:2449-2459 at
+// 16c61222c4166bbef5ff6ab0051192faa79fa8c8. Plain operators: a Follower reads it every frame.
 export const animatesPositionOnly = (mode: LayoutMode, from: Box.Box, to: Box.Box): boolean =>
   mode === "position" || (mode === "preserve-aspect" && Math.abs(aspectOf(from) - aspectOf(to)) > ASPECT_NEAR)
 
-/** `box` with `like`'s size, at its own top-left (`min`). A Follower's per-frame target: no allocation beyond the box. */
+/** `box` with `like`'s size, at its own top-left. */
+// A Follower's per-frame target: no allocation beyond the box.
 export const withSizeOf = (box: Box.Box, like: Box.Box): Box.Box => ({
   x: { min: box.x.min, max: box.x.min + Box.length(like.x) },
   y: { min: box.y.min, max: box.y.min + Box.length(like.y) },
@@ -316,13 +299,13 @@ const movedTo = (box: Box.Box, to: Box.Box): Box.Box => ({
 })
 
 /**
- * Where a layout animation from `origin` to `target` starts under `mode` (Motion's
- * `notifyLayoutUpdate`, create-projection-node.ts:2163-2205 at
- * 16c61222c4166bbef5ff6ab0051192faa79fa8c8): `"size"` moves `origin` to `target`'s top-left, so
- * only its size animates; `"x"` / `"y"` take the other axis from `target`; a position-only mode
- * ({@link animatesPositionOnly}) gives `origin` `target`'s size at its own top-left, so only its
- * position animates; `true` leaves it as it is. Once per layout animation's start.
+ * Where a layout animation from `origin` to `target` starts under `mode`, as Motion's: `"size"` moves
+ * `origin` to `target`'s top-left, so only its size animates; `"x"` and `"y"` take the other axis from
+ * `target`; a position-only mode gives `origin` `target`'s size at its own top-left, so only its position
+ * animates; `true` leaves it as it is. Once, at each layout animation's start.
  */
+// Motion's `notifyLayoutUpdate`, create-projection-node.ts:2163-2205 at
+// 16c61222c4166bbef5ff6ab0051192faa79fa8c8.
 export const shapeOrigin = (mode: LayoutMode, origin: Box.Box, target: Box.Box): Box.Box =>
   Match.value(mode).pipe(
     Match.when("size", () => movedTo(origin, target)),
