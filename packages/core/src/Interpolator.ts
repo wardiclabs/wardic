@@ -340,14 +340,14 @@ export interface ComplexOptions {
   /**
    * Patterns for spans that are only text: matched whole, before tokens and numbers, so the digits in
    * them are never numbers; kept as text; and counted when two values match. No capturing groups. None
-   * by default: core names no Environment's syntax, and the DOM's are in `@wardic/dom`.
+   * by default: core names no Environment's syntax, and `@wardic/dom`'s are its own.
    */
   // ADR-0035 *Amendment (#158)*.
   readonly text?: ReadonlyArray<RegExp>
   /**
    * Kinds of token besides numbers: each a pattern, and the Interpolator its tokens are read, blended
    * and written through. Two values blend with the same count of each kind, the n-th token of a kind
-   * with the n-th of that kind. None by default: the DOM's colours are in `@wardic/dom`.
+   * with the n-th of that kind. None by default: `@wardic/dom`'s colours are its own.
    */
   // #160, ADR-0036.
   readonly tokens?: ReadonlyArray<TokenKind>

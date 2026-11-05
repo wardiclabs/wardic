@@ -1,7 +1,7 @@
 /**
  * Pure, dt-driven steppers shared by core's modules (ADR-0028, decision 2): the tween's and the
  * decay's, and the step results. Not importable from outside core (`package.json`'s
- * `"./internal/*": null`); the spring's stepper is public, in the `Spring` module, for dom.
+ * `"./internal/*": null`); the spring's stepper is public, in the `Spring` module, for `@wardic/dom`.
  *
  * Every stepper takes the previous state and a frame delta `dt` (seconds) and returns the next
  * state, the value to emit, and whether motion has settled. The per-frame path (ADR-0025): a
