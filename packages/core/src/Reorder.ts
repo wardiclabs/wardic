@@ -1,10 +1,26 @@
 /**
- * The `Reorder` module: the **Reorder group**'s pure pieces (ADR-0020): the Crossover
- * (`check`), axis detection, and the group a binding drives from a drag or from the keys (a
- * **Keyboard reorder**, ADR-0037), a `Pipeable` data type (`Group`) with `dual` operations
- * (ADR-0028, decision 1), and the keyboard reorder's wording. DOM-free; the binding and the
- * Environment supply the boxes, points, keys and scrollers, and speak the announcements.
+ * Reorder groups: a list the user reorders by dragging an item, or with the keys, as Motion's
+ * `Reorder.Group`. A `Group` holds its items by value and runs one drag at a time. A binding registers
+ * each item with how to read its box, drives the group from a drag's samples (`dragStart`, `dragMove`,
+ * `dragEnd`) or from keys (`lift`, `step`, `drop`, `cancel`), and the group calls `onReorder` with each
+ * new order. `check` is the rule that decides when a dragged item swaps places, and
+ * `defaultAnnouncements` what a screen reader hears. The binding and its Environment supply the boxes,
+ * points, keys and scrollers.
+ *
+ * @example
+ * import * as Reorder from "@wardic/core/Reorder"
+ *
+ * const group = Reorder.make({ values: () => items, onReorder: (next) => (items = next) })
+ * const unregister = Reorder.register(group, item, source)
+ * // As the item is dragged:
+ * Reorder.dragStart(group, item)
+ * Reorder.dragMove(group, item, sample.velocity)
+ * Reorder.dragEnd(group, item)
  */
+// ADR-0020: the **Reorder group**'s pure pieces: the **Crossover** (`check`), axis detection, and the
+// group, driven from a drag or from the keys (a **Keyboard reorder**, ADR-0037), with its wording. A
+// `Pipeable` data type (`Group`) with `dual` operations (ADR-0028, decision 1). DOM-free; the binding and
+// the Environment speak the announcements.
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Equivalence from "effect/Equivalence"
@@ -23,35 +39,28 @@ import type * as InputSource from "./InputSource.ts"
 import type * as Point from "./Point.ts"
 import { dual } from "./internal/dual.ts"
 
-/**
- * The axis a **Reorder group** reorders on: a column (`"y"`), a row (`"x"`), or a
- * wrapped grid (`"xy"`). Motion's `Axis` (Reorder/types.ts at 16c6122).
- *
- * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
- */
+/** The axis a group reorders on: a column (`"y"`), a row (`"x"`), or a grid that wraps (`"xy"`), as Motion's `Axis`. */
+// Motion's Reorder/types.ts @ 16c6122. Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
 export type Axis = "x" | "y" | "xy"
 
-/**
- * One reorderable item as the **Crossover** sees it: its value and its layout box (the
- * slot, not where it paints while dragged). Motion's `ItemData` (Reorder/types.ts at
- * 16c6122).
- *
- * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
- */
+/** An item as `check` sees it: its value and its layout box, its place in the list, not where it paints while it's dragged. */
+// Motion's `ItemData` (Reorder/types.ts @ 16c6122). Tier 2 (ADR-0008).
 export interface ItemData<V> {
+  /** The item's value in the list. */
   readonly value: V
+  /** Its layout box: its place in the list. */
   readonly layout: Box.Box
 }
 
 const centreOf = (axis: Box.Axis): number => axis.min + (axis.max - axis.min) * 0.5
 
 /**
- * `arr` with the item at `fromIndex` moved to `toIndex`, as a new array (negative
- * indexes count from the end). motion-utils' `moveItem` (array.ts:11-22 at
- * 16c61222c4166bbef5ff6ab0051192faa79fa8c8), ported.
+ * `arr` with the item at `fromIndex` moved to `toIndex`, as a new array; a negative index counts from
+ * the end.
  *
  * @internal
  */
+// motion-utils' `moveItem` (array.ts:11-22 @ 16c61222c4166bbef5ff6ab0051192faa79fa8c8), ported.
 export const moveItem = <T>(arr: ReadonlyArray<T>, fromIndex: number, toIndex: number): Array<T> => {
   const next = Arr.copy(arr)
   const startIndex = fromEnd(fromIndex, next.length)
@@ -72,31 +81,27 @@ const indexOf = <V>(order: ReadonlyArray<ItemData<V>>, value: V): Option.Option<
   Arr.findFirstIndex(order, (item) => item.value === value)
 
 /**
- * The **Crossover**: the order after the item holding `value` has been dragged
- * `offset` from its slot, moving at `velocity`. Returns the same `order` reference
- * when nothing moves, so a caller can compare by reference (Motion's Group.tsx does).
- *
- * - `"xy"` (a wrapped grid) is Motion's `check` (Reorder/utils/check-reorder.ts
- *   at 16c61222c4166bbef5ff6ab0051192faa79fa8c8, https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/components/Reorder/utils/check-reorder.ts):
- *   the dragged centre picks the nearest line (a row of overlapping boxes); on another
- *   line it's inserted before the first item whose centre is past it in `direction`,
- *   and on its own line it steps one place toward the nearest box.
- * - A single axis moves one place at most. The item moves toward the neighbour, of
- *   the two next to it in `order`, whose centre lies on the side it's moving to (a
- *   greater centre for a positive velocity on the axis, a smaller one for a negative),
- *   once its edge facing that neighbour crosses the neighbour's centre. No velocity on
- *   the axis moves nothing.
- *
- * The single-axis neighbour is chosen by position where Motion's is chosen by index
- * (`index + sign(velocity)`, since framer-motion 13.1): with the first value laid out
- * last (`direction: rtl`, `row-reverse`, `column-reverse`), Motion's never reorders
- * toward a neighbour and walks the item to the far end in 30 px away from one (motion/react
- * 13.4.6, every run in Chromium and Firefox: .tmp/reorder/runs-*-{rtl,reverse}.json;
- * framer-motion 13.0 sorted by position). In normal flow the two rules pick the same
- * neighbour.
- *
- * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
+ * The order after the item holding `value` has been dragged `offset` from its place, moving at
+ * `velocity`: the rule for when a dragged item swaps places. The same `order` when nothing moves, so a
+ * caller can compare by reference.
+ * - **One axis** moves the item one place at most: toward the neighbour, of the two next to it, whose
+ *   centre lies the way it's moving, once its edge facing that neighbour crosses the neighbour's centre.
+ *   No velocity on the axis moves nothing.
+ * - **A grid** (`"xy"`), as Motion's: the dragged centre picks the nearest row. In another row, the item
+ *   goes before the first item whose centre is past it in `direction`; in its own, it steps one place
+ *   toward the nearest box.
  */
+// The **Crossover**. Motion's Group.tsx compares by reference too. `"xy"` is Motion's `check`
+// (Reorder/utils/check-reorder.ts @ 16c61222c4166bbef5ff6ab0051192faa79fa8c8,
+// https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/components/Reorder/utils/check-reorder.ts):
+// a line is a row of overlapping boxes.
+//
+// The single-axis neighbour is chosen by position where Motion's is chosen by index (`index +
+// sign(velocity)`, since framer-motion 13.1): with the first value laid out last (`direction: rtl`,
+// `row-reverse`, `column-reverse`), Motion's never reorders toward a neighbour and walks the item to the
+// far end in 30 px away from one (motion/react 13.4.6, every run in Chromium and Firefox:
+// .tmp/reorder/runs-*-{rtl,reverse}.json; framer-motion 13.0 sorted by position). In normal flow the two
+// rules pick the same neighbour. Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
 export const check = <V>(
   order: ReadonlyArray<ItemData<V>>,
   value: V,
@@ -265,16 +270,13 @@ const distanceToBox = (point: Point.Point, box: Box.Box): number => {
 const isSeparated = (a: Box.Axis, b: Box.Axis): boolean => Bool.or(a.max <= b.min, b.max <= a.min)
 
 /**
- * The axis a set of item boxes is laid out on: `"x"` if some pair doesn't overlap
- * horizontally, `"y"` if some pair doesn't overlap vertically, `"xy"` if both (a
- * wrapped grid), and `"y"` otherwise. It compares pairs and stops once both are
- * found. Motion's `detectAxis` (Reorder/utils/detect-axis.ts at
- * 16c61222c4166bbef5ff6ab0051192faa79fa8c8,
- * https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/components/Reorder/utils/detect-axis.ts),
- * ported.
- *
- * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
+ * The axis a list's item boxes are laid out on, as Motion's `detectAxis`: `"x"` if some two don't
+ * overlap across, `"y"` if some two don't overlap down, `"xy"` if both, a grid that wraps, and `"y"`
+ * otherwise. It stops once it has found both.
  */
+// Motion's Reorder/utils/detect-axis.ts @ 16c61222c4166bbef5ff6ab0051192faa79fa8c8
+// (https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/components/Reorder/utils/detect-axis.ts),
+// ported. Tier 2 (ADR-0008).
 export const detectAxis = (layouts: ReadonlyArray<Box.Box>): Axis => {
   // Every unordered pair of boxes.
   const pairs = Arr.flatMap(layouts, (a, i) => Arr.map(Arr.drop(layouts, i + 1), (b) => [a, b] as const))
@@ -292,82 +294,90 @@ export const detectAxis = (layouts: ReadonlyArray<Box.Box>): Axis => {
 const TypeId = "~@wardic/core/Reorder"
 
 /**
- * What a **Reorder group** reads from one item: its layout box (the slot, `None`
- * before it's measured), how far it's dragged from that slot, and a count that rises
- * each time a Measure pass reads its box. A projection node's handle provides all
- * three (ADR-0016, *Amendment (Reorder)*); the group pulls them, it isn't pushed to.
- *
- * Tier 2 (ADR-0008, as amended by ADR-0025): Effect-native, for binding and Environment authors.
+ * What a group reads from one item, when it needs it: a layout projection's handle for the item gives
+ * all three.
  */
+// ADR-0016, *Amendment (Reorder)*: the group pulls them, it isn't pushed to. Tier 2 (ADR-0008, as amended
+// by ADR-0025): Effect-native, for binding and Environment authors.
 export interface ItemSource {
+  /** Its layout box, its place in the list: `None` before it's measured. */
   readonly layoutBox: () => Option.Option<Box.Box>
+  /** How far it's dragged from its place. */
   readonly dragOffset: () => Point.Point
+  /** A count that rises each time its box is measured: after a reorder, a drag waits until it does. */
+  // A Measure pass.
   readonly layoutVersion: () => number
 }
 
-/**
- * A **Reorder group**'s inputs. `values` is the app's order, read when it's needed;
- * `onReorder` receives each new order (the app sets it, as with Motion's). `axis`
- * overrides the detected axis when it gives one (`Some`), read at each drag start; `direction` is the group's
- * inline direction (`"ltr"` when absent), read at each drag start. `debug` receives the
- * cold-path events: `reorder` { value, from, to, axis, direction } once per reorder,
- * `reorder waits` { value } once per wait for a Measure pass, `reorder start`
- * { value, axis, direction } and `move` { value, from, to }.
- *
- * Tier 2 (ADR-0008, as amended by ADR-0025): Effect-native, for binding and Environment authors.
- */
+/** A group's options: `make`'s. */
+// Tier 2 (ADR-0008, as amended by ADR-0025).
 export interface GroupOptions<V> {
+  /** The app's order, read when it's needed. */
   readonly values: () => ReadonlyArray<V>
+  /** Hears each new order, which the app sets, as with Motion's. */
   readonly onReorder: (values: Array<V>) => void
+  /** The axis, when it's given (`Some`): read at each drag's start, over the one `detectAxis` finds. */
   readonly axis?: (() => Option.Option<Axis>) | undefined
+  /** The group's inline direction, read at each drag's start: `"ltr"` when it's left out. */
   readonly direction?: (() => "ltr" | "rtl") | undefined
+  /**
+   * Hears what happens, for a debug log: `reorder` { value, from, to, axis, direction } once per reorder,
+   * `reorder waits` { value } once per wait for the boxes to be measured, `reorder start` { value, axis,
+   * direction }, and `move` { value, from, to }.
+   */
   readonly debug?: ((event: string, annotations: Record<string, unknown>) => void) | undefined
 }
 
-/** A **Keyboard reorder** under way: the lifted value, where it was, and the axis and direction fixed at the lift. */
+/** A keyboard reorder under way: the lifted value, where it was, and the axis and direction fixed at the lift. */
+// A **Keyboard reorder** (ADR-0037).
 interface Lift<V> {
+  /** The lifted item's value. */
   readonly value: V
   /** The order at the lift, which a cancel restores. */
   readonly origin: ReadonlyArray<V>
+  /** The axis, fixed at the lift. */
   readonly axis: Axis
+  /** The inline direction, fixed at the lift. */
   readonly direction: "ltr" | "rtl"
-  /** The lifted item's `layoutVersion()` at its last step, until a Measure pass passes it (as a drag's guard). */
+  /** The lifted item's `layoutVersion()` at its last step, until its box is measured again: a step waits while it's set. */
+  // Until a Measure pass passes it, as a drag's guard.
   guard: Option.Option<number>
 }
 
-/** The one drag gesture a group runs at a time. */
+/** The drag a group runs, one at a time. */
 interface Gesture<V> {
+  /** The dragged item's value. */
   readonly value: V
+  /** The axis, fixed at its start. */
   readonly axis: Axis
+  /** The inline direction, fixed at its start. */
   readonly direction: "ltr" | "rtl"
-  /** The dragged item's `layoutVersion()` at the last reorder, until a Measure pass passes it. */
+  /** The dragged item's `layoutVersion()` at the last reorder, until its box is measured again: it doesn't reorder while it's set. */
+  // Until a Measure pass passes it.
   guard: Option.Option<number>
-  /** Whether this guard's wait has been logged. */
+  /** Whether this wait has been sent to `debug`. */
   waited: boolean
 }
 
 /**
- * A **Reorder group** (ADR-0020): the items registered by value, and one drag gesture at a time.
- * A `Pipeable` data type (ADR-0028, decision 1), built by {@link make}; its operations take it
- * first and are `dual`:
+ * A reorder group: its items by value, and one drag at a time. Made by `make`; its operations take it
+ * first, or in a pipe.
+ * - `register` adds an item: a value has one source, and the function it returns removes it. A value
+ *   that isn't registered stays at its index in `values`.
+ * - `resolveAxis` is the group's axis: the `axis` it's given, else `detectAxis` over its measured items.
+ * - `dragStart` fixes a drag's axis and direction, and gives the axis; `dragMove` runs `check` for the
+ *   dragged item, with the drag sample's velocity, and gives the velocity back for auto-scroll; `dragEnd`
+ *   ends it.
+ * - `move` moves a value in code, held to the list; a value it doesn't know is left out.
+ * - `lift`, `step`, `drop` and `cancel` reorder one item with the keys, each giving where the item is,
+ *   for its announcement.
  *
- * - `register(group, value, source)` adds an item (a value has one source; the returned
- *   function removes it). An unregistered value stays in `values` at its index.
- * - `resolveAxis(group)` is the override, else {@link detectAxis} over the measured items'
- *   boxes in `values` order.
- * - `dragStart` fixes the gesture's axis and direction and returns the axis;
- *   `dragMove` runs the **Crossover** for the dragged item with the drag sample's velocity
- *   (the pointer's over its last 100 ms, ADR-0004 *Amendment (#139)*) and returns it, for
- *   Auto-scroll; `dragEnd` ends it.
- * - `move(group, value, toIndex)` moves a value in code (clamped to the list, an unknown
- *   value ignored).
- * - `lift`, `step`, `drop` and `cancel` run a **Keyboard reorder** (ADR-0037), one item at a
- *   time: each returns where the item is, for its announcement.
- *
- * Its state is the group's own, changed only by those operations.
- *
- * Tier 2 (ADR-0008, as amended by ADR-0025): Effect-native, for binding and Environment authors.
+ * Its state is its own, changed only by those operations.
  */
+// A **Reorder group** (ADR-0020): a `Pipeable` data type (ADR-0028, decision 1), its operations `dual`.
+// `dragMove`'s velocity is the pointer's over its last 100 ms (ADR-0004 *Amendment (#139)*). A **Keyboard
+// reorder** (ADR-0037). Tier 2 (ADR-0008, as amended by ADR-0025): Effect-native, for binding and
+// Environment authors.
 export interface Group<in out V> extends Pipeable, Inspectable.Inspectable {
   readonly [TypeId]: { readonly _V: Invariant<V> }
   /** The inputs `make` took. */
@@ -376,7 +386,8 @@ export interface Group<in out V> extends Pipeable, Inspectable.Inspectable {
   readonly sources: Map<V, ItemSource>
   /** The drag gesture, while one runs. */
   readonly gesture: MutableRef.MutableRef<Option.Option<Gesture<V>>>
-  /** The **Keyboard reorder**, while an item is lifted (ADR-0037). */
+  /** The keyboard reorder, while an item is lifted. */
+  // A **Keyboard reorder** (ADR-0037).
   readonly lifted: MutableRef.MutableRef<Option.Option<Lift<V>>>
 }
 
@@ -397,19 +408,20 @@ const Proto = {
 }
 
 /**
- * Build a **Reorder group** (ADR-0020). Each drag sample reads the measured items'
- * boxes and the dragged item's offset from their sources, runs the **Crossover**
- * (Motion's `check`, with the single-axis neighbour chosen by position), and on
- * a new order maps it back onto `values`, keeping unmeasured values at their indexes
- * (Motion's Group.tsx:160-166 at 16c61222c4166bbef5ff6ab0051192faa79fa8c8), then calls
- * `onReorder`. After a reorder it waits until the dragged item's `layoutVersion()`
- * rises, so a sample read against the boxes from before the reorder can't swap it
- * back; Motion waits for React's next commit (its guard is set at Group.tsx:158 and
- * cleared by an effect at :172-174). The registry is a plain `Map` keyed by value.
+ * A reorder group over `options`' values. Each drag sample reads the measured items' boxes and the dragged
+ * item's offset, runs `check`, and on a new order calls `onReorder` with it, a value with no box kept at
+ * its index. After a reorder it waits until the dragged item's box is measured again, so a sample read
+ * against the boxes from before can't swap it back.
  *
- * Each sample builds the measured order (an entry per item with a box), and a new order on a
- * reorder: about 17 µs a sample on 1,000 items in Chromium, 11–12 of them that build (#327).
+ * @example
+ * const group = Reorder.make({ values: () => items, onReorder: (next) => (items = next) })
  */
+// ADR-0020. A new order is mapped back onto `values`, keeping unmeasured values at their indexes (Motion's
+// Group.tsx:160-166 @ 16c61222c4166bbef5ff6ab0051192faa79fa8c8). The wait is on `layoutVersion()`; Motion
+// waits for React's next commit (its guard is set at Group.tsx:158 and cleared by an effect at :172-174).
+// The registry is a plain `Map` keyed by value. Each sample builds the measured order (an entry per item
+// with a box), and a new order on a reorder: about 17 µs a sample on 1,000 items in Chromium, 11–12 of
+// them that build (#327).
 export const make = <V>(options: GroupOptions<V>): Group<V> =>
   Object.assign(Object.create(Proto), {
     options,
@@ -418,7 +430,7 @@ export const make = <V>(options: GroupOptions<V>): Group<V> =>
     lifted: MutableRef.make(Option.none<Lift<V>>()),
   })
 
-/** Whether `u` is a **Reorder group** (built by {@link make}). */
+/** Whether `u` is a reorder group, made by `make`. */
 export const isGroup = (u: unknown): u is Group<unknown> => Predicate.hasProperty(u, TypeId)
 
 const ZERO: Point.Point = { x: 0, y: 0 }
@@ -488,7 +500,7 @@ const refill = <V>(values: ReadonlyArray<V>, measured: ReadonlyArray<Measured<V>
     return out
   })
 
-/** Add `value`'s item, read through `source`; the returned function removes it. */
+/** Adds `value`'s item, read through `source`. The function it returns removes it. */
 export const register: {
   <V>(value: V, source: ItemSource): (group: Group<V>) => () => void
   <V>(group: Group<V>, value: V, source: ItemSource): () => void
@@ -499,7 +511,7 @@ export const register: {
   }
 })
 
-/** The group's axis: its override, else {@link detectAxis} over the measured items' boxes. */
+/** The group's axis: its `axis`, when it's given one, else `detectAxis` over the measured items' boxes. */
 export const resolveAxis = <V>(group: Group<V>): Axis =>
   Option.fromUndefinedOr(group.options.axis).pipe(
     Option.flatMap((axis) => axis()),
@@ -513,7 +525,7 @@ const directionOf = <V>(group: Group<V>): "ltr" | "rtl" =>
     Option.getOrElse((): "ltr" | "rtl" => "ltr"),
   )
 
-/** Start dragging `value`'s item: the gesture's axis and direction are fixed now. Returns the axis. */
+/** Starts dragging `value`'s item: the drag's axis and direction are fixed now. Gives the axis. */
 export const dragStart: {
   <V>(value: V): (group: Group<V>) => Axis
   <V>(group: Group<V>, value: V): Axis
@@ -526,9 +538,8 @@ export const dragStart: {
 })
 
 /**
- * A drag sample of `value`'s item, moving at `velocity` (the sample's: the pointer's over its
- * last 100 ms): runs the **Crossover**, and returns `velocity` (no motion when `value` isn't
- * the one dragged).
+ * A drag sample of `value`'s item, moving at `velocity`, the sample's: runs `check`, and gives
+ * `velocity` back, for auto-scroll; no motion when `value` isn't the one dragged.
  */
 export const dragMove: {
   <V>(value: V, velocity: Point.Point): (group: Group<V>) => Point.Point
@@ -545,7 +556,7 @@ export const dragMove: {
     },
   }))
 
-/** End the drag of `value`'s item (nothing, when it isn't the one dragged). */
+/** Ends the drag of `value`'s item; nothing, when it isn't the one dragged. */
 export const dragEnd: {
   <V>(value: V): (group: Group<V>) => void
   <V>(group: Group<V>, value: V): void
@@ -556,10 +567,14 @@ export const dragEnd: {
 })
 
 /**
- * Move `value` to `toIndex` in code, through `onReorder` (clamped to the list), and return where it
- * is then, for its announcement (ADR-0037; `moved` false when it was already there). An unknown
- * value is ignored (`None`).
+ * Moves `value` to `toIndex` in code, through `onReorder`, held to the list, as an app's own buttons do:
+ * where it is then, for its announcement, `moved` false when it was there already. `None`, and nothing
+ * moved, for a value the group doesn't know.
+ *
+ * @example
+ * Reorder.move(group, item, 0) // to the top
  */
+// ADR-0037.
 export const move: {
   <V>(value: V, toIndex: number): (group: Group<V>) => Option.Option<Placement>
   <V>(group: Group<V>, value: V, toIndex: number): Option.Option<Placement>
@@ -578,12 +593,11 @@ export const move: {
 // --- The keyboard reorder (ADR-0037) ----------------------------------------------
 
 /**
- * What a key does to a **Keyboard reorder** (ADR-0037): Space or Enter lifts an item, or drops the
- * lifted one (`Toggle`); Escape cancels; an arrow steps the lifted item one place on screen; Home and
- * End move it to the first or last place. Any other key does nothing.
- *
- * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
+ * What a key does to a keyboard reorder: Space or Enter lifts an item, or drops the lifted one
+ * (`Toggle`); Escape cancels; an arrow steps the lifted item one place on screen; Home and End move it
+ * to the first or last place. Any other key does nothing.
  */
+// A **Keyboard reorder** (ADR-0037). Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
 export type KeyIntent =
   | { readonly _tag: "Toggle" }
   | { readonly _tag: "Cancel" }
@@ -598,7 +612,7 @@ const CANCEL: KeyIntent = { _tag: "Cancel" }
 const stepTo = (arrow: Arrow): KeyIntent => ({ _tag: "Step", arrow })
 const endTo = (end: "first" | "last"): KeyIntent => ({ _tag: "End", end })
 
-/** What `key` does to a keyboard reorder, if anything (see {@link KeyIntent}). */
+/** What `key` does to a keyboard reorder, if anything: see `KeyIntent`. */
 export const keyIntent = (key: InputSource.Key): Option.Option<KeyIntent> =>
   Match.value(key).pipe(
     Match.when(Match.is("space", "enter"), () => Option.some(TOGGLE)),
@@ -610,16 +624,16 @@ export const keyIntent = (key: InputSource.Key): Option.Option<KeyIntent> =>
   )
 
 /**
- * Where a lifted item goes for one arrow (ADR-0037, Q4): its new index in `order`, by what's on
- * screen. On a single axis only that axis's arrows act: the item takes the place of the neighbour,
- * of the two next to it in `order`, whose centre lies the way the arrow points, as the **Crossover**
- * chooses its neighbour by position, so an rtl row or a reversed list moves the way the arrow points.
- * In `"xy"`, Left and Right step one place in reading order (flipped in rtl), which wraps across
- * rows; Up and Down take the place of the item in the row above or below whose centre is nearest.
- * With nowhere to go (an end, or an arrow off the axis), it's `index`.
+ * Where a lifted item goes for one arrow: its new index in `order`, by what's on screen, so an rtl row
+ * or a reversed list moves the way the arrow points.
+ * - **One axis:** only that axis's arrows act. The item takes the place of the neighbour, of the two next
+ *   to it, whose centre lies the way the arrow points, as `check` chooses.
+ * - **A grid** (`"xy"`): Left and Right step one place in reading order, flipped in rtl, wrapping across
+ *   rows; Up and Down take the place of the item in the row above or below whose centre is nearest.
  *
- * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
+ * With nowhere to go, at an end or for an arrow off the axis, it's `index`.
  */
+// ADR-0037, Q4: the **Crossover** chooses its neighbour by position. Tier 2 (ADR-0008).
 export const arrowTarget = <V>(order: ReadonlyArray<ItemData<V>>, index: number, arrow: Arrow, axis: Axis, direction: "ltr" | "rtl"): number =>
   Option.match(Arr.get(order, index), {
     onNone: () => index,
@@ -676,21 +690,21 @@ const gridTarget = <V>(order: ReadonlyArray<ItemData<V>>, index: number, item: I
     }),
   )
 
-/**
- * Where an item is after a keyboard reorder's step, for its announcement: its 1-based `position` in
- * the order and the order's `count`, and whether this step `moved` it (not at an end).
- *
- * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
- */
+/** Where an item is after a keyboard reorder's step, for its announcement. */
+// Tier 2 (ADR-0008).
 export interface Placement {
+  /** Its place in the order, from 1. */
   readonly position: number
+  /** How many items the order has. */
   readonly count: number
+  /** Whether this step moved it: not at an end. */
   readonly moved: boolean
   /**
-   * Whether the step waited for a Measure pass (ADR-0037): after a step the boxes are the old order's
-   * until a pass measures the new one, so a step read against them could go the wrong way. It moved
-   * nothing, and has nothing to announce: a held arrow's repeat in that window is dropped.
+   * Whether the step waited for the boxes to be measured: after a step they're the old order's until
+   * they are, so a step read against them could go the wrong way. It moved nothing, and has nothing to
+   * announce: a held arrow's repeat in that time is dropped.
    */
+  // A Measure pass (ADR-0037).
   readonly waiting: boolean
 }
 
@@ -702,10 +716,11 @@ const placementIn = <V>(values: ReadonlyArray<V>, value: V, moved: boolean, wait
 const liftOf = <V>(group: Group<V>, value: V): Option.Option<Lift<V>> => Option.filter(MutableRef.get(group.lifted), (lift) => lift.value === value)
 
 /**
- * Lift `value`'s item for a keyboard reorder (ADR-0037): the axis and direction are fixed now, as a
- * drag's are at its start, and the order kept for a cancel. Lifting another item drops the one lifted.
- * `None` for a value not in `values`.
+ * Lifts `value`'s item for a keyboard reorder: its axis and direction are fixed now, as a drag's are at
+ * its start, and the order kept for a cancel. Lifting another item drops the one lifted. `None` for a
+ * value not in `values`.
  */
+// ADR-0037.
 export const lift: {
   <V>(value: V): (group: Group<V>) => Option.Option<Placement>
   <V>(group: Group<V>, value: V): Option.Option<Placement>
@@ -721,12 +736,12 @@ export const lift: {
 })
 
 /**
- * One key's move of the lifted item (ADR-0037): an arrow's on-screen step ({@link arrowTarget}), or
- * Home's or End's jump to the first or last place, through `onReorder`. `moved` is false where it
- * had nowhere to go (an end). Until a Measure pass has measured the order its last step made, a step
- * waits (`waiting`, nothing moved), as a drag's next reorder does. `None` when `value` isn't the
- * lifted item.
+ * One key's move of the lifted item: an arrow's step on screen (`arrowTarget`), or Home's or End's jump
+ * to the first or last place, through `onReorder`. `moved` is false where it had nowhere to go. Until the
+ * boxes are measured after its last step, a step waits (`waiting`, nothing moved), as a drag's next
+ * reorder does. `None` when `value` isn't the lifted item.
  */
+// ADR-0037: a Measure pass.
 export const step: {
   <V>(value: V, intent: Extract<KeyIntent, { readonly _tag: "Step" | "End" }>): (group: Group<V>) => Option.Option<Placement>
   <V>(group: Group<V>, value: V, intent: Extract<KeyIntent, { readonly _tag: "Step" | "End" }>): Option.Option<Placement>
@@ -753,7 +768,8 @@ export const step: {
     })
   }))
 
-/** Drop the lifted item where it is (ADR-0037): its placement; `None` when `value` isn't lifted. */
+/** Drops the lifted item where it is: its placement, `None` when `value` isn't lifted. */
+// ADR-0037.
 export const drop: {
   <V>(value: V): (group: Group<V>) => Option.Option<Placement>
   <V>(group: Group<V>, value: V): Option.Option<Placement>
@@ -766,9 +782,10 @@ export const drop: {
   }))
 
 /**
- * Cancel the keyboard reorder (ADR-0037): the order from the lift comes back through `onReorder`,
- * when it changed, and the item's placement there; `None` when `value` isn't lifted.
+ * Cancels the keyboard reorder: the order from the lift comes back through `onReorder`, when it changed,
+ * and the item's placement there. `None` when `value` isn't lifted.
  */
+// ADR-0037.
 export const cancel: {
   <V>(value: V): (group: Group<V>) => Option.Option<Placement>
   <V>(group: Group<V>, value: V): Option.Option<Placement>
@@ -798,35 +815,45 @@ export const liftedValue = <V>(group: Group<V>): Option.Option<V> => Option.map(
 
 // --- The keyboard reorder's wording (ADR-0037) ---------------------------------------
 
-/**
- * What an announcement says about an item: its `value`, the `label` it's spoken as (its name, as the
- * Environment reads it), its 1-based `position` and the list's `count`.
- *
- * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
- */
+/** What an announcement says about an item. */
+// Tier 2 (ADR-0008).
 export interface AnnouncementInfo<V> {
+  /** The item's value. */
   readonly value: V
+  /** What it's spoken as: its name, as the Environment reads it. */
   readonly label: string
+  /** Its place in the list, from 1. */
   readonly position: number
+  /** How many items the list has. */
   readonly count: number
 }
 
 /**
- * A **Reorder group**'s announcements (ADR-0037): one per moment of a keyboard reorder, and `move`
- * for a move in code (an app's own buttons, through `move`). A group overrides any of them, and its
- * `instructions`, for translation or tone.
+ * What a group announces: one for each moment of a keyboard reorder, and `move` for a move in code, an
+ * app's own buttons. A group overrides any of them, and its instructions, for translation or tone.
  *
- * Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
+ * @example
+ * const announcements: Reorder.Announcements<Task> = {
+ *   ...Reorder.defaultAnnouncements,
+ *   drop: ({ label, position }) => `${label} is now number ${position}.`,
+ * }
  */
+// ADR-0037. Tier 2 (ADR-0008).
 export interface Announcements<V> {
+  /** An item lifted: "Picked up Milk, position 2 of 5." */
   readonly lift: (info: AnnouncementInfo<V>) => string
+  /** The lifted item stepped: "Milk, position 3 of 5." */
   readonly step: (info: AnnouncementInfo<V>) => string
+  /** The lifted item dropped: "Dropped Milk at position 3 of 5." */
   readonly drop: (info: AnnouncementInfo<V>) => string
+  /** The reorder cancelled: "Cancelled. Milk is back at position 2 of 5." */
   readonly cancel: (info: AnnouncementInfo<V>) => string
+  /** An item moved in code: "Moved Milk to position 1 of 5." */
   readonly move: (info: AnnouncementInfo<V>) => string
 }
 
-/** The default announcements, in English (ADR-0037, Q6). */
+/** The default announcements, in English: each member's example is its wording. */
+// ADR-0037, Q6.
 export const defaultAnnouncements: Announcements<unknown> = {
   lift: ({ label, position, count }) => `Picked up ${label}, position ${position} of ${count}.`,
   step: ({ label, position, count }) => `${label}, position ${position} of ${count}.`,
@@ -836,7 +863,8 @@ export const defaultAnnouncements: Announcements<unknown> = {
 }
 
 /**
- * The default instructions for an item, in English (ADR-0037, Q8): the keys, as Q3 sets them. An
- * Environment adds what its own assistive technology needs (`@wardic/dom`'s `DEFAULT_REORDER_INSTRUCTIONS`).
+ * The default instructions for an item, in English: the keys. An Environment adds what its own assistive
+ * technology needs, as `@wardic/dom`'s `DEFAULT_REORDER_INSTRUCTIONS` does.
  */
+// ADR-0037, Q8: the keys, as Q3 sets them.
 export const DEFAULT_INSTRUCTIONS = "Press Space or Enter to pick up. Use the arrow keys to move, Space or Enter to drop, Escape to cancel."

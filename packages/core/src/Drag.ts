@@ -1,11 +1,19 @@
 /**
- * The `Drag` module: a drag gesture's `Sample`, its `Axis`, a constraint on one value (`constrain`),
- * the shaping combinator over a stream of them (`withinBounds`, `dual`, the stream first), and the
- * bounds an element constraint makes (`boundsWithin`, `keepPlace`, #273).
- * `DragRecognizer.drag` recognizes the gesture, kept
- * to its `axis` (ADR-0019, *Amendment (#29)*); a binding composes its response, the Fling included
- * (ADR-0004, *Amendment (#32)*).
+ * A drag's samples and what shapes them: `Sample`, what `DragRecognizer`'s drags give at each step;
+ * `Axis`, the axes one moves on; and the constraints a binding applies to a sample's `offset`, with a
+ * rubber band past them (`constrain`, `within`, `withinBounds`), or to keep an element inside a
+ * container (`boundsWithin`, `keepPlace` after a resize). A binding moves the element from the
+ * shaped samples, and flings it at the end.
+ *
+ * @example
+ * import * as Drag from "@wardic/core/Drag"
+ *
+ * const samples = DragRecognizer.drag(card, { axis: "x" }).pipe(
+ *   Drag.withinBounds({ x: { min: 0, max: 200 } }, { elastic: 0.35 }),
+ * )
  */
+// #273 (element constraints); ADR-0019, *Amendment (#29)* (a drag kept to its axis); ADR-0004,
+// *Amendment (#32)* (a binding composes the response, the Fling included).
 import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -14,72 +22,69 @@ import * as Stream from "effect/Stream"
 import type * as Point from "./Point.ts"
 import { dual } from "./internal/dual.ts"
 
-/**
- * One emission from the `DragRecognizer.drag` recognizer — an Effect-free, portable signal.
- *
- * - `point`: the current pointer position (environment coordinates).
- * - `offset`: `point - origin`, measured from the down-point that started the
- *   gesture (total displacement of the drag).
- * - `delta`: `point - lastPoint`, the change since the previous emitted event.
- * - `velocity`: the pointer's, per axis in units per second, over the gesture's last 100 ms
- *   (Motion's `getVelocity`); the `"end"` sample counts the release point, so a pause before
- *   letting go weakens it, down to none.
- * - `phase`: `"start"` on activation, `"move"` while dragging, `"end"` on
- *   release/cancel. A cancel ends at the last move's point with the moves' velocity
- *   (a `pointercancel`'s own coordinates aren't the pointer's: Chromium's carries
- *   (0, 0)). A **Stale gesture** (its release was lost, ADR-0019) also ends:
- *   at the owning pointer's first move with no button pressed, or its next down,
- *   with an `"end"` at the last pressed point, no delta and no velocity.
- * - `timeStamp`: the time (ms) of the event that produced it (a scroll-driven move
- *   carries the scroll's; a Stale gesture's end carries the event that ended it).
- * - `scroll`: the scroll the hold has counted into `point` since the down (the event's,
- *   `InputSource.PointerLikeEvent.scroll`): `point - scroll` is where the pointer is on
- *   the screen (#257).
- * - `raw`: the platform's own event behind it (`InputSource.PointerLikeEvent.raw`, #273),
- *   opaque to core: a binding hands it to an app's drag callback.
- * - `axis`: the axes the gesture moves on, read at its start (#273): its drag's axis, or a
- *   direction-locked drag's lock. A pan's are both.
- * - `cancelled`: an `"end"` its watch's `cancel` gave (#431, Motion's drag controls'
- *   `cancel`): the gesture ended where it is, which a binding releases with no Fling and
- *   tells no app. Absent on every other sample.
- */
+/** One step of a drag, as `DragRecognizer`'s drags give it: where the pointer is, how far and how fast it's moved. */
+// Effect-free and portable.
 export interface Sample {
+  /** Where the pointer is, in the Environment's coordinates. */
   readonly point: Point.Point
+  /** How far it's moved since the down that started the drag: `point` less the down's. */
   readonly offset: Point.Point
+  /** How far it's moved since the sample before. */
   readonly delta: Point.Point
+  /**
+   * The pointer's velocity on each axis, in units a second, over the drag's last 100 ms, as Motion's.
+   * The `"end"` sample counts the release point, so a pause before letting go slows it, down to none.
+   */
   readonly velocity: Point.Point
+  /**
+   * `"start"` once it's past its threshold, `"move"` as it moves, `"end"` at its release or a cancel. A
+   * cancel ends at the last move's point, with the moves' velocity. A drag whose release was lost ends
+   * at the pointer's first move with no button pressed, or at its next down: an `"end"` at the last
+   * pressed point, with no delta and no velocity.
+   */
+  // A `pointercancel`'s own coordinates aren't the pointer's (Chromium's carries (0, 0)). The lost
+  // release is a **Stale gesture** (ADR-0019).
   readonly phase: "start" | "move" | "end"
+  /** The time, in ms, of the event behind it: for a move a scroll made, the scroll's. */
   readonly timeStamp: number
+  /** The scroll counted into `point` since the down: `point` less `scroll` is where the pointer is on the screen. */
+  // #257: the event's `InputSource.PointerLikeEvent.scroll`.
   readonly scroll: Point.Point
+  /** The platform's own event behind it, which core never reads: a binding hands it to an app's callback. */
+  // #273: `InputSource.PointerLikeEvent.raw`.
   readonly raw?: unknown
+  /** The axes it moves on, read at its start: its drag's `axis`, or a direction-locked drag's lock. A pan's are both. */
+  // #273.
   readonly axis: Axis
+  /**
+   * `true` on an `"end"` its watch's `cancel` gave: the drag ended where it is, which a binding
+   * releases with no fling and tells no app. Absent on every other sample.
+   */
+  // #431, Motion's drag controls' `cancel`.
   readonly cancelled?: boolean
 }
 
-/**
- * A single-axis constraint on `offset`. Both bounds are optional, so a range can
- * be open on either side (`{ min: 0 }` clamps below 0 but allows any positive
- * offset). An `undefined` axis range passes that axis through untouched.
- */
+/** A range on one axis. Either end can be left out: `{ min: 0 }` holds it above 0, and lets it go as far as it likes the other way. */
 export interface AxisRange {
+  /** The least it goes to. */
   readonly min?: number
+  /** The most it goes to. */
   readonly max?: number
 }
 
-/**
- * Per-axis constraints applied to a `Sample`'s `offset`. Either axis may be
- * omitted to leave it unconstrained.
- */
+/** A range on each axis. An axis left out is free. */
 export interface Bounds {
+  /** The range across. */
   readonly x?: AxisRange
+  /** The range down. */
   readonly y?: AxisRange
 }
 
 /**
- * The axes a drag moves on: `"x"` or `"y"` alone, or `"xy"` for a free drag. `DragRecognizer.drag`'s
- * `axis` zeroes a one-axis drag's off-axis and claims only its axis (a **Drag claim**, ADR-0019,
- * *Amendment (#29)*).
+ * The axes a drag moves on: `"x"` or `"y"` alone, or `"xy"` for a free drag. A one-axis drag claims
+ * only its axis, so a drag inside that moves on the other one keeps its own gesture.
  */
+// A **Drag claim**, ADR-0019, *Amendment (#29)*.
 export type Axis = "x" | "y" | "xy"
 
 /** `v` past the range's `min`, pulled back toward it by `elastic`; `None` within it. */
@@ -97,35 +102,32 @@ const aboveMax = (v: number, range: AxisRange, elastic: number): Option.Option<n
   )
 
 /**
- * Constrain a single scalar to `range` with optional `elastic` resistance (Motion's
- * `applyConstraints`).
- *
- * - No `range`: pass through.
- * - Below `range.min`: `min - (min - v) * elastic`.
- * - Above `range.max`: `max + (v - max) * elastic`.
- * - In range: unchanged.
- *
- * So `elastic = 0` is a hard clamp (snaps to the bound) and `elastic = 1` is
- * free (no resistance — the value passes through). Values in `(0, 1)` rubber-
- * band: the overshoot past the bound is scaled by `elastic`.
- *
- * Positional: a drag whose constraints bound the element's x/y applies it where the
- * gesture's offset meets where the element started (ADR-0016, *Amendment (#140)*).
+ * `v` kept within `range`, with `elastic` resistance past it, as Motion's `applyConstraints`: past an
+ * end, only `elastic` of the overshoot is kept. So `elastic` 0 holds it at the end, 1 lets it go
+ * freely, and between them it stretches like a rubber band. Within the range, or with no range, it's
+ * `v`.
  *
  * @example
  * Drag.constrain(130, { min: 0, max: 100 }, 0.35) // 110.5
  */
+// Below `min`: `min - (min - v) * elastic`; above `max`: `max + (v - max) * elastic`. Positional: a
+// drag whose constraints bound the element's x/y applies it where the gesture's offset meets where the
+// element started (ADR-0016, *Amendment (#140)*).
 export const constrain = (v: number, range: AxisRange | undefined, elastic: number): number =>
   Option.fromUndefinedOr(range).pipe(
     Option.flatMap((r) => Option.orElse(belowMin(v, r, elastic), () => aboveMax(v, r, elastic))),
     Option.getOrElse(() => v),
   )
 
-/** A box's edges, in its Environment's coordinates (a `Probe.Bounds` is one). */
+/** A box's edges, in its Environment's coordinates: a `Probe.Bounds` is one. */
 export interface Edges {
+  /** Its top edge. */
   readonly top: number
+  /** Its right edge. */
   readonly right: number
+  /** Its bottom edge. */
   readonly bottom: number
+  /** Its left edge. */
   readonly left: number
 }
 
@@ -138,11 +140,16 @@ const rangeWithin = (near: number, far: number, containerNear: number, container
 }
 
 /**
- * The bounds on an element's x/y that keep its box `own` inside `container` (#273, ADR-0047, Motion's
- * `calcViewportConstraints`): per axis, from `container`'s near edge less `own`'s to its far edge less
- * `own`'s. On an axis where `own` is the bigger, they swap, so it can be dragged to show what overflows
- * and no further. `own` is the element's box with no x/y of its own: its layout box.
+ * The bounds on an element's x and y that keep its box inside `container`, as Motion's drag
+ * constraints given an element. On an axis where the box is the bigger they turn around, so it can be
+ * dragged to show what overflows and no further. `own` is the element's box with no x or y of its own:
+ * its layout box.
+ *
+ * @example
+ * const bounds = Drag.boundsWithin(cardBox, frameBox)
  */
+// #273, ADR-0047: Motion's `calcViewportConstraints`. Per axis, from `container`'s near edge less
+// `own`'s to its far edge less `own`'s; swapped when `own` is the bigger.
 export const boundsWithin = (own: Edges, container: Edges): Bounds => ({
   x: rangeWithin(own.left, own.right, container.left, container.right),
   y: rangeWithin(own.top, own.bottom, container.top, container.bottom),
@@ -155,13 +162,12 @@ const sameRange = (a: AxisRange | undefined, b: AxisRange | undefined): boolean 
     onDefined: (ra) => UndefinedOr.match(b, { onUndefined: () => false, onDefined: (rb) => Bool.and(ra.min === rb.min, ra.max === rb.max) }),
   })
 
-/** Whether two bounds are the same, axis by axis (#273): a resize that changed neither leaves an element where it is. */
+/** Whether two bounds are the same on both axes: a resize that changed neither leaves an element where it is. */
+// #273.
 export const sameBounds = (a: Bounds, b: Bounds): boolean => Bool.and(sameRange(a.x, b.x), sameRange(a.y, b.y))
 
-/**
- * Where `value` sits within `min`..`max` (Motion's `calcOrigin` for a point): 0 at `min`, 1 at `max`,
- * clamped; ½ for a range of no length.
- */
+/** Where `value` sits between `min` and `max`: 0 at `min`, 1 at `max`, held between; ½ for a range of no length. */
+// Motion's `calcOrigin` for a point.
 export const progressWithin = (value: number, min: number, max: number): number => {
   if (max === min) return 0.5
   return Math.min(1, Math.max(0, (value - min) / (max - min)))
@@ -179,22 +185,25 @@ const keptOn = (value: number, from: AxisRange | undefined, to: AxisRange | unde
   })
 
 /**
- * `position` moved to keep its place in `from` within `to` (#273, Motion's
- * `scalePositionWithinConstraints`): an element constraint's bounds after a resize. Only on the axes
- * `axis` moves, and where both bounds have both edges; elsewhere it stays.
+ * `position` moved to keep its place, from `from` within `to`: an element's x and y after a resize
+ * changes the bounds that keep it inside its container, as Motion's. Only on the axes `axis` moves,
+ * and where both bounds have both ends; elsewhere it stays.
  */
+// #273: Motion's `scalePositionWithinConstraints`.
 export const keepPlace = (position: Point.Point, axis: Axis, from: Bounds, to: Bounds): Point.Point => ({
   x: Bool.match(axis === "y", { onTrue: () => position.x, onFalse: () => keptOn(position.x, from.x, to.x) }),
   y: Bool.match(axis === "x", { onTrue: () => position.y, onFalse: () => keptOn(position.y, from.y, to.y) }),
 })
 
 /**
- * `sample` with its `offset` constrained to a static numeric region, per axis, with optional
- * `elastic` rubber-band resistance past the bounds (`elastic` defaults to `0`, a hard clamp). An
- * omitted axis range passes that axis through; `delta` and `velocity` are left as they are, as
- * {@link withinBounds} leaves them. `dual`, the sample first: for a watch's samples (#379), one
- * at a time, where {@link withinBounds} shapes a Stream's.
+ * `sample` with its `offset` kept within `bounds`, as `constrain` keeps a number: `elastic` 0, a hard
+ * stop, unless it's given. An axis left out is free; `delta` and `velocity` stay the pointer's. For
+ * samples one at a time, as a watch's handler has them; `withinBounds` shapes a Stream's.
+ *
+ * @example
+ * const shaped = Drag.within(sample, { x: { min: 0, max: 200 } }, { elastic: 0.35 })
  */
+// `dual`, the sample first (#379).
 export const within: {
   (bounds: Bounds, options?: { readonly elastic?: number }): (sample: Sample) => Sample
   (sample: Sample, bounds: Bounds, options?: { readonly elastic?: number }): Sample
@@ -213,23 +222,16 @@ export const within: {
 )
 
 /**
- * Constrain a drag's `offset` to a static numeric region, per axis, with
- * optional `elastic` rubber-band resistance past the bounds (`elastic` defaults
- * to `0` — a hard clamp). An omitted axis range passes that axis through.
- *
- * Pure and stateless: a `Stream.map` of {@link within}, `dual`, the stream first, that preserves the source
- * stream's `E`/`R` (Probe-free per ADR-0004 — this is the numeric form, not the
- * element-relative one).
- *
- * Only `offset` is transformed. `delta` and `velocity` are intentionally left
- * as the raw pointer-derived values: the binding positions the element from
- * `offset`, while `delta`/`velocity` remain a faithful record of pointer motion
- * (keeping the combinator pure and stateless — clamping them would require
- * tracking prior emitted state).
+ * A drag's samples with each one's `offset` kept within `bounds`, as `within` keeps one: for a Stream of
+ * them. `delta` and `velocity` stay the pointer's: a binding places the element from `offset`, and the
+ * others stay a true record of how the pointer moved.
  *
  * @example
- * DragRecognizer.drag(el).pipe(Drag.withinBounds({ x: { min: 0, max: 200 } }, { elastic: 0.5 }))
+ * DragRecognizer.drag(card).pipe(Drag.withinBounds({ x: { min: 0, max: 200 } }, { elastic: 0.5 }))
  */
+// A `Stream.map` of `within`, `dual`, the stream first, keeping the stream's `E` and `R`: pure and
+// stateless (clamping `delta` and `velocity` too would need the prior sample). Probe-free per ADR-0004:
+// the numeric form, not the element-relative one.
 export const withinBounds: {
   (
     bounds: Bounds,

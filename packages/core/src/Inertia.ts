@@ -31,10 +31,11 @@ import type { PhysicsStepResult } from "./internal/stepper.ts"
 import type { InertiaOptions } from "./Machine.ts"
 
 /**
- * The bounce's spring (Motion's `spring` generator, motion-dom 13.3.0, `generators/spring.ts`, mass 1):
- * its undamped angular frequency, damping ratio, and rest thresholds. Analytic, as Motion's: a wall as
- * stiff as Motion's with no `dragElastic` (1e6 / 1e7) is exact, where a stepped integration isn't stable.
+ * The bounce's spring, as Motion's with mass 1: its undamped angular frequency, damping ratio, and rest
+ * thresholds. Analytic, as Motion's: a wall as stiff as Motion's with no `dragElastic` (1e6 / 1e7) is
+ * exact, where a stepped integration isn't stable.
  */
+// Motion's `spring` generator, motion-dom 13.3.0, `generators/spring.ts`.
 interface BounceSpring {
   readonly omega: number
   readonly ratio: number

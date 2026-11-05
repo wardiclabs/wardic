@@ -1,8 +1,8 @@
 /**
  * The kinds of value Wardic blends: numbers, arrays of numbers, numbers with units (`"10px"`), and
- * complex values, strings with numbers among other text, a `box-shadow` or an SVG path. Each is an
+ * complex values, strings with numbers among other text, as a shadow's or a path's. Each is an
  * `Entry`: how an endpoint of its kind is read, written, and blended with another. An Environment
- * registers these in its `InterpolatorRegistry` beside its own kinds, as the DOM adds its colours, and
+ * registers these in its `InterpolatorRegistry` beside its own kinds, as `@wardic/dom` adds its colours, and
  * you can register yours.
  *
  * @example
@@ -17,7 +17,7 @@
  * }
  */
 // ADR-0026: each an `Entry` the `InterpolatorRegistry` resolves a pair through, in `defaults`' order, each
-// with its plain `parse` and `format`. Core names no Environment's syntax (ADR-0036): the DOM's colours,
+// with its plain `parse` and `format`. Core names no Environment's syntax (ADR-0036): `@wardic/dom`'s colours,
 // spans and kinds of token are `@wardic/dom`'s (`complexWith`). A plain shape callers write, so no
 // prototype (ADR-0028, decision 1). The blends' closures are on the per-frame path (ADR-0025).
 import * as Arr from "effect/Array"
@@ -47,10 +47,10 @@ import * as Scalar from "./Scalar.ts"
  *   switches at the first frame, with a warning.
  *
  * The built-in kinds (a number, an array, a unit string, a complex value) are registered as an
- * Environment is set up, beside its own, as the DOM's colours, and yours can be too.
+ * Environment is set up, beside its own, as `@wardic/dom`'s colours, and yours can be too.
  */
 // ADR-0026. Plain functions since #511 (ADR-0067 decision 9, ADR-0026 *Amendment (#511)*), where they
-// were a Schema codec built on the same two. CONTEXT.md's Discrete pair; the DOM's colours, ADR-0036.
+// were a Schema codec built on the same two. CONTEXT.md's Discrete pair; `@wardic/dom`'s colours, ADR-0036.
 export interface Entry<Decoded, Encoded> {
   /** Unique name for the value kind, e.g. "number", "unit". */
   readonly name: string
@@ -211,7 +211,7 @@ export interface Complex {
 /**
  * A kind of token an Environment names in its complex values besides numbers: what one looks like, and
  * the Interpolator that reads, blends and writes it, usually the one it registers for a value of that
- * kind on its own, as the DOM's colours. Its tokens are told apart by that Interpolator's name.
+ * kind on its own, as `@wardic/dom`'s colours. Its tokens are told apart by that Interpolator's name.
  */
 // #160, ADR-0036.
 export interface TokenKind<Decoded = any> {
@@ -253,7 +253,7 @@ const parseTokenWith =
 
 /**
  * A decoded value that is one token of a kind and nothing else around it: a value of that kind,
- * for its own Interpolator (the DOM's lone colour), not a complex value.
+ * for its own Interpolator (`@wardic/dom`'s lone colour), not a complex value.
  */
 const isLoneKindToken = (complex: Complex): boolean =>
   complex.tokens.length === 1 && Arr.every(complex.tokens, isKindToken) && Arr.every(complex.parts, (part) => Str.isEmpty(Str.trim(part)))
@@ -384,7 +384,7 @@ const slotAt = (slot: Slot, t: number): string => {
 /**
  * Two complex values' blend, token by token, in the target's parts. The frame writes each slot's
  * token between the parts: a counted loop, and nothing allocated per frame but the string and
- * what each kind's blend allocates (the DOM's colours: culori's colour object).
+ * what each kind's blend allocates (`@wardic/dom`'s colours: culori's colour object).
  */
 const blendSlots = (parts: ReadonlyArray<string>, slots: ReadonlyArray<Slot>): ((t: number) => string) => (t) => {
   let out = parts[0]
@@ -392,7 +392,7 @@ const blendSlots = (parts: ReadonlyArray<string>, slots: ReadonlyArray<Slot>): (
   return out
 }
 
-/** A decoded value's numbers, and its tokens of a kind, each in document order. */
+/** A decoded value's numbers, and its tokens of a kind, each in the order they're written. */
 const numbersOf = (complex: Complex): ReadonlyArray<number> => Arr.filter(complex.tokens, Predicate.isNumber)
 const kindTokensOf = (complex: Complex): ReadonlyArray<KindToken> => Arr.filter(complex.tokens, isKindToken)
 
@@ -436,22 +436,22 @@ const slotsOf = (kinds: Readonly<Record<string, Kind>>, from: Complex, to: Compl
 
 /**
  * The complex value kind, for an Environment's text spans and kinds of token: a string with numbers or
- * tokens among other text, an SVG `d` or `points`, a `filter`, a `box-shadow`, a gradient, blended
- * token by token, as Motion's `mixComplex`. Two blend when they hold the same count of each kind and the
+ * tokens among other text, as a path's, a shadow's or a gradient's, blended token by token, as Motion's
+ * `mixComplex`. Two blend when they hold the same count of each kind and the
  * start has at least as many numbers as the target: the n-th number with the n-th, and the n-th token
- * of a kind with the n-th of it, written in the target's text. With the DOM's colours, a computed
- * `rgba(0, 0, 0, 0.2) 0px 1px 2px 0px` blends into `0px 8px 24px rgba(0, 0, 0, 0.3)`. Any other two
- * can't: a Discrete pair, switched to the target at the first frame, with a warning.
+ * of a kind with the n-th of it, written in the target's text: a shadow with a colour and three
+ * lengths blends into another with a colour and three lengths, wherever each writes its colour. Any
+ * other two can't: a Discrete pair, switched to the target at the first frame, with a warning.
  *
- * Two SVG paths with the same commands morph; paths with different commands don't. Register it last,
- * so the specific kinds win: `"10px"` is a unit, and a lone colour the DOM's colour kind. As Motion's,
+ * Two paths with the same commands morph; paths with different commands don't. Register it last, so
+ * the specific kinds win: `"10px"` is a unit, and a lone colour `@wardic/dom`'s colour kind. As Motion's,
  * an arc command's flags are blended as numbers, so an arc path can pass through invalid flags.
  *
  * Its `parse` reads a string into its parts and tokens, and its `format` writes them back, numbers in
  * JavaScript's shortest form, so `"M0.50,1e3"` writes back as `"M0.5,1000"`.
  *
  * @example
- * // An Environment's colours as a kind of token among the numbers, as the DOM's are:
+ * // An Environment's colours as a kind of token among the numbers, as `@wardic/dom`'s are:
  * const complex = Interpolator.complexWith({ tokens: [{ pattern: colorPattern, entry: colorEntry }] })
  */
 // #61; Motion's complex value type; a Discrete pair (ADR-0024, ADR-0026). The same-structure tier of
@@ -482,7 +482,7 @@ export const complex: Entry<Complex, string> = complexWith({})
 /**
  * The kinds core ships, in the order a pair is tried: `number` and `array` first, `unit` before
  * `complex`, so `"10px"` is a unit, and `complex` last, for the strings the others didn't take. An
- * Environment adds its own among them, as the DOM's colours before `unit`.
+ * Environment adds its own among them, as `@wardic/dom`'s colours before `unit`.
  */
 // ADR-0015, ADR-0036.
 export const defaults: ReadonlyArray<Entry<any, any>> = [number, array, unit, complex]

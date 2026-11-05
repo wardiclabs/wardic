@@ -1,24 +1,30 @@
 /**
- * The `PressClaims` module. **Press claims** (#439, ADR-0066): which pointer downs and keys a press started
- * from, and whether that press claimed them (Motion's `claimedPointerDownEvents`,
- * `motion-dom/src/gestures/press/index.ts` @ `16c6122`). A press whose taps don't propagate
- * (`propagate={{ tap: false }}`) claims the down or the key it starts from, and no ancestor's press starts
- * from it. A key that a press inside started from, and didn't claim, presses its pressable ancestors too,
- * as Motion's keyboard press reaches them, the way a pointer's down does.
+ * Press claims: the pointer downs and keys presses started from, and whether a press claimed one, so a
+ * press that doesn't propagate (`Recognizer.press`'s `propagate: false`) keeps its ancestors' presses
+ * from starting on the same down. A key a press inside started from, and didn't claim, presses its
+ * pressable ancestors too, as a pointer's down does. `Recognizer`'s presses mark and read them; a
+ * recognizer of your own that presses does the same.
  *
- * One platform event reaches each target it passes through as an event of that target's, so a mark is
- * kept by the platform's own event (`raw`), which core never reads, or by the event itself where there's
- * none (the test Environment hands every target the same one). Two contracts of `InputSource` make that
- * work: one platform event's copies share their `raw`, and a pointer's down or a key reaches the targets
- * it passes through innermost first, so a press inside marks it before its ancestors read it.
- * A target never refuses itself: its presses share its claim, as its drags share a **Drag claim**.
+ * By default every runtime shares one, as Motion's are shared; a runtime can provide its own, as the
+ * test Environment does. It's synchronous, so a press reads it as it decides.
  *
- * It is a `Context.Reference`, as **Drag activity** is: by default every runtime shares one, page-wide
- * like Motion's set, and a runtime can provide its own (the test Environment does). The API is
- * synchronous, so the press fold reads it inline.
+ * @example
+ * import * as PressClaims from "@wardic/core/PressClaims"
  *
- * Tier 2 (ADR-0008): Effect-typed, stability tracks Effect.
+ * const claims = yield* PressClaims.PressClaims
+ * claims.mark(down, button, true) // the button's press claims the down
+ * claims.markOf(down, card) // "claimed": the card's press doesn't start
  */
+// #439, ADR-0066: Motion's `claimedPointerDownEvents`, `motion-dom/src/gestures/press/index.ts` @ `16c6122`.
+//
+// One platform event reaches each target it passes through as an event of that target's, so a mark is
+// kept by the platform's own event (`raw`), which core never reads, or by the event itself where there's
+// none (the test Environment hands every target the same one). Two contracts of `InputSource` make that
+// work: one platform event's copies share their `raw`, and a pointer's down or a key reaches the targets
+// it passes through innermost first, so a press inside marks it before its ancestors read it. A target
+// never refuses itself: its presses share its claim, as its drags share a **Drag claim**.
+//
+// A `Context.Reference`, as **Drag activity** is. Tier 2 (ADR-0008): Effect-typed, stability tracks Effect.
 import * as Bool from "effect/Boolean"
 import * as Context from "effect/Context"
 import * as Predicate from "effect/Predicate"
@@ -30,12 +36,16 @@ import * as UndefinedOr from "effect/UndefinedOr"
  */
 export type Mark = "none" | "pressed" | "claimed"
 
-/** An event a press can start from, a pointer's down or a key's: its `raw`, when it's an object, keys its mark. */
+/** An event a press can start from, a pointer's down or a key's. */
 export interface Markable {
+  /**
+   * The platform's own event, which keys its mark when it's an object: each target an event passes
+   * through gets its own copy, and the copies share it. Without one, the event itself keys it.
+   */
   readonly raw?: unknown
 }
 
-/** The page's Press claims. */
+/** A set of Press claims: what `PressClaims` gives. */
 export interface Shape {
   /**
    * Note that a press on `target` started from `event`: claimed when that press doesn't propagate. A claim
@@ -65,7 +75,8 @@ const seenBy = (target: unknown) => (entry: Entry): Mark => {
   return "pressed"
 }
 
-/** Fresh Press claims, with nothing marked. Held weakly, so a platform event's mark goes with it. */
+/** Fresh Press claims, with nothing marked: for a runtime that provides its own. Each mark goes with its event. */
+// Held weakly.
 export const make = (): Shape => {
   const marks = new WeakMap<object, Entry>()
   return {
@@ -78,7 +89,7 @@ export const make = (): Shape => {
   }
 }
 
-/** The runtime's Press claims: one shared default instance unless a runtime provides its own. */
+/** The runtime's Press claims: one shared by every runtime unless a runtime provides its own. */
 export const PressClaims: Context.Reference<Shape> = /*#__PURE__*/ Context.Reference<Shape>("@wardic/PressClaims", {
   defaultValue: make,
 })

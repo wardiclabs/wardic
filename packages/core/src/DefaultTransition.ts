@@ -1,18 +1,18 @@
 /**
  * What a key runs on when its own transition isn't defined. Which keys get what is an Environment's to
- * say, as Motion picks by value: the DOM's gives the transforms springs and the rest a short tween. A
+ * say, as Motion picks by value: `@wardic/dom`'s gives the transforms springs and the rest a short tween. A
  * binding asks it for each key that has no transition, and for keyframes through more than two stops.
  *
  * @example
  * import * as DefaultTransition from "@wardic/core/DefaultTransition"
  *
  * const defaults = yield* DefaultTransition.DefaultTransition
- * defaults.transitionFor("x", 100) // the DOM's: a spring
- * defaults.transitionFor("opacity", 1) // the DOM's: a 0.3 s tween
+ * defaults.transitionFor("x", 100) // `@wardic/dom`'s: a spring
+ * defaults.transitionFor("opacity", 1) // `@wardic/dom`'s: a 0.3 s tween
  */
 // CONTEXT.md **Default transition**; ADR-0051. Motion's `getDefaultTransition` (default-transitions.ts at
-// 16c6122). Core defines the contract and an Environment provides it (#357): the DOM's is Motion's table,
-// `@wardic/dom`'s `DomDefaultTransition`; one with no opinion, the Test Environment's, `oneSpring`. A
+// 16c6122). Core defines the contract and an Environment provides it (#357): `@wardic/dom`'s is Motion's table,
+// its `DomDefaultTransition`; one with no opinion, the Test Environment's, `oneSpring`. A
 // binding reads it once, as it reads the Positional keys; its `keyframes` for more than two stops, as
 // Motion's (#429). Tier 2 (ADR-0008), for binding authors.
 import * as Context from "effect/Context"

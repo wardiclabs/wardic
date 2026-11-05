@@ -1,12 +1,21 @@
 /**
- * The `Recognizer` module: CONTEXT.md's Recognizers, each a `Stream` of a gesture's state from an
- * Environment's input: `hover`, `press`, `focus` and `inView`. The pointer's drag and pan are
- * `DragRecognizer`'s (#548), so a page that doesn't drag ships none of their fold.
+ * Recognizers: a gesture's state from an Environment's input. `hover`, `press`, `focus` and `inView` are
+ * each a Stream of whether their gesture is on; `hoverEvents`, `pressEvents` and `inViewEvents` tell each
+ * start and end with the event behind it. Each has a watch too, `watchHover`, `watchPress`, `watchFocus`
+ * and `watchInView`, which calls you inside each event's dispatch while a Scope is open, with no fiber of
+ * its own: a binding's gestures run on these. Drags and pans are `DragRecognizer`'s.
  *
- * Each is also a watch (#318, ADR-0055): `watchHover`, `watchPress`, `watchFocus` and
- * `watchInView` run a callback inside each event's dispatch while a Scope is open, with no fiber or
- * Stream of their own. The Streams are built over them.
+ * @example
+ * import * as Recognizer from "@wardic/core/Recognizer"
+ *
+ * yield* Recognizer.watchPress(button, {
+ *   on: ({ phase }) => {
+ *     if (phase === "tap") submit()
+ *   },
+ * })
  */
+// CONTEXT.md's Recognizers. Drag and pan are `DragRecognizer`'s (#548), so an app that doesn't drag
+// ships none of their fold. The watches are #318's (ADR-0055); the Streams are built over them.
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import { constant, constTrue, constVoid, identity, type LazyArg } from "effect/Function"
@@ -79,12 +88,12 @@ const statesOf =
     }
   }
 
-/**
- * A gesture's transition (#257): whether it's on now, and the event that turned it, whose
- * `x`/`y` (less its `scroll`) say where the pointer was.
- */
+/** A gesture's start or end, and the event that turned it. */
+// #257.
 export interface Transition {
+  /** Whether the gesture is on now. */
   readonly active: boolean
+  /** The event that turned it: its `x` and `y`, less its `scroll`, say where the pointer was on the screen. */
   readonly event: InputSource.PointerLikeEvent
 }
 
@@ -148,38 +157,44 @@ const hoverFold = (activity: DragActivity.Shape): Fold<HoverState, InputSource.P
 })
 
 /**
- * Recognize hover state on `target`: `true` while the pointer is inside, `false` once it
- * leaves. A leave while a pointer pressed on `target` is held waits for its release;
- * touch never hovers; no hover starts while a drag is active (ADR-0019). Emits only on
- * transitions.
+ * Whether the pointer is over `target`: `true` once it comes over, `false` once it leaves, each change
+ * once. A leave while a pointer that pressed `target` is still held waits for its release. A touch never
+ * hovers, and no hover starts while a drag is active.
  */
+// After Motion's `hover` (ADR-0019).
 export const hover = (target: unknown): Stream.Stream<boolean, never, InputSource.InputSource> =>
   Stream.map(hoverEvents(target), activeOf)
 
-/**
- * {@link hover}'s transitions with the event that turned each (#257): a hover's start and
- * end, and where the pointer was (Motion's `onHoverStart` / `onHoverEnd`). A Stream over
- * {@link watchHover}.
- */
+/** `hover`'s starts and ends with the event that turned each, as Motion's `onHoverStart` and `onHoverEnd`. */
+// #257. A Stream over `watchHover`.
 export const hoverEvents = (target: unknown): Stream.Stream<Transition, never, InputSource.InputSource> =>
   streamOf<Transition, InputSource.InputSource>((handlers) => watchHover(target, handlers))
 
-/**
- * {@link watchHover}'s handlers (#397): `on` told each transition, and `onMove`, when given, each move
- * of the pointer over the target while the hover is on. That's Wardic's own: Motion's hover has only a
- * start and an end. Touch never hovers, and a held pointer whose leave waits for its release isn't
- * over the target, so neither moves it.
- */
+/** `watchHover`'s handlers: `on`, each start and end, and `onMove`, each move between them. */
+// #397.
 export interface HoverHandlers extends InputFeed.Handlers<Transition> {
+  /**
+   * Each move of the pointer over the target while the hover is on, which Motion's hover doesn't have. A
+   * touch never hovers, and a held pointer whose leave waits for its release isn't over the target, so
+   * neither moves it.
+   */
+  // #397: Wardic's own.
   readonly onMove?: ((event: InputSource.PointerLikeEvent) => void) | undefined
 }
 
 /**
- * Watch hover on `target` (#318, ADR-0055): `handlers.on` told each transition, {@link hoverEvents}',
- * and `handlers.onMove` each move over it while the hover is on (#397), inside the pointer event's
- * dispatch, while the Scope is open. No fiber and no Stream: a scoped subscription to the target's
- * pointer feed. A throw from either goes to `handlers.onDefect`. Tier 2, for bindings.
+ * Watches hover on `target` while the Scope is open: `handlers.on` hears each start and end, as
+ * `hoverEvents` tells them, and `handlers.onMove` each move over it while the hover is on, inside the
+ * pointer event's dispatch. A throw from either goes to `handlers.onDefect`.
+ *
+ * @example
+ * yield* Recognizer.watchHover(card, {
+ *   on: ({ active }) => setHovered(active),
+ *   onMove: (event) => follow(event.x, event.y),
+ * })
  */
+// #318, ADR-0055, #397: no fiber and no Stream, a scoped subscription to the target's pointer feed. Tier
+// 2, for bindings.
 export const watchHover: (target: unknown, handlers: HoverHandlers) => Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> = /*#__PURE__*/ Effect.fnUntraced(
   function* (target: unknown, handlers: HoverHandlers) {
     const input = yield* InputSource.InputSource
@@ -321,41 +336,48 @@ const focusStep = (s: PressState, e: InputSource.FocusLikeEvent): PressState =>
   })
 
 /**
- * Recognize press state on `target`: `true` while the primary pointer that pressed it is
- * held down, `false` once released or cancelled, wherever that happens (a **Held
- * pointer**'s release reaches the target), or at its first unpressed move after a lost
- * release; and the same for a **Keyboard press** on it (#427), held while its key is down. No press
- * starts while a drag is active (ADR-0019). Emits only on transitions.
+ * Whether `target` is pressed: `true` once the primary pointer goes down on it, `false` once it's released
+ * or cancelled, wherever that happens, or at its first move with no button after a lost release. A key
+ * presses it too, Enter or Space, held while the key is down. No press starts while a drag is active.
+ * Each change once.
  */
+// A **Held pointer**'s release reaches the target; a **Keyboard press** (#427); ADR-0019.
 export const press = (target: unknown, options?: PressOptions): Stream.Stream<boolean, never, InputSource.InputSource> =>
   Stream.map(pressEvents(target, options), pressing)
 
 /**
- * How a press began or ended (#257, Motion's press): `"start"` at its down; `"tap"`, a release
- * on the target or inside it, or a **Keyboard press**'s key coming up (#427); `"cancel"`, a release
- * elsewhere, a cancel, a lost release, or a blur ending a Keyboard press; `"dragged"`, an end after a
- * drag was active, which Motion tells as neither.
+ * How a press began or ended, as Motion's press: `"start"` at its down; `"tap"`, a release on the target
+ * or inside it, or a pressed key coming up; `"cancel"`, a release elsewhere, a cancel, a lost release, or
+ * a blur that ends a key's press; `"dragged"`, an end after a drag took over, which Motion tells as
+ * neither.
  */
+// #257; a **Keyboard press** (#427).
 export type PressPhase = "start" | "tap" | "cancel" | "dragged"
 
 /**
- * A press's start or end (#257), and the event it came with: a pointer's (`input: "pointer"`), or a
- * **Keyboard press**'s key, or the blur that cancelled it (`input: "keyboard"`, #427).
+ * A press's start or end, and the event it came with: a pointer's (`input: "pointer"`), or a key's, or
+ * the blur that cancelled a key's press (`input: "keyboard"`).
  */
+// #257; a **Keyboard press** (#427).
 export type PressEvent =
   | { readonly phase: PressPhase; readonly input: "pointer"; readonly event: InputSource.PointerLikeEvent }
   | { readonly phase: PressPhase; readonly input: "keyboard"; readonly event: InputSource.KeyboardLikeEvent | InputSource.FocusLikeEvent }
 
-/**
- * A press's options (#427): `keys: false` leaves out **Keyboard presses**, for a target whose Enter
- * and Space are someone else's (a Reorder item's, which lift it, ADR-0037).
- *
- * `propagate` (#439, Motion's `propagate.tap`): whether its presses reach its pressable ancestors, read at
- * each press's start. `false` takes a **Press claim** on the down or the key it starts from, so no
- * ancestor's press starts from it. Default `true`.
- */
+/** A press's options. */
+// #427, #439.
 export interface PressOptions {
+  /**
+   * `false`: no key presses it, for a target whose Enter and Space are someone else's: a Reorder item's,
+   * which lift it. Default `true`.
+   */
+  // #427, ADR-0037: **Keyboard presses**.
   readonly keys?: boolean | undefined
+  /**
+   * Whether its presses reach its pressable ancestors, as Motion's `propagate.tap`, read at each press's
+   * start. `false` claims the down or the key it starts from, so no ancestor's press starts from it.
+   * Default `true`.
+   */
+  // #439: a **Press claim**.
   readonly propagate?: boolean | LazyArg<boolean> | undefined
 }
 
@@ -368,26 +390,27 @@ const propagatesOf = (options: PressOptions | undefined): LazyArg<boolean> => {
 }
 
 /**
- * {@link press}'s transitions, each with how it began or ended (#257): Motion's `onTapStart`,
- * `onTap` and `onTapCancel`, and a press a drag took over, which Motion tells as neither. A Stream
- * over {@link watchPress}.
+ * `press`'s starts and ends with how each began or ended, as Motion's `onTapStart`, `onTap` and
+ * `onTapCancel`, and a press a drag took over, which Motion tells as neither.
  */
+// #257. A Stream over `watchPress`.
 export const pressEvents = (target: unknown, options?: PressOptions): Stream.Stream<PressEvent, never, InputSource.InputSource> =>
   streamOf<PressEvent, InputSource.InputSource>((handlers) => watchPress(target, handlers, options))
 
 /**
- * Watch presses on `target` (#318, ADR-0055): `handlers.on` told each start and end, {@link pressEvents}',
- * inside the event's dispatch, while the Scope is open, as {@link watchHover}. A pointer's press, or a
- * **Keyboard press** (#427): one fold over the target's pointer, keys and focus, each feed watched
- * with its own step. Each press marks the down or the key it starts from in the page's **Press claims**
- * (#439), claimed when it doesn't propagate. `handlers.onEnd` is told once every feed it watches
- * throughout has run out. Tier 2.
+ * Watches presses on `target` while the Scope is open: `handlers.on` hears each start and end, as
+ * `pressEvents` tells them, inside the event's dispatch, as `watchHover`'s. A pointer presses it, or a key.
+ * `handlers.onEnd` is told once every feed it watches has run out.
  *
- * An Environment that says where focus is (`InputSource.focusWithin`, #460) has its keys watched only
- * while focus is within the target, as Motion's press listens for keys only once its element has focus:
- * from a `focus` to the `blur` after, or from the start when focus is already there. An element at
- * rest holds its focus feed alone.
+ * Where the Environment says where focus is, its keys are watched only while focus is within the target,
+ * as Motion's press listens for keys once its element has focus: an element at rest holds only its focus
+ * feed.
  */
+// #318, ADR-0055. One fold over the target's pointer, keys and focus, each feed watched with its own
+// step; a **Keyboard press** (#427). Each press marks the down or the key it starts from in the runtime's
+// **Press claims** (#439), claimed when it doesn't propagate. Keys while focus is within:
+// `InputSource.focusWithin` (#460), from a `focus` to the `blur` after, or from the start when focus is
+// already there. Tier 2.
 export const watchPress: (
   target: unknown,
   handlers: InputFeed.Handlers<PressEvent>,
@@ -528,12 +551,11 @@ const booleanFold = <Ev>(activeOf: (event: Ev) => boolean): Fold<boolean, Ev> =>
 })
 
 /**
- * Recognize focus state on `target`: `true` while focused, `false` once
- * blurred. `focus` -> `true`, `blur` -> `false`. Emits only on transitions.
- *
- * With `{ visible: true }` (#273, Motion's `whileFocus`), only a focus the Environment shows counts
- * (`FocusLikeEvent.visible`, the DOM's `:focus-visible`): a keyboard's, not a pointer's click.
+ * Whether `target` has focus: `true` at its focus, `false` at its blur, each change once. A focus or blur
+ * inside it changes nothing. With `visible: true`, as Motion's `whileFocus`, only a focus the Environment
+ * shows counts: a keyboard's, not a click's.
  */
+// #273: `FocusLikeEvent.visible`. #439: a focus inside.
 export const focus = (target: unknown, options: FocusOptions = {}): Stream.Stream<boolean, never, InputSource.InputSource> =>
   streamOf<boolean, InputSource.InputSource>((handlers) => watchFocus(target, options, handlers))
 
@@ -550,15 +572,18 @@ const ownFocusFold = (visibleOnly: boolean): Fold<boolean, InputSource.FocusLike
   active: identity,
 })
 
-/** {@link focus}'s options: `visible`, only a focus the Environment shows (#273). */
+/** `focus`'s options. */
+// #273.
 export interface FocusOptions {
+  /** `true`: only a focus the Environment shows counts, a keyboard's, not a click's. Default `false`. */
   readonly visible?: boolean
 }
 
 /**
- * Watch focus on `target` (#318, ADR-0055): `handlers.on` told its first report, then each change,
- * {@link focus}', inside the focus event's dispatch, while the Scope is open. Tier 2.
+ * Watches focus on `target` while the Scope is open: `handlers.on` hears whether it has focus at first,
+ * then each change, as `focus` tells them, inside the focus event's dispatch.
  */
+// #318, ADR-0055. Tier 2.
 export const watchFocus = (
   target: unknown,
   options: FocusOptions,
@@ -576,10 +601,11 @@ export const watchFocus = (
 }
 
 /**
- * {@link inView}'s options (#273, Motion's `viewport`): the Probe's {@link Probe.IntersectionOptions}
- * (`root`, `margin`, `amount`), and `once`: settled at the first entry, in view from then on.
+ * `inView`'s options, as Motion's `viewport`: the Probe's `root`, `margin` and `amount`, and `once`.
  */
+// #273.
 export interface InViewOptions extends Probe.IntersectionOptions {
+  /** `true`: settled at its first entry, in view from then on. Default `false`. */
   readonly once?: boolean | undefined
 }
 
@@ -590,13 +616,15 @@ const intersectionOf = ({ once: _once, ...options }: InViewOptions): Probe.Inter
 const intersecting = (intersection: Probe.Intersection): boolean => intersection.intersecting
 
 /**
- * Recognize in-view (intersection) state on `target` via `Probe`: its first report, then its changes,
- * against `options`' root, margin and amount. A Stream over a watch (#318), as {@link focus}: the
- * `wardic.inView` span and log, and only changes after the first report.
+ * Whether `target` is in view, by the Probe: its first report, then each change, against `options`'
+ * root, margin and amount. With `once: true` the Stream ends at its first `true`, and its observer
+ * with it, so a target seen once never goes back to `false`.
  *
- * With `{ once: true }` the stream ends after (and including) the first `true`, and the observer
- * goes with it, so a once-in-view target never goes back to `false`.
+ * @example
+ * Recognizer.inView(section, { amount: 0.5, once: true })
  */
+// A Stream over a watch (#318), as `focus`'s: the `wardic.inView` span and log, and only changes after
+// the first report.
 export const inView = (target: unknown, options: InViewOptions = {}): Stream.Stream<boolean, never, Probe.Probe> =>
   streamOf<boolean, Probe.Probe>(
     (handlers) =>
@@ -611,17 +639,21 @@ export const inView = (target: unknown, options: InViewOptions = {}): Stream.Str
     (active) => Bool.and(options.once === true, active),
   )
 
-/** An in-view transition (#273): whether the target is in now, and the platform's record of it (the DOM's entry). */
+/** A target coming into view or leaving it. */
+// #273.
 export interface ViewTransition {
+  /** Whether it's in view now. */
   readonly active: boolean
+  /** The platform's record of it, which core never reads: a binding hands it to an app's callback. */
   readonly raw?: unknown
 }
 
 /**
- * {@link inView}'s transitions (#273, Motion's `onViewportEnter` / `onViewportLeave`): from out of
- * view, each entry and leave, with the platform's record of it. A target that starts out of view tells
- * nothing until it enters, as Motion's. With `{ once: true }` it ends at the first entry: no leave.
+ * `inView`'s entries and leaves, with the platform's record of each, as Motion's `onViewportEnter` and
+ * `onViewportLeave`: a target that starts out of view tells nothing until it enters. With `once: true` it
+ * ends at its first entry, with no leave.
  */
+// #273.
 export const inViewEvents = (target: unknown, options: InViewOptions = {}): Stream.Stream<ViewTransition, never, Probe.Probe> =>
   streamOf<ViewTransition, Probe.Probe>(
     (handlers) => watchInView(target, options, handlers),
@@ -629,9 +661,10 @@ export const inViewEvents = (target: unknown, options: InViewOptions = {}): Stre
   )
 
 /**
- * Watch `target`'s view (#318, ADR-0055): `handlers.on` told each entry and leave, {@link inViewEvents}',
- * while the Scope is open; with `once`, the first entry only, then its observer goes. Tier 2.
+ * Watches `target`'s view while the Scope is open: `handlers.on` hears each entry and leave, as
+ * `inViewEvents` tells them; with `once`, the first entry only, and then its observer goes.
  */
+// #318, ADR-0055. Tier 2.
 export const watchInView = (
   target: unknown,
   options: InViewOptions,
