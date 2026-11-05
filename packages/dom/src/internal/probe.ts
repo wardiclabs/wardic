@@ -156,7 +156,7 @@ const make = Effect.gen(function* () {
     prefersReducedMotion,
     pageVisible,
     // A container's scroll, set within its events (#234): `scroll.ts`.
-    scroll: makeScroll(registry),
+    scroll: yield* makeScroll(registry),
     observeResize,
     observeIntersection,
   })
