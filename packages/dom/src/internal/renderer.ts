@@ -114,13 +114,13 @@ const TRANSFORM_UNITS: Record<string, TransformUnit> = {
 const TRANSFORM_KEYS: ReadonlySet<string> = new Set(Object.keys(BaseValue.TRANSFORM_IDENTITY))
 
 /**
- * The CSS properties a bare number on is a length, drawn in `px` (#522), spelled as Wardic's keys are
- * (`margin-top`): Motion's (`numberValueTypes`' `px` keys), and `min-width`, `min-height`, the gaps
- * and `letter-spacing`. The Solid bindings' value types take a number on these and no other length
- * (`WardicValues`), so a number never draws CSS a browser drops. `line-height` isn't one: CSS reads
- * its bare number as a multiple. A number on any other key (`opacity`, `z-index`, a custom property)
- * is drawn as it is; a string always is.
+ * The CSS properties a bare number on is a length, drawn in `px`, spelled as Wardic's keys are
+ * (`margin-top`): Motion's, and `min-width`, `min-height`, the gaps and `letter-spacing`. The Solid
+ * bindings' value types take a number on these and on no other length, so a number never draws CSS a
+ * browser drops. `line-height` isn't one: CSS reads its bare number as a multiple. A number on any other
+ * key, `opacity`, `z-index`, a custom property, is drawn as it is; a string always is.
  */
+// #522: Motion's `numberValueTypes`' `px` keys; the bindings' `WardicValues`.
 export const LENGTH_KEYS = [
   "border-width",
   "border-top-width",
@@ -180,7 +180,7 @@ export const LENGTH_KEYS = [
   "background-position-y",
 ] as const
 
-/** One of {@link LENGTH_KEYS}: a CSS property a bare number on is drawn in `px`. */
+/** One of `LENGTH_KEYS`: a CSS property a bare number on is drawn in `px`. */
 export type LengthKey = (typeof LENGTH_KEYS)[number]
 
 /** {@link LENGTH_KEYS}, for a membership test a frame can make. */
@@ -297,40 +297,41 @@ const otherUnitTranslate = (x: unknown, y: unknown): string => {
 }
 
 /**
- * An element's own translate, from its value-map: what the renderer draws on top of its projection
- * ({@link ownTranslate}). A binding hands it to its projection node (`ownTranslate`), so a twin, a
- * handover and a Follower start from, and are drawn, where it is drawn (#363). Tier 2, for binding
- * authors.
+ * An element's own move, from its values: what the renderer draws on top of its projection. A binding
+ * hands it to the element's layout node, so a twin, a handover and a follower start from, and are drawn,
+ * where it's drawn.
  */
+// `ownTranslate`; #363. Tier 2, for binding authors.
 export const ownTranslateOf = (values: Record<string, unknown>): Point.Point => ({
   x: ownTranslate(values, "x", "translateX"),
   y: ownTranslate(values, "y", "translateY"),
 })
 
 /**
- * An element's own scale per axis, from its value-map: what the renderer draws on top of its
- * projection ({@link ownScale}). A binding hands it to its projection node (`ownScale`), so a
- * handover starts from where a twin is drawn and a Follower is drawn where its Lead is (ADR-0010
- * *Amendment (#8)*). Tier 2, for binding authors.
+ * An element's own scale on each axis, from its values: what the renderer draws on top of its projection.
+ * A binding hands it to the element's layout node, so a handover starts from where a twin is drawn, and a
+ * follower is drawn where its lead is.
  */
+// `ownScale`; ADR-0010 *Amendment (#8)*. Tier 2, for binding authors.
 export const ownScaleOf = (values: Record<string, unknown>): Point.Point => ({
   x: ownScale(values, "scaleX"),
   y: ownScale(values, "scaleY"),
 })
 
 /**
- * An element's own `rotate` in degrees, from its value-map: what the renderer weaves into its
- * projection, 0 for an absent or non-numeric value. A binding hands it to its projection node
- * (`ownRotate`), so a handover blends from a twin's rotation into its own (ADR-0010 *Amendment
- * (#166)*). Tier 2, for binding authors.
+ * An element's own `rotate`, in degrees, from its values: what the renderer weaves into its projection,
+ * 0 when it's absent or not a number. A binding hands it to the element's layout node, so a handover
+ * blends from a twin's rotation into its own.
  */
+// `ownRotate`; ADR-0010 *Amendment (#166)*. Tier 2, for binding authors.
 export const ownRotateOf = (values: Record<string, unknown>): number => numberOr(values.rotate, 0)
 
 /**
- * An element's own opacity, from its value-map: what the renderer draws, 1 for an absent or
- * non-numeric value. A binding hands it to its projection node (`ownOpacity`), so a Switch blends
- * from the leaver's opacity into it (ADR-0010 *Amendment (#166)*). Tier 2, for binding authors.
+ * An element's own opacity, from its values: what the renderer draws, 1 when it's absent or not a
+ * number. A binding hands it to the element's layout node, so a handover blends from the leaving
+ * element's opacity into it.
  */
+// `ownOpacity`; a Switch (ADR-0010 *Amendment (#166)*). Tier 2, for binding authors.
 export const ownOpacityOf = (values: Record<string, unknown>): number => numberOr(values.opacity, 1)
 
 /**
@@ -388,23 +389,26 @@ const buildProjectionTransform = (
 }
 
 /**
- * The reserved key an element's **Transform template** rides under in its values (#443, Motion's
- * `transformTemplate`), as its projection rides under `Projection.KEY`: {@link project} calls it for
- * the element's transform. Namespaced (`@…`), so it never collides with a CSS property or a value key.
- * Tier 2, for binding authors.
+ * The key an element's transform template rides under in its values, as its projection rides under
+ * `Projection.KEY`: `project` calls it for the element's transform. Namespaced, `@transformTemplate`, so
+ * it never collides with a CSS property or a value's key.
  */
+// A **Transform template** (#443, Motion's `transformTemplate`). Tier 2, for binding authors.
 export const TEMPLATE_KEY = "@transformTemplate"
 
 /**
- * A **Transform template** (#443, Motion's `transformTemplate`): the element's whole transform, from
- * its values and the transform Wardic would draw (`generated`). Called by {@link project}:
- *
- * - at a plain render, with its transform keys in their units (`x: "10px"`, `rotate: "45deg"`,
- *   `scale: 1.5`) and `generated` `""` when every one is at its identity, or it has none;
- * - while a projection moves it, with all its values as they are (`x: 10`) and the projection's
+ * A transform template, as Motion's `transformTemplate`: the element's whole transform, from its values
+ * and the transform Wardic would draw (`generated`). `project` calls it:
+ * - **at a plain render**, with its transform keys in their units (`x: "10px"`, `rotate: "45deg"`,
+ *   `scale: 1.5`), and `generated` `""` when every one is at its identity, or it has none;
+ * - **while a projection moves it**, with its values as they are (`x: 10`) and the projection's
  *   transform; once nothing moves it, as at a plain render;
- * - held for a Measure pass, with all its values and `""` ({@link heldTransformOf}).
+ * - **held for a measure**, with its values and `""` (`heldTransformOf`).
+ *
+ * @example
+ * const centred: DomRenderer.TransformTemplate = (_values, generated) => `translateX(-50%) ${generated}`
  */
+// A **Transform template** (#443).
 export type TransformTemplate = (values: Readonly<Record<string, string | number>>, generated: string) => string
 
 /** `values`' template, or `undefined`: a function under {@link TEMPLATE_KEY}. Per frame: an early return. */
@@ -522,10 +526,11 @@ const projectedTransformOf = (projection: Projection.Value, values: Record<strin
 }
 
 /**
- * The transform a Measure pass holds an element at (#443, Motion's `transformTemplate(values, "")`):
- * its template's with no transform of Wardic's, so a static part of it, such as centring, is in the
- * box measured. `""` for an element with none, which the pass clears to. Tier 2, for binding authors.
+ * The transform a measure holds an element at, as Motion's `transformTemplate(values, "")`: its
+ * template's, with no transform of Wardic's, so a static part of it, centring say, is in the box
+ * measured. `""` for an element with none, which the measure clears it to.
  */
+// A Measure pass (#443). Tier 2, for binding authors.
 export const heldTransformOf = (values: Readonly<Record<string, unknown>>): string => {
   const template = templateOf(values as Record<string, unknown>)
   if (Predicate.isUndefined(template)) return ""
@@ -551,25 +556,21 @@ const projectedOpacity = (projection: Projection.Value, values: Record<string, u
 }
 
 /**
- * PURE: translate engine values into a DOM `Patch`. Two modes:
+ * A Frame's values as a DOM style patch, pure. The transform keys become one `transform`, each left out
+ * at its identity, and `none` when every one is; with no transform key there's no `transform`, so a
+ * class's shows. A node's projection, when its values carry one under `Projection.KEY`, becomes its
+ * transform instead, with the element's own move, rotation, skew and scale drawn on it. Every other key is
+ * copied across, a bare number on a length in `px`. A binding's server render, which builds no runtime,
+ * projects with it directly.
  *
- *   - PROJECTION (ADR-0009): when the reserved `Projection.KEY` is present,
- *     the transform is assembled by {@link buildProjectionTransform} from that
- *     node's `delta`/`treeScale`, adding the element's own translate (`x`, `y`,
- *     `translate*`, #363), weaving its own animated `rotate`/`skew` and multiplying
- *     in its own `scale`/`scaleX`/`scaleY` (read from the same value-map).
- *   - NORMAL: group all present transform keys into one canonical `transform`
- *     string (the value-spine path), leaving out each at its identity; with
- *     every one at its identity, `none` (ADR-0023). With no transform key, no
- *     `transform`, so a class's shows.
- *
- * Either way, non-transform keys are copied across with default-unit handling.
- * No side effects.
- *
- * Exported for a binding's server render, which builds no runtime and so projects with
- * this function directly: the same one {@link RendererDomLive} provides (ADR-0021,
- * decision 2). Tier 2, for binding authors.
+ * @example
+ * DomRenderer.project({ x: 0, scale: 1, width: 200 }) // { transform: "none", width: "200px" }
  */
+// Two modes. PROJECTION (ADR-0009): the transform is assembled by `buildProjectionTransform` from the
+// node's `delta`/`treeScale`, adding the element's own translate (`x`, `y`, `translate*`, #363), weaving
+// its own animated `rotate`/`skew` and multiplying in its own `scale`/`scaleX`/`scaleY`. NORMAL: the
+// value-spine path, `none` at every identity (ADR-0023). The same function `RendererDomLive` provides
+// (ADR-0021, decision 2). Tier 2, for binding authors.
 export const project = (values: Record<string, unknown>): Renderer.Patch => {
   const patch: Renderer.Patch = {}
 
@@ -640,9 +641,6 @@ const writeStyle = (style: CSSStyleDeclaration, patch: Record<string, unknown>):
   for (const key in patch) style.setProperty(dashCase(key), String(patch[key]))
 }
 
-/**
- * `Renderer` Layer for the browser. `project`/`commit` are pure/simple with no
- * service dependencies, so this is a plain `Layer.succeed` — no `AtomRegistry`
- * or other Environment service is required.
- */
+/** Core's `Renderer` for the DOM: `project` and a `commit` that writes a patch onto an element's style. It needs nothing. */
+// `project` and `commit` have no service dependencies, so this is a plain `Layer.succeed`.
 export const RendererDomLive: Layer.Layer<Renderer.Renderer> = Layer.succeed(Renderer.Renderer, { project, commit })

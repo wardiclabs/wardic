@@ -66,12 +66,15 @@ export const documentOf = (node: Node): Document => {
   return doc
 }
 
-/** Add `doc`'s live region now, before its first announcement, so a screen reader is watching it. */
+/** Adds `doc`'s live region now, before its first announcement, so a screen reader is already watching it. */
 export const prepareAnnouncer = (doc: Document): void => {
   regionOf(doc)
 }
 
-/** Speak `message` in `doc`'s live region, replacing the last; a repeat of the last gets a trailing no-break space. */
+/**
+ * Speaks `message` in `doc`'s live region, replacing the last. A repeat of the last gets a trailing
+ * no-break space, so it's read out again.
+ */
 export const announceIn = (doc: Document, message: string): void => {
   const region = regionOf(doc)
   region.textContent = Bool.match(region.textContent === message, { onTrue: () => `${message}\u00A0`, onFalse: () => message })
@@ -83,11 +86,11 @@ const instructions = new WeakMap<Document, Map<string, string>>()
 let nextInstructions = 1
 
 /**
- * The id of `doc`'s hidden element holding `text`, one per distinct text, for the
- * `aria-describedby` of every item that shows it. Given here, with no element added: a binding
- * derives it while it renders, and adds the element with {@link showInstructions} in an effect
- * (#320).
+ * The id of `doc`'s hidden element holding `text`, one per distinct text, for the `aria-describedby` of
+ * every item that shows it. Given here, with no element added: a binding works it out as it renders, and
+ * adds the element with `showInstructions` in an effect.
  */
+// #320.
 export const instructionsIdOf = (doc: Document, text: string): string => {
   const byText = Option.getOrElse(Option.fromUndefinedOr(instructions.get(doc)), () => {
     const added = new Map<string, string>()
@@ -101,7 +104,7 @@ export const instructionsIdOf = (doc: Document, text: string): string => {
   })
 }
 
-/** Add `doc`'s hidden element holding `text`, under {@link instructionsIdOf}'s id, unless it's there. */
+/** Adds `doc`'s hidden element holding `text`, under `instructionsIdOf`'s id, unless it's there already. */
 export const showInstructions = (doc: Document, text: string): void => {
   const id = instructionsIdOf(doc, text)
   if (Predicate.isNotNull(doc.getElementById(id))) return
@@ -112,13 +115,13 @@ export const showInstructions = (doc: Document, text: string): void => {
   doc.body.appendChild(el)
 }
 
-/** {@link instructionsIdOf}, with its element added now: added again if it was removed. */
+/** `instructionsIdOf`, with its element added now: added again if it was removed. */
 export const instructionsId = (doc: Document, text: string): string => {
   showInstructions(doc, text)
   return instructionsIdOf(doc, text)
 }
 
-/** Core's `Announcer` on the page's `document` (see the module doc). */
+/** Core's `Announcer`, speaking in the page's `document`'s live region. */
 export const AnnouncerDomLive: Layer.Layer<Announcer.Announcer> = Layer.effect(Announcer.Announcer)(
   Effect.gen(function* () {
     yield* requireGlobal("AnnouncerDomLive", "document")

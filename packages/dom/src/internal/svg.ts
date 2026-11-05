@@ -127,38 +127,36 @@ export const svgAttrNameOf = (key: string): Option.Option<string> =>
       ),
   })
 
-/** A real `<svg>` ROOT (`SVGSVGElement`) — styled like HTML (it has a CSS box). */
+/** Whether `el` is an `<svg>` root, which is styled as HTML is: it has a CSS box. */
 export const isSvgRoot = (el: unknown): boolean => {
   // No SVG classes on a server. Per frame (a flush's split): plain checks.
   const SvgRoot = (globalThis as { readonly SVGSVGElement?: typeof SVGSVGElement }).SVGSVGElement
   return Predicate.isNotUndefined(SvgRoot) && el instanceof SvgRoot
 }
 
-/** An svg-INNER element (any `SVGElement` that is not the `<svg>` root). */
+/** Whether `el` is an SVG element inside an `<svg>`: any SVG element but the root. */
 export const isSvgInner = (el: unknown): boolean => {
   const Svg = (globalThis as { readonly SVGElement?: typeof SVGElement }).SVGElement
   return Predicate.isNotUndefined(Svg) && el instanceof Svg && !isSvgRoot(el)
 }
 
-/** The result of routing a flat `Patch`: CSS `style` keys vs DOM `attrs`. */
+/** A style patch, split: the keys written as CSS, and the ones written as attributes. */
 export interface SplitPatch {
-  /** Keys to write as CSS style (always the whole patch for HTML / the svg root). */
+  /** The keys written as CSS: the whole patch for HTML and an `<svg>` root. */
   readonly style: Record<string, unknown>
-  /** Keys to write via `setAttribute` (always empty for HTML / the svg root). */
+  /** The keys written with `setAttribute`: none for HTML and an `<svg>` root. */
   readonly attrs: Record<string, string>
 }
 
 /**
- * Route a flat (agnostic) `Patch` into CSS `style` + SVG `attrs` for `el`.
- *
- * - HTML / `<svg>` root: `{ style: patch, attrs: {} }` — unchanged behavior.
- * - svg-inner: every key → attribute, except {@link SVG_STYLE_KEYS} and a custom property → style;
- *   `attrX`/`attrY`/`attrScale` → the `x`/`y`/`scale` attribute; a `transform`
- *   also yields `transform-box: fill-box` + `transform-origin: 50% 50%` (unless
- *   the value-map already set them — user wins), so an SVG transform reads like
- *   an HTML one; `pathLength`/`pathSpacing`/`pathOffset` collapse to a normalised
- *   `stroke-dasharray`/`stroke-dashoffset` (+ `pathLength=1`), unitless.
+ * A style patch split for `el`: an HTML element's, or an `<svg>` root's, is all style. An SVG element
+ * inside one takes every key as an attribute but the keys CSS styles and a custom property; `attrX`,
+ * `attrY` and `attrScale` as its `x`, `y` and `scale` attributes; a `transform` with `transform-box:
+ * fill-box` and `transform-origin: 50% 50%`, unless the values set them, so it turns about its own centre
+ * as an HTML element does; and `pathLength`, `pathSpacing` and `pathOffset` as a normalised
+ * `stroke-dasharray` and `stroke-dashoffset`, with `pathLength="1"`.
  */
+// The CSS keys: `SVG_STYLE_KEYS`.
 export const splitPatch = (el: unknown, patch: Renderer.Patch): SplitPatch => {
   if (isSvgInner(el)) return routeSvgInner(patch)
   return { style: patch as Record<string, unknown>, attrs: {} }
@@ -198,13 +196,11 @@ const SVG_INNER_TAGS: ReadonlySet<string> = new Set([
   "view",
 ])
 
-/** Whether `tag` names an svg-INNER element (any SVG element but the `<svg>` root), by name alone. */
+/** Whether `tag` names an SVG element inside an `<svg>`, by its name alone. */
 export const isSvgInnerTag = (tag: string): boolean => !tag.includes("-") && (SVG_INNER_TAGS.has(tag) || /[A-Z]/.test(tag))
 
-/**
- * {@link splitPatch} by tag name, for where there is no element yet: a server render and
- * the Starting style (ADR-0021). The same routing; `undefined` is an HTML element.
- */
+/** `splitPatch` by tag name, for where there's no element yet: a server render, a starting style. `undefined` is an HTML element. */
+// ADR-0021.
 export const splitPatchForTag = (tag: string | undefined, patch: Renderer.Patch): SplitPatch =>
   Bool.match(Predicate.isNotUndefined(tag) && isSvgInnerTag(tag), {
     onTrue: () => routeSvgInner(patch),
@@ -294,7 +290,7 @@ const dashOffsetOf = (offset: number): number => {
   return 0
 }
 
-/** Write each routed attribute onto `el` via `setAttribute`. No-op for an empty map. */
+/** Writes each attribute onto `el` with `setAttribute`; nothing for an empty map. */
 export const setSvgAttrs = (el: Element, attrs: Record<string, string>): void => {
   for (const name in attrs) el.setAttribute(name, attrs[name])
 }

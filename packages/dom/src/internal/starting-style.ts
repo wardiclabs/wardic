@@ -39,10 +39,12 @@ export const toValues = (v: object | undefined): Values.Values =>
 /** Whether a value is one an animation can take: a number or a string. */
 const isAnimatable = Predicate.or(Predicate.isNumber, Predicate.isString)
 
-/** A **Keyframes** value's stops (#429, Motion's): each a value, or `null` for where the key is (first) or the stop before (later). */
+/** A keyframes value's stops, as Motion's: each a value, or `null`, for where the key is (the first) or the stop before (a later one). */
+// **Keyframes** (#429).
 export type Stops = ReadonlyArray<number | string | null>
 
-/** Where a **Keyframes** value is read (#429): `initial`'s at its first stop, a target's at its last. */
+/** Where a keyframes value is read: `initial`'s at its first stop, a target's at its last. */
+// **Keyframes** (#429).
 export type StopAt = "first" | "last"
 
 /** Whether a stop is one an animation can take, or `null`. */
@@ -111,7 +113,8 @@ const withStops = (values: Values.Values, keyframes: Readonly<Record<string, Sto
   ...toValues(Rec.map(keyframes, (stops) => stopOf(stops, at))),
 })
 
-/** A values map's own values and its Keyframes (#452): {@link splitValues}' result. */
+/** A values map's own values and its keyframes: `splitValues`' result. */
+// #452.
 export interface SplitValues {
   /** Its numbers and strings, each Keyframes value at one of its stops. */
   readonly values: Values.Values
@@ -120,10 +123,11 @@ export interface SplitValues {
 }
 
 /**
- * A values map's values, each **Keyframes** value read at one of its stops (#429), and its Keyframes,
- * in one pass over its keys (#452): a target's resolution reads both, and a target with no Keyframes
- * makes nothing {@link toValues} doesn't.
+ * A values map's values, each keyframes value read at one of its stops, and its keyframes, in one pass
+ * over its keys: a target's resolution reads both, and a target with no keyframes makes nothing
+ * `toValues` doesn't.
  */
+// **Keyframes** (#429); one pass (#452).
 export const splitValues = (v: object | undefined, at: StopAt): SplitValues => {
   const values = filtered(v)
   const keyframes = takeSetAside()
@@ -132,11 +136,15 @@ export const splitValues = (v: object | undefined, at: StopAt): SplitValues => {
 }
 
 /**
- * A values map with only the keys an animation can take, each **Keyframes** value read at one of its
- * stops (#429): `initial`'s first, a target's last. A Keyframes value with no such stop drops out, as
- * does an array {@link keyframesOf} doesn't take, and anything that isn't a number or a string. One
- * pass over its keys, as {@link toValues}' (#452).
+ * A values map with only the keys an animation can take, each keyframes value read at one of its stops:
+ * `initial`'s first, a target's last. A keyframes value with no such stop drops out, as does an array
+ * `keyframesOf` doesn't take, and anything that isn't a number or a string. One pass over its keys, as
+ * `toValues`'.
+ *
+ * @example
+ * Style.valuesAt({ opacity: [0, 0.5, 1], x: 10 }, "first") // { x: 10, opacity: 0 }
  */
+// **Keyframes** (#429); one pass (#452).
 export const valuesAt = (v: object | undefined, at: StopAt): Values.Values => {
   const values = filtered(v)
   const keyframes = takeSetAside()
@@ -145,24 +153,29 @@ export const valuesAt = (v: object | undefined, at: StopAt): Values.Values => {
 }
 
 /**
- * A values map's **Keyframes** values (#429): each array of stops an animation can take, with a stop
- * that isn't `null`; `undefined` when it has none, so a target without any makes nothing.
+ * A values map's keyframes values: each array of stops an animation can take, one with a stop that isn't
+ * `null`. `undefined` when it has none, so a target without any makes nothing.
+ *
+ * @example
+ * Style.keyframesOf({ opacity: [0, 0.5, 1], x: 10 }) // { opacity: [0, 0.5, 1] }
  */
+// **Keyframes** (#429).
 export const keyframesOf = (v: object | undefined): Readonly<Record<string, Stops>> | undefined => splitValues(v, "last").keyframes
 
 /**
- * The part of an element's config its Starting style is resolved from. Values maps are
- * typed `object` so a binding's own value types (interfaces) fit as they are.
+ * What of an element's config its starting style is read from. Its values are typed `object`, so a
+ * binding's own value types fit as they are.
  */
 export interface InitialConfig {
   /**
-   * A values map used as is, the name of a `variants` entry, a list of names (#297, merged in
-   * order, a later one's winning), or `false`: start at {@link animate} (#134, Motion's
-   * `initial={false}`).
+   * Its start: values used as they are, the name of a `variants` entry, a list of names merged in order,
+   * a later one's winning, or `false`, to start at `animate`, as Motion's `initial={false}`.
    */
+  // #297 (lists); #134 (`false`).
   readonly initial?: object | string | ReadonlyArray<string> | false | undefined
   /** What `initial: false` starts at: a values map, the name of a `variants` entry, or a list of names. */
   readonly animate?: object | string | ReadonlyArray<string> | undefined
+  /** Its variants: the values each name stands for. */
   readonly variants?: Readonly<Record<string, object | undefined>> | undefined
 }
 
@@ -190,13 +203,16 @@ const entryOf: (entry: Entry) => Values.Values = Match.type<Entry>().pipe(
 )
 
 /**
- * The values an element starts from: its `initial` map, or the `variants` entry its
- * `initial` names (an unknown name is empty), or nothing. With `initial: false`, its
- * `animate`, resolved the same way, so it starts at its target and nothing animates at
- * mount (#134, Motion's). Read once, at setup: the Starting style is a seed, never a
- * live target. A **Keyframes** value starts at its first stop, or, with `initial: false`, at
- * `animate`'s last, where the animation it skips would end (#429, Motion's `use-visual-state.ts`).
+ * The values an element starts from: its `initial` values, or the `variants` entries its `initial` names,
+ * an unknown name empty, or nothing. With `initial: false`, its `animate`, resolved the same way, so it
+ * starts at its target and nothing animates at mount, as Motion's. A keyframes value starts at its first
+ * stop, or, with `initial: false`, at `animate`'s last, where the animation it skips would end. Read once,
+ * at setup: the starting style is where it starts, never a live target.
+ *
+ * @example
+ * Style.resolveInitial({ initial: false, animate: { opacity: 1 } }) // { opacity: 1 }
  */
+// #134, Motion's `initial={false}`; **Keyframes** (#429, Motion's `use-visual-state.ts`).
 export const resolveInitial = (config: InitialConfig): Values.Values => {
   // Per element at mount (#540): statements.
   if (config.initial === false) return entryOf({ entry: config.animate, variants: config.variants, at: "last" })
@@ -309,21 +325,17 @@ const layered = (self: StyleRecord, that: StyleRecord): StyleRecord => {
 }
 
 /**
- * `self` laid over `that`: `self`'s keys win, and `that`'s others stay (ADR-0041, decision 5). A
- * chain reads from the top layer down:
+ * `self` laid over `that`: `self`'s keys win, and `that`'s others stay. A chain reads from the top layer
+ * down: an element's style is its drag defaults, under its base, under the app's, under what Wardic
+ * animates. A side given as CSS text is parsed, so a framework never writes `cssText` over the keys
+ * Wardic holds, and a side that's `undefined` leaves the other as it is, the same object. Whatever `self`
+ * sets for `user-select` or `-webkit-user-select` it sets for both: one property in Chromium.
  *
- * ```ts
- * // before the first commit: the Starting style over the user's, over a base and a drag element's defaults
- * pipe(starting, Style.over(user), Style.over(base), Style.over(defaults))
- * ```
- *
- * That's an element's layering: defaults < base < user < animated (ADR-0019 *Amendment (Reorder)*).
- *
- * A side given as CSS text is parsed, so a framework never writes `cssText` over the keys the
- * flush gate holds. A side that's `undefined` leaves the other as it is, the same object. Whatever
- * `self` sets for `user-select` or `-webkit-user-select` it sets for both, over `that`: one
- * property in Chromium.
+ * @example
+ * // Before the first commit: the starting style over the app's, over a base and a drag element's defaults.
+ * pipe(starting, Style.over(user), Style.over(base), Style.over(Style.dragDefaults("x")))
  */
+// `dual`, `self` first (ADR-0041, decision 5). The layering: ADR-0019 *Amendment (Reorder)*.
 export const over: {
   (that: StyleInput): (self: StyleInput) => StyleRecord
   (self: StyleInput, that: StyleInput): StyleRecord
@@ -344,14 +356,14 @@ const isHeld = (held: ReadonlyArray<string>, key: string): boolean => {
 }
 
 /**
- * `self` without the keys the flush gate holds on the element (`held`, by patch key, matched by
- * CSS property): the style once its first frame is committed (ADR-0034). Wardic writes those
- * while it drives them, and `style` is their fallback, so a key the gate lets go of comes back.
+ * `self` without the keys the flush gate holds on the element (`held`, by patch key, matched by CSS
+ * property): the style once its first frame is committed. Wardic writes those while it drives them, and
+ * the app's `style` is their fallback, so a key the gate lets go of comes back.
  *
- * ```ts
- * pipe(user, Style.over(base), Style.over(defaults), Style.without(held))
- * ```
+ * @example
+ * pipe(user, Style.over(base), Style.without(held))
  */
+// ADR-0034.
 export const without: {
   (held: ReadonlyArray<string>): (self: StyleInput) => StyleRecord
   (self: StyleInput, held: ReadonlyArray<string>): StyleRecord
@@ -366,11 +378,11 @@ export const without: {
 })
 
 /**
- * Whether the keys the flush gate holds, changing from `prev` to `next`, change `self`'s
- * {@link without}: whether a key that was taken or let go of is one `self` sets, by its name or
- * its name dash-cased. Most changes touch none, and a binding then leaves its `style` alone
- * (ADR-0034).
+ * Whether the keys the flush gate holds, changing from `prev` to `next`, change `self`'s `without`:
+ * whether a key taken or let go of is one `self` sets, by its name or its name dash-cased. Most changes
+ * touch none, and a binding then leaves its `style` alone.
  */
+// ADR-0034.
 export const heldTouches: {
   (prev: ReadonlyArray<string>, next: ReadonlyArray<string>): (self: StyleRecord) => boolean
   (self: StyleRecord, prev: ReadonlyArray<string>, next: ReadonlyArray<string>): boolean
@@ -381,10 +393,10 @@ export const heldTouches: {
 )
 
 /**
- * The Starting style of a `tag` element starting from `values`, projected with the DOM's
- * pure `project` and routed by tag (ADR-0014): an svg-inner element's keys become
- * attributes, everything else is style. `undefined` is an HTML element (a `createWard`
- * spread, which doesn't know its tag).
+ * The starting style of a `tag` element starting from `values`: projected as the renderer projects a
+ * Frame, then split by tag, an SVG element's keys inside an `<svg>` as attributes, and the rest as style.
+ * `undefined` is an HTML element, as for a spread that doesn't know its tag.
  */
+// The Starting style; routed by tag (ADR-0014). The spread: a `createWard` spread.
 export const startingStyle = (tag: string | undefined, values: Readonly<Record<string, unknown>>): SplitPatch =>
   splitPatchForTag(tag, project(values))

@@ -14,10 +14,10 @@ import { cssComplex } from "./complex.ts"
 import { keyRules } from "./key-rules.ts"
 
 /**
- * The DOM's Interpolators, in resolution order: core's `number`, `array` and `unit`, the DOM's
- * colours before `unit` (so `"#fff"` is a colour, as it was in core before ADR-0036), and the
- * DOM's complex tier last.
+ * The DOM's kinds of value, in the order they're tried: core's number, array and unit, the DOM's colours
+ * before the unit, so `"#fff"` is a colour, and the DOM's complex values last.
  */
+// As it was in core before ADR-0036.
 export const interpolators: ReadonlyArray<Interpolator.Entry<any, any>> = [
   Interpolator.number,
   Interpolator.array,
@@ -26,10 +26,8 @@ export const interpolators: ReadonlyArray<Interpolator.Entry<any, any>> = [
   cssComplex,
 ]
 
-/**
- * The DOM Environment's `InterpolatorRegistry` (ADR-0035): its Interpolators (`interpolators`) and
- * its Key rules (`keyRules`). `DomLive` provides it.
- */
+/** The DOM's `InterpolatorRegistry`: its kinds (`interpolators`) and its Key rules (`keyRules`). `DomLive` provides it. */
+// ADR-0035.
 export const InterpolatorRegistryDomLive: Layer.Layer<InterpolatorRegistry.InterpolatorRegistry> = Layer.effect(
   InterpolatorRegistry.InterpolatorRegistry,
 )(InterpolatorRegistry.make(interpolators, keyRules))

@@ -40,7 +40,8 @@ export interface Spec {
    * name is its hash, so a client tells a Handoff it can continue from one it can't (decision 6).
    */
   readonly key: string
-  /** The element's tag, for SVG's routing (ADR-0014); `undefined` for an HTML element. */
+  /** The element's tag, so an SVG element's keys go to its attributes; `undefined` for an HTML element. */
+  // ADR-0014.
   readonly tag: string | undefined
   /**
    * The animation's values from its start (for an `infinite` one, one cycle of it), built only when
@@ -49,16 +50,15 @@ export interface Spec {
   readonly machine: LazyArg<Machine.Machine<Frame.Frame<Values.Values>>>
   /** Played over and over: an infinite repeat, `machine` one cycle of it. */
   readonly infinite?: boolean | undefined
-  /**
-   * A layout node (ADR-0009, #245): drawn through its projection at rest, as the client draws it,
-   * its own translate on top (#363).
-   */
+  /** A layout node: drawn through its projection at rest, as the client draws it, its own move on top. */
+  // ADR-0009, #245; its own translate (#363).
   readonly projected?: boolean | undefined
   /**
-   * The element's **Transform template** (#443): each stop's transform drawn through it, as the
-   * client draws it. A function's text can't name a rule, so a templated spec's rule is named by its
-   * stops, and sampled for each element that has one, never cached.
+   * The element's transform template: each stop's transform drawn through it, as the client draws it. A
+   * function's text can't name a rule, so a templated spec's rule is named by its stops, and sampled for
+   * each element that has one, never cached.
    */
+  // A **Transform template** (#443).
   readonly template?: TransformTemplate | undefined
 }
 
@@ -71,25 +71,29 @@ export interface Keyframes {
    * tolerance of the settled one.
    */
   readonly duration: number
-  /** Seconds to the Frame the spec settles at, which a client waits for (`when`, ADR-0007): at or past `duration`. */
+  /** Seconds to the Frame the spec settles at, which a client waits for: at or past `duration`. */
+  // `when` (ADR-0007).
   readonly settled: number
+  /** Whether it plays over and over. */
   readonly infinite: boolean
   /** The time of each stop kept, in seconds from the start. */
   readonly times: ReadonlyArray<number>
   /** The rule, `@keyframes <name>{…}`. */
   readonly css: string
   /**
-   * The SVG geometry properties its stops write (`cx`, `r`…), which a browser draws from CSS only in
-   * part (#245): an element playing it is defined under `@supports` for each, so a browser without
-   * them keeps it at its Starting style. Empty for most rules.
+   * The SVG geometry properties its stops write (`cx`, `r`…), which some browsers don't draw from CSS: an
+   * element playing it is defined under `@supports` for each, so a browser without them keeps it at its
+   * starting style. Empty for most rules.
    */
+  // #245.
   readonly supports: ReadonlyArray<string>
 }
 
 /** Where an element's timing is decided: a spec, and the delay it starts after. */
 export interface Play {
+  /** The element's mount animation. */
   readonly spec: Spec
-  /** Seconds before it starts: its orchestration's, and any whole-element delay. */
+  /** Seconds before it starts: its orchestration's, and any delay on the whole element. */
   readonly delay: number
 }
 
@@ -119,7 +123,8 @@ const names = new Map<string, string>()
 
 const NAMES_SIZE = 4096
 
-/** The rule's name for a spec: its key, tag, repeat and projection, hashed (once a text: a server names each element's spec). */
+/** The rule's name for a spec: its key, tag, repeat and projection, hashed. */
+// Once a text: a server names each element's spec.
 export const nameOf = (spec: Pick<Spec, "key" | "tag" | "infinite" | "projected">): string => {
   const text = specTextOf(spec)
   return Option.getOrElse(Option.fromUndefinedOr(names.get(text)), () => {
@@ -490,12 +495,13 @@ interface Sampled {
 const CACHE_SIZE = 512
 
 /**
- * A spec's rule, or why it has none (a debug log's line): sampled once a spec, cached across
- * requests by its name, since a spec's rule changes only once the page registers every colour space
- * (`registerSpaces`, #511): a wide-gamut colour blends as written before, in sRGB after. Its name stays,
- * so a client matches it whatever it had registered. A templated spec's is sampled each time (#443):
- * its name comes from its stops.
+ * A spec's rule, or why it has none, for a debug log. Sampled once a spec and cached across requests by
+ * its name, since a spec's rule changes only once the page registers every colour space
+ * (`Color.registerSpaces`): a wide-gamut colour blends as written before, in sRGB after. Its name stays,
+ * so a client matches it whatever it had registered. A templated spec's is sampled each time: its name
+ * comes from its stops.
  */
+// #511; templates #443.
 export const keyframes = (spec: Spec): Result.Result<Keyframes, string> => {
   if (Predicate.isNotUndefined(spec.template)) return sample(spec)
   const name = nameOf(spec)
@@ -510,10 +516,11 @@ export const keyframes = (spec: Spec): Result.Result<Keyframes, string> => {
 
 /**
  * An element's `animation` value for a play of `rule`: its name, length, delay and repeat, filling
- * forwards. Not backwards: through its delay the element shows its inline Starting style, which is
- * the rule's first stop for a rule that moves from it, and the start a reduced rule's snap holds
- * until the delay ends (ADR-0029), where the first stop is already snapped.
+ * forwards. Not backwards: through its delay the element shows its inline starting style, which is the
+ * rule's first stop for a rule that moves from it.
  */
+// And the start a reduced rule's snap holds until the delay ends (ADR-0029), where the first stop is
+// already snapped.
 export const animationOf = (rule: Keyframes, delay: number): string =>
   `${rule.name} ${trimNumbers(String(rule.duration))}s linear ${trimNumbers(String(delay))}s ${
     Bool.match(rule.infinite, { onTrue: () => "infinite", onFalse: () => "1" })
@@ -530,21 +537,24 @@ export interface Slot {
    * (a provider's `"user"`). Undefined until called, and left so when either spec has no rule: the
    * element keeps its Starting style. The reason comes back for the debug log.
    *
-   * Defined under `@supports` for the geometry properties its rules write and `supports` (#245): a
-   * binding passes the ones every element it orchestrates with writes, so a browser without them
-   * keeps the whole group at its Starting style, not half of it.
+   * Defined under `@supports` for the geometry properties its rules write and `supports`: a binding
+   * passes the ones every element it orchestrates with writes, so a browser without them keeps the whole
+   * group at its starting style, not half of it.
    */
+  // #245.
   readonly define: (play: Play, reduced?: Play | undefined, supports?: ReadonlyArray<string>) => Result.Result<void, string>
 }
 
 /** One render's Appear rules: a slot per element, and the `<style>` text for the head and each late chunk. */
 export interface Sheet {
+  /** A slot for the next element. */
   readonly slot: () => Slot
   /**
-   * The CSS since the last call: each rule this render hasn't written yet, and the custom property
-   * of each slot defined since, the reduced ones under the media query. Called once, the head's;
-   * called again for each chunk a stream sends after its shell (#245), only what that chunk adds.
+   * The CSS since the last call: each rule this render hasn't written yet, and the custom property of
+   * each slot defined since, the reduced ones under the media query. Called once for the head, and again
+   * for each chunk a stream sends after its shell, with only what that chunk adds.
    */
+  // #245.
   readonly css: () => string
 }
 
@@ -566,7 +576,7 @@ const blocksCss = (blocks: Blocks): string =>
     return Bool.match(condition === "", { onTrue: () => root, onFalse: () => `@supports ${condition}{${root}}` })
   }).join("")
 
-/** A sheet for one render. */
+/** A sheet for one render: a slot per element, and the CSS for the head. */
 export const sheet = (): Sheet => {
   let slots = 0
   // The rules to write, and the names of those written: a chunk doesn't send a rule the head has.
@@ -619,9 +629,10 @@ export const sheet = (): Sheet => {
 // --- A late chunk's rules ----------------------------------------------------------------------
 
 /**
- * The attribute a late chunk's `<style>` carries (#245, ADR-0044 *Amendment (#245)*): a chunk a
- * stream sends after its shell brings its own rules, in a node its client doesn't render.
+ * The attribute a late chunk's `<style>` carries: a chunk a stream sends after its shell brings its own
+ * rules, in a node its client doesn't render.
  */
+// #245, ADR-0044 *Amendment (#245)*.
 export const CHUNK_ATTRIBUTE = "data-wardic-appear-chunk"
 
 /** A late chunk's `<style>` for `css`, as server text; "" for none. */
@@ -632,14 +643,15 @@ export const chunkStyle = (css: string): string =>
 const watched = new WeakSet<Document>()
 
 /**
- * Move each late chunk's Appear rules into the head (#245): its `<style data-wardic-appear-chunk>`
- * text into a head `<style>`, then the node out, before the chunk hydrates (a hydrating client
- * expects no node it doesn't render, and leaving it would shift sibling selectors). The text goes
- * first, so the rule a running animation plays is never missing from a style update. Chunks
- * already in the document are moved at once; while it's still loading (a stream still coming),
- * a MutationObserver moves each as it lands, until `DOMContentLoaded`. Every call moves what's there (each provider
- * hydrating asks before its subtree hydrates); one observer a document.
+ * Moves each late chunk's Appear rules into the head: its `<style data-wardic-appear-chunk>`'s text into a
+ * head `<style>`, then the node out, before the chunk hydrates, since a hydrating client expects no node it
+ * doesn't render. The text goes first, so the rule a running animation plays is never missing. Chunks
+ * already in the document move at once; while it's still loading, a stream still coming, a
+ * `MutationObserver` moves each as it lands, until `DOMContentLoaded`. Every call moves what's there; one
+ * observer a document.
  */
+// #245. Leaving the node would shift sibling selectors. Each provider hydrating asks before its subtree
+// hydrates.
 export const adoptChunks = (doc: Document): void => {
   const adopt = (): void =>
     Arr.forEach(Array.from(doc.querySelectorAll(`style[${CHUNK_ATTRIBUTE}]`)), (node) => {
@@ -666,7 +678,8 @@ export const adoptChunks = (doc: Document): void => {
 const nameOfAnimation = (animation: Animation): Option.Option<string> =>
   Option.filter(Option.some((animation as Animation & { readonly animationName?: unknown }).animationName), Predicate.isString)
 
-/** The element's Appear animation (decision 6): its `wardic-…` CSS animation, running or finished and filling. */
+/** The element's Appear animation: its `wardic-…` CSS animation, running, or finished and filling. */
+// ADR-0044, decision 6.
 export const find = (element: Element): Option.Option<Animation> =>
   Bool.match(Predicate.hasProperty(element, "getAnimations"), {
     onFalse: () => Option.none(),
@@ -695,19 +708,19 @@ export const delayOf = (animation: Animation): number =>
 const SLOT_PREFIX = `var(--${PREFIX}a`
 
 /**
- * Whether `element`'s Appear animation runs, not yet handed off (#245): its inline style still names
- * its slot, which `release` removes. A Measure pass asks it of each node, so a running animation's
- * transform, which beats the inline one, stays out of the box it reads: a string read, no style
- * resolved.
+ * Whether `element`'s Appear animation is running, not yet handed over: its inline style still names its
+ * slot, which `release` removes. A layout measure asks it of each node, so a running animation's
+ * transform, which beats the inline one, stays out of the box it reads.
  */
+// #245: a Measure pass; a string read, no style resolved.
 export const pending = (element: ElementCSSInlineStyle): boolean => element.style.getPropertyValue("animation").startsWith(SLOT_PREFIX)
 
 /**
- * The Handoff's last step: the element's inline `animation` removed, in the task that writes the
- * engine's first frame, so no paint falls between (decision 6). While it ran, its value beat the
- * inline style the engine writes. The removal ends the CSS animation at that task's style update; a
- * `cancel()` too changed nothing (a mutation, #48's PR 1).
+ * The handover's last step: the element's inline `animation` removed, in the task that writes the
+ * engine's first frame, so no paint falls between. While it ran, its value beat the inline style the
+ * engine writes; removing it ends the CSS animation at that task's style update.
  */
+// The **Handoff** (ADR-0044, decision 6). A `cancel()` too changed nothing (a mutation, #48's PR 1).
 export const release = (element: ElementCSSInlineStyle): void => {
   element.style.removeProperty("animation")
 }

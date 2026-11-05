@@ -34,14 +34,12 @@ const frames: Layer.Layer<RefreshFrameSource.RefreshFrameSource> = Layer.effect(
 )
 
 /**
- * The `Clock` and the Environment's `RefreshFrameSource`, from one `requestAnimationFrame`,
- * requiring nothing: the Refresh frame loop runs in the Layer's own scope.
- *
- * The source is built when the Layer builds, not at module load, so importing `@wardic/dom` never
- * touches `requestAnimationFrame`, and a test that stubs the global before building the Layer
- * drives this Clock and the gate. Building it on a server (no `requestAnimationFrame`) fails with
- * the client-only error (ADR-0021, decision 7).
+ * Core's `Clock` and the Environment's `RefreshFrameSource`, from one `requestAnimationFrame`, needing
+ * nothing: the frame loop runs in the Layer's own scope. It reads `requestAnimationFrame` when the Layer
+ * is built, not when `@wardic/dom` is imported, so a test that stubs it first drives this Clock. Building
+ * it on a server fails, with an error that says it's client-only.
  */
+// ADR-0021, decision 7: the client-only error.
 export const ClockDomLive: Layer.Layer<Clock.Clock | RefreshFrameSource.RefreshFrameSource> = Clock.layer.pipe(
   Layer.provideMerge(frames),
 )

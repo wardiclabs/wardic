@@ -31,7 +31,8 @@ const SCALE: DefaultTransition.Transition = { type: "spring", stiffness: 550, da
 /** Every other key's: Motion's `ease`. */
 const EASE: DefaultTransition.Transition = { type: "tween", duration: 0.3, ease: [0.25, 0.1, 0.35, 1] }
 
-/** More than two keyframes' (#429): Motion's `keyframesTransition`, on its `animateMotionValue`'s `easeOut`. */
+/** The transition through more than two keyframes, as Motion's `keyframesTransition`: a 0.8 s tween, eased out. */
+// #429: on its `animateMotionValue`'s `easeOut`.
 export const keyframes: DefaultTransition.KeyframesTransition = { type: "tween", duration: 0.8, ease: "easeOut" }
 
 /** A transform's: a scale's, by its target, or the rest's. */

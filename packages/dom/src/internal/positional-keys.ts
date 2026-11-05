@@ -17,7 +17,7 @@ const BOX_KEYS: ReadonlySet<string> = new Set(["width", "height", "top", "left",
 /** A key of the box's position or size, written as a CSS name or in camelCase. */
 const isBoxKey: Predicate.Predicate<string> = (key) => BOX_KEYS.has(dashCase(key))
 
-/** Whether reduced motion Snaps `key` in the DOM: a transform, or the box's position or size. */
+/** Whether reduced motion lands `key` at once: a transform, or a key that places or sizes the box. */
 export const isPositional: Predicate.Predicate<string> = Predicate.or(ReducedMotion.isTransform, isBoxKey)
 
 /** The DOM Environment's `ReducedMotion.PositionalKeys`. */

@@ -21,22 +21,21 @@ import * as Str from "effect/String"
 import { parseCssText } from "./starting-style.ts"
 import { dashCase, isSvgInner, svgAttrNameOf } from "./svg.ts"
 
-/** An element's Own value for a key: the raw value read (a string), a transform key's identity, or `None`. */
+/** An element's own value for a key: the raw value read, a string, a transform key's identity, or `None`. */
 export type OwnValue = (key: string) => Option.Option<number | string>
 
 /**
- * A reader of `element`'s Own values, each read once, at the key's first need, and kept
- * (a miss too): a later CSS change doesn't move it (Motion's C12). Per key:
+ * A reader of `element`'s own values, each read once, the first time it's needed, and kept, a miss too,
+ * so a later CSS change doesn't move it, as Motion's. For each key:
+ * 1. a transform key: its identity, with no read;
+ * 2. on an SVG element inside an `<svg>`, a key it takes as an attribute: that attribute, if it has one;
+ * 3. else its computed style, a custom property by its own name.
  *
- * 1. a transform key: core's identity, with no read (Motion's projected branch,
- *    HTMLVisualElement.ts:51 at 16c61222c4166bbef5ff6ab0051192faa79fa8c8);
- * 2. on an svg-inner element, a key written as an attribute (ADR-0014's routing): that
- *    attribute, if it has one;
- * 3. otherwise the computed style (a custom property by its own name).
- *
- * Creating a reader reads nothing. A read from an element not in the document isn't kept.
- * Read values are raw strings; coerce them with {@link valueLike}.
+ * Making a reader reads nothing, and a read from an element not in the document isn't kept. Values read
+ * are raw strings: `valueLike` reads one in a target's shape.
  */
+// Motion's C12. A transform key: Motion's projected branch, HTMLVisualElement.ts:51 at
+// 16c61222c4166bbef5ff6ab0051192faa79fa8c8. An attribute: ADR-0014's routing.
 export const ownValues = (element: Element): OwnValue => {
   const cache = new Map<string, Option.Option<number | string>>()
   // The element's computed style, read once, at the first key that needs it.
@@ -71,13 +70,15 @@ export const ownValues = (element: Element): OwnValue => {
 const nonEmpty = (value: string | null): Option.Option<string> => Option.filter(Option.fromNullOr(value), Str.isNonEmpty)
 
 /**
- * The user's `style` value for `key`, the `style` link of its Base value: an object style by
- * the key, then by the key dash-cased; a CSS-text style parsed as `Style.over` parses it.
- * `undefined`, `null` and an empty string are misses, `None`. A transform key (`x`, `scale`,
- * `rotate`…) is Wardic's, as Motion's is (#130, ADR-0043 decision 4): the binding composes it into
- * `transform` through the flush gate. The value is as given, so a binding resolves a Live value
- * (an Atom, an accessor) itself.
+ * The app's `style` value for `key`: from an object style by the key, then by the key dash-cased; from a
+ * CSS-text style, parsed as `Style.over` parses it. `undefined`, `null` and an empty string are `None`. A
+ * transform key, `x`, `scale`, `rotate`, is Wardic's, as Motion's is: a binding draws it into `transform`.
+ * The value is as given, so a binding reads a live value, an Atom or an accessor, itself.
+ *
+ * @example
+ * OwnValues.styleValueOf({ opacity: 0.5 }, "opacity") // Some(0.5)
  */
+// The `style` link of a Base value. #130, ADR-0043 decision 4: through the flush gate.
 export const styleValueOf = (style: object | string | undefined, key: string): Option.Option<unknown> =>
   Option.flatMap(
     Option.fromNullishOr(style),
@@ -107,16 +108,15 @@ const NUMERIC = /^\s*-?(\d+\.?\d*|\.\d+)(e[+-]?\d+)?(px)?\s*$/i
 
 /**
  * `raw` in the shape of a key's target `like`, or `None` when it can't be:
- *
- * - a numeric target takes a finite number, or a plain-number or `px` string, parsed
- *   (`"0.5"` → 0.5, `"120px"` → 120); anything else misses (`auto`, `50%`, `1em`, a colour),
- *   so the key starts at its target and doesn't return. On a positional key, a miss of another
- *   type (`auto`, `50%`) is a **Measured pair** instead (#430, `measured-pairs.ts`): its binding
- *   keeps the start, and both ends are measured in px, as Motion's are.
- * - a string target takes a string as is, or a finite number as a string, except a length
- *   in another unit than the target's (`"120px"` for `"0%"`): the unit interpolator dies on
- *   that pair, so it misses, as a numeric target misses `50%`.
+ * - **A number target** takes a finite number, or a plain number or a `px` string, parsed (`"0.5"` is
+ *   0.5, `"120px"` 120). Anything else misses, `auto`, `50%`, `1em`, a colour, so the key starts at its
+ *   target. On a key that places or sizes the box, a miss of another type, `auto` or `50%`, is a Measured
+ *   pair instead: both ends are measured in px, as Motion's are.
+ * - **A string target** takes a string as it is, or a finite number as a string, but not a length in a
+ *   unit other than the target's (`"120px"` for `"0%"`), which can't blend with it.
  */
+// A **Measured pair** (#430, `measured-pairs.ts`): its binding keeps the start. The unit interpolator dies
+// on a pair of two units, so it misses, as a numeric target misses `50%`.
 export const valueLike = (raw: unknown, like: number | string): Option.Option<number | string> => valueLikeOf({ raw, like })
 
 // The matchers are built once, at module load, not per call: a start reads every key's (#69).

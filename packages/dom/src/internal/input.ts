@@ -77,7 +77,8 @@ const POINTER_EVENTS = Object.keys(POINTER_TYPE)
  */
 const HELD_POINTER_EVENTS = ["pointermove", "pointerup", "pointercancel", "pointerdown"]
 
-/** A `PointerEvent.pointerType` as a **Pointer kind** (ADR-0036, *Amendment (#189)*): the DOM's three, else `"other"`. */
+/** A `PointerEvent.pointerType` as core's pointer kind: the DOM's three, else `"other"`. */
+// A **Pointer kind** (ADR-0036, *Amendment (#189)*).
 export const kindOf = (pointerType: string): InputSource.PointerKind =>
   Match.value(pointerType).pipe(
     Match.when("mouse", (): InputSource.PointerKind => "mouse"),
@@ -87,9 +88,10 @@ export const kindOf = (pointerType: string): InputSource.PointerKind =>
   )
 
 /**
- * A `PointerEvent.button` in core's names (ADR-0036, *Amendment (#189)*): 0 the main button, 1 the
- * middle, 2 the secondary, -1 none (a move), and the rest (back, forward, a pen's eraser) other.
+ * A `PointerEvent.button` in core's names: 0 the main button, 1 the middle, 2 the secondary, -1 none, as
+ * on a move, and the rest, back, forward, a pen's eraser, other.
  */
+// ADR-0036, *Amendment (#189)*.
 export const buttonOf = (button: number): InputSource.PointerButton =>
   Match.value(button).pipe(
     Match.when(0, (): InputSource.PointerButton => "main"),
@@ -100,10 +102,10 @@ export const buttonOf = (button: number): InputSource.PointerButton =>
   )
 
 /**
- * A DOM `PointerEvent` as core's pointer event, in core's names (ADR-0036, *Amendment (#189)*):
- * at its viewport point, with no scroll counted (`heldPointer` counts it), and `onTarget` as
- * its feed says (#257).
+ * A DOM `PointerEvent` as core's pointer event: at its point in the viewport, with no scroll counted
+ * (`InputSource.heldPointer` counts it), and `onTarget` as its feed says.
  */
+// ADR-0036, *Amendment (#189)*; #257.
 export const toPointer = (type: InputSource.PointerLikeEvent["type"], ev: PointerEvent, onTarget = true): InputSource.PointerLikeEvent => ({
   type,
   pointerId: UndefinedOr.match(ev.pointerId as number | undefined, { onUndefined: () => 1, onDefined: identity }),
@@ -289,7 +291,8 @@ const focusVisible = (target: EventTarget | null): boolean => {
   }
 }
 
-/** A `KeyboardEvent.key` in core's names (ADR-0037): the keys core acts on, else `"other"`. */
+/** A `KeyboardEvent.key` in core's names: the keys core acts on, else `"other"`. */
+// ADR-0037.
 export const keyOf = (key: string): InputSource.Key =>
   Match.value(key).pipe(
     Match.when(" ", (): InputSource.Key => "space"),
@@ -360,10 +363,11 @@ const takesFocus = (el: HTMLElement): boolean =>
   ])
 
 /**
- * Make a pressable element focusable (#427, Motion's press): an HTML element that doesn't take focus
- * of itself, with no `tabindex`, gets `tabindex="0"`, so its **Keyboard press** can start. An SVG
- * element, or one already focusable, is left as it is. Called at mount, on the client.
+ * Makes a pressable element focusable, as Motion's press does: an HTML element that doesn't take focus
+ * of itself, with no `tabindex`, gets `tabindex="0"`, so a key can press it. An SVG element, or one
+ * already focusable, is left as it is. Called at mount, on the client.
  */
+// #427: a **Keyboard press**.
 export const makeFocusable = (target: unknown): void => {
   if (Bool.not(Predicate.hasProperty(target, "isContentEditable"))) return
   const el = target as HTMLElement
@@ -553,9 +557,10 @@ const make = Effect.gen(function* () {
 })
 
 /**
- * `InputSource` Layer backed by DOM event listeners. Built with `Layer.effect`
- * so `make` runs in the layer's scope and the shared helpers' `RcMap`/`RcRef`
- * caches live for the layer's lifetime. Building it on a server (no `document`) fails
- * with the client-only error (ADR-0021, decision 7).
+ * Core's `InputSource` on the DOM's events: each target's pointer, keys and focus, shared by everyone
+ * who listens to it, for as long as the Layer lives. Building it on a server fails, with an error that
+ * says it's client-only.
  */
+// Built with `Layer.effect`, so `make` runs in the layer's scope and the shared helpers' `RcMap`/`RcRef`
+// caches live for the layer's lifetime. ADR-0021, decision 7.
 export const InputDomLive: Layer.Layer<InputSource.InputSource> = Layer.effect(InputSource.InputSource)(make)

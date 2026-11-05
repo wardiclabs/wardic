@@ -163,13 +163,13 @@ const make = Effect.gen(function* () {
 })
 
 /**
- * `Probe` Layer backed by the DOM. Requires the Environment's `AtomRegistry`
- * (the registry consumers read `viewport`/`prefersReducedMotion` from); `DomLive`
- * provides it via `AtomRegistry.layer`, as `testLayer` does. Built
- * with `Layer.effect` so `make` runs in the layer's scope — the shared helpers'
- * `RcMap`s and the forked listeners live for the layer's lifetime. Building it on a
- * server (no `window`) fails with the client-only error (ADR-0021, decision 7).
+ * Core's `Probe` on the DOM. It needs the Environment's `AtomRegistry`, which it writes the viewport's
+ * size, the reduced-motion preference and whether the page is shown through, and readers read them from;
+ * `DomLive` provides it. Building it on a server fails, with an error that says it's client-only.
  */
+// Built with `Layer.effect`, so `make` runs in the layer's scope: the shared helpers' `RcMap`s and the
+// forked listeners live for the layer's lifetime; `testLayer` provides the registry the same way.
+// ADR-0021, decision 7.
 export const ProbeDomLive: Layer.Layer<Probe.Probe, never, AtomRegistry.AtomRegistry> = Layer.effect(
   Probe.Probe,
 )(make)

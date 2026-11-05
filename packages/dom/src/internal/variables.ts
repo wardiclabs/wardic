@@ -29,6 +29,7 @@ import * as Predicate from "effect/Predicate"
 import * as Str from "effect/String"
 
 /** A value a key blends: a number or a string. */
+/** What a Variable value resolves to: a number or a string. */
 type Value = number | string
 
 /** A Variable value's custom property, and its fallback when it has one (Motion's `parseCSSVariable`). */
@@ -73,7 +74,8 @@ const MAX_DEPTH = 4
 /** A numeric string, which a resolved value becomes a number from (Motion's `isNumericalString`). */
 const NUMERIC_RE = /^-?\d*\.?\d+(?:e[-+]?\d+)?$/i
 
-/** A Variable value (CONTEXT.md): a string that is wholly a `var()`. */
+/** Whether `value` is a Variable value: a string that's wholly a `var()`. */
+// CONTEXT.md's Variable value.
 export const isVariableValue = (value: unknown): value is string => Predicate.isString(value) && Option.isSome(partsOf(value))
 
 /** A resolved value as a key blends it: a number when it reads as one, else the string. */
@@ -120,10 +122,14 @@ const landOn =
   }
 
 /**
- * The Key rule for `element`'s Variable values (#55): a pair with a Variable value at either end
- * blends what they resolve to on `element`, through the rules after it and then by value, and lands
- * on the target as written. It declines a pair with none, and one that doesn't resolve.
+ * The Key rule for `element`'s Variable values: a pair with one at either end blends what they resolve
+ * to on `element`, through the rules after it and then by value, and lands on its target as written. It
+ * declines a pair with none, and one that doesn't resolve.
+ *
+ * @example
+ * yield* buildLegs.pipe(InterpolatorRegistry.withKeyRules([Variables.values(element)]))
  */
+// #55.
 export const variableValues = (element: Element): InterpolatorRegistry.KeyRule => ({
   name: "variable values",
   blend: (key, from, to, _resolve, next) => {
