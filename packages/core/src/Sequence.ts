@@ -1,26 +1,31 @@
 /**
- * The `Sequence` module (#433, CONTEXT.md **Sequence**): Motion's animation sequences
- * (`framer-motion/src/animation/sequence/create.ts` at 16c6122), a timeline of Segments compiled to
- * one Keyframes animation per subject and key, each stop placed in time by `times` over the whole
- * sequence, as Motion's `createAnimationsFromSequence`.
+ * Animation sequences, as Motion's: a timeline of Segments, compiled to one keyframes animation per
+ * subject and key, each stop placed in time over the whole sequence. A binding resolves each Segment's
+ * subjects and transitions, compiles once, and runs what comes back on its own animations.
  *
- * - **Segments follow one another:** each starts where the one before ended, its longest key's
- *   delay and duration, unless its `at` says where ({@link Time}). A **label** names a time a later
- *   Segment's `at` can give.
+ * - **Segments follow one another:** each starts where the one before ended, unless its `at` says
+ *   where. A **label** names a time a later Segment's `at` can give.
  * - **A key's transition places its stops in its Segment:** its `duration`, its `delay` (a function
- *   of each subject's index and count, when it's one), its `times` and an `ease` per stop-to-stop
- *   part. A `repeat` below 20 is unrolled into stops, `"reverse"` and `"mirror"` turning every other
- *   pass. A spring through two stops or fewer is sampled into an easing over the time it takes to
- *   rest, as Motion's `createGeneratorEasing`, so a sequence is tweens through and through.
- * - **A key's stops** are its Segments' in time order, a later Segment's erasing the stops it
- *   overlaps. A Segment's single value starts from a `null`, the stop before it; a first stop after
- *   the start is held from 0, and the last is held to the end with a `null`.
+ *   of each subject's index and count, when it's one), its `times` and an `ease` per stretch. A
+ *   `repeat` below 20 is unrolled into stops. A spring through two stops or fewer becomes an easing
+ *   over the time it takes to rest, so a sequence is tweens all through.
+ * - **A key's stops** are its Segments' in time order, a later Segment's replacing the stops it
+ *   overlaps. A Segment's single value starts from a `null`, the stop before it.
  *
- * Pure, and cold: a binding resolves each Segment's subjects and each key's transition, compiles
- * once at the call, and runs what comes back on its own animations.
+ * @example
+ * import * as Sequence from "@wardic/core/Sequence"
  *
- * Tier 2 (ADR-0008): for binding authors.
+ * const animations = Sequence.compile([
+ *   { subjects: [card], target: { x: 100 }, transitions: { x: { type: "tween", duration: 1 } } },
+ *   "landed",
+ *   { subjects: [badge], target: { opacity: 1 }, transitions: {}, at: "landed" },
+ * ])
+ * animations.get(card) // { keyframes: { x: [null, 100] }, transition: { x: { … } } }
  */
+// #433, CONTEXT.md **Sequence**: Motion's `createAnimationsFromSequence` (framer-motion/src/animation/
+// sequence/create.ts at 16c6122). "reverse" and "mirror" repeats turn every other pass; a spring is
+// sampled as Motion's `createGeneratorEasing`; a first stop after the start is held from 0, and the last
+// held to the end with a `null`. Pure and cold. Tier 2 (ADR-0008): for binding authors.
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { identity } from "effect/Function"
@@ -75,9 +80,13 @@ export type Transition =
  * each key's transition (a key without one runs on a 0.3 s `easeOut` tween), and where it starts.
  */
 export interface Segment<S> {
+  /** What it animates: elements, or anything a binding animates, such as a callback's value. */
   readonly subjects: ReadonlyArray<S>
+  /** Each key's value, or its stops. */
   readonly target: Readonly<Record<string, Stop | ReadonlyArray<Stop>>>
+  /** Each key's transition, as the binding resolved it; a key with none runs on a 0.3 s `easeOut` tween. */
   readonly transitions: Readonly<Record<string, Transition>>
+  /** Where it starts: after the Segment before, when left out. */
   readonly at?: Time | undefined
 }
 
@@ -92,7 +101,9 @@ export type Options = { readonly [K in "duration" | "delay" | "repeat" | "repeat
 
 /** A subject's animation: each key's stops, and the tween it runs them on, its `times` over the whole sequence. */
 export interface Animation {
+  /** Each key's stops over the whole sequence. */
   readonly keyframes: Readonly<Record<string, ReadonlyArray<Stop>>>
+  /** Each key's tween through them: its `duration` the sequence's, its `times` placing each stop. */
   readonly transition: Readonly<Record<string, DefaultTransition.KeyframesTransition>>
 }
 
@@ -328,18 +339,15 @@ const keyAnimationOf = (list: ReadonlyArray<Placed>, total: number, options: Opt
 }
 
 /**
- * Compile a sequence (#433, Motion's `createAnimationsFromSequence`): each subject's animation, in
- * the order the subjects first appear, each of its keys through its stops on a tween over the whole
- * sequence, `options` laid over each. A subject can be anything a binding animates: an element, a
- * callback's value.
+ * Compiles a sequence: each subject's animation, in the order the subjects first appear, each of its
+ * keys through its stops on one tween over the whole sequence, with `options` laid over each. Run each
+ * subject's animation as keyframes, all started together.
  *
- * ```ts
- * Sequence.compile([
- *   { subjects: [card], target: { x: 100 }, transitions: { x: { type: "tween", duration: 1 } } },
- *   { subjects: [badge], target: { opacity: 1 }, transitions: {}, at: "-0.2" },
- * ])
- * ```
+ * @example
+ * const animations = Sequence.compile(steps, { repeat: 1, repeatType: "reverse" })
+ * for (const [subject, animation] of animations) play(subject, animation)
  */
+// #433, Motion's `createAnimationsFromSequence`.
 export const compile = <S>(steps: ReadonlyArray<Step<S>>, options: Options = NO_OPTIONS): ReadonlyMap<S, Animation> => {
   const labels = new Map<string, number>()
   const bySubject = new Map<S, Map<string, ReadonlyArray<Placed>>>()
