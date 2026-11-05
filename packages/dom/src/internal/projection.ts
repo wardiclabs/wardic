@@ -108,8 +108,10 @@ import {
   takesFlowSpace,
   transformStyleFrom,
   transitionRunning,
-  holdUnstuck,
-  releaseUnstuck,
+  contains,
+  readCustomBases as readCustomBasesOf,
+  readOpacity,
+  readStickyShifts,
 } from "./measure.ts"
 import { DEFAULT_DRAG_TRANSITION, DEFAULT_LAYOUT_TRANSITION, type DragTransition, type LayoutTransition } from "./projection-defaults.ts"
 import { counted, watchPage, type Watched } from "./content-watch.ts"
@@ -1125,12 +1127,12 @@ export interface ProjectionSystem extends Inspectable.Inspectable {
   // Stops the coordinator's run and tears down the observer (wired into the provider's onCleanup).
   readonly dispose: () => void
   /**
-   * The tree as plain data, for a diagnostic read: every node now, in the order it was registered.
-  /**
    * Run `listener` at the end of every Measure pass; returns the unsubscribe. The engine's Layer hands
    * it out as the internal `PassEnds` service, beside the engine, not on it (internal/pass-ends.ts).
    */
   readonly onPassEnd: (listener: () => void) => () => void
+  /**
+   * The tree as plain data, for a diagnostic read: every node now, in the order it was registered.
    * `console.log(system)` shows it (Effect's `Inspectable`). Parent links are the last Measure pass's,
    * as the engine reads them.
    */
@@ -2017,13 +2019,7 @@ export const makeProjectionSystem = (
   /** The base values of the app's correctors' keys on `el` (#443), computed, read once at its first Measurement: none, or `none`, left out. */
   const readCustomBases = (el: HTMLElement): Readonly<Record<string, string>> | undefined => {
     if (customCorrectors.length === 0) return undefined
-    const style = getComputedStyle(el)
-    const out: Record<string, string> = {}
-    for (const corrector of customCorrectors) {
-      const value = style.getPropertyValue(corrector.cssKey).trim()
-      if (value !== "" && value !== "none") out[corrector.key] = value
-    }
-    return out
+    return readCustomBasesOf(el, customCorrectors)
   }
 
   /** The built-in correctors' keys for `node` (ADR-0011), and a handover's blended radius (#166). */
@@ -2285,7 +2281,7 @@ export const makeProjectionSystem = (
    * read, with the Switch seed's layout read), else as the engine last drew it.
    */
   const leavingOpacityOf = (node: NodeState): number => {
-    if (node.element.isConnected) return Number(getComputedStyle(node.element).opacity)
+    if (node.element.isConnected) return readOpacity(node.element)
     return drawnOpacityOf(node)
   }
 
@@ -3121,23 +3117,6 @@ export const makeProjectionSystem = (
     return ZERO_POINT
   }
 
-  /**
-   * Each of `els`' offsets from its static place (#578): its box as it's drawn, less its box held
-   * unstuck. All held at once, so it costs one layout for them all, then one more after the release.
-   */
-  const readStickyShifts = (els: Iterable<HTMLElement>): Map<Element, Point.Point> => {
-    const list = Arr.fromIterable(els)
-    const stuck = Arr.map(list, (el) => el.getBoundingClientRect())
-    const holds = Arr.map(list, holdUnstuck)
-    let unstuck: ReadonlyArray<DOMRect> = []
-    try {
-      unstuck = Arr.map(list, (el) => el.getBoundingClientRect())
-    } finally {
-      releaseUnstuck(holds)
-    }
-    return new Map(Arr.map(list, (el, i) => [el, { x: stuck[i].left - unstuck[i].left, y: stuck[i].top - unstuck[i].top }] as const))
-  }
-
   /** `el`'s offset from its static place now (#578): 0 once it isn't sticky. Outside the pass, a read of its own. */
   const stickyShiftNow = (el: HTMLElement): Point.Point => {
     if (positionOf(el) !== "sticky") return ZERO_POINT
@@ -3479,7 +3458,7 @@ export const makeProjectionSystem = (
 
   /** The presence child still leaving that `element` is, or is inside, with its `taken`. */
   const leavingChildOf = (element: HTMLElement): Option.Option<readonly [HTMLElement, LateTaken]> =>
-    Iter.findFirst(stillLeaving, ([child]) => child.contains(element))
+    Iter.findFirst(stillLeaving, ([child]) => contains(child, element))
 
   /** A twin with `layoutId` kept past its task inside a presence child still leaving (#402), nobody's yet. */
   const lateTwinOf = (layoutId: string): Option.Option<readonly [Leaver, TwinLeaver, LastPass, HTMLElement, LateTaken]> =>
@@ -3523,7 +3502,7 @@ export const makeProjectionSystem = (
           ),
       })
       const follower = makeLeavingNode(leaver.element, layoutId, last, undefined, undefined, chain)
-      follower.fade = Number(getComputedStyle(leaver.element).opacity)
+      follower.fade = readOpacity(leaver.element)
       addNode(follower)
       elementToNode.set(leaver.element, follower)
       stack.push(follower)
@@ -4933,12 +4912,12 @@ export const makeProjectionSystem = (
   const shiftLeavingWithin = (el: HTMLElement, by: Point.Point): void => {
     for (const node of nodes) {
       if (Bool.not(node.leaving)) continue
-      if (Bool.not(el.contains(node.element))) continue
+      if (Bool.not(contains(el, node.element))) continue
       node.retained = UndefinedOr.map(node.retained, (box) => offsetBox(box, by))
       node.layoutBox = UndefinedOr.map(node.layoutBox, (box) => offsetBox(box, by))
     }
     for (const [inner, leaver] of Array.from(leavers)) {
-      if (Bool.not(el.contains(inner))) continue
+      if (Bool.not(contains(el, inner))) continue
       leavers.set(inner, { ...leaver, last: UndefinedOr.map(leaver.last, (last) => ({ ...last, box: offsetBox(last.box, by) })) })
     }
   }
@@ -5091,7 +5070,7 @@ export const makeProjectionSystem = (
     painted.delete(node)
     // What it carried and brought back with it goes with it (#169).
     const within: Array<NodeState> = []
-    for (const n of nodes) if (n.leaving && node.element.contains(n.element)) within.push(n)
+    for (const n of nodes) if (n.leaving && contains(node.element, n.element)) within.push(n)
     for (const n of within) if (n.leaving) finishLeaver(n)
     if (Predicate.isNotUndefined(cb)) cb()
   }
@@ -5269,7 +5248,7 @@ export const makeProjectionSystem = (
           Bool.not(leaver.pastTask),
           Bool.not(leaver.reintroduced),
           Predicate.isNotUndefined(leaver.last),
-          el.contains(leaver.element),
+          contains(el, leaver.element),
           UndefinedOr.match(leaver.twin, { onUndefined: constFalse, onDefined: (twin) => Bool.not(hasLiveTwin(twin.layoutId)) }),
         ],
         identity,
@@ -5303,7 +5282,7 @@ export const makeProjectionSystem = (
       if (Predicate.isUndefined(last)) return
       if (inner === container) return
       if (recent.reintroduced) return
-      if (Bool.not(container.contains(inner))) return
+      if (Bool.not(contains(container, inner))) return
       const lead = leadOf(held.layoutId)
       const stack = stacks.get(held.layoutId)
       if (Predicate.isUndefined(lead)) return
@@ -5331,7 +5310,7 @@ export const makeProjectionSystem = (
       if (Predicate.isNotUndefined(recent.twin)) return
       if (Predicate.isUndefined(last)) return
       if (recent.reintroduced) return
-      if (Bool.not(container.contains(inner))) return
+      if (Bool.not(contains(container, inner))) return
       recent.reintroduced = true
       const node = makeLeavingNode(inner, undefined, last, undefined, recent.layoutAnchor, undefined)
       addNode(node)
@@ -5369,8 +5348,8 @@ export const makeProjectionSystem = (
    */
   const withLink = (chain: ReadonlyArray<PaintLink>, link: PaintLink, element: Element): ReadonlyArray<PaintLink> => {
     const others = Arr.filter(chain, (l) => linkElementOf(l) !== element)
-    const outer = Arr.filter(others, (l) => linkElementOf(l).contains(element))
-    const inner = Arr.filter(others, (l) => Bool.not(linkElementOf(l).contains(element)))
+    const outer = Arr.filter(others, (l) => contains(linkElementOf(l), element))
+    const inner = Arr.filter(others, (l) => Bool.not(contains(linkElementOf(l), element)))
     return Arr.appendAll(Arr.append(outer, link), inner)
   }
 
@@ -5455,7 +5434,7 @@ export const makeProjectionSystem = (
       // Its presence removes it for good: what it held is gone now, not at a task's end, so a twin
       // its presence lets in next (`mode="wait"`) enters in its place (ADR-0010 *Amendment (#402)*).
       Arr.forEach(Array.from(leavers.values()), (leaver) => {
-        if (Bool.not(el.contains(leaver.element))) return
+        if (Bool.not(contains(el, leaver.element))) return
         leavers.delete(leaver.element)
         UndefinedOr.map(leaver.twin, dropSeedOf)
       })
@@ -5611,7 +5590,7 @@ export const makeProjectionSystem = (
     const unmeasured = Arr.filter(entries, Predicate.not(alreadyMeasured))
     if (Arr.isArrayNonEmpty(unmeasured)) {
       const own = Arr.map(Arr.filter(unmeasured, ownResize), (entry) => entry.target)
-      const ofOwn = Arr.filter(unmeasured, (entry) => Arr.some(own, (el) => Bool.or(el.contains(entry.target), entry.target.contains(el))))
+      const ofOwn = Arr.filter(unmeasured, (entry) => Arr.some(own, (el) => Bool.or(contains(el, entry.target), contains(entry.target, el))))
       const resized = Arr.filterMap(ofOwn, (entry) => Result.fromNullishOr(elementToNode.get(entry.target as HTMLElement), constVoid))
       Arr.forEach(resized, (node) => ownSized.add(node))
       if (ofOwn.length === unmeasured.length) {
@@ -5971,12 +5950,6 @@ export const makeProjectionSystem = (
       tag: node.element.tagName.toLowerCase(),
       layoutId: node.layoutId,
       parent: UndefinedOr.map(node.parent, (parent) => parent.id),
-    onPassEnd: (listener) => {
-      passEndListeners.add(listener)
-      return () => {
-        passEndListeners.delete(listener)
-      }
-    },
       layoutRoot: node.layoutRoot,
       twin,
       lead: Bool.match(twin === "follower", { onTrue: () => UndefinedOr.map(lead, (l) => l.id), onFalse: constUndefined }),
@@ -6001,6 +5974,12 @@ export const makeProjectionSystem = (
     awaitsTwin: doAwaitsTwin,
     keepSeen,
     dispose,
+    onPassEnd: (listener) => {
+      passEndListeners.add(listener)
+      return () => {
+        passEndListeners.delete(listener)
+      }
+    },
     registerValues,
     rootBoxOf,
     dropLeaver,

@@ -8,7 +8,8 @@
  *
  * It's the surface of the port the engine would move into `@wardic/core` behind (#16, parked
  * until a non-DOM Environment exists): a DOM read the engine newly needs is added here, named,
- * rather than written inline in `projection.ts`.
+ * rather than written inline in `projection.ts`, measure-time or not: the tree's `contains` too
+ * (#618). #16 maps the reads that file made inline before this rule.
  */
 import * as Drag from "@wardic/core/Drag"
 import type * as Point from "@wardic/core/Point"
@@ -314,3 +315,43 @@ export const measureDocumentScroll = (): Point.Point => {
 }
 
 export { readScrollStyle, scrollersOf, scrollStyleFrom, type ScrollStyle } from "./scrollers.ts"
+
+/** Whether `inner` is `outer` or inside it, in the DOM's tree: the engine's one question of the tree (#618). */
+export const contains = (outer: Node, inner: Node): boolean => outer.contains(inner)
+
+/** `el`'s computed opacity, as a number: a Crossfade's fade from where its leaver is drawn (#618). */
+export const readOpacity = (el: Element): number => Number(getComputedStyle(el).opacity)
+
+/** A scale corrector's key and the CSS property it reads (#443). */
+export interface CorrectedKey {
+  readonly key: string
+  readonly cssKey: string
+}
+
+/** The computed values of `keys` on `el` (#443), by key: an empty one, or `none`, left out. One style read. */
+export const readCustomBases = (el: Element, keys: ReadonlyArray<CorrectedKey>): Readonly<Record<string, string>> => {
+  const style = getComputedStyle(el)
+  const out: Record<string, string> = {}
+  for (const corrected of keys) {
+    const value = style.getPropertyValue(corrected.cssKey).trim()
+    if (value !== "" && value !== "none") out[corrected.key] = value
+  }
+  return out
+}
+
+/**
+ * Each of `els`' offsets from its static place (#578): its box as it's drawn, less its box held
+ * unstuck. All held at once, so it costs one layout for them all, then one more after the release.
+ */
+export const readStickyShifts = (els: Iterable<HTMLElement>): Map<Element, Point.Point> => {
+  const list = Arr.fromIterable(els)
+  const stuck = Arr.map(list, (el) => el.getBoundingClientRect())
+  const holds = Arr.map(list, holdUnstuck)
+  let unstuck: ReadonlyArray<DOMRect> = []
+  try {
+    unstuck = Arr.map(list, (el) => el.getBoundingClientRect())
+  } finally {
+    releaseUnstuck(holds)
+  }
+  return new Map(Arr.map(list, (el, i) => [el, { x: stuck[i].left - unstuck[i].left, y: stuck[i].top - unstuck[i].top }] as const))
+}
