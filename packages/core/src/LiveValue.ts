@@ -96,7 +96,10 @@ const blendsOf = <O>(mixer: Mixer<O> | undefined, registry: Context.Service.Shap
     onDefined: (mix) => (a: O, b: O) => Effect.sync(() => mix(a, b)),
   })
 
-/** Motion's mapping, as {@link interpolate} gives it. */
+/**
+ * `interpolate`'s two forms: outputs of numbers or strings, which the `InterpolatorRegistry` blends, or
+ * of any type, with a `mixer` to blend them.
+ */
 interface Interpolate {
   <O extends number | string>(input: ReadonlyArray<number>, output: ReadonlyArray<O>, options?: TransformOptions<O>): Effect.Effect<(v: number) => O, never, InterpolatorRegistry.InterpolatorRegistry>
   <O>(input: ReadonlyArray<number>, output: ReadonlyArray<O>, options: MixedTransformOptions<O>): Effect.Effect<(v: number) => O, never, InterpolatorRegistry.InterpolatorRegistry>

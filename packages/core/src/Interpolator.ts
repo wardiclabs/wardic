@@ -65,9 +65,11 @@ export interface Entry<Decoded, Encoded> {
 /** A number with an optional unit suffix: `10`, `"10px"`, `"-0.5em"`, `"50%"`. */
 const UNIT_RE = /^(-?\d*\.?\d+)([a-z%]*)$/i
 
-/** A parsed number-with-unit string. `unit` is `""` for a bare number. */
+/** A number with its unit, as the `unit` kind reads a string: `"10px"` is 10 and `"px"`. */
 interface ParsedUnit {
+  /** The number: 10 for `"10px"`. */
   readonly value: number
+  /** The unit: `"px"` for `"10px"`, `""` for a bare number. */
   readonly unit: string
 }
 
