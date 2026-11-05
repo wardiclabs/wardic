@@ -13,6 +13,7 @@
  * @module
  */
 import * as Color from "@wardic/dom/Color"
+import * as Report from "@wardic/dom/Report"
 import * as Arr from "effect/Array"
 import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
@@ -23,8 +24,8 @@ import * as Layer from "effect/Layer"
 import type * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
-import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
+import * as OwnerScope from "./owner-scope.ts"
 import type { Reactivity } from "./reactivity.ts"
 import type { ProviderRuntime, ProviderServices, WardicServices } from "./runtime.ts"
 
@@ -229,12 +230,15 @@ const sectionsAndWarnings = (build: (features: ReadonlyArray<Feature>) => Contex
 }
 
 /**
- * A client provider's Features (#511): built into `runtime`'s `MemoMap` in a Scope of their own, which
- * `dispose` closes before it disposes the runtime, so a Feature ends before the Environment it stands
+ * A client provider's Features (#511): built into `runtime`'s `MemoMap` in a Scope of their own, a child
+ * of the runtime's that closes before its Layers do, so a Feature ends before the Environment it stands
  * on. A list asked for again (the Complete element's every Feature) is joined once.
  */
+// #618 (decision 4): the Scope was detached, closed by `dispose` before the runtime's, and a failing
+// Feature finalizer skipped the runtime's disposal. A child forked after `ManagedRuntime.make`'s own
+// closes first in its Scope's reverse order.
 export const clientRegistry = (runtime: ProviderRuntime): FeatureRegistry => {
-  const scope = Scope.makeUnsafe()
+  const scope = OwnerScope.open(runtime)
   const built = new Map<Feature, Context.Context<never>>()
   const lists = new WeakMap<ReadonlyArray<Feature>, Context.Context<never>>()
   let all = NONE
@@ -263,8 +267,23 @@ export const clientRegistry = (runtime: ProviderRuntime): FeatureRegistry => {
     ...sectionsAndWarnings(build, (message) => {
       runtime.runFork(Effect.logWarning(message))
     }),
-    dispose: () => Effect.runPromise(Scope.close(scope, Exit.void)).then(() => runtime.dispose()),
+    dispose: () => disposeReported(runtime),
   }
+}
+
+/**
+ * Disposes `runtime`, its Features first. A finalizer that fails is logged and reported, through the
+ * `ErrorReporter`s its Environment had, once the runtime has gone, and the rest still run: the promise
+ * never rejects.
+ */
+const disposeReported = (runtime: ProviderRuntime): Promise<void> => {
+  // Read before it goes: its reporters are in it. Unbuilt, there's none, and a report is logged only.
+  const context = runtime.cachedContext
+  return Effect.runPromiseExit(runtime.disposeEffect).then((exit) => {
+    if (Exit.isSuccess(exit)) return
+    const report = Report.failure("wardic.provider: a finalizer failed as it was disposed", exit.cause)
+    return Effect.runPromise(UndefinedOr.match(context, { onUndefined: () => report, onDefined: (services) => Effect.provideContext(report, services) }))
+  })
 }
 
 /**

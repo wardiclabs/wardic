@@ -1,8 +1,9 @@
 import { cleanup, render } from "@solidjs/testing-library"
 import { CheckFrames, DomLive } from "@wardic/dom"
 import * as Report from "@wardic/dom/Report"
-import { AnimatePresence, createHover, useWardicFiber, useWardicRuntime, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
+import { AnimatePresence, createHover, type Feature, useWardicFiber, useWardicRuntime, w, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
 import { DevTools } from "effect/devtools"
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as ErrorReporter from "effect/ErrorReporter"
 import * as Layer from "effect/Layer"
@@ -417,6 +418,33 @@ describe("what isn't a failure, and what reports once", () => {
 })
 
 describe("what an owner opened closes, a failure reported, never thrown (#618)", () => {
+  it("a Feature whose finalizer fails: the Environment still ends after it, and the failure is logged and reported (decision 4)", async () => {
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    const ended: Array<string> = []
+    // The Environment telling when it ends: a Layer beside it whose finalizer records it.
+    const watched = Layer.effectDiscard(Effect.addFinalizer(() => Effect.sync(() => void ended.push("environment"))))
+    class Breaking extends Context.Service<Breaking, { readonly on: true }>()("test/BreakingFeature") {}
+    const breaking: Feature = {
+      name: "breaking",
+      key: Breaking,
+      layer: Layer.effect(Breaking)(
+        Effect.as(Effect.addFinalizer(() => Effect.sync(() => void ended.push("feature")).pipe(Effect.andThen(Effect.die(new Error("feature finalizer broke"))))), { on: true as const }),
+      ),
+    }
+    const { unmount } = render(() => (
+      <WardicProvider env={Layer.mergeAll(envWith({ logs, reports }), watched)} features={[breaking]}>
+        <w.div animate={{ opacity: 0.5 }} />
+      </WardicProvider>
+    ))
+    await raf()
+    unmount()
+    await until(() => reports.length > 0)
+    expect(ended, "the Feature ends first, then the Environment it stands on").toEqual(["feature", "environment"])
+    expect(errorsNamed(logs, "wardic.provider: a finalizer failed as it was disposed")).toHaveLength(1)
+    expect(reports).toEqual(["feature finalizer broke"])
+  })
+
   it("a watch whose finalizer fails: the rest of its owner's cleanup runs, and the failure is reported (decision 5)", async () => {
     const logs: Array<Logged> = []
     const reports: Array<string> = []
