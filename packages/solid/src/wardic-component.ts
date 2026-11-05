@@ -59,20 +59,23 @@ export const markWardic = <C extends object>(component: C, wraps: string | AnyCo
   Object.defineProperty(component, WARDIC_COMPONENT, { value: wraps })
 
 /**
- * Whether `component` is a Wardic element's component (#443, Motion's `isMotionComponent`): one
- * `wardic.<tag>` or `wardic.create` made, on either binding.
+ * Whether `component` is a Wardic element's component: one that `w.<tag>`, `wardic.<tag>` or
+ * `wardic.create` made, on either binding. Motion's `isMotionComponent`.
  *
- * ```ts
+ * @example
  * isWardicComponent(wardic.div) // true
- * ```
+ * @see https://wardic.dev/reference/solid/utilities/component-checks
  */
+// #443.
 export const isWardicComponent = (component: unknown): boolean => Predicate.hasProperty(component, WARDIC_COMPONENT)
 
 /**
- * What a Wardic element's component wraps (#443, Motion's `unwrapMotionComponent`): its tag
- * (`"div"` for `wardic.div`), or the component given to `wardic.create`; `undefined` for anything
- * else.
+ * What a Wardic element's component wraps: its tag, `"div"` for `wardic.div`, or the component given to
+ * `wardic.create`; `undefined` for anything else. Motion's `unwrapMotionComponent`.
+ *
+ * @see https://wardic.dev/reference/solid/utilities/component-checks
  */
+// #443.
 export const unwrapWardicComponent = (component: unknown): string | AnyComponentFunction | undefined => {
   if (Bool.not(isWardicComponent(component))) return undefined
   return (component as { readonly [WARDIC_COMPONENT]: string | AnyComponentFunction })[WARDIC_COMPONENT]

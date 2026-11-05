@@ -68,7 +68,7 @@ import { dashCase } from "./svg.ts"
 
 /**
  * Where a flushed `Patch` is delivered: committed onto `target` with the Renderer's `commit`,
- * at flush time (ADR-0034).
+ * at flush time.
  */
 export interface FlushSink {
   /** The element the patch is committed onto. */
@@ -76,24 +76,25 @@ export interface FlushSink {
   /**
    * Called once, just before the element's first commit in a frame flush (not a Measure
    * pass's `flushPass`), inside the binding's `batch` with every other element's switch that
-   * flush (ADR-0021, decision 6): a binding drops its Starting style from its `style` prop here,
+   * flush: a binding drops its Starting style from its `style` prop here,
    * so its framework removes those keys and the commit writes the first frame in the same
    * Refresh frame, with no paint in between.
    */
   readonly beforeFirstCommit?: (() => void) | undefined
   /**
-   * Called with every key the gate now holds on the element, each time that set changes
-   * (ADR-0034): after the gate restores a key it dropped, and before the commit that first
+   * Called with every key the gate now holds on the element, each time that set changes: after the
+   * gate restores a key it dropped, and before the commit that first
    * writes a key. A binding whose `style` prop reaches the element leaves these keys out of it,
    * so its framework never writes over Wardic's value (`style` is a key's fallback). Called in
-   * the binding's `batch`, with every other element's whose keys changed that flush (ADR-0034,
-   * *Amendment (#209)*), so what the binding changes reaches the element before the commit, a
-   * framework that applies an update later (Solid 2) included.
+   * the binding's `batch`, with every other element's whose keys changed that flush, so what the
+   * binding changes reaches the element before the commit, a framework that applies an update later
+   * (Solid 2) included.
    */
+  // ADR-0034, *Amendment (#209)*.
   readonly onHeld?: ((keys: ReadonlyArray<string>) => void) | undefined
   /**
    * Called once per frame in which the element's values were committed, after every commit of that
-   * frame (#233, ADR-0043 *Amendment (#233, #234)*: Motion's `onUpdate`), with its values before
+   * frame (Motion's `onUpdate`), with its values before
    * projection (`x` as a number). The object is the element's own, reused each call: valid during
    * the call, copied to keep. A Measure pass's commits are told at the frame flush after them, so
    * a frame tells each element once. A write it makes is the next frame's. A throw is reported,
@@ -150,19 +151,20 @@ export interface FlushGate {
    * Register an element under `id` with its `sink`. Returns an unregister fn
    * that removes the element from the accumulator (a subsequent `write` is a
    * no-op). `values` start its value-map, unflushed: drawn with its first `write`, so they never
-   * commit alone (#443: its Transform template, which mustn't take its Starting style off early).
+   * commit alone.
    */
+  // #443: its Transform template, which mustn't take its Starting style off early.
   readonly register: (id: string, sink: FlushSink, values?: Readonly<Record<string, unknown>>) => () => void
   /**
    * Merge `partial` into the element's value-map by key, mark it dirty, and
    * schedule a flush: the end of the Frame loop's tick, for a write made in one, or else the
-   * next Refresh frame (ADR-0033). A `write` for an unregistered (or unregistered-since) id
+   * next Refresh frame. A `write` for an unregistered (or unregistered-since) id
    * is a no-op.
    */
   readonly write: (id: string, partial: Record<string, unknown>) => void
   /**
    * Run a projection **Measure pass** now and apply exactly what it wrote before
-   * returning (ADR-0018, and ADR-0006's *Amendment (#2)*). Only `write()`s made while
+   * returning. Only `write()`s made while
    * `pass()` runs are recorded; each recorded entry is `project`ed and committed once, and
    * marked clean. Everything else stays dirty for its flush. A write made by an effect a sink's
    * hook runs (a Solid effect) takes the ordinary path. The projection engine calls it at the
@@ -170,7 +172,7 @@ export interface FlushGate {
    */
   readonly flushPass: (pass: () => void) => void
   /**
-   * Hand `keys` back to the element's own style (ADR-0022): drop each from the element's
+   * Hand `keys` back to the element's own style: drop each from the element's
    * value-map and schedule a flush, which writes `restore[key]` (CSS text) for a key it had
    * written, or else the inline value it overwrote, and tells the sink (`onHeld`). A key the
    * entry doesn't hold, or an unknown id, is a no-op. The spine releases a key back at its
@@ -179,7 +181,7 @@ export interface FlushGate {
    */
   readonly release: (id: string, keys: ReadonlyArray<string>, restore?: Readonly<Record<string, string>>) => void
   /**
-   * The element's value for `id`'s `key`, live (#130, ADR-0043): an `Atom` set as each write that
+   * The element's value for `id`'s `key`, live: an `Atom` set as each write that
    * changes it lands, so it's the value the next commit draws, before the Renderer projects it
    * (`x` as a number, not a `transform`). Set at the write, not the commit, so a value derived
    * from it (another key following it through a binding) is written in the same frame and
@@ -189,7 +191,7 @@ export interface FlushGate {
    */
   readonly valueOf: (id: string, key: string) => Atom.Atom<unknown>
   /**
-   * Call `fn` once, after the gate's next flush (#257): the end of the Frame loop's tick, for a call
+   * Call `fn` once, after the gate's next flush: the end of the Frame loop's tick, for a call
    * made in one, else the next Refresh frame's, so what was written before it is on the elements.
    * It schedules that flush if none is pending. The spine tells a Retarget's settle here, as Motion's
    * `onAnimationComplete` comes with the final value set. One that throws is reported, and the rest

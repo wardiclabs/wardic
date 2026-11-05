@@ -28,20 +28,15 @@ import type { WardicServices } from "./runtime.ts"
 import { isHydrating, isServer } from "./server.ts"
 
 /**
- * Bridge a core `Stream` into a Solid `Accessor`.
+ * A core `Stream` as an accessor: `initial` until its first value, then its latest, the stream run on
+ * the provider's runtime until the owner is cleaned up. Call it where you'd make a signal.
  *
- * Seeds the signal with `initial`, then forks `Stream.runForEach` on the
- * provider runtime ({@link runScoped}), writing every emission into the signal.
- * The fiber is interrupted on the consuming component's `onCleanup`.
- *
- * `set(() => v)` (not `set(v)`) is used so function- or object-valued emissions
- * are stored as-is — Solid would otherwise treat a function argument as an
- * updater. The stream's `R` is the Wardic environment services (the recognizers
- * need `InputSource`/`Probe`), which the provider runtime satisfies.
- *
- * @param stream the source stream (its `R` is covered by the provider runtime).
- * @param initial the signal's value until the first emission.
+ * @example
+ * const point = streamToSignal(pointerMoves, { x: 0, y: 0 })
+ * @see https://wardic.dev/reference/solid/advanced/bridges
  */
+// `Stream.runForEach` through `runScoped`; `set(() => v)`, so an object or function value is stored as
+// it is. The stream's `R` is the provider runtime's services.
 export const streamToSignal = <A>(
   stream: Stream.Stream<A, never, WardicServices>,
   initial: A,
@@ -70,25 +65,16 @@ export const watchToSignal = <A>(
 }
 
 /**
- * Bridge an Effect `Atom` into a Solid `Accessor` via the provider runtime's
- * `AtomRegistry`, using Solid's `from`.
+ * An Effect `Atom` as an accessor: read through the provider's `AtomRegistry`, and followed until the
+ * owner is cleaned up. For a server render, give `serverValue`: the server renders it, and a hydrating
+ * page keeps it until mount, then follows the atom.
  *
- * `from(producer, seed)` creates the signal, runs the producer (which
- * `subscribe`s the atom), and auto-registers `onCleanup` with the producer's
- * returned unsubscribe — so this reduces to: seed with the atom's current value,
- * push changes through `set`. The seeded 2-arg form keeps the `Accessor`
- * non-`undefined`. `set(() => v)` is used so object/function values are stored
- * as-is rather than treated as a Solid updater.
- *
- * A server has no registry (it builds no runtime, ADR-0021), so pass `serverValue` for an
- * atom read during a server render: the server renders it, and a hydrating client keeps it
- * until mount, then reads and subscribes to the atom (the Hydration hold, decision 8).
- * Without one, a server render reads the atom through the Environment, which DomLive
- * refuses with its client-only error. A client-only render reads the atom at once.
- *
- * @param atom the reactive service input (e.g. `Probe.prefersReducedMotion`).
- * @param options.serverValue the value a server renders, and a hydrating client until mount.
+ * @example
+ * const visible = fromAtom(probe.pageVisible, { serverValue: true })
+ * @see https://wardic.dev/reference/solid/advanced/bridges
  */
+// Solid's `from`, seeded with the atom's value; `set(() => v)`, so an object or function value is stored
+// as it is. A server builds no registry (ADR-0021); the Hydration hold is decision 8.
 export const fromAtom = <A>(atom: Atom.Atom<A>, options?: { readonly serverValue?: A }): Accessor<A> => {
   const runtime = useWardicRuntime()
   const held = Predicate.isNotUndefined(options) && "serverValue" in options

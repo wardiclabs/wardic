@@ -7,19 +7,21 @@
 import { type Accessor, createSignal } from "solid-js"
 import { nextIndexOf } from "./cycle-index.ts"
 
-/** `createCycle`'s step (Motion's `Cycle`): to the next item, the first after the last, or to index `i`. */
+/** `createCycle`'s step: to the next value, the first after the last, or to index `i`. Motion's `Cycle`. */
 export type Cycle = (i?: number) => void
 
 /**
- * One of `items` at a time (#443, Motion's `useCycle`): the first to begin with, and `cycle()` steps to
- * the next, the first after the last. `cycle(i)` goes to index `i` as given, unchecked, as Motion's.
- * Anything but a number steps, as Motion's (`typeof next !== "number"`).
+ * One of a list of values at a time: the first to begin with, and `cycle()` steps to the next, the
+ * first after the last. `cycle(i)` goes to index `i`. Two steps in one handler step twice. Motion's
+ * `useCycle`, its value an accessor.
  *
- * ```tsx
+ * @example
  * const [x, cycleX] = createCycle(0, 50, 100)
- * <wardic.div animate={{ x: x() }} onTap={() => cycleX()} />
- * ```
+ * <w.div animate={{ x: x() }} onClick={() => cycleX()} />
+ * @see https://wardic.dev/reference/solid/utilities/create-cycle
  */
+// #443. The index is kept outside the signal too, as Motion keeps it in a ref; `cycle(i)` is taken as
+// given, unchecked, and anything but a number steps, as Motion's (`typeof next !== "number"`).
 export const createCycle = <T,>(...items: ReadonlyArray<T>): readonly [Accessor<T>, Cycle] => {
   // The index as a plain variable too, as Motion's ref: two steps in one handler step twice.
   let current = 0

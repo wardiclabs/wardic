@@ -25,17 +25,23 @@ import type { WardicVariantContextValue } from "./variant-tree.ts"
 export type { WardicChildRegistration, WardicStaggerConfig, WardicVariantContextValue } from "./variant-tree.ts"
 
 /**
- * Context carrying the parent's current variant name + inherited transition.
+ * The variant context: what the nearest variant parent hands its children, its names, transition and
+ * orchestration. Wardic's elements read it to follow their parent's variants; a binding of your own
+ * provides or reads it the same way. `undefined` outside a parent.
  *
- * Defaults to `undefined` so {@link useVariantContext} reports "no parent
- * variant in scope" (the resolution then falls through to `initial`). A child
- * that finds a context value inherits `context.variant()` as its animate target.
+ * @see https://wardic.dev/reference/solid/advanced/variant-context
  */
+// ADR-0007.
 export const WardicVariantContext = createContext<WardicVariantContextValue | undefined>(undefined)
 
 /**
- * Reads the nearest {@link WardicVariantContext} value, or `undefined` when no
- * `ward.Provider` is in scope. `createWard` uses this to apply the ADR-0007
- * resolution priority (local `animate` > inherited variant name > `initial`).
+ * The nearest variant parent's context, or `undefined` outside one: its current variant name,
+ * `initial`, transition and orchestration, for an element of your own that follows a parent's variants.
+ *
+ * @example
+ * const parent = useVariantContext()
+ * const name = () => parent?.variant()
+ * @see https://wardic.dev/reference/solid/advanced/variant-context
  */
+// ADR-0007: local `animate` over the inherited name over `initial`.
 export const useVariantContext = (): WardicVariantContextValue | undefined => useContext(WardicVariantContext)
