@@ -560,7 +560,9 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   const registry = new Map<HTMLElement, PresenceRecord>()
 
   // In-flight exit fibers keyed by the leaving node, so a re-entry (or this
-  // component's own teardown) can interrupt them.
+  // component's own teardown) can interrupt them. A Map, not Effect's `FiberMap` (#618): an exit's
+  // entry goes from inside its own `ensuring`, before its fiber has ended, and is checked right after;
+  // `FiberMap.remove` interrupts the fiber it removes, and its own removal waits for the fiber's end.
   const exiting = new Map<HTMLElement, Fiber.Fiber<void, never>>()
 
   // A leaving child's parts still running (ADR-0010 *Amendment (#181)*): its exit, and the handovers
