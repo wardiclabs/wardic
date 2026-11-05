@@ -1,0 +1,26 @@
+---
+title: createWillChange
+description: A will-change for an element's style that turns on as the element first animates.
+api: [createWillChange, WillChange]
+---
+
+# createWillChange
+
+A `will-change` for an element's `style`: `"auto"` until the element first animates, then `"transform"` for good, so the browser keeps it on a layer of its own from its first move on.
+
+```tsx
+import { createWillChange, w } from "@wardic/solid/unstable/v2" // or "@wardic/solid"
+
+const willChange = createWillChange()
+<w.div whileHover={{ scale: 1.1 }} style={{ "will-change": willChange }} />
+```
+
+It turns on as the element starts animating a transform key (`x`, `scale`, `rotate`…), `opacity`, `clipPath`, `filter` or `backgroundColor`, or starts a drag. A key already at its target doesn't count, nor does a layout animation. Give each element its own. On a server it's `"auto"`.
+
+## Coming from Motion
+
+Motion's `useWillChange`.
+
+## Types
+
+- **`WillChange`:** its value, `"auto"` or `"transform"`.

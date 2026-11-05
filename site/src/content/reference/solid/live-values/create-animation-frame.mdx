@@ -1,0 +1,28 @@
+---
+title: createAnimationFrame
+description: Calls a function every frame with its time and delta, for what a frame draws itself.
+api: [createAnimationFrame]
+---
+
+# createAnimationFrame
+
+Calls a function every frame while its owner lives, with the frame's time and delta in milliseconds: for what a frame draws itself, such as a canvas, a 3D scene or a value no target describes.
+
+```tsx
+import { createAnimationFrame } from "@wardic/solid/unstable/v2" // or "@wardic/solid"
+
+let cube!: HTMLDivElement
+createAnimationFrame((time, delta) => {
+  cube.style.transform = `rotateY(${time / 10}deg)`
+})
+<div ref={cube} class="cube" />
+```
+
+- **`time`** is 0 at the first frame, then wall time since: a hidden tab's minutes count, as `createTime`'s do.
+- **`delta`** is the frame's own time, held to 1–40 ms: the first frame back from a hidden tab steps 40 ms, not minutes.
+
+It runs on Wardic's frames, the same ones its animations step on. A throw from the function is logged, and the next frame calls it again. Make it in a component's body: it stops with its owner. Nothing runs on a server.
+
+## Coming from Motion
+
+Motion's `useAnimationFrame`, with its time and delta.

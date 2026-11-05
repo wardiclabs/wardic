@@ -1,0 +1,33 @@
+---
+title: createSpring
+description: A live value that follows another on a spring, keeping its speed through a change mid-way.
+api: [createSpring, SpringAccessor]
+---
+
+# createSpring
+
+A value that follows another on a spring: from each change of its source, it springs there, a change mid-way keeping its speed. See [Live values](/guides/live-values).
+
+```tsx
+import { createSpring, w } from "@wardic/solid/unstable/v2" // or "@wardic/solid"
+
+const [x, setX] = createSignal(0)
+const followX = createSpring(x, { stiffness: 300, damping: 30 })
+<w.div style={{ x: followX }} />
+```
+
+Its options are a spring's: `stiffness`, `damping` and `mass`, 100 / 10 / 1 by default, or set by time, a `duration` or `visualDuration` and a `bounce`; `velocity`, `restDelta` and `restSpeed`; and `skipInitialAnimation`, to make the source's first change land at once. A string with a unit, `"10px"`, is followed as its number.
+
+`followX.jump(value)` puts it at `value` at once, not as motion: it rests there until its source next changes, then springs from there.
+
+On Solid 2, a source that's both derived and set, `createSignal(fn)`, springs to each write, and on to the next change of what it derives from.
+
+It's [`createFollowValue`](/reference/solid/live-values/create-follow-value)'s spring. Make it where you'd make a signal, in a component's body: it lives as long as its owner. On a server it's its source's value.
+
+## Coming from Motion
+
+Motion's `useSpring`, with its options and `jump`.
+
+## Types
+
+- **`SpringAccessor`:** the value, with its `jump`.

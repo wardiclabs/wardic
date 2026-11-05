@@ -119,6 +119,19 @@ export const NAV: ReadonlyArray<NavSection> = [
           { path: "/reference/solid/gestures/create-drag-controls", title: "createDragControls" },
         ],
       },
+      {
+        title: "Live values",
+        pages: [
+          { path: "/reference/solid/live-values/create-transform", title: "createTransform" },
+          { path: "/reference/solid/live-values/create-spring", title: "createSpring" },
+          { path: "/reference/solid/live-values/create-follow-value", title: "createFollowValue" },
+          { path: "/reference/solid/live-values/create-velocity", title: "createVelocity" },
+          { path: "/reference/solid/live-values/create-time", title: "createTime" },
+          { path: "/reference/solid/live-values/create-scroll", title: "createScroll" },
+          { path: "/reference/solid/live-values/create-animation-frame", title: "createAnimationFrame" },
+          { path: "/reference/solid/live-values/create-will-change", title: "createWillChange" },
+        ],
+      },
     ],
   },
 ]

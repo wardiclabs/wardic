@@ -1,0 +1,22 @@
+---
+title: createTime
+description: The milliseconds since it was made, as a live value set every frame.
+api: [createTime]
+---
+
+# createTime
+
+The milliseconds since it was made, wall time, set every frame: for something that turns, pulses or drifts forever.
+
+```tsx
+import { createTime, createTransform, w } from "@wardic/solid/unstable/v2" // or "@wardic/solid"
+
+const rotate = createTransform(createTime(), (ms) => (ms / 1000) * 90) // 90° a second
+<w.div style={{ rotate }} />
+```
+
+It keeps Wardic's frames running while it lives, so make it only where something follows it, in a component's body: it lives as long as its owner. A hidden tab's time counts. On a server it's 0.
+
+## Coming from Motion
+
+Motion's `useTime`.
