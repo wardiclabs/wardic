@@ -16,6 +16,11 @@
     "directory": "packages/dom"
   },
   "license": "MIT",
+  "author": {
+    "name": "The Wardic contributors",
+    "email": "hello@wardic.dev",
+    "url": "https://wardic.dev"
+  },
   "files": [
     "dist/**/*.js",
     "dist/**/*.d.ts",

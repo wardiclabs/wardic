@@ -17,6 +17,8 @@ import { ThemeToggle } from "~/components/ThemeToggle.tsx"
 import { NAV, type NavPage } from "~/nav.ts"
 
 const GITHUB = "https://github.com/wardiclabs/wardic"
+/** The project's public address, for what isn't an issue. */
+const EMAIL = "hello@wardic.dev"
 
 /** A path without its trailing slash, `/` kept. */
 const pathOf = (path: string): string => path.replace(/(.)\/$/, "$1")
@@ -149,7 +151,8 @@ export function Layout(props: { readonly children?: JSX.Element }) {
       </div>
       <footer class="site-footer">
         <p>
-          MIT licensed. Parts are ported from <a href="https://motion.dev">Motion</a>, MIT licensed too. <a href={GITHUB}>Source on GitHub</a>.
+          MIT licensed. Parts are ported from <a href="https://motion.dev">Motion</a>, MIT licensed too. <a href={GITHUB}>Source on GitHub</a>. Write to{" "}
+          <a href={`mailto:${EMAIL}`}>{EMAIL}</a>.
         </p>
       </footer>
     </div>
