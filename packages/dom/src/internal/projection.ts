@@ -114,7 +114,7 @@ import {
 import { DEFAULT_DRAG_TRANSITION, DEFAULT_LAYOUT_TRANSITION, type DragTransition, type LayoutTransition } from "./projection-defaults.ts"
 import { counted, watchPage, type Watched } from "./content-watch.ts"
 import { pending as appearRuns } from "./appear.ts"
-import { reportFailure } from "./report.ts"
+import { debugOf, reportFailure } from "./report.ts"
 import { blendRadius, borderRadiusCorrector, isUnitScale, SCALE_CORRECTORS, type ScaleCorrector, type ScaleCorrectorEntry, scaleRadius, ZERO_RADIUS } from "./scale-correction.ts"
 import { dashCase } from "./svg.ts"
 
@@ -1848,10 +1848,7 @@ export const makeProjectionSystem = (
    * the logger is at Debug (observability convention: `wardic.*` + annotated debug
    * logs on lifecycle; the per-frame derive/step hot path stays SILENT).
    */
-  const debug = (event: string, annotations?: Record<string, unknown>): void => {
-    const log = Effect.logDebug(`wardic.projection: ${event}`)
-    runtime.runFork(UndefinedOr.match(annotations, { onUndefined: () => log, onDefined: (a) => log.pipe(Effect.annotateLogs(a)) }))
-  }
+  const debug = debugOf(runtime, "wardic.projection")
 
   /**
    * Run `expire` at the end of the current task — the next microtask checkpoint,
@@ -5717,7 +5714,7 @@ export const makeProjectionSystem = (
     }
     addNode(node)
     elementToNode.set(node.element, node)
-    debug("register", {
+    if (debug.on) debug("register", {
       id: opts.id,
       layoutId: opts.layoutId,
       layoutRoot: opts.layoutRoot === true,
@@ -5896,7 +5893,7 @@ export const makeProjectionSystem = (
         // A leaving Follower's removal is owned by finishLeaver (presence retained
         // it for the crossfade); a plain dispose must NOT tear it down here.
         if (node.leaving) return
-        debug("dispose node", { id: node.id, layoutId: node.layoutId })
+        if (debug.on) debug("dispose node", { id: node.id, layoutId: node.layoutId })
         // Hold the leaver's end-of-task records before it leaves the stack: the box
         // a presence handleLeave arriving AFTER this dispose re-introduces, and its
         // Switch seed for a twin (ADR-0010 *Amendment (#13)*).

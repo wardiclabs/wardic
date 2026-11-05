@@ -986,6 +986,17 @@ const ownerLanded = (owner: Running | undefined): boolean => {
   return owner.done
 }
 
+/** Whether `runtime` keeps a Debug log: read once a runtime, so a log no level keeps forks nothing (#618). */
+// Module state (#460, Q7): each runtime's answer, held weakly by the runtime.
+const logsDebug = new WeakMap<WardicRuntime, boolean>()
+const logsDebugOn = (runtime: WardicRuntime): boolean => {
+  const known = logsDebug.get(runtime)
+  if (Predicate.isNotUndefined(known)) return known
+  const on = Report.debugOf(runtime, "wardic.base").on
+  logsDebug.set(runtime, on)
+  return on
+}
+
 /**
  * No key taken by an Imperative animation (#433): every spine's until its first, shared, so an element
  * none animates holds no map of its own (#460). Never written: a spine sets keys in a map of its own,
@@ -2763,7 +2774,10 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         legs++
         const log = pendingLog
         pendingLog = undefined
-        if (Predicate.isNotUndefined(log)) runtime.runFork(log)
+        // Forked only where a Debug log is kept (#618); a leg's runs inside the leg's own fiber.
+        if (Predicate.isNotUndefined(log)) {
+          if (logsDebugOn(runtime)) runtime.runFork(log)
+        }
         if (Predicate.isNotUndefined(names)) running.names = names.leg()
         // One that owns no key records the legs it waits for: their interrupt drops it (ADR-0057 Q1).
         let waitsOn: ReadonlyArray<Running | undefined> | undefined
@@ -2791,7 +2805,9 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     if (landed) {
       settleReturns(returns)
       leaveAfterFlush()
-      if (Predicate.isNotUndefined(pendingLog)) runtime.runFork(pendingLog)
+      if (Predicate.isNotUndefined(pendingLog)) {
+        if (logsDebugOn(runtime)) runtime.runFork(pendingLog)
+      }
       if (Predicate.isNotUndefined(onFrame)) {
         const tell = onFrame
         gate.afterFlush(() => {

@@ -549,10 +549,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    * Debug, so an exit that never removes its node — or a re-entry that interrupts
    * the wrong one — is diagnosable. The per-frame commit stays silent.
    */
-  const debug = (event: string, annotations?: Record<string, unknown>): void => {
-    const log = Effect.logDebug(`wardic.presence: ${event}`)
-    runtime.runFork(UndefinedOr.match(annotations, { onUndefined: () => log, onDefined: (a) => log.pipe(Effect.annotateLogs(a)) }))
-  }
+  const debug = Report.debugOf(runtime, "wardic.presence")
 
   // The registry of live child records, keyed by their DOM element. Filled by
   // register() (called from the child's spine on mount), drained as children
