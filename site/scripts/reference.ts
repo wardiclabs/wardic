@@ -163,21 +163,27 @@ const moduleOfFile = (file: string): string => file.split("/")[0]!.replace(/\.md
 /**
  * Each Effect service's members as its class's own: a `Context.Service` class's instance is the service,
  * but TypeDoc shows the class it extends (Effect's `ServiceClass.Shape<…>`, the members in its type,
- * their docs left out) and a constructor no one calls. Its members are lifted onto it before TypeDoc
- * groups them, its constructor left out, and it extends `Context.Service`.
+ * their docs left out) and a constructor no one calls. Its constructor is left out, and its members,
+ * written in place, are lifted onto it before TypeDoc groups them: it extends `Context.Service`. One
+ * whose members are a named interface extends `Context.Service<Self, Shape>`, linked to it.
  */
 const liftServices = (context: Context): void => {
   for (const service of context.project.getReflectionsByKind(ReflectionKind.Class)) {
     if (!service.isDeclaration()) continue
     const shape = service.extendedTypes?.find((type) => type instanceof ReferenceType && type.package === "effect" && type.qualifiedName === "ServiceClass.Shape")
     const members = shape instanceof ReferenceType ? shape.typeArguments?.[1] : undefined
-    if (!(members instanceof ReflectionType)) continue
+    if (!(members instanceof ReflectionType) && !(members instanceof ReferenceType)) continue
     for (const constructor of service.getChildrenByKind(ReflectionKind.Constructor)) context.project.removeReflection(constructor)
-    for (const member of members.declaration.children ?? []) {
-      member.parent = service
-      service.addChild(member)
+    const extended = ReferenceType.createBrokenReference("Context.Service", context.project, "effect")
+    if (members instanceof ReferenceType) {
+      extended.typeArguments = [ReferenceType.createResolvedReference(service.name, service, context.project), members]
+    } else {
+      for (const member of members.declaration.children ?? []) {
+        member.parent = service
+        service.addChild(member)
+      }
     }
-    service.extendedTypes = [ReferenceType.createBrokenReference("Context.Service", context.project, "effect")]
+    service.extendedTypes = [extended]
   }
 }
 
