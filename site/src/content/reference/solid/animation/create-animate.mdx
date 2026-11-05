@@ -1,0 +1,69 @@
+---
+title: createAnimate
+description: Animates elements from code, Wardic's and plain ones, by element, selector or list, and returns controls to pause, seek or await it.
+api: [createAnimate, WardicAnimate, WardicAnimateOptions, WardicAnimationSubject, WardicAnimationScope, WardicAnimationScopeV2, WardicScopeLanding, WardicPlaybackControls, WardicPlayState]
+---
+
+# createAnimate
+
+Animates elements from code: returns a scope, given to an element's `ref`, and `animate`. It animates Wardic's elements and plain ones alike, for a moment no prop describes, such as a step in a sequence or a reply to a server.
+
+```tsx
+import { createAnimate, stagger } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+const [scope, animate] = createAnimate()
+const reveal = () => animate("li", { opacity: [0, 1], y: [8, 0] }, { delay: stagger(0.05) })
+<ul ref={scope}>…</ul>
+```
+
+Call it in a component under a `WardicProvider`: the component's cleanup stops its animations. On a server it animates nothing.
+
+## animate
+
+`animate(subject, target, options?)` animates the subject's elements to `target`:
+
+- **The subject** is an element (`scope.current`), a selector, looked up inside the scope's element (the page, before it's mounted), or a list of elements.
+- **The target** is values, each a value or a list of keyframes, as an `animate` prop's: `{ x: 100 }`, `{ opacity: [0, 1] }`.
+- **The options** are a transition (`type`, `duration`, `ease`, a spring's fields…), its `delay` a number or a function of each element's index and their count, such as `stagger(0.05)`, and `onComplete`, called as it lands.
+
+`animate(sequence, options?)` plays a [sequence](/reference/solid/animation/sequences).
+
+On a Wardic element, the keys it animates stay where it leaves them until the element's own target for them changes. A plain element starts from where it is and keeps its values for the next call, its speed included. Reduced motion and `skipAnimations` apply as on any animation.
+
+## Playback controls
+
+`animate` returns the animation's controls. They're a promise of its landing too, so `await animate(…)` waits for it.
+
+| Member | |
+| --- | --- |
+| `finished` | Resolves when it lands or `complete()` is called; never at `stop()` or `cancel()`. |
+| `play()`, `pause()` | Plays it on, from where it's paused, or again from its start once it has finished or been cancelled, not after `stop()`; holds it where it is. |
+| `stop()` | Ends it where it is, for good: its values stay there. |
+| `cancel()` | Ends it, and puts its values back where it started them. |
+| `complete()` | Jumps to its end, and finishes. |
+| `time` | Seconds played, a delay included. Set it to seek. |
+| `speed` | 1 as given, 2 twice as fast, 0 held, below 0 backwards. |
+| `duration` | How long it runs, in seconds: its longest key's, a spring's to rest. |
+| `state` | `"idle"`, `"running"`, `"paused"` or `"finished"`. |
+
+## The scope
+
+`scope.current` is its element, once it's mounted, and `scope.animations` the animations it started that are still in flight.
+
+On Solid 2, `scope.settled()` is an async value: pending while any of its animations is in flight, then the last one that landed. `isPending(() => scope.settled())` reads "animating":
+
+```tsx
+// Solid 2
+<button disabled={isPending(() => scope.settled())} onClick={reveal}>Reveal</button>
+```
+
+## Coming from Motion
+
+Motion's `useAnimate`, its scope given as `ref={scope}`, with Motion's targets, options, sequences and playback controls. Motion's `animate` of a motion value is a [live value](/reference/solid/live-values/create-follow-value) here.
+
+## Types
+
+- **`WardicAnimate`:** `animate`, both forms.
+- **`WardicAnimateOptions`:** its options. **`WardicAnimationSubject`:** what it animates.
+- **`WardicPlaybackControls`:** what it returns. **`WardicPlayState`:** their `state`.
+- **`WardicAnimationScope`:** the scope. **`WardicAnimationScopeV2`:** (Solid 2) the scope with `settled()`. **`WardicScopeLanding`:** (Solid 2) what `settled()` gives: `{ animation }`, the one that landed last.

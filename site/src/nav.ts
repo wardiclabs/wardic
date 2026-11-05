@@ -132,6 +132,14 @@ export const NAV: ReadonlyArray<NavSection> = [
           { path: "/reference/solid/live-values/create-will-change", title: "createWillChange" },
         ],
       },
+      {
+        title: "Animation",
+        pages: [
+          { path: "/reference/solid/animation/create-animate", title: "createAnimate" },
+          { path: "/reference/solid/animation/sequences", title: "Sequences" },
+          { path: "/reference/solid/animation/create-animation-controls", title: "createAnimationControls" },
+        ],
+      },
     ],
   },
 ]

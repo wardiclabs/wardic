@@ -1,0 +1,61 @@
+---
+title: Sequences
+description: Animations played one after another from code, each Segment placed on one timeline, with labels and function Segments.
+api: [WardicAnimationSequence, WardicSegment, WardicElementSegment, WardicFunctionSegment, WardicSegmentOptions, WardicSegmentTarget, WardicSequenceLabel, WardicSequenceTime, WardicSequenceOptions]
+---
+
+# Sequences
+
+A sequence is animations played one after another on one timeline, from [`createAnimate`](/reference/solid/animation/create-animate)'s `animate`. Each Segment starts as the one before ends, unless its `at` says otherwise.
+
+```tsx
+const [scope, animate] = createAnimate()
+const open = () =>
+  animate([
+    [".panel", { scaleY: [0, 1] }, { duration: 0.3 }],
+    "items",
+    ["li", { opacity: [0, 1], x: [-12, 0] }, { delay: stagger(0.04), at: "-0.1" }],
+    [".close", { opacity: 1 }, { at: "items" }],
+  ])
+```
+
+`animate(sequence, options?)` returns playback controls, as a single animation does: await them, pause, seek or speed it up.
+
+## Segments
+
+- **`[subject, target, options?]`** animates elements, as `animate(subject, target, options)` does: an element, a selector inside the scope, or a list.
+- **`[callback, value?, options?]`** is a function Segment: its callback is given a value each frame, from 0 to 1, or through the stops you give, for what isn't an element's style, such as a counter or a canvas.
+- **A label**, a string, names the time where the Segment before ends, for a later `at`. `{ name, at }` names a time of its own.
+
+A Segment's options are a transition, its `delay` a number or `stagger()`, and `at`. A spring through two stops or fewer plays as an easing over its time to rest, so it fits the timeline.
+
+## at
+
+| `at` | Where the Segment starts |
+| --- | --- |
+| `1.5` | Seconds into the sequence. |
+| `"+0.5"`, `"-0.5"` | After, or before, the end of the Segment before. |
+| `"<"` | At the start of the Segment before. |
+| `"<+0.5"`, `"<-0.5"` | After, or before, the start of the Segment before. |
+| `"items"` | At a label. |
+
+## Options
+
+| Option | |
+| --- | --- |
+| `duration` | The whole sequence, scaled to this many seconds. |
+| `delay` | Seconds before it starts. |
+| `repeat`, `repeatType`, `repeatDelay` | Plays it again: how many times, `"loop"`, `"reverse"` or `"mirror"`, and the pause between. |
+| `defaultTransition` | Each Segment's transition when it gives none: a 0.3 s `easeOut` tween otherwise. |
+| `onComplete` | Called as it lands. |
+
+## Coming from Motion
+
+Motion's sequences, with its `at`, labels and options. Its motion value Segments are function Segments here.
+
+## Types
+
+- **`WardicAnimationSequence`:** a sequence. **`WardicSegment`:** one step of it.
+- **`WardicElementSegment`**, **`WardicFunctionSegment`:** the two kinds of Segment. **`WardicSegmentTarget`**, **`WardicSegmentOptions`:** a Segment's values and options.
+- **`WardicSequenceLabel`:** a label. **`WardicSequenceTime`:** an `at`.
+- **`WardicSequenceOptions`:** the sequence's options.
