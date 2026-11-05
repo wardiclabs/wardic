@@ -21,8 +21,7 @@ import * as DomRenderer from "@wardic/dom/DomRenderer"
 
 /** ADR-0021 decision 7's message for `layer`, from `from`, missing `global` (#618: today's names, no ADR in it). */
 const guardMessage = (layer: string, from: string, global: string): string =>
-  `${layer} (${from}) can't be built here: there is no ${global} (a server render?). ` +
-  "Wardic's runtime is client-only: build it on the client, once the element has mounted, never during a server render."
+  `${layer} (${from}) needs ${global}: Wardic's runtime is client-only, never built during a server render.`
 
 /** Build `layer` (with the Environment's AtomRegistry) and return how the build ended. */
 const buildExit = <ROut, E>(layer: Layer.Layer<ROut, E, AtomRegistry.AtomRegistry>) =>
@@ -77,7 +76,7 @@ describe("DomLive on a server (ADR-0021, decision 7)", () => {
     }
     expect(thrown).toBeInstanceOf(Error)
     expect(thrown).not.toBeInstanceOf(ReferenceError)
-    expect((thrown as Error).message).toContain("can't be built here")
+    expect((thrown as Error).message).toContain("DomClock.layer (DomLive's) needs requestAnimationFrame")
     expect((thrown as Error).message).toContain("client-only")
   })
 

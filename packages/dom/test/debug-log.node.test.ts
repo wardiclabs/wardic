@@ -1,7 +1,8 @@
 // `Report.debugOf` (#618, M4): a lifecycle debug log that reads the log level once.
 //
-// - DL1: where a Debug log is kept, `on` is true, and a log arrives as `scope: event` with its annotations.
-// - DL2: at the default level, `on` is false, and a log forks nothing.
+// - DL1: where a Debug log is kept, `on` and `debugKept` are true, and a log arrives as `scope: event` with
+//   its annotations.
+// - DL2: at the default level, `on` and `debugKept` are false, and a log forks nothing.
 import * as Report from "@wardic/dom/Report"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -36,6 +37,7 @@ describe("Report.debugOf (#618)", () => {
     const { runner } = counting(runtime)
     const debug = Report.debugOf(runner, "wardic.test")
     expect(debug.on).toBe(true)
+    expect(runtime.runSync(Report.debugKept)).toBe(true)
     debug("register", { id: "a" })
     await Effect.runPromise(Effect.yieldNow)
     expect(logged).toEqual([{ message: "wardic.test: register", annotations: { id: "a" } }])
@@ -47,6 +49,7 @@ describe("Report.debugOf (#618)", () => {
     const { runner, forks } = counting(runtime)
     const debug = Report.debugOf(runner, "wardic.test")
     expect(debug.on).toBe(false)
+    expect(runtime.runSync(Report.debugKept)).toBe(false)
     debug("register", { id: "a" })
     debug("dispose node")
     expect(forks()).toBe(0)

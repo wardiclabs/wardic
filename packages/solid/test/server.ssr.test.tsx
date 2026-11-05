@@ -318,7 +318,7 @@ describe("a server render on DomLive (ADR-0021)", () => {
     }
     const thrown = thrownBy(() => serve(() => <WithoutServerValue />))
     expect(thrown).toBeInstanceOf(Error)
-    expect((thrown as Error).message).toContain("can't be built here")
+    expect((thrown as Error).message).toContain("client-only")
   })
 
   it("SV12: useWardicFiber and runScoped start nothing and return a fiber already ended by interruption", async () => {
@@ -377,7 +377,7 @@ describe("a server render on DomLive (ADR-0021)", () => {
     }
     serve(() => <Runs />)
     expect(caught).toBeInstanceOf(Error)
-    expect((caught as Error).message).toContain("can't be built here")
+    expect((caught as Error).message).toContain("(DomLive's) needs")
     expect((caught as Error).message).toContain("client-only")
   })
 

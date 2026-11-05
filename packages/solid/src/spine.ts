@@ -992,7 +992,7 @@ const logsDebug = new WeakMap<WardicRuntime, boolean>()
 const logsDebugOn = (runtime: WardicRuntime): boolean => {
   const known = logsDebug.get(runtime)
   if (Predicate.isNotUndefined(known)) return known
-  const on = Report.debugOf(runtime, "wardic.base").on
+  const on = runtime.runSync(Report.debugKept)
   logsDebug.set(runtime, on)
   return on
 }
