@@ -50,6 +50,7 @@ import * as Easing from "./Easing.ts"
 import type * as Frame from "./Frame.ts"
 import * as FrameLoop from "./FrameLoop.ts"
 import * as InterpolatorRegistry from "./InterpolatorRegistry.ts"
+import { sourceOf } from "./internal/driven.ts"
 import { array, boolean, cachedResolver, checked, field, finite, literals, nonEmptyArray, nonNegative, number, optionalField, refine, union } from "./internal/options.ts"
 import {
   EaseDefinition,
@@ -641,7 +642,8 @@ export const MAX_DURATION = 20
 // #433, Motion's `duration`: stepped from its start, `CATCH_UP_DT` a step, as `startAt` catches up.
 export const durationOf = <F extends Frame.Frame<unknown>>(self: Machine<F>): number => {
   if (Bool.not(self.settles)) return Number.POSITIVE_INFINITY
-  const step = self.start()
+  // A driven machine measures as the one it drives, so measuring leaves its playhead where it is (#618).
+  const step = sourceOf(self).start()
   let frame = step(0)
   const most = Math.ceil(MAX_DURATION / CATCH_UP_DT)
   // A counted loop, a settled Frame ending it, as `catchUp`'s.

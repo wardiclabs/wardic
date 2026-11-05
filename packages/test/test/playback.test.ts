@@ -7,6 +7,7 @@
 // - PB4: a run started with the head at 0.5 s lands there at its first tick, whatever the dt (a seek).
 // - PB5: below speed 0 it goes back, and settles at 0 where it started.
 // - PB6: `durationOf`: a tween's duration and delay, a spring's settle, `forever`'s Infinity.
+// - PB7: `durationOf` of a driven machine is its source's, and leaves its playhead where it is (#618).
 import * as Machine from "@wardic/core/Machine"
 import * as Playback from "@wardic/core/Playback"
 import { describe, expect, it } from "vitest"
@@ -82,5 +83,16 @@ describe("Playback.drive (#433)", () => {
     expect(spring).toBeGreaterThan(0.5)
     expect(spring).toBeLessThan(Machine.MAX_DURATION)
     expect(Machine.durationOf(Machine.forever(tween()))).toBe(Number.POSITIVE_INFINITY)
+  })
+})
+
+describe("durationOf a driven machine (#618)", () => {
+  it("PB7: is its source's, and leaves the playhead where it is", () => {
+    const head = Playback.make()
+    head.time = 0.3
+    head.speed = 2
+    const driven = Playback.drive(Playback.drive(tween(0.5), head), head)
+    expect(Machine.durationOf(driven)).toBeCloseTo(Machine.durationOf(tween(0.5)), 9)
+    expect(head.time, "the playhead untouched").toBe(0.3)
   })
 })

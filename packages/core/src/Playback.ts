@@ -22,6 +22,7 @@ import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import type * as Frame from "./Frame.ts"
 import * as Machine from "./Machine.ts"
+import { measuredAs } from "./internal/driven.ts"
 import { dual } from "./internal/dual.ts"
 
 const TypeId = "~@wardic/core/Playback"
@@ -109,7 +110,7 @@ export const drive: {
 } = dual(
   2,
   <F extends Frame.Frame<unknown>>(self: Machine.Machine<F>, head: Playhead): Machine.Machine<F> =>
-    Machine.make({
+    measuredAs(Machine.make({
       settles: self.settles,
       span: self.span,
       start: () => {
@@ -149,7 +150,7 @@ export const drive: {
           return last
         }
       },
-    }),
+    }), self),
 )
 
 /**
