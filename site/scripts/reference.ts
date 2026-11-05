@@ -51,7 +51,12 @@ const READY: Readonly<Record<(typeof PACKAGES)[number]["dir"], ReadonlyArray<str
     // Layout and the Environment.
     "Announcer", "Box", "Clock", "Flip", "Frame", "FrameLoop", "Microtask", "Point", "Probe", "Projection", "RefreshFrameSource", "Renderer", "SharedSource",
   ],
-  dom: [],
+  dom: [
+    // The Environment's services.
+    "DomAnnouncer", "DomClock", "DomDefaultTransition", "DomInput", "DomInterpolators", "DomKeyRules", "DomPositionalKeys", "DomProbe", "DomRenderer", "Report",
+    // Values, styles and the server.
+    "Appear", "Color", "MeasuredPair", "OwnValues", "ScrollOffset", "Style", "Svg", "Variables",
+  ],
 }
 
 /** Every file under `dir`, recursively. */
