@@ -9,8 +9,9 @@
  *   `/reference/core/drag-activity/internal`. Each package's index lists its modules.
  * - Each page takes front matter, its title the module's name and its description its doc's first
  *   sentence, and TypeDoc's links between its files become the site's paths.
- * - Its issue and ADR references link to them: `#370` to the issue on GitHub, `ADR-0016` to the ADR's
- *   file in `docs/adr/`. Code stays as it is.
+ * - A module is published once its JSDoc is the reader's (what it's for, how it's used, an example; the
+ *   maintainer's issues and ADRs in `//` comments): `READY` lists them, and each area's rewrite adds its
+ *   own. A link to a module that isn't yet is its text alone, and a package with none has no pages.
  */
 import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs"
@@ -21,7 +22,6 @@ import { Application } from "typedoc"
 const SITE = join(import.meta.dirname, "..")
 const REPO = join(SITE, "..")
 const CONTENT = join(SITE, "src", "content", "reference")
-const GITHUB = "https://github.com/wardiclabs/wardic"
 
 /** Each package referenced: its name in the site's paths, and what its index says it is. */
 const PACKAGES = [
@@ -36,12 +36,14 @@ const slugOf = (name: string): string =>
     .replace(/([A-Z])([A-Z][a-z])/g, "$1-$2")
     .toLowerCase()
 
-/** Each ADR's file in `docs/adr/`, by its number: `0016` is `0016-drag-on-the-projection.md`. */
-const ADRS: ReadonlyMap<string, string> = new Map(
-  readdirSync(join(REPO, "docs", "adr"))
-    .filter((file) => /^\d{4}-.*\.md$/.test(file))
-    .map((file) => [file.slice(0, 4), file] as const),
-)
+/**
+ * The modules whose JSDoc is the reader's, by package: only these are published. Each area's rewrite
+ * adds its modules (#558).
+ */
+const READY: Readonly<Record<(typeof PACKAGES)[number]["dir"], ReadonlyArray<string>>> = {
+  core: [],
+  dom: [],
+}
 
 /** Every file under `dir`, recursively. */
 const filesUnder = (dir: string): ReadonlyArray<string> =>
@@ -89,38 +91,6 @@ const descriptionOf = (overview: string): string => {
   const end = /\.(\s|$)/.exec(flat)
   const sentence = end === null ? flat : flat.slice(0, end.index + 1)
   return sentence.charAt(0).toUpperCase() + sentence.slice(1)
-}
-
-/** `#370` and `ADR-0016` in prose as links; a code span, a link and its target stay as they are. */
-const linkRefs = (line: string): string =>
-  line
-    .split(/(`+[^`]*`+)/)
-    .map((part, i) => {
-      if (i % 2 === 1) return part
-      return part
-        .replace(/(?<![\w[\-/])ADR-(\d{4})(?![\w\]])/g, (whole, number: string) => {
-          const file = ADRS.get(number)
-          if (file === undefined) return whole
-          return `[ADR-${number}](${GITHUB}/blob/main/docs/adr/${file})`
-        })
-        .replace(/(?<![\w&/[\]\\#-])#(\d{1,4})(?![\w\]])/g, (_whole, number: string) => `[#${number}](${GITHUB}/issues/${number})`)
-    })
-    .join("")
-
-/** A page's text with its references linked, outside fenced code. */
-const linkRefsIn = (text: string): string => {
-  let fenced = false
-  return text
-    .split("\n")
-    .map((line) => {
-      if (/^\s*```/.test(line)) {
-        fenced = !fenced
-        return line
-      }
-      if (fenced) return line
-      return linkRefs(line)
-    })
-    .join("\n")
 }
 
 /** A heading's anchor, as rehype-slug (github-slugger) makes it from its text. */
@@ -175,9 +145,16 @@ const routeOf = (dir: string, from: string, target: string): string => {
   return hash === undefined ? route : `${route}#${hash}`
 }
 
-/** One package's modules as MDX pages in `CONTENT/<dir>`. */
+/** The module a TypeDoc output file is, or a link's target is in: `Box.mdx#box` and `Box/README.mdx` are `Box`. */
+const moduleOfFile = (file: string): string => file.split("/")[0]!.replace(/\.mdx$/, "")
+
+/** One package's ready modules as MDX pages in `CONTENT/<dir>`. */
 const generate = async (pkg: (typeof PACKAGES)[number]): Promise<number> => {
   const source = join(REPO, "packages", pkg.dir)
+  const ready = new Set(READY[pkg.dir])
+  const target = join(CONTENT, pkg.dir)
+  rmSync(target, { recursive: true, force: true })
+  if (ready.size === 0) return 0
   const out = mkdtempSync(join(tmpdir(), `wardic-reference-${pkg.dir}-`))
   const app = await Application.bootstrapWithPlugins({
     entryPoints: [join(source, "src", "*.ts")],
@@ -206,9 +183,6 @@ const generate = async (pkg: (typeof PACKAGES)[number]): Promise<number> => {
   if (project === undefined) throw new Error(`reference: TypeDoc couldn't convert ${pkg.name}`)
   await app.generateOutputs(project)
 
-
-  const target = join(CONTENT, pkg.dir)
-  rmSync(target, { recursive: true, force: true })
   /** A page's front matter. */
   const frontOf = (title: string, description: string): string => `---\ntitle: ${JSON.stringify(title)}\ndescription: ${JSON.stringify(description)}\n---\n\n`
   /** Writes a page at its place. */
@@ -220,11 +194,11 @@ const generate = async (pkg: (typeof PACKAGES)[number]): Promise<number> => {
   // Each module's page and its internal types' page, TypeDoc's, with the module's overview after its
   // heading. TypeDoc's own index is left out: the package's is written below.
   const modules: Array<{ readonly name: string; readonly place: string; readonly description: string }> = []
-  const files = filesUnder(out).filter((file) => file.endsWith(".mdx") && relative(out, file) !== "README.mdx")
+  const files = filesUnder(out).filter((file) => file.endsWith(".mdx") && relative(out, file) !== "README.mdx" && ready.has(moduleOfFile(relative(out, file))))
   for (const file of files) {
     const from = relative(out, file)
     const place = placeOf(from)
-    const module = from.split("/")[0]!.replace(/\.mdx$/, "")
+    const module = moduleOfFile(from)
     const internal = place.endsWith("/internal")
     const overview = internal ? undefined : overviewOf(join(source, "src", `${module}.ts`))
     const description = internal ? `The types ${pkg.name}/${module}'s exports name that it doesn't export.` : descriptionOf(overview ?? `${pkg.name}/${module}.`)
@@ -237,7 +211,12 @@ const generate = async (pkg: (typeof PACKAGES)[number]): Promise<number> => {
       /## Modules\n\n\| Module \| Description \|\n\| -+ \| -+ \|\n\| \[\\<internal\\>\]\(([^)]+)\) \| - \|\n/,
       (_whole, link: string) => `Its exports also name types the module doesn't export: [its internal types](${link}).\n`,
     )
-    const body = fixAnchors(linkRefsIn(linked)).replace(/\]\(([^)\s]+\.mdx(?:#[^)\s]*)?)\)/g, (_whole, link: string) => `](${routeOf(pkg.dir, from, link)})`)
+    // TypeDoc's links between its files as the site's paths; one to a module not yet published, its text.
+    const body = fixAnchors(linked).replace(/\[([^\]]*)\]\(([^)\s]+\.mdx(?:#[^)\s]*)?)\)/g, (_whole, text: string, link: string) => {
+      const into = moduleOfFile(normalize(join(dirname(from), link.split("#")[0]!)))
+      if (into !== "README" && !ready.has(into)) return text
+      return `[${text}](${routeOf(pkg.dir, from, link)})`
+    })
     write(place, frontOf(title, description) + body)
   }
   // The package's index: what it is, and each module with its description.

@@ -29,6 +29,13 @@ const modulesOf = (dir: string): ReadonlyArray<NavPage> =>
     .map(([name, title]) => ({ path: `/${name}`, title }))
     .sort((a, b) => a.title.localeCompare(b.title))
 
+/** A generated reference's index page, once its package has a module published. */
+const indexOf = (dir: string, title: string): ReadonlyArray<NavPage> =>
+  TITLES[`reference/${dir}/index`] === undefined ? [] : [{ path: `/reference/${dir}`, title }]
+
+/** A group of a generated reference's modules, once it has one. */
+const groupOf = (title: string, pages: ReadonlyArray<NavPage>): ReadonlyArray<NavGroup> => (pages.length === 0 ? [] : [{ title, pages }])
+
 export const NAV: ReadonlyArray<NavSection> = [
   {
     title: "Start",
@@ -68,8 +75,8 @@ export const NAV: ReadonlyArray<NavSection> = [
     title: "Reference",
     pages: [
       { path: "/reference/solid", title: "Solid reference" },
-      { path: "/reference/core", title: "Core reference" },
-      { path: "/reference/dom", title: "DOM reference" },
+      ...indexOf("core", "Core reference"),
+      ...indexOf("dom", "DOM reference"),
     ],
     groups: [
       {
@@ -184,9 +191,9 @@ export const NAV: ReadonlyArray<NavSection> = [
           { path: "/reference/solid/advanced/run-drag-track", title: "runDragTrack" },
         ],
       },
-      // Core's and dom's modules, generated at build (scripts/reference.ts).
-      { title: "Core", pages: modulesOf("core") },
-      { title: "DOM", pages: modulesOf("dom") },
+      // Core's and dom's modules, generated at build (scripts/reference.ts), as each is published.
+      ...groupOf("Core", modulesOf("core")),
+      ...groupOf("DOM", modulesOf("dom")),
     ],
   },
 ]
