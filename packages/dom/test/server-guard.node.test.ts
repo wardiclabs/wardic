@@ -1,7 +1,7 @@
 // DomLive is client-only, and says so (ADR-0021, decision 7). On a server (here, the
-// node tier: no `window`, no `document`, no `requestAnimationFrame`), ClockDomLive,
-// InputDomLive and ProbeDomLive each fail as their build starts, with one message that
-// names the Layer and the global it needs. RendererDomLive builds anywhere, and the
+// node tier: no `window`, no `document`, no `requestAnimationFrame`), DomClock.layer,
+// DomInput.layer and DomProbe.layer each fail as their build starts, with one message that
+// names the Layer as an app knows it, where it comes from, and the global it needs (#618). The renderer builds anywhere, and the
 // pure `project` it provides is exported for a binding's server render (decision 2).
 // The guard reads its global when the Layer builds, never when `@wardic/dom` is imported.
 import * as Renderer from "@wardic/core/Renderer"
@@ -19,10 +19,10 @@ import * as DomInput from "@wardic/dom/DomInput"
 import * as DomProbe from "@wardic/dom/DomProbe"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 
-/** ADR-0021 decision 7's message for `layer`, missing `global`. */
-const guardMessage = (layer: string, global: string): string =>
-  `${layer} can't be built here: there is no ${global} (a server render?). ` +
-  "Wardic's runtime is client-only (ADR-0003): use it on the client once the element has mounted, never during a server render."
+/** ADR-0021 decision 7's message for `layer`, from `from`, missing `global` (#618: today's names, no ADR in it). */
+const guardMessage = (layer: string, from: string, global: string): string =>
+  `${layer} (${from}) can't be built here: there is no ${global} (a server render?). ` +
+  "Wardic's runtime is client-only: build it on the client, once the element has mounted, never during a server render."
 
 /** Build `layer` (with the Environment's AtomRegistry) and return how the build ended. */
 const buildExit = <ROut, E>(layer: Layer.Layer<ROut, E, AtomRegistry.AtomRegistry>) =>
@@ -40,22 +40,22 @@ const failureMessage = (exit: Exit.Exit<unknown, unknown>): string => {
 const domRenderer = () => Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), DomRenderer.layer))
 
 describe("DomLive on a server (ADR-0021, decision 7)", () => {
-  it("G1: building ClockDomLive fails with the guard's message (no requestAnimationFrame)", () => {
+  it("G1: building DomClock.layer fails with the guard's message (no requestAnimationFrame)", () => {
     const exit = buildExit(DomClock.layer)
     expect(Exit.isFailure(exit)).toBe(true)
-    expect(failureMessage(exit)).toBe(guardMessage("ClockDomLive", "requestAnimationFrame"))
+    expect(failureMessage(exit)).toBe(guardMessage("DomClock.layer", "DomLive's", "requestAnimationFrame"))
   })
 
-  it("G2: building InputDomLive fails with the guard's message (no document)", () => {
+  it("G2: building DomInput.layer fails with the guard's message (no document)", () => {
     const exit = buildExit(DomInput.layer)
     expect(Exit.isFailure(exit)).toBe(true)
-    expect(failureMessage(exit)).toBe(guardMessage("InputDomLive", "document"))
+    expect(failureMessage(exit)).toBe(guardMessage("DomInput.layer", "a gesture's", "document"))
   })
 
-  it("G3: building ProbeDomLive fails with the guard's message (no window)", () => {
+  it("G3: building DomProbe.layer fails with the guard's message (no window)", () => {
     const exit = buildExit(DomProbe.layer)
     expect(Exit.isFailure(exit)).toBe(true)
-    expect(failureMessage(exit)).toBe(guardMessage("ProbeDomLive", "window"))
+    expect(failureMessage(exit)).toBe(guardMessage("DomProbe.layer", "DomLive's", "window"))
   })
 
   it("G4 (guard): RendererDomLive builds, and its project groups the transform", () => {
@@ -78,7 +78,7 @@ describe("DomLive on a server (ADR-0021, decision 7)", () => {
     expect(thrown).toBeInstanceOf(Error)
     expect(thrown).not.toBeInstanceOf(ReferenceError)
     expect((thrown as Error).message).toContain("can't be built here")
-    expect((thrown as Error).message).toContain("ADR-0003")
+    expect((thrown as Error).message).toContain("client-only")
   })
 
   it("G6 (guard): this project has no window or document, and importing @wardic/dom reads neither", async () => {

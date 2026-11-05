@@ -126,7 +126,7 @@ export const instructionsId = (doc: Document, text: string): string => {
 /** Core's `Announcer`, speaking in the page's `document`'s live region. */
 export const AnnouncerDomLive: Layer.Layer<Announcer.Announcer> = Layer.effect(Announcer.Announcer)(
   Effect.gen(function* () {
-    yield* requireGlobal("AnnouncerDomLive", "document")
+    yield* requireGlobal("DomAnnouncer.layer", "document")
     return Announcer.Announcer.of({ announce: (message) => announceIn(document, message) })
   }),
 )

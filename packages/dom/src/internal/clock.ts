@@ -20,7 +20,7 @@ import { requireGlobal } from "./require-global.ts"
  * are read when the Layer builds, after the client-only check.
  */
 const frames: Layer.Layer<RefreshFrameSource.RefreshFrameSource> = Layer.effect(RefreshFrameSource.RefreshFrameSource)(
-  requireGlobal("ClockDomLive", "requestAnimationFrame").pipe(
+  requireGlobal("DomClock.layer", "requestAnimationFrame").pipe(
     Effect.map((): RefreshFrameSource.Shape => {
       const cancel = cancelAnimationFrame
       return {

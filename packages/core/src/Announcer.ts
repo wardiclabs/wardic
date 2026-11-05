@@ -9,7 +9,7 @@
  * const announcer = yield* Announcer.Announcer
  * announcer.announce("Picked up Milk, position 2 of 5.")
  */
-// An **Announcement** (ADR-0037); `@wardic/dom`'s `AnnouncerDomLive`. A Context service, as
+// An **Announcement** (ADR-0037); `@wardic/dom`'s `DomAnnouncer.layer`. A Context service, as
 // `ReducedMotion.PositionalKeys` is: core names the contract and no Environment's syntax (ADR-0036). A
 // plain call: an announcement answers a key just pressed, on no frame's path. Tier 2 (ADR-0008): for
 // Environment and binding authors.

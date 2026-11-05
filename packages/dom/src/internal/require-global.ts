@@ -15,18 +15,31 @@ import * as Predicate from "effect/Predicate"
 /** The browser globals a DomLive Layer can need. */
 export type BrowserGlobal = "requestAnimationFrame" | "document" | "window"
 
+/** The DOM's Layers that need a browser global, by the names an app knows them by. */
+export type ClientLayer = "DomClock.layer" | "DomInput.layer" | "DomProbe.layer" | "DomAnnouncer.layer"
+
+/** Where an app gets each: three are `DomLive`'s, and a gesture builds the input. */
+const FROM: Readonly<Record<ClientLayer, string>> = {
+  "DomClock.layer": "DomLive's",
+  "DomProbe.layer": "DomLive's",
+  "DomAnnouncer.layer": "DomLive's",
+  "DomInput.layer": "a gesture's",
+}
+
 /**
  * Fail the build of `layer` with ADR-0021's client-only error when `global` doesn't exist.
  * Make it the first step of the build: anything that reads the global must come after it.
  */
-export const requireGlobal = (layer: string, global: BrowserGlobal): Effect.Effect<void> =>
+// #618 (D7): the error named the Layers ADR-0041 renamed (`ClockDomLive`…), and an ADR; `layer` is a
+// union of today's names, so a rename can't leave it behind.
+export const requireGlobal = (layer: ClientLayer, global: BrowserGlobal): Effect.Effect<void> =>
   Effect.suspend(() =>
     Bool.match(Predicate.isUndefined((globalThis as Record<string, unknown>)[global]), {
       onTrue: () =>
         Effect.die(
           new Error(
-            `${layer} can't be built here: there is no ${global} (a server render?). ` +
-              "Wardic's runtime is client-only (ADR-0003): use it on the client once the element has mounted, " +
+            `${layer} (${FROM[layer]}) can't be built here: there is no ${global} (a server render?). ` +
+              "Wardic's runtime is client-only: build it on the client, once the element has mounted, " +
               "never during a server render.",
           ),
         ),

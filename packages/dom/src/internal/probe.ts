@@ -67,7 +67,7 @@ const toBounds = (r: DOMRect): Probe.Bounds => ({
  */
 const make = Effect.gen(function* () {
   // Client-only (ADR-0021, decision 7): the viewport below reads `window`.
-  yield* requireGlobal("ProbeDomLive", "window")
+  yield* requireGlobal("DomProbe.layer", "window")
 
   // The shared Environment registry — the one consumers read these atoms from.
   const registry = yield* AtomRegistry.AtomRegistry

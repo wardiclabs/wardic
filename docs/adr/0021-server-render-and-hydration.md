@@ -244,3 +244,7 @@ Pinned by `features-layout.browser.test.tsx`'s **FL6** and Solid 2's **FLV6** (a
 - **Cold mount** (each page's first round, not gated), Solid 1 / Solid 2: −3.7% / −6.7% (55.7 → 53.7 ms, 62.0 → 58.5). Solid 2's cold unmount −10.8%.
 - **Everything else is flat:** warm tasks within −3.4% and +0.5%, bytes and retained memory, the layout scenes.
 - **One gate failed:** Solid 1's Keyframes page, unmount +8.1% [+6.3%, +9.5%]. Solid 1 alone, run again, passed every gate, with that unmount at +0.2% and the cold mount −3.8% again.
+
+## Note (#618, 2026-11-05): decision 7's message names today's Layers
+
+Decision 7's message named `ClockDomLive`, `InputDomLive` and `ProbeDomLive`, which ADR-0041 renamed, and cited ADR-0003, which a reader can't act on. It now names the Layer as an app knows it, with where it comes from, and the rule without the ADR: "`DomClock.layer` (DomLive's) can't be built here: there is no `requestAnimationFrame` (a server render?). Wardic's runtime is client-only: build it on the client, once the element has mounted, never during a server render." `DomInput.layer` is "a gesture's", since `DomLive` builds no input (ADR-0067 decision 14). `requireGlobal`'s `layer` is a union of the four names, so a rename can't leave it behind.

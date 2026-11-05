@@ -287,7 +287,7 @@ export const fromRefreshFrames: <Handle>(
  * The Clock over the Environment's `RefreshFrameSource`, its loop in the Layer's scope. An Environment
  * provides both from one source, so the Clock and a binding's flush run on the same frames.
  */
-// ADR-0031; `ClockDomLive`. Tier 2 (ADR-0008): for Environment authors.
+// ADR-0031; `@wardic/dom`'s `DomClock.layer`. Tier 2 (ADR-0008): for Environment authors.
 export const layer: Layer.Layer<Clock, never, RefreshFrameSource.RefreshFrameSource> = Layer.effect(Clock)(
   Effect.flatMap(Effect.service(RefreshFrameSource.RefreshFrameSource), fromRefreshFrames),
 )
