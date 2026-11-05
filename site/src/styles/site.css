@@ -304,6 +304,17 @@ a {
   font-size: 0.88em;
 }
 
+/*
+ * A word too long for the line breaks inside it rather than run off a phone: the references' long
+ * names and type signatures, `Data.TaggedError("OptionError").message`, and runs of code with no
+ * space between. Other text breaks at its spaces as ever.
+ */
+.prose p,
+.prose li,
+.prose :not(pre) > code {
+  overflow-wrap: anywhere;
+}
+
 .prose pre {
   margin: 0 0 var(--space-5);
   padding: var(--space-4);
