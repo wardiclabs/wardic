@@ -1,23 +1,34 @@
 /**
- * The `InputFeed` module (#318, CONTEXT.md **Input feed**): a target's input as an Environment gives
- * it. A feed, started with `emit` and `end`, calls `emit` with each event inside the platform's
- * dispatch until the function it returned stops it; a finite source (a test's script) calls `end`
- * after its last event. `InputSource`'s pointer, keyboard and focus, and `Probe.observeIntersection`,
- * are feeds.
+ * Input feeds: a target's input as an Environment gives it, event by event, inside the platform's own
+ * dispatch. A feed is a function: given `emit` and `end`, it calls `emit` with each event until the
+ * function it returned stops it, and a source that runs out, as a test's script does, calls `end`.
+ * `InputSource`'s pointer, keyboard and focus are feeds, and the recognizers are built on them.
  *
- * - {@link toStream}: the same events as a Stream, for a consumer that wants one, delivered inside
- *   the dispatch as a feed's are (ADR-0032).
- * - {@link byTarget}: a feed per target shared by its subscribers (a **Shared source**), with no
- *   `PubSub` and no fiber: a ref-counted map. `SharedSource` still shares the Streams an Environment
- *   hands out (`Clock.ticks`, `Probe.observeResize`).
- * - {@link watch} and {@link watchWith}: a feed subscribed while a Scope is open, each event handled
- *   inside its emit, with no fiber and no Stream (#318, #379). The recognizers' watches fold events
- *   over them; a binding watches a feed it doesn't fold (a drag track's grabs, a Reorder item's keys).
- * - {@link switched}: a subscription its owner opens and closes (#460), for a feed a watch needs only
- *   some of the time.
+ * - **`watch`** handles a feed's events while a Scope is open, each inside its dispatch, so a handler
+ *   can still prevent the platform's default. `watchWith` is its form for a handler that can stop.
+ * - **`toStream`** gives a feed's events as a Stream, still inside the dispatch.
+ * - **`byTarget`** shares one target's feed among everyone who subscribes to it, so hover, press and
+ *   drag on one element start one source, not three.
+ * - **`switched`** is a subscription its owner opens and closes, for a feed it needs only some of the
+ *   time.
  *
- * Tier 2 (ADR-0008), for Environment authors. Nothing here names a DOM type.
+ * @example
+ * import * as InputFeed from "@wardic/core/InputFeed"
+ *
+ * const input = yield* InputSource.InputSource
+ * yield* InputFeed.watch(input.keyboard(item), {
+ *   on: (event) => {
+ *     if (event.key === "escape") event.handle()
+ *   },
+ * })
  */
+// #318, CONTEXT.md **Input feed**. `Probe.observeIntersection` is a feed too. `toStream` delivers
+// inside the dispatch (ADR-0032). `byTarget` is a **Shared source** with no `PubSub` and no fiber, a
+// ref-counted map; `SharedSource` still shares the Streams an Environment hands out (`Clock.ticks`,
+// `Probe.observeResize`). `watch` and `watchWith` have no fiber and no Stream (#318, #379): the
+// recognizers' watches fold events over them, and a binding watches a feed it doesn't fold (a drag
+// track's grabs, a Reorder item's keys). `switched` is #460's. Tier 2 (ADR-0008), for Environment
+// authors; nothing here names a DOM type.
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
@@ -32,7 +43,7 @@ import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 
 /**
- * A source of events: called with `emit` and `end`, it starts calling `emit` with each event, and
+ * A source of events: called with `emit` and `end`, it calls `emit` with each event from then on, and
  * returns the function that stops it. A source that runs out calls `end` once, after its last.
  */
 export type InputFeed<A> = (emit: (event: A) => void, end: () => void) => () => void
@@ -41,10 +52,11 @@ export type InputFeed<A> = (emit: (event: A) => void, end: () => void) => () => 
 export const empty: InputFeed<never> = () => constVoid
 
 /**
- * `feed` as a Stream (#318): each event offered and flushed inside its emit, so a consumer waiting
- * on the Stream handles it before the platform's dispatch returns (ADR-0032), and one that's busy
- * takes it next, in order. The Stream ends when the feed does; stopping the Stream stops the feed.
+ * `feed` as a Stream: each event is handed on inside its emit, so a consumer waiting on the Stream
+ * handles it before the platform's dispatch returns, and a busy one takes it next, in order. The Stream
+ * ends when the feed does, and stopping the Stream stops the feed.
  */
+// #318; ADR-0032 (input inside the dispatch): each event offered and flushed inside its emit.
 export const toStream = <A>(feed: InputFeed<A>): Stream.Stream<A> =>
   Stream.callback<A>((queue) =>
     Effect.acquireRelease(
@@ -82,17 +94,15 @@ const emitAll = <A>(subscribers: ReadonlyArray<Subscriber<A>>, event: A): void =
 const endAll = <A>(subscribers: ReadonlyArray<Subscriber<A>>): void => Arr.forEach(subscribers, (s) => s.end())
 
 /**
- * A feed per target, shared by its subscribers (#318, a **Shared source**): `lookup(target)`'s feed
- * is started by the first subscriber and stopped when the last one stops, and every subscriber hears
- * every event, in the order they subscribed. A consumer folding hover, press and drag on one target
- * starts one source, not three.
- *
- * - **Keyed by identity** (a `Map`): a target is never hashed, where `SharedSource`'s `RcMap` had to
- *   wrap a DOM node to keep from walking it.
- * - **Copy on write:** the subscriber list is replaced, never changed in place, so one that stops
- *   while an event goes round doesn't move the others.
- * - **An ended source** is dropped: the next subscriber starts it again.
+ * A feed per target, shared by its subscribers: `lookup(target)`'s feed starts with the first subscriber
+ * and stops with the last, and every subscriber hears every event, in the order they subscribed. Hover,
+ * press and drag on one target start one source, not three. A source that ends is dropped, so the next
+ * subscriber starts it again.
  */
+// #318, a **Shared source**. Keyed by identity (a `Map`): a target is never hashed, where
+// `SharedSource`'s `RcMap` had to wrap a DOM node to keep from walking it. Copy on write: the subscriber
+// list is replaced, never changed in place, so one that stops while an event goes round doesn't move
+// the others.
 export const byTarget = <A>(lookup: (target: unknown) => InputFeed<A>): ((target: unknown) => InputFeed<A>) => {
   const entries = new Map<unknown, Entry<A>>()
   /** Start `target`'s source for its first subscriber. Set before it starts, so what the start itself emits reaches it. */
@@ -130,22 +140,25 @@ export const byTarget = <A>(lookup: (target: unknown) => InputFeed<A>): ((target
 }
 
 /**
- * Where a watch hands a throw from its handler (#318, ADR-0055): core reports nothing (ADR-0030,
- * decision 4), so a binding passes its own, and the watch goes on with the next event. With none, the
- * throw goes up the platform's dispatch.
+ * Where a watch hands a throw from its handler, so a binding can report it its own way; the watch goes
+ * on with the next event. With none, the throw goes up the platform's dispatch.
  */
+// #318, ADR-0055. Core reports nothing (ADR-0030, decision 4).
 export type OnDefect = (cause: Cause.Cause<never>) => void
 
-/**
- * A watch's handlers (#318): `on`, each event or value, inside the event's dispatch; `onDefect`, a
- * throw from the handler (else it goes up the dispatch); `onEnd`, the feed ran out (a test's script);
- * `onStop`, once the watch stops, its Scope closed or its handler done (#460), for a watch that holds
- * something of its own beside the feed ({@link switched}'s).
- */
+/** A watch's handlers. */
+// #318; `onStop` is #460's.
 export interface Handlers<A> {
+  /** Each event or value, inside the event's dispatch. */
   readonly on: (value: A) => void
+  /** A throw from a handler. Without it, the throw goes up the platform's dispatch. */
   readonly onDefect?: OnDefect | undefined
+  /** The feed ran out, as a test's script does. */
   readonly onEnd?: (() => void) | undefined
+  /**
+   * Once, when the watch stops: its Scope closed, or its handler done. For a watch that holds something
+   * of its own beside the feed.
+   */
   readonly onStop?: (() => void) | undefined
 }
 
@@ -162,22 +175,22 @@ const guarded = <A>(handle: (event: A) => void, onDefect: OnDefect | undefined):
     },
   })
 
-/**
- * A subscription its owner opens and closes (#460): {@link switched}'s. `open` starts the feed unless
- * it's running, `close` stops it unless it's stopped.
- */
+/** A subscription its owner opens and closes: `switched`'s. */
+// #460.
 export interface Switch {
+  /** Starts the feed, unless it's running. */
   readonly open: () => void
+  /** Stops the feed, unless it's stopped. */
   readonly close: () => void
 }
 
 /**
- * A subscription to `feed` that its owner opens and closes (#460), each event handed to `handle` inside
- * its emit and a throw from it to `onDefect`, as {@link watchWith}'s. For a watch that needs a feed only
- * some of the time: a **Keyboard press** holds its target's keys only while focus is within it, so an
- * element at rest holds no subscription to them. The feed running out ends nothing. Its owner closes
- * it when it's done.
+ * A subscription to `feed` its owner opens and closes, each event handed to `handle` inside its emit, a
+ * throw to `onDefect`, as `watchWith`'s are. For a feed a watch needs only some of the time: a keyboard
+ * press holds its target's keys only while focus is within it, so an element at rest holds none. The feed
+ * running out ends nothing; its owner closes it when it's done.
  */
+// #460: a **Keyboard press**.
 export const switched = <A>(feed: InputFeed<A>, handle: (event: A) => void, onDefect?: OnDefect): Switch => {
   const on = guarded(handle, onDefect)
   let stop: (() => void) | undefined
@@ -195,12 +208,12 @@ export const switched = <A>(feed: InputFeed<A>, handle: (event: A) => void, onDe
 }
 
 /**
- * Watch `feed` while the Scope is open (#318, #379): `make` makes this subscription's handler, which
- * hears each event inside its emit, with no fiber and no Stream, and returns whether to go on: `false`
- * stops the subscription (a recognizer's `once`), even from inside the feed's start. A throw from it
- * goes to `handlers.onDefect`, and `handlers.onEnd` is told if the feed runs out. Closing the Scope
- * stops the feed.
+ * Watches `feed` while the Scope is open, with a handler that can stop: `make` makes this subscription's
+ * handler, which hears each event inside its emit and returns whether to go on. `false` stops it, even
+ * from inside the feed's start. A throw from it goes to `handlers.onDefect`, `handlers.onEnd` is told if
+ * the feed runs out, and closing the Scope stops the feed.
  */
+// #318, #379: no fiber and no Stream. A recognizer's `once` returns `false`.
 export const watchWith = <A>(
   feed: InputFeed<A>,
   make: () => (event: A) => boolean,
@@ -235,10 +248,11 @@ export const watchWith = <A>(
   ).pipe(Effect.asVoid)
 
 /**
- * Watch `feed` while the Scope is open (#379): `handlers.on` hears each event inside its emit, as
- * {@link watchWith}'s handler does, for a feed a binding doesn't fold (a drag track's grabs, a Reorder
- * item's keys). Tier 2, for bindings.
+ * Watches `feed` while the Scope is open: `handlers.on` hears each event inside its emit, so it can still
+ * prevent the platform's default. For a binding's own input, where it needs no recognizer: a drag
+ * track's grabs, a Reorder item's keys.
  */
+// #379. Tier 2, for bindings.
 export const watch = <A>(feed: InputFeed<A>, handlers: Handlers<A>): Effect.Effect<void, never, Scope.Scope> => {
   const on = handlers.on
   return watchWith(
