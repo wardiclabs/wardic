@@ -29,6 +29,7 @@ export const NOMINAL_FRAME = 1000 / 60
 export const frameNow: () => number = Clock.syncNow(() => performance.now())
 
 /** Each runtime's Clock's `now`, read once. */
+// Module state (#460, Q7): each runtime's clock, held weakly by the runtime.
 const clockNows = new WeakMap<WardicRuntime, () => number>()
 
 /**

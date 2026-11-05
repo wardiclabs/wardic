@@ -19,7 +19,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import { heldScrollShift } from "./input.ts"
 
 /** The overflow values Motion's auto-scroll scrolls (auto-scroll.ts:4). */
-const SCROLLS = new Set(["auto", "scroll"])
+const SCROLLS: ReadonlySet<string> = new Set(["auto", "scroll"])
 
 type Axis = "x" | "y"
 

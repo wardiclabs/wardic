@@ -164,11 +164,11 @@ const asKey = (target: unknown): Option.Option<object> => Option.liftPredicate(t
 const isElement = (target: unknown): target is Element =>
   Predicate.isObjectOrArray(target) && (target as { readonly nodeType?: number }).nodeType === 1
 
-/** Each target's adopted-down listeners (#431), while its pointer feed is subscribed. */
-const adopters = new WeakMap<object, Set<(event: InputSource.PointerLikeEvent, raw: unknown) => void>>()
+/** Each target's adopted-down listeners (#431), while its pointer feed is subscribed: one map an Environment. */
+type Adopters = WeakMap<object, Set<(event: InputSource.PointerLikeEvent, raw: unknown) => void>>
 
 /** The downs adopted for `target` (#431): `heldPointer`'s `adopted` feed. */
-const adoptedFeedOf = (target: unknown): InputSource.PointerFeed => (emit) => {
+const adoptedFeedOf = (adopters: Adopters, target: unknown): InputSource.PointerFeed => (emit) => {
   const key = asKey(target)
   if (Option.isNone(key)) return constVoid
   const listeners = Option.getOrElse(Option.fromUndefinedOr(adopters.get(key.value)), () => new Set<(event: InputSource.PointerLikeEvent, raw: unknown) => void>())
@@ -188,13 +188,13 @@ const isPressedPointer = (raw: unknown): raw is PointerEvent =>
  * Hand `raw` to `target`'s pointer feed as an adopted down (#431): at its viewport point, on the target
  * if it landed there. `undefined`, delivering nothing, for what isn't a pressed pointer's event.
  */
-const adoptPointer = (target: unknown, raw: unknown): InputSource.PointerLikeEvent | undefined => {
-  if (isPressedPointer(raw)) return adopt(target, raw)
+const adoptPointerIn = (adopters: Adopters) => (target: unknown, raw: unknown): InputSource.PointerLikeEvent | undefined => {
+  if (isPressedPointer(raw)) return adopt(adopters, target, raw)
   return undefined
 }
 
-/** {@link adoptPointer} of a pressed pointer's event. */
-const adopt = (target: unknown, raw: PointerEvent): InputSource.PointerLikeEvent => {
+/** {@link adoptPointerIn} of a pressed pointer's event. */
+const adopt = (adopters: Adopters, target: unknown, raw: PointerEvent): InputSource.PointerLikeEvent => {
   const down = toPointer("down", raw, landedOn(target)(raw))
   Option.match(Option.flatMap(asKey(target), (key) => Option.fromUndefinedOr(adopters.get(key))), {
     onNone: constVoid,
@@ -208,6 +208,8 @@ const PASSIVE: AddEventListenerOptions = { passive: true }
 const ZERO: Point.Point = { x: 0, y: 0 }
 
 /** Each held target's scroll since its hold began, while it's held (Q1: one per hold). */
+// Module state (#460, Q7): each held target's scroll since its hold began, held weakly by the target,
+// which one Environment holds at a time; the auto-scroller reads it beside the input.
 const heldShifts = new WeakMap<object, { x: number; y: number }>()
 
 /**
@@ -525,7 +527,10 @@ const focusWithin = (target: unknown): boolean => {
  */
 const make = Effect.gen(function* () {
   // Client-only (ADR-0021, decision 7): every feed below is built on a live document.
-  yield* requireGlobal("InputDomLive", "document")
+  yield* requireGlobal("DomInput.layer", "document")
+  // The Environment's adopted downs (#431): its own, not the module's, so two Environments on a page
+  // don't hear each other's (#618, F5).
+  const adopters: Adopters = new WeakMap()
 
   const pointer = InputFeed.byTarget((target) =>
     InputSource.heldPointer({
@@ -538,7 +543,7 @@ const make = Effect.gen(function* () {
   const adoptablePointer = InputFeed.byTarget((target) =>
     InputSource.heldPointer({
       target: feedOf(target as EventTarget, POINTER_EVENTS),
-      adopted: adoptedFeedOf(target),
+      adopted: adoptedFeedOf(adopters, target),
       global: feedOf(windowOf(target), HELD_POINTER_EVENTS, CAPTURE_PASSIVE, landedOn(target)),
       scroll: scrollFeedOf(target),
     })
@@ -552,7 +557,7 @@ const make = Effect.gen(function* () {
     focus,
     keyboard,
     focusWithin,
-    adoptPointer,
+    adoptPointer: adoptPointerIn(adopters),
   })
 })
 

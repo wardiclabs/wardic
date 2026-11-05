@@ -232,6 +232,7 @@ export type FollowOptions = FollowTransition & FollowSkips
  * `velocity` of its source, reading the jump as no motion. Weak both ways: a registry or an Atom
  * gone takes its listeners with it, and an Atom nothing listens to costs nothing.
  */
+// Module state (#460, Q7): each registry's jump listeners, held weakly by the registry: one an Environment.
 const jumps = new WeakMap<AtomRegistry.AtomRegistry, WeakMap<Atom.Atom<number>, Set<(value: number) => void>>>()
 
 /** Hear `atom`'s jumps in `registry`, until the stop it gives back. */

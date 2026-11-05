@@ -119,6 +119,7 @@ interface GroupLayer {
   readonly config: object
   readonly beside: object
 }
+// Module state (#460, Q7): a cache held weakly by the object it's for, so it goes with it.
 const GROUP_LAYERS = new WeakMap<object, GroupLayer>()
 
 /** A Reorder group's events, as a ward's: `list.next(name)`, `list.each(name)` and `list.when(name)`. */

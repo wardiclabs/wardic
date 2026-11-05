@@ -1002,6 +1002,7 @@ const logsDebugOn = (runtime: WardicRuntime): boolean => {
  * none animates holds no map of its own (#460). Never written: a spine sets keys in a map of its own,
  * and deletes only from one that has some.
  */
+// Module state (#460, Q7): a constant: an empty map every spine shares until its first, which none writes.
 const NONE_TAKEN: Map<string, number | string | undefined> = new Map()
 
 /**

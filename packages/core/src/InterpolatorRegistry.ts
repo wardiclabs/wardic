@@ -334,6 +334,7 @@ type Service = InterpolatorRegistry["Service"]
  * element and wraps each leg it starts with it, so the chain is built once per element and
  * Environment, not per leg. Weak, so an element's list goes with it.
  */
+// Module state (#460, Q7): a cache held weakly by the object it's for, so it goes with it.
 const layered = new WeakMap<ReadonlyArray<KeyRule>, WeakMap<Service, Service>>()
 
 /** `registry` with `rules` asked first: kept per rule list and registry. */

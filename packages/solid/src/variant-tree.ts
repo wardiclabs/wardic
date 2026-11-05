@@ -224,6 +224,7 @@ export const changeAtTrigger = (change: ControlsChange | undefined, key: string,
 }
 
 /** Each Controls change's override as a name's orchestration (#433), made once a change. */
+// Module state (#460, Q7): a cache held weakly by the object it's for, so it goes with it.
 const CHANGE_CONFIGS = new WeakMap<ControlsChange, NameConfig>()
 
 /**

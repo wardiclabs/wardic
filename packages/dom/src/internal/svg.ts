@@ -79,6 +79,7 @@ const ATTR_ALIASES: Record<string, string> = { attrX: "x", attrY: "y", attrScale
  * Each key's dash-cased name, computed once (ADR-0034): the commit dash-cases every key of
  * every patch, each frame. Keys come from animation configs, so the set stays small.
  */
+// Module state (#460, Q7): a cache keyed by what it caches: a bounded set of names.
 const DASHED = new Map<string, string>()
 
 /**

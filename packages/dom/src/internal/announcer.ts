@@ -34,6 +34,7 @@ const VISUALLY_HIDDEN =
   "position:absolute;width:1px;height:1px;margin:-1px;padding:0;border:0;overflow:hidden;clip:rect(0 0 0 0);clip-path:inset(50%);white-space:nowrap"
 
 /** Each document's live region, once added. */
+// Module state (#460, Q7): each document's live region, held weakly by the document.
 const regions = new WeakMap<Document, HTMLElement>()
 
 /** `doc`'s live region, added to its body when it has none. */
@@ -81,6 +82,7 @@ export const announceIn = (doc: Document, message: string): void => {
 }
 
 /** Each document's instructions ids, by text. */
+// Module state (#460, Q7): each document's instructions, held weakly by the document.
 const instructions = new WeakMap<Document, Map<string, string>>()
 // Module state (#460, Q7): an id counter; an id need only be unique in its document.
 let nextInstructions = 1
