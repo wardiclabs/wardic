@@ -19,12 +19,13 @@ export interface WardicStaggerOptions {
 }
 
 /**
- * A stagger, Motion's `stagger()`: each child waits `startDelay` plus `duration` for each step from
- * `from`, eased by `ease`. Give it as a transition's `delayChildren`, where it decides each Variant
- * child's whole delay, or as `createAnimate`'s `delay`.
+ * Delays each child by its place: each waits `startDelay`, plus `duration` for each step from `from`,
+ * eased by `ease`. Give it as a transition's `delayChildren`, where it decides each variant child's
+ * whole delay, or as `createAnimate`'s `delay`. Motion's `stagger()`.
  *
- * ```tsx
- * <wardic.ul animate="shown" variants={list} transition={{ delayChildren: stagger(0.05, { from: "center" }) }}>
- * ```
+ * @example
+ * <w.ul animate="shown" variants={list} transition={{ delayChildren: stagger(0.05, { from: "center" }) }}>
+ * @see https://wardic.dev/reference/solid/transitions/stagger
  */
+// #436.
 export const stagger = (duration = 0.1, options: WardicStaggerOptions = {}): WardicStagger => Stagger.make(duration, options)

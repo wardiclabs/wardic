@@ -135,24 +135,27 @@ export type WardicTargetValues = {
   readonly [K in keyof WardicValues]?: K extends "transition" ? WardicValues[K] : WardicValues[K] | WardicKeyframes<Exclude<WardicValues[K], undefined>>
 }
 
-/**
- * Variant-orchestration fields (ADR-0007, step 21b), shared by both transition
- * arms. They only take effect on the parent that renders `ward.Provider`; a
- * child inherits them as the default transition but reads orchestration off the
- * parent CONTEXT (not its own transition).
- */
-/** A stagger (#436, Motion's `DynamicOption<number>`): a child's delay in seconds, from its index and the count. */
+/** A stagger: a child's delay in seconds, from its index and the count. `stagger()` makes one. Motion's `DynamicOption<number>`. */
+// #436.
 export type WardicStagger = (index: number, total: number) => number
 
 /**
- * A **Path** (#438): from where `x` and `y` start to where they end, the point at each progress, 0 to 1,
- * and a turn (`rotate`, degrees) for one that turns the element. `arc()` makes one; any function of
- * this shape is one, a curve of an app's own.
+ * A path for `x` and `y` to travel along together: from where they start to where they end, the point
+ * at each progress, 0 to 1, with a turn (`rotate`, in degrees) for one that turns the element. `arc()`
+ * makes one; any function of this shape is one, a curve of your own.
  */
+// A Path (#438).
 export type WardicPath = Arc.Path
 
+/**
+ * How a parent's variant children are timed against it and each other: `when`, `delayChildren`,
+ * `staggerChildren`, `staggerDirection` and `from`. Read on the parent's transition, for the variant
+ * change it hands its children.
+ */
+// ADR-0007: they take effect on the parent that hands its names down; a child inherits them as its
+// default transition but reads orchestration off the parent's context, not its own transition.
 export interface WardicOrchestration {
-  /** Seconds between successive sibling starts (core `stagger` amount). */
+  /** Seconds between one child's start and the next's. */
   readonly staggerChildren?: number
   /**
    * Fixed delay added to every child before its staggered offset; or, as Motion's, a function of a
@@ -161,14 +164,14 @@ export interface WardicOrchestration {
    */
   // #436.
   readonly delayChildren?: number | WardicStagger
-  /** `-1` reverses the stagger order (last child leads). Default `1`. */
+  /** `-1` reverses the stagger order, the last child first. Default `1`. */
   readonly staggerDirection?: 1 | -1
-  /** Origin the stagger distance grows from (reuses core's `Stagger.Origin`). */
+  /** The child the stagger grows from: `"first"` (the default), `"last"`, `"center"` or an index. */
   readonly from?: Stagger.Origin
   /**
-   * Sequence the parent vs. its children: `"beforeChildren"` runs the parent,
-   * then the children once it settles; `"afterChildren"` runs the children, then
-   * the parent once all settle. Default (omitted) is concurrent.
+   * Orders the parent and its children: `"beforeChildren"` animates the parent, then the children once
+   * it lands; `"afterChildren"` the children, then the parent once they've all landed. Left out, they
+   * animate together.
    */
   readonly when?: "beforeChildren" | "afterChildren"
 }
@@ -184,15 +187,16 @@ export interface WardicReducedMotion {
 }
 
 /**
- * A transition of `type: "inertia"` (#435, Motion's): each number glides from where it's drawn, at its
- * velocity (its own, or `velocity`), and rests `power × velocity` on, through `modifyTarget`, springing
- * back to `min` / `max` past one; its target isn't read, so with no velocity it stays where it is. A
- * key that isn't a number (a colour, a length with units) runs on its Default transition instead, as
- * if this defined none for it. Motion's units: `timeConstant` in milliseconds.
+ * A transition of `type: "inertia"`: each number glides from where it is at its velocity, its own or
+ * `velocity`, and comes to rest `power × velocity` on, through `modifyTarget`, springing back to `min`
+ * or `max` past one. Its target isn't read, so with no velocity it stays where it is. A value that
+ * isn't a number, a colour or a length with units, runs on its default transition instead.
+ * `timeConstant` is in milliseconds, as Motion's. Motion's `inertia`.
  */
+// #435.
 export interface WardicInertia {
   readonly type: "inertia"
-  /** The velocity every key glides from, per second: each key's own (its frames', #464) when left out. */
+  /** The velocity every key glides from, per second: each key's own when left out. */
   readonly velocity?: number
   /** How far a glide carries, as a multiple of its velocity. Default 0.8. */
   readonly power?: number
@@ -236,22 +240,23 @@ export interface WardicTransitionPath {
 }
 
 /**
- * Transition config: a primitive selector plus the matching primitive's
- * options. Without a `type`, a spring field (`stiffness`, `damping`, `mass`, `velocity`,
- * `restDelta`, `restSpeed`, `bounce`, `visualDuration`) makes it a spring and anything else a tween,
- * so `{ duration: 0.5 }` is a 0.5 s tween and `{ duration: 0.5, bounce: 0.2 }` a spring; one with only
- * orchestration, `delay` or the reduced-motion opt-out leaves each key on its Environment's Default
- * transition, Motion's by value in the DOM (ADR-0051). A spring's missing fields are Motion's 100 /
- * 10 / 1, a tween's easing Motion's `easeOut`. A spring set by time (#359: a `duration`, `bounce` or
- * `visualDuration`, and no stiffness, damping or mass) is solved to its physics instead, as Motion's
- * (`Machine.SpringOptions`). `"tween"` routes every key
- * through `animateValues` (duration-based, no velocity), and a key's Keyframes through
- * `keyframesValues`, with `times` and an `ease` per Segment (#429). Both arms also carry the
- * optional {@link WardicOrchestration} fields, {@link WardicReducedMotion}'s opt-out, {@link WardicSkipAnimations}, and
- * {@link WardicTransitionEntries}: a value's own transition (#301).
- * `from` is the stagger's origin on both: a spring's own `from` was never a transition's (each
- * key starts where it is), and the two clashed (#243).
+ * How an element gets to its target: a spring, a tween, or an inertia, with a value's own transition
+ * under its name. With no `type`, a spring field (`stiffness`, `damping`, `mass`, `velocity`,
+ * `restDelta`, `restSpeed`, `bounce`, `visualDuration`) makes it a spring, and anything else a tween, so
+ * `{ duration: 0.5 }` is a 0.5 s tween. A spring's missing fields are Motion's 100 / 10 / 1, or set by
+ * time, a `duration` or `visualDuration` with a `bounce`; a tween's easing is `easeOut`. With neither,
+ * each value runs on its default. It also takes `delay`, a tween's repeats, a `path`, its variant
+ * children's orchestration, `respectReducedMotion` and `skipAnimations`.
+ *
+ * @example
+ * <w.div animate={{ x: 100, opacity: 1 }} transition={{ type: "spring", bounce: 0.2, opacity: { duration: 0.2 } }} />
+ * @see https://wardic.dev/reference/solid/transitions/transition
  */
+// ADR-0051: a transition with only orchestration, `delay` or the opt-out leaves each key on its
+// Environment's Default transition. A spring set by time (#359) is solved to its physics. A "tween"
+// routes every key through `animateValues`, Keyframes through `keyframesValues` with `times` and an
+// `ease` per Segment (#429). `from` is the stagger's origin on both arms: a spring's own `from` was
+// never a transition's, and the two clashed (#243). A value's own transition: #301.
 export type WardicTransition = WardicTransitionWith<WardicTransitionEntries>
 
 /**
@@ -264,17 +269,19 @@ export type WardicTransitionWith<E> =
   | (WardicInertia & WardicOrchestration & WardicReducedMotion & WardicSkipAnimations & WardicTransitionPath & E)
 
 /**
- * One value's own transition (#301, Motion's `ValueTransition`): a spring or a tween, as a
- * {@link WardicTransition} is, without the orchestration, which is the whole transition's. With
- * `inherit: true` it's laid over the transition's own fields, its own winning; without, it stands
- * alone, the transition's reduced-motion opt-out and `skipAnimations` the fields it takes from it.
+ * One value's own transition, under its name in a `transition`: a spring, a tween or an inertia, without
+ * the orchestration, which is the whole transition's. With `inherit: true` it's laid over the
+ * transition's own fields, its own winning; without, it stands alone, taking only the transition's
+ * `respectReducedMotion` and `skipAnimations`. Motion's `ValueTransition`.
  */
+// #301.
 export type WardicValueTransition =
   | ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from"> & WardicReducedMotion & WardicSkipAnimations & WardicTransitionPath & WardicInherit)
   | ({ readonly type?: "tween" } & Machine.KeyframesOptions & WardicReducedMotion & WardicSkipAnimations & WardicTransitionPath & WardicInherit)
   | (WardicInertia & WardicReducedMotion & WardicSkipAnimations & WardicTransitionPath & WardicInherit)
 
-/** An entry's or a target's `inherit` (#277, #301, Motion's): laid over the transition it would replace. */
+/** `inherit: true` lays a transition over the one it would replace, its own fields winning, as Motion's. */
+// #277, #301.
 export interface WardicInherit {
   readonly inherit?: boolean
 }
@@ -283,22 +290,23 @@ export interface WardicInherit {
 export type WardicValueKey = Exclude<keyof WardicValues & string, "transition">
 
 /**
- * A transition's entries (#301, Motion's `TransitionWithValueOverrides`): a value's own transition by
- * its name, `default` for every value without one, and `layout` for the element's layout animations
- * (ADR-0009 *Amendment (#171)*). A key runs on its entry, else `default`, else the transition's own
- * fields (Motion's `getValueTransition`); a layout animation on `layout`, else `default`, else the
- * own fields, else Motion's 0.45 s tween.
+ * A transition's per-value entries: a value's own transition under its name, `default` for every value
+ * without one, and `layout` for the element's layout animations. A value runs on its entry, else
+ * `default`, else the transition's own fields. Motion's `TransitionWithValueOverrides`.
  */
+// #301; `layout`, ADR-0009 *Amendment (#171)*: a layout animation on `layout`, else `default`, else the
+// own fields, else Motion's 0.45 s tween.
 export type WardicTransitionEntries = WardicValueEntries<WardicValueKey> & { readonly layout?: WardicValueTransition }
 
 /** Entries for the values `K`, and `default` for the rest (#301). */
 export type WardicValueEntries<K extends string> = { readonly default?: WardicValueTransition } & { readonly [P in K]?: WardicValueTransition }
 
 /**
- * A variant's own transition, or a target's (#277, ADR-0048, Motion's): it drives the animation that
- * variant starts, in place of the element's `transition`, unless `inherit: true` lays it over the
- * element's (Motion's `inherit`: a shallow merge, its own keys winning).
+ * A variant's own transition, or a target's: it runs the animation that variant starts, in place of
+ * the element's `transition`, unless `inherit: true` lays it over the element's, its own fields winning.
+ * Motion's.
  */
+// #277, ADR-0048.
 export type WardicVariantTransition = WardicTransition & WardicInherit
 
 /**
