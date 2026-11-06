@@ -86,7 +86,11 @@ const valueOf = (raw: string): Value => Bool.match(NUMERIC_RE.test(raw), { onTru
  * fallback, a fallback that is itself a Variable value followed up to 4 deep. `None` when nothing
  * resolves. Reads the element's computed style.
  */
-export const resolveVariable = (element: Element, value: string, depth = 1): Option.Option<Value> => {
+export const resolveVariable = (element: Element, value: string): Option.Option<Value> => resolveAt(element, value, 1)
+
+/** {@link resolveVariable} at `depth`, following a fallback that's itself a Variable value. */
+// #618 (F7): the depth counter was the public function's third parameter.
+const resolveAt = (element: Element, value: string, depth: number): Option.Option<Value> => {
   if (depth > MAX_DEPTH) return Option.none()
   return Option.flatMap(partsOf(value), ({ name, fallback }) => {
     const own = Str.trim(getComputedStyle(element).getPropertyValue(name))
@@ -96,7 +100,7 @@ export const resolveVariable = (element: Element, value: string, depth = 1): Opt
       Option.filter(Str.isNonEmpty),
       Option.flatMap((rest) =>
         Bool.match(isVariableValue(rest), {
-          onTrue: () => resolveVariable(element, rest, depth + 1),
+          onTrue: () => resolveAt(element, rest, depth + 1),
           onFalse: () => Option.some(valueOf(rest)),
         })),
     )

@@ -995,8 +995,8 @@ export interface ProjectionNodeHandle extends DragProjectionHandle {
    * through the layout animations its steps start; `false` (its drop or cancel) leaves it raised (`1`)
    * until its last one lands, as a drag's release does, or drops the raise now at rest.
    */
-  // ADR-0037.
-  readonly lift: (on: boolean) => void
+  // ADR-0037. `setLifted`, as it sets either way (#618, F7).
+  readonly setLifted: (on: boolean) => void
   /** Unregisters the node, ending an animation in flight. */
   readonly dispose: () => void
 }
@@ -1873,8 +1873,8 @@ export const makeProjectionSystem = (
    */
   const endOfTask = (
     span: string,
-    attributes: Record<string, unknown>,
-    expire: () => Record<string, unknown>,
+    attributes: Readonly<Record<string, unknown>>,
+    expire: () => Readonly<Record<string, unknown>>,
   ): void => {
     FiberSet.addUnsafe(
       taskFibers,
@@ -5851,7 +5851,7 @@ export const makeProjectionSystem = (
         ensureRunning()
       },
       // --- keyboard lift (ADR-0037) --------------------------------------------
-      lift: (on) => {
+      setLifted: (on) => {
         if (node.lifted === on) return
         node.lifted = on
         if (on) node.raised = node.raiseWhileDragged

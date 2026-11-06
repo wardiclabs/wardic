@@ -316,7 +316,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
   const setLifted = (value: V, lifted: boolean): void => {
     const k = keyed.get(value)
     if (Predicate.isUndefined(k)) return
-    if (Option.isSome(k.handle)) k.handle.value.lift(lifted)
+    if (Option.isSome(k.handle)) k.handle.value.setLifted(lifted)
     k.onLift(lifted)
   }
   /** `value`'s index in the app's values now. */

@@ -235,7 +235,7 @@ describe("the projection handle's getters and the raise (ADR-0016, Amendment (Re
     fireFrame()
     // At rest, the lift is one write now, raised.
     let from = sk.of("a").length
-    h.lift(true)
+    h.setLifted(true)
     fireFrame()
     expect(sk.of("a").slice(from).map((w) => w.value.raise)).toEqual([2])
     // A step moves its slot: its layout animation carries 2, through its landing too, while lifted.
@@ -254,7 +254,7 @@ describe("the projection handle's getters and the raise (ADR-0016, Amendment (Re
     await endOfTask()
     fireFrames(4)
     const dropped = sk.of("a").length
-    h.lift(false)
+    h.setLifted(false)
     fireFrames(120)
     expect(sk.of("a").slice(from, dropped).every((w) => w.value.raise === 2)).toBe(true)
     const back = sk.of("a").slice(dropped).map((w) => w.value.raise)
@@ -263,8 +263,8 @@ describe("the projection handle's getters and the raise (ADR-0016, Amendment (Re
     expect(back.at(-1)).toBeUndefined()
     // Lifted and dropped at rest: a write up, a write down.
     from = sk.of("a").length
-    h.lift(true)
-    h.lift(false)
+    h.setLifted(true)
+    h.setLifted(false)
     fireFrame()
     expect(sk.of("a").slice(from).map((w) => w.value.raise)).toEqual([2, undefined])
     e.dispose()

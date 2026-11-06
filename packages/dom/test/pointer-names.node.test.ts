@@ -37,7 +37,7 @@ describe("the DOM's pointer fields in core's names (#189)", () => {
       onTarget: true,
       raw: down,
     })
-    expect(toPointer("up", dom({}), false).onTarget, "a page-wide event says where it landed (#257)").toBe(false)
+    expect(toPointer("up", dom({}), "elsewhere").onTarget, "a page-wide event says where it landed (#257)").toBe(false)
     expect([0, 1, 2, 4, 16].map((buttons) => toPointer("move", dom({ buttons, button: -1 })).pressed)).toEqual([false, true, true, true, true])
     expect(toPointer("move", dom({ isPrimary: false })).primary).toBe(false)
   })

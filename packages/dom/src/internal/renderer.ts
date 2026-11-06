@@ -302,7 +302,7 @@ const otherUnitTranslate = (x: unknown, y: unknown): string => {
  * where it's drawn.
  */
 // `ownTranslate`; #363. Tier 2, for binding authors.
-export const ownTranslateOf = (values: Record<string, unknown>): Point.Point => ({
+export const ownTranslateOf = (values: Readonly<Record<string, unknown>>): Point.Point => ({
   x: ownTranslate(values, "x", "translateX"),
   y: ownTranslate(values, "y", "translateY"),
 })
@@ -313,7 +313,7 @@ export const ownTranslateOf = (values: Record<string, unknown>): Point.Point => 
  * follower is drawn where its lead is.
  */
 // `ownScale`; ADR-0010 *Amendment (#8)*. Tier 2, for binding authors.
-export const ownScaleOf = (values: Record<string, unknown>): Point.Point => ({
+export const ownScaleOf = (values: Readonly<Record<string, unknown>>): Point.Point => ({
   x: ownScale(values, "scaleX"),
   y: ownScale(values, "scaleY"),
 })
@@ -324,7 +324,7 @@ export const ownScaleOf = (values: Record<string, unknown>): Point.Point => ({
  * blends from a twin's rotation into its own.
  */
 // `ownRotate`; ADR-0010 *Amendment (#166)*. Tier 2, for binding authors.
-export const ownRotateOf = (values: Record<string, unknown>): number => numberOr(values.rotate, 0)
+export const ownRotateOf = (values: Readonly<Record<string, unknown>>): number => numberOr(values.rotate, 0)
 
 /**
  * An element's own opacity, from its values: what the renderer draws, 1 when it's absent or not a
@@ -332,7 +332,7 @@ export const ownRotateOf = (values: Record<string, unknown>): number => numberOr
  * element's opacity into it.
  */
 // `ownOpacity`; a Switch (ADR-0010 *Amendment (#166)*). Tier 2, for binding authors.
-export const ownOpacityOf = (values: Record<string, unknown>): number => numberOr(values.opacity, 1)
+export const ownOpacityOf = (values: Readonly<Record<string, unknown>>): number => numberOr(values.opacity, 1)
 
 /**
  * Assemble a projection transform string (ADR-0009), ported from Motion's
@@ -345,7 +345,7 @@ export const ownOpacityOf = (values: Record<string, unknown>): number => numberO
 const buildProjectionTransform = (
   delta: Projection.Delta,
   treeScale: Point.Point,
-  latest: Record<string, unknown>,
+  latest: Readonly<Record<string, unknown>>,
   rotate: number | undefined,
 ): string => {
   const funcs: Array<string> = []
@@ -571,7 +571,7 @@ const projectedOpacity = (projection: Projection.Value, values: Record<string, u
 // its own animated `rotate`/`skew` and multiplying in its own `scale`/`scaleX`/`scaleY`. NORMAL: the
 // value-spine path, `none` at every identity (ADR-0023). The same function `RendererDomLive` provides
 // (ADR-0021, decision 2). Tier 2, for binding authors.
-export const project = (values: Record<string, unknown>): Renderer.Patch => {
+export const project = (values: Readonly<Record<string, unknown>>): Renderer.Patch => {
   const patch: Renderer.Patch = {}
 
   const projection = values[Projection.KEY] as Projection.Value | undefined
