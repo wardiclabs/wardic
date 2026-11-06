@@ -3,7 +3,8 @@ import { expect, it } from "vitest"
 import { VERSION, WardicProvider } from "@wardic/solid"
 
 it("@wardic/solid resolves and exposes a version", () => {
-  expect(VERSION).toBe("0.1.0-alpha.0")
+  // Its value is the package.json's: core's smoke test checks every VERSION (#559).
+  expect(VERSION).toMatch(/^\d+\.\d+\.\d+/)
 })
 
 it("@wardic/solid exposes a WardicProvider", () => {

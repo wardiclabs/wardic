@@ -14,7 +14,17 @@ it("@wardic/core's root is its modules, each a namespace, and nothing else (ADR-
 })
 
 it("@wardic/core's version is its package.json's: the root exports no VERSION", () => {
-  const corePackage = JSON.parse(readFileSync(new URL("../package.json", import.meta.url), "utf8"))
-  expect(corePackage.version).toBe("0.1.0-alpha.0")
   expect("VERSION" in Core).toBe(false)
+})
+
+// The four packages are one release group (#559): one version, and each `VERSION` constant is it,
+// which `bun run version-packages` writes (1.0.0-rc.1 shipped "0.1.0-alpha.0").
+it("the four packages share one version, and each VERSION constant is it", () => {
+  const read = (path: string): string => readFileSync(new URL(path, import.meta.url), "utf8")
+  const versionOf = (pkg: string): string => JSON.parse(read(`../../${pkg}/package.json`)).version
+  const version = versionOf("core")
+  expect(["dom", "solid", "test"].map(versionOf)).toEqual([version, version, version])
+  for (const pkg of ["dom", "solid", "test"]) {
+    expect(/^export const VERSION = "([^"]*)"$/m.exec(read(`../../${pkg}/src/index.ts`))?.[1], `@wardic/${pkg}'s VERSION`).toBe(version)
+  }
 })

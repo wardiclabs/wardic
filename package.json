@@ -26,7 +26,7 @@
     "size": "bun packages/solid/bench/size.ts",
     "skills": "bun scripts/sync-agent-skills.ts",
     "changeset": "changeset",
-    "version-packages": "changeset version && bun scripts/sync-lockfile-versions.ts",
+    "version-packages": "changeset version && bun scripts/sync-versions.ts",
     "release": "bun run build && bun scripts/publish-packages.ts"
   },
   "overrides": {
