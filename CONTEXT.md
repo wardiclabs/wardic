@@ -214,6 +214,10 @@ _Avoid_: keyboard tap (a tap is only a press's end), key click.
 A Recognizer that emits a `Stream<boolean>` — active / inactive — for the binary gestures `hover`, `press`, `focus`, `inView`. The binding toggles a variant on the boolean. `press` listens to the **Primary pointer**, and to a **Keyboard press** on its target. `hover` ignores touch, starts no hover during **Drag activity**, and holds a leave until the release of a pointer pressed on its target (ADR-0019).
 _Avoid_: binary recognizer, flag.
 
+**Edge**:
+A **State recognizer** turning on or off, with the event that turned it: a hover's start or end, a target coming into view or leaving it (`Recognizer.Edge`, `Recognizer.ViewEdge`). An event that changes nothing is no Edge.
+_Avoid_: transition (an animation's), toggle.
+
 **Sample recognizer**:
 A Recognizer that emits an event-driven stream of samples carrying positional data and velocity, for the continuous gestures `drag` / `pan`. Distinct from a Frame: not clock-driven and has no Settle — its emissions are events, not ticks.
 _Avoid_: continuous recognizer, tracker.

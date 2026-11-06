@@ -50,7 +50,7 @@ export class InViewGesture extends /*#__PURE__*/ Context.Service<
     readonly watch: (
       target: unknown,
       options: Recognizer.InViewOptions,
-      handlers: InputFeed.Handlers<Recognizer.ViewTransition>,
+      handlers: InputFeed.Handlers<Recognizer.ViewEdge>,
     ) => Effect.Effect<void, never, Scope.Scope | Probe.Probe>
   }
 >()("@wardic/solid/InViewGesture") {}

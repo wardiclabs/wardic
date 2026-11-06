@@ -49,11 +49,11 @@ interface Fold<S, Ev> {
 // --- Watches: a recognizer as an Effect-scoped callback (#318, ADR-0055) ----------------------
 
 /**
- * A fold's transitions as a watch's handler (#257, #318): `on` told each change of whether it's
+ * A fold's edges as a watch's handler (#257, #318): `on` told each change of whether it's
  * active, as `out` makes it of the state, the event that turned it and whether it's on now; an event
  * that changes nothing tells nothing. With `once`, done at the first that's on.
  */
-const transitionsOf =
+const edgesOf =
   <S, Ev, Out>(fold: Fold<S, Ev>, out: (next: S, event: Ev, active: boolean) => Out, on: (out: Out) => void, once: boolean) =>
   (): ((event: Ev) => boolean) => {
     const state = MutableRef.make(fold.initial)
@@ -90,7 +90,7 @@ const statesOf =
 
 /** A gesture's start or end, and the event that turned it. */
 // #257.
-export interface Transition {
+export interface Edge {
   /** Whether the gesture is on now. */
   readonly active: boolean
   /** The event that turned it: its `x` and `y`, less its `scroll`, say where the pointer was on the screen. */
@@ -167,12 +167,12 @@ export const hover = (target: unknown): Stream.Stream<boolean, never, InputSourc
 
 /** `hover`'s starts and ends with the event that turned each, as Motion's `onHoverStart` and `onHoverEnd`. */
 // #257. A Stream over `watchHover`.
-export const hoverEvents = (target: unknown): Stream.Stream<Transition, never, InputSource.InputSource> =>
-  streamOf<Transition, InputSource.InputSource>((handlers) => watchHover(target, handlers))
+export const hoverEvents = (target: unknown): Stream.Stream<Edge, never, InputSource.InputSource> =>
+  streamOf<Edge, InputSource.InputSource>((handlers) => watchHover(target, handlers))
 
 /** `watchHover`'s handlers: `on`, each start and end, and `onMove`, each move between them. */
 // #397.
-export interface HoverHandlers extends InputFeed.Handlers<Transition> {
+export interface HoverHandlers extends InputFeed.Handlers<Edge> {
   /**
    * Each move of the pointer over the target while the hover is on, which Motion's hover doesn't have. A
    * touch never hovers, and a held pointer whose leave waits for its release isn't over the target, so
@@ -201,7 +201,7 @@ export const watchHover: (target: unknown, handlers: HoverHandlers) => Effect.Ef
     const activity = yield* DragActivity.DragActivity
     const fold = hoverFold(activity)
     const handle = UndefinedOr.match(handlers.onMove, {
-      onUndefined: () => transitionsOf(fold, transitionOf, handlers.on, false),
+      onUndefined: () => edgesOf(fold, edgeOf, handlers.on, false),
       onDefined: (onMove) => hoverHandleOf(fold, handlers.on, onMove),
     })
     yield* watchFeed("wardic.hover", {}, input.pointer(target), handle, handlers)
@@ -211,9 +211,9 @@ export const watchHover: (target: unknown, handlers: HoverHandlers) => Effect.Ef
 const movesOver = (state: HoverState, event: InputSource.PointerLikeEvent): boolean =>
   Bool.and(Bool.and(state.inside, event.type === "move"), Bool.and(event.onTarget, event.kind !== "touch"))
 
-/** Hover's transitions, as {@link transitionsOf}'s, and each move over the target between them (#397). */
+/** Hover's edges, as {@link edgesOf}'s, and each move over the target between them (#397). */
 const hoverHandleOf =
-  (fold: Fold<HoverState, InputSource.PointerLikeEvent>, on: (transition: Transition) => void, onMove: (event: InputSource.PointerLikeEvent) => void) =>
+  (fold: Fold<HoverState, InputSource.PointerLikeEvent>, on: (edge: Edge) => void, onMove: (event: InputSource.PointerLikeEvent) => void) =>
   (): ((event: InputSource.PointerLikeEvent) => boolean) => {
     const state = MutableRef.make(fold.initial)
     return (event) => {
@@ -230,11 +230,11 @@ const hoverHandleOf =
     }
   }
 
-/** A transition of the state it changed to (#257). */
-const transitionOf = (_next: unknown, event: InputSource.PointerLikeEvent, active: boolean): Transition => ({ active, event })
+/** An edge of the state it changed to (#257). */
+const edgeOf = (_next: unknown, event: InputSource.PointerLikeEvent, active: boolean): Edge => ({ active, event })
 
-/** Whether a transition turned its gesture on. */
-const activeOf = (transition: Transition): boolean => transition.active
+/** Whether an edge turned its gesture on. */
+const activeOf = (edge: Edge): boolean => edge.active
 
 /** A **Keyboard press**'s key (#427). */
 type PressKey = "enter" | "space"
@@ -507,14 +507,14 @@ const feedsWatched = (keys: boolean, keysOnFocus: boolean): number => {
   return 3
 }
 
-/** A pointer's press transition, with how it began or ended. */
+/** A pointer's press edge, with how it began or ended. */
 const pointerPressOf = (next: PressState, event: InputSource.PointerLikeEvent, active: boolean): PressEvent => ({
   phase: Bool.match(active, { onTrue: (): PressPhase => "start", onFalse: () => endOf(next, event) }),
   input: "pointer",
   event,
 })
 
-/** A **Keyboard press**'s transition (#427): its start at its key's down, its end at its up, a tap unless a drag took it over. */
+/** A **Keyboard press**'s edge (#427): its start at its key's down, its end at its up, a tap unless a drag took it over. */
 const keyPressOf = (next: PressState, event: InputSource.KeyboardLikeEvent, active: boolean): PressEvent => ({
   phase: Bool.match(active, {
     onTrue: (): PressPhase => "start",
@@ -648,7 +648,7 @@ export const inView = (target: unknown, options: InViewOptions = {}): Stream.Str
 
 /** A target coming into view or leaving it. */
 // #273.
-export interface ViewTransition {
+export interface ViewEdge {
   /** Whether it's in view now. */
   readonly active: boolean
   /** The platform's record of it, which core never reads: a binding hands it to an app's callback. */
@@ -661,10 +661,10 @@ export interface ViewTransition {
  * ends at its first entry, with no leave.
  */
 // #273.
-export const inViewEvents = (target: unknown, options: InViewOptions = {}): Stream.Stream<ViewTransition, never, Probe.Probe> =>
-  streamOf<ViewTransition, Probe.Probe>(
+export const inViewEvents = (target: unknown, options: InViewOptions = {}): Stream.Stream<ViewEdge, never, Probe.Probe> =>
+  streamOf<ViewEdge, Probe.Probe>(
     (handlers) => watchInView(target, options, handlers),
-    (transition) => Bool.and(options.once === true, transition.active),
+    (edge) => Bool.and(options.once === true, edge.active),
   )
 
 /**
@@ -675,16 +675,16 @@ export const inViewEvents = (target: unknown, options: InViewOptions = {}): Stre
 export const watchInView = (
   target: unknown,
   options: InViewOptions,
-  handlers: InputFeed.Handlers<ViewTransition>,
+  handlers: InputFeed.Handlers<ViewEdge>,
 ): Effect.Effect<void, never, Scope.Scope | Probe.Probe> =>
   Effect.flatMap(Probe.Probe, (probe) =>
     watchFeed(
       "wardic.inView",
       {},
       probe.observeIntersection(target, intersectionOf(options)),
-      transitionsOf(booleanFold(intersecting), viewTransitionOf, handlers.on, options.once === true),
+      edgesOf(booleanFold(intersecting), viewEdgeOf, handlers.on, options.once === true),
       handlers,
     ))
 
-/** An in-view transition of the intersection that turned it. */
-const viewTransitionOf = (_next: boolean, intersection: Probe.Intersection, active: boolean): ViewTransition => ({ active, raw: intersection.raw })
+/** An in-view edge of the intersection that turned it. */
+const viewEdgeOf = (_next: boolean, intersection: Probe.Intersection, active: boolean): ViewEdge => ({ active, raw: intersection.raw })

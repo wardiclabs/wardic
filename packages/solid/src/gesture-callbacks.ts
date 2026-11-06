@@ -106,14 +106,14 @@ export const inViewOptionsOf = (viewport: WardicViewport | undefined): Recognize
 
 /** What tells an element's gestures to its config's callbacks. */
 export interface GestureCallbacks {
-  readonly hovered: (transition: Recognizer.Transition) => void
+  readonly hovered: (edge: Recognizer.Edge) => void
   readonly pressed: (press: Recognizer.PressEvent, element: Element) => void
   readonly dragged: (sample: Drag.Sample) => void
   /** The drag's release came to rest on its own. */
   readonly released: () => void
   readonly panned: (sample: DragRecognizer.PanSample) => void
-  /** An in-view transition: `onViewportEnter` or `onViewportLeave`, with the platform's entry. */
-  readonly viewed: (transition: Recognizer.ViewTransition) => void
+  /** An in-view edge: `onViewportEnter` or `onViewportLeave`, with the platform's entry. */
+  readonly viewed: (edge: Recognizer.ViewEdge) => void
 }
 
 /** Each press phase's callback: a press a drag took over has none (Motion tells neither). */
@@ -176,9 +176,9 @@ export const gestureCallbacksOf = (runtime: WardicRuntime, id: string, config: (
     if (moving) callPerMove(every, each, raw, info)
   }
   return {
-    hovered: (transition) => {
-      const name = Bool.match(transition.active, { onTrue: () => "onHoverStart" as const, onFalse: () => "onHoverEnd" as const })
-      call(name, config()[name], transition.event.raw as PointerEvent, pointInfoOf(transition.event))
+    hovered: (edge) => {
+      const name = Bool.match(edge.active, { onTrue: () => "onHoverStart" as const, onFalse: () => "onHoverEnd" as const })
+      call(name, config()[name], edge.event.raw as PointerEvent, pointInfoOf(edge.event))
     },
     pressed: (press, element) => {
       const name = PRESS_CALLBACK[press.phase]
@@ -204,9 +204,9 @@ export const gestureCallbacksOf = (runtime: WardicRuntime, id: string, config: (
       }
       moved(PAN_CALLBACK[sample.phase], "onPan", sample as Drag.Sample)
     },
-    viewed: (transition) => {
-      const name = Bool.match(transition.active, { onTrue: () => "onViewportEnter" as const, onFalse: () => "onViewportLeave" as const })
-      call(name, config()[name], transition.raw as IntersectionObserverEntry)
+    viewed: (edge) => {
+      const name = Bool.match(edge.active, { onTrue: () => "onViewportEnter" as const, onFalse: () => "onViewportLeave" as const })
+      call(name, config()[name], edge.raw as IntersectionObserverEntry)
     },
   }
 }
