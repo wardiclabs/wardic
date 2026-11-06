@@ -88,7 +88,7 @@ const WardicContext = createContext<WardicContextValue | undefined>(undefined)
 // this provider's alone, one keyed borderRadius/boxShadow replacing the built-in; ignored on a server.
 // features/strict: #511, ADR-0067, read once.
 export function WardicProvider(props: {
-  /** The Environment Wardic runs in: `DomLive` in a browser, from `@wardic/dom`. Read once. */
+  /** The Environment Wardic runs in: `DomLive` in a browser, from `@wardic/dom`. Read once, and built at once: a Layer that waits as it builds fails it. */
   readonly env: WardicEnv
   /**
    * How animations honour the visitor's reduced-motion setting: `"user"` follows it (the default),

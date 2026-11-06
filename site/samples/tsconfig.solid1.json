@@ -13,6 +13,7 @@
     "strict": true,
     "skipLibCheck": true,
     "lib": ["ESNext", "DOM", "DOM.Iterable"],
+    "types": ["vite/client"],
     "paths": {
       "solid-js": ["../../packages/solid/node_modules/solid-js/types/index.d.ts"],
       "solid-js/web": ["../../packages/solid/node_modules/solid-js/web/types/index.d.ts"],

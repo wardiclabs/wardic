@@ -4,8 +4,11 @@ import * as Clock from "@wardic/core/Clock"
 import { TestLive } from "@wardic/test"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
+import type * as LogLevel from "effect/LogLevel"
+import * as References from "effect/References"
+import * as Scope from "effect/Scope"
 import { createRoot } from "solid-js"
-import { runScoped, useWardicRuntime, WardicProvider } from "@wardic/solid"
+import { domAnimation, runScoped, useWardicRuntime, w, WardicProvider } from "@wardic/solid"
 
 it("useWardicRuntime() inside the provider resolves a runtime wired to env", async () => {
   let captured: ReturnType<typeof useWardicRuntime> | undefined
@@ -112,4 +115,34 @@ it("interrupts a runScoped fiber on the consuming component's unmount", async ()
   await vi.waitFor(() => {
     expect(interrupted).toBe(true)
   })
+})
+
+/** A Layer that waits as it builds, as `DevTools.layer()` waits for its connection: the Debug log level, a moment later. */
+const waits = Layer.effect(References.MinimumLogLevel, Effect.as(Effect.sleep("1 millis"), "Debug" as const))
+
+it("an env that waits as it builds fails its first element with an error naming the fix", () => {
+  expect(() =>
+    render(() => (
+      <WardicProvider env={Layer.mergeAll(TestLive, waits)} features={[domAnimation]}>
+        <w.div animate={{ opacity: 1 }} />
+      </WardicProvider>
+    ))
+  ).toThrow(/env waits as it builds.*before the app renders/)
+  cleanup()
+})
+
+it("a Layer that waits, built before the render and given as its services, reaches the runtime", async () => {
+  const built = await Effect.runPromise(Layer.buildWithScope(waits, Scope.makeUnsafe()))
+  let level: LogLevel.LogLevel | undefined
+  function Probe() {
+    level = useWardicRuntime().runSync(References.MinimumLogLevel)
+    return <w.div animate={{ opacity: 1 }} />
+  }
+  render(() => (
+    <WardicProvider env={Layer.mergeAll(TestLive, Layer.succeedContext(built))} features={[domAnimation]}>
+      <Probe />
+    </WardicProvider>
+  ))
+  expect(level).toBe("Debug")
+  cleanup()
 })

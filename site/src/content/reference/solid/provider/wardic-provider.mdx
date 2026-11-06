@@ -23,7 +23,7 @@ It builds nothing until the first element under it needs it. During a server ren
 
 | Prop | |
 | --- | --- |
-| `env` | The Environment: `DomLive` in a browser. Merge Effect's own Layers beside it for [logs and traces](/guides/observability). Read once. |
+| `env` | The Environment: `DomLive` in a browser. Merge Effect's own Layers beside it for [logs and traces](/guides/observability). Read once, and built at once: a Layer that waits as it builds, such as `DevTools.layer()`, goes in built. |
 | `features` | The Features every `w.*` element under it has: at once, `[domAnimation]`, or loaded with a function. Read once. |
 | `strict` | In development, a `wardic.*` element under it throws. Read once. |
 | `reducedMotion` | `"user"` (the default) follows the visitor's setting, `"always"` reduces motion, `"never"` doesn't. See [Reduced motion](/guides/reduced-motion). |

@@ -19,8 +19,11 @@ import * as FlushGate from "@wardic/dom/FlushGate"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Report from "@wardic/dom/Report"
 import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
+import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import { constVoid } from "effect/Function"
 import type * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
@@ -28,6 +31,7 @@ import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import { AtomRegistry } from "effect/reactivity"
+import * as Result from "effect/Result"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { ServerAppear } from "./appear.ts"
 import { clientRegistry, type FeatureRegistry, type FeatureSection, serverRegistry } from "./feature.ts"
@@ -45,6 +49,24 @@ import { settingOf as configSettingOf, type WardicConfigValue } from "./wardic-c
  * the Environment gives one, as `TestLive` does, which they take.
  */
 export type WardicEnv = Layer.Layer<WardicServices, never, never>
+
+/** What a provider fails with when its `env` waits as it builds: the fix, where Effect's own `AsyncFiberError` names neither. */
+const WAITING_ENV =
+  "The WardicProvider's env waits as it builds, and a provider builds it at once, as its first element renders. Build the Layer that waits, such as DevTools.layer(), before the app renders, and give its services in the env: Layer.succeedContext(await Effect.runPromise(Layer.buildWithScope(layer, scope))). See https://wardic.dev/guides/observability."
+
+/**
+ * `env`, built at once, on the runtime's memo map and Scope as it would be unwrapped. A provider
+ * runs its services from a render, so a Layer that waits as it builds, such as `DevTools.layer()`
+ * waiting for its connection, fails the build with {@link WAITING_ENV}; any other failure is its own.
+ */
+const builtAtOnce = (env: WardicEnv): WardicEnv =>
+  Layer.fromBuild((memoMap, scope) => {
+    const exit = Effect.runSyncExit(Layer.buildWithMemoMap(env, memoMap, scope))
+    return Bool.match(Option.exists(Result.getSuccess(Exit.findDefect(exit)), Cause.isAsyncFiberError), {
+      onTrue: () => Effect.die(new Error(WAITING_ENV)),
+      onFalse: () => exit,
+    })
+  })
 
 /** The services a `WardicProvider`'s runtime gives the code run on it: Wardic's Environment, as a union of Effect services. */
 export type WardicServices =
@@ -193,7 +215,7 @@ export const clientContext = (
   // layout animation starts, and the app's scale correctors.
   const projectionOptions: ProjectionSystem.Options = { reducedMotion: () => build().reducedMotion(), scaleCorrectors }
   const runtime: ProviderRuntime = ManagedRuntime.make(
-    Layer.merge(FlushGate.layer({ batch }), Layer.succeed(ProjectionOptions)(projectionOptions)).pipe(Layer.provideMerge(env)),
+    Layer.merge(FlushGate.layer({ batch }), Layer.succeed(ProjectionOptions)(projectionOptions)).pipe(Layer.provideMerge(builtAtOnce(env))),
   )
   const features = clientRegistry(runtime)
   // Its Instant changes (#443), timed by its Environment's Refresh frames, found at the first.
@@ -262,7 +284,7 @@ const settingOf = (setting: ReducedMotion.Config | undefined, provider: () => Re
  * Appear animations when it has them.
  */
 export const serverContext = (env: WardicEnv, appear: ServerAppear | undefined, reducedMotion: () => ReducedMotion.Config | undefined): WardicContextValue => {
-  const runtime = ManagedRuntime.make(env)
+  const runtime = ManagedRuntime.make(builtAtOnce(env))
   return {
     runtime,
     // A server render's elements take the lean path and never read it: read at each use if one does.
