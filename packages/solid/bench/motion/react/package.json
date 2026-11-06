@@ -1,0 +1,10 @@
+{
+  "name": "wardic-bench-motion-react",
+  "private": true,
+  "description": "Motion's side of bench:motion (#615): framer-motion and React, pinned, installed apart from the workspace on the bench's first run.",
+  "dependencies": {
+    "framer-motion": "14.9.0",
+    "react": "19.3.1",
+    "react-dom": "19.3.1"
+  }
+}

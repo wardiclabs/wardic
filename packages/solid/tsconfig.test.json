@@ -1,5 +1,5 @@
 {
-  "// note": "Test-only typecheck: includes test/ and bench/ alongside src/, no emit, not part of the build graph. Run via `bun run typecheck:tests`.",
+  "// note": "Test-only typecheck: includes test/ and bench/ alongside src/, no emit, not part of the build graph. Run via `bun run typecheck:tests`. bench:motion's Motion page is left out: React and framer-motion install only in bench/motion/react/ (#615).",
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "lib": ["ES2022", "DOM", "DOM.Iterable"],
@@ -10,5 +10,5 @@
     "rootDir": "."
   },
   "include": ["src", "test", "bench", "babel-modules.d.ts"],
-  "exclude": ["src/unstable", "test/v2", "bench/page-v2.tsx"]
+  "exclude": ["src/unstable", "test/v2", "bench/page-v2.tsx", "bench/motion/wardic-v2-page.tsx", "bench/motion/motion-page.ts", "bench/motion/react"]
 }
