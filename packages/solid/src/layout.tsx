@@ -31,7 +31,7 @@ export type { CreateProjectionNodeOptions } from "./layout-member.ts"
  * Registers an element with its provider's projection system as one layout node, as a `w.*` element
  * with `layout` or a `layoutId` is: for an element of your own built on Wardic's layout animations.
  * A `w.*` element or a ward does this itself. Returns the node's handle: `notify()` asks for a
- * re-measure, and `dispose()` takes the node out, as the owner's cleanup does. It brings the `layout`
+ * Measure pass, and `dispose()` takes the node out, as the owner's cleanup does. It brings the `layout`
  * Feature. Solid 1 only. Call it within a Solid owner.
  *
  * @see https://wardic.dev/reference/solid/advanced/create-projection-node

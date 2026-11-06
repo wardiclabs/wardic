@@ -136,7 +136,7 @@ export interface WardEvents {
   /** That drag ended at its release (Motion's `onDragEnd`). */
   readonly dragEnd: WardDragInfo
   /**
-   * The drag's release came to rest on its own (Motion's `onDragTransitionEnd`): its momentum
+   * The drag's release came to rest on its own (Motion's `onDragTransitionEnd`): its Fling
    * or its spring back, or at once for one released in place. Not for one a grab stopped.
    */
   readonly dragTransitionEnd: undefined

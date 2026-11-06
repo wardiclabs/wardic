@@ -406,7 +406,7 @@ export type WardicAnimationDefinition = WardicVariantLabels | WardicValues
  * turns the element's value into the one to write while a layout animation scales it (`target` the
  * box it's drawn into, `treeScale` its ancestors' scale, `projectionDelta` its delta, Motion's
  * shapes), written under `applyTo`'s keys when given, else its own. `latest` is the element's own
- * value for the key (from its `style` or an animation), else its computed value at its first measure.
+ * value for the key (from its `style` or an animation), else its Own value at its first measure.
  */
 export type WardicScaleCorrector = ProjectionSystem.ScaleCorrector
 
@@ -537,7 +537,7 @@ export interface WardConfig {
   readonly viewport?: WardicViewport
   /**
    * Makes the element draggable: `true` on both axes, `"x"` or `"y"` on one. On release it carries on
-   * at the speed it was thrown and slows to a stop. Needs the `drag` Feature.
+   * at the speed it was let go, a Fling, and slows to a stop. Needs the `drag` Feature.
    *
    * The element gets `touch-action`, `user-select: none` and `draggable="false"`, so a touch drag
    * isn't a scroll; its own `style` can override them. Of nested draggables, the innermost drags. With
@@ -560,7 +560,7 @@ export interface WardConfig {
   /**
    * Keeps the element within bounds: `{ top, left, right, bottom }` in pixels from where it started
    * (an edge left out is unbounded), or a container element, given as an accessor, that it stays
-   * inside. A throw past an edge springs back to it.
+   * inside. A Fling past an edge springs back to it.
    *
    * @example dragConstraints={() => frame}
    */
@@ -579,7 +579,7 @@ export interface WardConfig {
    */
   // #273, ADR-0047.
   readonly onMeasureDragConstraints?: WardicMeasureDragConstraints
-  /** `false` stops the element where it's let go, instead of carrying on at the speed it was thrown. Default `true`. */
+  /** `false` stops the element where it's let go, instead of carrying on at the speed it was let go. Default `true`. */
   // Read once at mount.
   readonly dragMomentum?: boolean
   /** Springs the element back to where it started when it's let go. */
@@ -667,7 +667,7 @@ export interface WardConfig {
   readonly layoutId?: string
   /**
    * Marks a scrolling element that is itself a layout element, so its descendants' layout animations
-   * aren't thrown by its scroll. Every other scroll, `position: sticky` included, is accounted for
+   * aren't moved by its scroll. Every other scroll, `position: sticky` included, is accounted for
    * without it.
    */
   // ADR-0012 and its Amendments (Reorder, #578). Read once at mount.

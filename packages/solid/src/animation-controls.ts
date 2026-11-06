@@ -10,8 +10,8 @@
  *     on each Variant child, and it is their orchestration (stagger, `when`), as Motion's
  *     `transitionOverride` is.
  *   - Their next Retarget, a gesture's, runs on their own transitions again.
- * - **`set(definition)`** is a start on an instant transition: the elements and their Variant children
- *   jump there, as Motion's `setValues` sets them.
+ * - **`set(definition)`** is an **Instant change**: the elements and their Variant children
+ *   snap there, as Motion's `setValues` sets them.
  * - **`stop()`** ends each element's running legs where they are.
  *
  * A function definition is called once per element, with its `custom`, values and velocities, as

@@ -429,7 +429,7 @@ const Proto = {
  * A reorder group over `options`' values. Each drag sample reads the measured items' boxes and the dragged
  * item's offset, runs `check`, and on a new order calls `onReorder` with it, a value with no box kept at
  * its index. After a reorder it waits until the dragged item's box is measured again, so a sample read
- * against the boxes from before can't swap it back.
+ * against the boxes from before can't cross it back.
  *
  * @example
  * const group = Reorder.make({ values: () => items, onReorder: (next) => (items = next) })
@@ -754,7 +754,7 @@ export const lift: {
 })
 
 /**
- * One key's move of the lifted item: an arrow's step on screen (`arrowTarget`), or Home's or End's jump
+ * One key's move of the lifted item: an arrow's step on screen (`arrowTarget`), or Home's or End's move
  * to the first or last place, through `onReorder`. `moved` is false where it had nowhere to go. Until the
  * boxes are measured after its last step, a step waits (`waiting`, nothing moved), as a drag's next
  * reorder does. `None` when `value` isn't the lifted item.

@@ -960,7 +960,7 @@ export const chase = (getTarget: () => number, options: SpringOptions = NO_OPTIO
 }
 
 /**
- * A fling: from `initial` at `velocity`, slowing by friction, to rest `velocity / friction` away,
+ * A decay: from `initial` at `velocity`, slowing by friction, to rest `velocity / friction` away,
  * whatever the frame rate.
  *
  * @example
@@ -984,7 +984,7 @@ export const decay = (initial: number, velocity: number, options: DecayOptions =
   })
 }
 
-/** A fling on two axes together: a point each frame, settling once both rest. */
+/** A decay on two axes together: a point each frame, settling once both rest. */
 export const decayVec = (initial: Point.Point, velocity: Point.Point, options: DecayOptions): Machine<Frame.Frame<Point.Point>> => {
   const resolved = resolveDecay(options)
   return make({
@@ -1154,7 +1154,7 @@ export const inertiaVec = (initial: Point.Point, velocity: Point.Point, options:
  * rests.
  *
  * Each frame carries a per-key `velocity` beside `value`; a settled key reports 0. Seeding `from` and
- * `velocity` from a frame of the run before keeps its momentum when the target changes. Each frame is
+ * `velocity` from a frame of the run before keeps its velocity when the target changes. Each frame is
  * rewritten every tick: copy one, or its records, to keep it; the settled frame is stable.
  *
  * @example

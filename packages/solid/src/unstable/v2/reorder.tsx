@@ -723,7 +723,7 @@ const ITEM_CONFIG = [...MOTION_PROPS, "value", "tabindex", "aria-describedby"] a
 const KEYBOARD_ATTRIBUTES = ["tabindex", "aria-describedby"] as const
 
 /**
- * The motion element for `tag`, as a plain component: a Slim element's (`w[tag]`, #511), so a Reorder
+ * The Wardic element for `tag`, as a plain component: a Slim element's (`w[tag]`, #511), so a Reorder
  * brings no Feature but its own (ADR-0067 decision 12) and renders under a `strict` section.
  */
 const wardicTag = (tag: string): Component<Record<string, unknown>> =>

@@ -1,7 +1,7 @@
 /**
  * A layout node's registration (ADR-0009, ADR-0010), Solid-free (#209): its layout transition, and
  * what each binding's `createProjectionNode` hands the provider's projection system. The binding adds
- * its own lifetime: the node's disposal, and a `layoutDependency` change's re-measure.
+ * its own lifetime: the node's disposal, and a `layoutDependency` change's Measure pass.
  *
  * @module
  */

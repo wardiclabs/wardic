@@ -252,9 +252,9 @@ export {
 } from "./variants.ts"
 
 /**
- * `wardic` (ADR-0008 Tier 1, ADR-0042): the `wardic.*` motion-element proxy, `wardic.create(tag)`
+ * `wardic` (ADR-0008 Tier 1, ADR-0042): the `wardic.*` element proxy, `wardic.create(tag)`
  * HOC, and, called, the `use:wardic` directive. `wardic.div` / `wardic.create("div")` build a
- * motion component that puts a Ward on its element and merges the animated style over the
+ * Complete element that puts a Ward on its element and merges the animated style over the
  * user's static style (`Style.over`) while preserving the user's ref (`mergeRefs`) and passing
  * all other props through. `<div use:wardic={config}>` puts one on any element, client-only:
  * import `wardic` for it to resolve.
@@ -303,8 +303,8 @@ export {
  * box-based projection system: `createProjectionNode` registers the element as a
  * projection node (the provider-owned tree handles nesting + sibling reflow).
  * `<LayoutGroup>` is now a thin grouping boundary whose `layoutDependency`
- * triggers a full re-measure. `layoutId` shared-element animation (Switch and
- * Crossfade) is matched entirely by the projection engine (ADR-0010 *Amendment
+ * triggers a full Measure pass. `layoutId` shared-element animation (Switch and
+ * Crossfade) is matched entirely by the Projection system (ADR-0010 *Amendment
  * (#13)*); `measureLayoutBox` reads an untransformed box.
  */
 export { type CreateProjectionNodeOptions, LayoutGroup, createProjectionNode } from "./layout.tsx"

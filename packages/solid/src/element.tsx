@@ -21,7 +21,7 @@
  *     `style` re-runs the spread's `style`; a frame never does.
  *
  * SSR-correct: {@link createWardWith} computes the Starting style synchronously, so the
- * `<Dynamic>` renders with the merged initial style on the very first render.
+ * `<Dynamic>` renders with the merged Starting style on the very first render.
  *
  * REACTIVITY (component props): each motion prop is a plain VALUE, not an
  * accessor. Solid's reactive prop getters already make a component prop tracked —
@@ -94,7 +94,7 @@ export type WardicWrappable = { ref?: (el: HTMLElement) => void }
 export const configOfMotion = (motion: WardicMotionProps): Accessor<WardConfig> => motionToConfig(motion, Bool.not($PROXY in motion))
 
 /**
- * `create(tag | Component)` of a form (`wardic.create`, `w.create`): a motion component, a Complete
+ * `create(tag | Component)` of a form (`wardic.create`, `w.create`): a Wardic component, a Complete
  * element's or a Slim one's as `kind` says (#511).
  *
  * Both are an element with a Ward on it, made by {@link createWardWith} (#253, as the Solid 2

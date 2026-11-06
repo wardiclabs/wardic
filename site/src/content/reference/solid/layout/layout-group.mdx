@@ -1,6 +1,6 @@
 ---
 title: LayoutGroup
-description: Puts an id before every layoutId made under it, so two copies of a component keep their own, and re-measures every layout element when a value changes.
+description: Puts an id before every layoutId made under it, so two copies of a component keep their own, and measures every layout element again when a value changes.
 api: [LayoutGroup]
 ---
 
@@ -37,4 +37,4 @@ It brings the `layout` Feature for its own `layoutDependency` only: the layout e
 
 ## Coming from Motion
 
-Motion's `LayoutGroup`, with its props. Motion's `inherit={true}` also joins the outer group's re-measure, which every measure here already does.
+Motion's `LayoutGroup`, with its props. Motion's `inherit={true}` also joins the outer group's measure, which every Measure pass here already does.

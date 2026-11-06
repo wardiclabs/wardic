@@ -21,7 +21,7 @@ export { MOTION_PROPS, motionToConfig, type WardicMotionProps } from "./motion-p
 export { configOfMotion, type Create, type WardicComponent, type WardicProps, type WardicWrappable } from "./element.tsx"
 
 /**
- * `wardic.create(tag | Component)` — build a motion component, a **Complete element** (#511): the
+ * `wardic.create(tag | Component)` — build a **Complete element** (#511): the
  * forms' `create` (`element.tsx`'s `createWith`), bringing every Feature.
  *
  * @param arg an element tag string (e.g. `"div"`) OR a component forwarding `ref`.
@@ -37,7 +37,7 @@ const wardicDirective = (el: HTMLElement, value: Accessor<WardConfig>): void => 
 
 /**
  * The typed `wardic` proxy: called, it's the `use:wardic` directive; `wardic.create` is the
- * HOC, and `wardic.<tag>` is a motion component for that intrinsic element (cached per tag).
+ * HOC, and `wardic.<tag>` is a Complete element for that intrinsic element (cached per tag).
  */
 export type Wardic = ((el: HTMLElement, value: Accessor<WardConfig>) => void) & {
   readonly create: typeof create

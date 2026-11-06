@@ -167,7 +167,7 @@ export interface FlushGate {
    * returning. Only `write()`s made while
    * `pass()` runs are recorded; each recorded entry is `project`ed and committed once, and
    * marked clean. Everything else stays dirty for its flush. A write made by an effect a sink's
-   * hook runs (a Solid effect) takes the ordinary path. The projection engine calls it at the
+   * hook runs (a Solid effect) takes the ordinary path. The Projection system calls it at the
    * end of a task, so a new layout never paints without its projection.
    */
   readonly flushPass: (pass: () => void) => void

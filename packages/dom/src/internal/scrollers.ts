@@ -1,7 +1,7 @@
 /**
  * Which scrollers move an element on screen (ADR-0012), apart from the Measure pass (#548): the gesture
  * input and the reveals read `scrollersOf` on every page, so it sits in a module of its own, and the
- * projection engine's reads, in `measure.ts`, ship only where an app lays out (ADR-0067,
+ * Projection system's reads, in `measure.ts`, ship only where an app lays out (ADR-0067,
  * *Amendment (#548)*). Per node in the Measure pass: a `for` up the ancestors (ADR-0025, dom's
  * per-frame files).
  */

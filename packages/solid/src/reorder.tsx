@@ -585,7 +585,7 @@ interface ItemLocal<V> {
 }
 
 /**
- * The motion element for `tag`, typed as a plain component: a Slim element's (`w[tag]`, #511), so a
+ * The Wardic element for `tag`, typed as a plain component: a Slim element's (`w[tag]`, #511), so a
  * Reorder brings no Feature but its own (ADR-0067 decision 12) and renders under a `strict` section.
  */
 const wardicTag = (tag: string): Component<Record<string, unknown>> =>

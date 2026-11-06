@@ -23,7 +23,7 @@ It's read as each animation starts, so a change applies from the next one, and a
 
 ## What changes
 
-- **Keys that move or resize jump:** `x`, `y`, `z`, `scale`, `rotate`, `skew` and their axes, and `width`, `height`, `top`, `left`, `right` and `bottom`. Each waits out the delay it would have had, stagger included, and lands as the other keys start.
+- **Keys that move or resize snap:** `x`, `y`, `z`, `scale`, `rotate`, `skew` and their axes, and `width`, `height`, `top`, `left`, `right` and `bottom`. Each waits out the delay it would have had, stagger included, and lands as the other keys start.
 - **Every other key animates as it would:** opacity, colours, filters and shadows.
 - **Where it lands** is where the animation would end: a spring's or tween's target, keyframes' last stop, where an `inertia` glide would rest, and with a `repeat`, where its last run would finish. A key that repeats forever lands where its first run ends, and the keys that still animate repeat on.
 - **Layout animations** land on the new box at once, and a `layoutId` crossfade switches at once. `onLayoutAnimationStart` and `onLayoutAnimationComplete` are both called, in that frame.

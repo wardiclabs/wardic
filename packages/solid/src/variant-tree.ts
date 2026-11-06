@@ -322,7 +322,7 @@ export interface WardicVariantContextValue {
    * once the parent's own variant animation settles.
    */
   readonly childrenMayStart: Accessor<boolean>
-  /** Whether EVERY registered child has reported its spine as settled. */
+  /** Whether EVERY Variant child has reported its spine as settled. */
   readonly allChildrenSettled: Accessor<boolean>
   /**
    * The **Controls change** in effect: its own controls' latest, else the one it inherits. A

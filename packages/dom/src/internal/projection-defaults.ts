@@ -1,5 +1,5 @@
 /**
- * Motion's default layout and drag transitions, apart from the projection engine: a binding's layout
+ * Motion's default layout and drag transitions, apart from the Projection system: a binding's layout
  * element code reads them on every page, and the engine, `projection.ts`, ships only where an app lays
  * out.
  */

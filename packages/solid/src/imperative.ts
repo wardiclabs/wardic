@@ -270,7 +270,7 @@ export interface WardicPlaybackControls extends PromiseLike<void> {
   readonly stop: () => void
   /** End it, and put its keys back where it started them. */
   readonly cancel: () => void
-  /** Jump to its end, and finish. */
+  /** Go to its end at once, and finish. */
   readonly complete: () => void
 }
 

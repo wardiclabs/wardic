@@ -77,7 +77,7 @@ The props keep Motion's names and meanings: `initial`, `animate`, `exit`, `varia
 - **Layout animations account for scroll on their own:** the scroll of every scrolling element around them, with no `layoutScroll`, the page's inside a `position: fixed` element, with no `layoutRoot`, and a `position: sticky` element's offset as it sticks.
 - **A value you move is never written to.** It's an input the element follows; what Wardic draws comes out of the element's ward, `ward.read(key)` on Solid 2 and `ward.value(key)` on Solid 1.
 - **`reducedMotion` is followed as it changes,** where Motion reads it once, as each element mounts.
-- **An interrupted path lands back on its line.** An axis the target leaves out, `y` under `animate={{ x }}`, ends where the path in flight was taking it, where Motion's ends where the interruption caught it, a little further off each time.
+- **An interrupted path lands back on its line.** An axis the target leaves out, `y` under `animate={{ x }}`, ends where the path in flight was taking it, where Motion's ends where the Retarget caught it, a little further off each time.
 - **A locked drag starts at its lock.** With `dragDirectionLock`, the drag starts once its axis is decided and claims only that axis, so a card that drags sideways inside a sheet that drags down doesn't start on a vertical swipe.
 - **Space presses too,** as a button takes it, beside Motion's Enter.
 - **`skipAnimations` lands everything,** layout animations and springs included, which Motion's leaves animating.
