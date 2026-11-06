@@ -442,7 +442,7 @@ export interface WardConfig {
    * Where the element starts: values, a `variants` name, or `false` to start at `animate`, so nothing
    * animates as it mounts. On a server-rendered page, the element arrives in the HTML at `initial`.
    *
-   * @example initial={{ opacity: 0, y: 12 }}
+   * @example <w.div initial={{ opacity: 0, y: 12 }} />
    */
   // Read once per mount (untracked), so a later change doesn't re-seed; read again on every mount,
   // an AnimatePresence re-entry included. `false` resolves `animate` once: its map, its variants
@@ -454,7 +454,7 @@ export interface WardConfig {
    * from wherever it is to the new target. Or animation controls from `createAnimationControls()`,
    * which set the target when you call `start` or `set`.
    *
-   * @example animate={{ opacity: open() ? 1 : 0 }}
+   * @example <w.div animate={{ opacity: open() ? 1 : 0 }} />
    */
   // Read reactively through the whole-config accessor; its own `transition` drives it (#277). Controls
   // are read once (#433).
@@ -464,7 +464,7 @@ export interface WardConfig {
    * values. A variant can carry its own `transition`, or be a function of `custom`. Children with
    * `variants` follow their parent's names, staggered by its `transition`.
    *
-   * @example variants={{ hidden: { opacity: 0 }, shown: { opacity: 1 } }}
+   * @example <w.div variants={{ hidden: { opacity: 0 }, shown: { opacity: 1 } }} />
    */
   // Dynamic variants: #277. Orchestration: ADR-0007.
   readonly variants?: WardicVariants
@@ -494,7 +494,7 @@ export interface WardConfig {
    * Where the element animates while the pointer is over it, and back when it leaves: values or a
    * `variants` name, which children with `variants` follow too. Needs the `hover` Feature.
    *
-   * @example whileHover={{ scale: 1.05 }}
+   * @example <w.div whileHover={{ scale: 1.05 }} />
    */
   // Priority: under whileTap and whileDrag, over whileFocus and whileInView. Names reach Variant
   // children (#291).
@@ -503,7 +503,7 @@ export interface WardConfig {
    * Where the element animates while it's pressed, by a pointer or by Enter or Space while it has
    * focus. Needs the `press` Feature.
    *
-   * @example whileTap={{ scale: 0.95 }}
+   * @example <w.div whileTap={{ scale: 0.95 }} />
    */
   // Highest priority with whileDrag. Keyboard presses: #427.
   readonly whileTap?: WardicVariant | WardicVariantLabels
@@ -518,7 +518,7 @@ export interface WardConfig {
    * Where the element animates while it's in view, as `viewport` defines it. Needs the `inView`
    * Feature.
    *
-   * @example whileInView={{ opacity: 1 }} viewport={{ once: true }}
+   * @example <w.div whileInView={{ opacity: 1 }} viewport={{ once: true }} />
    */
   // #273, ADR-0047. Under whileFocus and the pointer gestures.
   readonly whileInView?: WardicVariant | WardicVariantLabels
@@ -543,7 +543,7 @@ export interface WardConfig {
    * isn't a scroll; its own `style` can override them. Of nested draggables, the innermost drags. With
    * `layout`, the element moves within its layout and returns to its place on release.
    *
-   * @example drag="x" dragConstraints={{ left: 0, right: 200 }}
+   * @example <w.div drag="x" dragConstraints={{ left: 0, right: 200 }} />
    */
   // ADR-0004: the pointer direct-sets x/y while the spine drives the rest and whileDrag. The drag
   // config (this and dragConstraints … dragPropagation) is read once at mount; only whileDrag is
@@ -553,7 +553,7 @@ export interface WardConfig {
   /**
    * Where the element animates while it's dragged, and back once it's let go.
    *
-   * @example whileDrag={{ scale: 1.1 }}
+   * @example <w.div whileDrag={{ scale: 1.1 }} />
    */
   // Driven by the spring, not stripped; only read when `drag` is on.
   readonly whileDrag?: WardicVariant | WardicVariantLabels
@@ -562,7 +562,7 @@ export interface WardConfig {
    * (an edge left out is unbounded), or a container element, given as an accessor, that it stays
    * inside. A Fling past an edge springs back to it.
    *
-   * @example dragConstraints={() => frame}
+   * @example <w.div dragConstraints={() => frame} />
    */
   // ADR-0016 Amendment (#140): x/y whichever gesture moved them. A container is measured at each drag's
   // start and when either resizes (#273). Read once at mount; an accessor at each measure.
@@ -621,7 +621,7 @@ export interface WardConfig {
    * and, for variants, `staggerChildren` and `when`. A value's own (`opacity: {…}`) or `layout`'s apply
    * to it alone. Without one, each value gets Motion's default.
    *
-   * @example transition={{ type: "spring", stiffness: 300, damping: 20 }}
+   * @example <w.div transition={{ type: "spring", stiffness: 300, damping: 20 }} />
    * @see https://wardic.dev/guides/transitions
    */
   // Per-value entries: ADR-0049. Default transitions: ADR-0051.
@@ -630,7 +630,7 @@ export interface WardConfig {
    * Where the element animates as it leaves an `<AnimatePresence>`: values or a `variants` name. The
    * element stays on the page until it has played.
    *
-   * @example exit={{ opacity: 0, scale: 0.9 }}
+   * @example <w.div exit={{ opacity: 0, scale: 0.9 }} />
    */
   // ADR-0007: the child doesn't drive it (it's disposed); its spine publishes the exit into the
   // presence registration, and the presence runs it on the retained node. A dynamic variant resolves
@@ -652,7 +652,7 @@ export interface WardConfig {
    * A value whose change makes the element look for a layout change. In Solid nothing re-renders, so
    * give it what your layout depends on, such as a signal's value; a size change is seen on its own.
    *
-   * @example layoutDependency={open()}
+   * @example <w.div layoutDependency={open()} />
    */
   // Motion's prop name. Read reactively through the whole-config accessor.
   readonly layoutDependency?: unknown
@@ -780,7 +780,7 @@ export interface WardConfig {
    * Builds the element's whole `transform` from its values and the one Wardic would draw, wherever
    * it's drawn: at rest, animating, on the server and during a layout animation.
    *
-   * @example transformTemplate={(_, generated) => `translate(-50%, -50%) ${generated}`}
+   * @example <w.div transformTemplate={(_, generated) => `translate(-50%, -50%) ${generated}`} />
    */
   // #443, a Transform template. See WardicTransformTemplate for what it's handed. Whether it has one is
   // read at mount; the function each frame.

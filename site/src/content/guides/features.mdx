@@ -38,7 +38,7 @@ On Solid 2, the gesture Features bring the ward's events too, such as `"hover"` 
 
 ```tsx
 // drag-feature.ts holds `export { drag } from "@wardic/solid/unstable/v2"`, so the import is a chunk of its own.
-<LazyWardic features={() => import("./drag-feature.ts").then((m) => m.drag)}>
+<LazyWardic features={() => import("./drag-feature.ts").then((m) => m.drag)}>…</LazyWardic>
 ```
 
 It loads as the section renders, in the browser only. So a section rendered on a press loads on the press, one rendered as it scrolls into view loads then, and one rendered once the page has mounted loads after the first paint. While it loads:

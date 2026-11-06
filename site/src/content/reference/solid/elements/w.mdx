@@ -30,7 +30,7 @@ It animates values with nothing else: `initial`, `animate`, `exit`, variants and
 ## w.create
 
 ```tsx
-const Card = (props: { ref?: (el: HTMLElement) => void; children?: JSX.Element }) => <article ref={props.ref} {...props} />
+const Card = (props: { ref?: (el: HTMLElement) => void }) => <article ref={props.ref} {...props} />
 const WCard = w.create(Card)
 
 <WCard animate={{ opacity: 1 }} />

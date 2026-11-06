@@ -39,7 +39,8 @@ For several sources, a plain accessor does: `style={{ x: () => x() + offset() }}
 The source is a live value: a signal, a memo, another live value, or an `effect/reactivity` Atom. A ward's value, `card.read("x")` on Solid 2 or `card.value("x")` on Solid 1, is one too, for a value that follows what Wardic draws:
 
 ```tsx
-// Solid 2
+import { createTransform, w } from "@wardic/solid/unstable/v2"
+
 const card = w.ward({ drag: "x" })
 const opacity = createTransform(card.read("x"), [-150, 0, 150], [0, 1, 0])
 <w.div wardRef={card} style={{ opacity }} />

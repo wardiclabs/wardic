@@ -24,7 +24,7 @@ export interface WardicStaggerOptions {
  * whole delay, or as `createAnimate`'s `delay`. Motion's `stagger()`.
  *
  * @example
- * <w.ul animate="shown" variants={list} transition={{ delayChildren: stagger(0.05, { from: "center" }) }}>
+ * <w.ul animate="shown" variants={list} transition={{ delayChildren: stagger(0.05, { from: "center" }) }}>…</w.ul>
  * @see https://wardic.dev/reference/solid/transitions/stagger
  */
 // #436.

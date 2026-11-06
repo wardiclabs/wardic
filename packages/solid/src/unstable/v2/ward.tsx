@@ -539,6 +539,7 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps, AnyW
    * it in a component's body, as `createMemo`.
    *
    * ```tsx
+   * const card = ward({ drag: "x" })
    * createEffect(card.when("dragEnd"), (release) => {
    *   if (Math.abs(release.offset.x) >= 120) dismiss(release.offset.x < 0 ? "left" : "right")
    * })

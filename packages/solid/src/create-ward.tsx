@@ -157,7 +157,7 @@ export interface WardUserProps {
  * `createSpring`'s or `createTransform`'s. While no animation sets a key, the element shows its
  * `style` value. With a transform key set, a `transform` string is dropped, as Motion's is.
  *
- * @example style={{ x: createSpring(pointerX), opacity: 0.8 }}
+ * @example <w.div style={{ x: createSpring(pointerX), opacity: 0.8 }} />
  */
 // #130, ADR-0043: a key is its Base value's `style` link; while no layer of the Override stack sets
 // it, the element shows it, following a Live value on every change, and a return goes to where it is.

@@ -65,8 +65,13 @@ It has `move`, `axis`, `keyboard`, `instructions` and `group`, as Solid 1's, and
 `list.next(name)` is a promise of the next one, `list.each(name)` an async iterable of each one, and `list.when(name)` a memo of the latest, for an effect:
 
 ```tsx
+import { reorderGroup } from "@wardic/solid/unstable/v2"
+
+const list = reorderGroup({ values: tasks, onReorder: setTasks })
 const reordered = list.when("reorderEnd")
-createEffect(reordered, (end) => save(end.values.map((task) => task.id)))
+createEffect(reordered, (end) => {
+  save(end.values)
+})
 ```
 
 ## Coming from Motion

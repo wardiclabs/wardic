@@ -208,7 +208,9 @@ export interface ReorderGroup<V> extends ReorderGroupProps, AnyReorderGroup<V> {
    * })
    * const list = reorderGroup({ values: order, onReorder: setOrder })
    * const reordered = list.when("reorderEnd")
-   * createEffect(() => reordered().values.map((task) => task.id), (ids) => save(ids).catch(setSaveError))
+   * createEffect(() => reordered().values.map((task) => task.id), (ids) => {
+   *   save(ids).catch(setSaveError)
+   * })
    * ```
    */
   readonly when: <E extends keyof ReorderGroupEvents<V>>(name: E) => Accessor<ReorderGroupEvents<V>[E]>

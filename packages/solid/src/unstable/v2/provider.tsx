@@ -294,7 +294,9 @@ export function useWardicAppear(): ServerAppear | undefined {
  *
  * @example
  * const runtime = useWardicRuntime()
- * onSettled(() => runtime.runFork(Effect.log("mounted")))
+ * onSettled(() => {
+ *   runtime.runFork(Effect.log("mounted"))
+ * })
  * @see https://wardic.dev/reference/solid/advanced/runtime
  */
 // ADR-0021: a server builds no runtime, and DomLive refuses with its client-only error.

@@ -27,6 +27,8 @@ On Solid 2, a Wardic element takes `wardRef`:
 - **A callback,** `wardRef={(card) => …}`, which gets the ward the element made for itself.
 
 ```tsx
+import { w } from "@wardic/solid/unstable/v2"
+
 const card = w.ward()
 createEffect(card.when("tap"), () => setOpen(true))
 

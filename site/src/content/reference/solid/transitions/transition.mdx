@@ -69,7 +69,7 @@ Keyframes, more than two stops, run on a tween: with no transition at all, a 0.8
 A value's own transition goes under its name, `default` for every value without one, and `layout` for the element's layout animations:
 
 ```tsx
-transition={{ default: { type: "spring" }, opacity: { duration: 0.2 }, layout: { duration: 0.3 } }}
+<w.div transition={{ default: { type: "spring" }, opacity: { duration: 0.2 }, layout: { duration: 0.3 } }} />
 ```
 
 A value runs on its entry, else `default`, else the transition's own fields. An entry stands alone, unless `inherit: true` lays it over the transition's fields.
