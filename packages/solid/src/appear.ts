@@ -360,6 +360,8 @@ export interface ServerAppear {
    * binding's chunk root's thunk asks for it once the chunk has rendered.
    */
   readonly chunk: () => string
+  /** The nonce the page's Content Security Policy gives inline styles, which each `<style>` carries (#618, P1). */
+  readonly nonce: string | undefined
 }
 
 /** No transition: no orchestration. */
@@ -405,7 +407,7 @@ const nameOf = (entry: Entry): string => {
  * `explain` (the provider's `appear="explain"`, #585), it says why each element that doesn't play
  * waits for the JavaScript, as it finds out; without it, nothing is kept or said.
  */
-export const serverAppear = (reducedMotion: ReducedMotion.Config, explain?: (message: string) => void): ServerAppear => {
+export const serverAppear = (reducedMotion: ReducedMotion.Config, explain?: (message: string) => void, nonce?: string): ServerAppear => {
   const sheet = Appear.sheet()
   const entries: Array<Entry> = []
   /** Says why `entry` waits for the JavaScript, when the provider explains. */
@@ -480,7 +482,8 @@ export const serverAppear = (reducedMotion: ReducedMotion.Config, explain?: (mes
       }
     },
     chunkCss,
-    chunk: () => Appear.chunkStyle(chunkCss()),
+    chunk: () => Appear.chunkStyle(chunkCss(), nonce),
+    nonce,
     group: (leader, transition) => {
       const { staggerChildren = 0, delayChildren = 0, from = "first", staggerDirection = 1, when } = UndefinedOr.match(transition, {
         onUndefined: () => NO_TRANSITION,

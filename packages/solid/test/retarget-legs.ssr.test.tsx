@@ -39,7 +39,7 @@ import { makeReuse } from "../src/spine.ts"
 const positionalKeys = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* ReducedMotion.PositionalKeys }), ReducedMotion.transformsOnly))
 
 /** The Test Environment's Default transition: every key on one spring, core's (ADR-0051). */
-const defaults = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* DefaultTransition.DefaultTransition }), DefaultTransition.oneSpring))
+const defaults = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* DefaultTransition.DefaultTransition }), DefaultTransition.layerOneSpring))
 
 /** A Retarget as the tests give it: the builder's arguments, by name. */
 interface Retarget {

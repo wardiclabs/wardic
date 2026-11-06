@@ -5,7 +5,7 @@
  * reactively ({@link resolutionOf}), and calls {@link ElementSpine.retarget} on each change, read
  * where its Solid doesn't track; everything a Retarget does is here:
  *
- *   end the running legs -> carry the keys no layer sets back to their Base values (ADR-0022) ->
+ *   end the running legs -> carry the keys no entry sets back to their Base values (ADR-0022) ->
  *   start each key from its Snapshot (ADR-0024) -> take over an Appear animation (ADR-0044) ->
  *   build the legs (`retarget-legs.ts`) and run each into the gate -> `gate.write`.
  *
@@ -191,13 +191,13 @@ const staggeredOf = (
 ): WardicTransition | undefined => UndefinedOr.map(delayedBy(transition, extra), reuse)
 
 /**
- * A Retarget's keys by the layer that drives each (#291), when an active layer (the base's included)
- * has its own transition: the highest active layer that sets it, and the base for a key none sets (a
+ * A Retarget's keys by the entry that drives each (#291), when an active entry (the base's included)
+ * has its own transition: the highest active entry that sets it, and the base for a key none sets (a
  * return). `undefined` when none has: one transition for every key.
  */
 const keysByLayerOf = (
   t: Values.Values,
-  layers: ReadonlyArray<Layer>,
+  layers: ReadonlyArray<OverrideEntry>,
   extraDelay: ((name: string | undefined) => number) | undefined,
   extra: number,
   listed: boolean,
@@ -205,12 +205,12 @@ const keysByLayerOf = (
 ): ReadonlyArray<ReadonlySet<string>> | undefined => {
   // Per Retarget (#460): statements.
   if (!Arr.some(layers, hasOwnTransition) && !delaysDiffer(layers, extraDelay, extra) && !anyShutOf(shut)) return undefined
-  // A list's returns in a group of their own, after its layers' (#297).
+  // A list's returns in a group of their own, after its entries' (#297).
   let returnsAt = 0
   if (listed) returnsAt = layers.length
   const groups = Arr.makeBy(Math.max(layers.length, returnsAt + 1), () => new Set<string>())
   Arr.forEach(Rec.keys(t), (key) => {
-    // A key only a Transition end sets (#428) is in its layer's group too, as the layer's own.
+    // A key only a Transition end sets (#428) is in its entry's group too, as the entry's own.
     const at = Option.getOrElse(Arr.findLastIndex(layers, (layer) => Bool.and(layer.active, Bool.or(Object.hasOwn(layer.values, key), Object.hasOwn(layer.ends, key)))), () => returnsAt)
     UndefinedOr.map(groups[at], (group) => group.add(key))
   })
@@ -298,23 +298,23 @@ const sameField = (a: unknown, b: unknown): boolean => {
 
 /** The Override stack resolved: a Retarget's input. */
 export interface Resolution {
-  /** Each key's value from the highest active layer. */
+  /** Each key's value from the highest active entry. */
   readonly resolved: Values.Values
-  /** The base layer, the first link of a key's Base value (ADR-0022). */
+  /** The base entry, the first link of a key's Base value (ADR-0022). */
   readonly base: Values.Values
   /** Whether a drag holds the translate keys (ADR-0004's strip). */
   readonly dragging: boolean
-  /** The variant name (or list, #297) the base layer resolved: its own `animate`'s, else the one it inherits; none for a values map. */
+  /** The variant name (or list, #297) the base entry resolved: its own `animate`'s, else the one it inherits; none for a values map. */
   readonly variant: WardicVariantLabels | undefined
-  /** The layers it was resolved with (#257): a landing's gestures are the ones its Retarget started with. */
+  /** The entries it was resolved with (#257): a landing's gestures are the ones its Retarget started with. */
   readonly active: Active
-  /** The base target's own transition (#277): the keys the base layer drives animate on it. */
+  /** The base target's own transition (#277): the keys the base entry drives animate on it. */
   readonly transition: WardicVariantTransition | undefined
   /**
-   * The Override stack's layers (#291): the base, then each gesture's, lowest first. A Retarget runs
-   * each key on the own transition of the highest active layer that sets it.
+   * The Override stack's entries (#291): the base, then each gesture's, lowest first. A Retarget runs
+   * each key on the own transition of the highest active entry that sets it.
    */
-  readonly layers: ReadonlyArray<Layer>
+  readonly layers: ReadonlyArray<OverrideEntry>
   /** The names its active gesture layers resolved (#291): its own `while*` names, else those it took. */
   readonly names: GestureNames
   /**
@@ -323,9 +323,9 @@ export interface Resolution {
    * animates (`animation-state.ts`).
    */
   readonly layersOn: GestureStates
-  /** Its layers' **Transition ends** (#428), when any active one has one. */
+  /** Its entries' **Transition ends** (#428), when any active one has one. */
   readonly ends: Ends | undefined
-  /** Each key's **Keyframes**, as the layer that drives it gives them (#429), when any active layer has some. */
+  /** Each key's **Keyframes**, as the entry that drives it gives them (#429), when any active entry has some. */
   readonly keyframes: KeyframesNow | undefined
   /**
    * The **Controls change** in effect (#433): its own controls' latest, else the one its provider is
@@ -335,11 +335,11 @@ export interface Resolution {
 }
 
 /**
- * A key's **Keyframes** as a Retarget resolves them (#429): their stops, and the layer that drives the
+ * A key's **Keyframes** as a Retarget resolves them (#429): their stops, and the entry that drives the
  * key, by its place in the Override stack and the variant name it resolved. Two are the same when all
  * three are, Motion's rule for when Keyframes play again (`animation-state.ts`): an equal list, stop by
- * stop, that a re-render makes runs on, where new stops, another layer driving the key (a hover over it
- * ending) or a new name for its layer (`variantDidChange`) plays them again from their first stop.
+ * stop, that a re-render makes runs on, where new stops, another entry driving the key (a hover over it
+ * ending) or a new name for its entry (`variantDidChange`) plays them again from their first stop.
  */
 export interface KeyframesAt {
   readonly stops: Style.Stops
@@ -351,8 +351,8 @@ export interface KeyframesAt {
 export type KeyframesNow = Readonly<Record<string, KeyframesAt>>
 
 /**
- * A resolution's **Transition ends** (#428): each key only a layer's Transition end sets, with the
- * layer that drives it (the highest active one that sets it, as for any key), and each layer's end
+ * A resolution's **Transition ends** (#428): each key only an entry's Transition end sets, with the
+ * entry that drives it (the highest active one that sets it, as for any key), and each entry's end
  * values for the keys it drives, a key it also animates among them.
  */
 export interface Ends {
@@ -361,31 +361,31 @@ export interface Ends {
 }
 
 /**
- * One layer of the Override stack (#291): whether it's on, its values, its target's own transition,
- * and the variant name it resolved (#297), `undefined` for a values map. A list of names is a layer
+ * One entry of the Override stack (#291): whether it's on, its values, its target's own transition,
+ * and the variant name it resolved (#297), `undefined` for a values map. A list of names is an entry
  * a name, in order.
  */
-export interface Layer {
+export interface OverrideEntry {
   readonly active: boolean
   readonly values: Values.Values
   readonly transition: WardicVariantTransition | undefined
   readonly name: string | undefined
-  /** Its target's **Transition end** (#428): its keys are the layer's, set once its animated keys land. */
+  /** Its target's **Transition end** (#428): its keys are the entry's, set once its animated keys land. */
   readonly ends: Values.Values
   /** Its target's **Keyframes** (#429): each such key's stops, its value in `values` their last. */
   readonly keyframes: Keyframes | undefined
 }
 
 /** A gesture layer that's off: nothing is resolved for it. */
-const OFF: Layer = { active: false, values: {}, transition: undefined, name: undefined, ends: {}, keyframes: undefined }
+const OFF: OverrideEntry = { active: false, values: {}, transition: undefined, name: undefined, ends: {}, keyframes: undefined }
 
 /**
- * A gesture's layer (#291), while it's on (its own, or its provider's): its own `while*` (a target, or
+ * A gesture layer (#291), while it's on (its own, or its provider's): its own `while*` (a target, or
  * a variant name), else the label its provider hands down. Off, or with neither, nothing is resolved.
  * Whether it set values or a Transition end (#470).
  */
 const gestureLayersInto = (
-  layers: Array<Layer>,
+  layers: Array<OverrideEntry>,
   own: Entry,
   on: boolean,
   label: WardicVariantLabels | undefined,
@@ -402,7 +402,7 @@ const gestureLayersInto = (
     layers.push(OFF)
     return false
   }
-  // A list is a layer a name, in order (#297): the last name that sets a key drives it.
+  // A list is an entry a name, in order (#297): the last name that sets a key drives it.
   if (Arr.isArray(entry)) {
     let sets = false
     Arr.forEach(resolveTargets(entry, variants, custom, state), (target) => {
@@ -418,10 +418,10 @@ const gestureLayersInto = (
 }
 
 /**
- * Whether a gesture's layer sets values or a Transition end (#470). A values map with none sets
+ * Whether a gesture layer sets values or a Transition end (#470). A values map with none sets
  * nothing; a name that resolves none is told by its name (`names`), as Motion animates it.
  */
-const setsValues = (layer: Layer): boolean => {
+const setsValues = (layer: OverrideEntry): boolean => {
   if (hasKeys(layer.values)) return true
   return hasKeys(layer.ends)
 }
@@ -436,7 +436,7 @@ const gesturesOnOf = (active: Active, above: GestureHandDown): GestureStates => 
 }
 
 /**
- * The name each gesture's layer resolves while it's on (#291): its own `while*`, if a name, else the
+ * The name each gesture layer resolves while it's on (#291): its own `while*`, if a name, else the
  * label it took. With none on, the shared empty one: nothing made.
  */
 const activeNamesFor = (c: WardConfig, on: GestureStates, labels: GestureNames): GestureNames => {
@@ -448,17 +448,17 @@ const activeNamesFor = (c: WardConfig, on: GestureStates, labels: GestureNames):
 const anyOn = (on: GestureStates): boolean => on.inView || on.focused || on.hovered || on.pressed || on.dragged
 
 /**
- * Whether an active layer's name delays its keys otherwise than the first layer's (#297): a Variant
+ * Whether an active entry's name delays its keys otherwise than the first entry's (#297): a Variant
  * child's names each take their own stagger slot. Never for an element that joins none, nor for one
- * layer.
+ * entry.
  */
-const delaysDiffer = (layers: ReadonlyArray<Layer>, extraDelay: ((name: string | undefined) => number) | undefined, extra: number): boolean => {
+const delaysDiffer = (layers: ReadonlyArray<OverrideEntry>, extraDelay: ((name: string | undefined) => number) | undefined, extra: number): boolean => {
   if (Bool.or(Predicate.isUndefined(extraDelay), layers.length < 2)) return false
   return Arr.some(layers, (layer) => Bool.and(layer.active, extraOf(extraDelay, layer) !== extra))
 }
 
-/** A layer's stagger delay (ADR-0007, #297): its name's, for a Variant child; 0 for any other element. */
-const extraOf = (extraDelay: ((name: string | undefined) => number) | undefined, layer: Layer | undefined): number => {
+/** An entry's stagger delay (ADR-0007, #297): its name's, for a Variant child; 0 for any other element. */
+const extraOf = (extraDelay: ((name: string | undefined) => number) | undefined, layer: OverrideEntry | undefined): number => {
   if (Predicate.isUndefined(extraDelay)) return 0
   if (Predicate.isUndefined(layer)) return extraDelay(undefined)
   return extraDelay(layer.name)
@@ -466,7 +466,7 @@ const extraOf = (extraDelay: ((name: string | undefined) => number) | undefined,
 
 /**
  * The transition a key group runs on (#291, #297): unsplit, the base's (`transition`, its delay
- * folded in); split, its layer's own, else the element's, at its name's delay. A list's first
+ * folded in); split, its entry's own, else the element's, at its name's delay. A list's first
  * group carries its returns too, which run on the element's transition, as a list's base has no one
  * transition of its own.
  */
@@ -561,18 +561,18 @@ interface Running extends Machine.RunOptions {
 const NO_RUNNING: ReadonlyArray<Running> = []
 
 /**
- * A layer's Transition end waiting for its keys to land (#428, #508): no fiber of its own. Its `running`
+ * An entry's Transition end waiting for its keys to land (#428, #508): no fiber of its own. Its `running`
  * holds the keys only it sets, counts toward its landing and is given up as any leg's; the landing of
  * its keys' last leg makes it due, and it's written at the next flush.
  */
 interface PendingEnd {
   readonly running: Running
-  /** The keys its layer animates, each held by the leg drawing it. */
+  /** The keys its entry animates, each held by the leg drawing it. */
   readonly animated: ReadonlyArray<string>
   /** Its end values, the keys it also animates among them. */
   readonly writes: Values.Values
   /**
-   * An end that owns no key, its values all keys its layer animates: the leg drawing each of
+   * An end that owns no key, its values all keys its entry animates: the leg drawing each of
    * `animated` as it was made. Nothing gives such an end up, so a key's leg given up or replaced
    * before it lands, the target interrupted, drops it (ADR-0057 Q1). Undefined for one that owns keys,
    * which an interrupt gives up.
@@ -583,7 +583,7 @@ interface PendingEnd {
 
 /** An element's waiting Transition ends (#508). */
 interface WaitingEnds {
-  /** A layer's end, waiting for its keys, or due already when they've landed. */
+  /** An entry's end, waiting for its keys, or due already when they've landed. */
   readonly add: (end: PendingEnd) => void
   /** A leg landed: each end whose keys now all have is due, written at the next flush. */
   readonly land: () => void
@@ -839,8 +839,8 @@ const groupsOfLeg = (running: Running, groups: ReadonlyArray<ReadonlySet<string>
   return Arr.filter(Arr.makeBy(groups.length, identity), (g) => Arr.some(keys, (key) => UndefinedOr.match(groups[g], { onUndefined: constFalse, onDefined: (group) => group.has(key) })))
 }
 
-/** Each layer's gate shut now (#297's PR 2): a named one whose `when` holds its keys back. */
-const shutOf = (layers: ReadonlyArray<Layer>, byName: NameOrchestration | undefined): ReadonlyArray<boolean> | undefined => {
+/** Each entry's gate shut now (#297's PR 2): a named one whose `when` holds its keys back. */
+const shutOf = (layers: ReadonlyArray<OverrideEntry>, byName: NameOrchestration | undefined): ReadonlyArray<boolean> | undefined => {
   if (Predicate.isUndefined(byName)) return undefined
   return Arr.map(layers, (layer) => {
     const name = layer.name
@@ -849,7 +849,7 @@ const shutOf = (layers: ReadonlyArray<Layer>, byName: NameOrchestration | undefi
   })
 }
 
-/** Whether any layer's gate is shut (#297's PR 2): none without a list. */
+/** Whether any entry's gate is shut (#297's PR 2): none without a list. */
 const anyShutOf = (shut: ReadonlyArray<boolean> | undefined): boolean => {
   if (Predicate.isUndefined(shut)) return false
   return Arr.some(shut, identity)
@@ -965,8 +965,8 @@ const listingOf = (of: ListingOf): Listing => {
   return { names, legGates }
 }
 
-/** The name a leg of key group `g` waits for, if its layer's gate is shut (#297's PR 2): a list's returns wait for none. */
-const gateNameOf = (layers: ReadonlyArray<Layer>, shut: ReadonlyArray<boolean>, g: number): string | undefined => {
+/** The name a leg of key group `g` waits for, if its entry's gate is shut (#297's PR 2): a list's returns wait for none. */
+const gateNameOf = (layers: ReadonlyArray<OverrideEntry>, shut: ReadonlyArray<boolean>, g: number): string | undefined => {
   if (shut[g] !== true) return undefined
   return UndefinedOr.match(layers[g], { onUndefined: constUndefined, onDefined: (layer) => layer.name })
 }
@@ -1025,11 +1025,11 @@ const gatedBy = <R,>(
   )
 }
 
-/** Whether a layer is on with its own transition: hoisted, as it's asked per Retarget. */
-const hasOwnTransition = (layer: Layer): boolean => Bool.and(layer.active, Predicate.isNotUndefined(layer.transition))
+/** Whether an entry is on with its own transition: hoisted, as it's asked per Retarget. */
+const hasOwnTransition = (layer: OverrideEntry): boolean => Bool.and(layer.active, Predicate.isNotUndefined(layer.transition))
 
-/** A target as an active layer, with the name it resolved. */
-const layerOf = (target: Target, name: string | undefined): Layer => ({
+/** A target as an active entry, with the name it resolved. */
+const layerOf = (target: Target, name: string | undefined): OverrideEntry => ({
   active: true,
   values: target.values,
   transition: target.transition,
@@ -1038,42 +1038,42 @@ const layerOf = (target: Target, name: string | undefined): Layer => ({
   keyframes: target.keyframes,
 })
 
-/** A list's target as an active layer (#297). */
-const namedLayerOf = (target: NamedTarget): Layer => layerOf(target, target.name)
+/** A list's target as an active entry (#297). */
+const namedLayerOf = (target: NamedTarget): OverrideEntry => layerOf(target, target.name)
 
-/** A target's Transition end as a layer's (#428): none shared, so the common case allocates nothing. Per layer, per Retarget (#460): a guard. */
+/** A target's Transition end as an entry's (#428): none shared, so the common case allocates nothing. Per entry, per Retarget (#460): a guard. */
 const endsOfTarget = (target: Target): Values.Values => {
   if (Predicate.isUndefined(target.transitionEnd)) return NO_VALUES
   return target.transitionEnd
 }
 
-/** Whether a layer is on with a Transition end (#428). */
-const hasEnds = (layer: Layer): boolean => Bool.and(layer.active, layer.ends !== NO_VALUES)
+/** Whether an entry is on with a Transition end (#428). */
+const hasEnds = (layer: OverrideEntry): boolean => Bool.and(layer.active, layer.ends !== NO_VALUES)
 
-/** The highest active layer that sets `key`, in its values or its Transition end (#428). */
-const driverOf = (layers: ReadonlyArray<Layer>, key: string): number =>
+/** The highest active entry that sets `key`, in its values or its Transition end (#428). */
+const driverOf = (layers: ReadonlyArray<OverrideEntry>, key: string): number =>
   Option.getOrElse(Arr.findLastIndex(layers, (layer) => Bool.and(layer.active, Bool.or(Object.hasOwn(layer.values, key), Object.hasOwn(layer.ends, key)))), () => -1)
 
 /**
- * The Override stack resolved (#428): `Override.resolve` as before when no active layer has a
- * Transition end; else over each layer's values and end values, its values winning a key both set, so
- * a key only an end sets is the layer's (Motion's `{ ...target, ...transitionEnd }`), and the ends
- * each layer drives.
+ * The Override stack resolved (#428): `Override.resolve` as before when no active entry has a
+ * Transition end; else over each entry's values and end values, its values winning a key both set, so
+ * a key only an end sets is the entry's (Motion's `{ ...target, ...transitionEnd }`), and the ends
+ * each entry drives.
  */
-const resolvedOf = (layers: ReadonlyArray<Layer>): Resolved => {
+const resolvedOf = (layers: ReadonlyArray<OverrideEntry>): Resolved => {
   if (!Arr.some(layers, hasEnds)) {
     const resolved = Override.resolve(layers)
     return { resolved, ends: undefined, keyframes: keyframesNowOf(layers, resolved) }
   }
-  const merged = Arr.map(layers, (layer): Layer => Bool.match(hasEnds(layer), { onTrue: () => ({ ...layer, values: { ...layer.ends, ...layer.values } }), onFalse: () => layer }))
+  const merged = Arr.map(layers, (layer): OverrideEntry => Bool.match(hasEnds(layer), { onTrue: () => ({ ...layer, values: { ...layer.ends, ...layer.values } }), onFalse: () => layer }))
   const resolved = Override.resolve(merged)
   const endOnly = new Map<string, number>()
   const byLayer: Array<Record<string, number | string> | undefined> = Arr.makeBy(layers.length, constUndefined)
   Arr.forEach(Rec.keys(resolved), (key) => {
     const at = driverOf(layers, key)
     const layer = layers[at]
-    if (Bool.or(Predicate.isUndefined(layer), Bool.not(Object.hasOwn((layer as Layer).ends, key)))) return
-    const driving = layer as Layer
+    if (Bool.or(Predicate.isUndefined(layer), Bool.not(Object.hasOwn((layer as OverrideEntry).ends, key)))) return
+    const driving = layer as OverrideEntry
     if (Bool.not(Object.hasOwn(driving.values, key))) endOnly.set(key, at)
     const into = UndefinedOr.match(byLayer[at], { onUndefined: (): Record<string, number | string> => ({}), onDefined: identity })
     into[key] = driving.ends[key] as number | string
@@ -1082,34 +1082,34 @@ const resolvedOf = (layers: ReadonlyArray<Layer>): Resolved => {
   return { resolved, ends: { endOnly, byLayer }, keyframes: keyframesNowOf(layers, resolved) }
 }
 
-/** The Override stack resolved: each key's value, its layers' Transition ends (#428) and Keyframes (#429). */
+/** The Override stack resolved: each key's value, its entries' Transition ends (#428) and Keyframes (#429). */
 interface Resolved {
   readonly resolved: Values.Values
   readonly ends: Ends | undefined
   readonly keyframes: KeyframesNow | undefined
 }
 
-/** Whether a layer is on with Keyframes (#429). Per layer, per Retarget (#452): guards, nothing built. */
-const hasKeyframes = (layer: Layer): boolean => {
+/** Whether an entry is on with Keyframes (#429). Per entry, per Retarget (#452): guards, nothing built. */
+const hasKeyframes = (layer: OverrideEntry): boolean => {
   if (Predicate.isUndefined(layer.keyframes)) return false
   return layer.active
 }
 
 /**
- * Each resolved key's Keyframes (#429): the stops of the layer that drives it, when that layer gives
- * it Keyframes. `undefined`, with nothing made, when no active layer has any: every element's common
+ * Each resolved key's Keyframes (#429): the stops of the entry that drives it, when that entry gives
+ * it Keyframes. `undefined`, with nothing made, when no active entry has any: every element's common
  * case.
  */
-const keyframesNowOf = (layers: ReadonlyArray<Layer>, resolved: Values.Values): KeyframesNow | undefined => {
+const keyframesNowOf = (layers: ReadonlyArray<OverrideEntry>, resolved: Values.Values): KeyframesNow | undefined => {
   if (!Arr.some(layers, hasKeyframes)) return undefined
   const now: Record<string, KeyframesAt> = {}
   Arr.forEach(Rec.keys(resolved), (key) => {
     const at = driverOf(layers, key)
     const layer = layers[at]
     if (Predicate.isUndefined(layer)) return
-    const stops = UndefinedOr.map((layer as Layer).keyframes, (byKey) => byKey[key])
-    if (Bool.or(Predicate.isUndefined(stops), Bool.not(Object.hasOwn((layer as Layer).values, key)))) return
-    now[key] = { stops: stops as Style.Stops, layer: at, name: (layer as Layer).name }
+    const stops = UndefinedOr.map((layer as OverrideEntry).keyframes, (byKey) => byKey[key])
+    if (Bool.or(Predicate.isUndefined(stops), Bool.not(Object.hasOwn((layer as OverrideEntry).values, key)))) return
+    now[key] = { stops: stops as Style.Stops, layer: at, name: (layer as OverrideEntry).name }
   })
   return Bool.match(Rec.isEmptyRecord(now), { onTrue: constUndefined, onFalse: (): KeyframesNow => now })
 }
@@ -1120,7 +1120,7 @@ const sameValues: Equivalence.Equivalence<Values.Values> = Rec.makeEquivalence(E
 
 /**
  * Whether two resolutions are the same target (#209, #470): the same values for the same keys, in
- * the base layer and resolved, the same drag, the same variant name, Keyframes and Transition ends,
+ * the base entry and resolved, the same drag, the same variant name, Keyframes and Transition ends,
  * and the same gesture layers on, with the same names. Motion's rule: a config that resolves to the
  * same values doesn't animate (a `transition` change applies from the next change), and a new
  * variant name does, even to the same values, as a gesture turning on or off does. Both bindings'
@@ -1136,14 +1136,14 @@ const sameLayersOn = (a: GestureStates, b: GestureStates): boolean => {
   return a.inView === b.inView && a.focused === b.focused && a.hovered === b.hovered && a.pressed === b.pressed && a.dragged === b.dragged
 }
 
-/** Two resolutions' active gesture names (#470): a named layer turning on or off, or a new name. None on both, the common case, at once. */
+/** Two resolutions' active gesture names (#470): a named entry turning on or off, or a new name. None on both, the common case, at once. */
 const sameNamesOn = (a: GestureNames, b: GestureNames): boolean => {
   if (a === b) return true
   return sameGestureNames(a, b)
 }
 
 /**
- * Two resolutions' Transition ends the same (#470), layer by layer: a key a layer both animates and
+ * Two resolutions' Transition ends the same (#470), entry by entry: a key an entry both animates and
  * ends resolves to its value, so its end is compared here. `undefined` on both, the common case, at once.
  */
 const sameEnds = (a: Ends | undefined, b: Ends | undefined): boolean => {
@@ -1154,13 +1154,13 @@ const sameEnds = (a: Ends | undefined, b: Ends | undefined): boolean => {
   return Bool.and(a.byLayer.length === y.length, Arr.every(a.byLayer, (ends, i) => sameEndsAt(ends, y[i])))
 }
 
-/** The value `key`'s Transition end sets it to in `ends` (#470): its driving layer's, the one layer that ends it. */
+/** The value `key`'s Transition end sets it to in `ends` (#470): its driving entry's, the one entry that ends it. */
 const endFor = (ends: Ends | undefined, key: string): number | string | undefined => {
   if (Predicate.isUndefined(ends)) return undefined
   return Option.match(Arr.findFirst(ends.byLayer, (values) => endsKey(values, key)), { onNone: constUndefined, onSome: (values) => (values as Values.Values)[key] })
 }
 
-/** Whether a layer's end values set `key`. */
+/** Whether an entry's end values set `key`. */
 const endsKey = (values: Values.Values | undefined, key: string): boolean => {
   if (Predicate.isUndefined(values)) return false
   return Object.hasOwn(values, key)
@@ -1177,7 +1177,7 @@ const endMoved = (last: Resolution | undefined, now: Resolution, key: string): b
   return endFor(last.ends, key) !== endFor(now.ends, key)
 }
 
-/** A layer's end values the same in two resolutions (#470): none on both, or the same values. */
+/** An entry's end values the same in two resolutions (#470): none on both, or the same values. */
 const sameEndsAt = (a: Values.Values | undefined, b: Values.Values | undefined): boolean => {
   if (a === b) return true
   if (Predicate.isUndefined(a)) return false
@@ -1194,7 +1194,7 @@ const sameStops = (a: Style.Stops, b: Style.Stops): boolean => Bool.or(a === b, 
  */
 const keepsStart = (key: string, start: number | string | undefined, target: number | string): boolean => {
   if (Predicate.isUndefined(start)) return false
-  return MeasuredPair.isMeasuredPair(key, start, target)
+  return MeasuredPair.needs(key, start, target)
 }
 
 /** The keys that may be Measured pairs (#430): those found, and each Keyframes key, its start now its first stop. */
@@ -1213,7 +1213,7 @@ const measuredOf = (element: HTMLElement, keys: ReadonlyArray<string>, from: Val
     const start = from[key]
     const target = to[key]
     if (Bool.or(Predicate.isUndefined(start), Predicate.isUndefined(target))) return
-    if (MeasuredPair.isMeasuredPair(key, start as number | string, target as number | string)) pairs[key] = { from: start as number | string, to: target as number | string }
+    if (MeasuredPair.needs(key, start as number | string, target as number | string)) pairs[key] = { from: start as number | string, to: target as number | string }
   })
   if (Rec.isEmptyRecord(pairs)) return undefined
   return MeasuredPair.measure(element, pairs, values)
@@ -1225,7 +1225,7 @@ const keyframesAtOf = (keyframes: KeyframesNow | undefined, key: string): Keyfra
   return keyframes[key]
 }
 
-/** Whether a key's Keyframes are the same (#429, {@link KeyframesAt}): its stops, its layer and that layer's name. */
+/** Whether a key's Keyframes are the same (#429, {@link KeyframesAt}): its stops, its entry and that entry's name. */
 export const sameKeyframesAt = (a: KeyframesAt | undefined, b: KeyframesAt | undefined): boolean => {
   // Per key, per Retarget (#452): guards, the common case (neither) first.
   if (a === b) return true
@@ -1252,7 +1252,7 @@ export type AnimationDefinition = WardicVariantLabels | Values.Values
 
 /**
  * A Retarget's `definition`, as Motion's `onAnimationStart` / `onAnimationComplete` hand it over
- * (#257): the variant name its base layer resolved, when that name differs from the last started
+ * (#257): the variant name its base entry resolved, when that name differs from the last started
  * Retarget's (`previous`), else the target's values. Motion's definition is per animation type: a
  * new `animate` variant animates as its name, and a gesture turning on or off as values (its own,
  * or the keys it leaves falling back), so a variant's name is only told when the variant changed.
@@ -1329,7 +1329,7 @@ interface NameSettles {
 }
 
 /**
- * A list's names, each told settled with the last leg of the keys it drives (#297): its layer's group,
+ * A list's names, each told settled with the last leg of the keys it drives (#297): its entry's group,
  * or every leg's when the keys aren't split, the running legs the Retarget carries among them (#325).
  * A name that drives none is told at once.
  */
@@ -1435,7 +1435,7 @@ export const animationCallbacks = (runtime: WardicRuntime, id: string): Animatio
   }
 }
 
-/** Which layers of the Override stack are active now, as the binding reads them. */
+/** Which entries of the Override stack are active now, as the binding reads them. */
 export interface Active {
   /** In view (#273): `whileInView` applies. */
   readonly inView: boolean
@@ -1475,7 +1475,7 @@ const baseTargetOf = (
  * initial when no animate) -> whileInView -> whileFocus -> whileHover -> whileTap -> whileDrag (#273
  * added the first two). `Override.resolve` picks the last active entry per key. Pure:
  * a binding computes it in a memo, so a config change, an inherited variant name's
- * (`parent.variant()`, read only when there's no `animate`) or a layer's drives a Retarget.
+ * (`parent.variant()`, read only when there's no `animate`) or an entry's drives a Retarget.
  */
 export const resolutionOf = (
   c: WardConfig,
@@ -1498,25 +1498,25 @@ export const resolutionOf = (
   //   (3) else the SSR-seeded `initial`.
   // Per Retarget, per element (#460, compose once): statements.
   const variant = variantOf(c.animate, parent)
-  // A list of names (#297, Motion's `VariantLabels`): a base layer a name, in order, so the last name
+  // A list of names (#297, Motion's `VariantLabels`): a base entry a name, in order, so the last name
   // that sets a key drives it. A single name or a values map takes the path below, as before.
   if (Arr.isArray(c.animate) || (Predicate.isUndefined(c.animate) && Arr.isArray(variant))) {
     const targets = resolveTargets(variant as ReadonlyArray<string>, variants, c.custom, state)
     const merged = mergedOf(targets)
-    const listLayers: Array<Layer> = Arr.map(targets, namedLayerOf)
+    const listLayers: Array<OverrideEntry> = Arr.map(targets, namedLayerOf)
     return withGestures(c, parent, listLayers, merged.values, variant, active, merged.transition, state, change)
   }
   // A dynamic variant resolves with this element's own `custom` (#277), as Motion's each child's.
   // Animation controls never reach here: its binding reads them once, each change its entry (#433).
   const target = baseTargetOf(c.animate as Entry | undefined, variant, variants, c.custom, state, initialLink)
   const base = target.values
-  const baseLayer: Layer = layerOf(target, variant as string | undefined)
+  const baseLayer: OverrideEntry = layerOf(target, variant as string | undefined)
   // A Variant child's gestures are on while its provider's are (#291, Motion's `setActive`), each on
   // its own `while*`, else the label the provider hands down. With no provider, its own: nothing made.
-  // The common case: nothing handed down and no gesture on. The base layer alone, and nothing else
+  // The common case: nothing handed down and no gesture on. The base entry alone, and nothing else
   // made or called, at every element's mount and Retarget.
   if (handDownFrom(parent) === NO_HAND_DOWN && !anyOn(active)) {
-    const alone: ReadonlyArray<Layer> = [baseLayer]
+    const alone: ReadonlyArray<OverrideEntry> = [baseLayer]
     const { resolved, ends, keyframes } = resolvedOf(alone)
     return { resolved, base, dragging: active.dragging, variant, active, transition: target.transition, layers: alone, names: NO_GESTURE_NAMES, layersOn: NO_GESTURE_STATES, ends, keyframes, change }
   }
@@ -1534,7 +1534,7 @@ const changeIn = (own: ControlsChange | undefined, parent: WardicVariantContextV
 
 /**
  * `resolution` run on its Controls change's override (#433, Motion's `transitionOverride`): its base
- * layers' own transitions beaten by it, its gestures' kept. The first Retarget for the change only.
+ * entries' own transitions beaten by it, its gestures' kept. The first Retarget for the change only.
  */
 const overriddenOf = (resolution: Resolution, override: WardicTransition): Resolution => {
   const variant = resolution.variant
@@ -1543,19 +1543,19 @@ const overriddenOf = (resolution: Resolution, override: WardicTransition): Resol
   return {
     ...resolution,
     transition: override as WardicVariantTransition,
-    layers: Arr.map(resolution.layers, (layer, i) => Bool.match(i < base, { onTrue: (): Layer => ({ ...layer, transition: override as WardicVariantTransition }), onFalse: () => layer })),
+    layers: Arr.map(resolution.layers, (layer, i) => Bool.match(i < base, { onTrue: (): OverrideEntry => ({ ...layer, transition: override as WardicVariantTransition }), onFalse: () => layer })),
   }
 }
 
 /**
- * A resolution from its base layers (one, or one a name of a list, #297) and its gesture layers on
- * top (#291), each gesture's a layer a name too: the Override stack resolved, and the names its
+ * A resolution from its base entries (one, or one a name of a list, #297) and its gesture layers on
+ * top (#291), each gesture's an entry a name too: the Override stack resolved, and the names its
  * active gestures resolved.
  */
 const withGestures = (
   c: WardConfig,
   parent: WardicVariantContextValue | undefined,
-  layers: Array<Layer>,
+  layers: Array<OverrideEntry>,
   base: Values.Values,
   variant: WardicVariantLabels | undefined,
   active: Active,
@@ -1591,7 +1591,7 @@ const withGestures = (
 export interface Start {
   /** Its Starting style's values: its `initial` (own or inherited, #50), or its `animate` when it starts there. */
   readonly initialValues: Values.Values
-  /** Its `initial` link in the Base-value chain and its fallback base layer: none when it started at `animate`. */
+  /** Its `initial` link in the Base-value chain and its fallback base entry: none when it started at `animate`. */
   readonly initialLink: Values.Values
   /** When it started at `animate`, those values, which come after `style` (Motion's `baseTarget`, ADR-0022). */
   readonly startedLink: Values.Values
@@ -1910,7 +1910,7 @@ export interface ElementSpine {
   readonly dispose: () => void
   /**
    * Start where a leaver is drawn (#286, ADR-0048), before the first Retarget: each key's value and
-   * velocity, drawn now. A key no layer sets returns to its Base value from there, as one a Retarget
+   * velocity, drawn now. A key no entry sets returns to its Base value from there, as one a Retarget
    * drove does.
    */
   readonly seed: (from: PresenceSeed) => void
@@ -1960,7 +1960,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   // frozen half-way, and a key that settled has left them, so a Retarget of the same
   // target (a `when` gate reopening, ADR-0007) leaves it be. On a drag element, the keys
   // the drag moves leave the return while it runs, so they stay where it dropped them (C9)
-  // until a layer sets them again; a projected element's drag moves none, its projection
+  // until an entry sets them again; a projected element's drag moves none, its projection
   // target does (ADR-0016), and its own translate returns as any key does (#363).
   const driven = new Map<string, number | string>()
   let returning = new Map<string, BaseValue.BaseSource>()
@@ -2331,7 +2331,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
    * through its release, unless this Retarget gives the release's axis a new target. Then it takes
    * them from the release (#340, ADR-0016 *Amendment (#340)*), as a newer animation of Motion's value
    * stops the one running, and they go on from where the release has them, at its velocity. A key a
-   * layer stops setting is no new target: it stays where the drag dropped it (ADR-0022).
+   * entry stops setting is no new target: it stays where the drag dropped it (ADR-0022).
    */
   const dragHolds = (resolution: Resolution): boolean => {
     const { x, y } = resolution.resolved
@@ -2396,7 +2396,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       if (resolved[key] !== was) taken.delete(key)
     })
 
-    // A key a Retarget drove and no layer sets now returns to its Base value
+    // A key a Retarget drove and no entry sets now returns to its Base value
     // (ADR-0022); with none, it stays where it is (as before #47).
     const t: Values.Values = { ...resolved }
     Arr.forEach(Rec.keys(resolved), (key) => {
@@ -2487,7 +2487,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // The Retarget's transitions, read before its keys: a key already there asks its own for a
     // velocity (#448).
     const elementTransition = ownOrInherited(c.transition, parent)
-    // The base target's own transition (#277): the keys its layer drives animate on it.
+    // The base target's own transition (#277): the keys its entry drives animate on it.
     const baseTransition = transitionOfTarget(resolution.transition, elementTransition)
     // Fold the per-child stagger delay (ADR-0007) into the effective
     // transition.delay = base.delay + computedDelay. extraDelay() is read
@@ -2496,7 +2496,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     const layers = resolution.layers
     const extra = extraOf(extraDelay, layers[0])
     const transition = staggeredOf(baseTransition, extra, options.reuse)
-    // With a layer's own transition (#277, #291), each key animates on its layer's: the base's keys
+    // With an entry's own transition (#277, #291), each key animates on its entry's: the base's keys
     // on the base target's, each active gesture's on its target's, else the element's, as Motion's
     // each animation type runs on its own.
     // A list's names (#297) split them too, each name's at its own delay; a list's returns run on the
@@ -2504,10 +2504,10 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // Guards, not matches: per Retarget, per element. A list's work (#297) is done apart, for a list:
     // the Retarget's other calls keep their inlining (docs/agents/effect-first.md).
     const listed = Arr.isArray(resolution.variant)
-    // A list's names each wait for their own `when` (#297's PR 2): the layers whose gate is shut now.
+    // A list's names each wait for their own `when` (#297's PR 2): the entries whose gate is shut now.
     let shut: ReadonlyArray<boolean> | undefined
     if (listed) shut = shutOf(layers, byName)
-    // Every key the Retarget resolves goes in its layer's group, the ones that stay too (#325): a
+    // Every key the Retarget resolves goes in its entry's group, the ones that stay too (#325): a
     // name's settle waits for them.
     const groups = keysByLayerOf(t, layers, extraDelay, extra, listed, shut)
     // Per key (#325, Motion's): a key whose running leg heads where this Retarget resolves it runs
@@ -2524,7 +2524,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     let carried: Array<Running> | undefined
     let there: Record<string, number | string> | undefined
     const started: Record<string, string> = {}
-    // Each key's Keyframes (#429), when any layer gives some: a key's carries on only toward the same.
+    // Each key's Keyframes (#429), when any entry gives some: a key's carries on only toward the same.
     const keyframesNow = resolution.keyframes
     // The keys whose two ends may be a Measured pair (#430), found in the pass below.
     let measuring: Array<string> | undefined
@@ -2560,7 +2560,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       startKey(key, like, started)
       // A Measured pair (#430): its two ends of different types, found in this pass, so a Retarget
       // with none builds nothing for them.
-      if (MeasuredPair.isMeasuredPair(key, UndefinedOr.getOrThrow(snapshot.values[key]), like)) {
+      if (MeasuredPair.needs(key, UndefinedOr.getOrThrow(snapshot.values[key]), like)) {
         if (Predicate.isUndefined(measuring)) measuring = []
         measuring.push(key)
       }
@@ -2608,8 +2608,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // no start, no landing, and no list's names. It starts no leg, so it lands at once.
     const silent = quiet && Rec.isEmptyRecord(fresh) && Predicate.isUndefined(carried)
     quiet = false
-    // A key only a Transition end sets (#428) starts no leg of its own: its layer's end leg holds it
-    // where it is, and sets it once the layer's animated keys land.
+    // A key only a Transition end sets (#428) starts no leg of its own: its entry's end leg holds it
+    // where it is, and sets it once the entry's animated keys land.
     const ends = resolution.ends
     let freshEnds: Values.Values = NO_VALUES
     if (Predicate.isNotUndefined(ends)) {
@@ -2743,8 +2743,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       own(running)
       runLeg(running, legProgram(leg, running, variables))
     })
-    // Each layer's Transition end (#428): a leg holding the keys only its end sets where they are,
-    // waiting for the keys the layer animates to land (the legs drawing them now, this Retarget's or
+    // Each entry's Transition end (#428): a leg holding the keys only its end sets where they are,
+    // waiting for the keys the entry animates to land (the legs drawing them now, this Retarget's or
     // carried), then setting its end values, the keys it also animates among them. It counts toward
     // this landing, so the landing includes it. A later Retarget that resolves its keys to the same
     // values carries it (#325); one that doesn't gives them up, and it never sets them.
@@ -2826,7 +2826,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   }
 
   // --- Live values in `style` (#130, ADR-0043) ------------------------------
-  // A routed key (a Live value, or a transform key) is its `style` link, live: while no layer of
+  // A routed key (a Live value, or a transform key) is its `style` link, live: while no entry of
   // the Override stack sets it, no return is running to it and no drag moves it, the element
   // follows it, written through the gate on every change. A return hands it back here when it
   // settles (`settleReturns`). The Starting style showed each one's value at render; from mount
@@ -2950,7 +2950,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       if (!Object.hasOwn(initialValues, key)) ownValue(key)
       const like = UndefinedOr.getOrThrow(to[key])
       startKey(key, like, started)
-      if (MeasuredPair.isMeasuredPair(key, UndefinedOr.getOrThrow(snapshot.values[key]), like)) {
+      if (MeasuredPair.needs(key, UndefinedOr.getOrThrow(snapshot.values[key]), like)) {
         if (Predicate.isUndefined(measuring)) measuring = []
         measuring.push(key)
       }

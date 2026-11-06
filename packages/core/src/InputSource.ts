@@ -278,12 +278,11 @@ export class InputSource extends Context.Service<InputSource, {
    * Hands `raw`, the platform's event of a pointer pressed elsewhere, to `target`, as drag controls
    * start a drag from a handle: delivered on `adoptablePointer(target)` (`pointer(target)` without one)
    * as an `adopted` down at its point, inside this call, and held from there as a down on the target
-   * is. The down as delivered, or `undefined`, delivering nothing, when `raw` isn't a pressed pointer's
-   * event.
+   * is. The down as delivered, or none, delivering nothing, when `raw` isn't a pressed pointer's event.
    */
-  // #431: **Drag controls**.
-  readonly adoptPointer: (target: unknown, raw: unknown) => PointerLikeEvent | undefined
-}>()("@wardic/InputSource") {}
+  // #431: **Drag controls**. An `Option` (#618, A1): a down that may not be there, outside the per-frame path.
+  readonly adoptPointer: (target: unknown, raw: unknown) => Option.Option<PointerLikeEvent>
+}>()("@wardic/core/InputSource") {}
 
 /**
  * `target`'s pointer feed with the downs `adoptPointer` hands it: `input`'s `adoptablePointer`, or its

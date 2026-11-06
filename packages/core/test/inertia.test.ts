@@ -163,7 +163,7 @@ describe("Machine.inertiaValues (#435)", () => {
 
   it("IV1: each key steps as Machine.inertia does, from its own velocity, else the options'", () => {
     const options = { ...RELEASE, max: 100, bounceStiffness: 200, bounceDamping: 40, velocity: -200 }
-    const frames = runValues(Machine.inertiaValues({ x: 72, y: 10 }, options, { x: 1000 }))
+    const frames = runValues(Machine.inertiaValues({ x: 72, y: 10 }, options, { velocity: { x: 1000 } }))
     const x = run(Machine.inertia(72, 1000, options))
     const y = run(Machine.inertia(10, -200, options))
     expect(frames.length, "done with the later key").toBe(Math.max(x.length, y.length))

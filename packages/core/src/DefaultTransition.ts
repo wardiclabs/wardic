@@ -41,7 +41,7 @@ export class DefaultTransition extends Context.Service<DefaultTransition, {
    */
   // #429.
   readonly keyframes: KeyframesTransition
-}>()("@wardic/DefaultTransition") {}
+}>()("@wardic/core/DefaultTransition") {}
 
 /** One spring with core's defaults: stiffness 170, damping 26, mass 1. */
 export const ONE_SPRING: Transition = { type: "spring" }
@@ -55,7 +55,7 @@ export const ONE_TWEEN: KeyframesTransition = { type: "tween" }
  * `ONE_TWEEN`. The Test Environment's.
  *
  * @example
- * program.pipe(Effect.provide(DefaultTransition.oneSpring))
+ * program.pipe(Effect.provide(DefaultTransition.layerOneSpring))
  */
 // #429.
-export const oneSpring: Layer.Layer<DefaultTransition> = Layer.succeed(DefaultTransition, { transitionFor: () => ONE_SPRING, keyframes: ONE_TWEEN })
+export const layerOneSpring: Layer.Layer<DefaultTransition> = Layer.succeed(DefaultTransition, { transitionFor: () => ONE_SPRING, keyframes: ONE_TWEEN })

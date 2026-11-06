@@ -28,6 +28,7 @@ It builds nothing until the first element under it needs it. During a server ren
 | `strict` | In development, a `wardic.*` element under it throws. Read once. |
 | `reducedMotion` | `"user"` (the default) follows the visitor's setting, `"always"` reduces motion, `"never"` doesn't. See [Reduced motion](/guides/reduced-motion). |
 | `appear` | `false`: on a server-rendered page, entrances wait for the JavaScript. `"explain"` logs why each one that can't play waits. See [Server rendering](/guides/server-rendering). |
+| `nonce` | The nonce your page's Content Security Policy gives inline styles: the `<style>` a server render writes for its entrances carries it, and a streamed chunk's too. |
 | `scaleCorrectors` | Your own corrections of values a layout animation's scale would distort, by key: Motion's `addScaleCorrector`, given here. Read once. |
 
 The same props on both bindings. A [`WardicConfig`](/reference/solid/provider/wardic-config) sets the settings that change, for a subtree.

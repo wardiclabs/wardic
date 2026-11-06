@@ -41,7 +41,7 @@ const BRINGS: ReadonlyArray<Feature> = [layout]
 /**
  * The projection system of `value`'s provider, its `layout` Feature built now if nothing has built it
  * yet (#511, decision 12): what a component that brings it works with (`LayoutGroup`, `Reorder`,
- * `useLayoutMember`), whatever its section has. A clear error during a server render, which builds
+ * `createProjectionNode`), whatever its section has. A clear error during a server render, which builds
  * none (ADR-0021).
  */
 export const projectionBrought = (value: WardicContextValue): ProjectionSystem.Shape =>

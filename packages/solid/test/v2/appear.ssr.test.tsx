@@ -48,6 +48,8 @@
 //   waits for the JavaScript, naming its tag and keys; `true`, or no `appear`, says nothing.
 // - AR26 (#618, M6): two renders of a page whose rules blend colours give the same markup: the second
 //   samples them with the Interpolators the first built, which a server keeps.
+// - AR27 (#618, P1): the provider's `nonce`: the head's `<style>` carries it, and a late chunk's head
+//   patch too; with none, neither has one.
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
@@ -59,7 +61,7 @@ import { describe, expect, it, vi } from "vitest"
 import { keyOf } from "../../src/appear.ts"
 import { tagsOf } from "./ssr.ts"
 
-type ProviderProps = { readonly appear?: boolean | "explain"; readonly reducedMotion?: "user" | "always" | "never" }
+type ProviderProps = { readonly appear?: boolean | "explain"; readonly reducedMotion?: "user" | "always" | "never"; readonly nonce?: string }
 
 /** A whole document with a head, as a start-mode app renders it, and `ui` under a provider. */
 const page = (ui: () => JSX.Element, provider: ProviderProps = {}): string =>
@@ -390,7 +392,7 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
   })
 
   /** Stream `ui` as a document under a provider, each write as the stream sent it. */
-  const stream = (ui: () => JSX.Element): Promise<ReadonlyArray<string>> => {
+  const stream = (ui: () => JSX.Element, provider: ProviderProps = {}): Promise<ReadonlyArray<string>> => {
     const writes: Array<string> = []
     return new Promise((resolve) => {
       renderToStream(() => (
@@ -399,7 +401,9 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
             <title>t</title>
           </head>
           <body>
-            <WardicProvider env={DomLive}>{ui()}</WardicProvider>
+            <WardicProvider env={DomLive} {...provider}>
+              {ui()}
+            </WardicProvider>
           </body>
         </html>
       )).pipe({ write: (v) => void writes.push(v), end: () => resolve(writes) })
@@ -716,6 +720,27 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
     ])
     expect(said(() => page(ui)), "nothing without it").toEqual([])
     expect(said(() => page(ui, { appear: true })), "nor with true").toEqual([])
+  })
+
+  it("AR27: the provider's nonce: the head's style carries it, and a late chunk's patch too (#618)", async () => {
+    const html = page(() => <wardic.div {...rise} />, { nonce: "r4nd0m" })
+    expect(html, "the head's style").toMatch(/<style data-wardic-appear[^>]*nonce="r4nd0m"/)
+    expect(page(() => <wardic.div {...rise} />), "none without one").not.toContain("nonce=")
+    const writes = await stream(() => {
+      const data = after(20, true)
+      // Made by the data, so made late, as AR14's.
+      return (
+        <Loading fallback={<p>loading</p>}>
+          <Show when={data()}>
+            <wardic.p data-k="late" {...rise} />
+          </Show>
+        </Loading>
+      )
+    }, { nonce: "r4nd0m" })
+    const chunk = writes.slice(1).find((w) => w.includes('data-k="late"'))!
+    const patches = [...chunk.matchAll(/\(_\$HY\.hp=_\$HY\.hp\|\|\{\}\)\["[^"]+"\]=(\[\[[\s\S]*?\]\]);/g)].flatMap((m) => JSON.parse(m[1]!) as ReadonlyArray<ReadonlyArray<unknown>>)
+    const style = patches.find((patch) => patch[2] === "style")
+    expect((style?.[3] as Record<string, unknown> | undefined)?.["nonce"], "the late chunk's patch").toBe("r4nd0m")
   })
 
   it("AR26: two renders of a page whose rules blend colours give the same markup (#618)", () => {

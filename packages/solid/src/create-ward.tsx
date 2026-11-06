@@ -64,14 +64,14 @@ import {
 } from "solid-js"
 import { type ControlsChange, controlledConfigOf, controlledElement, isAnimationControls, subscribe, uncontrolledOf, type WardicAnimationControls } from "./animation-controls.ts"
 import { fromAtom, watchToSignal } from "./bridge.ts"
-import { settingOf, type WardicConfigValue, withConfigTransition } from "./wardic-config-value.ts"
+import { pointMapOptionOf, settingOf, type WardicConfigValue, withConfigTransition } from "./wardic-config-value.ts"
 import { dragTransitionOf, type DragTrack, type DragTrackConfig, runDragTrackWith } from "./drag.ts"
 import { createElementStyle } from "./element-style.ts"
 import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegistryOf, split } from "./live-style.ts"
 import { createVariantNode } from "./variant-node.ts"
 import { type GestureStates, type NameOrchestration, type ServerVariantNode, serverVariantNode, startingValuesOf, startsQuiet } from "./variant-tree.ts"
 import { registerAnimatable } from "./imperative.ts"
-import { layoutMemberOf, useLayoutGroupId } from "./layout.tsx"
+import { projectionNodeOf, useLayoutGroupId } from "./layout.tsx"
 import { layoutOptionsOf, wantsLayoutNode } from "./layout-member.ts"
 
 
@@ -668,7 +668,7 @@ export function runSpine(opts: RunSpineOptions): void {
         // Its node on `projection`, handed to a `<Reorder>` item's group; `takenNow`, where a child that
         // takes over from a leaver starts, at its mount only (#286).
         const layoutNodeOn = (projection: ProjectionSystem.Shape, takenNow: PresenceSeed | undefined): ProjectionSystem.NodeHandle => {
-          const handle = layoutMemberOf(projection, layoutOptionsOf({ ...ward, taken: takenNow }))
+          const handle = projectionNodeOf(projection, layoutOptionsOf({ ...ward, taken: takenNow }))
           if (Predicate.isNotUndefined(onLayoutHandle)) onLayoutHandle(handle)
           return handle
         }
@@ -865,7 +865,7 @@ export function runSpine(opts: RunSpineOptions): void {
           ),
         // Focused as the browser shows it (`:focus-visible`, Motion's `whileFocus`).
         focus: () => watchToSignal<boolean>((handlers) => gestureOf(FocusGesture).watch(element, { visible: true }, handlers), false),
-        pan: () => runWatch(runtime, (onDefect) => gestureOf(PanGesture).watch(element, { on: (sample) => gesturesOf().panned(sample), onDefect }, { mapPoint: pagePoint })),
+        pan: () => runWatch(runtime, (onDefect) => gestureOf(PanGesture).watch(element, { on: (sample) => gesturesOf().panned(sample), onDefect }, { mapPoint: pointMapOptionOf(pagePoint) })),
       })
       if (DEV && internal.complete !== true && internal.gestureless !== true) warnMissingGestures(useFeatureRegistry(), features, cfg)
 

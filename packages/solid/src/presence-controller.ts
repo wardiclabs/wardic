@@ -218,7 +218,7 @@ const exitMeasuredOf = (element: HTMLElement, from: Values.Values, to: Values.Va
 /** Whether a start and a target make a Measured pair (#430). */
 const keepsMeasured = (key: string, start: number | string | undefined, target: number | string): boolean => {
   if (Predicate.isUndefined(start)) return false
-  return MeasuredPair.isMeasuredPair(key, start, target)
+  return MeasuredPair.needs(key, start, target)
 }
 
 /** An exit's name when it's one name, for its delay; `undefined` for a list or a values map. */

@@ -8,7 +8,7 @@
 // - PV3: `usePresenceData()`: the presence's `custom`, reactive.
 // - PV4: the presence unmounted: a waiting `next("leave")` is rejected, and nothing leaves.
 import { DomLive } from "@wardic/dom"
-import { AnimatePresence, type IsPresent, type PresenceHold, useIsPresent, usePresence, usePresenceData, WardicProvider } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, type IsPresent, type PresenceExit, useIsPresent, usePresence, usePresenceData, WardicProvider } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
 import { createEffect, createSignal, flush, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
@@ -47,7 +47,7 @@ const mountOne = (child: () => JSX.Element, custom?: number) => {
 
 describe("the presence hooks on Solid 2 (#277)", () => {
   it("PV1: next('leave') resolves with custom; the child stays until safeToRemove()", async () => {
-    let presence!: PresenceHold
+    let presence!: PresenceExit
     const Item = (): JSX.Element => {
       presence = usePresence()
       return <li ref={presence} data-k="a" />
@@ -68,7 +68,7 @@ describe("the presence hooks on Solid 2 (#277)", () => {
 
   it("PV2: useIsPresent(): true, false from the leave", async () => {
     const reads: Array<boolean> = []
-    let hold!: PresenceHold
+    let hold!: PresenceExit
     let present!: IsPresent
     const Item = (): JSX.Element => {
       hold = usePresence()
@@ -109,7 +109,7 @@ describe("the presence hooks on Solid 2 (#277)", () => {
   })
 
   it("PV4: the presence unmounted: a waiting next('leave') is rejected", async () => {
-    let presence!: PresenceHold
+    let presence!: PresenceExit
     const Item = (): JSX.Element => {
       presence = usePresence()
       return <li ref={presence} data-k="a" />

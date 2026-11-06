@@ -29,7 +29,7 @@ const box = (parent: HTMLElement, left: number, top: number): HTMLElement =>
   el(parent, `position:absolute;left:${left}px;top:${top}px;width:40px;height:40px`)
 
 /** `id`'s entry in the system's tree now. */
-const nodeOf = (e: Engine, id: string): ProjectionSystem.NodeSnapshot => {
+const nodeOf = (e: Engine, id: string): ProjectionSystem.TreeNode => {
   const found = Arr.findFirst(e.system.toJSON().nodes, (node) => node.id === id)
   if (Option.isNone(found)) throw new Error(`no node ${id}`)
   return found.value

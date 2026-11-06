@@ -1,17 +1,17 @@
 ---
-title: useLayoutMember
+title: createProjectionNode
 description: Solid 1. Registers an element of your own with the provider's projection system as one layout node, as a w.* element with layout is.
-api: [useLayoutMember, UseLayoutMemberOptions]
+api: [createProjectionNode, CreateProjectionNodeOptions]
 ---
 
-# useLayoutMember
+# createProjectionNode
 
 **Solid 1 only.** Registers an element with its provider's projection system as one layout node, as a `w.*` element with `layout` or a `layoutId` is. It's for building an element of your own on Wardic's layout animations, such as a binding for another kind of component. An app gives `layout` to a `w.*` element or a [ward](/reference/solid/elements/ward) instead, which does this itself.
 
 ```tsx
-import { useLayoutMember } from "@wardic/solid"
+import { createProjectionNode } from "@wardic/solid"
 
-const node = useLayoutMember({
+const node = createProjectionNode({
   id,
   element,
   layoutDependency: () => props.items,
@@ -48,4 +48,4 @@ It also has the drag methods a draggable element's drag drives it through.
 
 ## Types
 
-- **`UseLayoutMemberOptions`:** its options.
+- **`CreateProjectionNodeOptions`:** its options.

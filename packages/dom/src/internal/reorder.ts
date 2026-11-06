@@ -316,7 +316,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
   const setLifted = (value: V, lifted: boolean): void => {
     const k = keyed.get(value)
     if (Predicate.isUndefined(k)) return
-    if (Option.isSome(k.handle)) k.handle.value.lift(lifted)
+    if (Option.isSome(k.handle)) k.handle.value.setLifted(lifted)
     k.onLift(lifted)
   }
   /** `value`'s index in the app's values now. */
@@ -388,7 +388,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
     if (event.handled) return
     if (Bool.not(event.fromTarget)) return
     // Keys during a pointer drag are left alone.
-    if (Option.isSome(MutableRef.get(group.gesture))) return
+    if (Reorder.isDragging(group)) return
     const lifted = Option.contains(Reorder.liftedValue(group), value)
     Option.match(Reorder.keyIntent(event.key), {
       onNone: constVoid,
@@ -439,7 +439,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
     // Not lifted, the arrows, Home and End keep their own work (scrolling the page).
     if (Bool.not(lifted)) return
     event.handle()
-    Option.match(Reorder.step(group, value, intent), {
+    Option.match(Reorder.moveLifted(group, value, intent), {
       onNone: constVoid,
       onSome: (placement) => {
         // A repeat before the last step's Measure pass moved nothing: nothing to say.

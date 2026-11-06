@@ -10,6 +10,7 @@ import type * as Values from "@wardic/core/Values"
 import * as Style from "@wardic/dom/Style"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -172,11 +173,11 @@ const resolveOne = (entry: WardicVariant | string | undefined, variants: WardicV
   // pass over its keys (#452).
   if (Bool.not(Predicate.isObject(target.transition))) {
     const split = Style.splitValues(target, "last")
-    return { values: split.values, transition: undefined, transitionEnd, keyframes: split.keyframes }
+    return { values: split.values, transition: undefined, transitionEnd, keyframes: Option.getOrUndefined(split.keyframes) }
   }
   const { transition, ...values } = target
   const split = Style.splitValues(values, "last")
-  return { values: split.values, transition: transition as WardicVariantTransition, transitionEnd, keyframes: split.keyframes }
+  return { values: split.values, transition: transition as WardicVariantTransition, transitionEnd, keyframes: Option.getOrUndefined(split.keyframes) }
 }
 
 /** A target's Transition end (#428), clean for core: none for anything but a values map, or an empty one. */

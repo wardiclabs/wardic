@@ -5,9 +5,9 @@ import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { describe, expect, it } from "vitest"
 import { changedIds, labelOf, mermaidOf, parentCycle, treesHolding, treesOf } from "../src/lab/tree.ts"
 
-type NodeSnapshot = ProjectionSystem.NodeSnapshot
+type TreeNode = ProjectionSystem.TreeNode
 
-const node = (id: string, more: Partial<NodeSnapshot> = {}): NodeSnapshot => ({
+const node = (id: string, more: Partial<TreeNode> = {}): TreeNode => ({
   id,
   tag: "div",
   layoutId: undefined,
@@ -21,7 +21,7 @@ const node = (id: string, more: Partial<NodeSnapshot> = {}): NodeSnapshot => ({
   leaving: false,
   ...more,
 })
-const snapshotOf = (...nodes: ReadonlyArray<NodeSnapshot>): ProjectionSystem.Snapshot => ({ _id: "ProjectionSystem", nodes })
+const snapshotOf = (...nodes: ReadonlyArray<TreeNode>): ProjectionSystem.Tree => ({ _id: "ProjectionSystem", nodes })
 
 // A stage holding a card that's the Lead of `hero`, its Follower elsewhere in the stage, and a
 // separate scene's lone node.

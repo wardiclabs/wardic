@@ -133,7 +133,7 @@ describe("springs step in closed form (#370)", () => {
 
   it("CF7: springValues' keys each run as a spring of their own", () => {
     const options = { stiffness: 300, damping: 10, mass: 2, restDelta: 1e-9, restSpeed: 1e-9 }
-    const step = Machine.springValues({ x: 100, y: -40 }, options, { x: 0, y: 10 }, { x: 200, y: 0 }).start()
+    const step = Machine.springValues({ x: 100, y: -40 }, options, { from: { x: 0, y: 10 }, velocity: { x: 200, y: 0 } }).start()
     const both = Array.from({ length: 30 }, () => ({ ...step(1 / 60).value }))
     const x = framesOf(Machine.spring(100, { ...options, from: 0, velocity: 200 }), Array.from({ length: 30 }, () => 1 / 60)).map((f) => f.value)
     const y = framesOf(Machine.spring(-40, { ...options, from: 10 }), Array.from({ length: 30 }, () => 1 / 60)).map((f) => f.value)
@@ -148,7 +148,7 @@ describe("springs step in closed form (#370)", () => {
     const one = framesOf(Machine.spring(100, options), [1 / 60, 1 / 60])
     expect(one[0]!.value, "1/60 − 0.01 s of it").toBeCloseTo(exactAt(170, 26, 1, 0, 0, 100, 1 / 60 - 0.01).x, 9)
     expect(one[1]!.value).toBeCloseTo(exactAt(170, 26, 1, 0, 0, 100, 2 / 60 - 0.01).x, 9)
-    const step = Machine.springValues({ x: 100 }, options, { x: 0 }).start()
+    const step = Machine.springValues({ x: 100 }, options, { from: { x: 0 } }).start()
     expect(step(1 / 60).value.x, "springValues: the same").toBeCloseTo(exactAt(170, 26, 1, 0, 0, 100, 1 / 60 - 0.01).x, 9)
   })
 })

@@ -18,6 +18,7 @@ import { expect, it } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Scope from "effect/Scope"
+import * as Option from "effect/Option"
 import * as Feeds from "../src/feeds.ts"
 
 type Name = "inner" | "outer"
@@ -31,7 +32,7 @@ const twoTargets = () => {
       pointer: (target) => hubs[target as Name].pointer.feed,
       keyboard: (target) => hubs[target as Name].keys.feed,
       focus: (target) => hubs[target as Name].focus.feed,
-      adoptPointer: () => undefined,
+      adoptPointer: () => Option.none(),
     }),
     /** A pointer event at `on` (the inner target, so the outer one too, or the outer one alone), as one platform event. */
     pointer: (type: InputSource.PointerLikeEvent["type"], on: Name, t: number) =>

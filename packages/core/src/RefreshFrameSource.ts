@@ -52,7 +52,7 @@ export interface Shape<Handle = unknown> {
 }
 
 /** The Environment's Refresh frame source. */
-export class RefreshFrameSource extends Context.Service<RefreshFrameSource, Shape>()("@wardic/RefreshFrameSource") {}
+export class RefreshFrameSource extends Context.Service<RefreshFrameSource, Shape>()("@wardic/core/RefreshFrameSource") {}
 
 /** A Layer that provides `source` as the Environment's Refresh frame source. */
 export const layer = (source: Shape): Layer.Layer<RefreshFrameSource> => Layer.succeed(RefreshFrameSource, source)

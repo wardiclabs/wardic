@@ -35,10 +35,9 @@ export type Sink<F> = (frame: F) => undefined
  * every other in each tick, for one that reads what the others wrote.
  */
 // `runLast` is the projection's coordinator's (ADR-0027, *Amendment (#137)*).
-export class FrameLoop extends Context.Service<FrameLoop, internal.Shape>()("@wardic/FrameLoop", {
-  make: internal.make,
-}) {}
+export class FrameLoop extends Context.Service<FrameLoop, internal.Shape>()("@wardic/core/FrameLoop") {}
 
 /** The Frame loop over the Environment's `Clock`. Every Environment merges it in. */
-// `DomLive`, `testLayer`.
-export const layer = Layer.effect(FrameLoop)(FrameLoop.make())
+// `DomLive`, `testLayer`. Built from the internal `make` (#618, C1): a service class with a `make` of its
+// own showed it to callers, who build the loop only through this Layer (ADR-0028, decision 11).
+export const layer = Layer.effect(FrameLoop)(internal.make())

@@ -37,7 +37,7 @@ export class Renderer extends Context.Service<Renderer, {
   readonly project: (values: Record<string, unknown>) => Patch
   /** Writes a patch onto `target`, now. */
   readonly commit: (target: unknown, patch: Patch) => void
-}>()("@wardic/Renderer") {}
+}>()("@wardic/core/Renderer") {}
 
 /**
  * Writes each Frame of `stream` onto `target`, projecting its values and committing them, one commit per

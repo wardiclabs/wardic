@@ -764,10 +764,10 @@ export interface RegisterNodeOptions {
   /**
    * The element's Path, read at each layout animation's start: a flight of 20 px or more curves its
    * centre along it, from where it starts to its box, its size still mixed straight, as Motion's
-   * `interpolateProjection`. Left out, every flight is straight.
+   * `interpolateProjection`. None, or left out, and every flight is straight.
    */
-  // #438, ADR-0065.
-  readonly path?: (() => Arc.Path | undefined) | undefined
+  // #438, ADR-0065; an `Option` (#618, A1).
+  readonly path?: (() => Option.Option<Arc.Path>) | undefined
   /**
    * The app's `onLayoutAnimationStart`, read when it fires: at the frame where a layout animation of
    * this node takes its first step, once per animation (restarts in one task are one). Not for a node
@@ -865,11 +865,11 @@ export interface RegisterNodeOptions {
   readonly onBeforeMeasure?: () => void
   /**
    * Called with the node's box each Measure pass measures it (Motion's `onLayoutMeasure`), after the
-   * read: in its Scroll-stable frame, Motion's page layout box, and the box before it, `undefined` at
-   * its first. Blocked passes included. A throw is reported, and the pass goes on.
+   * read: in its Scroll-stable frame, Motion's page layout box, and the box before it, none at its
+   * first. Blocked passes included. A throw is reported, and the pass goes on.
    */
-  // #443; ADR-0012.
-  readonly onMeasure?: (box: Box.Box, prev: Box.Box | undefined) => void
+  // #443; ADR-0012; an `Option` (#618, A1).
+  readonly onMeasure?: (box: Box.Box, prev: Option.Option<Box.Box>) => void
   /**
    * Its shared-element key: nodes with the same `layoutId` are twins, and one flies into the other, the
    * newest leading and the others following, crossfading. A twin removed in the same task as its twin
@@ -972,8 +972,8 @@ export interface ProjectionNodeHandle extends DragProjectionHandle {
   /** Asks for a measure at the end of the task, however many ask: this node's `layoutDependency` changed, say. */
   readonly notify: () => void
   /**
-   * The node's slot (its layout box) in the Scroll-stable frame, as of its last Measure pass;
-   * `undefined` before the first. A plain read: no layout read.
+   * The node's slot (its layout box) in the Scroll-stable frame, as of its last Measure pass; none
+   * before the first. A plain read: no layout read.
    */
   // ADR-0016, *Amendment (Reorder)*.
   readonly layoutBox: () => Option.Option<Box.Box>
@@ -995,8 +995,8 @@ export interface ProjectionNodeHandle extends DragProjectionHandle {
    * through the layout animations its steps start; `false` (its drop or cancel) leaves it raised (`1`)
    * until its last one lands, as a drag's release does, or drops the raise now at rest.
    */
-  // ADR-0037.
-  readonly lift: (on: boolean) => void
+  // ADR-0037. `setLifted`, as it sets either way (#618, F7).
+  readonly setLifted: (on: boolean) => void
   /** Unregisters the node, ending an animation in flight. */
   readonly dispose: () => void
 }
@@ -1137,20 +1137,20 @@ export interface ProjectionSystem extends Inspectable.Inspectable {
    * as the engine reads them.
    */
   // #384.
-  readonly toJSON: () => Snapshot
+  readonly toJSON: () => Tree
 }
 
 /** {@link ProjectionSystem.toJSON}'s tree. */
-// #384.
-export interface Snapshot {
+// #384. `Tree`, not `Snapshot`, which the glossary keeps for a binding's seed (#618, A3).
+export interface Tree {
   /** What it is, as Effect's `Inspectable` names it. */
   readonly _id: "ProjectionSystem"
   /** Every node, in the order it was registered. */
-  readonly nodes: ReadonlyArray<NodeSnapshot>
+  readonly nodes: ReadonlyArray<TreeNode>
 }
 
-/** One node in a {@link Snapshot}. */
-export interface NodeSnapshot {
+/** One node in a {@link Tree}. */
+export interface TreeNode {
   /** The id its binding registered it with. */
   readonly id: string
   /** Its element's tag, lower-case. */
@@ -1199,7 +1199,7 @@ interface NodeState {
   readonly element: HTMLElement
   readonly transition: () => Option.Option<LayoutTransition>
   /** Its Path, read at each flight's start (#438). */
-  readonly path: () => Arc.Path | undefined
+  readonly path: () => Option.Option<Arc.Path>
   /** The app's layout animation callbacks, read when they fire (#191, ADR-0039). */
   readonly onLayoutAnimationStart: () => Option.Option<() => void>
   readonly onLayoutAnimationComplete: () => Option.Option<() => void>
@@ -1229,7 +1229,7 @@ interface NodeState {
   readonly heldTransform: (() => string) | undefined
   /** Called as a Measure pass that measures it begins, and with its box after the read (#443); most nodes have neither. */
   readonly onBeforeMeasure: (() => void) | undefined
-  readonly onMeasure: ((box: Box.Box, prev: Box.Box | undefined) => void) | undefined
+  readonly onMeasure: ((box: Box.Box, prev: Option.Option<Box.Box>) => void) | undefined
   /**
    * What the node's handover blends from (ADR-0010 *Amendment (#166)*): the twin's radius, rotation
    * and, for a Switch, opacity, as they were drawn as it began. Eased into the node's own over the
@@ -1720,10 +1720,10 @@ export const makeProjectionSystem = (
    */
   const curveOf = (node: NodeState): FlightCurve | undefined => {
     const path = node.path()
-    if (Predicate.isUndefined(path)) return undefined
+    if (Option.isNone(path)) return undefined
     const from = curveFromOf(node)
     if (Math.hypot(from.x, from.y) < MIN_CURVE_DISTANCE) return undefined
-    const at = path(from, ZERO_POINT)
+    const at = path.value(from, ZERO_POINT)
     // It turns when its start gives a `rotate`, as an `arc()`'s with `rotate` does.
     return { at, from, turns: Predicate.isNotUndefined(at(0).rotate) }
   }
@@ -1873,8 +1873,8 @@ export const makeProjectionSystem = (
    */
   const endOfTask = (
     span: string,
-    attributes: Record<string, unknown>,
-    expire: () => Record<string, unknown>,
+    attributes: Readonly<Record<string, unknown>>,
+    expire: () => Readonly<Record<string, unknown>>,
   ): void => {
     FiberSet.addUnsafe(
       taskFibers,
@@ -4150,7 +4150,7 @@ export const makeProjectionSystem = (
     if (measuredNow.length > 0) {
       for (const { node, box, prev } of measuredNow.splice(0)) {
         const tell = node.onMeasure
-        if (Predicate.isNotUndefined(tell)) callMeasureHook(() => tell(box, prev), "onLayoutMeasure")
+        if (Predicate.isNotUndefined(tell)) callMeasureHook(() => tell(box, Option.fromUndefinedOr(prev)), "onLayoutMeasure")
       }
     }
     deriveGroup(groupOf(changed))
@@ -5100,7 +5100,7 @@ export const makeProjectionSystem = (
     id: "", // a leaving Follower is driven via the Renderer, not the gate — no id needed
     element: el,
     transition: Option.none,
-    path: constUndefined,
+    path: Option.none,
     // A Follower's callbacks never fire: a handover is its Lead's (#191).
     onLayoutAnimationStart: NO_CALLBACK,
     onLayoutAnimationComplete: NO_CALLBACK,
@@ -5625,7 +5625,7 @@ export const makeProjectionSystem = (
       id: opts.id,
       element: opts.element,
       transition: opts.transition,
-      path: UndefinedOr.match(opts.path, { onUndefined: () => constUndefined, onDefined: identity }),
+      path: UndefinedOr.match(opts.path, { onUndefined: () => Option.none, onDefined: identity }),
       onLayoutAnimationStart: UndefinedOr.match(opts.onLayoutAnimationStart, { onUndefined: () => NO_CALLBACK, onDefined: identity }),
       onLayoutAnimationComplete: UndefinedOr.match(opts.onLayoutAnimationComplete, { onUndefined: () => NO_CALLBACK, onDefined: identity }),
       onReleaseEnd: UndefinedOr.match(opts.onReleaseEnd, { onUndefined: () => NO_CALLBACK, onDefined: identity }),
@@ -5851,7 +5851,7 @@ export const makeProjectionSystem = (
         ensureRunning()
       },
       // --- keyboard lift (ADR-0037) --------------------------------------------
-      lift: (on) => {
+      setLifted: (on) => {
         if (node.lifted === on) return
         node.lifted = on
         if (on) node.raised = node.raiseWhileDragged
@@ -5950,7 +5950,7 @@ export const makeProjectionSystem = (
   }
 
   // The tree as plain data (#384): a diagnostic read, so it reads what's there and changes nothing.
-  const snapshotOf = (node: NodeState): NodeSnapshot => {
+  const treeNodeOf = (node: NodeState): TreeNode => {
     const lead = UndefinedOr.map(node.layoutId, leadOf)
     const twin = UndefinedOr.map(node.layoutId, () => Bool.match(lead === node, { onTrue: () => "lead" as const, onFalse: () => "follower" as const }))
     return {
@@ -5967,7 +5967,7 @@ export const makeProjectionSystem = (
       leaving: node.leaving,
     }
   }
-  const toJSON = (): Snapshot => ({ _id: "ProjectionSystem", nodes: Arr.map(Arr.fromIterable(nodes), snapshotOf) })
+  const toJSON = (): Tree => ({ _id: "ProjectionSystem", nodes: Arr.map(Arr.fromIterable(nodes), treeNodeOf) })
 
   const system: ProjectionSystem = {
     ...Inspectable.BaseProto,

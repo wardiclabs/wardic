@@ -17,8 +17,9 @@
  *   computed style, else, for `right` and `bottom`, Motion's sum from `top` or `left` and the box,
  *   read with the element's transform off; a translate from the computed transform's matrix.
  *
- * A binding asks with {@link measure} at a Retarget, and its leg reads each pair's px at its first
- * step, a tick after the batch.
+ * A binding asks with {@link measure} at a Retarget, which returns each pair as asked
+ * ({@link Requested}), and its leg reads each one {@link measured} at its first step, a tick after the
+ * batch: a new record with its px, none if the batch couldn't read it.
  */
 import * as Interpolator from "@wardic/core/Interpolator"
 import type * as Values from "@wardic/core/Values"
@@ -55,11 +56,11 @@ const kindOf = (value: number | string): string | undefined => {
 }
 
 /**
- * Whether `key` from `from` to `to` is a Measured pair: a key that can be measured, whose two ends are
- * lengths, `auto` or a `calc()`, of different types. Two of one type blend as ever.
+ * Whether `key` from `from` to `to` needs measuring, a Measured pair: a key that can be measured, whose
+ * two ends are lengths, `auto` or a `calc()`, of different types. Two of one type blend as ever.
  */
-// #430.
-export const isMeasuredPair = (key: string, from: number | string, to: number | string): boolean => {
+// #430; `needs`, not a type guard's `is…` name (#618, A3).
+export const needs = (key: string, from: number | string, to: number | string): boolean => {
   if (Bool.not(isMeasurable(key))) return false
   const a = kindOf(from)
   if (Predicate.isUndefined(a)) return false
@@ -68,27 +69,49 @@ export const isMeasuredPair = (key: string, from: number | string, to: number | 
   return a !== b
 }
 
-/** One Measured pair: its key, its ends as given, and each end in px once its batch has run. */
-// #430.
-export interface MeasuredPair {
+/** One Measured pair as asked for: its key, and its ends as given. */
+// #430; split from the measured one (#618, A1): the batch wrote its px into the asker's record.
+export interface Requested {
   /** The key. */
   readonly key: string
   /** Its start, as given. */
   readonly from: number | string
   /** Its target, as given. */
   readonly to: number | string
-  /** Its start in px: `undefined` until its batch has run, and if it couldn't be read, which the animation takes as a switch. */
+}
+
+/** One Measured pair its batch has read: as asked, with each end in px. */
+export interface Measured extends Requested {
+  /** Its start in px. */
+  readonly fromPx: number
+  /** Its target in px. */
+  readonly toPx: number
+}
+
+/** A pair as its batch reads it: each end's px so far. */
+interface Slot {
+  readonly pair: Requested
   fromPx: number | undefined
-  /** Its target in px: `undefined` until its batch has run, and if it couldn't be read. */
   toPx: number | undefined
 }
 
 /** An element's pairs in a batch, and the values it draws now, which a translate's transform is built from. */
 interface Request {
   readonly element: HTMLElement
-  readonly pairs: ReadonlyArray<MeasuredPair>
+  readonly slots: ReadonlyArray<Slot>
   readonly values: Values.Values
 }
+
+// Module state (#460, Q7): each pair its batch has read, by the pair as asked, kept as long as its asker
+// keeps that pair.
+const read = new WeakMap<Requested, Measured>()
+
+/**
+ * `pair` with its px, once its end-of-task batch has read both its ends: none before that batch, and
+ * none if it couldn't read one, which the animation takes as a switch.
+ */
+// #618 (A1).
+export const measured = (pair: Requested): Option.Option<Measured> => Option.fromUndefinedOr(read.get(pair))
 
 /** The pairs this task asked for, measured at its end. */
 // Module state (#460, Q7): the page's one batch, so every provider's pairs share one read pass a task.
@@ -98,17 +121,17 @@ let scheduled = false
 
 /**
  * Measures `pairs` on `element` at the end of this task, with every other element's in the same batch:
- * each pair's px, filled in before the next tick. `values` are what the element draws now, its other
- * transforms among them.
+ * each pair, as asked, {@link measured} before the next tick. `values` are what the element draws now,
+ * its other transforms among them.
  */
 // #430's Q2.
 export const measure = (
   element: HTMLElement,
   pairs: Readonly<Record<string, { readonly from: number | string; readonly to: number | string }>>,
   values: Values.Values,
-): Readonly<Record<string, MeasuredPair>> => {
-  const made = Rec.map(pairs, ({ from, to }, key): MeasuredPair => ({ key, from, to, fromPx: undefined, toPx: undefined }))
-  queued.push({ element, pairs: Rec.values(made), values })
+): Readonly<Record<string, Requested>> => {
+  const made = Rec.map(pairs, ({ from, to }, key): Requested => ({ key, from, to }))
+  queued.push({ element, slots: Arr.map(Rec.values(made), (pair): Slot => ({ pair, fromPx: undefined, toPx: undefined })), values })
   if (Bool.not(scheduled)) {
     scheduled = true
     queueMicrotask(flush)
@@ -186,20 +209,20 @@ const savedOf = (element: HTMLElement, property: string): Saved => ({ element, p
  * Write `pairs`' translates at their `end` through the element's whole transform, keeping what was
  * there: the browser lays out any unit, `-100%` included (#594).
  */
-const writeTranslates = (request: Request, pairs: ReadonlyArray<MeasuredPair>, end: "from" | "to"): ReadonlyArray<Saved> => {
-  if (pairs.length === 0) return []
+const writeTranslates = (request: Request, slots: ReadonlyArray<Slot>, end: "from" | "to"): ReadonlyArray<Saved> => {
+  if (slots.length === 0) return []
   const { element, values } = request
   const saved = savedOf(element, "transform")
-  const transform = project({ ...values, ...Rec.fromEntries(Arr.map(pairs, (pair) => [pair.key, pair[end]] as const)) })["transform"]
+  const transform = project({ ...values, ...Rec.fromEntries(Arr.map(slots, ({ pair }) => [pair.key, pair[end]] as const)) })["transform"]
   element.style.setProperty("transform", UndefinedOr.match(transform as string | undefined, { onUndefined: () => "none", onDefined: String }))
   return [saved]
 }
 
 /** Write each pair's target inline on its element, keeping what was there; a translate through the element's whole transform. */
 const writeTargets = (request: Request): ReadonlyArray<Saved> => {
-  const unread = Arr.filter(request.pairs, (pair) => Predicate.isUndefined(pair.toPx))
-  const saved: Array<Saved> = [...writeTranslates(request, Arr.filter(unread, (pair) => TRANSLATES.has(pair.key)), "to")]
-  Arr.forEach(unread, (pair) => {
+  const unread = Arr.filter(request.slots, (slot) => Predicate.isUndefined(slot.toPx))
+  const saved: Array<Saved> = [...writeTranslates(request, Arr.filter(unread, (slot) => TRANSLATES.has(slot.pair.key)), "to")]
+  Arr.forEach(unread, ({ pair }) => {
     if (TRANSLATES.has(pair.key)) return
     saved.push(savedOf(request.element, pair.key))
     request.element.style.setProperty(pair.key, cssOf(pair.to))
@@ -212,7 +235,7 @@ const writeTargets = (request: Request): ReadonlyArray<Saved> => {
  * this moment is its projection's, or held off for its Measure pass, so reading it as it is gave 0.
  */
 const writeTranslateStarts = (request: Request): ReadonlyArray<Saved> =>
-  writeTranslates(request, Arr.filter(request.pairs, (pair) => Bool.and(TRANSLATES.has(pair.key), Predicate.isUndefined(pair.fromPx))), "from")
+  writeTranslates(request, Arr.filter(request.slots, (slot) => Bool.and(TRANSLATES.has(slot.pair.key), Predicate.isUndefined(slot.fromPx))), "from")
 
 /** Put back what {@link writeTargets} replaced. */
 const restore = (saved: ReadonlyArray<Saved>): void =>
@@ -233,36 +256,42 @@ const flush = (): void => {
   scheduled = false
   const styles = Arr.map(batch, ({ element }) => getComputedStyle(element))
   // Each end in px as given.
-  Arr.forEach(batch, (request) => Arr.forEach(request.pairs, (pair) => {
-    pair.toPx = givenPx(pair.to)
-    pair.fromPx = givenPx(pair.from)
+  Arr.forEach(batch, (request) => Arr.forEach(request.slots, (slot) => {
+    slot.toPx = givenPx(slot.pair.to)
+    slot.fromPx = givenPx(slot.pair.from)
   }))
   // WRITE, READ, WRITE: each translate's start not in px, written alone and read (#594).
   const starts = Arr.flatMap(batch, writeTranslateStarts)
   if (Arr.isArrayNonEmpty(starts)) {
     try {
-      Arr.forEach(batch, (request, i) => Arr.forEach(request.pairs, (pair) => {
-        if (Bool.and(TRANSLATES.has(pair.key), Predicate.isUndefined(pair.fromPx))) pair.fromPx = readPx(request.element, UndefinedOr.getOrThrow(styles[i]), pair.key)
+      Arr.forEach(batch, (request, i) => Arr.forEach(request.slots, (slot) => {
+        if (Bool.and(TRANSLATES.has(slot.pair.key), Predicate.isUndefined(slot.fromPx))) slot.fromPx = readPx(request.element, UndefinedOr.getOrThrow(styles[i]), slot.pair.key)
       }))
     } finally {
       restore(starts)
     }
   }
   // READ: each other start not already in px, as the element lays out now.
-  Arr.forEach(batch, (request, i) => Arr.forEach(request.pairs, (pair) => {
-    if (Predicate.isUndefined(pair.fromPx)) pair.fromPx = readPx(request.element, UndefinedOr.getOrThrow(styles[i]), pair.key)
+  Arr.forEach(batch, (request, i) => Arr.forEach(request.slots, (slot) => {
+    if (Predicate.isUndefined(slot.fromPx)) slot.fromPx = readPx(request.element, UndefinedOr.getOrThrow(styles[i]), slot.pair.key)
   }))
   const scrollY = globalThis.scrollY
   // WRITE: each target, inline.
   const saved = Arr.flatMap(batch, writeTargets)
   try {
     // READ: each target not already in px, laid out once.
-    Arr.forEach(batch, (request, i) => Arr.forEach(request.pairs, (pair) => {
-      if (Predicate.isUndefined(pair.toPx)) pair.toPx = readPx(request.element, UndefinedOr.getOrThrow(styles[i]), pair.key)
+    Arr.forEach(batch, (request, i) => Arr.forEach(request.slots, (slot) => {
+      if (Predicate.isUndefined(slot.toPx)) slot.toPx = readPx(request.element, UndefinedOr.getOrThrow(styles[i]), slot.pair.key)
     }))
   } finally {
     // WRITE: every style as it was.
     restore(saved)
     if (globalThis.scrollY !== scrollY) globalThis.scrollTo(globalThis.scrollX, scrollY)
   }
+  // Each pair read at both ends, as a record of its own.
+  Arr.forEach(batch, (request) => Arr.forEach(request.slots, ({ pair, fromPx, toPx }) => {
+    if (Predicate.isUndefined(fromPx)) return
+    if (Predicate.isUndefined(toPx)) return
+    if (Bool.and(Number.isFinite(fromPx), Number.isFinite(toPx))) read.set(pair, { ...pair, fromPx, toPx })
+  }))
 }

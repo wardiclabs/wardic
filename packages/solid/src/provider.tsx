@@ -103,6 +103,11 @@ export function WardicProvider(props: {
    */
   readonly appear?: boolean | "explain" | undefined
   /**
+   * The nonce your page's Content Security Policy gives inline styles: the `<style>` a server render
+   * writes for its entrances carries it, a streamed chunk's too. Motion's `MotionConfig` `nonce`.
+   */
+  readonly nonce?: string | undefined
+  /**
    * Your own corrections of a value a layout animation's scale would distort, by the key each corrects:
    * Motion's `addScaleCorrector`, given here. Read once.
    */
@@ -126,7 +131,7 @@ export function WardicProvider(props: {
     // Starting style, as they would without it.
     const appear = Bool.match(props.appear === false, {
       onTrue: constUndefined,
-      onFalse: () => serverAppear(Option.getOrElse(Option.fromUndefinedOr(props.reducedMotion), () => "user" as const), explainerOf(props.appear)),
+      onFalse: () => serverAppear(Option.getOrElse(Option.fromUndefinedOr(props.reducedMotion), () => "user" as const), explainerOf(props.appear), props.nonce),
     })
     if (Predicate.isNotUndefined(appear)) useAssets(() => appearStyle(appear))
     const value = serverContext(props.env, appear, () => untrack(() => props.reducedMotion))
@@ -263,7 +268,7 @@ export function useWardicAppear(): ServerAppear | undefined {
 /** The head's `<style>` for a render's Appear animations, or nothing when no element plays one. */
 const appearStyle = (appear: ServerAppear): JSX.Element => {
   const css = appear.css()
-  return Bool.match(css === "", { onTrue: () => undefined, onFalse: () => <style data-wardic-appear innerHTML={css} /> })
+  return Bool.match(css === "", { onTrue: () => undefined, onFalse: () => <style data-wardic-appear nonce={appear.nonce} innerHTML={css} /> })
 }
 
 /**

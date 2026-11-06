@@ -74,7 +74,7 @@ describe("springValues clamps a stall's dt at MAX_DT (#78)", () => {
   it.effect("the Stream", () =>
     Effect.gen(function* () {
       const collect = (dts: ReadonlyArray<number>) =>
-        Stream.runCollect(Machine.toStream(Machine.springValues(TARGET, OPTIONS, FROM))).pipe(
+        Stream.runCollect(Machine.toStream(Machine.springValues(TARGET, OPTIONS, { from: FROM }))).pipe(
           Effect.provide(TestClock.layer(dts)),
           Effect.map((frames) => Array.from(frames)),
         )
@@ -82,7 +82,7 @@ describe("springValues clamps a stall's dt at MAX_DT (#78)", () => {
     }))
 
   it.effect("on the Frame loop, springValues: the spine's numeric legs, presence's exit, drag's release", () =>
-    stalledOnTheLoop(Effect.succeed(Machine.springValues(TARGET, OPTIONS, FROM))))
+    stalledOnTheLoop(Effect.succeed(Machine.springValues(TARGET, OPTIONS, { from: FROM }))))
 
   it.effect("on the Frame loop, springBlend: the spine's string legs", () =>
     stalledOnTheLoop(

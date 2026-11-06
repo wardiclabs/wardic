@@ -23,7 +23,7 @@ export interface CommitCall {
  *  - `project` is identity (`(values) => values as Patch`).
  *  - `commit` pushes onto `commitCalls`.
  */
-export const makeRecordingRenderer = (): {
+export const make = (): {
   readonly service: {
     readonly project: (values: Record<string, unknown>) => Renderer.Patch
     readonly commit: (target: unknown, patch: Renderer.Patch) => void
@@ -50,7 +50,7 @@ export const makeRecordingRenderer = (): {
 
 /**
  * A Renderer that draws nothing and keeps nothing: `project` hands its values back as the patch, and
- * `commit` drops it. A test that reads the calls makes its own with {@link makeRecordingRenderer}.
+ * `commit` drops it. A test that reads the calls makes its own with {@link make}.
  */
 // #618 (decision 7): this was one recording renderer made at module load, whose calls every test in a
 // file added to and nothing read.

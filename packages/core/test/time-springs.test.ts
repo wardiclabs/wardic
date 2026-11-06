@@ -117,7 +117,7 @@ describe("time-based springs (#359)", () => {
     const timed = { duration: 0.5, bounce: 0.25 }
     expect(valuesOf(Machine.spring(100, { ...timed, velocity: 2000 }), F)).toEqual(valuesOf(Machine.spring(100, timed), F))
     const many = (velocity: number) => {
-      const step = Machine.springValues({ x: 100, y: -50 }, timed, {}, { x: velocity, y: velocity }).start()
+      const step = Machine.springValues({ x: 100, y: -50 }, timed, { velocity: { x: velocity, y: velocity } }).start()
       return Array.from({ length: 32 }, () => ({ ...step(F).value }))
     }
     expect(many(2000), "springValues, each key").toEqual(many(0))

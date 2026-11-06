@@ -75,7 +75,7 @@ describe("springValues steps in place", () => {
       yield* Effect.gen(function* () {
         const frames: Array<Frame.MultiPhysics> = []
         const values: Array<Record<string, number>> = []
-        const run = yield* Machine.springValues(TARGET, {}, FROM).pipe(
+        const run = yield* Machine.springValues(TARGET, {}, { from: FROM }).pipe(
           Machine.run((frame) => {
             frames.push(frame)
             values.push({ ...frame.value })
@@ -96,7 +96,7 @@ describe("springValues steps in place", () => {
     Effect.gen(function* () {
       const clock = yield* TestClock.pushable()
       yield* Effect.gen(function* () {
-        const run = yield* Machine.springValues(TARGET, { stiffness: 400, damping: 40 }, FROM).pipe(
+        const run = yield* Machine.springValues(TARGET, { stiffness: 400, damping: 40 }, { from: FROM }).pipe(
           Machine.run(() => undefined),
           Effect.forkChild({ startImmediately: true }),
         )
@@ -111,7 +111,7 @@ describe("springValues steps in place", () => {
 
   it.effect("through Machine.toStream, each emission is its own, as before", () =>
     Effect.gen(function* () {
-      const frames = yield* collect(Machine.springValues(TARGET, {}, FROM), Array.from({ length: 30 }, () => 1 / 60))
+      const frames = yield* collect(Machine.springValues(TARGET, {}, { from: FROM }), Array.from({ length: 30 }, () => 1 / 60))
       expect(frames).toHaveLength(30)
       expect(new Set(frames).size).toBe(30)
       expect(new Set(frames.map((frame) => frame.value)).size).toBe(30)

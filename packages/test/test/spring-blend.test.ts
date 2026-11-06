@@ -22,7 +22,7 @@ const blend = (from: Values.Values, to: Values.Values, options?: Machine.SpringO
   )
 /** The reference: a numeric key springing 0 → 100 with the same options. */
 const reference = (options: Machine.SpringOptions = {}) =>
-  Stream.runCollect(Machine.toStream(Machine.springValues({ x: 100 }, options, { x: 0 }, { x: 0 }))).pipe(
+  Stream.runCollect(Machine.toStream(Machine.springValues({ x: 100 }, options, { from: { x: 0 }, velocity: { x: 0 } }))).pipe(
     Effect.provide(testLayer(ticks)),
     Effect.map((frames) => (Array.from(frames) as ReadonlyArray<Frame.MultiPhysics>).map((f) => f.value.x!)),
   )

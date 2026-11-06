@@ -14,6 +14,7 @@ import * as Style from "@wardic/dom/Style"
 import * as Svg from "@wardic/dom/Svg"
 import * as Effect from "effect/Effect"
 import { pipe } from "effect/Function"
+import * as Option from "effect/Option"
 import { describe, expect, it } from "vitest"
 
 const domProject = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), DomRenderer.layer)).project
@@ -33,16 +34,16 @@ describe("Starting style helpers (ADR-0021)", () => {
     expect(Style.valuesAt(target, "last"), "the last stop that isn't null").toEqual({ opacity: 0.5, x: 20, color: "red" })
     expect(Style.valuesAt(target, "first"), "the first, null dropped").toEqual({ x: 10, color: "red" })
     expect(Style.valuesAt({ opacity: 1 }, "last"), "none: toValues").toEqual({ opacity: 1 })
-    expect(Style.keyframesOf(target), "with a stop that isn't null, of numbers and strings").toEqual({ opacity: [null, 1, 0.5], x: [10, 20] })
-    expect(Style.keyframesOf({ opacity: 1 }), "none").toBeUndefined()
-    expect(Style.keyframesOf({ scale: [null] }), "none an animation can take").toBeUndefined()
+    expect(Style.keyframesOf(target), "with a stop that isn't null, of numbers and strings").toEqual(Option.some({ opacity: [null, 1, 0.5], x: [10, 20] }))
+    expect(Style.keyframesOf({ opacity: 1 }), "none").toEqual(Option.none())
+    expect(Style.keyframesOf({ scale: [null] }), "none an animation can take").toEqual(Option.none())
     expect(Style.resolveInitial({ initial: { x: [30, 90] } }), "initial's first stop").toEqual({ x: 30 })
     expect(Style.resolveInitial({ initial: false, animate: { x: [0, 100, 40] } }), "initial={false}: animate's last").toEqual({ x: 40 })
     expect(Style.resolveInitial({ initial: "a", variants: { a: { x: [5, 6] } } }), "a name's, first").toEqual({ x: 5 })
     // Both in one pass (#452), and nothing set aside carried into the next call.
-    expect(Style.splitValues(target, "last")).toEqual({ values: { opacity: 0.5, x: 20, color: "red" }, keyframes: { opacity: [null, 1, 0.5], x: [10, 20] } })
-    expect(Style.splitValues({ opacity: 1 }, "last"), "none set aside").toEqual({ values: { opacity: 1 }, keyframes: undefined })
-    expect(Style.splitValues(undefined, "first")).toEqual({ values: {}, keyframes: undefined })
+    expect(Style.splitValues(target, "last")).toEqual({ values: { opacity: 0.5, x: 20, color: "red" }, keyframes: Option.some({ opacity: [null, 1, 0.5], x: [10, 20] }) })
+    expect(Style.splitValues({ opacity: 1 }, "last"), "none set aside").toEqual({ values: { opacity: 1 }, keyframes: Option.none() })
+    expect(Style.splitValues(undefined, "first")).toEqual({ values: {}, keyframes: Option.none() })
   })
 
   it("ST2: resolveInitial with no initial is empty", () => {

@@ -164,6 +164,10 @@ _Avoid_: steps, waypoints, sequence (Motion's name for a timeline of several ani
 An ordered set of partial, optionally-active value-maps that resolve to a single target — for each key, the topmost *active* entry wins. This is how stacked gesture states combine (base `animate`, then `whileHover`, `whileTap`, `whileDrag`…). Core ships the pure resolution mechanism (`Override.resolve`); the binding owns the named priority order and the variant names. The resolved target feeds `springValues` / `animateValues`.
 _Avoid_: **layer** (collides with Effect/Environment Layer — never reuse it here), variant stack, state stack.
 
+**Gesture layer**:
+A gesture's entry in the **Override stack**: the values its `while*` (`whileHover`, `whileTap`, `whileDrag`, `whileFocus`, `whileInView`) sets while the gesture is on, over the element's base entry and below any gesture that ranks higher. The one compound that keeps "layer", as Motion's word for it; an entry on its own, or the base one, is an *entry*.
+_Avoid_: gesture state, layer (alone).
+
 **Imperative animation**:
 An animation started by a call rather than declared (#433, Motion's `useAnimate`): `animate(elements, target, options)` from an **Animation scope**, on Wardic elements and plain ones alike, returning its **Playback controls**. On a Wardic element it takes the keys it animates from whatever ran them, and they stay where it leaves them until the element's own target for that key changes: a value's latest animation wins, as in Motion. A key it never touched follows the **Override stack** as ever.
 _Avoid_: imperative layer (it isn't an entry in the **Override stack**), manual animation.
@@ -288,7 +292,7 @@ A `Bounds` reading taken via `Probe`, recorded so a later layout change can be a
 _Avoid_: snapshot (reserved), rect, box.
 
 **FLIP** (layout animation):
-Animating an element from a prior Measurement to its current one by inverting the geometric delta and playing it to zero (First, Last, Invert, Play). It plays on the element's transition; with none, on Motion's default, a 0.45 s tween eased `cubic-bezier(0.4, 0, 0.1, 1)`. Core owns the Invert→Play math as the pure combinator `Flip.make(from: Probe.Bounds, to: Probe.Bounds)`; the binding reports the layout changes only it knows about (`layoutDependency`: a position-only move is invisible to `Probe.observeResize`, so only the render lifecycle knows the before/after points), and the projection engine measures them in a **Measure pass** at the end of the task; matching `layoutId`s is the projection engine's (ADR-0010). Inherently post-mount, so it cannot be SSR'd and the first frame may flash (see ADR-0003). The general, *nested-correct* realization is **Projection** (below) — FLIP is its un-nested special case.
+Animating an element from a prior Measurement to its current one by inverting the geometric delta and playing it to zero (First, Last, Invert, Play). It plays on the element's transition; with none, on Motion's default, a 0.45 s tween eased `cubic-bezier(0.4, 0, 0.1, 1)`. Core's **Projection** owns the Invert→Play math; the binding reports the layout changes only it knows about (`layoutDependency`: a position-only move is invisible to `Probe.observeResize`, so only the render lifecycle knows the before/after points), and the projection engine measures them in a **Measure pass** at the end of the task; matching `layoutId`s is the projection engine's (ADR-0010). Inherently post-mount, so it cannot be SSR'd and the first frame may flash (see ADR-0003). The general, *nested-correct* realization is **Projection** (below) — FLIP is its un-nested special case.
 _Avoid_: layout (too broad), reflow animation.
 
 **Projection** (the box-based layout model):
@@ -460,7 +464,7 @@ A **Live value** that animates on a transition toward its source's latest value,
 _Avoid_: follower (a **Shared layout** twin that isn't the **Lead**), spring value (one kind of it).
 
 **Base value**:
-The value a key returns to when no layer of the Override stack (`animate`, an inherited variant, the gestures) sets it any more. In order: the key's `initial` value, its value in the element's `style`, then its **Own value** (ADR-0022). With `initial={false}`, a key the element started at from `animate`: its `style` value, then the value it started at (#134, Motion's `baseTarget`). A key with no value yet starts from the same links (`initial` already seeds the Snapshot). A key at rest at its `style` value follows a later `style` change. While any entry of the Override stack sets a key, the element shows Wardic's value whatever its `style` says: `style` is the key's fallback, never an override (#79).
+The value a key returns to when no entry of the Override stack (`animate`, an inherited variant, the gestures) sets it any more. In order: the key's `initial` value, its value in the element's `style`, then its **Own value** (ADR-0022). With `initial={false}`, a key the element started at from `animate`: its `style` value, then the value it started at (#134, Motion's `baseTarget`). A key with no value yet starts from the same links (`initial` already seeds the Snapshot). A key at rest at its `style` value follows a later `style` change. While any entry of the Override stack sets a key, the element shows Wardic's value whatever its `style` says: `style` is the key's fallback, never an override (#79).
 _Avoid_: default (a transform key's Identity, which is one kind of Own value), fallback.
 
 **Own value**:

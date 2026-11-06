@@ -1041,9 +1041,29 @@ export interface InertiaValuesOptions extends InertiaOptions {
   readonly delay?: number
 }
 
+/** {@link inertiaValues}' run: each key's velocity, else the options', per second. */
+// #618 (F3): beside the options, not in them. A bag is cached by its identity, so a run's own data
+// in it would miss the cache every leg.
+export interface InertiaValuesStart {
+  readonly velocity?: Readonly<Record<string, number>>
+}
+
+/** {@link springValues}' run: each key's start and velocity, else the options'. */
+// #618 (F3), as {@link InertiaValuesStart}.
+export interface SpringValuesStart {
+  readonly from?: Readonly<Record<string, number>>
+  readonly velocity?: Readonly<Record<string, number>>
+}
+
+/** A start's values when it gives none. */
+const NO_START_VALUES: Readonly<Record<string, number>> = {}
+
+/** No start of a run's own: every key from the options. */
+const NO_START: SpringValuesStart = {}
+
 /**
  * Inertia on a bag of numbers, as a transition's `type: "inertia"`: one glide per key from `from`, at
- * its velocity in `velocity` (else `options.velocity`, else 0), on the shared `options`, after
+ * its velocity in `start.velocity` (else `options.velocity`, else 0), on the shared `options`, after
  * `options.delay`, settling once every key rests. It takes no target: each key rests where its glide
  * does, through `modifyTarget`, held within `min` and `max`. With no velocity, a key rests where it
  * starts.
@@ -1055,8 +1075,9 @@ export interface InertiaValuesOptions extends InertiaOptions {
 export const inertiaValues = (
   from: Readonly<Record<string, number>>,
   options: InertiaValuesOptions = NO_OPTIONS,
-  velocity: Readonly<Record<string, number>> = {},
+  start: InertiaValuesStart = NO_START,
 ): Machine<Frame.MultiPhysics> => {
+  const { velocity = NO_START_VALUES } = start
   const keys = Rec.keys(from)
   const delay = UndefinedOr.match(options.delay, { onUndefined: () => 0, onDefined: identity })
   const fallback = UndefinedOr.match(options.velocity, { onUndefined: () => 0, onDefined: identity })
@@ -1128,23 +1149,24 @@ export const inertiaVec = (initial: Point.Point, velocity: Point.Point, options:
   })
 
 /**
- * A bag of numbers sprung toward `target`: one spring per key on the shared `options`, from `from` and
- * `velocity` (else `options.from` and `options.velocity`, else 0), settling once every key rests.
+ * A bag of numbers sprung toward `target`: one spring per key on the shared `options`, from `start`'s
+ * `from` and `velocity` (else `options.from` and `options.velocity`, else 0), settling once every key
+ * rests.
  *
  * Each frame carries a per-key `velocity` beside `value`; a settled key reports 0. Seeding `from` and
  * `velocity` from a frame of the run before keeps its momentum when the target changes. Each frame is
  * rewritten every tick: copy one, or its records, to keep it; the settled frame is stable.
  *
  * @example
- * const card = Machine.springValues({ x: 120, y: 40, scale: 1.1 }, Spring.stiff, { x: 0, y: 0, scale: 1 })
+ * const card = Machine.springValues({ x: 120, y: 40, scale: 1.1 }, Spring.stiff, { from: { x: 0, y: 0, scale: 1 } })
  */
 // Each run steps in place (ADR-0030, decision 11); `toStream` copies each Frame it emits.
 export const springValues = (
   target: Readonly<Record<string, number>>,
   options: SpringOptions = NO_OPTIONS,
-  from: Readonly<Record<string, number>> = {},
-  velocity: Readonly<Record<string, number>> = {},
+  start: SpringValuesStart = NO_START,
 ): Machine<Frame.MultiPhysics> => {
+  const { from = NO_START_VALUES, velocity = NO_START_VALUES } = start
   const keys = Rec.keys(target)
   /** A key's start: its own value, else the options', else 0. */
   const startOf = (values: Record<string, number>, key: string, fallback: number | undefined): number =>
@@ -1574,7 +1596,7 @@ export const springBlend = (
   // Per leg (#460): the combinators called data-first.
   Effect.map(blendersFor(from, to), (blenders) =>
     withSpan(
-      map(springValues({ progress: 100 }, options, { progress: 0 }, { progress: 0 }), (frame) =>
+      map(springValues({ progress: 100 }, options, { from: { progress: 0 }, velocity: { progress: 0 } }), (frame) =>
         blendAt(blenders, UndefinedOr.getOrThrow(frame.value.progress) / 100, frame.done)),
       "wardic.springBlend",
       { attributes: { keys: blenders.length } },

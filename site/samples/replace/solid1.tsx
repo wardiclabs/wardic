@@ -12,13 +12,13 @@ const SPRING: DefaultTransition.Transition = { type: "spring", stiffness: 300, d
  * Every key with no transition of its own on that spring, where the DOM's springs the transforms and
  * tweens the rest. Keyframes through more than two stops keep the DOM's tween.
  */
-const oneSpring = Layer.succeed(DefaultTransition.DefaultTransition, {
+const layerOneSpring = Layer.succeed(DefaultTransition.DefaultTransition, {
   transitionFor: () => SPRING,
   keyframes: DomDefaultTransition.keyframes,
 })
 
 /** The DOM's Environment, its default transitions replaced: the later Layer wins. */
-export const env = Layer.mergeAll(DomLive, oneSpring)
+export const env = Layer.mergeAll(DomLive, layerOneSpring)
 
 export default function App(props: { readonly children: JSX.Element }) {
   return (

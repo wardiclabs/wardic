@@ -38,6 +38,7 @@ Decided while building, from what Solid 2 does, measured with probes (`test/v2/p
 2. **`read(key)`, where the Solid 1 ward has `value(key)`.** A spread's type gives the element every property its object type has. `value: (key) => Accessor` fails `<li {...card}>` and `<input {...card}>`, whose `value` attribute is `string | number` (checked with `tsc` on `tsconfig.v2.json`). At runtime only `ref`, `style` and the Starting style's attributes are enumerable; `Provider`, `read` and `atom` aren't.
    - A ward called with anything but an element returns itself: Solid 2's `merge` reads a function source through a memo it calls with its previous value.
 3. **The config is read once, or through an accessor (or getters, as a component's props are),** as the Solid 1 binding's is. **Its target is compared by value** (`spine.ts`'s `sameResolution`: each layer's values, the drag, the variant name): a `style` or `transition` change in the config doesn't Retarget, as Motion's `animateChanges` doesn't. A new variant name does, even to the same values. The Solid 1 binding still Retargets on any change of its config.
+   - *Note (#618, 2026-11-06):* what the comparison counts moved on: the gesture layers on and the Transition ends count too, and a change that resolves the same target starts nothing and tells nothing (ADR-0046, *Amendment (#470)*).
 4. **The spine is shared.** Its Retarget, its returns to Base values, its Handoff and its Live-value follower move from `create-ward.tsx` into Solid-free `spine.ts`, which both bindings drive (`makeElementSpine`). The variant rules move into `variant-tree.ts`, the presence record into `presence-record.ts`, the runtime into `runtime.ts`, the config types into `config.ts`, the motion props into `motion-props.ts`.
    - `live-style.ts` and `element-style.ts` take the binding's Solid as a `Reactivity`: `untrack`, a trigger, and a watch of an accessor. `element-style.ts` keeps its state in plain variables, so it reads the same with Solid 2's lagging reads.
    - The Solid 1 binding's behaviour doesn't change: its suites pass as they were.
@@ -132,6 +133,7 @@ Grilled 2026-10-20 (Q1–Q4, all A). PR 3 splits in two (Q3): this one has `whil
 - **A ward's recognizers start when its config first wants them,** at mount or later, once a mount (#87, ADR-0040): an effect watches `whileHover`/`whileTap` being set. Their fibers and the drag track's are the mount's: a ward moved to another element ends them and drops its gesture state, so the new element doesn't start hovered.
 - **Drag defaults (#36):** a kept ward's spread and `wardic.div` carry them in `style` and `draggable`, under the user's style, and a server renders them. A `wardic.create(Component)` wrap sets them on the element at mount too, since its component may pass neither on, as on the Solid 1 binding.
 - **`whileFocus` and `whileInView` stay unwired,** as on the Solid 1 binding: accepted and kept off the element.
+  - *Note (#618, 2026-11-06):* both are wired since, on both bindings, in Motion's order with the `viewport` options and callbacks (ADR-0047, *In view and focus*).
 
 ### Pinned by (PR 3a)
 

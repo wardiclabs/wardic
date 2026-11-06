@@ -275,7 +275,6 @@ describe("Reorder.Group, the data type (ADR-0028, decision 1)", () => {
     const literal: Reorder.Group<string> = {
       options,
       sources: new Map(),
-      gesture: { current: Option.none() } as never,
     }
     expect(Reorder.isGroup(literal)).toBe(false)
   })

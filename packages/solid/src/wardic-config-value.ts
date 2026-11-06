@@ -22,6 +22,7 @@
  */
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import { constFalse, constUndefined } from "effect/Function"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import type { WardicTransformPoint, WardicTransition, WardicVariantTransition } from "./config.ts"
 import { transitionOfTarget } from "./variant-target.ts"
@@ -96,6 +97,23 @@ export const configTransformPagePointOf = (own: WardicTransformPoint | undefined
 export const transformPagePointOf = (config: WardicConfigValue | undefined): (() => WardicTransformPoint | undefined) => {
   if (Predicate.isUndefined(config)) return constUndefined
   return () => config.transformPagePoint()
+}
+
+/**
+ * A `transformPagePoint` as core's gestures take it (#618, A1): an `Option`, the same `Some` while the
+ * mapping is the same, so a gesture's down allocates nothing.
+ */
+export const pointMapOptionOf = (read: () => WardicTransformPoint | undefined): (() => Option.Option<WardicTransformPoint>) => {
+  let last: Option.Option<WardicTransformPoint> = Option.none()
+  return () => {
+    const now = read()
+    if (Predicate.isUndefined(now)) return Option.none()
+    if (Option.isSome(last)) {
+      if (last.value === now) return last
+    }
+    last = Option.some(now)
+    return last
+  }
 }
 
 /** The nearest config's `isValidProp` (#443), as an element is made: `undefined` for none. */

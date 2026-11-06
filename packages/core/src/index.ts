@@ -10,7 +10,7 @@
  * `InputSource`, `Probe`, `InterpolatorRegistry`, `FrameLoop`, `DefaultTransition`) are each `X.X`,
  * with the shared constructors the Environments build on (`Clock.layer`, `Clock.fromRefreshFrames`,
  * `InputSource.heldPointer`, `InputFeed.byTarget`, `InterpolatorRegistry.layer`, `FrameLoop.layer`,
- * `DefaultTransition.oneSpring`). Design decisions and the project glossary live in `CONTEXT.md`
+ * `DefaultTransition.layerOneSpring`). Design decisions and the project glossary live in `CONTEXT.md`
  * and `docs/adr/`.
  */
 export * as Announcer from "./Announcer.ts"
@@ -24,7 +24,6 @@ export * as Drag from "./Drag.ts"
 export * as DragActivity from "./DragActivity.ts"
 export * as DragRecognizer from "./DragRecognizer.ts"
 export * as Easing from "./Easing.ts"
-export * as Flip from "./Flip.ts"
 export * as Frame from "./Frame.ts"
 export * as FrameLoop from "./FrameLoop.ts"
 export * as Inertia from "./Inertia.ts"

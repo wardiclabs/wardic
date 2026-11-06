@@ -18,12 +18,12 @@ describe("a held Frame (#464)", () => {
     step(DT)
     const moving = step(DT)
     expect(moving.velocity).toBeGreaterThan(100)
-    head.paused = true
+    Playback.pause(head)
     const held = step(DT)
     expect(held.value).toBe(moving.value)
     expect(held.velocity).toBe(0)
     expect(step(DT), "one Frame per pause").toBe(held)
-    head.paused = false
+    Playback.play(head)
     const on = step(DT)
     expect(on.value).toBeGreaterThan(moving.value)
     expect(on.velocity).toBeGreaterThan(100)
@@ -31,10 +31,10 @@ describe("a held Frame (#464)", () => {
 
   it("PH2: springValues' Frame holds each key at velocity 0", () => {
     const head = Playback.make()
-    const step = Playback.drive(Machine.springValues({ x: 100, y: -50 }, { stiffness: 100, damping: 10 }, { x: 0, y: 0 }), head).start()
+    const step = Playback.drive(Machine.springValues({ x: 100, y: -50 }, { stiffness: 100, damping: 10 }, { from: { x: 0, y: 0 } }), head).start()
     step(DT)
     const moving = step(DT)
-    head.paused = true
+    Playback.pause(head)
     const held = step(DT)
     expect(held.value).toEqual(moving.value)
     expect(held.velocity).toEqual({ x: 0, y: 0 })
@@ -45,7 +45,7 @@ describe("a held Frame (#464)", () => {
     const step = Playback.drive(Machine.tween(0, 100, { duration: 1 }), head).start()
     step(DT)
     const moving = step(DT)
-    head.paused = true
+    Playback.pause(head)
     expect(step(DT)).toBe(moving)
   })
 })

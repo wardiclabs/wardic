@@ -1,6 +1,6 @@
 /**
  * A playhead the machines of one animation share, so they play, pause, seek, change speed or run
- * backwards together: `make` one, `drive` each machine through it, then set its `paused` or `speed`, or
+ * backwards together: `make` one, `drive` each machine through it, then `pause`, `play`, `setSpeed` or
  * `seek` it. It's what `createAnimate`'s playback controls run on.
  *
  * @example
@@ -9,8 +9,8 @@
  *
  * const head = Playback.make()
  * const x = Machine.tween(0, 200, { duration: 1 }).pipe(Playback.drive(head))
- * head.speed = 0.5 // slow motion
- * head.paused = true // held where it is
+ * Playback.setSpeed(head, 0.5) // slow motion
+ * Playback.pause(head) // held where it is
  */
 // #433, Motion's playback controls. Machines step by `dt` (a design principle), so a time is reached by
 // starting a machine partway through (`Machine.startAt`), as an Appear animation's Handoff is
@@ -29,16 +29,24 @@ const TypeId = "~@wardic/core/Playback"
 
 /**
  * What the machines of one animation read each frame: its `time`, its `speed`, and whether it's
- * `paused`. Each machine driven through it sets `time` as it steps; set `speed` and `paused` to
- * control them all.
+ * `paused`. Each machine driven through it moves `time` as it steps; {@link pause}, {@link play},
+ * {@link setSpeed} and {@link seek} control them all.
  */
+// Read-only to its users (#618, F1): the machines and this module's operations write it.
 export interface Playhead extends Pipeable, Inspectable.Inspectable {
   readonly [TypeId]: typeof TypeId
-  /** Seconds played, a delay included: each driven machine sets it as it steps. A seek sets it, then starts the machines again. */
-  time: number
+  /** Seconds played, a delay included: each driven machine moves it as it steps. A seek moves it, then the machines start again. */
+  readonly time: number
   /** Each tick's `dt` is scaled by it: 1 as given, 0 holds, below 0 plays backwards. */
-  speed: number
+  readonly speed: number
   /** Whether the machines hold where they are. */
+  readonly paused: boolean
+}
+
+/** A Playhead as the machines and this module's operations write it. */
+interface Writable {
+  time: number
+  speed: number
   paused: boolean
 }
 
@@ -114,6 +122,7 @@ export const drive: {
       settles: self.settles,
       span: self.span,
       start: () => {
+        const writable = head as unknown as Writable
         const at = head.time
         let time = at
         let step = runFrom(self, at)
@@ -126,7 +135,7 @@ export const drive: {
           if (landing) {
             landing = false
             last = step(0)
-            head.time = time
+            writable.time = time
             return last
           }
           if (head.paused) {
@@ -138,12 +147,12 @@ export const drive: {
           const by = Math.max(-Machine.MAX_DT, Math.min(Machine.MAX_DT, dt * head.speed))
           if (by >= 0) {
             time += by
-            head.time = time
+            writable.time = time
             last = step(by)
             return last
           }
           time = Math.max(0, time + by)
-          head.time = time
+          writable.time = time
           step = runFrom(self, time)
           last = step(0)
           if (time === 0) return settled(last)
@@ -164,5 +173,36 @@ export const seek: {
   (time: number): (head: Playhead) => void
   (head: Playhead, time: number): void
 } = dual(2, (head: Playhead, time: number): void => {
-  head.time = Math.max(0, time)
+  const writable = head as unknown as Writable
+  writable.time = Math.max(0, time)
 })
+
+/**
+ * Scales each tick's `dt` for the machines driven through `head` by `speed`: 1 as given, 0 holds, below
+ * 0 plays backwards.
+ *
+ * @example
+ * Playback.setSpeed(head, 0.5) // slow motion
+ */
+// #618 (F1).
+export const setSpeed: {
+  (speed: number): (head: Playhead) => void
+  (head: Playhead, speed: number): void
+} = dual(2, (head: Playhead, speed: number): void => {
+  const writable = head as unknown as Writable
+  writable.speed = speed
+})
+
+/** Holds the machines driven through `head` where they are. */
+// #618 (F1).
+export const pause = (head: Playhead): void => {
+  const writable = head as unknown as Writable
+  writable.paused = true
+}
+
+/** Plays the machines driven through `head` on from where they're held. */
+// #618 (F1).
+export const play = (head: Playhead): void => {
+  const writable = head as unknown as Writable
+  writable.paused = false
+}

@@ -7,9 +7,9 @@
  * @example
  * import * as MeasuredPair from "@wardic/dom/MeasuredPair"
  *
- * MeasuredPair.isMeasuredPair("width", "auto", 200) // true
- * MeasuredPair.isMeasuredPair("opacity", 0, 1) // false
+ * MeasuredPair.needs("width", "auto", 200) // true
+ * MeasuredPair.needs("opacity", 0, 1) // false
  */
 // **Measured pairs** (#430, CONTEXT.md, Motion's `DOMKeyframesResolver`). `@wardic/dom/MeasuredPair`: for
 // binding authors.
-export { isMeasuredPair, measure, type MeasuredPair } from "./internal/measured-pairs.ts"
+export { measure, measured, type Measured, needs, type Requested } from "./internal/measured-pairs.ts"

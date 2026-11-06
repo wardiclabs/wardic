@@ -295,6 +295,6 @@ const dashOffsetOf = (offset: number): number => {
 }
 
 /** Writes each attribute onto `el` with `setAttribute`; nothing for an empty map. */
-export const setSvgAttrs = (el: Element, attrs: Record<string, string>): void => {
+export const setSvgAttrs = (el: Element, attrs: Readonly<Record<string, string>>): void => {
   for (const name in attrs) el.setAttribute(name, attrs[name])
 }

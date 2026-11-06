@@ -180,7 +180,7 @@ describe("springValues against one spring per key (#111)", () => {
       Effect.gen(function* () {
         const [s, m] = yield* sideBySide(
           Machine.toStream(springValuesOracle(target, options, from, velocity)),
-          Machine.toStream(Machine.springValues(target, options, from, velocity)),
+          Machine.toStream(Machine.springValues(target, options, { from, velocity })),
         )
         expectSame(s, m, atLeast)
         expect(settledLast(s)).toBe(true)
@@ -210,12 +210,14 @@ describe("the combinators over springValues' rewritten Frame (#111)", () => {
     ["map: a progress, as springBlend's", (build) => a(build).pipe(Machine.map((frame) => ({ value: frame.value.x! / 100, done: frame.done })))],
     ["forever: each restart", (build) => Machine.forever(a(build))],
   ]
+  // `springValues` takes its start in a bag (#618, F3): a builder as the oracle's, positional.
+  const springValuesBuild: Build = (target, options, from, velocity) => Machine.springValues(target, options, { from, velocity })
   for (const [name, combine] of cases) {
     it.effect(name, () =>
       Effect.gen(function* () {
-        const [s, m] = yield* sideBySide(Machine.toStream(combine(springValuesOracle)), Machine.toStream(combine(Machine.springValues)))
+        const [s, m] = yield* sideBySide(Machine.toStream(combine(springValuesOracle)), Machine.toStream(combine(springValuesBuild)))
         expectSame(s, m, 10)
-        const [viaStream, viaLoop] = yield* bothDrivers(() => Effect.succeed(combine(Machine.springValues)))
+        const [viaStream, viaLoop] = yield* bothDrivers(() => Effect.succeed(combine(springValuesBuild)))
         expectSame(viaStream, viaLoop, 10)
       }))
   }
@@ -290,7 +292,7 @@ describe("the composites against Motion's timing (#226)", () => {
       const options = { stiffness: 220, damping: 14, delay: 0.05 }
       const blend = yield* blenderOf(FROM, TO).pipe(Effect.provide(InterpolatorRegistry.layer))
       const machine = yield* Machine.springBlend(FROM, TO, options).pipe(Effect.provide(InterpolatorRegistry.layer))
-      const oracle = Machine.toStream(Machine.springValues({ progress: 100 }, options, { progress: 0 }, { progress: 0 })).pipe(
+      const oracle = Machine.toStream(Machine.springValues({ progress: 100 }, options, { from: { progress: 0 }, velocity: { progress: 0 } })).pipe(
         Stream.map((frame) => blend(frame.value.progress! / 100, frame.done)),
       )
       const [s, m] = yield* sideBySide(oracle, Machine.toStream(machine))
@@ -349,11 +351,11 @@ describe("every constructor through both drivers", () => {
     ["decayVec", () => Effect.succeed(Machine.decayVec({ x: 0, y: 5 }, { x: 300, y: -200 }, {}))],
     [
       "springValues, from a velocity",
-      () => Effect.succeed(Machine.springValues({ x: 0, y: 10 }, { stiffness: 200 }, { x: 100, y: -20 }, { x: 50 })),
+      () => Effect.succeed(Machine.springValues({ x: 0, y: 10 }, { stiffness: 200 }, { from: { x: 100, y: -20 }, velocity: { x: 50 } })),
     ],
     [
       "springValues, options' from and velocity, a delay",
-      () => Effect.succeed(Machine.springValues({ x: 100, y: 50 }, { stiffness: 300, from: -20, velocity: 40, delay: 0.1 }, { y: 10 })),
+      () => Effect.succeed(Machine.springValues({ x: 100, y: 50 }, { stiffness: 300, from: -20, velocity: 40, delay: 0.1 }, { from: { y: 10 } })),
     ],
     ["animate, repeat 2, mirror, a delay", () => Effect.succeed(Machine.animate(-5, 20, OPTIONS))],
     ["animate, repeat Infinity", () => Effect.succeed(Machine.animate(-5, 20, { duration: 0.2, repeat: Infinity }))],

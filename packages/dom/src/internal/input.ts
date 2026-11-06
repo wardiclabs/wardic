@@ -100,12 +100,22 @@ export const buttonOf: (button: number) => InputSource.PointerButton = /*#__PURE
   Match.orElse((): InputSource.PointerButton => "other"),
 )
 
+/** Where a pointer event landed, as its feed says: on the feed's target, or elsewhere. */
+export type Where = "target" | "elsewhere"
+
+/** A feed's answer as a {@link Where}: per input event, a statement. */
+const whereOf = (onTarget: boolean): Where => {
+  if (onTarget) return "target"
+  return "elsewhere"
+}
+
 /**
  * A DOM `PointerEvent` as core's pointer event: at its point in the viewport, with no scroll counted
- * (`InputSource.heldPointer` counts it), and `onTarget` as its feed says.
+ * (`InputSource.heldPointer` counts it), and where it landed as its feed says: on the feed's target, or
+ * elsewhere.
  */
-// ADR-0036, *Amendment (#189)*; #257.
-export const toPointer = (type: InputSource.PointerLikeEvent["type"], ev: PointerEvent, onTarget = true): InputSource.PointerLikeEvent => ({
+// ADR-0036, *Amendment (#189)*; #257. `where`, not a trailing boolean (#618, F7).
+export const toPointer = (type: InputSource.PointerLikeEvent["type"], ev: PointerEvent, where: Where = "target"): InputSource.PointerLikeEvent => ({
   type,
   pointerId: UndefinedOr.match(ev.pointerId as number | undefined, { onUndefined: () => 1, onDefined: identity }),
   x: ev.clientX,
@@ -116,7 +126,7 @@ export const toPointer = (type: InputSource.PointerLikeEvent["type"], ev: Pointe
   button: buttonOf(ev.button),
   primary: ev.isPrimary,
   scroll: InputSource.NO_SCROLL,
-  onTarget,
+  onTarget: where === "target",
   // The DOM's own event, for an app's gesture callback (#273).
   raw: ev,
 })
@@ -134,7 +144,7 @@ const feedOf = (
   onTargetOf: (ev: Event) => boolean = constTrue,
 ): InputSource.PointerFeed =>
 (emit) => {
-  const listener = (ev: Event): void => emit(toPointer(UndefinedOr.getOrThrow(POINTER_TYPE[ev.type]), ev as PointerEvent, onTargetOf(ev)), ev)
+  const listener = (ev: Event): void => emit(toPointer(UndefinedOr.getOrThrow(POINTER_TYPE[ev.type]), ev as PointerEvent, whereOf(onTargetOf(ev))), ev)
   Arr.forEach(types, (type) => target.addEventListener(type, listener, options))
   return () => Arr.forEach(types, (type) => target.removeEventListener(type, listener, options))
 }
@@ -187,14 +197,14 @@ const isPressedPointer = (raw: unknown): raw is PointerEvent =>
  * Hand `raw` to `target`'s pointer feed as an adopted down (#431): at its viewport point, on the target
  * if it landed there. `undefined`, delivering nothing, for what isn't a pressed pointer's event.
  */
-const adoptPointerIn = (adopters: Adopters) => (target: unknown, raw: unknown): InputSource.PointerLikeEvent | undefined => {
-  if (isPressedPointer(raw)) return adopt(adopters, target, raw)
-  return undefined
+const adoptPointerIn = (adopters: Adopters) => (target: unknown, raw: unknown): Option.Option<InputSource.PointerLikeEvent> => {
+  if (isPressedPointer(raw)) return Option.some(adopt(adopters, target, raw))
+  return Option.none()
 }
 
 /** {@link adoptPointerIn} of a pressed pointer's event. */
 const adopt = (adopters: Adopters, target: unknown, raw: PointerEvent): InputSource.PointerLikeEvent => {
-  const down = toPointer("down", raw, landedOn(target)(raw))
+  const down = toPointer("down", raw, whereOf(landedOn(target)(raw)))
   Option.match(Option.flatMap(asKey(target), (key) => Option.fromUndefinedOr(adopters.get(key))), {
     onNone: constVoid,
     onSome: (listeners) => Arr.forEach(Arr.fromIterable(listeners), (emit) => emit(down, raw)),

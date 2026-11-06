@@ -134,3 +134,5 @@ Files followed: `use-wardic.tsx` is `create-ward.tsx`. The hook's tests are `cre
   - scenario 17 as main;
   - keyboard reorder announced;
   - real-mouse drags 0.00 px, 0 frames behind.
+
+*Note (#618, 2026-11-06):* Solid 1's `useLayoutMember` is `createProjectionNode`, its options `CreateProjectionNodeOptions`: it makes a projection node under its owner, so it takes this ADR's `create*`, and the glossary has no "layout member". Its page moved to the reference's Advanced pages: it's for building an element of your own.

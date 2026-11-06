@@ -2,7 +2,7 @@
  * Reorder groups: a list the user reorders by dragging an item, or with the keys, as Motion's
  * `Reorder.Group`. A `Group` holds its items by value and runs one drag at a time. A binding registers
  * each item with how to read its box, drives the group from a drag's samples (`dragStart`, `dragMove`,
- * `dragEnd`) or from keys (`lift`, `step`, `drop`, `cancel`), and the group calls `onReorder` with each
+ * `dragEnd`) or from keys (`lift`, `moveLifted`, `drop`, `cancel`), and the group calls `onReorder` with each
  * new order. `check` is the rule that decides when a dragged item swaps places, and
  * `defaultAnnouncements` what a screen reader hears. The binding and its Environment supply the boxes,
  * points, keys and scrollers.
@@ -102,15 +102,9 @@ const indexOf = <V>(order: ReadonlyArray<ItemData<V>>, value: V): Option.Option<
 // far end in 30 px away from one (motion/react 13.4.6, every run in Chromium and Firefox:
 // .tmp/reorder/runs-*-{rtl,reverse}.json; framer-motion 13.0 sorted by position). In normal flow the two
 // rules pick the same neighbour. Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
-export const check = <V>(
-  order: ReadonlyArray<ItemData<V>>,
-  value: V,
-  offset: Point.Point,
-  velocity: Point.Point,
-  axis: Axis,
-  direction: "ltr" | "rtl" = "ltr",
-): ReadonlyArray<ItemData<V>> =>
-  Option.match(indexOf(order, value), {
+export const check = <V>(order: ReadonlyArray<ItemData<V>>, value: V, movement: Movement): ReadonlyArray<ItemData<V>> => {
+  const { offset, velocity, axis, direction = "ltr" } = movement
+  return Option.match(indexOf(order, value), {
     onNone: () => order,
     onSome: (index) =>
       Match.value(axis).pipe(
@@ -118,6 +112,20 @@ export const check = <V>(
         Match.orElse((single) => checkReorderOnAxis(order, index, offset, velocity, single)),
       ),
   })
+}
+
+/** How a dragged item moves, as {@link check} reads it. */
+// #618 (F3): four positional arguments, two of them points, were one call's slip from swapped.
+export interface Movement {
+  /** Where the item is from where it started. */
+  readonly offset: Point.Point
+  /** Its velocity, per second. */
+  readonly velocity: Point.Point
+  /** The axis the list runs on, or `"xy"` for a grid. */
+  readonly axis: Axis
+  /** Which way a line reads: `"ltr"`, the default, or `"rtl"`. */
+  readonly direction?: "ltr" | "rtl" | undefined
+}
 
 /** The single-axis rule: past the centre of the neighbour on the side the item moves toward. */
 const checkReorderOnAxis = <V>(
@@ -369,7 +377,7 @@ interface Gesture<V> {
  *   dragged item, with the drag sample's velocity, and gives the velocity back for auto-scroll; `dragEnd`
  *   ends it.
  * - `move` moves a value in code, held to the list; a value it doesn't know is left out.
- * - `lift`, `step`, `drop` and `cancel` reorder one item with the keys, each giving where the item is,
+ * - `lift`, `moveLifted`, `drop` and `cancel` reorder one item with the keys, each giving where the item is,
  *   for its announcement.
  *
  * Its state is its own, changed only by those operations.
@@ -383,13 +391,23 @@ export interface Group<in out V> extends Pipeable, Inspectable.Inspectable {
   /** The inputs `make` took. */
   readonly options: GroupOptions<V>
   /** Each registered item's source, by value. */
+  readonly sources: ReadonlyMap<V, ItemSource>
+}
+
+/**
+ * A group as this module keeps it: its drag gesture while one runs, and its keyboard reorder while an
+ * item is lifted (a **Keyboard reorder**, ADR-0037). Read from outside with {@link isDragging},
+ * {@link isLifted} and {@link liftedValue}.
+ */
+// Hidden from the public type (#618, F1): a caller that set them would break the group's state.
+interface State<V> extends Group<V> {
   readonly sources: Map<V, ItemSource>
-  /** The drag gesture, while one runs. */
   readonly gesture: MutableRef.MutableRef<Option.Option<Gesture<V>>>
-  /** The keyboard reorder, while an item is lifted. */
-  // A **Keyboard reorder** (ADR-0037).
   readonly lifted: MutableRef.MutableRef<Option.Option<Lift<V>>>
 }
+
+/** `group` as this module keeps it. */
+const stateOf = <V>(group: Group<V>): State<V> => group as State<V>
 
 const Proto = {
   [TypeId]: { _V: identity },
@@ -398,8 +416,8 @@ const Proto = {
     return {
       _id: "Reorder.Group",
       registered: this.sources.size,
-      dragging: Option.map(MutableRef.get(this.gesture), (gesture) => gesture.value),
-      lifted: Option.map(MutableRef.get(this.lifted), (lift) => lift.value),
+      dragging: Option.map(MutableRef.get(stateOf(this).gesture), (gesture) => gesture.value),
+      lifted: Option.map(MutableRef.get(stateOf(this).lifted), (lift) => lift.value),
     }
   },
   pipe() {
@@ -482,7 +500,7 @@ const reorderOn = <V>(group: Group<V>, g: Gesture<V>, value: V, source: ItemSour
   if (waiting(group, g, value, source)) return
   const values = group.options.values()
   const measured = measure(group, values)
-  const next = check(measured, value, source.dragOffset(), velocity, g.axis, g.direction)
+  const next = check(measured, value, { offset: source.dragOffset(), velocity, axis: g.axis, direction: g.direction })
   if (next === measured) return
   const newValues = refill(values, measured, next)
   const indexIn = (list: ReadonlyArray<V>): number =>
@@ -505,9 +523,9 @@ export const register: {
   <V>(value: V, source: ItemSource): (group: Group<V>) => () => void
   <V>(group: Group<V>, value: V, source: ItemSource): () => void
 } = dual(3, <V>(group: Group<V>, value: V, source: ItemSource): (() => void) => {
-  group.sources.set(value, source)
+  stateOf(group).sources.set(value, source)
   return () => {
-    if (group.sources.get(value) === source) group.sources.delete(value)
+    if (group.sources.get(value) === source) stateOf(group).sources.delete(value)
   }
 })
 
@@ -532,7 +550,7 @@ export const dragStart: {
 } = dual(isGroup, <V>(group: Group<V>, value: V): Axis => {
   const axis = resolveAxis(group)
   const direction = directionOf(group)
-  MutableRef.set(group.gesture, Option.some({ value, axis, direction, guard: Option.none(), waited: false }))
+  MutableRef.set(stateOf(group).gesture, Option.some({ value, axis, direction, guard: Option.none(), waited: false }))
   log(group, "reorder start", { value, axis, direction })
   return axis
 })
@@ -545,7 +563,7 @@ export const dragMove: {
   <V>(value: V, velocity: Point.Point): (group: Group<V>) => Point.Point
   <V>(group: Group<V>, value: V, velocity: Point.Point): Point.Point
 } = dual(3, <V>(group: Group<V>, value: V, velocity: Point.Point): Point.Point =>
-  Option.match(Option.filter(MutableRef.get(group.gesture), (g) => g.value === value), {
+  Option.match(Option.filter(MutableRef.get(stateOf(group).gesture), (g) => g.value === value), {
     onNone: () => ZERO,
     onSome: (g) => {
       Option.match(Option.fromUndefinedOr(group.sources.get(value)), {
@@ -561,8 +579,8 @@ export const dragEnd: {
   <V>(value: V): (group: Group<V>) => void
   <V>(group: Group<V>, value: V): void
 } = dual(isGroup, <V>(group: Group<V>, value: V): void => {
-  if (Option.exists(MutableRef.get(group.gesture), (g) => g.value === value)) {
-    MutableRef.set(group.gesture, Option.none())
+  if (Option.exists(MutableRef.get(stateOf(group).gesture), (g) => g.value === value)) {
+    MutableRef.set(stateOf(group).gesture, Option.none())
   }
 })
 
@@ -713,7 +731,7 @@ const placementIn = <V>(values: ReadonlyArray<V>, value: V, moved: boolean, wait
   Option.map(Arr.findFirstIndex(values, (v) => v === value), (index) => ({ position: index + 1, count: values.length, moved, waiting }))
 
 /** The lifted item, when it's `value`. */
-const liftOf = <V>(group: Group<V>, value: V): Option.Option<Lift<V>> => Option.filter(MutableRef.get(group.lifted), (lift) => lift.value === value)
+const liftOf = <V>(group: Group<V>, value: V): Option.Option<Lift<V>> => Option.filter(MutableRef.get(stateOf(group).lifted), (lift) => lift.value === value)
 
 /**
  * Lifts `value`'s item for a keyboard reorder: its axis and direction are fixed now, as a drag's are at
@@ -729,7 +747,7 @@ export const lift: {
   return Option.map(placementIn(values, value, false), (placement) => {
     const axis = resolveAxis(group)
     const direction = directionOf(group)
-    MutableRef.set(group.lifted, Option.some({ value, origin: Arr.copy(values), axis, direction, guard: Option.none() }))
+    MutableRef.set(stateOf(group).lifted, Option.some({ value, origin: Arr.copy(values), axis, direction, guard: Option.none() }))
     log(group, "keyboard lift", { value, position: placement.position, axis, direction })
     return placement
   })
@@ -741,8 +759,8 @@ export const lift: {
  * boxes are measured after its last step, a step waits (`waiting`, nothing moved), as a drag's next
  * reorder does. `None` when `value` isn't the lifted item.
  */
-// ADR-0037: a Measure pass.
-export const step: {
+// ADR-0037: a Measure pass. `moveLifted`, not `step`, the per-frame word everywhere else (#618, F3).
+export const moveLifted: {
   <V>(value: V, intent: Extract<KeyIntent, { readonly _tag: "Step" | "End" }>): (group: Group<V>) => Option.Option<Placement>
   <V>(group: Group<V>, value: V, intent: Extract<KeyIntent, { readonly _tag: "Step" | "End" }>): Option.Option<Placement>
 } = dual(3, <V>(group: Group<V>, value: V, intent: Extract<KeyIntent, { readonly _tag: "Step" | "End" }>): Option.Option<Placement> =>
@@ -775,7 +793,7 @@ export const drop: {
   <V>(group: Group<V>, value: V): Option.Option<Placement>
 } = dual(isGroup, <V>(group: Group<V>, value: V): Option.Option<Placement> =>
   Option.flatMap(liftOf(group, value), () => {
-    MutableRef.set(group.lifted, Option.none())
+    MutableRef.set(stateOf(group).lifted, Option.none())
     const placement = placementIn(group.options.values(), value, false)
     log(group, "keyboard drop", { value, position: Option.map(placement, (p) => p.position) })
     return placement
@@ -791,7 +809,7 @@ export const cancel: {
   <V>(group: Group<V>, value: V): Option.Option<Placement>
 } = dual(isGroup, <V>(group: Group<V>, value: V): Option.Option<Placement> =>
   Option.flatMap(liftOf(group, value), (l) => {
-    MutableRef.set(group.lifted, Option.none())
+    MutableRef.set(stateOf(group).lifted, Option.none())
     const values = group.options.values()
     const restored = restore(values, l.origin, value)
     if (Bool.not(sameOrder(restored, values))) group.options.onReorder(restored)
@@ -811,7 +829,15 @@ const restore = <V>(values: ReadonlyArray<V>, origin: ReadonlyArray<V>, value: V
   })
 
 /** The lifted value, while a keyboard reorder runs. */
-export const liftedValue = <V>(group: Group<V>): Option.Option<V> => Option.map(MutableRef.get(group.lifted), (l) => l.value)
+export const liftedValue = <V>(group: Group<V>): Option.Option<V> => Option.map(MutableRef.get(stateOf(group).lifted), (l) => l.value)
+
+/** Whether a drag gesture runs in `group`. */
+// #618 (F1): dom's keyboard reorder read the group's gesture ref for this.
+export const isDragging = <V>(group: Group<V>): boolean => Option.isSome(MutableRef.get(stateOf(group).gesture))
+
+/** Whether an item of `group` is lifted, by its keys (a **Keyboard reorder**, ADR-0037). */
+// #618 (F1).
+export const isLifted = <V>(group: Group<V>): boolean => Option.isSome(MutableRef.get(stateOf(group).lifted))
 
 // --- The keyboard reorder's wording (ADR-0037) ---------------------------------------
 

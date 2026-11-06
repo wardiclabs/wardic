@@ -1,6 +1,6 @@
 /**
  * A layout node's registration (ADR-0009, ADR-0010), Solid-free (#209): its layout transition, and
- * what each binding's `useLayoutMember` hands the provider's projection system. The binding adds
+ * what each binding's `createProjectionNode` hands the provider's projection system. The binding adds
  * its own lifetime: the node's disposal, and a `layoutDependency` change's re-measure.
  *
  * @module
@@ -50,10 +50,10 @@ const toLayoutTransition = (t: WardicTransition | undefined): Option.Option<Proj
   Option.map(Option.fromUndefinedOr(transitionForKey(t, "layout")), asLayoutTransition)
 
 /**
- * `useLayoutMember`'s options: the element, its id, and what its motion props would give a `w.*`
+ * `createProjectionNode`'s options: the element, its id, and what its motion props would give a `w.*`
  * element's layout node. Each function is read when the projection needs it, outside Solid's tracking.
  */
-export interface UseLayoutMemberOptions {
+export interface CreateProjectionNodeOptions {
   /** The element's id in the provider's gate, the entry its values are written under. */
   // The spine's entry: the projection's `@projection` writes merge there.
   readonly id: string
@@ -138,7 +138,7 @@ const layoutSkips = (transition: WardicTransition | undefined): boolean =>
  * element, whether it has `layout`, `layoutId`, or both. Each getter is read where the projection
  * system needs it, outside the binding's tracking.
  */
-export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.RegisterNodeOptions => {
+export const registrationOf = (opts: CreateProjectionNodeOptions): ProjectionSystem.RegisterNodeOptions => {
   const { crossfade, dragTransition, element, enteredFrom, fadeFrom, id, layoutAnchor, layoutId, layoutMode, layoutRoot, layoutScroll, heldTransform, onBeforeMeasure, onMeasure, onLayoutAnimationComplete, onLayoutAnimationStart, onReleaseEnd, ownOpacity, ownRotate, ownScale, ownTranslate, raiseWhileDragged, reducedMotion, skipAnimations, transition } = opts
   const configSkips = UndefinedOr.match(skipAnimations, { onUndefined: () => constFalse, onDefined: identity })
   return {
@@ -147,7 +147,7 @@ export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.R
     transition: () => toLayoutTransition(transition()),
     // Its layout transition's Path (#438, ADR-0065), Motion's: the `layout` entry's, else the element's.
     // A layout animation of 20 px or more curves along it.
-    path: () => UndefinedOr.map(transitionForKey(transition(), "layout"), (t) => t.path),
+    path: () => Option.fromUndefinedOr(UndefinedOr.map(transitionForKey(transition(), "layout"), (t) => t.path)),
     // The layout transition's reduced-motion opt-out (ADR-0029, #301), read at each layout animation's start.
     respectReducedMotion: () =>
       UndefinedOr.match(transitionForKey(transition(), "layout"), { onUndefined: constTrue, onDefined: (t) => t.respectReducedMotion !== false }),
@@ -170,7 +170,8 @@ export const registrationOf = (opts: UseLayoutMemberOptions): ProjectionSystem.R
     ...UndefinedOr.match(ownOpacity, { onUndefined: () => ({}), onDefined: (opacity) => ({ ownOpacity: opacity }) }),
     ...UndefinedOr.match(heldTransform, { onUndefined: () => ({}), onDefined: (held) => ({ heldTransform: held }) }),
     ...UndefinedOr.match(onBeforeMeasure, { onUndefined: () => ({}), onDefined: (before) => ({ onBeforeMeasure: before }) }),
-    ...UndefinedOr.match(onMeasure, { onUndefined: () => ({}), onDefined: (measured) => ({ onMeasure: measured }) }),
+    // The engine's `prev` is an `Option` (#618, A1); this option keeps Motion's `undefined` at the first.
+    ...UndefinedOr.match(onMeasure, { onUndefined: () => ({}), onDefined: (measured) => ({ onMeasure: (box: Box.Box, prev: Option.Option<Box.Box>) => measured(box, Option.getOrUndefined(prev)) }) }),
     ...UndefinedOr.match(onLayoutAnimationStart, {
       onUndefined: () => ({}),
       onDefined: (start) => ({ onLayoutAnimationStart: () => Option.fromUndefinedOr(start()) }),
@@ -244,7 +245,7 @@ export interface WardLayout {
  * #432), `layoutScroll`, `layoutRoot` and `layoutAnchor` read once, at mount; its transition, Layout
  * mode and callbacks read when the projection system needs them.
  */
-export const layoutOptionsOf = (ward: WardLayout): UseLayoutMemberOptions => {
+export const layoutOptionsOf = (ward: WardLayout): CreateProjectionNodeOptions => {
   const { config, element, id, parent, snapshot, dragTransition, raiseWhileDragged, taken, layoutGroup, reducedMotion, skipAnimations, heldTransform } = ward
   const c0 = config()
   return {
@@ -293,7 +294,7 @@ export const layoutOptionsOf = (ward: WardLayout): UseLayoutMemberOptions => {
 }
 
 /** A take-over's layout start (#286), when its child took over from a leaver: its box and fade. */
-const takenOptionsOf = (taken: PresenceSeed | undefined): Pick<UseLayoutMemberOptions, "enteredFrom" | "fadeFrom"> => {
+const takenOptionsOf = (taken: PresenceSeed | undefined): Pick<CreateProjectionNodeOptions, "enteredFrom" | "fadeFrom"> => {
   if (Predicate.isUndefined(taken)) return NONE
   return takeOverOf(taken.box, taken.fade)
 }

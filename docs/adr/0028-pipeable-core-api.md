@@ -575,3 +575,11 @@ Core's operations are built with core's `dual` (`src/internal/dual.ts`), not `ef
 - **By the first argument,** `dual(isMachine, body)`, replacing `(args) => isMachine(args[0])`: up to three arguments after it. For an optional argument (`withSpan`, `run`), and for an arity-2 operation whose last argument may be `undefined` (the Reorder group's `value: V`, `Renderer.applyTo`'s target).
 
 A data-first call allocates nothing in any tier (Node: 0 B a call against Effect's 34–42 B); a data-last call allocates its closure, as Effect's does. All 28 of core's operations moved; the types are Effect's. dom's three (`starting-style.ts`, per mount) keep Effect's: dom can't import core's internals. `dual.test.ts` pins both forms.
+
+## Note (#618, 2026-11-06): service keys and Layer names
+
+From the review of 2026-11-05 (C1), names brought in line with Effect's guide:
+- **Core's service keys** name their package and module: `@wardic/core/Clock`, `@wardic/core/FrameLoop`, and so on for all twelve. `PositionalKeys`, in `ReducedMotion`, is `@wardic/core/ReducedMotion/PositionalKeys`. A key is what Effect's errors print, so they read like the import paths.
+- **A Layer that isn't its module's own `layer` takes Effect's `layerX` name:** `Announcer.layerSilent` (was `silent`), `DefaultTransition.layerOneSpring` (was `oneSpring`).
+- **`FrameLoop`'s service class has no `make`.** Its Layer builds from the internal one; a caller builds the loop only through `FrameLoop.layer` (decision 11).
+- **`@wardic/test`:** `TestClock.make` (was `makeTestClock`), `TestRenderer.make` (was `makeRecordingRenderer`), `TestProbe.Options` (was `TestProbeOptions`), as a name doesn't repeat its module. The root exports `testLayer` and `TestLive` by name, not `export *`.

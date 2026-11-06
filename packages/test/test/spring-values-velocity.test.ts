@@ -18,12 +18,7 @@ it.effect("(a) a velocity-seeded key moves in that direction faster than an unse
     // `seeded` gets a strong positive initial velocity; `plain` gets none.
     const ticks = TestClock.frames(1, 1 / 60) // just the first tick
     const frames = yield* Stream.runCollect(
-      Machine.toStream(Machine.springValues(
-        { seeded: 100, plain: 100 },
-        { stiffness: 170, damping: 26 },
-        { seeded: 0, plain: 0 },
-        { seeded: 500, plain: 0 },
-      )),
+      Machine.toStream(Machine.springValues({ seeded: 100, plain: 100 }, { stiffness: 170, damping: 26 }, { from: { seeded: 0, plain: 0 }, velocity: { seeded: 500, plain: 0 } })),
     ).pipe(Effect.provide(TestClock.layer(ticks)))
 
     const first = Array.from(frames)[0]!
@@ -40,7 +35,7 @@ it.effect("(b) frames carry a per-key velocity map that decays to ~0 as the key 
   Effect.gen(function* () {
     const ticks = TestClock.frames(240, 1 / 60) // up to 4s — enough to settle
     const frames = yield* Stream.runCollect(
-      Machine.toStream(Machine.springValues({ x: 100 }, { stiffness: 170, damping: 26 }, { x: 0 })),
+      Machine.toStream(Machine.springValues({ x: 100 }, { stiffness: 170, damping: 26 }, { from: { x: 0 } })),
     ).pipe(Effect.provide(TestClock.layer(ticks)))
 
     const all = Array.from(frames) as ReadonlyArray<Frame.MultiPhysics>
@@ -68,7 +63,7 @@ it.effect("(c) retarget continuity: seeding from a prior frame's value AND veloc
 
     // Leg 1 — spring toward T1; grab a mid-flight frame (not settled).
     const leg1 = yield* Stream.runCollect(
-      Machine.toStream(Machine.springValues({ x: 100 }, options, { x: 0 })),
+      Machine.toStream(Machine.springValues({ x: 100 }, options, { from: { x: 0 } })),
     ).pipe(Effect.provide(TestClock.layer(TestClock.frames(240, 1 / 60))))
     const leg1Frames = Array.from(leg1) as ReadonlyArray<Frame.MultiPhysics>
     const mid = leg1Frames[2]!
@@ -80,7 +75,7 @@ it.effect("(c) retarget continuity: seeding from a prior frame's value AND veloc
     // Leg 2 — fresh springValues toward a NEW target, seeded from the mid frame's
     // value AND velocity. The first emitted frame must reflect that momentum.
     const seededRetarget = yield* Stream.runCollect(
-      Machine.toStream(Machine.springValues({ x: 200 }, options, { x: v }, { x: vel })),
+      Machine.toStream(Machine.springValues({ x: 200 }, options, { from: { x: v }, velocity: { x: vel } })),
     ).pipe(Effect.provide(TestClock.layer(TestClock.frames(1, 1 / 60))))
     const seededFirst = (Array.from(seededRetarget) as ReadonlyArray<Frame.MultiPhysics>)[0]!
 
@@ -88,7 +83,7 @@ it.effect("(c) retarget continuity: seeding from a prior frame's value AND veloc
     // losing behaviour). Its first velocity starts from 0 and only the spring
     // force over one tick builds it up.
     const unseededRetarget = yield* Stream.runCollect(
-      Machine.toStream(Machine.springValues({ x: 200 }, options, { x: v })),
+      Machine.toStream(Machine.springValues({ x: 200 }, options, { from: { x: v } })),
     ).pipe(Effect.provide(TestClock.layer(TestClock.frames(1, 1 / 60))))
     const unseededFirst = (Array.from(unseededRetarget) as ReadonlyArray<Frame.MultiPhysics>)[0]!
 

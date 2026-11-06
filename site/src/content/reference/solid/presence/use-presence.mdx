@@ -1,7 +1,7 @@
 ---
 title: usePresence
 description: Holds a leaving child of AnimatePresence on the page until you say it can go, for an exit of your own.
-api: [usePresence, PresenceHold, PresenceLeaveEvents]
+api: [usePresence, PresenceExit, PresenceLeaveEvents]
 ---
 
 # usePresence
@@ -29,16 +29,16 @@ const isPresent = usePresence(() => el, (safeToRemove, custom) => {
 ```tsx
 import { usePresence } from "@wardic/solid/unstable/v2"
 
-const hold = usePresence()
-void hold.next("leave").then(() => setTimeout(hold.safeToRemove, 300))
-<div ref={hold} />
+const exit = usePresence()
+void exit.next("leave").then(() => setTimeout(exit.safeToRemove, 300))
+<div ref={exit} />
 ```
 
-`usePresence()` returns a hold to give to `ref` on an element in the child. `hold.next("leave")` resolves as the child leaves, with the presence's `custom`, and `hold.each("leave")` gives every one. `hold.isPresent()` is `false` from the leave on, and `hold.safeToRemove()` lets it go.
+`usePresence()` returns your own exit, to give to `ref` on an element in the child. `exit.next("leave")` resolves as the child leaves, with the presence's `custom`, and `exit.each("leave")` gives every one. `exit.isPresent()` is `false` from the leave on, and `exit.safeToRemove()` lets it go.
 
 Outside a presence, the child is always present, and nothing is called.
 
 ## Types
 
-- **`PresenceHold`:** (Solid 2) the hold, above.
+- **`PresenceExit`:** (Solid 2) your own exit, above.
 - **`PresenceLeaveEvents`:** (Solid 2) what `next` waits for: `leave`, with the presence's `custom`.

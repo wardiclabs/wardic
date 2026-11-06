@@ -637,9 +637,19 @@ export const sheet = (): Sheet => {
 // #245, ADR-0044 *Amendment (#245)*.
 export const CHUNK_ATTRIBUTE = "data-wardic-appear-chunk"
 
-/** A late chunk's `<style>` for `css`, as server text; "" for none. */
-export const chunkStyle = (css: string): string =>
-  Bool.match(css === "", { onTrue: () => "", onFalse: () => `<style ${CHUNK_ATTRIBUTE}>${css}</style>` })
+/**
+ * A late chunk's `<style>` for `css`, as server text; "" for none. With a `nonce`, the one the page's
+ * Content Security Policy gives inline styles, it carries it.
+ */
+// `nonce`: #618 (P1), Motion's `MotionConfig` `nonce`.
+export const chunkStyle = (css: string, nonce?: string): string => {
+  if (css === "") return ""
+  if (Predicate.isUndefined(nonce)) return `<style ${CHUNK_ATTRIBUTE}>${css}</style>`
+  return `<style ${CHUNK_ATTRIBUTE} nonce="${escapeAttribute(nonce)}">${css}</style>`
+}
+
+/** `value` safe inside a double-quoted attribute. */
+const escapeAttribute = (value: string): string => value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;")
 
 /** The documents {@link adoptChunks} watches, or has: one observer a document. */
 // Module state (#460, Q7): the documents already watched, held weakly.

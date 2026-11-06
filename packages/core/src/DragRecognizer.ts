@@ -400,19 +400,20 @@ export interface DragOptions {
   readonly adoptable?: boolean | undefined
   /**
    * How far, in px, a gesture from `down` moves before it starts, read at the down, as Motion's
-   * `distanceThreshold`: `undefined`, or none given, is 3. A direction lock still waits for its 10 px on
-   * one axis.
+   * `distanceThreshold`: none, or no function given, is 3. A direction lock still waits for its 10 px
+   * on one axis.
    */
-  // #431.
-  readonly threshold?: ((down: InputSource.PointerLikeEvent) => number | undefined) | undefined
+  // #431; an `Option` (#618, A1).
+  readonly threshold?: ((down: InputSource.PointerLikeEvent) => Option.Option<number>) | undefined
   /**
    * Where each pointer point is for the gesture, as Motion's `transformPagePoint`: read at each down, and
-   * applied to all that gesture's points, its down's and each move's. `undefined`, or none given, leaves
+   * applied to all that gesture's points, its down's and each move's. None, or no function given, leaves
    * them as they are. It's handed the point on the screen and gives one; the scroll a hold counts in is
-   * added back after.
+   * added back after. A caller gives back the same `Some` while its mapping is the same, so a down
+   * allocates nothing.
    */
-  // #443.
-  readonly mapPoint?: LazyArg<PointMap | undefined> | undefined
+  // #443; an `Option` (#618, A1).
+  readonly mapPoint?: LazyArg<Option.Option<PointMap>> | undefined
 }
 
 /** A point mapped, as Motion's `transformPagePoint`: the Environment's coordinates in, the gesture's out. */
@@ -423,7 +424,7 @@ export type PointMap = (point: Point.Point) => Point.Point
 // #443.
 export interface PanOptions {
   /** Where each pointer point is for the gesture, as `DragOptions`' `mapPoint`. */
-  readonly mapPoint?: LazyArg<PointMap | undefined> | undefined
+  readonly mapPoint?: LazyArg<Option.Option<PointMap>> | undefined
 }
 
 /**
@@ -433,25 +434,28 @@ export interface PanOptions {
  */
 const mappedEvents = (mapPoint: DragOptions["mapPoint"]): ((event: InputSource.PointerLikeEvent) => InputSource.PointerLikeEvent) => {
   if (Predicate.isUndefined(mapPoint)) return identity
-  const current = MutableRef.make<PointMap | undefined>(undefined)
+  const current = MutableRef.make<Option.Option<PointMap>>(Option.none())
   return (event) => {
     if (event.type === "down") MutableRef.set(current, mapPoint())
     const mapping = MutableRef.get(current)
-    if (Predicate.isUndefined(mapping)) return event
+    if (Option.isNone(mapping)) return event
     const { scroll } = event
-    const at = mapping({ x: event.x - scroll.x, y: event.y - scroll.y })
+    const at = mapping.value({ x: event.x - scroll.x, y: event.y - scroll.y })
     return { ...event, x: at.x + scroll.x, y: at.y + scroll.y }
   }
 }
 
+/** A drag's watch, as one with no drag controls gives it back: its Scope ends it, and nothing else does. */
+// #618 (F3): a plain watch's type has no `stop` or `cancel`, which did nothing on it.
+export interface WatchedDrag {}
+
 /**
- * A drag's watch, which can end its gesture from outside its pointer, as Motion's drag controls' `stop`
- * and `cancel` do. Each tells its `"end"` inside the call, and does nothing when no gesture has started.
- * Only an `adoptable` watch, a target given drag controls, is ended so; any other's `stop` and `cancel`
- * do nothing.
+ * An `adoptable` drag's watch, a target given drag controls: it can end its gesture from outside its
+ * pointer, as Motion's drag controls' `stop` and `cancel` do. Each tells its `"end"` inside the call, and
+ * does nothing when no gesture has started.
  */
 // #431, #539.
-export interface WatchedDrag {
+export interface AdoptableDrag extends WatchedDrag {
   /** Ends the gesture as its pointer's release would: an `"end"` at its last point, with its moves' velocity. */
   readonly stop: () => void
   /** Ends the gesture where it is: an `"end"` with no velocity, marked `cancelled`. */
@@ -459,14 +463,14 @@ export interface WatchedDrag {
 }
 
 /** A plain watch's ends from outside (#539): shared, and doing nothing. */
-const NO_ENDS: WatchedDrag = { stop: constVoid, cancel: constVoid }
+const NO_ENDS: AdoptableDrag = { stop: constVoid, cancel: constVoid }
 
 /** A drag's downs (#431): its own presses unless it doesn't `listen`, and those it adopted; each gesture's threshold its `threshold`'s, else 3. */
 const dragDownsOf = (listen: boolean, threshold: DragOptions["threshold"]): Downs => ({
   claims: Bool.match(listen, { onTrue: () => constTrue, onFalse: () => isAdopted }),
   thresholdOf: UndefinedOr.match(threshold, {
     onUndefined: () => () => THRESHOLD,
-    onDefined: (of) => (down: InputSource.PointerLikeEvent) => UndefinedOr.match(of(down), { onUndefined: () => THRESHOLD, onDefined: identity }),
+    onDefined: (of) => (down: InputSource.PointerLikeEvent) => Option.getOrElse(of(down), () => THRESHOLD),
   }),
 })
 
@@ -544,7 +548,9 @@ export const drag = (target: unknown, options: DragOptions = {}): Stream.Stream<
  * - **Velocity** is the pointer's on each axis over the last 100 ms, read from the events' times.
  *
  * A down handed to the target starts a gesture as its own press does; with `listen: false`, only those
- * do. An `adoptable` watch gives back a `WatchedDrag` that ends a gesture from outside.
+ * do. An `adoptable` watch gives back an `AdoptableDrag`, which ends a gesture from outside; a plain
+ * one, a `WatchedDrag`. With `adoptable` known only when it runs, an `AdoptableDrag` whose ends do
+ * nothing unless it is.
  *
  * @example
  * const watched = yield* DragRecognizer.watchDrag(slider, { axis: "x", adoptable: true }, { on: move })
@@ -557,13 +563,17 @@ export const drag = (target: unknown, options: DragOptions = {}): Stream.Stream<
 // gesture's end is the one cold-path log: `wardic.drag: stale gesture` with its rule. Velocity: Motion's
 // `getVelocity`, `Velocity.trailing`, on every sample; the `"end"` sample counts the release point too
 // (ADR-0004, *Amendment (#139)*); from event `timeStamp`s, so it needs no `Clock`, only `InputSource`.
-// Adopted downs: #431 (`InputSource.adoptPointer`); a `WatchedDrag`'s ends do nothing once the Scope has
-// closed, and any other watch's nothing at all (#539).
-export const watchDrag = (
+// Adopted downs: #431 (`InputSource.adoptPointer`); an `AdoptableDrag`'s ends do nothing once the Scope has
+// closed, and any other watch's nothing at all (#539). Its overloads are types alone (#618, F3).
+export const watchDrag: {
+  (target: unknown, options: DragOptions & { readonly adoptable: true }, handlers: InputFeed.Handlers<Drag.Sample>): Effect.Effect<AdoptableDrag, never, Scope.Scope | InputSource.InputSource>
+  (target: unknown, options: DragOptions & { readonly adoptable?: false | undefined }, handlers: InputFeed.Handlers<Drag.Sample>): Effect.Effect<WatchedDrag, never, Scope.Scope | InputSource.InputSource>
+  (target: unknown, options: DragOptions, handlers: InputFeed.Handlers<Drag.Sample>): Effect.Effect<AdoptableDrag, never, Scope.Scope | InputSource.InputSource>
+} = (
   target: unknown,
   { axis = "xy", claim = true, lock = false, listen = true, adoptable = false, threshold, mapPoint }: DragOptions,
   handlers: InputFeed.Handlers<Drag.Sample>,
-): Effect.Effect<WatchedDrag, never, Scope.Scope | InputSource.InputSource> => {
+): Effect.Effect<AdoptableDrag, never, Scope.Scope | InputSource.InputSource> => {
   const attributes = { threshold: THRESHOLD, velocityWindowMs: VELOCITY_WINDOW_MS }
   const mapped = mappedEvents(mapPoint)
   const axisAt = axisAtOf(axis)

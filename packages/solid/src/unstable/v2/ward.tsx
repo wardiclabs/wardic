@@ -159,7 +159,7 @@ import {
 import { type Feature, type FeatureRegistry, type FeatureSection, LAYOUT_PROPS, missingMessage, unreadColorIn } from "../../feature.ts"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, CLIENT_ONLY_SYNC, CLIENT_ONLY_SYNC_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
-import { transformPagePointOf } from "../../wardic-config-value.ts"
+import { pointMapOptionOf, transformPagePointOf } from "../../wardic-config-value.ts"
 import { configView, type Fixed, type PerKey, type PerKeyApart } from "./config-view.ts"
 import { Lifecycle, type WardEvent, type WardEvents, type WardPressInfo, type WardSettled } from "./lifecycle.ts"
 import { neverLands, NO_EVENTS, serverWhen } from "./waiters.ts"
@@ -1245,7 +1245,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     const pan = gestureIn(services, "pan", PanGesture, lifecycle.wantsPan)
     if (Predicate.isNotUndefined(pan) && Bool.not(m.pan)) {
       m.pan = true
-      m.watch(pan.watch(m.element, { on: (sample) => lifecycle.panned(sample, m.element), onDefect }, { mapPoint: pagePoint }))
+      m.watch(pan.watch(m.element, { on: (sample) => lifecycle.panned(sample, m.element), onDefect }, { mapPoint: pointMapOptionOf(pagePoint) }))
     }
     // In view as its `viewport` says, read when it starts (#273).
     const inView = gestureIn(services, "inView", InViewGesture, Bool.or(untrack(wantsInView), lifecycle.wantsInView))
@@ -1987,7 +1987,7 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
   // the chunk has rendered and streamed with it as a head patch. A late element under another late
   // one registers too: the first read writes the batch, and any other finds it written and adds no
   // tag, so Solid 1's `within` (which kept a chunk to one `<style>` node) isn't needed.
-  if (appear.chunkRoot) UndefinedOr.map(appear.state, (state) => useHead(appearStyle(state.chunkCss)))
+  if (appear.chunkRoot) UndefinedOr.map(appear.state, (state) => useHead(appearStyle(state.chunkCss, state.nonce)))
   const Provider = (props: { readonly children?: JSX.Element }): JSX.Element => (
     <WardicVariantContext value={contextOf(appear.provided)}>{props.children}</WardicVariantContext>
   )

@@ -1,4 +1,3 @@
-import * as Flip from "@wardic/core/Flip"
 import * as Projection from "@wardic/core/Projection"
 import * as Renderer from "@wardic/core/Renderer"
 import { describe, expect, it } from "@effect/vitest"
@@ -53,13 +52,8 @@ describe("RendererDomLive.project (pure)", () => {
     })
   })
 
-  it("projects flip output { x, y, scaleX, scaleY } into one transform string", () => {
-    const t = Flip.make(
-      { x: 0, y: 0, left: 0, top: 0, right: 200, bottom: 80, width: 200, height: 80 },
-      { x: 50, y: 20, left: 50, top: 20, right: 150, bottom: 60, width: 100, height: 40 },
-    )
-    // flip => { x: -50, y: -20, scaleX: 2, scaleY: 2 }
-    expect(t).toEqual({ x: -50, y: -20, scaleX: 2, scaleY: 2 })
+  it("projects { x, y, scaleX, scaleY } into one transform string", () => {
+    const t = { x: -50, y: -20, scaleX: 2, scaleY: 2 }
     expect(renderer.project({ ...t })).toEqual({
       transform: "translateX(-50px) translateY(-20px) scaleX(2) scaleY(2)",
     })

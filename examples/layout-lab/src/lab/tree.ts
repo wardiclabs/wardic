@@ -19,14 +19,14 @@ import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Graph from "effect/Graph"
 import * as Option from "effect/Option"
 
-type Snapshot = ProjectionSystem.Snapshot
-type NodeSnapshot = ProjectionSystem.NodeSnapshot
+type Tree = ProjectionSystem.Tree
+type TreeNode = ProjectionSystem.TreeNode
 
 /** An edge: a parent's to its child, or a Lead's to a Follower. */
 export type TreeEdge = "parent" | "lead"
 
 /** What a node is doing, in its label's order. */
-const flagsOf = (node: NodeSnapshot): ReadonlyArray<string> => [
+const flagsOf = (node: TreeNode): ReadonlyArray<string> => [
   ...(node.layoutRoot ? ["layoutRoot"] : []),
   ...(node.twin === "lead" ? ["Lead"] : []),
   ...(node.twin === "follower" ? ["Follower"] : []),
@@ -41,7 +41,7 @@ const flagsOf = (node: NodeSnapshot): ReadonlyArray<string> => [
  * its id telling apart nodes that read alike. No character `toMermaid` escapes (`#`, brackets,
  * quotes), so the copied text reads as written; its newline prints as `<br/>`.
  */
-export const labelOf = (node: NodeSnapshot): string => {
+export const labelOf = (node: TreeNode): string => {
   const layoutId = node.layoutId === undefined ? "" : ` layoutId=${node.layoutId}`
   const flags = flagsOf(node)
   const head = `${node.tag}${layoutId} · ${node.id}`
@@ -49,8 +49,8 @@ export const labelOf = (node: NodeSnapshot): string => {
 }
 
 /** The nodes of `snapshot` whose ids are in `keep` (all of them with none), with their parent and Lead edges among them. */
-export const treeGraph = (snapshot: Snapshot, keep?: ReadonlySet<string>): Graph.DirectedGraph<NodeSnapshot, TreeEdge> =>
-  Graph.directed<NodeSnapshot, TreeEdge>((mutable) => {
+export const treeGraph = (snapshot: Tree, keep?: ReadonlySet<string>): Graph.DirectedGraph<TreeNode, TreeEdge> =>
+  Graph.directed<TreeNode, TreeEdge>((mutable) => {
     const index = new Map<string, Graph.NodeIndex>()
     for (const node of snapshot.nodes) {
       if (keep !== undefined && !keep.has(node.id)) continue
@@ -67,7 +67,7 @@ export const treeGraph = (snapshot: Snapshot, keep?: ReadonlySet<string>): Graph
   })
 
 /** The graph as Mermaid: top-down, a Lead's edges labelled, a parent's left blank. */
-export const mermaidOf = (snapshot: Snapshot, keep?: ReadonlySet<string>): string =>
+export const mermaidOf = (snapshot: Tree, keep?: ReadonlySet<string>): string =>
   Graph.toMermaid(treeGraph(snapshot, keep), {
     nodeLabel: labelOf,
     edgeLabel: (edge) => (edge === "lead" ? "Lead → Follower" : ""),
@@ -75,7 +75,7 @@ export const mermaidOf = (snapshot: Snapshot, keep?: ReadonlySet<string>): strin
   })
 
 /** The separate trees of `snapshot`, each as its nodes' ids: a scene's nodes make their own. */
-export const treesOf = (snapshot: Snapshot): ReadonlyArray<ReadonlySet<string>> => {
+export const treesOf = (snapshot: Tree): ReadonlyArray<ReadonlySet<string>> => {
   const graph = treeGraph(snapshot)
   return Graph.weaklyConnectedComponents(graph).map(
     (component) => new Set(component.map((i) => Option.getOrThrow(Graph.getNode(graph, i)).id)),
@@ -83,7 +83,7 @@ export const treesOf = (snapshot: Snapshot): ReadonlyArray<ReadonlySet<string>> 
 }
 
 /** Whether the parent links make a cycle: a sanity check, as a DOM ancestry can't. */
-export const parentCycle = (snapshot: Snapshot): boolean => {
+export const parentCycle = (snapshot: Tree): boolean => {
   const parents = Graph.directed<string, TreeEdge>((mutable) => {
     const index = new Map(snapshot.nodes.map((node) => [node.id, Graph.addNode(mutable, node.id)] as const))
     for (const node of snapshot.nodes) {
@@ -95,7 +95,7 @@ export const parentCycle = (snapshot: Snapshot): boolean => {
 }
 
 /** The ids of the nodes that changed across `snapshots`: added, removed, or anything about them different. */
-export const changedIds = (snapshots: ReadonlyArray<Snapshot>): ReadonlySet<string> => {
+export const changedIds = (snapshots: ReadonlyArray<Tree>): ReadonlySet<string> => {
   const changed = new Set<string>()
   for (let i = 1; i < snapshots.length; i++) {
     const before = new Map(snapshots[i - 1]!.nodes.map((node) => [node.id, JSON.stringify(node)] as const))
@@ -107,7 +107,7 @@ export const changedIds = (snapshots: ReadonlyArray<Snapshot>): ReadonlySet<stri
 }
 
 /** The ids of every tree in `snapshot` holding one of `ids`: the trees a recording touched. */
-export const treesHolding = (snapshot: Snapshot, ids: ReadonlySet<string>): ReadonlySet<string> => {
+export const treesHolding = (snapshot: Tree, ids: ReadonlySet<string>): ReadonlySet<string> => {
   const kept = new Set<string>()
   for (const tree of treesOf(snapshot)) {
     if ([...tree].some((id) => ids.has(id))) for (const id of tree) kept.add(id)

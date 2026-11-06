@@ -29,24 +29,24 @@ describe("Playback.drive (#433)", () => {
     const head = Playback.make()
     const step = Playback.drive(tween(), head).start()
     expect(step(0.25).value).toBeCloseTo(25, 6)
-    head.paused = true
+    Playback.pause(head)
     expect(step(0.25).value).toBeCloseTo(25, 6)
     expect(step(0.25).value).toBeCloseTo(25, 6)
     expect(head.time).toBeCloseTo(0.25, 9)
-    head.paused = false
+    Playback.play(head)
     expect(step(0.25).value).toBeCloseTo(50, 6)
   })
 
   it("PB3: speed 2 takes half the ticks; speed 0 holds", () => {
     const head = Playback.make()
-    head.speed = 2
+    Playback.setSpeed(head, 2)
     const step = Playback.drive(tween(), head).start()
     expect(step(0.25).value).toBeCloseTo(50, 6)
     const end = step(0.25)
     expect(end.value).toBeCloseTo(100, 6)
     expect(end.done).toBe(true)
     const held = Playback.make()
-    held.speed = 0
+    Playback.setSpeed(held, 0)
     const still = Playback.drive(tween(), held).start()
     expect(still(0.25).value).toBe(0)
     expect(still(0.25).value).toBe(0)
@@ -67,7 +67,7 @@ describe("Playback.drive (#433)", () => {
     Playback.seek(head, 0.5)
     const step = Playback.drive(tween(), head).start()
     expect(step(0).value).toBeCloseTo(50, 6)
-    head.speed = -1
+    Playback.setSpeed(head, -1)
     const back = step(0.25)
     expect(back.value).toBeCloseTo(25, 6)
     expect(back.done).toBe(false)
@@ -89,8 +89,8 @@ describe("Playback.drive (#433)", () => {
 describe("durationOf a driven machine (#618)", () => {
   it("PB7: is its source's, and leaves the playhead where it is", () => {
     const head = Playback.make()
-    head.time = 0.3
-    head.speed = 2
+    Playback.seek(head, 0.3)
+    Playback.setSpeed(head, 2)
     const driven = Playback.drive(Playback.drive(tween(0.5), head), head)
     expect(Machine.durationOf(driven)).toBeCloseTo(Machine.durationOf(tween(0.5)), 9)
     expect(head.time, "the playhead untouched").toBe(0.3)

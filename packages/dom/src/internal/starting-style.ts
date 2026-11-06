@@ -117,8 +117,9 @@ const withStops = (values: Values.Values, keyframes: Readonly<Record<string, Sto
 export interface SplitValues {
   /** Its numbers and strings, each Keyframes value at one of its stops. */
   readonly values: Values.Values
-  /** Its Keyframes, `undefined` with none. */
-  readonly keyframes: Readonly<Record<string, Stops>> | undefined
+  /** Its Keyframes, if it has any. */
+  // An `Option` (#618, A1): none is Effect's one `None`, so a target with no Keyframes allocates nothing.
+  readonly keyframes: Option.Option<Readonly<Record<string, Stops>>>
 }
 
 /**
@@ -130,8 +131,8 @@ export interface SplitValues {
 export const splitValues = (v: object | undefined, at: StopAt): SplitValues => {
   const values = filtered(v)
   const keyframes = takeSetAside()
-  if (Predicate.isUndefined(keyframes)) return { values, keyframes: undefined }
-  return { values: withStops(values, keyframes, at), keyframes }
+  if (Predicate.isUndefined(keyframes)) return { values, keyframes: Option.none() }
+  return { values: withStops(values, keyframes, at), keyframes: Option.some(keyframes) }
 }
 
 /**
@@ -153,13 +154,13 @@ export const valuesAt = (v: object | undefined, at: StopAt): Values.Values => {
 
 /**
  * A values map's keyframes values: each array of stops an animation can take, one with a stop that isn't
- * `null`. `undefined` when it has none, so a target without any makes nothing.
+ * `null`. None when it has none, so a target without any makes nothing.
  *
  * @example
  * Style.keyframesOf({ opacity: [0, 0.5, 1], x: 10 }) // { opacity: [0, 0.5, 1] }
  */
 // **Keyframes** (#429).
-export const keyframesOf = (v: object | undefined): Readonly<Record<string, Stops>> | undefined => splitValues(v, "last").keyframes
+export const keyframesOf = (v: object | undefined): Option.Option<Readonly<Record<string, Stops>>> => splitValues(v, "last").keyframes
 
 /**
  * What of an element's config its starting style is read from. Its values are typed `object`, so a

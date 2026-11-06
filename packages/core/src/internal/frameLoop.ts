@@ -150,7 +150,7 @@ const tickMs = Metric.histogram("wardic_frameloop_tick_ms", {
  * Environment.
  */
 // ADR-0030, decision 7. `FrameLoop.CheckFrames`.
-export const CheckFrames: Context.Reference<boolean> = Context.Reference<boolean>("@wardic/FrameLoop/CheckFrames", {
+export const CheckFrames: Context.Reference<boolean> = Context.Reference<boolean>("@wardic/core/FrameLoop/CheckFrames", {
   defaultValue: () => false,
 })
 
@@ -225,6 +225,12 @@ const endingOf = (exit: Exit.Exit<void>): Exit.Exit<never> =>
         onFalse: () => Exit.failCause(cause),
       }),
   })
+
+/** Adds `run` to `token`'s runs: read-only to the token's users, added to here, emptied by `Supersede.end` (#618, F1). */
+const joinSupersede = (token: Supersede.Supersede, run: Supersede.Run): void => {
+  const runs = token.runs as Array<Supersede.Run>
+  runs.push(run)
+}
 
 /**
  * Build the Frame loop over the Environment's `Clock`. Needs a `Scope` (the burst's
@@ -467,7 +473,7 @@ export const make = Effect.fnUntraced(
         removed: false,
       }
       lane.push(entry)
-      if (Predicate.isNotUndefined(options)) options.supersede.runs.push(entry)
+      if (Predicate.isNotUndefined(options)) joinSupersede(options.supersede, entry)
       return Effect.as(startBurst, entry)
     }
 

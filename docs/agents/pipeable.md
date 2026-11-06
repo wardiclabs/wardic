@@ -11,7 +11,7 @@ How core's API is shaped: the way Effect organises its own modules, so `pipe` is
 1. **Every export lives in a module,** one file per module at `packages/core/src/<Module>.ts`, in PascalCase, named for a data type or a CONTEXT.md term (`Machine`, `Frame`, `Values`, `Easing`, `Box`, `Reorder`, …).
    - Implementation that two or more modules share lives in `src/internal/`, which `package.json`'s `exports` keeps unimportable from outside core.
    - The root, `src/index.ts`, is `export * as Machine from "./Machine.ts"` lines and nothing else.
-   - **A name doesn't repeat its module:** `Flip.Transform`, `Stagger.Options`, `AutoScroll.State`, `Projection.KEY`, not `Flip.FlipTransform`. The module's own type keeps the module's name, as effect's do: `Box.Box`, `Clock.Clock`, `Frame.Frame`.
+   - **A name doesn't repeat its module:** `Arc.Path`, `Stagger.Options`, `AutoScroll.State`, `Projection.KEY`, not `Arc.ArcPath`. The module's own type keeps the module's name, as effect's do: `Box.Box`, `Clock.Clock`, `Frame.Frame`.
 2. **A data type core builds,** one a caller never writes as a literal (`Machine`, the Reorder group), is `Pipeable`, as `effect/Duration` and `effect/Option` are:
    - a `TypeId` string, `"~@wardic/core/<Module>"`, with a variance marker for its type parameters;
    - a prototype holding the `TypeId`, `pipe` (`pipeArguments`) and `Inspectable.BaseProto`, with a `toJSON` that shows what identifies the value;
@@ -47,7 +47,7 @@ A Primitive is its machine, built by its constructor in the `Machine` module (`M
 
 `@wardic/dom` follows the same rules, for binding authors (#132):
 - **One module per concept,** at `@wardic/dom/<Module>`. The root re-exports each as a namespace and keeps `DomLive`, `CheckFrames` (core's, #586) and `VERSION` for an app. Repo code imports the subpaths, and `internal/` isn't exported.
-- **The DOM's implementations of core's services** take Effect's platform prefix and hold their Layer: `DomRenderer.layer`, `DomInput`, `DomProbe`, `DomClock`, `DomAnnouncer`, `DomInterpolators`, `DomPositionalKeys`, `DomKeyRules`.
+- **The DOM's implementations of core's services** take Effect's platform prefix and hold their Layer: `DomRenderer.layer`, `DomInput`, `DomProbe`, `DomClock`, `DomAnnouncer`, `DomInterpolators`, `DomPositionalKeys`, `DomDefaultTransition`. `DomKeyRules` takes the prefix too, but holds no Layer: its Key rules are what `DomInterpolators.layer` installs.
 - **dom's own concepts** take the glossary's names: `FlushGate`, `ProjectionSystem`, `ReorderController`, `Style`, `Svg`, `Color`, `Variables`, `OwnValues`, `Report`. No dom module repeats a core module's name.
 - **A member drops its module's noun:** `FlushGate.make`, `FlushGate.inert`, `Style.starting`.
 - **Long-lived parts are services built by Layers,** ended by their Scope, with plain functions per frame. A part made per use, such as a Reorder group's controller, is a scoped constructor over the context (`ReorderController.make`). A server's stand-ins are values (`FlushGate.inert`), plus a Layer for an Effect-run server.

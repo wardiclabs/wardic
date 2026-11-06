@@ -138,7 +138,7 @@ export { isValidWardicPropV2 as isValidWardicProp } from "../../motion-props.ts"
  * `initial={false}` starts the child present at its first render at its `animate` (#134).
  */
 export { AnimatePresence, type AnimatePresenceProps, PresenceContext, usePresenceContext } from "./presence.tsx"
-export { type IsPresent, type PresenceHold, type PresenceLeaveEvents, useIsPresent, usePresence, usePresenceData } from "./presence-hooks.ts"
+export { type IsPresent, type PresenceExit, type PresenceLeaveEvents, useIsPresent, usePresence, usePresenceData } from "./presence-hooks.ts"
 export type { PresenceMode } from "../../presence-controller.ts"
 export { createPresence, type Presence, type PresenceEvent, type PresenceEvents } from "./presence-handle.ts"
 export type { PresenceContextValue, PresenceRecord } from "../../presence-record.ts"
@@ -178,7 +178,8 @@ export type { WardicBoundingBox, WardicDragConstraints, WardicMeasureDragConstra
 // Drag controls (#431, Motion's `useDragControls`): a drag started from a handle or a track.
 export { createDragControls, type WardicDragControls, type WardicDragControlsOptions } from "../../drag-controls.ts"
 // Imperative animation (#433, Motion's `useAnimate`): an Animation scope with `settled()`, its `animate` and its Playback controls.
-export { createAnimate, type WardicAnimationScopeV2, type WardicScopeLanding } from "./create-animate.ts"
+// `WardicAnimationScope` on both bindings, each its own (#618, P1), as `isValidWardicProp` is.
+export { createAnimate, type WardicAnimationScopeV2 as WardicAnimationScope, type WardicScopeLanding } from "./create-animate.ts"
 export type {
   WardicAnimate,
   WardicAnimateOptions,

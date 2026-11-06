@@ -43,9 +43,10 @@ const GATE = 1.01
  * 0.5 KB each for #594's fix, a layout element's translate in `%` (0.2 KB, s1-slim at 121.0 of 121 before
  * it), and again for #618's checks on values no animation can take and a shared source's end (0.5 KB,
  * s1-slim at 121.4 of 121.5 before them). Solid 1's once more for #618's M1, the Renderer read once by
- * the provider (48 B, s1-slim 3 B past 122 with it); #518 lowers them toward Q4's 105 KB after v1.
+ * the provider (48 B, s1-slim 3 B past 122 with it), and Solid 2's for #618's API changes (344 B,
+ * s2-slim 225 B past 158 with them); #518 lowers them toward Q4's 105 KB after v1.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 122.5, "s2-slim": 158 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 122.5, "s2-slim": 158.5 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 

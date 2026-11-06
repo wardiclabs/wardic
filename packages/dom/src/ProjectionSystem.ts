@@ -16,7 +16,7 @@
 // The **Projection system**, the DOM's engine for the **Projection** (ADR-0009, ADR-0010, ADR-0018): it
 // holds every Projection node, runs the Measure pass and the per-frame projection pass, and owns `layoutId`
 // matching. `@wardic/dom/ProjectionSystem` (#132, ADR-0041). The key apart from the engine: #548, ADR-0067
-// *Amendment (#548)*. An Effect `Inspectable` (#384): `console.log(system)` shows the tree, as `Snapshot`,
+// *Amendment (#548)*. An Effect `Inspectable` (#384): `console.log(system)` shows the tree, as `Tree`,
 // each node with its parent, its `layoutId` twin's part and what it's doing; the layout lab draws it. A
 // server render builds none (ADR-0021).
 import * as Context from "effect/Context"
@@ -27,8 +27,8 @@ export {
   type ProjectionNodeHandle as NodeHandle,
   type DragProjectionHandle as DragHandle,
   type AnimateLayoutOptions,
-  type Snapshot,
-  type NodeSnapshot,
+  type Tree,
+  type TreeNode,
 } from "./internal/projection.ts"
 export { DEFAULT_DRAG_TRANSITION, DEFAULT_LAYOUT_TRANSITION, type DragTransition, type LayoutTransition } from "./internal/projection-defaults.ts"
 export type { ScaleCorrectorEntry as ScaleCorrector, CorrectorInfo } from "./internal/scale-correction.ts"

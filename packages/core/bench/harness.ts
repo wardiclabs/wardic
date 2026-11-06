@@ -130,9 +130,19 @@ const COMPLEX_TO = {
   "box-shadow": "4px 8px 24px rgba(0,0,0,0.25)",
 }
 
-/** `springValues`' arguments: four keys, travelling at least 50. */
-const SPRING = (i: number) =>
-  [{ x: spread(i, 50, 100), y: spread(i, -120, 40), scale: 1.2, opacity: 1 }, {}, { x: 0, y: 0, scale: 1, opacity: 0 }] as const
+/**
+ * `springValues`' arguments: four keys, travelling at least 50. Its start is a bag since #618 (F3), a
+ * positional record before; `Playback.setSpeed` came in with it, so a core that has it takes the bag,
+ * and base and head run the same springs across it.
+ */
+const SPRING = (core: Core, i: number): Parameters<typeof CoreModule.Machine.springValues> => {
+  const target = { x: spread(i, 50, 100), y: spread(i, -120, 40), scale: 1.2, opacity: 1 }
+  const from = { x: 0, y: 0, scale: 1, opacity: 0 }
+  return Bool.match("setSpeed" in core.Playback, {
+    onTrue: () => [target, {}, { from }],
+    onFalse: () => [target, {}, from] as unknown as Parameters<typeof CoreModule.Machine.springValues>,
+  })
+}
 
 /**
  * A tween's easing under the key `core` reads (#360): `ease` since the rename, `easing` before it,
@@ -213,7 +223,7 @@ const WORKLOADS: ReadonlyArray<Workload> = [
         }),
       ),
   },
-  { name: "springValues", make: (core, i) => core.Machine.toStream(core.Machine.springValues(...SPRING(i))) },
+  { name: "springValues", make: (core, i) => core.Machine.toStream(core.Machine.springValues(...SPRING(core, i))) },
   {
     name: "animateValues",
     make: (core, i) =>
@@ -238,7 +248,7 @@ const WORKLOADS: ReadonlyArray<Workload> = [
   },
   // The same eight, on the Frame loop. The two under 0.1 ms a frame at N run ten times N (#545):
   // run against itself, `chase/loop`'s spread was 25–29 points on Bun and Chromium at N.
-  { name: "springValues/loop", machine: (core, i) => Effect.succeed(core.Machine.springValues(...SPRING(i))), scale: 10 },
+  { name: "springValues/loop", machine: (core, i) => Effect.succeed(core.Machine.springValues(...SPRING(core, i))), scale: 10 },
   {
     name: "animateValues/loop",
     machine: (core, i) => core.Machine.animateValues(STRING_FROM(i), STRING_TO, { duration: 2, ...easeFor(core, core.Easing.easeInOutCubic) }),

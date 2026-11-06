@@ -18,4 +18,5 @@ export {
   makeFocusable,
   buttonOf,
   toPointer,
+  type Where,
 } from "./internal/input.ts"

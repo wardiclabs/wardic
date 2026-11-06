@@ -173,6 +173,7 @@ export type {
   WardicReducedMotion,
   WardicSkipAnimations,
   WardicInertia,
+  WardicOrchestration,
   WardicStagger,
   WardicPath,
   WardicPropagate,
@@ -299,14 +300,14 @@ export {
 
 /**
  * `layout` / `layoutId` surface (ADR-0009 + ADR-0005). `layout` FLIP runs on the
- * box-based projection system: `useLayoutMember` registers the element as a
+ * box-based projection system: `createProjectionNode` registers the element as a
  * projection node (the provider-owned tree handles nesting + sibling reflow).
  * `<LayoutGroup>` is now a thin grouping boundary whose `layoutDependency`
  * triggers a full re-measure. `layoutId` shared-element animation (Switch and
  * Crossfade) is matched entirely by the projection engine (ADR-0010 *Amendment
  * (#13)*); `measureLayoutBox` reads an untransformed box.
  */
-export { type UseLayoutMemberOptions, LayoutGroup, useLayoutMember } from "./layout.tsx"
+export { type CreateProjectionNodeOptions, LayoutGroup, createProjectionNode } from "./layout.tsx"
 export { measureLayoutBox } from "@wardic/dom/ProjectionSystem"
 
 /**

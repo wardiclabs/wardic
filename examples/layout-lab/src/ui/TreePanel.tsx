@@ -21,7 +21,7 @@ import { createSignal, onCleanup, Show } from "solid-js"
 import { changedIds, mermaidOf, parentCycle, treesHolding } from "../lab/tree.ts"
 import type { TreeRecorder, TreeRecording } from "../lab/tree-recorder.ts"
 
-type Snapshot = ProjectionSystem.Snapshot
+type Tree = ProjectionSystem.Tree
 
 /** Mermaid, loaded the first time the panel draws. */
 let mermaidLoad: Promise<(typeof import("mermaid"))["default"]> | undefined
@@ -52,7 +52,7 @@ interface PanelState {
   recording: TreeRecording | undefined
   index: number
   all: boolean
-  atRest: Snapshot | undefined
+  atRest: Tree | undefined
   note: string
 }
 
@@ -66,7 +66,7 @@ export const TreePanel = (props: { readonly tree: TreeRecorder }): JSX.Element =
   }
   let diagram: HTMLDivElement | undefined
 
-  const shown = (): Snapshot | undefined => state.atRest ?? state.recording?.states[state.index]?.snapshot
+  const shown = (): Tree | undefined => state.atRest ?? state.recording?.states[state.index]?.snapshot
   /** The trees the recording changed, unless every tree is asked for or the tree now is shown. */
   const kept = (): ReadonlySet<string> | undefined => {
     const snapshot = shown()

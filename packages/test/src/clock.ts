@@ -18,7 +18,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
  * reached, so two subscribers replaying the same frames don't run it twice as
  * fast. A live Clock (rAF-driven) is `@wardic/dom`'s.
  */
-export const makeTestClock = (frames: ReadonlyArray<number> = []): Clock.Clock["Service"] => {
+export const make = (frames: ReadonlyArray<number> = []): Clock.Clock["Service"] => {
   const time = MutableRef.make(0)
   // Each frame with the time it reaches, in ms from 0 (#618, decision 7: each subscriber added its
   // frames to one sum).
@@ -36,7 +36,7 @@ export const makeTestClock = (frames: ReadonlyArray<number> = []): Clock.Clock["
 /** Clock Layer that emits `frames` (dt values, seconds) then completes. */
 export const layer = (frames: ReadonlyArray<number> = []): Layer.Layer<Clock.Clock> =>
   // A Clock per build: one Layer built twice shares no time (#618).
-  Layer.sync(Clock.Clock, () => makeTestClock(frames))
+  Layer.sync(Clock.Clock, () => make(frames))
 
 /**
  * Convenience: `n` frames of a fixed `dt` (default 1/60s) — e.g. `frames(30)`
