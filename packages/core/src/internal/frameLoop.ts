@@ -29,11 +29,11 @@
  *
  * Observability: a span per run, named after its Primitive (`machine.span`), and one per burst
  * (`wardic.frameloop`). A run's `<name>: start` debug log, annotated with its span's attributes,
- * built only when a Debug log would be kept (#542). Per tick, no span or log: a gauge of running
- * animations and a histogram of ms per tick, each one `updateUnsafe` (ADR-0027, decision 6), and the
- * runs that settled or failed in it, counted as they end and added at its end by the loop's own
- * `afterTick` hook, its first (#542). The histogram ends before the hooks, so it measures the steps
- * alone, not the gate's flush (ADR-0033).
+ * built only when a Debug log would be kept (#542). Per tick, no span or log. With the metrics an app
+ * gives (`FrameLoop.layerMetrics`, #518): a gauge of running animations and a histogram of ms per tick,
+ * each one `updateUnsafe` (ADR-0027, decision 6), and the runs that settled or failed in it, counted as
+ * they end and added at its end by the loop's own `afterTick` hook, its first (#542). The histogram ends
+ * before the hooks, so it measures the steps alone, not the gate's flush (ADR-0033).
  *
  * A run's span is opened without a stack frame (ADR-0040, decision 3): `useSpan` with the span as
  * the `ParentSpan`, not `withSpan`, whose frame Effect stamps on an interrupted run's cause and
@@ -57,7 +57,7 @@ import * as Exit from "effect/Exit"
 import * as FiberHandle from "effect/FiberHandle"
 import { constUndefined, identity } from "effect/Function"
 import * as LogLevel from "effect/LogLevel"
-import * as Metric from "effect/Metric"
+import type * as Metric from "effect/Metric"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as References from "effect/References"
@@ -135,12 +135,25 @@ interface Entry {
   removed: boolean
 }
 
-const animations = Metric.gauge("wardic_frameloop_animations", { description: "Primitives running on the Frame loop" })
-const settledRuns = Metric.counter("wardic_frameloop_settled", { description: "Runs on the Frame loop that settled" })
-const failedRuns = Metric.counter("wardic_frameloop_failed", { description: "Runs on the Frame loop that failed" })
-const tickMs = Metric.histogram("wardic_frameloop_tick_ms", {
-  description: "Milliseconds the Frame loop spends on one tick",
-  boundaries: Metric.linearBoundaries({ start: 0, width: 0.5, count: 32 }),
+/**
+ * The Frame loop's metrics: the running animations, the runs that settled and failed, and each tick's
+ * ms. None unless an app gives them (`FrameLoop.layerMetrics`, #518), so an app that reads none ships and
+ * updates none.
+ */
+export interface Metrics {
+  readonly animations: Metric.Gauge<number>
+  readonly settled: Metric.Counter<number>
+  readonly failed: Metric.Counter<number>
+  readonly tickMs: Metric.Histogram<number>
+}
+
+/**
+ * Where a run's fiber finds the metrics. The loop takes them from the first run that has them: an app
+ * gives them beside its Environment, which the loop's own build doesn't see, as `CheckFrames` is read.
+ */
+// #518, ADR-0067 *Amendment (#518)*, decision 2.
+export const MetricsGiven: Context.Reference<Metrics | undefined> = Context.Reference<Metrics | undefined>("@wardic/core/FrameLoop/Metrics", {
+  defaultValue: constUndefined,
 })
 
 /**
@@ -259,6 +272,8 @@ export const make = Effect.fnUntraced(
     // once per tick. An interruption is neither, nor a superseded run, which the loop doesn't end.
     let settledCount = 0
     let failedCount = 0
+    // The metrics, once a run brings them (#518).
+    let metrics: Metrics | undefined
 
     /** End `entry`'s run: removed, counted, and its fiber resumed with `exit` (inline, within the tick). */
     const end = (entry: Entry, exit: Exit.Exit<Frame.Frame<unknown>>): void => {
@@ -270,8 +285,10 @@ export const make = Effect.fnUntraced(
 
     /** The runs ended since the last count, into the counters: once per tick, and as a burst ends. */
     const countEnds = (): undefined => {
-      if (settledCount > 0) settledRuns.updateUnsafe(settledCount, buildContext)
-      if (failedCount > 0) failedRuns.updateUnsafe(failedCount, buildContext)
+      if (Predicate.isNotUndefined(metrics)) {
+        if (settledCount > 0) metrics.settled.updateUnsafe(settledCount, buildContext)
+        if (failedCount > 0) metrics.failed.updateUnsafe(failedCount, buildContext)
+      }
       settledCount = 0
       failedCount = 0
       return undefined
@@ -317,7 +334,9 @@ export const make = Effect.fnUntraced(
     // The first lane's loops stay inline in `tick`: moved into a function shared with the last lane,
     // Node's `chase/loop` ran 55% slower (`bench:core`, ADR-0027 *Amendment (#137)*).
     const tick = (dt: number): boolean => {
-      const t0 = performance.now()
+      // The tick's start, read only for the metrics' histogram (#518).
+      let t0 = 0
+      if (Predicate.isNotUndefined(metrics)) t0 = performance.now()
       // Both counts before any step: a run added during the tick, to either lane, waits for the next.
       const count = entries.length
       const lastCount = lastEntries.length
@@ -344,8 +363,10 @@ export const make = Effect.fnUntraced(
       }
       entries.length = kept
       if (lastEntries.length > 0) kept += compactLast()
-      animations.updateUnsafe(kept, buildContext)
-      tickMs.updateUnsafe(performance.now() - t0, buildContext)
+      if (Predicate.isNotUndefined(metrics)) {
+        metrics.animations.updateUnsafe(kept, buildContext)
+        metrics.tickMs.updateUnsafe(performance.now() - t0, buildContext)
+      }
       // The end of the tick: everything for this Refresh frame is written (ADR-0033). After
       // `tickMs`, which stays the cost of the steps alone.
       const ended = hooks
@@ -380,7 +401,7 @@ export const make = Effect.fnUntraced(
       Arr.forEach(Arr.appendAll(entries.splice(0), lastEntries.splice(0)), (entry) => {
         if (!entry.removed) end(entry, ending)
       })
-      animations.updateUnsafe(0, buildContext)
+      if (Predicate.isNotUndefined(metrics)) metrics.animations.updateUnsafe(0, buildContext)
       countEnds()
     }
 
@@ -418,6 +439,8 @@ export const make = Effect.fnUntraced(
         Effect.withFiber((fiber) => {
           // Its start log only when a Debug log would be kept (#542): Effect's own rule, read once.
           const logged = !LogLevel.isGreaterThan(fiber.getRef(References.MinimumLogLevel), "Debug")
+          // The metrics from the first run whose fiber has them (#518); none is read once they're in.
+          if (Predicate.isUndefined(metrics)) metrics = fiber.getRef(MetricsGiven)
           if (!isTraced(fiber)) return added(lane, machine, sink, options, undefined, logged)
           return Effect.useSpan(machine.span.name, { attributes: machine.span.attributes }, (span) =>
             Effect.provideService(added(lane, machine, sink, options, span, logged), Tracer.ParentSpan, span))

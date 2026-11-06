@@ -1,15 +1,18 @@
 // An element's legs end at its unmount (#542, ADR-0027 *Amendment (#542)*): each leg is a fiber of the
 // provider's runtime, with no set of the element's own, so its dispose ends every leg not landed, by
 // its token or by interrupting it. Read through the Frame loop's running-animations gauge, as W7 does
-// on Solid 2, with endless tweens: a leg left running stays on the loop. Real frames.
+// on Solid 2, with endless tweens: a leg left running stays on the loop. Real frames. The provider is
+// given the loop's metrics, which an app opts into (#518).
 //
 // - LF1: elements unmounted mid-flight leave nothing running on the loop.
 // - LF2: so does a child whose leg waits on its parent's `beforeChildren` (#297).
 // - LF3: so do an element's Imperative animations (#433).
 import { cleanup, render } from "@solidjs/testing-library"
+import * as FrameLoop from "@wardic/core/FrameLoop"
 import { DomLive } from "@wardic/dom"
 import { createAnimate, wardic, WardicProvider, type WardicVariants } from "@wardic/solid"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as Metric from "effect/Metric"
 import { createSignal, For, type JSX, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
@@ -24,11 +27,14 @@ const ENDLESS = { type: "tween", duration: 0.4, repeat: Infinity } as const
 const running = (): number | undefined =>
   (Effect.runSync(Metric.snapshot).find((m) => m.id === "wardic_frameloop_animations")?.state as Metric.GaugeState<number> | undefined)?.value
 
+/** The DOM's Environment with the loop's metrics, read through `running`. */
+const env = Layer.mergeAll(DomLive, FrameLoop.layerMetrics)
+
 /** `ui` under a provider, shown until `hide`. */
 const mount = (ui: () => JSX.Element) => {
   const [shown, setShown] = createSignal(true)
   render(() => (
-    <WardicProvider env={DomLive}>
+    <WardicProvider env={env}>
       <Show when={shown()}>{ui()}</Show>
     </WardicProvider>
   ))
