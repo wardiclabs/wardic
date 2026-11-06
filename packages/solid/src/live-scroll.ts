@@ -1,23 +1,31 @@
 /**
- * `createScroll` (#518): in a module of its own, apart from the other Live helpers, so what it brings
- * reaches only an app that reads a scroll, and the pages that do (ADR-0067, *Amendment (#548)*).
+ * `createScroll` (#518): in a module of its own, so it brings the `scroll` Feature only to an app that
+ * reads a scroll, and on the pages that do (ADR-0067, *Amendments (#548, #518)*).
  *
  * @module
  */
 import * as LiveValue from "@wardic/core/LiveValue"
+import * as ScrollSource from "@wardic/core/ScrollSource"
 import type * as ScrollOffset from "@wardic/dom/ScrollOffset"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import { AtomRegistry } from "effect/reactivity"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js"
+import type { Feature } from "./feature.ts"
+import { scroll } from "./features/scroll.ts"
+import { serviceOf } from "./gesture-features.ts"
 import { CLOSE_FAILED, SERVER_ZERO } from "./live-value.ts"
 import * as OwnerScope from "./owner-scope.ts"
-import { useWardicRuntime } from "./provider.tsx"
+import { useBrought, useWardicRuntime } from "./provider.tsx"
 import { isServer } from "./server.ts"
+
+/** What it brings (ADR-0067 decision 12): the `scroll` Feature, whatever its section has (#518). */
+const SCROLL: ReadonlyArray<Feature> = [scroll]
 
 /** An element, or an accessor of one, such as `() => box` for a ref: read once it's there. */
 export type ElementSource = Element | Accessor<Element | undefined>
@@ -80,6 +88,7 @@ const elementOf = (source: ElementSource): Option.Option<Element> =>
 export const createScroll = (options: ScrollOptions = {}): ScrollValues => {
   const runtime = useWardicRuntime()
   if (isServer) return SERVER_SCROLL
+  const services = useBrought(SCROLL)
   const [scrollX, setScrollX] = createSignal(0)
   const [scrollY, setScrollY] = createSignal(0)
   const [scrollXProgress, setScrollXProgress] = createSignal(0)
@@ -98,7 +107,7 @@ export const createScroll = (options: ScrollOptions = {}): ScrollValues => {
         ...UndefinedOr.match(Option.getOrUndefined(target), { onUndefined: () => ({}), onDefined: (element) => ({ target: element }) }),
         ...UndefinedOr.match(options.offset, { onUndefined: () => ({}), onDefined: (offset) => ({ offset }) }),
         ...UndefinedOr.match(options.axis, { onUndefined: () => ({}), onDefined: (axis) => ({ axis }) }),
-      }).pipe(Scope.provide(scope)),
+      }).pipe(Effect.provideService(ScrollSource.ScrollSource, serviceOf(services(), ScrollSource.ScrollSource)), Scope.provide(scope)),
     )
     // Each derived Atom is read at once: it tracks the scroll only once it's been read.
     const stops = Arr.map(

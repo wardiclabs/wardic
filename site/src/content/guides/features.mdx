@@ -23,14 +23,15 @@ A `w.*` element animates its values with nothing else: `initial`, `animate`, `ex
 | `drag` | `drag`, its constraints, the glide on release, and `dragControls` |
 | `layout` | `layout`, `layoutId`, `layoutScroll` and `layoutRoot` |
 | `colors` | `oklch()`, `oklab()`, `lab()`, `lch()`, `hwb()` and `color()`. Hex, `rgb()`, `hsl()` and colour names need nothing. |
+| `scroll` | a container's scroll, for `createScroll`, which brings it itself |
 
-On Solid 2, the gesture Features bring the ward's events too, such as `"hover"` and `"tap"`. Motion's two sets are here under the same names: `domAnimation` is `hover`, `press`, `focus` and `inView`, and `domMax` is every Feature. Each is a list, so `features={[domAnimation, layout]}` works.
+On Solid 2, the gesture Features bring the ward's events too, such as `"hover"` and `"tap"`. Motion's two sets are here under the same names: `domAnimation` is `hover`, `press`, `focus` and `inView`, and `domMax` is every Feature an element's props use, all but `scroll`. Each is a list, so `features={[domAnimation, layout]}` works.
 
 ## Where they go
 
 - **`<WardicProvider features>`** gives them to the whole app: usually `domAnimation`.
 - **`<LazyWardic features>`** gives them to a section. Its elements have the provider's Features and the section's, and a sibling section's Features stay its own. A page that drags wraps what drags in `<LazyWardic features={[drag]}>`, so `drag` ships with that page's code, and pages that don't drag never load it.
-- **Components that need a Feature bring it:** `Reorder.Item` brings `drag`, `layout` and the gestures, and `Reorder.Group` brings `layout`. `LayoutGroup` brings `layout` for its own `layoutDependency` only: a layout element under it still needs `layout` from its section.
+- **Components and hooks that need a Feature bring it:** `Reorder.Item` brings `drag`, `layout` and the gestures, `Reorder.Group` brings `layout`, and `createScroll` brings `scroll`. `LayoutGroup` brings `layout` for its own `layoutDependency` only: a layout element under it still needs `layout` from its section.
 
 ## Loaded when it's wanted
 

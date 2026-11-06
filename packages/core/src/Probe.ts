@@ -1,22 +1,21 @@
 /**
  * The Probe: what an Environment can tell the engine about what it draws. It measures a target's box;
- * holds the viewport's size, whether the user prefers reduced motion, whether the Environment is shown,
- * and a container's scroll, live, as Atoms; and observes a target's resizes and whether it's in view.
- * Layout animations, in-view gestures, scroll-linked values and reduced motion all read it.
+ * holds the viewport's size, whether the user prefers reduced motion and whether the Environment is
+ * shown, live, as Atoms; and observes a target's resizes and whether it's in view. Layout animations,
+ * in-view gestures and reduced motion all read it. A container's scroll is `ScrollSource`'s.
  *
  * @example
  * import * as Probe from "@wardic/core/Probe"
  *
  * const probe = yield* Probe.Probe
  * const bounds = yield* probe.measure(card)
- * const scroll = yield* probe.scroll({ container: list })
  */
 // ADR-0028, decision 11. #610 (ADR-0036 *Amendment (#610)*): `visible`, not the web's `pageVisible`;
 // `margin` is `unknown`, the Environment's syntax; `prefersReducedMotion` keeps its name, plain words in
-// any Environment, where `reducedMotion` is the provider's setting.
+// any Environment, where `reducedMotion` is the provider's setting. #518: `scroll` moved to `ScrollSource`,
+// which the `scroll` Feature builds, so an app that reads no scroll ships none of its code.
 import * as Context from "effect/Context"
 import type * as Effect from "effect/Effect"
-import type * as Scope from "effect/Scope"
 import type * as Stream from "effect/Stream"
 import type { Atom } from "effect/reactivity"
 import type * as InputFeed from "./InputFeed.ts"
@@ -49,44 +48,6 @@ export interface Viewport {
   readonly height: number
 }
 
-/** One axis of a container's scroll. */
-// #234, ADR-0043 *Amendment (#233, #234)*.
-export interface ScrollAxis {
-  /** How far the container is scrolled on the axis, in the Environment's units. */
-  readonly current: number
-  /** How far it can scroll on the axis: 0 for a container that doesn't overflow. */
-  readonly length: number
-  /**
-   * Progress, 0 to 1: through the container's scroll range, or, on the options' `axis` with a
-   * `target` or an `offset`, through the offsets the target passes.
-   */
-  readonly progress: number
-}
-
-/** A container's scroll on both axes: what the Probe's `scroll` holds. */
-export interface Scroll {
-  /** Across. */
-  readonly x: ScrollAxis
-  /** Down. */
-  readonly y: ScrollAxis
-}
-
-/** What the Probe's `scroll` reads, as Motion's `scroll` options. */
-export interface ScrollOptions {
-  /** The scroll container: the Environment's own when left out. */
-  readonly container?: unknown
-  /** An element whose progress through the container `progress` reads, on `axis`. */
-  readonly target?: unknown
-  /**
-   * Where on `axis` the target's progress runs, from 0 to 1, in the Environment's own terms, which it
-   * reads and resolves, as `@wardic/dom`'s `ScrollOffset` does. Core passes it through, as it does
-   * `container` and `target`.
-   */
-  readonly offset?: unknown
-  /** The axis `target` and `offset` apply to. Default `"y"`. */
-  readonly axis?: "x" | "y"
-}
-
 /** What an intersection is observed against, as Motion's `viewport`. Default: the viewport, no margin, any of the target. */
 // #273, ADR-0047.
 export interface IntersectionOptions {
@@ -94,9 +55,9 @@ export interface IntersectionOptions {
   readonly root?: unknown
   /**
    * How far the container's edges are grown, or shrunk, before it counts, in the Environment's own
-   * syntax: core passes it on, as it does `ScrollOptions.offset`.
+   * syntax: core passes it on, as it does `ScrollSource.Options.offset`.
    */
-  // #610: `unknown`, as `offset` is; `@wardic/dom` takes the web's string (`rootMargin`).
+  // #610: `unknown`, as `ScrollSource.Options.offset` is; `@wardic/dom` takes the web's string (`rootMargin`).
   readonly margin?: unknown
   /** How much of the target must be in it to count: from 0, any of it, to 1, all of it. */
   readonly amount?: number | undefined
@@ -125,13 +86,6 @@ export class Probe extends Context.Service<Probe, {
    */
   // #443; `pageVisible` until #610.
   readonly visible: Atom.Atom<boolean>
-  /**
-   * A container's scroll, live: an Atom the Environment sets as the container scrolls or resizes, as it
-   * happens, so a value derived from it is written in the frame that shows the scroll. One listener a
-   * container, however many read it, held while the Scope is.
-   */
-  // #234, ADR-0043 *Amendment (#233, #234)*.
-  readonly scroll: (options?: ScrollOptions) => Effect.Effect<Atom.Atom<Scroll>, never, Scope.Scope>
   /** A target's box each time it resizes. */
   readonly observeResize: (target: unknown) => Stream.Stream<Bounds>
   /**

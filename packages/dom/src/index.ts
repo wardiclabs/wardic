@@ -8,7 +8,7 @@
  * - **A binding** imports each module by its subpath, as a namespace
  *   (`import * as FlushGate from "@wardic/dom/FlushGate"`), and the root re-exports each one:
  *   - the DOM's implementations of core's services, each with its `layer` (Effect's platform
- *     convention: `DomRenderer`, `DomInput`, `DomProbe`, `DomClock`, `DomAnnouncer`,
+ *     convention: `DomRenderer`, `DomInput`, `DomProbe`, `DomScrollSource`, `DomClock`, `DomAnnouncer`,
  *     `DomInterpolators`, `DomPositionalKeys`, `DomDefaultTransition`), and `DomKeyRules`, the Key
  *     rules `DomInterpolators.layer` installs, which has none of its own;
  *   - dom's own concepts, by the glossary's names: `FlushGate`, `ProjectionSystem`,
@@ -43,6 +43,7 @@ export const VERSION = "1.0.0-rc.3"
 export * as DomClock from "./DomClock.ts"
 export * as DomInput from "./DomInput.ts"
 export * as DomProbe from "./DomProbe.ts"
+export * as DomScrollSource from "./DomScrollSource.ts"
 export * as DomRenderer from "./DomRenderer.ts"
 export * as DomAnnouncer from "./DomAnnouncer.ts"
 export * as DomInterpolators from "./DomInterpolators.ts"

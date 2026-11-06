@@ -1,7 +1,7 @@
 ---
 title: Features
-description: The parts of an element a page ships only when it uses them, from the gestures to drag, layout and the colour spaces, and Motion's two sets of them.
-api: [hover, press, focus, inView, pan, drag, layout, colors, domAnimation, domMax, Feature, FeatureLoad, Features, FeaturesProp]
+description: The parts of an element a page ships only when it uses them, from the gestures to drag, layout, the colour spaces and a scroll, and Motion's two sets of them.
+api: [hover, press, focus, inView, pan, drag, layout, colors, scroll, domAnimation, domMax, Feature, FeatureLoad, Features, FeaturesProp]
 ---
 
 # Features
@@ -24,8 +24,9 @@ import { domAnimation, layout } from "@wardic/solid" // or "@wardic/solid/unstab
 | `drag` | `drag` and its props, `dragControls`, and the drag's callbacks or events |
 | `layout` | `layout`, `layoutId`, `layoutScroll` and `layoutRoot` |
 | `colors` | `oklch()`, `oklab()`, `lab()`, `lch()`, `hwb()` and `color()`. Hex, `rgb()`, `hsl()` and the colour names need none. |
+| `scroll` | A container's scroll, for [`createScroll`](/reference/solid/live-values/create-scroll), which brings it itself. |
 | `domAnimation` | Motion's set: `hover`, `press`, `focus` and `inView`. |
-| `domMax` | Motion's other set: every Feature. |
+| `domMax` | Motion's other set: every Feature an element's props use, so all but `scroll`. |
 
 A list can nest them: `[domAnimation, layout]`. A prop whose Feature isn't there does nothing, and development warns once, naming the Feature. See [Shipping less](/guides/features) for what each costs.
 

@@ -36,7 +36,7 @@ import * as Easing from "./Easing.ts"
 import * as InterpolatorRegistry from "./InterpolatorRegistry.ts"
 import type * as Frame from "./Frame.ts"
 import * as Machine from "./Machine.ts"
-import * as Probe from "./Probe.ts"
+import * as ScrollSource from "./ScrollSource.ts"
 import * as Supersede from "./Supersede.ts"
 import { dual } from "./internal/dual.ts"
 
@@ -534,11 +534,12 @@ export interface ScrollValues {
  * @example
  * const { scrollYProgress } = yield* LiveValue.scroll({ container })
  */
-// #234, ADR-0043 *Amendment (#233, #234)*: derived from the Environment's `Probe.scroll`.
-export const scroll: (options?: Probe.ScrollOptions) => Effect.Effect<ScrollValues, never, Probe.Probe | Scope.Scope> = Effect.fnUntraced(
-  function* (options: Probe.ScrollOptions = {}) {
-    const probe = yield* Probe.Probe
-    const info = yield* probe.scroll(options)
+// #234, ADR-0043 *Amendment (#233, #234)*: derived from the Environment's `ScrollSource` (the Probe's
+// `scroll` until #518).
+export const scroll: (options?: ScrollSource.Options) => Effect.Effect<ScrollValues, never, ScrollSource.ScrollSource | Scope.Scope> =
+  Effect.fnUntraced(function* (options: ScrollSource.Options = {}) {
+    const source = yield* ScrollSource.ScrollSource
+    const info = yield* source.scroll(options)
     return {
       scrollX: Atom.make((get) => get(info).x.current),
       scrollY: Atom.make((get) => get(info).y.current),

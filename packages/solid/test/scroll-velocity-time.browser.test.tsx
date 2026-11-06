@@ -7,13 +7,19 @@
 //   follows the new one.
 // - SL4: createVelocity: 0 at rest, the value's change a second while it moves, and 0 once it stops.
 // - SL5: createTime: milliseconds of frames, ending with its owner.
+// - SL6: createScroll brings the `scroll` Feature (#518): a provider given none reads the Environment's
+//   own `ScrollSource` when it gives one.
 // - OU1: onUpdate is called once a frame Wardic changed the element's values, with every one of them
 //   before they're drawn, in one object reused; not on a frame that changed nothing.
 // - OU2: createWard's `onUpdate` too, read when it's called.
 import { render } from "@solidjs/testing-library"
+import * as ScrollSource from "@wardic/core/ScrollSource"
 import { DomLive } from "@wardic/dom"
 import * as ScrollOffset from "@wardic/dom/ScrollOffset"
 import { createScroll, createTime, createTransform, createVelocity, createWard, wardic, WardicProvider } from "@wardic/solid"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
+import { Atom } from "effect/reactivity"
 import { type Accessor, createRoot, createSignal } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { afterPaint, raf } from "./browser-helpers.ts"
@@ -118,6 +124,23 @@ describe("createScroll (#234)", () => {
     expect(y()).toBe(30)
     scrollTo(first, 200)
     expect(y(), "the old container is let go").toBe(30)
+  })
+
+  it("SL6: brings the scroll Feature, the Environment's own ScrollSource when it gives one", async () => {
+    const given: ScrollSource.Scroll = { x: { current: 5, length: 50, progress: 0.1 }, y: { current: 42, length: 100, progress: 0.42 } }
+    const env = Layer.mergeAll(DomLive, Layer.succeed(ScrollSource.ScrollSource, { scroll: () => Effect.succeed(Atom.make(given)) }))
+    let values!: ReturnType<typeof createScroll>
+    const Scene = () => {
+      values = createScroll()
+      return <div />
+    }
+    render(() => (
+      <WardicProvider env={env}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await settle()
+    expect([values.scrollX(), values.scrollY(), values.scrollXProgress(), values.scrollYProgress()]).toEqual([5, 42, 0.1, 0.42])
   })
 })
 

@@ -1,8 +1,8 @@
 /**
  * The DOM's Probe: boxes from `getBoundingClientRect`, sizes and visibility from the observers, the
- * viewport, the reduced-motion preference from `matchMedia`, whether the page is shown, and a container's
- * scroll. `layer` needs the Environment's `AtomRegistry`, which it writes its live values through;
- * `DomLive` provides both.
+ * viewport, the reduced-motion preference from `matchMedia`, and whether the page is shown. `layer` needs
+ * the Environment's `AtomRegistry`, which it writes its live values through; `DomLive` provides both. A
+ * container's scroll is `DomScrollSource`'s.
  *
  * @example
  * import * as DomProbe from "@wardic/dom/DomProbe"
