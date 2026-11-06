@@ -173,6 +173,7 @@ export type {
   WardicReducedMotion,
   WardicSkipAnimations,
   WardicInertia,
+  WardicOrchestration,
   WardicStagger,
   WardicPath,
   WardicPropagate,
