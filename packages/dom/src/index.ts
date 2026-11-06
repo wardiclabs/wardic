@@ -8,7 +8,8 @@
  *   (`import * as FlushGate from "@wardic/dom/FlushGate"`), and the root re-exports each one:
  *   - the DOM's implementations of core's services, each with its `layer` (Effect's platform
  *     convention: `DomRenderer`, `DomInput`, `DomProbe`, `DomClock`, `DomAnnouncer`,
- *     `DomInterpolators`, `DomPositionalKeys`, `DomDefaultTransition`, `DomKeyRules`);
+ *     `DomInterpolators`, `DomPositionalKeys`, `DomDefaultTransition`), and `DomKeyRules`, the Key
+ *     rules `DomInterpolators.layer` installs, which has none of its own;
  *   - dom's own concepts, by the glossary's names: `FlushGate`, `ProjectionSystem`,
  *     `ReorderController`, `Style`, `Svg`, `Color`, `Variables`, `ScrollOffset`, `Appear`, `OwnValues`
  *     and `Report`.

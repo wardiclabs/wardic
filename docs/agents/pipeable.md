@@ -47,7 +47,7 @@ A Primitive is its machine, built by its constructor in the `Machine` module (`M
 
 `@wardic/dom` follows the same rules, for binding authors (#132):
 - **One module per concept,** at `@wardic/dom/<Module>`. The root re-exports each as a namespace and keeps `DomLive`, `CheckFrames` (core's, #586) and `VERSION` for an app. Repo code imports the subpaths, and `internal/` isn't exported.
-- **The DOM's implementations of core's services** take Effect's platform prefix and hold their Layer: `DomRenderer.layer`, `DomInput`, `DomProbe`, `DomClock`, `DomAnnouncer`, `DomInterpolators`, `DomPositionalKeys`, `DomKeyRules`.
+- **The DOM's implementations of core's services** take Effect's platform prefix and hold their Layer: `DomRenderer.layer`, `DomInput`, `DomProbe`, `DomClock`, `DomAnnouncer`, `DomInterpolators`, `DomPositionalKeys`, `DomDefaultTransition`. `DomKeyRules` takes the prefix too, but holds no Layer: its Key rules are what `DomInterpolators.layer` installs.
 - **dom's own concepts** take the glossary's names: `FlushGate`, `ProjectionSystem`, `ReorderController`, `Style`, `Svg`, `Color`, `Variables`, `OwnValues`, `Report`. No dom module repeats a core module's name.
 - **A member drops its module's noun:** `FlushGate.make`, `FlushGate.inert`, `Style.starting`.
 - **Long-lived parts are services built by Layers,** ended by their Scope, with plain functions per frame. A part made per use, such as a Reorder group's controller, is a scoped constructor over the context (`ReorderController.make`). A server's stand-ins are values (`FlushGate.inert`), plus a Layer for an Effect-run server.
