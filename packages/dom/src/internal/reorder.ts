@@ -388,7 +388,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
     if (event.handled) return
     if (Bool.not(event.fromTarget)) return
     // Keys during a pointer drag are left alone.
-    if (Option.isSome(MutableRef.get(group.gesture))) return
+    if (Reorder.isDragging(group)) return
     const lifted = Option.contains(Reorder.liftedValue(group), value)
     Option.match(Reorder.keyIntent(event.key), {
       onNone: constVoid,

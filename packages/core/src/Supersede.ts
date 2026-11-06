@@ -50,7 +50,8 @@ export interface Run {
 export interface Supersede extends Pipeable, Inspectable.Inspectable {
   readonly [TypeId]: typeof TypeId
   /** The runs given this token and not yet ended by it. The Frame loop adds to it. */
-  readonly runs: Array<Run>
+  // Read-only to its users (#618, F1): the Frame loop adds through an internal type, `end` empties it.
+  readonly runs: ReadonlyArray<Run>
 }
 
 const Proto = {
@@ -92,6 +93,7 @@ const endRun = (run: Run): void => {
  * a run given it later joins it again. Calling `end` again is harmless.
  */
 export const end = (token: Supersede): void => {
-  Arr.forEach(token.runs, endRun)
-  token.runs.length = 0
+  const runs = token.runs as Array<Run>
+  Arr.forEach(runs, endRun)
+  runs.length = 0
 }

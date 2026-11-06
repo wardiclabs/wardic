@@ -324,7 +324,7 @@ const controlsOf = (tracks: ReadonlyArray<ImperativeTrack>, head: Playback.Playh
       Playback.seek(head, at)
       // A seek of one that isn't running holds where it goes, as Motion's.
       if (state !== "running") {
-        head.paused = true
+        Playback.pause(head)
         if (Bool.or(state === "finished", state === "idle")) {
           fresh()
           watch.started(controls)
@@ -337,7 +337,7 @@ const controlsOf = (tracks: ReadonlyArray<ImperativeTrack>, head: Playback.Playh
       return head.speed
     },
     set speed(speed: number) {
-      head.speed = speed
+      Playback.setSpeed(head, speed)
     },
     get duration() {
       return durationNow()
@@ -361,21 +361,21 @@ const controlsOf = (tracks: ReadonlyArray<ImperativeTrack>, head: Playback.Playh
     play: () => {
       if (stopped) return
       if (state === "paused") {
-        head.paused = false
+        Playback.play(head)
         state = "running"
         return
       }
       if (state === "running") return
       // Again from its start: its end when it plays backwards.
       fresh()
-      head.paused = false
+      Playback.play(head)
       Playback.seek(head, Bool.match(head.speed < 0, { onTrue: durationNow, onFalse: () => 0 }))
       restart()
       runAll()
     },
     pause: () => {
       if (stopped) return
-      head.paused = true
+      Playback.pause(head)
       if (state === "running") state = "paused"
     },
     stop: () => {
@@ -391,7 +391,7 @@ const controlsOf = (tracks: ReadonlyArray<ImperativeTrack>, head: Playback.Playh
     complete: () => {
       if (stopped) return
       if (state !== "running") restart()
-      head.paused = false
+      Playback.play(head)
       Playback.seek(head, durationNow())
       runAll()
     },

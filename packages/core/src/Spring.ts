@@ -99,12 +99,15 @@ export interface Exact {
   /** Its damped angular frequency (under), or its hyperbolic one (over); unused when critical. */
   readonly freq: number
   /** The `dt` the matrix is for: -1 before its first. */
-  dt: number
-  dd: number
-  dv: number
-  vd: number
-  vv: number
+  readonly dt: number
+  readonly dd: number
+  readonly dv: number
+  readonly vd: number
+  readonly vv: number
 }
+
+/** An {@link Exact} as its cache writes it: one per spring bag, shared, so read-only to its readers (#618, F1). */
+type WritableExact = { -readonly [K in keyof Exact]: Exact[K] }
 
 /** A leg's rest thresholds: at rest within `delta` of its target, below `speed` per second. */
 // #344.
@@ -291,7 +294,7 @@ const kindOf = (ratio: number): 0 | 1 | 2 => {
 }
 
 /** A spring's {@link Exact}, its matrix not yet worked out. */
-const exactOf = (stiffness: number, damping: number, mass: number): Exact => {
+const exactOf = (stiffness: number, damping: number, mass: number): WritableExact => {
   const w0 = Math.sqrt(stiffness / mass)
   const ratio = damping / (2 * Math.sqrt(stiffness * mass))
   return {
@@ -316,7 +319,7 @@ const exactOf = (stiffness: number, damping: number, mass: number): Exact => {
  *   `freq·t` (it caps it at 300), where these only underflow to 0.
  * Once per spring config per frame: statement `if`s.
  */
-const refresh = (m: Exact, dt: number): void => {
+const refresh = (m: WritableExact, dt: number): void => {
   m.dt = dt
   const w2 = m.w0 * m.w0
   if (m.kind === 0) {
@@ -357,7 +360,7 @@ const refresh = (m: Exact, dt: number): void => {
 // #370. Tier 3, for `Machine.springValues` and `Easing.spring`.
 export const matrixFor = (spring: Resolved, dt: number): Exact => {
   const m = spring.exact
-  if (m.dt !== dt) refresh(m, dt)
+  if (m.dt !== dt) refresh(m as WritableExact, dt)
   return m
 }
 
