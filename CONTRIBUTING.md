@@ -58,6 +58,7 @@ As the change needs:
 
 - **`bun run size --base main`,** for any change to a package's `src`: it fails an app whose gzipped size grows more than 1% over `main`'s. It runs in seconds.
 - **`bun run bench:core --base main` / `bun run bench:solid --base main`,** for a change on the per-frame path or to an element's mount. Run them on a quiet machine.
+- **`bun run bench:motion`,** to measure Wardic against Motion for React, for the numbers [Why Wardic](https://wardic.dev/why) quotes: it prints that page's table. Run it on a quiet machine.
 - **`bun run pack:check`,** for a change to how the packages build or what they ship: it installs the packed packages into fresh apps and opens them.
 - **The storefront smokes,** for a change to the examples: `bun run test:storefront`, and `bun run smoke:dev` in `examples/storefront/solid2` for a change to the Solid 2 binding.
 
