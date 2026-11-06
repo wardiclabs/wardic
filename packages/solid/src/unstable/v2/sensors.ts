@@ -161,9 +161,9 @@ export const createReducedMotionConfig = (): Accessor<boolean> => {
  * createEffect(visible, (shown) => (shown ? player.play() : player.pause()))
  * @see https://wardic.dev/reference/solid/gestures/create-page-in-view
  */
-// #443, the Probe's `pageVisible`, held until settled (the Hydration hold).
+// #443, the Probe's `visible`, held until settled (the Hydration hold).
 export const createPageInView = (): Accessor<boolean> => {
   if (isServer) return () => true
   const probe = useWardicRuntime().runSync(Probe.Probe)
-  return fromAtom(probe.pageVisible, { serverValue: true })
+  return fromAtom(probe.visible, { serverValue: true })
 }

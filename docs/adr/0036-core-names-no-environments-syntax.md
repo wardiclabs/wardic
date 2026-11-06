@@ -141,3 +141,14 @@ Behaviour is unchanged. The browser tests and the layout lab's drives read the s
 
 **Found on the way:** a test's options type that still declared `buttons` passed it to the builder by spread, where TypeScript doesn't check excess properties, so a lost release silently stayed pressed until the tests ran (drag-activity A2, A13). The test tier now declares only core's names; only a DOM-event helper (solid's `drag-hops`) keeps the DOM's.
 
+
+## Amendment (#610, 2026-11-06): the Probe's names and the in-view margin
+
+#609 took the DOM's, CSS's and the browser's terms out of core's docs. Three of `Probe`'s names and types still carried them in core's API, where the docs couldn't help: `prefersReducedMotion` echoes CSS's media feature, `pageVisible` says "page", and `IntersectionOptions.margin` is typed `string`, with the DOM's `rootMargin` as its example.
+
+**Decided** (Q1–Q3, all as recommended):
+1. **`prefersReducedMotion` keeps its name.** Its words are plain in any Environment, which has a user who can prefer less motion (an OS setting, a terminal's config). It's also `ReducedMotion.applies`' parameter, and `reducedMotion` is already the provider's and `WardicConfig`'s setting (`"user"`, `"always"` or `"never"`), so the one name the rename would reach for means something else. Rejected: `reducedMotionPreferred`, and `reducedMotion`.
+2. **`pageVisible` is `visible`:** whether the Environment's view is shown, `false` while it's hidden or in the background. A native or terminal Environment has an app or a window, not a page. The bindings keep Motion's `createPageInView`, so apps see no change; `@wardic/test`'s probe option is `visible` too. Rejected: `shown`, and keeping `pageVisible`.
+3. **`IntersectionOptions.margin` is `unknown`,** as `ScrollOptions.offset` is (#234). Core passes it on, and the Environment reads it in its own syntax: `@wardic/dom` takes the web's `rootMargin` string, as it takes `root` as an element. The bindings' `createInView` and `viewport.margin` keep Motion's string. Rejected: keeping `string`.
+
+Breaking for binding and Environment authors, who read `Probe` directly, during the 1.0.0 release candidates. Behaviour is unchanged.

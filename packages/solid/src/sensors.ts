@@ -7,7 +7,7 @@
  * fiber, closed on the consuming component's unmount (dropping the shared feed's
  * count). `createReducedMotion` bridges
  * `Probe.prefersReducedMotion` (an `Atom`) via {@link fromAtom}, `createReducedMotionConfig` lays the
- * nearest config's setting over it, and `createPageInView` bridges `Probe.pageVisible` (#443). `createTransform` moved to
+ * nearest config's setting over it, and `createPageInView` bridges `Probe.visible` (#443). `createTransform` moved to
  * `live-value.ts`, with `createSpring` (#130).
  *
  * All hooks MUST be called within a component/owner (they register `onCleanup`
@@ -179,11 +179,11 @@ export const createReducedMotionConfig = (): Accessor<boolean> => {
  * createEffect(() => (visible() ? player.play() : player.pause()))
  * @see https://wardic.dev/reference/solid/gestures/create-page-in-view
  */
-// #443, the Probe's `pageVisible`. The Hydration hold keeps `true` until mount, as Motion's starts
+// #443, the Probe's `visible`. The Hydration hold keeps `true` until mount, as Motion's starts
 // `true` and corrects itself after its first render.
 export const createPageInView = (): Accessor<boolean> => {
   const runtime = useWardicRuntime()
   if (isServer) return () => true
   const probe = runtime.runSync(Probe.Probe)
-  return fromAtom(probe.pageVisible, { serverValue: true })
+  return fromAtom(probe.visible, { serverValue: true })
 }

@@ -70,7 +70,7 @@ export const watchToSignal = <A>(
  * page keeps it until mount, then follows the atom.
  *
  * @example
- * const visible = fromAtom(probe.pageVisible, { serverValue: true })
+ * const visible = fromAtom(probe.visible, { serverValue: true })
  * @see https://wardic.dev/reference/solid/advanced/bridges
  */
 // Solid's `from`, seeded with the atom's value; `set(() => v)`, so an object or function value is stored
