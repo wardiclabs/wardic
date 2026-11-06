@@ -57,7 +57,7 @@ export class InterpolatorRegistry extends Context.Service<InterpolatorRegistry, 
    */
   // #511.
   readonly forget: Effect.Effect<void>
-}>()("@wardic/InterpolatorRegistry") {}
+}>()("@wardic/core/InterpolatorRegistry") {}
 
 /** A key's blend for a whole animation: its value at progress `t`, given whether that's the run's last frame. What a Key rule returns. */
 // ADR-0035. On the per-frame path (ADR-0025): plain calls and statement `if`s, nothing allocated but the value.

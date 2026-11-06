@@ -122,6 +122,6 @@ export const make = (): Shape => {
 }
 
 /** The runtime's Drag activity: one shared by every runtime unless a runtime provides its own. */
-export const DragActivity: Context.Reference<Shape> = Context.Reference<Shape>("@wardic/DragActivity", {
+export const DragActivity: Context.Reference<Shape> = Context.Reference<Shape>("@wardic/core/DragActivity", {
   defaultValue: make,
 })

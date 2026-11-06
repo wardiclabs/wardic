@@ -137,4 +137,4 @@ export class Probe extends Context.Service<Probe, {
    */
   // #273; an **Input feed** (#318).
   readonly observeIntersection: (target: unknown, options?: IntersectionOptions) => InputFeed.InputFeed<Intersection>
-}>()("@wardic/Probe") {}
+}>()("@wardic/core/Probe") {}

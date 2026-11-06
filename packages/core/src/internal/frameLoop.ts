@@ -150,7 +150,7 @@ const tickMs = Metric.histogram("wardic_frameloop_tick_ms", {
  * Environment.
  */
 // ADR-0030, decision 7. `FrameLoop.CheckFrames`.
-export const CheckFrames: Context.Reference<boolean> = Context.Reference<boolean>("@wardic/FrameLoop/CheckFrames", {
+export const CheckFrames: Context.Reference<boolean> = Context.Reference<boolean>("@wardic/core/FrameLoop/CheckFrames", {
   defaultValue: () => false,
 })
 

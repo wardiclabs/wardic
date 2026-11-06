@@ -41,7 +41,7 @@ export class DefaultTransition extends Context.Service<DefaultTransition, {
    */
   // #429.
   readonly keyframes: KeyframesTransition
-}>()("@wardic/DefaultTransition") {}
+}>()("@wardic/core/DefaultTransition") {}
 
 /** One spring with core's defaults: stiffness 170, damping 26, mass 1. */
 export const ONE_SPRING: Transition = { type: "spring" }

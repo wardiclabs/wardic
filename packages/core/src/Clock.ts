@@ -77,7 +77,7 @@ export class Clock extends Context.Service<Clock, {
    */
   // #464; #460, Q7.
   readonly now: () => number
-}>()("@wardic/Clock") {}
+}>()("@wardic/core/Clock") {}
 
 /**
  * The seconds a Clock ticks while it has no measured interval yet, at its first frame: one frame at

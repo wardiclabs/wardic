@@ -57,7 +57,7 @@ export const isTransform = (key: string): boolean => Option.isSome(BaseValue.tra
 export class PositionalKeys extends Context.Service<PositionalKeys, {
   /** Whether reduced motion Snaps `key`. */
   readonly isPositional: (key: string) => boolean
-}>()("@wardic/PositionalKeys") {}
+}>()("@wardic/core/ReducedMotion/PositionalKeys") {}
 
 /** Positional keys with only the transforms: core's own, and the Test Environment's. */
 export const transformsOnly: Layer.Layer<PositionalKeys> = Layer.succeed(PositionalKeys, { isPositional: isTransform })

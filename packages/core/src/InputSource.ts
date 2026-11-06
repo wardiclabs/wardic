@@ -283,7 +283,7 @@ export class InputSource extends Context.Service<InputSource, {
    */
   // #431: **Drag controls**.
   readonly adoptPointer: (target: unknown, raw: unknown) => PointerLikeEvent | undefined
-}>()("@wardic/InputSource") {}
+}>()("@wardic/core/InputSource") {}
 
 /**
  * `target`'s pointer feed with the downs `adoptPointer` hands it: `input`'s `adoptablePointer`, or its

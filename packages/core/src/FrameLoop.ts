@@ -35,7 +35,7 @@ export type Sink<F> = (frame: F) => undefined
  * every other in each tick, for one that reads what the others wrote.
  */
 // `runLast` is the projection's coordinator's (ADR-0027, *Amendment (#137)*).
-export class FrameLoop extends Context.Service<FrameLoop, internal.Shape>()("@wardic/FrameLoop", {
+export class FrameLoop extends Context.Service<FrameLoop, internal.Shape>()("@wardic/core/FrameLoop", {
   make: internal.make,
 }) {}
 
