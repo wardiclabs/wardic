@@ -5,13 +5,16 @@
  * it lands; hovering the link draws the W again.
  *
  * Its parts are Variant children of the link (Layout.tsx), which names the variants: `hidden` to
- * `shown` as it mounts, which the server plays as CSS before the page hydrates, and `hover`. Under
+ * `shown` as it mounts, which the server plays as CSS before the page hydrates, then `rest`, and
+ * `hover`. A hover's end goes back to what `animate` names, with that variant's transition, as
+ * Motion's does: `shown` lands each part on its beat, so once every star has landed (`onLanded`) the
+ * link names `rest`, the same values with no delay, and the W comes back at once. Under
  * `prefers-reduced-motion` the stars' scale snaps while the lines and the ring still draw, as Motion
  * does. Its geometry is the mark's small cut (logo-paths.ts). The page has one Logo, so its ids are
  * fixed.
  */
-import { w, type WardicVariants } from "@wardic/solid/unstable/v2"
-import { For } from "solid-js"
+import { w, type Ward, type WardicVariants } from "@wardic/solid/unstable/v2"
+import { For, onSettled } from "solid-js"
 import { LINES, RING, STARS, WORDMARK } from "~/components/logo-paths.ts"
 
 /** When star `i` lands along the W, in seconds: one every 180 ms, once the ring has started round. */
@@ -27,12 +30,14 @@ const landing = (i: number) => ({ type: "spring", stiffness: 520, damping: DAMPI
 const SWEEP: WardicVariants = {
   hidden: { pathLength: 0 },
   shown: { pathLength: 1, transition: { type: "tween", duration: 0.8, ease: "easeInOut" } },
+  rest: { pathLength: 1 },
 }
 
 /** A star, by its place along the W: it lands on a spring and fades in as it does; on hover it twinkles, each in turn. */
 const STAR: WardicVariants = {
   hidden: { scale: 0, opacity: 0 },
   shown: (i: number) => ({ scale: 1, opacity: 1, transition: { ...landing(i), opacity: { type: "tween", duration: 0.15, delay: landsAt(i) } } }),
+  rest: (i: number) => ({ scale: 1, opacity: 1, transition: { ...landing(i), delay: 0 } }),
   hover: (i: number) => ({ scale: [1, 1.3, 1], transition: { type: "tween", duration: 0.32, delay: i * 0.06 } }),
 }
 
@@ -40,16 +45,30 @@ const STAR: WardicVariants = {
 const GAP: WardicVariants = {
   hidden: { scale: 0 },
   shown: (i: number) => ({ scale: 1, transition: landing(i) }),
+  rest: { scale: 1 },
 }
 
 /** A line, by the star it leaves: it draws as that star lands, and again, quicker, on hover. */
 const LINE: WardicVariants = {
   hidden: { pathLength: 0 },
   shown: (i: number) => ({ pathLength: 1, transition: { type: "tween", duration: 0.16, ease: "easeOut", delay: landsAt(i) + 0.06 } }),
+  rest: { pathLength: 1, transition: { type: "tween", duration: 0.16, ease: "easeOut" } },
   hover: (i: number) => ({ pathLength: [0, 1], transition: { type: "tween", duration: 0.18, ease: "easeOut", delay: i * 0.06 } }),
 }
 
-export function Logo() {
+/**
+ * The mark and the wordmark. `onLanded` is told once every star has landed: the stars land last of the
+ * parts, Caph last of all, on the last beat.
+ */
+export function Logo(props: { readonly onLanded: () => void }) {
+  const stars: Array<Ward> = []
+  // onSettled runs in the browser only. A star disposed before it lands rejects its promise, and then there's nothing to tell.
+  onSettled(() => {
+    Promise.all(stars.map((star) => star.next("settled"))).then(
+      () => props.onLanded(),
+      () => {},
+    )
+  })
   return (
     <>
       <svg class="logo-mark" viewBox="0 0 128 128" width="36" height="36" aria-hidden="true">
@@ -100,7 +119,7 @@ export function Logo() {
             </For>
           </g>
           <For each={STARS}>
-            {(star, i) => <w.path d={star.d} fill="#242933" stroke={star.color} stroke-width="3.6" stroke-linejoin="round" custom={i()} variants={STAR} />}
+            {(star, i) => <w.path d={star.d} fill="#242933" stroke={star.color} stroke-width="3.6" stroke-linejoin="round" custom={i()} variants={STAR} wardRef={(ward) => stars.push(ward)} />}
           </For>
         </g>
       </svg>
