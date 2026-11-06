@@ -11,7 +11,7 @@
 //   frame, `scope.settled()` pending until it lands, then holding it.
 import { DomLive } from "@wardic/dom"
 import type { JSX } from "@solidjs/web"
-import { createAnimate, ward, type WardicAnimate, type WardicAnimationScopeV2, WardicProvider } from "@wardic/solid/unstable/v2"
+import { createAnimate, ward, type WardicAnimate, type WardicAnimationScope, WardicProvider } from "@wardic/solid/unstable/v2"
 import { createSignal, isPending, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
@@ -27,8 +27,8 @@ const frames = async (n: number): Promise<void> => {
 const byId = (id: string): HTMLElement => document.getElementById(id) as HTMLElement
 
 /** Mount `children` under a scope: its scope and its `animate`. */
-const mountScope = (children: () => JSX.Element): { readonly scope: WardicAnimationScopeV2; readonly animate: WardicAnimate } => {
-  let scope!: WardicAnimationScopeV2
+const mountScope = (children: () => JSX.Element): { readonly scope: WardicAnimationScope; readonly animate: WardicAnimate } => {
+  let scope!: WardicAnimationScope
   let animate!: WardicAnimate
   const Scene = (): JSX.Element => {
     ;[scope, animate] = createAnimate()

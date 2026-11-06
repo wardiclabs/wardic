@@ -1,7 +1,7 @@
 ---
 title: createAnimate
 description: Animates elements from code, Wardic's and plain ones, by element, selector or list, and returns controls to pause, seek or await it.
-api: [createAnimate, WardicAnimate, WardicAnimateOptions, WardicAnimationSubject, WardicAnimationScope, WardicAnimationScopeV2, WardicScopeLanding, WardicPlaybackControls, WardicPlayState]
+api: [createAnimate, WardicAnimate, WardicAnimateOptions, WardicAnimationSubject, WardicAnimationScope, WardicScopeLanding, WardicPlaybackControls, WardicPlayState]
 ---
 
 # createAnimate
@@ -66,4 +66,4 @@ Motion's `useAnimate`, its scope given as `ref={scope}`, with Motion's targets, 
 - **`WardicAnimate`:** `animate`, both forms.
 - **`WardicAnimateOptions`:** its options. **`WardicAnimationSubject`:** what it animates.
 - **`WardicPlaybackControls`:** what it returns. **`WardicPlayState`:** their `state`.
-- **`WardicAnimationScope`:** the scope. **`WardicAnimationScopeV2`:** (Solid 2) the scope with `settled()`. **`WardicScopeLanding`:** (Solid 2) what `settled()` gives: `{ animation }`, the one that landed last.
+- **`WardicAnimationScope`:** the scope, each binding's own: on Solid 2 it has `settled()`. **`WardicScopeLanding`:** (Solid 2) what `settled()` gives: `{ animation }`, the one that landed last.
