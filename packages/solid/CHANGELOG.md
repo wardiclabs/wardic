@@ -1,5 +1,13 @@
 # @wardic/solid
 
+## 1.0.0-rc.3
+
+### Patch Changes
+
+- Updated dependencies [21c6d2a]
+  - @wardic/core@1.0.0-rc.3
+  - @wardic/dom@1.0.0-rc.3
+
 ## 1.0.0-rc.2
 
 ### Patch Changes
