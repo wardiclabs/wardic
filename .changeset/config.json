@@ -2,10 +2,13 @@
   "$schema": "https://unpkg.com/@changesets/config@3.0.0/schema.json",
   "changelog": "@changesets/cli/changelog",
   "commit": false,
-  "fixed": [],
+  "fixed": [["@wardic/core", "@wardic/dom", "@wardic/solid", "@wardic/test"]],
   "linked": [],
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "ignore": ["@wardic/example-solid-start-basic"]
+  "privatePackages": {
+    "version": false,
+    "tag": false
+  }
 }
