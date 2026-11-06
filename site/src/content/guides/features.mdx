@@ -57,13 +57,13 @@ A prop whose Feature isn't there does nothing: `whileHover` without `hover` does
 
 ## What it saves
 
-Measured on Solid 1's binding when the Features were split out, gzipped:
+Measured on Solid 1's binding at 1.0.0-rc.2, gzipped, each over the Slim element alone, 122 KB for the whole app:
 
 | Feature | Size |
 | --- | --- |
 | `hover` | 5 KB, the input every gesture but `inView` stands on included |
 | `press`, `focus` and `inView`, after `hover` | 2 KB |
-| `drag`, after `domAnimation` | 5 KB |
-| `layout` | 21 KB |
+| `drag`, after `domAnimation` | 8 KB |
+| `layout` | 23 KB |
 | `colors` | 5 KB |
-| Every Feature, a `wardic.*` element | 41 KB |
+| Every Feature, a `wardic.*` element | 42 KB |
