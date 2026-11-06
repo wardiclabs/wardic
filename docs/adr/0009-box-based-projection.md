@@ -446,3 +446,7 @@ Motion 14.6 now resolves a string translate in its target box as a percentage of
 3. **A Measured pair's translate start is written alone and read,** as its target is (#430's batch): a start not in px, such as `-100%`, is laid out through the element's whole transform with the start, read from its matrix, and the element's transform put back, before the other starts are read as the element lays out.
 
 **Tests:** OT9 (`packages/solid/test/own-translate.browser.test.tsx`) and LY24 (`test/v2/layout.browser.test.tsx`): a layout and a `layoutRoot` element mounted from `-100%` to 0, from `-100%` to `0%`, and from `-100vw` to `0vw`, each painted frame by frame as a plain element beside them is. Both fail without the fix. dom's OT3 now pins the CSS it draws.
+
+## Note (#618, 2026-11-06): core's `Flip` module is removed
+
+This ADR replaced the one-delta FLIP with the Projection. Core's `Flip` module (`Flip.make`) stayed exported with nothing calling it, and the docs listed it as an API. It's removed, with its page. The glossary's **FLIP** entry names the Projection as what does the Invert→Play math.

@@ -11,7 +11,7 @@ How core's API is shaped: the way Effect organises its own modules, so `pipe` is
 1. **Every export lives in a module,** one file per module at `packages/core/src/<Module>.ts`, in PascalCase, named for a data type or a CONTEXT.md term (`Machine`, `Frame`, `Values`, `Easing`, `Box`, `Reorder`, …).
    - Implementation that two or more modules share lives in `src/internal/`, which `package.json`'s `exports` keeps unimportable from outside core.
    - The root, `src/index.ts`, is `export * as Machine from "./Machine.ts"` lines and nothing else.
-   - **A name doesn't repeat its module:** `Flip.Transform`, `Stagger.Options`, `AutoScroll.State`, `Projection.KEY`, not `Flip.FlipTransform`. The module's own type keeps the module's name, as effect's do: `Box.Box`, `Clock.Clock`, `Frame.Frame`.
+   - **A name doesn't repeat its module:** `Arc.Path`, `Stagger.Options`, `AutoScroll.State`, `Projection.KEY`, not `Arc.ArcPath`. The module's own type keeps the module's name, as effect's do: `Box.Box`, `Clock.Clock`, `Frame.Frame`.
 2. **A data type core builds,** one a caller never writes as a literal (`Machine`, the Reorder group), is `Pipeable`, as `effect/Duration` and `effect/Option` are:
    - a `TypeId` string, `"~@wardic/core/<Module>"`, with a variance marker for its type parameters;
    - a prototype holding the `TypeId`, `pipe` (`pipeArguments`) and `Inspectable.BaseProto`, with a `toJSON` that shows what identifies the value;

@@ -16,8 +16,7 @@
 //   1. Immutable: every function returns a fresh object (ADR-0009 Option C); Motion mutates a
 //      caller-owned output to avoid per-frame allocation. A mutate-into-output variant is a measured
 //      optimisation for later.
-//   2. A zero-length guard: a zero-size source axis yields `scale: 1` rather than `Infinity`/`NaN`
-//      (matches `Flip.make`'s guard).
+//   2. A zero-length guard: a zero-size source axis yields `scale: 1` rather than `Infinity`/`NaN`.
 //   3. The snapping precisions and arithmetic are copied verbatim, so results cross-check against
 //      Motion.
 import * as Bool from "effect/Boolean"
