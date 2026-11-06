@@ -43,7 +43,7 @@ The provider gives its elements **Features**: `domAnimation` is hover, press, fo
 
 ## Coming from Motion
 
-Most of Motion for React's API keeps its name: `<motion.div>` is `<w.div>`, and `AnimatePresence`, `LayoutGroup`, `Reorder`, `stagger` and `domAnimation` / `domMax` are as they are. Motion's hooks become Solid's `create*` primitives: `useAnimate` is `createAnimate`, `useScroll` is `createScroll`, `useSpring` is `createSpring`, `useTransform` is `createTransform`, `useInView` is `createInView`. `MotionConfig` is `WardicConfig`, and `LazyMotion` is the provider's `features` with `LazyWardic` below it. [The docs](https://wardic.dev) map every API, and say where Wardic differs.
+Most of Motion for React's API keeps its name: `<motion.div>` is `<w.div>`, with the Features its provider gives, and `AnimatePresence`, `LayoutGroup`, `Reorder`, `stagger` and `domAnimation` / `domMax` are as they are. Motion's hooks become Solid's `create*` primitives: `useAnimate` is `createAnimate`, `useScroll` is `createScroll`, `useSpring` is `createSpring`, `useTransform` is `createTransform`, `useInView` is `createInView`. `MotionConfig` is `WardicConfig`, and `LazyMotion` is the provider's `features` with `LazyWardic` below it. [The docs](https://wardic.dev) map every API, and say where Wardic differs.
 
 ## See it
 
