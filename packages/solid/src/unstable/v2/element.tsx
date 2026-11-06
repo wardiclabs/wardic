@@ -25,6 +25,7 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import { identity } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type ComponentProps, dynamic, isServer, type JSX, type ValidComponent } from "@solidjs/web"
 import { $PROXY, children, type Component, createEffect, createMemo, createOwner, omit, runWithOwner, untrack } from "solid-js"
@@ -354,15 +355,34 @@ export const formOf = <F extends object>(create: Create, extras: Readonly<Record
   })
 }
 
-/** `<form>.<tag>`: the element with a ward on it, the ward's Provider around it when it changes what its children read (#50). */
-const tagComponent = (tag: string, routing: string | undefined, forward: boolean, kind: WardInternals): Component<Record<string, unknown>> => {
-  // Its tag never changes, so a static `dynamic()` makes none of its memos over it (#525). On a server,
-  // one memo of the element's own holds what `ssrElement` reads as it renders: a pending child or
-  // attribute (`{product().name}`) waits there, as at `dynamic()`'s, not thrown to the `<Loading>` to
-  // run its subtree again (AR14). A browser's render needs none: it renders under a plain owner, which
-  // takes the hydration id the server's memo took, and isn't a computation its effects run under.
+/**
+ * A plain element named `tag`, as Wardic's elements and `Reorder.Item` render theirs: made once a tag,
+ * outside any owner, and kept for the module's life.
+ *
+ * Its tag never changes, so a static `dynamic()` makes none of its memos over it (#525). On a server,
+ * one memo of the element's own holds what `ssrElement` reads as it renders: a pending child or
+ * attribute (`{product().name}`) waits there, as at `dynamic()`'s, not thrown to the `<Loading>` to
+ * run its subtree again (AR14). A browser's render needs none: it renders under a plain owner, which
+ * takes the hydration id the server's memo took, and isn't a computation its effects run under.
+ */
+// #618 (M3): `Reorder.Item` made a `dynamic()` with its memos for every item.
+export const staticElementOf = (tag: string): Component<Record<string, unknown>> =>
+  UndefinedOr.match(staticElements.get(tag), {
+    onUndefined: () => {
+      const made = runWithOwner(null, () => staticElement(tag))
+      staticElements.set(tag, made)
+      return made
+    },
+    onDefined: identity,
+  })
+
+// Module state (#460, Q7): a tag's plain element, the same for every provider, made once a page's or a
+// server's life, as `formOf`'s tags are.
+const staticElements = new Map<string, Component<Record<string, unknown>>>()
+
+const staticElement = (tag: string): Component<Record<string, unknown>> => {
   const render = dynamic(() => tag, { static: true })
-  const Element = (props: Record<string, unknown>): JSX.Element => {
+  return (props) => {
     if (isServer) {
       const rendered = createMemo(() => render(props))
       // A component may return a memo, as `dynamic()`'s does; Solid 2's `JSX.Element` names no accessor.
@@ -370,6 +390,11 @@ const tagComponent = (tag: string, routing: string | undefined, forward: boolean
     }
     return runWithOwner(createOwner(), () => render(props))
   }
+}
+
+/** `<form>.<tag>`: the element with a ward on it, the ward's Provider around it when it changes what its children read (#50). */
+const tagComponent = (tag: string, routing: string | undefined, forward: boolean, kind: WardInternals): Component<Record<string, unknown>> => {
+  const Element = staticElementOf(tag)
   const name = `wardic.${tag}`
   return (props) => {
     const own = props as WardicMotionProps & RefStyle & WardRefIn

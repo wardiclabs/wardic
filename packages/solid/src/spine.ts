@@ -152,7 +152,7 @@ export const exitTargetOf = (config: ExitConfig, presenceCustom: unknown, state:
   // Its own `exit` wins; a Variant child with none exits on the name its provider hands down (#290).
   const entry: Entry = UndefinedOr.match(config.exit, { onDefined: identity, onUndefined: (): Entry => inherited })
   const name = UndefinedOr.match(nameOf(config.exit), { onDefined: identity, onUndefined: () => inherited })
-  if (Array.isArray(entry)) {
+  if (Arr.isArray(entry)) {
     // A list (#297): merged, and each name's own keys on its own transition.
     const targets = resolveTargets(entry, config.variants, custom, state)
     const merged = mergedOf(targets)
@@ -403,7 +403,7 @@ const gestureLayersInto = (
     return false
   }
   // A list is a layer a name, in order (#297): the last name that sets a key drives it.
-  if (Array.isArray(entry)) {
+  if (Arr.isArray(entry)) {
     let sets = false
     Arr.forEach(resolveTargets(entry, variants, custom, state), (target) => {
       const layer = namedLayerOf(target)
@@ -480,7 +480,7 @@ const groupTransitionOf = (
   reuse: (transition: WardicTransition) => WardicTransition,
 ): WardicTransition | undefined => {
   if (Predicate.isUndefined(groups)) return transition
-  if (Bool.and(i === 0, Bool.not(Array.isArray(resolution.variant)))) return transition
+  if (Bool.and(i === 0, Bool.not(Arr.isArray(resolution.variant)))) return transition
   const layer = resolution.layers[i]
   // A list's returns: the element's, at its whole orchestration's delay.
   if (Predicate.isUndefined(layer)) return staggeredOf(element, extraOf(extraDelay, undefined), reuse)
@@ -1303,9 +1303,9 @@ interface ToldNames {
 
 /** Whether a resolution resolved a list (#297): its base, or an active gesture's. Cheap for the common case. */
 const hasList = (resolution: Resolution): boolean => {
-  if (Array.isArray(resolution.variant)) return true
+  if (Arr.isArray(resolution.variant)) return true
   if (resolution.names === NO_GESTURE_NAMES) return false
-  return Arr.some(GESTURE_LAYERS, (layer) => Array.isArray(resolution.names[layer]))
+  return Arr.some(GESTURE_LAYERS, (layer) => Arr.isArray(resolution.names[layer]))
 }
 
 /** The list a Retarget tells settled name by name (#297): when its binding is told so, and its definition is a list. */
@@ -1315,7 +1315,7 @@ const namesToldOf = (animation: AnimationHooks | undefined, resolution: Resoluti
   if (Predicate.isUndefined(tell)) return undefined
   if (Bool.not(hasList(resolution))) return undefined
   const definition = definitionOf(resolution, previous)
-  if (Bool.not(Array.isArray(definition))) return undefined
+  if (Bool.not(Arr.isArray(definition))) return undefined
   return { names: definition as ReadonlyArray<string>, tell }
 }
 
@@ -1413,7 +1413,7 @@ export const animationCallbacks = (runtime: WardicRuntime, id: string): Animatio
       const callback = config.onAnimationStart
       if (Predicate.isUndefined(callback)) return
       const definition = definitionOf(resolution, previous)
-      if (Array.isArray(definition)) {
+      if (Arr.isArray(definition)) {
         Arr.forEach(definition as ReadonlyArray<string>, (name) => tell("onAnimationStart", callback, name))
         return
       }
@@ -1424,7 +1424,7 @@ export const animationCallbacks = (runtime: WardicRuntime, id: string): Animatio
       const callback = config.onAnimationComplete
       if (Predicate.isUndefined(callback)) return
       const definition = definitionOf(resolution, previous)
-      if (Array.isArray(definition)) return
+      if (Arr.isArray(definition)) return
       tell("onAnimationComplete", callback, definition)
     },
     namesSettled: (names, config) => {
@@ -1500,7 +1500,7 @@ export const resolutionOf = (
   const variant = variantOf(c.animate, parent)
   // A list of names (#297, Motion's `VariantLabels`): a base layer a name, in order, so the last name
   // that sets a key drives it. A single name or a values map takes the path below, as before.
-  if (Array.isArray(c.animate) || (Predicate.isUndefined(c.animate) && Array.isArray(variant))) {
+  if (Arr.isArray(c.animate) || (Predicate.isUndefined(c.animate) && Arr.isArray(variant))) {
     const targets = resolveTargets(variant as ReadonlyArray<string>, variants, c.custom, state)
     const merged = mergedOf(targets)
     const listLayers: Array<Layer> = Arr.map(targets, namedLayerOf)
@@ -1539,7 +1539,7 @@ const changeIn = (own: ControlsChange | undefined, parent: WardicVariantContextV
 const overriddenOf = (resolution: Resolution, override: WardicTransition): Resolution => {
   const variant = resolution.variant
   let base = 1
-  if (Array.isArray(variant)) base = variant.length
+  if (Arr.isArray(variant)) base = variant.length
   return {
     ...resolution,
     transition: override as WardicVariantTransition,
@@ -2503,7 +2503,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // element's transition, in a group of their own, last.
     // Guards, not matches: per Retarget, per element. A list's work (#297) is done apart, for a list:
     // the Retarget's other calls keep their inlining (docs/agents/effect-first.md).
-    const listed = Array.isArray(resolution.variant)
+    const listed = Arr.isArray(resolution.variant)
     // A list's names each wait for their own `when` (#297's PR 2): the layers whose gate is shut now.
     let shut: ReadonlyArray<boolean> | undefined
     if (listed) shut = shutOf(layers, byName)
@@ -2925,8 +2925,9 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
 
   // --- Imperative animations (#433) -------------------------------------------
   /** A leg of an Imperative animation, forked as a Retarget's are; it lands on its track. */
+  // Data-first: a pipe's curried forms are two closures more for every leg (#618, H1).
   const runImperative = (running: Running, program: Effect.Effect<unknown, never, WardicServices>): void => {
-    running.fiber = runtime.runFork(program.pipe(Effect.onExit(legEnded(running)), Effect.asVoid))
+    running.fiber = runtime.runFork(Effect.asVoid(Effect.onExit(program, legEnded(running))))
   }
 
   const animate = (target: Target, given: WardicTransition | undefined, head: Playback.Playhead, hooks: ImperativeHooks): ImperativeTrack => {

@@ -38,6 +38,8 @@ export interface Runner<R> {
  * `FiberSet.runtime`, which reads the context again in the current fiber, where the building call's
  * scheduler still is: `Effect.provideContext` merges into a fiber's context, it doesn't replace it.
  */
+// Not `Effect.fnUntraced`, as effect-4's guide prefers: TypeScript can't carry `R` through it, and the
+// runner's context would be `unknown` (#618, H1).
 export const makeRunner = <R>(): Effect.Effect<Runner<R>, never, R | Scope.Scope> =>
   Effect.gen(function* () {
     const context = withoutSyncScheduler(yield* Effect.context<R | Scope.Scope>())

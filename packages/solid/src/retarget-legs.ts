@@ -353,7 +353,7 @@ const KEYFRAMED = new WeakMap<object, boolean>()
 const keyframedOptions = (options: Machine.KeyframesOptions): boolean => {
   const known = KEYFRAMED.get(options)
   if (Predicate.isNotUndefined(known)) return known
-  const keyframed = Bool.or(Predicate.isNotUndefined(options.times), Bool.and(Array.isArray(options.ease), Bool.not(Easing.isBezier(options.ease as Easing.Definition))))
+  const keyframed = Bool.or(Predicate.isNotUndefined(options.times), Bool.and(Arr.isArray(options.ease), Bool.not(Easing.isBezier(options.ease as Easing.Definition))))
   KEYFRAMED.set(options, keyframed)
   return keyframed
 }

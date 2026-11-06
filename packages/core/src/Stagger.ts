@@ -10,7 +10,6 @@
  */
 // ADR-0007.
 import * as Match from "effect/Match"
-import * as Option from "effect/Option"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as Easing from "./Easing.ts"
 
@@ -31,13 +30,13 @@ export interface Options {
   readonly ease?: Easing.Definition
 }
 
-const resolveOrigin = (from: Origin, total: number): number =>
-  Match.value(from).pipe(
-    Match.when("first", () => 0),
-    Match.when("last", () => total - 1),
-    Match.when("center", () => (total - 1) / 2),
-    Match.orElse((index) => index),
-  )
+/** Where a stagger grows from, as a function of the count: chosen once, at `make`. */
+const originOf: (from: Origin) => (total: number) => number = /*#__PURE__*/ Match.type<Origin>().pipe(
+  Match.when("first", () => () => 0),
+  Match.when("last", () => (total: number) => total - 1),
+  Match.when("center", () => (total: number) => (total - 1) / 2),
+  Match.orElse((index) => () => index),
+)
 
 /**
  * A stagger: a child's delay in seconds from its index and the count, `startDelay` plus `amount` for
@@ -48,24 +47,21 @@ const resolveOrigin = (from: Origin, total: number): number =>
  * const delays = [0, 1, 2, 3].map((i) => delay(i, 4))
  */
 // Motion's `stagger` (#436); with an easing, `amount × total` is Motion's `maxDelay`, one step past the
-// last child.
+// last child. The origin and the easing are resolved here, once, and the delay is plain arithmetic: it
+// runs for each child of each orchestration (#618, H1).
 export const make = (
   amount: number,
   options: Options = {},
 ): ((index: number, total: number) => number) => {
   const { from = "first", startDelay = 0 } = options
-  // Resolved once, here: a name or a bézier's numbers to its curve (#360).
-  const ease = UndefinedOr.map(options.ease, Easing.resolve)
-  return (index, total) => {
-    const origin = resolveOrigin(from, total)
-    const delay = amount * Math.abs(origin - index)
-    return startDelay + Option.match(Option.fromUndefinedOr(ease), {
-      onNone: () => delay,
-      onSome: (easing) => {
-        const max = amount * total
-        if (max === 0) return 0
-        return easing(delay / max) * max
-      },
-    })
-  }
+  const origin = originOf(from)
+  // A name or a bézier's numbers to its curve (#360).
+  return UndefinedOr.match(UndefinedOr.map(options.ease, Easing.resolve), {
+    onUndefined: () => (index: number, total: number) => startDelay + amount * Math.abs(origin(total) - index),
+    onDefined: (easing) => (index: number, total: number) => {
+      const max = amount * total
+      if (max === 0) return startDelay
+      return startDelay + easing((amount * Math.abs(origin(total) - index)) / max) * max
+    },
+  })
 }

@@ -598,3 +598,35 @@ Rejected:
   - a second run, with decision 5 in, passed every workload on its first run on all three engines and exited 0.
 - **A real regression:** a busy loop in `chase`'s step, run on Node, failed both runs (`chase` +21% and +24%, `chase/loop` +705% and +714%), and the bench exited 1.
 
+
+## Amendment (#618, 2026-11-06): the rule goes by how often code runs
+
+Found in the review of 2026-11-05 (H1). The per-frame rule said where code was, not how often it ran. Code that runs once a frame, or once an input event, took either the per-frame path's plain forms or Effect's helpers built at the call, with no rule between them. Measured (Node 22 / Bun 1.3, ns a call):
+- `Num.clamp` 30 / 26, against `Math.min`/`max` 6 / 5;
+- `Match.value` built at the call 69 / 62, against a `Match.type` built once 10 / 14 and a record 7 / 3;
+- `Option.match` with closures 14 / 8, against an `if` 9 / 4;
+- `Bool.every` 10 / 7, against an `if` chain 6 / 3;
+- `Clock`'s timing helpers 30 / 16, against plain reads 7 / 6.
+
+**Decided:** the multiplier decides the form (`effect-first.md`, *Once a frame, or once an input event*).
+- **Per element, key or node, every frame:** the per-frame path's plain forms, as before.
+- **Once a frame, or once an input event:** Effect's helpers, built once. A `Match.type` at module scope, never `Match.value(x).pipe(…)` at the call; handlers hoisted; `Bool.not`, which is free.
+- **A call that runs once for each of its callers every frame is per caller.**
+- **Per key per Retarget, or per leg:** the hot path, as before.
+- **Lint:** `BOOL_OPERANDS` covers `Bool.every` and `Bool.some` too: an element after the first that calls more than a pure check.
+
+**The sites:**
+- **core:**
+  - `LiveValue.eachFrame` clamps with `Math`;
+  - `startsKeyPress` is an `if` chain: `Bool.every` read the press claims on every key event;
+  - `Stagger.make` resolves its origin and easing once, and `Arc.make` its direction;
+  - `Projection.shapeOrigin`'s matcher is built once, its shapers at module level;
+  - `watchPan` is an `Effect.fnUntraced`.
+- **dom:** input's `kindOf`, `buttonOf` and `keyOf` are built once, and `keyActionOf` is statements. `makeRunner` stays a function returning `Effect.gen`: `Effect.fnUntraced` can't carry its type parameter.
+- **solid:** the spine's imperative legs fork data-first.
+- **Every package:** `Arr.isArray` in place of `Array.isArray`.
+- **Unchanged, as measured:** `follow`'s `Bool.not`, and `Clock`'s helpers, which run once a frame.
+
+**Measured** with #618's PR 7 (the Renderer read once, M1, and Solid 2's `Reorder.Item`, M3, beside):
+- **`bench:core --base main`:** every workload passed on Bun, Node and Chromium. `keyframesValues/loop` −2.3% on Node and −9.4% on Chromium; the rest within noise.
+- **`bench:solid --base main`:** every gate passed. Warm mount −11.4% on Solid 1 and −4.7% on Solid 2, most of it M1's, whose work moves into the first frame (ADR-0067, *Note (#618, 2026-11-06)*); bytes per element −0.3% and −0.8%; Solid 2's Reorder item retained −3.0%; the layout scenes within noise.

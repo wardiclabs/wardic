@@ -405,6 +405,8 @@ export type PresenceMode = "sync" | "wait" | "popLayout"
 /** What a presence reads from its provider and its props. */
 export interface PresenceOptions {
   readonly runtime: WardicRuntime
+  /** The Environment's Renderer (ADR-0003), read once by the provider (#618, M1): what a retained node's values commit through. */
+  readonly renderer: Renderer.Renderer["Service"]
   /** The provider's projection system once its `layout` Feature is built (#511), read at each use. */
   readonly projection: () => ProjectionSystem.Shape | undefined
   /** Whether reduced motion applies now (ADR-0029), read at each exit. */
@@ -541,7 +543,7 @@ const presenceProjectionOf = (projection: () => ProjectionSystem.Shape | undefin
 export const makePresence = (options: PresenceOptions): PresenceController => {
   const { runtime, reducedMotion, positionalKeys, defaultTransition } = options
   const projection = presenceProjectionOf(options.projection)
-  const { commit, project } = runtime.runSync(Renderer.Renderer)
+  const { commit, project } = options.renderer
 
   /**
    * Debug-level lifecycle log for the parent-driven exit (observability

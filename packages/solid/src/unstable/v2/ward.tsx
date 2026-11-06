@@ -150,6 +150,7 @@ import {
   useWardicDefaultTransition,
   useBuiltProjection,
   useWardicReducedMotion,
+  useWardicRenderer,
   useWardicRuntime,
   useWardicSkipAnimations,
   useElementFeatures,
@@ -974,7 +975,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const presenceBlocks = presenceBlocksInitial(presence)
   if (Bool.and(Arr.contains(setup.pending, "animate"), startsAtAnimate(initialConfig, node.inherited, presenceBlocks))) throw new Error(STARTS_AT_PENDING)
   const start = startOf(initialConfig, node.inherited, presenceBlocks, untrack)
-  const { project } = runtime.runSync(Renderer.Renderer)
+  // Read once by the provider (#618, M1).
+  const { project } = useWardicRenderer()
 
   // The Starting style: the projected `initial`, carried by `style` until the gate's first commit
   // (ADR-0021 decision 6, ADR-0034); an svg-inner tag's attribute keys as attributes. While

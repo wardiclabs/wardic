@@ -716,9 +716,12 @@ export const pan = (target: unknown): Stream.Stream<PanSample, never, InputSourc
  * until the Scope closes on one still going.
  */
 // #318, ADR-0055: its count in the **Drag activity**. Tier 2.
-export const watchPan = (target: unknown, handlers: InputFeed.Handlers<PanSample>, options: PanOptions = {}): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> => {
-  const attributes = { threshold: THRESHOLD, velocityWindowMs: VELOCITY_WINDOW_MS }
-  return Effect.gen(function* () {
+/** A pan's span's attributes: its threshold and velocity window, which never change. */
+const PAN_ATTRIBUTES = { threshold: THRESHOLD, velocityWindowMs: VELOCITY_WINDOW_MS }
+
+// #618 (H1): `Effect.fnUntraced`, not a function returning `Effect.gen` (effect-4's guide).
+export const watchPan: (target: unknown, handlers: InputFeed.Handlers<PanSample>, options?: PanOptions) => Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> =
+  Effect.fnUntraced(function* (target: unknown, handlers: InputFeed.Handlers<PanSample>, options: PanOptions = {}) {
     const input = yield* InputSource.InputSource
     const activity = yield* DragActivity.DragActivity
     // The started pan's count in the Drag activity, held from its "start" to its "end".
@@ -737,7 +740,7 @@ export const watchPan = (target: unknown, handlers: InputFeed.Handlers<PanSample
     yield* Effect.addFinalizer(() => Effect.sync(release))
     yield* watchFeed(
       "wardic.pan",
-      attributes,
+      PAN_ATTRIBUTES,
       input.pointer(target),
       () => {
         const state = MutableRef.make(initState)
@@ -755,4 +758,3 @@ export const watchPan = (target: unknown, handlers: InputFeed.Handlers<PanSample
       handlers,
     )
   })
-}

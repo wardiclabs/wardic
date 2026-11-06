@@ -17,12 +17,12 @@ import type * as DefaultTransition from "@wardic/core/DefaultTransition"
 import * as Easing from "@wardic/core/Easing"
 import type * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
+import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Values from "@wardic/core/Values"
 import * as Appear from "@wardic/dom/Appear"
 import type * as DomRenderer from "@wardic/dom/DomRenderer"
 import * as DomDefaultTransition from "@wardic/dom/DomDefaultTransition"
-import * as DomInterpolators from "@wardic/dom/DomInterpolators"
 import * as DomPositionalKeys from "@wardic/dom/DomPositionalKeys"
 import * as OwnValues from "@wardic/dom/OwnValues"
 import * as Arr from "effect/Array"
@@ -38,6 +38,7 @@ import * as Result from "effect/Result"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicTransition } from "./config.ts"
 import { entriesOf, type KeyframesStart, keyframesFrom, type Leg, legsOf, NO_VELOCITY, runOf, type StopsByKey, transitionForKey } from "./retarget-legs.ts"
+import { withServerInterpolators } from "./server-interpolators.ts"
 import type { Keyframes } from "./variant-target.ts"
 import { childDelayOf, type WardicStaggerConfig } from "./variant-tree.ts"
 
@@ -81,7 +82,7 @@ const UNNAMED = "\u0000unnamed"
  */
 const textOf: (value: unknown) => string = /*#__PURE__*/ Match.type<unknown>().pipe(
   Match.when(Predicate.isFunction, (fn) => Option.match(Easing.nameOf(fn as Easing.Easing), { onNone: () => UNNAMED, onSome: (easing) => `{"easing":${JSON.stringify(easing)}}` })),
-  Match.when(Array.isArray, (items) => `[${Arr.map(items as ReadonlyArray<unknown>, (item) => textOf(item)).join(",")}]`),
+  Match.when(Arr.isArray, (items) => `[${Arr.map(items as ReadonlyArray<unknown>, (item) => textOf(item)).join(",")}]`),
   Match.when(Predicate.isObject, (record) => {
     const keys = Arr.sort(Arr.filter(Object.keys(record), (key) => Predicate.isNotUndefined((record as Record<string, unknown>)[key])), Order.String)
     return `{${Arr.map(keys, (key) => `${JSON.stringify(key)}:${textOf((record as Record<string, unknown>)[key])}`).join(",")}}`
@@ -173,9 +174,7 @@ const sampledTransition = (transition: WardicTransition | undefined): WardicTran
  */
 const together = (legs: ReadonlyArray<Leg>): Machine.Machine<Frame.Frame<Values.Values>> => {
   const machines = Effect.runSync(
-    Effect.all(Arr.map(legs, (leg): Effect.Effect<Machine.Machine<Frame.Frame<unknown>>, never, never> => machineOfLeg(leg))).pipe(
-      Effect.provide(DomInterpolators.layer),
-    ),
+    withServerInterpolators(Effect.all(Arr.map(legs, (leg): Effect.Effect<Machine.Machine<Frame.Frame<unknown>>, never, InterpolatorRegistry.InterpolatorRegistry> => machineOfLeg(leg)))),
   )
   return Machine.make({
     settles: true,
@@ -199,10 +198,10 @@ const together = (legs: ReadonlyArray<Leg>): Machine.Machine<Frame.Frame<Values.
   })
 }
 
-/** A leg's machine, built: a Blend's through the Interpolators. */
-const machineOfLeg = (leg: Leg): Effect.Effect<Machine.Machine<Frame.Frame<unknown>>, never, never> =>
+/** A leg's machine, built: a Blend's through the Interpolators `together` provides. */
+const machineOfLeg = (leg: Leg): Effect.Effect<Machine.Machine<Frame.Frame<unknown>>, never, InterpolatorRegistry.InterpolatorRegistry> =>
   Bool.match(leg._tag === "Blend", {
-    onTrue: () => (leg as Extract<Leg, { _tag: "Blend" }>).machine().pipe(Effect.provide(DomInterpolators.layer)),
+    onTrue: () => (leg as Extract<Leg, { _tag: "Blend" }>).machine(),
     onFalse: () => Effect.sync(() => (leg as Exclude<Leg, { _tag: "Blend" }>).machine() as Machine.Machine<Frame.Frame<unknown>>),
   })
 

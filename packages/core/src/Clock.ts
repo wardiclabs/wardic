@@ -268,6 +268,9 @@ export const fromRefreshFrames: <Handle>(
 
     // Subscribing joins the tick PubSub, then joins the loop. Join the PubSub
     // FIRST, so no tick published once the loop runs can miss this subscriber.
+    // A Stream, not a Channel: measured 2026-11-02, Stream's own layers were ~5% of a pull of 1,000
+    // subscribers' ticks (bench:core's `ticksOnly`), and at most one pull a frame a provider on an
+    // app's path, under 0.3% of a frame. Channel goes only where a profile shows it (#618, M5).
     const ticks = tracedStream(
       Stream.unwrap(
       Effect.gen(function* () {

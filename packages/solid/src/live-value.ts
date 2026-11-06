@@ -21,7 +21,6 @@
  */
 import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as LiveValue from "@wardic/core/LiveValue"
-import * as DomInterpolators from "@wardic/dom/DomInterpolators"
 import type * as ScrollOffset from "@wardic/dom/ScrollOffset"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
@@ -41,6 +40,7 @@ import * as OwnerScope from "./owner-scope.ts"
 import { useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import { isServer } from "./server.ts"
+import { withServerInterpolators } from "./server-interpolators.ts"
 
 /** A Live value as an accessor: an accessor as it is, an Atom read through the provider's registry. */
 const accessorOf = <A>(source: LiveSource<A>): Accessor<A> =>
@@ -104,7 +104,7 @@ const interpolatorOf = <O>(
     never,
     InterpolatorRegistry.InterpolatorRegistry
   >
-  if (isServer) return Effect.runSync(mapping.pipe(Effect.provide(DomInterpolators.layer)))
+  if (isServer) return Effect.runSync(withServerInterpolators(mapping))
   return useWardicRuntime().runSync(mapping)
 }
 

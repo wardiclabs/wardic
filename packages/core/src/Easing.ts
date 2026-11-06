@@ -398,7 +398,7 @@ export type Definition = Name | Bezier | Easing
 
 /** Whether `definition` is a bézier's points: an array whose first item is a number (Motion's `isBezierDefinition`). */
 export const isBezier = (definition: unknown): definition is Bezier =>
-  Bool.and(Array.isArray(definition), Predicate.isNumber((definition as ReadonlyArray<unknown>)[0]))
+  Bool.and(Arr.isArray(definition), Predicate.isNumber((definition as ReadonlyArray<unknown>)[0]))
 
 /** {@link resolve}'s matcher, built once, at module load. */
 const resolveDefinition: (definition: Definition) => Easing = Match.type<Definition>().pipe(

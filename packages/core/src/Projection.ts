@@ -306,12 +306,21 @@ const movedTo = (box: Box.Box, to: Box.Box): Box.Box => ({
  */
 // Motion's `notifyLayoutUpdate`, create-projection-node.ts:2163-2205 at
 // 16c61222c4166bbef5ff6ab0051192faa79fa8c8.
-export const shapeOrigin = (mode: LayoutMode, origin: Box.Box, target: Box.Box): Box.Box =>
-  Match.value(mode).pipe(
-    Match.when("size", () => movedTo(origin, target)),
-    Match.when("x", (): Box.Box => ({ x: origin.x, y: target.y })),
-    Match.when("y", (): Box.Box => ({ x: target.x, y: origin.y })),
-    Match.orElse(() =>
-      Bool.match(animatesPositionOnly(mode, origin, target), { onTrue: () => withSizeOf(origin, target), onFalse: () => origin })),
-  )
+export const shapeOrigin = (mode: LayoutMode, origin: Box.Box, target: Box.Box): Box.Box => shaperOf(mode)(mode, origin, target)
+
+/** How a mode shapes a layout animation's origin: one of four, chosen by a matcher built once. */
+type Shaper = (mode: LayoutMode, origin: Box.Box, target: Box.Box) => Box.Box
+const sizeOnly: Shaper = (_, origin, target) => movedTo(origin, target)
+const xOnly: Shaper = (_, origin, target) => ({ x: origin.x, y: target.y })
+const yOnly: Shaper = (_, origin, target) => ({ x: target.x, y: origin.y })
+const positionOrWhole: Shaper = (mode, origin, target) =>
+  Bool.match(animatesPositionOnly(mode, origin, target), { onTrue: () => withSizeOf(origin, target), onFalse: () => origin })
+// #618 (H1): `Match.value` built its matcher again for every node's layout animation; this one is built
+// once, and its shapers are module-level, so a call allocates only the box it returns.
+const shaperOf: (mode: LayoutMode) => Shaper = /*#__PURE__*/ Match.type<LayoutMode>().pipe(
+  Match.when("size", () => sizeOnly),
+  Match.when("x", () => xOnly),
+  Match.when("y", () => yOnly),
+  Match.orElse(() => positionOrWhole),
+)
 

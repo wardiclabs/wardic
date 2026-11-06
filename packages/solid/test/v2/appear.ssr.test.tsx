@@ -46,6 +46,8 @@
 //   is the shell's too: the pending read waits at the wrap's `children()`, its rule in the head.
 // - AR25 (#585): the provider's `appear="explain"` says, at Warning, why each element that doesn't play
 //   waits for the JavaScript, naming its tag and keys; `true`, or no `appear`, says nothing.
+// - AR26 (#618, M6): two renders of a page whose rules blend colours give the same markup: the second
+//   samples them with the Interpolators the first built, which a server keeps.
 import { DomLive } from "@wardic/dom"
 import * as Appear from "@wardic/dom/Appear"
 import * as Easing from "@wardic/core/Easing"
@@ -714,5 +716,17 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
     ])
     expect(said(() => page(ui)), "nothing without it").toEqual([])
     expect(said(() => page(ui, { appear: true })), "nor with true").toEqual([])
+  })
+
+  it("AR26: two renders of a page whose rules blend colours give the same markup (#618)", () => {
+    const ui = (): JSX.Element => (
+      <>
+        <wardic.div initial={{ backgroundColor: "#bf616a", opacity: 0 }} animate={{ backgroundColor: "#a3be8c", opacity: 1 }} />
+        <wardic.div initial={{ color: "rgb(0, 0, 0)" }} animate={{ color: "rgb(255, 255, 255)" }} transition={{ type: "spring", stiffness: 300, damping: 20 }} />
+      </>
+    )
+    const first = page(ui)
+    expect(headCss(first), "a colour sampled into the rules").toContain("background-color")
+    expect(page(ui)).toBe(first)
   })
 })

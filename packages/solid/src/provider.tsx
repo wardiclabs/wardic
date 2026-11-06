@@ -14,6 +14,7 @@
 import type * as DefaultTransition from "@wardic/core/DefaultTransition"
 import type * as InputFeed from "@wardic/core/InputFeed"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
+import type * as Renderer from "@wardic/core/Renderer"
 import type * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
@@ -290,6 +291,15 @@ export function useWardicRuntime(): WardicRuntime {
 // ADR-0006; inert on a server (ADR-0021, decision 9).
 export function useWardicGate(): FlushGate.Shape {
   return fromContext(useContext(WardicContext), "useWardicGate", (value) => value.gate)
+}
+
+/**
+ * Reads the Environment's Renderer (ADR-0003), read once by the provider: what an element and a
+ * presence project and commit through. Throws a clear, named error outside a `WardicProvider`.
+ * Internal: not exported from the package.
+ */
+export function useWardicRenderer(): Renderer.Renderer["Service"] {
+  return fromContext(useContext(WardicContext), "useWardicRenderer", (value) => value.renderer)
 }
 
 /**

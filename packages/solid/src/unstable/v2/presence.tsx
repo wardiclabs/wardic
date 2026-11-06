@@ -20,7 +20,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import { children, createContext, createEffect, createMemo, createSignal, onCleanup, untrack, useContext } from "solid-js"
 import { makePresence, type PresenceMode, propagateTo } from "../../presence-controller.ts"
 import type { PresenceContextValue } from "../../presence-record.ts"
-import { useBuiltProjection, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime } from "./provider.tsx"
+import { useBuiltProjection, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRenderer, useWardicRuntime } from "./provider.tsx"
 import { CLIENT_ONLY, onSettledClientOnly } from "./solid-reactivity.ts"
 import { hasRef, makePresenceHandle, type Presence, serverPresenceHandle } from "./presence-handle.ts"
 
@@ -109,6 +109,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   const parent = usePresenceContext()
   const presence = makePresence({
     runtime: useWardicRuntime(),
+    renderer: useWardicRenderer(),
     projection: useBuiltProjection(),
     reducedMotion: useWardicReducedMotion(),
     positionalKeys: useWardicPositionalKeys(),

@@ -92,6 +92,22 @@ const rotationOf = (rotate: boolean | number | undefined): number =>
   )
 
 /**
+ * An arc's signed strength for a move from its `dx` and `dy`, chosen once, at `make`, by its
+ * `direction`: a fixed side, or the screen side that keeps the dominant axis's travel turning the same way.
+ */
+// #618 (H1): `make`'s path built this matcher at every flight's start.
+const signedOf = (direction: Options["direction"], strength: number): ((dx: number, dy: number) => number) =>
+  Match.value(direction).pipe(
+    Match.when("cw", () => () => -strength),
+    Match.when("ccw", () => () => strength),
+    Match.orElse(() => (dx: number, dy: number) =>
+      Bool.match(Bool.match(Math.abs(dx) >= Math.abs(dy), { onTrue: () => dx, onFalse: () => dy }) < 0, {
+        onTrue: () => -strength,
+        onFalse: () => strength,
+      })),
+  )
+
+/**
  * A curved path, Motion's `arc()`. Make one and keep it: with no `direction`, it remembers the side of
  * the screen it bulged to, and keeps to it when the direction of travel turns.
  *
@@ -103,22 +119,14 @@ export const make = (options: Options = {}): Path => {
   const strength = UndefinedOr.match(options.strength, { onUndefined: () => 0.5, onDefined: identity })
   const peak = UndefinedOr.match(options.peak, { onUndefined: () => 0.5, onDefined: identity })
   const direction = options.direction
+  const signedFor = signedOf(direction, strength)
   const rotation = rotationOf(options.rotate)
   // With no direction: the side of the screen the last arc bulged to, across the paths this one makes.
   let lastSide: number | undefined
   return (from, to) => {
     const dx = to.x - from.x
     const dy = to.y - from.y
-    const signed = Match.value(direction).pipe(
-      Match.when("cw", () => -strength),
-      Match.when("ccw", () => strength),
-      // Toward the screen side that keeps the dominant axis's travel turning the same way.
-      Match.orElse(() =>
-        Bool.match(Bool.match(Math.abs(dx) >= Math.abs(dy), { onTrue: () => dx, onFalse: () => dy }) < 0, {
-          onTrue: () => -strength,
-          onFalse: () => strength,
-        })),
-    )
+    const signed = signedFor(dx, dy)
     let control = controlOf(from, to, signed, peak)
     if (Predicate.isUndefined(direction)) {
       // Which side of the straight line it bulges to, across the dominant axis.

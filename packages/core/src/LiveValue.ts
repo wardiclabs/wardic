@@ -24,7 +24,6 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as FiberHandle from "effect/FiberHandle"
 import * as Match from "effect/Match"
-import * as Num from "effect/Number"
 import { constant, constFalse, constTrue, constUndefined, constVoid, identity } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -76,7 +75,7 @@ const easeOfStretch = (ease: Easing.Definition | ReadonlyArray<Easing.Definition
   UndefinedOr.match(ease, {
     onUndefined: () => Easing.linear,
     onDefined: (given) =>
-      Bool.match(Bool.and(Array.isArray(given), Bool.not(Easing.isBezier(given))), {
+      Bool.match(Bool.and(Arr.isArray(given), Bool.not(Easing.isBezier(given))), {
         onTrue: () => UndefinedOr.match((given as ReadonlyArray<Easing.Definition>)[i], { onUndefined: () => Easing.linear, onDefined: Easing.resolve }),
         onFalse: () => Easing.resolve(given as Easing.Definition),
       }),
@@ -683,7 +682,8 @@ export const eachFrame: (callback: (time: number, delta: number) => void) => Eff
         // Its first frame is 0, as Motion's `timestamp - initialTimestamp` is.
         if (!first) ms += dt * 1000
         first = false
-        callback(ms, Num.clamp(dt * 1000, FRAME_DELTA))
+        // Plain Math: a step runs every frame for each `eachFrame`, and `Num.clamp` costs 5× (#618, H1).
+        callback(ms, Math.min(Math.max(dt * 1000, FRAME_DELTA.minimum), FRAME_DELTA.maximum))
         return { value: ms, done: false }
       }
     })

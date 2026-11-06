@@ -51,7 +51,7 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { dynamic, isServer, type JSX } from "@solidjs/web"
+import { isServer, type JSX } from "@solidjs/web"
 import { type Accessor, type Component, createContext, createEffect, createMemo, createSignal, flush, omit, onCleanup, untrack, useContext } from "solid-js"
 import { MOTION_PROPS_V2 as MOTION_PROPS, type WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
 import type { Feature } from "../../feature.ts"
@@ -70,7 +70,7 @@ import { configView, type PerKey } from "./config-view.ts"
 import { useBrought, useWardicRuntime } from "./provider.tsx"
 import { useLayoutServices } from "./layout-projection.ts"
 import { type AnyWard, spreadPropsOf, type Ward, withSpreadProps, type WardConfig, type WardConfigValues, wardConfigView, type WardOptions, type WardShare, type WardStyle, wardWith } from "./ward.tsx"
-import { drivenWard, type GivenWard, givenOf, handOver, listOf, refsOf, sets, setKeysOf, type WardicBeside, type WardicMotion, type WardRefCallback, type WardSetKey } from "./element.tsx"
+import { drivenWard, type GivenWard, givenOf, handOver, listOf, refsOf, sets, setKeysOf, staticElementOf, type WardicBeside, type WardicMotion, type WardRefCallback, type WardSetKey } from "./element.tsx"
 import { w } from "./w.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
 import { eachOf, neverLands, NO_EVENTS, serverWhen, Waiters, whenOf } from "./waiters.ts"
@@ -819,7 +819,8 @@ function Item<V, Tag extends ReorderElementTag = "li", C = {}>(props: ReorderIte
   const local = props as unknown as ItemLocal<V> & WardicMotionProps
   const tag = UndefinedOr.match(untrack(() => local.as), { onUndefined: () => "li", onDefined: identity })
   const given = givenOf(local)
-  const Element = dynamic(() => tag)
+  // One plain element a tag, as every Wardic element's (#618, M3).
+  const Element = staticElementOf(tag)
   const rest = omit(props as unknown as Record<string, unknown>, ...ITEM_OWN)
   const element = UndefinedOr.match(given, {
     onUndefined: () => {
@@ -827,11 +828,14 @@ function Item<V, Tag extends ReorderElementTag = "li", C = {}>(props: ReorderIte
       const row = reorderItemWith<V>(list, local as unknown as ReorderItemConfig<V>, undefined, tag)
       // Its ward, to the item's `wardRef` (#257).
       handOver(local, row)
+      // The ward's spread props, as an object: spread as the function it is, it's a source `merge`
+      // calls in a computation, whose keys `spread` can't know, so it inserts children too (#525, #618 M3).
+      const rowProps = row()
       return {
         row,
         setup: undefined,
         render: (): JSX.Element => (
-          <Element {...rest} {...row} ref={refsOf(local, [row])}>
+          <Element {...rest} {...rowProps} ref={refsOf(local, [row])}>
             {local.children}
           </Element>
         ),

@@ -308,8 +308,15 @@ const reachesPress = (e: InputSource.KeyboardLikeEvent, claims: PressClaims.Shap
  * Whether a key's down starts a **Keyboard press** (#427): a pressing key, not a repeat, that reaches the
  * target's press, with no press held and no drag active.
  */
-const startsKeyPress = (s: PressState, e: InputSource.KeyboardLikeEvent, activity: DragActivity.Shape, claims: PressClaims.Shape, target: unknown): boolean =>
-  Bool.every([e.type === "down", Bool.not(e.repeat), Bool.not(isPressed(s)), Bool.not(activity.isDragActive()), reachesPress(e, claims, target)])
+// An if chain, not `Bool.every`, which reads every check: `reachesPress` read the press claims on every
+// key event, though most stop at the first check (#618, H1).
+const startsKeyPress = (s: PressState, e: InputSource.KeyboardLikeEvent, activity: DragActivity.Shape, claims: PressClaims.Shape, target: unknown): boolean => {
+  if (e.type !== "down") return false
+  if (e.repeat) return false
+  if (isPressed(s)) return false
+  if (activity.isDragActive()) return false
+  return reachesPress(e, claims, target)
+}
 
 /**
  * Press's key step (#427): a pressing key's down starts a **Keyboard press**, and the same key's up

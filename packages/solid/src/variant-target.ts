@@ -53,12 +53,12 @@ export type Entry = WardicVariant | WardicVariantLabels | undefined
  * Whether an entry names variants (#297): a name, or a list of names. Not a values map: a list is an
  * object too, so a check for a string alone would take it for one.
  */
-export const isLabels = (entry: unknown): entry is WardicVariantLabels => Bool.or(Predicate.isString(entry), Array.isArray(entry))
+export const isLabels = (entry: unknown): entry is WardicVariantLabels => Bool.or(Predicate.isString(entry), Arr.isArray(entry))
 
 /** An entry's names, in order (#297): one for a name, a list's own, none for a values map or nothing. */
 export const labelsOf = (entry: unknown): ReadonlyArray<string> => {
   if (Predicate.isString(entry)) return [entry]
-  if (Array.isArray(entry)) return entry as ReadonlyArray<string>
+  if (Arr.isArray(entry)) return entry as ReadonlyArray<string>
   return NO_LABELS
 }
 
@@ -72,7 +72,7 @@ export const NO_LABELS: ReadonlyArray<string> = []
  */
 export const sameLabels = (a: WardicVariantLabels | undefined, b: WardicVariantLabels | undefined): boolean => {
   if (a === b) return true
-  if (Bool.or(Bool.not(Array.isArray(a)), Bool.not(Array.isArray(b)))) return false
+  if (Bool.or(Bool.not(Arr.isArray(a)), Bool.not(Arr.isArray(b)))) return false
   const x = a as ReadonlyArray<string>
   const y = b as ReadonlyArray<string>
   return Bool.and(x.length === y.length, Arr.every(x, (name, i) => name === y[i]))
@@ -108,7 +108,7 @@ const namedOf = (definition: Definition, variants: WardicVariants | undefined): 
  * off too.
  */
 export const resolveTarget = (entry: Entry, variants: WardicVariants | undefined, custom: unknown, state: VariantState): Target => {
-  if (Array.isArray(entry)) return mergedOf(resolveTargets(entry, variants, custom, state))
+  if (Arr.isArray(entry)) return mergedOf(resolveTargets(entry, variants, custom, state))
   return resolveOne(entry as WardicVariant | string | undefined, variants, custom, state)
 }
 
@@ -117,7 +117,7 @@ export const resolveTarget = (entry: Entry, variants: WardicVariants | undefined
  * `definitionList`; a name or a values map alone. An empty list resolves nothing.
  */
 export const resolveTargets = (entry: Entry, variants: WardicVariants | undefined, custom: unknown, state: VariantState): ReadonlyArray<NamedTarget> => {
-  if (Array.isArray(entry)) {
+  if (Arr.isArray(entry)) {
     return Arr.map(entry as ReadonlyArray<string>, (name): NamedTarget => ({ ...resolveOne(name, variants, custom, state), name }))
   }
   const one = entry as WardicVariant | string | undefined
