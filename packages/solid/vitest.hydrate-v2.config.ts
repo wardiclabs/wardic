@@ -89,6 +89,10 @@ export default defineConfig({
   test: {
     name: "v2-hydrate",
     include: ["test/v2/**/*.hydrate.browser.test.{ts,tsx}"],
+    // A test's first server render waits for this project's Vite to compile the fixtures for the
+    // server, cold on CI while every browser project starts at once: HE1 and WH1, each its file's
+    // first, ran past the browser default of 15 s there, where the whole files take about 2 s warm.
+    testTimeout: 60_000,
     setupFiles: ["./test/browser-setup.ts", "./test/v2/diagnostics-setup.ts"],
     browser: {
       enabled: true,

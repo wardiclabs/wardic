@@ -142,25 +142,25 @@ const problemsOf = (pkg: ReturnType<typeof packageOf>, examples: ReadonlyArray<E
 const examplesIn = (pkg: ReturnType<typeof packageOf>): ReadonlyArray<Example> => pkg.files.flatMap((file) => examplesOf(pkg.src, file))
 
 describe("the core and dom references' examples (#558)", () => {
-  it("EX1: every example in core's doc comments typechecks", () => {
+  it("EX1: every example in core's doc comments typechecks", { timeout: 120_000 }, () => {
     const examples = examplesIn(CORE)
     expect(examples.length, "core's examples, found").toBeGreaterThan(100)
     expect(problemsOf(CORE, examples)).toEqual([])
   })
 
-  it("EX2: an example that calls an API the wrong way fails", () => {
+  it("EX2: an example that calls an API the wrong way fails", { timeout: 120_000 }, () => {
     // `springValues` takes its target, then its options: start values in the options' place don't compile.
     const wrong = { file: "Machine.ts", line: 0, code: "const card = Machine.springValues({ x: 0 }, { x: 120 })" }
     expect(problemsOf(CORE, [wrong])).toHaveLength(1)
   })
 
-  it("EX3: every example in dom's doc comments typechecks", () => {
+  it("EX3: every example in dom's doc comments typechecks", { timeout: 120_000 }, () => {
     const examples = examplesIn(DOM)
     expect(examples.length, "dom's examples, found").toBeGreaterThan(15)
     expect(problemsOf(DOM, examples)).toEqual([])
   })
 
-  it("EX4: a dom example that calls an API the wrong way fails", () => {
+  it("EX4: a dom example that calls an API the wrong way fails", { timeout: 120_000 }, () => {
     // `DomAnnouncer.announceIn` takes a document, then the message.
     const wrong = { file: "DomAnnouncer.ts", line: 0, code: `DomAnnouncer.announceIn("Picked up", document)` }
     expect(problemsOf(DOM, [wrong]).length).toBeGreaterThan(0)

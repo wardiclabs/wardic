@@ -421,7 +421,9 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
     const items = { hidden: { opacity: 0, y: 20 }, shown: { opacity: 1, y: 0 } }
     const writes = await stream(() => {
       const data = after(20, [0, 1, 2])
-      const later = after(60, "later")
+      // Far enough after the first that a slow runner still sends them as two chunks: at 60 ms,
+      // CI's once arrived in one write.
+      const later = after(500, "later")
       return (
         <>
           <wardic.h1 data-k="title" {...rise} />

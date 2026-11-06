@@ -66,7 +66,7 @@ As the change needs:
 - **One idea per commit.** A refactor that moves code and a change that alters it are separate commits, so each can be read on its own.
 - **A commit's subject names the packages it touches and the issue:** `solid: a drag starts when a lazily loaded drag arrives (#551)`, `core, dom: …`, `docs: …`. Its body says why, and what was measured.
 - **A PR's body says** which issue it closes, what changed, what it measured (size, timing) against `main`, and what ran.
-- **A PR that changes a package adds a changeset:** `bun run changeset`, picking the bump and writing the line its CHANGELOG gets, for a reader of the release notes. A change no release needs to mention (a comment, a test) takes `bun run changeset --empty`. CI checks it. The four packages are one group under [Changesets](https://github.com/changesets/changesets), so they always share a version.
+- **A PR that changes what a package ships adds a changeset** (its `src`, `package.json`, `README.md` or `tsconfig`; its tests and test configs need none): `bun run changeset`, picking the bump and writing the line its CHANGELOG gets, for a reader of the release notes. A change no release needs to mention (a comment, a test) takes `bun run changeset --empty`. CI checks it. The four packages are one group under [Changesets](https://github.com/changesets/changesets), so they always share a version.
 
 ## Releases
 

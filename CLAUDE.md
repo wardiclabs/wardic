@@ -31,4 +31,4 @@ Multi-context: a root `CONTEXT-MAP.md` pointing at per-package `CONTEXT.md` file
 
 ### Changesets
 
-From launch day (#560), once the repo is public, a PR that changes a package adds a changeset: `bun run changeset`, or `bun run changeset --empty` for a change no release mentions. CI checks it. Releases go out from `.github/workflows/release.yml`; see `CONTRIBUTING.md`'s Releases.
+From launch day (#560), once the repo is public, a PR that changes what a package ships (its `src`, `package.json`, `README.md` or `tsconfig`) adds a changeset: `bun run changeset`, or `bun run changeset --empty` for a change no release mentions. CI checks it. Releases go out from `.github/workflows/release.yml`; see `CONTRIBUTING.md`'s Releases.
