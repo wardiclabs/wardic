@@ -35,11 +35,20 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # No changeset waiting: the version PR has merged, and this push publishes.
+      # No changeset waiting: the version PR has merged, and this push publishes. In pre mode a
+      # changeset a version step has used stays on disk, listed in pre.json's `changesets`, so only
+      # one it doesn't list is waiting (1.0.0-rc.1's run counted them all, and skipped pack-check).
       - name: Changesets waiting
         id: changesets
         run: |
-          if find .changeset -name '*.md' ! -name README.md | grep -q .; then
+          used=""
+          if [ -f .changeset/pre.json ]; then used=$(jq -r '.changesets[]' .changeset/pre.json); fi
+          waiting=0
+          for file in .changeset/*.md; do
+            id=$(basename "$file" .md)
+            if [ "$id" != README ] && ! grep -qxF "$id" <<<"$used"; then waiting=$((waiting + 1)); fi
+          done
+          if [ "$waiting" -gt 0 ]; then
             echo "publishes=false" >> "$GITHUB_OUTPUT"
           else
             echo "publishes=true" >> "$GITHUB_OUTPUT"
