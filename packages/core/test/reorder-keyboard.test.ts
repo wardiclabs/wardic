@@ -57,7 +57,7 @@ const harness = <V,>(initial: ReadonlyArray<V>, options: { readonly slotOf?: (i:
   const press = (value: V, key: InputSource.Key) => {
     const intent = Option.getOrThrow(Reorder.keyIntent(key))
     if (intent._tag !== "Step" && intent._tag !== "End") throw new Error(`not a step: ${key}`)
-    const placement = Option.getOrThrow(Reorder.step(group, value, intent))
+    const placement = Option.getOrThrow(Reorder.moveLifted(group, value, intent))
     pass()
     return placement
   }
@@ -95,12 +95,12 @@ describe("the keyboard reorder (#43)", () => {
   it("KR3: after a step, the next one waits until a Measure pass has measured the new order", () => {
     const h = harness(["a", "b", "c", "d", "e"])
     Reorder.lift(h.group, "b")
-    Reorder.step(h.group, "b", { _tag: "Step", arrow: "down" })
+    Reorder.moveLifted(h.group, "b", { _tag: "Step", arrow: "down" })
     // Read against the old boxes, c (now above b in values) would look below it, and b would step back.
-    expect(Reorder.step(h.group, "b", { _tag: "Step", arrow: "down" })).toEqual(Option.some({ position: 3, count: 5, moved: false, waiting: true }))
+    expect(Reorder.moveLifted(h.group, "b", { _tag: "Step", arrow: "down" })).toEqual(Option.some({ position: 3, count: 5, moved: false, waiting: true }))
     expect(h.state.calls).toHaveLength(1)
     h.pass()
-    expect(Reorder.step(h.group, "b", { _tag: "Step", arrow: "down" })).toEqual(Option.some({ position: 4, count: 5, moved: true, waiting: false }))
+    expect(Reorder.moveLifted(h.group, "b", { _tag: "Step", arrow: "down" })).toEqual(Option.some({ position: 4, count: 5, moved: true, waiting: false }))
   })
 
   it("KR4: at an end an arrow moves nothing; Home and End go to the first and last place; arrows off the axis do nothing", () => {
@@ -175,8 +175,8 @@ describe("the keyboard reorder (#43)", () => {
     Reorder.lift(group, "a")
     axis = "x"
     // Still a column for this lift: Down steps.
-    expect(Option.getOrThrow(Reorder.step(group, "a", { _tag: "Step", arrow: "down" })).moved).toBe(true)
-    expect(Reorder.step(group, "b", { _tag: "Step", arrow: "down" })).toEqual(Option.none())
+    expect(Option.getOrThrow(Reorder.moveLifted(group, "a", { _tag: "Step", arrow: "down" })).moved).toBe(true)
+    expect(Reorder.moveLifted(group, "b", { _tag: "Step", arrow: "down" })).toEqual(Option.none())
     expect(Reorder.drop(group, "b")).toEqual(Option.none())
     expect(Reorder.cancel(group, "c")).toEqual(Option.none())
     expect(Reorder.lift(group, "z")).toEqual(Option.none())

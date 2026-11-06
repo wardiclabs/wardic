@@ -2,7 +2,7 @@
  * Reorder groups: a list the user reorders by dragging an item, or with the keys, as Motion's
  * `Reorder.Group`. A `Group` holds its items by value and runs one drag at a time. A binding registers
  * each item with how to read its box, drives the group from a drag's samples (`dragStart`, `dragMove`,
- * `dragEnd`) or from keys (`lift`, `step`, `drop`, `cancel`), and the group calls `onReorder` with each
+ * `dragEnd`) or from keys (`lift`, `moveLifted`, `drop`, `cancel`), and the group calls `onReorder` with each
  * new order. `check` is the rule that decides when a dragged item swaps places, and
  * `defaultAnnouncements` what a screen reader hears. The binding and its Environment supply the boxes,
  * points, keys and scrollers.
@@ -102,15 +102,9 @@ const indexOf = <V>(order: ReadonlyArray<ItemData<V>>, value: V): Option.Option<
 // far end in 30 px away from one (motion/react 13.4.6, every run in Chromium and Firefox:
 // .tmp/reorder/runs-*-{rtl,reverse}.json; framer-motion 13.0 sorted by position). In normal flow the two
 // rules pick the same neighbour. Tier 2 (ADR-0008): Effect-free, for binding and Environment authors.
-export const check = <V>(
-  order: ReadonlyArray<ItemData<V>>,
-  value: V,
-  offset: Point.Point,
-  velocity: Point.Point,
-  axis: Axis,
-  direction: "ltr" | "rtl" = "ltr",
-): ReadonlyArray<ItemData<V>> =>
-  Option.match(indexOf(order, value), {
+export const check = <V>(order: ReadonlyArray<ItemData<V>>, value: V, movement: Movement): ReadonlyArray<ItemData<V>> => {
+  const { offset, velocity, axis, direction = "ltr" } = movement
+  return Option.match(indexOf(order, value), {
     onNone: () => order,
     onSome: (index) =>
       Match.value(axis).pipe(
@@ -118,6 +112,20 @@ export const check = <V>(
         Match.orElse((single) => checkReorderOnAxis(order, index, offset, velocity, single)),
       ),
   })
+}
+
+/** How a dragged item moves, as {@link check} reads it. */
+// #618 (F3): four positional arguments, two of them points, were one call's slip from swapped.
+export interface Movement {
+  /** Where the item is from where it started. */
+  readonly offset: Point.Point
+  /** Its velocity, per second. */
+  readonly velocity: Point.Point
+  /** The axis the list runs on, or `"xy"` for a grid. */
+  readonly axis: Axis
+  /** Which way a line reads: `"ltr"`, the default, or `"rtl"`. */
+  readonly direction?: "ltr" | "rtl" | undefined
+}
 
 /** The single-axis rule: past the centre of the neighbour on the side the item moves toward. */
 const checkReorderOnAxis = <V>(
@@ -369,7 +377,7 @@ interface Gesture<V> {
  *   dragged item, with the drag sample's velocity, and gives the velocity back for auto-scroll; `dragEnd`
  *   ends it.
  * - `move` moves a value in code, held to the list; a value it doesn't know is left out.
- * - `lift`, `step`, `drop` and `cancel` reorder one item with the keys, each giving where the item is,
+ * - `lift`, `moveLifted`, `drop` and `cancel` reorder one item with the keys, each giving where the item is,
  *   for its announcement.
  *
  * Its state is its own, changed only by those operations.
@@ -492,7 +500,7 @@ const reorderOn = <V>(group: Group<V>, g: Gesture<V>, value: V, source: ItemSour
   if (waiting(group, g, value, source)) return
   const values = group.options.values()
   const measured = measure(group, values)
-  const next = check(measured, value, source.dragOffset(), velocity, g.axis, g.direction)
+  const next = check(measured, value, { offset: source.dragOffset(), velocity, axis: g.axis, direction: g.direction })
   if (next === measured) return
   const newValues = refill(values, measured, next)
   const indexIn = (list: ReadonlyArray<V>): number =>
@@ -751,8 +759,8 @@ export const lift: {
  * boxes are measured after its last step, a step waits (`waiting`, nothing moved), as a drag's next
  * reorder does. `None` when `value` isn't the lifted item.
  */
-// ADR-0037: a Measure pass.
-export const step: {
+// ADR-0037: a Measure pass. `moveLifted`, not `step`, the per-frame word everywhere else (#618, F3).
+export const moveLifted: {
   <V>(value: V, intent: Extract<KeyIntent, { readonly _tag: "Step" | "End" }>): (group: Group<V>) => Option.Option<Placement>
   <V>(group: Group<V>, value: V, intent: Extract<KeyIntent, { readonly _tag: "Step" | "End" }>): Option.Option<Placement>
 } = dual(3, <V>(group: Group<V>, value: V, intent: Extract<KeyIntent, { readonly _tag: "Step" | "End" }>): Option.Option<Placement> =>

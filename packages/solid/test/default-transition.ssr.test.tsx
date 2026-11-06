@@ -88,7 +88,7 @@ const valuesOf = (machine: Run): ReadonlyArray<Record<string, unknown>> => {
 /** Core's spring over `keys` from `FROM` to `TO` on `options`: what a Numbers leg on it runs. */
 const springOver = (keys: ReadonlyArray<string>, options: Machine.SpringOptions): Run => {
   const pick = (values: Values.Values) => Object.fromEntries(keys.map((key) => [key, values[key] as number]))
-  return Machine.springValues(pick(TO), options, pick(FROM)) as Run
+  return Machine.springValues(pick(TO), options, { from: pick(FROM) }) as Run
 }
 
 /** Core's tween over `keys` from `FROM` to `TO` on `options`: what a Blend leg on it runs. */
@@ -121,7 +121,7 @@ describe("the Default transition (#357, ADR-0051)", () => {
     expect(Math.min(...toZero), "never past 0").toBeGreaterThanOrEqual(0)
     expect(toZero.at(-1)).toBe(0)
     const pick = { scaleX: 0 }
-    expect(valuesOf(machineOf(legs[0]!))).toEqual(valuesOf(Machine.springValues(pick, { stiffness: 550, damping: 2 * Math.sqrt(550), restSpeed: 10 }, { scaleX: 1 }) as Run))
+    expect(valuesOf(machineOf(legs[0]!))).toEqual(valuesOf(Machine.springValues(pick, { stiffness: 550, damping: 2 * Math.sqrt(550), restSpeed: 10 }, { from: { scaleX: 1 } }) as Run))
     // Toward anything else, 550 / 30 overshoots.
     const toTwo = valuesOf(machineOf(legs[1]!)).map((v) => v.scaleY as number)
     expect(Math.max(...toTwo), "past 2 on the way").toBeGreaterThan(2)
@@ -180,10 +180,10 @@ describe("the Default transition (#357, ADR-0051)", () => {
 
   it("DT6: a typed transition takes Motion's fields for those it leaves out", () => {
     const spring = legsFor({ type: "spring" }, { from: { x: 0 }, to: { x: 100 } })
-    expectRunsAs(spring[0]!, Machine.springValues({ x: 100 }, { stiffness: 100, damping: 10, mass: 1 }, { x: 0 }) as Run, "100 / 10 / 1")
+    expectRunsAs(spring[0]!, Machine.springValues({ x: 100 }, { stiffness: 100, damping: 10, mass: 1 }, { from: { x: 0 } }) as Run, "100 / 10 / 1")
     expect(Math.max(...valuesOf(machineOf(spring[0]!)).map((v) => v.x as number)), "bouncy: past 100").toBeGreaterThan(110)
     const damped = legsFor({ type: "spring", damping: 26 }, { from: { x: 0 }, to: { x: 100 } })
-    expectRunsAs(damped[0]!, Machine.springValues({ x: 100 }, { stiffness: 100, damping: 26, mass: 1 }, { x: 0 }) as Run, "its damping, Motion's stiffness")
+    expectRunsAs(damped[0]!, Machine.springValues({ x: 100 }, { stiffness: 100, damping: 26, mass: 1 }, { from: { x: 0 } }) as Run, "its damping, Motion's stiffness")
     const tween = legsFor({ type: "tween" }, { from: { x: 0 }, to: { x: 100 } })
     expectRunsAs(tween[0]!, tweenOver(["x"], { ease: Easing.easeOut }), "0.3 s, eased out")
     const linear = legsFor({ type: "tween", ease: Easing.linear }, { from: { x: 0 }, to: { x: 100 } })
@@ -213,7 +213,7 @@ describe("the Default transition (#357, ADR-0051)", () => {
       expect(runOf(transition), JSON.stringify(transition)).toEqual({ ...transition, type: "spring" })
       const legs = legsFor(transition, one)
       expect(shapeOf(legs), JSON.stringify(transition)).toEqual(["Numbers x", "Blend backgroundColor"])
-      expectRunsAs(pickX(legs), Machine.springValues({ x: 100 }, transition as Machine.SpringOptions, { x: 0 }) as Run, JSON.stringify(transition))
+      expectRunsAs(pickX(legs), Machine.springValues({ x: 100 }, transition as Machine.SpringOptions, { from: { x: 0 } }) as Run, JSON.stringify(transition))
     }
     expect(runOf({ duration: 0.5 })?.type).toBe("tween")
     // Typed: a duration alone is a duration spring, Motion's bounce of 0.3; it lands at 0.5 s.
@@ -227,6 +227,6 @@ describe("the Default transition (#357, ADR-0051)", () => {
     expect(valuesOf(machineOf(timed[1]!)).length).toBe(31)
     // A physics field: Motion's fill the rest, and they win over its time.
     expect(runOf({ type: "spring", duration: 0.5, stiffness: 300 })).toEqual({ type: "spring", duration: 0.5, stiffness: 300, damping: 10, mass: 1 })
-    expectRunsAs(pickX(legsFor({ bounce: 0.25, damping: 20 }, one)), Machine.springValues({ x: 100 }, { stiffness: 100, damping: 20, mass: 1 }, { x: 0 }) as Run, "100 / 20 / 1, its bounce ignored")
+    expectRunsAs(pickX(legsFor({ bounce: 0.25, damping: 20 }, one)), Machine.springValues({ x: 100 }, { stiffness: 100, damping: 20, mass: 1 }, { from: { x: 0 } }) as Run, "100 / 20 / 1, its bounce ignored")
   })
 })

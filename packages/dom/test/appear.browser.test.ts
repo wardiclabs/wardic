@@ -28,7 +28,7 @@ import { afterEach, describe, expect, it } from "vitest"
 
 const project = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* Renderer.Renderer }), DomRenderer.layer)).project
 
-const rise = (): Machine.Machine<Frame.Frame<Values.Values>> => Machine.springValues({ y: 0, opacity: 1 }, {}, { y: 40, opacity: 0 })
+const rise = (): Machine.Machine<Frame.Frame<Values.Values>> => Machine.springValues({ y: 0, opacity: 1 }, {}, { from: { y: 40, opacity: 0 } })
 
 const cleanups: Array<() => void> = []
 afterEach(() => {
@@ -136,8 +136,8 @@ describe("Appear animations in a browser (#48, ADR-0044)", () => {
   it("HA7: an svg-inner element plays its attributes as CSS, and hands them back to the attributes (#245)", async () => {
     // A circle growing and moving, its stroke widening and fading in; and a line drawing itself.
     const grow = (): Machine.Machine<Frame.Frame<Values.Values>> =>
-      Machine.springValues({ cx: 60, r: 20, strokeWidth: 4, opacity: 1 }, {}, { cx: 10, r: 4, strokeWidth: 0, opacity: 0 })
-    const draw = (): Machine.Machine<Frame.Frame<Values.Values>> => Machine.springValues({ pathLength: 1 }, {}, { pathLength: 0 })
+      Machine.springValues({ cx: 60, r: 20, strokeWidth: 4, opacity: 1 }, {}, { from: { cx: 10, r: 4, strokeWidth: 0, opacity: 0 } })
+    const draw = (): Machine.Machine<Frame.Frame<Values.Values>> => Machine.springValues({ pathLength: 1 }, {}, { from: { pathLength: 0 } })
     const circleSpec = { key: "HA7 circle", tag: "circle", machine: grow }
     const pathSpec = { key: "HA7 path", tag: "path", machine: draw }
     const sheet = Appear.sheet()
@@ -254,7 +254,7 @@ describe("Appear animations in a browser (#48, ADR-0044)", () => {
   })
 
   it("HA4: a finished animation still fills, and is still found, past its end", async () => {
-    const spec = { key: "HA4", tag: "div", machine: () => Machine.springValues({ y: 0, opacity: 1 }, { stiffness: 900, damping: 60 }, { y: 40, opacity: 0 }) }
+    const spec = { key: "HA4", tag: "div", machine: () => Machine.springValues({ y: 0, opacity: 1 }, { stiffness: 900, damping: 60 }, { from: { y: 40, opacity: 0 } }) }
     const rule = Result.getOrThrow(Appear.keyframes(spec))
     const element = appear(spec)
     await wait(rule.duration * 1000 + 150)

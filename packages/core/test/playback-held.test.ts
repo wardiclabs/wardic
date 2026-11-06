@@ -31,7 +31,7 @@ describe("a held Frame (#464)", () => {
 
   it("PH2: springValues' Frame holds each key at velocity 0", () => {
     const head = Playback.make()
-    const step = Playback.drive(Machine.springValues({ x: 100, y: -50 }, { stiffness: 100, damping: 10 }, { x: 0, y: 0 }), head).start()
+    const step = Playback.drive(Machine.springValues({ x: 100, y: -50 }, { stiffness: 100, damping: 10 }, { from: { x: 0, y: 0 } }), head).start()
     step(DT)
     const moving = step(DT)
     Playback.pause(head)

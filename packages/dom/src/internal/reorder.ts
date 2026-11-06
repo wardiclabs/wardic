@@ -439,7 +439,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
     // Not lifted, the arrows, Home and End keep their own work (scrolling the page).
     if (Bool.not(lifted)) return
     event.handle()
-    Option.match(Reorder.step(group, value, intent), {
+    Option.match(Reorder.moveLifted(group, value, intent), {
       onNone: constVoid,
       onSome: (placement) => {
         // A repeat before the last step's Measure pass moved nothing: nothing to say.

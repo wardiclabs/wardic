@@ -71,7 +71,7 @@ describe("a spring's rest thresholds (#344)", () => {
   })
 
   it("SR4: springValues takes each key's thresholds by its own distance", () => {
-    const together = frames(Machine.springValues({ x: 300, opacity: 1 }, {}, { x: 0, opacity: 0 }))
+    const together = frames(Machine.springValues({ x: 300, opacity: 1 }, {}, { from: { x: 0, opacity: 0 } }))
     const x = frames(Machine.spring(300, {}))
     const opacity = frames(Machine.spring(1, {}))
     /** The frame a key first sits on its target, from which it stays. */

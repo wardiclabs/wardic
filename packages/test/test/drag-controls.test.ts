@@ -16,6 +16,8 @@
 //   moves and release unmarked; the same press's own down on the target keeps the one hold.
 // - DC7: a watch that isn't `adoptable` can't be ended from outside (#539): its `stop` and `cancel`
 //   tell nothing, and its gesture runs on to its pointer's release.
+// - DC8 (#618, F3): `watchDrag`'s overloads: an `adoptable: true` watch is an `AdoptableDrag`, a plain
+//   one a `WatchedDrag` with no ends, and one with `adoptable` known only at run time an `AdoptableDrag`.
 import type * as Drag from "@wardic/core/Drag"
 import * as DragActivity from "@wardic/core/DragActivity"
 import * as InputSource from "@wardic/core/InputSource"
@@ -23,6 +25,7 @@ import * as DragRecognizer from "@wardic/core/DragRecognizer"
 import * as Recognizer from "@wardic/core/Recognizer"
 import { TestInput } from "@wardic/test"
 import { expect, it } from "@effect/vitest"
+import { expectTypeOf } from "vitest"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
@@ -245,11 +248,23 @@ it.effect("DC7: a watch that isn't adoptable can't be ended from outside: its ge
       yield* input.push(ev("down", 0, 0))
       yield* input.push(ev("move", 10, 10))
       yield* input.push(ev("move", 20, 20))
-      drag.stop()
-      drag.cancel()
+      // Its type has no ends (#618, F3); at run time they're there and do nothing.
+      const ends = drag as DragRecognizer.AdoptableDrag
+      ends.stop()
+      ends.cancel()
       expect(told.map(line), "nothing told by either").toEqual(["start 10,0", "move 20,0"])
       yield* input.push(ev("move", 30, 30))
       yield* input.push(ev("up", 30, 40))
       expect(told.map(line), "its pointer's release ends it").toEqual(["start 10,0", "move 20,0", "move 30,0", "end 30,0"])
     }).pipe(Effect.provide(input.layer))
   }))
+
+it("DC8: an adoptable watch is an AdoptableDrag; a plain one, a WatchedDrag with no ends (#618)", () => {
+  const handlers = { on: constVoid }
+  type Watch<A> = Effect.Effect<A, never, Scope.Scope | InputSource.InputSource>
+  expectTypeOf(DragRecognizer.watchDrag("el", { adoptable: true }, handlers)).toEqualTypeOf<Watch<DragRecognizer.AdoptableDrag>>()
+  expectTypeOf(DragRecognizer.watchDrag("el", { axis: "x" }, handlers)).toEqualTypeOf<Watch<DragRecognizer.WatchedDrag>>()
+  expectTypeOf<DragRecognizer.WatchedDrag>().not.toHaveProperty("stop")
+  const adoptable: boolean = Math.random() < 2
+  expectTypeOf(DragRecognizer.watchDrag("el", { adoptable }, handlers)).toEqualTypeOf<Watch<DragRecognizer.AdoptableDrag>>()
+})

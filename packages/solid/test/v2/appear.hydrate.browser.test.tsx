@@ -391,7 +391,7 @@ const followsMachine = (
 describe("Appear animations on Solid 2, server render to hydration (#48, ADR-0044)", () => {
   // A1's card gives no transition: each key on the DOM's Default transition (ADR-0051), y on Motion's
   // 500 / 25 spring and opacity on its 0.3 s ease, which the server samples as the client runs them.
-  const lift = Machine.springValues({ y: 0 }, DomDefaultTransition.transitionFor("y", 0) as Machine.SpringOptions, { y: 40 })
+  const lift = Machine.springValues({ y: 0 }, DomDefaultTransition.transitionFor("y", 0) as Machine.SpringOptions, { from: { y: 40 } })
   const fade = tween({ opacity: 0 }, { opacity: 1 }, DomDefaultTransition.transitionFor("opacity", 1) as Machine.AnimateOptions)
   const card = (s: number) => ({ opacity: machineAt(fade, s).opacity as number, y: machineAt(lift, s).y as number })
 

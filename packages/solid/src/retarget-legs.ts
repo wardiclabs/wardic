@@ -536,7 +536,7 @@ const pathLegOf = (at: (t: number) => Arc.PathPoint, end: Values.Values, transit
 /** A Path's progress, 0 to 1, on `transition`: a spring's from rest over 1000 (#438), a tween's as a Measured pair's. */
 const progressOf = (transition: Run): ((dt: number) => Frame.Frame<number>) => {
   if (transition.type === "spring") {
-    const spring = Machine.springValues({ progress: 1000 }, { ...(transition as Machine.SpringOptions), velocity: 0 }, { progress: 0 }, {}).start()
+    const spring = Machine.springValues({ progress: 1000 }, { ...(transition as Machine.SpringOptions), velocity: 0 }, { from: { progress: 0 } }).start()
     return (dt) => {
       const frame = spring(dt)
       return { value: UndefinedOr.getOrThrow(frame.value.progress) / 1000, done: frame.done }
@@ -679,7 +679,7 @@ const measuredStep = (pairs: MeasuredPairs, to: Values.Values, transition: Run):
   const fromPx = Rec.map(all.value, (pair) => pair.fromPx)
   const toPx = Rec.map(all.value, (pair) => pair.toPx)
   if (transition.type === "spring") {
-    const spring = Machine.springValues(toPx, transition as Machine.SpringOptions, fromPx, {}).start()
+    const spring = Machine.springValues(toPx, transition as Machine.SpringOptions, { from: fromPx }).start()
     return (dt) => {
       const frame = spring(dt)
       if (frame.done) return { value: to, done: true }
@@ -904,7 +904,7 @@ const legsWith = (
     // Each key's own velocity, read now; none when the transition gives one, which every key then starts with.
     let fromVelocity: Record<string, number> = NO_NUMBERS
     if (Predicate.isUndefined(springOpts.velocity)) fromVelocity = Rec.map(numeric, (_, key) => velocities(key))
-    legs.push({ _tag: "Numbers", to: numeric, machine: () => Machine.springValues(numeric, springOpts, fromNumeric, fromVelocity) })
+    legs.push({ _tag: "Numbers", to: numeric, machine: () => Machine.springValues(numeric, springOpts, { from: fromNumeric, velocity: fromVelocity }) })
   }
   if (hasKeys(strings)) {
     const fromStrings: Values.Values = Rec.map(strings, (_, key) => UndefinedOr.getOrThrow(from[key]))
@@ -1026,7 +1026,7 @@ const inertiaLegsWith = (
       onTrue: () => Rec.map(fixed, (_, key) => velocities(key)),
       onFalse: () => NO_NUMBERS,
     })
-    legs.push({ _tag: "Numbers", to: fixed, machine: () => Machine.inertiaValues(starts, run, own) })
+    legs.push({ _tag: "Numbers", to: fixed, machine: () => Machine.inertiaValues(starts, run, { velocity: own }) })
   }
   return legs
 }

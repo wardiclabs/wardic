@@ -33,14 +33,14 @@ it("CR1: detectAxis finds horizontal, vertical, and wrapped layouts", () => {
 
 // Motion check-reorder.test.ts:36-46.
 it("CR2: xy moves into a wrapped row", () => {
-  expect(values(Reorder.check(wrapped, "a", { x: 100, y: 100 }, { x: 1, y: 1 }, "xy"))).toEqual(["b", "c", "d", "a"])
+  expect(values(Reorder.check(wrapped, "a", { offset: { x: 100, y: 100 }, velocity: { x: 1, y: 1 }, axis: "xy" }))).toEqual(["b", "c", "d", "a"])
 })
 
 // Motion check-reorder.test.ts:48-72.
 it("CR3: xy waits until the dragged centre crosses a large gap", () => {
   const spaced = [wrapped[0]!, { value: "b", layout: box(200, 0, 300, 100) }]
-  expect(Reorder.check(spaced, "a", { x: 100, y: 0 }, { x: 1, y: 0 }, "xy")).toBe(spaced)
-  expect(values(Reorder.check(spaced, "a", { x: 101, y: 0 }, { x: 1, y: 0 }, "xy"))).toEqual(["b", "a"])
+  expect(Reorder.check(spaced, "a", { offset: { x: 100, y: 0 }, velocity: { x: 1, y: 0 }, axis: "xy" })).toBe(spaced)
+  expect(values(Reorder.check(spaced, "a", { offset: { x: 101, y: 0 }, velocity: { x: 1, y: 0 }, axis: "xy" }))).toEqual(["b", "a"])
 })
 
 // Motion check-reorder.test.ts:74-141 (a test.each over ltr and rtl).
@@ -62,7 +62,7 @@ it.each([
     ],
   ],
 ] as const)("CR4: xy inserts into the empty end of a wrapped %s row", (direction, layout) => {
-  expect(values(Reorder.check([...layout], "dragged", { x: 0, y: 100 }, { x: 0, y: 0 }, "xy", direction))).toEqual([
+  expect(values(Reorder.check([...layout], "dragged", { offset: { x: 0, y: 100 }, velocity: { x: 0, y: 0 }, axis: "xy", direction: direction }))).toEqual([
     "first",
     "next",
     "dragged",
@@ -72,8 +72,8 @@ it.each([
 // Motion check-reorder.test.ts:143-158.
 it("CR5: a single axis keeps its thresholds", () => {
   const horizontal = wrapped.slice(0, 2)
-  expect(Reorder.check(horizontal, "a", { x: 100, y: 0 }, { x: 1, y: 0 }, "y")).toBe(horizontal)
-  expect(values(Reorder.check(horizontal, "a", { x: 51, y: 0 }, { x: 1, y: 0 }, "x"))).toEqual(["b", "a"])
+  expect(Reorder.check(horizontal, "a", { offset: { x: 100, y: 0 }, velocity: { x: 1, y: 0 }, axis: "y" })).toBe(horizontal)
+  expect(values(Reorder.check(horizontal, "a", { offset: { x: 51, y: 0 }, velocity: { x: 1, y: 0 }, axis: "x" }))).toEqual(["b", "a"])
 })
 
 // An rtl row: the first value is the rightmost box (a 200-280, b 100-180, c 0-80).
@@ -85,15 +85,15 @@ const rtlRow: Array<Reorder.ItemData<string>> = [
 
 it("CR6: in an rtl row, a drag toward the neighbour on the left reorders once the item's left edge passes its centre", () => {
   // b's centre is 140; a's left edge is 200, so an offset of -60 only reaches it.
-  expect(Reorder.check(rtlRow, "a", { x: -60, y: 0 }, { x: -1, y: 0 }, "x")).toBe(rtlRow)
-  expect(values(Reorder.check(rtlRow, "a", { x: -61, y: 0 }, { x: -1, y: 0 }, "x"))).toEqual(["b", "a", "c"])
+  expect(Reorder.check(rtlRow, "a", { offset: { x: -60, y: 0 }, velocity: { x: -1, y: 0 }, axis: "x" })).toBe(rtlRow)
+  expect(values(Reorder.check(rtlRow, "a", { offset: { x: -61, y: 0 }, velocity: { x: -1, y: 0 }, axis: "x" }))).toEqual(["b", "a", "c"])
 })
 
 it("CR7: in an rtl row, a drag away from a neighbour reorders nothing (Motion's index rule walks b to the far end)", () => {
   // b moves right 30 px, toward a (centre 240): its right edge reaches 210, short of it.
-  expect(Reorder.check(rtlRow, "b", { x: 30, y: 0 }, { x: 1, y: 0 }, "x")).toBe(rtlRow)
+  expect(Reorder.check(rtlRow, "b", { offset: { x: 30, y: 0 }, velocity: { x: 1, y: 0 }, axis: "x" })).toBe(rtlRow)
   // Toward a far enough, it does swap with a.
-  expect(values(Reorder.check(rtlRow, "b", { x: 61, y: 0 }, { x: 1, y: 0 }, "x"))).toEqual(["b", "a", "c"])
+  expect(values(Reorder.check(rtlRow, "b", { offset: { x: 61, y: 0 }, velocity: { x: 1, y: 0 }, axis: "x" }))).toEqual(["b", "a", "c"])
 })
 
 it("CR8: a row-reverse row (ltr) reorders toward the neighbour on the moving side", () => {
@@ -104,7 +104,7 @@ it("CR8: a row-reverse row (ltr) reorders toward the neighbour on the moving sid
     { value: "c", layout: box(0, 0, 80, 50) },
   ]
   // b's centre is 130: a's left edge 180 - 51 = 129 passes it.
-  expect(values(Reorder.check(reversed, "a", { x: -51, y: 0 }, { x: -1, y: 0 }, "x", "ltr"))).toEqual(["b", "a", "c"])
+  expect(values(Reorder.check(reversed, "a", { offset: { x: -51, y: 0 }, velocity: { x: -1, y: 0 }, axis: "x", direction: "ltr" }))).toEqual(["b", "a", "c"])
 })
 
 it("CR9: a column-reverse column reorders toward the neighbour on the moving side", () => {
@@ -115,8 +115,8 @@ it("CR9: a column-reverse column reorders toward the neighbour on the moving sid
     { value: "c", layout: box(0, 0, 200, 50) },
   ]
   // b's centre is 85: a's top edge 120 - 36 = 84 passes it.
-  expect(Reorder.check(reversed, "a", { x: 0, y: -35 }, { x: 0, y: -1 }, "y")).toBe(reversed)
-  expect(values(Reorder.check(reversed, "a", { x: 0, y: -36 }, { x: 0, y: -1 }, "y"))).toEqual(["b", "a", "c"])
+  expect(Reorder.check(reversed, "a", { offset: { x: 0, y: -35 }, velocity: { x: 0, y: -1 }, axis: "y" })).toBe(reversed)
+  expect(values(Reorder.check(reversed, "a", { offset: { x: 0, y: -36 }, velocity: { x: 0, y: -1 }, axis: "y" }))).toEqual(["b", "a", "c"])
 })
 
 it("CR10: a zero velocity on the axis moves nothing and returns the same order", () => {
@@ -125,7 +125,7 @@ it("CR10: a zero velocity on the axis moves nothing and returns the same order",
     { value: "b", layout: box(0, 60, 200, 110) },
   ]
   // Far past b's centre, but with no velocity on y there is no direction.
-  expect(Reorder.check(column, "a", { x: 0, y: 200 }, { x: 5, y: 0 }, "y")).toBe(column)
+  expect(Reorder.check(column, "a", { offset: { x: 0, y: 200 }, velocity: { x: 5, y: 0 }, axis: "y" })).toBe(column)
 })
 
 it("CR11: a value not in the order returns the same order; a move returns a new array in the new order", () => {
@@ -134,9 +134,9 @@ it("CR11: a value not in the order returns the same order; a move returns a new 
     { value: "b", layout: box(0, 60, 200, 110) },
     { value: "c", layout: box(0, 120, 200, 170) },
   ]
-  expect(Reorder.check(column, "zz", { x: 0, y: 100 }, { x: 0, y: 1 }, "y")).toBe(column)
+  expect(Reorder.check(column, "zz", { offset: { x: 0, y: 100 }, velocity: { x: 0, y: 1 }, axis: "y" })).toBe(column)
   // a's bottom 50 + 36 = 86 passes b's centre 85 (normal flow: the same neighbour as Motion's).
-  const moved = Reorder.check(column, "a", { x: 0, y: 36 }, { x: 0, y: 1 }, "y")
+  const moved = Reorder.check(column, "a", { offset: { x: 0, y: 36 }, velocity: { x: 0, y: 1 }, axis: "y" })
   expect(moved).not.toBe(column)
   expect(values(moved)).toEqual(["b", "a", "c"])
   expect(values(column)).toEqual(["a", "b", "c"])
