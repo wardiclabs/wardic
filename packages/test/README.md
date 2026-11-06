@@ -3,7 +3,7 @@
 Headless testing Layers for [Wardic](https://wardic.dev)'s core and for a new Environment: animation code runs with no page at all.
 
 - `TestClock`: a clock that replays the frames you give it, so every frame's values can be read in turn;
-- `TestRenderer`: a renderer that records what it's asked to draw (`makeRecordingRenderer()`);
+- `TestRenderer`: a renderer that records what it's asked to draw (`TestRenderer.make()`);
 - `TestInput`: pointer, keyboard and focus input you push;
 - `TestProbe`: the page as you script it: its boxes, viewport, scroll and what's in view.
 

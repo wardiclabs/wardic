@@ -17,10 +17,10 @@ interface Captured {
 
 /** Build a Renderer Layer backed by a fresh recording instance, plus return the recording. */
 const makeRecording = (): {
-  readonly recording: ReturnType<typeof TestRenderer.makeRecordingRenderer>
+  readonly recording: ReturnType<typeof TestRenderer.make>
   readonly layer: Layer.Layer<Renderer.Renderer>
 } => {
-  const recording = TestRenderer.makeRecordingRenderer()
+  const recording = TestRenderer.make()
   return {
     recording,
     layer: Layer.succeed(Renderer.Renderer, recording.service),

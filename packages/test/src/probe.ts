@@ -15,7 +15,7 @@ const STILL_SCROLL: Probe.Scroll = { x: { current: 0, length: 0, progress: 1 }, 
 const toIntersection = (intersecting: boolean): Probe.Intersection => ({ intersecting })
 
 /** Options for the static test Probe. */
-export interface TestProbeOptions {
+export interface Options {
   readonly bounds?: Probe.Bounds
   readonly viewport?: { readonly width: number; readonly height: number }
   readonly prefersReducedMotion?: boolean
@@ -36,7 +36,7 @@ export interface TestProbeOptions {
  * optional `intersection` script to each subscriber (empty by default, so it
  * emits nothing); `observeResize` stays empty.
  */
-export const layer = (options: TestProbeOptions = {}): Layer.Layer<Probe.Probe> => {
+export const layer = (options: Options = {}): Layer.Layer<Probe.Probe> => {
   const { intersection = [], scroll = STILL_SCROLL } = options
   return Layer.succeed(Probe.Probe, {
     ...fixed(options, Atom.make(scroll)),
@@ -48,7 +48,7 @@ export const layer = (options: TestProbeOptions = {}): Layer.Layer<Probe.Probe> 
  * Both Probes' fixed part: the bounds, the viewport, the preference and the page's visibility, each defaulted, no resizes,
  * and one scroll Atom for every container, target and offset (#234).
  */
-const fixed = ({ bounds = ZERO_BOUNDS, viewport = VIEWPORT, prefersReducedMotion = false, pageVisible = true }: TestProbeOptions, scroll: Atom.Atom<Probe.Scroll>) => ({
+const fixed = ({ bounds = ZERO_BOUNDS, viewport = VIEWPORT, prefersReducedMotion = false, pageVisible = true }: Options, scroll: Atom.Atom<Probe.Scroll>) => ({
   measure: () => Effect.sync(() => bounds),
   viewport: Atom.make(viewport),
   prefersReducedMotion: Atom.make(prefersReducedMotion),
@@ -68,7 +68,7 @@ const fixed = ({ bounds = ZERO_BOUNDS, viewport = VIEWPORT, prefersReducedMotion
  * through the Environment's registry, as a scroll event would (#234).
  * measure/viewport/prefersReducedMotion/observeResize behave as in {@link layer}.
  */
-export const pushable = (options: TestProbeOptions = {}): Effect.Effect<{
+export const pushable = (options: Options = {}): Effect.Effect<{
   readonly layer: Layer.Layer<Probe.Probe>
   readonly pushIntersection: (inView: boolean) => Effect.Effect<void>
   readonly pushScroll: (scroll: Probe.Scroll) => Effect.Effect<void, never, AtomRegistry.AtomRegistry>

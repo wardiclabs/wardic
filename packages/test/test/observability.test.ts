@@ -84,7 +84,7 @@ it.effect("applyTo emits the `wardic.applyTo: subscribe` debug log and routes fr
     // This replaces the older `apply`-keyed assertions: under the split contract
     // (ADR 0002) observability is anchored on the `applyTo` span plus the project/commit
     // pair surfaced by the Renderer service.
-    const recording = TestRenderer.makeRecordingRenderer()
+    const recording = TestRenderer.make()
     const records: Array<Captured> = []
     const capture = Logger.map(Logger.formatStructured, (structured) => {
       records.push({ message: structured.message, annotations: structured.annotations })
