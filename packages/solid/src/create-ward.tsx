@@ -86,7 +86,7 @@ import type { PresenceRecord } from "./presence-record.ts"
 import { createWhenWanted, NEVER_STARTED, type Started, stateOf, type Wants } from "./sensors.ts"
 import { type GestureCallbacks, gestureCallbacksOf, inViewOptionsOf, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "./gesture-callbacks.ts"
 import { type Feature, type FeatureRegistry, type FeatureSection, LAYOUT_PROPS, missingMessage, unreadColorIn } from "./feature.ts"
-import { runWatch, useBuiltProjection, useElementFeatures, useFeatureRegistry, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
+import { runWatch, useBuiltProjection, useElementFeatures, useFeatureRegistry, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicReducedMotion, useWardicRenderer, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { transformPagePointOf } from "./wardic-config-value.ts"
 import { projectionIn, type WardicRuntime } from "./runtime.ts"
@@ -1029,8 +1029,8 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   // `when`). Read at hook-call time (component body owner), for this instance's lifetime.
   const node = createVariantNode(cfg, useVariantContext(), UndefinedOr.map(controls, (c) => c.change))
 
-  // Resolve the Renderer's PURE project once (ADR-0003: synchronous, no engine).
-  const { project } = runtime.runSync(Renderer.Renderer)
+  // The Renderer's PURE project (ADR-0003: synchronous, no engine), read once by the provider (#618, M1).
+  const { project } = useWardicRenderer()
 
   // SSR seed: resolved purely from the config read EXACTLY ONCE (untrack — no
   // reactive dependency, must not re-seed after mount), with the inherited `initial`

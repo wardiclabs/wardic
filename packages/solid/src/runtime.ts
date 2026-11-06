@@ -14,7 +14,7 @@ import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Probe from "@wardic/core/Probe"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
-import type * as Renderer from "@wardic/core/Renderer"
+import * as Renderer from "@wardic/core/Renderer"
 import * as FlushGate from "@wardic/dom/FlushGate"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Report from "@wardic/dom/Report"
@@ -110,6 +110,12 @@ export interface WardicContextValue {
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   /** The Environment's Default transition (ADR-0051), read once: what a key with no transition of its own runs on. */
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
+  /**
+   * The Environment's Renderer (ADR-0003), read once: what each element and presence projects its
+   * values with and commits them through.
+   */
+  // #618 (M1): each element read it through `runSync` as it mounted, 196 ns and ~340 B (Node).
+  readonly renderer: Renderer.Renderer["Service"]
   /** A server render's Appear animations (#48, ADR-0044); none on the client, or with `appear={false}`. */
   readonly appear?: ServerAppear | undefined
   /** Whether its animations are instant now (#443, an Instant change's); never on a server. */
@@ -135,6 +141,7 @@ interface Built {
   readonly reducedMotionUnder: (setting: ReducedMotion.Config | undefined) => boolean
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
+  readonly renderer: Renderer.Renderer["Service"]
 }
 
 /**
@@ -177,7 +184,9 @@ export const clientContext = (
     // What a key with no transition of its own runs on: the Environment's Default transition
     // (ADR-0051), read once too.
     const defaultTransition = runtime.runSync(DefaultTransition.DefaultTransition)
-    built = { gate, reducedMotion: applies, reducedMotionUnder: under, positionalKeys, defaultTransition }
+    // The Renderer every element projects and commits through (ADR-0003), read once too.
+    const renderer = runtime.runSync(Renderer.Renderer)
+    built = { gate, reducedMotion: applies, reducedMotionUnder: under, positionalKeys, defaultTransition, renderer }
     return built
   }
   // What the `layout` Feature builds its projection system with (#511): reduced motion read as each
@@ -217,6 +226,9 @@ export const clientContext = (
     get defaultTransition() {
       return build().defaultTransition
     },
+    get renderer() {
+      return build().renderer
+    },
   }
 }
 
@@ -253,6 +265,10 @@ export const serverContext = (env: WardicEnv, appear: ServerAppear | undefined, 
   const runtime = ManagedRuntime.make(env)
   return {
     runtime,
+    // A server render's elements take the lean path and never read it: read at each use if one does.
+    get renderer() {
+      return runtime.runSync(Renderer.Renderer)
+    },
     features: serverRegistry(runtime),
     prepare: constVoid,
     gate: FlushGate.inert,

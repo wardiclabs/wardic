@@ -30,6 +30,7 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as DefaultTransition from "@wardic/core/DefaultTransition"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
+import type * as Renderer from "@wardic/core/Renderer"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { type HeadTag, isServer, type JSX, useHead } from "@solidjs/web"
@@ -302,6 +303,11 @@ export function useWardicRuntime(): WardicRuntime {
 // ADR-0006; inert on a server (ADR-0021, decision 9).
 export function useWardicGate(): FlushGate.Shape {
   return fromContext(contextValue(), "useWardicGate", (value) => value.gate)
+}
+
+/** The Environment's Renderer (ADR-0003), read once by the provider: what an element and a presence project and commit through. Internal. */
+export function useWardicRenderer(): Renderer.Renderer["Service"] {
+  return fromContext(contextValue(), "useWardicRenderer", (value) => value.renderer)
 }
 
 /** The Environment's Positional keys (ADR-0036): which keys reduced motion Snaps. Internal. */
