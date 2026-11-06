@@ -59,7 +59,7 @@ const stopOf = (stops: ReadonlyArray<unknown>, at: StopAt): unknown =>
 
 /** Whether a value is Keyframes an animation can take (#429): an array of stops, one of them not `null`. */
 const isStops = (value: unknown): value is Stops => {
-  if (Bool.not(Array.isArray(value))) return false
+  if (Bool.not(Arr.isArray(value))) return false
   const stops = value as ReadonlyArray<unknown>
   return Bool.and(Arr.every(stops, isStop), Arr.some(stops, Predicate.isNotNull))
 }
@@ -76,7 +76,7 @@ let setAside: Record<string, Stops> | undefined
  * {@link setAside}, so one pass over the keys finds both. Built once, at module load.
  */
 const keepAnimatable = (value: unknown, key: string): boolean => {
-  if (Bool.not(Array.isArray(value))) return isAnimatable(value)
+  if (Bool.not(Arr.isArray(value))) return isAnimatable(value)
   if (isStops(value)) {
     if (Predicate.isUndefined(setAside)) setAside = {}
     setAside[key] = value
@@ -186,7 +186,7 @@ interface Entry {
 }
 
 /** Whether an entry is a list of names (#297): an array, which a values map never is. */
-const isList = (entry: unknown): entry is ReadonlyArray<string> => Array.isArray(entry)
+const isList = (entry: unknown): entry is ReadonlyArray<string> => Arr.isArray(entry)
 
 /**
  * A values map, or the `variants` entry a name names (an unknown name is empty), or nothing.

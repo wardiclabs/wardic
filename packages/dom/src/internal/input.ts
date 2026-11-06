@@ -78,28 +78,27 @@ const POINTER_EVENTS = Object.keys(POINTER_TYPE)
 const HELD_POINTER_EVENTS = ["pointermove", "pointerup", "pointercancel", "pointerdown"]
 
 /** A `PointerEvent.pointerType` as core's pointer kind: the DOM's three, else `"other"`. */
-// A **Pointer kind** (ADR-0036, *Amendment (#189)*).
-export const kindOf = (pointerType: string): InputSource.PointerKind =>
-  Match.value(pointerType).pipe(
-    Match.when("mouse", (): InputSource.PointerKind => "mouse"),
-    Match.when("pen", (): InputSource.PointerKind => "pen"),
-    Match.when("touch", (): InputSource.PointerKind => "touch"),
-    Match.orElse((): InputSource.PointerKind => "other"),
-  )
+// A **Pointer kind** (ADR-0036, *Amendment (#189)*). Built once, read per input event: `Match.value`
+// would build its matcher again each event, 69 ns against 10 (#618, H1).
+export const kindOf: (pointerType: string) => InputSource.PointerKind = /*#__PURE__*/ Match.type<string>().pipe(
+  Match.when("mouse", (): InputSource.PointerKind => "mouse"),
+  Match.when("pen", (): InputSource.PointerKind => "pen"),
+  Match.when("touch", (): InputSource.PointerKind => "touch"),
+  Match.orElse((): InputSource.PointerKind => "other"),
+)
 
 /**
  * A `PointerEvent.button` in core's names: 0 the main button, 1 the middle, 2 the secondary, -1 none, as
  * on a move, and the rest, back, forward, a pen's eraser, other.
  */
-// ADR-0036, *Amendment (#189)*.
-export const buttonOf = (button: number): InputSource.PointerButton =>
-  Match.value(button).pipe(
-    Match.when(0, (): InputSource.PointerButton => "main"),
-    Match.when(1, (): InputSource.PointerButton => "middle"),
-    Match.when(2, (): InputSource.PointerButton => "secondary"),
-    Match.when(-1, (): InputSource.PointerButton => "none"),
-    Match.orElse((): InputSource.PointerButton => "other"),
-  )
+// ADR-0036, *Amendment (#189)*. Built once, as `kindOf` (#618, H1).
+export const buttonOf: (button: number) => InputSource.PointerButton = /*#__PURE__*/ Match.type<number>().pipe(
+  Match.when(0, (): InputSource.PointerButton => "main"),
+  Match.when(1, (): InputSource.PointerButton => "middle"),
+  Match.when(2, (): InputSource.PointerButton => "secondary"),
+  Match.when(-1, (): InputSource.PointerButton => "none"),
+  Match.orElse((): InputSource.PointerButton => "other"),
+)
 
 /**
  * A DOM `PointerEvent` as core's pointer event: at its point in the viewport, with no scroll counted
@@ -294,20 +293,19 @@ const focusVisible = (target: EventTarget | null): boolean => {
 }
 
 /** A `KeyboardEvent.key` in core's names: the keys core acts on, else `"other"`. */
-// ADR-0037.
-export const keyOf = (key: string): InputSource.Key =>
-  Match.value(key).pipe(
-    Match.when(" ", (): InputSource.Key => "space"),
-    Match.when("Enter", (): InputSource.Key => "enter"),
-    Match.when("Escape", (): InputSource.Key => "escape"),
-    Match.when("ArrowLeft", (): InputSource.Key => "left"),
-    Match.when("ArrowRight", (): InputSource.Key => "right"),
-    Match.when("ArrowUp", (): InputSource.Key => "up"),
-    Match.when("ArrowDown", (): InputSource.Key => "down"),
-    Match.when("Home", (): InputSource.Key => "home"),
-    Match.when("End", (): InputSource.Key => "end"),
-    Match.orElse((): InputSource.Key => "other"),
-  )
+// ADR-0037. Built once, as `kindOf` (#618, H1).
+export const keyOf: (key: string) => InputSource.Key = /*#__PURE__*/ Match.type<string>().pipe(
+  Match.when(" ", (): InputSource.Key => "space"),
+  Match.when("Enter", (): InputSource.Key => "enter"),
+  Match.when("Escape", (): InputSource.Key => "escape"),
+  Match.when("ArrowLeft", (): InputSource.Key => "left"),
+  Match.when("ArrowRight", (): InputSource.Key => "right"),
+  Match.when("ArrowUp", (): InputSource.Key => "up"),
+  Match.when("ArrowDown", (): InputSource.Key => "down"),
+  Match.when("Home", (): InputSource.Key => "home"),
+  Match.when("End", (): InputSource.Key => "end"),
+  Match.orElse((): InputSource.Key => "other"),
+)
 
 /** The `<input>` types that act on a key themselves (#427): every other type is typed into. */
 const ACTING_INPUTS: ReadonlySet<string> = new Set(["button", "submit", "reset", "image", "checkbox", "radio", "color", "file", "range"])
@@ -341,16 +339,16 @@ const keyActionsOf = (el: Element): KeyActions => {
  * What a key's own target does with it (#427, core's `KeyAction`): Enter's and Space's, from the
  * element they came from; nothing for any other key, which no **Keyboard press** reads.
  */
-const keyActionOf = (key: InputSource.Key, at: EventTarget | null): InputSource.KeyAction =>
-  Match.value(key).pipe(
-    Match.when("enter", () => Option.match(elementOf(at), { onNone: (): InputSource.KeyAction => "none", onSome: (el) => keyActionsOf(el).enter })),
-    Match.when("space", () => Option.match(elementOf(at), { onNone: (): InputSource.KeyAction => "none", onSome: (el) => keyActionsOf(el).space })),
-    Match.orElse((): InputSource.KeyAction => "none"),
-  )
-
-/** `at` as an element, if it is one. */
-const elementOf = (at: EventTarget | null): Option.Option<Element> =>
-  Option.filter(Option.fromNullishOr(at), (t): t is Element => Predicate.hasProperty(t, "tagName")) as Option.Option<Element>
+// Per key event: statements, no matcher or Option built each time (#618, H1).
+const keyActionOf = (key: InputSource.Key, at: EventTarget | null): InputSource.KeyAction => {
+  if (Bool.and(key !== "enter", key !== "space")) return "none"
+  if (isElement(at)) {
+    const actions = keyActionsOf(at)
+    if (key === "enter") return actions.enter
+    return actions.space
+  }
+  return "none"
+}
 
 /** The HTML elements that take the keyboard's focus of themselves (#427): a link only with its `href`. */
 const FOCUSABLE_ELEMENTS: ReadonlySet<string> = new Set(["BUTTON", "INPUT", "SELECT", "TEXTAREA", "SUMMARY", "IFRAME"])
