@@ -16,6 +16,7 @@
     "@wardic/test": "0.1.0-alpha.0"
   },
   "changesets": [
+    "env-builds-at-once",
     "probe-names",
     "version-constant",
     "wardic-1-core",
