@@ -9,7 +9,8 @@ permissions:
   contents: read
 
 jobs:
-  # A PR that changes a package says how, in a changeset (#559): `bun run changeset`, or
+  # A PR that changes what a package ships (`changedFilePatterns`: its src, package.json, README,
+  # tsconfig; not its tests) says how, in a changeset (#559): `bun run changeset`, or
   # `bun run changeset --empty` for a change no release needs to mention. From launch day (#560),
   # once the repo is public; the Version Packages PR uses its changesets up, so it's left out.
   changeset:
