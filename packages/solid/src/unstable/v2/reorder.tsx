@@ -4,7 +4,7 @@
  * carry their props, as a ward is; `Reorder.Group` and `Reorder.Item` are built on them.
  *
  * ```tsx
- * const list = reorderGroup(() => ({ values: items(), onReorder: setItems }))
+ * const list = reorderGroup({ values: items, onReorder: setItems })
  * <ul {...list}>
  *   <For each={items()}>
  *     {(item) => {
