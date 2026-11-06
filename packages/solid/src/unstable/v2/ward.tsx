@@ -6,7 +6,7 @@
  * A ward is a ref that carries its props:
  *
  * ```tsx
- * const card = ward(() => ({ animate: { x: open() ? 100 : 0 } }))  // in the component's body
+ * const card = ward({ animate: () => ({ x: open() ? 100 : 0 }) }) // in the component's body
  * <div {...card} />                                                // its Starting style in server HTML
  * <div ref={ward({ animate: { opacity: 1 } })} />                  // client-only: no Starting style
  * ```
@@ -20,8 +20,9 @@
  *   attributes are enumerable, so a spread applies them; `Provider`, `read` and `atom` aren't.
  *   Solid 2's `merge` reads a function source through a memo, calling it with its previous value,
  *   so a ward called with anything but an element returns itself.
- * - **Its config is read once**, or through an accessor (or getters, as a component's props are):
- *   `ward(() => ({ … }))` for one that changes.
+ * - **Its config is read once, each key through an accessor where it changes** (or getters, as a
+ *   component's props are): `ward({ animate: () => ({ … }) })`. A whole config as one accessor,
+ *   `ward(() => ({ … }))`, throws, naming that form.
  * - **It mounts in an effect.** Every primitive is made at setup, under the ward's owner. The ref,
  *   called during render, sets the element; an effect's apply mounts it (registers it with the
  *   gate, builds its spine) and Retargets on each change of its target or of its `when` gate.

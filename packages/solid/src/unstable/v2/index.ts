@@ -58,10 +58,11 @@ export type { AnimateLayout } from "./provider.tsx"
 export { WardicConfig, type WardicConfigProps } from "./wardic-config.tsx"
 
 /**
- * `ward(config)`: a **Ward**, one element's motion, as a ref that carries its props. Spread it
- * (`<div {...ward(config)} />`, its Starting style in server HTML) or give it to `ref`
- * (`ref={ward(config)}`, client-only). A kept ward has `.Provider` for its Variant children,
- * `.read(key)` and `.atom(key)` for its values.
+ * `ward(config)`: a **Ward**, one element's motion, as a ref that carries its props. Make it once and
+ * spread it (`const card = ward(config)`, then `<div {...card} />`, its Starting style in server HTML),
+ * or give it to `ref` inline (`ref={ward(config)}`, client-only). A spread runs again on each change
+ * of the element's props, so an inline `{...ward(config)}` would make a new one each time, and throws.
+ * A kept ward has `.Provider` for its Variant children, `.read(key)` and `.atom(key)` for its values.
  */
 export {
   type AnyWard,
