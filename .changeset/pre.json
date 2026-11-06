@@ -16,6 +16,7 @@
     "@wardic/test": "0.1.0-alpha.0"
   },
   "changesets": [
+    "probe-names",
     "version-constant",
     "wardic-1-core",
     "wardic-1-dom",
