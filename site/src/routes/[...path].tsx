@@ -1,15 +1,19 @@
 /**
  * Every page (#558): its MDX file under `src/content/`, by the path asked for, its front matter's
- * `title` in the document's head. Each page is a chunk of its own, loaded as it's opened (prerendered,
+ * `title` and `description` in the document's head, with what a link's preview and a search engine
+ * read: its canonical URL, Open Graph's title, description and URL, and, on the home page, the
+ * project as JSON-LD. A missing page asks not to be indexed. Each page is a chunk of its own, loaded as it's opened (prerendered,
  * and preloaded before the page hydrates), so a page ships its own content and not every other's.
  * Each page enters as you open it. A page that fails to render says so in its place, and the frame
  * around it, the sidebar included, stays.
  */
 import { useParams } from "@solidjs/router"
+import type { HeadTag } from "@solidjs/web"
 import { dynamic, useHead } from "@solidjs/web"
 import { w } from "@wardic/solid/unstable/v2"
 import type { Component } from "solid-js"
 import { createMemo, Errored, For, lazy, Show } from "solid-js"
+import DESCRIPTIONS from "virtual:page-descriptions"
 import TITLES from "virtual:page-titles"
 import { Failed } from "~/components/Failed.tsx"
 
@@ -33,14 +37,61 @@ const pageOf = (path: string | undefined): { readonly name: string; readonly pag
   return undefined
 }
 
+/** Where the site is served: a page's canonical URL is its path here. */
+const ORIGIN = "https://wardic.dev"
+
+/** A page's path, from its name: `index` is `/`, `guides/index` is `/guides`. */
+const pathOf = (name: string): string => `/${name.replace(/(^|\/)index$/, "")}`
+
+/** What a search engine reads of the project, on the home page: the site and the code it documents. */
+const STRUCTURED = JSON.stringify({
+  "@context": "https://schema.org",
+  "@graph": [
+    { "@type": "WebSite", name: "Wardic", url: `${ORIGIN}/` },
+    {
+      "@type": "SoftwareSourceCode",
+      name: "Wardic",
+      description: DESCRIPTIONS["index"],
+      url: `${ORIGIN}/`,
+      codeRepository: "https://github.com/wardiclabs/wardic",
+      programmingLanguage: "TypeScript",
+      license: "https://opensource.org/licenses/MIT",
+    },
+  ],
+})
+
+/** A page's head: its title and description, its canonical URL, and Open Graph's. */
+const headOf = (name: string): ReadonlyArray<HeadTag> => {
+  const title = TITLES[name] ?? "Wardic"
+  const full = title === "Wardic" ? title : `${title} · Wardic`
+  const description = DESCRIPTIONS[name] ?? DESCRIPTIONS["index"]
+  const url = ORIGIN + pathOf(name)
+  const tags: Array<HeadTag> = [
+    { tag: "title", props: { children: full }, key: "title" },
+    { tag: "meta", props: { name: "description", content: description }, key: "description" },
+    { tag: "link", props: { rel: "canonical", href: url }, key: "canonical" },
+    { tag: "meta", props: { property: "og:title", content: full }, key: "og:title" },
+    { tag: "meta", props: { property: "og:description", content: description }, key: "og:description" },
+    { tag: "meta", props: { property: "og:url", content: url }, key: "og:url" },
+    { tag: "meta", props: { property: "og:type", content: name === "index" ? "website" : "article" }, key: "og:type" },
+  ]
+  if (name === "index") tags.push({ tag: "script", props: { type: "application/ld+json", children: STRUCTURED }, key: "structured" })
+  return tags
+}
+
+/** A missing page's head: its title, and no indexing. */
+const NOT_FOUND: ReadonlyArray<HeadTag> = [
+  { tag: "title", props: { children: "Not found · Wardic" }, key: "title" },
+  { tag: "meta", props: { name: "robots", content: "noindex" }, key: "robots" },
+]
+
 export default function Page() {
   const params = useParams()
   const page = createMemo(() => pageOf(params.path))
   useHead(() => {
     const found = page()
-    if (found === undefined) return { tag: "title", props: { children: "Not found · Wardic" }, key: "title" }
-    const title = TITLES[found.name] ?? "Wardic"
-    return { tag: "title", props: { children: title === "Wardic" ? title : `${title} · Wardic` }, key: "title" }
+    if (found === undefined) return [...NOT_FOUND]
+    return [...headOf(found.name)]
   })
   return (
     <Show when={page()} fallback={<NotFound />}>
