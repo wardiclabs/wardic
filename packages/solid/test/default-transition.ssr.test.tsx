@@ -43,7 +43,7 @@ const DOM: DefaultTransition.DefaultTransition["Service"] = { transitionFor: Dom
 const POSITIONAL: ReducedMotion.PositionalKeys["Service"] = { isPositional: DomPositionalKeys.isPositional }
 
 /** Core's, for an Environment with no opinion. */
-const ONE_SPRING = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* DefaultTransition.DefaultTransition }), DefaultTransition.oneSpring))
+const ONE_SPRING = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* DefaultTransition.DefaultTransition }), DefaultTransition.layerOneSpring))
 
 /** Motion's DOM defaults, as `default-transitions.ts` has them at 16c6122. */
 const TRANSFORM = { stiffness: 500, damping: 25, restSpeed: 10 }

@@ -62,9 +62,9 @@ export const testLayer = (
         // The transforms only: the Test Environment names no box keys (ADR-0036).
         ReducedMotion.transformsOnly,
         // No opinion on a key's Default transition: every key on one spring (ADR-0051).
-        DefaultTransition.oneSpring,
+        DefaultTransition.layerOneSpring,
         // No assistive technology to reach headless (ADR-0037).
-        Announcer.silent,
+        Announcer.layerSilent,
         AtomRegistry.layer,
         Layer.sync(DragActivity.DragActivity, DragActivity.make),
         Layer.sync(PressClaims.PressClaims, PressClaims.make),

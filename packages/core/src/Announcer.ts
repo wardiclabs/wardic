@@ -23,4 +23,4 @@ export class Announcer extends Context.Service<Announcer, {
 }>()("@wardic/core/Announcer") {}
 
 /** An Announcer that says nothing, for an Environment with no assistive technology to reach, as the test Environment's. */
-export const silent: Layer.Layer<Announcer> = Layer.succeed(Announcer, { announce: () => {} })
+export const layerSilent: Layer.Layer<Announcer> = Layer.succeed(Announcer, { announce: () => {} })

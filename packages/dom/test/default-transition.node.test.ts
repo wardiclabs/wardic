@@ -41,7 +41,7 @@ it.effect("DD4: core's oneSpring, an Environment with no opinion's: every key on
     expect(defaults.transitionFor("x", 1)).toBe(DefaultTransition.ONE_SPRING)
     expect(defaults.transitionFor("opacity", 0)).toEqual({ type: "spring" })
     expect(defaults.keyframes).toBe(DefaultTransition.ONE_TWEEN)
-  }).pipe(Effect.provide(DefaultTransition.oneSpring)),
+  }).pipe(Effect.provide(DefaultTransition.layerOneSpring)),
 )
 
 it("DD5: more than two keyframes run on Motion's keyframesTransition: 0.8 s, each Segment on easeOut (#429)", () => {
