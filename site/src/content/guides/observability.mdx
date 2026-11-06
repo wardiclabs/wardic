@@ -9,7 +9,9 @@ Wardic is built on [Effect](https://effect.website), and speaks its observabilit
 
 <CodeTabs sample="observability" />
 
-That's a development setup: give it where the app runs in development, such as under `import.meta.env.DEV`, and plain `DomLive` in production.
+That's a development setup, so it's given under `import.meta.env.DEV` alone: in production, the app runs on plain `DomLive`, and the devtools never load.
+
+A provider builds its `env` at once, as its first element renders, so each Layer in it must build without waiting. `DevTools.layer()` waits for its connection as it builds, for up to a second when the devtools aren't open, so the sample builds it before the app renders, with `Layer.buildWithScope`, and gives its services with `Layer.succeedContext`. Any Layer that waits as it builds goes in the same way: given as it is, it fails the first element with an error saying so.
 
 ## Logs
 

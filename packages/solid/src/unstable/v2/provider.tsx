@@ -91,7 +91,7 @@ const contextValue = (): WardicContextValue | undefined => Option.getOrUndefined
 // unmount, inert during a server render (ADR-0021). reducedMotion is read as each animation starts
 // (ADR-0029), a WardicConfig's over it (#434); appear (ADR-0044, #585) on the server once.
 export function WardicProvider(props: {
-  /** The Environment Wardic runs in: `DomLive` in a browser, from `@wardic/dom`. Read once. */
+  /** The Environment Wardic runs in: `DomLive` in a browser, from `@wardic/dom`. Read once, and built at once: a Layer that waits as it builds fails it. */
   readonly env: WardicEnv
   /**
    * How animations honour the visitor's reduced-motion setting: `"user"` follows it (the default),
