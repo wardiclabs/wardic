@@ -2,7 +2,8 @@ import { expect, it } from "@effect/vitest"
 import { VERSION } from "@wardic/dom"
 
 it("@wardic/dom resolves and exposes a version", () => {
-  expect(VERSION).toBe("0.1.0-alpha.0")
+  // Its value is the package.json's: core's smoke test checks every VERSION (#559).
+  expect(VERSION).toMatch(/^\d+\.\d+\.\d+/)
 })
 
 it("a real browser environment is active with document and window globals", () => {

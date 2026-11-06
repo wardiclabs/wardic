@@ -7,8 +7,9 @@
  *    npm has is skipped, so a run that failed halfway can run again.
  * 2. Packed by Bun, which writes `workspace:*` dependencies as the version they point at (npm's own
  *    pack would leave them), as the tarball check (#554) packs them. Bun takes that version from
- *    `bun.lock`, which `bun run version-packages` keeps in step; a tarball whose `@wardic/*`
- *    dependencies name any other version than its own isn't published.
+ *    `bun.lock`, which `bun run version-packages` keeps in step, as it keeps each package's `VERSION`
+ *    constant; a package whose `VERSION`, or whose tarball's `@wardic/*` dependencies, name any other
+ *    version than its own isn't published.
  * 3. Published with npm, which brings trusted publishing (OIDC) and provenance: on the `next` tag
  *    while Changesets is in pre mode (`1.0.0-rc.N`), else `latest`.
  * 4. Each one published is tagged `@wardic/<name>@<version>` in git and printed as `New tag: …`,
@@ -57,6 +58,8 @@ for (const pkg of PACKAGES) {
     console.log(`${name}@${version} is on npm already: skipped`)
     continue
   }
+  const constant = /^export const VERSION = "([^"]*)"$/m.exec(readFileSync(join(dir, "src", "index.ts"), "utf8"))
+  if (constant !== null && constant[1] !== version) throw new Error(`${name}@${version} exports VERSION "${constant[1]}": run bun run version-packages`)
   run("bun", ["pm", "pack", "--destination", tarballs, "--quiet"], dir)
   const tarball = readdirSync(tarballs).find((file) => file.startsWith(`wardic-${pkg}-${version}`))
   if (tarball === undefined) throw new Error(`bun pm pack wrote no tarball for ${name}@${version}`)
