@@ -147,7 +147,7 @@ export const registrationOf = (opts: CreateProjectionNodeOptions): ProjectionSys
     transition: () => toLayoutTransition(transition()),
     // Its layout transition's Path (#438, ADR-0065), Motion's: the `layout` entry's, else the element's.
     // A layout animation of 20 px or more curves along it.
-    path: () => UndefinedOr.map(transitionForKey(transition(), "layout"), (t) => t.path),
+    path: () => Option.fromUndefinedOr(UndefinedOr.map(transitionForKey(transition(), "layout"), (t) => t.path)),
     // The layout transition's reduced-motion opt-out (ADR-0029, #301), read at each layout animation's start.
     respectReducedMotion: () =>
       UndefinedOr.match(transitionForKey(transition(), "layout"), { onUndefined: constTrue, onDefined: (t) => t.respectReducedMotion !== false }),
@@ -170,7 +170,8 @@ export const registrationOf = (opts: CreateProjectionNodeOptions): ProjectionSys
     ...UndefinedOr.match(ownOpacity, { onUndefined: () => ({}), onDefined: (opacity) => ({ ownOpacity: opacity }) }),
     ...UndefinedOr.match(heldTransform, { onUndefined: () => ({}), onDefined: (held) => ({ heldTransform: held }) }),
     ...UndefinedOr.match(onBeforeMeasure, { onUndefined: () => ({}), onDefined: (before) => ({ onBeforeMeasure: before }) }),
-    ...UndefinedOr.match(onMeasure, { onUndefined: () => ({}), onDefined: (measured) => ({ onMeasure: measured }) }),
+    // The engine's `prev` is an `Option` (#618, A1); this option keeps Motion's `undefined` at the first.
+    ...UndefinedOr.match(onMeasure, { onUndefined: () => ({}), onDefined: (measured) => ({ onMeasure: (box: Box.Box, prev: Option.Option<Box.Box>) => measured(box, Option.getOrUndefined(prev)) }) }),
     ...UndefinedOr.match(onLayoutAnimationStart, {
       onUndefined: () => ({}),
       onDefined: (start) => ({ onLayoutAnimationStart: () => Option.fromUndefinedOr(start()) }),

@@ -1194,7 +1194,7 @@ const sameStops = (a: Style.Stops, b: Style.Stops): boolean => Bool.or(a === b, 
  */
 const keepsStart = (key: string, start: number | string | undefined, target: number | string): boolean => {
   if (Predicate.isUndefined(start)) return false
-  return MeasuredPair.isMeasuredPair(key, start, target)
+  return MeasuredPair.needs(key, start, target)
 }
 
 /** The keys that may be Measured pairs (#430): those found, and each Keyframes key, its start now its first stop. */
@@ -1213,7 +1213,7 @@ const measuredOf = (element: HTMLElement, keys: ReadonlyArray<string>, from: Val
     const start = from[key]
     const target = to[key]
     if (Bool.or(Predicate.isUndefined(start), Predicate.isUndefined(target))) return
-    if (MeasuredPair.isMeasuredPair(key, start as number | string, target as number | string)) pairs[key] = { from: start as number | string, to: target as number | string }
+    if (MeasuredPair.needs(key, start as number | string, target as number | string)) pairs[key] = { from: start as number | string, to: target as number | string }
   })
   if (Rec.isEmptyRecord(pairs)) return undefined
   return MeasuredPair.measure(element, pairs, values)
@@ -2560,7 +2560,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       startKey(key, like, started)
       // A Measured pair (#430): its two ends of different types, found in this pass, so a Retarget
       // with none builds nothing for them.
-      if (MeasuredPair.isMeasuredPair(key, UndefinedOr.getOrThrow(snapshot.values[key]), like)) {
+      if (MeasuredPair.needs(key, UndefinedOr.getOrThrow(snapshot.values[key]), like)) {
         if (Predicate.isUndefined(measuring)) measuring = []
         measuring.push(key)
       }
@@ -2950,7 +2950,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       if (!Object.hasOwn(initialValues, key)) ownValue(key)
       const like = UndefinedOr.getOrThrow(to[key])
       startKey(key, like, started)
-      if (MeasuredPair.isMeasuredPair(key, UndefinedOr.getOrThrow(snapshot.values[key]), like)) {
+      if (MeasuredPair.needs(key, UndefinedOr.getOrThrow(snapshot.values[key]), like)) {
         if (Predicate.isUndefined(measuring)) measuring = []
         measuring.push(key)
       }

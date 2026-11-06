@@ -34,7 +34,7 @@ import * as Machine from "@wardic/core/Machine"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Spring from "@wardic/core/Spring"
 import * as Values from "@wardic/core/Values"
-import type * as MeasuredPair from "@wardic/dom/MeasuredPair"
+import * as MeasuredPair from "@wardic/dom/MeasuredPair"
 import type * as Style from "@wardic/dom/Style"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
@@ -638,7 +638,7 @@ export const legsOf = (
 const NO_LEGS: ReadonlyArray<Leg> = []
 
 /** Each key's Measured pair (#430), by its key. */
-export type MeasuredPairs = Readonly<Record<string, MeasuredPair.MeasuredPair>>
+export type MeasuredPairs = Readonly<Record<string, MeasuredPair.Requested>>
 
 /** Whether any key of `values` is a Measured pair (#430): per Retarget, so nothing made. */
 const anyMeasured = (values: Values.Values, measured: MeasuredPairs | undefined): boolean => {
@@ -672,14 +672,12 @@ const measuredMachine = (pairs: MeasuredPairs, to: Values.Values, transition: Ru
     },
   })
 
-/** Whether a pair's batch read both its ends. */
-const isMeasured = (pair: MeasuredPair.MeasuredPair): boolean => Bool.and(Number.isFinite(pair.fromPx), Number.isFinite(pair.toPx))
-
-/** {@link measuredMachine}'s step, its pairs measured. Per frame: one Frame a step. */
+/** {@link measuredMachine}'s step, its pairs measured, or a switch when its batch couldn't read one. Per frame: one Frame a step. */
 const measuredStep = (pairs: MeasuredPairs, to: Values.Values, transition: Run): ((dt: number) => Frame.Frame<Values.Values>) => {
-  if (Bool.not(Rec.every(pairs, isMeasured))) return () => ({ value: to, done: true })
-  const fromPx = Rec.map(pairs, (pair) => pair.fromPx as number)
-  const toPx = Rec.map(pairs, (pair) => pair.toPx as number)
+  const all = Option.all(Rec.map(pairs, MeasuredPair.measured))
+  if (Option.isNone(all)) return () => ({ value: to, done: true })
+  const fromPx = Rec.map(all.value, (pair) => pair.fromPx)
+  const toPx = Rec.map(all.value, (pair) => pair.toPx)
   if (transition.type === "spring") {
     const spring = Machine.springValues(toPx, transition as Machine.SpringOptions, fromPx, {}).start()
     return (dt) => {
