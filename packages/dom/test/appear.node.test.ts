@@ -399,7 +399,7 @@ describe("a render's sheet (#48, ADR-0044)", () => {
     expect(two.css()).toContain(`@supports (cx:0px) and (r:0px){:root{${property(both)}:`)
   })
 
-  it("AP17: css() writes what's new since its last call; chunkStyle wraps it (#245)", () => {
+  it("AP17: css() writes what's new since its last call; chunkStyle wraps it, with a nonce when given (#245, #618)", () => {
     const sheet = Appear.sheet()
     const spec = { key: "AP17", tag: "div", machine: () => rise() }
     const other = { key: "AP17 other", tag: "div", machine: () => Machine.springValues({ opacity: 1 }, {}, { from: { opacity: 0 } }) }
@@ -424,6 +424,9 @@ describe("a render's sheet (#48, ADR-0044)", () => {
     expect(sheet.css()).toBe("")
     expect(Appear.chunkStyle("")).toBe("")
     expect(Appear.chunkStyle(chunk)).toBe(`<style ${Appear.CHUNK_ATTRIBUTE}>${chunk}</style>`)
+    // A nonce, the page's Content Security Policy's for inline styles (#618, P1): carried, escaped.
+    expect(Appear.chunkStyle(chunk, "r4nd0m")).toBe(`<style ${Appear.CHUNK_ATTRIBUTE} nonce="r4nd0m">${chunk}</style>`)
+    expect(Appear.chunkStyle(chunk, 'a"b')).toBe(`<style ${Appear.CHUNK_ATTRIBUTE} nonce="a&quot;b">${chunk}</style>`)
   })
 
   it("AP12: an empty sheet writes nothing", () => {

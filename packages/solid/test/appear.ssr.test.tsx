@@ -61,6 +61,8 @@
 //   ends on its target; two paths name two rules.
 // - AR30 (#585): the provider's `appear="explain"` says, at Warning, why each element that doesn't play
 //   waits for the JavaScript, naming its tag and keys; `true`, or no `appear`, says nothing.
+// - AR31 (#618, P1): the provider's `nonce`: the head's `<style>` carries it (a late chunk's, dom's
+//   `Appear.chunkStyle`, in `dom/test/appear.node.test.ts`).
 // - AR25 (#434): a Variant child that follows the user waits, in its reduced timing too, for a parent
 //   under a config's "never" to settle as that parent plays: its move, not a snap.
 import { DomLive } from "@wardic/dom"
@@ -75,7 +77,7 @@ import { keyOf } from "../src/appear.ts"
 import * as Option from "effect/Option"
 
 /** A whole document with a head, as SolidStart renders it, and `ui` under a provider. */
-const page = (ui: () => JSX.Element, provider: { readonly appear?: boolean | "explain"; readonly reducedMotion?: "user" | "always" | "never" } = {}): string =>
+const page = (ui: () => JSX.Element, provider: { readonly appear?: boolean | "explain"; readonly reducedMotion?: "user" | "always" | "never"; readonly nonce?: string } = {}): string =>
   renderToString(() => (
     <html>
       <head>
@@ -798,6 +800,11 @@ describe("Appear animations on a server (#48, ADR-0044)", () => {
     ])
     expect(said(() => page(ui)), "nothing without it").toEqual([])
     expect(said(() => page(ui, { appear: true })), "nor with true").toEqual([])
+  })
+
+  it("AR31: the provider's nonce: the head's style carries it; with none, it has none (#618)", () => {
+    expect(page(() => <wardic.div {...rise} />, { nonce: "r4nd0m" })).toMatch(/<style data-wardic-appear[^>]*nonce="r4nd0m"/)
+    expect(page(() => <wardic.div {...rise} />)).not.toContain("nonce=")
   })
 })
 

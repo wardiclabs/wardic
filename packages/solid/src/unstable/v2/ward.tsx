@@ -1987,7 +1987,7 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
   // the chunk has rendered and streamed with it as a head patch. A late element under another late
   // one registers too: the first read writes the batch, and any other finds it written and adds no
   // tag, so Solid 1's `within` (which kept a chunk to one `<style>` node) isn't needed.
-  if (appear.chunkRoot) UndefinedOr.map(appear.state, (state) => useHead(appearStyle(state.chunkCss)))
+  if (appear.chunkRoot) UndefinedOr.map(appear.state, (state) => useHead(appearStyle(state.chunkCss, state.nonce)))
   const Provider = (props: { readonly children?: JSX.Element }): JSX.Element => (
     <WardicVariantContext value={contextOf(appear.provided)}>{props.children}</WardicVariantContext>
   )

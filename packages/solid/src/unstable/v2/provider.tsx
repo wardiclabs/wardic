@@ -106,6 +106,11 @@ export function WardicProvider(props: {
    */
   readonly appear?: boolean | "explain" | undefined
   /**
+   * The nonce your page's Content Security Policy gives inline styles: the `<style>` a server render
+   * writes for its entrances carries it, a streamed chunk's too. Motion's `MotionConfig` `nonce`.
+   */
+  readonly nonce?: string | undefined
+  /**
    * Your own corrections of a value a layout animation's scale would distort, by the key each corrects:
    * Motion's `addScaleCorrector`, given here. Read once.
    */
@@ -120,7 +125,7 @@ export function WardicProvider(props: {
   readonly children?: JSX.Element
 }): JSX.Element {
   const value = Bool.match(isServer, {
-    onTrue: () => serverContext(props.env, serverAppearOf(props.appear, props.reducedMotion), () => untrack(() => props.reducedMotion)),
+    onTrue: () => serverContext(props.env, serverAppearOf(props.appear, props.reducedMotion, props.nonce), () => untrack(() => props.reducedMotion)),
     onFalse: () =>
       clientContext(
         props.env,
@@ -250,28 +255,32 @@ const disposals = new WeakMap<WardicContextValue, Promise<never>>()
  * them, or `undefined` with `appear={false}`. Each element takes a slot as it renders; the head
  * gets every rule and timing once the shell has rendered.
  */
-const serverAppearOf = (appear: boolean | "explain" | undefined, reducedMotion: ReducedMotion.Config | undefined): ServerAppear | undefined => {
+const serverAppearOf = (appear: boolean | "explain" | undefined, reducedMotion: ReducedMotion.Config | undefined, nonce: string | undefined): ServerAppear | undefined => {
   if (appear === false) return undefined
-  const state = serverAppear(UndefinedOr.match(reducedMotion, { onUndefined: () => "user" as const, onDefined: identity }), explainerOf(appear))
-  useHead(appearStyle(() => state.css()))
+  const state = serverAppear(UndefinedOr.match(reducedMotion, { onUndefined: () => "user" as const, onDefined: identity }), explainerOf(appear), nonce)
+  useHead(appearStyle(() => state.css(), nonce))
   return state
 }
 
 /**
  * The head tags for an Appear `<style>` whose CSS `css` gives, in `useHead`'s function form: read
  * when the server writes the head, and once, so a second read can't find it written already. No
- * tag when there's none to write. Internal: the provider's, and a late chunk's (`ward.tsx`).
+ * tag when there's none to write. With a `nonce` (#618, P1), the tag carries it. Internal: the
+ * provider's, and a late chunk's (`ward.tsx`).
  */
-export const appearStyle = (css: () => string): (() => Array<HeadTag>) => {
+export const appearStyle = (css: () => string, nonce: string | undefined): (() => Array<HeadTag>) => {
   let tags: Array<HeadTag> | undefined
   return () => {
-    if (Predicate.isUndefined(tags)) tags = styleTags(css())
+    if (Predicate.isUndefined(tags)) tags = styleTags(css(), nonce)
     return tags
   }
 }
 
-const styleTags = (css: string): Array<HeadTag> =>
-  Bool.match(css === "", { onTrue: (): Array<HeadTag> => [], onFalse: (): Array<HeadTag> => [{ tag: "style", props: { "data-wardic-appear": "", children: css } }] })
+const styleTags = (css: string, nonce: string | undefined): Array<HeadTag> => {
+  if (css === "") return []
+  if (Predicate.isUndefined(nonce)) return [{ tag: "style", props: { "data-wardic-appear": "", children: css } }]
+  return [{ tag: "style", props: { "data-wardic-appear": "", nonce, children: css } }]
+}
 
 /** A server render's Appear animations; `undefined` on the client, or with `appear={false}`. Internal. */
 export function useWardicAppear(): ServerAppear | undefined {

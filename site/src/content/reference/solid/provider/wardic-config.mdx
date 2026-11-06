@@ -30,7 +30,7 @@ Each is read as an animation, a gesture or an element starts, so a change applie
 
 ## Coming from Motion
 
-Motion's `MotionConfig`, with the same props. Motion reads `reducedMotion` once, as each element mounts; Wardic follows it as it changes.
+Motion's `MotionConfig`, with the same props. Motion reads `reducedMotion` once, as each element mounts; Wardic follows it as it changes. `MotionConfig`'s `nonce` is the [provider's](/reference/solid/provider/wardic-provider): the only `<style>` Wardic writes is a server render's, once for the page.
 
 ## Types
 
