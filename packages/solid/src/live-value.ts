@@ -45,13 +45,15 @@ import { withServerInterpolators } from "./server-interpolators.ts"
 /** A Live value as an accessor: an accessor as it is, an Atom read through the provider's registry. */
 const accessorOf = <A>(source: LiveSource<A>): Accessor<A> =>
   Bool.match(Atom.isAtom(source), {
-    onTrue: () =>
-      Bool.match(isServer, {
-        onTrue: (): Accessor<A> => () => readLive(source, serverRegistryOf, untrack) as A,
-        onFalse: () => fromAtom(source as Atom.Atom<A>),
-      }),
+    onTrue: () => atomAccessorOf(source as Atom.Atom<A>),
     onFalse: () => source as Accessor<A>,
   })
+
+/** An Atom as an accessor: on a server, read once; on the client, followed. A plain `if`, so a client build drops the server's read (#518). */
+const atomAccessorOf = <A>(atom: Atom.Atom<A>): Accessor<A> => {
+  if (isServer) return () => readLive(atom, serverRegistryOf, untrack) as A
+  return fromAtom(atom)
+}
 
 /**
  * A value mapped from another: through a function, `createTransform(x, (x) => x * 2)`, or through

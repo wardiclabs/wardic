@@ -78,6 +78,23 @@ const WardicContext = createContext<WardicContextValue | null>(null)
 const contextValue = (): WardicContextValue | undefined => Option.getOrUndefined(Option.fromNullishOr(useContext(WardicContext)))
 
 /**
+ * A provider's context: a server render's, inert, or the client's. Decided by a plain `if`: a client
+ * build folds `isServer` and drops the server render's code, where `Bool.match` kept it (#518: 8.4 KB
+ * gzipped in every Solid 2 app). `env` and `appear` are read once, as the provider's docs say.
+ */
+const contextOf = (given: Parameters<typeof WardicProvider>[0]): WardicContextValue => {
+  if (isServer) return serverContext(given.env, serverAppearOf(given.appear, given.reducedMotion, given.nonce), () => untrack(() => given.reducedMotion))
+  return clientContext(
+    given.env,
+    applyAndFlush,
+    () => untrack(() => given.reducedMotion),
+    // The provider's setting, tracked too: `createReducedMotionConfig` reads it where it tracks (#584).
+    () => given.reducedMotion,
+    untrack(() => given.scaleCorrectors),
+  )
+}
+
+/**
  * Puts Wardic in your app: every Wardic element sits under one. Give it the Environment, `DomLive` in
  * a browser, and the Features your elements use.
  *
@@ -124,18 +141,7 @@ export function WardicProvider(props: {
   readonly strict?: boolean | undefined
   readonly children?: JSX.Element
 }): JSX.Element {
-  const value = Bool.match(isServer, {
-    onTrue: () => serverContext(props.env, serverAppearOf(props.appear, props.reducedMotion, props.nonce), () => untrack(() => props.reducedMotion)),
-    onFalse: () =>
-      clientContext(
-        props.env,
-        applyAndFlush,
-        () => untrack(() => props.reducedMotion),
-        // eslint-disable-next-line solid/reactivity -- the provider's setting, tracked too: `createReducedMotionConfig` reads it where it tracks (#584)
-        () => props.reducedMotion,
-        untrack(() => props.scaleCorrectors),
-      ),
-  })
+  const value = contextOf(props)
   // Disposing the runtime closes its Scope: the projection system, then the gate (#132). Its
   // disposal rejects first, ending every `animateLayout` still waiting: their flights won't end (#257).
   let abort = constUndefined as (reason: DOMException) => void
@@ -156,7 +162,7 @@ export function WardicProvider(props: {
   // element mounted after pays none of it. One mounted before then builds it itself, as before. Asked
   // for here, with no computation of the provider's own (an `onSettled`'s would shift a hydration's
   // owners from the server's), and on the client alone.
-  if (Bool.not(isServer)) onCleanup(whenIdle(() => prepareIdle(value, section)))
+  if (!isServer) onCleanup(whenIdle(() => prepareIdle(value, section)))
   return <WardicContext value={value}>{props.children}</WardicContext>
 }
 
