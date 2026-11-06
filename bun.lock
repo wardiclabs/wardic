@@ -151,7 +151,7 @@
     },
     "packages/core": {
       "name": "@wardic/core",
-      "version": "0.1.0-alpha.0",
+      "version": "1.0.0-rc.1",
       "dependencies": {
         "bezier-easing": "^3.0.0",
       },
@@ -164,7 +164,7 @@
     },
     "packages/dom": {
       "name": "@wardic/dom",
-      "version": "0.1.0-alpha.0",
+      "version": "1.0.0-rc.1",
       "dependencies": {
         "@wardic/core": "workspace:*",
         "culori": "^4.0.2",
@@ -178,7 +178,7 @@
     },
     "packages/solid": {
       "name": "@wardic/solid",
-      "version": "0.1.0-alpha.0",
+      "version": "1.0.0-rc.1",
       "dependencies": {
         "@solid-primitives/refs": "^1.1.3",
         "@wardic/core": "workspace:*",
@@ -211,7 +211,7 @@
     },
     "packages/test": {
       "name": "@wardic/test",
-      "version": "0.1.0-alpha.0",
+      "version": "1.0.0-rc.1",
       "dependencies": {
         "@wardic/core": "workspace:*",
       },

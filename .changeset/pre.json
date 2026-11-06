@@ -15,5 +15,10 @@
     "@wardic/solid": "0.1.0-alpha.0",
     "@wardic/test": "0.1.0-alpha.0"
   },
-  "changesets": []
+  "changesets": [
+    "wardic-1-core",
+    "wardic-1-dom",
+    "wardic-1-solid",
+    "wardic-1-test"
+  ]
 }
