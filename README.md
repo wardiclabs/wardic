@@ -39,7 +39,7 @@ render(() => <App />, document.getElementById("app")!)
 
 The provider gives its elements **Features**: `domAnimation` is hover, press, focus and in-view. A page that drags or lays out brings `drag` or `layout` itself, through `<LazyWardic features={[drag]}>`, or loads it when it's wanted, so each page ships only the animation code it uses.
 
-**On Solid 2,** import from `@wardic/solid/unstable/v2`: the same elements and props, built on Solid 2's reactivity. It stays outside semver until Solid 2 itself is stable.
+**On Solid 2,** import from `@wardic/solid/unstable/v2`: the same elements and animation props, built on Solid 2's reactivity, with Motion's callback props (`onTap`…) as a ward's events. It stays outside semver until Solid 2 itself is stable.
 
 ## Coming from Motion
 
@@ -66,7 +66,7 @@ Its source is in [`examples/storefront`](examples/storefront).
 
 ## Status
 
-`1.0.0`'s release candidates: Motion for React's API on both Solid bindings. Solid 1's binding follows semver from `1.0.0`; Solid 2's does once Solid 2 is stable, and becomes the root entry in `2.0`. What comes next is on the [docs site](https://wardic.dev) and in the [milestones](https://github.com/wardiclabs/wardic/milestones).
+`1.0.0`'s release candidates: Motion for React's API on both Solid bindings. Solid 1's binding follows semver from `1.0.0`; Solid 2's does once Solid 2 is stable, and becomes the root entry in `2.0`. The Effect-typed packages, `@wardic/core`, `@wardic/dom` and `@wardic/test`, and the bindings' Effect-typed entries, move to a new Effect major only in a Wardic major. What comes next is on the [docs site](https://wardic.dev) and in the [milestones](https://github.com/wardiclabs/wardic/milestones).
 
 ## Contributing
 

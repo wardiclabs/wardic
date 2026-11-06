@@ -6,6 +6,8 @@ api: [useWardicGate, FlushGate, FlushSink]
 
 # The flush gate
 
+**Effect-typed:** what this page covers uses Effect's own types, so it moves to a new Effect major only in a Wardic major ([the roadmap](/roadmap#10-motions-api-on-solid)).
+
 Every Wardic element writes its values into its provider's flush gate, which commits them onto the page once a frame, together. For an element of your own built on Wardic's rendering, register it with the gate and write into it.
 
 ```tsx

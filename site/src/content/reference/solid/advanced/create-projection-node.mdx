@@ -6,6 +6,8 @@ api: [createProjectionNode, CreateProjectionNodeOptions]
 
 # createProjectionNode
 
+**Effect-typed:** what this page covers uses Effect's own types, so it moves to a new Effect major only in a Wardic major ([the roadmap](/roadmap#10-motions-api-on-solid)).
+
 **Solid 1 only.** Registers an element with its provider's projection system as one layout node, as a `w.*` element with `layout` or a `layoutId` is. It's for building an element of your own on Wardic's layout animations, such as a binding for another kind of component. An app gives `layout` to a `w.*` element or a [ward](/reference/solid/elements/ward) instead, which does this itself.
 
 ```tsx
