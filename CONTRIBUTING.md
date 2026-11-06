@@ -74,7 +74,7 @@ A release goes out from GitHub Actions (`.github/workflows/release.yml`):
 
 1. **Merged changesets wait on `main`,** and the workflow keeps a "Version Packages" PR open: the next version, and each package's CHANGELOG.
 2. **Merging that PR publishes:** the workflow checks the packed packages (`bun run pack:check`), then publishes each new version to npm with provenance, through npm's trusted publishing, and tags it with a GitHub release.
-3. **A release candidate** (`1.0.0-rc.N`) goes to npm's `next` tag while Changesets is in pre mode (`bun run changeset pre enter rc`); `bun run changeset pre exit` makes the next one `latest`.
+3. **A release candidate** (`1.0.0-rc.N`) comes from Changesets' pre mode (`bun run changeset pre enter rc`; `bun run changeset pre exit` ends it). Until a package has a stable version, its newest release candidate is `latest`, so a plain `npm install` gets it; after, a release candidate goes to `next`, and `latest` keeps the stable one.
 
 ## Licence
 
