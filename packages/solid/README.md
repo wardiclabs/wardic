@@ -19,7 +19,7 @@ export function App() {
 }
 ```
 
-Solid 2's binding (`@wardic/solid/unstable/v2`) is outside semver until Solid 2 itself is stable.
+Solid 2's binding (`@wardic/solid/unstable/v2`) is outside semver until Solid 2 itself is stable. The Effect-typed packages, `@wardic/core`, `@wardic/dom` and `@wardic/test`, and the bindings' Effect-typed entries, move to a new Effect major only in a Wardic major.
 
 - Docs: https://wardic.dev
 - Live examples: https://solid1.wardic.dev and https://solid2.wardic.dev, with Motion's beside them at https://motion.wardic.dev

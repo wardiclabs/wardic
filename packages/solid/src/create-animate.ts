@@ -20,7 +20,7 @@ import { isServer } from "./server.ts"
  * @example
  * const [scope, animate] = createAnimate()
  * onMount(() => animate("li", { opacity: [0, 1], y: [8, 0] }, { delay: stagger(0.05) }))
- * return <ul ref={scope}>…</ul>
+ * <ul ref={scope}>…</ul>
  * @see https://wardic.dev/reference/solid/animation/create-animate
  */
 // #433. A plain element animates through a spine of its own (imperative.ts).

@@ -26,7 +26,7 @@ Measured on 2026-11-05, Wardic's `main` (a3fe2e7) against Motion for React 14.9.
 
 ## Motion's API, the Solid way
 
-A `w.div` takes what a `motion.div` takes: `initial`, `animate`, `exit` and `transition`, variants that pass down the tree, hover, press, focus, drag and pan, layout and shared-element animations, presence, and values that follow the scroll or the pointer. What changes is Solid's:
+A `w.div`, with the Features its provider gives, takes what a `motion.div` takes: `initial`, `animate`, `exit` and `transition`, variants that pass down the tree, hover, press, focus, drag and pan, layout and shared-element animations, presence, and values that follow the scroll or the pointer. What changes is Solid's:
 
 - **A component runs once,** so Wardic reads its props as they change, and nothing re-renders.
 - **Hooks are `create*` primitives,** as Solid names them.
@@ -62,6 +62,6 @@ Every animation runs in its own span, the Frame loop keeps metrics, and Wardic l
 
 ## What it costs
 
-- **Size.** One animated element is 121 KB gzipped on Solid 1 and 157 KB on Solid 2, for the whole app, Solid included. On Solid 1, about two fifths of the minified code is Effect's runtime, half is Wardic's engine and binding, and the rest is Solid's and the colour library's. Gestures, layout and the wider colour spaces are Features, shipped only where a provider or a `LazyWardic` gives them, and the [1.1 milestone](/roadmap#11-size-and-speed) works on the base.
+- **Size.** One Wardic element is 121 KB gzipped on Solid 1 and 157 KB on Solid 2, for the whole app, Solid included. On Solid 1, about two fifths of the minified code is Effect's runtime, half is Wardic's engine and binding, and the rest is Solid's and the colour library's. Gestures, layout and the wider colour spaces are Features, shipped only where a provider or a `LazyWardic` gives them, and the [1.1 milestone](/roadmap#11-size-and-speed) works on the base.
 - **Mounting.** A mount takes about as long as Motion's, but a page's first mount takes longer, while the engine sets up and its code first runs.
 - **Effect.** `effect` is a dependency you install beside Wardic.

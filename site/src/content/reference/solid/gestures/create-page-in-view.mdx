@@ -9,11 +9,22 @@ api: [createPageInView]
 Whether the page is shown: `false` while it's hidden, in a tab in the background or a minimised window, and `true` otherwise. Pause what nobody can see, such as a carousel's autoplay.
 
 ```tsx
-import { createPageInView } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+// Solid 1
+import { createPageInView } from "@wardic/solid"
 
 const visible = createPageInView()
-createEffect(() => (visible() ? player.play() : player.pause())) // Solid 1
-createEffect(visible, (shown) => (shown ? player.play() : player.pause())) // Solid 2
+createEffect(() => (visible() ? player.play() : player.pause()))
+```
+
+```tsx
+// Solid 2
+import { createPageInView } from "@wardic/solid/unstable/v2"
+
+const visible = createPageInView()
+createEffect(visible, (shown) => {
+  if (shown) player.play()
+  else player.pause()
+})
 ```
 
 It takes no element. A server renders `true`, and a hydrating page keeps it until it has mounted, so markup that depends on it hydrates.

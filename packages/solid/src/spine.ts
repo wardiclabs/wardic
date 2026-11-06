@@ -569,7 +569,7 @@ interface PendingEnd {
   readonly running: Running
   /** The keys its entry animates, each held by the leg drawing it. */
   readonly animated: ReadonlyArray<string>
-  /** Its end values, the keys it also animates among them. */
+  /** Its Transition end, the keys it also animates among them. */
   readonly writes: Values.Values
   /**
    * An end that owns no key, its values all keys its entry animates: the leg drawing each of
@@ -759,7 +759,7 @@ const runningOf = (to: Values.Values, resolution: Resolution, landing: Landing, 
 
 /**
  * A Blend leg's velocity for `key` (#464, Motion's `getVelocity`): its last two frames' change over
- * their time apart, at most `MAX_VELOCITY_DELTA`; none for a string, nor for a jump, a leg that landed
+ * their time apart, at most `MAX_VELOCITY_DELTA`; none for a string, nor for a Snap, a leg that landed
  * on its first frame (a `set`, a `duration: 0`).
  */
 const blendVelocityOf = (running: Running, key: string): number => {
@@ -1056,7 +1056,7 @@ const driverOf = (layers: ReadonlyArray<OverrideEntry>, key: string): number =>
 
 /**
  * The Override stack resolved (#428): `Override.resolve` as before when no active entry has a
- * Transition end; else over each entry's values and end values, its values winning a key both set, so
+ * Transition end; else over each entry's values and Transition end, its values winning a key both set, so
  * a key only an end sets is the entry's (Motion's `{ ...target, ...transitionEnd }`), and the ends
  * each entry drives.
  */
@@ -1160,7 +1160,7 @@ const endFor = (ends: Ends | undefined, key: string): number | string | undefine
   return Option.match(Arr.findFirst(ends.byLayer, (values) => endsKey(values, key)), { onNone: constUndefined, onSome: (values) => (values as Values.Values)[key] })
 }
 
-/** Whether an entry's end values set `key`. */
+/** Whether an entry's Transition end sets `key`. */
 const endsKey = (values: Values.Values | undefined, key: string): boolean => {
   if (Predicate.isUndefined(values)) return false
   return Object.hasOwn(values, key)
@@ -1177,7 +1177,7 @@ const endMoved = (last: Resolution | undefined, now: Resolution, key: string): b
   return endFor(last.ends, key) !== endFor(now.ends, key)
 }
 
-/** An entry's end values the same in two resolutions (#470): none on both, or the same values. */
+/** An entry's Transition end the same in two resolutions (#470): none on both, or the same values. */
 const sameEndsAt = (a: Values.Values | undefined, b: Values.Values | undefined): boolean => {
   if (a === b) return true
   if (Predicate.isUndefined(a)) return false
@@ -1627,7 +1627,7 @@ export const startOf = (
 
 /**
  * The Snapshot: each key's last emitted value, a number or a string, and the numeric velocities.
- * A Retarget starts each key from where it is, with momentum carried across the seam (ADR-0005,
+ * A Retarget starts each key from where it is, with its velocity carried across the seam (ADR-0005,
  * ADR-0024). Plain, not reactive; a drag writes its `x`/`y` into it too (ADR-0004).
  */
 export interface Snapshot {
@@ -3373,7 +3373,9 @@ export const dragDefaultsOf = (config: WardConfig, internal: DragInternals = NO_
 
 /**
  * Set each of a drag element's defaults its inline style doesn't already set, and
- * `draggable="false"` unless it has the attribute (the commit-sink paths, at mount).
+ * `draggable="false"` unless it has the attribute, at mount: for an element whose props don't carry
+ * them, a directive's (`use:wardic`, `use:w`) and a `wardic.create(Component)` wrap's, whose
+ * component may not pass them on.
  */
 export const applyDragDefaults = (element: HTMLElement, defaults: Style.DragDefaults): void => {
   Arr.forEach(Rec.keys(defaults), (key) => {

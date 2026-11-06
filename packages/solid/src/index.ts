@@ -75,8 +75,8 @@ export type { AnimateLayoutOptions } from "@wardic/dom/ProjectionSystem"
 export { WardicConfig, type WardicConfigProps } from "./wardic-config.tsx"
 
 /**
- * The provider-owned reactive flush gate (ADR-0006): an accumulator + gated
- * Refresh frames + single-`batch()` flush with two sink modes (signal / commit).
+ * The provider's **Flush gate** (ADR-0006): where each element's animated values are written,
+ * drawn onto the elements together once a frame, at the end of its animation tick (ADR-0034).
  * It's `@wardic/dom`'s, built by the provider with Solid's `batch` (ADR-0031), and
  * `useWardicGate` returns it; the types are re-exported here.
  */
@@ -225,11 +225,11 @@ export {
 } from "./reorder.tsx"
 
 /**
- * `runDragTrack` (ADR-0004): the binding-orchestrated drag track shared by both
- * the `createWard` signal-sink path and the `wardic.create(Component)` commit-sink
- * path (it lives in `runSpine`, which both share). The pointer DIRECT-SETS `x`/`y`
- * while the spring drives every other key + `whileDrag`; the release is pluggable
- * (decay momentum / snapToOrigin / rest-in-place).
+ * `runDragTrack` (ADR-0004): the binding-orchestrated drag track, run by every Wardic element's
+ * spine (`runSpine`), `createWard`'s and `wardic.create(Component)`'s alike. The pointer
+ * DIRECT-SETS `x`/`y` while the spring drives every other key + `whileDrag`; the release runs on
+ * the **Drag transition**: a **Fling**, a snap back to the origin (`dragSnapToOrigin`), or a rest
+ * where it was let go (`dragMomentum={false}`).
  */
 export {
   type DragSnapshot,
@@ -252,9 +252,9 @@ export {
 } from "./variants.ts"
 
 /**
- * `wardic` (ADR-0008 Tier 1, ADR-0042): the `wardic.*` motion-element proxy, `wardic.create(tag)`
+ * `wardic` (ADR-0008 Tier 1, ADR-0042): the `wardic.*` element proxy, `wardic.create(tag)`
  * HOC, and, called, the `use:wardic` directive. `wardic.div` / `wardic.create("div")` build a
- * motion component that puts a Ward on its element and merges the animated style over the
+ * Complete element that puts a Ward on its element and merges the animated style over the
  * user's static style (`Style.over`) while preserving the user's ref (`mergeRefs`) and passing
  * all other props through. `<div use:wardic={config}>` puts one on any element, client-only:
  * import `wardic` for it to resolve.
@@ -277,13 +277,13 @@ export { isWardicComponent, unwrapWardicComponent, type WardicCreateOptions } fr
 export { isValidWardicProp } from "./motion-props.ts"
 
 /**
- * `<AnimatePresence>` — single-child exit-before-unmount (ADR-0007). Wraps a
- * conditional child (e.g. under a `<Show>`); when the child leaves, the presence
- * RETAINS its DOM node and drives the child's `exit` target (parent-driven, since
- * Solid disposes the leaving child's reactive owner), removing the node once the
- * exit settles. `PresenceContext` carries the registrar down to descendant spines.
- * `initial={false}` starts the child present at its first render at its `animate` (#134).
- * Many children, each exiting in its place, and `mode="wait"` (#277, ADR-0048).
+ * `<AnimatePresence>` — exit-before-unmount (ADR-0007). Wraps its children (a conditional
+ * one, under a `<Show>`, or a `<For>`'s); when one leaves, the presence RETAINS its DOM
+ * node and drives the child's `exit` (parent-driven, since Solid disposes the leaving
+ * child's reactive owner), removing the node once the exit settles. `PresenceContext`
+ * carries the registrar down to descendant spines. `initial={false}` starts the child
+ * present at its first render at its `animate` (#134). Many children, each exiting in its
+ * place, and `mode="wait"` (#277, ADR-0048).
  */
 export {
   AnimatePresence,
@@ -303,8 +303,8 @@ export {
  * box-based projection system: `createProjectionNode` registers the element as a
  * projection node (the provider-owned tree handles nesting + sibling reflow).
  * `<LayoutGroup>` is now a thin grouping boundary whose `layoutDependency`
- * triggers a full re-measure. `layoutId` shared-element animation (Switch and
- * Crossfade) is matched entirely by the projection engine (ADR-0010 *Amendment
+ * triggers a full Measure pass. `layoutId` shared-element animation (Switch and
+ * Crossfade) is matched entirely by the Projection system (ADR-0010 *Amendment
  * (#13)*); `measureLayoutBox` reads an untransformed box.
  */
 export { type CreateProjectionNodeOptions, LayoutGroup, createProjectionNode } from "./layout.tsx"

@@ -5,8 +5,9 @@
  * `DomLive` to run animation code without a page. The Clock is deterministic
  * (replays a `dt` sequence), so primitive output is collectable frame-by-frame.
  * Nothing is drawn on a page: an app's components are tested with `DomLive`
- * under the test runner's fake timers (the docs' testing guide, #558).
+ * under the test runner's fake timers, as https://wardic.dev/guides/testing shows.
  */
+// The testing guide: #558.
 export const VERSION = "0.1.0-alpha.0"
 
 export * as TestClock from "./clock.ts"

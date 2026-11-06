@@ -9,7 +9,9 @@ api: [WardEvents, WardEvent, WardSettled, WardGestures, WardElement, WardPoint, 
 On Solid 2, a ward tells what happens to its element as events, where Solid 1 takes Motion's callback props (`onTap`, `onDragEnd`…). Hear them from any ward: one you made, or one a Wardic element hands to its `wardRef` callback.
 
 ```tsx
-const card = w.ward({ whileTap: { scale: 0.95 } })
+import { w } from "@wardic/solid/unstable/v2"
+
+const card = w.ward()
 
 // Once:
 await card.next("tap")
@@ -18,7 +20,7 @@ createEffect(card.when("tap"), (info) => console.log(info.point))
 // Every time:
 for await (const info of card.each("drag")) console.log(info.offset)
 
-<w.div wardRef={card} />
+<w.div wardRef={card} drag whileTap={{ scale: 0.95 }} />
 ```
 
 | Member | |

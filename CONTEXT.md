@@ -36,12 +36,12 @@ _Avoid_: tick, step, sample.
 A Frame that additionally carries `velocity`; emitted only by Physics primitives. The optional `velocity` is the discriminator a type guard narrows on.
 _Avoid_: snapshot (reserved — see below).
 
-**Segment**:
+**Interval**:
 One of the pieces an `animate` or `keyframes` run plays in sequence: one pass of a repeat, or the stretch between two stops. Each starts the moment the one before it ends, in frame time, wherever that falls within a tick, and only the last one's end settles the run.
-_Avoid_: leg (a Retarget's run), iteration (Motion's word for one pass of a repeat).
+_Avoid_: segment (a **Sequence**'s step), leg (a Retarget's run), iteration (Motion's word for one pass of a repeat).
 
 **Hold**:
-A stretch of frame time in which a run's value stays where it is: its `delay`, before its first Segment, or a gap after a Segment that keeps that Segment's last value (`repeatDelay`, Motion's; #91).
+A stretch of frame time in which a run's value stays where it is: its `delay`, before its first Interval, or a gap after an Interval that keeps that Interval's last value (`repeatDelay`, Motion's; #91).
 _Avoid_: pause (a paused run doesn't tick), wait.
 
 **Frame time**:
@@ -84,7 +84,7 @@ _Avoid_: state, current value.
 
 **Leg**:
 One Primitive run a Retarget starts: the numeric keys' and the string keys' are separate legs, and an element settles with its last. A Leg draws its keys until a later Retarget changes them, and one left with none is Superseded.
-_Avoid_: segment (a piece of one `animate` or `keyframes` run), track.
+_Avoid_: interval (a piece of one `animate` or `keyframes` run), segment (a **Sequence**'s step), track.
 
 **Value transition**:
 One value's own transition, inside an element's, a variant's, a gesture target's or an exit's (#301, Motion's): an entry under the value's name. A key runs on its value transition, else the transition's `default` entry, else the transition's own fields; a layout animation on its `layout` entry the same way. Keys on different value transitions are separate Legs. The orchestration (`staggerChildren`, `when` and the rest) stays the whole transition's.
@@ -184,6 +184,10 @@ _Avoid_: animation handle, player.
 An **Imperative animation** of Segments laid out in time (#433, Motion's `animate(sequence)`): each Segment animates its subjects to its values, one after another unless its `at` places it (a time, a time after or before the Segment before, or a **label**'s). It plays as one animation, under one set of **Playback controls**: each subject's values run through their stops over the whole sequence. A function Segment animates a value, from 0 to 1, told to its callback each frame.
 _Avoid_: timeline (the roadmap's `@wardic/timeline` is its own abstraction), chain, choreography.
 
+**Segment**:
+One step of a **Sequence** (Motion's word): an element's or a value's animation with its options and its `at`, a function animated from 0 to 1, or a **label**.
+_Avoid_: interval (a piece of one run), keyframe.
+
 **Animation controls**:
 One object, made anywhere, that Wardic elements are given as their `animate` (#433, Motion's `useAnimationControls`): each element given them follows its calls. A start sets each one's `animate` entry, so it animates and orchestrates its **Variant children** as a change of the prop would, and is awaited until they have all landed; a set lands them at once; a stop ends them where they are. An element given them names its own variants, whatever it's been started to.
 _Avoid_: animation handle, controller, imperative layer.
@@ -209,6 +213,10 @@ _Avoid_: keyboard tap (a tap is only a press's end), key click.
 **State recognizer**:
 A Recognizer that emits a `Stream<boolean>` — active / inactive — for the binary gestures `hover`, `press`, `focus`, `inView`. The binding toggles a variant on the boolean. `press` listens to the **Primary pointer**, and to a **Keyboard press** on its target. `hover` ignores touch, starts no hover during **Drag activity**, and holds a leave until the release of a pointer pressed on its target (ADR-0019).
 _Avoid_: binary recognizer, flag.
+
+**Edge**:
+A **State recognizer** turning on or off, with the event that turned it: a hover's start or end, a target coming into view or leaving it (`Recognizer.Edge`, `Recognizer.ViewEdge`). An event that changes nothing is no Edge.
+_Avoid_: transition (an animation's), toggle.
 
 **Sample recognizer**:
 A Recognizer that emits an event-driven stream of samples carrying positional data and velocity, for the continuous gestures `drag` / `pan`. Distinct from a Frame: not clock-driven and has no Settle — its emissions are events, not ticks.
@@ -292,7 +300,7 @@ A `Bounds` reading taken via `Probe`, recorded so a later layout change can be a
 _Avoid_: snapshot (reserved), rect, box.
 
 **FLIP** (layout animation):
-Animating an element from a prior Measurement to its current one by inverting the geometric delta and playing it to zero (First, Last, Invert, Play). It plays on the element's transition; with none, on Motion's default, a 0.45 s tween eased `cubic-bezier(0.4, 0, 0.1, 1)`. Core's **Projection** owns the Invert→Play math; the binding reports the layout changes only it knows about (`layoutDependency`: a position-only move is invisible to `Probe.observeResize`, so only the render lifecycle knows the before/after points), and the projection engine measures them in a **Measure pass** at the end of the task; matching `layoutId`s is the projection engine's (ADR-0010). Inherently post-mount, so it cannot be SSR'd and the first frame may flash (see ADR-0003). The general, *nested-correct* realization is **Projection** (below) — FLIP is its un-nested special case.
+Animating an element from a prior Measurement to its current one by inverting the geometric delta and playing it to zero (First, Last, Invert, Play). It plays on the element's transition; with none, on Motion's default, a 0.45 s tween eased `cubic-bezier(0.4, 0, 0.1, 1)`. Core's **Projection** owns the Invert→Play math; the binding reports the layout changes only it knows about (`layoutDependency`: a position-only move is invisible to `Probe.observeResize`, so only the render lifecycle knows the before/after points), and the **Projection system** measures them in a **Measure pass** at the end of the task; matching `layoutId`s is the Projection system's (ADR-0010). Inherently post-mount, so it cannot be SSR'd and the first frame may flash (see ADR-0003). The general, *nested-correct* realization is **Projection** (below) — FLIP is its un-nested special case.
 _Avoid_: layout (too broad), reflow animation.
 
 **Projection** (the box-based layout model):
@@ -308,7 +316,7 @@ _Avoid_: layout type, animation type.
 _Avoid_: projection engine, layout engine.
 
 **Projection node**:
-A layout-enabled element's entry in the **projection tree** — a parent link by DOM ancestry, its children, and its retained + target **Box** (`{ x: {min,max}, y: {min,max} }`, the projection-internal geometry that measured `Bounds` convert into). The tree is rooted at a synthetic viewport node the `WardicProvider` supplies, so Projection works with no `<LayoutGroup>`.
+A layout-enabled element's entry in the **projection tree** — a parent link by DOM ancestry, its children, and its retained + target **Box** (`{ x: {min,max}, y: {min,max} }`, the projection-internal geometry that measured `Bounds` convert into). A node with no layout ancestor projects relative to the page, so Projection works with no `<LayoutGroup>`.
 _Avoid_: layout member (the prior flat name), FLIP node.
 
 **Measure pass**:
@@ -324,7 +332,7 @@ While a **Projection node** is dragged, it and its subtree are drag-blocked. A *
 _Avoid_: held (the layout lab's held frames), drag lock (that's a **Drag claim**).
 
 **Shared layout**:
-A layout animation between two *distinct* elements that share a `layoutId` — one leaving, one entering — animating the entering element from where the leaver paints, realized on the **Projection** tree (a `layoutId` element is a **Projection node** seeded from its twin). Where it paints counts everything that moves it on screen: its own layout animation mid-flight, its **Release offset**, a drag, its carriers; at rest that is its Measurement. So a handover that interrupts another goes on from where the twin was seen, as Motion's does. The entering element also starts with the leaver's look as drawn — its corner radius and tilt, and in a **Switch** its opacity — and eases into its own over the handover, so the twins read as one object changing shape. Two modes: a **Switch** (the twins never coexist — the leaver has unmounted; the enterer seeds from where the leaver last painted, captured in the **Root frame** at the leaver's removal and held by the projection engine until the end of the current task) and a **Crossfade** (the twins coexist). The per-element box geometry stays in core.
+A layout animation between two *distinct* elements that share a `layoutId` — one leaving, one entering — animating the entering element from where the leaver paints, realized on the **Projection** tree (a `layoutId` element is a **Projection node** seeded from its twin). Where it paints counts everything that moves it on screen: its own layout animation mid-flight, its **Release offset**, a drag, its carriers; at rest that is its Measurement. So a handover that interrupts another goes on from where the twin was seen, as Motion's does. The entering element also starts with the leaver's look as drawn — its corner radius and tilt, and in a **Switch** its opacity — and eases into its own over the handover, so the twins read as one object changing shape. Two modes: a **Switch** (the twins never coexist — the leaver has unmounted; the enterer seeds from where the leaver last painted, captured in the **Root frame** at the leaver's removal and held by the **Projection system** until the end of the current task) and a **Crossfade** (the twins coexist). The per-element box geometry stays in core.
 _Avoid_: magic motion, shared element (reserve as the informal gloss only).
 
 **Layout group**:
@@ -357,7 +365,7 @@ _Avoid_: transform string, custom transform.
 
 **Layout sub-root** (`layoutRoot`):
 A **Projection node** marked a stable reference frame for its subtree: it never FLIPs its own layout (self-snaps to its new box), bounds the search for a relative parent (its descendants find none above it), and is a **persistent relative anchor** (its descendants always project relative to it). Every ancestor's projection still counts in its descendants' boxes, as CSS composes them. Used to isolate a layout subtree from an ancestor's projection: under an ancestor's layout animation it paints at its new box from the first frame, while an ancestor's transforms (a drag, a **Release offset**) still carry it, as Motion's `layoutRoot` does.
-_Avoid_: layout boundary (reserve "sub-root"), projection root (the synthetic viewport node is *the* root).
+_Avoid_: layout boundary (reserve "sub-root"), projection root.
 
 **Relative anchor** (`layoutAnchor`):
 The point (0–1 per axis, default top-left) in a relativeParent that a node anchors to when projecting relative to it — the knob that makes relative projection through a *scaling* parent sound (moot for a pure-translate parent). `false` opts the node out of relative projection entirely (forces absolute).
@@ -390,20 +398,20 @@ _Avoid_: re-measure, refresh (a **Page-size refresh** keeps every box and pairin
 ### Environment
 
 **Environment**:
-A complete set of Layer implementations of the core services (Clock, `RefreshFrameSource`, Renderer, InputSource, Probe, InterpolatorRegistry with the Environment's **Key rules**, PositionalKeys naming its **Positional keys**), with core's **Frame loop** over its Clock — e.g. DOM, Test.
+A complete set of Layer implementations of the core services (Clock, `RefreshFrameSource`, Renderer, Probe, InterpolatorRegistry with the Environment's **Key rules**, PositionalKeys naming its **Positional keys**, DefaultTransition, Announcer), with core's **Frame loop** over its Clock — e.g. DOM, Test. Its InputSource is built apart, when a gesture first needs one, so an app with none has no input code (ADR-0067, decision 14).
 _Avoid_: platform, adapter, driver.
 
 **Shared source**:
-A contract property of *every* source an Environment hands out, a Stream (`Clock.ticks`, `Probe.observeResize`) or an **Input feed** (pointer, keyboard, focus, intersection; #318): it is hot and ref-counted per target. Subscribers share one underlying source (one rAF loop, one listener-set per element, plus one page-wide set while a pointer that went down on it is held, one observer), established on first subscribe and torn down when the last unsubscribes. A consumer attaching `hover` + `press` + `drag` to one element gets one listener-set, not three. Cold re-running per subscriber is an Environment bug, not a consumer concern. Core's `SharedSource` builds one for any Environment, per target or for the whole Environment. (Resolves the `Clock.ticks` sharing question ADR-0001 flagged: yes, shared.)
+A contract property of *every* source an Environment hands out, a Stream (`Clock.ticks`, `Probe.observeResize`) or an **Input feed** (pointer, keyboard, focus, intersection; #318): it is hot and ref-counted per target, or per subscriber where each brings its own options (an intersection's root and margin). Subscribers share one underlying source (one rAF loop, one listener-set per element, plus one page-wide set while a pointer that went down on it is held, one observer), established on first subscribe and torn down when the last unsubscribes. A consumer attaching `hover` + `press` + `drag` to one element gets one listener-set, not three. Cold re-running per subscriber is an Environment bug, not a consumer concern. Core's `SharedSource` builds one for any Environment, per target or for the whole Environment. (Resolves the `Clock.ticks` sharing question ADR-0001 flagged: yes, shared.)
 The Clock's loop ends at the first Refresh frame after its last subscriber leaves, not at the unsubscribe itself (see **Cold start**).
 _Avoid_: hot stream, multicast (name the property — Shared source).
 
 **Input feed**:
-A target's input as an Environment gives it (#318): started with a callback, it calls it with each event inside the platform's dispatch, until stopped. A gesture recognizer folds a feed's events as they come, with no Stream between; the Streams consumers read (`InputSource.pointer` and the rest) are core's, built over the same feeds. A **Shared source**: one per target, however many recognizers fold it.
+A target's input as an Environment gives it (#318): started with a callback, it calls it with each event inside the platform's dispatch, until stopped. A gesture recognizer folds a feed's events as they come, with no Stream between. `InputSource.pointer` and the rest hand out feeds; a consumer that wants a Stream makes one with `InputFeed.toStream` (ADR-0055). A **Shared source**: one per target, however many recognizers fold it.
 _Avoid_: listener (the platform's), subscription (a Stream's).
 
 **Held pointer**:
-A pointer that went down on a target and hasn't been released. Until its release or cancel, its moves, release and cancel keep reaching that target's `InputSource.pointer` stream wherever they land, so a drag or a press keeps its pointer anywhere on the page. A move with no button pressed ends it, as a lost release, and so does a new press anywhere on the page by it or by a new primary pointer of its kind. A scroll of the page or of a scrollable ancestor while it is held, once it has moved since its down, moves it too: the Environment reports the scroll, and `InputSource.heldPointer` turns it into a move of the held pointer, so a drag stays under the pointer (ADR-0019, *Amendment (Reorder)*). DOM touch holds pointers this way natively; the DOM Environment adds page-wide listeners at the down for the rest. Core's `InputSource.heldPointer` implements it for any Environment (ADR-0019).
+A pointer that went down on a target and hasn't been released. Until its release or cancel, its moves, release and cancel keep reaching that target's pointer **Input feed** wherever they land, so a drag or a press keeps its pointer anywhere on the page. A move with no button pressed ends it, as a lost release, and so does a new press anywhere on the page by it or by a new primary pointer of its kind. A scroll of the page or of a scrollable ancestor while it is held, once it has moved since its down, moves it too: the Environment reports the scroll, and `InputSource.heldPointer` turns it into a move of the held pointer, so a drag stays under the pointer (ADR-0019, *Amendment (Reorder)*). DOM touch holds pointers this way natively; the DOM Environment adds page-wide listeners at the down for the rest. Core's `InputSource.heldPointer` implements it for any Environment (ADR-0019).
 _Avoid_: captured pointer, pointer capture (the DOM's `setPointerCapture`, which Wardic doesn't use), pointer session.
 
 **Refresh frame**:

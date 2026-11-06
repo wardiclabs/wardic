@@ -1,6 +1,6 @@
 /**
- * The box-based projection system (ADR-0009) — the reusable DOM half of the
- * layout engine. It holds the projection nodes, the trigger sources, and the
+ * The box-based Projection system (ADR-0009), the reusable DOM half of
+ * layout animation. It holds the projection nodes, the trigger sources, and the
  * Clock-driven coordinator that derives each node's transform every frame.
  *
  * It has NO framework reactivity: it reaches its host binding through two seams

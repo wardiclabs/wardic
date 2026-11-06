@@ -25,7 +25,10 @@ To test what a component shows rather than how it moves, wrap it in `<WardicConf
 
 ## Gestures
 
-Fire the pointer events: `pointerenter` plays `whileHover`, and `pointerdown` then `pointerup` play `whileTap` and call `onTap`, as in the test above.
+Fire the pointer events, as the tests above do: `pointerenter` plays `whileHover`, and `pointerdown` then `pointerup` play `whileTap` and make a tap.
+
+- **On Solid 1,** a tap calls `onTap`.
+- **On Solid 2,** a tap is the ward's `tap` event: `await card.next("tap")`, or an effect on `card.when("tap")`, as the notice's button has. See [Ward events](/reference/solid/elements/ward-events).
 
 ## What needs a browser
 

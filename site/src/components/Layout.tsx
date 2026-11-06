@@ -97,6 +97,8 @@ const DrawerPanel = w.create(Dialog.Content)
 
 export function Layout(props: { readonly children?: JSX.Element }) {
   const [open, setOpen] = createSignal(false)
+  // The logo's variant: `shown`, its entrance, until every star has landed, then `rest`, which a hover's end comes back to at once.
+  const [mark, setMark] = createSignal<"shown" | "rest">("shown")
   return (
     <div class="site">
       <Dialog open={open()} onOpenChange={setOpen} forceMount>
@@ -110,8 +112,8 @@ export function Layout(props: { readonly children?: JSX.Element }) {
             </svg>
           </MenuTrigger>
           {/* The logo draws itself as the page first paints, and again on hover (Logo.tsx). */}
-          <w.a class="wordmark" href="/" aria-label="Wardic" initial="hidden" animate="shown" whileHover="hover">
-            <Logo />
+          <w.a class="wordmark" href="/" aria-label="Wardic" initial="hidden" animate={mark()} whileHover="hover">
+            <Logo onLanded={() => setMark("rest")} />
           </w.a>
           <div class="header-tools">
             <Search />

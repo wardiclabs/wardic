@@ -39,7 +39,8 @@ To hear a reorder end, say to save it once:
 - **On Solid 2,** make the group with [`reorderGroup`](/reference/solid/reorder/reorder-group) and give it as `groupRef`, the options its config doesn't set beside it, or give a function as `groupRef`, which is handed the group the component makes. Either way, its `reorderEnd`, `holdStart` and `holdEnd` events.
 
 ```tsx
-// Solid 2
+import { Reorder, reorderGroup } from "@wardic/solid/unstable/v2"
+
 const list = reorderGroup({ values: items, onReorder: setItems })
 createEffect(list.when("reorderEnd"), (end) => save(end.values))
 <Reorder.Group groupRef={list} axis="x">…</Reorder.Group>

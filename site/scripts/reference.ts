@@ -29,6 +29,9 @@ const PACKAGES = [
   { dir: "dom", name: "@wardic/dom", about: "The browser's Environment for Wardic: its renderer, input, probe, projection system and the services a binding builds on." },
 ] as const
 
+/** Each index's label: the package is typed with Effect's own types, and what that means for its versions (ADR-0008). */
+const EFFECT_TYPED = "**Effect-typed:** this package uses Effect's own types, so it moves to a new Effect major only in a Wardic major ([the roadmap](/roadmap#10-motions-api-on-solid))."
+
 /** A module's name as a path segment: `DragActivity` is `drag-activity`, `Svg` is `svg`. */
 const slugOf = (name: string): string =>
   name
@@ -291,7 +294,7 @@ const generate = async (pkg: (typeof PACKAGES)[number]): Promise<number> => {
   write(
     "index",
     frontOf(pkg.name, pkg.about) +
-      `# ${pkg.name}\n\n${pkg.about} Each module is \`${pkg.name}/<Module>\`, and each page is generated from its source's doc comments.\n\n| Module | |\n| --- | --- |\n${rows.join("\n")}\n`,
+      `# ${pkg.name}\n\n${EFFECT_TYPED}\n\n${pkg.about} Each module is \`${pkg.name}/<Module>\`, and each page is generated from its source's doc comments.\n\n| Module | |\n| --- | --- |\n${rows.join("\n")}\n`,
   )
   rmSync(out, { recursive: true, force: true })
   return files.length + 1

@@ -1,9 +1,9 @@
 /**
- * The DOM reads the layout engine takes at measure time (ADR-0005 / ADR-0009 /
+ * The DOM reads the Projection system takes at measure time (ADR-0005 / ADR-0009 /
  * ADR-0012). Two box readers: {@link readLayoutBox} is the raw rect the projection
  * pass uses (it owns the transform reset at pass level), {@link measureLayoutBox}
  * a self-resetting single-element read for a lone caller. No framework or Effect dependency — pure DOM — so
- * this lives in `@wardic/dom` alongside the projection engine that consumes it (a
+ * this lives in `@wardic/dom` alongside the Projection system that consumes it (a
  * binding imports it from here).
  *
  * It's the surface of the port the engine would move into `@wardic/core` behind (#16, parked

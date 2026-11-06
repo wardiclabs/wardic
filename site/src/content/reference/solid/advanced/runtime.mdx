@@ -6,6 +6,8 @@ api: [useWardicRuntime, WardicRuntime, WardicServices, runScoped, useWardicFiber
 
 # The runtime
 
+**Effect-typed:** what this page covers uses Effect's own types, so it moves to a new Effect major only in a Wardic major ([the roadmap](/roadmap#10-motions-api-on-solid)).
+
 A `WardicProvider` builds one Effect runtime for everything under it, over its Environment: the clock, the frame loop, the renderer, the probe and the rest. These run Effect code of your own on it, for building on Wardic, or reading what it reads.
 
 ```tsx

@@ -234,3 +234,12 @@ Hover, press, focus, inView and pan already started when their Feature arrived. 
 - **Solid 1:** warm mount +0.0%, Retarget −0.7%, unmount +1.2%; allocated +0.3% per element; kept at rest +0.1% (hover and press 16.62 → 16.63 KB, a Reorder item 27.88 → 27.89); the layout scenes within noise.
 - **Solid 2:** warm mount −3.6%, unmount −0.4%; allocated −0.1%; kept at rest −0.2% (16.14 → 16.08 KB) and +0.3% for a Reorder item (26.19 → 26.26).
 - **A first shape** gave Solid 2's mounted record a getter for its node (`get layout()`). A getter of its own on every record gave each record a shape of its own: an element kept 2.7% more at rest (16.13 → 16.56 KB), and its unmount ran 4.9% slower. The node is a plain field of the record, which the late path writes.
+
+## Amendment (#618, 2026-11-06): the docs lead with `w.*`
+
+Decision 2 kept `wardic.*` as Motion's `motion`, and rejected "Slim by default". The docs went the other way: the landing page, the README, Why Wardic, the start pages and the examples lead with `w.*` and the Features a provider gives (the storefront's elements are all `w.*`), since a page should ship only the Features it uses, and a `wardic.*` element brings about 40 KB gzipped more than a `w.div`. The review of 2026-11-05 found the two disagreeing, and chose the docs.
+
+**Decided.**
+1. **The docs lead with `w.*`,** under a provider given its Features. This supersedes "Rejected: Slim by default" for what Wardic teaches; an app still names no Feature it doesn't use, and `domAnimation` covers hover, press, focus and in-view.
+2. **The API keeps both.** `wardic.*` stays the exact equivalent of Motion's `motion`, every Feature built in, for trying something out; under a `strict` provider or a `LazyWardic` it throws in development, so none reaches a page by accident.
+3. **Every line that maps `motion.div` to `w.div` adds "with the Features its provider gives",** as the Motion page's table does: the README, the landing page, Why Wardic and the Motion page's opening.

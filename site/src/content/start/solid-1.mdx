@@ -5,7 +5,7 @@ description: Install Wardic in a Solid 1 app, add the provider, and animate your
 
 # Start on Solid 1
 
-Wardic's root entry, `@wardic/solid`, is its binding for Solid 1 (`1.9`), and it follows semver from `1.0.0`. It works in a plain Solid app and in SolidStart, rendered on the server or not.
+Wardic's root entry, `@wardic/solid`, is its binding for Solid 1 (`1.9`), and it follows semver from `1.0.0`, its [Effect-typed parts](/roadmap#10-motions-api-on-solid) moving to a new Effect major only in a Wardic major. It works in a plain Solid app and in SolidStart, rendered on the server or not.
 
 ## Install
 
@@ -17,7 +17,7 @@ npm install @wardic/solid @wardic/dom effect solid-js
 
 ## The provider
 
-Every animated element sits under one `WardicProvider`. It takes the environment Wardic runs in, `DomLive` in a browser, and the **Features** its elements have: `domAnimation` is hover, press, focus and in-view.
+Every Wardic element sits under one `WardicProvider`. It takes the environment Wardic runs in, `DomLive` in a browser, and the **Features** its elements have: `domAnimation` is hover, press, focus and in-view.
 
 ```tsx
 import { DomLive } from "@wardic/dom"

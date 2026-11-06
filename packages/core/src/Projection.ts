@@ -69,7 +69,7 @@ export interface Value {
   /** Its ancestors' scale, multiplied together. */
   readonly treeScale: Point.Point
   /**
-   * A shared element's crossfade, from 0 to 1: the element's own opacity is multiplied by it. The lead
+   * A twin's Crossfade, from 0 to 1: the element's own opacity is multiplied by it. The lead
    * fades in, the followers fade out. Absent for a plain layout node, so its own opacity shows.
    */
   // ADR-0010.
@@ -202,7 +202,7 @@ export const applyBoxDelta = (box: Box.Box, delta: Delta): Box.Box => ({
  * Motion's `applyTreeDeltas`. `ancestorDeltas` are its ancestors' deltas, the outermost first and its
  * parent last: each is applied in turn, and its scale multiplied into `treeScale`, which snaps to 1 when
  * it's within float noise of it. The caller decides which ancestors' deltas to pass: what Motion also
- * folds in here, a node with no box of its own, a scroll's compensation, a shared element's transform,
+ * folds in here, a node with no box of its own, a scroll's compensation, a twin's transform,
  * is the caller's.
  */
 // Motion's `TREE_SCALE_SNAP_MIN`–`TREE_SCALE_SNAP_MAX`. The binding feeds `treeScale` to

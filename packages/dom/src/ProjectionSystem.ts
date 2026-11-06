@@ -1,5 +1,5 @@
 /**
- * The Projection system: the DOM's layout engine, one per Environment a binding builds. A binding registers
+ * The Projection system: what runs the DOM's layout animations, one per Environment a binding builds. A binding registers
  * each layout element with it, and when a layout changes it measures their boxes, draws each where it was
  * with a transform, and animates it to where it is now; elements that share a `layoutId` fly one into the
  * other. This module is its key and its types, which every element's code reads: the engine itself is

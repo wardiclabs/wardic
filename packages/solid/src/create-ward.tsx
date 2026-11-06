@@ -13,7 +13,7 @@
  * Starting style until the first commit, then the user's style without the keys the
  * gate holds (ADR-0034). No frame goes through Solid.
  *
- * SSR contract (ADR-0003): the initial style is resolved synchronously and
+ * SSR contract (ADR-0003): the Starting style is resolved synchronously and
  * purely as `project(resolveInitial(config))` — never by spinning the engine.
  * That one resolved value is the `style` until the first commit (so the server /
  * pre-mount render emits it with no flash) AND the spring's `from` Snapshot (so frame 1
@@ -157,7 +157,7 @@ export interface WardUserProps {
  * `createSpring`'s or `createTransform`'s. While no animation sets a key, the element shows its
  * `style` value. With a transform key set, a `transform` string is dropped, as Motion's is.
  *
- * @example style={{ x: createSpring(pointerX), opacity: 0.8 }}
+ * @example <w.div style={{ x: createSpring(pointerX), opacity: 0.8 }} />
  */
 // #130, ADR-0043: a key is its Base value's `style` link; while no layer of the Override stack sets
 // it, the element shows it, following a Live value on every change, and a return goes to where it is.
@@ -486,7 +486,7 @@ export function runSpine(opts: RunSpineOptions): void {
   // What a key with no transition of its own runs on (ADR-0051).
   const defaultTransition = useWardicDefaultTransition()
 
-  // SSR seed: resolved purely from the config read EXACTLY ONCE (untrack — no
+  // Starting style: resolved purely from the config read EXACTLY ONCE (untrack — no
   // reactive dependency, must not re-seed after mount), with the inherited `initial`
   // name for a Variant child that has none (#50). Seeds the spring `from` Snapshot so
   // frame 1 flows continuously out of it (no snap).
@@ -1032,7 +1032,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   // The Renderer's PURE project (ADR-0003: synchronous, no engine), read once by the provider (#618, M1).
   const { project } = useWardicRenderer()
 
-  // SSR seed: resolved purely from the config read EXACTLY ONCE (untrack — no
+  // Starting style: resolved purely from the config read EXACTLY ONCE (untrack — no
   // reactive dependency, must not re-seed after mount), with the inherited `initial`
   // name for a Variant child that has none (#50). It's the `style` until the first
   // commit, so pre-mount render carries the initial style (no flash).

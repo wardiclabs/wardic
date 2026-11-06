@@ -1,5 +1,5 @@
 /**
- * Animation sequences, as Motion's: a timeline of Segments, compiled to one keyframes animation per
+ * Animation sequences, as Motion's: Segments laid out in time, compiled to one keyframes animation per
  * subject and key, each stop placed in time over the whole sequence. A binding resolves each Segment's
  * subjects and transitions, compiles once, and runs what comes back on its own animations.
  *
@@ -96,7 +96,7 @@ export type Step<S> = string | Label | Segment<S>
 
 /**
  * A whole sequence's options (Motion's `SequenceOptions`), laid over each key's animation: its
- * `duration` (the timeline scaled to it), `delay`, and `repeat`, `repeatType` and `repeatDelay`.
+ * `duration` (the whole sequence scaled to it), `delay`, and `repeat`, `repeatType` and `repeatDelay`.
  */
 export type Options = { readonly [K in "duration" | "delay" | "repeat" | "repeatType" | "repeatDelay"]?: Machine.KeyframesOptions[K] | undefined }
 

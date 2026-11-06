@@ -191,7 +191,7 @@ export interface DragTrackOptions {
    */
   readonly onSample?: ((sample: Drag.Sample) => void) | undefined
   /**
-   * The release came to rest on its own (Motion's `onDragTransitionEnd`): its momentum or its
+   * The release came to rest on its own (Motion's `onDragTransitionEnd`): its Fling or its
    * spring back finished, or it was dropped where it rests. Told after the gate's flush of the rest
    * value. Not for one a grab stopped. A free drag's only: a layout node's release is its Release
    * offset, which the projection tells.

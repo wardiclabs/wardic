@@ -53,7 +53,10 @@ On a Wardic element, the keys it animates stay where it leaves them until the el
 On Solid 2, `scope.settled()` is an async value: pending while any of its animations is in flight, then the last one that landed. `isPending(() => scope.settled())` reads "animating":
 
 ```tsx
-// Solid 2
+import { createAnimate } from "@wardic/solid/unstable/v2"
+import { isPending } from "solid-js"
+
+const [scope, animate] = createAnimate()
 <button disabled={isPending(() => scope.settled())} onClick={reveal}>Reveal</button>
 ```
 

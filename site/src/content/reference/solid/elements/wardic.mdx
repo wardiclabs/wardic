@@ -23,14 +23,16 @@ The Complete forms of a ward are `createWard` and `use:wardic` on Solid 1, and `
 
 On Solid 2, a Wardic element takes `wardRef`:
 
-- **A ward made elsewhere,** such as with `w.ward()`, to read the element's values and hear its events from outside it. Its config drives the element; motion props beside it set what it leaves out, and a key set by both is an error.
+- **A ward made elsewhere,** to read the element's values and hear its events from outside it. `w.ward()`, with no config, is a listening ward: the motion props stay on the element, and the ward hears it. A ward made with a config drives the element too, and the props beside it set what its config leaves out: a key set by both is an error.
 - **A callback,** `wardRef={(card) => …}`, which gets the ward the element made for itself.
 
 ```tsx
-const card = w.ward({ whileHover: { scale: 1.05 } })
+import { w } from "@wardic/solid/unstable/v2"
+
+const card = w.ward()
 createEffect(card.when("tap"), () => setOpen(true))
 
-<w.div wardRef={card} animate={{ opacity: 1 }} />
+<w.div wardRef={card} animate={{ opacity: 1 }} whileHover={{ scale: 1.05 }} />
 ```
 
 ## Coming from Motion

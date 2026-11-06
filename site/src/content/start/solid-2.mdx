@@ -5,7 +5,7 @@ description: Install Wardic in a Solid 2 app, add the provider, and animate your
 
 # Start on Solid 2
 
-Wardic's binding for Solid 2 is `@wardic/solid/unstable/v2`: the same elements and props as Solid 1's, built on Solid 2's reactivity. It stays outside semver until Solid 2 itself is stable.
+Wardic's binding for Solid 2 is `@wardic/solid/unstable/v2`: the same elements and animation props as Solid 1's, built on Solid 2's reactivity. Where Solid 1 takes Motion's callback props, such as `onTap`, Solid 2 tells the same moments as a ward's events: give the element a ward, `<w.button wardRef={card}>`, and `onTap` is `await card.next("tap")`. See [Ward events](/reference/solid/elements/ward-events). It stays outside semver until Solid 2 itself is stable.
 
 ## Install
 
@@ -15,7 +15,7 @@ npm install @wardic/solid @wardic/dom effect solid-js@next @solidjs/web@next
 
 ## The provider
 
-Every animated element sits under one `WardicProvider`. It takes the environment Wardic runs in, `DomLive` in a browser, and the **Features** its elements have: `domAnimation` is hover, press, focus and in-view.
+Every Wardic element sits under one `WardicProvider`. It takes the environment Wardic runs in, `DomLive` in a browser, and the **Features** its elements have: `domAnimation` is hover, press, focus and in-view.
 
 ```tsx
 import { DomLive } from "@wardic/dom"

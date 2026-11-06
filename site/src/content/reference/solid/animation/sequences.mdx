@@ -1,12 +1,12 @@
 ---
 title: Sequences
-description: Animations played one after another from code, each Segment placed on one timeline, with labels and function Segments.
+description: Animations played one after another from code, each Segment placed in time, with labels and function Segments.
 api: [WardicAnimationSequence, WardicSegment, WardicElementSegment, WardicFunctionSegment, WardicSegmentOptions, WardicSegmentTarget, WardicSequenceLabel, WardicSequenceTime, WardicSequenceOptions]
 ---
 
 # Sequences
 
-A sequence is animations played one after another on one timeline, from [`createAnimate`](/reference/solid/animation/create-animate)'s `animate`. Each Segment starts as the one before ends, unless its `at` says otherwise.
+A sequence is animations laid out in time and played as one, from [`createAnimate`](/reference/solid/animation/create-animate)'s `animate`. Each Segment starts as the one before ends, unless its `at` says otherwise.
 
 ```tsx
 const [scope, animate] = createAnimate()
@@ -27,7 +27,7 @@ const open = () =>
 - **`[callback, value?, options?]`** is a function Segment: its callback is given a value each frame, from 0 to 1, or through the stops you give, for what isn't an element's style, such as a counter or a canvas.
 - **A label**, a string, names the time where the Segment before ends, for a later `at`. `{ name, at }` names a time of its own.
 
-A Segment's options are a transition, its `delay` a number or `stagger()`, and `at`. A spring through two stops or fewer plays as an easing over its time to rest, so it fits the timeline.
+A Segment's options are a transition, its `delay` a number or `stagger()`, and `at`. A spring through two stops or fewer plays as an easing over its time to rest, so it fits the sequence's time.
 
 ## at
 

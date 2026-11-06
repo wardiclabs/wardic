@@ -15,17 +15,18 @@ const STILL_SCROLL: Probe.Scroll = { x: { current: 0, length: 0, progress: 1 }, 
 const toIntersection = (intersecting: boolean): Probe.Intersection => ({ intersecting })
 
 /** Options for the static test Probe. */
+// pageVisible: #443. scroll: #234. intersection, an Input feed: #318.
 export interface Options {
   readonly bounds?: Probe.Bounds
   readonly viewport?: { readonly width: number; readonly height: number }
   readonly prefersReducedMotion?: boolean
-  /** Whether the page is shown (#443): `true` when left out. */
+  /** Whether the page is shown: `true` when left out. */
   readonly pageVisible?: boolean
-  /** Every container's scroll, as `scroll` gives it (#234): a page that doesn't scroll when left out. */
+  /** Every container's scroll, as `scroll` gives it: a page that doesn't scroll when left out. */
   readonly scroll?: Probe.Scroll
   /**
    * Script of intersection (in-view) booleans replayed by `observeIntersection`, an **Input feed**
-   * that ends after it (#318). Mirrors the InputSource test harness: omitted (or empty) means it
+   * that ends after it. Mirrors the InputSource test harness: omitted (or empty) means it
    * emits nothing and ends.
    */
   readonly intersection?: ReadonlyArray<boolean>
@@ -61,13 +62,14 @@ const fixed = ({ bounds = ZERO_BOUNDS, viewport = VIEWPORT, prefersReducedMotion
  * A push-based Probe for tests that need to interleave intersection
  * (in-view/out-of-view) transitions with other effects on their own schedule —
  * mirroring {@link TestInput.pushable}. `observeIntersection(target)` subscribes
- * to a hub (#318), so every subscriber sees the same transitions and only
+ * to a hub, so every subscriber sees the same transitions and only
  * events pushed *after* a subscription is live reach it. `pushIntersection`
  * doesn't yield: a subscriber handles the transition inside the push,
- * as `TestInput.pushable`'s do (ADR-0032). `pushScroll` sets the scroll every container reads,
- * through the Environment's registry, as a scroll event would (#234).
+ * as `TestInput.pushable`'s do. `pushScroll` sets the scroll every container reads,
+ * through the Environment's registry, as a scroll event would.
  * measure/viewport/prefersReducedMotion/observeResize behave as in {@link layer}.
  */
+// The hub: #318. No yield: ADR-0032. Scroll: #234.
 export const pushable = (options: Options = {}): Effect.Effect<{
   readonly layer: Layer.Layer<Probe.Probe>
   readonly pushIntersection: (inView: boolean) => Effect.Effect<void>

@@ -450,3 +450,7 @@ Motion 14.6 now resolves a string translate in its target box as a percentage of
 ## Note (#618, 2026-11-06): core's `Flip` module is removed
 
 This ADR replaced the one-delta FLIP with the Projection. Core's `Flip` module (`Flip.make`) stayed exported with nothing calling it, and the docs listed it as an API. It's removed, with its page. The glossary's **FLIP** entry names the Projection as what does the Invert→Play math.
+
+## Note (#618, 2026-11-06): no synthetic viewport node
+
+The tree described above is rooted at a synthetic viewport node `WardicProvider` supplies. There is none: a **Projection node** with no layout ancestor projects relative to the page, as the un-nested case above does. The glossary's Projection node says so.

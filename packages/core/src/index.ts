@@ -1,18 +1,19 @@
 /**
- * @wardic/core — the framework-agnostic animation engine, one module per data type or
- * CONTEXT.md term (ADR-0028). The root re-exports each module as a namespace, for a user who
+ * @wardic/core — the framework-agnostic animation engine, one module per data type or term of
+ * Wardic's glossary, and Effect-typed. The root re-exports each module as a namespace, for a user who
  * writes `import { Machine } from "@wardic/core"`; code in the repo imports the subpath,
  * `import * as Machine from "@wardic/core/Machine"`.
  *
  * Each Primitive is a machine (`Machine`), run as a `Stream` over the Clock's ticks
- * (`Machine.toStream`) or on the Frame loop (`Machine.run`): see ADR-0001, ADR-0027 and
- * ADR-0028 in `docs/adr/`. The services (`Clock`, `RefreshFrameSource`, `Renderer`,
- * `InputSource`, `Probe`, `InterpolatorRegistry`, `FrameLoop`, `DefaultTransition`) are each `X.X`,
- * with the shared constructors the Environments build on (`Clock.layer`, `Clock.fromRefreshFrames`,
- * `InputSource.heldPointer`, `InputFeed.byTarget`, `InterpolatorRegistry.layer`, `FrameLoop.layer`,
- * `DefaultTransition.layerOneSpring`). Design decisions and the project glossary live in `CONTEXT.md`
- * and `docs/adr/`.
+ * (`Machine.toStream`) or on the Frame loop (`Machine.run`). The services (`Clock`,
+ * `RefreshFrameSource`, `Renderer`, `InputSource`, `Probe`, `InterpolatorRegistry`, `FrameLoop`,
+ * `DefaultTransition`) are each `X.X`, with the shared constructors the Environments build on
+ * (`Clock.layer`, `Clock.fromRefreshFrames`, `InputSource.heldPointer`, `InputFeed.byTarget`,
+ * `InterpolatorRegistry.layer`, `FrameLoop.layer`, `DefaultTransition.layerOneSpring`). Each module's
+ * page is at https://wardic.dev/reference/core.
  */
+// A module per data type or CONTEXT.md term: ADR-0028. Primitives as machines, run as Streams or on
+// the Frame loop: ADR-0001, ADR-0027. Design decisions and the glossary: `docs/adr/` and `CONTEXT.md`.
 export * as Announcer from "./Announcer.ts"
 export * as Arc from "./Arc.ts"
 export * as AutoScroll from "./AutoScroll.ts"

@@ -1,9 +1,9 @@
 /**
- * `@wardic/dom`: the browser Environment, and the framework-free pieces a binding builds on (#132,
- * ADR-0041). It's for binding authors (ADR-0008 Tier 2): Wardic's own, and any other.
+ * `@wardic/dom`: the browser Environment, and the framework-free pieces a binding builds on. It's for
+ * binding authors, Wardic's own and any other, and it's Effect-typed.
  *
  * - **An app** imports {@link DomLive}, the composed Environment it hands its binding, and
- *   {@link CheckFrames}, to check its Frames in development (#586).
+ *   {@link CheckFrames}, to check its Frames in development.
  * - **A binding** imports each module by its subpath, as a namespace
  *   (`import * as FlushGate from "@wardic/dom/FlushGate"`), and the root re-exports each one:
  *   - the DOM's implementations of core's services, each with its `layer` (Effect's platform
@@ -16,6 +16,7 @@
  *
  * Everything under `internal/` is dom's own and not exported.
  */
+// `@wardic/dom` (#132, ADR-0041), Tier 2 (ADR-0008); CheckFrames re-exported for an app (#586).
 import type * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
@@ -60,34 +61,32 @@ export * as OwnValues from "./OwnValues.ts"
 export * as Report from "./Report.ts"
 
 /**
- * Core's dev check for non-finite Frames (`FrameLoop.CheckFrames`, ADR-0030 decision 7), here for an
- * app, which installs `@wardic/dom` and not `@wardic/core` (#586). Off by default; merged beside
- * {@link DomLive} as `Layer.succeed(CheckFrames, true)`, it fails an animation whose Frame holds a NaN
- * or an Infinity, naming its key and value, where the page would drop it without a word. It checks
- * every Frame, so it's for development.
+ * Core's development check for Frames that aren't finite (`FrameLoop.CheckFrames`), here for an app,
+ * which installs `@wardic/dom` and not `@wardic/core`. Off by default; merged beside {@link DomLive} as
+ * `Layer.succeed(CheckFrames, true)`, it fails an animation whose Frame holds a NaN or an Infinity,
+ * naming its key and value, where the page would drop it without a word. It checks every Frame, so
+ * it's for development: see https://wardic.dev/guides/observability.
  */
+// ADR-0030 decision 7; re-exported here for an app (#586).
 export { CheckFrames } from "@wardic/core/FrameLoop"
 
 /**
- * The composed browser environment: the DOM's service Layers plus core's
- * {@link InterpolatorRegistry} with the DOM's Key rules (`DomInterpolators.layer`, ADR-0035)
- * and its Frame loop over the DOM Clock
- * (`FrameLoop.layer`, ADR-0027), fully self-contained (R = never). `DomClock.layer` also
- * provides the `RefreshFrameSource` the flush gate requests its flushes from (ADR-0031).
+ * The browser Environment, composed: the DOM's services, core's interpolators with the DOM's Key
+ * rules, and the Frame loop over the DOM's Clock, needing nothing else. Hand it to `WardicProvider`'s
+ * `env` to run the engine on the page.
  *
- * `DomProbe.layer` requires the Environment's `AtomRegistry` (it writes the
- * `viewport`/`prefersReducedMotion` Atoms through it), and consumers read those same
- * Atoms through that registry — so `AtomRegistry` is
- * provided to them via `Layer.provideMerge` AND re-exposed in the output env,
- * exactly as the headless `testLayer` (packages/test) does. Provide this to
- * `WardicProvider` to run the full engine against the real DOM.
+ * It has no input: a binding's gestures build `DomInput.layer` with the first one an app uses, so an
+ * app with none ships no input code.
  *
- * It builds no `InputSource` (#511, ADR-0067 decision 14): a binding's gestures build `DomInput.layer`
- * with the first one an app uses, so an app with none ships no input code.
- *
- * Client-only: a server render builds no runtime, and building DomLive on a server fails
- * with a clear error naming the Layer and the missing global (ADR-0021, decision 7).
+ * Client-only: a server render builds no runtime, and building DomLive on a server fails with an
+ * error naming the service and the missing global: see https://wardic.dev/guides/server-rendering.
  */
+// Key rules: ADR-0035. Frame loop: ADR-0027. `DomClock.layer` also provides the `RefreshFrameSource`
+// the flush gate requests its flushes from (ADR-0031). `DomProbe.layer` writes the `viewport` and
+// `prefersReducedMotion` Atoms through the Environment's `AtomRegistry`, and consumers read them
+// through the same registry, so `AtomRegistry` is provided to the Layers with `Layer.provideMerge` and
+// kept in the output, as the headless `testLayer` (packages/test) does: R = never. No InputSource:
+// #511, ADR-0067 decision 14. Client-only: ADR-0021, decision 7.
 export const DomLive: Layer.Layer<
   | Clock.Clock
   | RefreshFrameSource.RefreshFrameSource

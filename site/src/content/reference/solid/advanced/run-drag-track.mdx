@@ -6,6 +6,8 @@ api: [runDragTrack, RunDragTrackOptions, DragSnapshot, DragTrackConfig]
 
 # runDragTrack
 
+**Effect-typed:** what this page covers uses Effect's own types, so it moves to a new Effect major only in a Wardic major ([the roadmap](/roadmap#10-motions-api-on-solid)).
+
 **Solid 1 only.** Runs a drag on an element as a Wardic element's own drag runs: its gesture, constraints, elastic, release and drag claims, writing `x` and `y` through the element's values. For an element of your own built on Wardic's drag; an app gives `drag` to a `w.*` element or a [ward](/reference/solid/elements/ward) instead.
 
 ```tsx
@@ -19,7 +21,7 @@ Call it within a Solid owner, once the element exists: it stops, with any releas
 ## Options
 
 - **`element`** and **`id`**: the element, and its id in the [flush gate](/reference/solid/advanced/flush-gate), which the drag writes `x` and `y` into.
-- **`config`**: its drag config, a **`DragTrackConfig`**, read once: `drag`'s axis, constraints, elastic, momentum, snap to origin, release transition, direction lock, propagation and listener, as a Wardic element's props give them.
+- **`config`**: its drag config, a **`DragTrackConfig`**, read once: `drag`'s axis, constraints, elastic, whether it Flings, snap to origin, its Drag transition, direction lock, propagation and listener, as a Wardic element's props give them.
 - **`snapshot`**: a **`DragSnapshot`**, the element's values and velocities, which the drag reads to start from where the element is and writes as it moves.
 - **`runtime`** and **`gate`**: the provider's.
 - **`recordFrame`** and **`setDragging`**: what the drag tells the element each frame it moves it, and as a drag starts and ends.

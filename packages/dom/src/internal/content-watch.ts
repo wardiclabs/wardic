@@ -5,7 +5,7 @@
  *
  * - `Probe.scroll` watches a container's (the page's: the body's), so its range follows its content
  *   (#239, ADR-0043 *Amendment (#239)*).
- * - The layout engine watches the page's, so a node that content elsewhere moved is measured again
+ * - The Projection system watches the page's, so a node that content elsewhere moved is measured again
  *   (#261, ADR-0018 *Amendment (#261)*).
  *
  * The observer is shared by count: a box watched for two reasons (a scroll target that is also a

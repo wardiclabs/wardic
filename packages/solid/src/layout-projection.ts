@@ -10,7 +10,7 @@ import { layoutBrought, type LayoutServices, projectionBrought } from "./feature
 import { fromWardicContext } from "./provider.tsx"
 
 /**
- * Reads the provider's projection system (ADR-0009 — the box-based layout engine), bringing the
+ * Reads the provider's projection system (ADR-0009, the box-based Projection), bringing the
  * `layout` Feature (#511, decision 12): built now if nothing has built it yet. For a component that
  * brings it (`LayoutGroup`, `Reorder`, `createProjectionNode`). Throws a clear, named error outside a
  * `WardicProvider`, or during a server render. Must be called within a Solid owner.

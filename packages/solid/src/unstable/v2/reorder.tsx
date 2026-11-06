@@ -4,7 +4,7 @@
  * carry their props, as a ward is; `Reorder.Group` and `Reorder.Item` are built on them.
  *
  * ```tsx
- * const list = reorderGroup(() => ({ values: items(), onReorder: setItems }))
+ * const list = reorderGroup({ values: items, onReorder: setItems })
  * <ul {...list}>
  *   <For each={items()}>
  *     {(item) => {
@@ -208,7 +208,9 @@ export interface ReorderGroup<V> extends ReorderGroupProps, AnyReorderGroup<V> {
    * })
    * const list = reorderGroup({ values: order, onReorder: setOrder })
    * const reordered = list.when("reorderEnd")
-   * createEffect(() => reordered().values.map((task) => task.id), (ids) => save(ids).catch(setSaveError))
+   * createEffect(() => reordered().values.map((task) => task.id), (ids) => {
+   *   save(ids).catch(setSaveError)
+   * })
    * ```
    */
   readonly when: <E extends keyof ReorderGroupEvents<V>>(name: E) => Accessor<ReorderGroupEvents<V>[E]>
@@ -723,7 +725,7 @@ const ITEM_CONFIG = [...MOTION_PROPS, "value", "tabindex", "aria-describedby"] a
 const KEYBOARD_ATTRIBUTES = ["tabindex", "aria-describedby"] as const
 
 /**
- * The motion element for `tag`, as a plain component: a Slim element's (`w[tag]`, #511), so a Reorder
+ * The Wardic element for `tag`, as a plain component: a Slim element's (`w[tag]`, #511), so a Reorder
  * brings no Feature but its own (ADR-0067 decision 12) and renders under a `strict` section.
  */
 const wardicTag = (tag: string): Component<Record<string, unknown>> =>

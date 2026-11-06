@@ -7,7 +7,8 @@
  *
  * Many children (#277, ADR-0048): a child is its DOM node, so one that leaves is the node that left
  * the resolved children, each exiting on its own, in its place. A child that comes back mid-exit is
- * a new node, which enters beside the leaver while the leaver finishes (#286 would key them).
+ * a new node: under the leaver's `key` it takes over from where the leaver is (#286); without one it
+ * enters beside the leaver while the leaver finishes.
  *
  * `mode="wait"` (#277, ADR-0048): while a child exits, one entering is held off the page, its wards
  * not started, and goes on it once the last leaver is gone. Its framework has built it already, so

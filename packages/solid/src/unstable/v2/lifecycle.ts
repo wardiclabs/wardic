@@ -136,7 +136,7 @@ export interface WardEvents {
   /** That drag ended at its release (Motion's `onDragEnd`). */
   readonly dragEnd: WardDragInfo
   /**
-   * The drag's release came to rest on its own (Motion's `onDragTransitionEnd`): its momentum
+   * The drag's release came to rest on its own (Motion's `onDragTransitionEnd`): its Fling
    * or its spring back, or at once for one released in place. Not for one a grab stopped.
    */
   readonly dragTransitionEnd: undefined
@@ -348,10 +348,10 @@ export class Lifecycle implements AnimationHooks {
   }
 
   /** A hover's start or end on `element` (#257): its start is the first `hover` too (#397). */
-  hovered(transition: Recognizer.Transition, element: WardElement): void {
+  hovered(edge: Recognizer.Edge, element: WardElement): void {
     if (Predicate.isUndefined(this.events)) return
-    const info = (): WardPointInfo => ({ ...pointInfoOf(transition.event), element })
-    if (transition.active) {
+    const info = (): WardPointInfo => ({ ...pointInfoOf(edge.event), element })
+    if (edge.active) {
       this.tell("hoverStart", info)
       this.tell("hover", info)
       return
@@ -410,9 +410,9 @@ export class Lifecycle implements AnimationHooks {
     this.tell("layoutComplete", constUndefined)
   }
 
-  /** An in-view transition (#273): the element entered or left the view. */
-  viewed(transition: Recognizer.ViewTransition): void {
-    this.tell(Bool.match(transition.active, { onTrue: (): WardEvent => "viewportEnter", onFalse: () => "viewportLeave" }), constUndefined)
+  /** An in-view edge (#273): the element entered or left the view. */
+  viewed(edge: Recognizer.ViewEdge): void {
+    this.tell(Bool.match(edge.active, { onTrue: (): WardEvent => "viewportEnter", onFalse: () => "viewportLeave" }), constUndefined)
   }
 
   /** A drag's or a pan's sample past a pan's session's start: its start's or end's event (`named`), then `every` at its start and each move. */

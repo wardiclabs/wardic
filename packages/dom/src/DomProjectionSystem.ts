@@ -1,5 +1,5 @@
 /**
- * The DOM's layout engine: `layer` builds the Projection system, writing through the Environment's
+ * The DOM's Projection system: `layer` builds it, writing through the Environment's
  * `FlushGate`, and `make` builds it over any sink, for a binding that wires it itself. Only a binding's
  * layout feature imports it, so a page that never lays out ships none of it. Closing its Scope stops the
  * engine: its run, its observers and listeners, and what it forked. Built after the gate, it ends before

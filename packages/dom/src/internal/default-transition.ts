@@ -7,7 +7,7 @@
  * - anything else (opacity, colours, a box's size, a filter): a 0.3 s tween on
  *   `cubic-bezier(0.25, 0.1, 0.35, 1)`, "a slightly shallower version of the browser's default ease".
  *
- * - more than two keyframes (#429): Motion's `keyframesTransition`, a 0.8 s tween, each Segment on
+ * - more than two keyframes (#429): Motion's `keyframesTransition`, a 0.8 s tween, each Interval on
  *   `easeOut`, the `ease` Motion's `animateMotionValue` gives every value before its default.
  *
  * `DomLive` provides the Layer.
