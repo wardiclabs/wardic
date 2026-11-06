@@ -16,7 +16,7 @@ import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import type { PostPaintTicker } from "../probe/paint-sampler.ts"
 import type { Timeline } from "../probe/timeline.ts"
 
-type Snapshot = ProjectionSystem.Snapshot
+type Tree = ProjectionSystem.Tree
 
 /** The Clock's span: open while Wardic's frame loop runs. */
 const CLOCK_SPAN = "wardic.clock"
@@ -31,7 +31,7 @@ export interface TreeState {
   readonly toFrame: number
   /** The first frame's post-paint time, in ms. */
   readonly at: number
-  readonly snapshot: Snapshot
+  readonly snapshot: Tree
 }
 
 /** One recording: the tree's states, in order, the last at rest when the Clock stopped. */
@@ -42,9 +42,9 @@ export interface TreeRecording {
 /** The recorder. */
 export interface TreeRecorder {
   /** Read the tree through `read` from now on (the provider's engine); the returned function stops. */
-  readonly attach: (read: () => Snapshot) => () => void
+  readonly attach: (read: () => Tree) => () => void
   /** The tree now, if attached: the panel's at-rest snapshot. */
-  readonly now: () => Snapshot | undefined
+  readonly now: () => Tree | undefined
   /** The last recording kept. */
   readonly last: () => TreeRecording | undefined
   /** Called with each recording kept. */
@@ -52,7 +52,7 @@ export interface TreeRecorder {
 }
 
 /** What tells two trees apart: each node's links and flags, cheaper than its JSON each frame. */
-const keyOf = (snapshot: Snapshot): string =>
+const keyOf = (snapshot: Tree): string =>
   snapshot.nodes
     .map(
       (n) =>
@@ -63,7 +63,7 @@ const keyOf = (snapshot: Snapshot): string =>
 
 /** Builds the recorder on the lab's post-paint ticker. Call it once. */
 export const makeTreeRecorder = (ticker: PostPaintTicker, timeline: Timeline): TreeRecorder => {
-  let read: (() => Snapshot) | undefined
+  let read: (() => Tree) | undefined
   // The recording in progress: its states, the last one's key, and the frames since it changed.
   let current: { states: Array<TreeState>; key: string; quiet: number } | undefined
   let last: TreeRecording | undefined

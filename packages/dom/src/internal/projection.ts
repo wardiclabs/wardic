@@ -1137,20 +1137,20 @@ export interface ProjectionSystem extends Inspectable.Inspectable {
    * as the engine reads them.
    */
   // #384.
-  readonly toJSON: () => Snapshot
+  readonly toJSON: () => Tree
 }
 
 /** {@link ProjectionSystem.toJSON}'s tree. */
-// #384.
-export interface Snapshot {
+// #384. `Tree`, not `Snapshot`, which the glossary keeps for a binding's seed (#618, A3).
+export interface Tree {
   /** What it is, as Effect's `Inspectable` names it. */
   readonly _id: "ProjectionSystem"
   /** Every node, in the order it was registered. */
-  readonly nodes: ReadonlyArray<NodeSnapshot>
+  readonly nodes: ReadonlyArray<TreeNode>
 }
 
-/** One node in a {@link Snapshot}. */
-export interface NodeSnapshot {
+/** One node in a {@link Tree}. */
+export interface TreeNode {
   /** The id its binding registered it with. */
   readonly id: string
   /** Its element's tag, lower-case. */
@@ -5950,7 +5950,7 @@ export const makeProjectionSystem = (
   }
 
   // The tree as plain data (#384): a diagnostic read, so it reads what's there and changes nothing.
-  const snapshotOf = (node: NodeState): NodeSnapshot => {
+  const treeNodeOf = (node: NodeState): TreeNode => {
     const lead = UndefinedOr.map(node.layoutId, leadOf)
     const twin = UndefinedOr.map(node.layoutId, () => Bool.match(lead === node, { onTrue: () => "lead" as const, onFalse: () => "follower" as const }))
     return {
@@ -5967,7 +5967,7 @@ export const makeProjectionSystem = (
       leaving: node.leaving,
     }
   }
-  const toJSON = (): Snapshot => ({ _id: "ProjectionSystem", nodes: Arr.map(Arr.fromIterable(nodes), snapshotOf) })
+  const toJSON = (): Tree => ({ _id: "ProjectionSystem", nodes: Arr.map(Arr.fromIterable(nodes), treeNodeOf) })
 
   const system: ProjectionSystem = {
     ...Inspectable.BaseProto,

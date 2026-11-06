@@ -446,3 +446,5 @@ Pinned by EX1 (`packages/dom/test/exports.node.test.ts`: the root's `CheckFrames
 ## Amendment (#618, 2026-11-05): `DomProjectionSystem.make` gives a context
 
 ADR-0020's *Amendment (#618)* moves the Reorder controller's pass-end hook into an internal service. `DomProjectionSystem.make` gives back a `Context` holding the engine as `ProjectionSystem` beside that `PassEnds`, and `layer` provides both (`Layer.effectContext`). The note above that `make` returns the factory's object itself, for the WeakMap's sake, no longer applies. `ReorderController.Services` names `PassEnds`; a binding builds a controller with the layout Feature's whole context (solid's `useLayoutServices`), not the engine alone.
+
+*Note (#618, 2026-11-06):* `toJSON()`'s types are `ProjectionSystem.Tree` and `ProjectionSystem.TreeNode`, no longer `Snapshot` and `NodeSnapshot`. The glossary's **Snapshot** is a binding's seed of an element's values, so the tree took a name of its own (A3).
