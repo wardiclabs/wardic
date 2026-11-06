@@ -1,9 +1,9 @@
-import { motion } from "motion/react"
+import * as m from "motion/react-m"
 
 /** A card that rises into place as it mounts, and lifts under the pointer. */
 export default function Enter() {
   return (
-    <motion.div
+    <m.div
       className="sample-card"
       initial={{ opacity: 0, y: 24 }}
       animate={{ opacity: 1, y: 0 }}
@@ -11,6 +11,6 @@ export default function Enter() {
       transition={{ type: "spring", stiffness: 260, damping: 22 }}
     >
       Hello, Wardic
-    </motion.div>
+    </m.div>
   )
 }

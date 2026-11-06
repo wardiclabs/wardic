@@ -1,4 +1,5 @@
-import { motion, useMotionValue, useSpring } from "motion/react"
+import { useMotionValue, useSpring } from "motion/react"
+import * as m from "motion/react-m"
 import type { PointerEvent } from "react"
 
 /** A dot that follows the pointer: the pointer sets two motion values, and two springs follow them. */
@@ -14,7 +15,7 @@ export default function Follow() {
   }
   return (
     <div className="sample-field" onPointerMove={follow}>
-      <motion.div className="sample-dot" style={{ x: springX, y: springY }} />
+      <m.div className="sample-dot" style={{ x: springX, y: springY }} />
     </div>
   )
 }

@@ -441,6 +441,33 @@ a {
   border-radius: 0;
 }
 
+/* An install command and its copy button, side by side (InstallTabs.tsx). */
+.install-command {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding-right: var(--space-3);
+  background: var(--surface);
+}
+
+.install-command pre {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+}
+
+.copy-button {
+  flex: none;
+  padding: 4px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--tile);
+  color: var(--ink);
+  font: inherit;
+  font-size: var(--text-s);
+  cursor: pointer;
+}
+
 .demo {
   margin: 0 0 var(--space-4);
   border: 1px solid var(--line);

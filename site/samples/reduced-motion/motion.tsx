@@ -1,4 +1,5 @@
-import { motion, MotionConfig, useReducedMotion } from "motion/react"
+import { MotionConfig, useReducedMotion } from "motion/react"
+import * as m from "motion/react-m"
 import { useState } from "react"
 
 const SETTINGS = ["user", "always", "never"] as const
@@ -23,9 +24,9 @@ export default function ReducedMotion() {
       </button>
       <MotionConfig reducedMotion={setting}>
         {/* Motion reads the setting as an element mounts: the key mounts the box again when it changes. */}
-        <motion.div key={setting} className="sample-box" animate={{ x: moved ? 160 : 0, opacity: moved ? 0.4 : 1 }} transition={{ duration: 0.8, ease: "easeInOut" }}>
+        <m.div key={setting} className="sample-box" animate={{ x: moved ? 160 : 0, opacity: moved ? 0.4 : 1 }} transition={{ duration: 0.8, ease: "easeInOut" }}>
           box
-        </motion.div>
+        </m.div>
       </MotionConfig>
       <p className="sample-note">Your system {prefers ? "asks" : "doesn't ask"} for reduced motion.</p>
     </div>

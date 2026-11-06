@@ -1,4 +1,5 @@
-import { motion, useScroll } from "motion/react"
+import { useScroll } from "motion/react"
+import * as m from "motion/react-m"
 import { useRef } from "react"
 
 const LINES = [
@@ -18,7 +19,7 @@ export default function Story() {
   const { scrollYProgress } = useScroll({ container: panel })
   return (
     <div className="sample-scroller">
-      <motion.div className="sample-progress" style={{ scaleX: scrollYProgress }} />
+      <m.div className="sample-progress" style={{ scaleX: scrollYProgress }} />
       <div className="sample-scroll" ref={panel} tabIndex={0} aria-label="From the studio">
         {LINES.map((line) => (
           <p key={line}>{line}</p>
