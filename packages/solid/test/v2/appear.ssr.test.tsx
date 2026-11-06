@@ -721,7 +721,7 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
   it("AR26: two renders of a page whose rules blend colours give the same markup (#618)", () => {
     const ui = (): JSX.Element => (
       <>
-        <wardic.div initial={{ backgroundColor: "#bf616a", opacity: 0 }} animate={{ backgroundColor: "#a3be8c", opacity: 1 }} />
+        <wardic.div initial={{ "background-color": "#bf616a", opacity: 0 }} animate={{ "background-color": "#a3be8c", opacity: 1 }} />
         <wardic.div initial={{ color: "rgb(0, 0, 0)" }} animate={{ color: "rgb(255, 255, 255)" }} transition={{ type: "spring", stiffness: 300, damping: 20 }} />
       </>
     )
