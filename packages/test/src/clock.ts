@@ -14,10 +14,11 @@ import * as UndefinedOr from "effect/UndefinedOr"
  * A deterministic Clock for frame-level tests. `ticks` replays the supplied `dt`
  * sequence (in seconds) exactly once, so a primitive's per-frame output can be
  * collected with `Stream.runCollect` and asserted. Its `now` is the time those
- * ticks have reached, in ms, from 0 (#460): the furthest any subscriber has
+ * ticks have reached, in ms, from 0: the furthest any subscriber has
  * reached, so two subscribers replaying the same frames don't run it twice as
  * fast. A live Clock (rAF-driven) is `@wardic/dom`'s.
  */
+// `now`: #460.
 export const make = (frames: ReadonlyArray<number> = []): Clock.Clock["Service"] => {
   const time = MutableRef.make(0)
   // Each frame with the time it reaches, in ms from 0 (#618, decision 7: each subscriber added its
@@ -88,14 +89,15 @@ const makeFrames = () => {
  * pushed *after* it subscribes — matching a live rAF clock where motion starts
  * from the moment you subscribe. It has no Cold start: its ticks are the advances.
  *
- * Its `layer` also provides the Environment's `RefreshFrameSource` (ADR-0031), and one `advance`
+ * Its `layer` also provides the Environment's `RefreshFrameSource`, and one `advance`
  * is one Refresh frame in the web's order: it runs the frames requested so far (a flush gate's
  * flush of a write made outside a tick), in request order, then publishes `dt` (the Clock's
  * tick, at whose end a Frame loop over this Clock calls its `afterTick` hooks: the gate's
- * flush, ADR-0033). A frame requested during that `advance` waits for the next one. The frames' timestamps start at 0 and advance by `dt`,
- * and the Clock's `now` is the last one's (#460): a test's advances drive velocities too.
+ * flush). A frame requested during that `advance` waits for the next one. The frames'
+ * timestamps start at 0 and advance by `dt`, and the Clock's `now` is the last one's: a test's
+ * advances drive velocities too.
  *
- * It doesn't yield (ADR-0032): a subscriber waiting on the ticks handles the tick inside the
+ * It doesn't yield: a subscriber waiting on the ticks handles the tick inside the
  * publish, as every subscriber does inside a real Refresh frame's callback, so a consumer that
  * hops through Effect's scheduler on its way to its sink hasn't got there when `advance`
  * returns, and its test sees it.
@@ -106,6 +108,8 @@ const makeFrames = () => {
  * yield* clock.advance()        // one 1/60s frame
  * yield* clock.advance(1 / 30)  // a custom dt
  */
+// The RefreshFrameSource: ADR-0031. The gate's flush at the tick's end: ADR-0033. `now`: #460. No
+// yield: ADR-0032.
 export const pushable: () => Effect.Effect<{
   readonly layer: Layer.Layer<Clock.Clock | RefreshFrameSource.RefreshFrameSource>
   readonly advance: (dt?: number) => Effect.Effect<void>

@@ -30,11 +30,13 @@ const stillFrames: RefreshFrameSource.Shape = { requestFrame: constUndefined, ca
  * source that never calls back, recording Renderer, static Probe, silent InputSource, core's real
  * interpolator registry, a fresh AtomRegistry for reading Probe atoms
  * (`viewport`, `prefersReducedMotion`), and a fresh Drag activity, so one test's
- * drag never blocks another's hover or press (ADR-0019), and core's Frame loop over that
- * Clock (ADR-0027). Provide this in place of `DomLive` to test animation code without a
+ * drag never blocks another's hover or press, and core's Frame loop over that
+ * Clock. Provide this in place of `DomLive` to test animation code without a
  * page. It draws nothing on one: an element rendered under it keeps its Starting style, so an
- * app's components are tested with `DomLive` under the test runner's fake timers instead (#558).
+ * app's components are tested with `DomLive` under the test runner's fake timers instead
+ * (https://wardic.dev/guides/testing).
  */
+// The Drag activity: ADR-0019. The Frame loop: ADR-0027. The testing guide: #558.
 export const testLayer = (
   frames: ReadonlyArray<number> = [],
 ): Layer.Layer<

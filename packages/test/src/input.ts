@@ -9,15 +9,16 @@ import * as Feeds from "./feeds.ts"
 
 /**
  * An InputSource that replays fixed scripts of events, as **Input feeds** that end after their
- * script (#318: a Stream over one ends too). `pointer(target)` replays the same `pointerEvents`,
+ * script: a Stream over one ends too. `pointer(target)` replays the same `pointerEvents`,
  * `focus(target)` the same `focusEvents` and `keyboard(target)` the same `keyEvents` to each
  * subscriber (each ignores `target` — tests address a single surface). The first positional arg is
  * pointer events for back-compat; focus and key events are optional, defaulting to empty so existing
  * call sites emit nothing on them. Each script plays whole when its feed is subscribed, so scripts of
  * two kinds don't interleave: a test that needs them to pushes them ({@link pushable}). Called with no
  * args it yields an InputSource that emits nothing — for tests that don't exercise gestures. It adopts
- * no pointer (#431): `adoptPointer` delivers nothing.
+ * no pointer: `adoptPointer` delivers nothing.
  */
+// Input feeds: #318. adoptPointer: #431.
 export const layer = (
   pointerEvents: ReadonlyArray<InputSource.PointerLikeEvent> = [],
   focusEvents: ReadonlyArray<InputSource.FocusLikeEvent> = [],
@@ -36,12 +37,12 @@ export const layer = (
  * {@link layer} — which replays a fixed script that drains immediately — this
  * form lets the test `push` events one at a time, on its own schedule.
  *
- * Backed by a hub (`feeds.ts`, #318) so that every subscription to `pointer(target)`
+ * Backed by a hub (`feeds.ts`) so that every subscription to `pointer(target)`
  * hears every event: a consumer may subscribe to `input.pointer(target)` more than once
  * (a binding's drag track reads the drag fold and the grabs). There is no replay buffer,
  * so only events pushed *after* a subscription is live reach it.
  *
- * `push` doesn't yield (ADR-0032): a subscriber handles the event inside the push, as an
+ * `push` doesn't yield: a subscriber handles the event inside the push, as an
  * Environment's consumers handle a real event inside its dispatch, so a pipeline that hops
  * through Effect's scheduler on its way to its sink hasn't got there when `push` returns,
  * and its test sees it.
@@ -54,18 +55,19 @@ export const layer = (
  * yield* Stream.runForEach(drag(undefined), …).pipe(Effect.fork…)  // subscribe
  * yield* input.push(ev("down", 0, 0, 0))
  *
- * Returns `pushFocus` and `pushKey` alongside `push` so focus/blur transitions and keys (#427) can be
+ * Returns `pushFocus` and `pushKey` alongside `push` so focus/blur transitions and keys can be
  * driven on the same schedule; `focus(target)` and `keyboard(target)` mirror `pointer(target)`, each
  * with its own hub.
  *
- * `adoptPointer(target, raw)` (#431) takes a pointer event as its `raw`: a pressed one is pushed on
+ * `adoptPointer(target, raw)` takes a pointer event as its `raw`: a pressed one is pushed on
  * the pointer hub as an adopted down, inside the call, as the DOM's is. The hub holds no pointer, so
  * the test pushes that pointer's later events itself.
  *
- * `options.focusWithin` (#460) is the source's `focusWithin`, for a test of a **Keyboard press** that
+ * `options.focusWithin` is the source's `focusWithin`, for a test of a **Keyboard press** that
  * holds its keys only while focus is within its target. Without it the source says nothing of focus,
  * and a press hears every key pushed.
  */
+// The hub: #318. No yield: ADR-0032. Keys: #427. adoptPointer: #431. focusWithin: #460.
 export const pushable = (options?: { readonly focusWithin?: ((target: unknown) => boolean) | undefined }): Effect.Effect<{
   readonly layer: Layer.Layer<InputSource.InputSource>
   readonly push: (event: InputSource.PointerLikeEvent) => Effect.Effect<void>
