@@ -22,7 +22,7 @@ Wardic steps every animation on a page on one Frame loop, and draws what they al
 
 Lower is faster. Mounting is where Motion keeps up: see [what it costs](#what-it-costs).
 
-Measured on 2026-11-06, Wardic 1.0.0-rc.2 (`main` at f8afa96) against Motion for React 14.9.0 (`framer-motion`), in Chromium 147.0.7727.15, on an AMD Ryzen 7 9700X (8 cores, 16 threads) with 62 GiB, on Ubuntu 24.04.5 with Linux 6.8: 1,000 elements, each task timed with the two frames after it (an unmount with one), the median of 11 repetitions. A page's first mount is its first round. How it's measured, and each run's results, are in [#519](https://github.com/wardiclabs/wardic/issues/519#issuecomment-6682285847).
+Measured on 2026-11-06, Wardic 1.0.0-rc.2 (`main` at f8afa96) against Motion for React 14.9.0 (`framer-motion`), in Chromium 147.0.7727.15, on an AMD Ryzen 7 9700X (8 cores, 16 threads) with 62 GiB, on Ubuntu 24.04.5 with Linux 6.8: 1,000 elements, each task timed with the two frames after it (an unmount with one), the median of 11 repetitions. A page's first mount is its first round. `bun run bench:motion` runs it again: its pages and protocol are in [`packages/solid/bench/motion`](https://github.com/wardiclabs/wardic/tree/main/packages/solid/bench/motion). Each run's results are in [#519](https://github.com/wardiclabs/wardic/issues/519#issuecomment-6682285847).
 
 ## Motion's API, the Solid way
 
