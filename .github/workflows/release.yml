@@ -5,8 +5,8 @@ name: Release
 # - with changesets waiting, it opens or updates the "Version Packages" PR: the new version and each
 #   package's CHANGELOG;
 # - with none, that PR has just merged: it checks the tarballs (#554), then publishes each version npm
-#   doesn't have yet, on `next` while Changesets is in pre mode (`1.0.0-rc.N`), on `latest` after
-#   (`scripts/publish-packages.ts`).
+#   doesn't have yet, on `latest`; a pre release (`1.0.0-rc.N`) goes to `next` once its package has
+#   a stable version on npm (`scripts/publish-packages.ts`).
 #
 # Publishing is npm's trusted publishing (OIDC), with provenance, so no token is kept. npm adds a
 # trusted publisher only to a package that exists, so a package's first publish may take a one-off
