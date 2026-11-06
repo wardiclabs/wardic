@@ -77,6 +77,7 @@ const BRANCHES = [
  * `test`, `Object.hasOwn`) runs even when the first decides:
  * a costly or effectful call, or one meaningful only once the first holds. It goes in
  * `Predicate.and(a, b)(x)` or a statement `if` with an early return; on the hot path, a statement.
+ * `Bool.every` and `Bool.some` read every element of their array the same way (#618, H1).
  */
 const BOOL_OPERANDS = [
   restrict(
@@ -85,6 +86,15 @@ const BOOL_OPERANDS = [
       ":not([callee.name=/^(is|has|same|ends|starts|turns)[A-Z]/])" +
       ":not([callee.property.name=/^((is|has|same|ends|starts)[A-Z].*|has|includes|test|hasOwn)$/])",
     "Bool.and / Bool.or read both arguments: a second that calls more than a pure check goes in Predicate.and or a statement if",
+  ),
+  // #618 (H1): `Bool.every` and `Bool.some` read every element too; `startsKeyPress` read the press
+  // claims on every key event through one.
+  restrict(
+    "CallExpression[callee.object.name='Bool'][callee.property.name=/^(every|some)$/] > ArrayExpression > CallExpression:not(:first-child)" +
+      ":not([callee.object.name=/^(Bool|Predicate|Str|Num)$/]):not([callee.callee.object.name=/^(Predicate|Str|Num)$/])" +
+      ":not([callee.name=/^(is|has|same|ends|starts|turns)[A-Z]/])" +
+      ":not([callee.property.name=/^((is|has|same|ends|starts)[A-Z].*|has|includes|test|hasOwn)$/])",
+    "Bool.every / Bool.some read every element: one after the first that calls more than a pure check goes in a statement if",
   ),
 ]
 

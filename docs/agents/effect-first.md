@@ -8,7 +8,7 @@ How code in this repo is written: Effect's modules over vanilla TypeScript, and 
 
 1. **Effect over vanilla TypeScript.**
    - **Loops:** `Arr`, `Rec` and `Iter` (`map`, `filter`, `reduce`, `findFirst`, …), and `Effect.forEach` / `Effect.all` over Effects. Not `for` or `while`.
-   - **Boolean checks:** named `Predicate`s, built with `Predicate`'s combinators and `Num`, `Str` and `Bool`. Not `typeof`, and not hand-written `&&` chains. `Bool.and` and `Bool.or` take values in hand: they read both arguments, so an operand that calls something costly or effectful, or that means anything only once the first holds, goes in `Predicate.and(a, b)(x)` or a statement `if` with an early return (#460, Q8; lint holds it). On the hot path, statements (below).
+   - **Boolean checks:** named `Predicate`s, built with `Predicate`'s combinators and `Num`, `Str` and `Bool`. Not `typeof`, and not hand-written `&&` chains. `Bool.and` and `Bool.or` take values in hand: they read both arguments, so an operand that calls something costly or effectful, or that means anything only once the first holds, goes in `Predicate.and(a, b)(x)` or a statement `if` with an early return (#460, Q8; lint holds it). `Bool.every` and `Bool.some` read every element of their array the same way (#618, H1). On the hot path, statements (below).
    - **Missing values:** `Option`. Not `??`, `!` or `=== undefined`. To read a value that is already `A | undefined` (an option bag's `?:` field, a `Map.get`), `UndefinedOr.match` / `map` is fine: it allocates no `Some`.
    - **The rest, where they fit:** `Match` (on a path that runs per element or per key, a matcher built once with `Match.type` at module level: `Match.value(x).pipe(…)` builds it again on every call; #69's PR 2 measured 136 ns a call against 46); Services and `Scope`; `Schedule` for policies on wall time.
    - **Not `Schema`, in any package's `src`** (#511, ADR-0067 decision 9): it was 54 KB minified of every app. Values are decoded by hand, with Wardic's own checks: an option bag's fields through `internal/options.ts` (each a plain `(value) => true | string`, a rejected bag throwing `Machine.OptionError`, ADR-0025 *Amendment (#511)*), and an Interpolator's values through its `parse` and `format` (ADR-0026 *Amendment (#511)*). Never per frame. Tests and benches may use it where they test something else. The Clock's frames don't come from `Schedule` or `Scheduler` (ADR-0025, decision 8).
@@ -71,6 +71,16 @@ Input-event code (recognizers, reorder, the held pointer) runs per gesture event
 - **Arithmetic stays arithmetic:** `a + b`, not `Num.sum(a, b)`.
 
 A change on the per-frame path is checked with `bun run bench:core --base main`. A workload fails when it's more than 5% slower with three pairs in four slower, or when Node's bytes per frame rise more than 5% (ADR-0025, decision 4), in an engine's run and again in its rerun (ADR-0025, *Amendment (#545)*). A noisy engine runs once more before the bench gives up on it.
+
+## Once a frame, or once an input event: built once
+
+How often code runs decides its forms, not only where it is (#618, H1; ADR-0025, *Amendment (#618)*):
+- **Per element, key or node, every frame:** the per-frame path's plain forms (above).
+- **Once a frame, or once an input event:** Effect's helpers, in forms built once. A `Match.type` matcher at module scope, never a `Match.value(x).pipe(…)` built at the call; handlers hoisted to module level; `Bool.not`, which is Effect's `self => !self` and free. An input feed's mapping of a DOM event (`kindOf`, `keyOf`) and the Frame loop's own step are here.
+- **A call that runs once for each of its callers, every frame, is per caller:** `LiveValue.eachFrame`'s step runs for every `eachFrame` there is, so it takes plain `Math.min` / `Math.max`, not `Num.clamp`.
+- **Per key per Retarget, or per leg:** the hot path (below).
+
+Measured (Node 22 / Bun 1.3, ns a call): `Num.clamp` 30 / 26 against `Math.min`/`max` 6 / 5; `Match.value` built at the call 69 / 62, against a `Match.type` built once 10 / 14 and a record 7 / 3; `Option.match` with closures 14 / 8 against an `if` 9 / 4; `Bool.every` 10 / 7 against an `if` chain 6 / 3; `Clock`'s timing helpers 30 / 16 against plain reads 7 / 6.
 
 ## The hot path: compose once
 
@@ -167,7 +177,7 @@ For a single function, a named import is fine: `import { identity } from "effect
   - `!`;
   - a namespace import that hides a global;
   - `Arr.getUnsafe` in the per-frame loop files and `Easing.ts` (ADR-0030);
-  - a `Bool.and` / `Bool.or` whose second argument calls more than a pure check (#460, Q8: `BOOL_OPERANDS`).
+  - a `Bool.and` / `Bool.or` whose second argument calls more than a pure check (#460, Q8: `BOOL_OPERANDS`), and a `Bool.every` / `Bool.some` element after the first that does (#618, H1).
 
   It runs in CI with the other gates. Whether a predicate is *named*, and whether `Match` or `Scope` fits, stay with review. `Schema` in a package's `src` shows in `bun run size` (#511).
 - **`bun run bench:core --base main`** checks a change on the per-frame path (above).
