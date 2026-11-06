@@ -64,7 +64,7 @@ import {
 } from "solid-js"
 import { type ControlsChange, controlledConfigOf, controlledElement, isAnimationControls, subscribe, uncontrolledOf, type WardicAnimationControls } from "./animation-controls.ts"
 import { fromAtom, watchToSignal } from "./bridge.ts"
-import { settingOf, type WardicConfigValue, withConfigTransition } from "./wardic-config-value.ts"
+import { pointMapOptionOf, settingOf, type WardicConfigValue, withConfigTransition } from "./wardic-config-value.ts"
 import { dragTransitionOf, type DragTrack, type DragTrackConfig, runDragTrackWith } from "./drag.ts"
 import { createElementStyle } from "./element-style.ts"
 import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegistryOf, split } from "./live-style.ts"
@@ -865,7 +865,7 @@ export function runSpine(opts: RunSpineOptions): void {
           ),
         // Focused as the browser shows it (`:focus-visible`, Motion's `whileFocus`).
         focus: () => watchToSignal<boolean>((handlers) => gestureOf(FocusGesture).watch(element, { visible: true }, handlers), false),
-        pan: () => runWatch(runtime, (onDefect) => gestureOf(PanGesture).watch(element, { on: (sample) => gesturesOf().panned(sample), onDefect }, { mapPoint: pagePoint })),
+        pan: () => runWatch(runtime, (onDefect) => gestureOf(PanGesture).watch(element, { on: (sample) => gesturesOf().panned(sample), onDefect }, { mapPoint: pointMapOptionOf(pagePoint) })),
       })
       if (DEV && internal.complete !== true && internal.gestureless !== true) warnMissingGestures(useFeatureRegistry(), features, cfg)
 

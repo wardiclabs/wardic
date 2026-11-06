@@ -74,6 +74,7 @@ import * as FiberHandle from "effect/FiberHandle"
 import { constFalse, constUndefined, constVoid, identity } from "effect/Function"
 import * as Match from "effect/Match"
 import * as MutableRef from "effect/MutableRef"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
@@ -83,6 +84,7 @@ import type { WardicServices } from "./runtime.ts"
 import type { WardicTransformPoint } from "./config.ts"
 import { subscribeDragControls, type WardicDragControls } from "./drag-controls.ts"
 import { DEFAULT_DRAG_ELASTIC, dragTransitionOf, elasticOf } from "./drag-transition.ts"
+import { pointMapOptionOf } from "./wardic-config-value.ts"
 
 
 /**
@@ -767,11 +769,11 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
       // the length of the start that adopts it. Any other down's is the recognizer's own, and a track
       // with no controls has none to set.
       let adoptedThreshold: number | undefined = undefined
-      let threshold: ((down: InputSource.PointerLikeEvent) => number | undefined) | undefined
+      let threshold: ((down: InputSource.PointerLikeEvent) => Option.Option<number>) | undefined
       if (controlled) {
         threshold = (down) => {
-          if (down.adopted === true) return adoptedThreshold
-          return undefined
+          if (down.adopted === true) return Option.fromUndefinedOr(adoptedThreshold)
+          return Option.none()
         }
       }
 
@@ -875,7 +877,7 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
       // Subscribed in this order, so the samples hear an event before the grabs. The constraints
       // bound the element's x/y, so they're applied where the gesture's offset meets its base, in
       // `follow` and at the release (ADR-0016, *Amendment (#140)*).
-      const drag = yield* DragRecognizer.watchDrag(element, { axis, claim: Bool.not(propagation), lock: config.directionLock === true, listen: listens, adoptable: controlled, threshold, mapPoint: opts.mapPoint }, {
+      const drag = yield* DragRecognizer.watchDrag(element, { axis, claim: Bool.not(propagation), lock: config.directionLock === true, listen: listens, adoptable: controlled, threshold, mapPoint: UndefinedOr.map(opts.mapPoint, pointMapOptionOf) }, {
         on: (sample) => respond(onSample(sample)),
         onDefect,
       })
@@ -901,8 +903,8 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
             adoptedThreshold = options.distanceThreshold
             const down = input.adoptPointer(element, event)
             adoptedThreshold = undefined
-            if (Predicate.isUndefined(down)) return
-            if (options.snapToCursor === true) snapTo(opts, state, down)
+            if (Option.isNone(down)) return
+            if (options.snapToCursor === true) snapTo(opts, state, down.value)
           },
           stop: () => {
             drag.stop()

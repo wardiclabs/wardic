@@ -187,9 +187,9 @@ const isPressedPointer = (raw: unknown): raw is PointerEvent =>
  * Hand `raw` to `target`'s pointer feed as an adopted down (#431): at its viewport point, on the target
  * if it landed there. `undefined`, delivering nothing, for what isn't a pressed pointer's event.
  */
-const adoptPointerIn = (adopters: Adopters) => (target: unknown, raw: unknown): InputSource.PointerLikeEvent | undefined => {
-  if (isPressedPointer(raw)) return adopt(adopters, target, raw)
-  return undefined
+const adoptPointerIn = (adopters: Adopters) => (target: unknown, raw: unknown): Option.Option<InputSource.PointerLikeEvent> => {
+  if (isPressedPointer(raw)) return Option.some(adopt(adopters, target, raw))
+  return Option.none()
 }
 
 /** {@link adoptPointerIn} of a pressed pointer's event. */

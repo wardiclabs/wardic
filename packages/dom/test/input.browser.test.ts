@@ -8,6 +8,7 @@ import * as Fiber from "effect/Fiber"
 import * as Match from "effect/Match"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
+import * as Option from "effect/Option"
 import { InputDomLive, keyOf, makeFocusable } from "../src/internal/input.ts"
 
 /** Hand the scheduler a fixed budget of turns so async steps settle. */
@@ -786,7 +787,7 @@ layer(InputDomLive)("InputDomLive: a scroll during a hold", (it) => {
         const plain = yield* subscribeIn(InputFeed.toStream(input.pointer(el)))
         const adoptable = yield* subscribeIn(InputFeed.toStream(InputSource.adoptablePointerOf(input, el)))
         const handed = input.adoptPointer(el, pointerEvent("pointerdown", { clientX: 5, clientY: 6, buttons: 1 }))
-        expect(handed?.adopted, "handed as adopted").toBe(true)
+        expect(Option.map(handed, (h) => h.adopted), "handed as adopted").toEqual(Option.some(true))
         expect((yield* plain.collect(1)).map((e) => e.type), "the plain feed subscribes no adoption").toEqual([])
         expect((yield* adoptable.collect(1)).map((e) => `${e.type} ${String(e.adopted)}`), "the adoptable feed hears it").toEqual(["down true"])
         yield* plain.close

@@ -9,6 +9,7 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
+import * as Option from "effect/Option"
 
 // Recognizer rules for issue #31 (ADR-0019, decisions D3, D3b, D4, D5), pinned at the
 // node tier with TestInput. Rule A: an unpressed move from the owning pointer
@@ -294,7 +295,7 @@ const scrolledInput = () => {
       }),
     keyboard: () => InputFeed.empty,
     focus: () => InputFeed.empty,
-    adoptPointer: () => undefined,
+    adoptPointer: () => Option.none(),
   })
   return {
     layer,

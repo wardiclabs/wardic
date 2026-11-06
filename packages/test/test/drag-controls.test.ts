@@ -28,6 +28,7 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import { constVoid } from "effect/Function"
 import * as Scope from "effect/Scope"
+import * as Option from "effect/Option"
 
 /** A primary mouse's event at `(x, y)`, pressed except at the release. */
 const ev = (type: InputSource.PointerLikeEvent["type"], x: number, t: number, y = 0): InputSource.PointerLikeEvent =>
@@ -57,8 +58,8 @@ it.effect("DC1: an adopted down starts a drag as an own press does; a press and 
       yield* opened(Recognizer.watchPress("el", { on: (p) => presses.push(p.phase) }))
       yield* opened(DragRecognizer.watchPan("el", { on: (s) => pans.push(s.phase) }))
       const down = source.adoptPointer("el", ev("down", 0, 0))
-      expect(down?.adopted, "the down as delivered").toBe(true)
-      expect(source.adoptPointer("el", ev("up", 0, 0)), "a release isn't a pressed pointer").toBeUndefined()
+      expect(Option.map(down, (d) => d.adopted), "the down as delivered").toEqual(Option.some(true))
+      expect(source.adoptPointer("el", ev("up", 0, 0)), "a release isn't a pressed pointer").toEqual(Option.none())
       yield* input.push(ev("move", 20, 16))
       yield* input.push(ev("move", 40, 32))
       yield* input.push(ev("up", 40, 48))
@@ -100,9 +101,9 @@ it.effect("DC3: the threshold is read at the down: an adopted gesture's own, an 
     const input = yield* TestInput.pushable()
     yield* Effect.gen(function* () {
       const source = yield* InputSource.InputSource
-      const threshold = (down: InputSource.PointerLikeEvent): number | undefined => {
-        if (down.adopted === true) return 20
-        return undefined
+      const threshold = (down: InputSource.PointerLikeEvent): Option.Option<number> => {
+        if (down.adopted === true) return Option.some(20)
+        return Option.none()
       }
       const drags: Array<string> = []
       const scope = yield* opened(DragRecognizer.watchDrag("el", { threshold }, { on: (s) => drags.push(line(s)) }))

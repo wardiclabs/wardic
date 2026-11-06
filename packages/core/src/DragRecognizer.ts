@@ -400,19 +400,20 @@ export interface DragOptions {
   readonly adoptable?: boolean | undefined
   /**
    * How far, in px, a gesture from `down` moves before it starts, read at the down, as Motion's
-   * `distanceThreshold`: `undefined`, or none given, is 3. A direction lock still waits for its 10 px on
-   * one axis.
+   * `distanceThreshold`: none, or no function given, is 3. A direction lock still waits for its 10 px
+   * on one axis.
    */
-  // #431.
-  readonly threshold?: ((down: InputSource.PointerLikeEvent) => number | undefined) | undefined
+  // #431; an `Option` (#618, A1).
+  readonly threshold?: ((down: InputSource.PointerLikeEvent) => Option.Option<number>) | undefined
   /**
    * Where each pointer point is for the gesture, as Motion's `transformPagePoint`: read at each down, and
-   * applied to all that gesture's points, its down's and each move's. `undefined`, or none given, leaves
+   * applied to all that gesture's points, its down's and each move's. None, or no function given, leaves
    * them as they are. It's handed the point on the screen and gives one; the scroll a hold counts in is
-   * added back after.
+   * added back after. A caller gives back the same `Some` while its mapping is the same, so a down
+   * allocates nothing.
    */
-  // #443.
-  readonly mapPoint?: LazyArg<PointMap | undefined> | undefined
+  // #443; an `Option` (#618, A1).
+  readonly mapPoint?: LazyArg<Option.Option<PointMap>> | undefined
 }
 
 /** A point mapped, as Motion's `transformPagePoint`: the Environment's coordinates in, the gesture's out. */
@@ -423,7 +424,7 @@ export type PointMap = (point: Point.Point) => Point.Point
 // #443.
 export interface PanOptions {
   /** Where each pointer point is for the gesture, as `DragOptions`' `mapPoint`. */
-  readonly mapPoint?: LazyArg<PointMap | undefined> | undefined
+  readonly mapPoint?: LazyArg<Option.Option<PointMap>> | undefined
 }
 
 /**
@@ -433,13 +434,13 @@ export interface PanOptions {
  */
 const mappedEvents = (mapPoint: DragOptions["mapPoint"]): ((event: InputSource.PointerLikeEvent) => InputSource.PointerLikeEvent) => {
   if (Predicate.isUndefined(mapPoint)) return identity
-  const current = MutableRef.make<PointMap | undefined>(undefined)
+  const current = MutableRef.make<Option.Option<PointMap>>(Option.none())
   return (event) => {
     if (event.type === "down") MutableRef.set(current, mapPoint())
     const mapping = MutableRef.get(current)
-    if (Predicate.isUndefined(mapping)) return event
+    if (Option.isNone(mapping)) return event
     const { scroll } = event
-    const at = mapping({ x: event.x - scroll.x, y: event.y - scroll.y })
+    const at = mapping.value({ x: event.x - scroll.x, y: event.y - scroll.y })
     return { ...event, x: at.x + scroll.x, y: at.y + scroll.y }
   }
 }
@@ -466,7 +467,7 @@ const dragDownsOf = (listen: boolean, threshold: DragOptions["threshold"]): Down
   claims: Bool.match(listen, { onTrue: () => constTrue, onFalse: () => isAdopted }),
   thresholdOf: UndefinedOr.match(threshold, {
     onUndefined: () => () => THRESHOLD,
-    onDefined: (of) => (down: InputSource.PointerLikeEvent) => UndefinedOr.match(of(down), { onUndefined: () => THRESHOLD, onDefined: identity }),
+    onDefined: (of) => (down: InputSource.PointerLikeEvent) => Option.getOrElse(of(down), () => THRESHOLD),
   }),
 })
 

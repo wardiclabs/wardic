@@ -4,6 +4,7 @@ import * as Effect from "effect/Effect"
 import * as Predicate from "effect/Predicate"
 import * as Layer from "effect/Layer"
 import * as UndefinedOr from "effect/UndefinedOr"
+import * as Option from "effect/Option"
 import * as Feeds from "./feeds.ts"
 
 /**
@@ -26,7 +27,7 @@ export const layer = (
     pointer: () => Feeds.script(pointerEvents),
     keyboard: () => Feeds.script(keyEvents),
     focus: () => Feeds.script(focusEvents),
-    adoptPointer: () => undefined,
+    adoptPointer: () => Option.none(),
   })
 
 /**
@@ -85,9 +86,9 @@ export const pushable = (options?: { readonly focusWithin?: ((target: unknown) =
           if (isPressedPointer(raw)) {
             const down: InputSource.PointerLikeEvent = { ...raw, type: "down", adopted: true }
             Effect.runSync(pointer.push(down))
-            return down
+            return Option.some(down)
           }
-          return undefined
+          return Option.none()
         },
       }),
       push: pointer.push,
