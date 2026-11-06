@@ -13,7 +13,7 @@ Effect's reactive values as Solid's, for reading Wardic's own or building on the
 ```tsx
 import { fromAtom, streamToSignal, useWardicRuntime } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
 
-const visible = fromAtom(probe.pageVisible, { serverValue: true })
+const visible = fromAtom(probe.visible, { serverValue: true })
 const point = streamToSignal(pointerMoves, { x: 0, y: 0 })
 ```
 

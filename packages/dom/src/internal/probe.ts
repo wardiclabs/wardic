@@ -4,7 +4,7 @@
  * preference, whether the page is shown (`document.visibilityState`, #443), and per-target
  * resize/intersection observation streams.
  *
- * The writable Atoms (`viewport`, `prefersReducedMotion`, `pageVisible`) are pinned with
+ * The writable Atoms (`viewport`, `prefersReducedMotion`, `visible`) are pinned with
  * `keepAlive` and written through the
  * Environment's {@link AtomRegistry} captured at build time — the same registry
  * a consumer reads `Probe.viewport`/`Probe.prefersReducedMotion` from — so the
@@ -43,7 +43,8 @@ import { makeScroll } from "./scroll.ts"
 /** An `IntersectionObserver`'s init from the Probe's options: each left out when not given. */
 const observerInit = (options: Probe.IntersectionOptions): IntersectionObserverInit => ({
   ...UndefinedOr.match(options.root as Element | Document | undefined, { onUndefined: () => ({}), onDefined: (root) => ({ root }) }),
-  ...UndefinedOr.match(options.margin, { onUndefined: () => ({}), onDefined: (rootMargin) => ({ rootMargin }) }),
+  // The DOM's margin is a string, `rootMargin`'s syntax, as `root` is an element (#610).
+  ...UndefinedOr.match(options.margin as string | undefined, { onUndefined: () => ({}), onDefined: (rootMargin) => ({ rootMargin }) }),
   ...UndefinedOr.match(options.amount, { onUndefined: () => ({}), onDefined: (threshold) => ({ threshold }) }),
 })
 
@@ -97,7 +98,7 @@ const make = Effect.gen(function* () {
   const prefersReducedMotion = Atom.keepAlive(Atom.make(Option.exists(mql, (query) => query.matches)))
   if (Option.isSome(mql)) {
     // The MediaQueryList's `change` listener is the Atom's only writer, and it writes inside the
-    // event, as `viewport`'s and `pageVisible`'s do: a reader sees the new preference before the next
+    // event, as `viewport`'s and `visible`'s do: a reader sees the new preference before the next
     // frame (#618, M8: a fiber over `Stream.fromEventListener` set it a task later).
     const query = mql.value
     const writeReduced = (event: MediaQueryListEvent): void => registry.set(prefersReducedMotion, event.matches)
@@ -107,14 +108,14 @@ const make = Effect.gen(function* () {
     )
   }
 
-  // --- pageVisible (#443) ---------------------------------------------------
+  // --- visible (#443, #610) ---------------------------------------------------
   // The document's `visibilitychange` listener is its only writer, and it writes inside the event,
   // as `viewport`'s does: a reader sees the page hidden before the next frame.
-  const pageVisible = Atom.keepAlive(Atom.make(document.visibilityState !== "hidden"))
-  const writePageVisible = (): void => registry.set(pageVisible, document.visibilityState !== "hidden")
+  const visible = Atom.keepAlive(Atom.make(document.visibilityState !== "hidden"))
+  const writeVisible = (): void => registry.set(visible, document.visibilityState !== "hidden")
   yield* Effect.acquireRelease(
-    Effect.sync(() => document.addEventListener("visibilitychange", writePageVisible)),
-    () => Effect.sync(() => document.removeEventListener("visibilitychange", writePageVisible)),
+    Effect.sync(() => document.addEventListener("visibilitychange", writeVisible)),
+    () => Effect.sync(() => document.removeEventListener("visibilitychange", writeVisible)),
   )
 
   // --- observeResize ------------------------------------------------------
@@ -155,7 +156,7 @@ const make = Effect.gen(function* () {
     measure: (target) => Effect.sync(() => toBounds((target as Element).getBoundingClientRect())),
     viewport,
     prefersReducedMotion,
-    pageVisible,
+    visible,
     // A container's scroll, set within its events (#234): `scroll.ts`.
     scroll: yield* makeScroll(registry),
     observeResize,

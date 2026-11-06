@@ -177,7 +177,7 @@ it_.live("ProbeDomLive > observeIntersection emits the REAL intersection state, 
     }).pipe(Effect.provide(TestLayer)))
 
 // #618 (M8): the reduced-motion preference is written inside its `change` event, as `viewport` and
-// `pageVisible` are, so a reader sees it before `dispatchEvent` returns. `matchMedia` is stubbed with a
+// `visible` are, so a reader sees it before `dispatchEvent` returns. `matchMedia` is stubbed with a
 // MediaQueryList that's an EventTarget: a real one fires `change` only when the OS setting does.
 it_.effect("prefersReducedMotion is written inside its change event: read before dispatchEvent returns (#618)", () =>
   Effect.gen(function* () {

@@ -11,8 +11,9 @@
  * const bounds = yield* probe.measure(card)
  * const scroll = yield* probe.scroll({ container: list })
  */
-// ADR-0028, decision 11. `prefersReducedMotion`, `pageVisible` and `margin`'s string syntax are the web's
-// names: #610.
+// ADR-0028, decision 11. #610 (ADR-0036 *Amendment (#610)*): `visible`, not the web's `pageVisible`;
+// `margin` is `unknown`, the Environment's syntax; `prefersReducedMotion` keeps its name, plain words in
+// any Environment, where `reducedMotion` is the provider's setting.
 import * as Context from "effect/Context"
 import type * as Effect from "effect/Effect"
 import type * as Scope from "effect/Scope"
@@ -91,9 +92,12 @@ export interface ScrollOptions {
 export interface IntersectionOptions {
   /** The container it's observed against: the viewport when left out. */
   readonly root?: unknown
-  /** How far the container's edges are grown, or shrunk, before it counts, in the Environment's own syntax. */
-  // #610: a string, the web's syntax in `@wardic/dom`.
-  readonly margin?: string | undefined
+  /**
+   * How far the container's edges are grown, or shrunk, before it counts, in the Environment's own
+   * syntax: core passes it on, as it does `ScrollOptions.offset`.
+   */
+  // #610: `unknown`, as `offset` is; `@wardic/dom` takes the web's string (`rootMargin`).
+  readonly margin?: unknown
   /** How much of the target must be in it to count: from 0, any of it, to 1, all of it. */
   readonly amount?: number | undefined
 }
@@ -119,8 +123,8 @@ export class Probe extends Context.Service<Probe, {
    * Whether the Environment is shown, live, as Motion's `usePageInView`: `false` while it's hidden, put
    * in the background, say.
    */
-  // #443.
-  readonly pageVisible: Atom.Atom<boolean>
+  // #443; `pageVisible` until #610.
+  readonly visible: Atom.Atom<boolean>
   /**
    * A container's scroll, live: an Atom the Environment sets as the container scrolls or resizes, as it
    * happens, so a value derived from it is written in the frame that shows the scroll. One listener a
