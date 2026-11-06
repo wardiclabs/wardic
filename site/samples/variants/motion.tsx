@@ -1,4 +1,5 @@
-import { motion, stagger } from "motion/react"
+import { stagger } from "motion/react"
+import * as m from "motion/react-m"
 import { useState } from "react"
 
 const ITEMS = ["Vases", "Bowls", "Plates", "Jugs"]
@@ -21,13 +22,13 @@ export default function Variants() {
       <button className="sample-button" onClick={() => setOpen(!open)}>
         {open ? "Close" : "Open"}
       </button>
-      <motion.ul className="sample-list" variants={list} initial="closed" animate={open ? "open" : "closed"}>
+      <m.ul className="sample-list" variants={list} initial="closed" animate={open ? "open" : "closed"}>
         {ITEMS.map((name) => (
-          <motion.li key={name} className="sample-item" variants={item}>
+          <m.li key={name} className="sample-item" variants={item}>
             {name}
-          </motion.li>
+          </m.li>
         ))}
-      </motion.ul>
+      </m.ul>
     </div>
   )
 }

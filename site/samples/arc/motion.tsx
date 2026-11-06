@@ -1,4 +1,5 @@
-import { arc, motion } from "motion/react"
+import { arc } from "motion/react"
+import * as m from "motion/react-m"
 import { useState } from "react"
 
 // One arc, made once: with no `direction`, each trip keeps to the same side of the screen.
@@ -14,7 +15,7 @@ export default function Arc() {
         Toss
       </button>
       <div className="sample-track">
-        <motion.div className="sample-ball" animate={{ x: across ? 240 : 0, y: 0 }} transition={{ path: toss, duration: 0.7, ease: "easeInOut" }} />
+        <m.div className="sample-ball" animate={{ x: across ? 240 : 0, y: 0 }} transition={{ path: toss, duration: 0.7, ease: "easeInOut" }} />
       </div>
     </div>
   )
