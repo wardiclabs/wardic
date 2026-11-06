@@ -184,14 +184,14 @@ const timeOf = (current: number, at: Time, previous: number, labels: ReadonlyMap
 
 /** A key's value or stops, as stops. */
 const stopsOf = (given: Stop | ReadonlyArray<Stop>): ReadonlyArray<Stop> =>
-  Bool.match(Array.isArray(given), { onTrue: () => given as ReadonlyArray<Stop>, onFalse: () => [given as Stop] })
+  Bool.match(Arr.isArray(given), { onTrue: () => given as ReadonlyArray<Stop>, onFalse: () => [given as Stop] })
 
 /** `count` places evenly spread from 0 to 1 (Motion's `defaultOffset`). */
 const evenly = (count: number): ReadonlyArray<number> => Arr.makeBy(count, (i) => i / (count - 1))
 
 /** Whether an `ease` is one per part (a list that isn't a bézier's four numbers). */
 const isList = (ease: Easing.Definition | ReadonlyArray<Easing.Definition>): ease is ReadonlyArray<Easing.Definition> =>
-  Bool.and(Array.isArray(ease), Bool.not(Easing.isBezier(ease)))
+  Bool.and(Arr.isArray(ease), Bool.not(Easing.isBezier(ease)))
 
 /** An easing for each of `parts`, from one or from a list of them, wrapping round (Motion's `getEasingForSegment`). */
 const easesFor = (ease: Easing.Definition | ReadonlyArray<Easing.Definition>, parts: number): ReadonlyArray<Easing.Definition> =>

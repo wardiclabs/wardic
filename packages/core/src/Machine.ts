@@ -748,7 +748,9 @@ const owned = <F extends Frame.Frame<unknown>>(frame: F): F => {
  */
 // Each subscription's run under the machine's one span, with a `<name>: subscribe` debug log annotated
 // with its attributes; per-frame work is unlogged. A record Frame is copied (`owned`) before it's
-// emitted, so a consumer that collects Frames never sees one rewritten (ADR-0030, decision 11).
+// emitted, so a consumer that collects Frames never sees one rewritten (ADR-0030, decision 11). A
+// Stream, not a Channel: measured 2026-11-02, Stream's own layers were ~5% of a pull of the Clock's
+// ticks, and elements never use `toStream`, so a Channel would gain nothing measurable (#618, M5).
 export const toStream = <F extends Frame.Frame<unknown>>(self: Machine<F>): Stream.Stream<F, never, Clock.Clock> =>
   Stream.unwrap(
     Effect.gen(function* () {
@@ -1391,7 +1393,7 @@ const Times = refine(array(finite), (times) => inOrder(times) || NOT_IN_ORDER)
 const resolveKeyframes: (options: KeyframesOptions) => ResolvedKeyframes = cachedResolver(
   { ...TweenFields, ...ModifierFields, ease: field(EaseOrList, Easing.linear), times: optionalField(Times) },
   (decoded): ResolvedKeyframes => {
-    const list: Arr.NonEmptyReadonlyArray<Easing.Definition> = Bool.match(Bool.and(Array.isArray(decoded.ease), Bool.not(Easing.isBezier(decoded.ease))), {
+    const list: Arr.NonEmptyReadonlyArray<Easing.Definition> = Bool.match(Bool.and(Arr.isArray(decoded.ease), Bool.not(Easing.isBezier(decoded.ease))), {
       onTrue: () => decoded.ease as Arr.NonEmptyReadonlyArray<Easing.Definition>,
       onFalse: (): Arr.NonEmptyReadonlyArray<Easing.Definition> => [decoded.ease as Easing.Definition],
     })
