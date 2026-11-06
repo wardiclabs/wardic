@@ -120,7 +120,6 @@ export const NAV: ReadonlyArray<NavSection> = [
           { path: "/reference/solid/layout/create-instant-layout-transition", title: "createInstantLayoutTransition" },
           { path: "/reference/solid/layout/create-reset-projection", title: "createResetProjection" },
           { path: "/reference/solid/layout/measure-layout-box", title: "measureLayoutBox" },
-          { path: "/reference/solid/layout/use-layout-member", title: "useLayoutMember" },
         ],
       },
       {
@@ -191,6 +190,7 @@ export const NAV: ReadonlyArray<NavSection> = [
           { path: "/reference/solid/advanced/flush-gate", title: "The flush gate" },
           { path: "/reference/solid/advanced/variant-context", title: "Variant context" },
           { path: "/reference/solid/advanced/run-drag-track", title: "runDragTrack" },
+          { path: "/reference/solid/advanced/create-projection-node", title: "createProjectionNode" },
         ],
       },
       // Core's and dom's modules, generated at build (scripts/reference.ts), as each is published.

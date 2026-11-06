@@ -2,7 +2,7 @@
  * The `layout` / `layoutId` binding surface (ADR-0009 + ADR-0010).
  *
  * BOTH `layout` and `layoutId` now run on the one box-based **projection system**
- * (`@wardic/dom`): {@link useLayoutMember} registers the element as a single
+ * (`@wardic/dom`): {@link createProjectionNode} registers the element as a single
  * projection node — the provider-owned system owns measurement (a shared
  * `ResizeObserver` + a `layoutDependency`/registration trigger) and the per-frame
  * box-projection derive (relative + `treeScale`, nested-correct).
@@ -21,11 +21,11 @@ import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Bool from "effect/Boolean"
 import { createContext, createEffect, createMemo, type JSX, on, onCleanup, untrack, useContext } from "solid-js"
 import { layoutGroupIdOf, type LayoutGroupInherit } from "./layout-group.ts"
-import { registrationOf, type UseLayoutMemberOptions } from "./layout-member.ts"
+import { registrationOf, type CreateProjectionNodeOptions } from "./layout-member.ts"
 import { useWardicProjection } from "./layout-projection.ts"
 import { isServer } from "./server.ts"
 
-export type { UseLayoutMemberOptions } from "./layout-member.ts"
+export type { CreateProjectionNodeOptions } from "./layout-member.ts"
 
 /**
  * Registers an element with its provider's projection system as one layout node, as a `w.*` element
@@ -34,7 +34,7 @@ export type { UseLayoutMemberOptions } from "./layout-member.ts"
  * re-measure, and `dispose()` takes the node out, as the owner's cleanup does. It brings the `layout`
  * Feature. Solid 1 only. Call it within a Solid owner.
  *
- * @see https://wardic.dev/reference/solid/layout/use-layout-member
+ * @see https://wardic.dev/reference/solid/advanced/create-projection-node
  */
 // ADR-0009 + ADR-0010: exactly one projection node per element, whether it has `layout`, `layoutId` or
 // both; the `createWard` spine calls it once the element and its gate id exist. The provider's system
@@ -44,13 +44,13 @@ export type { UseLayoutMemberOptions } from "./layout-member.ts"
 // lead/follow stack, and seeds its first measure from a twin disposed in the same task (a Switch), in
 // either swap order (ADR-0010 *Amendment (#13)*), so there's no registry here. It brings `layout`
 // (#511), whatever its section has: a Slim element's own layout node is its section's.
-export const useLayoutMember = (opts: UseLayoutMemberOptions): ProjectionSystem.NodeHandle => layoutMemberOf(useWardicProjection(), opts)
+export const createProjectionNode = (opts: CreateProjectionNodeOptions): ProjectionSystem.NodeHandle => projectionNodeOf(useWardicProjection(), opts)
 
 /**
- * {@link useLayoutMember} on `projection`: an element's, its section's `layout` Feature's (#511), where
- * `useLayoutMember` brings it. Internal.
+ * {@link createProjectionNode} on `projection`: an element's, its section's `layout` Feature's (#511), where
+ * `createProjectionNode` brings it. Internal.
  */
-export const layoutMemberOf = (projection: ProjectionSystem.Shape, opts: UseLayoutMemberOptions): ProjectionSystem.NodeHandle => {
+export const projectionNodeOf = (projection: ProjectionSystem.Shape, opts: CreateProjectionNodeOptions): ProjectionSystem.NodeHandle => {
   const handle = projection.register(registrationOf(opts))
   onCleanup(handle.dispose)
   // Compared before it measures, as Motion's `prevProps.layoutDependency !== layoutDependency`: an

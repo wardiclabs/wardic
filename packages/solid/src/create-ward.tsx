@@ -71,7 +71,7 @@ import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegis
 import { createVariantNode } from "./variant-node.ts"
 import { type GestureStates, type NameOrchestration, type ServerVariantNode, serverVariantNode, startingValuesOf, startsQuiet } from "./variant-tree.ts"
 import { registerAnimatable } from "./imperative.ts"
-import { layoutMemberOf, useLayoutGroupId } from "./layout.tsx"
+import { projectionNodeOf, useLayoutGroupId } from "./layout.tsx"
 import { layoutOptionsOf, wantsLayoutNode } from "./layout-member.ts"
 
 
@@ -668,7 +668,7 @@ export function runSpine(opts: RunSpineOptions): void {
         // Its node on `projection`, handed to a `<Reorder>` item's group; `takenNow`, where a child that
         // takes over from a leaver starts, at its mount only (#286).
         const layoutNodeOn = (projection: ProjectionSystem.Shape, takenNow: PresenceSeed | undefined): ProjectionSystem.NodeHandle => {
-          const handle = layoutMemberOf(projection, layoutOptionsOf({ ...ward, taken: takenNow }))
+          const handle = projectionNodeOf(projection, layoutOptionsOf({ ...ward, taken: takenNow }))
           if (Predicate.isNotUndefined(onLayoutHandle)) onLayoutHandle(handle)
           return handle
         }
