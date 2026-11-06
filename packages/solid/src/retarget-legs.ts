@@ -7,7 +7,7 @@
  * - **Which transition** (ADR-0051, #357): a key runs on the transition it resolves to (#301), as
  *   Motion's: with none defined there, on its Environment's Default transition for it ({@link runOf}).
  * - **A tween** runs every key, numbers and strings, in one `animateValues` leg; with a key's
- *   Keyframes among them (#429, ADR-0058), or `times` or an `ease` per Segment, in one
+ *   Keyframes among them (#429, ADR-0058), or `times` or an `ease` per Interval, in one
  *   `keyframesValues` leg.
  * - **A spring** runs the numbers in one `springValues` leg, carrying velocity, and the strings in
  *   one `springBlend` leg on the same spring (ADR-0024, D5). It takes two stops: Keyframes of more
@@ -347,7 +347,7 @@ const springStopsError = (stops: StopsByKey, kind = "a spring"): Error =>
 const KEYFRAMED = new WeakMap<object, boolean>()
 
 /**
- * Whether a tween's options need `keyframesValues` (#429): `times`, or an `ease` per Segment, which
+ * Whether a tween's options need `keyframesValues` (#429): `times`, or an `ease` per Interval, which
  * `animateValues` doesn't take. Worked out once per options object (#452): every tween Retarget asks.
  */
 const keyframedOptions = (options: Machine.KeyframesOptions): boolean => {
@@ -650,7 +650,7 @@ const anyMeasured = (values: Values.Values, measured: MeasuredPairs | undefined)
 /**
  * Measured pairs' leg (#430): their ends in px, read at its first step, which comes a tick after the
  * end-of-task batch that measures them. A tween runs a 0 → 1 progress (`keyframes`' options, so
- * `times`, an `ease` per Segment and the Modifiers apply), a spring the px. Its last frame writes each
+ * `times`, an `ease` per Interval and the Modifiers apply), a spring the px. Its last frame writes each
  * target as given (`"auto"`, `"50%"`), as Motion's `finalKeyframe`, or each start as given when a turned
  * `repeat` ends it there. A pair its batch couldn't read switches, as a Discrete pair does.
  */
@@ -845,7 +845,7 @@ const legsWith = (
     // Its options as they are: a missing `duration` is core's 0.3 s, and the rest still apply (#107).
     const options = transition as Machine.KeyframesOptions
     // A tween's snap lands where the tween would end: `repeat` and `reverse` can end it at `from`, a
-    // Keyframes key's first stop (#429). Its delay alone is read: an `ease` per Segment isn't a tween's.
+    // Keyframes key's first stop (#429). Its delay alone is read: an `ease` per Interval isn't a tween's.
     if (snapping) {
       legs.push(snapLeg(from, positional, Rec.map(positional, (to, key) => ReducedMotion.endOf(UndefinedOr.getOrThrow(from[key]), to, options)), () => Machine.resolveTween(Rec.filter({ delay: options.delay }, Predicate.isNotUndefined)).delay))
     }
@@ -866,7 +866,7 @@ const legsWith = (
     })
     // With every key snapped, following or measured, there's nothing left to tween.
     if ((!snapping && !following && !measuring) || hasKeys(fixed)) {
-      // A key's Keyframes, or `times` or an `ease` per Segment, run every key through `keyframesValues`
+      // A key's Keyframes, or `times` or an `ease` per Interval, run every key through `keyframesValues`
       // (#429), on one run, a target as its two stops.
       if (anyKeyframed(fixed, stops) || keyframedOptions(options)) {
         legs.push({ _tag: "Blend", to: fixed, machine: () => Machine.keyframesValues(stopsFor(from, fixed, stops), options) })

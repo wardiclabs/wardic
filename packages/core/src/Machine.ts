@@ -29,7 +29,7 @@
 // `<name>: start` debug log; `toStream` is one fiber per subscriber (Tier 2, ADR-0001). Combinators run
 // when a machine is built, never per step: a combinator's `start()` starts its inner machine, and its
 // step makes plain calls only, allocating only the Frame it returns, and only when it changes it
-// (ADR-0028, decision 7). Defaults add no layer: `delay(0)`, `holdAfter(0)` and a one-segment `concatAll`
+// (ADR-0028, decision 7). Defaults add no layer: `delay(0)`, `holdAfter(0)` and a one-interval `concatAll`
 // return their input. `springBlend`, `animateValues` and `keyframesValues` return an `Effect` needing the
 // `InterpolatorRegistry`. Tier 2 (ADR-0008): for binding and Environment authors.
 import * as Arr from "effect/Array"
@@ -64,8 +64,8 @@ import {
   resolvedTweenOf,
   resolveTween,
   runAt,
-  segmentAt,
-  segmentProgress,
+  intervalAt,
+  intervalProgress,
   stepDecay,
   stopTimesOf,
   timeIn,
@@ -199,7 +199,7 @@ export interface TweenOptions {
   readonly ease?: Easing.Definition
   /**
    * Delay before the animation starts, in seconds. With `animate`'s `repeat` / `repeatType`, or across
-   * `keyframes`' stops, it holds once, before the first segment: `Machine.delay`.
+   * `keyframes`' stops, it holds once, before the first Interval: `Machine.delay`.
    */
   // #77.
   readonly delay?: number
@@ -405,18 +405,18 @@ export const map: {
  * const back = Machine.tween(100, 0, { duration: 0.3 })
  * const trip = Machine.concatAll([there, back])
  */
-// `Stream.concat`'s seam over N segments, flat, with one step through them (ADR-0027, decision 4): a
-// segment's settled Frame is re-stamped `done: false` unless it's the last, and the next starts on the
+// `Stream.concat`'s seam over N Intervals, flat, with one step through them (ADR-0027, decision 4): a
+// Interval's settled Frame is re-stamped `done: false` unless it's the last, and the next starts on the
 // next tick with no leftover time; `keyframes` and `animate` are one leaf over one time (#226). Effect
 // v3's name: v4 has no `Stream.concatAll`.
-export const concatAll = <F extends Frame.Frame<unknown>>(segments: Arr.NonEmptyReadonlyArray<Machine<F>>): Machine<F> => {
+export const concatAll = <F extends Frame.Frame<unknown>>(intervals: Arr.NonEmptyReadonlyArray<Machine<F>>): Machine<F> => {
   const reached = Option.match(
-    Arr.findFirstIndex(segments, (segment) => !segment.settles),
+    Arr.findFirstIndex(intervals, (interval) => !interval.settles),
     {
-      onNone: () => segments,
+      onNone: () => intervals,
       onSome: (endless): Arr.NonEmptyReadonlyArray<Machine<F>> => [
-        Arr.headNonEmpty(segments),
-        ...Arr.take(Arr.tailNonEmpty(segments), endless),
+        Arr.headNonEmpty(intervals),
+        ...Arr.take(Arr.tailNonEmpty(intervals), endless),
       ],
     },
   )
@@ -810,7 +810,7 @@ export interface RunOptions {
 
 // --- The leaves --------------------------------------------------------------
 
-/** A tween's step from 0 elapsed: `tween`'s, and each of `animate`'s and `keyframes`' segments. */
+/** A tween's step from 0 elapsed: `tween`'s, and each of `animate`'s and `keyframes`' Intervals. */
 const tweenLeaf = (from: number, to: number, tween: ResolvedTween, span: Span): Machine<Frame.Frame<number>> =>
   make({
     settles: true,
@@ -1384,7 +1384,7 @@ const animateRun = (a: number, b: number, run: ResolvedRun, repeat: number, span
   })
 }
 
-/** `keyframes`' bag resolved (#429): its run (its tween's `delay` 0), an easing per Segment, and each stop's place in time. */
+/** `keyframes`' bag resolved (#429): its run (its tween's `delay` 0), an easing per Interval, and each stop's place in time. */
 interface ResolvedKeyframes extends ResolvedModifiers {
   readonly run: ResolvedRun
   readonly delay: number
@@ -1409,7 +1409,7 @@ const NOT_IN_ORDER = "Expected times from 0 to 1, in order"
 const Times = refine(array(finite), (times) => inOrder(times) || NOT_IN_ORDER)
 
 /**
- * `keyframes`' bag (#66): a tween's fields, its `ease` one Definition or one per Segment (#360), its
+ * `keyframes`' bag (#66): a tween's fields, its `ease` one Definition or one per Interval (#360), its
  * `times` and the repeat modifiers (#429), checked once a bag.
  */
 const resolveKeyframes: (options: KeyframesOptions) => ResolvedKeyframes = cachedResolver(
@@ -1481,8 +1481,8 @@ export const keyframes = (stops: ReadonlyArray<number>, options: KeyframesOption
         elapsed += Math.min(dt, MAX_DT)
         const done = passAt(elapsed, run, reverse, pass)
         const time = timeIn(pass, duration)
-        const i = segmentAt(time, stopTimes)
-        const eased = eases[i % eases.length](segmentProgress(time, stopTimes, i))
+        const i = intervalAt(time, stopTimes)
+        const eased = eases[i % eases.length](intervalProgress(time, stopTimes, i))
         if (pass.flipped) return { value: Scalar.lerp(at[last - i], at[last - i - 1], eased), done }
         return { value: Scalar.lerp(at[i], at[i + 1], eased), done }
       }
@@ -1526,7 +1526,7 @@ const startOf = (from: Values.Values, key: string, b: number | string): number |
   return from[key]
 }
 
-/** `key`'s blender from `a` to `b` ({@link blendersFor}'s, and each of a keyframes Segment's, #429). */
+/** `key`'s blender from `a` to `b` ({@link blendersFor}'s, and each of a keyframes Interval's, #429). */
 const blenderFor = (registry: InterpolatorRegistry.InterpolatorRegistry["Service"], key: string, a: number | string, b: number | string): Effect.Effect<Blender> =>
   // No rule takes it: the registry's blend, through a blender made here, as before #61. A blender
   // made by one shared factory for every key made its call site megamorphic, and Node's string
@@ -1603,7 +1603,7 @@ export const springBlend = (
     ))
 
 /**
- * One key's keyframes in a bag (#429): its stops' times in a pass, and a blender for each Segment,
+ * One key's keyframes in a bag (#429): its stops' times in a pass, and a blender for each Interval,
  * read from first to last (`forward`) and, when a pass can read them from last to first, that way
  * too (`backward`), as Motion's mirrored generator builds its own.
  */
@@ -1617,8 +1617,8 @@ interface Track {
 /** No blenders: a Track whose passes never read its stops from last to first. */
 const NO_BLENDERS: ReadonlyArray<Blender> = []
 
-/** `key`'s blender for each Segment through `stops` (two or more). */
-const segmentBlenders = (
+/** `key`'s blender for each Interval through `stops` (two or more). */
+const intervalBlenders = (
   registry: InterpolatorRegistry.InterpolatorRegistry["Service"],
   key: string,
   stops: ReadonlyArray<number | string>,
@@ -1636,8 +1636,8 @@ const trackFor = (
 ): Effect.Effect<Track> => {
   const stops = stopsOf(given, given[0])
   return Effect.all({
-    forward: segmentBlenders(registry, key, stops),
-    backward: Bool.match(flips, { onTrue: () => segmentBlenders(registry, key, Arr.reverse(stops)), onFalse: () => Effect.succeed(NO_BLENDERS) }),
+    forward: intervalBlenders(registry, key, stops),
+    backward: Bool.match(flips, { onTrue: () => intervalBlenders(registry, key, Arr.reverse(stops)), onFalse: () => Effect.succeed(NO_BLENDERS) }),
   }).pipe(Effect.map(({ forward, backward }): Track => ({ key, stopTimes: stopTimesOf(stops.length, times, duration), forward, backward })))
 }
 
@@ -1648,9 +1648,9 @@ const trackFor = (
  * one per stop, evenly spaced otherwise. A key with one stop holds it, and one with none is left out.
  * Building it needs the `InterpolatorRegistry`, once.
  */
-// #429. A Segment blends as a pair does: a Discrete pair switches at its first Frame past 0, and a Key
+// #429. An Interval blends as a pair does: a Discrete pair switches at its first Frame past 0, and a Key
 // rule that holds a key until the run's last Frame (`@wardic/dom`'s for a key that hides an element) sees only the
-// last Segment's. Each Segment of each key resolves to a pure blender; per tick, one direct call a key.
+// last Interval's. Each Interval of each key resolves to a pure blender; per tick, one direct call a key.
 // Its own span, `wardic.keyframesValues`.
 export const keyframesValues: (
   stops: Readonly<Record<string, ReadonlyArray<number | string>>>,
@@ -1682,8 +1682,8 @@ export const keyframesValues: (
           const time = timeIn(pass, duration)
           const value: Record<string, number | string> = {}
           for (const track of tracks) {
-            const i = segmentAt(time, track.stopTimes)
-            const eased = eases[i % eases.length](segmentProgress(time, track.stopTimes, i))
+            const i = intervalAt(time, track.stopTimes)
+            const eased = eases[i % eases.length](intervalProgress(time, track.stopTimes, i))
             let blenders = track.forward
             if (pass.flipped) blenders = track.backward
             value[track.key] = blenders[i](eased, done)

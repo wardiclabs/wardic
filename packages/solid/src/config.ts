@@ -122,7 +122,7 @@ export type WardicLengths = { readonly [K in DomRenderer.LengthKey]?: number | C
  * `animate={{ scale: [1, 1.2, 1] }}`. A first `null` is where the key is now; a later one repeats the
  * stop before it. An explicit first stop is jumped to as its animation starts. More than two stops run
  * on a tween (Motion's 0.8 s one with no transition defined; `times` places them, `ease` may be one per
- * Segment): a spring takes two.
+ * Interval, between two stops): a spring takes two.
  */
 export type WardicKeyframes<V> = ReadonlyArray<V | null>
 
@@ -255,7 +255,7 @@ export interface WardicTransitionPath {
 // ADR-0051: a transition with only orchestration, `delay` or the opt-out leaves each key on its
 // Environment's Default transition. A spring set by time (#359) is solved to its physics. A "tween"
 // routes every key through `animateValues`, Keyframes through `keyframesValues` with `times` and an
-// `ease` per Segment (#429). `from` is the stagger's origin on both arms: a spring's own `from` was
+// `ease` per Interval (#429). `from` is the stagger's origin on both arms: a spring's own `from` was
 // never a transition's, and the two clashed (#243). A value's own transition: #301.
 export type WardicTransition = WardicTransitionWith<WardicTransitionEntries>
 

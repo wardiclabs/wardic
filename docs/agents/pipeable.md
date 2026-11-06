@@ -37,7 +37,7 @@ A Primitive is its machine, built by its constructor in the `Machine` module (`M
 
 - **Compose with the combinators,** `dual` where they take more than the machine: `map`, `concat`, `delay`, `holdAfter`, `clampDt`, `withSpan`, and `run`; `concatAll` takes an array of machines, and `forever` the machine alone.
 - **A combinator's `start()` starts its inner machine and resolves everything once; its step makes plain calls only,** in effect-first.md's per-frame forms. It allocates only the Frame it returns, and only when it changes it.
-- **Defaults add no layer:** `delay(0)`, `holdAfter(0)` and a one-segment `concatAll` return their input.
+- **Defaults add no layer:** `delay(0)`, `holdAfter(0)` and a one-interval `concatAll` return their input.
 - **A Frame handed to a sink is the run's until the next tick.** A sink that keeps a Frame, its `value` or its `velocity` copies it: `springValues` rewrites one Frame per run each tick (ADR-0030, decision 11). `Machine.run`'s settled Frame is stable, and `Machine.toStream` hands each Stream consumer its own.
 - **`withSpan` replaces the span,** it doesn't nest one: a machine's span is data until a driver opens it.
 - **A combinator needs a caller.** Add one when something uses it, not before.

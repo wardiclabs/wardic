@@ -213,7 +213,7 @@ export const timeIn = (pass: Pass, duration: number): number => {
 /**
  * Each stop's time in a pass of `duration` seconds (#429): its place in `times` when there's one per
  * stop, as Motion's `keyframes` takes them (`convertOffsetToTimes`), else evenly spaced (Motion's
- * `defaultOffset`), each a whole number of Segments in. `count` is two or more.
+ * `defaultOffset`), each a whole number of Intervals in. `count` is two or more.
  */
 export const stopTimesOf = (count: number, times: ReadonlyArray<number> | undefined, duration: number): ReadonlyArray<number> => {
   if (Predicate.isNotUndefined(times) && times.length === count) return Arr.map(times, (time) => time * duration)
@@ -221,10 +221,10 @@ export const stopTimesOf = (count: number, times: ReadonlyArray<number> | undefi
 }
 
 /**
- * The Segment a pass `time` seconds in is in, by its stops' times: the first whose end it hasn't
+ * The Interval a pass `time` seconds in is in, by its stops' times: the first whose end it hasn't
  * reached, else the last (Motion's `interpolate`). Per frame (ADR-0025).
  */
-export const segmentAt = (time: number, stopTimes: ReadonlyArray<number>): number => {
+export const intervalAt = (time: number, stopTimes: ReadonlyArray<number>): number => {
   const last = stopTimes.length - 2
   let i = 0
   while (i < last && time >= stopTimes[i + 1]) i++
@@ -232,10 +232,10 @@ export const segmentAt = (time: number, stopTimes: ReadonlyArray<number>): numbe
 }
 
 /**
- * How far through Segment `i` a pass `time` seconds in is, 0 to 1; all the way through one with no
+ * How far through Interval `i` a pass `time` seconds in is, 0 to 1; all the way through one with no
  * length (Motion's `progress`). Per frame (ADR-0025).
  */
-export const segmentProgress = (time: number, stopTimes: ReadonlyArray<number>, i: number): number => {
+export const intervalProgress = (time: number, stopTimes: ReadonlyArray<number>, i: number): number => {
   const start = stopTimes[i]
   const length = stopTimes[i + 1] - start
   if (length === 0) return 1
