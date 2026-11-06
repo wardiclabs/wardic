@@ -1,6 +1,6 @@
 {
   "name": "@wardic/solid",
-  "version": "1.0.0-rc.3",
+  "version": "1.0.0-rc.4",
   "description": "Motion for React's API on Solid 1 and Solid 2: Wardic's elements, gestures, layout and presence animations.",
   "keywords": [
     "animation",

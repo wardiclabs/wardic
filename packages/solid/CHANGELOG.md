@@ -1,5 +1,13 @@
 # @wardic/solid
 
+## 1.0.0-rc.4
+
+### Patch Changes
+
+- 85d48bb: A `WardicProvider` whose `env` waits as it builds, such as one with Effect's `DevTools.layer()` in it, fails its first element with an error naming the fix, where it failed with Effect's `AsyncFiberError` and, on Solid 2, halted the reactive system unexplained. A provider builds its `env` at once, so a Layer that waits goes in built: the observability guide's sample now builds the devtools before the app renders, in development alone.
+  - @wardic/core@1.0.0-rc.4
+  - @wardic/dom@1.0.0-rc.4
+
 ## 1.0.0-rc.3
 
 ### Patch Changes
