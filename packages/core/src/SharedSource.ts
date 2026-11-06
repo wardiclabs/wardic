@@ -2,7 +2,8 @@
  * Shared sources, for the Streams an Environment hands out: each hot and counted, so however many
  * subscribe, one underlying source runs, started by the first subscriber and stopped when the last one
  * leaves. `byTarget` keeps one per target, one observer on each element, and `make` one for the whole
- * Environment. An Environment builds its sources with these, as `@wardic/dom` does.
+ * Environment. An Environment builds its sources with these, as `@wardic/dom` does, and `counted` shares
+ * anything else it opens per target.
  *
  * @example
  * import * as SharedSource from "@wardic/core/SharedSource"
@@ -13,136 +14,133 @@
  * Stream.runForEach(resize(card), onScroll)
  */
 // CONTEXT.md's **Shared source** contract (#37, ADR-0041 *Amendment (#37)*). An Environment's **Input
-// feeds** are shared by `InputFeed.byTarget` instead, with no `PubSub` or fiber (#318).
+// feeds** are shared by `InputFeed.byTarget` instead, with no fiber (#318).
 //
-// Two constructors, both built on the same primitive (a `PubSub` fed by a `forkScoped` pump that drains
-// the cold source), wrapped in Effect's reference-counted resource caches: `byTarget` keys on the target
-// (`RcMap`), the cold `lookup` running once per target while a subscriber holds it (an Environment's
-// `Probe.observeResize`); `make` is the keyless case (`RcRef`). The cold source is acquired by the first
-// subscriber and released when the last subscriber's scope closes: `Stream.unwrap` holds the Rc reference
-// for the subscriber stream's lifetime, so when the last one ends the cache releases the entry, the pump
-// is interrupted, and the cold source's finalizers run (a listener is removed). The source's end ends
-// every subscriber, and its failure fails them (#618, decision 6). Effect's own `Stream.share` and
-// `Stream.broadcast` do this too, but put 2.2 KB gzip on every app (`bun run size`), so the pump stays.
+// One shape under both constructors (#518, ADR-0067 *Amendment (#518)*, decision 3): a target's entry in
+// a `counted` map holds its subscribers' hearings and, while any subscriber holds it, a pump that runs the
+// cold source and hands each element to every hearing, which resumes a waiting subscriber inside the
+// call, as the `PubSub` did. The first subscriber opens the entry and starts the pump; the
+// last one's release interrupts it, and the cold source's finalizers run (a listener is removed). The
+// source's end ends every subscriber, and its failure fails them (#618, decision 6). It replaced a
+// `PubSub` per source in Effect's `RcMap` and `RcRef`, whose code every app shipped (4.1 KB gzipped with
+// `Clock.ticks`' and the DOM's scroll containers'), and whose `idleTimeToLive` nothing passed.
 //
 // Tier 2 (ADR-0008), for Environment authors, as `InputSource.heldPointer` is (#31's rule: Wardic ships
 // what makes a new Environment little work). Observability: each constructor emits a
-// `wardic.sharedSource.*` span and a debug log on subscribe; the per-event publish path stays quiet.
-import * as Cause from "effect/Cause"
-import type * as Duration from "effect/Duration"
+// `wardic.sharedSource.*` span and a debug log on subscribe; the per-event path stays quiet.
 import * as Effect from "effect/Effect"
-import * as Equal from "effect/Equal"
 import * as Exit from "effect/Exit"
-import { identity } from "effect/Function"
-import * as Hash from "effect/Hash"
-import * as Match from "effect/Match"
-import * as MutableRef from "effect/MutableRef"
+import * as Fiber from "effect/Fiber"
+import * as Iter from "effect/Iterable"
 import * as Option from "effect/Option"
-import * as Predicate from "effect/Predicate"
-import * as PubSub from "effect/PubSub"
-import * as RcMap from "effect/RcMap"
-import * as RcRef from "effect/RcRef"
-import type * as Scope from "effect/Scope"
+import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
-import * as UndefinedOr from "effect/UndefinedOr"
+import * as Hearing from "./internal/hearing.ts"
 import { tracedStream } from "./internal/tracing.ts"
 
-/** `byTarget`'s and `make`'s options. */
-export interface Options {
-  /**
-   * How long a source with no subscriber left keeps running before it stops, so a quick re-subscribe
-   * reuses it. Default: none, stopped at once.
-   */
-  // Rc{Map,Ref}'s `idleTimeToLive`.
-  readonly idleTimeToLive?: Duration.Input | undefined
-}
-
-/** A source fanned out: its `PubSub`, and how it ended, once it has. */
-interface FannedIn<A> {
-  readonly pubsub: PubSub.PubSub<A>
-  readonly ended: MutableRef.MutableRef<Option.Option<Exit.Exit<void>>>
+/** A key's value in a `counted` map, and how many hold it. */
+interface Held<V> {
+  readonly value: V
+  count: number
 }
 
 /**
- * The hot `PubSub` that fronts a cold source: acquire the source via `acquire`, fork a scoped pump
- * that republishes every element into the PubSub, and hand back the PubSub. The pump is bound to
- * the Rc cache entry's scope, so when the cache releases the entry the pump is interrupted and the
- * cold source's finalizers run. When the source ends, how it ended is kept and the PubSub shut down,
- * which ends every subscription. Per-element publishing is un-logged: it's the hot path.
+ * Values shared by key and counted: the first hold of a key opens its value with `open`, later holds
+ * share it, and the last one's release closes it with `close`. A key is held by identity and never
+ * hashed, so a DOM node is its own key. `open` runs inline, so it mustn't wait.
+ *
+ * @example
+ * // One listener set per container, however many readers hold it
+ * const containers = SharedSource.counted(
+ *   (container: Element) => ({ remove: listenTo(container) }),
+ *   (listening) => Effect.sync(listening.remove),
+ * )
+ * const listening = yield* containers(list) // held until the current Scope closes
  */
-const fanIn: <A>(
-  acquire: Effect.Effect<Stream.Stream<A>, never, Scope.Scope>,
-) => Effect.Effect<FannedIn<A>, never, Scope.Scope> = /*#__PURE__*/ Effect.fnUntraced(
-  function* <A>(acquire: Effect.Effect<Stream.Stream<A>, never, Scope.Scope>) {
-    const pubsub = yield* PubSub.unbounded<A>()
-    const source = yield* acquire
-    const ended = MutableRef.make(Option.none<Exit.Exit<void>>())
-    yield* Effect.forkScoped(
-      Stream.runForEach(source, (a) => PubSub.publish(pubsub, a)).pipe(
-        Effect.onExit((exit) => Effect.andThen(Effect.sync(() => MutableRef.set(ended, Option.some(exit))), PubSub.shutdown(pubsub))),
-      ),
-    )
-    return { pubsub, ended }
-  })
-
-/** A source's failure, if it failed: an interruption is how its cache ends it, not a failure. */
-const failureOf = (exit: Exit.Exit<void>): Option.Option<Cause.Cause<never>> => {
-  if (Exit.isSuccess(exit)) return Option.none()
-  if (Cause.hasInterruptsOnly(exit.cause)) return Option.none()
-  return Option.some(exit.cause as Cause.Cause<never>)
+// #518: what `RcMap` gave the DOM's scroll containers (#618, M7), with no Scope per entry and no `Hash`.
+export const counted = <K, V>(
+  open: (key: K) => V,
+  close: (value: V) => Effect.Effect<void>,
+): ((key: K) => Effect.Effect<V, never, Scope.Scope>) => {
+  const held = new Map<K, Held<V>>()
+  const acquire = (key: K): Effect.Effect<Held<V>> =>
+    Effect.sync(() => {
+      const entry = Option.getOrElse(Option.fromUndefinedOr(held.get(key)), () => {
+        const opened: Held<V> = { value: open(key), count: 0 }
+        held.set(key, opened)
+        return opened
+      })
+      entry.count++
+      return entry
+    })
+  const release = (key: K, entry: Held<V>): Effect.Effect<void> =>
+    Effect.suspend(() => {
+      entry.count--
+      if (entry.count > 0) return Effect.void
+      if (held.get(key) === entry) held.delete(key)
+      return close(entry.value)
+    })
+  return (key) => Effect.map(Effect.acquireRelease(acquire(key), (entry) => release(key, entry)), (entry) => entry.value)
 }
 
-/** How a subscriber ends after its source has: failed with the source's failure, else at once. */
-const endOf = (ended: Option.Option<Exit.Exit<void>>): Effect.Effect<void> =>
-  Option.match(Option.flatMap(ended, failureOf), { onNone: () => Effect.void, onSome: (cause) => Effect.failCause(cause) })
+/** A source shared by its subscribers: their hearings, its pump while it runs, and how it ended, once it has. */
+interface Fanned<A> {
+  readonly hearings: Set<Hearing.Hearing<A>>
+  pump: Option.Option<Fiber.Fiber<void>>
+  ended: Option.Option<Exit.Exit<void>>
+}
 
-/**
- * A subscriber to a fanned-out source, made as it subscribes: its events, then the source's end. One that
- * subscribes after the end gets the end alone.
- */
-const subscriberOf = <A>({ pubsub, ended }: FannedIn<A>): Stream.Stream<A> =>
-  Stream.onEnd(
-    Option.match(MutableRef.get(ended), { onNone: () => Stream.fromPubSub(pubsub), onSome: (): Stream.Stream<A> => Stream.empty }),
-    Effect.suspend(() => endOf(MutableRef.get(ended))),
+/** A fresh source's entry, with no subscriber, no pump and no end. */
+const fanned = <A>(): Fanned<A> => ({ hearings: new Set(), pump: Option.none(), ended: Option.none() })
+
+/** The pump: `acquire`'s source, each element to every subscriber; its end, kept and handed to each. */
+const pumpOf = <A>(entry: Fanned<A>, acquire: Effect.Effect<Stream.Stream<A>, never, Scope.Scope>): Effect.Effect<void> =>
+  Effect.scoped(
+    Effect.flatMap(acquire, (source) => Stream.runForEach(source, (a) => Effect.sync(() => Iter.forEach(entry.hearings, (hearing) => hearing.hear(a))))),
+  ).pipe(
+    Effect.onExit((exit) =>
+      Effect.sync(() => {
+        entry.ended = Option.some(exit)
+        Iter.forEach(entry.hearings, (hearing) => hearing.end(exit))
+      })
+    ),
   )
 
+/** An entry's pump stopped, its last subscriber gone. */
+const stop = <A>(entry: Fanned<A>): Effect.Effect<void> =>
+  Option.match(entry.pump, { onNone: () => Effect.void, onSome: (pump) => Effect.asVoid(Fiber.interrupt(pump)) })
+
 /**
- * An identity key for `RcMap`. `RcMap` hashes its keys with Effect's structural `Hash`, which
- * walks a target's properties: on a platform object that can throw (a DOM node's function
- * properties touch `.caller` in strict mode), and it would conflate two structurally equal but
- * distinct targets. This wrapper is equal by reference, with a stable per-instance hash, so `RcMap`
- * never inspects the target and each distinct target is its own entry. One wrapper is cached per
- * target (the `WeakMap` in {@link byTarget}).
+ * A subscriber to `key`'s shared source: its hearing on the entry while its Stream runs, the pump started
+ * for the first, in `scope`, the shared source's. One that subscribes after the source ended gets the end
+ * alone.
  */
-// Module state (#460, Q7): an id counter, only ever compared for distinctness, so every runtime may share it.
-let nextTargetHash = 1
-class TargetKey implements Equal.Equal {
-  readonly hash: number
-  constructor(readonly target: unknown) {
-    this.hash = nextTargetHash++
-  }
-  [Hash.symbol](): number {
-    return this.hash
-  }
-  [Equal.symbol](that: Equal.Equal): boolean {
-    return this === that
-  }
-}
-
-/** The target a key addresses: a {@link TargetKey}'s own, else the key itself (a non-object target). */
-const targetOf: (key: unknown) => unknown = /*#__PURE__*/ Match.type<unknown>().pipe(
-  Match.when(Match.instanceOf(TargetKey), (key) => key.target),
-  Match.orElse(identity),
-)
-
-/** The cache's `idleTimeToLive`, when the options give one. */
-const idleOf = (options: Options = {}): { readonly idleTimeToLive?: Duration.Input } =>
-  UndefinedOr.match(options.idleTimeToLive, { onUndefined: () => ({}), onDefined: (idleTimeToLive) => ({ idleTimeToLive }) })
+const subscriberOf = <A>(
+  hold: (key: unknown) => Effect.Effect<Fanned<A>, never, Scope.Scope>,
+  key: unknown,
+  acquire: () => Effect.Effect<Stream.Stream<A>, never, Scope.Scope>,
+  scope: Scope.Scope,
+): Stream.Stream<A> =>
+  Stream.unwrap(
+    Effect.gen(function* () {
+      const entry = yield* hold(key)
+      const hearing = Hearing.make<A>()
+      if (Option.isSome(entry.ended)) {
+        hearing.end(entry.ended.value)
+        return hearing.stream
+      }
+      // Its hearing first, so what the pump hands on as it starts reaches it.
+      entry.hearings.add(hearing)
+      yield* Effect.addFinalizer(() => Effect.sync(() => entry.hearings.delete(hearing)))
+      if (Option.isNone(entry.pump)) entry.pump = Option.some(yield* Effect.forkIn(pumpOf(entry, acquire()), scope, { startImmediately: true }))
+      return hearing.stream
+    }),
+  )
 
 /**
  * A shared source per target: a function from a target to a Stream that's hot and counted for that
  * target. The first subscriber for a target starts `lookup(target)`'s source, later ones share it, and it
- * stops when the last one for that target leaves, after `idleTimeToLive` if it's given.
+ * stops when the last one for that target leaves.
  *
  * @example
  * // `resizesOf(target)`: an Environment's own Stream of a target's sizes
@@ -150,68 +148,37 @@ const idleOf = (options: Options = {}): { readonly idleTimeToLive?: Duration.Inp
  */
 export const byTarget: <A>(
   lookup: (target: unknown) => Effect.Effect<Stream.Stream<A>, never, Scope.Scope>,
-  options?: Options,
 ) => Effect.Effect<(target: unknown) => Stream.Stream<A>, never, Scope.Scope> = /*#__PURE__*/ Effect.fnUntraced(
-  function* <A>(lookup: (target: unknown) => Effect.Effect<Stream.Stream<A>, never, Scope.Scope>, options?: Options) {
+  function* <A>(lookup: (target: unknown) => Effect.Effect<Stream.Stream<A>, never, Scope.Scope>) {
     yield* Effect.logDebug("wardic.sharedSource.byTarget: create")
-    // One stable identity key per target (see TargetKey). Object targets are cached weakly, so the
-    // key, and the RcMap entry it addresses, share the target's lifetime; a non-object target hashes
-    // safely on its own.
-    const keys = new WeakMap<object, TargetKey>()
-    const keyFor = (target: unknown): unknown =>
-      Option.match(Option.liftPredicate(target, Predicate.isObjectOrArray), {
-        onNone: () => target,
-        onSome: (object) =>
-          Option.getOrElse(Option.fromUndefinedOr(keys.get(object)), () => {
-            const key = new TargetKey(object)
-            keys.set(object, key)
-            return key
-          }),
-      })
-    const map = yield* RcMap.make({
-      lookup: (key: unknown) => fanIn(lookup(targetOf(key))),
-      ...idleOf(options),
-    })
+    const scope = yield* Scope.Scope
+    const hold = counted<unknown, Fanned<A>>(fanned, stop)
     return (target: unknown): Stream.Stream<A> =>
       tracedStream(
-        Stream.unwrap(
-          Effect.gen(function* () {
-            yield* Effect.logDebug("wardic.sharedSource.byTarget: subscribe")
-            return subscriberOf(yield* RcMap.get(map, keyFor(target)))
-          }),
-        ),
+        Stream.unwrap(Effect.as(Effect.logDebug("wardic.sharedSource.byTarget: subscribe"), subscriberOf(hold, target, () => lookup(target), scope))),
         "wardic.sharedSource.byTarget",
       )
   })
 
 /**
  * One shared source for the whole Environment: a Stream that's hot and counted. The first subscriber
- * starts `acquire`'s source, later ones share it, and it stops when the last one leaves, after
- * `idleTimeToLive` if it's given. `byTarget`'s form without a target.
+ * starts `acquire`'s source, later ones share it, and it stops when the last one leaves. `byTarget`'s
+ * form without a target.
  *
  * @example
  * // `viewportChanges`: an Environment's own Stream of its viewport's size
  * const viewport = yield* SharedSource.make(Effect.succeed(viewportChanges))
  * Stream.runForEach(viewport, onResize) // one listener, however many subscribe
  */
-// As `RcRef.make` is `RcMap.make`'s.
 export const make: <A>(
   acquire: Effect.Effect<Stream.Stream<A>, never, Scope.Scope>,
-  options?: Options,
 ) => Effect.Effect<Stream.Stream<A>, never, Scope.Scope> = /*#__PURE__*/ Effect.fnUntraced(
-  function* <A>(acquire: Effect.Effect<Stream.Stream<A>, never, Scope.Scope>, options?: Options) {
+  function* <A>(acquire: Effect.Effect<Stream.Stream<A>, never, Scope.Scope>) {
     yield* Effect.logDebug("wardic.sharedSource.make: create")
-    const ref = yield* RcRef.make({
-      acquire: fanIn(acquire),
-      ...idleOf(options),
-    })
+    const scope = yield* Scope.Scope
+    const hold = counted<unknown, Fanned<A>>(fanned, stop)
     return tracedStream(
-      Stream.unwrap(
-        Effect.gen(function* () {
-          yield* Effect.logDebug("wardic.sharedSource.make: subscribe")
-          return subscriberOf(yield* RcRef.get(ref))
-        }),
-      ),
+      Stream.unwrap(Effect.as(Effect.logDebug("wardic.sharedSource.make: subscribe"), subscriberOf(hold, undefined, () => acquire, scope))),
       "wardic.sharedSource.make",
     )
   })
