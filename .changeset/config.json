@@ -7,7 +7,7 @@
   "access": "public",
   "baseBranch": "main",
   "updateInternalDependencies": "patch",
-  "changedFilePatterns": ["src/**", "package.json", "README.md", "tsconfig*.json"],
+  "changedFilePatterns": ["src/**", "package.json", "README.md", "tsconfig.json", "tsconfig*build*.json"],
   "privatePackages": {
     "version": false,
     "tag": false
