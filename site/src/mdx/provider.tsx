@@ -9,6 +9,7 @@ import { dynamic } from "@solidjs/web"
 import type { JSX } from "@solidjs/web"
 import { CodeTabs } from "~/components/CodeTabs.tsx"
 import { Demo } from "~/components/Demo.tsx"
+import { InstallTabs } from "~/components/InstallTabs.tsx"
 
 type Component = (props: Record<string, unknown>) => JSX.Element
 
@@ -43,8 +44,8 @@ const Anchor = elementOf("a")
 // built pages.
 const Link: Component = (props) => <Anchor aria-current={String(props.href ?? "").startsWith("#") ? "false" : undefined} {...props} />
 
-/** The site's own components, over the plain elements, and the ones a page uses by name: `<Demo>` and `<CodeTabs>`. */
-const OWN: Record<string, Component> = { a: Link, CodeTabs: CodeTabs as Component, Demo: Demo as Component }
+/** The site's own components, over the plain elements, and the ones a page uses by name: `<Demo>`, `<CodeTabs>` and `<InstallTabs>`. */
+const OWN: Record<string, Component> = { a: Link, CodeTabs: CodeTabs as Component, Demo: Demo as Component, InstallTabs: InstallTabs as Component }
 
 const ALL: Record<string, Component> = { ...Object.fromEntries(TAGS.map((tag) => [tag, elementOf(tag)])), ...OWN }
 
