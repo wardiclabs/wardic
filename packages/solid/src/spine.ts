@@ -3373,7 +3373,9 @@ export const dragDefaultsOf = (config: WardConfig, internal: DragInternals = NO_
 
 /**
  * Set each of a drag element's defaults its inline style doesn't already set, and
- * `draggable="false"` unless it has the attribute (the commit-sink paths, at mount).
+ * `draggable="false"` unless it has the attribute, at mount: for an element whose props don't carry
+ * them, a directive's (`use:wardic`, `use:w`) and a `wardic.create(Component)` wrap's, whose
+ * component may not pass them on.
  */
 export const applyDragDefaults = (element: HTMLElement, defaults: Style.DragDefaults): void => {
   Arr.forEach(Rec.keys(defaults), (key) => {

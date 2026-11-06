@@ -483,7 +483,8 @@ const AXES = ["x", "y"] as const
 /**
  * A Retarget's keys with both of a Path's axes (#438): a Path couples `x` and `y`, so with either one
  * retargeted, the other goes along it too, to its own target in `target`, though that hasn't changed
- * (#325 would keep it out). Without a Path, or neither axis, the keys as they are.
+ * and a Retarget otherwise keeps an unchanged key's Leg (#325). Without a Path, or neither axis, the
+ * keys as they are.
  */
 export const withPathAxes = (fresh: Values.Values, target: Values.Values, transition: WardicTransition | undefined): Values.Values => {
   if (Predicate.isUndefined(UndefinedOr.map(transition, (t) => t.path))) return fresh

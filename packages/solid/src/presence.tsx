@@ -5,33 +5,36 @@
  * reactive owner (and would remove its DOM node) the instant the `<Show>` (or
  * other control flow) that renders it flips false. So exit is PARENT-DRIVEN:
  *
- *   1. While a child is alive, its `createWard` spine REGISTERS a record with the
- *      nearest `<AnimatePresence>` via {@link PresenceContext}. The record holds
- *      two LIVE mutable refs: `snapshot.current` (the latest emitted value-map,
- *      updated each frame by the spine) and `exit.current` (the exit target,
- *      kept current by a `createEffect` reading `cfg().exit`). The child does NOT
- *      unregister on its own `onCleanup` — `<AnimatePresence>` owns removal.
+ *   1. While a child is alive, its spine REGISTERS a record with the nearest
+ *      `<AnimatePresence>` via {@link PresenceContext}: `snapshot.current`, the
+ *      latest emitted value-map, which the spine updates each frame, and `exitOf`,
+ *      which resolves its exit as it leaves (a target, a variant name, or a dynamic
+ *      variant resolved with `custom`). The child does NOT unregister on its own
+ *      `onCleanup` — `<AnimatePresence>` owns removal.
  *   2. `<AnimatePresence>` resolves its children via Solid `children()` (one, or a
- *      `<For>`'s many) and tracks the present elements. When one leaves the resolved
- *      children AND a registration exists for it, it RE-INSERTS / KEEPS that DOM
- *      node where it was instead of letting it vanish, then runs the exit animation
- *      itself (from `snapshot.current` toward `exit.current` via the provider
- *      runtime + the Renderer's `project`/`commit`), and on the exit's settle
- *      removes the node from the DOM and the registration.
- *   3. If `exit.current` is empty/undefined the node is removed immediately.
+ *      `<For>`'s many) and tracks the present elements. When one with a registration
+ *      leaves the resolved children, it RE-INSERTS / KEEPS that DOM node where it was
+ *      instead of letting it vanish, then runs the exit itself (from
+ *      `snapshot.current` toward what `exitOf` resolves, via the provider runtime + the
+ *      Renderer's `project`/`commit`), and on the exit's settle removes the node from
+ *      the DOM and the registration.
+ *   3. A leaving child with no registration, a plain one, still runs the exits of the
+ *      Wardic elements inside it and hands back the twins inside it, staying until
+ *      they've ended (#392); with nothing inside it to wait for, it goes at once.
  *
- * Node retention (the hard part): mirrors solid-transition-group's single-child
- * approach. We resolve `children()` (which returns the live DOM node) and, when
- * the reactive branch drops it, RE-APPEND the captured node to our container so
+ * Node retention (the hard part): mirrors solid-transition-group's approach, child by
+ * child. We resolve `children()` (which returns the live DOM nodes) and, when
+ * the reactive branch drops one, RE-APPEND the captured node to our container so
  * the disposed owner's removal is undone — the node survives long enough for the
  * parent-driven exit, then we remove it on settle. The registration's snapshot /
  * exit refs are plain objects that outlive the child's owner, so the exit has
  * everything it needs after the child is gone.
  *
  * A child is its DOM node (#277): each that leaves exits on its own, in its place. A
- * child that comes back mid-exit is a new node, which enters beside the leaver while
- * the leaver finishes, as Motion shows two children it can't tell apart (#286 would
- * key them).
+ * child that comes back mid-exit is a new node: with the leaver's `key` on its Wardic
+ * element it takes over from where the leaver is (#286); without one it enters beside
+ * the leaver while the leaver finishes, as Motion shows two children it can't tell
+ * apart.
  *
  * A leaving child that isn't a twin hands back the twins inside it (#181): each
  * crossfades onto its other twin while the child runs its own exit, and the child
@@ -115,9 +118,10 @@ export interface AnimatePresenceProps {
 
 /**
  * `<AnimatePresence>` — wraps its children (a conditional one, or a `<For>`'s) and
- * animates each one's exit before it's removed. Must be used inside a `<WardicProvider>`
- * (it drives the exit on the provider runtime) and may wrap any control flow
- * (e.g. `<Show>`). A leaving child runs its own `exit` if it's a `wardic.*` element or a
+ * animates each one's exit before it's removed; one that comes back mid-exit with the
+ * leaver's `key` on its Wardic element takes over from where the leaver is. Must be used
+ * inside a `<WardicProvider>` (it drives the exit on the provider runtime) and may wrap any
+ * control flow (e.g. `<Show>`). A leaving child runs its own `exit` if it's a `wardic.*` element or a
  * `createWard` spine, and the exits of the Wardic elements inside it either way, staying until
  * they've ended; a plain child with nothing inside it to wait for goes at once.
  */

@@ -135,7 +135,7 @@ export { isWardicComponent, unwrapWardicComponent, type WardicCreateOptions } fr
 export { isValidWardicPropV2 as isValidWardicProp } from "../../motion-props.ts"
 
 /**
- * `<AnimatePresence>` (ADR-0007): a single child's exit before it's removed, from its ward's `exit`;
+ * `<AnimatePresence>` (ADR-0007): each child's exit before it's removed, from its ward's `exit`;
  * `initial={false}` starts the child present at its first render at its `animate` (#134).
  */
 export { AnimatePresence, type AnimatePresenceProps, PresenceContext, usePresenceContext } from "./presence.tsx"
