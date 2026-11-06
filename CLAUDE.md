@@ -28,3 +28,7 @@ Core's API is organised the way Effect's is: a module per data type (`@wardic/co
 ### Domain docs
 
 Multi-context: a root `CONTEXT-MAP.md` pointing at per-package `CONTEXT.md` files. See `docs/agents/domain.md`.
+
+### Changesets
+
+From launch day (#560), once the repo is public, a PR that changes a package adds a changeset: `bun run changeset`, or `bun run changeset --empty` for a change no release mentions. CI checks it. Releases go out from `.github/workflows/release.yml`; see `CONTRIBUTING.md`'s Releases.

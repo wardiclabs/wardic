@@ -26,8 +26,8 @@
     "size": "bun packages/solid/bench/size.ts",
     "skills": "bun scripts/sync-agent-skills.ts",
     "changeset": "changeset",
-    "version-packages": "changeset version",
-    "release": "bun run build && changeset publish"
+    "version-packages": "changeset version && bun scripts/sync-lockfile-versions.ts",
+    "release": "bun run build && bun scripts/publish-packages.ts"
   },
   "overrides": {
     "playwright": "1.59.1",

@@ -66,6 +66,15 @@ As the change needs:
 - **One idea per commit.** A refactor that moves code and a change that alters it are separate commits, so each can be read on its own.
 - **A commit's subject names the packages it touches and the issue:** `solid: a drag starts when a lazily loaded drag arrives (#551)`, `core, dom: …`, `docs: …`. Its body says why, and what was measured.
 - **A PR's body says** which issue it closes, what changed, what it measured (size, timing) against `main`, and what ran.
+- **A PR that changes a package adds a changeset:** `bun run changeset`, picking the bump and writing the line its CHANGELOG gets, for a reader of the release notes. A change no release needs to mention (a comment, a test) takes `bun run changeset --empty`. CI checks it. The four packages are one group under [Changesets](https://github.com/changesets/changesets), so they always share a version.
+
+## Releases
+
+A release goes out from GitHub Actions (`.github/workflows/release.yml`):
+
+1. **Merged changesets wait on `main`,** and the workflow keeps a "Version Packages" PR open: the next version, and each package's CHANGELOG.
+2. **Merging that PR publishes:** the workflow checks the packed packages (`bun run pack:check`), then publishes each new version to npm with provenance, through npm's trusted publishing, and tags it with a GitHub release.
+3. **A release candidate** (`1.0.0-rc.N`) goes to npm's `next` tag while Changesets is in pre mode (`bun run changeset pre enter rc`); `bun run changeset pre exit` makes the next one `latest`.
 
 ## Licence
 
