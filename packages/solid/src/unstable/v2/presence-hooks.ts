@@ -26,8 +26,9 @@ export interface PresenceLeaveEvents {
   readonly leave: any
 }
 
-/** A `usePresence` handle: see the module. */
-export interface PresenceHold {
+/** A `usePresence` handle, your own exit: see the module. */
+// `PresenceExit`, not `PresenceHold`: the glossary's **Hold** is a stretch of a run (#618, P1).
+export interface PresenceExit {
   /** Given to `ref`: the element whose child it holds. */
   (element: Element): void
   /** Whether its child is present: `false` from its leave on. */
@@ -86,15 +87,15 @@ const watchOf = (
  * `usePresence`.
  *
  * @example
- * const hold = usePresence()
- * void hold.next("leave").then(() => setTimeout(hold.safeToRemove, 300))
- * <div ref={hold} />
+ * const exit = usePresence()
+ * void exit.next("leave").then(() => setTimeout(exit.safeToRemove, 300))
+ * <div ref={exit} />
  * @see https://wardic.dev/reference/solid/presence/use-presence
  */
 // The child's own code is disposed by the time it leaves: what runs after the await is plain work that
 // ends with safeToRemove(). Outside a presence it's always present, and next("leave") never settles.
-export const usePresence = (): PresenceHold => {
-  if (isServer) return SERVER_HOLD
+export const usePresence = (): PresenceExit => {
+  if (isServer) return SERVER_EXIT
   const waiters = new Waiters<PresenceLeaveEvents>(GONE)
   let release: () => void = () => {}
   const { present, attach } = watchOf(
@@ -107,7 +108,7 @@ export const usePresence = (): PresenceHold => {
   )
   const hold = ((element: Element): void => {
     attach(element)
-  }) as PresenceHold
+  }) as PresenceExit
   Object.defineProperties(hold, {
     isPresent: { value: present },
     next: { value: <E extends keyof PresenceLeaveEvents>(name: E) => waiters.wait(name) },
@@ -148,7 +149,7 @@ export const usePresenceData = <T = any,>(): Accessor<T | undefined> => {
 }
 
 /** A server's hold: nothing leaves there. */
-const SERVER_HOLD: PresenceHold = Object.defineProperties((() => {}) as unknown as PresenceHold, {
+const SERVER_EXIT: PresenceExit = Object.defineProperties((() => {}) as unknown as PresenceExit, {
   isPresent: { value: () => true },
   next: { value: (): Promise<never> => new Promise<never>(constUndefined) },
   each: { value: () => ({ [Symbol.asyncIterator]: () => ({ next: () => Promise.resolve({ value: undefined, done: true as const }) }) }) },

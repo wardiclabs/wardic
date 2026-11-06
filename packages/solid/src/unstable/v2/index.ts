@@ -138,7 +138,7 @@ export { isValidWardicPropV2 as isValidWardicProp } from "../../motion-props.ts"
  * `initial={false}` starts the child present at its first render at its `animate` (#134).
  */
 export { AnimatePresence, type AnimatePresenceProps, PresenceContext, usePresenceContext } from "./presence.tsx"
-export { type IsPresent, type PresenceHold, type PresenceLeaveEvents, useIsPresent, usePresence, usePresenceData } from "./presence-hooks.ts"
+export { type IsPresent, type PresenceExit, type PresenceLeaveEvents, useIsPresent, usePresence, usePresenceData } from "./presence-hooks.ts"
 export type { PresenceMode } from "../../presence-controller.ts"
 export { createPresence, type Presence, type PresenceEvent, type PresenceEvents } from "./presence-handle.ts"
 export type { PresenceContextValue, PresenceRecord } from "../../presence-record.ts"
