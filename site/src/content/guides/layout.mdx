@@ -25,7 +25,10 @@ const animateLayout = useAnimateLayout()
 const sort = () => animateLayout(() => setItems(sorted(items())))
 ```
 
-Each time it measures every layout element, so the ones a change pushes aside move too. `animateLayout`'s promise resolves once the animations it started have ended.
+Each time it measures every layout element, so the ones a change pushes aside move too. To hear when the animations it started have ended:
+
+- **On Solid 1,** `animateLayout` returns what `fn` returns, and calls `onSettled` in its options: `animateLayout(fn, { onSettled })`.
+- **On Solid 2,** it returns a promise, which resolves then: `await animateLayout(fn)`.
 
 ## Part of the change
 

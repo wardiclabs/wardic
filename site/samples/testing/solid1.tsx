@@ -5,14 +5,16 @@ import { domAnimation, w, WardicConfig, WardicProvider } from "@wardic/solid"
 import type { JSX } from "solid-js"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
-/** What's under test: a notice that fades in, and a button that grows under the pointer. */
-function Notice() {
+/** What's under test: a notice that fades in, and a button that grows under the pointer and undoes when it's tapped. */
+function Notice(props: { readonly onUndo?: () => void }) {
   return (
     <>
       <w.p role="status" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.2, ease: "linear" }}>
         Saved
       </w.p>
-      <w.button whileHover={{ scale: 1.1 }}>Undo</w.button>
+      <w.button whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.95 }} onTap={() => props.onUndo?.()}>
+        Undo
+      </w.button>
     </>
   )
 }
@@ -47,6 +49,17 @@ it("grows the button under the pointer", async () => {
   fireEvent.pointerEnter(button, { pointerType: "mouse" })
   await vi.advanceTimersByTimeAsync(1000)
   expect(button.style.transform).toBe("scale(1.1)")
+})
+
+it("undoes when the button is tapped", async () => {
+  const onUndo = vi.fn()
+  render(withWardic(() => <Notice onUndo={onUndo} />))
+  const button = screen.getByRole("button", { name: "Undo" })
+  fireEvent.pointerDown(button, { pointerType: "mouse", isPrimary: true, button: 0 })
+  await vi.advanceTimersByTimeAsync(1000)
+  expect(button.style.transform).toBe("scale(0.95)")
+  fireEvent.pointerUp(button, { pointerType: "mouse", isPrimary: true, button: 0 })
+  expect(onUndo).toHaveBeenCalledOnce()
 })
 
 it("shows the notice at once with the animations skipped", async () => {

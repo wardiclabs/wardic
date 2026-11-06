@@ -35,7 +35,7 @@ Motion's Features load for the whole page. Wardic's apply to their section, a pr
 
 | Motion | Wardic |
 | --- | --- |
-| `<AnimatePresence>`: `mode`, `custom`, `propagate`, `initial`, `onExitComplete`, `anchorX`, `anchorY`, `presenceAffectsLayout` | The same. Around many children, each DOM node is one: a `<For>`'s items, a `<Show>`'s child. A `key` on the element lets one that comes back mid-exit start where its leaver is. |
+| `<AnimatePresence>`: `mode`, `custom`, `propagate`, `initial`, `onExitComplete`, `anchorX`, `anchorY`, `presenceAffectsLayout` | The same; on Solid 2, `onExitComplete` is `presence.next("exitComplete")`, from [`createPresence`](/reference/solid/presence/create-presence). Around many children, each DOM node is one: a `<For>`'s items, a `<Show>`'s child. A `key` on the element lets one that comes back mid-exit start where its leaver is. |
 | `usePresence`, `useIsPresent`, `usePresenceData` | The same names. On Solid 2, `const p = usePresence()`, `<div ref={p}>`, then `await p.next("leave")` and `p.safeToRemove()`. |
 | `<LayoutGroup id inherit>` | The same. |
 | `<Reorder.Group>`, `<Reorder.Item>` | The same, with a keyboard reorder built in. `onReorderEnd` is told once a reorder ends with a changed order, the moment to save it. |

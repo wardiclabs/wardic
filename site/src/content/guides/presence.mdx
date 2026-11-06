@@ -35,7 +35,7 @@ A `key` on the element, as in Motion, lets one that comes back while it's still 
 
 - `initial={false}` skips the children's entrance at the first render.
 - `custom` is handed to each leaving child's `exit` variants, for an exit that depends on something only known as it leaves, such as the direction a slider went.
-- `onExitComplete` is called once every leaving child has gone.
+- Once every leaving child has gone: **on Solid 1,** `onExitComplete` is called; **on Solid 2,** `presence.next("exitComplete")` resolves, from a [`createPresence()`](/reference/solid/presence/create-presence) given as `<AnimatePresence ref={presence}>`.
 - `propagate` plays the exits of nested presences when their parent leaves.
 
 ## Your own exit
