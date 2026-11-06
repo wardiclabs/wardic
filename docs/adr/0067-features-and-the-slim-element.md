@@ -243,3 +243,34 @@ Decision 2 kept `wardic.*` as Motion's `motion`, and rejected "Slim by default".
 1. **The docs lead with `w.*`,** under a provider given its Features. This supersedes "Rejected: Slim by default" for what Wardic teaches; an app still names no Feature it doesn't use, and `domAnimation` covers hover, press, focus and in-view.
 2. **The API keeps both.** `wardic.*` stays the exact equivalent of Motion's `motion`, every Feature built in, for trying something out; under a `strict` provider or a `LazyWardic` it throws in development, so none reaches a page by accident.
 3. **Every line that maps `motion.div` to `w.div` adds "with the Features its provider gives",** as the Motion page's table does: the README, the landing page, Why Wardic and the Motion page's opening.
+
+## Amendment (#518, 2026-11-06): measured as an app ships, and what's left of the base
+
+**Found measuring again for #518.** `bun run size` built each single-entry app in Vite's lib mode. For an ES library, Vite keeps the whitespace (`minifyWhitespace: false`), so annotations reach the bundlers downstream; the bundles it gated were indented code. Built as an app ships, the routes apps' way (#548), the same sources read:
+
+| App, gzipped KB | lib mode | as an app ships |
+|---|---|---|
+| Slim element, Solid 1 | 122.5 | 103.9 |
+| Slim element, Solid 2 | 158.6 | 132.3 |
+| Complete element, Solid 1 | 164.7 | 140.0 |
+| Complete element, Solid 2 | 200.8 | 168.7 |
+
+So decision 4's target, about 105 KB on Solid 1, was met. `main` was a few bytes past both budgets.
+
+**Grilled 2026-11-06 (#518).**
+1. **`bun run size` builds every app as it ships (Q1: A).** One app build for the single-entry apps and the routes apps. The budgets move to the shipped sizes with the same 0.5 KB of room, and the sizes the docs give are measured again.
+   - Rejected: bundling each package's `dist` (both sides need a package build, minutes for each run); keeping lib mode with a note.
+2. **The frame loop's metrics are a Layer an app gives (Q2: A).** Without it the loop builds and updates none (−1.2 KB gzipped). The spans stay: they open only with a tracer installed, and Effect's runtime keeps `Tracer`, `Formatter` and `Hex` anyway (−0.2 KB more). Rejected: metrics always on; no metrics.
+3. **One fan-out of Wardic's own (Q3: A, if the benches hold)** under `Clock.ticks`, `SharedSource` and the DOM's scroll containers, as `InputFeed.byTarget` shares a target's input (#318): a list of subscribers and a count, each subscriber's Stream a `Stream.callback`. No `PubSub`, `RcMap` or `RcRef` (−4.1 KB on both bindings, prototyped). The Streams are unchanged; `SharedSource`'s `idleTimeToLive`, which no caller passes, goes. Reverses the review of 2026-11-05's decision 6 (Effect's own sharing) and M7 (`RcMap` for the scroll containers). Rejected: keeping them; the scroll containers alone.
+4. **The base reads sRGB colours with Wardic's own parser (Q4: A),** the colour names kept, pinned against culori by a seeded test as #156's blend is. culori stays behind `colors` and the other spaces' interpolators (about −3 KB). Refines decision 5. Rejected: the names behind `colors` too, as Motion has none (about −4.5, but `"white"` to `"black"` would jump); culori in the base.
+5. **The Probe's `scroll` becomes the `scroll` Feature (Q5: A)**, built over the Environment's scroll service if it gives one, else the DOM's, as decision 14's input is, and brought by `useScroll` (decision 12). App code is unchanged (−1.7 KB). Rejected: an `import()` inside the DOM's Probe; keeping it.
+6. **`wardic.*` keeps every Feature from its first frame (Q6: B).** Loading a Feature the first time an element needs it was #518's lever 4, possible since #551 and #582. Rejected: what an element did before its chunk arrived would be missed (a hover, an `oklch()` animation at mount, a layout change in the mount's own task). Decision 2 stands; the Slim element is how an app ships less.
+7. **The three breaks land before 1.0.0 (Q7: A):** decision 2's Layer, 3's `idleTimeToLive` and 5's `Probe.scroll`, in Tier 2 (ADR-0008). The rest may follow in 1.1.
+8. **The budgets ratchet (Q8: A).** Each #518 PR lowers them to its own size with 0.5 KB of room. No new target.
+
+**Not levers.** The atoms: `Atom` is the type of every Live value and of the Probe's fields (ADR-0043), and Effect's `SubscriptionRef` has no derivation. `Duration`: `SharedSource` imports only its type, and Effect's runtime, `Atom` and `Stream` reach it. Effect's runtime itself (ADR-0030).
+
+**By this ADR's #548 rule** (a module holds one Feature's code at most): `layout-member.ts`, the gesture callbacks' builder and the drag transition move behind their Features. `Inertia` stays (a `type: "inertia"` transition is an element's, decision 2), and so does the Appear Handoff (under 1 KB, and a forgotten Feature would replay every entrance on hydration).
+
+**Built.**
+- **`bun run size`** (`packages/solid/bench/size.ts`): one `appSizeOf` for every app, its entry and pages built as SolidStart builds a client (`preserveEntrySignatures: "exports-only"`), measured as what its first page loads. Budgets 104.4 KB on Solid 1 and 132.8 on Solid 2. The figures in *Features*, *Why Wardic* and `wardic.*`'s reference are measured again: over the Slim element alone, `hover` 4 KB, `press`, `focus` and `inView` after it 2, `drag` after `domAnimation` 6, `layout` 20, `colors` 4, and every Feature 36.

@@ -62,6 +62,6 @@ Every animation runs in its own span, the Frame loop keeps metrics, and Wardic l
 
 ## What it costs
 
-- **Size.** One Wardic element is 122 KB gzipped on Solid 1 and 158 KB on Solid 2, for the whole app, Solid included. On Solid 1, about two fifths of the minified code is Effect's runtime, half is Wardic's engine and binding, and the rest is Solid's and the colour library's. Gestures, layout and the wider colour spaces are Features, shipped only where a provider or a `LazyWardic` gives them, and the [1.1 milestone](/roadmap#11-size-and-speed) works on the base.
+- **Size.** One Wardic element is 104 KB gzipped on Solid 1 and 132 KB on Solid 2, for the whole app, Solid included. On Solid 1, about two fifths of the minified code is Effect's runtime, half is Wardic's engine and binding, and the rest is Solid's and the colour library's. Gestures, layout and the wider colour spaces are Features, shipped only where a provider or a `LazyWardic` gives them, and the [1.1 milestone](/roadmap#11-size-and-speed) works on the base.
 - **Mounting.** A mount takes about as long as Motion's, but a page's first mount takes longer, while the engine sets up and its code first runs.
 - **Effect.** `effect` is a dependency you install beside Wardic.
