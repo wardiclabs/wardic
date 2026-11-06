@@ -11,10 +11,13 @@
  *   slash; `/` as `index.html`; a missing page's render as `404.html`, which Pages sends for any path
  *   it doesn't have.
  * - A route the handler doesn't answer 200 for, or answers with its error page, fails the build.
+ * - `sitemap.xml` lists every page; each page's Markdown, `llms.txt` and `llms-full.txt` are
+ *   scripts/llms.ts's.
  */
 import { execFileSync } from "node:child_process"
 import { mkdirSync, readdirSync, statSync, writeFileSync } from "node:fs"
 import { dirname, join, relative } from "node:path"
+import { writeLlms } from "./llms.ts"
 
 const SITE = join(import.meta.dirname, "..")
 const CONTENT = join(SITE, "src", "content")
@@ -61,6 +64,13 @@ for (const route of routes) {
 }
 writeFileSync(join(CLIENT, "404.html"), await render("/__no-such-page", 200))
 console.log(`prerender: ${routes.length} pages and 404.html into dist/client`)
+
+// The sitemap, every page by its canonical URL, which public/robots.txt names.
+const urls = routes.map((route) => `  <url><loc>${ORIGIN}${route}</loc></url>`).join("\n")
+writeFileSync(join(CLIENT, "sitemap.xml"), `<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n${urls}\n</urlset>\n`)
+
+// Each page as Markdown, llms.txt and llms-full.txt (scripts/llms.ts).
+await writeLlms(SITE, CLIENT, ORIGIN)
 
 // The search index, over each page's article (`data-pagefind-body`): not the header, the sidebar or the footer.
 execFileSync(join(SITE, "node_modules", ".bin", "pagefind"), ["--site", CLIENT], { stdio: ["ignore", "inherit", "inherit"] })

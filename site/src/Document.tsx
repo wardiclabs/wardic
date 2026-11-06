@@ -13,7 +13,15 @@ export default function Document(props: ParentProps) {
       <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <meta name="description" content="Animation for Solid, with the API of Motion for React." />
+        {/* What every page's link preview shares: its own title, description and URL are the route's. */}
+        <meta property="og:site_name" content="Wardic" />
+        <meta property="og:image" content="https://wardic.dev/og.png" />
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta property="og:image:alt" content="Wardic: Cassiopeia's W in a ward ring, beside the wordmark." />
+        <meta name="twitter:card" content="summary_large_image" />
+        <meta name="theme-color" media="(prefers-color-scheme: light)" content="#eceff4" />
+        <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#2e3440" />
         {/* Wardic's mark (brand/): the small cut as SVG, a PNG for browsers without SVG icons, and a touch icon. */}
         <link rel="icon" href="/favicon-32.png" sizes="32x32" type="image/png" />
         <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
