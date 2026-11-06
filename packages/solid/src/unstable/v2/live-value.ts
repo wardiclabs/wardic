@@ -25,7 +25,6 @@
  */
 import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as LiveValue from "@wardic/core/LiveValue"
-import * as DomInterpolators from "@wardic/dom/DomInterpolators"
 import type * as ScrollOffset from "@wardic/dom/ScrollOffset"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
@@ -58,6 +57,7 @@ import {
 import type { WardicRuntime, WardicServices } from "../../runtime.ts"
 import { eachFrameOf } from "../../animation-frame.ts"
 import * as OwnerScope from "../../owner-scope.ts"
+import { withServerInterpolators } from "../../server-interpolators.ts"
 import { followAtom } from "./bridge.ts"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, onSettledClientOnly } from "./solid-reactivity.ts"
 import { useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
@@ -166,7 +166,7 @@ const interpolatorOf = <O>(
     never,
     InterpolatorRegistry.InterpolatorRegistry
   >
-  if (isServer) return Effect.runSync(mapping.pipe(Effect.provide(DomInterpolators.layer)))
+  if (isServer) return Effect.runSync(withServerInterpolators(mapping))
   return useWardicRuntime().runSync(mapping)
 }
 
