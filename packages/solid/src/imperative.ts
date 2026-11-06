@@ -549,7 +549,7 @@ export const serverAnimate: WardicAnimate = () => finishedControls()
 
 /** Whether `animate` was given a sequence (Motion's `isSequence`): a list with a Segment in it. */
 const isSequence = (given: unknown): given is WardicAnimationSequence =>
-  Bool.match(Array.isArray(given), { onTrue: () => Arr.some(given as ReadonlyArray<unknown>, Array.isArray), onFalse: () => false })
+  Bool.match(Arr.isArray(given), { onTrue: () => Arr.some(given as ReadonlyArray<unknown>, Arr.isArray), onFalse: () => false })
 
 /** A function Segment's value (Motion's motion value): its own subject, its callback told each frame. */
 interface Callback {
@@ -618,7 +618,7 @@ const segmentTransitionOf = (options: WardicSegmentOptions | undefined, key: str
 }
 
 /** Whether a Segment's value is one: a number, a string, `null` or Keyframes. */
-const isSegmentValue: Predicate.Predicate<unknown> = Predicate.or(Predicate.or(Predicate.isNumber, Predicate.isString), Predicate.or(Predicate.isNull, Array.isArray))
+const isSegmentValue: Predicate.Predicate<unknown> = Predicate.or(Predicate.or(Predicate.isNumber, Predicate.isString), Predicate.or(Predicate.isNull, Arr.isArray))
 
 /** A Segment's values: those that are a value, `null` or Keyframes. */
 const segmentValuesOf = (target: WardicSegmentTarget): Readonly<Record<string, Sequence.Stop | ReadonlyArray<Sequence.Stop>>> =>
@@ -649,7 +649,7 @@ const stepsOf = (sequence: WardicAnimationSequence, scope: Element | undefined, 
   }
   return Arr.map(sequence, (segment): Sequence.Step<Subject> => {
     if (Predicate.isString(segment)) return segment
-    if (Bool.not(Array.isArray(segment))) return segment as { readonly name: string; readonly at: Sequence.Time }
+    if (Bool.not(Arr.isArray(segment))) return segment as { readonly name: string; readonly at: Sequence.Time }
     const parts = segment as ReadonlyArray<unknown>
     if (Predicate.isFunction(parts[0])) {
       const call = parts[0] as (value: number | string) => void

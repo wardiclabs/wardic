@@ -220,7 +220,7 @@ const ownOrchestration = (
   const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(orchestration()), undefined, { equals: sameStagger })
   // A list's names have each their own (#297's PR 2): none for the list as a whole.
   const when: Accessor<"beforeChildren" | "afterChildren" | undefined> = () => {
-    if (Array.isArray(variant())) return undefined
+    if (Arr.isArray(variant())) return undefined
     return UndefinedOr.map(orchestration(), (t) => t.when)
   }
   const initial = handedDown<WardicVariantLabels | false>(config, () => initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial))

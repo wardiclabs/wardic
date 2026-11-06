@@ -81,7 +81,7 @@ const UNNAMED = "\u0000unnamed"
  */
 const textOf: (value: unknown) => string = /*#__PURE__*/ Match.type<unknown>().pipe(
   Match.when(Predicate.isFunction, (fn) => Option.match(Easing.nameOf(fn as Easing.Easing), { onNone: () => UNNAMED, onSome: (easing) => `{"easing":${JSON.stringify(easing)}}` })),
-  Match.when(Array.isArray, (items) => `[${Arr.map(items as ReadonlyArray<unknown>, (item) => textOf(item)).join(",")}]`),
+  Match.when(Arr.isArray, (items) => `[${Arr.map(items as ReadonlyArray<unknown>, (item) => textOf(item)).join(",")}]`),
   Match.when(Predicate.isObject, (record) => {
     const keys = Arr.sort(Arr.filter(Object.keys(record), (key) => Predicate.isNotUndefined((record as Record<string, unknown>)[key])), Order.String)
     return `{${Arr.map(keys, (key) => `${JSON.stringify(key)}:${textOf((record as Record<string, unknown>)[key])}`).join(",")}}`
