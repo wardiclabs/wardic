@@ -4,8 +4,8 @@ import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
 import { AnimatePresence, layout, LazyWardic, w } from "@wardic/solid/unstable/v2"
-import { action, createMemo, createOptimisticStore, createSignal, flush, For, Show } from "solid-js"
-import { arrivalId, arrive, recall } from "~/lib/arrivals.ts"
+import { action, createMemo, createOptimisticStore, createSignal, For, onFlush, Show } from "solid-js"
+import { arrivalId, useArrivals } from "~/lib/arrivals.tsx"
 import { useReducedMotion } from "~/lib/preferences.tsx"
 import { cart } from "~/lib/store.ts"
 import { addToCart } from "~/server/store.ts"
@@ -31,6 +31,7 @@ function SavedForLaterDemo() {
   const [failure, setFailure] = createSignal<string>()
   // The system's setting, or the header's switch.
   const reduced = useReducedMotion()
+  const { arrive, recall } = useArrivals()
 
   const without = (piece: Product) => (list: ReadonlyArray<Product>) => list.filter((one) => one.id !== piece.id)
   const moveToCart = action(function* (piece: Product) {
@@ -41,20 +42,19 @@ function SavedForLaterDemo() {
     revalidate(cart.key)
   })
   // A click: the move takes its row out, then its photo's twin appears in the cart button, and Wardic
-  // flies the photo there from the row it left (under reduced motion, nothing flies). The row's leave is
-  // flushed first: the twin's write, in a batch of its own, doesn't wait with the action for the store.
-  // A piece already on its way, its leaving row clicked again, is left alone.
+  // flies the photo there from the row it left (under reduced motion, nothing flies). The twin's write
+  // comes after the click's flush, the row's leave: an update of its own, it doesn't wait with the
+  // action for the store (#618, S4: `onFlush`, not `flush(fn)`). A piece already on its way, its
+  // leaving row clicked again, is left alone.
   const move = (piece: Product) => {
     if (!saved.some((one) => one.id === piece.id)) return
     setFailure(undefined)
-    flush(() => {
-      moveToCart(piece).catch((error: unknown) => {
-        // Refused: its row is back, and its twin leaves the cart button, its photo flying back.
-        recall(piece.id)
-        setFailure(`${piece.name} wasn't moved: ${messageOf(error)}`)
-      })
+    moveToCart(piece).catch((error: unknown) => {
+      // Refused: its row is back, and its twin leaves the cart button, its photo flying back.
+      recall(piece.id)
+      setFailure(`${piece.name} wasn't moved: ${messageOf(error)}`)
     })
-    if (!reduced()) arrive({ id: piece.id, src: photoOf(piece.id).small }, layout)
+    if (!reduced()) onFlush(() => arrive({ id: piece.id, src: photoOf(piece.id).small }, layout))
   }
 
   return (

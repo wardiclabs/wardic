@@ -1,7 +1,7 @@
 import type { Notice } from "@wardic/example-storefront-shared/server"
 import { AnimatePresence, drag, layout, LazyWardic, w } from "@wardic/solid/unstable/v2"
 import { revalidate } from "@solidjs/router"
-import { action, type Accessor, createEffect, createMemo, createOptimistic, createSignal, For, Loading, refresh, Show, type SourceAccessor } from "solid-js"
+import { action, createEffect, createMemo, createOptimistic, createSignal, For, Loading, refresh, Show, type SourceAccessor } from "solid-js"
 import { notices } from "~/lib/store.ts"
 import { dismissNotice, restoreNotices } from "~/server/store.ts"
 
@@ -53,7 +53,8 @@ function NotificationsDemo() {
         <ul class="notice-list">
           <AnimatePresence mode="popLayout" initial={false}>
             <For each={list()} keyed={(notice) => notice.id}>
-              {(notice) => <NoticeRow notice={notice} list={list} onProblem={setProblem} />}
+              {/* The notice as a value (#618, S4); the list as itself, which the row refreshes. */}
+              {(notice) => <NoticeRow notice={notice()} list={list} onProblem={setProblem} />}
             </For>
           </AnimatePresence>
         </ul>
@@ -72,7 +73,7 @@ function NotificationsDemo() {
   )
 }
 
-function NoticeRow(props: { notice: Accessor<Notice>; list: SourceAccessor<ReadonlyArray<Notice>>; onProblem: (message: string) => void }) {
+function NoticeRow(props: { readonly notice: Notice; readonly list: SourceAccessor<ReadonlyArray<Notice>>; readonly onProblem: (message: string) => void }) {
   // Optimistic: shown at once, and back to nothing when the action ends, whichever way it ends.
   // Where the card is thrown, and "Undo".
   const [out, setOut] = createOptimistic<Side | undefined>(undefined)
@@ -96,7 +97,7 @@ function NoticeRow(props: { notice: Accessor<Notice>; list: SourceAccessor<Reado
       setTimeout(() => resolve(false), UNDO_MS)
     })
     if (undone) return
-    yield dismissNotice(props.notice().id)
+    yield dismissNotice(props.notice.id)
     setGone(side)
     // The list without it, read in this action: the row goes as the action ends.
     revalidate(notices.key)
@@ -111,7 +112,7 @@ function NoticeRow(props: { notice: Accessor<Notice>; list: SourceAccessor<Reado
   })
 
   return (
-    <w.li class="notice-row" data-id={props.notice().id} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
+    <w.li class="notice-row" data-id={props.notice.id} layout initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}>
       <AnimatePresence>
         <Show when={undoable()}>
           <w.p class="notice-undo" {...fade}>
@@ -124,15 +125,15 @@ function NoticeRow(props: { notice: Accessor<Notice>; list: SourceAccessor<Reado
       </AnimatePresence>
       <w.article
         class={["notice", { out: out() !== undefined }]}
-        data-kind={props.notice().kind}
+        data-kind={props.notice.kind}
         wardRef={card}
         variants={sides}
         initial="shown"
         animate={variantOf(out())}
         exit={gone()}
       >
-        <strong>{props.notice().title}</strong>
-        <span class="muted">{props.notice().body}</span>
+        <strong>{props.notice.title}</strong>
+        <span class="muted">{props.notice.body}</span>
       </w.article>
     </w.li>
   )

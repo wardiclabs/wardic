@@ -3,7 +3,7 @@
  * worth reaching for, then its code, a server component highlighted on the server, beside Motion's
  * version where the Next.js app has it (#366).
  */
-import { Dynamic, dynamic } from "@solidjs/web"
+import { dynamic } from "@solidjs/web"
 import { AREAS, exampleById } from "@wardic/example-storefront-shared/examples"
 import { codeParts } from "@wardic/example-storefront-shared/format"
 import { BACK } from "@wardic/example-storefront-shared/micro"
@@ -84,6 +84,7 @@ export function ExamplePage(props: { readonly id: string; readonly demo: Compone
   if (area === undefined) throw new Error(`No area "${example.area}"`)
   // Replaying remounts the demo, so its entrance plays again.
   const [run, setRun] = createSignal(1)
+  const Demo = dynamic(() => props.demo)
   return (
     <main class="page example">
       <nav class="crumbs" aria-label="Breadcrumb">
@@ -117,7 +118,7 @@ export function ExamplePage(props: { readonly id: string; readonly demo: Compone
           </button>
         </div>
         <Show when={run()} keyed>
-          {(_run: number) => <Dynamic component={props.demo} />}
+          {(_run: number) => <Demo />}
         </Show>
       </section>
       <p class="note">

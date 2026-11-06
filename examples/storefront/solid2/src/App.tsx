@@ -18,7 +18,7 @@ const REDUCED: Record<string, "always" | "user"> = { true: "always", false: "use
  * What every page animates with (#526, ADR-0067): the shell's hover, press and focus. Every element is
  * the Slim one, `w.*`, and `strict` makes a Complete one an error in development. A page that lays out
  * or drags brings `layout` or `drag` itself, through `LazyWardic`, so a page that doesn't ships neither
- * (#548); the cart's fly-in takes `layout` from the page that moves a piece (`lib/arrivals.ts`).
+ * (#548); the cart's fly-in takes `layout` from the page that moves a piece (`lib/arrivals.tsx`).
  */
 const SHELL = [domAnimation]
 

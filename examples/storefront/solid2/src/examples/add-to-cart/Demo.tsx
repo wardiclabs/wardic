@@ -2,7 +2,7 @@ import { revalidate } from "@solidjs/router"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import { AnimatePresence, layout, LazyWardic, w } from "@wardic/solid/unstable/v2"
-import { action, createMemo, createOptimistic, createSignal, Loading, Match, onSettled, Show, Switch } from "solid-js"
+import { action, createEffect, createMemo, createOptimistic, createSignal, Loading, Match, Show, Switch } from "solid-js"
 import { cart, product } from "~/lib/store.ts"
 import { addToCart } from "~/server/store.ts"
 
@@ -26,27 +26,29 @@ function AddToCartDemo() {
   const piece = createMemo(() => product("poppy-plate"))
   const photo = photoOf("poppy-plate")
   const [quantity, setQuantity] = createSignal(1)
-  const [added, setAdded] = createSignal(false)
+  // The last add that went through, while "Added ✓" shows: a new one each time, so each shows for its own three seconds.
+  const [added, setAdded] = createSignal<object>()
   const [failure, setFailure] = createSignal<string>()
   // "Adding…" is an optimistic value: set inside the action, it shows at once, and goes back by
   // itself when the action settles, whether the store answered or refused.
   const [adding, setAdding] = createOptimistic(false)
 
-  // "Added ✓" stays a few seconds, then the button offers to add again.
-  let reset: ReturnType<typeof setTimeout> | undefined
-  onSettled(() => () => clearTimeout(reset))
+  // "Added ✓" stays three seconds from when it shows, then the button offers to add again (#618, S4).
+  createEffect(added, (shown) => {
+    if (shown === undefined) return
+    const reset = setTimeout(() => setAdded(undefined), 3000)
+    return () => clearTimeout(reset)
+  })
 
   const buy = action(function* (id: string, howMany: number) {
     setAdding(true)
-    setAdded(false)
+    setAdded(undefined)
     setFailure(undefined)
     try {
       yield addToCart(id, howMany)
       // The cart has changed: the header's count reads it again.
       revalidate(cart.key)
-      setAdded(true)
-      clearTimeout(reset)
-      reset = setTimeout(() => setAdded(false), 3000)
+      setAdded({})
     } catch (error) {
       setFailure(messageOf(error))
     }
@@ -78,12 +80,12 @@ function AddToCartDemo() {
               <w.span layout="position">
                 <Switch fallback="Add to cart">
                   <Match when={adding()}>Adding…</Match>
-                  <Match when={added()}>Added ✓</Match>
+                  <Match when={added() !== undefined}>Added ✓</Match>
                 </Switch>
               </w.span>
             </w.button>
             <AnimatePresence>
-              <Show when={added()}>
+              <Show when={added() !== undefined}>
                 <w.a class="view-cart" href="/layout/cart-drawer" {...viewCart}>
                   View cart →
                 </w.a>

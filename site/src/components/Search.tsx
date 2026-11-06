@@ -2,11 +2,13 @@
  * The site's search (#558): Pagefind's index of every page's article, built after the prerender. The
  * dialog is Kobalte's (focus in, Tab kept inside, Escape, focus back), drawn by Wardic: the shade
  * fades, the panel rises, and both leave as smoothly. ⌘K or Ctrl+K opens it. Pagefind's script loads
- * the first time it opens; the dev server has no index, so there it says where search works.
+ * the first time something's typed; the dev server has no index, so there it says where search works.
+ * The hits are an async memo over what's typed: an older query's answer never lands over a newer one's,
+ * and while one is on its way the last hits stay, marked busy.
  */
 import { Dialog } from "@kobalte/core/dialog"
 import { AnimatePresence, w } from "@wardic/solid/unstable/v2"
-import { createSignal, For, onSettled, Show } from "solid-js"
+import { createMemo, createSignal, For, isPending, Loading, onFlush, onSettled, Show } from "solid-js"
 
 const Shade = w.create(Dialog.Overlay)
 const Panel = w.create(Dialog.Content)
@@ -35,32 +37,33 @@ const PAGEFIND = "/pagefind/pagefind.js"
 /** A page's address without the `.html` Pagefind keeps from its file. */
 const pathOf = (url: string): string => url.replace(/\.html$/, "")
 
+/** Pagefind, loaded once, as the first query needs it: `undefined` where there's no index. */
+let pagefind: Promise<Pagefind | undefined> | undefined
+const load = (): Promise<Pagefind | undefined> => {
+  if (pagefind === undefined) pagefind = import(/* @vite-ignore */ PAGEFIND).then((module: Pagefind) => module).catch(() => undefined)
+  return pagefind
+}
+
+/** The hits for `query`, or `undefined` with no index. Pagefind answers a query a newer one replaced with `null`. */
+const hitsOf = async (query: string): Promise<ReadonlyArray<Hit> | undefined> => {
+  const found = await load()
+  if (found === undefined) return undefined
+  const response = await found.debouncedSearch(query)
+  if (response === null) return []
+  const data = await Promise.all(response.results.slice(0, 8).map((result) => result.data()))
+  return data.map((hit) => ({ url: pathOf(hit.url), title: hit.meta.title ?? pathOf(hit.url), excerpt: hit.excerpt }))
+}
+
 export function Search() {
   const [open, setOpen] = createSignal(false)
-  const [hits, setHits] = createSignal<ReadonlyArray<Hit>>([])
-  const [unavailable, setUnavailable] = createSignal(false)
-  let pagefind: Promise<Pagefind | undefined> | undefined
-
-  const load = (): Promise<Pagefind | undefined> => {
-    if (pagefind === undefined) pagefind = import(/* @vite-ignore */ PAGEFIND).then((module: Pagefind) => module).catch(() => undefined)
-    return pagefind
-  }
-
-  const search = async (query: string): Promise<void> => {
-    const found = await load()
-    if (found === undefined) {
-      setUnavailable(true)
-      return
-    }
-    if (query.trim() === "") {
-      setHits([])
-      return
-    }
-    const response = await found.debouncedSearch(query)
-    if (response === null) return
-    const data = await Promise.all(response.results.slice(0, 8).map((result) => result.data()))
-    setHits(data.map((hit) => ({ url: pathOf(hit.url), title: hit.meta.title ?? pathOf(hit.url), excerpt: hit.excerpt })))
-  }
+  const [query, setQuery] = createSignal("")
+  // #618 (S3): the hits were set at the end of a plain async chain, so clearing the box within the
+  // debounce left the last query's, and an older query's could land last. An empty box has none, at once.
+  const hits = createMemo((): ReadonlyArray<Hit> | undefined | Promise<ReadonlyArray<Hit> | undefined> => {
+    const typed = query().trim()
+    if (typed === "") return []
+    return hitsOf(typed)
+  })
 
   onSettled(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -89,21 +92,34 @@ export function Search() {
             <Shade class="search-shade" {...shade} />
             <Panel class="search-panel" {...rise}>
               <Dialog.Title class="visually-hidden">Search the docs</Dialog.Title>
-              <input class="search-input" type="search" placeholder="Search the docs" aria-label="Search the docs" autofocus onInput={(event) => void search(event.currentTarget.value)} />
-              <Show when={!unavailable()} fallback={<p class="search-note">Search works in the built site, once Pagefind has indexed it (`bun run build` in site/).</p>}>
-                <ul class="search-hits">
-                  <For each={hits()}>
-                    {(hit) => (
-                      <li>
-                        <a href={hit.url} onClick={() => setOpen(false)}>
-                          <strong>{hit.title}</strong>
-                          <span innerHTML={hit.excerpt} />
-                        </a>
-                      </li>
-                    )}
-                  </For>
-                </ul>
-              </Show>
+              <input
+                class="search-input"
+                type="search"
+                placeholder="Search the docs"
+                aria-label="Search the docs"
+                autofocus
+                value={query()}
+                onInput={(event) => setQuery(event.currentTarget.value)}
+              />
+              <Loading>
+                <Show when={hits()} fallback={<p class="search-note">Search works in the built site, once Pagefind has indexed it (`bun run build` in site/).</p>}>
+                  {(list) => (
+                    <ul class="search-hits" aria-busy={isPending(() => hits()) ? "true" : "false"}>
+                      <For each={list()}>
+                        {(hit) => (
+                          <li>
+                            {/* Closed after the click's flush, not held with the navigation (#618), as the drawer is. */}
+                            <a href={hit.url} onClick={() => onFlush(() => setOpen(false))}>
+                              <strong>{hit.title}</strong>
+                              <span innerHTML={hit.excerpt} />
+                            </a>
+                          </li>
+                        )}
+                      </For>
+                    </ul>
+                  )}
+                </Show>
+              </Loading>
             </Panel>
           </Show>
         </AnimatePresence>

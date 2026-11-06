@@ -8,6 +8,7 @@
     "build": "node scripts/reference.ts && vite build && node scripts/prerender.ts",
     "reference": "node scripts/reference.ts",
     "preview": "vite preview",
+    "smoke:dev": "node scripts/reference.ts && bun scripts/smoke.ts",
     "typecheck": "../node_modules/typescript-7/bin/tsc --noEmit && ../node_modules/typescript-7/bin/tsc --noEmit -p samples/tsconfig.solid2.json && ../node_modules/typescript-7/bin/tsc --noEmit -p samples/tsconfig.solid1.json && ../node_modules/typescript-7/bin/tsc --noEmit -p samples/tsconfig.motion.json"
   },
   "dependencies": {
@@ -25,6 +26,7 @@
   "devDependencies": {
     "@mdx-js/rollup": "3.1.1",
     "@shikijs/rehype": "4.3.1",
+    "@solidjs/diagnostics": "2.0.0-rc.20",
     "@solidjs/vite-plugin": "3.0.0-next.54",
     "@types/react": "19.3.0",
     "filesystem-routing": "0.4.0",

@@ -2,10 +2,10 @@
  * MDX's components (#558), for its `providerImportSource`. MDX writes each element as
  * `<_components.h1>`, which Solid compiles as a component call, so each must be a component. MDX
  * spreads what this returns over its own defaults (the tags' names, as strings, which Solid can't
- * call), so it names every HTML element, each a plain element through `Dynamic` unless the site has
+ * call), so it names every HTML element, each a plain element through `dynamic()` unless the site has
  * its own.
  */
-import { Dynamic } from "@solidjs/web"
+import { dynamic } from "@solidjs/web"
 import type { JSX } from "@solidjs/web"
 import { CodeTabs } from "~/components/CodeTabs.tsx"
 import { Demo } from "~/components/Demo.tsx"
@@ -24,14 +24,27 @@ const TAGS = [
   "tfoot", "th", "thead", "time", "tr", "u", "ul", "var", "video", "wbr",
 ] as const
 
-/** A plain element named `tag`. */
-const elementOf = (tag: string): Component => (props) => <Dynamic component={tag} {...props} />
+/**
+ * A plain element named `tag`: a static `dynamic()`, which renders it with no computation per element
+ * (the largest page has about 1,600). Made here, once, at the module's top, outside any owner: under a
+ * render's, it would take a hydration id on one side only (as `@wardic/solid`'s tags, `formOf`).
+ */
+// #618 (S2): `<Dynamic>` is deprecated, and made a memo over its `component` for every element.
+const elementOf = (tag: string): Component => dynamic(() => tag, { static: true }) as Component
+
+const Anchor = elementOf("a")
 
 /**
- * The site's own components, over the plain elements, and the ones a page uses by name: `<Demo>` and
- * `<CodeTabs>`. (A link is a plain `<a>`: the router opens a page of the site without a reload.)
+ * A link: a plain `<a>`, which the router opens without a reload when it's a page of the site. A `#`
+ * one, a heading's own or one to a part of the page, says it isn't the page you're on: the router
+ * marks every link to the page it's showing `aria-current="page"`, but leaves one a page set.
  */
-const OWN: Record<string, Component> = { CodeTabs: CodeTabs as Component, Demo: Demo as Component }
+// #618 (decision 2): every heading's anchor read as "current page" to a screen reader, 4,572 over the
+// built pages.
+const Link: Component = (props) => <Anchor aria-current={String(props.href ?? "").startsWith("#") ? "false" : undefined} {...props} />
+
+/** The site's own components, over the plain elements, and the ones a page uses by name: `<Demo>` and `<CodeTabs>`. */
+const OWN: Record<string, Component> = { a: Link, CodeTabs: CodeTabs as Component, Demo: Demo as Component }
 
 const ALL: Record<string, Component> = { ...Object.fromEntries(TAGS.map((tag) => [tag, elementOf(tag)])), ...OWN }
 
