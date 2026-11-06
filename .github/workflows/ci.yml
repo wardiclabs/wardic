@@ -9,6 +9,28 @@ permissions:
   contents: read
 
 jobs:
+  # A PR that changes a package says how, in a changeset (#559): `bun run changeset`, or
+  # `bun run changeset --empty` for a change no release needs to mention. From launch day (#560),
+  # once the repo is public; the Version Packages PR uses its changesets up, so it's left out.
+  changeset:
+    if: ${{ github.event_name == 'pull_request' && !github.event.repository.private && github.head_ref != 'changeset-release/main' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Changesets for the changed packages
+        run: bunx changeset status --since=origin/${{ github.base_ref }}
+
   check:
     # Pinned: `ubuntu-latest` moved to 26.04, where Playwright 1.59.1 can't install Chromium
     # ("Playwright does not support chromium on ubuntu26.04-x64"). Move it with Playwright.

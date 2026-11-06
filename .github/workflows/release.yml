@@ -1,0 +1,94 @@
+name: Release
+
+# Versions and publishes the four packages (#559), one fixed group under Changesets. On each push to
+# `main`:
+# - with changesets waiting, it opens or updates the "Version Packages" PR: the new version and each
+#   package's CHANGELOG;
+# - with none, that PR has just merged: it checks the tarballs (#554), then publishes each version npm
+#   doesn't have yet, on `next` while Changesets is in pre mode (`1.0.0-rc.N`), on `latest` after
+#   (`scripts/publish-packages.ts`).
+#
+# Publishing is npm's trusted publishing (OIDC), with provenance, so no token is kept. npm adds a
+# trusted publisher only to a package that exists, so a package's first publish may take a one-off
+# `NPM_TOKEN` secret, deleted once trusted publishing is set up; without the secret, the action uses
+# OIDC. It runs once the repo is public: provenance needs a public repo, and until launch day (#560)
+# there's nothing to release.
+
+on:
+  push:
+    branches: [main]
+
+# One release at a time, and never cut short: a publish stopped halfway leaves packages to finish.
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  plan:
+    if: ${{ !github.event.repository.private }}
+    runs-on: ubuntu-24.04
+    outputs:
+      publishes: ${{ steps.changesets.outputs.publishes }}
+    steps:
+      - uses: actions/checkout@v4
+
+      # No changeset waiting: the version PR has merged, and this push publishes.
+      - name: Changesets waiting
+        id: changesets
+        run: |
+          if find .changeset -name '*.md' ! -name README.md | grep -q .; then
+            echo "publishes=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "publishes=true" >> "$GITHUB_OUTPUT"
+          fi
+
+  pack-check:
+    needs: plan
+    if: ${{ needs.plan.outputs.publishes == 'true' }}
+    uses: ./.github/workflows/pack-check.yml
+
+  release:
+    needs: [plan, pack-check]
+    # The version PR when pack-check was skipped; a publish only once it passed.
+    if: ${{ !cancelled() && needs.plan.result == 'success' && needs.pack-check.result != 'failure' }}
+    # Pinned with CI's.
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      pull-requests: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+
+      # No registry-url: setup-node's .npmrc would ask for a token, where trusted publishing has none.
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Trusted publishing needs npm 11.5.1 or later.
+      - name: Update npm
+        run: npm install -g npm@^11.5.1
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Version PR or publish
+        uses: changesets/action@v1
+        with:
+          version: bun run version-packages
+          publish: bun run release
+          title: Version Packages
+          commit: Version Packages
+          createGithubReleases: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
