@@ -1,5 +1,14 @@
 # @wardic/solid
 
+## 1.0.0-rc.2
+
+### Patch Changes
+
+- 4adf83e: `VERSION` is the package's own version: 1.0.0-rc.1 exported `"0.1.0-alpha.0"`.
+- Updated dependencies [4adf83e]
+  - @wardic/dom@1.0.0-rc.2
+  - @wardic/core@1.0.0-rc.2
+
 ## 1.0.0-rc.1
 
 ### Major Changes
