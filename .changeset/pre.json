@@ -1,0 +1,19 @@
+{
+  "mode": "pre",
+  "tag": "rc",
+  "initialVersions": {
+    "@wardic/example-hand-checks": "0.0.0",
+    "@wardic/example-layout-lab": "0.0.0",
+    "@wardic/example-solid-start-basic": "0.0.0",
+    "@wardic/example-solid2-start": "0.0.0",
+    "@wardic/example-storefront-next": "0.0.0",
+    "@wardic/example-storefront-shared": "0.0.0",
+    "@wardic/example-storefront-solid1": "0.0.0",
+    "@wardic/example-storefront-solid2": "0.0.0",
+    "@wardic/core": "0.1.0-alpha.0",
+    "@wardic/dom": "0.1.0-alpha.0",
+    "@wardic/solid": "0.1.0-alpha.0",
+    "@wardic/test": "0.1.0-alpha.0"
+  },
+  "changesets": []
+}
