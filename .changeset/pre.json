@@ -17,7 +17,11 @@
   },
   "changesets": [
     "env-builds-at-once",
+    "frame-loop-metrics",
     "probe-names",
+    "scroll-feature",
+    "shared-source-counted",
+    "solid2-server-code",
     "version-constant",
     "wardic-1-core",
     "wardic-1-dom",
