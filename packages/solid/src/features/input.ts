@@ -10,7 +10,7 @@ import * as DomInput from "@wardic/dom/DomInput"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
-import * as Option from "effect/Option"
+import { fromEnvironmentOr } from "../feature.ts"
 import type { ProviderServices } from "../runtime.ts"
 
 /**
@@ -18,15 +18,7 @@ import type { ProviderServices } from "../runtime.ts"
  * test's pushed input), else the DOM's, built over the page's `document`. One Layer, so a provider's
  * `MemoMap` builds it once for every gesture Feature it has.
  */
-export const input: Layer.Layer<InputSource.InputSource> = /*#__PURE__*/ Layer.unwrap(
-  /*#__PURE__*/ Effect.map(
-    Effect.serviceOption(InputSource.InputSource),
-    Option.match({
-      onSome: (given): Layer.Layer<InputSource.InputSource> => Layer.succeed(InputSource.InputSource)(given),
-      onNone: (): Layer.Layer<InputSource.InputSource> => DomInput.layer,
-    }),
-  ),
-)
+export const input: Layer.Layer<InputSource.InputSource> = /*#__PURE__*/ fromEnvironmentOr(InputSource.InputSource, DomInput.layer)
 
 /** `watch` with the gestures' input given: what a gesture Feature hands its elements, which run it on their provider. */
 export const withInput =

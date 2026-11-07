@@ -25,11 +25,16 @@
 // - LV15: `skipInitialAnimation`: the source's first change lands at once; the changes after it spring.
 // - LV16: `LiveValue.jump` on a user's own Atom: a velocity of it reads no motion; an Atom that isn't
 //   writable is a defect.
+// - LV17: `createScroll` brings the `scroll` Feature (#518): a provider given none reads the
+//   Environment's own `ScrollSource` when it gives one.
 import * as LiveValue from "@wardic/core/LiveValue"
+import * as ScrollSource from "@wardic/core/ScrollSource"
 import { DomLive } from "@wardic/dom"
 import * as ScrollOffset from "@wardic/dom/ScrollOffset"
 import { createScroll, createSpring, createTime, createTransform, createVelocity, fromAtom, type SpringAccessor, useWardicRuntime, ward, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 import * as Bool from "effect/Boolean"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import { Atom, AtomRegistry } from "effect/reactivity"
 import { type Accessor, createSignal, flush, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
@@ -353,6 +358,23 @@ describe("createScroll, createVelocity and createTime on Solid 2", () => {
     await settle()
     flush()
     expect(y(), "the old container is let go").toBe(30)
+  })
+
+  it("LV17: createScroll brings the scroll Feature, the Environment's own ScrollSource when it gives one", async () => {
+    const given: ScrollSource.Scroll = { x: { current: 5, length: 50, progress: 0.1 }, y: { current: 42, length: 100, progress: 0.42 } }
+    const env = Layer.mergeAll(DomLive, Layer.succeed(ScrollSource.ScrollSource, { scroll: () => Effect.succeed(Atom.make(given)) }))
+    let values!: ReturnType<typeof createScroll>
+    const Scene = () => {
+      values = createScroll()
+      return <div />
+    }
+    mount(() => (
+      <WardicProvider env={env}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await until(() => (flush(), values.scrollY() === 42))
+    expect([values.scrollX(), values.scrollY(), values.scrollXProgress(), values.scrollYProgress()]).toEqual([5, 42, 0.1, 0.42])
   })
 
   it("LV9: createVelocity: 0 at rest, the change a second while it moves, 0 once it stops", async () => {

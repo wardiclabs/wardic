@@ -1,5 +1,5 @@
-// `Probe.scroll` in a real browser (#234, ADR-0043 *Amendment (#233, #234)*): a container's scroll as
-// an Atom, set within its events.
+// The DOM's `ScrollSource` in a real browser (#234, ADR-0043 *Amendment (#233, #234)*; the Probe's
+// `scroll` until #518): a container's scroll as an Atom, set within its events.
 //
 // - PS1: set inside the scroll event: a reader hears it before `dispatchEvent` returns, and the
 //   values are the container's position, range and progress.
@@ -25,20 +25,20 @@
 //   on x, and an SVG shape. The positioned one's own is
 //   pinned to the box; the page keeps its document offsets, a border on `<html>` not taken off.
 // - PS13 (#618): a container its last reader let go of, its element off the page, is collected: the
-//   map of containers (an `RcMap` now) keeps no element it has released.
-import * as Probe from "@wardic/core/Probe"
+//   map of containers (`SharedSource.counted` since #518) keeps no element it has released.
+import * as ScrollSource from "@wardic/core/ScrollSource"
 import { expect, layer } from "@effect/vitest"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import { AtomRegistry } from "effect/reactivity"
 import * as Scope from "effect/Scope"
-import { ProbeDomLive } from "../src/internal/probe.ts"
+import * as DomScrollSource from "../src/DomScrollSource.ts"
 import * as ScrollOffset from "../src/ScrollOffset.ts"
 import { commands } from "vitest/browser"
 import "./browser-commands.ts"
 
-const TestLayer = Layer.provideMerge(ProbeDomLive, AtomRegistry.layer)
+const TestLayer = Layer.provideMerge(DomScrollSource.layer, AtomRegistry.layer)
 
 /** A 200 × 100 scroll box holding a 1000px-tall column, an 80px-tall target at 400px down it. */
 const scene = () => {
@@ -117,14 +117,14 @@ const scrollTo = (box: HTMLElement, top: number): void => {
   box.dispatchEvent(new Event("scroll"))
 }
 
-layer(TestLayer)("Probe.scroll (#234)", (it) => {
+layer(TestLayer)("ScrollSource on the DOM (#234)", (it) => {
   it.effect("PS1: set inside the scroll event, with the container's position, range and progress", () =>
     Effect.gen(function* () {
       const s = scene()
-      const probe = yield* Probe.Probe
+      const source = yield* ScrollSource.ScrollSource
       const registry = yield* AtomRegistry.AtomRegistry
       const scope = yield* Scope.make()
-      const atom = yield* probe.scroll({ container: s.box }).pipe(Scope.provide(scope))
+      const atom = yield* source.scroll({ container: s.box }).pipe(Scope.provide(scope))
       const heard: Array<number> = []
       const stop = registry.subscribe(atom, (v) => void heard.push(v.y.current))
       scrollTo(s.box, 450)
@@ -143,10 +143,10 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
       const tall = document.createElement("div")
       tall.style.cssText = "height: 3000px"
       document.body.append(tall)
-      const probe = yield* Probe.Probe
+      const source = yield* ScrollSource.ScrollSource
       const registry = yield* AtomRegistry.AtomRegistry
       const scope = yield* Scope.make()
-      const atom = yield* probe.scroll().pipe(Scope.provide(scope))
+      const atom = yield* source.scroll().pipe(Scope.provide(scope))
       const page = document.scrollingElement as Element
       window.scrollTo(0, 600)
       window.dispatchEvent(new Event("scroll"))
@@ -160,10 +160,10 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
   it.effect("PS3: a container's resize changes its range, and the Atom with it", () =>
     Effect.gen(function* () {
       const s = scene()
-      const probe = yield* Probe.Probe
+      const source = yield* ScrollSource.ScrollSource
       const registry = yield* AtomRegistry.AtomRegistry
       const scope = yield* Scope.make()
-      const atom = yield* probe.scroll({ container: s.box }).pipe(Scope.provide(scope))
+      const atom = yield* source.scroll({ container: s.box }).pipe(Scope.provide(scope))
       expect(registry.get(atom).y.length).toBe(900)
       // Past the observers' first delivery (#239), so only the resize below is read.
       yield* frames(3)
@@ -178,14 +178,14 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
   it.effect("PS4: a target's progress through its offsets, each edge resolved as Motion resolves it", () =>
     Effect.gen(function* () {
       const s = scene()
-      const probe = yield* Probe.Probe
+      const source = yield* ScrollSource.ScrollSource
       const registry = yield* AtomRegistry.AtomRegistry
       const scope = yield* Scope.make()
       // The target sits at 400 and is 80 tall; the box shows 100.
       const read = (offset: ScrollOffset.ScrollOffset | undefined, top: number) =>
         Effect.gen(function* () {
-          const options: Probe.ScrollOptions = Object.assign({ container: s.box, target: s.target }, offset !== undefined && { offset })
-          const atom = yield* probe.scroll(options).pipe(Scope.provide(scope))
+          const options: ScrollSource.Options = Object.assign({ container: s.box, target: s.target }, offset !== undefined && { offset })
+          const atom = yield* source.scroll(options).pipe(Scope.provide(scope))
           scrollTo(s.box, top)
           return registry.get(atom).y.progress
         })
@@ -232,11 +232,11 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
         removed.push(type)
         remove(type, listener, options)
       }) as typeof s.box.removeEventListener
-      const probe = yield* Probe.Probe
+      const source = yield* ScrollSource.ScrollSource
       const a = yield* Scope.make()
       const b = yield* Scope.make()
-      yield* probe.scroll({ container: s.box }).pipe(Scope.provide(a))
-      yield* probe.scroll({ container: s.box, target: s.target }).pipe(Scope.provide(b))
+      yield* source.scroll({ container: s.box }).pipe(Scope.provide(a))
+      yield* source.scroll({ container: s.box, target: s.target }).pipe(Scope.provide(b))
       expect(added).toEqual(["scroll"])
       yield* Scope.close(a, Exit.void)
       expect(removed, "still read").toEqual([])
@@ -248,10 +248,10 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
   it.effect("PS6: an unchanged scroll isn't set again", () =>
     Effect.gen(function* () {
       const s = scene()
-      const probe = yield* Probe.Probe
+      const source = yield* ScrollSource.ScrollSource
       const registry = yield* AtomRegistry.AtomRegistry
       const scope = yield* Scope.make()
-      const atom = yield* probe.scroll({ container: s.box }).pipe(Scope.provide(scope))
+      const atom = yield* source.scroll({ container: s.box }).pipe(Scope.provide(scope))
       let heard = 0
       const stop = registry.subscribe(atom, () => void heard++)
       scrollTo(s.box, 100)
@@ -267,10 +267,10 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
     Effect.gen(function* () {
       const s = scene()
       const column = s.box.firstElementChild as HTMLElement
-      const probe = yield* Probe.Probe
+      const source = yield* ScrollSource.ScrollSource
       const registry = yield* AtomRegistry.AtomRegistry
       const scope = yield* Scope.make()
-      const atom = yield* probe.scroll({ container: s.box }).pipe(Scope.provide(scope))
+      const atom = yield* source.scroll({ container: s.box }).pipe(Scope.provide(scope))
       // An observer delivers once as it starts: past that, only a change reads anything.
       yield* frames(3)
       scrollTo(s.box, 450)
@@ -290,10 +290,10 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
       const before = { html: html.style.height, body: document.body.style.height }
       html.style.height = "100%"
       document.body.style.height = "100%"
-      const probe = yield* Probe.Probe
+      const source = yield* ScrollSource.ScrollSource
       const registry = yield* AtomRegistry.AtomRegistry
       const scope = yield* Scope.make()
-      const atom = yield* probe.scroll().pipe(Scope.provide(scope))
+      const atom = yield* source.scroll().pipe(Scope.provide(scope))
       const page = document.scrollingElement as Element
       const tall = document.createElement("div")
       tall.style.cssText = "height: 3000px"
@@ -339,11 +339,11 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
       column.append(spacer, target, filler)
       box.append(column)
       document.body.append(box)
-      const probe = yield* Probe.Probe
+      const source = yield* ScrollSource.ScrollSource
       const registry = yield* AtomRegistry.AtomRegistry
       const scope = yield* Scope.make()
       // "start end" → "end start": from where the target's top meets the box's bottom to where its bottom meets the box's top.
-      const atom = yield* probe.scroll({ container: box, target, offset: ["start end", "end start"] }).pipe(Scope.provide(scope))
+      const atom = yield* source.scroll({ container: box, target, offset: ["start end", "end start"] }).pipe(Scope.provide(scope))
       yield* frames(3)
       scrollTo(box, 290)
       // 200 → 380 (300 − 100 to 300 + 80): 290 is halfway.
@@ -370,7 +370,7 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
   it.effect("PS11: a child added later is watched, a removed one changes the range, the last reader out disconnects both observers, an idle container is never read", () =>
     Effect.gen(function* () {
       const s = scene()
-      const probe = yield* Probe.Probe
+      const source = yield* ScrollSource.ScrollSource
       const registry = yield* AtomRegistry.AtomRegistry
       const disconnects = { resize: 0, mutation: 0 }
       const resizeDisconnect = ResizeObserver.prototype.disconnect
@@ -384,7 +384,7 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
         return mutationDisconnect.call(this)
       }
       const scope = yield* Scope.make()
-      const atom = yield* probe.scroll({ container: s.box }).pipe(Scope.provide(scope))
+      const atom = yield* source.scroll({ container: s.box }).pipe(Scope.provide(scope))
       let heard = 0
       const stop = registry.subscribe(atom, () => void heard++)
       yield* frames(6)
@@ -403,7 +403,7 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
       // A second reader whose target is one of the children: its going leaves the child watched.
       const column = s.box.firstElementChild as HTMLElement
       const second = yield* Scope.make()
-      yield* probe.scroll({ container: s.box, target: column }).pipe(Scope.provide(second))
+      yield* source.scroll({ container: s.box, target: column }).pipe(Scope.provide(second))
       yield* Scope.close(second, Exit.void)
       yield* frames(2)
       column.style.height = "1500px"
@@ -419,7 +419,7 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
 
   it.effect("PS12: a target in a static container reads the progress a positioned one gives (#395)", () =>
     Effect.gen(function* () {
-      const probe = yield* Probe.Probe
+      const source = yield* ScrollSource.ScrollSource
       const registry = yield* AtomRegistry.AtomRegistry
       const through: ScrollOffset.ScrollOffset = ["start end", "end start"]
       /** The progress at each of `at` with the layout's container at `position`. */
@@ -432,7 +432,7 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
           const target = host.querySelector("[data-target]")
           if (box === null || target === null) return yield* Effect.die("no box or target")
           const scope = yield* Scope.make()
-          const atom = yield* probe.scroll({ container: box, target, offset: through, axis: layout.axis }).pipe(Scope.provide(scope))
+          const atom = yield* source.scroll({ container: box, target, offset: through, axis: layout.axis }).pipe(Scope.provide(scope))
           const read = at.map((to) => {
             if (layout.axis === "x") box.scrollLeft = to
             else box.scrollTop = to
@@ -463,7 +463,7 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
       tail.style.cssText = "height: 3000px"
       document.body.append(target, tail)
       const scope = yield* Scope.make()
-      const atom = yield* probe.scroll({ target, offset: ["start start", "end start"] }).pipe(Scope.provide(scope))
+      const atom = yield* source.scroll({ target, offset: ["start start", "end start"] }).pipe(Scope.provide(scope))
       const top = target.getBoundingClientRect().top + window.scrollY
       window.scrollTo(0, Math.round(top + 40))
       window.dispatchEvent(new Event("scroll"))
@@ -477,12 +477,12 @@ layer(TestLayer)("Probe.scroll (#234)", (it) => {
 
   it.effect("PS13: a released container's element isn't kept (#618)", () =>
     Effect.gen(function* () {
-      const probe = yield* Probe.Probe
+      const source = yield* ScrollSource.ScrollSource
       // Each read in a call of its own, so no local of the test's holds its element after.
       const readAndRelease = Effect.fnUntraced(function* () {
         const s = scene()
         const scope = yield* Scope.make()
-        yield* probe.scroll({ container: s.box, target: s.target }).pipe(Scope.provide(scope))
+        yield* source.scroll({ container: s.box, target: s.target }).pipe(Scope.provide(scope))
         yield* Scope.close(scope, Exit.void)
         s.remove()
         return new WeakRef(s.box)

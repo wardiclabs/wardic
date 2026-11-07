@@ -44,9 +44,9 @@ const GATE = 1.01
  * with 0.5 KB of room, and each #518 PR lowers them to its own result (#518, Q8): 103.9 and 132.3 when
  * the apps were first built as they ship, where lib mode had read 122.5 and 158.6. Solid 2's 123.9 once its
  * client builds dropped the server render's code (#518), and 102.8 and 122.9 with the Frame loop's
- * metrics an app's to give, 99.0 and 119.1 with Wardic's own fan-out.
+ * metrics an app's to give, 99.0 and 119.1 with Wardic's own fan-out, 97.4 and 117.3 with the `scroll` Feature.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 99.5, "s2-slim": 119.6 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 97.9, "s2-slim": 117.8 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 

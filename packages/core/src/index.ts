@@ -6,7 +6,7 @@
  *
  * Each Primitive is a machine (`Machine`), run as a `Stream` over the Clock's ticks
  * (`Machine.toStream`) or on the Frame loop (`Machine.run`). The services (`Clock`,
- * `RefreshFrameSource`, `Renderer`, `InputSource`, `Probe`, `InterpolatorRegistry`, `FrameLoop`,
+ * `RefreshFrameSource`, `Renderer`, `InputSource`, `Probe`, `ScrollSource`, `InterpolatorRegistry`, `FrameLoop`,
  * `DefaultTransition`) are each `X.X`, with the shared constructors the Environments build on
  * (`Clock.layer`, `Clock.fromRefreshFrames`, `InputSource.heldPointer`, `InputFeed.byTarget`,
  * `InterpolatorRegistry.layer`, `FrameLoop.layer`, `DefaultTransition.layerOneSpring`). Each module's
@@ -47,6 +47,7 @@ export * as RefreshFrameSource from "./RefreshFrameSource.ts"
 export * as Renderer from "./Renderer.ts"
 export * as Reorder from "./Reorder.ts"
 export * as Scalar from "./Scalar.ts"
+export * as ScrollSource from "./ScrollSource.ts"
 export * as Sequence from "./Sequence.ts"
 export * as SharedSource from "./SharedSource.ts"
 export * as Spring from "./Spring.ts"

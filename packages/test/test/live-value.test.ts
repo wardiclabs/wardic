@@ -472,7 +472,7 @@ const MOTION_SPRING = [
   100, 100
 ]
 
-describe("LiveValue.scroll: Motion's four values from the Environment's Probe.scroll (#234)", () => {
+describe("LiveValue.scroll: Motion's four values from the Environment's ScrollSource (#234)", () => {
   it.effect("PS7: scrollX, scrollY and their progress follow the Probe's scroll as it's set", () =>
     Effect.gen(function* () {
       const probe = yield* TestProbe.pushable()

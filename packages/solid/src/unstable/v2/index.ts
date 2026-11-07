@@ -24,11 +24,12 @@ export {
  * only those it uses; a Complete element (`wardic.*`, `ward()`) has every one. `colors`: every CSS
  * colour space beyond a hex, `rgb()`, `hsl()` and the colour names. `layout`: layout animations, the
  * props `layout`, `layoutId`, `layoutScroll` and `layoutRoot` (`LayoutGroup` and `Reorder` bring it
- * themselves).
+ * themselves). `scroll`: a container's scroll, which `createScroll` brings itself (#518).
  */
 export type { Feature, FeatureLoad, Features, FeaturesProp } from "../../feature.ts"
 export { colors } from "../../features/colors.ts"
 export { layout } from "../../features/layout.ts"
+export { scroll } from "../../features/scroll.ts"
 /**
  * The gestures (#511, ADR-0067 decision 3), a Feature each: `hover`, `press` (its Keyboard presses
  * included), `focus`, `inView`, `pan` and `drag` (`dragControls` and the release's inertia included).
@@ -209,16 +210,13 @@ export { createAnimationControls, type WardicAnimationControls, type WardicContr
 export {
   createAnimationFrame,
   createFollowValue,
-  createScroll,
   createSpring,
   createTime,
   createTransform,
   createVelocity,
   createWillChange,
-  type ElementSource,
-  type ScrollOptions,
-  type ScrollValues,
 } from "./live-value.ts"
+export { createScroll, type ElementSource, type ScrollOptions, type ScrollValues } from "./live-scroll.ts"
 export type { FollowAccessor, FollowValueOptions, Live, LiveSource, SpringAccessor, WillChange } from "../../live-style.ts"
 
 /**

@@ -52,6 +52,23 @@ export type FeatureLoad = () => Promise<Features>
 /** Features given to a `WardicProvider` or a `LazyWardic`: at once, or loaded lazily. */
 export type FeaturesProp = Features | FeatureLoad
 
+/**
+ * `key`'s Layer for a Feature: the Environment's service when it gives one (`@wardic/test`'s `TestLive`),
+ * else `layer`, the DOM's, which a provider's `MemoMap` builds once for every Feature standing on it.
+ */
+// ADR-0067 decision 14 (the gestures' input) and *Amendment (#518)*, decision 5 (the scroll). A Feature
+// module's call to it is marked pure, so an app that never imports the module drops `layer`.
+export const fromEnvironmentOr = <I, S, R>(key: Context.Key<I, S>, layer: Layer.Layer<I, never, R>): Layer.Layer<I, never, R> =>
+  Layer.unwrap(
+    Effect.map(
+      Effect.serviceOption(key),
+      Option.match({
+        onSome: (given): Layer.Layer<I, never, R> => Layer.succeed(key)(given),
+        onNone: (): Layer.Layer<I, never, R> => layer,
+      }),
+    ),
+  )
+
 /** Features as one flat list, each once, in order. */
 export const flatten = (features: Features): ReadonlyArray<Feature> => Arr.dedupeWith(flattenInto(features), (a, b) => a === b)
 

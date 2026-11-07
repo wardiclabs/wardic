@@ -37,7 +37,6 @@ import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { Atom, AtomRegistry } from "effect/reactivity"
 import { requireGlobal } from "./require-global.ts"
-import { makeScroll } from "./scroll.ts"
 
 /** Map a `DOMRect`-like value onto the engine's portable {@link Bounds}. */
 /** An `IntersectionObserver`'s init from the Probe's options: each left out when not given. */
@@ -157,8 +156,6 @@ const make = Effect.gen(function* () {
     viewport,
     prefersReducedMotion,
     visible,
-    // A container's scroll, set within its events (#234): `scroll.ts`.
-    scroll: yield* makeScroll(registry),
     observeResize,
     observeIntersection,
   })

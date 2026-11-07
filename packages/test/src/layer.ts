@@ -10,6 +10,7 @@ import type * as Probe from "@wardic/core/Probe"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import type * as Renderer from "@wardic/core/Renderer"
+import type * as ScrollSource from "@wardic/core/ScrollSource"
 import { constUndefined, constVoid } from "effect/Function"
 import * as Layer from "effect/Layer"
 import { AtomRegistry } from "effect/reactivity"
@@ -27,8 +28,8 @@ const stillFrames: RefreshFrameSource.Shape = { requestFrame: constUndefined, ca
 
 /**
  * The full headless environment: deterministic Clock (driven by `frames`), a Refresh frame
- * source that never calls back, recording Renderer, static Probe, silent InputSource, core's real
- * interpolator registry, a fresh AtomRegistry for reading Probe atoms
+ * source that never calls back, recording Renderer, static Probe and ScrollSource, silent
+ * InputSource, core's real interpolator registry, a fresh AtomRegistry for reading Probe atoms
  * (`viewport`, `prefersReducedMotion`), and a fresh Drag activity, so one test's
  * drag never blocks another's hover or press, and core's Frame loop over that
  * Clock. Provide this in place of `DomLive` to test animation code without a
@@ -45,6 +46,7 @@ export const testLayer = (
   | FrameLoop.FrameLoop
   | Renderer.Renderer
   | Probe.Probe
+  | ScrollSource.ScrollSource
   | InputSource.InputSource
   | InterpolatorRegistry.InterpolatorRegistry
   | ReducedMotion.PositionalKeys
