@@ -1,6 +1,6 @@
 import * as Clock from "@wardic/core/Clock"
 import type * as Frame from "@wardic/core/Frame"
-import type * as FrameLoop from "@wardic/core/FrameLoop"
+import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as Machine from "@wardic/core/Machine"
 import * as Supersede from "@wardic/core/Supersede"
 import type * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
@@ -65,8 +65,11 @@ const makeTracer = () => {
   return { spans, tracer }
 }
 
-/** The Clock and the Frame loop over a fresh frame source, on a counting `setTimeout(0)` scheduler. */
-const makeHarness = async (options?: { readonly clock?: ClockShape }) => {
+/**
+ * The Clock and the Frame loop over a fresh frame source, on a counting `setTimeout(0)` scheduler. With
+ * `metrics`, each run is given `FrameLoop.layerMetrics`, as an app gives it beside its Environment (#518).
+ */
+const makeHarness = async (options?: { readonly clock?: ClockShape; readonly metrics?: boolean }) => {
   const frames = makeFrames()
   let dispatches = 0
   const scheduler = new MixedScheduler("async", (task) => {
@@ -93,8 +96,11 @@ const makeHarness = async (options?: { readonly clock?: ClockShape }) => {
     { scheduler },
   )
   /** Run `effect` in a fresh fiber, inline, on the counting scheduler and the recording tracer. */
-  const fork = <A, E>(effect: Effect.Effect<A, E>): Fiber.Fiber<A, E> =>
-    Effect.runFork(effect.pipe(Effect.provideService(Tracer.Tracer, tracer)), { scheduler })
+  const fork = <A, E>(effect: Effect.Effect<A, E>): Fiber.Fiber<A, E> => {
+    const traced = effect.pipe(Effect.provideService(Tracer.Tracer, tracer))
+    if (options?.metrics === true) return Effect.runFork(traced.pipe(Effect.provide(FrameLoop.layerMetrics)), { scheduler })
+    return Effect.runFork(traced, { scheduler })
+  }
   /** Start `machine` on the loop in a fresh fiber, inline, with `run` (or `via`); its Frames land in `frames`. */
   const start = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, onFrame?: (frame: F) => void, via: "run" | "runLast" = "run") => {
     const received: Array<F> = []
@@ -430,7 +436,7 @@ describe("the Frame loop: failure isolation (ADR-0027, decision 7)", () => {
   it("a failure in the loop itself counts each run it fails, once", async () => {
     const failed = () =>
       Number((Effect.runSync(Metric.snapshot).find((snapshot) => snapshot.id === "wardic_frameloop_failed")?.state as { readonly count?: number } | undefined)?.count ?? 0)
-    const h = await makeHarness({ clock: scriptedClock([0.01], Stream.die(new Error("ticks broke"))) })
+    const h = await makeHarness({ clock: scriptedClock([0.01], Stream.die(new Error("ticks broke"))), metrics: true })
     const before = failed()
     h.start(counting(Infinity))
     expect(failed() - before).toBe(1)
@@ -609,7 +615,7 @@ describe("the Frame loop: spans and metrics (ADR-0027, decisions 3 and 6)", () =
       }, {})
     const countOf = (state: unknown): number => Number((state as { readonly count?: number } | undefined)?.count ?? 0)
     const before = counts()
-    const h = await makeHarness()
+    const h = await makeHarness({ metrics: true })
     h.start(counting(1))
     h.start(throwing(1))
     await endOfTask()
@@ -619,13 +625,32 @@ describe("the Frame loop: spans and metrics (ADR-0027, decisions 3 and 6)", () =
     expect(countOf(after["wardic_frameloop_failed"]) - countOf(before["wardic_frameloop_failed"])).toBe(1)
   })
 
+  // #518: the metrics are a Layer an app gives; without it the loop builds and updates none.
+  it("records no metric without FrameLoop.layerMetrics", async () => {
+    const ids = ["wardic_frameloop_animations", "wardic_frameloop_settled", "wardic_frameloop_failed", "wardic_frameloop_tick_ms"]
+    const states = () => {
+      const snapshot = Effect.runSync(Metric.snapshot)
+      return ids.map((id) => JSON.stringify(snapshot.find((metric) => metric.id === id)?.state))
+    }
+    const before = states()
+    const h = await makeHarness()
+    h.start(counting(1))
+    h.start(throwing(1))
+    h.start(counting(Infinity))
+    await endOfTask()
+    h.frames.fire(1000)
+    h.frames.fire(1016)
+    await h.close()
+    expect(states()).toEqual(before)
+  })
+
   /** A metric's state now, by its id. */
   const stateOf = <S>(id: string): S | undefined =>
     Effect.runSync(Metric.snapshot).find((snapshot) => snapshot.id === id)?.state as S | undefined
 
   it("the gauge holds each tick's running animations, and 0 once a burst ends with runs on it", async () => {
     const gauge = () => stateOf<Metric.GaugeState<number>>("wardic_frameloop_animations")?.value
-    const h = await makeHarness()
+    const h = await makeHarness({ metrics: true })
     const runs = [h.start(counting(Infinity)), h.start(counting(Infinity)), h.start(counting(Infinity))]
     await endOfTask()
     h.frames.fire(1000)
@@ -640,7 +665,7 @@ describe("the Frame loop: spans and metrics (ADR-0027, decisions 3 and 6)", () =
   it("the histogram records each tick's ms", async () => {
     const ticks = () => stateOf<Metric.HistogramState>("wardic_frameloop_tick_ms")?.count ?? 0
     const before = ticks()
-    const h = await makeHarness()
+    const h = await makeHarness({ metrics: true })
     h.start(counting(Infinity))
     await endOfTask()
     h.frames.fire(1000)
@@ -863,7 +888,7 @@ describe("the Frame loop: superseded runs (#200, ADR-0027 *Amendment (#200)*)", 
       }, {})
     const countOf = (state: unknown): number => Number((state as { readonly count?: number } | undefined)?.count ?? 0)
     const before = counts()
-    const h = await makeHarness()
+    const h = await makeHarness({ metrics: true })
     const token = Supersede.make()
     const settles = startWith(h, counting(1), token)
     const runs = startWith(h, counting(Infinity), token)

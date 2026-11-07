@@ -34,7 +34,7 @@ Every failure Wardic stops is logged at Error, and handed to the app's `ErrorRep
 
 With a tracer installed, such as the devtools' or OpenTelemetry's, each animation runs in a span named for what it is: `wardic.springValues`, `wardic.animateValues`, `wardic.keyframesValues`, or `wardic.reducedMotion.snap` for a key that jumps. Each burst of frames is a `wardic.frameloop` span, and each layout pass a `wardic.projection.measure`. With no tracer, Wardic makes no spans at all.
 
-The frame loop's metrics are `wardic_frameloop_animations`, the animations running now; `wardic_frameloop_settled` and `wardic_frameloop_failed`, counts of those that ended; and `wardic_frameloop_tick_ms`, each frame's work, as a histogram.
+The frame loop's metrics are `wardic_frameloop_animations`, the animations running now; `wardic_frameloop_settled` and `wardic_frameloop_failed`, counts of those that ended; and `wardic_frameloop_tick_ms`, each frame's work, as a histogram. The loop records them once `FrameLoopMetrics`, from `@wardic/dom`, is merged beside `DomLive`, as the sample does. Without it, it records none, and an app ships none of their code.
 
 `DevTools.layer()` streams spans and metrics to Effect's devtools, on `ws://localhost:34437` by default. To send them to OpenTelemetry instead, use Effect's OTLP exporter:
 

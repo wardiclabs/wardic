@@ -58,7 +58,7 @@ The same engine runs on any Environment that provides its services, the clock an
 
 ## Observability, built in
 
-Every animation runs in its own span, the Frame loop keeps metrics, and Wardic logs what it does at Debug. Hand your provider Effect's tracing, logging or failure reporting once, beside `DomLive`, and every animation reports through it. In development, you can turn on a frame check that fails an animation whose frame holds a NaN, and names the key. See [observability](/guides/observability).
+Every animation runs in its own span, the Frame loop keeps metrics when you give it `FrameLoopMetrics`, and Wardic logs what it does at Debug. Hand your provider Effect's tracing, logging or failure reporting once, beside `DomLive`, and every animation reports through it. In development, you can turn on a frame check that fails an animation whose frame holds a NaN, and names the key. See [observability](/guides/observability).
 
 ## What it costs
 
