@@ -8,10 +8,11 @@
  *   `domAnimation`, a plain page, a page that drags and one that lays out, each an entry as
  *   SolidStart's routes are, measured as what the plain page loads, so a Feature that reaches a page
  *   that never uses it fails the gate. An app the base can't build, its API new, is reported as new and not gated.
- * - **Each side is built as an app ships it,** as `bench:solid` builds its pages (`sides.ts`): Vite,
- *   production mode, minified, tree-shaken, for the browsers an app ships to by default
- *   (`APP_TARGET`, #525); Solid 1 through vite-plugin-solid, Solid 2 through the repo's
- *   `solid2({ dev: false })`.
+ * - **Each side is built as an app ships it** (`sides.ts`): a Vite app build, production mode,
+ *   minified, tree-shaken, for the browsers an app ships to by default (`APP_TARGET`, #525); Solid 1
+ *   through vite-plugin-solid, Solid 2 through the repo's `solid2({ dev: false })`. Not Vite's lib
+ *   mode, as `bench:solid`'s pages are: for an ES library Vite keeps the whitespace, for bundlers
+ *   downstream, and the Slim element's app read 122.5 KB gzipped where an app ships 103.9 (#518).
  * - **Reported:** each app's minified, gzip (level 9) and brotli bytes, head against base, and the
  *   head's minified bytes split by package through its source map.
  * - **Gate:** an app fails when its gzip grows more than 1% over the base's, and the Slim element's
@@ -21,11 +22,12 @@
  * Run it for any change to a package's `src` (`docs/agents/effect-first.md`'s *Checks*).
  */
 import { execSync } from "node:child_process"
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { brotliCompressSync, gzipSync } from "node:zlib"
 import { build } from "vite"
 import solid from "vite-plugin-solid"
+import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as Predicate from "effect/Predicate"
@@ -38,15 +40,11 @@ const GATE = 1.01
 
 /**
  * The Slim element's base apps' budgets (#511, decision 10), in gzipped KB: an app fails past its own,
- * whatever its base. Set at the split's end, at its sizes with a little room, so changes each under the
- * gate can't add up, and kept that room when the build target moved (#525: 119.4 and 154.9). Raised by
- * 0.5 KB each for #594's fix, a layout element's translate in `%` (0.2 KB, s1-slim at 121.0 of 121 before
- * it), and again for #618's checks on values no animation can take and a shared source's end (0.5 KB,
- * s1-slim at 121.4 of 121.5 before them). Solid 1's once more for #618's M1, the Renderer read once by
- * the provider (48 B, s1-slim 3 B past 122 with it), and Solid 2's for #618's API changes (344 B,
- * s2-slim 225 B past 158 with them); #518 lowers them toward Q4's 105 KB after v1.
+ * whatever its base, so changes each under the gate can't add up. Each is the app's size as it ships,
+ * with 0.5 KB of room, and each #518 PR lowers them to its own result (#518, Q8): 103.9 and 132.3 when
+ * the apps were first built as they ship, where lib mode had read 122.5 and 158.6.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 122.5, "s2-slim": 158.5 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 104.4, "s2-slim": 132.8 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 
@@ -225,7 +223,7 @@ interface Size {
   readonly groups: Record<Group, number>
 }
 
-/** One output chunk as `routedSizeOf` reads it. */
+/** One output chunk as `appSizeOf` reads it. */
 interface Chunk {
   readonly type: "chunk" | "asset"
   readonly fileName: string
@@ -237,18 +235,18 @@ interface Chunk {
 }
 
 /**
- * A multi-route app's size (#548): built as SolidStart builds its client, every page an entry beside the
- * app's (`preserveEntrySignatures: "exports-only"`), and measured as what its first page loads: the
- * app's chunk, that page's, and every chunk either imports statically, each gzipped on its own as a
- * page fetches them. `undefined` when the base can't build it.
+ * An app's size, built as it ships: a Vite app build of its entry, and of each page beside it as
+ * SolidStart builds a client's routes (`preserveEntrySignatures: "exports-only"`, #548). Measured as
+ * what its first page loads: the app's chunk, its first page's when it has pages, and every chunk
+ * either imports statically, each gzipped on its own as a page fetches them. `undefined` when the
+ * base can't build it.
  */
-const routedSizeOf = async (root: string, deps: string, app: App, entry: string, side: string): Promise<Size | undefined> => {
+const appSizeOf = async (root: string, deps: string, app: App, entry: string, side: string): Promise<Size | undefined> => {
   const pages = (app.pages ?? []).map((source, i) => {
     const file = join(root, "apps", `${app.name}-${["plain", "drags", "moves"][i]}.tsx`)
     writeFileSync(file, source)
     return file
   })
-  const out = join(root, "dist", app.name)
   const built = await build({
     configFile: false,
     logLevel: "error",
@@ -257,8 +255,7 @@ const routedSizeOf = async (root: string, deps: string, app: App, entry: string,
     plugins: [sideResolver(root, deps), Bool.match(app.v2, { onTrue: () => solid2({ dev: false }), onFalse: () => solid() })],
     define: { "process.env.NODE_ENV": JSON.stringify("production") },
     build: {
-      outDir: out,
-      emptyOutDir: true,
+      outDir: join(root, "dist", app.name),
       minify: true,
       target: [...APP_TARGET],
       sourcemap: true,
@@ -284,7 +281,7 @@ const routedSizeOf = async (root: string, deps: string, app: App, entry: string,
     for (const imported of chunk.imports ?? []) visit(byName.get(imported)!)
   }
   visit(entryOf(entry))
-  visit(entryOf(pages[0]!))
+  Arr.forEach(Arr.take(pages, 1), (page) => visit(entryOf(page)))
   const groups = Object.fromEntries(GROUPS.map((g) => [g, 0])) as Record<Group, number>
   let min = 0
   let gz = 0
@@ -316,43 +313,9 @@ const sizesOf = async (side: string, commit: string | undefined, deps: string): 
   for (const app of APPS) {
     const entry = join(root, "apps", `${app.name}.tsx`)
     writeFileSync(entry, app.source)
-    if (Predicate.isNotUndefined(app.pages)) {
-      const routed = await routedSizeOf(root, deps, app, entry, side)
-      if (Predicate.isNotUndefined(routed)) sizes.set(app.name, routed)
-      continue
-    }
     // An app the base can't build is one the head adds (its API is new): reported, not gated.
-    const built = await build({
-      configFile: false,
-      logLevel: "error",
-      mode: "production",
-      root,
-      plugins: [sideResolver(root, deps), Bool.match(app.v2, { onTrue: () => solid2({ dev: false }), onFalse: () => solid() })],
-      define: { "process.env.NODE_ENV": JSON.stringify("production") },
-      build: {
-        outDir: join(root, "dist"),
-        emptyOutDir: false,
-        minify: true,
-      target: [...APP_TARGET],
-        sourcemap: true,
-        lib: { entry, formats: ["es"], fileName: () => `${app.name}.js` },
-      },
-    }).then(
-      () => true,
-      (error: unknown) => {
-        if (side === "head") throw error
-        return false
-      },
-    )
-    if (!built) continue
-    const js = readFileSync(join(root, "dist", `${app.name}.js`))
-    const map = JSON.parse(readFileSync(join(root, "dist", `${app.name}.js.map`), "utf8"))
-    sizes.set(app.name, {
-      min: js.length,
-      gz: gzipSync(js, { level: 9 }).length,
-      br: brotliCompressSync(js).length,
-      groups: bytesByGroup(js.toString("utf8"), map),
-    })
+    const size = await appSizeOf(root, deps, app, entry, side)
+    if (Predicate.isNotUndefined(size)) sizes.set(app.name, size)
   }
   return sizes
 }
