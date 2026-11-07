@@ -146,16 +146,13 @@ export { createCycle, type Cycle } from "./cycle.ts"
 export {
   createAnimationFrame,
   createFollowValue,
-  createScroll,
   createSpring,
   createTime,
   createTransform,
   createVelocity,
   createWillChange,
-  type ElementSource,
-  type ScrollOptions,
-  type ScrollValues,
 } from "./live-value.ts"
+export { createScroll, type ElementSource, type ScrollOptions, type ScrollValues } from "./live-scroll.ts"
 export type { FollowAccessor, FollowValueOptions, Live, LiveSource, SpringAccessor, WillChange } from "./live-style.ts"
 
 /**
