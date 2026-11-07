@@ -2,12 +2,13 @@
  * `@wardic/dom`: the browser Environment, and the framework-free pieces a binding builds on. It's for
  * binding authors, Wardic's own and any other, and it's Effect-typed.
  *
- * - **An app** imports {@link DomLive}, the composed Environment it hands its binding, and
- *   {@link CheckFrames}, to check its Frames in development.
+ * - **An app** imports {@link DomLive}, the composed Environment it hands its binding,
+ *   {@link CheckFrames}, to check its Frames in development, and {@link FrameLoopMetrics}, to record the
+ *   Frame loop's metrics.
  * - **A binding** imports each module by its subpath, as a namespace
  *   (`import * as FlushGate from "@wardic/dom/FlushGate"`), and the root re-exports each one:
  *   - the DOM's implementations of core's services, each with its `layer` (Effect's platform
- *     convention: `DomRenderer`, `DomInput`, `DomProbe`, `DomClock`, `DomAnnouncer`,
+ *     convention: `DomRenderer`, `DomInput`, `DomProbe`, `DomScrollSource`, `DomClock`, `DomAnnouncer`,
  *     `DomInterpolators`, `DomPositionalKeys`, `DomDefaultTransition`), and `DomKeyRules`, the Key
  *     rules `DomInterpolators.layer` installs, which has none of its own;
  *   - dom's own concepts, by the glossary's names: `FlushGate`, `ProjectionSystem`,
@@ -16,7 +17,8 @@
  *
  * Everything under `internal/` is dom's own and not exported.
  */
-// `@wardic/dom` (#132, ADR-0041), Tier 2 (ADR-0008); CheckFrames re-exported for an app (#586).
+// `@wardic/dom` (#132, ADR-0041), Tier 2 (ADR-0008); CheckFrames re-exported for an app (#586), and
+// FrameLoopMetrics (#518).
 import type * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
@@ -41,6 +43,7 @@ export const VERSION = "1.0.0-rc.4"
 export * as DomClock from "./DomClock.ts"
 export * as DomInput from "./DomInput.ts"
 export * as DomProbe from "./DomProbe.ts"
+export * as DomScrollSource from "./DomScrollSource.ts"
 export * as DomRenderer from "./DomRenderer.ts"
 export * as DomAnnouncer from "./DomAnnouncer.ts"
 export * as DomInterpolators from "./DomInterpolators.ts"
@@ -69,6 +72,15 @@ export * as Report from "./Report.ts"
  */
 // ADR-0030 decision 7; re-exported here for an app (#586).
 export { CheckFrames } from "@wardic/core/FrameLoop"
+
+/**
+ * Core's Frame loop metrics (`FrameLoop.layerMetrics`), here for an app. Merged beside {@link DomLive},
+ * the loop records the animations running, the runs that settled or failed, and each tick's ms, for the
+ * devtools or an exporter to read. Without it, it records none: see
+ * https://wardic.dev/guides/observability.
+ */
+// #518, ADR-0067 *Amendment (#518)*, decision 2: opt-in, re-exported here for an app, as `CheckFrames` is.
+export { layerMetrics as FrameLoopMetrics } from "@wardic/core/FrameLoop"
 
 /**
  * The browser Environment, composed: the DOM's services, core's interpolators with the DOM's Key

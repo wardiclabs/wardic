@@ -347,3 +347,11 @@ Grilled on #443 (Q4 A): Motion's `useWillChange`, on both bindings. `createWillC
 
 - **Pinned by:** `will-change.browser.test.tsx` WC1–WC5, `v2/will-change.browser.test.tsx` WCV1–WCV3; `small-utilities.ssr.test.tsx` SUS7, `v2/small-utilities.ssr.test.tsx` SUSV6.
 - **Mutation-checked** with ADR-0009's *Amendment (#443)* (`.tmp/443/mutate2.py`), all caught. Here: never turning on; any key turning it on; transform keys, or composited ones, not counted; a Retarget's legs, an Imperative animation or a drag not counted; `will-change` or `willChange` not found; the accessor unmarked; either binding's server value `"transform"`.
+
+## Amendment (#518, 2026-11-06): a container's scroll is `ScrollSource`'s, and the `scroll` Feature's
+
+*Amendment (#233, #234)* put a container's scroll in the Probe, so every Environment built it and every app shipped the DOM's (`scroll.ts`, 1.7 KB gzipped), though only `createScroll` reads it. ADR-0067's *Amendment (#518)*, decision 5, moves it as decision 14 moved the gestures' input:
+- **Core:** `ScrollSource`, a service of its own with the one method, `scroll(options)`, and its types, `Options`, `Scroll` and `Axis`, which were `Probe`'s `ScrollOptions`, `Scroll` and `ScrollAxis` (pipeable.md: a name doesn't repeat its module). The Probe keeps the rest. `LiveValue.scroll` needs a `ScrollSource`.
+- **dom:** `DomScrollSource.layer`, over the Environment's `AtomRegistry`; `DomLive` doesn't build it.
+- **The Solid bindings:** a `scroll` Feature, the Environment's `ScrollSource` when it gives one (`@wardic/test`'s Probe layers give one beside the Probe), else the DOM's. `createScroll` brings it (decision 12), in a module of its own (#548's rule), so app code doesn't change. It isn't in `domMax` or the Complete element: no element prop reads a scroll.
+- **Tests:** SL6 (Solid 1) and LV17 (Solid 2), a provider given no Feature reads the Environment's own `ScrollSource`; dom's scroll suite runs on `DomScrollSource.layer`.

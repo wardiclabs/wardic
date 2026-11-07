@@ -1,6 +1,6 @@
 // Core's SharedSource (#37, ADR-0041 *Amendment (#37)*): a cold source shared, hot and ref-counted,
-// per target (`byTarget`, `RcMap`) or for the whole Environment (`make`, `RcRef`). CONTEXT.md's
-// **Shared source** contract.
+// per target (`byTarget`) or for the whole Environment (`make`), on one counted map of its own (`counted`,
+// #518). CONTEXT.md's **Shared source** contract.
 //
 // - SS1: two subscribers to one target share one lookup and its events.
 // - SS2: a target Effect's structural `Hash` would throw on (a throwing getter here; a DOM node in
@@ -8,11 +8,12 @@
 // - SS3: distinct targets get distinct lookups, each with its own events.
 // - SS4: closing one subscriber keeps the source until the last closes, then releases it once.
 // - SS5: re-subscribing after teardown looks up afresh.
-// - SS6: `idleTimeToLive` keeps an idle source for a rapid re-subscribe, then releases it.
 // - SS7: `make`'s subscribers share one acquire and the same events, released with the last.
 // - SS8: `make` re-acquires after the last unsubscribe.
 // - SS9: a source that ends ends every subscriber, on each constructor (#618, decision 6).
 // - SS10: a source that dies fails every subscriber with its defect, on each constructor (#618).
+// - SS11: `counted` opens a key's value once for every hold, closes it with the last release, and opens
+//   it afresh after; a key is held by identity (#518).
 import { describe, expect, it } from "@effect/vitest"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
@@ -20,8 +21,8 @@ import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import * as PubSub from "effect/PubSub"
 import * as Ref from "effect/Ref"
+import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
-import * as TestClock from "effect/testing/TestClock"
 import * as SharedSource from "../src/SharedSource.ts"
 
 /**
@@ -192,39 +193,6 @@ describe("SharedSource.byTarget", () => {
       yield* b.close
       expect(yield* probe.getReleased).toBe(2)
     }))
-
-  // Deterministic virtual time: idleTimeToLive is a real-duration debounce, but
-  // RcMap implements it via the Effect `Clock` (clock.sleep), so `TestClock`
-  // drives it exactly — no wall-clock flake. A
-  // re-subscribe within the TTL reuses the still-idle source (no re-acquire);
-  // a re-subscribe after the TTL has elapsed re-acquires.
-  it.effect("SS6: idleTimeToLive debounces teardown on rapid re-subscribe", () =>
-    Effect.gen(function* () {
-      const probe = yield* makeProbeSource<number>()
-      const shared = yield* SharedSource.byTarget(probe.lookup, { idleTimeToLive: "200 millis" })
-      const target = { id: "a" }
-
-      const a = yield* subscribeIn(shared(target))
-      expect(yield* probe.getAcquired).toBe(1)
-      yield* a.close
-      // Idle, but within the TTL window: not yet released.
-      expect(yield* probe.getReleased).toBe(0)
-
-      // Rapid re-subscribe reuses the debounced entry — no fresh lookup.
-      const b = yield* subscribeIn(shared(target))
-      expect(yield* probe.getAcquired).toBe(1)
-      expect(yield* probe.getReleased).toBe(0)
-      yield* b.close
-
-      // Now let the TTL elapse with no subscribers: the source is released.
-      yield* TestClock.adjust("400 millis")
-      expect(yield* probe.getReleased).toBe(1)
-
-      // A subscribe after teardown performs a fresh lookup.
-      const c = yield* subscribeIn(shared(target))
-      expect(yield* probe.getAcquired).toBe(2)
-      yield* c.close
-    }))
 })
 
 describe("SharedSource.make", () => {
@@ -296,5 +264,38 @@ describe("a shared source's end and failure reach its subscribers (#618)", () =>
           expect(String(Exit.isFailure(exit) && Cause.squash(exit.cause))).toContain("source broke")
         }
       }
+    }))
+})
+
+describe("SharedSource.counted (#518)", () => {
+  it.effect("SS11: a key's value opens once for every hold, closes with the last release, and opens afresh after", () =>
+    Effect.gen(function* () {
+      const events: Array<string> = []
+      const hold = SharedSource.counted(
+        (key: object) => {
+          events.push("open")
+          return { key }
+        },
+        () => Effect.sync(() => void events.push("close")),
+      )
+      // Two equal-looking targets are two keys: held by identity, never hashed.
+      const card = { id: "card" }
+      const twin = { id: "card" }
+      const first = Scope.makeUnsafe()
+      const second = Scope.makeUnsafe()
+      const a = yield* Scope.provide(hold(card), first)
+      const b = yield* Scope.provide(hold(card), second)
+      expect(a).toBe(b)
+      expect(events).toEqual(["open"])
+      const other = yield* Effect.scoped(hold(twin))
+      expect(other).not.toBe(a)
+      expect(events).toEqual(["open", "open", "close"])
+      yield* Scope.close(first, Exit.void)
+      expect(events).toEqual(["open", "open", "close"])
+      yield* Scope.close(second, Exit.void)
+      expect(events).toEqual(["open", "open", "close", "close"])
+      const again = yield* Effect.scoped(hold(card))
+      expect(again).not.toBe(a)
+      expect(events).toEqual(["open", "open", "close", "close", "open", "close"])
     }))
 })

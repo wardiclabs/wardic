@@ -325,6 +325,16 @@ const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTML
 }
 
 /**
+ * An item's internals: on a server, the drag defaults with its group's touch-action, joining no
+ * controller (ADR-0021); on the client, `itemInternals`. A plain `if`, so a client build drops the
+ * server's (#518).
+ */
+const internalsOf = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTMLElement | undefined>, listens: boolean): SpineInternals => {
+  if (isServer) return { brings: ITEM_BRINGS, dragAxis: () => true, baseStyle: touchActionOf(group, listens) }
+  return itemInternals(group, value, element, useWardicRuntime(), listens)
+}
+
+/**
  * What an item adds to its element for the keyboard reorder (ADR-0037): `tabindex="0"` while the
  * group's keyboard is on and the app gave no `tabIndex` of its own, and `aria-describedby` with
  * the group's instructions (`describedBy`, set on the client) after the app's own ids.
@@ -378,12 +388,7 @@ export function createReorderItem<V>(group: ReorderGroup<V>, config: ReorderItem
   const value = untrack(cfg).value
   const listens = untrack(cfg).dragListener !== false
   const [element, setElement] = createSignal<HTMLElement>()
-  // On a server the item renders the drag defaults with its group's touch-action and
-  // joins no controller (ADR-0021).
-  const internals: SpineInternals = Bool.match(isServer, {
-    onTrue: (): SpineInternals => ({ brings: ITEM_BRINGS, dragAxis: () => true, baseStyle: touchActionOf(group, listens) }),
-    onFalse: () => itemInternals(group, value, element, useWardicRuntime(), listens),
-  })
+  const internals = internalsOf(group, value, element, listens)
   const ward = createWardWith(() => ({ ...withoutValue(cfg()), layout: itemLayoutOf(cfg().layout) }), internals)
   // The instructions element exists on the client only, so `aria-describedby` waits for the mount.
   const [describedBy, setDescribedBy] = createSignal<string>()

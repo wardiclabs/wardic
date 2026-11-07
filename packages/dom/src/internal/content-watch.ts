@@ -3,7 +3,7 @@
  * observed now and as it's added, and let go as it's removed. A deep change counts once it resizes
  * the direct child it sits in.
  *
- * - `Probe.scroll` watches a container's (the page's: the body's), so its range follows its content
+ * - The DOM's `ScrollSource` watches a container's (the page's: the body's), so its range follows its content
  *   (#239, ADR-0043 *Amendment (#239)*).
  * - The Projection system watches the page's, so a node that content elsewhere moved is measured again
  *   (#261, ADR-0018 *Amendment (#261)*).

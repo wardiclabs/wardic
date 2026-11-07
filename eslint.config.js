@@ -68,6 +68,17 @@ const BRANCHES = [
     "IfStatement[alternate]",
     "A branch that picks a value is a match (Bool.match, Option.match, Match); an if with no else stays only as a guard or a per-frame early return",
   ),
+  // #518: `Bool.match(isServer, …)` kept the server render's code in every Solid 2 client bundle.
+  restrict(
+    // The flag as an argument, as `!flag`, or as the end of a member (`import.meta.env.DEV`).
+    [
+      "CallExpression[callee.object.name='Bool'] > Identifier[name=/^(isServer|DEV)$/]",
+      "CallExpression[callee.object.name='Bool'] > UnaryExpression > Identifier[name=/^(isServer|DEV)$/]",
+      "CallExpression[callee.object.name='Bool'] > MemberExpression > Identifier.property[name=/^(isServer|DEV)$/]",
+      "CallExpression[callee.object.name='Bool'] > UnaryExpression > MemberExpression > Identifier.property[name=/^(isServer|DEV)$/]",
+    ].join(", "),
+    "Test a build-time flag (isServer, DEV) in a plain if or &&: a bundler drops only the side a literal test rules out, and a Bool call keeps both in every build",
+  ),
 ]
 
 /**

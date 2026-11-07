@@ -110,7 +110,7 @@ export function LayoutGroup(props: LayoutGroupProps): JSX.Element {
   const outer = useLayoutGroupId()
   const id = untrack(() => layoutGroupIdOf(outer, props.id, props.inherit))
   // A server render has no projection system to re-measure (ADR-0021).
-  if (Bool.not(isServer)) {
+  if (!isServer) {
     const projection = useWardicProjection()
     // A group-level dependency change re-measures the whole tree (Q5), compared first as Motion's is
     // (#618). `defer: true` skips the mount read (nodes seed themselves on registration).

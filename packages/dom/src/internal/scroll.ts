@@ -1,13 +1,13 @@
 /**
- * `Probe.scroll` for the DOM (#234, ADR-0043 *Amendment (#233, #234)*): a container's scroll as an
- * Atom, set inside the container's `scroll` event, the window's `resize`, and a resize of the
- * container or its content (#239), so a value derived from a scroll is written in the frame that
- * shows it (#45's pattern for `viewport`).
+ * `ScrollSource` for the DOM (#234, ADR-0043 *Amendment (#233, #234)*; the Probe's `scroll` until
+ * #518): a container's scroll as an Atom, set inside the container's `scroll` event, the window's
+ * `resize`, and a resize of the container or its content (#239), so a value derived from a scroll is
+ * written in the frame that shows it (#45's pattern for `viewport`).
  *
  * One listener set a container, however many read it: a reader adds its own measure to the
  * container's set and takes it out when its Scope closes, and the last one out removes the
- * listeners. An `RcMap` of containers, not a `SharedSource`: no pump, so a reader sets its Atom
- * inside the event, where `SharedSource`'s pump would set it a task after.
+ * listeners: core's `SharedSource.counted`, not a shared Stream, so a reader sets its Atom inside the
+ * event, where a Stream's consumer would set it after.
  *
  * A reader with a `target` or an `offset` reads its progress on `axis` through Motion's offsets
  * (`ScrollOffset`, the DOM's syntax; `render/dom/scroll/offsets` in framer-motion 13.4.0, ported):
@@ -26,18 +26,18 @@
  *
  * Observability: per event, so quiet (no span, no log).
  */
-import type * as Probe from "@wardic/core/Probe"
+import * as ScrollSource from "@wardic/core/ScrollSource"
+import * as SharedSource from "@wardic/core/SharedSource"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
-import * as Equal from "effect/Equal"
 import * as Iter from "effect/Iterable"
+import * as Layer from "effect/Layer"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Order from "effect/Order"
 import * as Predicate from "effect/Predicate"
-import * as RcMap from "effect/RcMap"
-import { Atom, type AtomRegistry } from "effect/reactivity"
+import { Atom, AtomRegistry } from "effect/reactivity"
 import * as Rec from "effect/Record"
 import type * as Scope from "effect/Scope"
 import * as Str from "effect/String"
@@ -219,7 +219,7 @@ const sizeOf = (target: Element): { readonly width: number; readonly height: num
 const plainProgress = (current: number, length: number): number => Bool.match(length === 0, { onTrue: () => 1, onFalse: () => current / length })
 
 /** What a reader measures, for `options` on `element`. Reads layout: called in events, never per frame. */
-const measureOf = (element: Element, options: Probe.ScrollOptions): (() => Probe.Scroll) => {
+const measureOf = (element: Element, options: ScrollSource.Options): (() => ScrollSource.Scroll) => {
   const { axis = "y" } = options
   // The DOM's offset (core passes it through as the Environment's own); `All` with a target and none.
   const offset = UndefinedOr.match(options.offset as ScrollOffset.ScrollOffset | undefined, {
@@ -256,7 +256,7 @@ const measureOf = (element: Element, options: Probe.ScrollOptions): (() => Probe
 }
 
 /** Whether two scrolls read the same: an unchanged one isn't set, so its readers hear nothing. */
-const sameScroll = (a: Probe.Scroll, b: Probe.Scroll): boolean =>
+const sameScroll = (a: ScrollSource.Scroll, b: ScrollSource.Scroll): boolean =>
   Arr.every(
     [
       a.x.current === b.x.current,
@@ -271,18 +271,6 @@ const sameScroll = (a: Probe.Scroll, b: Probe.Scroll): boolean =>
 
 /** The page's scroller: `document.scrollingElement`, else the root element. */
 const pageOf = (): Element => Option.getOrElse(Option.fromNullOr(document.scrollingElement), () => document.documentElement)
-
-/** The DOM's `Probe.scroll`, its Atoms set through `registry`: its containers held in the current Scope. */
-export const makeScroll = (
-  registry: AtomRegistry.AtomRegistry,
-): Effect.Effect<(options?: Probe.ScrollOptions) => Effect.Effect<Atom.Atom<Probe.Scroll>, never, Scope.Scope>, never, Scope.Scope> =>
-  Effect.map(
-    // Each container's listeners while a reader holds them, the last one out removing them (#618, M7:
-    // Effect's `RcMap` where a count was kept by hand). An element is keyed by reference: Effect's
-    // structural `Hash` would walk a DOM node.
-    RcMap.make({ lookup: (element: Element) => Effect.acquireRelease(Effect.sync(() => open(element)), (container) => Effect.sync(container.remove)) }),
-    (containers) => readerOf(registry, containers),
-  )
 
 /** A container's listener set, opened for its first reader. */
 const open = (element: Element): Container => {
@@ -324,10 +312,10 @@ const open = (element: Element): Container => {
 }
 
 /** A reader of a container's scroll: the container's listeners held from `containers` while its Scope is open. */
-const readerOf = (registry: AtomRegistry.AtomRegistry, containers: RcMap.RcMap<Element, Container>) =>
-  Effect.fnUntraced(function* (options: Probe.ScrollOptions = {}) {
+const readerOf = (registry: AtomRegistry.AtomRegistry, containers: (element: Element) => Effect.Effect<Container, never, Scope.Scope>) =>
+  Effect.fnUntraced(function* (options: ScrollSource.Options = {}) {
     const element = UndefinedOr.match(options.container as Element | undefined, { onUndefined: pageOf, onDefined: (given) => given })
-    const container = yield* RcMap.get(containers, Equal.byReferenceUnsafe(element))
+    const container = yield* containers(element)
     const measure = measureOf(element, options)
     let last = measure()
     // Mounted while read, not kept alive: a kept-alive Atom's node never leaves the registry.
@@ -354,3 +342,16 @@ const readerOf = (registry: AtomRegistry.AtomRegistry, containers: RcMap.RcMap<E
     })
     return atom
   })
+
+/**
+ * The DOM's `ScrollSource`, over the Environment's `AtomRegistry`. Marked pure, so an app that never
+ * builds it, with no `scroll` Feature, ships none of this module (#518).
+ */
+export const layer: Layer.Layer<ScrollSource.ScrollSource, never, AtomRegistry.AtomRegistry> = /*#__PURE__*/ Layer.effect(ScrollSource.ScrollSource)(
+  /*#__PURE__*/ Effect.map(AtomRegistry.AtomRegistry, (registry) => ({
+    // Each container's listeners while a reader holds them, the last one out removing them (#618, M7;
+    // #518: `SharedSource.counted`, where Effect's `RcMap` put its code in every app). An element is its
+    // own key, never hashed.
+    scroll: readerOf(registry, SharedSource.counted(open, (container: Container) => Effect.sync(container.remove))),
+  })),
+)

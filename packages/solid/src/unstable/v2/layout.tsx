@@ -67,7 +67,7 @@ export function LayoutGroup(props: LayoutGroupProps): JSX.Element {
   const id = untrack(() => layoutGroupIdOf(outer, props.id, props.inherit))
   // A server render has no projection system to re-measure (ADR-0021). Not at mount: nodes measure
   // themselves as they register.
-  if (Bool.not(isServer)) {
+  if (!isServer) {
     const projection = useWardicProjection()
     // Compared before it measures, as Motion's is: an effect never compares (#618).
     const dependency = createMemo(() => props.layoutDependency, CLIENT_ONLY)

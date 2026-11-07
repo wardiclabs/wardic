@@ -1,6 +1,6 @@
 /**
  * Scroll offsets, the DOM's: Motion's syntax for where a target's progress through its scroll container
- * runs, from 0 to 1, which the DOM's `Probe.scroll` resolves. Core takes an offset as its Environment's
+ * runs, from 0 to 1, which the DOM's `ScrollSource` resolves. Core takes an offset as its Environment's
  * own and passes it through, so its syntax, its names and its units are the DOM's.
  *
  * - **An edge** is a name (`start`, `center`, `end`), a fraction of a length (`0.5`), or a CSS length:

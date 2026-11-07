@@ -124,7 +124,6 @@ const scriptedProbe = (script: ReadonlyArray<boolean>, asked: Array<Probe.Inters
     viewport: Atom.make({ width: 0, height: 0 }),
     prefersReducedMotion: Atom.make(false),
     visible: Atom.make(true),
-    scroll: () => Effect.die("unused"),
     observeResize: () => Stream.empty,
     observeIntersection: (_target, options) => {
       asked.push(options)

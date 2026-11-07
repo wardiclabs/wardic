@@ -58,10 +58,10 @@ The same engine runs on any Environment that provides its services, the clock an
 
 ## Observability, built in
 
-Every animation runs in its own span, the Frame loop keeps metrics, and Wardic logs what it does at Debug. Hand your provider Effect's tracing, logging or failure reporting once, beside `DomLive`, and every animation reports through it. In development, you can turn on a frame check that fails an animation whose frame holds a NaN, and names the key. See [observability](/guides/observability).
+Every animation runs in its own span, the Frame loop keeps metrics when you give it `FrameLoopMetrics`, and Wardic logs what it does at Debug. Hand your provider Effect's tracing, logging or failure reporting once, beside `DomLive`, and every animation reports through it. In development, you can turn on a frame check that fails an animation whose frame holds a NaN, and names the key. See [observability](/guides/observability).
 
 ## What it costs
 
-- **Size.** One Wardic element is 104 KB gzipped on Solid 1 and 132 KB on Solid 2, for the whole app, Solid included. On Solid 1, about two fifths of the minified code is Effect's runtime, half is Wardic's engine and binding, and the rest is Solid's and the colour library's. Gestures, layout and the wider colour spaces are Features, shipped only where a provider or a `LazyWardic` gives them, and the [1.1 milestone](/roadmap#11-size-and-speed) works on the base.
+- **Size.** One Wardic element is 97 KB gzipped on Solid 1 and 117 KB on Solid 2, for the whole app, Solid included. On Solid 1, a little over a third of the minified code is Effect's runtime, half is Wardic's engine and binding, and the rest is Solid's and the colour library's. Gestures, layout, the wider colour spaces and a scroll are Features, shipped only where a provider, a `LazyWardic` or a hook gives them.
 - **Mounting.** A mount takes about as long as Motion's, but a page's first mount takes longer, while the engine sets up and its code first runs.
 - **Effect.** `effect` is a dependency you install beside Wardic.

@@ -13,9 +13,11 @@
 // - W7: unmounting a ward ends its legs: an endless tween leaves the Frame loop with nothing running.
 // - W8: a ward with variants of its own, whose `when` gate reads its config: a `style` change in
 //   that config still doesn't Retarget.
+import * as FrameLoop from "@wardic/core/FrameLoop"
 import { DomLive } from "@wardic/dom"
 import { WardicProvider, ward } from "@wardic/solid/unstable/v2"
 import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as Metric from "effect/Metric"
 import { createSignal, flush, For, Show } from "solid-js"
 import { describe, expect, it } from "vitest"
@@ -143,6 +145,7 @@ describe("ward(config) on Solid 2", () => {
   })
 
   it("W7: unmounting a ward ends its legs: an endless tween leaves the Frame loop with nothing running", async () => {
+    // Read through the loop's metrics, which the provider is given (#518).
     const running = (): number | undefined =>
       (Effect.runSync(Metric.snapshot).find((m) => m.id === "wardic_frameloop_animations")?.state as Metric.GaugeState<number> | undefined)?.value
     const [shown, setShown] = createSignal(true)
@@ -152,7 +155,7 @@ describe("ward(config) on Solid 2", () => {
       return <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} />
     }
     mount(() => (
-      <WardicProvider env={DomLive}>
+      <WardicProvider env={Layer.mergeAll(DomLive, FrameLoop.layerMetrics)}>
         <Show when={shown()}>
           <Card />
         </Show>
