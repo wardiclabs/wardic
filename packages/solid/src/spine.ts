@@ -2223,9 +2223,12 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
           // rather than replacing it, so the drag's direct-set x/y survive alongside the
           // spring's keys (drag owns x/y, spring owns the rest) and the post-drag
           // handoff continues from the rested position. Only the keys it still draws (#325).
+          // In place, as the Follow sink writes (#659): a spread made two records per element per
+          // frame. The Snapshot's records are always its own (`snapshotOf`, `emptySnapshotOf`), and
+          // whatever keeps one copies it or reads it at once.
           const value = running.values(frame.value)
-          snapshot.values = { ...snapshot.values, ...value }
-          snapshot.velocities = { ...snapshot.velocities, ...running.velocities(frame.velocity) }
+          Object.assign(snapshot.values, value)
+          Object.assign(snapshot.velocities, running.velocities(frame.velocity))
           gate.write(id, value)
           recordFrame(value)
           drew(running, frame.done, snapshot.now())

@@ -35,6 +35,7 @@ import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import type * as Fiber from "effect/Fiber"
 import { constVoid, identity } from "effect/Function"
+import * as Iter from "effect/Iterable"
 import * as Match from "effect/Match"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
@@ -760,23 +761,33 @@ export const scopeOf = <T extends Element>(also?: AnimationWatch): {
   readonly stopAll: () => void
 } => {
   let current: T | undefined
-  let animations: ReadonlyArray<WardicPlaybackControls> = []
+  // A set, and its array built only when `animations` is read, then kept until the set changes (#659):
+  // an array copied at every start and every end made starting and ending n of them O(n²).
+  const live = new Set<WardicPlaybackControls>()
+  let listed: ReadonlyArray<WardicPlaybackControls> | undefined
+  const animationsNow = (): ReadonlyArray<WardicPlaybackControls> => {
+    if (Predicate.isUndefined(listed)) listed = Arr.fromIterable(live)
+    return listed
+  }
   const ref = (element: T): void => {
     current = element
   }
   const scope = Object.defineProperties(ref, {
     current: { get: () => current },
-    animations: { get: () => animations },
+    animations: { get: animationsNow },
   }) as WardicAnimationScope<T>
   const watch: AnimationWatch = {
     started: (controls) => {
-      animations = Arr.append(animations, controls)
+      live.add(controls)
+      listed = undefined
       UndefinedOr.map(also, (more) => more.started(controls))
     },
     ended: (controls, landed) => {
-      animations = Arr.filter(animations, (one) => one !== controls)
+      live.delete(controls)
+      listed = undefined
       UndefinedOr.map(also, (more) => more.ended(controls, landed))
     },
   }
-  return { scope, watch, stopAll: () => Arr.forEach(animations, (controls) => controls.stop()) }
+  // Stopping one ends it, which deletes it from the set: safe in the set's own walk.
+  return { scope, watch, stopAll: () => Iter.forEach(live, (controls) => controls.stop()) }
 }

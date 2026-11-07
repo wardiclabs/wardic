@@ -285,7 +285,10 @@ describe("createAnimate on Solid 1 (#433)", () => {
     let completed = false
     const c = animate(byId("p"), { x: 50 }, { duration: 0.1, onComplete: () => (completed = true) })
     expect(scope.animations).toEqual([c])
-    await c
+    const d = animate(byId("p"), { y: 20 }, { duration: 0.1 })
+    expect(scope.animations, "in the order they started").toEqual([c, d])
+    expect(scope.animations, "the same list until one starts or ends (#659)").toBe(scope.animations)
+    await Promise.all([c, d])
     expect(completed).toBe(true)
     expect(scope.animations, "none in flight").toEqual([])
     const none = animate(".missing", { x: 50 })
