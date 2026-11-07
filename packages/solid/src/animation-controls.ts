@@ -24,6 +24,7 @@ import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardConfig, WardicTransition, WardicVariant, WardicVariantLabels, WardicVariantResolver } from "./config.ts"
+import type { Snapshot } from "./spine.ts"
 
 /** What controls start or set an element to: a target, a variant name or a list of them, or a function of each element's `custom`. Motion's `AnimationDefinition`. */
 export type WardicControlsDefinition = WardicVariant | WardicVariantLabels | WardicVariantResolver
@@ -185,7 +186,8 @@ export const uncontrolledOf = <C extends Pick<WardConfig, "animate">>(config: C)
 /** What a controlled element reads at a change: its `custom`, and its values and velocities now (its Snapshot). */
 export interface ControlledState {
   readonly custom: () => unknown
-  readonly snapshot: { readonly values: Readonly<Record<string, number | string>>; readonly velocities: Readonly<Record<string, number>> }
+  /** Its Snapshot: its values, and its velocities now (#663), a spring leg's being on its Frame. */
+  readonly snapshot: Snapshot
 }
 
 /**
@@ -195,7 +197,7 @@ export interface ControlledState {
  */
 export const controlledElement = (setChange: (change: ControlsChange) => void, state: ControlledState, stop: () => void): Controlled => ({
   change: (definition, override) => {
-    const made = changeOf(definition, override, state.custom(), state.snapshot.values, state.snapshot.velocities)
+    const made = changeOf(definition, override, state.custom(), state.snapshot.values, state.snapshot.velocitiesNow(state.snapshot))
     setChange(made.change)
     queueMicrotask(() => arm(made.change))
     return made.landing

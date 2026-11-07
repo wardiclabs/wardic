@@ -75,7 +75,8 @@ describe("each dual operation's two forms give one type", () => {
     const blend = Machine.springBlend({ x: 0 }, { x: 1 })
     expectTypeOf(blend).toEqualTypeOf<Effect.Effect<Machine.Machine<Frame.Frame<Values.Values>>, never, InterpolatorRegistry.InterpolatorRegistry>>()
     expectTypeOf(blend.pipe(Effect.map(Machine.delay(0.1)))).toEqualTypeOf(blend)
-    expectTypeOf(Machine.springValues({ x: 1 })).toEqualTypeOf<Machine.Machine<Frame.MultiPhysics>>()
+    // Its own Frame, records and the same by index (#663).
+    expectTypeOf(Machine.springValues({ x: 1 })).toEqualTypeOf<Machine.Machine<Frame.SpringValues>>()
   })
 })
 
@@ -83,7 +84,7 @@ describe("a sink", () => {
   it("an inline sink's frame takes the machine's F in a pipe, under an Effect too", () => {
     Machine.springValues({ x: 1 }).pipe(
       Machine.run((frame) => {
-        expectTypeOf(frame).toEqualTypeOf<Frame.MultiPhysics>()
+        expectTypeOf(frame).toEqualTypeOf<Frame.SpringValues>()
         return undefined
       }),
     )

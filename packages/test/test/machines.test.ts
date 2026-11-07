@@ -59,19 +59,33 @@ const sideBySide = <A, B>(a: Stream.Stream<A, never, any>, b: Stream.Stream<B, n
 
 /** The oracle's Frames and the machine's are equal, and there are enough of them to mean it. */
 const expectSame = <A>(expected: ReadonlyArray<A>, actual: ReadonlyArray<A>, atLeast: number) => {
-  expect(actual).toEqual(expected)
+  expect(actual.map(withoutIndex)).toEqual(expected.map(withoutIndex))
   expect(expected.length).toBeGreaterThanOrEqual(atLeast)
+}
+
+/** A Frame without `springValues`' records by index (#663), which the oracle's Frames don't have. */
+const withoutIndex = (frame: unknown): unknown => {
+  if (typeof frame !== "object" || frame === null) return frame
+  return Object.fromEntries(Object.entries(frame).filter(([field]) => !BY_INDEX.has(field)))
 }
 
 const settledLast = (frames: ReadonlyArray<Frame.Frame<unknown>>) => frames.at(-1)?.done
 
+/**
+ * `springValues`' records by index (#663), which `spring-values-records.test.ts` checks: the oracle's
+ * Frames, one spring per key, have none.
+ */
+const BY_INDEX = new Set(["keys", "positions", "velocities"])
+
 /** A Frame a sink keeps, copied with its records (`value`, `velocity`): `springValues` rewrites one per run. */
 const kept = <F extends Frame.Frame<unknown>>(frame: F): F => {
-  const records: Record<string, unknown> = {}
+  const copy: Record<string, unknown> = {}
   for (const [field, value] of Object.entries(frame)) {
-    if (typeof value === "object" && value !== null) records[field] = { ...value }
+    if (BY_INDEX.has(field)) continue
+    if (typeof value === "object" && value !== null) copy[field] = { ...value }
+    else copy[field] = value
   }
-  return { ...frame, ...records }
+  return copy as F
 }
 
 // --- The oracle: Motion's timing (#226) -------------------------------------------------------

@@ -285,3 +285,7 @@ So decision 4's target, about 105 KB on Solid 1, was met. `main` was a few bytes
 - **The #548 moves are skipped.** The base calls the code each would move, so the module rule alone moves nothing: each needs a seam in its Feature's service. Stubbing the calls out of the Slim element's app gave the most they could save: `layoutOptionsOf` 0.4 KB gzipped, `gestureCallbacksOf` 0.6, `dragTransitionOf` 0.1, 1.1 together, before the seams' own code. Under 1% for a refactor of both bindings' mount path, where speed comes first.
 
 **At #518's end** (`bun run size` against `main`, every app built as it ships): the Slim element's app 103.9 → 97.4 KB gzipped on Solid 1 (−6.3%) and 132.3 → 117.3 on Solid 2 (−11.4%); the Complete element's 140.0 → 133.7 and 168.7 → 153.7; every app smaller on both bindings, and no Feature's own cost changed. *Features*, *Why Wardic* and the roadmap give the new sizes, and #518 leaves the 1.1 milestone: what 1.0 left of the size work landed before it.
+
+## Amendment (#663, 2026-11-07): Solid 2's budget rises 0.1 KB, to 117.9
+
+`s2-slim` measured 117.5 KB against its 117.8 KB budget when #663 began. #663 adds about 0.3 KB: a spring leg reads its velocities when asked for, instead of copying them every frame, which takes a third off its bytes a frame. Its second spring loop, chosen per run, is what keeps every engine's default path as it was, and the last 0.1 KB of it didn't fit. The budget rose to 117.9 KB for it, by choice (performance first, ADR-0067's size work after v1, #518). `s1-slim` stays at 97.9 KB.

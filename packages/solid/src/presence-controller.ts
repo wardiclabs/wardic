@@ -23,7 +23,7 @@
  */
 import type * as Box from "@wardic/core/Box"
 import type * as DefaultTransition from "@wardic/core/DefaultTransition"
-import type * as Frame from "@wardic/core/Frame"
+import * as Frame from "@wardic/core/Frame"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
@@ -178,7 +178,7 @@ const exitRunOf = (
     return Effect.suspend(() =>
       leg.machine().pipe(
         Machine.run((frame) => {
-          Object.assign(velocities, frame.velocity)
+          velocitiesInto(velocities, frame)
           return commitFrame(frame)
         }),
       ))
@@ -187,6 +187,17 @@ const exitRunOf = (
     velocities[key] = 0
   })
   return Effect.suspend(() => leg.machine().pipe(Machine.run(commitFrame)))
+}
+
+/** A Numbers leg's Frame's velocities written into `into`: a spring's by index (#663), as it writes no velocity record. */
+const velocitiesInto = (into: Record<string, number>, frame: Frame.MultiPhysics): void => {
+  if (Frame.isSpringValues(frame)) {
+    Arr.forEach(frame.keys, (key, i) => {
+      into[key] = UndefinedOr.getOrThrow(frame.velocities[i])
+    })
+    return
+  }
+  Object.assign(into, frame.velocity)
 }
 
 /** How far in each name's keys of an exit start (#297): seconds, by name; `undefined` for an exit that isn't a list's. */
