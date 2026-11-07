@@ -19,6 +19,7 @@
     "env-builds-at-once",
     "frame-loop-metrics",
     "probe-names",
+    "reactivity-imports",
     "scroll-feature",
     "shared-source-counted",
     "solid2-server-code",
