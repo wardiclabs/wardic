@@ -1,0 +1,23 @@
+{
+  "webgl": true,
+  "three": "187",
+  "A. wardic on window rAF, scene loop (setAnimationLoop) started first": {
+    "1 frame(s) late": 40
+  },
+  "B. wardic on window rAF, animation started first": {
+    "1 frame(s) late": 40
+  },
+  "B2. wardic on window rAF, animation started a task before the scene loop": {
+    "0 frame(s) late": 40
+  },
+  "C. wardic on host-pumped frames, pumped before render": {
+    "0 frame(s) late": 40
+  },
+  "D. motion/three on Motion's rAF, scene loop (setAnimationLoop) started first": {
+    "1 frame(s) late": 40
+  },
+  "E. motion/three, scene rendered in Motion's frame.render": {
+    "0 frame(s) late": 40
+  }
+}
+chromium 147.0.7727.15

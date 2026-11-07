@@ -1,0 +1,10 @@
+{"variant":"spine","N":1000,"runtime":"bun","frameMsMedian":0.487,"frameMsMin":0.457,"retargetAllMsMedian":29.262,"checksum":19119.7,"bytesPerFrameMedian":null}
+{"variant":"spine","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.557,"frameMsMin":0.514,"retargetAllMsMedian":32.393,"checksum":19119.7,"bytesPerFrameMedian":588281}
+{"variant":"spine","N":1000,"runtime":"bun","frameMsMedian":0.507,"frameMsMin":0.474,"retargetAllMsMedian":29.653,"checksum":19119.7,"bytesPerFrameMedian":null}
+{"variant":"spine","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.569,"frameMsMin":0.53,"retargetAllMsMedian":33.536,"checksum":19119.7,"bytesPerFrameMedian":588370}
+{"variant":"spine","N":1000,"runtime":"bun","frameMsMedian":0.494,"frameMsMin":0.457,"retargetAllMsMedian":29.063,"checksum":19119.7,"bytesPerFrameMedian":null}
+{"variant":"spine","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.563,"frameMsMin":0.517,"retargetAllMsMedian":31.681,"checksum":19119.7,"bytesPerFrameMedian":588250}
+{"variant":"spine","N":1000,"runtime":"bun","frameMsMedian":0.499,"frameMsMin":0.476,"retargetAllMsMedian":29.25,"checksum":19119.7,"bytesPerFrameMedian":null}
+{"variant":"spine","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.558,"frameMsMin":0.519,"retargetAllMsMedian":32.756,"checksum":19119.7,"bytesPerFrameMedian":588218}
+{"variant":"spine","N":1000,"runtime":"bun","frameMsMedian":0.49,"frameMsMin":0.47,"retargetAllMsMedian":28.739,"checksum":19119.7,"bytesPerFrameMedian":null}
+{"variant":"spine","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.565,"frameMsMin":0.518,"retargetAllMsMedian":31.697,"checksum":19119.7,"bytesPerFrameMedian":588398}

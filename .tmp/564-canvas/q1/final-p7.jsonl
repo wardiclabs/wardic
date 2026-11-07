@@ -1,0 +1,20 @@
+{"variant":"spine-base","N":1000,"runtime":"bun","frameMsMedian":0.508,"frameMsMin":0.469,"retargetAllMsMedian":29.208,"checksum":19119.7,"bytesPerFrameMedian":null}
+{"variant":"spine-base","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.557,"frameMsMin":0.506,"retargetAllMsMedian":32.247,"checksum":19119.7,"bytesPerFrameMedian":589552}
+{"variant":"spine-hack","N":1000,"runtime":"bun","frameMsMedian":0.41,"frameMsMin":0.397,"retargetAllMsMedian":13.623,"checksum":19119.7,"bytesPerFrameMedian":null}
+{"variant":"spine-hack","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.551,"frameMsMin":0.504,"retargetAllMsMedian":25.109,"checksum":19119.7,"bytesPerFrameMedian":214276}
+{"variant":"spine-base","N":1000,"runtime":"bun","frameMsMedian":0.503,"frameMsMin":0.477,"retargetAllMsMedian":29.389,"checksum":19119.7,"bytesPerFrameMedian":null}
+{"variant":"spine-base","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.554,"frameMsMin":0.505,"retargetAllMsMedian":32.408,"checksum":19119.7,"bytesPerFrameMedian":589474}
+{"variant":"spine-hack","N":1000,"runtime":"bun","frameMsMedian":0.415,"frameMsMin":0.4,"retargetAllMsMedian":13.899,"checksum":19119.7,"bytesPerFrameMedian":null}
+{"variant":"spine-hack","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.518,"frameMsMin":0.487,"retargetAllMsMedian":22.431,"checksum":19119.7,"bytesPerFrameMedian":214276}
+{"variant":"spine-base","N":1000,"runtime":"bun","frameMsMedian":0.5,"frameMsMin":0.474,"retargetAllMsMedian":29.242,"checksum":19119.7,"bytesPerFrameMedian":null}
+{"variant":"spine-base","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.555,"frameMsMin":0.513,"retargetAllMsMedian":31.681,"checksum":19119.7,"bytesPerFrameMedian":588748}
+{"variant":"spine-hack","N":1000,"runtime":"bun","frameMsMedian":0.408,"frameMsMin":0.4,"retargetAllMsMedian":13.977,"checksum":19119.7,"bytesPerFrameMedian":null}
+{"variant":"spine-hack","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.518,"frameMsMin":0.473,"retargetAllMsMedian":22.396,"checksum":19119.7,"bytesPerFrameMedian":214276}
+{"variant":"spine-base","N":1000,"runtime":"bun","frameMsMedian":0.5,"frameMsMin":0.466,"retargetAllMsMedian":29.572,"checksum":19119.7,"bytesPerFrameMedian":null}
+{"variant":"spine-base","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.552,"frameMsMin":0.512,"retargetAllMsMedian":31.836,"checksum":19119.7,"bytesPerFrameMedian":588296}
+{"variant":"spine-hack","N":1000,"runtime":"bun","frameMsMedian":0.411,"frameMsMin":0.391,"retargetAllMsMedian":13.443,"checksum":19119.7,"bytesPerFrameMedian":null}
+{"variant":"spine-hack","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.516,"frameMsMin":0.483,"retargetAllMsMedian":22.149,"checksum":19119.7,"bytesPerFrameMedian":214276}
+{"variant":"spine-base","N":1000,"runtime":"bun","frameMsMedian":0.512,"frameMsMin":0.479,"retargetAllMsMedian":29.64,"checksum":19119.7,"bytesPerFrameMedian":null}
+{"variant":"spine-base","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.564,"frameMsMin":0.516,"retargetAllMsMedian":30.718,"checksum":19119.7,"bytesPerFrameMedian":589565}
+{"variant":"spine-hack","N":1000,"runtime":"bun","frameMsMedian":0.42,"frameMsMin":0.397,"retargetAllMsMedian":13.791,"checksum":19119.7,"bytesPerFrameMedian":null}
+{"variant":"spine-hack","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.547,"frameMsMin":0.512,"retargetAllMsMedian":23.78,"checksum":19119.7,"bytesPerFrameMedian":214276}

@@ -1,0 +1,11 @@
+three 187, node v22.22.3
+colour: color.set('rgb(…)')  (string + parse)              225.3 ns
+colour: build the string + color.set  (motion/three)       359.5 ns
+colour: color.setRGB(r, g, b, SRGB)  (sRGB numbers)         96.1 ns
+colour: c.r = …; c.g = …; c.b = …  (linear channels)         6.2 ns
+rotation: rotation.x/.y/.z = …  (3 quaternion syncs)        52.9 ns
+rotation: rotation.set(x, y, z)  (1 sync)                   22.3 ns
+rotation: rotation.y = …  (1 key, 1 sync)                   21.5 ns
+position: position.x/.y/.z = …                               6.0 ns
+position: position.set(x, y, z)                              5.8 ns
+midpoint red→blue: sRGB lerp #800080 | Motion's mix #b400b4 | three's linear lerp #bc00bc

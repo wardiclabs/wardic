@@ -1,0 +1,6 @@
+{"variant":"baseline","N":10000,"runtime":"bun","frameMsMedian":0.432,"frameMsMin":0.431,"retargetAllMsMedian":2.017,"checksum":191396.5,"bytesPerFrameMedian":null}
+{"variant":"baseline","N":10000,"runtime":"node v22.22.3","frameMsMedian":0.426,"frameMsMin":0.424,"retargetAllMsMedian":0.634,"checksum":191396.5,"bytesPerFrameMedian":153}
+{"variant":"wardic","N":10000,"runtime":"bun","frameMsMedian":2.265,"frameMsMin":1.951,"retargetAllMsMedian":64.149,"checksum":191334.6,"bytesPerFrameMedian":null}
+{"variant":"wardic","N":10000,"runtime":"node v22.22.3","frameMsMedian":4.503,"frameMsMin":3.824,"retargetAllMsMedian":77.497,"checksum":191334.6,"bytesPerFrameMedian":1656211}
+{"variant":"motion","N":10000,"runtime":"bun","frameMsMedian":64.446,"frameMsMin":53.806,"retargetAllMsMedian":147.674,"checksum":191336.1,"bytesPerFrameMedian":null}
+{"variant":"motion","N":10000,"runtime":"node v22.22.3","frameMsMedian":71.895,"frameMsMin":64.467,"retargetAllMsMedian":282.462,"checksum":191336.1,"bytesPerFrameMedian":6281752}

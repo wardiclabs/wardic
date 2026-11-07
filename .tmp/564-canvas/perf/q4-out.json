@@ -1,0 +1,37 @@
+{
+  "pixels": {
+    "frame 10": {
+      "covered": 9643,
+      "differ": 0,
+      "pct": 0
+    },
+    "frame 25": {
+      "covered": 10133,
+      "differ": 0,
+      "pct": 0
+    },
+    "frame 40": {
+      "covered": 11951,
+      "differ": 0,
+      "pct": 0
+    },
+    "frame 90": {
+      "covered": 11773,
+      "differ": 4,
+      "pct": 0.034
+    }
+  },
+  "N=1000": {
+    "cpuFrameMs": 0.05,
+    "gpuFrameMs": 0,
+    "cpuRetargetAllMs": 0,
+    "gpuRetargetAllMs": 0.2
+  },
+  "N=10000": {
+    "cpuFrameMs": 0.4333,
+    "gpuFrameMs": 0,
+    "cpuRetargetAllMs": 0.2,
+    "gpuRetargetAllMs": 2
+  }
+}
+chromium 147.0.7727.15

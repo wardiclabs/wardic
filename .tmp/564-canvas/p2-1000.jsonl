@@ -1,0 +1,30 @@
+{"variant":"baseline","N":1000,"runtime":"bun","frameMsMedian":0.042,"frameMsMin":0.041,"retargetAllMsMedian":0.21,"checksum":19126.1,"bytesPerFrameMedian":null}
+{"variant":"baseline","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.038,"frameMsMin":0.038,"retargetAllMsMedian":0.063,"checksum":19126.1,"bytesPerFrameMedian":44}
+{"variant":"wardic","N":1000,"runtime":"bun","frameMsMedian":0.162,"frameMsMin":0.137,"retargetAllMsMedian":5.813,"checksum":19119.7,"bytesPerFrameMedian":null}
+{"variant":"wardic","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.174,"frameMsMin":0.162,"retargetAllMsMedian":7.202,"checksum":19119.7,"bytesPerFrameMedian":153426}
+{"variant":"motion","N":1000,"runtime":"bun","frameMsMedian":1.26,"frameMsMin":1.134,"retargetAllMsMedian":12.549,"checksum":19119.8,"bytesPerFrameMedian":null}
+{"variant":"motion","N":1000,"runtime":"node v22.22.3","frameMsMedian":1.545,"frameMsMin":1.497,"retargetAllMsMedian":24.144,"checksum":19119.8,"bytesPerFrameMedian":604439}
+{"variant":"baseline","N":1000,"runtime":"bun","frameMsMedian":0.042,"frameMsMin":0.042,"retargetAllMsMedian":0.211,"checksum":19126.1,"bytesPerFrameMedian":null}
+{"variant":"baseline","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.038,"frameMsMin":0.038,"retargetAllMsMedian":0.063,"checksum":19126.1,"bytesPerFrameMedian":44}
+{"variant":"wardic","N":1000,"runtime":"bun","frameMsMedian":0.163,"frameMsMin":0.151,"retargetAllMsMedian":5.806,"checksum":19119.7,"bytesPerFrameMedian":null}
+{"variant":"wardic","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.173,"frameMsMin":0.168,"retargetAllMsMedian":8.128,"checksum":19119.7,"bytesPerFrameMedian":153358}
+{"variant":"motion","N":1000,"runtime":"bun","frameMsMedian":1.186,"frameMsMin":1.064,"retargetAllMsMedian":12.732,"checksum":19119.8,"bytesPerFrameMedian":null}
+{"variant":"motion","N":1000,"runtime":"node v22.22.3","frameMsMedian":1.527,"frameMsMin":1.451,"retargetAllMsMedian":24.172,"checksum":19119.8,"bytesPerFrameMedian":604457}
+{"variant":"baseline","N":1000,"runtime":"bun","frameMsMedian":0.043,"frameMsMin":0.043,"retargetAllMsMedian":0.22,"checksum":19126.1,"bytesPerFrameMedian":null}
+{"variant":"baseline","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.039,"frameMsMin":0.039,"retargetAllMsMedian":0.063,"checksum":19126.1,"bytesPerFrameMedian":44}
+{"variant":"wardic","N":1000,"runtime":"bun","frameMsMedian":0.153,"frameMsMin":0.136,"retargetAllMsMedian":5.843,"checksum":19119.7,"bytesPerFrameMedian":null}
+{"variant":"wardic","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.172,"frameMsMin":0.165,"retargetAllMsMedian":7.34,"checksum":19119.7,"bytesPerFrameMedian":153539}
+{"variant":"motion","N":1000,"runtime":"bun","frameMsMedian":1.228,"frameMsMin":1.109,"retargetAllMsMedian":13.917,"checksum":19119.8,"bytesPerFrameMedian":null}
+{"variant":"motion","N":1000,"runtime":"node v22.22.3","frameMsMedian":1.54,"frameMsMin":1.481,"retargetAllMsMedian":24.366,"checksum":19119.8,"bytesPerFrameMedian":604457}
+{"variant":"baseline","N":1000,"runtime":"bun","frameMsMedian":0.042,"frameMsMin":0.042,"retargetAllMsMedian":0.212,"checksum":19126.1,"bytesPerFrameMedian":null}
+{"variant":"baseline","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.039,"frameMsMin":0.038,"retargetAllMsMedian":0.063,"checksum":19126.1,"bytesPerFrameMedian":44}
+{"variant":"wardic","N":1000,"runtime":"bun","frameMsMedian":0.155,"frameMsMin":0.134,"retargetAllMsMedian":5.799,"checksum":19119.7,"bytesPerFrameMedian":null}
+{"variant":"wardic","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.171,"frameMsMin":0.165,"retargetAllMsMedian":7.929,"checksum":19119.7,"bytesPerFrameMedian":153270}
+{"variant":"motion","N":1000,"runtime":"bun","frameMsMedian":1.233,"frameMsMin":1.172,"retargetAllMsMedian":12.585,"checksum":19119.8,"bytesPerFrameMedian":null}
+{"variant":"motion","N":1000,"runtime":"node v22.22.3","frameMsMedian":1.623,"frameMsMin":1.544,"retargetAllMsMedian":25.441,"checksum":19119.8,"bytesPerFrameMedian":604438}
+{"variant":"baseline","N":1000,"runtime":"bun","frameMsMedian":0.042,"frameMsMin":0.042,"retargetAllMsMedian":0.211,"checksum":19126.1,"bytesPerFrameMedian":null}
+{"variant":"baseline","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.039,"frameMsMin":0.038,"retargetAllMsMedian":0.063,"checksum":19126.1,"bytesPerFrameMedian":44}
+{"variant":"wardic","N":1000,"runtime":"bun","frameMsMedian":0.15,"frameMsMin":0.13,"retargetAllMsMedian":5.855,"checksum":19119.7,"bytesPerFrameMedian":null}
+{"variant":"wardic","N":1000,"runtime":"node v22.22.3","frameMsMedian":0.174,"frameMsMin":0.168,"retargetAllMsMedian":7.814,"checksum":19119.7,"bytesPerFrameMedian":153137}
+{"variant":"motion","N":1000,"runtime":"bun","frameMsMedian":1.242,"frameMsMin":1.116,"retargetAllMsMedian":13.18,"checksum":19119.8,"bytesPerFrameMedian":null}
+{"variant":"motion","N":1000,"runtime":"node v22.22.3","frameMsMedian":1.602,"frameMsMin":1.555,"retargetAllMsMedian":25.212,"checksum":19119.8,"bytesPerFrameMedian":604438}
