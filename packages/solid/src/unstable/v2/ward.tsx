@@ -66,7 +66,7 @@ import { constFalse, constTrue, constUndefined, constVoid, identity, pipe } from
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { Atom } from "effect/reactivity"
+import * as Atom from "effect/reactivity/Atom"
 import { isServer, type JSX, useHead } from "@solidjs/web"
 import {
   type Accessor,

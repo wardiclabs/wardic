@@ -14,7 +14,7 @@
  * @module
  */
 import type * as Machine from "@wardic/core/Machine"
-import type { Atom } from "effect/reactivity"
+import type * as Atom from "effect/reactivity/Atom"
 import type {
   WardicInertia,
   WardicInherit,

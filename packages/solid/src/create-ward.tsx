@@ -45,7 +45,7 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { Atom } from "effect/reactivity"
+import * as Atom from "effect/reactivity/Atom"
 import {
   type Accessor,
   type Component,

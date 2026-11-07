@@ -89,7 +89,7 @@ import * as Result from "effect/Result"
 import * as Scope from "effect/Scope"
 import * as Str from "effect/String"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { AtomRegistry } from "effect/reactivity"
+import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import {
   type BoxSize,
   type Holdable,

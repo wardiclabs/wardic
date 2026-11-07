@@ -48,7 +48,7 @@ import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
-import { AtomRegistry } from "effect/reactivity"
+import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { enterServer, type Handoff, keyOf, type MountAnimation, repeatsForever, type ServerAppear, skippedField, startAtOf } from "./appear.ts"
 import type {

@@ -17,7 +17,7 @@
 import * as Context from "effect/Context"
 import type * as Effect from "effect/Effect"
 import type * as Stream from "effect/Stream"
-import type { Atom } from "effect/reactivity"
+import type * as Atom from "effect/reactivity/Atom"
 import type * as InputFeed from "./InputFeed.ts"
 
 /** A target's box as an Environment measures it, in its coordinates: its corner, its size and its four edges. */

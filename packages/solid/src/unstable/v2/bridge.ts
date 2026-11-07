@@ -9,7 +9,8 @@
  */
 import * as Effect from "effect/Effect"
 import * as Predicate from "effect/Predicate"
-import { AtomRegistry, type Atom } from "effect/reactivity"
+import type * as Atom from "effect/reactivity/Atom"
+import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Stream from "effect/Stream"
 import { isServer } from "@solidjs/web"
 import { type Accessor, createSignal, isHydrating, onCleanup } from "solid-js"

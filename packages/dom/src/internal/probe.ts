@@ -35,7 +35,8 @@ import * as Predicate from "effect/Predicate"
 import * as Queue from "effect/Queue"
 import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { Atom, AtomRegistry } from "effect/reactivity"
+import * as Atom from "effect/reactivity/Atom"
+import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import { requireGlobal } from "./require-global.ts"
 
 /** Map a `DOMRect`-like value onto the engine's portable {@link Bounds}. */
