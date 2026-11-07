@@ -1,5 +1,13 @@
 # @wardic/solid
 
+## 1.0.0-rc.7
+
+### Patch Changes
+
+- c4b2dc4: An element's spring legs write its values in place instead of copying them every frame, and a `createAnimate` scope keeps its animations in flight in a set instead of copying its list at every start and end. On 1,000 elements, all retargeted at once through `createAnimate`, starting them takes 26–52% less time, a frame 7–19% less, and a frame allocates 64% fewer bytes. Nothing an animation draws changes.
+  - @wardic/core@1.0.0-rc.7
+  - @wardic/dom@1.0.0-rc.7
+
 ## 1.0.0-rc.6
 
 ### Patch Changes

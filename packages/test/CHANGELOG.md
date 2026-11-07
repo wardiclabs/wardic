@@ -1,5 +1,11 @@
 # @wardic/test
 
+## 1.0.0-rc.7
+
+### Patch Changes
+
+- @wardic/core@1.0.0-rc.7
+
 ## 1.0.0-rc.6
 
 ### Patch Changes
