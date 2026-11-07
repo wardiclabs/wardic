@@ -17,7 +17,7 @@
 import * as Context from "effect/Context"
 import type * as Effect from "effect/Effect"
 import type * as Scope from "effect/Scope"
-import type { Atom } from "effect/reactivity"
+import type * as Atom from "effect/reactivity/Atom"
 
 /** One axis of a container's scroll. */
 // #234, ADR-0043 *Amendment (#233, #234)*.

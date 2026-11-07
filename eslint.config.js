@@ -258,6 +258,26 @@ export default defineConfig([
     },
   },
   {
+    // #656: Effect's reactivity modules by their own paths. A dev server's pre-bundle ignores
+    // `sideEffects` (Vite's optimizer runs esbuild with `ignoreAnnotations`), so the `effect/reactivity`
+    // barrel carried its `AtomHttpApi` and `AtomRpc`, and Effect's HTTP and RPC code, into every app's
+    // development build.
+    files: ["packages/*/src/**/*.{ts,tsx}"],
+    rules: {
+      "no-restricted-imports": [
+        "error",
+        {
+          paths: [
+            {
+              name: "effect/reactivity",
+              message: `Import the module by its own path, "effect/reactivity/Atom" or "effect/reactivity/AtomRegistry": a dev server's pre-bundle keeps everything a barrel re-exports (${PAGE}).`,
+            },
+          ],
+        },
+      ],
+    },
+  },
+  {
     // The pipeable API's subpaths, for every package's code but core's source (which has its own block).
     files: ["packages/{dom,solid,test}/{src,test}/**/*.{ts,tsx}", "packages/core/test/**/*.ts", "packages/{core,solid}/bench/**/*.{ts,tsx}"],
     languageOptions: { parser: tseslint.parser },
