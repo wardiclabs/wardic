@@ -481,8 +481,20 @@ _Avoid_: computed value (a DOM term), initial value (`initial` is a prop).
 
 ### Binding
 
+**Subject**:
+What an Environment draws and a **Ward** binds: in the DOM an element, in a scene an object (a mesh, a camera, a material, a uniforms object). An Environment decides what its Subjects are. Motion's word for what `animate(subject, …)` takes.
+_Avoid_: target (an animation's target values), element (the DOM's kind of Subject), node.
+
+**Scene object**:
+A **Subject** a scene holds for its owner: it joins its parent when it enters, and it leaves only once its exit has landed, so its exit plays in the scene. What happens to its resources when it leaves is its owner's choice.
+_Avoid_: entity, presence child (the DOM's), node.
+
+**Host loop**:
+The loop a scene's host runs, one pass a **Refresh frame**: it steps Wardic, then renders. A scene Environment's Refresh frames are the host loop's, wherever they come from (the display, an XR session, a game loop), so Wardic's writes land in the frame that draws them.
+_Avoid_: render loop (the renderer's call alone), animation loop, rAF.
+
 **Ward**:
-One element's motion binding: its config, its Recognizers, its Override stack, its Legs and its Snapshot, however a binding attaches it. Solid's binding has three ways to put one on an element: a `wardic.*` component, `createWard`'s spread, and the `use:wardic` directive. Solid 2's has two: a `wardic.*` component, and `ward(config)`, a ref carrying its props, spread when it's kept or given to `ref`. A ward made with `ward(config)` can also be given to any Wardic component, `Reorder.Item` too, through its `wardRef`: the component then drives its element with that ward, the element's own motion props laid over its config (#349, #398).
+One Subject's motion binding: its config, its Recognizers, its Override stack, its Legs and its Snapshot, however a binding attaches it. Solid's binding has three ways to put one on an element: a `wardic.*` component, `createWard`'s spread, and the `use:wardic` directive. Solid 2's has two: a `wardic.*` component, and `ward(config)`, a ref carrying its props, spread when it's kept or given to `ref`. A ward made with `ward(config)` can also be given to any Wardic component, `Reorder.Item` too, through its `wardRef`: the component then drives its element with that ward, the element's own motion props laid over its config (#349, #398).
 _Avoid_: motion component (Motion's), controller, spine (the code that runs it).
 
 **Listening ward**:
