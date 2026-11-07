@@ -6,8 +6,8 @@
  *
  * One listener set a container, however many read it: a reader adds its own measure to the
  * container's set and takes it out when its Scope closes, and the last one out removes the
- * listeners. An `RcMap` of containers, not a `SharedSource`: no pump, so a reader sets its Atom
- * inside the event, where `SharedSource`'s pump would set it a task after.
+ * listeners: core's `SharedSource.counted`, not a shared Stream, so a reader sets its Atom inside the
+ * event, where a Stream's consumer would set it after.
  *
  * A reader with a `target` or an `offset` reads its progress on `axis` through Motion's offsets
  * (`ScrollOffset`, the DOM's syntax; `render/dom/scroll/offsets` in framer-motion 13.4.0, ported):
@@ -27,16 +27,15 @@
  * Observability: per event, so quiet (no span, no log).
  */
 import type * as Probe from "@wardic/core/Probe"
+import * as SharedSource from "@wardic/core/SharedSource"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
-import * as Equal from "effect/Equal"
 import * as Iter from "effect/Iterable"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Order from "effect/Order"
 import * as Predicate from "effect/Predicate"
-import * as RcMap from "effect/RcMap"
 import { Atom, type AtomRegistry } from "effect/reactivity"
 import * as Rec from "effect/Record"
 import type * as Scope from "effect/Scope"
@@ -276,12 +275,14 @@ const pageOf = (): Element => Option.getOrElse(Option.fromNullOr(document.scroll
 export const makeScroll = (
   registry: AtomRegistry.AtomRegistry,
 ): Effect.Effect<(options?: Probe.ScrollOptions) => Effect.Effect<Atom.Atom<Probe.Scroll>, never, Scope.Scope>, never, Scope.Scope> =>
-  Effect.map(
-    // Each container's listeners while a reader holds them, the last one out removing them (#618, M7:
-    // Effect's `RcMap` where a count was kept by hand). An element is keyed by reference: Effect's
-    // structural `Hash` would walk a DOM node.
-    RcMap.make({ lookup: (element: Element) => Effect.acquireRelease(Effect.sync(() => open(element)), (container) => Effect.sync(container.remove)) }),
-    (containers) => readerOf(registry, containers),
+  Effect.sync(() =>
+    readerOf(
+      registry,
+      // Each container's listeners while a reader holds them, the last one out removing them (#618, M7;
+      // #518: `SharedSource.counted`, where Effect's `RcMap` put its code in every app). An element is
+      // its own key, never hashed.
+      SharedSource.counted(open, (container: Container) => Effect.sync(container.remove)),
+    )
   )
 
 /** A container's listener set, opened for its first reader. */
@@ -324,10 +325,10 @@ const open = (element: Element): Container => {
 }
 
 /** A reader of a container's scroll: the container's listeners held from `containers` while its Scope is open. */
-const readerOf = (registry: AtomRegistry.AtomRegistry, containers: RcMap.RcMap<Element, Container>) =>
+const readerOf = (registry: AtomRegistry.AtomRegistry, containers: (element: Element) => Effect.Effect<Container, never, Scope.Scope>) =>
   Effect.fnUntraced(function* (options: Probe.ScrollOptions = {}) {
     const element = UndefinedOr.match(options.container as Element | undefined, { onUndefined: pageOf, onDefined: (given) => given })
-    const container = yield* RcMap.get(containers, Equal.byReferenceUnsafe(element))
+    const container = yield* containers(element)
     const measure = measureOf(element, options)
     let last = measure()
     // Mounted while read, not kept alive: a kept-alive Atom's node never leaves the registry.

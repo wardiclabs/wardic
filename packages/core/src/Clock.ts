@@ -16,7 +16,7 @@
 // per-Environment re-implementation.
 //
 // The loop is the single update path: every Refresh frame computes `dt` from successive timestamps and
-// calls `tick`, the only publisher to the internal tick `PubSub`. There is deliberately no `MAX_DT` clamp
+// calls `tick`, the only one that hands a tick to the subscribers. There is deliberately no `MAX_DT` clamp
 // here: clamping is a consumer-boundary concern (each leaf's step clamps at `Machine.MAX_DT`, #78), so the
 // Clock reports raw deltas.
 //
@@ -41,6 +41,7 @@
 // `InterpolatorRegistry.layer` is the precedent for a shared constructor living in core. Observability:
 // each subscription to `ticks` runs inside a `wardic.clock` span and emits a debug log on subscribe; the
 // per-frame `tick` path stays quiet, the hot path.
+import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
@@ -48,11 +49,11 @@ import * as Layer from "effect/Layer"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
-import * as PubSub from "effect/PubSub"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as Microtask from "./Microtask.ts"
 import * as RefreshFrameSource from "./RefreshFrameSource.ts"
+import * as Hearing from "./internal/hearing.ts"
 import { tracedStream } from "./internal/tracing.ts"
 
 /**
@@ -132,8 +133,10 @@ export const fromRefreshFrames: <Handle>(
     const { requestFrame, cancelFrame } = source
     const now = Option.getOrElse(Option.fromNullishOr(source.now), () => () => performance.now())
 
-    // Carries dt (seconds) to subscribers of `ticks`.
-    const tickPubSub = yield* PubSub.unbounded<number>()
+    // Who hears each dt (seconds): each subscriber's hearing, which resumes a waiting subscriber inside the
+    // Refresh frame's callback. Replaced, never changed in place, as `InputFeed.byTarget`'s list is (#518: a
+    // `PubSub` did this, and every app shipped its code).
+    let hearers: ReadonlyArray<(dt: number) => void> = []
 
     // The previous Refresh frame's time (ms), for dt computation; None => no
     // Refresh frame since the loop started (ADR-0017, decision 2). It is the frame's
@@ -173,17 +176,17 @@ export const fromRefreshFrames: <Handle>(
      * gets the rest of the interval, and a dt never goes below 0. There is no upper
      * clamp here: that is the consumer boundary's (`MAX_DT`).
      *
-     * Publishes dt to the tick PubSub. Hot path — intentionally unlogged; one `now()`
-     * read per Refresh frame.
+     * Hands dt to every subscriber. Hot path — intentionally unlogged; one `now()` read per
+     * Refresh frame.
      */
     const tick = (t: number): Effect.Effect<void> =>
-      Effect.suspend(() => {
+      Effect.sync(() => {
         const at = now()
         const [current, delta] = timing(t, at)
         MutableRef.set(lastTime, Option.some(current))
         MutableRef.set(lastStamp, Option.some(t))
         MutableRef.set(lastNow, at)
-        return PubSub.publish(tickPubSub, delta).pipe(Effect.asVoid)
+        Arr.forEach(hearers, (hear) => hear(delta))
       })
 
     // One Refresh frame as an interruptible Effect: requests a frame, resumes with
@@ -266,20 +269,29 @@ export const fromRefreshFrames: <Handle>(
       MutableRef.decrement(subscribers)
     })
 
-    // Subscribing joins the tick PubSub, then joins the loop. Join the PubSub
-    // FIRST, so no tick published once the loop runs can miss this subscriber.
+    // Subscribing joins the hearers, then joins the loop. Join the hearers FIRST,
+    // so no tick once the loop runs can miss this subscriber.
     // A Stream, not a Channel: measured 2026-11-02, Stream's own layers were ~5% of a pull of 1,000
     // subscribers' ticks (bench:core's `ticksOnly`), and at most one pull a frame a provider on an
     // app's path, under 0.3% of a frame. Channel goes only where a profile shows it (#618, M5).
     const ticks = tracedStream(
       Stream.unwrap(
-      Effect.gen(function* () {
-        yield* Effect.logDebug("wardic.clock: subscribe")
-        const subscription = yield* PubSub.subscribe(tickPubSub)
-        yield* Effect.acquireRelease(join, () => leave)
-        return Stream.fromSubscription(subscription)
-      }),
-    ),
+        Effect.gen(function* () {
+          yield* Effect.logDebug("wardic.clock: subscribe")
+          const { hear, stream } = Hearing.make<number>()
+          yield* Effect.acquireRelease(
+            Effect.sync(() => {
+              hearers = Arr.append(hearers, hear)
+            }),
+            () =>
+              Effect.sync(() => {
+                hearers = Arr.filter(hearers, (heard) => heard !== hear)
+              }),
+          )
+          yield* Effect.acquireRelease(join, () => leave)
+          return stream
+        }),
+      ),
       "wardic.clock",
     )
 
