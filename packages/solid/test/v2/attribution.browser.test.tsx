@@ -11,11 +11,16 @@
 // - DG3: a Reorder item is rendered with its `aria-describedby`. An effect wrote it after the mount,
 //   relaying through four effects (element, document, the id, the spread, which ran again for it),
 //   each flush showing the item without it (EFFECT_WRITES_OWN_SOURCE in every test that mounts one).
+// - DG4, DG5: a keyboard lift re-runs a Reorder item's target only when the item has a `whileDrag`
+//   of its own (#666). Read through no boundary, a lift and a drop re-ran it to the same value: CI's
+//   runner reached WASTED_RECOMPUTE's 2 ms budget on RE3.
 import { DomLive } from "@wardic/dom"
 import { Reorder, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 import { createEffect, createSignal, flush, For } from "solid-js"
 import { attribution, costs } from "solid-js/attribution"
 import { describe, expect, it } from "vitest"
+import { commands } from "vitest/browser"
+import "../browser-commands.ts"
 import { allowDiagnostic, seenDiagnostics } from "./diagnostics.ts"
 import { mount } from "./mount.tsx"
 
@@ -99,6 +104,52 @@ describe("the Solid 2 binding under Solid's attribution engine (#320)", () => {
       setTone("loud")
       flush()
       expect(reruns(/^effect$/)).toBe(3)
+    } finally {
+      release()
+    }
+  })
+
+  /** Item `b` of a three-item group, focused, lifted with Space and dropped where it was: its target's re-runs for the lift and drop alone. */
+  const liftAndDrop = async (extra: { readonly whileDrag?: { readonly scale: number } }): Promise<number> => {
+    const [values, setValues] = createSignal(["a", "b", "c"])
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive}>
+        <Reorder.Group values={values()} onReorder={setValues}>
+          <For each={values()}>
+            {(value) => (
+              <Reorder.Item value={value} {...extra}>
+                {value}
+              </Reorder.Item>
+            )}
+          </For>
+        </Reorder.Group>
+      </WardicProvider>
+    ))
+    flush()
+    const b = host.querySelectorAll("li")[1] as HTMLElement
+    b.focus()
+    flush()
+    const before = reruns(/^ward\.tsx:\d+ target$/)
+    await commands.realKey("press", "Space")
+    flush()
+    await commands.realKey("press", "Space")
+    flush()
+    return reruns(/^ward\.tsx:\d+ target$/) - before
+  }
+
+  it("DG4: a keyboard lift and drop don't re-run the target of a Reorder item with no whileDrag (#666)", async () => {
+    const release = attribution.enable({ log: false })
+    try {
+      expect(await liftAndDrop({})).toBe(0)
+    } finally {
+      release()
+    }
+  })
+
+  it("DG5: with a whileDrag of its own, its target re-runs at the lift and at the drop (#666)", async () => {
+    const release = attribution.enable({ log: false })
+    try {
+      expect(await liftAndDrop({ whileDrag: { scale: 1.1 } })).toBe(2)
     } finally {
       release()
     }

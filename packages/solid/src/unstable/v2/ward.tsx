@@ -1103,6 +1103,13 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   // The Override stack, compared by value: a change that resolves the same target doesn't Retarget.
   // A keyboard lift turns `whileDrag` on, as a drag does (ADR-0037).
   const lifted = UndefinedOr.match(internal.lifted, { onUndefined: () => constFalse, onDefined: identity })
+  // The target reads the lift through a boundary (#666): an item with no `whileDrag` of its own
+  // resolves the same lifted or not (a dragged parent's name hands down with its own drag on), so
+  // every lift and drop re-ran its target for nothing. A Reorder item's alone: no other ward lifts.
+  const liftedLayer = UndefinedOr.match(internal.lifted, {
+    onUndefined: () => constFalse,
+    onDefined: (isLifted) => createMemo(() => Predicate.isNotUndefined(cfg().whileDrag) && isLifted(), CLIENT_ONLY),
+  })
   const target = createMemo<Resolution>(
     () => {
       const g = gestures()
@@ -1115,7 +1122,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
           focused: g.focused,
           hovered: g.hovered,
           pressed: g.pressed,
-          dragged: Bool.or(g.dragging, lifted()),
+          dragged: Bool.or(g.dragging, liftedLayer()),
           dragging: g.dragging,
         },
         snapshot,
