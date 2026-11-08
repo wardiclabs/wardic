@@ -1,5 +1,15 @@
 # @wardic/solid
 
+## 1.0.0-rc.8
+
+### Patch Changes
+
+- 822a709: On Solid 2, a keyboard lift and drop no longer re-run a `Reorder.Item`'s target when the item has no `whileDrag` of its own: it resolved the same either way, and Solid's development build could report the wasted work (`WASTED_RECOMPUTE`).
+- 922e993: An element's spring animation stops copying its velocities every frame, and reads them only when a new animation, a handoff or an exit needs them. On 1,000 elements springing at once, a frame allocates about a third fewer bytes. `Machine.springValues` gives its Frame's keys by index too (`keys`, `positions`, `velocities`, typed `Frame.SpringValues`), and takes `records: "value"` to skip writing its velocity record. `Machine.toStream` emits a `springValues` Frame's records alone.
+- Updated dependencies [922e993]
+  - @wardic/core@1.0.0-rc.8
+  - @wardic/dom@1.0.0-rc.8
+
 ## 1.0.0-rc.7
 
 ### Patch Changes
