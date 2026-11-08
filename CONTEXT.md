@@ -61,7 +61,7 @@ The one loop per Environment that steps every running Primitive once per tick, i
 _Avoid_: coordinator (ADR-0006's placeholder; dom's projection coordinator is one of its runs), ticker, driver, scheduler (Effect's).
 
 **Batch**:
-Many Subjects, or a mesh's instances, animated on the same keys as one run on the **Frame loop** (#665, ADR-0069). Each member's values, velocities and targets are kept together, so a new target turns every member toward it at the speed it already has. Its members are fixed when it's made, and it runs springs and tweens on numbers. The latest driver of a key wins per member: a **Ward**, an `animate` or another Batch that takes a member's key starts from where it is and how fast it's moving, and the Batch takes it back the same way. Motion has none: its `animate` over an array runs each Subject on its own, as Wardic's does.
+Many Subjects, or a mesh's instances, animated on the same keys as one run on the **Frame loop** (#665, ADR-0069). Each member's values, velocities and targets are kept together, so a new target turns every member toward it at the speed it already has. Its members are fixed when it's made, or, in a keyed Batch, enter and leave with their items: an entering member animates from its start, and a leaving one plays its exit before it goes. It runs springs and tweens on numbers. A member can be hovered and pressed, and returns to its target when the gesture ends. The latest driver of a key wins per member: a **Ward**, an `animate` or another Batch that takes a member's key starts from where it is and how fast it's moving, and the Batch takes it back the same way. Motion has none: its `animate` over an array runs each Subject on its own, as Wardic's does.
 _Avoid_: group (a `LayoutGroup`'s, a **Reorder group**'s), instances (three's), swarm, collection.
 
 **Batch member**:
@@ -494,7 +494,7 @@ What an Environment draws and a **Ward** binds: in the DOM an element, in a scen
 _Avoid_: target (an animation's target values), element (the DOM's kind of Subject), node.
 
 **Scene object**:
-A **Subject** a scene holds for its owner: it joins its parent when it enters, and it leaves only once its exit has landed, so its exit plays in the scene. What happens to its resources when it leaves is its owner's choice.
+A **Subject** a scene holds for its owner: it joins its parent when it enters, and it leaves only once its exit has landed, so its exit plays in the scene. What happens to its resources when it leaves is its owner's choice. Its motion is set on it, as a **Wardic element**'s is: it's the scene's Wardic element, though it doesn't make its object. Its parent is the nearest Scene object above it, else the scene. An object that already has a parent, such as a node of a loaded model, stays where it is. Variants pass down nested Scene objects as they do down Wardic elements.
 _Avoid_: entity, presence child (the DOM's), node.
 
 **Host loop**:
