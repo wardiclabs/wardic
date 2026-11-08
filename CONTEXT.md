@@ -60,6 +60,14 @@ _Avoid_: jump, skip, instant animation (Motion's `type: false`).
 The one loop per Environment that steps every running Primitive once per tick, in one pass, and hands each its Frame. It holds one `Clock.ticks` subscription while anything runs. The binding runs its Primitives on it from #74, and dom's projection coordinator is one of its runs from #75. Within a tick, runs step in the order they were added, and the projection coordinator after all of them, so it reads what they wrote that tick (ADR-0027).
 _Avoid_: coordinator (ADR-0006's placeholder; dom's projection coordinator is one of its runs), ticker, driver, scheduler (Effect's).
 
+**Batch**:
+Many Subjects, or a mesh's instances, animated on the same keys as one run on the **Frame loop** (#665, ADR-0069). Each member's values, velocities and targets are kept together, so a new target turns every member toward it at the speed it already has. Its members are fixed when it's made, and it runs springs and tweens on numbers. The latest driver of a key wins per member: a **Ward**, an `animate` or another Batch that takes a member's key starts from where it is and how fast it's moving, and the Batch takes it back the same way. Motion has none: its `animate` over an array runs each Subject on its own, as Wardic's does.
+_Avoid_: group (a `LayoutGroup`'s, a **Reorder group**'s), instances (three's), swarm, collection.
+
+**Batch member**:
+One of a **Batch**'s Subjects, or one instance of its mesh, by its index.
+_Avoid_: slot (a **Projection node**'s box), instance (three's word for one row of an `InstancedMesh`: one kind of member), element.
+
 ### Lifecycle
 
 **Settle** (at rest):
@@ -482,7 +490,7 @@ _Avoid_: computed value (a DOM term), initial value (`initial` is a prop).
 ### Binding
 
 **Subject**:
-What an Environment draws and a **Ward** binds: in the DOM an element, in a scene an object (a mesh, a camera, a material, a uniforms object). An Environment decides what its Subjects are. Motion's word for what `animate(subject, …)` takes.
+What an Environment draws and a **Ward** binds: in the DOM an element, in a scene an object (a mesh, a camera, a material, a uniforms object). An Environment decides what its Subjects are. Motion's word for what `animate(subject, …)` takes. A **Batch** drives many at once.
 _Avoid_: target (an animation's target values), element (the DOM's kind of Subject), node.
 
 **Scene object**:
@@ -524,6 +532,7 @@ _Avoid_: full element, motion component.
 - A **Retarget** seeds a new Primitive from a cached **Snapshot**.
 - A **Definite primitive** applies an **Easing**; the multi-value path blends each key through an **Interpolator**.
 - An **Environment** provides the services a Primitive depends on (every Primitive needs a **Clock**).
+- A **Ward** runs one **Subject**'s keys; a **Batch** runs many Subjects' (or a mesh's instances') keys as one run, and hands a key to whichever driver took it last.
 - Target change has three regimes: a *static* target → `spring`; an *occasional/discrete* change → `spring` + **Retarget**; a *continuous* change → **Chase**.
 - A **Chase** never **Settle**s on its own; it ends only when cancelled. Every other Primitive Settles and completes.
 - A **Recognizer** consumes an **Environment**'s input/geometry and emits an interaction signal — a **State recognizer** a boolean, a **Sample recognizer** Drag samples. A Recognizer is *not* a Primitive: event-driven, no **Settle**.
@@ -544,5 +553,6 @@ _Avoid_: full element, motion component.
 - **"Atom" as the core's animation output** — the plan/README describe primitives that "return an Atom." Resolved: core **Primitives emit Streams of Frames**. `Atom` (Effect's `effect/reactivity`) appears only on service *inputs* (`Probe.viewport`, `Probe.prefersReducedMotion`; the Clock's `time` and `dt` Atoms went with #109, ADR-0030) and as a *binding-layer* output. Reactivity is an Environment/binding concern, not part of the core value contract.
 - **"velocity" on every frame** — Resolved: velocity is **optional and physics-only**. A Frame is `{ value, done }`; a Physics frame adds `velocity`. Definite primitives never carry it.
 - **"easing" vs "interpolator"** — distinct: Easing reshapes *time*; an Interpolator blends *values by type*. Not interchangeable.
+- **A colour's midpoint differs by Environment** — Resolved (ADR-0069): the DOM blends colours in sRGB, as CSS and WAAPI do (ADR-0024); a scene blends them in linear light, as three's own `Color.lerp` and animation clips do. Red to blue passes `#800080` on a div and `#bc00bc` on a mesh. Motion's gamma-2 mix (`#b400b4`) is neither.
 - **"color string"** (what the DOM's color Interpolator decodes; core has none) — Resolved: a string is a color iff culori's `parse` accepts it, trimmed. CSS keywords like `"auto"`, `"none"`, `"inherit"` are **not** colors, and neither is a string culori rejects (`"#zzz"`, `"rgb(var(--x))"`) or throws on (`"blur(4px)"`, #154): paired with a color, they make a **Discrete pair**.
 - **Reduced-motion policy ownership** — Resolved (#98, ADR-0029, replacing an earlier resolution that nothing applied): core's `ReducedMotion` holds the DOM-free policy (`Config`, `applies`, `split`, `endOf`, `snap`), and the bindings apply it when each run starts. It's on by default (the provider's `reducedMotion`, `"user"`; a `WardicConfig`'s sets it for the elements below it, #434, as Motion's `MotionConfig`), and reaches the spine's legs, presence's exit and layout animations, never drag's release. Only Positional keys Snap; the rest animate. A transition opts out with `respectReducedMotion: false`.
