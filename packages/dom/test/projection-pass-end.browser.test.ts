@@ -7,9 +7,9 @@
 // exported from `@wardic/dom`: a binding reaches it only through the controller.
 import { describe, expect, it } from "@effect/vitest"
 import { afterEach, beforeEach } from "vitest"
-import { page } from "vitest/browser"
 import * as Dom from "../src/index.ts"
 import { clearStages, el, endOfTask, fireFrame, makeEngine, makeSink, stage, stubFrames, unstubFrames, wait } from "./projection-harness.ts"
+import { resizeTo, viewportSettled } from "./viewport.ts"
 import * as Option from "effect/Option"
 
 let width = 0
@@ -22,8 +22,8 @@ beforeEach(() => {
 afterEach(async () => {
   unstubFrames()
   clearStages()
-  await page.viewport(width, height)
-  await wait(50)
+  await resizeTo(width, height)
+  await viewportSettled() // nothing in flight into the next test
 })
 
 describe("the pass-end listener (internal, for the Reorder controller)", () => {
@@ -88,7 +88,9 @@ describe("the pass-end listener (internal, for the Reorder controller)", () => {
     fireFrame()
     let calls = 0
     e.system.onPassEnd(() => calls++)
-    await page.viewport(width - 200, height)
+    // Timed from the resize event, not from `page.viewport`'s reply: on a loaded CI runner the
+    // event can land over 100 ms after it, before the block's own pass has run.
+    await resizeTo(width - 200, height)
     await wait(350)
     expect(e.spans.at(-1)?.blocked).toBe(true)
     expect(calls).toBe(1)
