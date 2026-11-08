@@ -5,7 +5,7 @@
 - [`three-api-prior-art.md`](../research/three-api-prior-art.md): what 21 libraries let a developer write for a scene;
 - [`three-binding-semantics.md`](../research/three-binding-semantics.md): Wardic's Solid 2 API, Solid 2 and Effect on a scene.
 
-*ADR-0069 decides what this one left open, below under "Not decided here", and moves the spine and the Flush gate into core. The batch moves into core too: decision 2's Amendment (#665).*
+*ADR-0069 decides what this one left open, below under "Not decided here", and moves the spine and the Flush gate into core. The batch moves into core too: decision 2's Amendment (#665). ADR-0070 decides the Solid 2 binding: a Scene object carries its motion, and `createBatch` replaces `createInstances` (*Amendment (#564, Solid 2)*).*
 
 What they found that decides the shape:
 - **The spine already runs on a Three.js object** (probe P6). In Bun with no DOM, `imperative.ts`'s plain-element path drove an `Object3D` through latest-wins, velocity across a Retarget, Keyframes, `transitionEnd` and the Playback controls. Its only DOM reads are Own values, Measured pairs and the gate's inline read, plus subject resolution's `nodeType` check.
@@ -94,3 +94,10 @@ Decision 2 put the batch in `@wardic/object` and rejected folding it into core, 
 - **The Batch is a core module** (ADR-0069, decision 1). `@wardic/object`, `@wardic/three` and `@wardic/dom` each give it a writer.
 - **The rest of decision 2 holds.** The pumped Refresh frame source, the plain property writer, `animate(object, …)` and the profiling hooks stay in `@wardic/object`. Moving the pumped source into core stays rejected.
 - Rejected: the batch staying in `@wardic/object`, with `@wardic/dom` depending on it; a second batch of the DOM's own.
+
+## Amendment (#564, Solid 2, 2026-11-08): a Scene object carries its motion, and `createBatch` replaces `createInstances`
+
+The grill on the Solid 2 binding (ADR-0070) found that, with no scene components (decision 1), nothing carried a scene object's motion props. A config ward was the only form, against the owner's preference that the ward listens and the element animates (ADR-0046, *Amendment (#398)*).
+- **Decision 8's `<SceneObject>` carries its motion props:** `initial`, `animate`, `while*`, `exit`, `transition`, `variants`, `style` and `drag`. A ward given through `wardRef` listens, as on a Wardic element. It's the scene's Wardic element, though it doesn't make its object (ADR-0070, decisions 1 and 5–9).
+- **Decision 13's `createInstances` goes.** `createBatch`, in `@wardic/solid` on both bindings, takes an `InstancedMesh`, scene meshes or DOM elements, with the Environment in context giving the writer (ADR-0070, decision 10).
+- **`@wardic/three/solid` keeps** `<WardicScene>`, `<SceneObject>` and `createSceneObject`, adds `useWardicScene`, and stays Solid 2 only.
