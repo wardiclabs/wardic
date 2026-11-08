@@ -410,3 +410,33 @@ Decision 4 reports each failure where it stops. An app's callback that throws is
 - **Rejected:** reporting every throw (B), and calling a callback no more after its first throw (C).
 
 Pinned by dom's `gate.node.test.ts` **GC6** and the Solid tests ADR-0046's *Amendment (#257 item 4)* lists.
+
+## Amendment (#663, 2026-11-07): `springValues` gives its keys by index, and writes its velocity record only when asked
+
+Decision 11's step wrote both of its Frame's records, `value` and `velocity`, every tick. V8 boxes a number stored under a computed key: about 12 B a store, where a named store or an indexed one allocates nothing (`.tmp/564-canvas/q1/micro-store.mjs` on `probe/564-canvas`). That was the whole of `springValues/loop`'s 0.14 MB a frame. A spring leg in the spine paid it twice for its velocities: once in `springValues`' record, and once copying it into the element's Snapshot, every frame. Only a Retarget, a handoff or an exit reads them (#663; #564's research, Part 9).
+
+- **A `springValues` Frame gives its keys by index** (`Frame.SpringValues`): `keys`, `positions` and `velocities`, the run's own arrays, beside its records. `Frame.isSpringValues` tells it from another record Frame.
+- **`start.records: "value"`** asks for the `value` record alone. The velocity record then holds its start. The default writes both, as before.
+- **Two loops, one chosen per run.** A run that writes both records steps by decision 11's loop, unchanged. A run asked for `"value"` steps by the same loop less the velocity store.
+  - **Tried first:** a choice per key in the one loop cost the default path 3.6–4.4% in V8.
+  - **Tried second:** writing the records after the loop cost it 21–23% in JSC, and failed `bench:core` on Bun's `springValues/loop` twice.
+  - **Tried third:** writing only the velocity record after the loop cost it 5.4–5.8% in Chromium, failing twice.
+  - **The cost of two loops is size:** 0.1 KB gzipped on `s2-slim`, whose budget rose to 117.9 KB for it (ADR-0067, *Amendment (#663)*).
+- **`toStream` emits a `springValues` Frame's records alone** (`Machine.Streamed`). Its arrays are its run's, rewritten each tick, and copying them cost the Stream workload 15% more bytes in Node.
+- **`Playback`'s held Frame zeroes `velocities`** as it does `velocity`, with arrays of its own.
+- **Who reads by index:**
+  - **`springBlend` and a Path's progress** read their one key's position by index.
+  - **The spine's spring leg** asks for `"value"`. It keeps its last Frame on its `Running`, and reads a key's velocity from it when one is asked for, as a Blend leg's are from its frames (`numbersVelocityOf`). A landed spring leg leaves its keys' velocities at 0 in the Snapshot.
+  - **A resolver and Animation controls** read the Snapshot's `velocitiesNow()`.
+  - **The presence's exit** reads a spring's velocities by index.
+- **Measured** (11 paired reps on the bench box, `--base origin/main`):
+  - **`bench:core` passes every row in all three engines.** Bun's noise control was −0.8% and Chromium's −3.0%. Node's was out of range on both runs (+4.2%, −5.0%), so its times are indicative, while its bytes are exact.
+
+    | Workload | Bun | Node | Chromium | Node MB per frame |
+    |---|---|---|---|---|
+    | `springValues/loop` | −4.5% | +0.5% / −0.1% | −1.2% | 1.28 → 1.28 |
+    | `springValues` (Stream) | −1.8% | +2.9% / +1.5% | +1.7% | 1.81 → 1.81 |
+    | `springBlend/loop` | +1.3% | −4.2% / −4.8% | −3.8% | 0.75 → 0.73 |
+  - **The spine's spring legs** (P7, `.tmp/564-canvas/p7-spine-bench.ts`: 1,000 elements through `createAnimate`'s path, 5 keys on a spring, every one retargeted each round; 5 interleaved processes a side; the same scene drawn, checksum 19,119.7): a frame 0.425 → 0.361 ms in Bun (−15%) and 0.535 → 0.448 ms in Node (−16%), Node's bytes a frame 214 → 146 KB (−32%), a retarget flat.
+  - **`bench:solid`** passes, noise control +0.4%: every warm task within ±2.2%, bytes +0.7% (Solid 1) and −0.3% (Solid 2), retained flat. Its layout scene's `page frame` read +11.4% (a fail) in one run, and +6.3% and −0.7% in the next. The scene is noisy, and the change doesn't touch its path.
+- **Pinned by** `packages/test/test/spring-values-records.test.ts` SV1–SV4, and by the velocity tests that caught the readers above: `dynamic-variants` DV3, `presence-key` PK2 and `tween-velocity` VL10.

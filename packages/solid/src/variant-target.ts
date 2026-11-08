@@ -23,6 +23,8 @@ import type { WardicTransition, WardicVariant, WardicVariantLabels, WardicVarian
 export interface VariantState {
   readonly values: Readonly<Record<string, number | string>>
   readonly velocities: Readonly<Record<string, number>>
+  /** The velocities now, worked out when read (#663): a Snapshot's, whose spring legs' aren't in `velocities`. */
+  velocitiesNow?(state: VariantState): Readonly<Record<string, number>>
 }
 
 /** No values yet: a server render's, and the Starting style's. */
@@ -87,9 +89,13 @@ export interface NamedTarget extends Target {
 /** What a variant name, a variants entry or a resolver's result can be. */
 type Definition = WardicVariant | WardicVariantResolver | string | undefined
 
+/** A state's velocities now (#663): worked out where it can, else as it holds them. Per resolver call. */
+const velocitiesOf = (state: VariantState): Readonly<Record<string, number>> =>
+  UndefinedOr.match(state.velocitiesNow, { onUndefined: () => state.velocities, onDefined: (now) => now(state) })
+
 /** A resolver called with what it reads, as Motion calls it; anything else as it is. */
 const calledOf = (definition: Definition, custom: unknown, state: VariantState): Definition => {
-  if (Predicate.isFunction(definition)) return definition(custom, { ...state.values }, { ...state.velocities })
+  if (Predicate.isFunction(definition)) return definition(custom, { ...state.values }, { ...velocitiesOf(state) })
   return definition
 }
 

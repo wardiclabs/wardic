@@ -92,7 +92,9 @@ interface LoopWorkload {
 const streamOf = <F extends CoreModule.Frame.Frame<unknown>, R>(
   core: Core,
   machine: Effect.Effect<CoreModule.Machine.Machine<F>, never, R>,
-): Stream.Stream<F, never, any> => Stream.unwrap(Effect.map(machine, core.Machine.toStream))
+): Stream.Stream<{ readonly done: boolean }, never, any> =>
+  // Typed by what the bench reads (#663): `toStream` emits a `springValues` Frame's records alone.
+  Stream.unwrap(Effect.map(machine, core.Machine.toStream)) as Stream.Stream<{ readonly done: boolean }, never, any>
 
 type Workload = StreamWorkload | LoopWorkload
 

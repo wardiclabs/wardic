@@ -15,12 +15,13 @@
 // #433, Motion's playback controls. Machines step by `dt` (a design principle), so a time is reached by
 // starting a machine partway through (`Machine.startAt`), as an Appear animation's Handoff is
 // (ADR-0044). Tier 2 (ADR-0008): for binding authors.
+import * as Arr from "effect/Array"
 import { constant } from "effect/Function"
 import * as Inspectable from "effect/Inspectable"
 import { type Pipeable, pipeArguments } from "effect/Pipeable"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
-import type * as Frame from "./Frame.ts"
+import * as Frame from "./Frame.ts"
 import * as Machine from "./Machine.ts"
 import { measuredAs } from "./internal/driven.ts"
 import { dual } from "./internal/dual.ts"
@@ -86,7 +87,15 @@ const runFrom = <F extends Frame.Frame<unknown>>(self: Machine.Machine<F>, at: n
 const heldOf = <F extends Frame.Frame<unknown>>(frame: F): F => {
   const velocity: unknown = (frame as { readonly velocity?: unknown }).velocity
   if (Predicate.isNumber(velocity)) return { ...frame, velocity: 0 }
-  if (Predicate.isObject(velocity)) return { ...frame, velocity: Rec.map(velocity as Record<string, number>, ZERO) }
+  if (Predicate.isObject(velocity)) {
+    const held = { ...frame, velocity: Rec.map(velocity as Record<string, number>, ZERO) }
+    // `springValues`' by index too (#663), its arrays its own: the run rewrites its own when it resumes.
+    if (Frame.isSpringValues(held as unknown as Frame.MultiPhysics)) {
+      const spring = held as unknown as Frame.SpringValues
+      return { ...held, positions: Arr.copy(spring.positions), velocities: Arr.map(spring.velocities, ZERO) }
+    }
+    return held
+  }
   return frame
 }
 

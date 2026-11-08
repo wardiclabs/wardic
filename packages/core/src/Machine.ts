@@ -47,7 +47,7 @@ import type { Covariant } from "effect/Types"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as Clock from "./Clock.ts"
 import * as Easing from "./Easing.ts"
-import type * as Frame from "./Frame.ts"
+import * as Frame from "./Frame.ts"
 import * as FrameLoop from "./FrameLoop.ts"
 import * as InterpolatorRegistry from "./InterpolatorRegistry.ts"
 import { sourceOf } from "./internal/driven.ts"
@@ -734,9 +734,19 @@ const isMultiPhysics = (frame: Frame.Frame<unknown>): frame is Frame.MultiPhysic
  */
 const owned = <F extends Frame.Frame<unknown>>(frame: F): F => {
   if (!Predicate.isObject(frame.value)) return frame
-  if (isMultiPhysics(frame)) return { ...frame, value: { ...frame.value }, velocity: { ...frame.velocity } }
+  if (isMultiPhysics(frame)) {
+    // A `springValues` Frame's arrays are its run's, rewritten each tick: its copy is its records alone (#663).
+    if (Frame.isSpringValues(frame)) return { value: { ...frame.value }, velocity: { ...frame.velocity }, done: frame.done } as unknown as F
+    return { ...frame, value: { ...frame.value }, velocity: { ...frame.velocity } }
+  }
   return { ...frame, value: { ...frame.value } }
 }
+
+/**
+ * What `toStream` emits for a machine's Frame: a copy its consumer owns, and for `springValues`'
+ * Frame its records alone, since its arrays are its run's (#663).
+ */
+export type Streamed<F> = F extends Frame.SpringValues ? Frame.MultiPhysics : F
 
 /**
  * `self` as a `Stream` over the Clock's ticks: a frame a tick, through its settled frame when it settles.
@@ -751,14 +761,14 @@ const owned = <F extends Frame.Frame<unknown>>(frame: F): F => {
 // emitted, so a consumer that collects Frames never sees one rewritten (ADR-0030, decision 11). A
 // Stream, not a Channel: measured 2026-11-02, Stream's own layers were ~5% of a pull of the Clock's
 // ticks, and elements never use `toStream`, so a Channel would gain nothing measurable (#618, M5).
-export const toStream = <F extends Frame.Frame<unknown>>(self: Machine<F>): Stream.Stream<F, never, Clock.Clock> =>
+export const toStream = <F extends Frame.Frame<unknown>>(self: Machine<F>): Stream.Stream<Streamed<F>, never, Clock.Clock> =>
   Stream.unwrap(
     Effect.gen(function* () {
       const clock = yield* Clock.Clock
       yield* Effect.logDebug(`${self.span.name}: subscribe`)
       const step = self.start()
       // Per frame (ADR-0025): the step, then the copy, plain calls in one closure built here.
-      const frames = clock.ticks.pipe(Stream.map((dt: number) => owned(step(dt))))
+      const frames = clock.ticks.pipe(Stream.map((dt: number) => owned(step(dt)) as Streamed<F>))
       return Bool.match(self.settles, {
         onTrue: () => frames.pipe(Stream.takeUntil(isSettled)),
         onFalse: () => frames,
@@ -1053,6 +1063,13 @@ export interface InertiaValuesStart {
 export interface SpringValuesStart {
   readonly from?: Readonly<Record<string, number>>
   readonly velocity?: Readonly<Record<string, number>>
+  /**
+   * Which of its Frame's records the run writes each tick: both (the default), or `"value"` alone. A
+   * sink that reads its velocities by index (`velocities`) asks for `"value"`, and the run skips
+   * storing a number under each key a frame. Its `velocity` record then holds its start.
+   */
+  // #663: a keyed store of a number allocates in V8 (about 12 B), an indexed one doesn't.
+  readonly records?: "value"
 }
 
 /** A start's values when it gives none. */
@@ -1155,18 +1172,23 @@ export const inertiaVec = (initial: Point.Point, velocity: Point.Point, options:
  *
  * Each frame carries a per-key `velocity` beside `value`; a settled key reports 0. Seeding `from` and
  * `velocity` from a frame of the run before keeps its velocity when the target changes. Each frame is
- * rewritten every tick: copy one, or its records, to keep it; the settled frame is stable.
+ * rewritten every tick: copy one, or its records, to keep it; the settled frame is stable. Its
+ * `positions` and `velocities` are the same values by index, in `keys`' order, on the run's own
+ * Frame: a sink that reads every frame reads those, and `start.records` stops the run writing a
+ * record it doesn't read. `toStream`'s copies carry the records alone.
  *
  * @example
  * const card = Machine.springValues({ x: 120, y: 40, scale: 1.1 }, Spring.stiff, { from: { x: 0, y: 0, scale: 1 } })
  */
-// Each run steps in place (ADR-0030, decision 11); `toStream` copies each Frame it emits.
+// Each run steps in place (ADR-0030, decision 11); `toStream` copies each Frame it emits, its records
+// alone. A run asked for its values alone skips its velocity record (ADR-0030, *Amendment (#663)*).
 export const springValues = (
   target: Readonly<Record<string, number>>,
   options: SpringOptions = NO_OPTIONS,
   start: SpringValuesStart = NO_START,
-): Machine<Frame.MultiPhysics> => {
-  const { from = NO_START_VALUES, velocity = NO_START_VALUES } = start
+): Machine<Frame.SpringValues> => {
+  const { from = NO_START_VALUES, velocity = NO_START_VALUES, records } = start
+  const writesVelocity = Predicate.isUndefined(records)
   const keys = Rec.keys(target)
   /** A key's start: its own value, else the options', else 0. */
   const startOf = (values: Record<string, number>, key: string, fallback: number | undefined): number =>
@@ -1196,7 +1218,7 @@ export const springValues = (
           record[key] = xs[i]
           return record
         })
-      const frame = { value: recordOf(positions), velocity: recordOf(velocities), done: false }
+      const frame = { value: recordOf(positions), velocity: recordOf(velocities), done: false, keys, positions, velocities }
       const frameValue = frame.value
       const frameVelocity = frame.velocity
       const delay = spring.delay
@@ -1205,39 +1227,76 @@ export const springValues = (
       // spring's fields read as this closure's locals. Each key steps by `Spring.step`'s exact
       // step (#370), written out in place: called per key, `Spring.step` returns a new state and
       // result. The keys share one matrix, worked out once a frame. One spring per key gives the
-      // same Frames (machines.test.ts).
-      const step = (dt: number): Frame.MultiPhysics => {
-        const clamped = Math.min(dt, MAX_DT)
-        let done = true
-        for (let i = 0; i < count; i++) {
-          const goal = targets[i]
-          const time = elapsed[i] + clamped
-          let position = positions[i]
-          let speed = velocities[i]
-          // Only the part of this tick past the delay moves it.
-          const simDt = Math.max(0, Math.min(clamped, time - delay))
-          if (simDt > 0) {
-            const m = Spring.matrixFor(spring, simDt)
-            const d = position - goal
-            position = goal + m.dd * d + m.dv * speed
-            speed = m.vd * d + m.vv * speed
+      // same Frames (machines.test.ts). A run that writes its velocity record steps by the loop as it
+      // always was; one that doesn't, by the same loop less that store (#663). One is chosen per run:
+      // a choice per key cost the default path about 4% in V8, the records written after the loop
+      // 21% in JSC, and the velocity record written after it 5% in Chromium (ADR-0030, *Amendment (#663)*).
+      const stepOf = (): ((dt: number) => Frame.SpringValues) => {
+        if (Bool.not(writesVelocity)) {
+          return (dt) => {
+            const clamped = Math.min(dt, MAX_DT)
+            let done = true
+            for (let i = 0; i < count; i++) {
+              const goal = targets[i]
+              const time = elapsed[i] + clamped
+              let position = positions[i]
+              let speed = velocities[i]
+              const simDt = Math.max(0, Math.min(clamped, time - delay))
+              if (simDt > 0) {
+                const m = Spring.matrixFor(spring, simDt)
+                const d = position - goal
+                position = goal + m.dd * d + m.dv * speed
+                speed = m.vd * d + m.vv * speed
+              }
+              const settled = simDt > 0 && Math.abs(speed) <= restSpeeds[i] && Math.abs(position - goal) <= restDeltas[i]
+              if (settled) {
+                position = goal
+                speed = 0
+              }
+              if (!settled) done = false
+              positions[i] = position
+              velocities[i] = speed
+              elapsed[i] = time
+              frameValue[keys[i]] = position
+            }
+            frame.done = done
+            return frame
           }
-          const settled = simDt > 0 && Math.abs(speed) <= restSpeeds[i] && Math.abs(position - goal) <= restDeltas[i]
-          if (settled) {
-            position = goal
-            speed = 0
-          }
-          if (!settled) done = false
-          positions[i] = position
-          velocities[i] = speed
-          elapsed[i] = time
-          const key = keys[i]
-          frameValue[key] = position
-          frameVelocity[key] = speed
         }
-        frame.done = done
-        return frame
+        return (dt) => {
+          const clamped = Math.min(dt, MAX_DT)
+          let done = true
+          for (let i = 0; i < count; i++) {
+            const goal = targets[i]
+            const time = elapsed[i] + clamped
+            let position = positions[i]
+            let speed = velocities[i]
+            // Only the part of this tick past the delay moves it.
+            const simDt = Math.max(0, Math.min(clamped, time - delay))
+            if (simDt > 0) {
+              const m = Spring.matrixFor(spring, simDt)
+              const d = position - goal
+              position = goal + m.dd * d + m.dv * speed
+              speed = m.vd * d + m.vv * speed
+            }
+            const settled = simDt > 0 && Math.abs(speed) <= restSpeeds[i] && Math.abs(position - goal) <= restDeltas[i]
+            if (settled) {
+              position = goal
+              speed = 0
+            }
+            if (!settled) done = false
+            positions[i] = position
+            velocities[i] = speed
+            elapsed[i] = time
+            const key = keys[i]
+            frameValue[key] = position
+            frameVelocity[key] = speed
+          }
+          frame.done = done
+          return frame
+        }
       }
+      const step = stepOf()
       if (Bool.not(Spring.endsOnTime(spring))) return step
       // A spring that ends at its duration (#359) starts each key from rest, as Motion's, never rests
       // (thresholds no key meets), and lands every key at its duration, after its delay. Set here,
@@ -1247,7 +1306,7 @@ export const springValues = (
         velocities[i] = 0
         restDeltas[i] = -1
         restSpeeds[i] = -1
-        frameVelocity[keys[i]] = 0
+        if (writesVelocity) frameVelocity[keys[i]] = 0
       }
       const duration = spring.duration
       let time = 0
@@ -1261,7 +1320,7 @@ export const springValues = (
           velocities[i] = 0
           const key = keys[i]
           frameValue[key] = goal
-          frameVelocity[key] = 0
+          if (writesVelocity) frameVelocity[key] = 0
         }
         frame.done = true
         return frame
@@ -1596,8 +1655,9 @@ export const springBlend = (
   // Per leg (#460): the combinators called data-first.
   Effect.map(blendersFor(from, to), (blenders) =>
     withSpan(
-      map(springValues({ progress: 100 }, options, { from: { progress: 0 }, velocity: { progress: 0 } }), (frame) =>
-        blendAt(blenders, UndefinedOr.getOrThrow(frame.value.progress) / 100, frame.done)),
+      // Its one key read by index (#663).
+      map(springValues({ progress: 100 }, options, { from: { progress: 0 }, velocity: { progress: 0 }, records: "value" }), (frame) =>
+        blendAt(blenders, frame.positions[0] / 100, frame.done)),
       "wardic.springBlend",
       { attributes: { keys: blenders.length } },
     ))

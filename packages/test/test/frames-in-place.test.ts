@@ -102,9 +102,17 @@ describe("springValues steps in place", () => {
         )
         for (let i = 0; i < 240; i++) yield* clock.advance(1 / 60)
         const settled = yield* Fiber.join(run)
-        const atSettle = { value: { ...settled.value }, velocity: { ...settled.velocity }, done: settled.done }
+        const atSettle = {
+          value: { ...settled.value },
+          velocity: { ...settled.velocity },
+          done: settled.done,
+          keys: [...settled.keys],
+          positions: [...settled.positions],
+          velocities: [...settled.velocities],
+        }
         for (let i = 0; i < 10; i++) yield* clock.advance(1 / 60)
-        expect(atSettle).toEqual({ value: TARGET, velocity: { x: 0, y: 0 }, done: true })
+        // Its records, and the same by index (#663).
+        expect(atSettle).toEqual({ value: TARGET, velocity: { x: 0, y: 0 }, done: true, keys: ["x", "y"], positions: [TARGET.x, TARGET.y], velocities: [0, 0] })
         expect(settled).toEqual(atSettle)
       }).pipe(Effect.provide(FrameLoop.layer.pipe(Layer.provide(clock.layer))))
     }))

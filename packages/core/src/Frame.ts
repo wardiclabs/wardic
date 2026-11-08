@@ -37,5 +37,21 @@ export interface MultiPhysics extends Frame<Record<string, number>> {
   readonly velocity: Record<string, number>
 }
 
+/**
+ * `Machine.springValues`' own Frame: its records, and the same values and velocities by index, in
+ * `keys`' order. A sink that reads them every frame reads `positions` and `velocities`: storing a
+ * number under a key a frame costs where an index doesn't. A velocity record the run wasn't asked to
+ * write (`records: "value"`) holds its start. Rewritten each tick, as its records are.
+ */
+// #663. The arrays are the run's own state: `Machine.toStream`'s copies carry the records alone.
+export interface SpringValues extends MultiPhysics {
+  readonly keys: ReadonlyArray<string>
+  readonly positions: ReadonlyArray<number>
+  readonly velocities: ReadonlyArray<number>
+}
+
+/** Whether a record Frame is `Machine.springValues`' own, with its keys by index (#663). */
+export const isSpringValues = (frame: MultiPhysics): frame is SpringValues => Predicate.hasProperty(frame, "positions")
+
 /** Whether `frame` carries a velocity: a spring's, a decay's. */
 export const isPhysics = (frame: Frame<number>): frame is Physics => Predicate.isNumber((frame as Physics).velocity)

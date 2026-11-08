@@ -16,7 +16,7 @@
  */
 import * as BaseValue from "@wardic/core/BaseValue"
 import type * as DefaultTransition from "@wardic/core/DefaultTransition"
-import type * as Frame from "@wardic/core/Frame"
+import * as Frame from "@wardic/core/Frame"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Machine from "@wardic/core/Machine"
@@ -534,8 +534,6 @@ interface Running extends Machine.RunOptions {
   count: number
   /** A frame's values for the keys it still draws: the frame's own while it draws all of them. */
   values: (value: Values.Values) => Values.Values
-  /** The same, for a frame's velocities. */
-  velocities: (velocity: Readonly<Record<string, number>>) => Readonly<Record<string, number>>
   /** It drew its last frame: its keys landed. */
   done: boolean
   /** It gave up a key in this Retarget: what it still draws is worked out at the Retarget's end. */
@@ -555,6 +553,11 @@ interface Running extends Machine.RunOptions {
   last: Values.Values | undefined
   before: Values.Values | undefined
   beforeAt: number
+  /**
+   * A Numbers leg's last Frame (#663): its keys' velocities are read from it when one is asked for, as
+   * a Blend leg's are from its frames, by index from a spring's. None before its first frame.
+   */
+  physics: Frame.MultiPhysics | undefined
 }
 
 /** No running legs. */
@@ -741,7 +744,6 @@ const runningOf = (to: Values.Values, resolution: Resolution, landing: Landing, 
   resolution,
   count: 0,
   values: identity,
-  velocities: identity,
   done: false,
   losing: false,
   fiber: undefined,
@@ -755,6 +757,7 @@ const runningOf = (to: Values.Values, resolution: Resolution, landing: Landing, 
   last: undefined,
   before: undefined,
   beforeAt: Number.NEGATIVE_INFINITY,
+  physics: undefined,
 })
 
 /**
@@ -1647,13 +1650,19 @@ export interface Snapshot {
   owners: ReadonlyMap<string, Running | undefined> | undefined
   /** The time now, its provider's Clock's once its spine runs (#460, Q7), {@link frameNow} before. */
   now: () => number
+  /**
+   * Every numeric key's velocity now (#663), given the Snapshot: {@link velocitiesNowOf}, one function
+   * every Snapshot shares. A resolver and Animation controls read these: `velocities` doesn't hold a
+   * spring leg's. A method, so a Snapshot is a resolver's `VariantState`.
+   */
+  velocitiesNow(snapshot: Snapshot): Readonly<Record<string, number>>
 }
 
 /** A Snapshot seeded from the Starting values, velocities 0, so frame 1 flows out of the seed (no snap). */
 export const snapshotOf = (start: Start): Snapshot => emptySnapshotOf({ ...start.initialValues })
 
 /** A Snapshot of `values`, nothing moving: read as it is until a spine reads it. */
-export const emptySnapshotOf = (values: Values.Values): Snapshot => ({ values, velocities: {}, drawnAt: {}, owners: undefined, now: frameNow })
+export const emptySnapshotOf = (values: Values.Values): Snapshot => ({ values, velocities: {}, drawnAt: {}, owners: undefined, now: frameNow, velocitiesNow: velocitiesNowOf })
 
 // --- Velocities (#464) ---------------------------------------------------------------------------
 
@@ -1661,7 +1670,26 @@ export const emptySnapshotOf = (values: Values.Values): Snapshot => ({ values, v
 const legVelocityOf = (snapshot: Snapshot, running: Running, key: string): number => {
   if (running.kind === "Blend") return blendVelocityOf(running, key)
   if (running.kind === "Snap") return 0
+  if (running.kind === "Numbers") return numbersVelocityOf(snapshot, running, key)
   return velocityOf(snapshot, key)
+}
+
+/**
+ * A Numbers leg's velocity for `key` (#663): its last Frame's, as it drew it, by index from a spring's
+ * (whose velocity record it doesn't write), from the record of an inertia's; the Snapshot's before its
+ * first frame, or for a key its Frame doesn't have. Per key, per Retarget: guards.
+ */
+const numbersVelocityOf = (snapshot: Snapshot, running: Running, key: string): number => {
+  const last = running.physics
+  if (Predicate.isUndefined(last)) return velocityOf(snapshot, key)
+  if (Frame.isSpringValues(last)) {
+    const at = last.keys.indexOf(key)
+    if (at < 0) return velocityOf(snapshot, key)
+    return UndefinedOr.getOrThrow(last.velocities[at])
+  }
+  const velocity = last.velocity[key]
+  if (Predicate.isUndefined(velocity)) return velocityOf(snapshot, key)
+  return velocity
 }
 
 /**
@@ -2155,7 +2183,6 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       if (running.count === 0) return
       const kept = Arr.filter(Rec.keys(running.targets), (key) => owners.get(key) === running)
       running.values = keepingOnly(kept)
-      running.velocities = keepingOnly(kept)
     })
     losing.length = 0
   }
@@ -2228,11 +2255,19 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
           // whatever keeps one copies it or reads it at once.
           const value = running.values(frame.value)
           Object.assign(snapshot.values, value)
-          Object.assign(snapshot.velocities, running.velocities(frame.velocity))
+          // Its velocities stay on its Frame (#663), read by index when one is asked for: copied into
+          // the Snapshot each frame, they cost a boxed number a key a frame that only a Retarget read.
+          running.physics = frame
           gate.write(id, value)
           recordFrame(value)
           drew(running, frame.done, snapshot.now())
-          if (frame.done) landEndsOf(waiting)
+          if (frame.done) {
+            // Landed, its keys are at rest: the Snapshot says so for whatever reads it after it's gone.
+            Arr.forEach(Rec.keys(value), (key) => {
+              snapshot.velocities[key] = 0
+            })
+            landEndsOf(waiting)
+          }
           return undefined
         }, running)
       )

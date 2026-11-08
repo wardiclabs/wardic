@@ -537,10 +537,11 @@ const pathLegOf = (at: (t: number) => Arc.PathPoint, end: Values.Values, transit
 /** A Path's progress, 0 to 1, on `transition`: a spring's from rest over 1000 (#438), a tween's as a Measured pair's. */
 const progressOf = (transition: Run): ((dt: number) => Frame.Frame<number>) => {
   if (transition.type === "spring") {
-    const spring = Machine.springValues({ progress: 1000 }, { ...(transition as Machine.SpringOptions), velocity: 0 }, { from: { progress: 0 } }).start()
+    // Its one key read by index (#663).
+    const spring = Machine.springValues({ progress: 1000 }, { ...(transition as Machine.SpringOptions), velocity: 0 }, { from: { progress: 0 }, records: "value" }).start()
     return (dt) => {
       const frame = spring(dt)
-      return { value: UndefinedOr.getOrThrow(frame.value.progress) / 1000, done: frame.done }
+      return { value: frame.positions[0] / 1000, done: frame.done }
     }
   }
   return Machine.keyframes([0, 1], transition as Machine.KeyframesOptions).start()
@@ -905,7 +906,7 @@ const legsWith = (
     // Each key's own velocity, read now; none when the transition gives one, which every key then starts with.
     let fromVelocity: Record<string, number> = NO_NUMBERS
     if (Predicate.isUndefined(springOpts.velocity)) fromVelocity = Rec.map(numeric, (_, key) => velocities(key))
-    legs.push({ _tag: "Numbers", to: numeric, machine: () => Machine.springValues(numeric, springOpts, { from: fromNumeric, velocity: fromVelocity }) })
+    legs.push({ _tag: "Numbers", to: numeric, machine: () => Machine.springValues(numeric, springOpts, { from: fromNumeric, velocity: fromVelocity, records: "value" }) })
   }
   if (hasKeys(strings)) {
     const fromStrings: Values.Values = Rec.map(strings, (_, key) => UndefinedOr.getOrThrow(from[key]))

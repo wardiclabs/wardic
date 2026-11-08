@@ -45,8 +45,10 @@ const GATE = 1.01
  * the apps were first built as they ship, where lib mode had read 122.5 and 158.6. Solid 2's 123.9 once its
  * client builds dropped the server render's code (#518), and 102.8 and 122.9 with the Frame loop's
  * metrics an app's to give, 99.0 and 119.1 with Wardic's own fan-out, 97.4 and 117.3 with the `scroll` Feature.
+ * Solid 2's raised 0.1 KB for #663 (a spring leg's velocities read when asked for: a third fewer bytes a
+ * frame), whose second loop, chosen per run, is what keeps every engine's default path as it was.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 97.9, "s2-slim": 117.8 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 97.9, "s2-slim": 117.9 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 
