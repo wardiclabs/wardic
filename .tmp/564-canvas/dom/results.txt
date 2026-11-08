@@ -1,0 +1,10 @@
+chromium 147.0.7727.15, N = 1000, 5 reps × 6 rounds, 30 frames a round
+mode    retarget ms (CDP / in-page)   per frame: script   style   layout   task (ms)
+ward        1.366 /  12.200          1.580   1.091    0.000   3.479
+batch       0.001 /   0.100          0.674   1.129    0.000   2.601
+floor       0.001 /   0.000          0.593   1.107    0.000   2.495
+chromium 147.0.7727.15, N = 3000, 5 reps × 6 rounds, 30 frames a round
+mode    retarget ms (CDP / in-page)   per frame: script   style   layout   task (ms)
+ward        9.305 /  32.200          4.415   3.173    0.000  10.671
+batch       0.001 /   0.200          1.558   3.055    0.000   7.557
+floor       0.001 /   0.100          1.472   3.079    0.000   7.535
