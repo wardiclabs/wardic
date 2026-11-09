@@ -1524,12 +1524,13 @@ const NO_OWN_TRANSLATE = (): Point.Point => NO_TRANSLATE
 const NO_VALUES: Readonly<Record<string, unknown>> = {}
 
 /**
- * The transform a Measure pass holds `node` at (#443): its Transform template's, `""` (cleared) for a
- * node with none. Per pass per node: a field read and an early return.
+ * The transform a Measure pass holds `node` at (#443): its Transform template's, `none` for a node
+ * with none (Motion's `resetTransform`), which is what an at-rest node already draws (#674). Per pass
+ * per node: a field read and an early return.
  */
 const heldTransformFor = (node: { readonly heldTransform: (() => string) | undefined }): string => {
   const held = node.heldTransform
-  if (Predicate.isUndefined(held)) return ""
+  if (Predicate.isUndefined(held)) return "none"
   return held()
 }
 
@@ -3719,16 +3720,25 @@ export const makeProjectionSystem = (
     // so this is still the minimal set, not a widening.
     // A templated element is held at its Transform template's with no transform of Wardic's (#443,
     // Motion's `transformTemplate(values, "")`), so a static part of it, such as centring, is measured.
-    const savedTransforms: Array<string> = []
+    // A node that already draws what it's held at, as every at-rest node does (`none`), isn't written
+    // or restored (#674, Motion's `resetTransform` skips it too): `undefined` in `savedTransforms`.
+    const savedTransforms: Array<string | undefined> = []
     for (const node of ordered) {
       // Its app's `onBeforeLayoutMeasure` (#443), before its transform is held for the read.
       if (Predicate.isNotUndefined(node.onBeforeMeasure)) callMeasureHook(node.onBeforeMeasure, "onBeforeLayoutMeasure")
-      savedTransforms.push(node.element.style.transform)
-      node.element.style.transform = heldTransformFor(node)
+      const own = node.element.style.transform
+      const held = heldTransformFor(node)
       // A server's Appear animation not yet handed off (#245, ADR-0044 *Amendment (#245)*): its CSS
       // transform beats an inline one, but not an important one. Its timeline runs on; the restore
       // below gives the old value back, at its own priority.
-      if (appearRuns(node.element)) node.element.style.setProperty("transform", "none", "important")
+      const appearing = appearRuns(node.element)
+      if (Bool.and(own === held, Bool.not(appearing))) {
+        savedTransforms.push(undefined)
+        continue
+      }
+      savedTransforms.push(own)
+      node.element.style.transform = held
+      if (appearing) node.element.style.setProperty("transform", "none", "important")
     }
 
     // --- READ: no DOM writes until the next banner. ---------------------------
@@ -3857,7 +3867,10 @@ export const makeProjectionSystem = (
       // replaced could only ever strand one), and the gate's `flush` has no
       // `finally` of its own, so it would stay latched mid-flush.
       releaseTransforms(holds)
-      for (let i = 0; i < ordered.length; i++) ordered[i].element.style.transform = savedTransforms[i]
+      for (let i = 0; i < ordered.length; i++) {
+        const saved = savedTransforms[i]
+        if (Predicate.isNotUndefined(saved)) ordered[i].element.style.transform = saved
+      }
     }
 
     // Each moved twin's paint deltas, between its box and its box as painted, both in its
