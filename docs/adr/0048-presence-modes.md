@@ -720,7 +720,7 @@ Motion's `PopChild` pins as Wardic does: offsets from `offsetParent`, measured b
 
 A leaver went back before the node that followed it before the change. Solid inserts the entering child before that same node, so the leaver landed *after* the child that replaced it. Under `popLayout`, an invisible leaving page, absolute and later in the DOM, painted over the new page and took its clicks. Since #482 a leaving page that holds a twin stays for the handover, so that lasted 0.5 s in the storefront's catalogue (#479). Grilled 2026-10-30 (#486, Q1–Q2).
 
-**Motion:** `AnimatePresence` reinserts an exiting child "directly after the child they previously followed" (its #3746): it walks the children as rendered, exiting ones included, and puts each exiting child right after the staying child before it, after the others put there, or first. Its `PopChild` pins a popped child as Wardic's `pin` does and sets no `pointer-events`. A popped leaver is `position: absolute`, and a positioned box paints above in-flow, non-positioned boxes whatever the DOM order. So Motion's order alone puts a positioned new page over the leaver, while a static one stays under it, in Motion too.
+**Motion:** `AnimatePresence` reinserts an exiting child "directly after the child they previously followed" (its #3746): it walks the children as rendered, exiting ones included, and puts each exiting child right after the staying child before it, after the others put there, or first. *Amended by* *Amendment (#675)*: that's its rule while the staying children keep their order; its arithmetic differs under a reorder. Its `PopChild` pins a popped child as Wardic's `pin` does and sets no `pointer-events`. A popped leaver is `position: absolute`, and a positioned box paints above in-flow, non-positioned boxes whatever the DOM order. So Motion's order alone puts a positioned new page over the leaver, while a static one stays under it, in Motion too.
 
 **Decisions:**
 1. **Motion's order** (Q1: A). A leaver goes back right after the staying child it followed before the change, after the leavers back there already, or first if none did. Entering children come after it, and a leaver from an earlier change, still exiting, keeps its place. A page swap renders `[old (leaving), new]`; `[a, b, c]` to `[a, d, c]` renders `[a, b (leaving), d, c]`. In `sync` the leaver sits above the newcomer in the flow, as Motion's does.
@@ -730,7 +730,7 @@ A leaver went back before the node that followed it before the change. Solid ins
 
 **Built** (`@wardic/solid`'s `presence-controller.ts`, both bindings):
 - **`orderOf(before, now)`** is Motion's `nextChildren`. It takes `rendered`, the children as the last change left them (leavers still on the page among them), plus this change's leavers, and puts each leaver into `now` right after the staying child it followed.
-- **`present`** walks that order. Each leaver of this change goes back (`left(placed, back)`) right after the nearest child before it on the page, or before the nearest after it (`backPlaceOf`), moved there if Solid left it in. Its place (`places`) is where it now is. `rendered` keeps the order, less what's off the page.
+- **`present`** walks that order. Each leaver of this change goes back (`left(placed, back)`) right after the nearest child before it on the page, or before the nearest after it (`backPlaceOf`), moved there if Solid left it in. Its place (`places`) is where it now is. `rendered` keeps the order, less what's off the page. *Amended by* *Amendment (#675)*: every leaver, at every change, each against the element before it in the order.
 - **`pin`** adds `pointer-events: none`. A popped leaver is never unpinned: a child that comes back is a new element (#414).
 - `mode="wait"` is unchanged: its new children mount only once the leavers have gone.
 
@@ -787,3 +787,48 @@ Grilled on #442 (Q2: A, Q3: A), against Motion 14.6's `PresenceChild` and `PopCh
 - **A child entering, found while grilling:** nothing told the projection when a child entered, so a `layout` sibling pushed by one with no layout node of its own jumped, where Motion's slides. The presence now tells it then too, in every mode; under `wait`, as the held children go on the page. Its first children count too: a presence mounting (a `<Show>` turning on) moves a `layout` element after it, as Motion's parent re-render does; at a page's first render the nodes registering ask for the same pass.
 - **Pinned by** `packages/solid/test/presence-anchors.browser.test.tsx` PA1–PA7 (the bottom right in place in a positioned container with padding and a border; the bottom and top under a container that shrinks, the right and left under one that narrows; the right-to-left flip; a child entering, its sibling sliding; `false`, siblings jumping as a child enters and as a leaver is removed; a presence mounting), `v2/presence-anchors.browser.test.tsx` PAV1–PAV3, and `scroll-seen.browser.test.tsx` SS7 (a page pinned by its bottom right kept where it was seen through a router's scroll).
 - **Mutation-checked** (`.tmp/442/mutate.py`, run alone): 18 single-point mutations with ADR-0010's, all caught: no notify as a child enters, the first presentation entering nothing, `presenceAffectsLayout` ignored or not gating a removal, `anchorX` unflipped right to left, the bottom measured as the top, the right without its margin, a bottom or right pin moved with the page the wrong way, and either binding dropping the props.
+
+## Amendment (#675, 2026-11-09): every leaver keeps its place in Motion's order through a reorder
+
+A keyed reorder while a child exited left the leaver where it was, between the moved nodes, until its exit ended. `[a, b, c]` to `[a, c]`, then `[c, a]` within b's exit, drew `c b a`, where Motion draws `c a b`. Solid 1's reconcile takes its swap path for `[a, c]` to `[c, a]` (`solid-js@1.9.18/web/dist/web.js:161-164`): it inserts `c` before `a`'s next sibling, the leaver, and appends `a`. The controller then moved nothing, as it put back only the change's own leavers, and a reorder has none. Solid 2's reconcile moves its nodes the other way around one leaver, but drifted with two: a reverse left b and d as `[e, c, a, b, d]`, where Motion draws `[e, c, a, d, b]`. Found by #561's probes (`docs/research/foldkit-probes.md`, P19 and P22), where Foldkit's patch moves its known nodes around older leavers the same way.
+
+**Motion:** `AnimatePresence` works out every exiting child's place at each render. The rule *Amendment (#486)* quoted, "directly after the child they previously followed", holds while the staying children keep their order. Its arithmetic (framer-motion 14.9.0, `AnimatePresence/index.mjs:120-131`) puts each leaver just after the last staying child's index in the new children, counting every leaver put back so far. Under a reorder that can be after a leaver put back after another child: `[a, b, c, d]`, b and d leaving, then `[c, a]`, is `[c, a, d, b]`. `orderOf` already does that arithmetic. Its comment overstated the rule and now states it.
+
+**Decision:** **after every change, every leaver goes to its place in `orderOf`'s order.** The walk goes through the order with a cursor, the last element placed. A child that stays is where its framework put it. Each leaver goes right after the element before it in the order. A leaver no element precedes goes before the anchor, where the presence's children start: the first element of the order on the page as the walk starts, a child that stays or an earlier change's leaver. With none on the page, the anchor is where the children ended, the node after one of them at its last place, still on the page: beside a sibling, Solid empties a list around its leavers and leaves the sibling. With neither, nothing of theirs is left (Solid cleared the parent), and a leaver goes back where it was. A leaver already in its place isn't moved, so a change that doesn't move it keeps its focus and anything a removal would restart. Text between the element before it and the leaver doesn't count as out of place.
+- Placing against the nearest child on the page (#486's `backPlaceOf`), applied to every leaver, misplaced the list in 8 of 667 of P19's fuzz deliveries: a leaver was placed against another one not yet in place. The cursor walk places each against one already in place, and missed none.
+- A leaver the framework took out (a list emptied clears its parent, *Built (PR 1)*'s MC8) stays in the order, so it goes back at its place in it rather than where it left.
+- **An insert into an earlier leaver's gap now goes after it:** `[a, c]` to `[a, d, c]`, b exiting after a, draws `a b d c`, Motion's. Solid inserts d before a's next sibling, the leaver, so it drew `a d b c` before.
+- **The anchor came out of review:** first written as the first child that stays, it sent a list emptied after a reorder beside a sibling past the sibling (`c a b S` drew `S c a b`): Solid had left the earlier leaver b on the page, and with no child staying the new leavers went back where they were, whose next siblings were gone. A list emptied beside a sibling with no leaver left on the page (`[a, b]` to `[]`) went past it before #675 too, and goes before it now.
+- **A leaver moved to its place tells the projection** (`projection.notify()`), as a pop or a child entering does (*Amendment (#442)*). Found while checking the fix: in `sync`, a twin leaver crossfading onto its other twin, moved a slot down by a reorder, was drawn 20 px off its Lead (one slot) for the rest of the handover, as nothing measured it again. A child entering already told it, so an insert that shifted the leaver kept it on its Lead. Under `presenceAffectsLayout={false}` it tells it nothing, as that prop's other cases (*Amendment (#442)*), and that leaver is drawn off its Lead until something else measures it.
+- The controller observes nothing, so it has no moves of its own to ignore, unlike P19's Foldkit controller.
+- Not changed: each leaver still goes at its own exit's end, where Motion keeps every exiting child until all have finished.
+
+**Built** (`@wardic/solid`'s `presence-controller.ts`, both bindings):
+- **`placeLeavers(order, kept, gone)`** replaces `present`'s loop over this change's leavers: an `Arr.reduce` over the order with the cursor, from `anchorOf(order, gone)`. Each leaver's place is `backPlaceOf(placed, cursor, anchor)`. This change's leavers go there through `left`; an earlier change's through `moveBack`, which `reinsert`s one only when `isInPlace` says it isn't the next element after the cursor or, with no cursor, the anchor.
+- **The children the order starts from** (`before`, from `rendered`) keep a leaver that's off the page but still in `places`.
+- **`moved`**, beside `popped`: set when `moveBack` moves a leaver, so `present` notifies the projection.
+- It runs once per change, over the presence's children: nothing per frame.
+
+**Pinned by** (real paint):
+- `packages/solid/test/presence-order.browser.test.tsx` (Solid 1):
+  - PO6: the reorder above, `[c, a, b (leaving)]`;
+  - PO7: two leavers through a reverse and an insert, `[e, x, c, a, d, b]`;
+  - PO8: PO6 under `popLayout`, the popped leaver in the order too;
+  - PO9: a change that leaves the leavers' places alone moves neither, one before every staying child and one after a staying child (a `MutationObserver` on the list); a guard, as nothing moved them before;
+  - PO10: PO6's list then emptied, every leaver back in Motion's order (the presence alone in the list, which Solid clears);
+  - PO11: PO6 with b a twin crossfading onto its other twin in `sync`: moved a slot down, it stays drawn on its Lead;
+  - PO12: a child entering into an earlier leaver's gap, `[a, b (leaving), d, c]`;
+  - PO13: PO10 beside a sibling after the presence, `[c, a, b, S]`;
+  - PO14: `[a, b]` emptied beside a sibling, `[a, b, S]`.
+- `packages/solid/test/v2/presence-order.browser.test.tsx` (Solid 2): POV3 (PO6, which passed before), POV4 (PO7).
+
+**Mutation-checked** (`.tmp/675/mutate.py`, run alone): 10 single-point mutations, all caught:
+- a leaver in place moved again: after the cursor (PO9), as the anchor (PO9);
+- an earlier change's leavers never moved (PO6–PO8, PO10–PO13, POV4);
+- a leaver taken out dropped from the order (PO10);
+- the cursor not moving past a leaver (PO7, PO10, POV4);
+- a leaver no element precedes going after the anchor (PO1, PO2, PO4, PO9, PO14, POV1);
+- a moved leaver telling the projection nothing (PO11);
+- the anchor only where the children ended (PO1, PO2, PO9, POV1), or never there (PO14), or only a child that stays (PO9).
+
+Text nodes between the children (the `nextElementSibling` check) aren't pinned: no test renders any.

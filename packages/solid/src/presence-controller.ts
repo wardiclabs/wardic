@@ -366,8 +366,12 @@ const parentElementOf = (placed: ReadonlyArray<Placed>): Element | undefined =>
 /**
  * The children in Motion's order for a change (#486, its `AnimatePresence`, #3746 there): `now`, with
  * each of `before`, the children as they were, leavers still exiting among them, that isn't in `now`
- * put back right after the staying child it followed, after the others put back there; first, when it
- * followed none.
+ * put back by Motion 14.9's arithmetic (#675). Walking `before`, each staying child sets the place to
+ * just after its own index in `now`, counting every leaver put back so far, and each leaver goes in
+ * there; first, while no staying child has set it. While the staying children keep their order, that's
+ * right after the staying child it followed, after the others put back there. Under a reorder it can
+ * be after a leaver put back after another child: `[a, b, c, d]`, b and d leaving, then `[c, a]`, is
+ * `[c, a, d, b]`, where "after the child it followed" would be `[c, d, a, b]`.
  */
 const orderOf = (before: ReadonlyArray<HTMLElement>, now: ReadonlyArray<HTMLElement>): ReadonlyArray<HTMLElement> => {
   const at = new Map(Arr.map(now, (el, i) => [el, i] as const))
@@ -382,20 +386,42 @@ const orderOf = (before: ReadonlyArray<HTMLElement>, now: ReadonlyArray<HTMLElem
 }
 
 /**
- * Where the leaver at `i` in `order` goes back (#486): right after the nearest child before it that's on
- * the page, or before the nearest one after it; where it was, with neither.
+ * Where a leaver goes back (#675), walking the order with a cursor: right after `cursor`, the element
+ * before it in the order, already in its place; with none before it, right before `anchor`, where the
+ * presence's children start; with neither, where it was. Each leaver is placed against one already in
+ * place, never against a leaver that isn't yet, as the nearest neighbour on the page might be (#561's
+ * P19).
  */
-const backPlaceOf = (placed: Placed, order: ReadonlyArray<HTMLElement>, i: number): Placed => {
-  const before = Arr.findLast(Arr.take(order, i), (el) => el.isConnected)
-  const after = Arr.findFirst(Arr.drop(order, i + 1), (el) => el.isConnected)
-  return Option.match(before, {
-    onSome: (el) => ({ el: placed.el, parent: Option.getOrUndefined(Option.fromNullOr(el.parentNode)), next: Option.getOrUndefined(Option.fromNullOr(el.nextSibling)) }),
-    onNone: () =>
-      Option.match(after, {
-        onSome: (el) => ({ el: placed.el, parent: Option.getOrUndefined(Option.fromNullOr(el.parentNode)), next: el }),
-        onNone: () => placed,
+const backPlaceOf = (placed: Placed, cursor: HTMLElement | undefined, anchor: ChildNode | undefined): Placed =>
+  UndefinedOr.match(cursor, {
+    onDefined: (at) => ({ ...placedOf(at), el: placed.el }),
+    onUndefined: () =>
+      UndefinedOr.match(anchor, {
+        onDefined: (at) => ({ el: placed.el, parent: Option.getOrUndefined(Option.fromNullOr(at.parentNode)), next: at }),
+        onUndefined: () => placed,
       }),
   })
+
+/**
+ * Whether a leaver from an earlier change is at its place already (#675), so a change that doesn't
+ * move it leaves it be (its focus, and anything a removal would restart): the next element after
+ * `cursor`, text between them left be; with none, the anchor itself, the first of the order on the
+ * page; with neither, on the page.
+ */
+const isInPlace = (el: HTMLElement, cursor: HTMLElement | undefined, anchor: ChildNode | undefined): boolean =>
+  UndefinedOr.match(cursor, {
+    onDefined: (at) => at.nextElementSibling === el,
+    onUndefined: () =>
+      UndefinedOr.match(anchor, {
+        onDefined: (at) => at === el,
+        onUndefined: () => Predicate.isNotNull(el.parentNode),
+      }),
+  })
+
+/** Whether a node is there and on the page. */
+const isOnPage = (node: ChildNode | undefined): node is ChildNode => {
+  if (Predicate.isUndefined(node)) return false
+  return node.isConnected
 }
 
 /** Put a retained node back into the parent it left: before its old next sibling while that's still there, else at the end. */
@@ -611,6 +637,9 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   // and kept until it's gone. Whether this change popped one, so the projection is told.
   const pops = new Map<HTMLElement, PopBox>()
   let popped = false
+  // Whether this change moved a leaver from an earlier one to its place (#675), so the projection is
+  // told: a twin leaver crossfading in the flow is drawn on its Lead from where it now is.
+  let moved = false
 
   // Keys (#286, ADR-0048): each Wardic element made under this presence, told as it's made, so a
   // child's key is known before what goes on the page is decided.
@@ -1107,6 +1136,51 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     UndefinedOr.map(placed.parent, (parent) => reinsert(placed.el, parent, placed.next))
   }
 
+  /**
+   * Every leaver at its place in `order` (#675), walking it with a cursor: a child that stays is where
+   * its framework put it, and each leaver goes right after the element before it in the order, this
+   * change's as they leave, an earlier change's moved there. A framework moves its own nodes around a
+   * leaver it doesn't know of: Solid's swap of `[a, c]` puts `c` before `a`'s next sibling, the leaver
+   * between them. So each change places them all again, as Motion's presence renders every exiting child
+   * at its place.
+   */
+  const placeLeavers = (order: ReadonlyArray<HTMLElement>, kept: ReadonlySet<HTMLElement>, gone: ReadonlyMap<HTMLElement, Placed>): void => {
+    const anchor = anchorOf(order, gone)
+    Arr.reduce<HTMLElement, HTMLElement | undefined>(order, undefined, (cursor, el) => {
+      UndefinedOr.match(gone.get(el), {
+        onDefined: (placed) => left(placed, backPlaceOf(placed, cursor, anchor)),
+        onUndefined: () => {
+          if (Bool.not(kept.has(el))) moveBack(el, cursor, anchor)
+        },
+      })
+      return Bool.match(el.isConnected, { onTrue: () => el, onFalse: () => cursor })
+    })
+  }
+
+  /**
+   * Where the presence's children start, for the leavers no element precedes in the order (#675): the
+   * first element of the order on the page as the walk starts, a child that stays or an earlier
+   * change's leaver. With none, where they ended: the node after one of them at its last place, still on
+   * the page. Solid empties a list beside a sibling around its leavers, its own nodes gone, and that's
+   * the sibling. With neither, `undefined`: nothing of theirs is left, as when Solid clears the parent.
+   */
+  const anchorOf = (order: ReadonlyArray<HTMLElement>, gone: ReadonlyMap<HTMLElement, Placed>): ChildNode | undefined =>
+    Option.getOrUndefined(Option.orElse(Arr.findFirst(order, isOnPage), () => Arr.findFirst(Arr.map(order, (el) => lastNextOf(el, gone)), isOnPage)))
+
+  /** The node after a child at its last place: as the last change left it, or, an earlier leaver, as it left. */
+  const lastNextOf = (el: HTMLElement, gone: ReadonlyMap<HTMLElement, Placed>): ChildNode | undefined =>
+    UndefinedOr.map(UndefinedOr.match(gone.get(el), { onDefined: identity, onUndefined: () => places.get(el) }), (placed) => placed.next)
+
+  /** A leaver from an earlier change, still retained, moved to its place in the walk (#675) unless it's there already. */
+  const moveBack = (el: HTMLElement, cursor: HTMLElement | undefined, anchor: ChildNode | undefined): void => {
+    if (isInPlace(el, cursor, anchor)) return
+    UndefinedOr.map(places.get(el), (placed) => {
+      const back = backPlaceOf(placed, cursor, anchor)
+      UndefinedOr.map(back.parent, (parent) => reinsert(el, parent, back.next))
+      moved = true
+    })
+  }
+
   /** A child that left: retained at `back` (#486), and exiting, unless it's leaving already. */
   const left = (placed: Placed, back: Placed): void => {
     const el = placed.el
@@ -1352,14 +1426,13 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       })
       settleTakeovers()
     }
-    // The children that left go back in Motion's order (#486): each right after the staying child it
-    // followed before the change, after the leavers back there already; first, when it followed none.
-    // Leavers from earlier changes, still exiting, keep their places in it.
+    // The children that left go back in Motion's order (#486), and every leaver from an earlier change,
+    // still exiting, keeps its place in it (#675), one a framework took out (a list emptied) too.
     const gone = new Map(Arr.map(Arr.filter(previous, (placed) => Bool.and(Bool.not(kept.has(placed.el)), Bool.not(takenOver.has(placed.el)))), (placed) => [placed.el, placed] as const))
-    const before = Arr.filter(rendered, (el) => Bool.or(Bool.or(kept.has(el), gone.has(el)), Bool.and(el.isConnected, Bool.not(takenOver.has(el)))))
+    const before = Arr.filter(rendered, (el) => Bool.or(Bool.or(kept.has(el), gone.has(el)), Bool.and(Bool.or(el.isConnected, places.has(el)), Bool.not(takenOver.has(el)))))
     const listed = new Set(before)
     const order = orderOf(Arr.appendAll(before, Arr.filter(Arr.map(previous, (placed) => placed.el), (el) => Bool.not(listed.has(el)))), now)
-    Arr.forEach(order, (el, i) => UndefinedOr.map(gone.get(el), (placed) => left(placed, backPlaceOf(placed, order, i))))
+    placeLeavers(order, kept, gone)
     rendered = Arr.filter(order, (el) => el.isConnected)
     // A child still exiting that the framework took out since (a list emptied) goes back too.
     Arr.forEach(Arr.fromIterable(places.values()), putBack)
@@ -1371,9 +1444,11 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     Arr.forEach(Arr.fromIterable(registry.keys()), dropDetached)
     Arr.forEach(Arr.fromIterable(watches), dropDetachedWatch)
     // A popped leaver moved its siblings (#277), and so did a child entering (#442): a `layout` one
-    // animates into the space, as Motion's presence re-renders its children then.
-    if (Bool.and(Bool.or(popped, entered), affectsLayout())) projection.notify()
+    // animates into the space, as Motion's presence re-renders its children then. A leaver moved to its
+    // place (#675) moved itself and them.
+    if (Bool.and(Bool.or(Bool.or(popped, entered), moved), affectsLayout())) projection.notify()
     popped = false
+    moved = false
     // The wards inside the children held until now start, the children on the page (#277). Held
     // children go on together, so none is left held then. (A ward started while its child is held
     // would only wait again: the check saves its re-run.)
