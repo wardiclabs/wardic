@@ -23,6 +23,22 @@ import * as Str from "effect/String"
 import { pending as appearRuns } from "./appear.ts"
 
 /**
+ * The document timeline's time, in ms. Inside a Refresh frame (its rAF callbacks, their microtasks,
+ * its ResizeObserver deliveries) it is that frame's timestamp, exactly. A task after the paint
+ * usually reads the last frame's still, so it tells two frames apart only for a caller that already
+ * knows it runs inside one. `-1` without a timeline.
+ */
+// ADR-0018 *Amendment (#673)*, measured in Chromium 147 and Firefox 148: 0 mismatches in about 30,000
+// in-frame reads, and a stale value in nearly every task after a paint. A read costs about 30 ns.
+export const frameTime = (): number => {
+  if (!Predicate.hasProperty(globalThis, "document")) return -1
+  if (!Predicate.hasProperty(document, "timeline")) return -1
+  const time: unknown = document.timeline.currentTime
+  if (Predicate.isNumber(time)) return time
+  return -1
+}
+
+/**
  * Read `el`'s box AS IT CURRENTLY RENDERS — a raw `getBoundingClientRect`, no
  * transform reset. The projection measure pass uses this because it resets the
  * whole tree's transforms in its own WRITE phase first, so by the time it reads,
