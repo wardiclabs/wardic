@@ -99,7 +99,7 @@ Wardic can't take the snapshot: its pass runs after the change (ADR-0018). For a
    - An ancestor whose computed `transform`, `translate`, `scale` or `rotate` isn't `none` gets an inline `!important` identity: `translate(0px)`, `0px`, `1` or `0deg`. That beats a stylesheet rule, a CSS animation and a Web Animation. Its own inline values and priorities are put back after the read.
    - The identity isn't `none`, so the ancestor stays the containing block and stacking context its transform makes it. Nothing inside it lays out differently for the read.
    - Some ancestors declare a transition on a transform property (`all`, or the property by name) with a combined duration above 0. Such an ancestor also gets `transition-property: none !important` for the hold. The release puts its transform back, reads its style, then puts its transition back, so neither the hold nor the release starts a transition.
-   - A node's own transform keeps the clear it had: its inline `transform` is blanked for the read.
+   - A node's own transform keeps the clear it had: its inline `transform` is blanked for the read. *(Since Amendment (#674): it's held at `none`, Motion's value, and a node already drawing that isn't written.)*
    - *Rejected:*
      - Resetting to `none`, as Motion's `resetTransform` does for its own elements. A transform makes the element the containing block of its absolute and fixed descendants, so they'd move for the read.
      - Taking the transform out by calculation from each ancestor's matrix, as Motion's `removeBoxTransforms` does for its own values. `getBoundingClientRect` is axis-aligned, so this is exact for translate and scale only. It also needs each ancestor's untransformed box and origin, worked out up the chain.
@@ -128,7 +128,7 @@ Wardic can't take the snapshot: its pass runs after the change (ADR-0018). For a
 - **A transform mid CSS transition when a pass reads.** Holding it would cancel or restart the transition, so it's left alone and its current offset stays in the box. The common hover lift meets this only during its transition.
 - **A drag inside a scaled or rotated parent** (decision 4), unless the app gives `transformPagePoint` (*Amendment (#443)*).
 - **Twins are converted as of each twin's pass**, and axis-aligned under a rotation. An ancestor transform that changes mid-flight drifts until the animation ends, as before (#137).
-- **A node's own transform from a stylesheet**, or its `translate`, `scale` or `rotate`, stays in its box, as before. Only its inline `transform` is cleared.
+- **A node's own transform from a stylesheet**, or its `translate`, `scale` or `rotate`, stays in its box, as before. Only its inline `transform` is cleared. *(Amended by Amendment (#674): a stylesheet's `transform` is out of the box now, as it's out of what the node draws at rest. Its `translate`, `scale` and `rotate` stay in.)*
 - **An ancestor whose layout and transform change together**, so that the node doesn't move on screen (another library's FLIP on a wrapper, for example). The node keeps its stored box, as on main, and the next pass after the wrapper's transform comes off FLIPs it from there.
 
 **Cost.** Measured with `.tmp/136-pass/`: N nodes against a fake sink, each pass timed by its `wardic.projection.measure` span, 30 passes a page, 6 rounds of a fresh page each, against main and against main itself. On the bench server, `wardic-quiet` first, Chromium 147:
@@ -393,3 +393,49 @@ The Scroll-stable frame folds out each scroller's scroll and the page's, and sto
 - ST1–ST6 and ST9–ST11 failed before. ST11 also fails without `settleSeen`'s sticky term, 486 px off.
 
 **Limits:** the offset is sampled at measure, so a sticky element moving mid-flight carries the flight with it. That's the same limit as a scroll during a transition.
+
+## Amendment (#674, 2026-11-09): a node is held at `none` for the read, and one already drawing that isn't written
+
+A Measure pass that moved nothing still wrote every node's transform twice. A node at rest draws `none` (ADR-0023), and the pass held each node at `""` for the read, then put `none` back. That's 2N style changes per pass, and N elements' style to recalculate: part forced inside the pass by its first `getBoundingClientRect`, the rest in the frame's rendering. Most passes in an app follow a change that moves nothing, such as a text change in one row. Probe P13 (`docs/research/foldkit-probes.md`) put such a pass at 3.4–3.7 ms in Chromium and 6.6–7.9 ms in Firefox at N = 1,000, against ADR-0027's 4 ms.
+
+Motion's `resetTransform` (motion-dom 14.6, `create-projection-node.mjs`) resets only a node with a projection delta, a transform of its own or a changed template, and it resets to `none`.
+
+**Decided** (option A, 2026-11-09):
+
+1. **A node is held at `none`** for the read, or at its Transform template's value (ADR-0018, *Amendment (#443)*), as before.
+2. **A node already drawing what it's held at isn't written, or restored:** every node at rest. A node under a pending Appear animation (#245) still gets its important `none`.
+3. **So a stylesheet's `transform` on a node is out of its box.** This changes *Amendment (#136)*'s limit, under which it stayed in.
+   - At rest, Wardic draws `none` over a stylesheet's transform (ADR-0023), so the old box carried a transform that was never painted. The measured layout now matches what's painted, containing block included.
+   - A node's `translate`, `scale` and `rotate` stay in its box, as before.
+   - Ancestors are held as decision 2 of *Amendment (#136)* has it, at an identity that isn't `none`.
+   - *Rejected* (B): keeping `""`. It keeps the old box, but saves nothing at rest, since a node at rest draws `none`, not `""`.
+
+**Measured.** P13's page against main, both production builds under `vite preview`, cross-origin isolated. A Foldkit list of N = 1,000 `layout` items, each render a click in its own task. On the bench server after `wardic-quiet`: 5 paired runs × 30 renders per kind, the sides alternating, then 3 traced Chromium runs. The pass's own time, median, before → after (change: the median of the runs' paired ratios):
+
+| Render | Chromium 147 | Firefox 148 |
+|---|---|---|
+| a Model field the view doesn't read | 3.42 → 1.88 ms (−45%) | 6.62 → 2.40 ms (−64%) |
+| one item's text | 3.68 → 2.10 (−43%) | 6.78 → 2.58 (−62%) |
+| `notify()` from a plain task | 3.41 → 1.83 (−47%) | 7.76 → 2.36 (−70%) |
+| the last item grows, nothing shifts | 3.89 → 2.43 (−38%) | 7.22 → 3.16 (−57%) |
+| a keyed reverse of all N | 6.08 → 6.54 (+5%) | 8.42 → 7.84 (−7%) |
+
+- **Chromium's traces:** a render that moves nothing recalculates no style, where it took 2.3–3.0 ms in and after the pass. Its main-thread task time is 2.2–3.4 ms less.
+- **The reverse:** its style recalculation moves from the frame into the pass, so the pass reads +5% in Chromium. The render's task time is 0.9% less.
+- **Not explained:** Chromium's Paint grows by about 0.3 ms on the text renders, against about 2.2 ms saved in the same render.
+- **At N = 50:** −11% to −41% in Chromium and −31% to −71% in Firefox, the reverse flat in both.
+- **The two decisions' shares:** held at `none` with no skip, against both together: the pass that moves nothing is 13% slower in Chromium and 27–30% in Firefox, and a pass where all 999 items shift 7% and 12%. Each skipped write is a value the browser parses.
+- **`bench:solid`'s layout page** (1,331 `layout` wards, ADR-0040 *Amendment (#385)*): every scene's Measure pass −57% to −61% on both bindings, about 3.9 → 1.6 ms; the own-size scene's frames −28% and −30%. Every gate passed, the control at +0.3%.
+
+**Tests:**
+- `projection-transform-frame.browser.test.ts`:
+  - **RP1:** a pass that moves nothing makes no style change and writes no `transform`.
+  - **RP2 (guard):** a node drawn elsewhere is measured without its transform and gets it back.
+  - **RP3:** a stylesheet's transform is out of the box, at a node's first pass and after.
+  - **TF10's** title now says its outer node is held with the other nodes.
+- `projection-appear.browser.test.ts`, **PA4:** a node already drawing `none` is still read past its Appear animation.
+- RP1 and RP3 fail on main. Mutations, each caught by its own test:
+  - no skip (RP1);
+  - a hold at `""` (RP1, RP3);
+  - a skip that ignores an Appear (PA4);
+  - a restore of every node (RP1).

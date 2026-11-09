@@ -8,6 +8,7 @@
 //   is back as it was, at its own priority.
 // - PA2: `measureLayoutBox` reads past it too.
 // - PA3: an app's own CSS animation isn't an Appear one: the pass leaves it be, as before.
+// - PA4: a node already drawing `none`, what a pass holds it at (#674), is read past it too.
 import { describe, expect, it } from "@effect/vitest"
 import * as Machine from "@wardic/core/Machine"
 import * as Appear from "@wardic/dom/Appear"
@@ -106,5 +107,20 @@ describe("a layout node mid Appear animation (#245)", () => {
     const handle = makeEngine(makeSink().sink).system.register({ id: "n0", element: node, transition: () => Option.none() })
     await endOfTask()
     expect(Option.getOrThrow(handle.layoutBox()).y.min - stageTop, "its own animation is in its box, as before").toBeCloseTo(160, 0)
+  })
+
+  it("PA4: a node already drawing none, what the pass holds it at, is still read past its Appear animation", async () => {
+    const node = appearing("PA4")
+    node.style.transform = "none"
+    await wait(300)
+    const stageTop = node.parentElement!.getBoundingClientRect().top
+    expect(node.getBoundingClientRect().width, "the CSS draws it smaller than its box").toBeLessThan(90)
+    const handle = makeEngine(makeSink().sink).system.register({ id: "n0", element: node, transition: () => Option.none() })
+    await endOfTask()
+    const box = Option.getOrThrow(handle.layoutBox())
+    expect(box.y.min - stageTop, "its box, the CSS's transform left out").toBeCloseTo(100, 0)
+    expect(box.x.max - box.x.min).toBeCloseTo(100, 0)
+    expect(node.style.transform).toBe("none")
+    expect(node.style.getPropertyPriority("transform"), "its own priority").toBe("")
   })
 })

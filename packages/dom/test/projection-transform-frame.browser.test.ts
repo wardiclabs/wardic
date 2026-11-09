@@ -11,6 +11,7 @@
 //
 // Deterministic: requestAnimationFrame is stubbed before the runtime builds and
 // ResizeObserver is a no-op, so every Measure pass here comes from `notify`.
+import type * as Box from "@wardic/core/Box"
 import * as Projection from "@wardic/core/Projection"
 import { describe, expect, it } from "@effect/vitest"
 import * as Bool from "effect/Boolean"
@@ -23,6 +24,7 @@ import { DomLive } from "@wardic/dom"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as internalProjection from "../src/internal/projection.ts"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 
 type FrameCallback = (t: number) => void
@@ -280,7 +282,9 @@ describe("a box carries no ancestor transform (ADR-0012, Amendment (#136))", () 
     e.dispose()
   })
 
-  it("TF10 (guard): a node's parent that is itself a node isn't held: a stylesheet's transform on it stays in its box, and so in its children's", async () => {
+  // Since #674 a node is held at `none` for the read, so the stylesheet's transform is out of the outer's
+  // box, and its children's, as it's out of what the outer draws at rest (RP3).
+  it("TF10 (guard): a node's parent that is itself a node isn't held as an ancestor is: it's held at none with the other nodes", async () => {
     const e = makeEngine(makeSink().sink)
     const root = stage()
     sheet(root, ".tf10{transform:translateX(10px)}")
@@ -370,6 +374,98 @@ describe("a box carries no ancestor transform (ADR-0012, Amendment (#136))", () 
     const first = await switchOut(e, sk, root, modal, leaver)
     expect(first.left).toBeCloseTo(from.left, 0)
     expect(first.width).toBeCloseTo(from.width, 0)
+    e.dispose()
+  })
+})
+
+// A node's own transform for the read (ADR-0012, *Amendment (#674)*): a pass holds every node at
+// `none` (Motion's `resetTransform`), what a node at rest already draws (ADR-0023), so it writes and
+// restores only the nodes drawn elsewhere. A pass that moves nothing used to write `""` and then
+// `none` back on every node: 2N style changes, and N elements' style to recalculate.
+describe("a node's own hold for the read (ADR-0012, Amendment (#674))", () => {
+  /**
+   * Count the writes to `element.style.transform`: its `style` is a Proxy over the real declaration
+   * that counts them (Chromium's style properties are interceptors, with no setter to wrap).
+   */
+  const countTransformWrites = (element: HTMLElement): { count: number } => {
+    const counter = { count: 0 }
+    const real = element.style
+    const style = new Proxy(real, {
+      get: (target, key) => {
+        const value: unknown = Reflect.get(target, key, target)
+        if (Predicate.isFunction(value)) return value.bind(target)
+        return value
+      },
+      set: (target, key, value) => {
+        if (key === "transform") counter.count++
+        return Reflect.set(target, key, value, target)
+      },
+    })
+    Object.defineProperty(element, "style", { configurable: true, get: () => style })
+    return counter
+  }
+
+  /** Register a node that records each box its Measure passes give it. */
+  const measured = async (e: ReturnType<typeof makeEngine>, element: HTMLElement, id = "n") => {
+    const boxes: Array<Box.Box> = []
+    const handle = e.system.register({ id, element, transition: () => Option.some({ type: "spring" }), onMeasure: (box) => void boxes.push(box) })
+    await endOfTask()
+    fireFrame()
+    return { handle, boxes }
+  }
+
+  it("RP1: a pass that moves nothing writes no style on a node at rest: it already draws none, what it's held at", async () => {
+    const e = makeEngine(makeSink().sink)
+    const root = stage()
+    // The gate draws `none` on a node at rest; this sink draws nothing, so it's set here.
+    const els = [40, 120, 200].map((left) => div(root, `position:absolute;left:${left}px;top:40px;width:60px;height:60px;transform:none`))
+    const handles = els.map((element, i) => e.system.register({ id: `n${i}`, element, transition: () => Option.some({ type: "spring" }) }))
+    await endOfTask()
+    fireFrame()
+    // Records are delivered in the microtasks the pass runs in, so the callback keeps them.
+    const records: Array<MutationRecord> = []
+    const observer = new MutationObserver((delivered) => void records.push(...delivered))
+    observer.observe(root, { attributes: true, attributeFilter: ["style"], subtree: true })
+    // A write of the value it already has changes nothing a MutationObserver sees, so each node's
+    // `transform` setter is counted too.
+    const writes = els.map(countTransformWrites)
+    expect((await pass(e, handles[0]!))?.seeded).toBe(0)
+    records.push(...observer.takeRecords())
+    observer.disconnect()
+    expect(records, "no style change on any node").toHaveLength(0)
+    expect(writes.map((w) => w.count), "no transform written").toEqual([0, 0, 0])
+    for (const el of els) expect(el.style.transform).toBe("none")
+    e.dispose()
+  })
+
+  it("RP2 (guard): a node drawn elsewhere is held at none for the read, so its box leaves its transform out, and gets it back", async () => {
+    const e = makeEngine(makeSink().sink)
+    const root = stage()
+    const el = div(root, "position:absolute;left:40px;top:40px;width:60px;height:60px")
+    const layoutLeft = el.getBoundingClientRect().left + window.scrollX
+    const { handle, boxes } = await measured(e, el)
+    el.style.transform = "translateX(30px)"
+    expect((await pass(e, handle))?.seeded).toBe(0)
+    expect(boxes.at(-1)?.x.min).toBeCloseTo(layoutLeft, 5)
+    expect(el.style.transform, "its own transform back").toBe("translateX(30px)")
+    e.dispose()
+  })
+
+  it("RP3: a stylesheet's transform on a node is out of its box, at its first pass and every one after, as it's out of what the node draws at rest", async () => {
+    const e = makeEngine(makeSink().sink)
+    const root = stage()
+    sheet(root, ".rp3{transform:translateX(10px)}")
+    const el = div(root, "position:absolute;left:40px;top:40px;width:60px;height:60px")
+    const layoutLeft = el.getBoundingClientRect().left + window.scrollX
+    el.className = "rp3"
+    // Its first pass: nothing inline yet, so the hold is written, and `""` put back.
+    const { handle, boxes } = await measured(e, el)
+    expect(boxes[0]?.x.min, "its first box").toBeCloseTo(layoutLeft, 5)
+    expect(el.style.transform, "nothing inline, as before the pass").toBe("")
+    // At rest the gate draws `none` over the stylesheet's transform: a pass then reads the same box.
+    el.style.transform = "none"
+    expect((await pass(e, handle))?.seeded).toBe(0)
+    expect(boxes.at(-1)?.x.min).toBeCloseTo(layoutLeft, 5)
     e.dispose()
   })
 })
