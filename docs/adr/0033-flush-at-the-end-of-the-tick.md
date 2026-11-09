@@ -156,3 +156,8 @@
     - The spring (s9) holds 0 warm, where main held 1. Every first step is a single one (4.8–5.1 px for a click), and s8's first step is 5.0 px, where main's was 15.7.
     - The drags read 0 frames behind and 0 release held on both.
 - **Gates:** `bun run typecheck`, `bun run lint`, `bun run test` (66 files, 703 tests) and `bun run test:browser` (64 files, 640 tests; with a warm cache, no "optimized dependencies changed" in the log).
+
+## Note (#673, 2026-11-09): a pass that knows it's after the tick takes the first step
+
+Decision 3's "The Measure pass" bullet held a pass after the tick to the origin, with the next frame's tick moving it (s8: 1 held). Since #673 a pass that knows it runs after its frame's tick, from its trigger, takes the first step of the nodes it seeded itself, painted in that frame. It knows when the trigger came during the Frame loop's tick (s5, s8) or in the engine's observer delivery (s2). This doesn't bring decision 2's doubled step back: only such a pass takes it, and no tick is left in its frame. App code after the tick (s3, s4) holds 1 as before. See ADR-0018, *Amendment (#673)*.
+

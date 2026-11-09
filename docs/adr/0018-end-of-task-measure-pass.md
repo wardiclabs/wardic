@@ -347,3 +347,106 @@ What's left is mainly `computeTree`, which walks every node's DOM ancestry once 
 **Mutations:** two, both caught.
 - The scope as the resized node alone: OS5.
 - No grouping, so only the node's own size counts: OS4.
+
+## Amendment (#673, 2026-11-09): a pass after its frame's tick takes the first step
+
+**What happened.** A Measure pass that runs after its frame's tick, before the paint, seeded its nodes at their origin, and the next frame's tick took their first step. So the change held one frame (*Amendment (#73)*'s "1 held after the frame's tick").
+- **In Solid:** the lab's s2 (content growth seen by the engine's observer), s5 (a change when a layout animation ends) and s8 (an effect in the gate's flush).
+- **In Foldkit:** every start the Model causes, since Foldkit patches in its own rAF callback, after Wardic's tick (ADR-0071, decision 32; P20 measured 14 ms warm in Chromium, 21 ms in Firefox).
+
+ADR-0033 had removed a Priming step taken at the end of every pass, because a pass in an ordinary task is followed by the next frame's tick before any paint, and the first painted step doubled (15.7 px against 5.1). A step taken only by a pass that runs after its frame's tick is painted by that frame, and the next tick takes the second.
+
+**Decided** (#673's grill, 2026-11-09; every recommendation taken):
+
+1. **Scope: what a Measure pass seeds.** That covers FLIPs, `layoutId` handovers and crossfades, a Declared layout change, and presence's layout leavers. The Frame loop's runs started after its tick (a leg's Retarget, P20 a) wait for the next tick, as before: #680.
+   - *Motion:* this goes past Motion's result, which decision 3 records as the origin first for these triggers (inferred, not measured), as #480 went past it.
+2. **A pass knows it runs after its frame's tick from its triggers, never from a clock.** Each trigger for it must have come:
+   - during a Frame loop tick, its hooks included: the gate's flush and the app effects it runs, and the engine's own callbacks. The loop's `ticking()` reads it (ADR-0027, *Amendment (#673)*);
+   - during the engine's observer delivery, which follows the frame's rAF callbacks and precedes its paint;
+   - or during an after-tick pass's own step, inherited.
+
+   A trigger anywhere else makes the queued pass an ordinary one. The round cap's leftover, run in the next task, is ordinary too.
+   - *App code* in a later rAF callback (s4) or an app ResizeObserver (s3) runs after the tick too, but nothing tells it from a task after the paint, so it still holds one frame. Its triggers are the app's, outside the engine's hooks and delivery.
+   - *Rejected: the document timeline's time against the last tick's* (`.tmp/673/probe/`, Chromium 147 and Firefox 148).
+     - Inside a frame, `document.timeline.currentTime` is the frame's timestamp, with 0 mismatches in about 30,000 reads.
+     - A task after the paint reads the same stale value: 1575/1575 in Chromium, 1574/1575 in Firefox. So every click during an animation would have stepped twice.
+     - Cold, with no Wardic frame to compare against, nothing exact was found.
+   - *Rejected: a sentinel observer* (a hidden element whose width the tick toggles; a pass before its delivery is after the tick). It had 0 false positives, but missed every app observer created after it and every cold start, for an element on every page and a layout and a delivery every animating frame.
+   - *Deferred: a binding's hint.* A binding whose code runs inside a frame (Foldkit's patch) would tell the engine so. It comes with that binding (ADR-0071, decision 32), on this rule: step if the last tick's frame time equals this frame's (exact inside a frame), or if the Clock has no request pending; otherwise step nothing, since a tick is still to come in this frame.
+3. **Which nodes: each one it seeded that this frame's tick didn't step while it was flying,** so a node advances one step per painted frame.
+   - *A node the tick stepped and the pass restarts* (an interrupt) keeps the tick's step as its new origin, and starts at the next tick, as before: P20 b's 160, 170, 185. Stepping it again would paint 160, 185: two steps in a frame.
+   - *A node that landed in that tick* takes the step: its landing clears its stamp. Its last step was a hair, about 0.11 px on the default tween's 192 px, and a spring's is under its rest threshold. So the frame paints the new flight's first step on top of it (the lab's s5: 0.49 px where a click paints 0.6).
+     - *The trade-off:* a linear tween's last step is a full one, so a node that lands and goes on the same way moves two steps in that frame.
+   - *How the engine knows:* the coordinator stamps each node it steps with the frame's time (`NodeState.steppedAt`, `frameTime()` in `measure.ts`). That's one write per stepped node per tick, and one timeline read per tick.
+4. **The step's dt is the one the frame's tick stepped every other node by** (the loop hands it to each `afterTick` hook), so a node started after the tick lands where one started before it does (AT5). When no tick ran in this frame (a Cold start, or a burst that began after the frame's rAF callbacks), it's `NOMINAL_DT`, as the Clock's first tick is.
+   - *Not taken:* seeding the Clock with the frame's time. Motion's first frame after it wakes is nominal too.
+5. **The step itself,** once, after the pass's last round:
+   - each such node's flight steps, and its group is derived and applied at once (`sink.flushPass`);
+   - `settleSeen` (#480) waits for the next tick, since a router's scroll comes a task later;
+   - a flight the step brings to rest lands at the next tick.
+6. **`onLayoutAnimationStart`** for a flight that took its first step there is called at the pass's end, after its flush (ADR-0039, *Amendment (#673)*).
+7. **Tracing:** `wardic.projection.measure` carries `stepped`, the nodes the pass stepped (0 for a pass in a task), and the lab's pass line shows it.
+
+**The held counts now,** cold or warm:
+
+| | Held |
+|---|---|
+| A change in a task (s1, s6, s7, s10), and the spring (s9) | 0, as before |
+| s2, content growth seen by the engine's observer | **0** (was 1) |
+| s5, a change when a layout animation ends, inside the tick | **0** (was 1) |
+| s8, an effect in the gate's flush at the tick's end | **0** (was 1) |
+| s3, an app ResizeObserver; s4, a later rAF callback | 1, as before |
+| An app's Tier 2 `Stream` on `Clock.ticks`, which isn't on the loop | 1, as before |
+| An effect in the gate's own frame, on a page with no tick (the fallback flush) | 1, as before |
+
+**Measured** on the prototype, on the bench server: the lab driven headless (`.tmp/673/drive.ts`), 5 runs per scenario, cold and warm.
+- **Chromium 147, Solid 1 and Solid 2:**
+  - s2 and s8 went 1 → 0 held in 20 of 20 runs per binding, and s5 went 1 → 0 with the landed rule;
+  - every other scenario and drag read the same as `main`, and every run was judged clean;
+  - painted progress per frame for s8: `main` 0, 0.6, 2.66, 6.74 px; here 0.6, 2.68, 6.74, 13.69; a click from a task 0.6, 2.66, 6.74, 13.63. A single first step, a frame sooner.
+- **Firefox 148:** the engine's trace shows the pass stepping in every run. The frame right after an input is short there (1–8 ms after the one before, #18), so that step moves a few hundredths of a pixel on the default tween's ease-in. The lab's 0.01 px "moved" threshold often counts that as held. `main`'s s1, a plain click, reads 1 held in 4 of 5 warm runs for the same reason.
+- **The final code** read the same in the lab: Chromium, both bindings, 5 runs per scenario, cold and warm. s2, s5 and s8 held 0 in every run, s3 and s4 held 1, the rest 0, and the drags were unchanged.
+- **`bench:core`** against `main` (174399b): all 48 workload gates passed, between −3.0% and +2.2%, with controls Bun +1.0%, Node +2.3% and Chromium +0.0%.
+- **`bench:solid`** against `main`: every gate passed, with the control at −0.2%.
+  - Element tasks: −2.1% to +3.1%.
+  - Bytes: −0.2% to −0.1%.
+  - The layout scenes' Measure passes: −2.0% to +0.3%.
+  - Their frames: −1.1% to +6.8% at the median, each with its 25th percentile below 0. The +6.8% is Solid 1's page frame, the noisiest gate.
+  - The item frame read +4.2% and +4.4% on the two bindings. On the prototype it read +0.0% and +4.3%.
+  - What a frame adds: a timeline read in the coordinator's step and in the engine's hook, one stamp per stepped node, and the loop's two assignments.
+  - KB per frame +0.8% and +0.6%. Frames to land unchanged.
+
+**Pinned by:**
+- **`packages/dom/test/projection-after-tick.browser.test.ts`**, on real frames and the real observer:
+  - AT1: a trigger during a tick: a single first step in that frame;
+  - AT2: the observer's pass, cold, at the nominal dt;
+  - AT3: a trigger in a task: no step;
+  - AT4: a restart after the tick: no second step;
+  - AT5: the tick's dt;
+  - AT6: the start callback, once, at the pass's end;
+  - AT7: a later rAF callback: no step, warm or cold;
+  - AT8: the round cap's leftover: no step;
+  - AT9: the inherited trigger;
+  - AT10: the landed node.
+- **`packages/solid/test/measure-pass-timing.browser.test.tsx`:**
+  - s2 and s8 now move in their first frame, by a single step;
+  - a new s5, through the app's `onLayoutAnimationComplete`, moves the box that just landed;
+  - s3, s4, the Tier 2 Clock path and the idle s8 still paint their origin first.
+- **The lab:** s2, s5 and s8 expect 0 held on both bindings, and the card's passes read `1 (1 seeding, 1 stepped)`.
+- **`frame-loop.test.ts`** TK1–TK3 (ADR-0027, *Amendment (#673)*).
+
+**Mutations** (`.tmp/673/mutate.py`, run alone): 11 single-point mutations, 11 caught. Each mutant, and what catches it:
+
+| Mutant | Caught by |
+|---|---|
+| always step | AT2, AT3, AT5, AT7, and Solid's s3, s4 and Tier 2 s5 |
+| never step | AT1, AT2, AT5, AT6, AT8, AT9, AT10, and Solid's s2, s5, s8 |
+| no stamp check | AT4 |
+| the step not applied at once | Solid's s2, s5, s8 |
+| nominal dt when warm | AT5 |
+| the start called at the next tick | AT6 |
+| no landed reset | AT10 and Solid's s5 |
+| no delivery flag | AT2 and Solid's s2 |
+| no inheritance | AT9 |
+| `ticking()` left set after a throwing hook | TK3 |
+| `ticking()` cleared before the hooks | TK1, AT1, AT5, AT6, AT8, AT9, AT10 |

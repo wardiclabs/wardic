@@ -92,3 +92,12 @@ Defaults stated, not asked:
     - `onSettled` through `useAnimateLayout`.
   - `test/server.ssr.test.tsx` SV18.
 - **Lab:** scenario 17's `callbacks` line, by hand.
+
+## Amendment (#673, 2026-11-09): a start taken by an after-tick pass
+
+A Measure pass that runs after its frame's tick takes the first step of the nodes it seeded itself (ADR-0018, *Amendment (#673)*). So a flight can take its first step in a pass, not at a tick.
+- **Its start fires at the end of that pass,** after the pass's step is applied, as decision 2 has it fire after the tick's flush: the frame is in the DOM, and the callback sees the first step.
+- **Each flight still fires one start:** the next tick, which takes its second step, doesn't fire again.
+- **A flight that step brings to rest** lands at the next tick, so its complete fires there (decision 3).
+
+Pinned by `packages/dom/test/projection-after-tick.browser.test.ts` AT6: the start comes once, after the pass's two writes (the seed and the step), before the next tick's.
