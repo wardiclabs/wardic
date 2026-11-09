@@ -14,9 +14,8 @@
  *
  * @module
  */
-import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
-import type * as ManagedRuntime from "effect/ManagedRuntime"
-import { type JSX, useWardicRuntime } from "#binding"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
+import { type JSX, useWardicProjection } from "#binding"
 import { createSignal, onCleanup, Show } from "solid-js"
 import { changedIds, mermaidOf, parentCycle, treesHolding } from "../lab/tree.ts"
 import type { TreeRecorder, TreeRecording } from "../lab/tree-recorder.ts"
@@ -36,13 +35,12 @@ const loadMermaid = (): Promise<(typeof import("mermaid"))["default"]> => {
 let renders = 0
 
 /**
- * Reads the provider's engine into `tree`. Mount it under the `WardicProvider`. The provider's
- * runtime is built with the engine over the Environment (`packages/solid/src/runtime.ts`), so it holds
- * the `ProjectionSystem`, which `WardicRuntime`'s type, the Environment's services, doesn't list.
+ * Reads the provider's engine into `tree`. Mount it under the `WardicProvider`. The engine is the
+ * `layout` Feature's, among its own services, not the provider's runtime's (#511, #548): the binding's
+ * `useWardicProjection` reads it there, building the Feature if nothing has yet (#681).
  */
 export const TreeSource = (props: { readonly tree: TreeRecorder }): JSX.Element => {
-  const runtime = useWardicRuntime() as unknown as ManagedRuntime.ManagedRuntime<ProjectionSystem.ProjectionSystem, never>
-  const system = runtime.runSync(ProjectionSystem.ProjectionSystem)
+  const system = useWardicProjection()
   onCleanup(props.tree.attach(() => system.toJSON()))
   return null
 }
