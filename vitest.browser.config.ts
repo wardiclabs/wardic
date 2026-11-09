@@ -23,6 +23,9 @@ export default defineConfig({
       "packages/solid/vitest.browser-v2.config.ts",
       // The Solid 2 binding's server render to hydration, Appear animations among them (#209 PR 4a).
       "packages/solid/vitest.hydrate-v2.config.ts",
+      // The layout lab's page, mounted on either binding (#681).
+      "examples/layout-lab/vitest.browser.config.ts",
+      "examples/layout-lab/vitest.browser-v2.config.ts",
     ],
   },
 })

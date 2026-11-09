@@ -25,7 +25,7 @@
     "noFallthroughCasesInSwitch": true,
     "types": ["vite/client"]
   },
-  "include": ["src", "test", "vite.config.ts", "vite.save-log.ts"],
+  "include": ["src", "test", "vite.config.ts", "vite.save-log.ts", "vitest.browser.config.ts"],
   // The Solid 2 build's own (tsconfig.v2.json).
   "exclude": ["src/scenarios-v2", "src/binding/solid2.ts"]
 }
