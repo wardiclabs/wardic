@@ -161,3 +161,7 @@
 
 Decision 3's "The Measure pass" bullet held a pass after the tick to the origin, with the next frame's tick moving it (s8: 1 held). Since #673 a pass that knows it runs after its frame's tick, from its trigger, takes the first step of the nodes it seeded itself, painted in that frame. It knows when the trigger came during the Frame loop's tick (s5, s8) or in the engine's observer delivery (s2). This doesn't bring decision 2's doubled step back: only such a pass takes it, and no tick is left in its frame. App code after the tick (s3, s4) holds 1 as before. See ADR-0018, *Amendment (#673)*.
 
+## Note (#680, 2026-11-09): the hooks run again after a Late round
+
+A run `run` adds in the Frame loop's Late window takes its Late step in the microtask that ends it, and every `afterTick` hook runs again after it, with the tick's dt (ADR-0027, *Amendment (#680)*). A `runLast` run, the projection's coordinator, takes none. So the gate's `flushTicked` flushes what the round wrote, and withdraws the frame those writes requested: a Late step paints in its frame, as the tick's own steps do. Decision 3's "a write outside a tick keeps the gate's source request" still holds for every other write.
+

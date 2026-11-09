@@ -1,7 +1,8 @@
 // A Measure pass that runs after its frame's tick, before the paint, takes the first step of the
 // nodes it seeded, so the frame paints that step and not the origin (ADR-0018 *Amendment (#673)*).
-// It knows from its trigger: one during the Frame loop's tick (its hooks included), one during the
-// engine's own ResizeObserver delivery, or one during an after-tick pass's own step. Real frames and
+// It knows from its trigger: one in the Frame loop's Late window (its tick, hooks included, through the
+// microtasks the tick queued, #680), one during the engine's own ResizeObserver delivery, or one during
+// an after-tick pass's own step. Real frames and
 // the real observer; the sink records every write, and a hook added after the engine's marks each
 // tick's end, so the log reads in the order a frame is drawn.
 //
@@ -16,6 +17,8 @@
 // - AT8: past the round cap, the next task's pass takes no step.
 // - AT9: a trigger during an after-tick pass's own step is after the tick too.
 // - AT10: a node that landed in this tick and is seeded again after it takes the step (Q14).
+// - AT11: a trigger in a microtask the tick queued is in the Frame loop's Late window (ADR-0027
+//   *Amendment (#680)*), as Solid 2's effects are: the pass steps the node; one in a later task doesn't.
 import { describe, expect, it } from "@effect/vitest"
 import * as Clock from "@wardic/core/Clock"
 import type * as Frame from "@wardic/core/Frame"
@@ -61,9 +64,20 @@ const makeLog = (onFlush?: (n: number) => void) => {
   return { events, sink }
 }
 
-/** `hook` at the end of every tick of `e`'s Frame loop, after the engine's own. */
+/**
+ * `hook` at the end of every tick of `e`'s Frame loop, after the engine's own: once a frame. The loop
+ * calls its hooks again after a Late round in the same frame (ADR-0027 *Amendment (#680)*), which
+ * isn't the next tick, so a call in a frame already marked is skipped.
+ */
 const onTicks = (e: Engine, hook: (dt: number) => undefined): void => {
-  e.runtime.runSync(Effect.flatMap(Effect.service(FrameLoop.FrameLoop), (loop) => loop.afterTick(hook)).pipe(Scope.provide(Scope.makeUnsafe())))
+  let marked = Number.NaN
+  const once = (dt: number): undefined => {
+    const at = document.timeline.currentTime as number
+    if (at === marked) return undefined
+    marked = at
+    return hook(dt)
+  }
+  e.runtime.runSync(Effect.flatMap(Effect.service(FrameLoop.FrameLoop), (loop) => loop.afterTick(once)).pipe(Scope.provide(Scope.makeUnsafe())))
 }
 
 /** A run that never settles keeps the loop ticking: a warm Clock. Returns its stop. */
@@ -423,6 +437,52 @@ describe("a Measure pass after its frame's tick takes its nodes' first step (#67
     const frame = writesUntilTick(events, "a", afterTickAt(events, armedAt))
     expect(frame[0]!.tx).toBeCloseTo(240, 6)
     expect(frame[1]!.tx, "its first step back, in that frame").toBeLessThan(240)
+    e.dispose()
+  })
+
+  it("AT11: a trigger in a microtask the tick queued steps in its pass; one in a later task doesn't (#680)", async () => {
+    const { events, sink } = makeLog()
+    const e = makeEngine(sink)
+    const a = box()
+    const h = e.system.register({ id: "a", element: a, transition: SPRING })
+    const stop = keepWarm(e)
+    await wait(SETTLE_MS)
+    let armedAt = -1
+    let armed = true
+    onTicks(e, () => {
+      events.push({ kind: "tick" })
+      if (!armed) return undefined
+      armed = false
+      // As Solid 2's effect flush: queued in the tick, run after it, before the frame's paint.
+      queueMicrotask(() => {
+        armedAt = events.length
+        a.style.left = "240px"
+        h.notify()
+      })
+      return undefined
+    })
+    await wait(SETTLE_MS)
+    const pass = e.spans.find((span) => span.seeded === 1)!
+    expect(pass.stepped, "the microtask's pass stepped").toBe(1)
+    const frame = writesUntilTick(events, "a", armedAt)
+    expect(frame.length).toBe(3)
+    expect(frame[0]!.tx).toBeCloseTo(-240, 6)
+    expect(frame[1]!.tx - frame[0]!.tx, "the pass's step moved").toBeGreaterThan(0.01)
+    // And back from a later task: the window has closed, so the pass seeds and the next tick steps.
+    let back = false
+    onTicks(e, () => {
+      if (back) return undefined
+      back = true
+      setTimeout(() => {
+        a.style.left = "0px"
+        h.notify()
+      }, 0)
+      return undefined
+    })
+    await wait(SETTLE_MS * 3)
+    const backPass = e.spans.filter((span) => span.seeded === 1).at(-1)!
+    expect(backPass.stepped, "the task's pass took no step").toBe(0)
+    stop()
     e.dispose()
   })
 })

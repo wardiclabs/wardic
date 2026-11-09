@@ -59,8 +59,8 @@ The binding's Primitives run on one **Frame loop** per Environment (#68). It's o
      - `delay` applies again on every segment of `animate`'s `repeat` / `yoyo` and at every stop of `keyframes` (`scalar.ts:168`, `:208`; #77). Fixed by #77: *Amendment (#77)*;
      - `springValues` passes a raw `dt` to `stepSpring`, never clamped at `MAX_DT` (`multi.ts:202`; #78). Fixed by #78: *Amendment (#78)*.
 5. **The lifecycle reproduces today's timing** (research note, Part I, probe b):
-   - **Start = add.** The first step is the loop's next tick: on a Cold start, the Priming tick through the loop's own subscription; otherwise, the next Refresh frame's tick.
-   - **An add during a tick waits for the next one.** The loop steps the entries the tick began with, as a subscriber added mid-publish doesn't get that publish.
+   - **Start = add.** The first step is the loop's next tick: on a Cold start, the Priming tick through the loop's own subscription; otherwise, the next Refresh frame's tick. Since #680, a run added in a tick's Late window takes its first step there: *Amendment (#680)*.
+   - **An add during a tick waits for the next one.** The loop steps the entries the tick began with, as a subscriber added mid-publish doesn't get that publish. Since #680, a run added in the tick's Late window, the tick included, takes its Late step in that window, so its frame paints it: *Amendment (#680)*.
    - **Removal is immediate, even mid-tick:** an entry removed before its turn gets no Frame.
    - **A Retarget** removes the old runs and adds the new ones from the Snapshot in one synchronous call. The loop keeps its Clock subscription across it, so it stays warm.
    - **Settle:** the `done` Frame goes to the sink, then the entry is removed, then its completion runs.
@@ -500,7 +500,7 @@ ADR-0033 decides it.
 
 Decided 2026-10-14:
 - **The loop has a last lane.** Its shape gains `runLast(machine, sink)`, which is `run` but stepped after every run `run` added, in each tick. Among themselves, last-lane runs step in add order too.
-  - A tick takes both lanes' counts before any step, so a run added during it, to either lane, waits for the next tick (decision 5).
+  - A tick takes both lanes' counts before any step, so a run added during it, to either lane, waits for the next tick (decision 5). Since #680 a first-lane one takes its Late step at the end of the tick's Late window, and a last-lane one still waits: *Amendment (#680)*.
   - A burst ends when both lanes are empty. `endAll` ends both lanes' runs.
   - The tick stays allocation-free. The first lane's loops stay inline in it, as they were. The last lane has its own step and compaction, run only while it holds a run.
   - Measured (`bench:core`, 11 paired reps against `main`). With one step function shared by both lanes, Node failed the time gate on its cheapest loop workloads: `chase/loop` +52.6% (0.05 → 0.07 ms a frame at 1,000 elements) and `springValues/loop` +9.4%. Bun and Chromium passed. Skipping an empty last lane didn't help. With the first lane inline, both are within noise on Node (+0.9%, −1.0%).
@@ -517,7 +517,7 @@ Decided 2026-10-14:
 - **core's `frame-loop.test.ts`, *the last lane*:**
   - last-lane runs step after the others, whichever was added first;
   - a last-lane sink sees what the others' sinks wrote that tick;
-  - an add to either lane during a tick waits for the next;
+  - an add to either lane during a tick waits for the next (replaced in #680 by LW6b, and LW1 for the first lane);
   - a burst goes on while a last-lane run is left;
   - a Clock whose ticks end interrupts both lanes.
 - **dom's `projection-coordinator.browser.test.ts`:**
@@ -690,3 +690,97 @@ The projection's Measure pass takes the first step of the nodes it seeded when i
 - TK3: false after a hook throws, through the next burst's gaps.
 
 **Measured:** `bench:core` against `main` passed every workload in Bun, Node and Chromium.
+
+## Amendment (#680, 2026-11-09): the Late window, and a run's Late step
+
+**What happened.** A run added after a tick took its counts, from a sink, a settle's continuation or a hook, waited for the next tick (decision 5). So did one added after the tick but before its frame's paint. Either way the frame painted the run's origin, and the next one its first step: one held frame. #673 fixed this for what a Measure pass seeds (ADR-0018, *Amendment (#673)*), and its grill left the loop's runs to #680.
+- **In Solid 1:** a leg an `onAnimationComplete` callback starts, a `when: "beforeChildren"` child, presence `mode="wait"`'s entering child. Solid 1's effects run at the write, inside the tick.
+- **In Solid 2:** the same, and more. Solid 2 batches every update on a microtask (`unstable/v2/provider.tsx`), so what its effects start after a change made in a tick runs after the tick, in that frame's microtasks. The gate drains them inside its flush only when it has first commits or held keys to tell.
+- **In Foldkit:** a Retarget through the props channel (ADR-0071, decision 32; P20 a).
+
+**Decided** (#680's grill, 2026-11-09, Q1–Q22; every recommendation taken but Q4's, where B was; Q8 reversed after the lab, decision 3):
+
+1. **The Late window** runs from a tick's first step until a microtask the tick queues at its end. What starts in it is drawn in that tick's Refresh frame, after the tick. That covers the tick itself, its hooks (the gate's flush and the app callbacks the engine calls there), and the microtasks they queue: Solid 2's effect flush, a promise the tick resolved, the after-tick Measure pass's own `onLayoutAnimationStart`.
+   - *Exact:* input and paint can't interleave with a microtask checkpoint, so nothing in the window is a task after the paint.
+   - *Not reached:* a chain whose own microtask is queued after the loop's, such as an `await next("settled")` that then sets state (Solid 2's LV3), a later rAF callback (Foldkit's patch, an app's), and an app ResizeObserver. Foldkit's hint opens the window, with the binding (ADR-0071, decision 32). The engine's own observer delivery calls no app code, so no run starts in it; the passes it queues are after-tick passes already (ADR-0018, *Amendment (#673)*).
+   - *Rejected: the step at the tick's own end, synchronously* (Q3's first answer). It reaches Solid 1's chains and none of Solid 2's.
+   - *Rejected: a `MessageChannel` marker posted in the tick,* open until its task runs (#673's probe, `.tmp/673/probe/`, candidate C4). It missed nothing warm, but 14–25 of 1,200 Chromium input handlers ran before the marker, so those clicks would have stepped twice.
+   - *Motion,* inferred from motion-dom 14.9.0's source, not measured: a `JSAnimation` played inside a frame takes `frameData.timestamp` as its start (`JSAnimation.play`), and its driver schedules its first tick with `frame.update(tick, true)`, without `immediate`, which `render-step.mjs` queues to the next frame. So Motion paints the origin first too, and this goes past it, as #673 did.
+2. **Every run added in the window takes its Late step** (Q4 B), a Retarget of a running leg included. That leg moves two steps in its frame, the tick's and its successor's, where #673 gave layout one (ADR-0018, *Amendment (#673)*, decision 3). Layout keeps that rule: its `steppedAt` stamp is also what keeps the coordinator and an after-tick pass from both stepping one node.
+   - *Why legs take it:* a Retarget seeds its new leg from the old one's Frame of that tick, so the Late step goes on from where the tick put the key. The frame paints the new leg's first step in place of the old one's, the new course a frame sooner (P20 a: 164.9 where the old leg drew 169.9), with no gap and no skipped value. Only a Retarget that keeps the key's direction paints the two steps' sum. Q4 A would have told those apart: the spine marking each leg that replaces a running one from its per-key owners (#325), and every binding doing the same. B keeps the rule in the loop alone, the same for every run.
+3. **The Late step** is taken in that microtask, at the last tick's dt (the nominal one after a Cold start's first tick), with each run's step, sink and settle as a tick's. In order:
+   - the runs `run` added in the window, in add order;
+   - then, when one of them stepped, every last-lane run the tick stepped steps again at dt 0 (Q9). The projection's coordinator reads the spine as the legs last wrote it (*Amendment (#137)*), so it reads what they wrote. MS5 measured the Follower 2.22 px off its Lead for one frame without it, and on it with it;
+   - then every hook again, with that dt (Q11), so the gate flushes what the round wrote.
+
+   **A last-lane run added in the window takes no Late step:** its first step is the next tick, as before. The grill had given it one (Q8), on the reasoning that `steppedAt` would keep it off a node an after-tick Measure pass had stepped. But the coordinator's step reads no stamp, and can't: a test firing frames by hand keeps one timeline time across its ticks. The lab's first run showed the cost: in s5 and s8 the after-tick pass stepped its node and started the coordinator in the window, whose Late step stepped every node again. The first frame painted 2.64 px where one step is 0.6. Reversed on 2026-11-09. Every node the projection starts in the window is seeded by an after-tick pass, which takes its first step itself.
+4. **Rounds:** a round whose steps, sinks or hooks add runs is followed by another, at most 5, the Measure pass's cap (Q10). Past it, the rest step at the next tick.
+5. **Failures:** a step or a sink that throws ends its own run, as in a tick. A hook that throws in a Late round runs outside the burst's `Stream`, so the loop interrupts the burst, and every run ends with the defect, as one that throws in a tick does. The window closes (Q15).
+6. **A burst that ended in its tick leaves the window open** (Q16): a run added in it takes its Late step and starts the next burst. Only a failure closes it early.
+7. **`ticking()` is now `inLateWindow()`** (Q14), true from a tick's first step until the window closes. The projection's Measure pass reads it at a trigger (ADR-0018, *Amendment (#673)*, decision 2), so a layout change Solid 2 makes in its own flush steps in that frame too (LV4).
+8. **Tracing:** a run's span is marked `late: true` at its Late step (Q13). The entry keeps its span, one field per run.
+9. **A window the next tick finds still open** is dropped: its runs are on the lanes, and that tick steps them once. A browser never gets there, since a frame's microtasks run before the next. A test firing frames back to back does (LW12).
+
+**The held counts now** (measured on the prototype, `probe/680-proto`, with its Late window switched off and on; Chromium 147, real paint):
+
+| | Before | Now |
+|---|---|---|
+| Solid 1: a leg an `onAnimationComplete` starts (LS1), a `beforeChildren` child (LS2), `mode="wait"`'s entering child (LS3) | 1 | **0** |
+| Solid 2: `mode="wait"`'s entering child (LV1), a leg an effect on `settled()` starts (LV2), a layout change that effect makes (LV4) | 1 | **0** |
+| A change from a task (LS4) | 0 | 0, a single first step |
+| A later rAF callback (LS5); Solid 2 after `await next("settled")` (LV3) | 1 | 1 |
+
+**Measured** on the bench server:
+- **The lab** (`.tmp/680/drive.ts`, #673's driver; the prototype off against on, 5 runs per scenario, cold and warm):
+  - **Chromium 147:** Solid 1 and Solid 2 read the same as `main` in every scenario: 80 runs at 0 held, 20 at 1 (s3 and s4, as before), every one judged clean. The first three painted steps match, s5's and s8's single 0.6 px included. All 40 drags match.
+  - **Firefox 148:** 43 held runs off, 45 on, all clean. That's the short frame after an input (#18), which flips s1, a click, as often.
+  - **The prototype's first run,** with Q8 as first decided, painted s5's and s8's first frame at 2.64 px: decision 3.
+- **`bench:core`** against `main` (0827e62), 11 paired reps: every workload gate passed in Bun, Node and Chromium, with controls Bun −0.4%, Node −1.3% and Chromium −1.6%. The loop's workloads read between −9.0% (Bun's `springValues/loop`) and +6.4% (Chromium's `springBlend/loop`, p25 −2.0%). Node's bytes per frame are within +2.3%, all under the gate: the largest moves are `keyframesValues` (2.20 → 2.25 MB) and `animateComplex/loop` (2.64 → 2.69).
+- **`bench:solid`** against `main`: every gate passed, with the control at −0.8%.
+  - Element tasks, warm: Solid 1 +0.7% to +1.4%; Solid 2 −2.2% to −0.4%.
+  - Bytes: Solid 1 +0.7%, Solid 2 −0.2%. Retained: +0.0% to +0.1%.
+  - The layout scenes' Measure passes: −2.9% to +2.1%.
+  - Their frames: −1.6% to +5.6% at the median, each with its 25th percentile below 0. The +5.6% and +4.6% are the two bindings' page frame, the noisiest gate.
+  - KB per frame: +1.2% and +0.9%. Frames to land: unchanged.
+  - What a frame adds: one `queueMicrotask` and its callback's two reads when nothing is late, and a branch per add.
+
+**Pinned by:**
+- **core `frame-loop.test.ts`:** LW1–LW12 and TK1–TK3:
+  - LW1: a sink's run;
+  - LW2: a continuation's;
+  - LW3: a hook's, with the hooks again;
+  - LW4: a microtask the tick queued, against a later task;
+  - LW5: the rounds' cap, and a warm Late step's dt;
+  - LW6: the dt-0 step; LW6b: a last-lane run added in the window steps first at the next tick;
+  - LW7: `inLateWindow()` in a microtask and a task;
+  - LW8: a throwing hook in a Late round;
+  - LW9: the burst that ended;
+  - LW10: a superseded run, and no dt-0 step after a round that stepped none;
+  - LW11: the span;
+  - LW12: back-to-back frames.
+- **dom `projection-after-tick.browser.test.ts`:** AT11, a trigger in a microtask the tick queued steps in its pass, and one in a later task doesn't. The file's tick marker is now written once a frame: the loop calls a hook again after a Late round, and AT1 had counted the coordinator's doubled step as the next tick's.
+- **solid `leg-start-timing.browser.test.tsx`:** LS1–LS5, and its Solid 2 twin LV1–LV4. Each frame is found by its timeline time, which a task after its paint still reads (#673's probe). The gate writes 6 significant digits, so a tween's last step but one already reads as its target.
+- **solid `layout-id-ancestor-transform.browser.test.tsx`:** MS5.
+- **Eight dom tests in six files** that fire frames by hand and then act as a task (XB2, XS2, XS2b, XS3b, XT2, LC1, N1, and the coordinator's restart) now let the frame's microtasks run first, as a browser does (`projection-harness.ts`'s `fireFrame`).
+
+**Mutations** (`.tmp/680/mutate.py`, run alone): 16 single-point mutations, 16 caught. Each mutant, and what catches it:
+
+| Mutant | Caught by |
+|---|---|
+| no run marked late | LW1–LW6b, LW8, LW9, LW11, LS1–LS3, LV1, LV2 |
+| the window is the tick alone | TK1, LW4, LW5, LW7, LW9, AT11, LV1, LV2, LV4 |
+| a Late step at the nominal dt, warm | LW5 |
+| no hooks after a Late round | LW3, LW8, LS1–LS3, LV1, LV2 |
+| one round | LW5 |
+| no cap on the rounds | LW5 |
+| no dt-0 step for the last lane | LW6, LW6b, MS5 |
+| a dt-0 step after a round that stepped nothing | LW10 |
+| the window left open after a failure | TK3, LW8 |
+| a Late round's hook failing the runs as an interrupt | LW8 |
+| the window closed when a burst runs out of runs | LW9, LV1, LV2, LV4 |
+| no drop of a window the next tick finds open | LW12 |
+| no `late` on the span | LW11 |
+| a superseded run stepped | LW10 |
+| the Measure pass reading no window | AT1, AT6, AT8–AT11, LV4 |
+| a last-lane run added in the window given a Late step (Q8 as first decided) | LW6b, AT1, AT6 |
+

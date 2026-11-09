@@ -6,7 +6,7 @@
  * Primitive's per-frame cost.
  *
  * - **A run** is `run(machine, sink)`: an entry added, its Frames handed to `sink` from the loop's
- *   next tick, and its settled Frame returned. `acquireUseRelease` removes the entry on every
+ *   next tick (or its Late step, below), and its settled Frame returned. `acquireUseRelease` removes the entry on every
  *   exit (a settle, an interruption, a defect), so interrupting a run removes it at once. A run
  *   given a token (`run(machine, sink, { supersede })`, #200) joins it, and `Supersede.end` takes
  *   it off at once too, completing its fiber with `Superseded`: no interrupt, and no interrupt
@@ -17,17 +17,25 @@
  *   a Retarget (a removal, then an add, in one call) keeps it, and the Clock goes idle at its
  *   next Refresh frame. The Layer's `Scope` closing interrupts it.
  * - **A tick** steps the entries the tick began with: an entry added during it (from a sink)
- *   waits for the next tick, and one removed during it gets no Frame. It steps them in add
+ *   isn't stepped by it, and one removed during it gets no Frame. It steps them in add
  *   order, those added with `runLast` after all the others (ADR-0027, *Amendment (#137)*). A step or sink that
  *   throws ends only its own run (`Exit.die`); a failure of the loop itself fails every run
  *   still on it, and the next run starts a fresh burst. That includes a run a continuation
  *   starts while the ending burst resumes its runs (#81).
  * - **The end of a tick** calls each `afterTick` hook, with the tick's dt, after every step and sink
- *   and the continuations of the runs that settled in it, the tick that ends a burst included.
- *   `ticking()` reads whether a tick is running, from its first step to its last hook (ADR-0027
- *   *Amendment (#673)*). The flush
+ *   and the continuations of the runs that settled in it, the tick that ends a burst included. The flush
  *   gate flushes there, so a value paints in the Refresh frame that computed it (ADR-0033). A run
  *   a hook starts keeps the burst: whether it ends is counted after the hooks (#209).
+ * - **The Late window** runs from a tick's first step until a microtask the tick queues at its end
+ *   (ADR-0027 *Amendment (#680)*): what starts in it is drawn in that tick's Refresh frame, after the
+ *   tick. A run `run` added in it, during the tick or in a microtask the tick's own code queued (Solid
+ *   2's effects, a promise it resolved), takes its **Late step** in that microtask: one step at the
+ *   tick's dt, and the hooks again, so the frame paints it, not its origin. A round whose steps or hooks
+ *   add more runs is followed by another, at most `MAX_LATE_ROUNDS`; the rest step at the next tick. A
+ *   `runLast` run takes none: the projection's coordinator, its one caller, would step again the nodes
+ *   an after-tick Measure pass already stepped. One the tick stepped steps again at dt 0 after a round
+ *   that stepped a `run` run, so it reads what that round wrote.
+ *   `inLateWindow()` reads it, for the projection's Measure pass (ADR-0018 *Amendment (#673)*).
  *
  * Observability: a span per run, named after its Primitive (`machine.span`), and one per burst
  * (`wardic.frameloop`). A run's `<name>: start` debug log, annotated with its span's attributes,
@@ -45,8 +53,8 @@
  * The dev check for non-finite Frames (`CheckFrames`, ADR-0030 decision 7) is a sink wrapper a
  * run gets at its start when the check is on, so the tick is the same either way.
  *
- * Internal (ADR-0028, decision 11): the service's shape (`run`, `afterTick`) and `make`, behind
- * `FrameLoop.layer`.
+ * Internal (ADR-0028, decision 11): the service's shape (`run`, `runLast`, `afterTick`,
+ * `inLateWindow`) and `make`, behind `FrameLoop.layer`.
  */
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
@@ -56,6 +64,7 @@ import * as Data from "effect/Data"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
+import type * as Fiber from "effect/Fiber"
 import * as FiberHandle from "effect/FiberHandle"
 import { constUndefined, identity } from "effect/Function"
 import * as LogLevel from "effect/LogLevel"
@@ -66,6 +75,7 @@ import * as References from "effect/References"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as Tracer from "effect/Tracer"
+import * as UndefinedOr from "effect/UndefinedOr"
 import * as Clock from "../Clock.ts"
 import type * as Frame from "../Frame.ts"
 import * as Supersede from "../Supersede.ts"
@@ -76,6 +86,8 @@ import { isTraced, traced } from "./tracing.ts"
 // @wardic/core compiles against ES2022 alone, which does not declare `performance` (see
 // refresh-frame-clock.ts). It is a host global in every Environment Wardic targets.
 declare const performance: { readonly now: () => number }
+// The same for `queueMicrotask` (see Microtask.ts): the Late window's end (#680).
+declare const queueMicrotask: (callback: () => void) => void
 
 /** A run's options: the token it joins, so its caller can end it with others. */
 // #200.
@@ -94,7 +106,7 @@ export interface Run {
 export interface Shape {
   /**
    * Runs `machine` on the loop, handing each of its Frames to `sink`, from the loop's next tick until it
-   * settles. Succeeds with the settled Frame; a machine that never settles, `chase`, runs until it's
+   * settles; added in the loop's Late window, from its Late step there. Succeeds with the settled Frame; a machine that never settles, `chase`, runs until it's
    * interrupted or superseded. Dies with the defect if its step or its sink throws. Interrupting it
    * removes it at once.
    *
@@ -107,25 +119,28 @@ export interface Shape {
   /**
    * `run`, but stepped after every run `run` added, in each tick: for a machine that reads what the
    * others' sinks wrote in the same tick. Among themselves, these runs step in the order they were added.
+   * One added in the Late window takes no Late step: its first step is the next tick. One the tick
+   * stepped steps again at dt 0 after a Late round that stepped a `run` run.
    */
   // ADR-0027, *Amendment (#137)*: the projection's coordinator is the one caller.
   readonly runLast: Run
   /**
    * Calls `hook` at the end of every tick, with the tick's seconds, after every run's step and sink and
-   * the continuations of the runs that settled in it, until the `Scope` closes. Hooks run in the order
-   * they were added. A plain call, typed like a `Sink`, so a hook that returns an Effect doesn't compile.
-   * A hook doesn't throw: one that does fails the tick, and with it every run on the loop.
+   * the continuations of the runs that settled in it, and again after each of its Late rounds, until the
+   * `Scope` closes. Hooks run in the order they were added. A plain call, typed like a `Sink`, so a hook
+   * that returns an Effect doesn't compile. A hook doesn't throw: one that does fails the tick, and with
+   * it every run on the loop.
    */
   // ADR-0033: the flush gate's flush. The tick's dt: ADR-0027 *Amendment (#673)*, for the projection's
-  // after-tick pass.
+  // after-tick pass. Again after a Late round (#680), so the gate flushes what the round wrote.
   readonly afterTick: (hook: (dt: number) => undefined) => Effect.Effect<void, never, Scope.Scope>
   /**
-   * Whether a tick is running now, from its first step until its last hook returns: what's written then
-   * is drawn in that tick's Refresh frame, after the tick.
+   * Whether the **Late window** is open now: from a tick's first step until the microtask it queued at
+   * its end has run. What's written then is drawn in that tick's Refresh frame, after the tick.
    */
-  // ADR-0027 *Amendment (#673)*: the projection's Measure pass reads it at a trigger, to know it will run
-  // after its frame's tick.
-  readonly ticking: () => boolean
+  // ADR-0027 *Amendment (#680)* (was `ticking()`, #673): the projection's Measure pass reads it at a
+  // trigger, to know it will run after its frame's tick.
+  readonly inLateWindow: () => boolean
 }
 
 /** One hook on the loop's ticks, one object per `afterTick`, so removing it removes only that one. */
@@ -143,7 +158,17 @@ interface Entry {
   /** Completed by the loop: the settled Frame, the defect, or an interruption; or by its token, `Superseded` (#200). */
   readonly settled: Deferred.Deferred<Frame.Frame<unknown> | Supersede.Superseded>
   removed: boolean
+  /**
+   * Added in the Late window and not yet stepped (#680): a `run` run's Late step is due; a `runLast` run
+   * waits for the next tick, and the dt-0 step leaves it out.
+   */
+  late: boolean
+  /** Its span, when traced: marked `late` at its Late step (#680). */
+  readonly span: Tracer.Span | undefined
 }
+
+/** How many Late rounds a window runs before the rest wait for the next tick: the Measure pass's cap (#680). */
+const MAX_LATE_ROUNDS = 5
 
 /**
  * The Frame loop's metrics: the running animations, the runs that settled and failed, and each tick's
@@ -278,8 +303,19 @@ export const make = Effect.fnUntraced(
     // ending burst is still in `burst`, so the loop tracks its burst itself rather than asking the
     // handle (#81).
     let bursting = false
-    // Whether a tick is running, its hooks included (ADR-0027 *Amendment (#673)*): set and cleared once a tick.
-    let inTick = false
+    // The Late window (ADR-0027 *Amendment (#680)*): open from a tick's first step until the microtask
+    // queued at its end has run. `windowQueued` keeps one microtask per window, however many ticks open
+    // it before a checkpoint (a test firing frames back to back).
+    let windowOpen = false
+    let windowQueued = false
+    // The dt of the tick that opened the window: a Late step's.
+    let windowDt = 0
+    // The `run` runs added in the window, in add order: their Late step is due. The `runLast` runs added
+    // in it take none, and are marked only so the dt-0 step leaves them out: they step at the next tick.
+    const lateFirst: Array<Entry> = []
+    const lateLast: Array<Entry> = []
+    // A hook that threw in a Late round: the burst it interrupts ends every run with it (#680, Q15).
+    let lateFailure: Cause.Cause<never> | undefined
     // The runs the loop ended since it last counted (#542): a settle or a failure, into the counters
     // once per tick. An interruption is neither, nor a superseded run, which the loop doesn't end.
     let settledCount = 0
@@ -346,11 +382,16 @@ export const make = Effect.fnUntraced(
     // The first lane's loops stay inline in `tick`: moved into a function shared with the last lane,
     // Node's `chase/loop` ran 55% slower (`bench:core`, ADR-0027 *Amendment (#137)*).
     const tick = (dt: number): boolean => {
-      inTick = true
+      // A window this tick finds open is the last frame's, its checkpoint not yet run (back-to-back
+      // frames in a test): its runs are on the lanes, so this tick steps them.
+      if (lateFirst.length + lateLast.length > 0) dropLate()
+      windowOpen = true
+      windowDt = dt
       // The tick's start, read only for the metrics' histogram (#518).
       let t0 = 0
       if (Predicate.isNotUndefined(metrics)) t0 = performance.now()
-      // Both counts before any step: a run added during the tick, to either lane, waits for the next.
+      // Both counts before any step: a run added during the tick isn't stepped by it. A `run` run takes its
+      // Late step at the window's end, a `runLast` run waits for the next tick (#680).
       const count = entries.length
       const lastCount = lastEntries.length
       for (let i = 0; i < count; i++) {
@@ -384,10 +425,114 @@ export const make = Effect.fnUntraced(
       // `tickMs`, which stays the cost of the steps alone.
       const ended = hooks
       for (let i = 0; i < ended.length; i++) ended[i].hook(dt)
-      inTick = false
+      // The window stays open to the end of this frame's microtasks, which take the Late steps (#680).
+      if (!windowQueued) {
+        windowQueued = true
+        queueMicrotask(endLateWindow)
+      }
       // The burst ends with no run left, counted after the hooks: one a hook started (the flush
-      // gate's, running a binding's batch, #209) takes its first step at the next tick.
+      // gate's, running a binding's batch, #209) takes its Late step and starts the next burst.
       return entries.length + lastEntries.length === 0
+    }
+
+    /** Clear the Late lists: each run on them steps at the next tick. */
+    const dropLate = (): void => {
+      for (let i = 0; i < lateFirst.length; i++) lateFirst[i].late = false
+      for (let i = 0; i < lateLast.length; i++) lateLast[i].late = false
+      lateFirst.length = 0
+      lateLast.length = 0
+    }
+
+    /** Drop `list`'s first `count` entries in place, keeping the rest's order. */
+    const dropFirst = (list: Array<Entry>, count: number): void => {
+      const left = list.length - count
+      for (let i = 0; i < left; i++) list[i] = list[i + count]
+      list.length = left
+    }
+
+    /** One step of `entry` at `dt`: its Frame to its sink, its settle, or its defect, as a tick's. */
+    const stepOne = (entry: Entry, dt: number): void => {
+      try {
+        const frame = entry.step(dt)
+        entry.sink(frame)
+        if (entry.settles && frame.done) end(entry, Exit.succeed(frame))
+      } catch (defect) {
+        end(entry, dieNamed(entry.name, defect))
+      }
+    }
+
+    /** `entry`'s Late step, at the last tick's dt, its span marked. */
+    const lateStep = (entry: Entry): boolean => {
+      entry.late = false
+      if (entry.removed) return false
+      if (Predicate.isNotUndefined(entry.span)) entry.span.attribute("late", true)
+      stepOne(entry, windowDt)
+      return true
+    }
+
+    /**
+     * One Late round: the first lane's due runs, then, when one of them stepped, the last lane's runs the
+     * tick stepped again at dt 0, so they read what it wrote (#137's reads, Q9), then every hook. What the
+     * round adds is the next round's.
+     */
+    const lateRound = (): void => {
+      const firstCount = lateFirst.length
+      let stepped = 0
+      for (let i = 0; i < firstCount; i++) if (lateStep(lateFirst[i])) stepped++
+      if (stepped > 0) {
+        const count = lastEntries.length
+        for (let i = 0; i < count; i++) {
+          const entry = lastEntries[i]
+          if (entry.removed || entry.late) continue
+          stepOne(entry, 0)
+        }
+      }
+      dropFirst(lateFirst, firstCount)
+      const again = hooks
+      for (let i = 0; i < again.length; i++) again[i].hook(windowDt)
+    }
+
+    /**
+     * The Late window's end, the microtask its tick queued: the Late rounds, then the window closes. A run
+     * left past the cap steps at the next tick. A hook that throws ends every run, as in a tick (Q15).
+     */
+    const endLateWindow = (): void => {
+      windowQueued = false
+      if (!windowOpen) return
+      let rounds = 0
+      try {
+        while (lateFirst.length > 0 && rounds < MAX_LATE_ROUNDS) {
+          rounds++
+          lateRound()
+        }
+      } catch (defect) {
+        failLate(defect)
+        return
+      }
+      // Past the cap, the first lane's rest step at the next tick; the last lane's were never due.
+      if (lateFirst.length + lateLast.length > 0) dropLate()
+      windowOpen = false
+    }
+
+    /**
+     * A hook threw in a Late round, outside the burst's stream: the burst is interrupted, and its end
+     * fails every run with the defect, as a hook that throws in a tick fails it (#680, Q15).
+     */
+    const failLate = (defect: unknown): void => {
+      lateFailure = Cause.die(defect)
+      const fiber = burstFiber()
+      if (Predicate.isNotUndefined(fiber)) {
+        fiber.interruptUnsafe()
+        return
+      }
+      endAll(Exit.void)
+    }
+
+    /** The burst's fiber, if one holds the subscription. */
+    const burstFiber = (): Fiber.Fiber<void, unknown> | undefined => {
+      const state = burst.state
+      if (state._tag === "Closed") return undefined
+      return state.fiber
     }
 
     const afterTick = (hook: (dt: number) => undefined): Effect.Effect<void, never, Scope.Scope> => {
@@ -410,10 +555,18 @@ export const make = Effect.fnUntraced(
      * the runs it ends are still starting, not waiting. Not the per-frame path.
      */
     const endAll = (exit: Exit.Exit<void>): void => {
-      const ending = endingOf(exit)
+      // A Late round's hook threw (#680, Q15): this burst was interrupted for it, and its runs end with it.
+      const failure = lateFailure
+      lateFailure = undefined
+      const ending = UndefinedOr.match(failure, { onUndefined: () => endingOf(exit), onDefined: (cause) => Exit.failCause(cause) })
+      const failed = Bool.or(Exit.isFailure(exit), Predicate.isNotUndefined(failure))
       bursting = false
-      // A hook that threw ended its tick before it cleared this: no later call is inside a tick (#673).
-      inTick = false
+      // A burst that failed closes the window: no later call is in it (#673, TK3; #680). One that ran out
+      // of runs leaves it open, so a run started after its last tick, in its frame, takes its Late step.
+      if (failed) {
+        windowOpen = false
+        dropLate()
+      }
       Arr.forEach(Arr.appendAll(entries.splice(0), lastEntries.splice(0)), (entry) => {
         if (!entry.removed) end(entry, ending)
       })
@@ -450,16 +603,16 @@ export const make = Effect.fnUntraced(
      * installed (ADR-0040, *Amendment (#460)*): an app's, the devtools', a test's. Effect's default
      * records a span nothing reads, a leg's largest cost after its machine.
      */
-    const runIn = (lane: Array<Entry>): Run =>
+    const runIn = (lane: Array<Entry>, late: Array<Entry>): Run =>
       (<F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, sink: FrameLoop.Sink<F>, options?: RunOptions) =>
         Effect.withFiber((fiber) => {
           // Its start log only when a Debug log would be kept (#542): Effect's own rule, read once.
           const logged = !LogLevel.isGreaterThan(fiber.getRef(References.MinimumLogLevel), "Debug")
           // The metrics from the first run whose fiber has them (#518); none is read once they're in.
           if (Predicate.isUndefined(metrics)) metrics = fiber.getRef(MetricsGiven)
-          if (!isTraced(fiber)) return added(lane, machine, sink, options, undefined, logged)
+          if (!isTraced(fiber)) return added(lane, late, machine, sink, options, undefined, logged)
           return Effect.useSpan(machine.span.name, { attributes: machine.span.attributes }, (span) =>
-            Effect.provideService(added(lane, machine, sink, options, span, logged), Tracer.ParentSpan, span))
+            Effect.provideService(added(lane, late, machine, sink, options, span, logged), Tracer.ParentSpan, span))
         })) as Run
 
     /**
@@ -468,6 +621,7 @@ export const make = Effect.fnUntraced(
      */
     const added = <F extends Frame.Frame<unknown>>(
       lane: Array<Entry>,
+      late: Array<Entry>,
       machine: Machine.Machine<F>,
       sink: FrameLoop.Sink<F>,
       options: RunOptions | undefined,
@@ -477,7 +631,7 @@ export const make = Effect.fnUntraced(
       // Per run, a leg each (#460, compose once): Effect's calls data-first, the steps statements.
       const run = Effect.acquireUseRelease(
         // `CheckFrames` from the caller's fiber, once per run: with it off, the sink as it is.
-        Effect.flatMap(Effect.service(CheckFrames), (check) => entered(lane, machine, sink, options, check)),
+        Effect.flatMap(Effect.service(CheckFrames), (check) => entered(lane, late, machine, sink, options, check, span)),
         settledOf as (entry: Entry) => Effect.Effect<F | Supersede.Superseded>,
         (entry, exit) =>
           Effect.sync(() => {
@@ -491,13 +645,18 @@ export const make = Effect.fnUntraced(
       return Effect.annotateLogs(Effect.andThen(Effect.logDebug(`${machine.span.name}: start`), run), machine.span.attributes)
     }
 
-    /** A run's entry on `lane` (and in its token, given one), and the burst started for it. */
+    /**
+     * A run's entry on `lane` (and in its token, given one), and the burst started for it. Added in the
+     * Late window, it's on `late` too: its Late step is due (#680).
+     */
     const entered = <F extends Frame.Frame<unknown>>(
       lane: Array<Entry>,
+      late: Array<Entry>,
       machine: Machine.Machine<F>,
       sink: FrameLoop.Sink<F>,
       options: RunOptions | undefined,
       check: boolean,
+      span: Tracer.Span | undefined,
     ): Effect.Effect<Entry> => {
       // A closed Environment takes no runs: nothing would tick them.
       if (burst.state._tag === "Closed") return Effect.interrupt
@@ -510,15 +669,18 @@ export const make = Effect.fnUntraced(
         settles: machine.settles,
         settled: Deferred.makeUnsafe<Frame.Frame<unknown> | Supersede.Superseded>(),
         removed: false,
+        late: windowOpen,
+        span,
       }
       lane.push(entry)
+      if (entry.late) late.push(entry)
       if (Predicate.isNotUndefined(options)) joinSupersede(options.supersede, entry)
       return Effect.as(startBurst, entry)
     }
 
-    const inTickNow = (): boolean => inTick
+    const inLateWindow = (): boolean => windowOpen
 
-    return { run: runIn(entries), runLast: runIn(lastEntries), afterTick, ticking: inTickNow } satisfies Shape
+    return { run: runIn(entries, lateFirst), runLast: runIn(lastEntries, lateLast), afterTick, inLateWindow } satisfies Shape
   },
   (self) => traced(self, "wardic.frameloop.make"),
 )

@@ -16,6 +16,7 @@ import * as Fiber from "effect/Fiber"
 import * as Logger from "effect/Logger"
 import * as Metric from "effect/Metric"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as References from "effect/References"
 import { MixedScheduler } from "effect/Scheduler"
 import * as Scope from "effect/Scope"
@@ -226,20 +227,6 @@ describe("the Frame loop: timing (ADR-0027, decision 5)", () => {
     expect(h.dispatches()).toBe(0)
   })
 
-  it("an add during a tick (from a sink) waits for the next tick", async () => {
-    const h = await makeHarness()
-    let late: CountingRun | undefined
-    h.start(counting(Infinity), (frame) => {
-      if (frame.value.length === 1) late = h.start(counting(Infinity))
-    })
-    await endOfTask()
-    h.frames.fire(1000)
-    expect(late?.received.length).toBe(0)
-    h.frames.fire(1016)
-    expect(late?.received.length).toBe(1)
-    expect(late?.received[0]?.value[0]).toBeCloseTo(0.016, 6)
-  })
-
   it("a run removed during a tick, before its turn, gets no Frame", async () => {
     const h = await makeHarness()
     let removed: CountingRun | undefined
@@ -289,6 +276,8 @@ describe("the Frame loop: timing (ADR-0027, decision 5)", () => {
     await endOfTask()
     h.frames.fire(1000)
     h.frames.fire(1016)
+    // The frame's microtasks run before any task: the Retarget below is in a task, after the Late window.
+    await endOfTask()
     h.interrupt(first.fiber)
     const next = h.start(counting(Infinity))
     await endOfTask()
@@ -337,23 +326,6 @@ describe("the Frame loop: the last lane (ADR-0027, *Amendment (#137)*)", () => {
     await endOfTask()
     for (const t of [1000, 1016, 1032]) h.frames.fire(t)
     expect(read).toEqual([1, 2, 3])
-  })
-
-  it("an add to either lane during a tick waits for the next tick", async () => {
-    const h = await makeHarness()
-    let toLast: CountingRun | undefined
-    let toFirst: CountingRun | undefined
-    h.start(counting(Infinity), (frame) => {
-      if (frame.value.length === 1) toLast = h.startLast(counting(Infinity))
-    })
-    h.startLast(counting(Infinity), (frame) => {
-      if (frame.value.length === 1) toFirst = h.start(counting(Infinity))
-    })
-    await endOfTask()
-    h.frames.fire(1000)
-    expect([toLast?.received.length, toFirst?.received.length]).toEqual([0, 0])
-    h.frames.fire(1016)
-    expect([toLast?.received.length, toFirst?.received.length]).toEqual([1, 1])
   })
 
   it("a burst goes on while a last-lane run is left, and ends with it", async () => {
@@ -769,13 +741,13 @@ describe("the Frame loop: afterTick (ADR-0033)", () => {
   })
 })
 
-describe("the Frame loop: ticking() and a hook's dt (ADR-0027 *Amendment (#673)*)", () => {
+describe("the Frame loop: inLateWindow() and a hook's dt (ADR-0027 *Amendments (#673, #680)*)", () => {
   /** Add `hook` to `h`'s loop in a fresh Scope, inline. */
   const addHook = (h: Awaited<ReturnType<typeof makeHarness>>, hook: (dt: number) => undefined): void => {
     Effect.runSync(h.loop.afterTick(hook).pipe(Scope.provide(Scope.makeUnsafe())))
   }
 
-  /** A machine that records `ticking()` in each step, and settles after `steps`. */
+  /** A machine that records `inLateWindow()` in each step, and settles after `steps`. */
   const reading = (h: Awaited<ReturnType<typeof makeHarness>>, steps: number, seen: Array<string>): Machine.Machine<Frame.Frame<number>> =>
     Machine.make({
       settles: true,
@@ -784,27 +756,30 @@ describe("the Frame loop: ticking() and a hook's dt (ADR-0027 *Amendment (#673)*
         let n = 0
         return () => {
           n++
-          seen.push(`step ${h.loop.ticking()}`)
+          seen.push(`step ${h.loop.inLateWindow()}`)
           return { value: n, done: n >= steps }
         }
       },
     })
 
-  it("TK1: ticking() is true in a tick's steps, sinks and hooks, the tick that ends the burst included, and false outside", async () => {
+  it("TK1: inLateWindow() is true in a tick's steps, sinks and hooks and through its frame's microtasks, the tick that ends the burst included, and false after them", async () => {
     const h = await makeHarness()
     const seen: Array<string> = []
     addHook(h, () => {
-      seen.push(`hook ${h.loop.ticking()}`)
+      seen.push(`hook ${h.loop.inLateWindow()}`)
       return undefined
     })
-    expect(h.loop.ticking()).toBe(false)
-    h.start(reading(h, 2, seen), () => seen.push(`sink ${h.loop.ticking()}`))
+    expect(h.loop.inLateWindow()).toBe(false)
+    h.start(reading(h, 2, seen), () => seen.push(`sink ${h.loop.inLateWindow()}`))
     await endOfTask()
-    expect(h.loop.ticking(), "after the run's add, before the first Refresh frame").toBe(false)
+    expect(h.loop.inLateWindow(), "after the run's add, before the first Refresh frame").toBe(false)
     h.frames.fire(1000)
-    expect(h.loop.ticking(), "between ticks").toBe(false)
+    expect(h.loop.inLateWindow(), "after the tick, before its microtasks").toBe(true)
+    await endOfTask()
+    expect(h.loop.inLateWindow(), "between frames").toBe(false)
     h.frames.fire(1016) // the run settles: this tick ends the burst
-    expect(h.loop.ticking()).toBe(false)
+    await endOfTask()
+    expect(h.loop.inLateWindow()).toBe(false)
     expect(seen).toEqual(["step true", "sink true", "hook true", "step true", "sink true", "hook true"])
   })
 
@@ -826,7 +801,7 @@ describe("the Frame loop: ticking() and a hook's dt (ADR-0027 *Amendment (#673)*
     expect(dts[2]).toBeCloseTo(0.03, 9)
   })
 
-  it("TK3: a hook that throws ends its tick, and ticking() is false after it, also through the next burst's gaps", async () => {
+  it("TK3: a hook that throws ends its tick and closes the window: inLateWindow() is false after it, also through the next burst's gaps", async () => {
     const h = await makeHarness()
     let throws = true
     addHook(h, () => {
@@ -839,14 +814,262 @@ describe("the Frame loop: ticking() and a hook's dt (ADR-0027 *Amendment (#673)*
     h.start(counting(Infinity))
     await endOfTask()
     h.frames.fire(1000) // the hook throws mid-tick: the burst fails
-    expect(h.loop.ticking()).toBe(false)
+    expect(h.loop.inLateWindow()).toBe(false)
     const seen: Array<string> = []
     h.start(reading(h, 2, seen))
     await endOfTask()
-    expect(h.loop.ticking()).toBe(false)
+    expect(h.loop.inLateWindow()).toBe(false)
     h.frames.fire(1016)
-    expect(h.loop.ticking()).toBe(false)
+    await endOfTask()
+    expect(h.loop.inLateWindow()).toBe(false)
     expect(seen).toEqual(["step true"])
+  })
+})
+
+describe("the Frame loop: the Late window (ADR-0027 *Amendment (#680)*)", () => {
+  // A browser runs a microtask checkpoint after each Refresh frame callback, before the next callback
+  // and before the paint: `fire`, then `endOfTask()`, is one frame here.
+  /** Fire the Refresh frame at `t`, then its callback's microtasks: one browser frame, up to its paint. */
+  const frame = async (h: Awaited<ReturnType<typeof makeHarness>>, t: number): Promise<void> => {
+    h.frames.fire(t)
+    await endOfTask()
+  }
+  /** Add `hook` to `h`'s loop in a fresh Scope, inline. */
+  const addHook = (h: Awaited<ReturnType<typeof makeHarness>>, hook: (dt: number) => undefined): void => {
+    Effect.runSync(h.loop.afterTick(hook).pipe(Scope.provide(Scope.makeUnsafe())))
+  }
+
+  it("LW1: a run a sink adds takes a Late step in that tick's window, at the tick's dt, then its next step at the next tick", async () => {
+    const h = await makeHarness()
+    let late: CountingRun | undefined
+    h.start(counting(Infinity), (f) => {
+      if (f.value.length === 1) late = h.start(counting(Infinity))
+    })
+    await endOfTask()
+    h.frames.fire(1000)
+    expect(late?.received.length, "the Late step waits for the window's microtask").toBe(0)
+    await endOfTask()
+    expect(dtsOf(late!.received)).toEqual([Clock.NOMINAL_DT])
+    await frame(h, 1016)
+    expect(late!.received).toHaveLength(2)
+    expect(dtsOf(late!.received)[1]).toBeCloseTo(0.016, 6)
+  })
+
+  it("LW2: a run a settle's continuation starts takes its Late step", async () => {
+    const h = await makeHarness()
+    let next: CountingRun | undefined
+    const first = h.start(counting(1))
+    first.fiber.addObserver(() => {
+      next = h.start(counting(Infinity))
+    })
+    await endOfTask()
+    await frame(h, 1000)
+    expect(dtsOf(next!.received)).toEqual([Clock.NOMINAL_DT])
+  })
+
+  it("LW3: a run a hook starts takes its Late step, and every hook runs again after the round, with the tick's dt", async () => {
+    const h = await makeHarness()
+    const events: Array<string> = []
+    let added: CountingRun | undefined
+    addHook(h, (dt) => {
+      events.push(`hook ${dt.toFixed(3)}`)
+      if (Predicate.isUndefined(added)) added = h.start(counting(Infinity), () => events.push("late run"))
+      return undefined
+    })
+    h.start(counting(Infinity), () => events.push("run"))
+    await endOfTask()
+    await frame(h, 1000)
+    expect(events).toEqual(["run", "hook 0.017", "late run", "hook 0.017"])
+    await frame(h, 1016)
+    // Nothing added in that window: no Late round, so the hooks run once.
+    expect(events.slice(4)).toEqual(["run", "late run", "hook 0.016"])
+  })
+
+  it("LW4: a run added in a microtask the tick queued takes its Late step; one added in a later task steps at the next tick", async () => {
+    const h = await makeHarness()
+    let inMicrotask: CountingRun | undefined
+    let inTask: CountingRun | undefined
+    h.start(counting(Infinity), (f) => {
+      if (f.value.length !== 1) return
+      queueMicrotask(() => {
+        inMicrotask = h.start(counting(Infinity))
+      })
+      setTimeout(() => {
+        inTask = h.start(counting(Infinity))
+      }, 0)
+    })
+    await endOfTask()
+    await frame(h, 1000)
+    expect(dtsOf(inMicrotask!.received)).toEqual([Clock.NOMINAL_DT])
+    expect(h.loop.inLateWindow()).toBe(false)
+    await nextTimeout()
+    expect(inTask!.received).toHaveLength(0)
+    await frame(h, 1016)
+    expect(inTask!.received).toHaveLength(1)
+    expect(dtsOf(inTask!.received)[0]).toBeCloseTo(0.016, 6)
+  })
+
+  it("LW5: a round whose runs add more is followed by another, at most 5; the rest step at the next tick", async () => {
+    const h = await makeHarness()
+    const chain: Array<CountingRun> = []
+    // Each link's first step starts the next, from its sink, up to 7 links.
+    const link = (): void => {
+      chain.push(
+        h.start(counting(Infinity), (f) => {
+          if (f.value.length === 1 && chain.length < 7) link()
+        }),
+      )
+    }
+    h.start(counting(Infinity), (f) => {
+      if (f.value.length === 1) link()
+    })
+    await endOfTask()
+    await frame(h, 1000)
+    // Rounds 1-5 stepped links 1-5; link 5's step added link 6, past the cap.
+    expect(chain.map((run) => run.received.length)).toEqual([1, 1, 1, 1, 1, 0])
+    await frame(h, 1016)
+    // The tick stepped link 6, whose sink added link 7: its Late step, in this window.
+    expect(chain.map((run) => run.received.length)).toEqual([2, 2, 2, 2, 2, 1, 1])
+    expect(dtsOf(chain[5]!.received)[0]).toBeCloseTo(0.016, 6)
+    // A warm Late step goes at its tick's dt, as every other run stepped by.
+    expect(dtsOf(chain[6]!.received)[0]).toBeCloseTo(0.016, 6)
+  })
+
+  it("LW6: a last-lane run the tick stepped steps again at dt 0 after a first-lane Late step, so it reads what that step wrote", async () => {
+    const h = await makeHarness()
+    const order: Array<string> = []
+    const last = (name: string) => (f: Frame.Frame<ReadonlyArray<number>>) => order.push(`${name} ${f.value.at(-1)!.toFixed(3)}`)
+    h.startLast(counting(Infinity), last("last"))
+    h.start(counting(Infinity), (f) => {
+      order.push("first")
+      if (f.value.length === 1) h.start(counting(Infinity), last("lateFirst"))
+    })
+    await endOfTask()
+    await frame(h, 1000)
+    expect(order).toEqual(["first", "last 0.017", "lateFirst 0.017", "last 0.000"])
+  })
+
+  it("LW6b: a last-lane run added in the window takes no Late step, nor a dt-0 step: it first steps at the next tick", async () => {
+    // The projection's coordinator would step again the nodes an after-tick Measure pass stepped (#680).
+    const h = await makeHarness()
+    const order: Array<string> = []
+    h.startLast(counting(Infinity), (f) => order.push(`last ${f.value.at(-1)!.toFixed(3)}`))
+    h.start(counting(Infinity), (f) => {
+      if (f.value.length !== 1) return
+      h.startLast(counting(Infinity), (g) => order.push(`lateLast ${g.value.at(-1)!.toFixed(3)}`))
+      h.start(counting(Infinity))
+    })
+    await endOfTask()
+    await frame(h, 1000)
+    expect(order, "the first-lane Late step gives the tick's last-lane run its dt-0 step, not the new one").toEqual(["last 0.017", "last 0.000"])
+    await frame(h, 1016)
+    expect(order.slice(2)).toEqual(["last 0.016", "lateLast 0.016"])
+  })
+
+  it("LW7: inLateWindow() is true in a microtask the tick queued and false in a later task", async () => {
+    const h = await makeHarness()
+    const seen: Array<string> = []
+    h.start(counting(Infinity), (f) => {
+      if (f.value.length !== 1) return
+      queueMicrotask(() => seen.push(`microtask ${h.loop.inLateWindow()}`))
+      setTimeout(() => seen.push(`task ${h.loop.inLateWindow()}`), 0)
+    })
+    await endOfTask()
+    await frame(h, 1000)
+    await nextTimeout()
+    expect(seen).toEqual(["microtask true", "task false"])
+  })
+
+  it("LW8: a hook that throws in a Late round ends every run with the defect and closes the window; the next run gets a fresh burst", async () => {
+    const h = await makeHarness()
+    let throwNext = false
+    addHook(h, () => {
+      if (!throwNext) return undefined
+      throwNext = false
+      throw new Error("late hook threw")
+    })
+    let late: CountingRun | undefined
+    const first = h.start(counting(Infinity), (f) => {
+      if (f.value.length === 1) {
+        late = h.start(counting(Infinity), () => {
+          throwNext = true
+        })
+      }
+    })
+    await endOfTask()
+    await frame(h, 1000)
+    for (const run of [first, late!]) {
+      const exit = run.fiber.pollUnsafe()
+      expect(exit !== undefined && Exit.isFailure(exit) && Cause.hasDies(exit.cause)).toBe(true)
+      expect(Cause.pretty((exit as Exit.Failure<unknown, unknown>).cause)).toContain("late hook threw")
+    }
+    expect(h.loop.inLateWindow()).toBe(false)
+    const fresh = h.start(counting(2))
+    await endOfTask()
+    await frame(h, 1016)
+    await frame(h, 1032)
+    expect(fresh.received.map((f) => f.done)).toEqual([false, true])
+  })
+
+  it("LW9: a run added in the window after its tick ended the burst takes its Late step and starts the next burst", async () => {
+    const h = await makeHarness()
+    let next: CountingRun | undefined
+    h.start(counting(1), () =>
+      queueMicrotask(() => {
+        next = h.start(counting(2))
+      }),
+    )
+    await endOfTask()
+    await frame(h, 1000) // the only run settles: this tick ends the burst
+    expect(dtsOf(next!.received)).toEqual([Clock.NOMINAL_DT])
+    expect(h.frames.pending.size).toBe(1)
+    await frame(h, 1016)
+    expect(next!.received.map((f) => f.done)).toEqual([false, true])
+  })
+
+  it("LW10: a run superseded before its Late step gets none, and ends Superseded; a round that steps none gives the last lane no dt-0 step", async () => {
+    const h = await makeHarness()
+    const token = Supersede.make()
+    const received: Array<Frame.Frame<ReadonlyArray<number>>> = []
+    const last = h.startLast(counting(Infinity))
+    let late: Fiber.Fiber<unknown> | undefined
+    h.start(counting(Infinity), (f) => {
+      if (f.value.length !== 1) return
+      late = h.fork(h.loop.run(counting(Infinity), into(received), { supersede: token }))
+      Supersede.end(token)
+    })
+    await endOfTask()
+    await frame(h, 1000)
+    expect(received).toHaveLength(0)
+    const exit = late!.pollUnsafe()
+    expect(exit !== undefined && Exit.isSuccess(exit) && Supersede.isSuperseded(exit.value)).toBe(true)
+    expect(dtsOf(last.received), "the tick's step alone").toEqual([Clock.NOMINAL_DT])
+  })
+
+  it("LW11: a run's span is marked late: true at its Late step; one stepped by a tick isn't", async () => {
+    const h = await makeHarness()
+    h.start(counting(Infinity, "test.ticked"), (f) => {
+      if (f.value.length === 1) h.start(counting(Infinity, "test.late"))
+    })
+    await endOfTask()
+    await frame(h, 1000)
+    const spanOf = (name: string) => h.spans.find((span) => span.name === name)
+    expect(spanOf("test.late")?.attributes.get("late")).toBe(true)
+    expect(spanOf("test.ticked")?.attributes.has("late")).toBe(false)
+  })
+
+  it("LW12: a window the next tick finds still open (frames fired back to back) is dropped: its runs step once, in that tick", async () => {
+    const h = await makeHarness()
+    let late: CountingRun | undefined
+    h.start(counting(Infinity), (f) => {
+      if (f.value.length === 1) late = h.start(counting(Infinity))
+    })
+    await endOfTask()
+    h.frames.fire(1000)
+    h.frames.fire(1016) // no checkpoint between: the first window's run is on the lane, and this tick steps it
+    await endOfTask()
+    expect(dtsOf(late!.received)).toHaveLength(1)
+    expect(dtsOf(late!.received)[0]).toBeCloseTo(0.016, 6)
   })
 })
 

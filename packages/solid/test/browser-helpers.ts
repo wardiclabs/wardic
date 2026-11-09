@@ -5,6 +5,8 @@
 // `style` prop is now tracked too (see wardic-create.browser.test.tsx), so either
 // works for new tests.
 
+import { expect } from "vitest"
+
 /** Resolve after the next real animation frame. */
 export const raf = (): Promise<void> => new Promise((r) => requestAnimationFrame(() => r()))
 
@@ -161,4 +163,29 @@ export const retryGesture = async (
       if (took()) return
     }
   }
+}
+
+/**
+ * The frame a callback runs in, as its timeline time: inside a frame, `document.timeline.currentTime` is
+ * that frame's timestamp, and a task after its paint still reads it (#673's probe), so the post-paint
+ * read of the same frame carries the same time. The gate writes 6 significant digits, so a tween's last
+ * step but one already reads as its target: a value can't tell the landing frame, its callback can (#680).
+ */
+export const frameNow = (): number => document.timeline.currentTime as number
+
+/** The index of the {@link paintedReads} read, each led by its {@link frameNow}, taken after the paint of frame `at`. */
+export const readOf = <A extends readonly [number, ...ReadonlyArray<unknown>]>(reads: ReadonlyArray<A>, at: number | undefined): number => {
+  const i = reads.findIndex(([t]) => t === at)
+  expect(i, "the callback's frame is among the reads").toBeGreaterThan(0)
+  return i
+}
+
+/**
+ * A start's painted positions, from its first frame: moved by a single step there, off the origin and
+ * short of the destination, and the next step larger (from rest; a doubled first step isn't) (#680).
+ */
+export const expectMovedFirst = (xs: ReadonlyArray<number>, origin: number, destination: number): void => {
+  expect(Math.abs(xs[0]! - origin), "the first frame moved").toBeGreaterThan(0.01)
+  expect(Math.abs(xs[0]! - destination)).toBeGreaterThan(1)
+  expect(Math.abs(xs[1]! - xs[0]!), "a single first step: the second is larger").toBeGreaterThan(Math.abs(xs[0]! - origin))
 }

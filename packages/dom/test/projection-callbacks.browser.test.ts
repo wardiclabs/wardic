@@ -94,6 +94,8 @@ describe("layout animation callbacks (#191, ADR-0039)", () => {
     expect(calls).toEqual(["start n0"])
     fireFrames(10)
     calls.length = 0
+    // The frame's microtasks run before any task: what follows is a task, after the Late window (#680).
+    await endOfTask()
     // A pass due at a call runs then (#4) and seeds a flight; the call's own pass restarts it: one start.
     moveTo(a, h!, 200)
     e.system.animateLayout(() => {

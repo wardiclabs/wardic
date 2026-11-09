@@ -191,6 +191,8 @@ describe("a dragged projection node and the Measure pass (#26)", () => {
     await endOfTask()
     fireFrame()
     fireFrame()
+    // The frame's microtasks run before any task: the change below is a task, after the Late window (#680).
+    await endOfTask()
     const passesBefore = e.measures.spans.length
 
     dEl.style.top = "60px" // D's slot (and C with it) moves down by 60

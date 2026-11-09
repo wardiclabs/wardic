@@ -96,3 +96,50 @@ for (const [layout, busy] of [
     for (const [i, f] of flight.entries()) if (f.shows) expect(apart(f.follower, f.lead), `frame ${i}: the Follower on the Lead`).toBeLessThan(0.75)
   })
 }
+
+// MS5 (#680, Q9): the modal scales in from 0.8 as its twin flies in (MS1), and a callback in the Frame
+// loop's tick (another element's landing) retargets that scale mid-flight. Its new leg takes its Late
+// step after the coordinator stepped in that tick, so the coordinator steps again at dt 0 and reads the
+// scale that frame paints (ADR-0027 *Amendment (#680)*). Without that step the Follower is drawn a step
+// behind for a frame.
+it("MS5: the modal's scale retargeted in the Late window mid-flight: the Follower on the Lead every frame (#680)", async () => {
+  const [open, setOpen] = createSignal(false)
+  const [shrunk, setShrunk] = createSignal(false)
+  const [go, setGo] = createSignal(false)
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      <div style={{ position: "relative", height: "500px" }}>
+        <wardic.div
+          animate={{ x: Bool.match(go(), { onTrue: () => 40, onFalse: () => 0 }) }}
+          transition={{ type: "tween", duration: 0.1 }}
+          onAnimationComplete={() => {
+            if (go()) setShrunk(true)
+          }}
+          style={{ position: "absolute", left: "0px", top: "460px", width: "20px", height: "20px", background: "gray" }}
+        />
+        <wardic.div data-thumb layoutId="ms5" style={{ position: "absolute", left: "20px", top: "300px", width: "60px", height: "40px", background: "teal" }} />
+        <Show when={open()}>
+          <wardic.div
+            initial={{ scale: 0.8 }}
+            animate={{ scale: Bool.match(shrunk(), { onTrue: () => 0.6, onFalse: () => 1 }) }}
+            transition={{ type: "spring", stiffness: 60, damping: 20 }}
+            style={{ position: "absolute", left: "300px", top: "100px", width: "300px", height: "240px", background: "#eee" }}
+          >
+            <wardic.div data-big layoutId="ms5" transition={{ type: "spring", stiffness: 60, damping: 20 }} style={{ position: "absolute", left: "50px", top: "40px", width: "200px", height: "150px", background: "orange" }} />
+          </wardic.div>
+        </Show>
+      </div>
+    </WardicProvider>
+  ))
+  await atRest()
+  const thumb = container.querySelector("[data-thumb]") as HTMLElement
+  const flight = await paintsAfter(
+    () => {
+      setOpen(true)
+      setGo(true)
+    },
+    () => ({ lead: rectOf(container.querySelector("[data-big]")!), follower: rectOf(thumb), shows: Number(getComputedStyle(thumb).opacity) > 0.01 }),
+    40,
+  )
+  for (const [i, f] of flight.entries()) if (f.shows) expect(apart(f.follower, f.lead), `frame ${i}: the Follower on the Lead`).toBeLessThan(0.75)
+})
