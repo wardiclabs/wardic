@@ -17,6 +17,8 @@
 // - RTV7 (#486): a point over the new page mid-transition hits it, not the popped list.
 // - RTV8 (#480): from a list scrolled down, the router's scroll to the top: the hero from where the
 //   card was seen, and the popped list where it was seen.
+// - RTV9 (#682): rapid back and forth (piece A, the list, piece B, 150 ms apart): A's photo on the
+//   list that leaves, mid-flight back from A's leaving hero, stays where it's drawn as it fades.
 import type { JSX } from "@solidjs/web"
 import { createRouter, memoryHistory, useNavigate, useParams } from "@solidjs/router-2"
 import { DomLive } from "@wardic/dom"
@@ -24,7 +26,7 @@ import { AnimatePresence, wardic, WardicProvider, type WardicTransition } from "
 import * as Bool from "effect/Boolean"
 import { createMemo, Loading, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
-import { afterPaint, raf, until } from "../browser-helpers.ts"
+import { afterPaint, paintedReads, raf, until } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
 
 afterEach(() => window.scrollTo(0, 0))
@@ -74,6 +76,35 @@ const Item = () => {
       <span data-k="id">{params.id}</span>
     </wardic.main>
   )
+}
+
+// The catalogue (#682): two photos on the list, each a piece's hero, Motion's default layout tween.
+const FLIGHT: WardicTransition = { type: "tween", duration: 0.45, ease: [0.4, 0, 0.1, 1] }
+const FADE: WardicTransition = { type: "tween", duration: 0.25 }
+const SHEET = { display: "block", width: "600px", "min-height": "300px" } as const
+const photoAt = (left: number) => ({ position: "absolute", top: "200px", left: `${left}px`, width: "160px", height: "120px", background: "teal" }) as const
+
+const Catalogue = () => (
+  <wardic.main data-page="list" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={FADE} style={SHEET}>
+    <wardic.div data-k="card-a" layoutId="photo-a" transition={{ layout: FLIGHT }} style={photoAt(20)} />
+    <wardic.div data-k="card-b" layoutId="photo-b" transition={{ layout: FLIGHT }} style={photoAt(220)} />
+  </wardic.main>
+)
+
+const Piece = () => {
+  const params = useParams()
+  return (
+    <wardic.main data-page="piece" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={FADE} style={SHEET}>
+      <wardic.div data-k="hero" layoutId={`photo-${params.id}`} transition={{ layout: FLIGHT }} style={{ width: "320px", height: "240px", background: "teal" }} />
+    </wardic.main>
+  )
+}
+
+/** The opacity `el` is drawn at: its own and every ancestor's. */
+const drawnOpacityOf = (el: Element): number => {
+  let opacity = 1
+  for (let at: Element | null = el; at !== null; at = at.parentElement) opacity *= Number(getComputedStyle(at).opacity)
+  return opacity
 }
 
 describe("page transitions with Solid Router on Solid 2 (#479)", () => {
@@ -273,5 +304,25 @@ describe("page transitions with Solid Router on Solid 2 (#479)", () => {
     expect(window.scrollY, "the router scrolled to the top").toBe(0)
     expect(Math.abs(app.el("hero")!.getBoundingClientRect().top - seen.card), "the hero from where the card was seen, px").toBeLessThan(40)
     expect(list.getBoundingClientRect().top, "the popped list where it was seen").toBeCloseTo(seen.list, 0)
+  })
+  it("RTV9: rapid back and forth: the photo on the list that leaves stays where it's drawn, though its twins are leaving too (#682)", async () => {
+    const app = mountRoutes([{ path: "/", component: Catalogue }, { path: "/item/:id", component: Piece }], "popLayout")
+    await until(() => app.host.querySelectorAll('[data-k="card-a"]').length === 1, 2000)
+    await frames(20)
+    app.navigate("/item/a")
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    app.navigate("/")
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    const photo = Array.from(app.host.querySelectorAll<HTMLElement>('[data-k="card-a"]')).at(-1)!
+    const seen = paintedReads(() => ({ box: photo.getBoundingClientRect(), opacity: drawnOpacityOf(photo) }), 14)
+    app.navigate("/item/b")
+    const shown = (await seen).filter((f) => f.opacity > 0.02)
+    expect(shown.length, "it shows while its page fades").toBeGreaterThan(3)
+    const first = shown[0]!.box
+    for (const [i, f] of shown.entries()) {
+      expect(Math.abs(f.box.left - first.left), `frame ${i}: left`).toBeLessThan(0.5)
+      expect(Math.abs(f.box.top - first.top), `frame ${i}: top`).toBeLessThan(0.5)
+      expect(Math.abs(f.box.width - first.width), `frame ${i}: width`).toBeLessThan(0.5)
+    }
   })
 })

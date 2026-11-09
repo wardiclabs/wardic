@@ -30,19 +30,22 @@ export const afterPaint = async (): Promise<void> => {
  * rAF callback instead depends on callback order — queued ahead of the gate's
  * flush, it sees the previous frame's paint. Call it right after the trigger.
  */
-export const paintedFrames = (el: Element, n: number): Promise<ReadonlyArray<DOMRect>> =>
+export const paintedFrames = (el: Element, n: number): Promise<ReadonlyArray<DOMRect>> => paintedReads(() => el.getBoundingClientRect(), n)
+
+/** {@link paintedFrames}, reading whatever `read` reads after each of the next `n` paints. */
+export const paintedReads = <A>(read: () => A, n: number): Promise<ReadonlyArray<A>> =>
   new Promise((resolve) => {
-    const boxes: Array<DOMRect> = []
+    const reads: Array<A> = []
     const channel = new MessageChannel()
     const post = (): void => channel.port2.postMessage(undefined)
     channel.port1.onmessage = () => {
-      boxes.push(el.getBoundingClientRect())
-      if (boxes.length < n) {
+      reads.push(read())
+      if (reads.length < n) {
         requestAnimationFrame(post)
         return
       }
       channel.port1.close()
-      resolve(boxes)
+      resolve(reads)
     }
     requestAnimationFrame(post)
   })

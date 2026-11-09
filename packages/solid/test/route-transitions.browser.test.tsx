@@ -22,6 +22,9 @@
 //   taking no input, lets the click through.
 // - RT9 (#480): from a list scrolled down, the router's scroll to the top: the hero flies from where
 //   the card was seen, and the popped list stays where it was seen, then goes.
+// - RT10 (#682): rapid back and forth, as the storefront's catalogue: piece A, back to the list, then
+//   piece B, 150 ms apart. A's photo on the list that leaves, mid-flight back from A's hero, which is
+//   leaving too, stays where it's drawn as it fades: nothing takes over from it.
 import { createMemoryHistory, MemoryRouter, Route, useNavigate, useParams } from "@solidjs/router"
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
@@ -29,7 +32,7 @@ import { AnimatePresence, wardic, WardicProvider, type WardicTransition } from "
 import * as Bool from "effect/Boolean"
 import { createResource, type JSX, Show, Suspense } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
-import { afterPaint, raf, until } from "./browser-helpers.ts"
+import { afterPaint, paintedReads, raf, until } from "./browser-helpers.ts"
 
 afterEach(() => {
   cleanup()
@@ -114,6 +117,55 @@ const mountApp = (mode: "sync" | "wait" | "popLayout") => {
     </WardicProvider>
   ))
   return { navigate: (to: string) => navigate(to), pages: () => Array.from(container.querySelectorAll<HTMLElement>("[data-page]")) }
+}
+
+/**
+ * The catalogue (#682): a list at `/` with two photos, `photo-a` and `photo-b`, and a piece at
+ * `/item/:id` with its photo as the hero, its outlet in a `popLayout` presence; Motion's default
+ * layout tween, and a 0.25 s fade for the pages.
+ */
+const mountCatalogue = () => {
+  const history = createMemoryHistory()
+  let navigate!: (to: string) => void
+  const FLIGHT: WardicTransition = { type: "tween", duration: 0.45, ease: [0.4, 0, 0.1, 1] }
+  const FADE: WardicTransition = { type: "tween", duration: 0.25 }
+  const SHEET = { display: "block", width: "600px", "min-height": "300px" } as const
+  const Root = (props: { readonly children?: JSX.Element }) => {
+    const go = useNavigate()
+    navigate = (to) => go(to)
+    return <AnimatePresence mode="popLayout">{props.children}</AnimatePresence>
+  }
+  const photo = (left: number) => ({ position: "absolute", top: "200px", left: `${left}px`, width: "160px", height: "120px", background: "teal" }) as const
+  const List = () => (
+    <wardic.main data-page="list" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={FADE} style={SHEET}>
+      <wardic.div data-k="card-a" layoutId="photo-a" transition={{ layout: FLIGHT }} style={photo(20)} />
+      <wardic.div data-k="card-b" layoutId="photo-b" transition={{ layout: FLIGHT }} style={photo(220)} />
+    </wardic.main>
+  )
+  const Item = () => {
+    const params = useParams()
+    return (
+      <wardic.main data-page={`item-${params.id}`} initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }} transition={FADE} style={SHEET}>
+        <wardic.div data-k={`hero-${params.id}`} layoutId={`photo-${params.id}`} transition={{ layout: FLIGHT }} style={{ width: "320px", height: "240px", background: "teal" }} />
+      </wardic.main>
+    )
+  }
+  const { container } = render(() => (
+    <WardicProvider env={DomLive}>
+      <MemoryRouter history={history} root={Root}>
+        <Route path="/" component={List} />
+        <Route path="/item/:id" component={Item} />
+      </MemoryRouter>
+    </WardicProvider>
+  ))
+  return { navigate: (to: string) => navigate(to), all: (k: string) => Array.from(container.querySelectorAll<HTMLElement>(`[data-k="${k}"]`)) }
+}
+
+/** The opacity `el` is drawn at: its own and every ancestor's. */
+const drawnOpacityOf = (el: Element): number => {
+  let opacity = 1
+  for (let at: Element | null = el; at !== null; at = at.parentElement) opacity *= Number(getComputedStyle(at).opacity)
+  return opacity
 }
 
 describe("page transitions with Solid Router on Solid 1 (#479)", () => {
@@ -346,6 +398,28 @@ describe("page transitions with Solid Router on Solid 1 (#479)", () => {
     expect(list.getBoundingClientRect().top, "the popped list where it was seen").toBeCloseTo(seen.list, 0)
     await until(() => Bool.not(list.isConnected), 3000)
     expect(app.el("hero")!.getBoundingClientRect().top, "the hero landed at the top").toBeCloseTo(0, 0)
+  })
+  it("RT10: rapid back and forth: the photo on the list that leaves stays where it's drawn, though its twins are leaving too (#682)", async () => {
+    const app = mountCatalogue()
+    await until(() => app.all("card-a").length === 1, 2000)
+    await frames(20)
+    app.navigate("/item/a")
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    app.navigate("/") // A's photo flies back from the hero, on a new list
+    await new Promise((resolve) => setTimeout(resolve, 150))
+    const photo = app.all("card-a").at(-1)!
+    const seen = paintedReads(() => ({ box: photo.getBoundingClientRect(), opacity: drawnOpacityOf(photo) }), 14)
+    app.navigate("/item/b") // the list leaves, A's photo mid-flight, its hero's page leaving too
+    const frames14 = await seen
+    const shown = frames14.filter((f) => f.opacity > 0.02)
+    expect(shown.length, "it shows while its page fades").toBeGreaterThan(3)
+    const first = shown[0]!.box
+    for (const [i, f] of shown.entries()) {
+      // Before #682 it flew back toward A's hero, 231 → 306 px wide.
+      expect(Math.abs(f.box.left - first.left), `frame ${i}: left`).toBeLessThan(0.5)
+      expect(Math.abs(f.box.top - first.top), `frame ${i}: top`).toBeLessThan(0.5)
+      expect(Math.abs(f.box.width - first.width), `frame ${i}: width`).toBeLessThan(0.5)
+    }
   })
 })
 
