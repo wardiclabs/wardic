@@ -674,3 +674,19 @@ Rejected, for the whole: a leg without a fiber, run straight on the loop with a 
 - the start log never built (SF1).
 
 Not caught: a dispose that ends legs by token alone. Every leg a test can build is on the loop when its element unmounts, so its token reaches it. The interrupt is `endLeg`'s, as on a Retarget.
+
+## Amendment (#673, 2026-11-09): `ticking()`, and a hook's dt
+
+The projection's Measure pass takes the first step of the nodes it seeded when it knows it runs after its frame's tick (ADR-0018, *Amendment (#673)*). One way it knows is a trigger made during the loop's tick, and the step goes at the dt that tick stepped everything else by. The loop's internal Shape (ADR-0028, decision 11) gains both:
+
+- **`ticking(): boolean`:** true from a tick's first step until its last hook returns, and false otherwise. Its cost per tick is two assignments.
+  - A hook that throws fails its tick before the flag is cleared, so `endAll` clears it too: no later call reads a tick that ended (TK3).
+- **A hook is called with its tick's dt:** `afterTick: (hook: (dt: number) => undefined) => …`. The gate's hook takes no argument and is unchanged.
+- **Hand-written loop shapes** (a test's wrapper) pass `ticking` through, as they pass `afterTick` (ADR-0033's *Consequences*).
+
+**Pinned by** `frame-loop.test.ts`:
+- TK1: true in a tick's steps, sinks and hooks, the tick that ends the burst included, and false outside;
+- TK2: each hook gets the tick's dt, nominal first;
+- TK3: false after a hook throws, through the next burst's gaps.
+
+**Measured:** `bench:core` against `main` passed every workload in Bun, Node and Chromium.

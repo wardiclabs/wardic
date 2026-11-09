@@ -42,30 +42,38 @@ const oldS7Spans: ReadonlyArray<SpanRecord> = [
 describe("measurePassesOf", () => {
   it("counts every Measure pass at or after the trigger, and those that seeded (scenario 7: 2, 1 seeding)", () => {
     const passes = measurePassesOf(fixedS7Spans, fixedS7Trigger)
-    expect(passes).toEqual({ count: 2, seeding: 1, starts: [25667.5, 25669] })
+    expect(passes).toEqual({ count: 2, seeding: 1, stepping: 0, starts: [25667.5, 25669] })
     expect(formatPasses(passes)).toBe("2 (1 seeding)")
   })
 
   it("leaves out a pass that started before the trigger, and counts one in the trigger's millisecond", () => {
     // A pass from an earlier run, 5 ms before this trigger, and a later one in this run.
     const spans = [span(MEASURE, 25660, 25661, { seeded: 1 }), ...fixedS7Spans, span(MEASURE, 25870, 25870.5, { seeded: 2 })]
-    expect(measurePassesOf(spans, fixedS7Trigger)).toEqual({ count: 3, seeding: 2, starts: [25667.5, 25669, 25870] })
+    expect(measurePassesOf(spans, fixedS7Trigger)).toEqual({ count: 3, seeding: 2, stepping: 0, starts: [25667.5, 25669, 25870] })
     // Firefox's whole-millisecond timer: a pass in the trigger's own millisecond is the trigger's.
-    expect(measurePassesOf([span(MEASURE, 5100, 5101, { seeded: 1 })], 5100)).toEqual({ count: 1, seeding: 1, starts: [5100] })
+    expect(measurePassesOf([span(MEASURE, 5100, 5101, { seeded: 1 })], 5100)).toEqual({ count: 1, seeding: 1, stepping: 0, starts: [5100] })
   })
 
   it("counts a span with no `seeded` (a log from before the fix, or a span still in flight) as not seeding", () => {
     expect(measurePassesOf(oldS7Spans, oldS7Trigger)).toEqual({
       count: 2,
       seeding: 0,
+      stepping: 0,
       starts: [166542.69999992847, 166556.89999997616],
     })
-    expect(measurePassesOf([span(MEASURE, 10, undefined, {})], 0)).toEqual({ count: 1, seeding: 0, starts: [10] })
+    expect(measurePassesOf([span(MEASURE, 10, undefined, {})], 0)).toEqual({ count: 1, seeding: 0, stepping: 0, starts: [10] })
+  })
+
+  it("counts the passes that took their nodes' first step themselves, and the card shows them (#673)", () => {
+    // Scenario 2 since #673: the observer's pass seeds the box and steps it before the paint.
+    const passes = measurePassesOf([span(MEASURE, 5100, 5101, { seeded: 1, stepped: 1 }), span(MEASURE, 5120, 5121, { seeded: 0, stepped: 0 })], 5100)
+    expect(passes).toEqual({ count: 2, seeding: 1, stepping: 1, starts: [5100, 5120] })
+    expect(formatPasses(passes)).toBe("2 (1 seeding, 1 stepped)")
   })
 
   it("reads `passes 0` for a run no Measure pass answered (scenario 9's spring)", () => {
     const passes = measurePassesOf([span(COORDINATOR, 12, 400, {}), span("wardic.clock", 12, undefined, {})], 10)
-    expect(passes).toEqual({ count: 0, seeding: 0, starts: [] })
+    expect(passes).toEqual({ count: 0, seeding: 0, stepping: 0, starts: [] })
     expect(formatPasses(passes)).toBe("0")
   })
 

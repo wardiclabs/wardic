@@ -146,7 +146,10 @@
 32. **One held frame for starts caused by the Model** (R5 Q20; P1, P20).
     - **Why:** Foldkit patches inside its rAF callback, after Wardic's tick, so a layout move, a Retarget or a pointer-driven swap paints its origin and moves in the next frame.
     - **What it costs:** warm, about 14 ms more than Solid in Chromium and about 21 ms in Firefox; cold, 3–4 ms in Chromium. An interrupted motion doesn't stall.
-    - Documented. The fix belongs in core: #673.
+    - Documented. #673 took core's half (ADR-0018, *Amendment (#673)*): a Measure pass that knows it runs after its frame's tick takes its nodes' first step. It knows from its trigger only: a trigger during Wardic's tick, or in the engine's observer delivery.
+      - Foldkit's patch is app code in a later rAF callback to the engine, so it still holds one frame.
+      - Its fix is a hint the binding gives from code it knows runs inside a frame, built with the binding. The rule it feeds is #673's: step if the last tick's frame time equals this frame's, or if the Clock has no request pending; otherwise step nothing, since a tick is still to come in this frame.
+      - Starts on the Frame loop (a Retarget, a pointer-driven swap's legs) are #680.
 33. **`viewTransition`** (R5 Q18; P10). The app wraps its predicate with `wardic.viewTransition(…)`. In a transitioned render, layout moves and `layoutId` handovers land at once, and the View Transition animates.
 34. **DevTools replay lands everything at once** (R2 Q7), through ADR-0063's `skipAnimations`: animations, layout, exits and Appear, with no callback Messages.
 
@@ -187,7 +190,7 @@
 - **as issues:** a public `Prop` (U2), a removal delay (U3), a commit Stream and a pre-commit moment (U4), and a head channel (U6).
 
 **Follow-ups filed from the probes:**
-- #673: a first step inside a pass that runs after the frame's tick;
+- #673: a first step inside a pass that runs after the frame's tick (done for the engine's own triggers; Foldkit's hint comes with the binding);
 - #674: a pass that finds nothing moved still writes 2N transforms;
 - #675: Solid's presence lets a leaver drift on a reorder.
 

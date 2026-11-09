@@ -153,8 +153,9 @@ const View: ScenarioDef["View"] = (props) => {
 /**
  * Scenario 5, on Wardic animation complete: the end of the coordinator span that
  * carried the click's A to B FLIP writes the `layoutDependency` signal (B to A).
- * Expected to be safe, holding 1: the span end is delivered inside the Clock's
- * callback, in the frame's tick.
+ * Expected to be safe, holding 0: the span end is delivered inside the Clock's
+ * callback, in the frame's tick, so the pass knows it runs after the tick and takes the
+ * box's first step back before the paint (#673).
  */
 export const s5: ScenarioDef = {
   id: ID,
@@ -163,14 +164,18 @@ export const s5: ScenarioDef = {
   mechanism:
     "The end of the wardic.projection.coordinator span (ctx.onLayoutAnimationComplete) writes the layoutDependency signal.",
   prediction: "safe",
-  expectedHeld: 1,
+  expectedHeld: 0,
   rationale:
     "The span end, and so the signal write, lands inside the Clock's rAF callback, in the frame's tick, where the " +
     "coordinator's run settles (the lab's frame trace shows it in the Clock's callback in Chrome and Firefox). " +
-    "Solid 2 applies the write at its flush, a microtask straight after that callback, and notify queues a Measure " +
-    "pass that runs in a later microtask and flushes its seed before " +
-    "the frame paints (ADR-0018), so the frame shows the box at its origin and the next frame's tick moves it " +
-    "(held 1; ADR-0033). Were Effect's scheduler to " +
+    "Solid 2 applies the write at its next flush, which the gate's flush at the end of that tick drains before it " +
+    "commits (ADR-0045), so notify comes inside the tick, and queues a Measure pass that runs in a microtask after " +
+    "the callback and flushes its seed before " +
+    "the frame paints (ADR-0018). The trigger came inside the tick, so the pass knows it runs after it, and takes " +
+    "the box's first step back too, though the box landed in that tick: its landing step was a hair (the default " +
+    "tween's last is about 0.1 px), and the frame paints the way back's first step on top of it (held 0; " +
+    "ADR-0018 *Amendment (#673)*). Until #673 the frame showed the landing and the next tick took the step (held 1). " +
+    "Were Effect's scheduler to " +
     "deliver the end in a later task instead, that would be a task trigger: still safe, held 0. The span end is " +
     "only a proxy: Wardic exposes no layout-animation-complete callback.",
   View,

@@ -10,7 +10,11 @@
 // it wrote before returning, and a running node whose box didn't change is left alone
 // (ADR-0018). The nodes it seeded take their first step at the next tick, painted in that
 // frame (ADR-0033). So a change made after the frame's tick paints its origin in that frame
-// and moves on the next one.
+// and moves on the next one, unless the pass knows it runs after the tick: a change made during
+// the Frame loop's tick (the gate's flush and the effects in it, the engine's callbacks) or seen
+// by the engine's ResizeObserver takes its first step in the pass, and moves in that frame, one
+// step along (ADR-0018 *Amendment (#673)*). App code in an observer or a later rAF callback
+// can't be told from a task, and still paints its origin first.
 //
 // How a frame is read: post-paint, never inside a rAF callback. `paintedFrames`
 // starts from a task (its first box is the next frame's paint); a trigger that runs
@@ -77,6 +81,24 @@ const expectOriginThenMove = (
   expect(Math.abs(f1 - origin)).toBeLessThan(Math.abs(destination - origin))
 }
 
+/**
+ * A layout change its Measure pass knows is after the frame's tick (#673): that frame has already
+ * moved, by a single step (the next frame's step is larger, as from rest; a doubled first step
+ * isn't), and not to the destination.
+ */
+const expectMoveFirst = (
+  frames: ReadonlyArray<DOMRect>,
+  key: "left" | "width",
+  origin: number,
+  destination: number,
+): void => {
+  const f0 = frames[0]![key]
+  const f1 = frames[1]![key]
+  expect(Math.abs(f0 - origin), "the first frame moved").toBeGreaterThan(0.01)
+  expect(Math.abs(f0 - destination)).toBeGreaterThan(1)
+  expect(Math.abs(f1 - f0), "a single first step: the second is larger").toBeGreaterThan(Math.abs(f0 - origin))
+}
+
 /** Painted steps (px) between consecutive samples, with `origin` as the sample before the first. */
 const stepsFrom = (origin: number, lefts: ReadonlyArray<number>): Array<number> => {
   const xs = [origin, ...lefts]
@@ -114,7 +136,7 @@ const WarmDot = (props: { readonly ref?: (el: HTMLElement) => void; readonly to:
   <wardic.div ref={props.ref} class="mp-dot" animate={{ x: props.to() }} transition={{ stiffness: 4, damping: 1 }} />
 )
 
-it("content growth seen only by the engine's ResizeObserver paints its origin first, never its destination (s2)", async () => {
+it("content growth seen only by the engine's ResizeObserver moves in that frame, one step along, never at its destination (s2, #673)", async () => {
   const [grown, setGrown] = createSignal(false)
   let box!: HTMLElement
   render(() => (
@@ -131,7 +153,8 @@ it("content growth seen only by the engine's ResizeObserver paints its origin fi
   const origin = box.getBoundingClientRect().width
   const frames = paintedFrames(box, 3) // the first box is the next frame's paint
   setGrown(true) // only the engine's ResizeObserver sees this, after that frame's rAF callbacks
-  expectOriginThenMove(await frames, "width", origin, origin + 120)
+  // Its pass runs in the observer's delivery, before the paint: it takes the first step (#673).
+  expectMoveFirst(await frames, "width", origin, origin + 120)
 })
 
 it("a layout change from an app ResizeObserver callback paints its origin first (s3)", async () => {
@@ -195,7 +218,7 @@ it("a layout change inside a rAF callback that runs after the gate's flush paint
   expectOriginThenMove(await sampled!, "left", origin, origin + 240)
 })
 
-it("a layout change inside a Clock tick paints its origin first (s5)", async () => {
+it("a layout change inside a Tier 2 Clock.ticks subscriber paints its origin first (s5's Clock path, off the Frame loop)", async () => {
   const [atB, setAtB] = createSignal(false)
   let box!: HTMLElement
   let armed = false
@@ -234,7 +257,7 @@ it("a layout change inside a Clock tick paints its origin first (s5)", async () 
   expectOriginThenMove(await sampled!, "left", origin, origin + 240)
 })
 
-it("a layout change from an effect inside the gate's flush paints its origin first (s8)", async () => {
+it("a layout change from an effect inside the gate's flush moves in that frame, one step along (s8, #673)", async () => {
   const [atB, setAtB] = createSignal(false)
   const [driven, setDriven] = createSignal(false)
   let box!: HTMLElement
@@ -273,9 +296,42 @@ it("a layout change from an effect inside the gate's flush paints its origin fir
   armed = true
   setDriven(true)
   await until(() => sampled !== undefined)
-  // The documented D3 edge: this change lands between the frame's gate flush and its
-  // Clock tick, so the first move may be about two steps; frame 0 still shows the origin.
-  expectOriginThenMove(await sampled!, "left", origin, origin + 240)
+  // The flush runs at the end of the Frame loop's tick, so its pass knows it's after the tick (#673).
+  expectMoveFirst(await sampled!, "left", origin, origin + 240)
+})
+
+it("a layout change from the app's onLayoutAnimationComplete moves the box that just landed in that frame, one step along (s5, #673)", async () => {
+  const [atB, setAtB] = createSignal(false)
+  let box!: HTMLElement
+  let armed = false
+  let sampled: Promise<ReadonlyArray<DOMRect>> | undefined
+  render(() => (
+    <Stage>
+      <wardic.div
+        ref={(el) => (box = el)}
+        class="mp-box"
+        layout
+        transition={SPRING}
+        layoutDependency={atB()}
+        style={{ left: Bool.match(atB(), { onTrue: () => "240px", onFalse: () => "0px" }) }}
+        onLayoutAnimationComplete={() => {
+          // Called after the tick it landed in, inside it (ADR-0039): the same box goes back.
+          if (!armed) return
+          armed = false
+          setAtB(false)
+          sampled = paintedFramesFromHere(box, 3)
+        }}
+      />
+    </Stage>
+  ))
+  await settle()
+  const atA = box.getBoundingClientRect().left
+  armed = true
+  setAtB(true) // A to B from a task; its landing moves it back
+  await until(() => sampled !== undefined, 5000)
+  // The landing's last step was under the spring's rest threshold, and the frame paints the way
+  // back's first step on top of it (ADR-0018 *Amendment (#673)*, the landed node).
+  expectMoveFirst(await sampled!, "left", atA + 240, atA)
 })
 
 it("a layout change from an effect inside the gate's flush on an otherwise idle page is measured before the paint (s8, #2's untested case)", async () => {

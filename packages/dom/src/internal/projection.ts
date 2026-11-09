@@ -24,7 +24,10 @@
  *     coordinator. A running node whose box didn't change is left alone. A trigger
  *     during the pass's own flush repeats it (at most 5 rounds). Every node the pass
  *     seeded takes its first step at the Frame loop's next tick, whose end flushes the
- *     gate, so it moves in that Refresh frame whatever the Clock's state (ADR-0033).
+ *     gate, so it moves in that Refresh frame whatever the Clock's state (ADR-0033). A
+ *     pass that runs after its frame's tick, before the paint (a trigger during a tick,
+ *     or the engine's observer delivery), takes the first step of the nodes it seeded
+ *     itself, so they move in that frame too (ADR-0018 *Amendment (#673)*).
  *   - COORDINATOR (one run on the Environment's Frame loop while >=1 node animates,
  *     Q4; ADR-0027, #75): each tick steps every active node's progress spring, then
  *     `deriveAll()` walks the active nodes TOP-DOWN (ancestors first) computing
@@ -59,6 +62,7 @@
  * `measure.ts` is the port's surface, and #16 maps what this file still does inline.
  */
 import * as Box from "@wardic/core/Box"
+import * as Clock from "@wardic/core/Clock"
 import type * as Frame from "@wardic/core/Frame"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as Inertia from "@wardic/core/Inertia"
@@ -110,6 +114,7 @@ import {
   transitionRunning,
   contains,
   readCustomBases as readCustomBasesOf,
+  frameTime,
   readOpacity,
   readStickyShifts,
 } from "./measure.ts"
@@ -1358,6 +1363,12 @@ interface NodeState {
   layoutBox: Box.Box | undefined
   /** Its layout animation's progress (0→1), a spring's or a tween's (ADR-0009 *Amendment (#171)*); `undefined` at rest. */
   flight: Flight | undefined
+  /**
+   * The frame time of the last coordinator tick that stepped it while it was still flying (ADR-0018
+   * *Amendment (#673)*): a pass after that tick, in the same frame, doesn't step it again. A landing
+   * clears it, so a node seeded again as it lands does take that pass's step.
+   */
+  steppedAt: number
   animating: boolean
   // --- tree (recomputed each measure pass via DOM-ancestry walk) ---
   /** Nearest ancestor projection node, or `undefined` at the root. */
@@ -1811,6 +1822,9 @@ export const makeProjectionSystem = (
   // The coordinator's run on the Frame loop (#75): at most one, from the first node that
   // animates until none does. In the same Scope, so disposing the system interrupts it.
   const coordinator = runtime.runSync(FiberHandle.make<void, never>().pipe(Scope.provide(scope)))
+  // The Environment's Frame loop: the coordinator runs on it, the engine's hook is on its ticks, and a
+  // trigger reads whether it's ticking (#673).
+  const loop = runtime.runSync(Effect.service(FrameLoop.FrameLoop))
   // Whether the coordinator's step is running: a stop from inside it settles the run.
   let inStep = false
   // The turn a turning flight's curve gives at its target just placed (#438), for `derive` to draw:
@@ -1822,6 +1836,17 @@ export const makeProjectionSystem = (
   let passQueued = false
   let inPass = false
   let triggeredDuringPass = false
+  // An after-tick pass (ADR-0018 *Amendment (#673)*): whether the queued pass runs after its frame's
+  // tick, before the paint, as every trigger for it did (one during a Frame loop tick, its hooks
+  // included; one during the engine's observer delivery; one during an after-tick pass's own step);
+  // whether the observer is delivering; and whether an after-tick pass's step is being applied.
+  let passAfterTick = false
+  let inDelivery = false
+  let inAfterTickStep = false
+  // The frame time and dt of the Frame loop's last tick, from the engine's `afterTick` hook: an
+  // after-tick pass in that frame steps at its dt. `-2` before any, which no frame time equals.
+  let tickFrame = -2
+  let tickDt = 0
   // Whether a **Declared layout change** in this task has taken its Measurements (#4): the end-of-task
   // pass, which animates from them, clears it.
   let declared = false
@@ -4175,7 +4200,9 @@ export const makeProjectionSystem = (
    * of `sink.flushPass(round)` until a round ends with no new trigger (a trigger
    * during a round comes from an effect in its flush), at most {@link MAX_ROUNDS};
    * past the cap the rest runs as a fresh Measure pass in the next task. The nodes it
-   * seeded take their first step at the Frame loop's next tick (ADR-0033). Traced as one
+   * seeded take their first step at the Frame loop's next tick (ADR-0033), or, in a pass that runs
+   * after its frame's tick, in the pass itself, after its rounds (ADR-0018 *Amendment (#673)*): how
+   * many is its span's `stepped`. Traced as one
    * `wardic.projection.measure` span annotated with the
    * node counts, how many nodes it seeded, how many it gave a slot-only update in a
    * dragged subtree (`dragBlocked`), how many rounds it ran, and whether a window
@@ -4183,6 +4210,8 @@ export const makeProjectionSystem = (
    */
   const measurePass: Effect.Effect<void> = Effect.suspend(() => {
     passQueued = false
+    const afterTick = passAfterTick
+    passAfterTick = false
     // A Declared layout change's Measurements serve this pass, and the next task's call takes its own.
     declared = false
     const seeded = new Set<NodeState>()
@@ -4213,6 +4242,9 @@ export const makeProjectionSystem = (
       // The nodes whose own size this pass took (#453): the next delivery finds its own.
       ownSized.clear()
     }
+    // After its frame's tick, the nodes it seeded take their first step now, painted in this frame (#673).
+    let stepped = 0
+    if (afterTick) stepped = stepAfterTick(seeded)
     for (const listener of passEndListeners) {
       try {
         listener()
@@ -4232,12 +4264,64 @@ export const makeProjectionSystem = (
       nodes: nodes.size,
       active: active.size,
       seeded: seeded.size,
+      stepped,
       dragBlocked: dragBlocked.size,
       rounds,
       blocked,
       refresh: refreshed,
     })
   }).pipe(Effect.withSpan("wardic.projection.measure", undefined, { captureStackTrace: false }))
+
+  /**
+   * Whether a trigger now comes after its frame's tick and before its paint, known from where it runs
+   * (ADR-0018 *Amendment (#673)*): during a Frame loop tick, its hooks included (the gate's flush and the
+   * app effects in it, the engine's callbacks); during the engine's observer delivery, which follows a
+   * frame's rAF callbacks; or during an after-tick pass's own step. App code in a later rAF callback, or
+   * in an app observer, can't be told from a task after the paint, so its pass holds a frame as before.
+   */
+  const afterTickNow = (): boolean => {
+    if (inDelivery) return true
+    if (inAfterTickStep) return true
+    return loop.ticking()
+  }
+
+  /**
+   * An after-tick pass's step (ADR-0018 *Amendment (#673)*): each node it seeded that this frame's tick
+   * didn't step, still flying, takes one step, and their group is derived and applied at once, so the
+   * frame paints the first step and not the origin. At the dt of the tick that ran in this frame, as
+   * every other node advanced by; `NOMINAL_DT` when none did (a Cold start). Its start callbacks follow,
+   * after the frame is in the DOM (ADR-0039). A flight this step brings to rest lands at the next tick.
+   * How many it stepped: the pass's `stepped`.
+   */
+  const stepAfterTick = (seeded: ReadonlySet<NodeState>): number => {
+    if (seeded.size === 0) return 0
+    // Inside the frame here, where the timeline's time is the frame's timestamp exactly (#673's probe).
+    const at = frameTime()
+    let dt = Clock.NOMINAL_DT
+    if (tickFrame === at) dt = Math.min(tickDt, Machine.MAX_DT)
+    const stepped = new Set<NodeState>()
+    for (const node of seeded) {
+      if (node.steppedAt === at) continue
+      if (!active.has(node)) continue
+      if (Predicate.isUndefined(node.flight)) continue
+      if (node.dragging) continue
+      stepFlight(node, dt)
+      noteFlight(node, false)
+      node.steppedAt = at
+      stepped.add(node)
+    }
+    if (stepped.size === 0) return 0
+    inAfterTickStep = true
+    try {
+      sink.flushPass(() => deriveGroup(groupOf(stepped)))
+    } finally {
+      inAfterTickStep = false
+    }
+    if (Arr.isArrayNonEmpty(flightStarts)) {
+      for (const node of flightStarts.splice(0)) callAppIfAny(node.onLayoutAnimationStart(), "onLayoutAnimationStart")
+    }
+    return stepped.size
+  }
 
   /**
    * Queue the Measure pass for the end of the current task (one per task, however
@@ -4251,8 +4335,14 @@ export const makeProjectionSystem = (
       triggeredDuringPass = true
       return
     }
-    if (passQueued) return
+    // A pass runs after the tick only when every trigger for it did (#673).
+    const after = afterTickNow()
+    if (passQueued) {
+      if (!after) passAfterTick = false
+      return
+    }
     passQueued = true
+    passAfterTick = after
     FiberSet.addUnsafe(
       taskFibers,
       runtime.runFork(
@@ -4320,7 +4410,10 @@ export const makeProjectionSystem = (
    * whose flights have all ended. The Frame loop calls its hooks in the order they were added, and the
    * provider adds its gate's first, so the frame is in the DOM. Per frame: nothing to do is two reads.
    */
-  const afterTick = (): undefined => {
+  const afterTick = (dt: number): undefined => {
+    // This tick's frame and dt, for an after-tick pass in the same frame (#673): one read a tick.
+    tickFrame = frameTime()
+    tickDt = dt
     if (Arr.isArrayNonEmpty(flightStarts)) {
       for (const node of flightStarts.splice(0)) callAppIfAny(node.onLayoutAnimationStart(), "onLayoutAnimationStart")
     }
@@ -4333,7 +4426,7 @@ export const makeProjectionSystem = (
     checkSettlings()
     return undefined
   }
-  runtime.runSync(FrameLoop.FrameLoop.use((loop) => loop.afterTick(afterTick)).pipe(Scope.provide(scope)))
+  runtime.runSync(loop.afterTick(afterTick).pipe(Scope.provide(scope)))
 
   /**
    * A **Declared layout change**'s Measurements (#4, ADR-0038): one slot-only round over every node at
@@ -4550,10 +4643,13 @@ export const makeProjectionSystem = (
     const settled: Array<NodeState> = []
     // 0) The first frame after a change: things there kept where they were seen (#480).
     if (seenKeeps.size + unseen.size > 0) settleSeen()
+    // This frame's time, stamped on each node it steps, so a pass after it doesn't step one again (#673).
+    const at = frameTime()
     // 1) Step every active node's springs (no derive yet — the tree-aware derive needs
     //    ALL springs advanced before computing parent-first): its layout animation's
     //    progress, and its Release offset's two axes. It settles when both are at rest.
     for (const node of active) {
+      node.steppedAt = at
       // A dragging node (ADR-0016) follows the pointer — kept active + derived each frame,
       // never settled. A layout animation its grab left running goes on under it.
       if (node.dragging) {
@@ -4640,6 +4736,8 @@ export const makeProjectionSystem = (
     // The running nodes placed in these landing nodes' frames go on from where they paint (#144).
     landFrames(settled)
     for (const node of settled) {
+      // Landed: a pass after this tick that seeds it again steps it, its last step being its landing's (#673).
+      node.steppedAt = Number.NaN
       node.releasing = false
       node.release = undefined
       node.animating = false
@@ -5151,6 +5249,7 @@ export const makeProjectionSystem = (
     origin: undefined,
     layoutBox: recent.box,
     flight: undefined,
+    steppedAt: Number.NaN,
     animating: false,
     parent: undefined,
     depth: 0,
@@ -5607,6 +5706,16 @@ export const makeProjectionSystem = (
    * Motion's projection never sees it; beside a real resize, the pass gives them a slot-only update.
    */
   const onObserved = (entries: ReadonlyArray<ResizeObserverEntry>): void => {
+    // A pass this delivery queues runs after its frame's tick, before its paint (#673).
+    inDelivery = true
+    try {
+      delivered(entries)
+    } finally {
+      inDelivery = false
+    }
+  }
+  /** {@link onObserved}'s delivery, read. */
+  const delivered = (entries: ReadonlyArray<ResizeObserverEntry>): void => {
     // A node's own resize runs a pass, which reads the page as well.
     const unmeasured = Arr.filter(entries, Predicate.not(alreadyMeasured))
     if (Arr.isArrayNonEmpty(unmeasured)) {
@@ -5675,6 +5784,7 @@ export const makeProjectionSystem = (
       origin: undefined,
       layoutBox: undefined,
       flight: undefined,
+      steppedAt: Number.NaN,
       animating: false,
       parent: undefined,
       depth: 0,

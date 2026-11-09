@@ -8,9 +8,11 @@
  * not counted. A Measure pass at the end of an ordinary task applies its seed at
  * once, and the next frame's tick takes the first step, which the gate paints in
  * that frame (ADR-0033), so that frame, the first painted, is already one step
- * along: 0 held. A pass run after the frame's tick (a ResizeObserver callback, a
- * later rAF callback) paints the seed, which is the origin, in that frame and moves
- * on the next: 1 held. A run with no Measure pass (scenario 9's spring) is anchored
+ * along: 0 held. A pass the engine knows runs after the frame's tick (its trigger came
+ * during the tick, or in the engine's own ResizeObserver delivery) takes the first step
+ * itself, so that frame is moved too: 0 held (ADR-0018 *Amendment (#673)*). A pass from
+ * app code after the tick (an app ResizeObserver, a later rAF callback) paints the seed,
+ * which is the origin, in that frame and moves on the next: 1 held. A run with no Measure pass (scenario 9's spring) is anchored
  * at its trigger, so every sample counts. Before #14's fix a Cold start held 3
  * frames on a layout run and 2 on the spring. Between #14's fix and #2's, every
  * layout run held 1, cold or warm, because the pass ran in the next frame's gate

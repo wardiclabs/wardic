@@ -180,6 +180,7 @@ it("H3: a move and its release in one task: the release is on the Frame loop by 
   const recording = Layer.effect(FrameLoop.FrameLoop)(
     FrameLoop.FrameLoop.useSync((loop) => ({
       afterTick: loop.afterTick,
+      ticking: loop.ticking,
       run: (machine, sink) =>
         Effect.suspend(() => {
           added.push(machine.span.name)

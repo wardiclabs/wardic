@@ -135,8 +135,8 @@ const View: ScenarioDef["View"] = (props) => {
  * Scenario 8, Solid effect during the gate's flush: an effect on a new driver element's
  * `style`, which its first frame's Starting-style switch changes, writes the
  * `layoutDependency` signal from inside the gate's flush (Solid 2's `flush()`). Expected to be
- * safe, holding 1: the Measure pass runs right after the frame's flush, at the end of the
- * Clock's callback.
+ * safe, holding 0: the Measure pass runs right after the frame's flush, at the end of the
+ * Clock's callback, knows it, and takes the first step before the paint (#673).
  */
 export const s8: ScenarioDef = {
   id: ID,
@@ -145,13 +145,14 @@ export const s8: ScenarioDef = {
   mechanism:
     "A createEffect on a new driver ward's style, changed by its first frame's Starting-style switch, which the gate drains with Solid 2's flush(), writes the layoutDependency signal.",
   prediction: "safe",
-  expectedHeld: 1,
+  expectedHeld: 0,
   rationale:
     "The gate switches a new element's Starting style out and drains the switch with Solid 2's flush() before it " +
     "commits, at the end of the Frame loop's tick in the Clock's callback (ADR-0033, ADR-0034, ADR-0045), and that " +
     "flush() runs this effect before it returns, so the layoutDependency flip reaches notify during the frame's " +
     "flush. The Measure pass it queues runs in a microtask at the end of the Clock's callback and flushes its own " +
-    "seed (ADR-0018), so the frame paints the origin (held 1), and the next frame's tick takes the first step: a " +
-    "click's first step.",
+    "seed (ADR-0018). Its trigger came inside the tick, so the pass knows it runs after it and takes the first " +
+    "step too, at that tick's dt: the frame paints a click's first step (held 0; ADR-0018 *Amendment (#673)*; " +
+    "until #673 it painted the origin, held 1).",
   View,
 }

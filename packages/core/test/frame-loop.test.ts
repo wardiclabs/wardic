@@ -769,6 +769,87 @@ describe("the Frame loop: afterTick (ADR-0033)", () => {
   })
 })
 
+describe("the Frame loop: ticking() and a hook's dt (ADR-0027 *Amendment (#673)*)", () => {
+  /** Add `hook` to `h`'s loop in a fresh Scope, inline. */
+  const addHook = (h: Awaited<ReturnType<typeof makeHarness>>, hook: (dt: number) => undefined): void => {
+    Effect.runSync(h.loop.afterTick(hook).pipe(Scope.provide(Scope.makeUnsafe())))
+  }
+
+  /** A machine that records `ticking()` in each step, and settles after `steps`. */
+  const reading = (h: Awaited<ReturnType<typeof makeHarness>>, steps: number, seen: Array<string>): Machine.Machine<Frame.Frame<number>> =>
+    Machine.make({
+      settles: true,
+      span: { name: "test.reading", attributes: {} },
+      start: () => {
+        let n = 0
+        return () => {
+          n++
+          seen.push(`step ${h.loop.ticking()}`)
+          return { value: n, done: n >= steps }
+        }
+      },
+    })
+
+  it("TK1: ticking() is true in a tick's steps, sinks and hooks, the tick that ends the burst included, and false outside", async () => {
+    const h = await makeHarness()
+    const seen: Array<string> = []
+    addHook(h, () => {
+      seen.push(`hook ${h.loop.ticking()}`)
+      return undefined
+    })
+    expect(h.loop.ticking()).toBe(false)
+    h.start(reading(h, 2, seen), () => seen.push(`sink ${h.loop.ticking()}`))
+    await endOfTask()
+    expect(h.loop.ticking(), "after the run's add, before the first Refresh frame").toBe(false)
+    h.frames.fire(1000)
+    expect(h.loop.ticking(), "between ticks").toBe(false)
+    h.frames.fire(1016) // the run settles: this tick ends the burst
+    expect(h.loop.ticking()).toBe(false)
+    expect(seen).toEqual(["step true", "sink true", "hook true", "step true", "sink true", "hook true"])
+  })
+
+  it("TK2: each hook gets its tick's dt: the nominal one first, then the measured one", async () => {
+    const h = await makeHarness()
+    const dts: Array<number> = []
+    addHook(h, (dt) => {
+      dts.push(dt)
+      return undefined
+    })
+    h.start(counting(3))
+    await endOfTask()
+    h.frames.fire(1000)
+    h.frames.fire(1020)
+    h.frames.fire(1050)
+    expect(dts).toHaveLength(3)
+    expect(dts[0]).toBeCloseTo(Clock.NOMINAL_DT, 9)
+    expect(dts[1]).toBeCloseTo(0.02, 9)
+    expect(dts[2]).toBeCloseTo(0.03, 9)
+  })
+
+  it("TK3: a hook that throws ends its tick, and ticking() is false after it, also through the next burst's gaps", async () => {
+    const h = await makeHarness()
+    let throws = true
+    addHook(h, () => {
+      if (throws) {
+        throws = false
+        throw new Error("hook threw")
+      }
+      return undefined
+    })
+    h.start(counting(Infinity))
+    await endOfTask()
+    h.frames.fire(1000) // the hook throws mid-tick: the burst fails
+    expect(h.loop.ticking()).toBe(false)
+    const seen: Array<string> = []
+    h.start(reading(h, 2, seen))
+    await endOfTask()
+    expect(h.loop.ticking()).toBe(false)
+    h.frames.fire(1016)
+    expect(h.loop.ticking()).toBe(false)
+    expect(seen).toEqual(["step true"])
+  })
+})
+
 describe("the Frame loop: superseded runs (#200, ADR-0027 *Amendment (#200)*)", () => {
   /** `machine` on the loop, given `token`: its Frames land in `received`. */
   const startWith = <F extends Frame.Frame<unknown>>(h: Awaited<ReturnType<typeof makeHarness>>, machine: Machine.Machine<F>, token: Supersede.Supersede, onFrame?: (frame: F) => void) => {

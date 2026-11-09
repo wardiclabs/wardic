@@ -126,6 +126,7 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
       })
   const recordRuns = (loop: LoopShape): LoopShape => ({
     afterTick: loop.afterTick,
+    ticking: loop.ticking,
     run: recorded(loop.run, "run"),
     runLast: recorded(loop.runLast, "runLast"),
   })
