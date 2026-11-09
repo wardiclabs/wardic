@@ -85,8 +85,8 @@ const View: ScenarioDef["View"] = (props) => {
 /**
  * Scenario 2, ResizeObserver-only content growth: the Run click handler changes
  * the box's content, and only Wardic's shared ResizeObserver sees the new size.
- * Expected to be safe, holding 1: the observer delivers after the frame's gate
- * flush.
+ * Expected to be safe, holding 0: the observer delivers after the frame's tick, and
+ * its Measure pass, knowing it, takes the first step before the paint (#673).
  */
 export const s2: ScenarioDef = {
   id: ID,
@@ -95,13 +95,15 @@ export const s2: ScenarioDef = {
   mechanism:
     "The Run click handler adds or removes a 64px cell inside the box; only Wardic's shared ResizeObserver sees the size change.",
   prediction: "safe",
-  expectedHeld: 1,
+  expectedHeld: 0,
   rationale:
     "Solid 2 adds the cell at its flush, still in the click task. " +
     "Nothing Wardic tracks changes, so Wardic hears of the new size only from its shared ResizeObserver, which " +
     "delivers in the next rendering update after the rAF callbacks and layout, so after the frame's tick. " +
     "The delivery queues a Measure pass, which runs in a microtask at the end of the callback and flushes its seed " +
-    "before the frame paints (ADR-0018), so that frame shows the box at its old size. Its first step is the next " +
-    "frame's tick, painted in that frame (ADR-0033), so the box grows from the frame after (held 1, cold or warm).",
+    "before the frame paints (ADR-0018). A pass queued in the engine's own observer delivery knows it runs after " +
+    "the frame's tick, so it takes the box's first step too, at that tick's dt (nominal cold), and the frame " +
+    "paints it: the box grows from that frame (held 0, cold or warm; ADR-0018 *Amendment (#673)*). Until #673 " +
+    "the frame showed the old size and the next tick took the first step (held 1).",
   View,
 }
