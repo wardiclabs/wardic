@@ -4295,7 +4295,7 @@ export const makeProjectionSystem = (
   const afterTickNow = (): boolean => {
     if (inDelivery) return true
     if (inAfterTickStep) return true
-    return loop.ticking()
+    return loop.inLateWindow()
   }
 
   /**

@@ -126,7 +126,7 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
       })
   const recordRuns = (loop: LoopShape): LoopShape => ({
     afterTick: loop.afterTick,
-    ticking: loop.ticking,
+    inLateWindow: loop.inLateWindow,
     run: recorded(loop.run, "run"),
     runLast: recorded(loop.runLast, "runLast"),
   })
@@ -262,6 +262,8 @@ describe("a coordinator that settled is started afresh by the next trigger", () 
       const element = box(0)
       const a = await register(e, "a", element)
       fireFrame()
+      // The frame's microtasks run before any task: the changes below are tasks, after the Late window (#680).
+      await endOfTask()
 
       element.style.left = "200px"
       a.notify()
@@ -269,6 +271,7 @@ describe("a coordinator that settled is started afresh by the next trigger", () 
       settle(sk, "a")
       expect(offset(sk.of("a").at(-1)!), "the first FLIP ends on its slot").toBeLessThan(0.5)
       fireFrames(2)
+      await endOfTask()
       if (clock === "cold") expect(e.open(), "the Clock is idle").toBe(0)
 
       const before = sk.of("a").length

@@ -121,6 +121,8 @@ describe("a twin's own translate in a handover (#363)", () => {
     frames(120, () => undefined)
     const seen = drawn(bEl, sk, "b", MOVED)
     expect(seen.x.min, "B at rest, drawn moved by its own x").toBeCloseTo(330, 1)
+    // The frame's microtasks run before any task: what follows is a task, after the Late window (#680).
+    await endOfTask()
     b.dispose()
     await endOfTask()
     expectContinuous(seen, frames(2, () => drawn(aEl, sk, "a", NONE)), "A")

@@ -58,7 +58,11 @@ export const fireFrameAfter = (ms: number): void => {
   for (const cb of callbacks) cb(frameTime)
 }
 
-/** Fire every pending Refresh frame at the next timestamp (one nominal interval later). */
+/**
+ * Fire every pending Refresh frame at the next timestamp (one nominal interval later). Synchronous: a
+ * browser runs the frame's microtasks before any later task, which closes the Frame loop's Late window
+ * (ADR-0027 *Amendment (#680)*), so a test acting as a task after a frame awaits `endOfTask()` first.
+ */
 export const fireFrame = (): void => fireFrameAfter(1000 / 60)
 
 /** Fire `n` Refresh frames. */

@@ -141,7 +141,7 @@ const countingLoop = () => {
       )) as unknown as LoopShape["run"]
   const wrap = (loop: LoopShape): LoopShape => ({
     afterTick: loop.afterTick,
-    ticking: loop.ticking,
+    inLateWindow: loop.inLateWindow,
     run: counted(loop.run),
     runLast: counted(loop.runLast),
   })

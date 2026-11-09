@@ -122,6 +122,8 @@ describe("a twin's own scale in a handover (#8)", () => {
     frames(120, () => undefined)
     const seen = drawn(bEl, sk, "b", ONE_AND_A_HALF)
     expect(seen.x.max - seen.x.min, "B at rest, drawn at its own scale").toBeCloseTo(150, 1)
+    // The frame's microtasks run before any task: what follows is a task, after the Late window (#680).
+    await endOfTask()
     b.dispose()
     await endOfTask()
     expectContinuous(seen, frames(2, () => drawn(aEl, sk, "a", ONE)), "A")
@@ -141,6 +143,8 @@ describe("a twin's own scale in a handover (#8)", () => {
     await endOfTask()
     frames(120, () => undefined)
     const seen = drawn(bEl, sk, "b", ONE_AND_A_HALF)
+    // The frame's microtasks run before any task: what follows is a task, after the Late window (#680).
+    await endOfTask()
     queueMicrotask(() => {
       e.system.handleLeave(bEl, () => undefined)
     })
@@ -199,6 +203,8 @@ describe("a twin's own scale in a handover (#8)", () => {
     await endOfTask()
     frames(120, () => undefined)
     const seen = drawn(bEl, sk, "b", ONE)
+    // The frame's microtasks run before any task: what follows is a task, after the Late window (#680).
+    await endOfTask()
     b.dispose()
     await endOfTask()
     const after = frames(120, () => drawn(aEl, sk, "a", ONE_AND_A_HALF))

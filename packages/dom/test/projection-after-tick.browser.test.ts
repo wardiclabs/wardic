@@ -61,9 +61,20 @@ const makeLog = (onFlush?: (n: number) => void) => {
   return { events, sink }
 }
 
-/** `hook` at the end of every tick of `e`'s Frame loop, after the engine's own. */
+/**
+ * `hook` at the end of every tick of `e`'s Frame loop, after the engine's own: once a frame. The loop
+ * calls its hooks again after a Late round in the same frame (ADR-0027 *Amendment (#680)*), which
+ * isn't the next tick, so a call in a frame already marked is skipped.
+ */
 const onTicks = (e: Engine, hook: (dt: number) => undefined): void => {
-  e.runtime.runSync(Effect.flatMap(Effect.service(FrameLoop.FrameLoop), (loop) => loop.afterTick(hook)).pipe(Scope.provide(Scope.makeUnsafe())))
+  let marked = Number.NaN
+  const once = (dt: number): undefined => {
+    const at = document.timeline.currentTime as number
+    if (at === marked) return undefined
+    marked = at
+    return hook(dt)
+  }
+  e.runtime.runSync(Effect.flatMap(Effect.service(FrameLoop.FrameLoop), (loop) => loop.afterTick(once)).pipe(Scope.provide(Scope.makeUnsafe())))
 }
 
 /** A run that never settles keeps the loop ticking: a warm Clock. Returns its stop. */

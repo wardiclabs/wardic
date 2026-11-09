@@ -101,6 +101,8 @@ describe("a handover blends the twin's look (#166)", () => {
     const b = register(e, "b", bEl, { layoutId: "twin", ownRotate: () => 20 })
     await endOfTask()
     frames(sk, ["b"], 120)
+    // The frame's microtasks run before any task: what follows is a task, after the Late window (#680).
+    await endOfTask()
     b.dispose()
     await endOfTask()
     const seen = frames(sk, ["a"], 120)
