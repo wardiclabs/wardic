@@ -2107,6 +2107,19 @@ export const makeProjectionSystem = (
     return stack[i - 1]
   }
 
+  /**
+   * The newest twin below `stack[from]` that isn't leaving, with its index: the one a Lead that leaves
+   * hands over to (#682). Motion's `NodeStack.relegate` promotes only a member still present, so a
+   * twin on a page that is leaving too never takes over. `undefined` when every one is leaving.
+   */
+  const presentBelow = (stack: ReadonlyArray<NodeState>, from: number): readonly [NodeState, number] | undefined => {
+    for (let i = from - 1; i >= 0; i--) {
+      const node = stack[i]
+      if (Predicate.isNotUndefined(node) && Bool.not(node.leaving)) return [node, i]
+    }
+    return undefined
+  }
+
   /** Whether `node` is a Follower: in a `layoutId` stack but NOT its (newest-live) Lead. */
   const isFollower = (node: NodeState): boolean =>
     Predicate.isNotUndefined(node.layoutId) && leadOf(node.layoutId) !== node
@@ -5141,6 +5154,23 @@ export const makeProjectionSystem = (
     runtime.runFork(FiberHandle.clear(coordinator))
   }
 
+  /**
+   * A disposed Lead's hand-over (#682): the newest twin in `stack` that isn't leaving becomes the Lead,
+   * promoted from `leaver`'s box. With none, nothing takes over, and every twin left, each leaving,
+   * ends its handover now.
+   */
+  const handOverFrom = (leaver: NodeState, stack: Array<NodeState>): void => {
+    const next = presentBelow(stack, stack.length)
+    if (Predicate.isNotUndefined(next)) {
+      const [twin, i] = next
+      stack.splice(i, 1)
+      stack.push(twin)
+      promoteFrom(twin, leaver)
+      return
+    }
+    for (const twin of [...stack]) finishLeaver(twin)
+  }
+
   /** Promote `node` to an animating Lead from `fromBox` → its own box (un-hide + move home). */
   const promoteFrom = (node: NodeState, from: NodeState): void => {
     const ownBox = node.retained
@@ -5306,16 +5336,19 @@ export const makeProjectionSystem = (
     // later dispose then SKIPS removal), demote it to a Follower, and promote the twin.
     if (Predicate.isNotUndefined(live)) {
       const stack = stacks.get(layoutId)
+      if (Predicate.isUndefined(stack)) return false
       const isLead = leadOf(layoutId) === live
-      const twin = Bool.match(isLead, { onTrue: () => priorLeadOf(live), onFalse: () => leadOf(layoutId) })
-      if (Predicate.isUndefined(twin) || twin === live || Predicate.isUndefined(stack)) return false // lone leave
+      // A Lead hands over only to a twin that isn't leaving (#682): with none, a lone leave, and it
+      // goes on as the Lead while presence runs its own exit, as Motion's relegate leaves it.
+      const below = Bool.match(isLead, { onTrue: () => presentBelow(stack, stack.indexOf(live)), onFalse: () => undefined })
+      const twin = Bool.match(isLead, { onTrue: () => UndefinedOr.map(below, ([node]) => node), onFalse: () => leadOf(layoutId) })
+      if (Predicate.isUndefined(twin) || twin === live) return false // lone leave
       live.leaving = true
       live.onLeaveDone = onDone
-      if (isLead) {
-        // Swap so the twin becomes the Lead (last); el becomes a Follower below it.
-        const last = stack.length - 1
-        stack[last - 1] = live
-        stack[last] = twin
+      if (Predicate.isNotUndefined(below)) {
+        // The twin becomes the Lead (last); el stays below it, a Follower.
+        stack.splice(below[1], 1)
+        stack.push(twin)
         promoteFrom(twin, live)
       }
       // After a possible swap, re-read the (new) Lead — never assert it exists.
@@ -5332,6 +5365,8 @@ export const makeProjectionSystem = (
     // transient leaving Follower from the recorded box (the re-introduce model).
     const lead = leadOf(layoutId)
     if (Predicate.isUndefined(lead) || lead.element === el || Predicate.isUndefined(recent)) return false
+    // No twin to come back to but one leaving itself (#682).
+    if (lead.leaving) return false
     const last = recent.last
     if (Predicate.isUndefined(last)) return false
     const stack = stacks.get(layoutId)
@@ -5408,6 +5443,8 @@ export const makeProjectionSystem = (
       if (Predicate.isUndefined(lead)) return
       if (Predicate.isUndefined(stack)) return
       if (lead.element === inner) return
+      // Not onto a Lead that is leaving itself (#682): it has no handover to ride.
+      if (lead.leaving) return
       if (Bool.not(takesOver(lead))) return
       const twin = makeLeavingNode(inner, held.layoutId, last, () => undefined, undefined, chainOf(held))
       recent.reintroduced = true
@@ -6014,8 +6051,11 @@ export const makeProjectionSystem = (
         active.delete(node)
         deleteNode(node)
         painted.delete(node)
-        // Stack relegation / promotion (ADR-0010): a leaving Lead promotes the new
-        // newest node, animating it FROM the leaver's box (un-hide + move home).
+        // Stack relegation / promotion (ADR-0010): a Lead that leaves promotes the newest twin
+        // that isn't leaving, animating it FROM the leaver's box (un-hide + move home), as Motion's
+        // relegate does. With none, every twin left is leaving with its page: nothing takes over, and
+        // the leaver stays where it's drawn, and their handovers end now, so their pages go once
+        // their own exits do (#682).
         if (Predicate.isNotUndefined(node.layoutId)) {
           const stack = stacks.get(node.layoutId)
           if (Predicate.isNotUndefined(stack)) {
@@ -6023,7 +6063,7 @@ export const makeProjectionSystem = (
             const i = stack.indexOf(node)
             if (i >= 0) stack.splice(i, 1)
             if (stack.length === 0) stacks.delete(node.layoutId)
-            if (stack.length > 0 && wasLead) promoteFrom(stack[stack.length - 1], node)
+            if (stack.length > 0 && wasLead) handOverFrom(node, stack)
           }
         }
         if (active.size === 0) stopTicking()

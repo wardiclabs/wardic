@@ -709,3 +709,40 @@ Grilled on #442 (Q1: A). Motion 14.6 reads `layoutCrossfade` off the twin that b
 - **A Switch is unchanged:** it has no Follower, and its blend (*Amendment (#166)*) runs as before.
 - **Pinned by** `packages/solid/test/layout-crossfade.browser.test.tsx` LC1–LC5 (beside a live twin, every frame; only the new Lead's counts, under `<AnimatePresence>`; a toggle read at the next handover; a Switch's blend; a twin inside crossfading on its own) and `v2/layout-crossfade.browser.test.tsx` LCV1–LCV2 (the element's prop, and `ward()`'s config).
 - **Mutation-checked** with ADR-0048's (`.tmp/442/mutate.py`, run alone): the option ignored, not read as a handover begins, the Lead fading anyway, its Followers not hidden, crossfading for its descendants, and the binding never passing it, all caught.
+
+## Amendment (#682, 2026-11-09): a Lead that leaves hands over only to a twin that isn't leaving
+
+**What happened.** On the storefront's catalogue (#479), quick back and forth (piece A, back to the list, then piece B, 120–400 ms apart) made A's photo fly back toward A's hero on the page that had already left. That happened in both bindings, while its list faded out.
+- **Why:** A's photo on the list was the Lead, mid-flight back from the hero, and the hero was a leaving Follower below it. B's click took the list away. Solid disposed the photo before its presence asked, and `dispose` promoted the stack's next member: the hero, leaving too. So the hero flew from the photo's box home to its own, and the photo, handed back by the list's presence (*Amendment (#181)*), was drawn on it.
+- **Motion** (`NodeStack.relegate`, motion-dom 16c6122) promotes only a member still present (`isPresent !== false`, connected), so its leaving Lead stays the Lead.
+- **Measured** (`.tmp/catalogue-bug/probe.ts`, deployed d7593bf, headless Chromium 147):
+  - Wardic's photo moved 21–26 px while it showed, growing from 166 px to 290 px wide;
+  - Motion's finished its own flight into its slot, 8–10 px, and at a 400 ms gap nothing moved.
+
+**Decided** (#682's grill, 2026-11-09):
+1. **A Lead that leaves hands over only to a twin that isn't leaving,** the newest one below it, moved to the top and promoted from the Lead's box. This applies in `dispose`, in `handleLeave`'s live branch, and where a disposed twin would be brought back below its Lead (`reintroduceTwinsWithin`, and `handleLeave`'s re-introduction).
+2. **With no twin to hand over to, nothing takes over.** That is the case when every other twin is leaving with its page.
+   - The Lead stays where it's drawn and leaves with its page: frozen if it was disposed, as a plain layout node caught mid-flight is (*Amendment (#181)*'s recorded limit).
+   - A live Lead that presence closes is declined (a lone leave), so presence runs its own exit while it flies on, as Motion's relegate leaves it.
+   - The leaving twins' handovers end at once, so their pages go once their own exits do.
+   - *Beyond Motion:* a disposed Lead that Motion would fly on into its slot (8–10 px here) stops where it's drawn. The user counted Motion's motion there as the same bug.
+   - *Rejected:* carrying a disposed Lead's flight on through its page's exit (Motion's). Its leaver record keeps only its last box. Plain layout nodes would want the same, lifting *Amendment (#181)*'s limit for both. That's new machinery for a few pixels on a page that is fading out; it would be an issue of its own.
+
+**An invariant it gives:** a stack's top is never a leaving twin. A Lead's disposal promotes only a present one. `handleLeave` marks a Lead leaving only when a present twin takes over. And a re-introduced twin goes below the Lead. So the two re-introduction guards are defensive, and their mutants are equivalent.
+
+**Pinned by:**
+- **`packages/dom/test/projection-leaving-twins.browser.test.ts`:**
+  - LW1: a disposed Lead whose only twin is leaving: nothing takes over, and the leaver's handover ends;
+  - LW2: one with a present twin below it: that one takes over from its box, as before;
+  - LW3: `handleLeave` of such a Lead declines, and it flies on;
+  - LW4: a present twin below a leaving one takes over, moved to the top, and the leaver rides it.
+- **The catalogue's sequence on each binding:** `route-transitions` RT10 (Solid 1) and RTV9 (Solid 2). A's photo on the list that leaves moves under 0.5 px in every frame it shows. Before the fix it moved 75 px, 231 → 306 px wide.
+
+**Mutations** (`.tmp/682/mutate.py`, run alone): 7, with 5 caught.
+- Caught:
+  - leavers counted as present: LW1, LW3;
+  - no handover end: LW1;
+  - `dispose` promoting the top: LW1;
+  - no move to the top: LW4;
+  - `handleLeave` taking the prior Lead: LW3.
+- The two re-introduction guards' mutants survive, as equivalent under the invariant.
