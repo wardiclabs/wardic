@@ -1823,7 +1823,7 @@ export const makeProjectionSystem = (
   // animates until none does. In the same Scope, so disposing the system interrupts it.
   const coordinator = runtime.runSync(FiberHandle.make<void, never>().pipe(Scope.provide(scope)))
   // The Environment's Frame loop: the coordinator runs on it, the engine's hook is on its ticks, and a
-  // trigger reads whether it's ticking (#673).
+  // trigger reads whether its Late window is open (#673, #680).
   const loop = runtime.runSync(Effect.service(FrameLoop.FrameLoop))
   // Whether the coordinator's step is running: a stop from inside it settles the run.
   let inStep = false
@@ -4287,10 +4287,12 @@ export const makeProjectionSystem = (
 
   /**
    * Whether a trigger now comes after its frame's tick and before its paint, known from where it runs
-   * (ADR-0018 *Amendment (#673)*): during a Frame loop tick, its hooks included (the gate's flush and the
-   * app effects in it, the engine's callbacks); during the engine's observer delivery, which follows a
-   * frame's rAF callbacks; or during an after-tick pass's own step. App code in a later rAF callback, or
-   * in an app observer, can't be told from a task after the paint, so its pass holds a frame as before.
+   * (ADR-0018 *Amendment (#673)*): in the Frame loop's Late window, from a tick's first step through the
+   * microtasks its frame's code queued (the gate's flush and the app effects in it, the engine's
+   * callbacks, Solid 2's effect flush; ADR-0027 *Amendment (#680)*); during the engine's observer
+   * delivery, which follows a frame's rAF callbacks; or during an after-tick pass's own step. App code in
+   * a later rAF callback, or in an app observer, can't be told from a task after the paint, so its pass
+   * holds a frame as before.
    */
   const afterTickNow = (): boolean => {
     if (inDelivery) return true
