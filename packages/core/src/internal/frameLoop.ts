@@ -22,8 +22,10 @@
  *   throws ends only its own run (`Exit.die`); a failure of the loop itself fails every run
  *   still on it, and the next run starts a fresh burst. That includes a run a continuation
  *   starts while the ending burst resumes its runs (#81).
- * - **The end of a tick** calls each `afterTick` hook, after every step and sink and the
- *   continuations of the runs that settled in it, the tick that ends a burst included. The flush
+ * - **The end of a tick** calls each `afterTick` hook, with the tick's dt, after every step and sink
+ *   and the continuations of the runs that settled in it, the tick that ends a burst included.
+ *   `ticking()` reads whether a tick is running, from its first step to its last hook (ADR-0027
+ *   *Amendment (#673)*). The flush
  *   gate flushes there, so a value paints in the Refresh frame that computed it (ADR-0033). A run
  *   a hook starts keeps the burst: whether it ends is counted after the hooks (#209).
  *
@@ -109,18 +111,26 @@ export interface Shape {
   // ADR-0027, *Amendment (#137)*: the projection's coordinator is the one caller.
   readonly runLast: Run
   /**
-   * Calls `hook` at the end of every tick, after every run's step and sink and the continuations of the
-   * runs that settled in it, until the `Scope` closes. Hooks run in the order they were added. A plain
-   * call, typed like a `Sink`, so a hook that returns an Effect doesn't compile. A hook doesn't throw:
-   * one that does fails the tick, and with it every run on the loop.
+   * Calls `hook` at the end of every tick, with the tick's seconds, after every run's step and sink and
+   * the continuations of the runs that settled in it, until the `Scope` closes. Hooks run in the order
+   * they were added. A plain call, typed like a `Sink`, so a hook that returns an Effect doesn't compile.
+   * A hook doesn't throw: one that does fails the tick, and with it every run on the loop.
    */
-  // ADR-0033: the flush gate is the one caller.
-  readonly afterTick: (hook: () => undefined) => Effect.Effect<void, never, Scope.Scope>
+  // ADR-0033: the flush gate's flush. The tick's dt: ADR-0027 *Amendment (#673)*, for the projection's
+  // after-tick pass.
+  readonly afterTick: (hook: (dt: number) => undefined) => Effect.Effect<void, never, Scope.Scope>
+  /**
+   * Whether a tick is running now, from its first step until its last hook returns: what's written then
+   * is drawn in that tick's Refresh frame, after the tick.
+   */
+  // ADR-0027 *Amendment (#673)*: the projection's Measure pass reads it at a trigger, to know it will run
+  // after its frame's tick.
+  readonly ticking: () => boolean
 }
 
 /** One hook on the loop's ticks, one object per `afterTick`, so removing it removes only that one. */
 interface Hook {
-  readonly hook: () => undefined
+  readonly hook: (dt: number) => undefined
 }
 
 /** One run on the loop. */
@@ -268,6 +278,8 @@ export const make = Effect.fnUntraced(
     // ending burst is still in `burst`, so the loop tracks its burst itself rather than asking the
     // handle (#81).
     let bursting = false
+    // Whether a tick is running, its hooks included (ADR-0027 *Amendment (#673)*): set and cleared once a tick.
+    let inTick = false
     // The runs the loop ended since it last counted (#542): a settle or a failure, into the counters
     // once per tick. An interruption is neither, nor a superseded run, which the loop doesn't end.
     let settledCount = 0
@@ -334,6 +346,7 @@ export const make = Effect.fnUntraced(
     // The first lane's loops stay inline in `tick`: moved into a function shared with the last lane,
     // Node's `chase/loop` ran 55% slower (`bench:core`, ADR-0027 *Amendment (#137)*).
     const tick = (dt: number): boolean => {
+      inTick = true
       // The tick's start, read only for the metrics' histogram (#518).
       let t0 = 0
       if (Predicate.isNotUndefined(metrics)) t0 = performance.now()
@@ -370,13 +383,14 @@ export const make = Effect.fnUntraced(
       // The end of the tick: everything for this Refresh frame is written (ADR-0033). After
       // `tickMs`, which stays the cost of the steps alone.
       const ended = hooks
-      for (let i = 0; i < ended.length; i++) ended[i].hook()
+      for (let i = 0; i < ended.length; i++) ended[i].hook(dt)
+      inTick = false
       // The burst ends with no run left, counted after the hooks: one a hook started (the flush
       // gate's, running a binding's batch, #209) takes its first step at the next tick.
       return entries.length + lastEntries.length === 0
     }
 
-    const afterTick = (hook: () => undefined): Effect.Effect<void, never, Scope.Scope> => {
+    const afterTick = (hook: (dt: number) => undefined): Effect.Effect<void, never, Scope.Scope> => {
       const added: Hook = { hook }
       return Effect.acquireRelease(
         Effect.sync(() => {
@@ -398,6 +412,8 @@ export const make = Effect.fnUntraced(
     const endAll = (exit: Exit.Exit<void>): void => {
       const ending = endingOf(exit)
       bursting = false
+      // A hook that threw ended its tick before it cleared this: no later call is inside a tick (#673).
+      inTick = false
       Arr.forEach(Arr.appendAll(entries.splice(0), lastEntries.splice(0)), (entry) => {
         if (!entry.removed) end(entry, ending)
       })
@@ -500,7 +516,9 @@ export const make = Effect.fnUntraced(
       return Effect.as(startBurst, entry)
     }
 
-    return { run: runIn(entries), runLast: runIn(lastEntries), afterTick } satisfies Shape
+    const inTickNow = (): boolean => inTick
+
+    return { run: runIn(entries), runLast: runIn(lastEntries), afterTick, ticking: inTickNow } satisfies Shape
   },
   (self) => traced(self, "wardic.frameloop.make"),
 )

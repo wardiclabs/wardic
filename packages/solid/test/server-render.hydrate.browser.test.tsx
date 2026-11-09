@@ -312,6 +312,7 @@ describe("the spine's legs start at mount, never in the hydration render (#76)",
     const recording = Layer.effect(FrameLoop.FrameLoop)(
       FrameLoop.FrameLoop.useSync((loop) => ({
         afterTick: loop.afterTick,
+        ticking: loop.ticking,
         run: (machine, sink) =>
           Effect.suspend(() => {
             starts.push(sharedConfig.context != null)
