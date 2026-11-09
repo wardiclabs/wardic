@@ -149,7 +149,7 @@
     - Documented. #673 took core's half (ADR-0018, *Amendment (#673)*): a Measure pass that knows it runs after its frame's tick takes its nodes' first step. It knows from its trigger only: a trigger during Wardic's tick, or in the engine's observer delivery.
       - Foldkit's patch is app code in a later rAF callback to the engine, so it still holds one frame.
       - Its fix is a hint the binding gives from code it knows runs inside a frame, built with the binding. The rule it feeds is #673's: step if the last tick's frame time equals this frame's, or if the Clock has no request pending; otherwise step nothing, since a tick is still to come in this frame.
-      - Starts on the Frame loop (a Retarget, a pointer-driven swap's legs) are #680.
+      - Starts on the Frame loop (a Retarget, a pointer-driven swap's legs) are #680. Since #680 a run added in the loop's Late window takes its first step there (ADR-0027, *Amendment (#680)*). Foldkit's patch runs in a later rAF callback, after the window's microtask, so it's still outside it: the binding's hint opens the window, on the rule above, and covers its passes and its runs both.
 33. **`viewTransition`** (R5 Q18; P10). The app wraps its predicate with `wardic.viewTransition(…)`. In a transitioned render, layout moves and `layoutId` handovers land at once, and the View Transition animates.
 34. **DevTools replay lands everything at once** (R2 Q7), through ADR-0063's `skipAnimations`: animations, layout, exits and Appear, with no callback Messages.
 

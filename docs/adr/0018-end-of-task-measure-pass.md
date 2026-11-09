@@ -358,10 +358,10 @@ ADR-0033 had removed a Priming step taken at the end of every pass, because a pa
 
 **Decided** (#673's grill, 2026-11-09; every recommendation taken):
 
-1. **Scope: what a Measure pass seeds.** That covers FLIPs, `layoutId` handovers and crossfades, a Declared layout change, and presence's layout leavers. The Frame loop's runs started after its tick (a leg's Retarget, P20 a) wait for the next tick, as before: #680.
+1. **Scope: what a Measure pass seeds.** That covers FLIPs, `layoutId` handovers and crossfades, a Declared layout change, and presence's layout leavers. The Frame loop's runs started after its tick (a leg's Retarget, P20 a) wait for the next tick, as before: #680. Since #680 they take a Late step in the loop's Late window (ADR-0027, *Amendment (#680)*).
    - *Motion:* this goes past Motion's result, which decision 3 records as the origin first for these triggers (inferred, not measured), as #480 went past it.
 2. **A pass knows it runs after its frame's tick from its triggers, never from a clock.** Each trigger for it must have come:
-   - during a Frame loop tick, its hooks included: the gate's flush and the app effects it runs, and the engine's own callbacks. The loop's `ticking()` reads it (ADR-0027, *Amendment (#673)*);
+   - during a Frame loop tick, its hooks included: the gate's flush and the app effects it runs, and the engine's own callbacks. The loop's `ticking()` reads it (ADR-0027, *Amendment (#673)*). Since #680, anywhere in the loop's Late window, the microtasks the tick queued included (Solid 2's effect flush): `inLateWindow()` reads it (ADR-0027, *Amendment (#680)*);
    - during the engine's observer delivery, which follows the frame's rAF callbacks and precedes its paint;
    - or during an after-tick pass's own step, inherited.
 
@@ -395,6 +395,7 @@ ADR-0033 had removed a Priming step taken at the end of every pass, because a pa
 | s2, content growth seen by the engine's observer | **0** (was 1) |
 | s5, a change when a layout animation ends, inside the tick | **0** (was 1) |
 | s8, an effect in the gate's flush at the tick's end | **0** (was 1) |
+| A layout change Solid 2 makes in its own flush, after a change made in the tick (LV4, #680) | **0** (was 1) |
 | s3, an app ResizeObserver; s4, a later rAF callback | 1, as before |
 | An app's Tier 2 `Stream` on `Clock.ticks`, which isn't on the loop | 1, as before |
 | An effect in the gate's own frame, on a page with no tick (the fallback flush) | 1, as before |
