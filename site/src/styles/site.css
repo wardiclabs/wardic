@@ -757,6 +757,8 @@ a {
   background: var(--line);
   cursor: pointer;
   transition: background-color 0.2s;
+  /* No tap highlight on a phone: Android Chrome's flashed over the track at each tap. */
+  -webkit-tap-highlight-color: transparent;
 }
 
 .sample-switch[aria-checked="true"] {
