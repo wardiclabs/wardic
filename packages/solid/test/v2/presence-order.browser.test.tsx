@@ -1,9 +1,14 @@
-// Where `<AnimatePresence>` puts a leaving child back, and its input, on Solid 2 (#486): Solid 1's
-// PO1 and PO3, with `wardic.*`.
+// Where `<AnimatePresence>` puts a leaving child back, and its input, on Solid 2 (#486, #675): Solid
+// 1's PO1, PO3, PO6 and PO7, with `wardic.*`.
 //
 // - POV1: a page swap under `popLayout`: the leaving page before the new one, taking no input, and a
 //   point over both hits the new page.
 // - POV2: Motion's list example: `[a, b, c]` to `[a, d, c]` renders `[a, b (leaving), d, c]`.
+// - POV3: a reorder while a child exits (#675): `[a, b, c]` to `[a, c]`, then `[c, a]` within b's
+//   exit, renders `[c, a, b (leaving)]`, Solid 1's PO6. It passed before #675: Solid 2's reconcile
+//   moves its nodes around this one leaver the other way.
+// - POV4: two leavers through a reverse and an insert keep Motion's places, Solid 1's PO7. Before
+//   #675 the reverse left them `[e, c, a, b, d]`, where Motion draws `[e, c, a, d, b]`.
 import type { JSX } from "@solidjs/web"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
@@ -25,6 +30,21 @@ const hitAt = (el: Element): string | undefined => {
   const r = el.getBoundingClientRect()
   const hit = document.elementFromPoint(r.left + r.width / 2, r.top + r.height / 2)
   return hit?.closest<HTMLElement>("[data-k]")?.dataset.k
+}
+
+/** A presence over a keyed `<For>` of `wardic.li`s, each with {@link LEAVE}'s slow exit. */
+const mountList = (first: ReadonlyArray<string>) => {
+  const [items, setItems] = createSignal(first)
+  const { host } = mount(() => (
+    <WardicProvider env={DomLive}>
+      <ul style={{ ...FRAME, "list-style": "none" }}>
+        <AnimatePresence>
+          <For each={items()}>{(k) => <wardic.li data-k={k} {...LEAVE} style={{ height: "20px" }} />}</For>
+        </AnimatePresence>
+      </ul>
+    </WardicProvider>
+  ))
+  return { to: setItems, host }
 }
 
 describe("where a leaver goes back, and its input, on Solid 2 (#486)", () => {
@@ -52,19 +72,35 @@ describe("where a leaver goes back, and its input, on Solid 2 (#486)", () => {
   })
 
   it("POV2: Motion's list example: [a, b, c] to [a, d, c] renders [a, b (leaving), d, c]", async () => {
-    const [items, setItems] = createSignal(["a", "b", "c"])
-    const { host } = mount(() => (
-      <WardicProvider env={DomLive}>
-        <ul style={{ ...FRAME, "list-style": "none" }}>
-          <AnimatePresence>
-            <For each={items()}>{(k) => <wardic.li data-k={k} {...LEAVE} style={{ height: "20px" }} />}</For>
-          </AnimatePresence>
-        </ul>
-      </WardicProvider>
-    ))
+    const m = mountList(["a", "b", "c"])
     await frames(3)
-    setItems(["a", "d", "c"])
+    m.to(["a", "d", "c"])
     await frames(3)
-    expect(orderIn(host), "b back right after a, the child it followed").toEqual(["a", "b", "d", "c"])
+    expect(orderIn(m.host), "b back right after a, the child it followed").toEqual(["a", "b", "d", "c"])
+  })
+
+  it("POV3: [a, b, c] to [a, c], then [c, a] within b's exit, renders [c, a, b (leaving)] (#675)", async () => {
+    const m = mountList(["a", "b", "c"])
+    await frames(3)
+    m.to(["a", "c"])
+    await frames(3)
+    expect(orderIn(m.host), "b exiting in its place").toEqual(["a", "b", "c"])
+    m.to(["c", "a"])
+    await frames(3)
+    expect(orderIn(m.host), "b after a, the child it followed, not between the moved nodes").toEqual(["c", "a", "b"])
+  })
+
+  it("POV4: two leavers through a reverse and an insert keep Motion's places (#675)", async () => {
+    const m = mountList(["a", "b", "c", "d", "e"])
+    await frames(3)
+    m.to(["a", "c", "e"])
+    await frames(3)
+    expect(orderIn(m.host), "b and d exiting in their places").toEqual(["a", "b", "c", "d", "e"])
+    m.to(["e", "c", "a"])
+    await frames(3)
+    expect(orderIn(m.host), "the reverse, the leavers at Motion's places").toEqual(["e", "c", "a", "d", "b"])
+    m.to(["e", "x", "c", "a"])
+    await frames(3)
+    expect(orderIn(m.host), "x entered, the leavers kept after a").toEqual(["e", "x", "c", "a", "d", "b"])
   })
 })
