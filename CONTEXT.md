@@ -502,8 +502,12 @@ The loop a scene's host runs, one pass a **Refresh frame**: it steps Wardic, the
 _Avoid_: render loop (the renderer's call alone), animation loop, rAF.
 
 **Ward**:
-One Subject's motion binding: its config, its Recognizers, its Override stack, its Legs and its Snapshot, however a binding attaches it. Solid's binding has three ways to put one on an element: a `wardic.*` component, `createWard`'s spread, and the `use:wardic` directive. Solid 2's has two: a `wardic.*` component, and `ward(config)`, a ref carrying its props, spread when it's kept or given to `ref`. A ward made with `ward(config)` can also be given to any Wardic component, `Reorder.Item` too, through its `wardRef`: the component then drives its element with that ward, the element's own motion props laid over its config (#349, #398).
+One Subject's motion binding: its config, its Recognizers, its Override stack, its Legs and its Snapshot, however a binding attaches it. Solid's binding has three ways to put one on an element: a `wardic.*` component, `createWard`'s spread, and the `use:wardic` directive. Solid 2's has two: a `wardic.*` component, and `ward(config)`, a ref carrying its props, spread when it's kept or given to `ref`. A ward made with `ward(config)` can also be given to any Wardic component, `Reorder.Item` too, through its `wardRef`: the component then drives its element with that ward, the element's own motion props laid over its config (#349, #398). Foldkit's binding has two: a `w.*` element from `wardic.html(h)`, and the `Ward.attributes(config)` bundle on any other element (ADR-0071).
 _Avoid_: motion component (Motion's), controller, spine (the code that runs it).
+
+**Delivery**:
+One render's config reaching a **Wardic element**, in a binding whose host has no reactive graph (Foldkit, ADR-0071): a property setter called inside the patch, once per fresh value, a parent's before its children's. The ward Retargets only when the delivered targets resolve differently from the last ones (#470). Its watches re-read once per patch, after the provider's delivery, which comes first in every patch.
+_Avoid_: update (Foldkit's `update`), prop write, re-render.
 
 **Listening ward**:
 A **Ward** given to a Wardic component's `wardRef` whose config carries no variants (sets neither `variants` nor `inherit`): the element's own props set its motion and its place in the variant tree, and the ward is what its gestures, landings and values are heard through. `ward()`, with no config, is one. A ward whose config sets `variants` or `inherit` **carries its variants**: its variant node is made where the ward is made, and the keys that node reads stay in its config (#398).
@@ -518,7 +522,7 @@ A part of the binding an element pays for only when it needs it (#511): a gestur
 _Avoid_: plugin, addon, module.
 
 **Slim element**:
-A **Wardic element** put on by one of `w`'s forms (#511; Motion's `m`): `w.*`, `w.create()`, and the ward forms, `w.createWard()` and `use:w` on Solid 1, `w.ward()` on Solid 2. Its own code animates values (`animate`, `initial`, `exit`, variants, transitions), with the **Features** chosen above it (its `WardicProvider`'s and every `LazyWardic`'s between). A prop of a Feature it doesn't have does nothing.
+A **Wardic element** put on by one of `w`'s forms (#511; Motion's `m`): `w.*`, `w.create()`, and the ward forms, `w.createWard()` and `use:w` on Solid 1, `w.ward()` on Solid 2, and every Foldkit `w.*` element, with the Features its `Wardic.make` handle was given (ADR-0071). Its own code animates values (`animate`, `initial`, `exit`, variants, transitions), with the **Features** chosen above it (its `WardicProvider`'s and every `LazyWardic`'s between). A prop of a Feature it doesn't have does nothing.
 _Avoid_: m component, lite element.
 
 **Complete element**:
