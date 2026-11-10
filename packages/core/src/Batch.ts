@@ -125,21 +125,36 @@ interface State<S> {
   rules: Uint16Array
   /** The transitions its members run, the Batch's own first. */
   readonly entries: Array<Entry>
+  /** Each entry's kind by its index, read per key in place of the entry: 0 a spring, 1 a tween. */
+  kinds: Uint8Array
+  /** Each spring entry's step matrix for this frame's `dt`, four numbers an entry: worked out once a frame. */
+  matrices: Float64Array
+
   /** Each transition's index in `entries`, by the bag it was given as. */
   readonly entryOf: Map<Transition, number>
   /** A change's new targets, `NaN` for a key it keeps: its first pass's, read by its second. */
   pending: Float64Array
   /** A change's members that move, in order: its first pass's. */
   movers: Int32Array
-  /** Per slot: whether a member holds it (between its `enter` and its `leave`). */
-  live: Uint8Array
   /** The slots a `leave` freed, the next `enter`'s. */
   readonly free: Array<number>
-  /** Per member: whether it's in `list`. */
-  moving: Uint8Array
-  /** The members moving now, `count` of them. */
+  /**
+   * Per slot, `LIVE` while a member holds it (from its `enter` to its `leave`), and `IN_LIST` or
+   * `IN_TABLE` while it moves. A member another transition takes moves to `table` and stays until it
+   * rests; `list` drops it at its next step. One byte, so each step reads one per member.
+   */
+  flags: Uint8Array
+  /** The members moving with every key on the Batch's own spring, `count` of them: stepped by one matrix. */
   list: Int32Array
   count: number
+  /**
+   * The members moving with a key on another transition, `tableCount` of them: stepped by each key's
+   * rule. Members that share the Batch's own spring step as if there were no table.
+   */
+  // ADR-0069, *Amendment (#665)*: read per key for every member, the table cost a step 13–16% (Bun,
+  // Node; 10,000 members).
+  table: Int32Array
+  tableCount: number
   readonly write: (subject: S, positions: Float64Array, base: number) => void
   readonly flush: () => void
   readonly onFrame: () => void
@@ -153,7 +168,7 @@ const Proto = {
   [TypeId]: { _S: identity },
   ...Inspectable.BaseProto,
   toJSON(this: State<unknown>) {
-    return { _id: "Batch", keys: this.keys, members: this.used, moving: this.count }
+    return { _id: "Batch", keys: this.keys, members: this.used, moving: this.count + this.tableCount }
   },
   pipe() {
     return pipeArguments(this, arguments)
@@ -162,6 +177,11 @@ const Proto = {
 
 /** Whether `u` is a Batch. */
 export const isBatch = (u: unknown): u is Batch<unknown> => Predicate.hasProperty(u, TypeId)
+
+/** A slot's flags: a member holds it; it moves in `list`; it moves in `table`. */
+const LIVE = 1
+const IN_LIST = 2
+const IN_TABLE = 4
 
 const stateOf = <S>(batch: Batch<S>): State<S> => batch as unknown as State<S>
 
@@ -200,8 +220,14 @@ const ruleOf = <S>(state: State<S>, transition: Transition): number =>
     onDefined: identity,
     onUndefined: () => {
       const index = state.entries.length
-      state.entries.push(entryFor(transition))
+      const entry = entryFor(transition)
+      state.entries.push(entry)
       state.entryOf.set(transition, index)
+      if (index === state.kinds.length) {
+        state.kinds = grown(state.kinds, index * 2)
+        state.matrices = grown(state.matrices, index * 2 * 4)
+      }
+      state.kinds[index] = entry.kind
       return index
     },
   })
@@ -218,6 +244,7 @@ export const make = <S>(options: Options<S>): Batch<S> => {
     throw new Machine.OptionError({ message: `Expected a key its writer draws, got ${JSON.stringify(key)}\n  at ["keys"][${k}]` })
   })
   const capacity = UndefinedOr.match(options.capacity, { onUndefined: () => 16, onDefined: (n) => Math.max(1, n) })
+  const own = entryFor(options.transition)
   const stride = options.keys.length
   const size = capacity * stride
   const state: State<S> = {
@@ -237,11 +264,14 @@ export const make = <S>(options: Options<S>): Batch<S> => {
     rules: new Uint16Array(size),
     pending: new Float64Array(size),
     movers: new Int32Array(capacity),
-    live: new Uint8Array(capacity),
     free: [],
-    entries: [entryFor(options.transition)],
+    entries: [own],
+    kinds: Uint8Array.of(own.kind, 0, 0, 0, 0, 0, 0, 0),
+    matrices: new Float64Array(8 * 4),
+    table: new Int32Array(capacity),
+    tableCount: 0,
     entryOf: new Map([[options.transition, 0]]),
-    moving: new Uint8Array(capacity),
+    flags: new Uint8Array(capacity),
     list: new Int32Array(capacity),
     count: 0,
     write: options.writer.forKeys(options.keys),
@@ -288,7 +318,7 @@ export const enter: {
   const state = stateOf(self)
   const slot = slotFor(state)
   state.subjects[slot] = subject
-  state.live[slot] = 1
+  state.flags[slot] = state.flags[slot] | LIVE
   const base = slot * state.stride
   state.keys.forEach((key, k) => {
     const value = UndefinedOr.match(start[key], { onUndefined: () => 0, onDefined: identity })
@@ -316,8 +346,8 @@ export const leave: {
   <S>(self: Batch<S>, slot: number): void
 } = dual(2, <S>(self: Batch<S>, slot: number): void => {
   const state = stateOf(self)
-  if (state.live[slot] === 0) return
-  state.live[slot] = 0
+  if ((state.flags[slot] & LIVE) === 0) return
+  state.flags[slot] = state.flags[slot] & ~LIVE
   state.subjects[slot] = undefined
   state.free.push(slot)
 })
@@ -354,9 +384,9 @@ const grow = <S>(state: State<S>, capacity: number): void => {
   state.rules = grown(state.rules, size)
   state.pending = grown(state.pending, size)
   state.movers = grown(state.movers, capacity)
-  state.live = grown(state.live, capacity)
-  state.moving = grown(state.moving, capacity)
+  state.flags = grown(state.flags, capacity)
   state.list = grown(state.list, capacity)
+  state.table = grown(state.table, capacity)
 }
 
 /**
@@ -395,6 +425,8 @@ export const retarget: {
     const slot = movers[rank]
     const base = slot * stride
     const wait = delayOf(rank, n)
+    // Whether a key it turns runs a transition other than the Batch's own spring.
+    let ruled = false
     for (let k = 0; k < stride; k++) {
       const at = base + k
       const target = pending[at]
@@ -402,6 +434,7 @@ export const retarget: {
       if (target === targets[at]) continue
       const rule = rules[k]
       const entry = state.entries[rule]
+      if (rule !== 0 || entry.kind !== 0) ruled = true
       targets[at] = target
       state.origins[at] = state.positions[at]
       state.rules[at] = rule
@@ -411,8 +444,15 @@ export const retarget: {
       state.restDeltas[at] = Spring.restDeltaFor(entry.spring, distance)
       state.restSpeeds[at] = Spring.restSpeedFor(entry.spring, distance)
     }
-    if (state.moving[slot] === 0) {
-      state.moving[slot] = 1
+    const flags = state.flags[slot]
+    // Into the table, out of the list (which drops it at its next step); else into the list, if it's in neither.
+    if (ruled && (flags & IN_TABLE) === 0) {
+      state.flags[slot] = (flags & ~IN_LIST) | IN_TABLE
+      state.table[state.tableCount] = slot
+      state.tableCount = state.tableCount + 1
+    }
+    if (!ruled && (flags & (IN_LIST | IN_TABLE)) === 0) {
+      state.flags[slot] = flags | IN_LIST
       state.list[state.count] = slot
       state.count = state.count + 1
     }
@@ -423,55 +463,65 @@ export const retarget: {
  * Steps every moving member by `dt` seconds and writes each one: whether nothing moves now. The run
  * on the Frame loop calls it each tick.
  */
-// Per frame (ADR-0025, ADR-0030 decisions 10 and 11): `dt` clamped once (#78), counted loops over the
-// moving members and their keys with plain reads, `springValues`' step written out per key.
+// Per frame (ADR-0025, ADR-0030 decisions 10 and 11): `dt` clamped once (#78), then one of two loops.
+// Each steps a key by `springValues`' exact step, or `Machine.tween`'s, its spring's matrix worked out
+// once a frame: called per key, `matrixFor` cost the step 2.5× (#665).
 export const step = <S>(self: Batch<S>, dt: number): boolean => {
   const state = stateOf(self)
-  const { stride, entries, rules, origins, positions, velocities, targets, elapsed, delays, restDeltas, restSpeeds, list, moving, live, subjects, write } = state
   const clamped = Math.min(dt, Machine.MAX_DT)
+  if (state.count > 0) stepOne(state, clamped)
+  if (state.tableCount > 0) stepTable(state, clamped)
+  state.flush()
+  state.onFrame()
+  // Counted after `onFrame`: a change it makes keeps the run going.
+  return state.count + state.tableCount === 0
+}
+
+/** The members in `list`, every key on the Batch's own spring, by one matrix. */
+// Per frame. The table's loop below, less its read of each key's rule and kind (#665).
+const stepOne = <S>(state: State<S>, clamped: number): void => {
+  const { stride, positions, velocities, targets, elapsed, delays, restDeltas, restSpeeds, list, flags, subjects, write } = state
+  const spring = state.entries[0].spring
+  const m = Spring.matrixFor(spring, clamped)
+  const dd = m.dd
+  const dv = m.dv
+  const vd = m.vd
+  const vv = m.vv
+  const count = state.count
   let kept = 0
-  for (let a = 0; a < state.count; a++) {
+  for (let a = 0; a < count; a++) {
     const slot = list[a]
-    // A member that left is dropped here, unwritten.
-    if (live[slot] === 0) {
-      moving[slot] = 0
+    const flag = flags[slot]
+    // A member another transition took is the table's now; one that left is dropped here, unwritten.
+    if (flag !== (LIVE | IN_LIST)) {
+      if ((flag & IN_LIST) !== 0) flags[slot] = flag & ~IN_LIST
       continue
     }
     const base = slot * stride
     let still = true
     for (let k = 0; k < stride; k++) {
       const at = base + k
-      const entry = entries[rules[at]]
       const goal = targets[at]
       const time = elapsed[at] + clamped
-      const delay = delays[at]
       let position = positions[at]
       let speed = velocities[at]
-      let settled = false
-      if (entry.kind === 1) {
-        // A tween, as `Machine.tween`'s: eased from where it started, its speed from its last frame.
-        const tween = entry.tween
-        const eased = tween.ease(Scalar.clamp(Math.max(0, time - delay) / tween.duration, 0, 1))
-        const next = Scalar.lerp(origins[at], goal, eased)
-        if (clamped > 0) speed = (next - position) / clamped
-        position = next
-        settled = time >= delay + tween.duration
-        if (settled) speed = 0
+      // Only the part of this tick past the delay moves it: all of it, or, the frame its delay ends, a part.
+      const simDt = Math.max(0, Math.min(clamped, time - delays[at]))
+      if (simDt === clamped) {
+        const d = position - goal
+        position = goal + dd * d + dv * speed
+        speed = vd * d + vv * speed
       }
-      if (entry.kind === 0) {
-        // A spring, as `springValues`': only the part of this tick past the delay moves it.
-        const simDt = Math.max(0, Math.min(clamped, time - delay))
-        if (simDt > 0) {
-          const m = Spring.matrixFor(entry.spring, simDt)
-          const d = position - goal
-          position = goal + m.dd * d + m.dv * speed
-          speed = m.vd * d + m.vv * speed
-        }
-        settled = simDt > 0 && Math.abs(speed) <= restSpeeds[at] && Math.abs(position - goal) <= restDeltas[at]
-        if (settled) {
-          position = goal
-          speed = 0
-        }
+      if (simDt > 0 && simDt < clamped) {
+        const part = Spring.matrixFor(spring, simDt)
+        const d = position - goal
+        position = goal + part.dd * d + part.dv * speed
+        speed = part.vd * d + part.vv * speed
+      }
+      const settled = simDt > 0 && Math.abs(speed) <= restSpeeds[at] && Math.abs(position - goal) <= restDeltas[at]
+      if (settled) {
+        position = goal
+        speed = 0
       }
       if (!settled) still = false
       positions[at] = position
@@ -479,18 +529,104 @@ export const step = <S>(self: Batch<S>, dt: number): boolean => {
       elapsed[at] = time
     }
     write(subjects[slot] as S, positions, base)
+    // At rest: still its member's, in neither list.
     if (still) {
-      moving[slot] = 0
+      flags[slot] = LIVE
       continue
     }
     list[kept] = slot
     kept++
   }
   state.count = kept
-  state.flush()
-  state.onFrame()
-  // Counted after `onFrame`: a change it makes keeps the run going.
-  return state.count === 0
+}
+
+/** A tween's step for the key at `at`, written in place: whether it has landed. */
+// Per frame: `Machine.tween`'s value, eased from the key's start, its speed from its last frame.
+const stepTween = <S>(state: State<S>, at: number, tween: ResolvedTween, time: number, clamped: number): boolean => {
+  const delay = state.delays[at]
+  const eased = tween.ease(Scalar.clamp(Math.max(0, time - delay) / tween.duration, 0, 1))
+  const next = Scalar.lerp(state.origins[at], state.targets[at], eased)
+  const landed = time >= delay + tween.duration
+  if (landed) state.velocities[at] = 0
+  if (!landed && clamped > 0) state.velocities[at] = (next - state.positions[at]) / clamped
+  state.positions[at] = next
+  return landed
+}
+
+/** Every moving member's keys, each by the transition its rule names: a spring's matrix, or a tween. */
+// Per frame. Each spring entry's matrix for this `dt`, once, then plain reads by rule (#665).
+const stepTable = <S>(state: State<S>, clamped: number): void => {
+  const { stride, entries, kinds, matrices, rules, positions, velocities, targets, elapsed, delays, restDeltas, restSpeeds, table, flags, subjects, write } = state
+  for (let e = 0; e < entries.length; e++) {
+    if (kinds[e] !== 0) continue
+    const m = Spring.matrixFor(entries[e].spring, clamped)
+    matrices[e * 4] = m.dd
+    matrices[e * 4 + 1] = m.dv
+    matrices[e * 4 + 2] = m.vd
+    matrices[e * 4 + 3] = m.vv
+  }
+  const count = state.tableCount
+  let kept = 0
+  for (let a = 0; a < count; a++) {
+    const slot = table[a]
+    const flag = flags[slot]
+    // A member that left is dropped here, unwritten.
+    if ((flag & LIVE) === 0) {
+      flags[slot] = flag & ~IN_TABLE
+      continue
+    }
+    const base = slot * stride
+    let still = true
+    for (let k = 0; k < stride; k++) {
+      const at = base + k
+      const rule = rules[at]
+      const goal = targets[at]
+      const time = elapsed[at] + clamped
+      const delay = delays[at]
+      let position = positions[at]
+      let speed = velocities[at]
+      let settled = false
+      // A tween, as `Machine.tween`'s, out of line: eased from where it started, its speed from its last frame.
+      if (kinds[rule] === 1) {
+        settled = stepTween(state, at, entries[rule].tween, time, clamped)
+        if (!settled) still = false
+        elapsed[at] = time
+        continue
+      }
+      // A spring, as `springValues`': only the part of this tick past the delay moves it.
+      const simDt = Math.max(0, Math.min(clamped, time - delay))
+      if (simDt === clamped) {
+        const mi = rule * 4
+        const d = position - goal
+        position = goal + matrices[mi] * d + matrices[mi + 1] * speed
+        speed = matrices[mi + 2] * d + matrices[mi + 3] * speed
+      }
+      if (simDt > 0 && simDt < clamped) {
+        const part = Spring.matrixFor(entries[rule].spring, simDt)
+        const d = position - goal
+        position = goal + part.dd * d + part.dv * speed
+        speed = part.vd * d + part.vv * speed
+      }
+      settled = simDt > 0 && Math.abs(speed) <= restSpeeds[at] && Math.abs(position - goal) <= restDeltas[at]
+      if (settled) {
+        position = goal
+        speed = 0
+      }
+      if (!settled) still = false
+      positions[at] = position
+      velocities[at] = speed
+      elapsed[at] = time
+    }
+    write(subjects[slot] as S, positions, base)
+    // At rest: still its member's, in neither list (a member is in one at most).
+    if (still) {
+      flags[slot] = LIVE
+      continue
+    }
+    table[kept] = slot
+    kept++
+  }
+  state.tableCount = kept
 }
 
 /** A sink that keeps nothing: a Batch's run writes as it steps. */
@@ -506,7 +642,7 @@ const machineOf = <S>(self: Batch<S>, state: State<S>, id: number): Machine.Mach
       // Per frame (ADR-0025): the step, and its count of members moving.
       return (dt) => {
         const done = step(self, dt)
-        frame.value = state.count
+        frame.value = state.count + state.tableCount
         if (!done) return frame
         frame.done = true
         // Marked ended in the step that rests, so a change later in the same tick starts the next run.
@@ -530,7 +666,7 @@ export const run = <S>(self: Batch<S>): Effect.Effect<void, never, FrameLoop.Fra
   Effect.suspend(() => {
     const state = stateOf(self)
     if (state.running !== 0) return Effect.void
-    if (state.count === 0) return Effect.void
+    if (state.count + state.tableCount === 0) return Effect.void
     const id = state.runs + 1
     state.runs = id
     state.running = id

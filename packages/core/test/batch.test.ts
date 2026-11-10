@@ -19,6 +19,7 @@
 //   from `onFrame` keeps it going.
 // - B9: what a Batch can't run throws an `OptionError` naming it: a key its writer can't draw, a
 //   transition that's neither a spring nor a tween, a spring's or a tween's bad option.
+// - B10: each `dual` operation's two forms give one type, and `pipe` runs the data-last form.
 import * as Batch from "@wardic/core/Batch"
 import * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -30,7 +31,7 @@ import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as PubSub from "effect/PubSub"
 import * as Stream from "effect/Stream"
-import { describe, expect, it } from "vitest"
+import { describe, expect, expectTypeOf, it } from "vitest"
 
 const F = 1 / 60
 
@@ -340,5 +341,19 @@ describe("a Batch (#665)", () => {
     const batch = Batch.make({ keys: ["x"], writer, transition: spring })
     const slot = Batch.enter(batch, "a", { x: 0 })
     expect(() => Batch.retarget(batch, [slot], () => 1, { transition: { type: "tween", duration: -1 } })).toThrow(/duration/)
+  })
+
+  it("B10: each dual operation's two forms give one type, and pipe runs the data-last form", () => {
+    const { writer } = recording<string>(["x"])
+    const batch = Batch.make({ keys: ["x"], writer, transition: { type: "spring" } })
+    expectTypeOf(Batch.enter(batch, "a", { x: 0 })).toEqualTypeOf(batch.pipe(Batch.enter("b", { x: 0 })))
+    expectTypeOf(Batch.retarget(batch, [0], () => 1)).toEqualTypeOf(batch.pipe(Batch.retarget([1], () => 1, { delay: 0.1 })))
+    expectTypeOf(Batch.leave(batch, 0)).toEqualTypeOf(batch.pipe(Batch.leave(1)))
+    // Through pipe: "c" takes the slot "b" left, and its change reaches it.
+    const slot = batch.pipe(Batch.enter("c", { x: 5 }))
+    expect(slot).toBe(1)
+    expect(Batch.get(batch, slot, "x")).toBe(5)
+    expect(Batch.isBatch(batch)).toBe(true)
+    expect(Batch.isBatch({ keys: ["x"] })).toBe(false)
   })
 })
