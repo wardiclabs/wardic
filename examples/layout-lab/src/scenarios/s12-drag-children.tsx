@@ -3,7 +3,7 @@
  * *Amendment (#26)*, the Drag block).
  *
  * The draggable `layout` item D holds four resting children, all checked for glue:
- * a `layout` child C1, a `layoutAnchor: false` child C2, and a `layoutRoot` R with
+ * a `layout` child C1, a `layoutAnchor: false` child C2, and a `layout layoutRoot` R with
  * its own `layout` child G. Before #26 each of the three `layout` kinds was left at
  * its slot while D moved (a counter-transform), and jumped onto D at a pass or the
  * release. A sibling above D can move D's slot while it is held: every 900 ms, or on
@@ -16,14 +16,16 @@
  *
  * **X**, at rest, moves D's slot the same way, and D FLIPs to it (ADR-0013's *Amendments
  * (#33)* and *(#144)*). C1, C2 and M ride D's FLIP, M on its slow spring past D's landing
- * (#144: it used to snap back as D landed); R, a `layoutRoot`, is isolated from it, as
+ * (#144: it used to snap back as D landed); R, a `layout layoutRoot`, is isolated from it, as
  * Motion's is, and paints at its new place from the first frame, G with it (#33: R used to
- * ride D, and G was thrown the other way, about twice the move). Each X is recorded as an
+ * ride D, and G was thrown the other way, about twice the move). A `layoutRoot` with no
+ * `layout` rides D instead, as Motion's does (#691), which the binding's tests pin. Each X is recorded as an
  * at-rest run (the recorder's `recordAtRest`), which the card judges against `restExpect`
  * while it is the latest run: the item ends on its slot, C1, C2 and M stay glued (M left
  * out for {@link M_SLIDE_MS} ms after a grab that slides it: its own slide moves it by
  * design), R and G stay isolated. A grab during that FLIP is judged from where it lands (the recorder's
- * `flyingAtPress`), and R and G's glue lines then read the isolation.
+ * `flyingAtPress`). R and G are judged against their layout offset in D (the recorder's `isolated`):
+ * every frame, or, for a grab during that FLIP, the run's last frame alone, once it has landed (#691).
  *
  * @module
  */
@@ -134,7 +136,10 @@ const View: ScenarioDef["View"] = (props) => {
     const recorder = attachDragRecorder({
       stage: () => stage,
       item: () => item,
-      children: () => ({ c1, c2, r, g }),
+      children: () => ({ c1, c2 }),
+      // R, a `layout layoutRoot`, and G in it are isolated from the item's own FLIP (#33), as Motion's: judged
+      // against their place in the item, a grab mid-flight once its flight has ended (#691).
+      isolated: () => ({ r, g }),
       // M moves by design, so it is recorded for the log but not glue-checked (#38).
       watched: () => ({ m }),
       mode: () => (animateOnGrab() ? "animate-on-grab" : "resting"),
@@ -193,7 +198,7 @@ const View: ScenarioDef["View"] = (props) => {
             {/* eslint-disable-next-line solid/reactivity */}
             <wardic.div layout layoutAnchor={false} ref={(el: HTMLElement) => (c2 = el)} style={childStyle(50, 10, "var(--lab-box-alt)")} />
             {/* eslint-disable-next-line solid/reactivity */}
-            <wardic.div layoutRoot ref={(el: HTMLElement) => (r = el)} style={{ ...childStyle(90, 10, "var(--lab-box-alt)"), width: "40px", height: "40px" }}>
+            <wardic.div layout layoutRoot ref={(el: HTMLElement) => (r = el)} style={{ ...childStyle(90, 10, "var(--lab-box-alt)"), width: "40px", height: "40px" }}>
               {/* eslint-disable-next-line solid/reactivity */}
               <wardic.div layout ref={(el: HTMLElement) => (g = el)} style={G_STYLE} />
             </wardic.div>
@@ -229,7 +234,7 @@ export const s12: ScenarioDef = {
   title: "Children ride the drag",
   kind: "drag",
   mechanism:
-    "Grab the blue item. It holds a layout child, a layoutAnchor:false child, and a layoutRoot with a child of its own; the orange sibling moves its slot every 900 ms (or on S). M (grey) FLIPs across it when you grab. At rest, X moves its slot (judged on the card: #33, #144).",
+    "Grab the blue item. It holds a layout child, a layoutAnchor:false child, and a layout layoutRoot with a child of its own; the orange sibling moves its slot every 900 ms (or on S). M (grey) FLIPs across it when you grab. At rest, X moves its slot (judged on the card: #33, #144).",
   prediction: "safe",
   rationale:
     "Since #26 a dragged item is its subtree's relative parent (layoutAnchor:false included) and its resting " +
@@ -238,7 +243,7 @@ export const s12: ScenarioDef = {
     "moved and jumped onto it at a pass or the release. M, animating when you grab, keeps animating on the item, " +
     "and since the velocity family's fix (ADR-0016) doesn't step back as the item lands. X at rest FLIPs the item: " +
     "its children ride it, M on its slow spring past the item's landing (ADR-0013, Amendment (#144)), and a " +
-    "layoutRoot is isolated from an ancestor's layout animation (Amendment (#33)), so R and G sit at their new " +
+    "layout layoutRoot is isolated from an ancestor's layout animation (Amendment (#33); a layoutRoot alone rides it, #691), so R and G sit at their new " +
     "place at once. Each X is an at-rest run the card judges.",
   dragExpect: {
     underPointerMaxPx: 1,

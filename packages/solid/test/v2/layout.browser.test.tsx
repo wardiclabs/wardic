@@ -11,7 +11,8 @@
 // - LY7: a Layout mode: `"position"` paints the new width at once and slides; `"size"` grows in place.
 // - LY8 (#257): a layout animation's `next("layoutStart")`, then `next("layoutComplete")`, through `wardRef`.
 // - LY9: the `layout` transition key gives layout its own transition.
-// - LY10: a `layoutRoot` self-snaps: no FLIP of its own.
+// - LY10: a `layoutRoot` self-snaps: no FLIP of its own. LY10b (#691): one with no `layout` rides its
+//   parent's FLIP, as Motion's; with `layout` it sits at its new place.
 // - LY11 (#257): `animateLayout` animates a keyed `<For>`'s reorder, and its promise resolves with its
 //   callback's result once the reorder has landed.
 // - LY12: a layout node's Starting style on the client is drawn through its projection at rest (#245).
@@ -19,6 +20,7 @@
 //   when `animate` drops it.
 // - LY14: `<LayoutGroup>`'s dependency alone re-measures: a node a plain sibling pushed FLIPs.
 // - LY15: `layoutScroll` folds a container's scroll out: a re-measure after scrolling isn't a FLIP.
+//   LY15b (#691): one with no `layout` animates no layout of its own.
 // - LY16: `layoutAnchor={false}` projects a child absolutely: on a slower transition than its
 //   parent's, it falls behind it, where a relative child stays glued.
 // - LY17 (#209 PR 5): only a change of `layoutDependency`'s value re-measures a layout node, as on
@@ -367,6 +369,33 @@ describe("layout on Solid 2: what reaches the projection from a ward's config", 
     expect(Math.abs(leftOf(root) - base - 200)).toBeLessThan(2)
   })
 
+  it("LY10b (#691): a layoutRoot with no layout of its own rides its parent's FLIP, as Motion's; with layout it sits at its new place", async () => {
+    const run = async (rootLayout: boolean): Promise<ReadonlyArray<number>> => {
+      const [tall, setTall] = createSignal(false)
+      let p!: HTMLDivElement
+      let r!: HTMLDivElement
+      const { unmount } = mount(() => (
+        <WardicProvider env={DomLive}>
+          <div style={{ position: "relative", width: "300px" }}>
+            <wardic.div layout style={{ height: Bool.match(tall(), { onTrue: () => "70px", onFalse: () => "20px" }) }} />
+            <wardic.div layout ref={p} style={{ position: "relative", width: "220px", height: "96px" }}>
+              <wardic.div layout={rootLayout} layoutRoot ref={r} style={{ position: "absolute", left: "90px", top: "10px", width: "40px", height: "40px" }} />
+            </wardic.div>
+          </div>
+        </WardicProvider>
+      ))
+      await frames(4)
+      const reads = paintsAfter(() => flushed(setTall)(true), () => topOf(r) - topOf(p), 16)
+      const offsets = await reads
+      unmount()
+      return offsets
+    }
+    const alone = await run(false)
+    for (const [k, y] of alone.entries()) expect(y, `frame ${k}: R rides P`).toBeCloseTo(10, 1)
+    const withLayout = await run(true)
+    expect(withLayout.some((y) => Math.abs(y - 10) > 5), "R at its new place while P flies").toBe(true)
+  })
+
   it("LY11: animateLayout animates a keyed <For>'s reorder, and resolves with its callback's result once it has landed", async () => {
     const [items, setItems] = createSignal(["a", "b", "c"])
     let animateLayout!: AnimateLayout
@@ -490,6 +519,27 @@ describe("layout on Solid 2: what reaches the projection from a ward's config", 
     }
     expect(jumpedBack, "no FLIP back to the unscrolled place").toBe(false)
     expect(Math.abs(topOf(item) - scrolled)).toBeLessThan(2)
+  })
+
+  it("LY15b (#691): a layoutScroll with no layout of its own takes its new place at once, as Motion's", async () => {
+    const [tall, setTall] = createSignal(false)
+    let s!: HTMLDivElement
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <div style={{ position: "relative", width: "300px" }}>
+          <wardic.div layout style={{ height: Bool.match(tall(), { onTrue: () => "70px", onFalse: () => "20px" }) }} />
+          <wardic.div layoutScroll ref={s} style={{ height: "100px", overflow: "auto" }}>
+            <wardic.div layout style={{ height: "300px", width: "40px" }} />
+          </wardic.div>
+        </div>
+      </WardicProvider>
+    ))
+    await frames(4)
+    const before = topOf(s)
+    const tops = await paintsAfter(() => flushed(setTall)(true), () => topOf(s) - before, 16)
+    const moved = tops.filter((d) => d > 0.01)
+    expect(moved.length, "it moved").toBeGreaterThan(0)
+    for (const d of moved) expect(d, "every moved frame at its new place").toBeCloseTo(50, 1)
   })
 
   it("LY17: only a change of layoutDependency's value re-measures: a style move with it unchanged paints in place, as Motion's", async () => {

@@ -34,7 +34,7 @@ The four it needs:
 | `layoutDependency` | An accessor whose change has it measured again. |
 | `transition` | An accessor of its `transition`: the `layout` entry, else the whole transition, runs its layout animations. |
 
-The rest are what a `w.*` element's [motion props](/reference/solid/elements/props#layout) give it: `layoutId`, `layoutScroll`, `layoutRoot`, `layoutAnchor`, its `layout` value as `layoutMode`, `layoutCrossfade` as `crossfade`, its `dragTransition`, its own `scale`, `x`, `y`, `rotate` and `opacity` for handovers, and its layout callbacks. Each function is read when the projection needs it, outside Solid's tracking.
+The rest are what a `w.*` element's [motion props](/reference/solid/elements/props#layout) give it: `layoutId`, `layoutScroll`, `layoutRoot`, `layoutAnchor`, its `layout` value as `layoutMode` (`false` for one with neither `layout` nor a `layoutId`, which has no layout animation of its own), `layoutCrossfade` as `crossfade`, its `dragTransition`, its own `scale`, `x`, `y`, `rotate` and `opacity` for handovers, and its layout callbacks. Each function is read when the projection needs it, outside Solid's tracking.
 
 ## Returns
 

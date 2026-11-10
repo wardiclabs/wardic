@@ -284,6 +284,24 @@ describe("dragRunOf", () => {
     expect(run.childGlueMaxPx).toEqual({ c1: 0, c2: 0 })
   })
 
+  it("judges an isolated child against its layout offset: every frame, or a grab mid-flight's last frame alone (#691)", () => {
+    // R, a `layout layoutRoot` at (90, 10) in D: off it while D's interrupted flight runs on, by the flight
+    // still to go (-31 px at the grab), then at its place as the flight ends, as Motion's.
+    const R: Point = { x: 90, y: 10 }
+    const rAt = (k: number, n: number): number => 10 - 41 * Math.max(0, 1 - k / (n - 4))
+    const withR = (frames: ReadonlyArray<DragFrame>, y: (k: number) => number): ReadonlyArray<DragFrame> =>
+      frames.map((f, k) => ({ ...f, children: { ...f.children, r: box(f.d.x + R.x, f.d.y + y(k), 40, 40) } }))
+    const settling = withR(cleanFrames, (k) => rAt(k, cleanFrames.length))
+    const midFlight = dragRunOf(input(settling, { isolatedOffsets: { r: R }, grabFlight: { slot: FLIGHT_SLOT } }), cleanSpans)
+    expect(midFlight.childGlueMaxPx.r, "a grab mid-flight: at its place where the run ends").toBeCloseTo(0, 6)
+    const atRest = dragRunOf(input(settling, { isolatedOffsets: { r: R } }), cleanSpans)
+    expect(atRest.childGlueMaxPx.r, "no flight at the grab: every frame judged").toBeCloseTo(41, 6)
+    const stuck = dragRunOf(input(withR(cleanFrames, () => -31), { isolatedOffsets: { r: R }, grabFlight: { slot: FLIGHT_SLOT } }), cleanSpans)
+    expect(stuck.childGlueMaxPx.r, "still off its place where the run ends").toBeCloseTo(41, 6)
+    // The glued children are judged as before, on every frame against their grab-time offsets.
+    expect(midFlight.childGlueMaxPx).toMatchObject({ c1: 0, c2: 0 })
+  })
+
   it("counts the passes in [grabAt, endedAt]: an in-flight span and one from before #26 count 0 for both", () => {
     const spans: ReadonlyArray<SpanRecord> = [
       span(MEASURE, GRAB_AT - 5, GRAB_AT - 4, { seeded: 1, dragBlocked: 0 }),

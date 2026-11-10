@@ -8,7 +8,8 @@ import { wardic, WardicProvider } from "@wardic/solid"
 import { DomLive } from "@wardic/dom"
 import { afterEach, expect, it } from "vitest"
 import { createSignal } from "solid-js"
-import { raf, topOf } from "./browser-helpers.ts"
+import * as Bool from "effect/Boolean"
+import { paintedReads, raf, topOf } from "./browser-helpers.ts"
 
 afterEach(() => {
   window.scrollTo(0, 0) // reset page scroll between tests
@@ -119,3 +120,41 @@ it("a position:fixed layoutScroll container is a scroll root — its subtree doe
   expect(jumped).toBe(false)
   expect(Math.abs(topOf(it) - topBefore)).toBeLessThan(2) // stays put
 })
+
+/**
+ * A container under a `layout` sibling that grows 50 px, given `props` (#691): the painted tops of the
+ * next 22 frames after the growth. As Motion's (`addLayoutListener` needs `layout` or a `layoutId`).
+ */
+const containerTops = async (props: { readonly layout?: true; readonly layoutScroll: true }): Promise<ReadonlyArray<number>> => {
+  const [tall, setTall] = createSignal(false)
+  let s!: HTMLDivElement
+  render(() => (
+    <WardicProvider env={DomLive}>
+      <div style={{ position: "relative", margin: "40px", width: "300px" }}>
+        <wardic.div layout style={{ height: Bool.match(tall(), { onTrue: () => "70px", onFalse: () => "20px" }) }} />
+        <wardic.div {...props} ref={s} style={{ height: "100px", overflow: "auto" }}>
+          <wardic.div layout style={{ height: "300px", width: "40px" }} />
+        </wardic.div>
+      </div>
+    </WardicProvider>
+  ))
+  for (let i = 0; i < 6; i++) await raf()
+  const before = topOf(s)
+  const sampling = paintedReads(() => topOf(s) - before, 22)
+  await raf()
+  setTall(true)
+  return sampling
+}
+
+it("a layoutScroll alone animates no layout of its own: under a growing sibling it takes its new place at once, as Motion's (#691)", async () => {
+  const tops = await containerTops({ layoutScroll: true })
+  const moved = tops.filter((d) => d > 0.01)
+  expect(moved.length, "it moved").toBeGreaterThan(0)
+  for (const d of moved) expect(d, "every moved frame at its new place, 50 px down").toBeCloseTo(50, 1)
+})
+
+it("a layoutScroll with layout still FLIPs (guard, #691)", async () => {
+  const tops = await containerTops({ layout: true, layoutScroll: true })
+  expect(tops.some((d) => d > 1 && d < 49), "a frame between its old place and its new one").toBe(true)
+})
+

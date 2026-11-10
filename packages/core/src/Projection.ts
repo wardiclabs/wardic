@@ -264,10 +264,12 @@ export const placeRelativeBox = (relative: Box.Box, parent: Box.Box, anchor: Poi
  * Which parts of a layout change a node's layout animation animates, as Motion's: `true`, its position
  * and size; `"position"`, its position, its size taking the new one at once; `"size"`, its size; `"x"` or
  * `"y"`, that axis; `"preserve-aspect"`, both while its width-to-height ratio stays within 0.2, else its
- * position.
+ * position; `false`, none: the node has no layout animation of its own, and rides its ancestors'.
  */
-// A **Layout mode** (CONTEXT.md; ADR-0009, *Amendment (#42)*): Motion's `animationType`.
-export type LayoutMode = true | "position" | "size" | "preserve-aspect" | "x" | "y"
+// A **Layout mode** (CONTEXT.md; ADR-0009, *Amendment (#42)*): Motion's `animationType`. `false` (#691):
+// a node only a `layoutRoot` or a `layoutScroll` makes, with no `layout` or `layoutId`, as Motion attaches
+// no layout listener to one (create-projection-node `addLayoutListener`).
+export type LayoutMode = boolean | "position" | "size" | "preserve-aspect" | "x" | "y"
 
 /** How far two width/height ratios may be apart for `"preserve-aspect"` to animate both (Motion's `isNear(…, 0.2)`). */
 const ASPECT_NEAR = 0.2
@@ -301,22 +303,26 @@ const movedTo = (box: Box.Box, to: Box.Box): Box.Box => ({
  * Where a layout animation from `origin` to `target` starts under `mode`, as Motion's: `"size"` moves
  * `origin` to `target`'s top-left, so only its size animates; `"x"` and `"y"` take the other axis from
  * `target`; a position-only mode gives `origin` `target`'s size at its own top-left, so only its position
- * animates; `true` leaves it as it is. Once, at each layout animation's start.
+ * animates; `true` leaves it as it is; `false` gives `target` itself, so nothing animates. Once, at each
+ * layout animation's start.
  */
 // Motion's `notifyLayoutUpdate`, create-projection-node.ts:2163-2205 at
 // 16c61222c4166bbef5ff6ab0051192faa79fa8c8.
 export const shapeOrigin = (mode: LayoutMode, origin: Box.Box, target: Box.Box): Box.Box => shaperOf(mode)(mode, origin, target)
 
-/** How a mode shapes a layout animation's origin: one of four, chosen by a matcher built once. */
+/** How a mode shapes a layout animation's origin: one of five, chosen by a matcher built once. */
 type Shaper = (mode: LayoutMode, origin: Box.Box, target: Box.Box) => Box.Box
 const sizeOnly: Shaper = (_, origin, target) => movedTo(origin, target)
 const xOnly: Shaper = (_, origin, target) => ({ x: origin.x, y: target.y })
 const yOnly: Shaper = (_, origin, target) => ({ x: target.x, y: origin.y })
+// Layout mode `false` (#691): no layout animation of its own, so it starts where it lands.
+const atTarget: Shaper = (_, __, target) => target
 const positionOrWhole: Shaper = (mode, origin, target) =>
   Bool.match(animatesPositionOnly(mode, origin, target), { onTrue: () => withSizeOf(origin, target), onFalse: () => origin })
 // #618 (H1): `Match.value` built its matcher again for every node's layout animation; this one is built
 // once, and its shapers are module-level, so a call allocates only the box it returns.
 const shaperOf: (mode: LayoutMode) => Shaper = /*#__PURE__*/ Match.type<LayoutMode>().pipe(
+  Match.when(false, () => atTarget),
   Match.when("size", () => sizeOnly),
   Match.when("x", () => xOnly),
   Match.when("y", () => yOnly),

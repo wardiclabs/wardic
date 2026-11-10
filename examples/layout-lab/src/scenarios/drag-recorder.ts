@@ -122,6 +122,13 @@ export interface DragRecorderOptions {
   /** The children whose glue to the item the run checks, by name. */
   readonly children: () => Readonly<Record<string, HTMLElement | undefined>>
   /**
+   * Children isolated from the item's own layout animation (optional; a `layout layoutRoot` and what's
+   * inside it, ADR-0013 *Amendment (#33)*), by name. Each is judged against its layout offset in the
+   * item, where it sits once that animation has ended; a grab mid-flight only on the run's last frame,
+   * since the isolation offsets it by the flight still to go until then (#691).
+   */
+  readonly isolated?: () => Readonly<Record<string, HTMLElement | undefined>>
+  /**
    * Elements whose painted box each frame records, by name, and no check judges
    * (optional): a child that moves by design, like scenario 12's M, kept for the eye
    * and the saved log (#38).
@@ -460,7 +467,7 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
       slot: layoutBox(item, stage),
       // A free item with constraints or a grid (#140): its x and y as its own transform has them.
       ...(p.input.bounds === undefined && p.input.grid === undefined ? {} : { translate: translateOf(item) }),
-      children: boxesOf(opts.children(), stage),
+      children: boxesOf({ ...opts.children(), ...opts.isolated?.() }, stage),
       ...(opts.reorderFrame === undefined ? {} : { reorder: opts.reorderFrame(p.pointer) }),
       ...(scroll === undefined ? {} : { scrolled }),
       ...(opts.watched === undefined ? {} : { watched: boxesOf(opts.watched(), stage) }),
@@ -605,6 +612,14 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
     for (const [name, box] of Object.entries(boxesOf(opts.children(), stage))) {
       childOffsets[name] = { x: box.x - grabBox.x, y: box.y - grabBox.y }
     }
+    // Isolated children: their layout offset in the item, which no transform moves (#691).
+    const itemLayout = layoutBox(item, stage)
+    const isolatedOffsets: Record<string, Point> = {}
+    for (const [name, el] of Object.entries(opts.isolated?.() ?? {})) {
+      if (el === undefined) continue
+      const box = layoutBox(el, stage)
+      isolatedOffsets[name] = { x: box.x - itemLayout.x, y: box.y - itemLayout.y }
+    }
     press = {
       pointerId: e.pointerId,
       downX: e.clientX,
@@ -623,6 +638,7 @@ export const attachDragRecorder = (opts: DragRecorderOptions): DragRecorder => {
         pointer: { type: e.pointerType, button: e.button, isPrimary: e.isPrimary },
         frames: [],
         childOffsets,
+        ...(Object.keys(isolatedOffsets).length === 0 ? {} : { isolatedOffsets }),
         releaseAt: null,
         endedAt: 0,
         scheduler: currentLabScheduler(),

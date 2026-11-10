@@ -65,8 +65,8 @@ All need the `layout` Feature. See [Layout animations](/guides/layout).
 | `layoutId` | A shared-layout id: a new element with it animates from where the old one was, crossfading. |
 | `layoutDependency` | A value whose change makes the element look for a layout change. In Solid nothing re-renders, so give it what your layout depends on. |
 | `layoutCrossfade` | `false`: a `layoutId` handover hides the old element at once, instead of crossfading. |
-| `layoutScroll` | Marks a scrolling element that is itself a layout element. Other scrolls, `position: sticky` included, need nothing. |
-| `layoutRoot` | Makes it a root for the layout animations inside it: it never animates its own. |
+| `layoutScroll` | Marks a scrolling element that is itself a layout element: its scroll isn't read as what's inside it moving. Without `layout` or a `layoutId`, it takes a new place at once, as Motion's. Other scrolls, `position: sticky` included, need nothing. |
+| `layoutRoot` | Makes it a root for the layout animations inside it: it never animates its own. With `layout` or a `layoutId`, it also stays at its new place while a parent's layout animation runs; alone, it moves with it, as Motion's. |
 | `layoutAnchor` | Where in its parent's box it anchors as the parent resizes, 0 to 1 per axis; `false` measures it against the page. |
 
 ## Callbacks

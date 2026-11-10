@@ -42,7 +42,7 @@ The decisions above promised Motion's behaviour ("a `layoutRoot` subtree isolate
 
 ### Decisions (grilled)
 
-1. **A `layoutRoot` isolates its subtree from an ancestor's layout animation (Q1), as Motion's does.** It paints at its new box from the first frame (Motion animates it with `type: false`), its projection counter-acting the ancestor's FLIP, and its subtree with it. What still carries it: CSS transforms, the Release offset of every released ancestor, and the nearest dragged ancestor's drag (its drag target's distance from its slot; a drag target is where that node paints, so nothing above it adds). A FLIP that (re)starts in the root's frame in the pass that moved the root starts where it paints there: its origin moves with the root, at the anchor of the node placed in it (Motion fixes `relativeTargetOrigin` against the root's snapshot), so only the node's own move animates, a node nested in another running one moving with it, and a resting node that only moved with the root doesn't animate at all. (*Amendment (#146)* makes this a case of every restart starting from where the node paints.) Rejected: riding the ancestor, which is what leaving `layoutRoot` off already does.
+1. **A `layoutRoot` isolates its subtree from an ancestor's layout animation (Q1), as Motion's does.** *(Since #691, a `layoutRoot` with `layout` or a `layoutId` does. One with neither rides the ancestor, as Motion's does: *Amendment (#691)*.)* It paints at its new box from the first frame (Motion animates it with `type: false`), its projection counter-acting the ancestor's FLIP, and its subtree with it. What still carries it: CSS transforms, the Release offset of every released ancestor, and the nearest dragged ancestor's drag (its drag target's distance from its slot; a drag target is where that node paints, so nothing above it adds). A FLIP that (re)starts in the root's frame in the pass that moved the root starts where it paints there: its origin moves with the root, at the anchor of the node placed in it (Motion fixes `relativeTargetOrigin` against the root's snapshot), so only the node's own move animates, a node nested in another running one moving with it, and a resting node that only moved with the root doesn't animate at all. (*Amendment (#146)* makes this a case of every restart starting from where the node paints.) Rejected: riding the ancestor, which is what leaving `layoutRoot` off already does.
 2. **Every ancestor's delta counts in a descendant's correction (Q2)**: `ancestorDeltas` walks the whole path, as Motion's `applyTreeDeltas` does and CSS composes. The decisions above called a `layoutRoot` an "accumulation boundary"; it stays only the boundary of the relative-parent search and its subtree's persistent anchor. Rejected: keeping the boundary and giving the root two boxes (an anchor in its descendants' frame and a viewport target), which adds state per root and leaves the projection's sum different from what CSS applies.
 3. **ADR-0016's drag-start stopgap goes (Q3).** It wrote a resting node inside a `layoutRoot` inside a dragged node at identity, because a derive double-counted the drag's offset; after 1 and 2 a derive gives identity on its own. `projection-release.browser.test.ts` RL16 stays as the test.
 4. **The layout lab (Q4, Q5).** Scenario 12's S moves the slot only while the item is held again (drag-blocked, nothing animates), since under 1 a slot move during the flight back moves R and G to their new place by design, and their glue lines would fail for correct behaviour; #28's glued child stays shown in scenario 13. Scenario 12 gains X, an eye check: at rest it moves the item's slot, the item FLIPs, its children ride it, and R and G take their new place at once.
@@ -207,3 +207,80 @@ The third item, scroll sampling, is ADR-0012 *Amendment (#7)*.
 ## Note (#171, 2026-10-14): a restart is a fresh tween
 
 With a tween transition, Motion's default from ADR-0009 *Amendment (#171)*, *Amendment (#146)*'s restart is a fresh tween over the full duration, delay included, from where the node is drawn, at velocity 0, as Motion's is. A spring's restart is unchanged.
+
+## Amendment (#691, 2026-11-10): a `layoutRoot` or `layoutScroll` alone has no layout of its own
+
+**What happened.** #691 began as a lab report: in scenario 12, R (a `layoutRoot`) and G (inside it) came "unglued" from the dragged item D when a grab interrupted D's FLIP. The diagnosis found the engine right and the lab's check wrong.
+- R sat at its new place while D flew (decision 1's isolation), and settled into D as D's interrupted flight ended under the drag (ADR-0016, decision 4).
+- The drag check measured R against its offset at the grab, which the isolation had shifted.
+- Motion did the same for a `layout layoutRoot`: 57.5 px off D at the grab, 10 at the end (`.tmp/691/motion/`, framer-motion 14.9.0, real Playwright mouse).
+
+But s12's R was `layoutRoot` *alone*, and there Motion differs: R rode D's FLIP, at 10.00 px off D in every frame. Its source says why. The `type: false` snap that isolates a layout root is a layout animation started in the projection node's `didUpdate` handler (`create-projection-node.mjs:396–413` in motion-dom 14.9.0). `addLayoutListener` attaches that handler only `if (layoutId || layout)` (`:359–366`). A `layoutRoot` alone still bounds its descendants' relative-parent search and anchors them (`:974`, `:1166`, `:1600`), but nothing snaps it, so CSS carries it with its parent.
+
+The same rule leaves `layoutScroll` alone with no layout animation. Motion's container jumped from 60 to 110 px under a sibling growing 50 px, while Wardic's FLIPped from 60.2 to 109.2 (`.tmp/691/motion-scroll/`). Decision 1's "as Motion's" had missed the `layout` condition.
+
+**Decided** (#691's grill, 2026-11-10, Q1–Q9; every recommendation taken):
+
+1. **An element animates its own layout only with `layout` or a `layoutId`** (Q1, Q2), as Motion's. A node only a `layoutRoot` or a `layoutScroll` makes keeps its other roles but takes no layout animation of its own.
+   - A `layoutRoot` alone still bounds its descendants' search for a relative parent and anchors them. It no longer counter-acts an ancestor's layout animation: it rides it, as any element does.
+   - A `layoutScroll` alone still folds its scroll out of its descendants' boxes, and moves to a new box at once.
+   - With `layout` or a `layoutId` as well, both are as before. Decision 1's isolation holds for a `layout layoutRoot`.
+2. **The Layout mode carries it** (Q3): `Projection.LayoutMode` gains `false` (ADR-0009, *Amendment (#691)*). The binding gives a node with no `layout` and no `layoutId` the mode `false`. A mode-`false` node's layout animation starts where it lands (`shapeOrigin`), so a moved one takes its new box with no flight, and a `layoutRoot` with it isolates nothing (`isolating` in dom's projection). dom's default, for a binding that gives no mode, stays `true`.
+   - A take-over (#286, ADR-0048) shapes its start by the mode before checking it, as a restart does, so a keyed `layoutScroll` alone back mid-exit starts no layout animation, its callbacks with it (from #691's review). A take-over in another mode that leaves nothing to move starts none either, as Motion's `hasLayoutChanged` reads the shaped snapshot.
+   - **When a `layoutRoot` isolates** (measured after the review): from the Measure pass that first finds it a mode other than `false`, and from then on, kept on its node (`isolating`). That's Motion's rule: `addLayoutListener` runs at mount and at each `setOptions`, attaches the `didUpdate` handler the first time `layout` or `layoutId` is set, and never takes it off (`hasLayoutListener`, motion-dom 14.6.0). A pass reads the mode only for a `layoutRoot` that doesn't isolate yet.
+     - Measured below (*Measured: the Layout mode's read*). Read each frame, as first written, it cost every frame; read at each pass, every pass. Latched, it costs nothing once a `layoutRoot` isolates.
+     - The binding reads the mode with statement `if`s.
+   - *Rejected: a separate dom option* (`animatesOwnLayout: false`): a second knob meaning the Layout mode none.
+   - *Not covered:* a node whose `layout` is taken away mid-flight, its mode turning `false`, restarts at its new box: it's drawn there at once, and its zero-distance flight runs out its transition, its callbacks with it. A `layoutRoot` doesn't: it self-snaps.
+3. **The layout lab's s12** (Q4, Q5):
+   - R is `layout layoutRoot`, so the scene keeps exercising isolation, Motion's measured case; the parity case is pinned by tests.
+   - The drag recorder names isolated children (`isolated: { r, g }`) and records their layout offsets in the item at the grab (`isolatedOffsets`).
+   - The check judges them against those offsets: on every frame, or, after a grab mid-flight (`grabFlight`), on the run's last frame alone, where the interrupted flight has ended. A child still off its place there fails.
+   - The lab loop (`.tmp/691/loop.ts`, X, a grab 60 ms into D's FLIP, the real mouse) read R and G 43.57 px "unglued" in 6 of 6 trials before, and 0.00 in 6 of 6 after, on both bindings.
+
+**Measured:** `bench:solid` against `main` (791883a), 11 paired reps. Every gate passed, with the control at −0.2%. None of its scenes has a `layoutRoot` or `layoutScroll` alone, so this checks the Layout mode's extra read and that nothing else moved:
+- element tasks, warm: Solid 1 −1.6% to +1.6%, Solid 2 −1.2% to −0.1%;
+- bytes −0.2% and −0.1%, retained +0.0%;
+- the layout scenes' Measure passes −2.0% to +1.0%, and their frames −8.5% to +3.9%, the page frame the noisiest;
+- KB per frame −0.4% and +0.6%. Frames to land are unchanged but for the scaled scene's 28 against 27, which isn't gated and read 27 and 28 on unchanged code in #680's and #687's runs.
+
+**Measured: the Layout mode's read** (after #691's review; `bench:solid` against `main` (791883a), 11 paired reps, with `page.tsx`'s and `page-v2.tsx`'s 330 badges made a `layoutRoot` for the run, then put back). Per row, Solid 1 then Solid 2, median [p25 – p75]:
+
+| Badges | Read | Page frame | Page Measure pass |
+|---|---|---|---|
+| `layout layoutRoot` | each frame | +12.0% [+2.8 – +15.5], +7.0% [+4.2 – +9.9], both FAIL | −1.1%, +0.3% |
+| `layout layoutRoot` | each pass | +1.9%, +3.3% | +5.4% [+4.1 – +6.1] FAIL, +1.7% |
+| `layout layoutRoot` | latched (this decision) | +1.5%, −1.6% | +4.1% [+1.4 – +4.3], −2.8% |
+| `layoutRoot` alone | latched: each pass, as it never isolates | −34.0%, −30.3% | +6.9% [+4.2 – +9.0] FAIL, +0.9% |
+| `layoutRoot` alone | once ever (a probe) | −33.6%, −35.8% | +3.2% [+1.7 – +8.5], +2.2% |
+
+- Every other gate passed in each run, the controls within ±1.8%.
+- A `layoutRoot` alone pays its pass once a layout change and saves in each frame: on Solid 1's page scene about 0.1 ms once against about 0.38 ms in each of its 31 frames. About half of that pass is the mode's read at each pass; the rest, about 2–3% on both bindings, is riding: the pass places each root through the relative path, not the isolated one. Kept, for Motion's rule (*When a `layoutRoot` isolates*, above): a read once would miss a `layout` given later.
+- The read itself is cheap where `main` already makes it, at each layout animation's start: a probe that kept Solid 1's Layout mode in a memo (`probe/691-memo`) read the all-`layout` tree's passes within ±1.3% of the latch, for +0.9% retained per Reorder item, so it wasn't kept. The read measured about 0.38 µs per call in the frame loop and up to that at the top of the pass: where it's made decides its cost, not how.
+
+**Pinned by:**
+- **`packages/dom/test/projection-layout-root.browser.test.ts`:**
+  - LR12: a mode-`false` `layoutRoot` rides its FLIPping parent and is still the frame of the node FLIPping inside it;
+  - LR13: a mode-`false` `layoutScroll` takes no flight when it moves, and still folds its scroll out of its node's box;
+  - LR14: a `layoutRoot` isolates from the pass that first finds it a layout of its own, and from then on, its layout taken away included.
+- **`packages/solid/test/drag-measure-pass.browser.test.tsx`:**
+  - T19: a `layoutRoot` alone in s12's scene stays on D at its place in every frame through X, a grab mid-flight and the release (49.8 px off before);
+  - T19b: a `layout layoutRoot` there is at its new place at the grab and at its place in D at the end.
+- **`packages/solid/test/v2/drag.browser.test.tsx`:** DG12 and DG12b, T19 and T19b on Solid 2.
+- **`packages/solid/test/layout-scroll.browser.test.tsx`:** a `layoutScroll` alone takes its new place at once; one with `layout` still FLIPs.
+- **`packages/solid/test/v2/layout.browser.test.tsx`:** LY10b (a `layoutRoot` alone rides its parent's FLIP; with `layout` it's at its new place) and LY15b (a `layoutScroll` alone takes its new place at once), on Solid 2.
+- **`packages/solid/test/presence-key-layout.browser.test.tsx`:** KL8, a keyed `layoutScroll` row back elsewhere mid-exit is drawn at its place at once and starts no layout animation (1 before the take-over's fix).
+- **`examples/layout-lab/test/drag-run.test.ts`:** an isolated child is judged against its layout offset, on every frame or a grab mid-flight's last frame alone.
+
+**Mutations** (`.tmp/691/mutate.py`, run alone, on the reviewed code): 7 single-point mutations, 6 caught, and 1 equivalent in every flow tested.
+
+| Mutant | Caught by |
+|---|---|
+| any `layoutRoot` isolates | LR12, LR14, T19, LY10b, DG12 |
+| every node Layout mode `true` | T19, the Solid 1 `layoutScroll` alone test, KL8, LY10b, LY15b, DG12 |
+| Layout mode `false` shaping nothing | LR13, the Solid 1 `layoutScroll` alone test, KL8, LY15b |
+| isolated children judged on every frame | `drag-run.test.ts`, the lab loop |
+| a take-over's check on its unshaped start | KL8 |
+| a `layoutRoot`'s mode read at every pass, not latched | LR14 |
+| an isolated child's painted offset at the grab, not its layout offset | none: an isolated child at its new place paints at its layout box. They'd differ for a root a Release offset carries at the grab, which no flow grabs. The layout box is the reference either way. |
+

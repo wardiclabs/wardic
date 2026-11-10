@@ -491,3 +491,7 @@ Motion's `resetTransform` (motion-dom 14.6, `create-projection-node.mjs`) resets
 | the origin read as 0 | AT6, AT6c, MS6 |
 | an ancestor Wardic doesn't own linked too | none: equivalent. With no values, its link composes the identity map each frame, as no link does. The check saves its reads and its per-frame call. |
 
+## Note (#691, 2026-11-10): a `layoutScroll` alone animates no layout of its own
+
+A container marked `layoutScroll` with no `layout` and no `layoutId` still folds its scroll out of its descendants' boxes, as before. When it moves, it now takes its new box at once, where it used to FLIP to it. That's Motion's rule: an element animates its own layout only with `layout` or a `layoutId` (ADR-0013, *Amendment (#691)*).
+

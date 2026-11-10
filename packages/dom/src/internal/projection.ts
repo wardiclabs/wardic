@@ -829,10 +829,13 @@ export interface RegisterNodeOptions {
   // #468.
   readonly skipAnimations?: () => boolean
   /**
-   * The node's **Layout mode**, read at each layout animation's start: which parts of a layout change it
-   * animates. Default `true`, position and size.
+   * The node's **Layout mode**, read at each layout animation's start, at each Measure pass for a
+   * `layoutRoot` until it isolates, and each frame for a Follower: which parts of a layout change it
+   * animates. Default `true`, position and size. `false`: none, for a node with no layout of its own (a
+   * `layoutRoot` or a `layoutScroll` alone, as Motion's): a move takes its new box at once, and a
+   * `layoutRoot` with it rides its ancestors' layout animations.
    */
-  // ADR-0009, *Amendment (#42)*.
+  // ADR-0009, *Amendments (#42, #691)*.
   readonly layoutMode?: () => Projection.LayoutMode
   /**
    * The element's own scale per axis: its `scale` times its `scaleX` or `scaleY`, which the renderer
@@ -898,8 +901,10 @@ export interface RegisterNodeOptions {
   readonly layoutScroll?: boolean
   /**
    * Marks the element a layout root, as Motion's `layoutRoot`: it never animates its own layout change,
-   * landing on it at once, and its subtree's projections stop at it, so a change outside it doesn't move
-   * what's inside.
+   * landing on it at once, and its subtree's projections stop at it, placed against it. With a Layout mode
+   * other than `false` it also stays at its new box while an ancestor's layout animation runs, so a change
+   * outside it doesn't move what's inside, from the Measure pass that first finds it one, and from then on;
+   * with `false` it rides that animation, as Motion's `layoutRoot` with no `layout`.
    */
   // Self-snaps; bounds delta accumulation and the relativeParent search for its subtree; a persistent
   // relative anchor.
@@ -1227,7 +1232,7 @@ interface NodeState {
   readonly reducedMotion: () => boolean
   /** Whether the node's animations are skipped now (#468), read at each (re)start and release: its own, else never. */
   readonly skipAnimations: () => boolean
-  /** The node's Layout mode, read at each layout animation's start (ADR-0009, *Amendment (#42)*). */
+  /** The node's Layout mode, read at each layout animation's start, at each pass for a layoutRoot until it isolates, and each frame for a Follower (ADR-0009, *Amendments (#42, #691)*). */
   readonly layoutMode: () => Projection.LayoutMode
   /** The element's own scale per axis, drawn on top of its projection (ADR-0010 *Amendment (#8)*). */
   readonly ownScale: () => Point.Point
@@ -1353,6 +1358,12 @@ interface NodeState {
   passPainted: Box.Box | undefined
   /** Marked a stable projection sub-root (ADR-0013): self-snaps, bounds the relative-parent search, persistent relativeParent. */
   readonly layoutRoot: boolean
+  /**
+   * Whether it isolates its subtree from its ancestors' layout animations (ADR-0013, *Amendment (#33)*):
+   * a layoutRoot a Measure pass has found a Layout mode other than `false`, then for good, as Motion's
+   * (#691). Kept here, so a frame reads a field, not the binding.
+   */
+  isolating: boolean
   /** This node's relative-projection anchor (ADR-0013): a 0–1 Point, or `false` to force absolute. */
   readonly layoutAnchor: Point.Point | false | undefined
   /** Last measured untransformed box (the FLIP "First"); `undefined` until first measure. */
@@ -2646,8 +2657,9 @@ export const makeProjectionSystem = (
    */
   const layoutTargetOf = (node: NodeState, box: Box.Box): Box.Box => {
     // ISOLATED (ADR-0013, *Amendment (#33)*): a layoutRoot sits at its new box, its projection
-    // counter-acting its ancestors' layout animations; only their transforms carry it.
-    if (node.layoutRoot) return offsetBox(box, carryOf(node))
+    // counter-acting its ancestors' layout animations; only their transforms carry it. Not one with no
+    // layout of its own (Layout mode `false`, #691): it rides them, as Motion's does.
+    if (node.isolating) return offsetBox(box, carryOf(node))
     const rp = relativeParentOf(node)
     const rpBox = boxOf(rp)
     if (Predicate.isNotUndefined(rp) && Predicate.isNotUndefined(rpBox) && Predicate.isNotUndefined(rp.lastTarget)) {
@@ -4006,6 +4018,12 @@ export const makeProjectionSystem = (
         dropBox(node)
         continue
       }
+      // Whether a layoutRoot isolates its subtree (ADR-0013, *Amendment (#33)*): from the first pass that
+      // finds it a layout of its own, and from then on, as Motion's (its `didUpdate` handler, attached once
+      // `layout` or `layoutId` is set, at mount or a later change, is never taken off). One only a
+      // `layoutRoot` makes (Layout mode `false`) is its subtree's frame and no more (#691). Read here, and
+      // only until then: a read each frame cost bench:solid's page scene 7–12% at 330 roots, and each pass 5%.
+      if (node.layoutRoot && !node.isolating) node.isolating = node.layoutMode() !== false
       // Store the box in the SCROLL-STABLE frame (ADR-0012), so a scroll change
       // between triggers doesn't leak into the delta. Every scroll offset was
       // sampled in the read phase, so the whole ancestor chain is available.
@@ -4147,10 +4165,12 @@ export const makeProjectionSystem = (
         //     moves from where the leaver painted, as a layout change, no handover: rebased as a
         //     Switch seed is, and drawn there on its first frame, its own scale divided out. A Switch
         //     seed the same leaving twin left is passed over: the key decides where it comes from.
+        // Shaped by its Layout mode before the check, as a restart's is: one that leaves nothing to
+        // move, a node with no layout of its own (Layout mode `false`, #691) among them, starts none.
         if (Predicate.isNotUndefined(enteredFrom)) {
-          const origin = undrawnFor(node, unpaintedOf(node, offsetUnlessZero(enteredFrom, rootFrameShift(node, documentScroll))))
+          const origin = shapedOrigin(node, undrawnFor(node, unpaintedOf(node, offsetUnlessZero(enteredFrom, rootFrameShift(node, documentScroll)))), newBox)
           if (Bool.not(boxesEqual(origin, newBox))) {
-            node.origin = shapedOrigin(node, origin, newBox)
+            node.origin = origin
             node.layoutBox = newBox
             node.flight = startFlight(node)
             node.animating = true
@@ -5359,6 +5379,7 @@ export const makeProjectionSystem = (
     passDelta: IDENTITY_DELTA,
     passPainted: undefined,
     layoutRoot: false,
+    isolating: false,
     layoutAnchor,
     dragging: false,
     grabBox: undefined,
@@ -5899,6 +5920,8 @@ export const makeProjectionSystem = (
       passDelta: IDENTITY_DELTA,
       passPainted: undefined,
       layoutRoot: opts.layoutRoot === true,
+      // Set at its first Measure pass, before any frame derives it.
+      isolating: false,
       layoutAnchor: opts.layoutAnchor,
       dragging: false,
       grabBox: undefined,

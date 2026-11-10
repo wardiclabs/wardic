@@ -11,6 +11,8 @@
 // - KL6: a keyed twin back mid-crossfade: its leaver goes at once, uncompleted, and it fades on from
 //   where that one had faded to, not from 0 nor from 1.
 // - KL7: on a scrolled page, from where the leaver painted all the same (the Root frame).
+// - KL8 (#691): a `layoutScroll` row, with no `layout`, is drawn in its own place at once, and starts
+//   no layout animation: it has none of its own (Layout mode `false`), as Motion's.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import * as Easing from "@wardic/core/Easing"
@@ -205,6 +207,33 @@ describe("a keyed presence child's take-over and layout on Solid 1 (#286's PR 2)
     await until(() => fadeOf(back) >= 0.99, 3000)
     expect(fadeOf(back)).toBeGreaterThanOrEqual(0.99)
     expect(completes, "no completion").toBe(0)
+  })
+
+  it("KL8 (#691): a layoutScroll row with no layout is drawn in its own place at once, and starts no layout animation", async () => {
+    let starts = 0
+    const rows = mountRows(["a", "b", "c"], (id) => (
+      <wardic.li
+        key={id}
+        layoutScroll
+        data-item={id}
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        exit={{ opacity: 0 }}
+        transition={SLOW}
+        onLayoutAnimationStart={() => starts++}
+        style={ROW}
+      >
+        {id}
+      </wardic.li>
+    ))
+    const { top } = await removeMidExit(rows, ["a", "c"])
+    rows.setItems(["a", "c", "b"])
+    await endOfTask()
+    const back = rows.node("b")
+    const frames = await paintedFrames(back, 2)
+    expect(frames[0]!.top, "at its own place, under c").toBeCloseTo(topOf(rows.node("c")) + 30, 0)
+    expect(frames[0]!.top).not.toBeCloseTo(top, 0)
+    expect(starts, "no layout animation").toBe(0)
   })
 
   it("KL7: on a scrolled page, from where the leaver painted all the same", async () => {

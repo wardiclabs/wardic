@@ -237,6 +237,12 @@ export interface DragRunInput {
   readonly frames: ReadonlyArray<DragFrame>
   /** Each watched child's painted offset from the dragged element at the grab, by name. */
   readonly childOffsets: Readonly<Record<string, Point>>
+  /**
+   * Each isolated child's layout offset in the dragged element (a `layoutRoot` and what's inside it,
+   * #691), by name: where it sits once the element's own layout animation has ended. A log from before
+   * #691 has none, and judged them by {@link childOffsets}.
+   */
+  readonly isolatedOffsets?: Readonly<Record<string, Point>>
   /** When the pointer went up (ms), or `null` when the press never ended in a release. */
   readonly releaseAt: number | null
   /**
@@ -594,8 +600,9 @@ export interface DragRun extends DragRunInput {
   /**
    * For each child in `childOffsets`, the largest distance, in px (the larger of x and
    * y), between its painted offset from the dragged element and its grab-time offset,
-   * over every frame of the run (held, released and settling). A child never sampled
-   * is left out.
+   * over every frame of the run (held, released and settling). For each in `isolatedOffsets`,
+   * between it and its layout offset: over every frame, or a grab mid-flight's last frame alone
+   * (#691). A child never sampled is left out.
    */
   readonly childGlueMaxPx: Readonly<Record<string, number>>
   /** The `wardic.projection.measure` spans that started in `[grabAt, endedAt]`. */
@@ -1035,9 +1042,9 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>,
   }
 
   const childGlueMaxPx: Record<string, number> = {}
-  for (const [name, offset] of Object.entries(input.childOffsets)) {
+  const recordGlue = (name: string, offset: Point, over: ReadonlyArray<DragFrame>): void => {
     let max: number | undefined
-    for (const f of frames) {
+    for (const f of over) {
       const child: Box | undefined = f.children[name]
       if (child === undefined) continue
       const drift = pointDistance({ x: child.x - f.d.x, y: child.y - f.d.y }, offset)
@@ -1045,6 +1052,12 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>,
     }
     if (max !== undefined) childGlueMaxPx[name] = max
   }
+  for (const [name, offset] of Object.entries(input.childOffsets)) recordGlue(name, offset, frames)
+  // An isolated child sits at its new place while a flight the grab interrupted runs on under the
+  // drag, so it rejoins its layout offset only as that flight ends: a grab mid-flight is judged where
+  // the run ends (#691; Motion's `layout layoutRoot` the same, ADR-0013 *Amendment (#691)*).
+  const isolatedOver = input.grabFlight === undefined ? frames : frames.slice(-1)
+  for (const [name, offset] of Object.entries(input.isolatedOffsets ?? {})) recordGlue(name, offset, isolatedOver)
 
   // Where the gesture should end: the release, or a lost release's first unpressed move.
   const end = endPointOf(input)

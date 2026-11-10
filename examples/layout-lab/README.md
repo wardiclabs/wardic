@@ -231,7 +231,11 @@ every saved log records it (`binding`).
     0 with either scheduler (since #32, ADR-0032; before, 1 with a browser's own).
   - **child glued**: for each child, the largest distance, in px, between its
     painted offset from the item and its offset at the grab, over every frame of
-    the run, release and settle included: `c1 0.00 · c2 0.00 px`.
+    the run, release and settle included: `c1 0.00 · c2 0.00 px`. An isolated
+    child (a `layout layoutRoot` and what's inside it, s12's R and G) is measured
+    against its layout offset in the item instead: on the last frame alone when
+    the grab interrupted the item's layout animation, as it sits at its new place
+    until that animation lands (#691).
   - **passes**: `N (M seeding, K drag-blocked)`: the run's Measure passes, how many
     seeded a node, and the sum of their `dragBlocked` attribute (the nodes in the
     dragged subtree whose box a pass changed, given a slot-only update instead of
@@ -324,7 +328,7 @@ and the card's `passes`.
 | 9 | click -> useWardic spring | The click flips a `useWardic` `animate` target. No layout change, so no Measure pass. | safe | 0 cold, 1 warm | 0 |
 | 10 | Sibling resize mid-flight | The click moves box A; 150 ms later a timer grows box B's content, which only Wardic's shared ResizeObserver sees, while A is mid-flight. | safe | 0 | 2 (2 seeding), `passStepRatio` about 1 |
 | 11 | Drag while the slot moves | Hold the item; its slot moves every 600 ms or on R: the sibling resizes (the engine ResizeObserver's pass) or the two swap under a `LayoutGroup` (a task's pass). | safe | drag card | each pass seeds the sibling only; the dragged tree drag-blocked |
-| 12 | Children ride the drag | Hold the item: a `layout` child, a `layoutAnchor: false` child and a `layoutRoot` with its own child ride it through slot moves (every 900 ms, or on S, also while it flies back) and the release. | safe | drag card | as 11 |
+| 12 | Children ride the drag | Hold the item: a `layout` child, a `layoutAnchor: false` child and a `layout layoutRoot` with its own child ride it through slot moves (every 900 ms, or on S, also while it flies back) and the release. | safe | drag card | as 11 |
 | 13 | Release and pointer lag | Move and release the item (still, moving, back at the grab point); Z resizes its own slot, P FLIPs its parent, while held, flying back or at rest (then grab it mid-animation). Momentum on or off; a `layoutId` twin. Throw the free box (#139). | safe | drag card | a pass seeds the parent at most |
 | 14 | Reorder | Drag an item to reorder a `Reorder.Group` in any of six layouts, on the page or in a scroll container, optionally on a card a transform moves; S scrolls 60 px mid-drag, an edge Auto-scrolls, M moves the first item to the end in code, C moves the CSS card. | safe | drag card + reorder lines | each pass seeds the displaced items only |
 | 15 | Base values | Hover, press, Remount and Exit drive six keys no `initial` sets, and three `initial={false}` cells start at their `animate` (#134); each run is judged on where it starts and where it ends. | safe | board card | – |
@@ -424,14 +428,16 @@ Method); the expected card, with a browser's own scheduler:
   also took a held drag's moves and release). A `<Reorder>` item doesn't need the
   style: it is raised while dragged (scenario 14).
 - **12, children ride the drag.** A `layout` child, a `layoutAnchor: false` child,
-  and a `layoutRoot` with its own `layout` child; while you hold the item the sibling
+  and a `layout layoutRoot` with its own `layout` child; while you hold the item the sibling
   moves the slot every 900 ms, or press S: every child should stay on it. At rest, X
   moves the slot and the item FLIPs there (ADR-0013's *Amendments (#33)* and
   *(#144)*): the two left children and M ride the item, M on its slow spring past the
   item's landing (#144: it used to snap about 5.6 px back as the item landed), while
-  the `layoutRoot` R, isolated from its parent's layout animation as Motion's is, sits
-  at its new place from the first frame, its child G with it (#33: R rode the item,
-  and G was thrown the other way, about twice the move). Each X is recorded as an
+  the `layout layoutRoot` R, isolated from its parent's layout animation as Motion's is,
+  sits at its new place from the first frame, its child G with it (#33: R rode the item,
+  and G was thrown the other way, about twice the move; a `layoutRoot` alone rides it,
+  as Motion's, #691). A grab during that FLIP judges R and G where the run ends, once
+  the flight the grab interrupted has landed under the drag (#691). Each X is recorded as an
   **at-rest run**, which the card shows while it is the latest run: `slot moved` (by
   how much, over how many frames), `ends on slot` (≤ 0.5 px), `child glued` (C1, C2
   and M, ≤ 1 px) and `isolated` (R and G off their new place, ≤ 1 px, every frame).
@@ -440,8 +446,8 @@ Method); the expected card, with a browser's own scheduler:
   at-rest run short. An X while the item still slides from the last one restarts the
   slide from where everything paints, so M stays on it (#146: it used to be thrown up to
   23 px off). A grab during that FLIP is judged from where it
-  lands, as Z and P at rest are in 13, and R and G's glue lines then read the
-  isolation. A slot move during the flight
+  lands, as Z and P at rest are in 13, R and G where the run ends (above). A slot
+  move during the flight
   back (#28) is scenario 13's (Z, P); here it would move R and G to their new place
   ahead of the item, by design, and fail their glue lines. M (grey) starts a slow FLIP across
   the item when you grab it (the toggle): it should keep animating on the item,

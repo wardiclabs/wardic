@@ -82,7 +82,11 @@ export interface CreateProjectionNodeOptions {
   // ADR-0012: its scroll offset is sampled at measure and folded out of its descendants' boxes, so a
   // scroll between triggers doesn't leak into their FLIP delta.
   readonly layoutScroll?: boolean
-  /** Its `layoutRoot`: a root for the layout animations inside it, which never animates its own. */
+  /**
+   * Its `layoutRoot`: a root for the layout animations inside it, which never animates its own. With a
+   * `layoutMode` other than `false` it stays at its new place while an ancestor's layout animation runs;
+   * with `false` it moves with it, as a `w.*` element's with no `layout` or `layoutId` does.
+   */
   // ADR-0013: a stable projection sub-root, self-snap, boundary and persistent relative anchor.
   readonly layoutRoot?: boolean
   /** Its `layoutAnchor`: where in its parent's box it anchors, 0 to 1 per axis, or `false` to measure it against the page. */
@@ -94,8 +98,12 @@ export interface CreateProjectionNodeOptions {
   /** Raises it above its siblings while it's dragged, as a `<Reorder>` item is. */
   // ADR-0016 *Amendment (Reorder)*.
   readonly raiseWhileDragged?: boolean
-  /** Its `layout` value: which part of a change it animates, read as each layout animation starts. Default `true`. */
-  // ADR-0009, *Amendment (#42)*: its Layout mode.
+  /**
+   * Its `layout` value: which part of a change it animates, read as each layout animation starts. `false`
+   * for one with no layout of its own, as a `w.*` element's with `layoutRoot` or `layoutScroll` and no
+   * `layout` or `layoutId`. Default `true`.
+   */
+  // ADR-0009, *Amendments (#42, #691)*: its Layout mode.
   readonly layoutMode?: () => Projection.LayoutMode
   /** Its own `scale`, read at each handover and each frame it follows another element. */
   // ADR-0010 *Amendment (#8)*.
@@ -201,11 +209,16 @@ const takeOverOf = (box: Box.Box | undefined, fade: number | undefined): Pick<Pr
 }
 
 /**
- * The Layout mode a `layout` prop names (ADR-0009, *Amendment (#42)*): a mode's name, else
- * `true` (`layout`, or a node a `layoutId`, `layoutScroll` or `layoutRoot` gives).
+ * The Layout mode a config gives its node (ADR-0009, *Amendment (#42)*): the mode its `layout` names,
+ * `true` for `layout` or a `layoutId`, and `false` for a node only a `layoutScroll` or a `layoutRoot` gives,
+ * which animates no layout of its own and rides its ancestors', as Motion's (#691). Statement `if`s:
+ * read each frame for a Follower.
  */
-export const layoutModeOf = (layout: WardConfig["layout"]): Projection.LayoutMode =>
-  Option.getOrElse(Option.liftPredicate(layout, isModeName), (): Projection.LayoutMode => true)
+export const layoutModeOf = (layout: WardConfig["layout"], layoutId: string | undefined): Projection.LayoutMode => {
+  if (isModeName(layout)) return layout
+  if (layout === true) return true
+  return Predicate.isNotUndefined(layoutId)
+}
 
 /** Whether a `layout` prop names a Layout mode (a string), not `true` / `false`. */
 const isModeName = (layout: WardConfig["layout"]): layout is Exclude<WardConfig["layout"], boolean | undefined> => Predicate.isString(layout)
@@ -254,8 +267,10 @@ export const layoutOptionsOf = (ward: WardLayout): CreateProjectionNodeOptions =
     layoutDependency: () => config().layoutDependency,
     transition: () => ownOrInherited(config().transition, parent),
     dragTransition: () => dragTransition,
-    // The Layout mode, read at each layout animation's start (ADR-0009, *Amendment (#42)*).
-    layoutMode: () => layoutModeOf(config().layout),
+    // The Layout mode, read at each layout animation's start, at each Measure pass for a layoutRoot
+    // until it isolates, and each frame for a Follower (ADR-0009, *Amendments (#42, #691)*); its
+    // `layoutId` is the one read at mount.
+    layoutMode: () => layoutModeOf(config().layout, c0.layoutId),
     // The own scale the renderer draws, from the values last written (ADR-0010 *Amendment (#8)*).
     ownScale: () => DomRenderer.ownScaleOf(snapshot.values),
     // And its own translate, which the renderer adds to its projection's (#363).
