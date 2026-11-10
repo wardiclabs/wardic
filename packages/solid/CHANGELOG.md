@@ -1,5 +1,20 @@
 # @wardic/solid
 
+## 1.0.0-rc.9
+
+### Patch Changes
+
+- b029b07: An element with `layoutRoot` or `layoutScroll` but no `layout` or `layoutId` no longer animates its own layout, as with Motion. A `layoutRoot` alone now moves with a parent's layout animation instead of holding its new place, while still being the frame its children's layout animations are measured against. A `layoutScroll` alone moves to its new place at once instead of animating there, and still keeps its scroll out of its children's layout animations. Add `layout` to either for the previous behaviour: a `layout layoutRoot` stays at its new place while its parent animates. `Projection.LayoutMode` gains `false` for a node with no layout animation of its own. A keyed presence child that takes over from its leaving element starts no layout animation when its `layout` mode leaves nothing to move, as with Motion.
+- 046e352: A child exiting in an `<AnimatePresence>` keeps its place in Motion's order when the list is reordered during its exit. It used to stay where it was, between the moved items, until its exit ended: `[a, b, c]` to `[a, c]`, then `[c, a]` while b fades out, drew `c b a`, where Motion draws `c a b`. On Solid 1 one exiting child was enough. On Solid 2 it took two. Under `mode="popLayout"` too. A list emptied beside a sibling element, such as a footer item after the presence, also keeps its exiting children before that sibling now, where they could land after it.
+- Updated dependencies [18d6656]
+- Updated dependencies [84305f5]
+- Updated dependencies [4acfef6]
+- Updated dependencies [b029b07]
+- Updated dependencies [8bc596b]
+- Updated dependencies [8276e4a]
+  - @wardic/core@1.0.0-rc.9
+  - @wardic/dom@1.0.0-rc.9
+
 ## 1.0.0-rc.8
 
 ### Patch Changes

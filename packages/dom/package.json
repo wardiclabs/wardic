@@ -1,6 +1,6 @@
 {
   "name": "@wardic/dom",
-  "version": "1.0.0-rc.8",
+  "version": "1.0.0-rc.9",
   "description": "The browser environment for Wardic: its clock, renderer, input, probe and projection system, as Effect Layers.",
   "keywords": [
     "animation",

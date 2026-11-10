@@ -16,11 +16,18 @@
     "@wardic/test": "0.1.0-alpha.0"
   },
   "changesets": [
+    "after-tick-step",
     "env-builds-at-once",
+    "follower-ancestor-at-identity",
     "frame-loop-metrics",
+    "late-step",
+    "layout-root-alone",
+    "leaving-twins",
     "lift-boundary",
+    "presence-reorder",
     "probe-names",
     "reactivity-imports",
+    "rest-pass",
     "scroll-feature",
     "shared-source-counted",
     "solid2-server-code",
