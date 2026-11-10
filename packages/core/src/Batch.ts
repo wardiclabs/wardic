@@ -567,10 +567,10 @@ const grow = <S>(state: State<S>, capacity: number): void => {
 
 /**
  * The key at `at` turned on `rule` toward `goal`, from `start` at `speed`, waiting `wait` past its
- * transition's own delay: its rule held, and its start and rest thresholds kept. A change's, and a
- * driven change's at its play.
+ * transition's own delay: its rule held, and its start, its speed then and its rest thresholds kept.
+ * A driven change's, at its play; `retarget` keeps the same writes inline, less the speed.
  */
-// Per key per change: plain writes.
+// Per key a driven change plays: plain writes.
 const turn = <S>(state: State<S>, at: number, rule: number, goal: number, start: number, speed: number, wait: number): void => {
   const entry = state.entries[rule]
   const before = state.rules[at]
@@ -658,11 +658,26 @@ export const retarget: {
       if (target === targets[at]) continue
       let rule = rules[k]
       if (Predicate.isNotUndefined(ruleAt)) rule = ruleAt(slot, k)
-      if (rule !== 0 || state.kinds[rule] !== SPRING) ruled = true
+      const entry = state.entries[rule]
+      if (rule !== 0 || entry.kind !== SPRING) ruled = true
       // Taken from a driven change its Playhead holds, it starts from rest (#464).
       if (driven && heldAt(state, at)) state.velocities[at] = 0
-      turn(state, at, rule, target, state.positions[at], state.velocities[at], wait)
+      // `turn`'s body, inline, less its start's speed, which only a driven change reads, and sets at its play.
+      const before = state.rules[at]
+      if (before !== rule) {
+        hold(state, rule)
+        release(state, before)
+        state.rules[at] = rule
+      }
+      targets[at] = target
+      state.origins[at] = state.positions[at]
       state.elapsed[at] = 0
+      state.delays[at] = entry.delay + wait
+      const distance = target - state.positions[at]
+      state.restDeltas[at] = Spring.restDeltaFor(entry.spring, distance)
+      state.restSpeeds[at] = Spring.restSpeedFor(entry.spring, distance)
+      // A spring that ends at its duration starts from rest, as Motion's (#359).
+      if (entry.kind === TIMED) state.velocities[at] = 0
     }
     const flag = flags[slot] & ~COUNTED
     flags[slot] = flag
@@ -811,14 +826,18 @@ const stepTween = <S>(state: State<S>, at: number, tween: ResolvedTween, time: n
 // Per frame. Each spring entry's matrix for this `dt`, once, then plain reads by rule (#665).
 const stepRuled = <S>(state: State<S>, clamped: number): void => {
   const { stride, entries, kinds, matrices, dts, drivers, rules, positions, velocities, targets, elapsed, delays, restDeltas, restSpeeds, ruledList, flags, subjects, write } = state
-  // Each entry's step: the frame's, or a driven one's at its Playhead's speed, which moves its time; then
-  // each spring's matrix for it, once.
+  // Each entry's step: the frame's, or a driven change's at its Playhead's speed, which moves its time;
+  // then each spring's matrix for it, once.
+  let driven = false
   for (let e = 0; e < entries.length; e++) {
     const kind = kinds[e]
     if (kind === FREE) continue
     let dt = clamped
     const driver = drivers[e]
-    if (Predicate.isNotUndefined(driver)) dt = drivenStep(driver, clamped, state.frame)
+    if (Predicate.isNotUndefined(driver)) {
+      driven = true
+      dt = drivenStep(driver, clamped, state.frame)
+    }
     dts[e] = dt
     if (kind === TWEEN || dt <= 0) continue
     const m = Spring.matrixFor(entries[e].spring, dt)
@@ -827,6 +846,80 @@ const stepRuled = <S>(state: State<S>, clamped: number): void => {
     matrices[e * MATRIX + 2] = m.vd
     matrices[e * MATRIX + 3] = m.vv
   }
+  // While a driven change plays, each key steps by its entry's own step, out of line: read per key, it
+  // cost every ruled member's step 5% (Bun and Chromium, 10,000 members; #665).
+  if (driven) {
+    stepRuledDriven(state)
+    return
+  }
+  const count = state.ruledCount
+  let kept = 0
+  for (let a = 0; a < count; a++) {
+    const slot = ruledList[a]
+    const flag = flags[slot]
+    // A member that left is dropped here, unwritten.
+    if ((flag & LIVE) === 0) {
+      flags[slot] = flag & ~IN_RULED
+      continue
+    }
+    const base = slot * stride
+    let still = true
+    for (let k = 0; k < stride; k++) {
+      const at = base + k
+      const rule = rules[at]
+      const kind = kinds[rule]
+      const time = elapsed[at] + clamped
+      elapsed[at] = time
+      // A tween, out of line.
+      if (kind === TWEEN) {
+        if (!stepTween(state, at, entries[rule].tween, time, clamped)) still = false
+        continue
+      }
+      // A spring, as `springValues`': only the part of this tick past the delay moves it.
+      const goal = targets[at]
+      const delay = delays[at]
+      let position = positions[at]
+      let speed = velocities[at]
+      const simDt = Math.max(0, Math.min(clamped, time - delay))
+      if (simDt === clamped) {
+        const mi = rule * MATRIX
+        const d = position - goal
+        position = goal + matrices[mi] * d + matrices[mi + 1] * speed
+        speed = matrices[mi + 2] * d + matrices[mi + 3] * speed
+      }
+      if (simDt > 0 && simDt < clamped) {
+        const part = Spring.matrixFor(entries[rule].spring, simDt)
+        const d = position - goal
+        position = goal + part.dd * d + part.dv * speed
+        speed = part.vd * d + part.vv * speed
+      }
+      // A spring rests by its thresholds; one that ends at its duration, there (#359).
+      let settled = simDt > 0 && Math.abs(speed) <= restSpeeds[at] && Math.abs(position - goal) <= restDeltas[at]
+      if (kind === TIMED) settled = time - delay >= entries[rule].spring.duration
+      if (settled) {
+        position = goal
+        speed = 0
+      }
+      if (!settled) still = false
+      positions[at] = position
+      velocities[at] = speed
+    }
+    write(subjects[slot] as S, positions, base)
+    // At rest: still its member's, in neither list (a member is in one at most).
+    if (still) {
+      flags[slot] = LIVE
+      continue
+    }
+    ruledList[kept] = slot
+    kept++
+  }
+  state.ruledCount = kept
+}
+
+/** The members in the ruled list while a driven change plays: each key by its entry's step this frame, forwards or back. */
+// Per frame, while a driven change plays: `stepRuled`'s loop, by each entry's `dt`.
+const stepRuledDriven = <S>(state: State<S>): void => {
+  const { stride, entries, kinds, matrices, dts, rules, positions, velocities, targets, elapsed, delays, restDeltas, restSpeeds, ruledList, flags, subjects, write } = state
   const count = state.ruledCount
   let kept = 0
   for (let a = 0; a < count; a++) {
