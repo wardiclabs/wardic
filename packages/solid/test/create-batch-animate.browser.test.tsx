@@ -19,8 +19,8 @@
 //   moved, so its next change turns the member on from there.
 // - CBA9: a list of members goes as one Batch call over them, its stagger counting the members that
 //   move in list order; a plain element in the list keeps Motion's delay by its index (Q35).
-// - CBA10: through an element, a transform the Batch doesn't draw, a string and three stops for a
-//   Batch key are errors naming the key; another key isn't (Q33, Q34).
+// - CBA10: through an element, a transform the Batch doesn't draw (or `transform` itself), a string and
+//   three stops for a Batch key are errors naming the key; another key isn't (Q33, Q34).
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { createAnimate, createBatch, stagger, type WardicAnimate, type WardicBatch, WardicProvider } from "@wardic/solid"
@@ -241,13 +241,15 @@ describe("animate of a Batch on Solid 1 (#665)", () => {
   })
 
   it("CBA9: a list of members goes as one Batch call, its stagger counting the movers; a plain element keeps its index's", async () => {
-    const { animate, members, plain } = mountBoth(5)
+    const { grid, animate, members, plain } = mountBoth(5)
     await raf()
+    await animate(grid.at(4), { x: 80 }, { duration: 0 })
     const delay = stagger(0.05)
-    // Members 0, 1 and 2 move, ranks 0 to 2 of 3; plain 0 is the list's second of 4; member 3 isn't in it.
-    void animate([members[0], plain[0], members[1], members[2]], { x: 80 }, { ...SPRING, delay })
+    // Members 0, 1 and 2 move, ranks 0 to 2 of 3: member 4 is at 80 already, so it isn't counted. Plain 0 is
+    // the list's third of 5; member 3 isn't in it.
+    void animate([members[0], members[4], plain[0], members[1], members[2]], { x: 80 }, { ...SPRING, delay })
     ;[1, 2, 3].forEach((p, rank) => animate(plain[p], { x: 80 }, { ...SPRING, delay: delay(rank, 3) }))
-    animate(plain[4], { x: 80 }, { ...SPRING, delay: delay(1, 4) })
+    animate(plain[4], { x: 80 }, { ...SPRING, delay: delay(2, 5) })
     const frames = await readsOver(40, [members[0], members[1], members[2], plain[1], plain[2], plain[3], plain[0], plain[4], members[3]], xOf)
     ;[0, 1, 2].forEach((m) => expectSame(frames[m], frames[m + 3]))
     expectSame(frames[6], frames[7])
@@ -258,6 +260,7 @@ describe("animate of a Batch on Solid 1 (#665)", () => {
     const { animate, members } = mountBoth(1)
     await raf()
     expect(() => animate(members[0], { rotate: 10 })).toThrow(/"rotate"/)
+    expect(() => animate(members[0], { transform: "rotate(10deg)" })).toThrow(/"transform"/)
     expect(() => animate(members[0], { x: "2rem" })).toThrow(/"x"/)
     expect(() => animate(members[0], { x: [0, 10, 20] })).toThrow(/"x"/)
     expect(() => animate(members[0], { opacity: 0.5 }, { duration: 0 })).not.toThrow()

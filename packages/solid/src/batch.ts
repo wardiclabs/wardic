@@ -135,7 +135,6 @@ export interface BatchCall {
   readonly skipAnimations: boolean
   readonly head: Playback.Playhead
   readonly settled: () => void
-  /** One member, by its index: else every member whose element has arrived. */
   /** The members it moves, in order: every member when left out. */
   readonly members: ReadonlyArray<number> | undefined
 }
@@ -174,8 +173,6 @@ const SUBJECTS = new WeakMap<object, BatchSubjectEntry>()
 // Module state (#460, Q7): held weakly by the element.
 const MEMBER_ELEMENTS = new WeakMap<Element, BatchMemberEntry>()
 
-
-
 /** `handle` is `binding`'s Batch, for `animate`. */
 export const registerBatch = (handle: object, binding: BatchBinding): void => {
   SUBJECTS.set(handle, { binding, member: undefined })
@@ -203,14 +200,11 @@ export interface ElementPart<T> {
   readonly target: T
 }
 
-/** A target's fields that aren't keys' values. */
-const NOT_VALUES: ReadonlySet<string> = new Set(["transition", "transitionEnd"])
-
 /** Whether `value` is a Batch's key's first stop through an element: a number, or `null` for where it is. */
 const isFirstStop: Predicate.Predicate<unknown> = Predicate.or(Predicate.isNumber, Predicate.isNull)
 
-/** Whether `value` is two stops of a Batch's key through an element: a first stop, and a number. */
-const isTwoNumbers = (value: unknown): value is readonly [number | null, number] => {
+/** Whether `value` is a Batch's key's two stops through an element: a first stop, and a number. */
+const isElementStops = (value: unknown): value is readonly [number | null, number] => {
   if (!isPair(value)) return false
   if (!Predicate.isNumber(value[1])) return false
   return isFirstStop(value[0])
@@ -219,47 +213,44 @@ const isTwoNumbers = (value: unknown): value is readonly [number | null, number]
 /** A Batch's key's stops given through an element (Q34): a number, or two stops, a first `null` where it is. */
 const elementStopsOf = (key: string, value: unknown): number | readonly [number, number] => {
   if (Predicate.isNumber(value)) return value
-  if (!isTwoNumbers(value)) {
+  if (!isElementStops(value)) {
     return fail(`an animate call gives a member's element "${key}" as ${JSON.stringify(value)}: the Batch draws "${key}", which takes a number, or two stops, its first and its target`)
   }
   if (Predicate.isNull(value[0])) return value[1]
   return value as readonly [number, number]
 }
 
-/** No Batch key gives what it ends on: a plain animation's `transitionEnd` names no key the Batch draws. */
-const checkEnd = (binding: BatchBinding, end: unknown): void => {
-  if (!Predicate.isObject(end)) return
-  Arr.forEach(Rec.keys(end as Readonly<Record<string, unknown>>), (key) => {
-    if (binding.routeOf(key) === "free") return
-    fail(`an animate call's transitionEnd gives a member's element "${key}": the Batch draws it, so it ends where the Batch puts it`)
-  })
+/** What a transform the Batch draws without it says (Q33): its whole `transform` is the Batch's. */
+const drawnKey = (key: string): never => {
+  if (key === "transform") {
+    return fail(`an animate call gives a member's element "transform": the Batch draws its whole transform from its keys, so give them as keys (x, scale, rotate…) of the Batch`)
+  }
+  return fail(`an animate call gives a member's element "${key}", a transform the Batch draws without it: make the Batch with "${key}" among its keys, in its \`animate\` or \`initial\``)
 }
 
-/** `target` split for `binding`'s members' elements: the Batch's keys' stops, and the rest, `undefined` when that gives no key. */
-const splitFor = <T extends object>(binding: BatchBinding, target: T): { readonly batch: WardicBatchTarget; readonly rest: T | undefined } => {
+/** A target split for one Batch's members' elements: the Batch's keys' stops, and the rest, `undefined` when nothing is left. */
+interface MembersSplit<T> {
+  readonly batch: WardicBatchTarget
+  readonly rest: T | undefined
+}
+
+/** `target` split by `routeOf` for a Batch's members' elements; the rest is what a plain element's call would take. */
+const splitFor = <T extends object>(routeOf: (key: string) => KeyRoute, target: T): MembersSplit<T> => {
   const fields = target as Readonly<Record<string, unknown>>
   const batch: Record<string, number | readonly [number, number]> = {}
   const rest: Record<string, unknown> = {}
-  let plain = false
+  let hasRest = false
   Arr.forEach(Rec.keys(fields), (key) => {
-    const value = fields[key]
-    if (NOT_VALUES.has(key)) {
-      rest[key] = value
-      return
-    }
-    const route = binding.routeOf(key)
-    if (route === "drawn") {
-      return fail(`an animate call gives a member's element "${key}", a transform the Batch draws without it: make the Batch with "${key}" among its keys, in its \`animate\` or \`initial\``)
-    }
+    const route = routeOf(key)
+    if (route === "drawn") return drawnKey(key)
     if (route === "batch") {
-      batch[key] = elementStopsOf(key, value)
+      batch[key] = elementStopsOf(key, fields[key])
       return
     }
-    rest[key] = value
-    plain = true
+    rest[key] = fields[key]
+    hasRest = true
   })
-  checkEnd(binding, fields["transitionEnd"])
-  return { batch: batch as WardicBatchTarget, rest: Bool.match(plain, { onTrue: () => rest as T, onFalse: () => undefined }) }
+  return { batch: batch as WardicBatchTarget, rest: Bool.match(hasRest, { onTrue: () => rest as T, onFalse: () => undefined }) }
 }
 
 /**
@@ -267,28 +258,29 @@ const splitFor = <T extends object>(binding: BatchBinding, target: T): { readonl
  * with the Batch's keys; each element, a member's with the keys left, as one of its own.
  */
 export const callPartsOf = <T extends object>(elements: ReadonlyArray<Element>, target: T): { readonly members: ReadonlyArray<MembersPart>; readonly elements: ReadonlyArray<ElementPart<T>> } => {
-  const byBinding = new Map<BatchBinding, { readonly members: Array<number>; readonly split: { readonly batch: WardicBatchTarget; readonly rest: T | undefined } }>()
-  const own: Array<ElementPart<T>> = []
+  const byBinding = new Map<BatchBinding, { readonly members: Array<number>; readonly split: MembersSplit<T> }>()
+  const parts: Array<ElementPart<T>> = []
   Arr.forEach(elements, (element, index) => {
     const entry = MEMBER_ELEMENTS.get(element)
     if (Predicate.isUndefined(entry)) {
-      own.push({ element, index, target })
+      parts.push({ element, index, target })
       return
     }
     let part = byBinding.get(entry.binding)
     if (Predicate.isUndefined(part)) {
-      part = { members: [], split: splitFor(entry.binding, target) }
+      part = { members: [], split: splitFor(entry.binding.routeOf, target) }
       byBinding.set(entry.binding, part)
     }
     part.members.push(entry.member)
+    // Its other keys by its place in the list, as a plain element's (Motion's `delay(i, n)`).
     const rest = part.split.rest
-    if (Predicate.isNotUndefined(rest)) own.push({ element, index, target: rest })
+    if (Predicate.isNotUndefined(rest)) parts.push({ element, index, target: rest })
   })
   const members = Arr.filter(
     Arr.map(Arr.fromIterable(byBinding), ([binding, part]): MembersPart => ({ binding, members: part.members, target: part.split.batch })),
     (part) => !Rec.isEmptyRecord(part.target as Readonly<Record<string, unknown>>),
   )
-  return { members, elements: own }
+  return { members, elements: parts }
 }
 
 /** The props an element gives a member's handle: its own `ref`, and its own `style`, as an object. */
@@ -547,7 +539,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
   const elementOf: Array<Element | undefined> = []
   const entered: Array<number> = []
   const targetOf = (slot: number, k: number): number => current[memberOf[slot] * stride + k]
-  // Each member's entry for `animate`, made once the binding is (below).
+  // Each member's entry for `animate`: made once the binding is, at its end, before any element can arrive.
   let entries: ReadonlyArray<BatchMemberEntry> = []
 
   /** Member `i`'s start: its `initial` over each key's identity, or, with `initial: false`, its targets. */
@@ -658,11 +650,9 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
     write(el, Float64Array.from(values), 0)
   }
 
-  /** `el` no longer known to `animate` as this Batch's member's. */
-  const forget = (el: Element): void => {
-    const known = MEMBER_ELEMENTS.get(el)
-    if (Predicate.isUndefined(known)) return
-    if (known.binding === binding) MEMBER_ELEMENTS.delete(el)
+  /** `el` no longer known to `animate` as member `i`'s element, unless another member has it now. */
+  const forget = (el: Element, i: number): void => {
+    if (MEMBER_ELEMENTS.get(el) === entries[i]) MEMBER_ELEMENTS.delete(el)
   }
 
   const arrive = (i: number, el: Element): void => {
@@ -670,7 +660,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
     if (!isMember(i, count)) noMember(i, count)
     if (elementOf[i] === el) return
     const was = elementOf[i]
-    if (Predicate.isNotUndefined(was)) forget(was)
+    if (Predicate.isNotUndefined(was)) forget(was, i)
     elementOf[i] = el
     // Known to `animate`, as member `i`'s element (Q14).
     MEMBER_ELEMENTS.set(el, entries[i])
@@ -818,8 +808,8 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
       disposed = true
       Iter.forEach(fibers, (fiber) => fiber.interruptUnsafe())
       fibers.clear()
-      Arr.forEach(elementOf, (el) => {
-        if (Predicate.isNotUndefined(el)) forget(el)
+      Arr.forEach(elementOf, (el, i) => {
+        if (Predicate.isNotUndefined(el)) forget(el, i)
       })
     },
   }

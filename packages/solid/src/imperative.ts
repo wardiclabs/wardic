@@ -28,7 +28,7 @@ import type * as Values from "@wardic/core/Values"
 import * as Sequence from "@wardic/core/Sequence"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Report from "@wardic/dom/Report"
-import { batchSubjectOf, callPartsOf, type WardicBatchSubject, type WardicBatchTarget } from "./batch.ts"
+import { type BatchBinding, batchSubjectOf, callPartsOf, type WardicBatchSubject, type WardicBatchTarget } from "./batch.ts"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
@@ -256,13 +256,17 @@ const transitionFor = (options: WardicAnimateOptions | undefined, index: number,
 const batchTransitionOf = (options: WardicAnimateOptions | undefined): WardicTransition | undefined =>
   UndefinedOr.map(options, (given) => withoutComplete(given) as WardicTransition)
 
-/** A call's transition for a Batch's members' elements: the call's, the target's own over it. */
-const membersTransitionOf = (options: WardicAnimateOptions | undefined, target: WardicVariant): WardicTransition | undefined => {
-  const call = batchTransitionOf(options)
-  const own = (target as { readonly transition?: WardicTransition | undefined }).transition
-  if (Predicate.isUndefined(own)) return call
-  return { ...call, ...own } as WardicTransition
-}
+/** A Batch call's track over `members` (every member when left out), driven by `head`: the call's options its transition. */
+const batchTrackOf = (env: AnimateEnv, binding: BatchBinding, target: WardicBatchTarget, members: ReadonlyArray<number> | undefined, options: WardicAnimateOptions | undefined, head: Playback.Playhead, settled: () => void): ImperativeTrack =>
+  binding.track({
+    target,
+    transition: batchTransitionOf(options),
+    reducedMotion: env.reducedMotion(),
+    skipAnimations: skipsBatchCall(env, options),
+    head,
+    settled,
+    members,
+  })
 
 /** Whether a Batch call lands at once: its scope's animations are skipped, or its own `skipAnimations` (#468). */
 const skipsBatchCall = (env: AnimateEnv, options: WardicAnimateOptions | undefined): boolean => {
@@ -545,16 +549,9 @@ export const scopedAnimate = (env: AnimateEnv, scope: () => Element | undefined,
     // A Batch, or a member's handle (#665): one track over its members, on the Batch's own run.
     const batch = batchSubjectOf(first)
     if (Predicate.isNotUndefined(batch)) {
+      const members = UndefinedOr.map(batch.member, (member) => [member])
       return started(watch, 1, UndefinedOr.map(third, (given) => given.onComplete), (head, settled) => [
-        batch.binding.track({
-          target: second as WardicBatchTarget,
-          transition: batchTransitionOf(third),
-          reducedMotion: env.reducedMotion(),
-          skipAnimations: skipsBatchCall(env, third),
-          head,
-          settled,
-          members: UndefinedOr.map(batch.member, (member) => [member]),
-        }),
+        batchTrackOf(env, batch.binding, second as WardicBatchTarget, members, third, head, settled),
       ])
     }
     const elements = subjectsOf(first as WardicAnimationSubject, scope())
@@ -562,16 +559,7 @@ export const scopedAnimate = (env: AnimateEnv, scope: () => Element | undefined,
     // A Batch's members' elements as one call over them, with its keys; the rest of each element's on its own (#665, Q14, Q35).
     const parts = callPartsOf(elements, target)
     return started(watch, parts.members.length + parts.elements.length, UndefinedOr.map(third, (given) => given.onComplete), (head, settled) => [
-      ...Arr.map(parts.members, (part) =>
-        part.binding.track({
-          target: part.target,
-          transition: membersTransitionOf(third, target),
-          reducedMotion: env.reducedMotion(),
-          skipAnimations: skipsBatchCall(env, third),
-          head,
-          settled,
-          members: part.members,
-        })),
+      ...Arr.map(parts.members, (part) => batchTrackOf(env, part.binding, part.target, part.members, third, head, settled)),
       ...Arr.map(parts.elements, (part) => trackOf(env, part.element, part.target, transitionFor(third, part.index, elements.length), head, settled)),
     ])
   }) as WardicAnimate
