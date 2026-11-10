@@ -221,7 +221,8 @@ const DOM_PER_FRAME = [
  * Starting style's filter, its layering and its held keys, and the Solid 1 config build. The rest of
  * each file follows the full rules by review.
  */
-const MOUNT_PATH_LOOPS = ["packages/dom/src/internal/starting-style.ts", "packages/solid/src/motion-props.ts"]
+// A Batch's binding (#665): its per-member loops at creation and at each change, as core's change (ADR-0025, *Amendment (#665)*).
+const MOUNT_PATH_LOOPS = ["packages/dom/src/internal/starting-style.ts", "packages/solid/src/motion-props.ts", "packages/solid/src/batch.ts"]
 
 export default defineConfig([
   { ignores: ["**/dist/**"] },

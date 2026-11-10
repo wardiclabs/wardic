@@ -637,4 +637,5 @@ A Batch (ADR-0069, decisions 10–18) keeps each member's keys in typed arrays. 
 
 - **The change takes the per-frame forms:** a counted loop over each member's keys, plain index reads and writes, and statements. Its loop over the slots it's given stays `Arr.forEach`.
 - **What it does once a change** follows the full rules: the transitions resolved (a `Match` built once), the delay checked by `internal/options.ts`.
+- **The bindings' `createBatch`** (`packages/solid/src/batch.ts`) reads its members' targets the same way, a counted loop per member at creation and at each change, and is listed with the mount path's loop files.
 - Rejected: `Arr` over each member's keys, which builds a closure per member per change.
