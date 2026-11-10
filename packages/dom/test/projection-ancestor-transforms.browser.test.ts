@@ -14,6 +14,12 @@
 //   as of the pass: what they do after it changes nothing the engine writes. AT4b: the rotated one
 //   keeps #136's conversion, through the Lead's bounding box as drawn; AT5b: the one Wardic doesn't
 //   own, standing still on a scrolled page, puts the Follower exactly on the Lead.
+// - AT6 (#687): a Wardic ancestor at identity at the pass that starts a scale mid-flight: the Follower
+//   stays on the Lead every frame. Before #687 it had no link in the twin's chain, and drifted.
+//   AT6b: one at identity starting a translate inside an ancestor scaled at the pass: both compose.
+//   AT6c: one at identity above the Follower: the Follower's own conversion follows it too.
+//   AT7: a guard: an ancestor Wardic doesn't own, at identity at the pass, whose transform starts
+//   after it, is converted as of the pass, as AT5's is.
 import { describe, expect, it } from "@effect/vitest"
 import type * as Box from "@wardic/core/Box"
 import * as Projection from "@wardic/core/Projection"
@@ -286,5 +292,137 @@ describe("a twin's conversions follow Wardic's own ancestor transforms (#137)", 
     }
     e.dispose()
     window.scrollTo(0, 0)
+  })
+
+  it("AT6: a Wardic ancestor at identity at the pass, its scale starting mid-flight: the Follower stays on the Lead (#687)", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const root = stage("position:relative;width:100%;height:1000px")
+    const thumb = el(root, "position:absolute;left:20px;top:300px;width:60px;height:40px")
+    register(e, "thumb", thumb, { layoutId: "twin" })
+    await endOfTask()
+    fireFrame()
+    // At identity when the twin's pass runs: Wardic's, drawing nothing.
+    const values: Record<string, unknown> = {}
+    const modal = el(root, "position:absolute;left:300px;top:100px;width:300px;height:240px")
+    e.system.registerValues(modal, () => values)
+    const big = el(modal, "position:absolute;left:50px;top:40px;width:200px;height:150px")
+    register(e, "big", big, { layoutId: "twin" })
+    await endOfTask()
+    const origin = centre(layoutOf(modal, [modal]))
+    const bigLayout = layoutOf(big, [modal])
+    for (let i = 1; i <= 40; i++) {
+      // From frame 10 the modal shrinks toward 0.6.
+      const shrinking = i >= 10
+      const s = Bool.match(shrinking, { onTrue: () => 0.6 + 0.4 * Math.exp(-(i - 10) / 6), onFalse: () => 1 })
+      if (shrinking) {
+        values.scale = s
+        modal.style.transform = `scale(${s})`
+      }
+      fireFrame()
+      const lead = transformed(projected(bigLayout, sk, ["big"]), origin, s)
+      const follower = projected(layoutOf(thumb), sk, ["thumb"])
+      expect(apart(follower, lead), `frame ${i}: the Follower on the Lead`).toBeLessThan(0.5)
+    }
+    e.dispose()
+  })
+
+  it("AT6b: a Wardic ancestor at identity at the pass starting a translate inside one scaled at the pass: the Follower on the Lead (#687)", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const root = stage()
+    const thumb = el(root, "position:absolute;left:20px;top:300px;width:60px;height:40px")
+    register(e, "thumb", thumb, { layoutId: "twin" })
+    await endOfTask()
+    fireFrame()
+    const outer: Record<string, unknown> = { scale: 0.8 }
+    const inner: Record<string, unknown> = {}
+    const shell = el(root, "position:absolute;left:300px;top:100px;width:300px;height:240px;transform:scale(0.8)")
+    const slide = el(shell, "position:absolute;left:20px;top:20px;width:260px;height:200px")
+    e.system.registerValues(shell, () => outer)
+    e.system.registerValues(slide, () => inner)
+    const big = el(slide, "position:absolute;left:30px;top:20px;width:200px;height:150px")
+    register(e, "big", big, { layoutId: "twin" })
+    await endOfTask()
+    const shellOrigin = centre(layoutOf(shell, [shell]))
+    const slideOrigin = centre(layoutOf(slide, [shell]))
+    const bigLayout = layoutOf(big, [shell])
+    for (let i = 1; i <= 40; i++) {
+      outer.scale = scaleAt(i)
+      shell.style.transform = `scale(${outer.scale})`
+      // From frame 10 the inner one slides 40px over.
+      const sliding = i >= 10
+      const x = Bool.match(sliding, { onTrue: () => 40 * (1 - Math.exp(-(i - 10) / 6)), onFalse: () => 0 })
+      if (sliding) {
+        inner.x = x
+        slide.style.transform = `translateX(${x}px)`
+      }
+      fireFrame()
+      const lead = transformed(transformed(projected(bigLayout, sk, ["big"]), slideOrigin, 1, x), shellOrigin, outer.scale as number)
+      const follower = projected(layoutOf(thumb), sk, ["thumb"])
+      expect(apart(follower, lead), `frame ${i}: the Follower on the Lead`).toBeLessThan(0.5)
+    }
+    e.dispose()
+  })
+
+  it("AT6c: a Wardic ancestor at identity at the pass above the Follower, its scale starting mid-flight: the Follower on the Lead (#687)", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const root = stage("position:relative;width:100%;height:1000px")
+    // The thumbnail's tray: Wardic's, at identity when the pass runs.
+    const values: Record<string, unknown> = {}
+    const tray = el(root, "position:absolute;left:0px;top:280px;width:200px;height:100px")
+    e.system.registerValues(tray, () => values)
+    const thumb = el(tray, "position:absolute;left:20px;top:20px;width:60px;height:40px")
+    register(e, "thumb", thumb, { layoutId: "twin" })
+    await endOfTask()
+    fireFrame()
+    const big = el(root, "position:absolute;left:350px;top:140px;width:200px;height:150px")
+    register(e, "big", big, { layoutId: "twin" })
+    await endOfTask()
+    const origin = centre(layoutOf(tray, [tray]))
+    const thumbLayout = layoutOf(thumb, [tray])
+    for (let i = 1; i <= 40; i++) {
+      // From frame 10 the tray shrinks toward 0.6, the Follower inside it.
+      const shrinking = i >= 10
+      const s = Bool.match(shrinking, { onTrue: () => 0.6 + 0.4 * Math.exp(-(i - 10) / 6), onFalse: () => 1 })
+      if (shrinking) {
+        values.scale = s
+        tray.style.transform = `scale(${s})`
+      }
+      fireFrame()
+      const lead = projected(layoutOf(big), sk, ["big"])
+      const follower = transformed(projected(thumbLayout, sk, ["thumb"]), origin, s)
+      expect(apart(follower, lead), `frame ${i}: the Follower on the Lead`).toBeLessThan(0.5)
+    }
+    e.dispose()
+  })
+
+  it("AT7: an ancestor Wardic doesn't own, at identity at the pass, its transform starting after: converted as of the pass (#687)", async () => {
+    const writes: Array<Array<number>> = []
+    for (const changes of [false, true]) {
+      const sk = makeSink()
+      const e = makeEngine(sk.sink)
+      const root = stage()
+      const thumb = el(root, "position:absolute;left:20px;top:300px;width:60px;height:40px")
+      register(e, "thumb", thumb, { layoutId: "twin" })
+      await endOfTask()
+      fireFrame()
+      const modal = el(root, "position:absolute;left:300px;top:100px;width:300px;height:240px")
+      const big = el(modal, "position:absolute;left:50px;top:40px;width:200px;height:150px")
+      register(e, "big", big, { layoutId: "twin" })
+      await endOfTask()
+      const seen: Array<number> = []
+      for (let i = 1; i <= 20; i++) {
+        if (changes) modal.style.transform = `scale(${0.6 + 0.4 * Math.exp(-i / 6)})`
+        fireFrame()
+        const d = deltaOf(sk, "thumb")
+        seen.push(d.x.translate, d.y.translate, d.x.scale, d.y.scale)
+      }
+      writes.push(seen)
+      e.dispose()
+      clearStages()
+    }
+    expect(writes[1]).toEqual(writes[0])
   })
 })
