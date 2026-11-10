@@ -32,6 +32,8 @@
 //   moves once, and counts once for the delays.
 // - B16: a Batch's own transition can be one per key, with a `default` for the rest; a key with neither
 //   is named.
+// - B17: a change can give each member's key its own transition, by a function of its slot and key:
+//   each runs as `springValues` does on it, and the members it gives one bag share it.
 import * as Batch from "@wardic/core/Batch"
 import * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -473,5 +475,22 @@ describe("a Batch (#665)", () => {
     expect(batch.toJSON()).toMatchObject({ transitions: 2 })
     expect(() => Batch.make({ keys: ["x", "y"], writer, transition: { x: soft } })).toThrow(Machine.OptionError)
     expect(() => Batch.make({ keys: ["x", "y"], writer, transition: { x: soft } })).toThrow(/\["y"\]/)
+  })
+
+  it("B17: a change gives each member's key its own transition by a function; members on one bag share it", () => {
+    const soft = { type: "spring", stiffness: 120, damping: 14 } as const
+    const stiff = { type: "spring", stiffness: 550, damping: 30 } as const
+    const { writer } = recording<string>()
+    const batch = Batch.make({ keys: ["scale"], writer, transition: soft })
+    const slots = ["a", "b", "c"].map((name) => Batch.enter(batch, name, { scale: 1 }))
+    // As the DOM's Default transition does: a scale toward 0 on a spring of its own.
+    const targets = [0, 2, 0]
+    Batch.retarget(batch, slots, (slot) => targets[slot], { transition: (slot) => [stiff, soft, stiff][slot] })
+    expect(batch.toJSON()).toMatchObject({ transitions: 2, moving: 3 })
+    const frames = steppedAll(batch, slots, "scale")
+    const length = frames[0].length
+    expect(frames[0]).toEqual(heldTo(springFrames("scale", 1, 0, stiff), length))
+    expect(frames[1]).toEqual(heldTo(springFrames("scale", 1, 2, soft), length))
+    expect(frames[2]).toEqual(heldTo(springFrames("scale", 1, 0, stiff), length))
   })
 })

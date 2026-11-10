@@ -61,8 +61,13 @@ export type Transitions = Transition | Readonly<Record<string, Transition>>
 
 /** `retarget`'s options. */
 export interface RetargetOptions {
-  /** How this change's keys move: a key it doesn't give, nor its `default`, moves by the Batch's own. */
-  readonly transition?: Transitions
+  /**
+   * How this change's keys move: a key it doesn't give, nor its `default`, moves by the Batch's own. Or
+   * a function of a member's slot and its key's index, for members whose keys move differently: one
+   * object for the same answer, so they share it.
+   */
+  // #665: the DOM's Default transition, a scale toward 0 on a spring of its own.
+  readonly transition?: Transitions | ((slot: number, k: number) => Transition)
   /**
    * Seconds each member waits before it moves, after its transition's own delay: one for all, or by
    * its rank among the members this change moves, of `n`, as `Stagger.make`'s delays are.
@@ -390,6 +395,23 @@ export const make = <S>(options: Options<S>): Batch<S> => {
   return Object.assign(Object.create(Proto), state)
 }
 
+/**
+ * A change's rule for a member's key, when its transition is a function of them: the bag it gives,
+ * the last one's rule again when it's the same, while the table still holds it.
+ */
+const ruleAtOf = <S>(state: State<S>, given: RetargetOptions["transition"]): ((slot: number, k: number) => number) | undefined => {
+  if (!Predicate.isFunction(given)) return undefined
+  let lastBag: Transition | undefined = undefined
+  let lastRule = 0
+  return (slot, k) => {
+    const bag = given(slot, k)
+    if (bag === lastBag && state.bags[lastRule] === bag) return lastRule
+    lastBag = bag
+    lastRule = ruleFor(state, bag)
+    return lastRule
+  }
+}
+
 /** No delay: a change's that gives none. */
 const NO_DELAY = (): number => 0
 
@@ -530,7 +552,8 @@ export const retarget: {
   if (n === 0) return
   const given = UndefinedOr.map(options, (bag) => bag.transition)
   let rules = state.ownRules
-  if (Predicate.isNotUndefined(given)) rules = rulesOf(state, given, (k) => state.ownRules[k])
+  if (Predicate.isNotUndefined(given) && !Predicate.isFunction(given)) rules = rulesOf(state, given, (k) => state.ownRules[k])
+  const ruleAt = ruleAtOf(state, given)
   const delay = UndefinedOr.map(options, (bag) => bag.delay)
   if (Predicate.isNotUndefined(delay)) checked(Delay, delay, "delay")
   const delayOf = delayOfChange(delay)
@@ -549,7 +572,8 @@ export const retarget: {
       const target = pending[at]
       if (Number.isNaN(target)) continue
       if (target === targets[at]) continue
-      const rule = rules[k]
+      let rule = rules[k]
+      if (Predicate.isNotUndefined(ruleAt)) rule = ruleAt(slot, k)
       const entry = state.entries[rule]
       if (rule !== 0 || entry.kind !== SPRING) ruled = true
       const before = state.rules[at]
