@@ -56,11 +56,12 @@ On Solid 1, `onAnimationStart` is called as members set off from rest, and `onAn
 ```tsx
 const [scope, animate] = createAnimate()
 const shuffle = () => animate(grid, { x: (i) => colX(order[i]), y: (i) => rowY(order[i]) }, { type: "spring", delay: stagger(0.002) })
-animate(grid, { opacity: [0, 1] })     // two stops: every member from 0, to 1
-animate(grid.at(42), { scale: 1.4 })   // one member
+animate(grid, { opacity: [0, 1] })              // two stops: every member from 0, to 1
+animate(grid, { y: (i) => [-2, rowY(i)] })      // two stops for each member
+animate(grid.at(42), { scale: 1.4 })            // one member
 ```
 
-Each key takes a number for every member, a function of the member's index and the Batch's count, or two stops, its first and its target. Its keys are the Batch's. A later change of a member's key, by `animate(i)` or another call, takes it: that member goes the later change's way, and the call it left doesn't finish, as a Wardic element's does.
+Each key takes a number for every member, two stops (its first and its target), or a function of the member's index and the Batch's count that gives one or two. Its keys are the Batch's. A later change of a member's key, by the config's `animate` or another call, takes it: that member goes the later change's way, and the call it left doesn't finish, as a Wardic element's doesn't. A call that moves nothing finishes at once.
 
 ## Coming from Motion
 
@@ -71,4 +72,4 @@ Motion has no Batch: its `animate(elements, …)` runs each element on its own, 
 - **`WardicBatchConfig`:** its config. **`WardicBatchValues`:** a member's values. **`WardicBatchTransition`:** its transition, its `delay` a `stagger()` too.
 - **`WardicBatch`:** what it returns. **`WardicBatchMember`:** a member's handle. **`WardicBatchMemberProps`:** the element's own props a handle takes.
 - **`WardicBatchLanding`:** a landing, `{ moved }`. **`WardicBatchEvents`:** (Solid 2) its events, for `next` and `when`.
-- **`WardicBatchSubject`:** what `animate` takes for a Batch, a Batch or a member's handle. **`WardicBatchTarget`:** its targets there. **`WardicBatchStop`:** one stop, a number or a function of a member's index and the count.
+- **`WardicBatchSubject`:** what `animate` takes for a Batch, a Batch or a member's handle. **`WardicBatchTarget`:** its targets there. **`WardicBatchStop`:** one stop, a number or a function of a member's index and the count, that gives a number.
