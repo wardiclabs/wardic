@@ -468,7 +468,12 @@ Method); the expected card, with a browser's own scheduler:
   card's **under pointer** and **frames behind** then read from where the flight lands
   under the pointer (a press within a second of Z or P at rest counts, or of X in 12; one whose flight
   has landed by then reads as an ordinary drag), the line says how far it slid, and a
-  first dragged frame that jumps more than half the flight still to go fails it. With **twin**, the item shares a `layoutId` with a box parked in the
+  first dragged frame that jumps more than half the flight still to go fails it. Let go
+  while the flight still closes in on the pointer, and both lines read `released before
+  its flight landed, not judged` (a jump still fails **under pointer**); a flight that stops
+  short of the pointer fails `never landed`. With no move after the landing that a frame
+  showed before the release, **frames behind** reads `no move after the landing, not
+  judged` (#693). With **twin**, the item shares a `layoutId` with a box parked in the
   corner: it crossfades in from there as the boxes remount it (a handover), then keeps
   its opacity through every release (#34: it used to drop to 0.03 with the twin
   showing through).
