@@ -25,6 +25,7 @@ import * as Frame from "./Frame.ts"
 import * as Machine from "./Machine.ts"
 import { measuredAs } from "./internal/driven.ts"
 import { dual } from "./internal/dual.ts"
+import { tickOf, writableOf } from "./internal/playhead.ts"
 
 const TypeId = "~@wardic/core/Playback"
 
@@ -42,13 +43,6 @@ export interface Playhead extends Pipeable, Inspectable.Inspectable {
   readonly speed: number
   /** Whether the machines hold where they are. */
   readonly paused: boolean
-}
-
-/** A Playhead as the machines and this module's operations write it. */
-interface Writable {
-  time: number
-  speed: number
-  paused: boolean
 }
 
 const Proto = {
@@ -131,7 +125,7 @@ export const drive: {
       settles: self.settles,
       span: self.span,
       start: () => {
-        const writable = head as unknown as Writable
+        const writable = writableOf(head)
         const at = head.time
         let time = at
         let step = runFrom(self, at)
@@ -153,7 +147,7 @@ export const drive: {
             return held
           }
           held = undefined
-          const by = Math.max(-Machine.MAX_DT, Math.min(Machine.MAX_DT, dt * head.speed))
+          const by = tickOf(head, dt, Machine.MAX_DT)
           if (by >= 0) {
             time += by
             writable.time = time
@@ -182,7 +176,7 @@ export const seek: {
   (time: number): (head: Playhead) => void
   (head: Playhead, time: number): void
 } = dual(2, (head: Playhead, time: number): void => {
-  const writable = head as unknown as Writable
+  const writable = writableOf(head)
   writable.time = Math.max(0, time)
 })
 
@@ -198,20 +192,20 @@ export const setSpeed: {
   (speed: number): (head: Playhead) => void
   (head: Playhead, speed: number): void
 } = dual(2, (head: Playhead, speed: number): void => {
-  const writable = head as unknown as Writable
+  const writable = writableOf(head)
   writable.speed = speed
 })
 
 /** Holds the machines driven through `head` where they are. */
 // #618 (F1).
 export const pause = (head: Playhead): void => {
-  const writable = head as unknown as Writable
+  const writable = writableOf(head)
   writable.paused = true
 }
 
 /** Plays the machines driven through `head` on from where they're held. */
 // #618 (F1).
 export const play = (head: Playhead): void => {
-  const writable = head as unknown as Writable
+  const writable = writableOf(head)
   writable.paused = false
 }

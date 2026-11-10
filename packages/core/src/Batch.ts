@@ -20,6 +20,7 @@ import * as Arr from "effect/Array"
 import * as Effect from "effect/Effect"
 import { identity } from "effect/Function"
 import * as Inspectable from "effect/Inspectable"
+import * as Iter from "effect/Iterable"
 import * as Match from "effect/Match"
 import { type Pipeable, pipeArguments } from "effect/Pipeable"
 import * as Predicate from "effect/Predicate"
@@ -28,9 +29,11 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Frame from "./Frame.ts"
 import type * as FrameLoop from "./FrameLoop.ts"
 import * as Machine from "./Machine.ts"
+import type * as Playback from "./Playback.ts"
 import * as Scalar from "./Scalar.ts"
 import * as Spring from "./Spring.ts"
 import { dual } from "./internal/dual.ts"
+import { tickOf, writableOf } from "./internal/playhead.ts"
 import { checked, fn, literals, nonNegative, positive, union } from "./internal/options.ts"
 import type { ResolvedTween } from "./internal/stepper.ts"
 
@@ -156,8 +159,10 @@ interface State<S> {
   delays: Float64Array
   restDeltas: Float64Array
   restSpeeds: Float64Array
-  /** Where each member's key started its tween. */
+  /** Where each member's key started its change: a tween's start, a driven change's to seek from. */
   origins: Float64Array
+  /** How fast each member's key was moving when its change started: a driven change's to seek from. */
+  originVelocities: Float64Array
   /** Each member's key's rule: its entry in the table. */
   rules: Uint16Array
   /** A change's new targets, `NaN` for a key it keeps: its first pass's, read by its second. */
@@ -188,6 +193,12 @@ interface State<S> {
   matrices: Float64Array
   /** How many keys run each entry; a pinned entry isn't counted. */
   uses: Uint32Array
+  /** Each entry's driven change, while it plays: the entry's keys step at its Playhead's speed. */
+  readonly drivers: Array<AnimationState<S> | undefined>
+  /** Each entry's step this frame: the frame's `dt`, or a driven entry's at its Playhead's speed. */
+  dts: Float64Array
+  /** The animations playing, each checked for its landing once a frame. */
+  readonly animations: Set<AnimationState<S>>
   /** The bag each entry was given as. */
   readonly bags: Array<Transition | undefined>
   /** Each entry's rule, by the bag it was given as. */
@@ -201,6 +212,8 @@ interface State<S> {
   readonly write: (subject: S, positions: Float64Array, base: number) => void
   readonly flush: () => void
   readonly onFrame: () => void
+  /** How many steps it has taken: a driven change works its tick out once in each. */
+  frame: number
   /** The run stepping it now, by its number, or 0 for none. */
   running: number
   /** How many runs it has had: the next one's number. */
@@ -286,8 +299,10 @@ const ruleFor = <S>(state: State<S>, transition: Transition): number => {
     state.kinds = grown(state.kinds, rule * 2)
     state.matrices = grown(state.matrices, rule * 2 * MATRIX)
     state.uses = grown(state.uses, rule * 2)
+    state.dts = grown(state.dts, rule * 2)
   }
   state.entries[rule] = entry
+  state.drivers[rule] = undefined
   state.bags[rule] = transition
   state.kinds[rule] = entry.kind
   state.uses[rule] = 0
@@ -307,26 +322,32 @@ const release = <S>(state: State<S>, rule: number): void => {
   if (state.kinds[rule] === FREE) return
   if (state.uses[rule] > 0) state.uses[rule] = state.uses[rule] - 1
   if (state.uses[rule] > 0) return
+  const bag = state.bags[rule]
+  // Forgotten at a rest already (`forgetTransitions`).
+  if (Predicate.isUndefined(bag)) return
   state.kinds[rule] = FREE
-  state.ruleByBag.delete(UndefinedOr.getOrThrow(state.bags[rule]))
+  state.ruleByBag.delete(bag)
   state.bags[rule] = undefined
   state.freeRules.push(rule)
 }
 
-/** `transitions`' rule for each of `state`'s keys, by index; a key it doesn't name, nor its `default`, takes `fallback`'s. */
-const rulesOf = <S>(state: State<S>, transitions: Transitions, fallback: (k: number) => number): ReadonlyArray<number> => {
-  if (isTransition(transitions)) {
-    const rule = ruleFor(state, transitions)
-    return Arr.map(state.keys, () => rule)
-  }
-  return Arr.map(state.keys, (key, k) => {
+/** `transitions`' bag for each of `state`'s keys, by index: its own, or its `default`; `undefined` where it gives neither. */
+// Once a change, per key.
+const bagsOf = <S>(state: State<S>, transitions: Transitions): ReadonlyArray<Transition | undefined> => {
+  if (isTransition(transitions)) return Arr.map(state.keys, () => transitions)
+  return Arr.map(state.keys, (key) => {
     const given = transitions[key]
-    if (Predicate.isNotUndefined(given)) return ruleFor(state, given)
-    const otherwise = transitions["default"]
-    if (Predicate.isNotUndefined(otherwise)) return ruleFor(state, otherwise)
-    return fallback(k)
+    if (Predicate.isNotUndefined(given)) return given
+    return transitions["default"]
   })
 }
+
+/** `transitions`' rule for each of `state`'s keys, by index; a key it doesn't name, nor its `default`, takes `fallback`'s. */
+const rulesOf = <S>(state: State<S>, transitions: Transitions, fallback: (k: number) => number): ReadonlyArray<number> =>
+  Arr.map(bagsOf(state, transitions), (bag, k) => {
+    if (Predicate.isUndefined(bag)) return fallback(k)
+    return ruleFor(state, bag)
+  })
 
 /** A key `make`'s transitions leave without one: every key needs its own or the `default`. */
 const unnamedKey = <S>(state: State<S>) => (k: number): number => {
@@ -365,6 +386,7 @@ export const make = <S>(options: Options<S>): Batch<S> => {
     restDeltas: new Float64Array(size),
     restSpeeds: new Float64Array(size),
     origins: new Float64Array(size),
+    originVelocities: new Float64Array(size),
     rules: new Uint16Array(size),
     pending: new Float64Array(size),
     movers: new Int32Array(capacity),
@@ -378,6 +400,9 @@ export const make = <S>(options: Options<S>): Batch<S> => {
     kinds: new Uint8Array(TABLE_START),
     matrices: new Float64Array(TABLE_START * MATRIX),
     uses: new Uint32Array(TABLE_START),
+    drivers: [],
+    dts: new Float64Array(TABLE_START),
+    animations: new Set(),
     bags: [],
     ruleByBag: new Map(),
     freeRules: [],
@@ -386,6 +411,7 @@ export const make = <S>(options: Options<S>): Batch<S> => {
     write: options.writer.forKeys(options.keys),
     flush: UndefinedOr.match(options.writer.flush, { onUndefined: () => noop, onDefined: identity }),
     onFrame: UndefinedOr.match(options.onFrame, { onUndefined: () => noop, onDefined: identity }),
+    frame: 0,
     running: 0,
     runs: 0,
   }
@@ -530,12 +556,40 @@ const grow = <S>(state: State<S>, capacity: number): void => {
   state.restDeltas = grown(state.restDeltas, size)
   state.restSpeeds = grown(state.restSpeeds, size)
   state.origins = grown(state.origins, size)
+  state.originVelocities = grown(state.originVelocities, size)
   state.rules = grown(state.rules, size)
   state.pending = grown(state.pending, size)
   state.movers = grown(state.movers, capacity)
   state.flags = grown(state.flags, capacity)
   state.plainList = grown(state.plainList, capacity)
   state.ruledList = grown(state.ruledList, capacity)
+}
+
+/**
+ * The key at `at` turned on `rule` toward `goal`, from `start` at `speed`, waiting `wait` past its
+ * transition's own delay: its rule held, and its start, its speed then and its rest thresholds kept.
+ * A driven change's, at its play; `retarget` keeps the same writes inline, less the speed.
+ */
+// Per key a driven change plays: plain writes.
+const turn = <S>(state: State<S>, at: number, rule: number, goal: number, start: number, speed: number, wait: number): void => {
+  const entry = state.entries[rule]
+  const before = state.rules[at]
+  if (before !== rule) {
+    hold(state, rule)
+    release(state, before)
+    state.rules[at] = rule
+  }
+  state.targets[at] = goal
+  state.origins[at] = start
+  state.originVelocities[at] = speed
+  state.delays[at] = entry.delay + wait
+  const distance = goal - start
+  state.restDeltas[at] = Spring.restDeltaFor(entry.spring, distance)
+  state.restSpeeds[at] = Spring.restSpeedFor(entry.spring, distance)
+  // A spring that ends at its duration starts from rest, as Motion's (#359).
+  if (entry.kind !== TIMED) return
+  state.velocities[at] = 0
+  state.originVelocities[at] = 0
 }
 
 /**
@@ -589,6 +643,7 @@ export const retarget: {
   // gives another key; one it gives no key is freed after.
   const held = Arr.dedupe(rules)
   Arr.forEach(held, (rule) => hold(state, rule))
+  const driven = state.animations.size > 0
   let setOff = 0
   for (let rank = 0; rank < n; rank++) {
     const slot = movers[rank]
@@ -605,6 +660,9 @@ export const retarget: {
       if (Predicate.isNotUndefined(ruleAt)) rule = ruleAt(slot, k)
       const entry = state.entries[rule]
       if (rule !== 0 || entry.kind !== SPRING) ruled = true
+      // Taken from a driven change its Playhead holds, it starts from rest (#464).
+      if (driven && heldAt(state, at)) state.velocities[at] = 0
+      // `turn`'s body, inline, less its start's speed, which only a driven change reads, and sets at its play.
       const before = state.rules[at]
       if (before !== rule) {
         hold(state, rule)
@@ -657,13 +715,16 @@ export const isMoving = <S>(self: Batch<S>): boolean => {
 export const step = <S>(self: Batch<S>, dt: number): boolean => {
   const state = stateOf(self)
   const clamped = Math.min(dt, Machine.MAX_DT)
+  state.frame = state.frame + 1
   if (state.plainCount > 0) stepPlain(state, clamped)
   if (state.ruledCount > 0) stepRuled(state, clamped)
+  if (state.animations.size > 0) Iter.forEach(state.animations, checkLanding)
   state.flush()
   state.onFrame()
   // Counted after `onFrame`: a change it makes keeps the run going.
   if (state.plainCount + state.ruledCount > 0) return false
-  if (state.entries.length > state.pinned) forgetTransitions(state)
+  // A driven change playing, paused at rest, still holds its entries.
+  if (state.entries.length > state.pinned && state.animations.size === 0) forgetTransitions(state)
   return true
 }
 
@@ -676,6 +737,7 @@ const forgetTransitions = <S>(state: State<S>): void => {
   const { pinned, stride } = state
   state.entries.length = pinned
   state.bags.length = pinned
+  state.drivers.length = pinned
   state.freeRules.length = 0
   state.uses.fill(0)
   state.ruleByBag.clear()
@@ -749,13 +811,13 @@ const stepPlain = <S>(state: State<S>, clamped: number): void => {
 
 /** A tween's step for the key at `at`, written in place: whether it has landed. */
 // Per frame: `Machine.tween`'s value, eased from the key's start, its speed from its last frame.
-const stepTween = <S>(state: State<S>, at: number, tween: ResolvedTween, time: number, clamped: number): boolean => {
+const stepTween = <S>(state: State<S>, at: number, tween: ResolvedTween, time: number, dt: number): boolean => {
   const delay = state.delays[at]
   const eased = tween.ease(Scalar.clamp(Math.max(0, time - delay) / tween.duration, 0, 1))
   const next = Scalar.lerp(state.origins[at], state.targets[at], eased)
   const landed = time >= delay + tween.duration
   if (landed) state.velocities[at] = 0
-  if (!landed && clamped > 0) state.velocities[at] = (next - state.positions[at]) / clamped
+  if (!landed && dt > 0) state.velocities[at] = (next - state.positions[at]) / dt
   state.positions[at] = next
   return landed
 }
@@ -763,15 +825,32 @@ const stepTween = <S>(state: State<S>, at: number, tween: ResolvedTween, time: n
 /** The members in the ruled list, each key by the transition its rule names: a spring's matrix, or a tween. */
 // Per frame. Each spring entry's matrix for this `dt`, once, then plain reads by rule (#665).
 const stepRuled = <S>(state: State<S>, clamped: number): void => {
-  const { stride, entries, kinds, matrices, rules, positions, velocities, targets, elapsed, delays, restDeltas, restSpeeds, ruledList, flags, subjects, write } = state
+  const { stride, entries, kinds, matrices, dts, drivers, rules, positions, velocities, targets, elapsed, delays, restDeltas, restSpeeds, ruledList, flags, subjects, write } = state
+  // Each entry's step: the frame's, or a driven change's at its Playhead's speed, which moves its time;
+  // then each spring's matrix for it, once.
+  let driven = false
   for (let e = 0; e < entries.length; e++) {
     const kind = kinds[e]
-    if (kind === TWEEN || kind === FREE) continue
-    const m = Spring.matrixFor(entries[e].spring, clamped)
+    if (kind === FREE) continue
+    let dt = clamped
+    const driver = drivers[e]
+    if (Predicate.isNotUndefined(driver)) {
+      driven = true
+      dt = drivenStep(driver, clamped, state.frame)
+    }
+    dts[e] = dt
+    if (kind === TWEEN || dt <= 0) continue
+    const m = Spring.matrixFor(entries[e].spring, dt)
     matrices[e * MATRIX] = m.dd
     matrices[e * MATRIX + 1] = m.dv
     matrices[e * MATRIX + 2] = m.vd
     matrices[e * MATRIX + 3] = m.vv
+  }
+  // While a driven change plays, each key steps by its entry's own step, out of line: read per key, it
+  // cost every ruled member's step 5% (Bun and Chromium, 10,000 members; #665).
+  if (driven) {
+    stepRuledDriven(state)
+    return
   }
   const count = state.ruledCount
   let kept = 0
@@ -835,6 +914,562 @@ const stepRuled = <S>(state: State<S>, clamped: number): void => {
     kept++
   }
   state.ruledCount = kept
+}
+
+/** The members in the ruled list while a driven change plays: each key by its entry's step this frame, forwards or back. */
+// Per frame, while a driven change plays: `stepRuled`'s loop, by each entry's `dt`.
+const stepRuledDriven = <S>(state: State<S>): void => {
+  const { stride, entries, kinds, matrices, dts, rules, positions, velocities, targets, elapsed, delays, restDeltas, restSpeeds, ruledList, flags, subjects, write } = state
+  const count = state.ruledCount
+  let kept = 0
+  for (let a = 0; a < count; a++) {
+    const slot = ruledList[a]
+    const flag = flags[slot]
+    // A member that left is dropped here, unwritten.
+    if ((flag & LIVE) === 0) {
+      flags[slot] = flag & ~IN_RULED
+      continue
+    }
+    const base = slot * stride
+    let still = true
+    for (let k = 0; k < stride; k++) {
+      const at = base + k
+      const rule = rules[at]
+      const kind = kinds[rule]
+      const dt = dts[rule]
+      // Played backwards: its value worked out again where its Playhead has gone back to, out of line.
+      if (dt < 0) {
+        if (!stepBack(state, at, rule, dt)) still = false
+        continue
+      }
+      const time = elapsed[at] + dt
+      elapsed[at] = time
+      // A tween, out of line.
+      if (kind === TWEEN) {
+        if (!stepTween(state, at, entries[rule].tween, time, dt)) still = false
+        continue
+      }
+      // A spring, as `springValues`': only the part of this tick past the delay moves it.
+      const goal = targets[at]
+      const delay = delays[at]
+      let position = positions[at]
+      let speed = velocities[at]
+      const simDt = Math.max(0, Math.min(dt, time - delay))
+      if (simDt > 0 && simDt === dt) {
+        const mi = rule * MATRIX
+        const d = position - goal
+        position = goal + matrices[mi] * d + matrices[mi + 1] * speed
+        speed = matrices[mi + 2] * d + matrices[mi + 3] * speed
+      }
+      if (simDt > 0 && simDt < dt) {
+        const part = Spring.matrixFor(entries[rule].spring, simDt)
+        const d = position - goal
+        position = goal + part.dd * d + part.dv * speed
+        speed = part.vd * d + part.vv * speed
+      }
+      // A spring rests by its thresholds; one that ends at its duration, there (#359). Held by a paused
+      // Playhead, one already on its target is at rest.
+      let settled = simDt > 0 && Math.abs(speed) <= restSpeeds[at] && Math.abs(position - goal) <= restDeltas[at]
+      if (kind === TIMED) settled = time - delay >= entries[rule].spring.duration
+      if (dt === 0) settled = speed === 0 && position === goal && time >= delay
+      if (settled) {
+        position = goal
+        speed = 0
+      }
+      if (!settled) still = false
+      positions[at] = position
+      velocities[at] = speed
+    }
+    write(subjects[slot] as S, positions, base)
+    // At rest: still its member's, in neither list (a member is in one at most).
+    if (still) {
+      flags[slot] = LIVE
+      continue
+    }
+    ruledList[kept] = slot
+    kept++
+  }
+  state.ruledCount = kept
+}
+
+// --- A change driven by a Playhead ---------------------------------------------
+//
+// #665, ADR-0069 decision 15: what `createAnimate`'s Playback controls act on when they animate a Batch.
+// The change keeps each of its keys' start, so a seek works its value out where it'd be, exactly, from
+// the spring's closed form (`Spring.matrixFor` over the time) or the tween's curve. Its transitions are
+// entries of its own whose keys step at its Playhead's speed. A later change of one of its keys takes it,
+// as a ward's Retarget takes an Imperative animation's (#433): the change can't land then.
+
+const AnimationTypeId = "~@wardic/core/Batch/Animation"
+
+/** A change of a Batch driven by a Playhead: built by `animate`, which `play`, `stop`, `cancel` and `durationOf` take. */
+// The Batch module's second data type, so its TypeId names it after the module's (pipeable.md, rule 2).
+export interface Animation extends Pipeable, Inspectable.Inspectable {
+  readonly [AnimationTypeId]: typeof AnimationTypeId
+}
+
+/** `animate`'s options: a change's, and its Playhead, its first stops and its landing's callback. */
+export interface AnimateOptions extends RetargetOptions {
+  /** What drives it: its keys step at its speed, hold while it's paused, and move its time. */
+  readonly head: Playback.Playhead
+  /** Each member's key's first stop, `NaN` for where it is: it starts there, from rest. */
+  readonly from?: (slot: number, k: number) => number
+  /** Called once every key it moves has landed while it still moves it, or at its play when it moves none. */
+  readonly onLanded?: () => void
+}
+
+/** An animation's state: its change, worked out at its first play, and what it moves. */
+interface AnimationState<S> {
+  readonly state: State<S>
+  /** Its transition for a member's key: its own copy, so its entry, and the Playhead driving it, are its alone. */
+  readonly bag: (slot: number, k: number) => Transition
+  readonly options: AnimateOptions
+  readonly slots: ReadonlyArray<number>
+  readonly targetOf: (slot: number, k: number) => number
+  /** Its keys, by index into the Batch's arrays, and each one's start, its speed then, its target and its wait. */
+  ats: Int32Array
+  starts: Float64Array
+  speeds: Float64Array
+  goals: Float64Array
+  waits: Float64Array
+  /** Each of its keys' entry while it plays, and its distinct entries, each held once for it. */
+  rules: Uint16Array
+  held: ReadonlyArray<number>
+  started: boolean
+  playing: boolean
+  duration: number | undefined
+  /** Its time, as a driven machine keeps its own (`Playback.drive`), and its Playhead's after each step. */
+  time: number
+  /** The step its tick was last worked out in, and that tick: once a step, whatever entries it drives. */
+  frame: number
+  dt: number
+}
+
+const AnimationProto = {
+  [AnimationTypeId]: AnimationTypeId,
+  ...Inspectable.BaseProto,
+  toJSON(this: AnimationState<unknown>) {
+    return { _id: "Batch.Animation", keys: this.ats.length, playing: this.playing }
+  },
+  pipe() {
+    return pipeArguments(this, arguments)
+  },
+}
+
+/** Whether `u` is a Batch's Animation. */
+export const isAnimation = (u: unknown): u is Animation => Predicate.hasProperty(u, AnimationTypeId)
+
+const animationOf = (self: Animation): AnimationState<unknown> => self as unknown as AnimationState<unknown>
+
+/** The slot whose key is at `at`. */
+const slotAt = <S>(state: State<S>, at: number): number => Math.floor(at / state.stride)
+
+/** A step's time, a frame at 60 Hz: what a tween's speed is worked out over, and `durationOf` steps by. */
+const FRAME = Machine.CATCH_UP_DT
+
+/**
+ * A driven change's tick this step: the frame's at its Playhead's speed, 0 while it's paused. Worked out
+ * once a step, however many entries it drives, which moves its time and its Playhead's.
+ */
+// Per frame, per driven entry: as `Playback.drive`'s, its own time kept and written (#433).
+const drivenStep = <S>(animation: AnimationState<S>, clamped: number, frame: number): number => {
+  if (animation.frame === frame) return animation.dt
+  animation.frame = frame
+  const head = animation.options.head
+  let by = 0
+  if (!head.paused) by = tickOf(head, clamped, Machine.MAX_DT)
+  animation.dt = by
+  animation.time = Math.max(0, animation.time + by)
+  writableOf(head).time = animation.time
+  return by
+}
+
+/** Whether the key at `at` is held by a paused Playhead: it hands on no speed, as a held element's frames read 0 (#464). */
+// Per key per change, while a driven change plays.
+const heldAt = <S>(state: State<S>, at: number): boolean => {
+  const driver = state.drivers[state.rules[at]]
+  if (Predicate.isUndefined(driver)) return false
+  return driver.options.head.paused
+}
+
+/**
+ * The key at `at`'s value and speed at `time` into its change, from its start: a spring's by its closed
+ * form, a tween's by its curve. Whether it has landed there.
+ */
+const valueAt = <S>(state: State<S>, at: number, rule: number, time: number): boolean => {
+  const entry = state.entries[rule]
+  const delay = state.delays[at]
+  const goal = state.targets[at]
+  const from = state.origins[at]
+  const active = Math.max(0, time - delay)
+  if (entry.kind === TWEEN) {
+    const tween = entry.tween
+    const landed = time >= delay + tween.duration
+    const value = Scalar.lerp(from, goal, tween.ease(Scalar.clamp(active / tween.duration, 0, 1)))
+    const before = Scalar.lerp(from, goal, tween.ease(Scalar.clamp(Math.max(0, active - FRAME) / tween.duration, 0, 1)))
+    state.positions[at] = value
+    state.velocities[at] = (value - before) / FRAME
+    if (landed) state.velocities[at] = 0
+    return landed
+  }
+  if (active === 0) {
+    state.positions[at] = from
+    state.velocities[at] = state.originVelocities[at]
+    return false
+  }
+  const m = Spring.matrixFor(entry.spring, active)
+  const d = from - goal
+  const v0 = state.originVelocities[at]
+  let position = goal + m.dd * d + m.dv * v0
+  let speed = m.vd * d + m.vv * v0
+  let landed = Math.abs(speed) <= state.restSpeeds[at] && Math.abs(position - goal) <= state.restDeltas[at]
+  if (entry.kind === TIMED) landed = active >= entry.spring.duration
+  if (landed) {
+    position = goal
+    speed = 0
+  }
+  state.positions[at] = position
+  state.velocities[at] = speed
+  return landed
+}
+
+/** A key played backwards by `dt`: its value where its Playhead went back to; at its start, at rest there. */
+// Per frame, per key of a change played backwards: rare, so out of line.
+const stepBack = <S>(state: State<S>, at: number, rule: number, dt: number): boolean => {
+  const time = Math.max(0, state.elapsed[at] + dt)
+  state.elapsed[at] = time
+  valueAt(state, at, rule, time)
+  if (time > 0) return false
+  state.positions[at] = state.origins[at]
+  state.velocities[at] = 0
+  return true
+}
+
+/** Whether `animation` still moves the key at its `i`th: on its entry, toward its target. */
+const holds = <S>(animation: AnimationState<S>, i: number): boolean => {
+  const at = animation.ats[i]
+  return animation.state.rules[at] === animation.rules[i] && animation.state.targets[at] === animation.goals[i]
+}
+
+/** It stops playing: its entries step at the frame's pace again, and the table may let them go. */
+const finish = <S>(animation: AnimationState<S>): void => {
+  if (!animation.playing) return
+  animation.playing = false
+  const { state } = animation
+  state.animations.delete(animation)
+  Arr.forEach(animation.held, (rule) => {
+    state.drivers[rule] = undefined
+    release(state, rule)
+  })
+}
+
+/**
+ * Whether `animation` has landed, once a step while it plays: every key it still moves at its target,
+ * past its delay; or, played backwards, back at its start. It ends then. A key a later change took keeps
+ * it from landing (#433's latest-wins, as a ward's): it ends unheard, once the keys it kept are at rest.
+ */
+const checkLanding = <S>(animation: AnimationState<S>): void => {
+  const { state, options } = animation
+  const backwards = options.head.speed < 0
+  const count = animation.ats.length
+  let atRest = true
+  let held = 0
+  // Once a step, per key of a playing change: a counted loop with plain reads.
+  for (let i = 0; i < count; i++) {
+    if (!holds(animation, i)) continue
+    held++
+    if (backwards) continue
+    const at = animation.ats[i]
+    if (state.velocities[at] !== 0 || state.positions[at] !== animation.goals[i] || state.elapsed[at] < state.delays[at]) atRest = false
+  }
+  if (held > 0 && backwards && animation.time > 0) return
+  if (!atRest) return
+  finish(animation)
+  if (held < count) return
+  UndefinedOr.map(options.onLanded, (told) => told())
+}
+
+/** A driven change's transition for a member's key, before its copy: its function's, or its own or `default`, else the key's own. */
+const animationBagsOf = <S>(state: State<S>, given: RetargetOptions["transition"]): ((slot: number, k: number) => Transition) => {
+  if (Predicate.isFunction(given)) return given
+  const own = Arr.map(state.ownRules, (rule) => UndefinedOr.getOrThrow(state.bags[rule]))
+  if (Predicate.isUndefined(given)) return (_, k) => own[k]
+  const bags = Arr.map(bagsOf(state, given), (bag, k) => UndefinedOr.match(bag, { onUndefined: () => own[k], onDefined: identity }))
+  return (_, k) => bags[k]
+}
+
+/**
+ * A change of `slots`' members toward `targetOf(slot, k)`, driven by `options.head`: nothing moves until
+ * it's played. Its controls are `play`, `stop`, `cancel` and `durationOf`.
+ *
+ * @example
+ * const head = Playback.make()
+ * const shuffle = Batch.animate(grid, slots, (slot, k) => cellOf(slot)[k], { head, transition: { type: "spring" } })
+ * Batch.play(shuffle)
+ */
+export const animate: {
+  (slots: ReadonlyArray<number>, targetOf: (slot: number, k: number) => number, options: AnimateOptions): <S>(self: Batch<S>) => Animation
+  <S>(self: Batch<S>, slots: ReadonlyArray<number>, targetOf: (slot: number, k: number) => number, options: AnimateOptions): Animation
+} = dual(isBatch, <S>(self: Batch<S>, slots: ReadonlyArray<number>, targetOf: (slot: number, k: number) => number, options: AnimateOptions): Animation => {
+  const state = stateOf(self)
+  if (Predicate.isNotUndefined(options.delay)) checked(Delay, options.delay, "delay")
+  const bagOf = animationBagsOf(state, options.transition)
+  // A copy of each transition it runs, made once: most members' keys give the bag the last one gave.
+  const copies = new Map<Transition, Transition>()
+  let lastGiven: Transition | undefined = undefined
+  let lastCopy: Transition | undefined = undefined
+  const bag = (slot: number, k: number): Transition => {
+    const given = bagOf(slot, k)
+    if (given === lastGiven) return lastCopy as Transition
+    let made = copies.get(given)
+    if (Predicate.isUndefined(made)) {
+      made = { ...given } as Transition
+      copies.set(given, made)
+    }
+    lastGiven = given
+    lastCopy = made
+    return made
+  }
+  const animation: AnimationState<S> = {
+    state,
+    bag,
+    options,
+    slots,
+    targetOf,
+    ats: new Int32Array(0),
+    starts: new Float64Array(0),
+    speeds: new Float64Array(0),
+    goals: new Float64Array(0),
+    waits: new Float64Array(0),
+    rules: new Uint16Array(0),
+    held: [],
+    started: false,
+    playing: false,
+    duration: undefined,
+    time: 0,
+    frame: 0,
+    dt: 0,
+  }
+  return Object.assign(Object.create(AnimationProto), animation)
+})
+
+/** Its change worked out, once, at its first play: the keys it moves, where each starts, its target and its wait. */
+const startOf = <S>(animation: AnimationState<S>): void => {
+  const { state, slots, targetOf, options } = animation
+  const { stride, flags, positions, velocities, targets } = state
+  const from = options.from
+  const given = slots.length
+  const most = given * stride
+  const ats = new Int32Array(most)
+  const starts = new Float64Array(most)
+  const speeds = new Float64Array(most)
+  const goals = new Float64Array(most)
+  // Each mover's first key in `ats`, by rank, and one past the last mover's.
+  const firsts = new Int32Array(given + 1)
+  const driven = state.animations.size > 0
+  let count = 0
+  let n = 0
+  // Per member per key, once an animation, as a change's (ADR-0025, *Amendment (#665)*): counted loops
+  // over its typed arrays. A slot given twice moves once.
+  for (let g = 0; g < given; g++) {
+    const slot = slots[g]
+    const flag = flags[slot]
+    if ((flag & LIVE) === 0) continue
+    if ((flag & COUNTED) !== 0) continue
+    const first = count
+    for (let k = 0; k < stride; k++) {
+      const at = slot * stride + k
+      const target = targetOf(slot, k)
+      if (Number.isNaN(target)) continue
+      let start = positions[at]
+      let speed = velocities[at]
+      if (driven && heldAt(state, at)) speed = 0
+      let jumps = false
+      if (Predicate.isNotUndefined(from)) {
+        const stop = from(slot, k)
+        if (!Number.isNaN(stop)) {
+          start = stop
+          speed = 0
+          jumps = true
+        }
+      }
+      if (!jumps && target === targets[at]) continue
+      ats[count] = at
+      starts[count] = start
+      speeds[count] = speed
+      goals[count] = target
+      count++
+    }
+    if (count === first) continue
+    flags[slot] = flag | COUNTED
+    firsts[n] = first
+    n++
+  }
+  firsts[n] = count
+  // Each mover's keys wait by its rank among the movers.
+  const delayOf = delayOfChange(options.delay)
+  const waits = new Float64Array(count)
+  for (let rank = 0; rank < n; rank++) {
+    const slot = slotAt(state, ats[firsts[rank]])
+    flags[slot] = flags[slot] & ~COUNTED
+    const wait = delayOf(rank, n)
+    for (let i = firsts[rank]; i < firsts[rank + 1]; i++) waits[i] = wait
+  }
+  animation.ats = ats.slice(0, count)
+  animation.starts = starts.slice(0, count)
+  animation.speeds = speeds.slice(0, count)
+  animation.goals = goals.slice(0, count)
+  animation.waits = waits
+  animation.rules = new Uint16Array(count)
+  animation.started = true
+}
+
+/**
+ * Plays `animation` from its Playhead's time: from its start at 0, its change worked out then, and from
+ * wherever a seek put the time, every key it moves taken again there. It returns how many members it
+ * sets off from rest. One that moves nothing lands at once, as an element's call with no key does.
+ */
+export const play = (self: Animation): number => {
+  const animation = animationOf(self)
+  const { state, options } = animation
+  const { stride } = state
+  if (!animation.started) startOf(animation)
+  finish(animation)
+  const count = animation.ats.length
+  if (count === 0) {
+    UndefinedOr.map(options.onLanded, (told) => told())
+    return 0
+  }
+  const time = options.head.time
+  animation.playing = true
+  animation.time = time
+  state.animations.add(animation)
+  // Once a play, per key it moves: each key's entry, then each entry held once for it and driven by it.
+  for (let i = 0; i < count; i++) {
+    const at = animation.ats[i]
+    const slot = slotAt(state, at)
+    animation.rules[i] = ruleFor(state, animation.bag(slot, at - slot * stride))
+  }
+  animation.held = Arr.dedupe(Arr.fromIterable(animation.rules))
+  Arr.forEach(animation.held, (rule) => {
+    hold(state, rule)
+    state.drivers[rule] = animation
+  })
+  let setOff = 0
+  for (let i = 0; i < count; i++) {
+    const at = animation.ats[i]
+    const rule = animation.rules[i]
+    turn(state, at, rule, animation.goals[i], animation.starts[i], animation.speeds[i], animation.waits[i])
+    state.elapsed[at] = time
+    valueAt(state, at, rule, time)
+    setOff += moving(state, slotAt(state, at))
+  }
+  return setOff
+}
+
+/** The member at `slot` moving in the ruled list, so the next step draws it and rests it: 1 when that sets it off from rest. */
+const moving = <S>(state: State<S>, slot: number): number => {
+  const flag = state.flags[slot]
+  if ((flag & IN_RULED) !== 0) return 0
+  state.flags[slot] = (flag & ~IN_PLAIN) | IN_RULED
+  state.ruledList[state.ruledCount] = slot
+  state.ruledCount = state.ruledCount + 1
+  if ((flag & IN_PLAIN) !== 0) return 0
+  return 1
+}
+
+/** The key at `at` put at rest at `value`, drawn there at the next step and resting there, a tween's too. */
+const restAt = <S>(state: State<S>, at: number, value: number): void => {
+  state.positions[at] = value
+  state.targets[at] = value
+  state.origins[at] = value
+  state.velocities[at] = 0
+  // Past any delay and duration: its next step lands it where it is.
+  state.elapsed[at] = Number.POSITIVE_INFINITY
+  moving(state, slotAt(state, at))
+}
+
+/** Ends `animation` where it is: the keys it moves stay there, at rest. */
+export const stop = (self: Animation): void => {
+  const animation = animationOf(self)
+  if (!animation.playing) return
+  const { state } = animation
+  // Once a stop, per key it moves: one a later change took stays that change's.
+  for (let i = 0; i < animation.ats.length; i++) {
+    if (!holds(animation, i)) continue
+    const at = animation.ats[i]
+    restAt(state, at, state.positions[at])
+  }
+  finish(animation)
+}
+
+/** Ends `animation`, and puts the keys it moved back where it started them, at rest. */
+export const cancel = (self: Animation): void => {
+  const animation = animationOf(self)
+  const { state } = animation
+  // Once a cancel, per key it moved: one a later change took stays that change's.
+  for (let i = 0; i < animation.ats.length; i++) {
+    if (state.targets[animation.ats[i]] !== animation.goals[i]) continue
+    restAt(state, animation.ats[i], animation.starts[i])
+  }
+  finish(animation)
+}
+
+/** `seconds`, up to a whole number of frames, a hair's rounding allowed: when a machine stepped at 60 Hz reads done. */
+const inFrames = (seconds: number): number => Math.ceil(seconds / FRAME - 1e-9) * FRAME
+
+/**
+ * How long `animation` runs, in seconds: its longest key's, a spring's until it rests, stepped from its
+ * start at 60 Hz as `Machine.durationOf` steps a machine. Worked out once.
+ */
+// Stepped here, not through `Machine.durationOf`, which would build a machine for each member's key.
+export const durationOf = (self: Animation): number => {
+  const animation = animationOf(self)
+  if (Predicate.isNotUndefined(animation.duration)) return animation.duration
+  const { state } = animation
+  if (!animation.started) startOf(animation)
+  const most = Math.ceil(Machine.MAX_DURATION / FRAME)
+  let longest = 0
+  // Once an animation, per key: a counted loop to its rest.
+  for (let i = 0; i < animation.ats.length; i++) {
+    const at = animation.ats[i]
+    const slot = slotAt(state, at)
+    const entry = entryFor(animation.bag(slot, at - slot * state.stride))
+    const delay = entry.delay + animation.waits[i]
+    const goal = animation.goals[i]
+    const distance = goal - animation.starts[i]
+    if (entry.kind === TWEEN) {
+      longest = Math.max(longest, inFrames(delay + entry.tween.duration))
+      continue
+    }
+    if (entry.kind === TIMED) {
+      longest = Math.max(longest, inFrames(delay + entry.spring.duration))
+      continue
+    }
+    const restDelta = Spring.restDeltaFor(entry.spring, distance)
+    const restSpeed = Spring.restSpeedFor(entry.spring, distance)
+    let position = animation.starts[i]
+    let speed = animation.speeds[i]
+    let time = 0
+    let steps = most
+    for (let f = 1; f <= most; f++) {
+      time += FRAME
+      const simDt = Math.max(0, Math.min(FRAME, time - delay))
+      if (simDt > 0) {
+        const m = Spring.matrixFor(entry.spring, simDt)
+        const d = position - goal
+        position = goal + m.dd * d + m.dv * speed
+        speed = m.vd * d + m.vv * speed
+        if (Math.abs(speed) <= restSpeed && Math.abs(position - goal) <= restDelta) {
+          steps = f
+          break
+        }
+      }
+    }
+    longest = Math.max(longest, steps * FRAME)
+  }
+  animation.duration = longest
+  return longest
 }
 
 /** A sink that keeps nothing: a Batch's run writes as it steps. */
@@ -906,5 +1541,8 @@ export const get = <S>(self: Batch<S>, slot: number, key: string): number => {
 // Per frame, as `get`.
 export const velocity = <S>(self: Batch<S>, slot: number, key: string): number => {
   const state = stateOf(self)
-  return state.velocities[slot * state.stride + keyAt(state, key)]
+  const at = slot * state.stride + keyAt(state, key)
+  // Held by a paused Playhead, it reads 0 (#464).
+  if (state.animations.size > 0 && heldAt(state, at)) return 0
+  return state.velocities[at]
 }

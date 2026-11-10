@@ -6,12 +6,12 @@
  */
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createRenderEffect, type JSX, on, onCleanup, untrack } from "solid-js"
-import { type BatchConfig, bindBatch, configTransitionOf, handlesOf, type Member, type MemberProps, serverHandle, type WardicBatchLanding } from "./batch.ts"
+import { type BatchConfig, bindBatch, configTransitionOf, handlesOf, type Member, type MemberProps, registerBatch, serverHandle, type WardicBatchLanding } from "./batch.ts"
 import { useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { isServer } from "./server.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 
-export type { WardicBatchKey, WardicBatchLanding, WardicBatchTransition, WardicBatchValues } from "./batch.ts"
+export type { WardicBatchKey, WardicBatchLanding, WardicBatchStop, WardicBatchSubject, WardicBatchTarget, WardicBatchTransition, WardicBatchValues } from "./batch.ts"
 
 /** `createBatch`'s config on Solid 1: the members, their targets and transition, and its callbacks. */
 export interface WardicBatchConfig extends BatchConfig {
@@ -80,5 +80,8 @@ export function createBatch(config: WardicBatchConfig): WardicBatch {
   // Its first targets were read as it was made: a change from then on is a Retarget of every member.
   createRenderEffect(on(binding.targetsOf, binding.apply, { defer: true }))
   onCleanup(binding.dispose)
-  return { at: handlesOf<JSX.CSSProperties>(binding) }
+  const grid: WardicBatch = { at: handlesOf<JSX.CSSProperties>(binding) }
+  // Known to `createAnimate`'s `animate` (#665).
+  registerBatch(grid, binding)
+  return grid
 }

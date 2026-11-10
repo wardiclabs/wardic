@@ -8,14 +8,14 @@
 import { isServer } from "@solidjs/web"
 import type { JSX } from "@solidjs/web"
 import { type Accessor, createEffect, onCleanup, untrack } from "solid-js"
-import { type BatchConfig, bindBatch, configTransitionOf, handlesOf, type Member, type MemberProps, serverHandle, type WardicBatchLanding } from "../../batch.ts"
+import { type BatchConfig, bindBatch, configTransitionOf, handlesOf, type Member, type MemberProps, registerBatch, serverHandle, type WardicBatchLanding } from "../../batch.ts"
 import { flightsOf } from "./flights.ts"
 import { useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { neverLands, serverWhen, Waiters, whenOf } from "./waiters.ts"
 
-export type { WardicBatchKey, WardicBatchLanding, WardicBatchTransition, WardicBatchValues } from "../../batch.ts"
+export type { WardicBatchKey, WardicBatchLanding, WardicBatchStop, WardicBatchSubject, WardicBatchTarget, WardicBatchTransition, WardicBatchValues } from "../../batch.ts"
 
 /** `createBatch`'s config on Solid 2: the members, their targets and their transition. */
 export interface WardicBatchConfig extends BatchConfig {}
@@ -108,10 +108,13 @@ export function createBatch(config: WardicBatchConfig): WardicBatch {
     binding.dispose()
     events.dispose()
   })
-  return {
+  const grid: WardicBatch = {
     at: handlesOf<JSX.CSSProperties>(binding),
     settled: flights.read,
     next: (name) => events.wait(name),
     when: (name) => whenOf(events, name),
   }
+  // Known to `createAnimate`'s `animate` (#665).
+  registerBatch(grid, binding)
+  return grid
 }

@@ -105,6 +105,9 @@ export {
   type WardicBatchLanding,
   type WardicBatchMember,
   type WardicBatchMemberProps,
+  type WardicBatchStop,
+  type WardicBatchSubject,
+  type WardicBatchTarget,
   type WardicBatchTransition,
   type WardicBatchValues,
 } from "./create-batch.ts"

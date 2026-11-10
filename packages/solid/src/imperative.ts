@@ -28,6 +28,7 @@ import type * as Values from "@wardic/core/Values"
 import * as Sequence from "@wardic/core/Sequence"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Report from "@wardic/dom/Report"
+import { batchSubjectOf, type WardicBatchSubject, type WardicBatchTarget } from "./batch.ts"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
@@ -236,14 +237,30 @@ const subjectsOf = (subject: WardicAnimationSubject, scope: Element | undefined)
   return Arr.filter(Arr.makeBy(list.length, (i) => list[i] as Element), Predicate.isNotNullish)
 }
 
+/** A call's options without its `onComplete`: its transition. */
+const withoutComplete = (given: WardicAnimateOptions): Readonly<Record<string, unknown>> => {
+  const { onComplete: _onComplete, ...rest } = given as Readonly<Record<string, unknown>>
+  return rest
+}
+
 /** Each element's transition: its `delay` worked out for it (Motion's `delay(i, n)`). */
 const transitionFor = (options: WardicAnimateOptions | undefined, index: number, count: number): WardicTransition | undefined =>
   UndefinedOr.map(options, (given) => {
-    const { delay, onComplete: _onComplete, ...rest } = given as Readonly<Record<string, unknown>>
+    const { delay, ...rest } = withoutComplete(given)
     if (Predicate.isFunction(delay)) return { ...rest, delay: (delay as (index: number, count: number) => number)(index, count) } as WardicTransition
     if (Predicate.isUndefined(delay)) return rest as WardicTransition
     return { ...rest, delay } as WardicTransition
   })
+
+/** A Batch call's transition (#665): the options without `onComplete`, a `stagger()` delay kept for the Batch to count its movers. */
+const batchTransitionOf = (options: WardicAnimateOptions | undefined): WardicTransition | undefined =>
+  UndefinedOr.map(options, (given) => withoutComplete(given) as WardicTransition)
+
+/** Whether a Batch call lands at once: its scope's animations are skipped, or its own `skipAnimations` (#468). */
+const skipsBatchCall = (env: AnimateEnv, options: WardicAnimateOptions | undefined): boolean => {
+  if (env.skipAnimations()) return true
+  return UndefinedOr.match(options, { onUndefined: () => false, onDefined: (given) => given.skipAnimations === true })
+}
 
 /** Where an animation is: `"idle"`, `"running"`, `"paused"` or `"finished"`. Motion's `AnimationPlayState`. */
 export type WardicPlayState = "idle" | "running" | "paused" | "finished"
@@ -505,6 +522,7 @@ export interface WardicSequenceOptions {
 // #433: through one Playhead.
 export interface WardicAnimate {
   (subject: WardicAnimationSubject, target: WardicVariant, options?: WardicAnimateOptions): WardicPlaybackControls
+  (batch: WardicBatchSubject, target: WardicBatchTarget, options?: WardicAnimateOptions): WardicPlaybackControls
   (sequence: WardicAnimationSequence, options?: WardicSequenceOptions): WardicPlaybackControls
 }
 
@@ -516,6 +534,21 @@ export interface WardicAnimate {
 export const scopedAnimate = (env: AnimateEnv, scope: () => Element | undefined, watch: AnimationWatch): WardicAnimate =>
   ((first: WardicAnimationSubject | WardicAnimationSequence, second?: WardicVariant | WardicSequenceOptions, third?: WardicAnimateOptions): WardicPlaybackControls => {
     if (isSequence(first)) return sequenceOf(env, scope(), watch, first, second as WardicSequenceOptions | undefined)
+    // A Batch, or a member's handle (#665): one track over its members, on the Batch's own run.
+    const batch = batchSubjectOf(first)
+    if (Predicate.isNotUndefined(batch)) {
+      return started(watch, 1, UndefinedOr.map(third, (given) => given.onComplete), (head, settled) => [
+        batch.binding.track({
+          target: second as WardicBatchTarget,
+          transition: batchTransitionOf(third),
+          reducedMotion: env.reducedMotion(),
+          skipAnimations: skipsBatchCall(env, third),
+          head,
+          settled,
+          member: batch.member,
+        }),
+      ])
+    }
     const elements = subjectsOf(first as WardicAnimationSubject, scope())
     const target = second as WardicVariant
     return started(watch, elements.length, UndefinedOr.map(third, (given) => given.onComplete), (head, settled) =>
