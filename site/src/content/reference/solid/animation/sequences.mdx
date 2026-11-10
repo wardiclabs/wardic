@@ -1,7 +1,7 @@
 ---
 title: Sequences
 description: Animations played one after another from code, each Segment placed in time, with labels and function Segments.
-api: [WardicAnimationSequence, WardicSegment, WardicElementSegment, WardicFunctionSegment, WardicSegmentOptions, WardicSegmentTarget, WardicSequenceLabel, WardicSequenceTime, WardicSequenceOptions]
+api: [WardicAnimationSequence, WardicSegment, WardicElementSegment, WardicFunctionSegment, WardicBatchSegment, WardicBatchSegmentTarget, WardicBatchSegmentValue, WardicSegmentOptions, WardicSegmentTarget, WardicSequenceLabel, WardicSequenceTime, WardicSequenceOptions]
 ---
 
 # Sequences
@@ -24,10 +24,26 @@ const open = () =>
 ## Segments
 
 - **`[subject, target, options?]`** animates elements, as `animate(subject, target, options)` does: an element, a selector inside the scope, or a list.
+- **`[batch, target, options?]`** animates a [Batch](/reference/solid/animation/create-batch)'s members, each through its own stops in the Batch: every member whose element has arrived, in member order, or one, `grid.at(i)`. A value can be a function of a member's index and the Batch's count, `(i, n) => …`, as in `animate(grid, …)`.
 - **`[callback, value?, options?]`** is a function Segment: its callback is given a value each frame, from 0 to 1, or through the stops you give, for what isn't an element's style, such as a counter or a canvas.
 - **A label**, a string, names the time where the Segment before ends, for a later `at`. `{ name, at }` names a time of its own.
 
 A Segment's options are a transition, its `delay` a number or `stagger()`, and `at`. A spring through two stops or fewer plays as an easing over its time to rest, so it fits the sequence's time.
+
+## A Batch's members
+
+```tsx
+const grid = createBatch({ count: 100, initial: false, animate: (i) => ({ x: colX(i), y: rowY(i) }) })
+animate([
+  [grid, { y: [-40, null], opacity: [0, 1] }, { delay: stagger(0.01) }],
+  [grid, { x: (i) => colX(order[i]) }, { at: "+0.2", type: "spring", bounce: 0.2 }],
+  [".title", { opacity: 1 }],
+])
+```
+
+- **Its keys** are the Batch's, as numbers, `null` for where a member is, or stops of them. A key the Batch doesn't have, or a string, is an error naming the key.
+- **`stagger()`** counts the Segment's members, as Motion's sequences count a Segment's elements. `animate(grid, …)` counts only the members that move.
+- **A member's element** in a Segment of elements, by a selector or itself, moves its Batch keys in the Batch and the rest as any element's. A transform the Batch doesn't draw is an error naming it. A member named through the Batch and through its element is one subject, so the later Segment's stops replace the ones it overlaps, as they do for one element.
 
 ## at
 
@@ -56,6 +72,6 @@ Motion's sequences, with its `at`, labels and options. Its motion value Segments
 ## Types
 
 - **`WardicAnimationSequence`:** a sequence. **`WardicSegment`:** one step of it.
-- **`WardicElementSegment`**, **`WardicFunctionSegment`:** the two kinds of Segment. **`WardicSegmentTarget`**, **`WardicSegmentOptions`:** a Segment's values and options.
+- **`WardicElementSegment`**, **`WardicFunctionSegment`**, **`WardicBatchSegment`:** the three kinds of Segment. **`WardicBatchSegmentTarget`**, **`WardicBatchSegmentValue`:** a Batch Segment's values, key by key. **`WardicSegmentTarget`**, **`WardicSegmentOptions`:** a Segment's values and options.
 - **`WardicSequenceLabel`:** a label. **`WardicSequenceTime`:** an `at`.
 - **`WardicSequenceOptions`:** the sequence's options.
