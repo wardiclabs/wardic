@@ -5,7 +5,6 @@
  * @module
  */
 import * as Bool from "effect/Boolean"
-import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createRenderEffect, type JSX, on, onCleanup, untrack } from "solid-js"
 import {
@@ -13,6 +12,7 @@ import {
   bindBatch,
   configTransitionOf,
   handlesOf,
+  isKeyed,
   keyedHandlesOf,
   type KeyedBatchConfig,
   type Member,
@@ -70,6 +70,8 @@ export interface WardicKeyedBatch<K> {
 
 /** A server render's Batch: its handles pass the element's own props on, and nothing animates. */
 const serverBatch: WardicBatch = { at: serverHandle<JSX.CSSProperties>() }
+
+/** A server render's keyed Batch: its handles pass the element's own props on, and nothing animates. */
 const serverKeyedBatch: WardicKeyedBatch<unknown> = { member: serverHandle<JSX.CSSProperties>() }
 
 /**
@@ -102,7 +104,7 @@ export function createBatch<T, P extends keyof T>(config: WardicKeyedBatchConfig
 export function createBatch<T, K>(config: WardicKeyedBatchConfig<T> & { readonly key: (item: T) => K }): WardicKeyedBatch<K>
 export function createBatch(config: WardicBatchConfig): WardicBatch
 export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<unknown>): WardicBatch | WardicKeyedBatch<unknown> {
-  const keyed = Predicate.hasProperty(config, "each")
+  const keyed = isKeyed(config)
   if (isServer) return Bool.match(keyed, { onTrue: () => serverKeyedBatch, onFalse: () => serverBatch })
   const configTransition = configTransitionOf(useWardicConfig())
   // Its first targets and starts read untracked, wherever it's called: what tracks them is its own effect.

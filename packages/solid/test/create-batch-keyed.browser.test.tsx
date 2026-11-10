@@ -11,11 +11,15 @@
 //   before then; its `keys` fix its keys up front (Q51).
 // - CK4: an element for a key the list never has is reported, naming it; an item with no key, two items
 //   with one key, and a key a later target gives are errors naming them.
+// - CK5: an element reported for its key enters once the list has it; a list that starts empty leaves its
+//   first handles' `style` the properties the Batch draws; a later member's `initial` key outside the
+//   Batch's is an error naming it; a sequence's Segment of a keyed Batch moves its members in the list's
+//   order, and nothing before it has members; a member's element in an element call moves it in the Batch.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
-import { createAnimate, createBatch, wardic, type WardicAnimate, WardicProvider } from "@wardic/solid"
+import { createAnimate, createBatch, stagger, wardic, type WardicAnimate, type WardicBatchMember, WardicProvider } from "@wardic/solid"
 import { createSignal, For, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { raf } from "./browser-helpers.ts"
@@ -244,5 +248,89 @@ describe("createBatch's keyed form on Solid 1 (#665)", () => {
     }
     render(() => <WardicProvider env={DomLive}><Later /></WardicProvider>)
     expect(() => setItems([{ id: "a" }, { id: "b", y: 2 }])).toThrow(/member "b"'s targets give "y"/)
+  })
+
+  it("CK5: a reported element enters later; an empty start's handles; a later initial key; Segments and element calls", async () => {
+    // Reported, then listed: it enters.
+    const logs: Array<Logged> = []
+    const reports: Array<string> = []
+    const [items, setItems] = createSignal<ReadonlyArray<Item>>([{ id: "a" }])
+    let stray!: HTMLDivElement
+    const Stray = (): JSX.Element => {
+      const list = createBatch({ each: items, key: "id", animate: (_, i) => ({ x: 10 + i }) })
+      return <div {...list.member("zz", { ref: (el) => (stray = el as HTMLDivElement) })} />
+    }
+    render(() => (
+      <WardicProvider env={envWith({ logs, reports })}>
+        <Stray />
+      </WardicProvider>
+    ))
+    await frames(2)
+    expect(errorsNamed(logs, "createBatch: a member's element has no item")).toHaveLength(1)
+    setItems([{ id: "a" }, { id: "zz" }])
+    await frames(40)
+    expect(xOf(stray)).toBe(11)
+    expect(errorsNamed(logs, "createBatch: a member's element has no item")).toHaveLength(1)
+    cleanup()
+    // A list that starts empty: its first handles leave the Batch its `transform`.
+    const [later, setLater] = createSignal<ReadonlyArray<Item>>([])
+    const handles: Array<WardicBatchMember> = []
+    const Empty = (): JSX.Element => {
+      const list = createBatch({ each: later, key: "id", animate: () => ({ x: 5 }) })
+      return (
+        <For each={later()}>
+          {(item) => {
+            const handle = list.member(item.id, { style: { width: "12px", transform: "scale(2)" } })
+            handles.push(handle)
+            return <div {...handle} />
+          }}
+        </For>
+      )
+    }
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <Empty />
+      </WardicProvider>
+    ))
+    setLater([{ id: "a" }])
+    expect(handles[0].style).toEqual({ width: "12px" })
+    cleanup()
+    // A later member's `initial` with a key the Batch doesn't have.
+    const [grown, setGrown] = createSignal<ReadonlyArray<Item>>([{ id: "a" }])
+    const Initial = (): JSX.Element => {
+      const list = createBatch({ each: grown, key: "id", initial: (item) => Bool.match(item.id === "b", { onTrue: () => ({ x: 0, opacity: 0 }), onFalse: () => ({ x: 0 }) }), animate: () => ({ x: 5 }) })
+      return <For each={grown()}>{(item) => <div {...list.member(item.id)} />}</For>
+    }
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <Initial />
+      </WardicProvider>
+    ))
+    expect(() => setGrown([{ id: "a" }, { id: "b" }])).toThrow(/member "b" starts at "opacity", which isn't one of its keys \(x\)/)
+    cleanup()
+    // A sequence's Segment of a keyed Batch: nothing before it has members, then its members in the list's order.
+    const [listed, setListed] = createSignal<ReadonlyArray<Item>>([])
+    const { list, animate, members } = mountList(listed)
+    await raf()
+    let finished = false
+    void animate()([[list, { x: 10 }]]).then(() => {
+      finished = true
+    })
+    await raf()
+    expect(finished).toBe(true)
+    setListed([{ id: "c" }, { id: "a" }, { id: "b" }])
+    await frames(50)
+    void animate()([[list, { x: (i) => 100 + i }, { duration: 0.2, delay: stagger(0.15) }]])
+    await frames(6)
+    // c, first in the list, has set off; a waits its 0.15 s.
+    expect(xOf(members.get("c") as Element)).toBeGreaterThan(1)
+    expect(xOf(members.get("a") as Element)).toBe(40)
+    await frames(50)
+    expect(["c", "a", "b"].map((id) => xOf(members.get(id) as Element))).toEqual([100, 101, 102])
+    // A member's element in an element call moves it in the Batch: a change of the list turns it on from there.
+    await animate()(members.get("a") as Element, { x: 77 }, { duration: 0.1 })
+    setListed([listed()[1], listed()[0], listed()[2]])
+    await raf()
+    expect(xOf(members.get("a") as Element)).toBeGreaterThan(70)
   })
 })

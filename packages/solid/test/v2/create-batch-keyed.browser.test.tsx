@@ -5,6 +5,11 @@
 //   to the same item draws, its `i` the item's index in `each`.
 // - CVK2: `createAnimate`'s `animate` moves one member by its handle and every member by a function of its
 //   index; a list that starts empty makes its Batch at its first members, `settled()` landing them.
+// - CVK3: a member's handle keeps its element's own `style` and calls its `ref`; an element `<For>` makes
+//   again for the same key carries the member on; a handle kept past its member's leave moves nothing.
+//
+// Its misuse errors are the shared work's, and Solid 1's CK4 and CK5 hold them: one thrown in a Solid 2
+// render halts that root's reactive system for the file's later tests.
 import { DomLive } from "@wardic/dom"
 import type { JSX } from "@solidjs/web"
 import { createAnimate, createBatch, w, type WardicAnimate, WardicProvider } from "@wardic/solid/unstable/v2"
@@ -122,5 +127,64 @@ describe("createBatch's keyed form on Solid 2 (#665)", () => {
     await animate(list, { x: (i, n) => 100 * i + n }, { duration: 0.1 })
     await frames(2)
     expect(["a", "b", "c"].map((id) => xOf(members.get(id) as Element))).toEqual([3, 103, 203])
+  })
+
+  it("CVK3: a handle keeps its element's style and ref; a remade element carries on; a handle kept past its leave moves nothing", async () => {
+    const [items, setItems] = createSignal<ReadonlyArray<Item>>([{ id: "a" }, { id: "b" }, { id: "c" }])
+    const listed = (): ReadonlyArray<Item> => untrack(items)
+    const steadyItems: ReadonlyArray<Item> = [{ id: "a" }, { id: "b" }, { id: "c" }]
+    const members = new Map<string, HTMLDivElement>()
+    const steady = new Map<string, HTMLDivElement>()
+    let own!: HTMLDivElement
+    let list!: ReturnType<typeof keyedList>
+    let animate!: WardicAnimate
+    const keyedList = () => createBatch({ each: items, key: "id", animate: (_, i) => ({ x: i * 40 }), transition: SPRING })
+    const Scene = (): JSX.Element => {
+      list = keyedList()
+      const other = createBatch({ each: () => steadyItems, key: "id", animate: (_, i) => ({ x: i * 40 }), transition: SPRING })
+      const [scope, made] = createAnimate()
+      animate = made
+      return (
+        <div ref={scope}>
+          <For each={items()}>
+            {(item) => (
+              <div
+                {...list.member(item.id, {
+                  style: { width: "12px", transform: "scale(2)" },
+                  ref: (el) => {
+                    members.set(item.id, el as HTMLDivElement)
+                    if (item.id === "b") own = el as HTMLDivElement
+                  },
+                })}
+              />
+            )}
+          </For>
+          <For each={steadyItems}>{(item) => <div style={BOX} {...other.member(item.id, { ref: (el) => steady.set(item.id, el as HTMLDivElement) })} />}</For>
+        </div>
+      )
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await frames(6)
+    expect([own.style.width, own.style.transform.includes("scale(2)")]).toEqual(["12px", false])
+    // Item `a` made again mid-flight: its member carries on as the steady list's does.
+    const first = members.get("a")
+    setItems([{ id: "a" }, ...listed().slice(1)])
+    const read = await pairsOver(30, () => [[members.get("a") as Element, steady.get("a") as Element]])
+    expect(members.get("a")).not.toBe(first)
+    expectPairs(read)
+    // A handle kept past its member's leave: a later member may have its number, and isn't moved.
+    const gone = list.member("c")
+    setItems(listed().filter((item) => item.id !== "c"))
+    await raf()
+    setItems([...listed(), { id: "e" }])
+    await frames(40)
+    const e = xOf(members.get("e") as Element)
+    await animate(gone, { x: 999 }, { duration: 0.05 })
+    await frames(2)
+    expect(xOf(members.get("e") as Element)).toBe(e)
   })
 })

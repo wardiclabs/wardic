@@ -46,8 +46,8 @@ const list = createBatch({
 ```
 
 - **`animate(item, i)`** and **`initial(item, i)`** take the item and its index in the list now. A change of the list, or of its order, turns every member once: reordered, each one heads for its new place at the speed it has.
-- **A new item's member** enters as its element arrives, from `initial`, and moves with the others that arrive in the same task. An item that leaves the list takes its member with it at once. An exit that plays first comes with `<AnimatePresence>`.
-- **`list.member(key)`** is its handle, given `{ ref, style }` as `at(i)`'s is. A handle for a key the list doesn't have yet is fine: its element enters once the list has it. An element for a key the list never has is reported, naming the key.
+- **A new item's member** enters as its element arrives, from `initial`, and moves with the others that arrive in the same task. An item that leaves the list takes its member with it at once.
+- **`list.member(key)`** is its handle, given `{ ref, style }` as `at(i)`'s is. A handle for a key the list doesn't have yet is fine: its element enters once the list has it. An element whose key the list still doesn't have at the end of its task is reported, naming the key, and enters if the list gets it later.
 - **Its keys** are its first members' targets' and starts', so a list that starts empty makes its Batch when its first items come. Give `keys: ["x", "y", "opacity"]` to fix them up front, for a list whose later items use a key its first ones don't.
 - Two items with one key, and an item with no key, are errors naming them.
 

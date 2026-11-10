@@ -9,12 +9,12 @@ import { isServer } from "@solidjs/web"
 import type { JSX } from "@solidjs/web"
 import { type Accessor, createEffect, onCleanup, untrack } from "solid-js"
 import * as Bool from "effect/Boolean"
-import * as Predicate from "effect/Predicate"
 import {
   type BatchConfig,
   bindBatch,
   configTransitionOf,
   handlesOf,
+  isKeyed,
   keyedHandlesOf,
   type KeyedBatchConfig,
   type Member,
@@ -49,43 +49,38 @@ export type WardicBatchMemberProps<E extends Element = HTMLElement> = MemberProp
 /** A member's handle: spread it onto the member's element. */
 export type WardicBatchMember<E extends Element = HTMLElement> = Member<E, JSX.CSSProperties>
 
+/** A Batch's landings on Solid 2, by index or keyed. */
+interface BatchLandings {
+  /**
+   * Its last landing, `undefined` before the first: an async value, pending while any member moves, so
+   * `isPending(() => grid.settled())` reads "moving".
+   */
+  readonly settled: () => WardicBatchLanding | undefined
+  /** A promise of its next landing; it rejects with an `AbortError` once the Batch is gone. */
+  readonly next: <E extends keyof WardicBatchEvents>(name: E) => Promise<WardicBatchEvents[E]>
+  /** Every landing from now on, for an effect: `createEffect(grid.when("settled"), (landing) => …)`. */
+  readonly when: <E extends keyof WardicBatchEvents>(name: E) => Accessor<WardicBatchEvents[E]>
+}
+
 /** A Batch on Solid 2: its members' handles, and its landings. */
-export interface WardicBatch {
+export interface WardicBatch extends BatchLandings {
   /**
    * Member `i`'s handle, to spread onto its element: the element's own `ref` and `style` given beside
    * it, its `style` without the properties the Batch draws.
    */
   readonly at: <E extends Element = HTMLElement>(i: number, props?: WardicBatchMemberProps<E>) => WardicBatchMember<E>
-  /**
-   * Its last landing, `undefined` before the first: an async value, pending while any member moves, so
-   * `isPending(() => grid.settled())` reads "moving".
-   */
-  readonly settled: () => WardicBatchLanding | undefined
-  /** A promise of its next landing; it rejects with an `AbortError` once the Batch is gone. */
-  readonly next: <E extends keyof WardicBatchEvents>(name: E) => Promise<WardicBatchEvents[E]>
-  /** Every landing from now on, for an effect: `createEffect(grid.when("settled"), (landing) => …)`. */
-  readonly when: <E extends keyof WardicBatchEvents>(name: E) => Accessor<WardicBatchEvents[E]>
 }
 
 /** A keyed Batch on Solid 2: each item's member's handle, by its key, and its landings. */
-export interface WardicKeyedBatch<K> {
+export interface WardicKeyedBatch<K> extends BatchLandings {
   /**
    * The handle of the member keyed `key`, to spread onto its item's element: the element's own `ref` and
    * `style` given beside it, its `style` without the properties the Batch draws.
    */
   readonly member: <E extends Element = HTMLElement>(key: K, props?: WardicBatchMemberProps<E>) => WardicBatchMember<E>
-  /**
-   * Its last landing, `undefined` before the first: an async value, pending while any member moves, so
-   * `isPending(() => grid.settled())` reads "moving".
-   */
-  readonly settled: () => WardicBatchLanding | undefined
-  /** A promise of its next landing; it rejects with an `AbortError` once the Batch is gone. */
-  readonly next: <E extends keyof WardicBatchEvents>(name: E) => Promise<WardicBatchEvents[E]>
-  /** Every landing from now on, for an effect: `createEffect(grid.when("settled"), (landing) => …)`. */
-  readonly when: <E extends keyof WardicBatchEvents>(name: E) => Accessor<WardicBatchEvents[E]>
 }
 
-/** A server render's Batch: its handles pass the element's own props on, and nothing animates. */
+/** A server render's keyed Batch: its handles pass the element's own props on, and nothing animates or lands. */
 const serverKeyedBatch: WardicKeyedBatch<unknown> = {
   member: serverHandle<JSX.CSSProperties>(),
   settled: () => undefined,
@@ -93,6 +88,7 @@ const serverKeyedBatch: WardicKeyedBatch<unknown> = {
   when: <E extends keyof WardicBatchEvents>() => serverWhen<WardicBatchEvents[E]>(),
 }
 
+/** A server render's Batch: its handles pass the element's own props on, and nothing animates or lands. */
 const serverBatch: WardicBatch = {
   at: serverHandle<JSX.CSSProperties>(),
   settled: () => undefined,
@@ -130,7 +126,7 @@ export function createBatch<T, P extends keyof T>(config: WardicKeyedBatchConfig
 export function createBatch<T, K>(config: WardicKeyedBatchConfig<T> & { readonly key: (item: T) => K }): WardicKeyedBatch<K>
 export function createBatch(config: WardicBatchConfig): WardicBatch
 export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<unknown>): WardicBatch | WardicKeyedBatch<unknown> {
-  const keyed = Predicate.hasProperty(config, "each")
+  const keyed = isKeyed(config)
   if (isServer) return Bool.match(keyed, { onTrue: () => serverKeyedBatch, onFalse: () => serverBatch })
   const configTransition = configTransitionOf(useWardicConfig())
   const flights = flightsOf<WardicBatchLanding>()
@@ -163,7 +159,7 @@ export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<u
     binding.dispose()
     events.dispose()
   })
-  const landings: Pick<WardicBatch, "settled" | "next" | "when"> = {
+  const landings: BatchLandings = {
     settled: flights.read,
     next: (name) => events.wait(name),
     when: (name) => whenOf(events, name),
