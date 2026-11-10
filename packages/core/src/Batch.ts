@@ -514,16 +514,17 @@ const grow = <S>(state: State<S>, capacity: number): void => {
 
 /**
  * One change: each of `slots`' members turned toward `targetOf(slot, k)` for its `k`th key (`NaN`
- * keeps that key's target). A member whose targets are unchanged gets nothing.
+ * keeps that key's target). A member whose targets are unchanged gets nothing. It returns how many
+ * members it sets off from rest.
  *
  * @example
  * const grid = Batch.make({ keys: ["x", "y"], writer, transition: { type: "spring" } })
  * Batch.retarget(grid, slots, (slot, k) => cellOf(slot)[k], { delay: Stagger.make(0.02) })
  */
 export const retarget: {
-  (slots: ReadonlyArray<number>, targetOf: (slot: number, k: number) => number, options?: RetargetOptions): <S>(self: Batch<S>) => void
-  <S>(self: Batch<S>, slots: ReadonlyArray<number>, targetOf: (slot: number, k: number) => number, options?: RetargetOptions): void
-} = dual(isBatch, <S>(self: Batch<S>, slots: ReadonlyArray<number>, targetOf: (slot: number, k: number) => number, options?: RetargetOptions): void => {
+  (slots: ReadonlyArray<number>, targetOf: (slot: number, k: number) => number, options?: RetargetOptions): <S>(self: Batch<S>) => number
+  <S>(self: Batch<S>, slots: ReadonlyArray<number>, targetOf: (slot: number, k: number) => number, options?: RetargetOptions): number
+} = dual(isBatch, <S>(self: Batch<S>, slots: ReadonlyArray<number>, targetOf: (slot: number, k: number) => number, options?: RetargetOptions): number => {
   const state = stateOf(self)
   const { stride, pending, movers, targets, flags } = state
   // Per member per key at a change, a Batch's own loop over its typed arrays, as its step's (ADR-0025,
@@ -549,7 +550,7 @@ export const retarget: {
     n++
   })
   // A change that moves nothing touches no transition.
-  if (n === 0) return
+  if (n === 0) return 0
   const given = UndefinedOr.map(options, (bag) => bag.transition)
   let rules = state.ownRules
   if (Predicate.isNotUndefined(given) && !Predicate.isFunction(given)) rules = rulesOf(state, given, (k) => state.ownRules[k])
@@ -561,6 +562,7 @@ export const retarget: {
   // gives another key; one it gives no key is freed after.
   const held = Arr.dedupe(rules)
   Arr.forEach(held, (rule) => hold(state, rule))
+  let setOff = 0
   for (let rank = 0; rank < n; rank++) {
     const slot = movers[rank]
     const base = slot * stride
@@ -594,6 +596,7 @@ export const retarget: {
     }
     const flag = flags[slot] & ~COUNTED
     flags[slot] = flag
+    if ((flag & (IN_PLAIN | IN_RULED)) === 0) setOff++
     // Into the ruled list, out of the plain one (which drops it at its next step); else into the plain
     // list, if it's in neither.
     if (ruled && (flag & IN_RULED) === 0) {
@@ -608,7 +611,14 @@ export const retarget: {
     }
   }
   Arr.forEach(held, (rule) => release(state, rule))
+  return setOff
 })
+
+/** Whether any member moves: one `step` would move. */
+export const isMoving = <S>(self: Batch<S>): boolean => {
+  const state = stateOf(self)
+  return state.plainCount + state.ruledCount > 0
+}
 
 /**
  * Steps every moving member by `dt` seconds and writes each one: whether nothing moves now. The run

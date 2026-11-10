@@ -34,6 +34,7 @@
 //   is named.
 // - B17: a change can give each member's key its own transition, by a function of its slot and key:
 //   each runs as `springValues` does on it, and the members it gives one bag share it.
+// - B18: a change says how many members it sets off from rest, and `isMoving` whether any member moves.
 import * as Batch from "@wardic/core/Batch"
 import * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -357,6 +358,7 @@ describe("a Batch (#665)", () => {
     const batch = Batch.make({ keys: ["x"], writer, transition: { type: "spring" } })
     expectTypeOf(Batch.enter(batch, "a", { x: 0 })).toEqualTypeOf(batch.pipe(Batch.enter("b", { x: 0 })))
     expectTypeOf(Batch.retarget(batch, [0], () => 1)).toEqualTypeOf(batch.pipe(Batch.retarget([1], () => 1, { delay: 0.1 })))
+    expectTypeOf(Batch.retarget(batch, [0], () => 1)).toEqualTypeOf<number>()
     expectTypeOf(Batch.leave(batch, 0)).toEqualTypeOf(batch.pipe(Batch.leave(1)))
     // Through pipe: "c" takes the slot "b" left, and its change reaches it.
     const slot = batch.pipe(Batch.enter("c", { x: 5 }))
@@ -492,5 +494,19 @@ describe("a Batch (#665)", () => {
     expect(frames[0]).toEqual(heldTo(springFrames("scale", 1, 0, stiff), length))
     expect(frames[1]).toEqual(heldTo(springFrames("scale", 1, 2, soft), length))
     expect(frames[2]).toEqual(heldTo(springFrames("scale", 1, 0, stiff), length))
+  })
+
+  it("B18: a change says how many members it sets off from rest; isMoving whether any moves", () => {
+    const { writer } = recording<string>()
+    const batch = Batch.make({ keys: ["x"], writer, transition: { type: "spring" } })
+    const slots = ["a", "b", "c"].map((name) => Batch.enter(batch, name, { x: 0 }))
+    expect(Batch.isMoving(batch)).toBe(false)
+    expect(Batch.retarget(batch, slots, (slot) => [0, 10, 20][slot])).toBe(2)
+    expect(Batch.isMoving(batch)).toBe(true)
+    Batch.step(batch, F)
+    // Two already moving and one at rest: one sets off.
+    expect(Batch.retarget(batch, slots, (slot) => [5, 15, 25][slot])).toBe(1)
+    stepped(batch, slots[0], "x")
+    expect(Batch.isMoving(batch)).toBe(false)
   })
 })
