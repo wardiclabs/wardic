@@ -55,6 +55,7 @@ Code that runs **once per Clock tick, per key or per node** keeps both rules, in
 - solid's run sinks (`Machine.run((frame) => gate.write(…))`, presence's `commitFrame`, drag's `tapFrame`): one-line closures, in no listed file;
 - `Velocity.between`, and the samplers `Wave.ts` returns;
 - the Frame loop's tick (`internal/frameLoop.ts`, ADR-0027): plain calls only, in its one `Stream.map` call per tick. A run's sink is typed `(frame) => undefined`, so an Effect can't be returned from it.
+- a Batch's step and its change (`Batch.ts`, #665): each a pass over every member's typed arrays, the change once a change but key by key over every member it's given (ADR-0025, *Amendment (#665)*).
 
 Input-event code (recognizers, reorder, the held pointer) runs per gesture event, not per key per frame, so it gets the full rules.
 

@@ -88,6 +88,16 @@ interface LoopWorkload {
   readonly scale?: number
 }
 
+/**
+ * One run for every element (#665): a Batch's, or the hand loop it's measured against. Its run
+ * steps all `n` members each tick and calls `onFrame` once; the harness counts that as `n` frames.
+ * Its `scale` is members per element of N, as a loop workload's is runs.
+ */
+interface BatchWorkload extends Pick<LoopWorkload, "runsOn" | "scale"> {
+  readonly name: string
+  readonly batch: (core: Core, n: number, onFrame: () => void) => Effect.Effect<void, never, any>
+}
+
 /** A machine built with a service (`animateValues`, `springBlend`), as a Stream. */
 const streamOf = <F extends CoreModule.Frame.Frame<unknown>, R>(
   core: Core,
@@ -96,13 +106,18 @@ const streamOf = <F extends CoreModule.Frame.Frame<unknown>, R>(
   // Typed by what the bench reads (#663): `toStream` emits a `springValues` Frame's records alone.
   Stream.unwrap(Effect.map(machine, core.Machine.toStream)) as Stream.Stream<{ readonly done: boolean }, never, any>
 
-type Workload = StreamWorkload | LoopWorkload
+type Workload = StreamWorkload | LoopWorkload | BatchWorkload
 
 const isLoopWorkload = (workload: Workload): workload is LoopWorkload => "machine" in workload
 
-/** How many runs a workload times: N, times its `scale` (#545). */
+const isBatchWorkload = (workload: Workload): workload is BatchWorkload => "batch" in workload
+
+/** Whether a workload runs on a Frame loop: a run per element, or one for all. */
+const onLoop = (workload: Workload): workload is LoopWorkload | BatchWorkload => isLoopWorkload(workload) || isBatchWorkload(workload)
+
+/** How many runs a workload times: N, times its `scale` (#545); a Batch's members, counted as runs. */
 const runsOf = (workload: Workload, options: Options): number => {
-  if (!isLoopWorkload(workload) || workload.scale === undefined) return options.n
+  if (!onLoop(workload) || workload.scale === undefined) return options.n
   return options.n * workload.scale
 }
 
@@ -207,6 +222,105 @@ const hasKeyframesValues = (core: Core): boolean => "keyframesValues" in core.Ma
 
 let chaseTarget = 0
 
+/** Whether `core` has a Batch (#665). */
+const hasBatch = (core: Core): boolean => "Batch" in core
+
+/** The Batch workloads' keys and each member's target, as `springValues`' workloads spread theirs. */
+const BATCH_KEYS = ["x", "y"]
+const batchTarget = (slot: number, k: number): number => {
+  if (k === 0) return spread(slot, 50, 100)
+  return spread(slot, -120, 40)
+}
+
+/** A second spring, for the members of `batch/table` that don't run the Batch's own: it settles later. */
+const GENTLE = { type: "spring", stiffness: 120, damping: 14 } as const
+
+/**
+ * A Batch of `n` members springing `x` and `y` (#665), each drawn into a number, as a writer draws an
+ * element; with `table`, every other member on {@link GENTLE}, the Batch's table holding two.
+ */
+const batchRun = (core: Core, n: number, onFrame: () => void, table: boolean): Effect.Effect<void, never, any> =>
+  Effect.suspend(() => {
+    const drawn = new Float64Array(n)
+    const writer: CoreModule.Batch.Writer<number> = {
+      writes: () => true,
+      forKeys: () => (member, positions, base) => {
+        drawn[member] = positions[base]! + positions[base + 1]!
+      },
+    }
+    const batch = core.Batch.make({ keys: BATCH_KEYS, writer, transition: { type: "spring" }, capacity: n, onFrame })
+    const slots = Array.from({ length: n }, (_, i) => core.Batch.enter(batch, i, { x: 0, y: 0 }))
+    if (!table) core.Batch.retarget(batch, slots, batchTarget)
+    if (table) {
+      core.Batch.retarget(batch, slots.filter((slot) => slot % 2 === 0), batchTarget)
+      core.Batch.retarget(batch, slots.filter((slot) => slot % 2 === 1), batchTarget, { transition: GENTLE })
+    }
+    return core.Batch.run(batch)
+  })
+
+/**
+ * The probe's hand loop (#665, `.tmp/564-canvas/perf/group.ts`): one spring for every key, no table,
+ * the moving members in a list, each stepped by `Spring.matrixFor` and drawn. A Batch's table is held to
+ * it (ADR-0069, *Amendment (#665)*: within 5%).
+ */
+const probeRun = (core: Core, n: number, onFrame: () => void): Effect.Effect<void, never, any> =>
+  Effect.suspend(() => {
+    const K = BATCH_KEYS.length
+    const pos = new Float64Array(n * K)
+    const vel = new Float64Array(n * K)
+    const goal = new Float64Array(n * K)
+    const restD = new Float64Array(n * K)
+    const restS = new Float64Array(n * K)
+    const drawn = new Float64Array(n)
+    const list = new Int32Array(n)
+    const spring = core.Spring.resolve({})
+    for (let i = 0; i < n; i++) {
+      list[i] = i
+      for (let k = 0; k < K; k++) {
+        const at = i * K + k
+        goal[at] = batchTarget(i, k)
+        restD[at] = core.Spring.restDeltaFor(spring, goal[at]!)
+        restS[at] = core.Spring.restSpeedFor(spring, goal[at]!)
+      }
+    }
+    let count = n
+    const frame = { value: 0, done: false }
+    const machine = core.Machine.make({
+      settles: true,
+      span: { name: "bench.probe", attributes: {} },
+      start: () => (dt: number) => {
+        const m = core.Spring.matrixFor(spring, Math.min(dt, core.Machine.MAX_DT))
+        let kept = 0
+        for (let a = 0; a < count; a++) {
+          const i = list[a]!
+          const base = i * K
+          let moving = false
+          for (let k = 0; k < K; k++) {
+            const at = base + k
+            const g = goal[at]!
+            const d = pos[at]! - g
+            const v = vel[at]!
+            let p = g + m.dd * d + m.dv * v
+            let speed = m.vd * d + m.vv * v
+            if (Math.abs(speed) <= restS[at]! && Math.abs(p - g) <= restD[at]!) {
+              p = g
+              speed = 0
+            } else moving = true
+            pos[at] = p
+            vel[at] = speed
+          }
+          drawn[i] = pos[base]! + pos[base + 1]!
+          if (moving) list[kept++] = i
+        }
+        count = kept
+        onFrame()
+        frame.done = count === 0
+        return frame
+      },
+    })
+    return Effect.asVoid(core.Machine.run(machine, () => undefined))
+  })
+
 /**
  * None of these settles inside `warm + frames` (36) frames: the springs travel at least 50 and
  * settle around frame 53, the tween runs 2 s, an infinite `repeat` (with or without a
@@ -272,6 +386,11 @@ const WORKLOADS: ReadonlyArray<Workload> = [
     machine: (core, i) => core.Machine.keyframesValues(KEYFRAMES(i), KEYFRAMES_REPEAT(core, i)),
     runsOn: hasKeyframesValues,
   },
+  // A Batch (#665): every member in one run, at ten times N as the loop workloads under 0.1 ms are. With
+  // two transitions in its table, and the probe's hand loop with one: the table's cost, at the end.
+  { name: "batch", batch: (core, n, onFrame) => batchRun(core, n, onFrame, false), runsOn: hasBatch, scale: 10 },
+  { name: "batch/table", batch: (core, n, onFrame) => batchRun(core, n, onFrame, true), runsOn: hasBatch, scale: 10 },
+  { name: "batch/probe", batch: probeRun, scale: 10 },
 ]
 
 export const WORKLOAD_NAMES: ReadonlyArray<string> = WORKLOADS.map((w) => w.name)
@@ -371,9 +490,9 @@ const runRound = async (
     Layer.effect(core.Clock.Clock)(core.Clock.fromRefreshFrames(frames.source)),
     registry,
   )
-  // Only the loop workloads build a Frame loop, so the Stream workloads' Environment is the same in both cores.
+  // Only the workloads on a Frame loop build one, so the Stream workloads' Environment is the same in both cores.
   let environment: Layer.Layer<any, never, AtomRegistry.AtomRegistry> = services
-  if (isLoopWorkload(workload)) environment = core.FrameLoop.layer.pipe(Layer.provideMerge(services))
+  if (onLoop(workload)) environment = core.FrameLoop.layer.pipe(Layer.provideMerge(services))
   const layer = environment.pipe(
     Layer.provideMerge(AtomRegistry.layer),
     Layer.provideMerge(Layer.succeed(Scheduler.Scheduler, new Scheduler.MixedScheduler("sync"))),
@@ -411,7 +530,13 @@ const runRound = async (
 
   const n = runsOf(workload, options)
   const t0 = performance.now()
-  if (isLoopWorkload(workload)) {
+  if (isBatchWorkload(workload)) {
+    // One run for the n members: each tick it steps is n frames.
+    runtime.runFork(workload.batch(core, n, () => {
+      received += n - 1
+      receive()
+    }))
+  } else if (isLoopWorkload(workload)) {
     for (let i = 0; i < n; i++) {
       runtime.runFork(
         Effect.gen(function* () {
