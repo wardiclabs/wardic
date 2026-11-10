@@ -570,7 +570,7 @@ export const scopedAnimate = (env: AnimateEnv, scope: () => Element | undefined,
     // A Batch, or a member's handle (#665): one track over its members, on the Batch's own run.
     const batch = batchSubjectOf(first)
     if (Predicate.isNotUndefined(batch)) {
-      const members = UndefinedOr.map(batch.member, (member) => [member])
+      const members = batch.binding.namedOf(batch)
       return started(watch, 1, UndefinedOr.map(third, (given) => given.onComplete), (head, settled) => [
         batchTrackOf(env, batch.binding, second as WardicBatchTarget, members, third, head, settled),
       ])
@@ -745,7 +745,7 @@ const stepsOf = (sequence: WardicAnimationSequence, scope: Element | undefined, 
     const batch = batchSubjectOf(parts[0])
     if (Predicate.isNotUndefined(batch)) {
       const options = parts[2] as WardicSegmentOptions | undefined
-      const { subjects, values } = batch.binding.segmentOf(batch.member, parts[1] as Readonly<Record<string, unknown>>)
+      const { subjects, values } = batch.binding.segmentOf(batch.binding.namedOf(batch), parts[1] as Readonly<Record<string, unknown>>)
       return { subjects, target: values, transitions: segmentTransitionsOf(values, options, defaults), at: atOf(options) }
     }
     if (Predicate.isFunction(parts[0])) {

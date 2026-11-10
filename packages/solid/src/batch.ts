@@ -27,9 +27,11 @@ import type * as Playback from "@wardic/core/Playback"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Sequence from "@wardic/core/Sequence"
 import * as DomBatch from "@wardic/dom/DomBatch"
+import * as Report from "@wardic/dom/Report"
 import * as Svg from "@wardic/dom/Svg"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import * as Cause from "effect/Cause"
 import type * as Fiber from "effect/Fiber"
 import * as Iter from "effect/Iterable"
 import * as Option from "effect/Option"
@@ -81,15 +83,15 @@ export type WardicBatchSegmentValue = number | null | ReadonlyArray<number | nul
 /** A sequence's Segment of a Batch's values, key by key: each one of its keys. */
 export type WardicBatchSegmentTarget = { readonly [K in WardicBatchKey]?: WardicBatchSegmentValue }
 
-/** What `createAnimate`'s `animate` takes for a Batch: one, or a member's handle, `grid.at(i)`. */
-export type WardicBatchSubject = { readonly at: (i: number, props?: never) => unknown } | { readonly ref: (el: never) => void }
+/** What `createAnimate`'s `animate` takes for a Batch: one, by index or keyed, or a member's handle, `grid.at(i)` or `grid.member(key)`. */
+export type WardicBatchSubject = { readonly at: (i: number, props?: never) => unknown } | { readonly member: (key: never, props?: never) => unknown } | { readonly ref: (el: never) => void }
 
 /** A Batch's landing: how many members set off in the flight that landed. */
 export interface WardicBatchLanding {
   readonly moved: number
 }
 
-/** What both bindings' `createBatch` take. */
+/** What both bindings' `createBatch` take by index: `count` members, each by its index. */
 export interface BatchConfig {
   /** How many members it has: read once. */
   readonly count: number
@@ -101,6 +103,28 @@ export interface BatchConfig {
   readonly transition?: WardicBatchTransition
 }
 
+/**
+ * What both bindings' `createBatch` take in the keyed form (#665, Q42–Q45): a list's items, each a member
+ * by its key, entering as its element arrives and leaving as it leaves the list.
+ */
+export interface KeyedBatchConfig<T> {
+  /** The items, in order: tracked, so a change of the list, or of its order, turns every member once. */
+  readonly each: () => ReadonlyArray<T>
+  /** Each item's key: the name of its property, or a function of it (Q43). */
+  readonly key: keyof T | ((item: T) => unknown)
+  /** Its keys, fixed up front: else the first members' targets and starts give them (Q51). */
+  readonly keys?: ReadonlyArray<WardicBatchKey>
+  /** Where each member starts: values, a function of its item and index, or `false` to start at its targets. */
+  readonly initial?: false | WardicBatchValues | ((item: T, i: number) => WardicBatchValues)
+  /** Each member's targets, by its item and its index in `each`: tracked, so a change turns every member once. */
+  readonly animate: (item: T, i: number) => WardicBatchValues
+  /** How they move: else the nearest `WardicConfig`'s, else each key's Default transition. */
+  readonly transition?: WardicBatchTransition
+}
+
+/** Whether a Batch's config is the keyed form's. */
+const isKeyed = (config: BatchConfig | KeyedBatchConfig<unknown>): config is KeyedBatchConfig<unknown> => Predicate.hasProperty(config, "each")
+
 /** What a Batch needs from its provider. */
 export interface BatchEnv {
   readonly runtime: WardicRuntime
@@ -110,6 +134,8 @@ export interface BatchEnv {
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
   /** The nearest `WardicConfig`'s transition, read as each change starts. */
   readonly configTransition: () => WardicTransition | undefined
+  /** Its binding's Solid's `untrack`: a keyed Batch reads its list again at a task's end, outside its tracking. */
+  readonly untrack: <A>(read: () => A) => A
 }
 
 /** What a Batch tells its binding: a flight's start, and its landing. */
@@ -120,14 +146,16 @@ export interface BatchHooks {
 
 /** A Batch bound to its config: its targets, read by the binding's tracking, and what it does with them. */
 export interface BatchBinding {
-  /** How many members it has. */
-  readonly count: number
-  /** Every member's targets, member by member in key order, `NaN` for a key a member's targets leave out. */
-  readonly targetsOf: () => Float64Array
-  /** A change: every member turned toward `targets`. */
-  readonly apply: (targets: Float64Array) => void
+  /** Every member's targets now, read in the binding's tracking: a compute, which writes nothing shared. */
+  readonly targetsOf: () => BatchTargets
+  /** A change: every member turned toward `targets`; in the keyed form, members entering and leaving. */
+  readonly apply: (targets: BatchTargets) => void
   /** Member `i`'s `ref`: one function a member. */
   readonly refOf: (i: number) => (el: Element) => void
+  /** The keyed form's member for `key`, made at its first handle: its number. */
+  readonly memberFor: (key: unknown) => number
+  /** The members a Batch or a member's handle names: `undefined` for every member, none once a handle's member has left. */
+  readonly namedOf: (entry: BatchSubjectEntry) => ReadonlyArray<number> | undefined
   /** An element's own `style`, without the properties the Batch draws on it. */
   readonly styleOf: <Style>(style: Style) => Style
   /** An `animate` call's track over its members, or the members `members` names, driven by `head`. */
@@ -136,8 +164,8 @@ export interface BatchBinding {
   readonly entryOf: (i: number) => BatchMemberEntry
   /** Where an element call's `key` goes for a member's element. */
   readonly routeOf: (key: string) => KeyRoute
-  /** A sequence's Segment of the Batch, or of member `member`: its members' entries, in member order, and its values for core. */
-  readonly segmentOf: (member: number | undefined, target: Readonly<Record<string, unknown>>) => BatchSegment
+  /** A sequence's Segment of the Batch, or of the members `named` names: its members' entries, in member order, and its values for core. */
+  readonly segmentOf: (named: ReadonlyArray<number> | undefined, target: Readonly<Record<string, unknown>>) => BatchSegment
   /** A sequence's Segment of members' elements: each Batch key a number, `null` or stops, and no transform the Batch draws without it. */
   readonly checkElementSegment: (target: Readonly<Record<string, unknown>>) => void
   /** A sequence's track over its members, each through its own Batch keys' stops, driven by `head`. */
@@ -146,6 +174,19 @@ export interface BatchBinding {
   readonly elementOf: (i: number) => Element | undefined
   /** The Batch's run ended, and no member drawn again. */
   readonly dispose: () => void
+}
+
+/**
+ * Every member's targets at a change: by index, member by member in key order, `NaN` for a key a member's
+ * targets leave out; keyed, each item, its key and its targets as `animate` gave them.
+ */
+export type BatchTargets = Float64Array | KeyedTargets
+
+/** A keyed Batch's targets at a change: its items in order, their keys, and each one's targets. */
+interface KeyedTargets {
+  readonly items: ReadonlyArray<unknown>
+  readonly keys: ReadonlyArray<unknown>
+  readonly values: ReadonlyArray<Readonly<Record<string, unknown>>>
 }
 
 /** An `animate` call of a Batch: its targets, its transition, its scope's settings, its Playhead and landing. */
@@ -459,9 +500,9 @@ const isSegmentStops = (value: unknown): boolean => {
 }
 
 /** A Batch key's value in a sequence (Q38): a number, `null` or stops of them; else an error naming the key, and the member a function gave it. */
-const segmentValueOf = (key: string, value: unknown, member: number | undefined): Sequence.Stop | ReadonlyArray<Sequence.Stop> => {
+const segmentValueOf = (key: string, value: unknown, member: string | undefined): Sequence.Stop | ReadonlyArray<Sequence.Stop> => {
   if (isSegmentStops(value)) return value as Sequence.Stop | ReadonlyArray<Sequence.Stop>
-  const whose = UndefinedOr.match(member, { onUndefined: () => "", onDefined: (i) => `member ${i}'s ` })
+  const whose = UndefinedOr.match(member, { onUndefined: () => "", onDefined: (name) => `${name}'s ` })
   return fail(`a sequence gives ${whose}"${key}" as ${JSON.stringify(value)}: a Batch's key takes a number, \`null\`, or stops of them`)
 }
 
@@ -568,7 +609,7 @@ const plannedOf = (env: BatchEnv, keys: ReadonlyArray<string>, given: WardicTran
 
 /** A server render's handle: the element's own props passed on, and nothing animates. */
 export const serverHandle = <Style>() =>
-  <E extends Element>(_: number, props?: MemberProps<E, Style>): Member<E, Style> => {
+  <E extends Element>(_: unknown, props?: MemberProps<E, Style>): Member<E, Style> => {
     if (Predicate.isUndefined(props)) return { ref: noop }
     return { ref: noop, style: props.style }
   }
@@ -604,22 +645,160 @@ export const configTransitionOf = (config: { readonly transition: () => WardicTr
   return config.transition()
 }
 
+/** Keyed member handles for `binding`: as {@link handlesOf}'s, each key's member made at its first handle. */
+export const keyedHandlesOf = <Style>(binding: BatchBinding) =>
+  <E extends Element>(key: unknown, props?: MemberProps<E, Style>): Member<E, Style> => {
+    const member = binding.memberFor(key)
+    const handle = memberHandleOf<E, Style>(binding, member, props)
+    SUBJECTS.set(handle, binding.entryOf(member))
+    return handle
+  }
+
+/** A keyed member's index before its item is in `each`, or once it has left. */
+const NO_INDEX = -1
+
+/** A keyed Batch's members' keys: its config's, by property or function, each checked to give one. */
+const keyReaderOf = (config: KeyedBatchConfig<unknown>): ((item: unknown, i: number) => unknown) => {
+  const given = config.key
+  const read: (item: unknown) => unknown = Bool.match(Predicate.isFunction(given), {
+    onTrue: () => given as (item: unknown) => unknown,
+    onFalse: () => (item: unknown) => (item as Readonly<Record<PropertyKey, unknown>>)[given as unknown as PropertyKey],
+  })
+  // Per item at a change: statements.
+  return (item, i) => {
+    const key = read(item)
+    if (Predicate.isUndefined(key) || Predicate.isNull(key)) return fail(`item ${i}'s key is ${String(key)}: give each item a key, by \`key\``)
+    return key
+  }
+}
+
 /**
  * A Batch for `config`'s members, under `env`'s provider: its writer the DOM's. The binding tracks
  * {@link BatchBinding.targetsOf} and hands each new value to {@link BatchBinding.apply}.
+ *
+ * - **By index,** its `count` members are fixed, member `i` its `i`th, and its core Batch is made at once.
+ * - **Keyed** (Q42–Q45), each key's member is a number, given at its first sight and given back when it
+ *   leaves, so a long list's churn reuses them. Its core Batch is made at the first change with members,
+ *   or at once when its `keys` are given (Q51).
  */
-export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks): BatchBinding => {
-  const count = config.count
-  const keys = keysOf(config)
-  const stride = keys.length
-  const keyIndex: ReadonlyMap<string, number> = new Map(Arr.map(keys, (key, k) => [key, k] as const))
+export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<unknown>, hooks: BatchHooks): BatchBinding => {
+  const keyed = isKeyed(config)
+  const byIndex = config as BatchConfig
+  const byKey = config as KeyedBatchConfig<unknown>
+  const count = Bool.match(keyed, { onTrue: () => 0, onFalse: () => byIndex.count })
+  const keyReader = Bool.match(keyed, { onTrue: () => keyReaderOf(byKey), onFalse: () => (): unknown => undefined })
 
-  /** Every member's targets now: member by member in key order. */
-  const targetsOf = (): Float64Array => {
+  // The Batch's keys and the core Batch, made at once by index, at the first change with members when keyed.
+  let keys: ReadonlyArray<string> = []
+  let stride = 0
+  let keyIndex: ReadonlyMap<string, number> = new Map()
+  let batch: Batch.Batch<Element> | undefined = undefined
+  let write: (subject: Element, positions: Float64Array, base: number) => void = noop
+  // The CSS properties the Batch draws, which an element's own `style` leaves to it.
+  let drawn: ReadonlySet<string> = new Set()
+
+  // Each member's slot (`NO_SLOT` before its element arrives), its index in the list (`NO_INDEX` when it
+  // has none), and its element, entry and `ref`; each slot's member; and every member's targets, `stride` a member.
+  let capacity = Math.max(1, count)
+  let slotOf = new Int32Array(capacity).fill(NO_SLOT)
+  let indexOf = new Int32Array(capacity).fill(NO_INDEX)
+  const elementOf: Array<Element | undefined> = []
+  const entries: Array<BatchMemberEntry | undefined> = []
+  const refs: Array<(el: Element) => void> = []
+  const memberOf: Array<number> = []
+  let current: Float64Array = new Float64Array(0)
+  // By index: the slots, in the order their elements arrived.
+  const entered: Array<number> = []
+  // Keyed: each member's key and item, each key's member, the members given back, and the list's members in order.
+  const keyOf: Array<unknown> = []
+  const itemOf: Array<unknown> = []
+  const memberOfKey = new Map<unknown, number>()
+  const freeMembers: Array<number> = []
+  let members = 0
+  let order: ReadonlyArray<number> = []
+  // Which change last listed each member, to tell a key given twice and the members that left.
+  let listed = new Int32Array(capacity)
+  let changes = 0
+  let binding!: BatchBinding
+
+  /** How many members the list has now: the `n` a function of a member's index hears. */
+  const size = (): number => {
+    if (keyed) return order.length
+    return count
+  }
+
+  /** How an error names member `i`: by its index, or keyed, by its key. */
+  const nameOf = (i: number): string => {
+    if (keyed) return `member ${JSON.stringify(keyOf[i])}`
+    return `member ${i}`
+  }
+
+  /** Room for `wanted` members: every member's arrays doubled until they hold it. */
+  // Once a growth, per member: typed arrays copied.
+  const room = (wanted: number): void => {
+    if (wanted <= capacity) return
+    let grown = capacity
+    while (grown < wanted) grown = grown * 2
+    const slots = new Int32Array(grown).fill(NO_SLOT)
+    slots.set(slotOf)
+    slotOf = slots
+    const indices = new Int32Array(grown).fill(NO_INDEX)
+    indices.set(indexOf)
+    indexOf = indices
+    const stamps = new Int32Array(grown)
+    stamps.set(listed)
+    listed = stamps
+    const targets = new Float64Array(grown * stride).fill(Number.NaN)
+    targets.set(current)
+    current = targets
+    capacity = grown
+  }
+
+  /** A keyed member for `key`, at its first sight: a member given back, else the next. */
+  const newMember = (key: unknown): number => {
+    let member = freeMembers.pop()
+    if (Predicate.isUndefined(member)) {
+      member = members
+      members = members + 1
+      room(members)
+    }
+    const i = member
+    const entry: BatchMemberEntry = { binding, member: i }
+    entries[i] = entry
+    keyOf[i] = key
+    indexOf[i] = NO_INDEX
+    listed[i] = 0
+    memberOfKey.set(key, i)
+    // Its `ref` reaches it only while it's this key's: a handle kept past its leave reaches nothing.
+    refs[i] = (el: Element) => {
+      if (entries[i] === entry) arrive(i, el)
+    }
+    return i
+  }
+
+  /** Member `i`'s values from `values`, as targets, `NaN` for a key they leave out; each one a number. */
+  // Per member per key at a change: statements.
+  const writeTargets = (i: number, values: Readonly<Record<string, unknown>>): void => {
+    const base = i * stride
+    for (let k = 0; k < stride; k++) current[base + k] = Number.NaN
+    for (const key in values) {
+      const k = keyIndex.get(key)
+      if (Predicate.isUndefined(k)) return fail(`${nameOf(i)}'s targets give "${key}", which its first targets didn't: a Batch's keys are fixed when it's made`)
+      const value = values[key]
+      if (Predicate.isNumber(value)) {
+        current[base + k] = value
+        continue
+      }
+      if (Predicate.isNotUndefined(value)) fail(`${nameOf(i)}'s "${key}" is ${JSON.stringify(value)}: a Batch's targets are numbers, one each`)
+    }
+  }
+
+  /** By index: every member's targets now, member by member in key order. */
+  const indexTargetsOf = (): Float64Array => {
     const targets = new Float64Array(count * stride).fill(Number.NaN)
     // Per member per key at a change, the Batch's own loop (ADR-0025, *Amendment (#665)*).
     for (let i = 0; i < count; i++) {
-      const values = config.animate(i) as Readonly<Record<string, unknown>>
+      const values = byIndex.animate(i) as Readonly<Record<string, unknown>>
       for (const key in values) {
         const k = keyIndex.get(key)
         if (Predicate.isUndefined(k)) return fail(`member ${i}'s targets give "${key}", which its first targets didn't: a Batch's keys are fixed when it's made`)
@@ -634,7 +813,21 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
     return targets
   }
 
-  let current = targetsOf()
+  /** Keyed: the items now, their keys and their targets, as `animate` gives them. A compute: it writes nothing shared. */
+  const keyedTargetsOf = (): KeyedTargets => {
+    const items = byKey.each()
+    return {
+      items,
+      keys: Arr.map(items, keyReader),
+      values: Arr.map(items, (item, i) => byKey.animate(item, i) as Readonly<Record<string, unknown>>),
+    }
+  }
+
+  const targetsOf = (): BatchTargets => {
+    if (keyed) return keyedTargetsOf()
+    return indexTargetsOf()
+  }
+
   const configuredOf = (): WardicTransition | undefined => {
     const given = config.transition as WardicTransition | undefined
     if (Predicate.isNotUndefined(given)) return given
@@ -643,39 +836,126 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
   /** A key's Default transition toward `target`. */
   const defaultFor = (k: number, target: number): Batch.Transition => env.defaultTransition.transitionFor(keys[k], target) as Batch.Transition
 
-  // Its own transitions, each key's as it is at creation, so the members a change gives them step by one
-  // matrix while they share one (ADR-0069, *Amendment (#665)*): the Default transition toward the first
-  // member's target for a key without one.
-  const ownPlan = plannedOf(env, keys, UndefinedOr.map(configuredOf(), unstaggered), false)
-  const own: Record<string, Batch.Transition> = {}
-  Arr.forEach(keys, (key, k) => {
-    const plan = ownPlan[k]
-    if (Predicate.isNotUndefined(plan.own)) {
-      own[key] = plan.own
-      return
-    }
-    let target = current[k]
-    if (Number.isNaN(target)) target = identityOf(key)
-    own[key] = delayedBy(defaultFor(k, target), plan.delay)
-  })
-  const batch = Batch.make({ keys, writer: DomBatch.writer, transition: own, capacity: Math.max(1, count) })
-  // The writer's write for these keys, built once: an arriving element is drawn with it at once.
-  const write = DomBatch.writer.forKeys(keys)
+  /**
+   * The core Batch, on `given` keys: its own transitions each key's as it is now, so the members a change
+   * gives them step by one matrix while they share one (ADR-0069, *Amendment (#665)*), the Default
+   * transition toward `firstTarget(k)`, its first member's, for a key without one.
+   */
+  const make = (given: ReadonlyArray<string>, firstTarget: (k: number) => number): void => {
+    keysAre(given)
+    if (keyed) current = new Float64Array(capacity * stride).fill(Number.NaN)
+    const ownPlan = plannedOf(env, keys, UndefinedOr.map(configuredOf(), unstaggered), false)
+    const own: Record<string, Batch.Transition> = {}
+    Arr.forEach(keys, (key, k) => {
+      const plan = ownPlan[k]
+      if (Predicate.isNotUndefined(plan.own)) {
+        own[key] = plan.own
+        return
+      }
+      let target = firstTarget(k)
+      if (Number.isNaN(target)) target = identityOf(key)
+      own[key] = delayedBy(defaultFor(k, target), plan.delay)
+    })
+    batch = Batch.make({ keys, writer: DomBatch.writer, transition: own, capacity })
+    // The writer's write for these keys, built once: an arriving element is drawn with it at once.
+    write = DomBatch.writer.forKeys(keys)
+    drawn = new Set([
+      ...Arr.filter(["transform"], () => Arr.some(keys, (key) => key !== "opacity")),
+      ...Arr.filter(["opacity"], () => keyIndex.has("opacity")),
+    ])
+  }
 
-  // Each member's slot by its index (`NO_SLOT` before its element arrives), each slot's member, and its element.
-  const slotOf = new Int32Array(count).fill(NO_SLOT)
-  const memberOf: Array<number> = []
-  const elementOf: Array<Element | undefined> = []
-  const entered: Array<number> = []
-  const targetOf = (slot: number, k: number): number => current[memberOf[slot] * stride + k]
-  // Each member's entry for `animate`: made once the binding is, at its end, before any element can arrive.
-  let entries: ReadonlyArray<BatchMemberEntry> = []
+  /** The Batch's keys, fixed from now on. */
+  const keysAre = (given: ReadonlyArray<string>): void => {
+    keys = given
+    stride = given.length
+    keyIndex = new Map(Arr.map(given, (key, k) => [key, k] as const))
+  }
+
+  /** Keyed: the keys its first members' targets and starts give, in the order they first appear, or its config's `keys`. */
+  const keyedKeysOf = (targets: KeyedTargets): ReadonlyArray<string> => {
+    if (Predicate.isNotUndefined(byKey.keys)) return byKey.keys
+    const seen = new Set<string>()
+    // Per member at the Batch's making, once: a loop over its targets' keys and its start's.
+    Arr.forEach(targets.items, (item, i) => {
+      for (const key in targets.values[i]) seen.add(key)
+      const start = keyedInitialOf(item, i)
+      if (Predicate.isNotUndefined(start)) for (const key in start) seen.add(key)
+    })
+    return Arr.fromIterable(seen)
+  }
+
+  /** Keyed: member `item`'s `initial` at `i`, as values, or `undefined` for none. */
+  const keyedInitialOf = (item: unknown, i: number): Readonly<Record<string, unknown>> | undefined => {
+    const initial = byKey.initial
+    if (Predicate.isUndefined(initial) || initial === false) return undefined
+    if (Predicate.isFunction(initial)) return initial(item, i)
+    return initial
+  }
+
+  /**
+   * Keyed: the list now, `targets`, taken in: the core Batch made at its first members, each item's member
+   * (made at its key's first sight) given its index, item and targets, and each member that left the list
+   * leaving the Batch at once (3a: an exit comes with `<AnimatePresence>`).
+   */
+  const adopt = (targets: KeyedTargets): void => {
+    if (Predicate.isUndefined(batch)) {
+      if (targets.items.length === 0) return
+      make(keyedKeysOf(targets), (k) => {
+        const value = targets.values[0][keys[k]]
+        if (Predicate.isNumber(value)) return value
+        return Number.NaN
+      })
+    }
+    changes = changes + 1
+    const next: Array<number> = []
+    // Per item at a change: statements.
+    Arr.forEach(targets.items, (item, i) => {
+      const key = targets.keys[i]
+      let member = memberOfKey.get(key)
+      if (Predicate.isUndefined(member)) member = newMember(key)
+      if (listed[member] === changes) return fail(`items ${indexOf[member]} and ${i} both have the key ${JSON.stringify(key)}: each item's key is its own`)
+      listed[member] = changes
+      indexOf[member] = i
+      itemOf[member] = item
+      writeTargets(member, targets.values[i])
+      next.push(member)
+    })
+    Arr.forEach(order, (member) => {
+      if (listed[member] !== changes) leaveList(member)
+    })
+    order = next
+  }
+
+  /** Keyed: member `i` leaves the list, and the Batch at once; its number is given back. */
+  const leaveList = (i: number): void => {
+    const slot = slotOf[i]
+    if (slot !== NO_SLOT) Batch.leave(batch as Batch.Batch<Element>, slot)
+    const el = elementOf[i]
+    if (Predicate.isNotUndefined(el)) forget(el, i)
+    memberOfKey.delete(keyOf[i])
+    keyOf[i] = undefined
+    itemOf[i] = undefined
+    entries[i] = undefined
+    elementOf[i] = undefined
+    slotOf[i] = NO_SLOT
+    indexOf[i] = NO_INDEX
+    freeMembers.push(i)
+  }
+
+  /** The slots of the members that have arrived: by index, in the order they did (its own list, not a copy); keyed, in the list's. */
+  const arrivedSlots = (): ReadonlyArray<number> => {
+    if (!keyed) return entered
+    return Arr.filter(Arr.map(order, (i) => slotOf[i]), (slot) => slot !== NO_SLOT)
+  }
 
   /** Member `i`'s start: its `initial` over each key's identity, or, with `initial: false`, its targets. */
   // Per member at mount (#540): statements.
   const startOf = (i: number): Record<string, number> => {
     const start: Record<string, number> = {}
-    const given = initialOf(config, i)
+    let given: Readonly<Record<string, unknown>> | undefined = undefined
+    if (keyed) given = keyedInitialOf(itemOf[i], indexOf[i])
+    if (!keyed) given = initialOf(byIndex, i)
     Arr.forEach(keys, (key, k) => {
       const target = current[i * stride + k]
       let value = identityOf(key)
@@ -683,7 +963,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
       if (Predicate.isNotUndefined(given)) {
         const own = given[key]
         if (Predicate.isNumber(own)) value = own
-        if (Predicate.isNotUndefined(own) && !Predicate.isNumber(own)) fail(`member ${i}'s "${key}" starts at ${JSON.stringify(own)}: a Batch's values are numbers`)
+        if (Predicate.isNotUndefined(own) && !Predicate.isNumber(own)) fail(`${nameOf(i)}'s "${key}" starts at ${JSON.stringify(own)}: a Batch's values are numbers`)
       }
       start[key] = value
     })
@@ -699,14 +979,15 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
   /** A flight lands once a run ends with nothing moving: a run forked while one ran ends at once. */
   const ended = (): void => {
     if (disposed) return
-    if (!flying || Batch.isMoving(batch)) return
+    if (!flying || Batch.isMoving(batch as Batch.Batch<Element>)) return
     flying = false
     hooks.landed({ moved })
   }
 
   /** After a change: a flight's start, if it set one off, and a run, which does nothing while one runs. */
   const wake = (setOff: number): void => {
-    if (!Batch.isMoving(batch)) return
+    const made = batch as Batch.Batch<Element>
+    if (!Batch.isMoving(made)) return
     if (!flying) {
       flying = true
       moved = 0
@@ -714,13 +995,15 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
     }
     moved = moved + setOff
     // Heard by an observer, not an `Effect.ensuring`: one primitive fewer at each change (#665's profile).
-    const fiber = env.runtime.runFork(Batch.run(batch))
+    const fiber = env.runtime.runFork(Batch.run(made))
     fibers.add(fiber)
     fiber.addObserver(() => {
       fibers.delete(fiber)
       ended()
     })
   }
+
+  const targetOf = (slot: number, k: number): number => current[memberOf[slot] * stride + k]
 
   /**
    * A change's transitions: one per key, by its name, when every key has its own; else a function of
@@ -729,11 +1012,11 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
   // A function called per member's key cost a change at 1,000 members a call each (#665's profile).
   const transitionOf = (planned: ReadonlyArray<KeyPlan>): Batch.Transitions | ((slot: number, k: number) => Batch.Transition) => {
     if (Arr.every(planned, (plan) => Predicate.isNotUndefined(plan.own))) {
-      const byKey: Record<string, Batch.Transition> = {}
+      const byName: Record<string, Batch.Transition> = {}
       Arr.forEach(keys, (key, k) => {
-        byKey[key] = UndefinedOr.getOrThrow(planned[k].own)
+        byName[key] = UndefinedOr.getOrThrow(planned[k].own)
       })
-      return byKey
+      return byName
     }
     return (slot, k) => {
       const plan = planned[k]
@@ -745,28 +1028,68 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
   /** The change for `slots` now: their targets, with this moment's transitions. */
   const change = (slots: ReadonlyArray<number>): void => {
     if (slots.length === 0) return
+    const made = batch as Batch.Batch<Element>
     const configured = configuredOf()
     if (env.skipAnimations() || UndefinedOr.map(configured, (given) => given.skipAnimations) === true) {
-      wake(Batch.retarget(batch, slots, targetOf, { transition: INSTANT }))
+      wake(Batch.retarget(made, slots, targetOf, { transition: INSTANT }))
       return
     }
     const reduced = env.reducedMotion()
     const transition = transitionOf(plannedOf(env, keys, UndefinedOr.map(configured, unstaggered), reduced))
     const delay = staggerOf(configured)
     if (Predicate.isUndefined(delay)) {
-      wake(Batch.retarget(batch, slots, targetOf, { transition }))
+      wake(Batch.retarget(made, slots, targetOf, { transition }))
       return
     }
-    wake(Batch.retarget(batch, slots, targetOf, { transition, delay }))
+    wake(Batch.retarget(made, slots, targetOf, { transition, delay }))
   }
 
-  // Elements that arrived this task: entered at once, turned toward their targets together at its end.
+  // Elements that arrived this task: entered at once, turned toward their targets together at its end. Keyed,
+  // an element whose key the list doesn't have yet waits for the task's end, when the list is read again (Q45).
   let arrived: Array<number> = []
+  let waiting: Array<number> = []
+  let flushing = false
   const flushArrivals = (): void => {
+    flushing = false
+    if (disposed) return
+    if (waiting.length > 0) {
+      const early = waiting
+      waiting = []
+      adopt(env.untrack(keyedTargetsOf))
+      Arr.forEach(early, (i) => {
+        // Gone since, or already entered by a change that listed it.
+        if (Predicate.isUndefined(entries[i]) || slotOf[i] !== NO_SLOT) return
+        // Found at a task's end, where a throw reaches nothing: reported, and the element left as it is.
+        if (indexOf[i] === NO_INDEX) {
+          const unlisted = new Error(`createBatch: an element was given ${nameOf(i)}'s handle, but no item in \`each\` has that key`)
+          env.runtime.runFork(Report.failure("createBatch: a member's element has no item", Cause.die(unlisted)))
+          return
+        }
+        enter(i, UndefinedOr.getOrThrow(elementOf[i]))
+      })
+    }
     const slots = arrived
     arrived = []
-    if (disposed) return
     change(slots)
+  }
+  /** Keyed: the waiting elements whose keys the list has now, entered; the rest wait on. */
+  const enterListed = (): void => {
+    if (waiting.length === 0 || Predicate.isUndefined(batch)) return
+    const early = waiting
+    waiting = []
+    Arr.forEach(early, (i) => {
+      if (Predicate.isUndefined(entries[i]) || slotOf[i] !== NO_SLOT) return
+      if (indexOf[i] === NO_INDEX) {
+        waiting.push(i)
+        return
+      }
+      enter(i, UndefinedOr.getOrThrow(elementOf[i]))
+    })
+  }
+  const flushSoon = (): void => {
+    if (flushing) return
+    flushing = true
+    queueMicrotask(flushArrivals)
   }
 
   /** `el` drawn now at `values`, one per key, and turned about its own centre inside an `<svg>`, as the renderer's. */
@@ -784,54 +1107,58 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
     if (MEMBER_ELEMENTS.get(el) === entries[i]) MEMBER_ELEMENTS.delete(el)
   }
 
+  /** Member `i` entered on `el`, drawn at its start now, its move with every member that arrives this task, at its end. */
+  const enter = (i: number, el: Element): void => {
+    const start = startOf(i)
+    const entering = Batch.enter(batch as Batch.Batch<Element>, el, start)
+    slotOf[i] = entering
+    memberOf[entering] = i
+    if (!keyed) entered.push(entering)
+    drawNow(el, Arr.map(keys, (key) => start[key]))
+    flushSoon()
+    arrived.push(entering)
+  }
+
   const arrive = (i: number, el: Element): void => {
     if (disposed) return
-    if (!isMember(i, count)) noMember(i, count)
+    if (!keyed && !isMember(i, count)) noMember(i, count)
     if (elementOf[i] === el) return
     const was = elementOf[i]
     if (Predicate.isNotUndefined(was)) forget(was, i)
     elementOf[i] = el
     // Known to `animate`, as member `i`'s element (Q14).
-    MEMBER_ELEMENTS.set(el, entries[i])
+    MEMBER_ELEMENTS.set(el, UndefinedOr.getOrThrow(entries[i]))
     const slot = slotOf[i]
     // A new element for a member: it takes the member over, its values, speed and delays as they are.
     if (slot !== NO_SLOT) {
-      Batch.replace(batch, slot, el)
-      drawNow(el, Arr.map(keys, (key) => Batch.get(batch, slot, key)))
+      const made = batch as Batch.Batch<Element>
+      Batch.replace(made, slot, el)
+      drawNow(el, Arr.map(keys, (key) => Batch.get(made, slot, key)))
       return
     }
-    const start = startOf(i)
-    const entering = Batch.enter(batch, el, start)
-    slotOf[i] = entering
-    memberOf[entering] = i
-    entered.push(entering)
-    // Drawn at its start now; its move, with every member that arrives this task, at the task's end.
-    drawNow(el, Arr.map(keys, (key) => start[key]))
-    if (arrived.length === 0) queueMicrotask(flushArrivals)
-    arrived.push(entering)
+    // Keyed, before the list has its key, or before the Batch is made: at the task's end.
+    if (keyed && (indexOf[i] === NO_INDEX || Predicate.isUndefined(batch))) {
+      waiting.push(i)
+      flushSoon()
+      return
+    }
+    enter(i, el)
   }
 
-  const refs = Arr.makeBy(count, (i) => (el: Element) => arrive(i, el))
-
-  // The CSS properties the Batch draws, which an element's own `style` leaves to it.
-  const drawn: ReadonlySet<string> = new Set([
-    ...Arr.filter(["transform"], () => Arr.some(keys, (key) => key !== "opacity")),
-    ...Arr.filter(["opacity"], () => keyIndex.has("opacity")),
-  ])
-
-  /** One stop's value for member `i`: a number, or a function's of `i` and the count. */
+  /** One stop's value for member `i`: a number, or a function's of its index and the count. */
   const stopAt = (key: string, stop: unknown, i: number): number => {
     let value = stop
-    if (Predicate.isFunction(stop)) value = stop(i, count)
+    if (Predicate.isFunction(stop)) value = stop(indexOf[i], size())
     if (Predicate.isNumber(value)) return value
-    return fail(`an animate call's "${key}" gives member ${i} ${JSON.stringify(value)}: a Batch takes numbers`)
+    return fail(`an animate call's "${key}" gives ${nameOf(i)} ${JSON.stringify(value)}: a Batch takes numbers`)
   }
 
   /** The slots an `animate` call moves: every member's there is, or the members it names, in order, whose elements have arrived. */
-  const callSlotsOf = (members: ReadonlyArray<number> | undefined): ReadonlyArray<number> =>
-    UndefinedOr.match(members, {
-      onUndefined: () => [...entered],
-      onDefined: (named) => Arr.filter(Arr.map(named, (i) => slotOf[i]), (slot) => slot !== NO_SLOT),
+  const callSlotsOf = (named: ReadonlyArray<number> | undefined): ReadonlyArray<number> =>
+    UndefinedOr.match(named, {
+      // A copy: the call keeps it, and members arrive after.
+      onUndefined: () => [...arrivedSlots()],
+      onDefined: (given) => Arr.filter(Arr.map(given, (i) => slotOf[i]), (slot) => slot !== NO_SLOT),
     })
 
   /** Where an element call's `key` goes for a member's element (Q14, Q33). */
@@ -844,12 +1171,16 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
     return "free"
   }
 
+  /** A track that moves nothing: a call before a keyed Batch has members, which finishes at its play (Q51). */
+  const landedTrack = (settled: () => void): BatchTrack => ({ run: settled, stop: noop, cancel: noop, duration: () => 0 })
+
   /** An `animate` call's track: its members' targets and first stops by key, its own transitions, its Playhead. */
   const track = (call: BatchCall): BatchTrack => {
+    if (Predicate.isUndefined(batch)) return landedTrack(call.settled)
     const slots = callSlotsOf(call.members)
     // Each member's stops by key, its target and its first, `NaN` for none: worked out once, at the call.
-    const tos = new Float64Array(count * stride).fill(Number.NaN)
-    const froms = new Float64Array(count * stride).fill(Number.NaN)
+    const tos = new Float64Array(capacity * stride).fill(Number.NaN)
+    const froms = new Float64Array(capacity * stride).fill(Number.NaN)
     let firsts = false
     const given = call.target as Readonly<Record<string, unknown>>
     Arr.forEach(Rec.keys(given), (key) => {
@@ -861,7 +1192,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
         const i = memberOf[slot]
         const at = i * stride + k
         let stops = value
-        if (Predicate.isFunction(value)) stops = value(i, count)
+        if (Predicate.isFunction(value)) stops = value(indexOf[i], size())
         if (isPair(stops)) {
           froms[at] = stopAt(key, stops[0], i)
           tos[at] = stopAt(key, stops[1], i)
@@ -896,32 +1227,32 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
     return controlsOf(Batch.animate(batch, slots, targetOf, options))
   }
 
-  /** Whether member `entry`'s element has arrived. */
-  const hasArrived = (entry: BatchMemberEntry): boolean => slotOf[entry.member] !== NO_SLOT
+  /** Whether member `i`'s element has arrived. */
+  const hasArrived = (i: number): boolean => slotOf[i] !== NO_SLOT
 
-  /** The members a sequence's Segment moves (Q39): every member whose element has arrived, in member order, or member `member` once its has. */
-  const membersOf = (member: number | undefined): ReadonlyArray<BatchMemberEntry> =>
-    UndefinedOr.match(member, {
-      onUndefined: () => Arr.filter(entries, hasArrived),
-      onDefined: (i) => Arr.filter([entries[i]], hasArrived),
-    })
+  /** The members a sequence's Segment moves (Q39): every member whose element has arrived, in the list's order, or those `named` names once theirs have. */
+  const membersOf = (named: ReadonlyArray<number> | undefined): ReadonlyArray<number> => {
+    if (Predicate.isNotUndefined(named)) return Arr.filter(named, hasArrived)
+    if (keyed) return Arr.filter(order, hasArrived)
+    return Arr.filter(Arr.map(entries, (entry) => UndefinedOr.getOrThrow(entry).member), hasArrived)
+  }
 
   /** A sequence's Segment of the Batch (Q38, Q39): its members, and each key's value, a function's called with a member's index and the count. */
-  const segmentOf = (member: number | undefined, target: Readonly<Record<string, unknown>>): BatchSegment => {
-    const subjects = membersOf(member)
-    const members = Arr.map(subjects, (entry) => entry.member)
+  const segmentOf = (named: ReadonlyArray<number> | undefined, target: Readonly<Record<string, unknown>>): BatchSegment => {
+    if (Predicate.isUndefined(batch)) return { subjects: [], values: {} }
+    const moving = membersOf(named)
     const values: Record<string, Sequence.Value> = {}
     Arr.forEach(Rec.keys(target), (key) => {
       const value = target[key]
       if (Predicate.isUndefined(value)) return
       if (!keyIndex.has(key)) return fail(`a sequence's Segment of a Batch gives "${key}", which isn't one of its keys (${keys.join(", ")})`)
       if (Predicate.isFunction(value)) {
-        values[key] = (index: number) => segmentValueOf(key, value(members[index], count), members[index])
+        values[key] = (index: number) => segmentValueOf(key, value(indexOf[moving[index]], size()), nameOf(moving[index]))
         return
       }
       values[key] = segmentValueOf(key, value, undefined)
     })
-    return { subjects, values }
+    return { subjects: Arr.map(moving, (i) => UndefinedOr.getOrThrow(entries[i])), values }
   }
 
   /** A sequence's Segment of members' elements (Q40): a Batch key's value a number, `null` or stops; no transform the Batch draws without it. */
@@ -938,6 +1269,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
    * landing it at once where its run would end, as an element's.
    */
   const sequenceTrack = (call: BatchSequenceCall): BatchTrack => {
+    if (Predicate.isUndefined(batch)) return landedTrack(call.settled)
     const slots: Array<number> = []
     const animations: Array<Sequence.Animation | undefined> = []
     Arr.forEach(call.members, (i, n) => {
@@ -957,7 +1289,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
       const snaps = call.reducedMotion && env.positionalKeys.isPositional(key)
       if (!call.skipAnimations && !snaps) return { stops, transition }
       // Where its run would end, from where it is: after its delay for reduced motion's Snap, at once when
-      // skipped. Its last stop is its last number: a sequence ends a key with a \`null\` when its last Segment ends first.
+      // skipped. Its last stop is its last number: a sequence ends a key with a `null` when its last Segment ends first.
       const end = ReducedMotion.endOf(stops[0], lastNumber(stops), transition)
       let delay = 0
       if (!call.skipAnimations && Predicate.isNotUndefined(transition.delay)) delay = transition.delay
@@ -983,10 +1315,9 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
     duration: () => Batch.durationOf(animation),
   })
 
-  const binding: BatchBinding = {
-    count,
+  binding = {
     track,
-    entryOf: (i) => entries[i],
+    entryOf: (i) => UndefinedOr.getOrThrow(entries[i]),
     routeOf,
     segmentOf,
     checkElementSegment,
@@ -994,13 +1325,30 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
     elementOf: (i) => elementOf[i],
     targetsOf,
     apply: (targets) => {
-      current = targets
       if (disposed) return
-      change(entered)
+      if (keyed) {
+        adopt(targets as KeyedTargets)
+        enterListed()
+      }
+      if (!keyed) current = targets as Float64Array
+      if (Predicate.isUndefined(batch)) return
+      change(arrivedSlots())
     },
     refOf: (i) => {
-      if (!isMember(i, count)) return noMember(i, count)
+      if (!keyed && !isMember(i, count)) return noMember(i, count)
       return refs[i]
+    },
+    memberFor: (key) => {
+      if (!keyed) return fail(`a Batch by index has no \`member(key)\`: give its members \`at(i)\``)
+      const known = memberOfKey.get(key)
+      if (Predicate.isNotUndefined(known)) return known
+      return newMember(key)
+    },
+    namedOf: (entry) => {
+      if (Predicate.isUndefined(entry.member)) return undefined
+      // A keyed handle kept past its member's leave names nothing: its number may be another key's now.
+      if (entries[entry.member] !== entry) return []
+      return [entry.member]
     },
     styleOf: <Style>(style: Style): Style => {
       if (Predicate.isString(style)) {
@@ -1018,6 +1366,24 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
       })
     },
   }
-  entries = Arr.makeBy(count, (member) => ({ binding, member }))
+
+  // By index: its keys are its members' first targets' and starts', and its members fixed, each made now.
+  if (!keyed) {
+    const given = keysOf(byIndex)
+    keysAre(given)
+    current = indexTargetsOf()
+    make(given, (k) => current[k])
+    for (let i = 0; i < count; i++) {
+      const entry: BatchMemberEntry = { binding, member: i }
+      entries[i] = entry
+      indexOf[i] = i
+      refs[i] = (el: Element) => arrive(i, el)
+    }
+    return binding
+  }
+  // Keyed: its first list taken in now, read as it was made (its binding calls this untracked); with
+  // `keys`, its core Batch made now too.
+  if (Predicate.isNotUndefined(byKey.keys)) make(byKey.keys, () => Number.NaN)
+  adopt(keyedTargetsOf())
   return binding
 }

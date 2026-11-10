@@ -8,7 +8,21 @@
 import { isServer } from "@solidjs/web"
 import type { JSX } from "@solidjs/web"
 import { type Accessor, createEffect, onCleanup, untrack } from "solid-js"
-import { type BatchConfig, bindBatch, configTransitionOf, handlesOf, type Member, type MemberProps, registerBatch, serverHandle, type WardicBatchLanding } from "../../batch.ts"
+import * as Bool from "effect/Boolean"
+import * as Predicate from "effect/Predicate"
+import {
+  type BatchConfig,
+  bindBatch,
+  configTransitionOf,
+  handlesOf,
+  keyedHandlesOf,
+  type KeyedBatchConfig,
+  type Member,
+  type MemberProps,
+  registerBatch,
+  serverHandle,
+  type WardicBatchLanding,
+} from "../../batch.ts"
 import { flightsOf } from "./flights.ts"
 import { useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
@@ -19,6 +33,9 @@ export type { WardicBatchKey, WardicBatchLanding, WardicBatchSegmentTarget, Ward
 
 /** `createBatch`'s config on Solid 2: the members, their targets and their transition. */
 export interface WardicBatchConfig extends BatchConfig {}
+
+/** `createBatch`'s keyed config on Solid 2 (#665): a list's items, each a member by its key, their targets by item and index. */
+export interface WardicKeyedBatchConfig<T> extends KeyedBatchConfig<T> {}
 
 /** A Batch's events, by name, for `next` and `when`. */
 export interface WardicBatchEvents {
@@ -50,7 +67,32 @@ export interface WardicBatch {
   readonly when: <E extends keyof WardicBatchEvents>(name: E) => Accessor<WardicBatchEvents[E]>
 }
 
+/** A keyed Batch on Solid 2: each item's member's handle, by its key, and its landings. */
+export interface WardicKeyedBatch<K> {
+  /**
+   * The handle of the member keyed `key`, to spread onto its item's element: the element's own `ref` and
+   * `style` given beside it, its `style` without the properties the Batch draws.
+   */
+  readonly member: <E extends Element = HTMLElement>(key: K, props?: WardicBatchMemberProps<E>) => WardicBatchMember<E>
+  /**
+   * Its last landing, `undefined` before the first: an async value, pending while any member moves, so
+   * `isPending(() => grid.settled())` reads "moving".
+   */
+  readonly settled: () => WardicBatchLanding | undefined
+  /** A promise of its next landing; it rejects with an `AbortError` once the Batch is gone. */
+  readonly next: <E extends keyof WardicBatchEvents>(name: E) => Promise<WardicBatchEvents[E]>
+  /** Every landing from now on, for an effect: `createEffect(grid.when("settled"), (landing) => …)`. */
+  readonly when: <E extends keyof WardicBatchEvents>(name: E) => Accessor<WardicBatchEvents[E]>
+}
+
 /** A server render's Batch: its handles pass the element's own props on, and nothing animates. */
+const serverKeyedBatch: WardicKeyedBatch<unknown> = {
+  member: serverHandle<JSX.CSSProperties>(),
+  settled: () => undefined,
+  next: () => neverLands(),
+  when: <E extends keyof WardicBatchEvents>() => serverWhen<WardicBatchEvents[E]>(),
+}
+
 const serverBatch: WardicBatch = {
   at: serverHandle<JSX.CSSProperties>(),
   settled: () => undefined,
@@ -65,6 +107,14 @@ const serverBatch: WardicBatch = {
  * Its keys are the transforms and `opacity`; a member has no gestures, variants or layout of its own.
  * Call it in a component under a `WardicProvider`.
  *
+ * Keyed, it takes a list, `each`, and each item's `key`: an item's member enters as its element
+ * arrives, from `initial`, and leaves as the item leaves the list. A change of the list, or of its
+ * order, turns every member once, each toward `animate(item, i)` at its index now.
+ *
+ * @example
+ * const list = createBatch({ each: () => todos(), key: "id", initial: { opacity: 0 }, animate: (_, i) => ({ y: i * 48, opacity: 1 }) })
+ * <For each={todos()}>{(todo) => <li {...list.member(todo.id)}>{todo.title}</li>}</For>
+ *
  * @example
  * const grid = createBatch({
  *   count: 100,
@@ -76,8 +126,12 @@ const serverBatch: WardicBatch = {
  * @see https://wardic.dev/reference/solid/animation/create-batch
  */
 // #665, ADR-0070 decisions 10–15 and *Amendment (#665)*.
-export function createBatch(config: WardicBatchConfig): WardicBatch {
-  if (isServer) return serverBatch
+export function createBatch<T, P extends keyof T>(config: WardicKeyedBatchConfig<T> & { readonly key: P }): WardicKeyedBatch<T[P]>
+export function createBatch<T, K>(config: WardicKeyedBatchConfig<T> & { readonly key: (item: T) => K }): WardicKeyedBatch<K>
+export function createBatch(config: WardicBatchConfig): WardicBatch
+export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<unknown>): WardicBatch | WardicKeyedBatch<unknown> {
+  const keyed = Predicate.hasProperty(config, "each")
+  if (isServer) return Bool.match(keyed, { onTrue: () => serverKeyedBatch, onFalse: () => serverBatch })
   const configTransition = configTransitionOf(useWardicConfig())
   const flights = flightsOf<WardicBatchLanding>()
   const events = new Waiters<WardicBatchEvents>("The Batch was disposed before its next event.")
@@ -91,6 +145,7 @@ export function createBatch(config: WardicBatchConfig): WardicBatch {
         positionalKeys: useWardicPositionalKeys(),
         defaultTransition: useWardicDefaultTransition(),
         configTransition,
+        untrack,
       },
       config,
       {
@@ -108,12 +163,15 @@ export function createBatch(config: WardicBatchConfig): WardicBatch {
     binding.dispose()
     events.dispose()
   })
-  const grid: WardicBatch = {
-    at: handlesOf<JSX.CSSProperties>(binding),
+  const landings: Pick<WardicBatch, "settled" | "next" | "when"> = {
     settled: flights.read,
     next: (name) => events.wait(name),
     when: (name) => whenOf(events, name),
   }
+  const grid: WardicBatch | WardicKeyedBatch<unknown> = Bool.match(keyed, {
+    onTrue: (): WardicKeyedBatch<unknown> => ({ member: keyedHandlesOf<JSX.CSSProperties>(binding), ...landings }),
+    onFalse: (): WardicBatch => ({ at: handlesOf<JSX.CSSProperties>(binding), ...landings }),
+  })
   // Known to `createAnimate`'s `animate` (#665).
   registerBatch(grid, binding)
   return grid
