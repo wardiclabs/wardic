@@ -201,7 +201,7 @@ An **Imperative animation** of Segments laid out in time (#433, Motion's `animat
 _Avoid_: timeline (the roadmap's `@wardic/timeline` is its own abstraction), chain, choreography.
 
 **Segment**:
-One step of a **Sequence** (Motion's word): an element's or a value's animation with its options and its `at`, a function animated from 0 to 1, or a **label**.
+One step of a **Sequence** (Motion's word): an element's or a value's animation with its options and its `at`, a **Batch**'s members each through their own stops, a function animated from 0 to 1, or a **label**.
 _Avoid_: interval (a piece of one run), keyframe.
 
 **Animation controls**:

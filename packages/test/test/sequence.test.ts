@@ -16,6 +16,8 @@
 // - SQ12: a Segment with no subject places nothing; one of no length moves no later Segment.
 // - SQ13: a later Segment erases a key's stops strictly inside its own time; at one time, a `null`
 //   comes after a value, so it holds that value rather than jumping to it.
+// - SQ14: a value can be a function of each subject's index and count, called once for each, giving
+//   its value or its stops; a spring through them is sampled for each subject's own move (#665, Q38).
 import * as Easing from "@wardic/core/Easing"
 import * as Sequence from "@wardic/core/Sequence"
 import { describe, expect, it } from "vitest"
@@ -313,5 +315,20 @@ describe("Sequence.compile (#433)", () => {
     const tied = Sequence.compile([tween(a, { x: 100 }, { duration: 1 }, 1), tween(a, { x: 50 }, { duration: 1 }, 0)])
     expect(of(tied, a).keyframes.x).toEqual([null, 50, null, 100])
     expect(of(tied, a).transition.x.times).toEqual([0, 0.5, 0.5, 1])
+  })
+
+  it("SQ14: a value can be a function of each subject's index and count, giving its value or its stops", () => {
+    const heard: Array<string> = []
+    const x = (index: number, count: number): ReadonlyArray<Sequence.Stop> => {
+      heard.push(`${index}/${count}`)
+      return [index * 10, index * 10 + 100]
+    }
+    const compiled = Sequence.compile([tween([a, b, c], { x, opacity: (index) => index / 2 }, { duration: 1 })])
+    expect([of(compiled, a).keyframes.x, of(compiled, b).keyframes.x, of(compiled, c).keyframes.x]).toEqual([[0, 100], [10, 110], [20, 120]])
+    expect([of(compiled, a).keyframes.opacity, of(compiled, c).keyframes.opacity]).toEqual([[null, 0], [null, 1]])
+    expect(heard).toEqual(["0/3", "1/3", "2/3"])
+    // A spring through each subject's two stops: the longer move rests later, so the shorter one's last stop holds to the end.
+    const sprung = Sequence.compile([{ subjects: [a, b], target: { x: (index) => [0, [10, 400][index]] }, transitions: { x: { type: "spring", stiffness: 100, damping: 10, mass: 1 } } }])
+    expect([of(sprung, a).keyframes.x, of(sprung, b).keyframes.x]).toEqual([[0, 10, null], [0, 400]])
   })
 })

@@ -17,6 +17,13 @@
 //   already there (Q35).
 // - CV7: through an element, a transform the Batch doesn't draw (or `transform` itself), and three stops
 //   for its key, are errors naming the key (Q33, Q34).
+// - CV8: a sequence of Batch Segments, a value's stops and a function of each member's index, staggered,
+//   placed with `at` and repeated, moves each member as the same sequence moves plain elements, frame for
+//   frame, paused, sought and played on as one (Q36–Q39).
+// - CV9: a Segment of members' elements moves their Batch key in the Batch and the rest as a plain
+//   element's; a member named through the Batch and its element is one subject (Q40).
+// - CV10: a key the Batch doesn't have and a string, in a Segment of it, and a transform it doesn't draw
+//   through a member's element, are errors naming the key.
 //
 // Its misuse errors are the shared work's, and Solid 1's CB7 holds them: one thrown in a Solid 2 render
 // halts that root's reactive system for the file's later tests.
@@ -251,5 +258,82 @@ describe("createBatch on Solid 2 (#665)", () => {
     expect(() => animate(both.members[0], { rotate: 10 })).toThrow(/"rotate"/)
     expect(() => animate(both.members[0], { transform: "rotate(10deg)" })).toThrow(/"transform"/)
     expect(() => animate(both.members[0], { x: [0, 10, 20] })).toThrow(/"x"/)
+  })
+
+  const opacityOf = (el: Element): number => Number(getComputedStyle(el).opacity)
+
+  /** `frames` frames of each of `reads`: one array per read. */
+  const readsOver = async (frames: number, reads: ReadonlyArray<() => number>): Promise<ReadonlyArray<ReadonlyArray<number>>> => {
+    const out = reads.map((): Array<number> => [])
+    for (let f = 0; f < frames; f++) {
+      await raf()
+      reads.forEach((read, n) => out[n].push(read()))
+    }
+    return out
+  }
+
+  it("CV8: Batch Segments of stops and a function move each member as the same sequence moves plain elements, paused and sought as one", async () => {
+    const both = mountBoth(3)
+    await raf()
+    const animate = both.animate()
+    const delay = stagger(0.05)
+    const fanned = (i: number): number => 20 + i * 30
+    const options = { repeat: 1, repeatType: "mirror" } as const
+    let landed = false
+    const batched = animate([
+      [both.grid(), { x: [0, 100] }, { duration: 0.3 }],
+      [both.grid(), { x: (i) => fanned(i) }, { delay, at: "-0.1", ease: "easeInOut" }],
+    ], options)
+    void batched.then(() => {
+      landed = true
+    })
+    const own = animate([
+      [both.plain, { x: [0, 100] }, { duration: 0.3 }],
+      ...both.plain.map((el, i) => [el, { x: fanned(i) }, { delay: delay(i, 3), at: 0.2, ease: "easeInOut" }] as const),
+    ], options)
+    expect(batched.duration).toBeCloseTo(own.duration, 9)
+    const frames = await xsOver(20, [...both.members, ...both.plain])
+    Array.from({ length: 3 }).forEach((_, i) => expectSame(frames[i], frames[i + 3]))
+    batched.pause()
+    own.pause()
+    batched.time = 0.9
+    own.time = 0.9
+    batched.play()
+    own.play()
+    const rest = await xsOver(30, [...both.members, ...both.plain])
+    Array.from({ length: 3 }).forEach((_, i) => expectSame(rest[i], rest[i + 3]))
+    expect(rest[0].at(-1)).toBeCloseTo(0, 6)
+    expect(landed).toBe(true)
+  })
+
+  it("CV9: members' elements move their Batch key in the Batch and the rest as a plain element's; one member, one subject", async () => {
+    const both = mountBoth(2)
+    await raf()
+    const animate = both.animate()
+    void animate([
+      [both.members, { x: 50, opacity: 0.4 }, { duration: 0.3 }],
+      [both.grid(), { x: 100 }, { duration: 0.3 }],
+      [both.members[0], { x: -20 }, { at: "<", duration: 0.2 }],
+    ])
+    animate([
+      [both.plain, { x: 50, opacity: 0.4 }, { duration: 0.3 }],
+      [both.plain, { x: 100 }, { duration: 0.3 }],
+      [both.plain[0], { x: -20 }, { at: "<", duration: 0.2 }],
+    ])
+    const frames = await readsOver(45, [...[...both.members, ...both.plain].map((el) => () => xOf(el)), ...[...both.members, ...both.plain].map((el) => () => opacityOf(el))])
+    expectSame(frames[0], frames[2])
+    expectSame(frames[1], frames[3])
+    expectSame(frames[4], frames[6])
+    expectSame(frames[5], frames[7])
+    expect([frames[0].at(-1), frames[4].at(-1)]).toEqual([100, 0.4])
+  })
+
+  it("CV10: a key the Batch doesn't have, a string, and an undrawn transform through a member's element are errors naming the key", async () => {
+    const both = mountBoth(1)
+    await raf()
+    const animate = both.animate()
+    expect(() => animate([[both.grid(), { opacity: 1 }]])).toThrow(/"opacity", which isn't one of its keys \(x\)/)
+    expect(() => animate([[both.grid(), { x: "2rem" as never }]])).toThrow(/"x" as "2rem"/)
+    expect(() => animate([[both.members[0], { rotate: 10 }]])).toThrow(/"rotate"/)
   })
 })

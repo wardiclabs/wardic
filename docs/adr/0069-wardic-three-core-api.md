@@ -1,6 +1,6 @@
 # `@wardic/three`'s core API: Motion's call for one object, a Batch for many, and three's own colours and units
 
-*Amended for #665 (2026-11-10): the DOM's Batch is built first, with slots, a table of transitions and a stagger that counts the members that move (*Amendment (#665)*).*
+*Amended for #665 (2026-11-10): the DOM's Batch is built first, with slots, a table of transitions and a stagger that counts the members that move, and a Sequence's segment of a Batch runs each member through its own stops (*Amendment (#665)*).*
 
 ADR-0068 settled what `@wardic/three` is: Wardic animates a scene's objects and doesn't build the scene, on frames the Host loop pumps. It left the framework-free API open: key names, units, the batch, GPU springs and colours. Two issues added to it:
 - **#665** wants the batch for the DOM's big lists, grids and charts.
@@ -177,3 +177,8 @@ The grill read Motion's 3D API against the 21 libraries in [`three-api-prior-art
 - **Decision 10, the Frame:** a Batch's run hands on a plain Frame, and its values are read back by index (decision 16's `get` and `velocity`). `Frame.SpringValues`' records, one per key, don't fit N members × K keys.
 - **Reduced motion and `skipAnimations`** (decision 18) are per-key transitions a binding passes: a 0 s tween after the delay is a Snap, so core adds nothing for them.
 - **Playback controls** (decision 15) come with their caller, `createAnimate`'s `animate(grid, …)`.
+- **Decision 15, a Sequence's segment** (PR 2d, Q36, Q38, Q39): a Batch in a sequence runs on a driven change whose keys each go through their own stops, `Batch.keyframes`. Core's `Sequence.compile` places each member's stops over the whole sequence, as it does an element's, and the change steps each key as `Machine.keyframes` steps the same stops. Each key's value is a function of time, so a seek is exact, and backwards retraces. Only a driven change has them: the undriven steps are unchanged.
+  - **A Segment's value can be a function** of each subject's index and count, as its `delay` can. A Batch's Segment calls it with the member's index and the Batch's count, as `animate(grid, …)` does.
+  - **A Segment's `stagger()`** counts its members whose elements have arrived, in member order, as Motion's sequences count a Segment's subjects. Decision 18's movers don't apply: over a whole sequence, "moves" has no one meaning.
+  - Rejected: the binding resolving each member's values into a Segment of its own, which breaks the `at` arithmetic of the Segments after it; a Batch's values the same for every member, which leaves per-member targets to calls between sequences.
+- **Decision 15, a driven change's first step:** played from partway through, a driven change lands its first step there, whatever the frame's `dt`, as `Playback.drive`'s machines do. A member and a plain element under one set of controls then show the same frame after a seek and a play in the same task; before, the member ran a frame ahead. Played back to its start, a driven change's keys rest there, their targets with them, so a later change of the member's other keys leaves them.

@@ -6,8 +6,10 @@
 //   keeping pace; it says so once.
 // - BP2: paused, it holds, its time with it; played, it goes on frame for frame from there.
 // - BP3: at speed 2 it lands in half the frames, each one where the change would be at twice the time.
-// - BP4: a seek, then a play, lands it exactly where stepping to that time would have, and it goes on.
-// - BP5: its duration is `Machine.durationOf`'s for its slowest member; a seek there lands it.
+// - BP4: a seek, then a play, lands it exactly where stepping to that time would have; its first step
+//   lands there, as `Playback.drive`'s does, and it goes on.
+// - BP5: its duration is `Machine.durationOf`'s for its slowest member, a spring's or a tween's; a seek
+//   there lands it.
 // - BP6: stopped, its keys stay where they are, and it never lands; cancelled, they're back at their
 //   starts, after it landed too.
 // - BP7: played backwards, it retraces its frames to its start, where it ends as if landed.
@@ -22,6 +24,8 @@
 // - BP14: a later change takes some of its keys: once the keys it kept rest, it ends unheard, and at
 //   rest the table holds the Batch's own again.
 // - BP15: paused, its keys' velocities read 0, and a change that takes one then starts it from rest (#464).
+// - BP16: played back to its start, its keys rest there: a later change of the member's other key leaves
+//   them where they are.
 import * as Batch from "@wardic/core/Batch"
 import * as Machine from "@wardic/core/Machine"
 import * as Playback from "@wardic/core/Playback"
@@ -113,8 +117,10 @@ describe("a Batch's change driven by a Playhead (#665)", () => {
     Batch.play(animation)
     const oracle = springFrames(0, 100)
     expect(Batch.get(batch, slot, "x")).toBeCloseTo(oracle[14], 9)
+    // Its first step lands there, as a driven machine's does (\`Playback.drive\`), then it goes on.
     const on = stepped(batch, slot)
-    on.slice(0, -2).forEach((x, f) => expect(x, `frame ${f}`).toBeCloseTo(oracle[15 + f], 9))
+    expect(on[0]).toBeCloseTo(oracle[14], 9)
+    on.slice(1, -2).forEach((x, f) => expect(x, `frame ${f}`).toBeCloseTo(oracle[15 + f], 9))
     expect(on.at(-1)).toBe(100)
   })
 
@@ -130,6 +136,18 @@ describe("a Batch's change driven by a Playhead (#665)", () => {
     Batch.play(animation)
     Batch.step(batch, F)
     expect([Batch.get(batch, slots[0], "x"), Batch.get(batch, slots[1], "x"), landed]).toEqual([20, 300, 1])
+    // A tween's: the frames its time takes to reach its end, as `Machine.tween`'s steps sum them (#665): 105
+    // frames sum to just under 1.75 s.
+    const tween = { type: "tween", duration: 1.6, delay: 0.15 } as const
+    const slow = Batch.animate(batch, slots, () => 50, { transition: tween, head: Playback.make() })
+    expect(Batch.durationOf(slow)).toBeCloseTo(Machine.durationOf(Machine.tween(0, 50, tween)), 9)
+    // A spring set by its duration: the frames until it lands, as it steps, its delay held first.
+    const timed = { type: "spring", duration: 1.6, bounce: 0, delay: 0.15 } as const
+    const clock = Playback.make()
+    const sprung = Batch.animate(batch, slots, () => 0, { transition: timed, head: clock })
+    Batch.play(sprung)
+    const frames = stepped(batch, slots[0]).length
+    expect(Batch.durationOf(sprung)).toBeCloseTo(frames * F, 9)
   })
 
   it("BP6: stopped, its keys stay where they are and it never lands; cancelled, they're back at their starts", () => {
@@ -303,5 +321,20 @@ describe("a Batch's change driven by a Playhead (#665)", () => {
     expect(Batch.velocity(batch, slot, "x")).toBe(0)
     Batch.retarget(batch, [slot], () => -40, { transition: SPRING })
     expect(stepped(batch, slot).slice(0, 20)).toEqual(springFrames(at, -40).slice(0, 20))
+  })
+
+  it("BP16: played back to its start, its keys rest there, whatever a later change of another key does", () => {
+    const head = Playback.make()
+    const batch = Batch.make({ keys: ["x", "y"], writer, transition: { type: "spring" } })
+    const slot = Batch.enter(batch, "a", { x: 0, y: 0 })
+    const animation = Batch.animate(batch, [slot], (_, k) => [100, Number.NaN][k], { transition: SPRING, head })
+    Batch.play(animation)
+    stepped(batch, slot, 12)
+    Playback.setSpeed(head, -1)
+    stepped(batch, slot)
+    expect(Batch.get(batch, slot, "x")).toBe(0)
+    Batch.retarget(batch, [slot], (_, k) => [Number.NaN, 50][k])
+    stepped(batch, slot).forEach((x) => expect(x).toBe(0))
+    expect(Batch.get(batch, slot, "y")).toBe(50)
   })
 })
