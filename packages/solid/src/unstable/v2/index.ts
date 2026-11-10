@@ -198,6 +198,8 @@ export {
   type WardicBatchTarget,
   type WardicBatchTransition,
   type WardicBatchValues,
+  type WardicKeyedBatch,
+  type WardicKeyedBatchConfig,
 } from "./create-batch.ts"
 export type {
   WardicAnimate,
