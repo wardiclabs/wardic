@@ -81,7 +81,7 @@ const numberOr = (value: unknown, fallback: number): number => {
 }
 
 /** Default unit appended to a bare numeric transform value, by transform key. */
-export type TransformUnit = "px" | "deg" | ""
+type TransformUnit = "px" | "deg" | ""
 
 /**
  * Default-unit map for transform values: translate (and the x/y/z shorthands)

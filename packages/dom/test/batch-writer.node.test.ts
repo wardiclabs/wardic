@@ -7,7 +7,7 @@
 //   `opacity` is written as `project` gives it.
 // - BW3: it draws the transform keys and `opacity`, and nothing else.
 import type * as Batch from "@wardic/core/Batch"
-import * as DomBatchWriter from "@wardic/dom/DomBatchWriter"
+import * as DomBatch from "@wardic/dom/DomBatch"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import { describe, expect, it } from "vitest"
 
@@ -20,7 +20,7 @@ const element = () => {
 
 /** `values` written as a Batch whose keys are `keys` would write them: its write, built once. */
 const writeOf = (keys: ReadonlyArray<string>, values: Readonly<Record<string, number>>): Record<string, string> => {
-  const writer: Batch.Writer<HTMLElement> = DomBatchWriter.writer
+  const writer: Batch.Writer<HTMLElement> = DomBatch.writer
   const write = writer.forKeys(keys)
   const positions = Float64Array.from(keys.map((key) => values[key] as number))
   const { el, written } = element()
@@ -50,7 +50,7 @@ describe("the DOM's Batch writer (#665)", () => {
 
   it("BW3: it draws the transform keys and opacity, and nothing else", () => {
     const draws = ["x", "y", "z", "translateX", "translateY", "translateZ", "scale", "scaleX", "scaleY", "rotate", "rotateX", "rotateY", "rotateZ", "skewX", "skewY", "opacity"]
-    expect(draws.filter((key) => !DomBatchWriter.writer.writes(key))).toEqual([])
-    expect(["width", "backgroundColor", "pathRotation", "--x", "originX", "transform"].filter(DomBatchWriter.writer.writes)).toEqual([])
+    expect(draws.filter((key) => !DomBatch.writer.writes(key))).toEqual([])
+    expect(["width", "backgroundColor", "pathRotation", "--x", "originX", "transform"].filter(DomBatch.writer.writes)).toEqual([])
   })
 })

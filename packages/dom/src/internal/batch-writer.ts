@@ -9,6 +9,7 @@
 // Flush gate (ADR-0034, *Amendment (#665)*), so its write is a `setProperty` per moving member.
 import type * as Batch from "@wardic/core/Batch"
 import * as Arr from "effect/Array"
+import * as Option from "effect/Option"
 import * as Result from "effect/Result"
 import { TRANSFORM_FUNCS, unitOf } from "./renderer.ts"
 
@@ -28,13 +29,14 @@ const DRAWS: ReadonlySet<string> = new Set([...Arr.map(FUNCS, (func) => func.key
 
 /** A Batch's write, for its keys in their order: built once, when the Batch is made. */
 const forKeys = (keys: ReadonlyArray<string>): ((el: Element, positions: Float64Array, base: number) => void) => {
-  const parts: ReadonlyArray<Part> = Arr.filterMap(FUNCS, (func) => {
-    const k = keys.indexOf(func.key)
-    if (k === -1) return Result.failVoid
-    return Result.succeed({ k, open: `${func.fn}(`, close: `${unitOf(func.key)})`, identity: func.identity })
-  })
+  const parts: ReadonlyArray<Part> = Arr.filterMap(FUNCS, (func) =>
+    Option.match(Arr.findFirstIndex(keys, (key) => key === func.key), {
+      onNone: () => Result.failVoid,
+      onSome: (k) => Result.succeed({ k, open: `${func.fn}(`, close: `${unitOf(func.key)})`, identity: func.identity }),
+    }))
   const count = parts.length
-  const opacityAt = keys.indexOf("opacity")
+  // Its index for the per-frame write, or -1 for none: a plain read there (ADR-0025, the per-frame path).
+  const opacityAt = Option.getOrElse(Arr.findFirstIndex(keys, (key) => key === "opacity"), () => -1)
   // Per frame, per moving member (ADR-0025, *Amendment (#69)*): a counted loop over its transform
   // functions in the renderer's order, each left out at its identity, the string built by concatenation
   // as the renderer's is (ADR-0034); `none` when every one is at its identity (ADR-0023).

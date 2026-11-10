@@ -6,11 +6,11 @@
  *
  * @example
  * import * as Batch from "@wardic/core/Batch"
- * import * as DomBatchWriter from "@wardic/dom/DomBatchWriter"
+ * import * as DomBatch from "@wardic/dom/DomBatch"
  *
- * const grid = Batch.make({ keys: ["x", "y", "opacity"], writer: DomBatchWriter.writer, transition: { type: "spring" } })
+ * const grid = Batch.make({ keys: ["x", "y", "opacity"], writer: DomBatch.writer, transition: { type: "spring" } })
  */
-// `@wardic/dom/DomBatchWriter` (#665, ADR-0070 *Amendment (#665)*): the DOM's implementation of core's
-// `Batch.Writer`, Dom-prefixed as `DomRenderer` is (ADR-0041). Not in `DomLive`: a binding's
-// `createBatch` imports it, so an app that never makes a Batch ships none of it.
+// `@wardic/dom/DomBatch` (#665, ADR-0070 *Amendment (#665)*): the DOM's implementation of core's
+// `Batch.Writer`, Dom-prefixed as `DomRenderer` is, its member without the module's noun (ADR-0041).
+// Not in `DomLive`: a binding's `createBatch` imports it, so an app that never makes a Batch ships none.
 export { writer } from "./internal/batch-writer.ts"
