@@ -14,11 +14,19 @@
 // - BP8: two stops: a member jumps to its first, from rest; a stagger counts the members it moves.
 // - BP9: a later change takes one of its keys: that member goes the later change's way, the animation's
 //   Playhead no longer reaches it, and it never lands (#433's latest-wins, as a ward's).
+// - BP10: a change running two transitions, a spring and a tween, moves its Playhead's time once a frame.
+// - BP11: `animate`'s two forms give one type, `pipe` runs the data-last one, and an Animation is
+//   Pipeable and says what it is.
+// - BP12: stopped mid-tween, a key stays where it is, and rests there.
+// - BP13: one that moves nothing lands at its play; a play says how many members it sets off from rest.
+// - BP14: a later change takes some of its keys: once the keys it kept rest, it ends unheard, and at
+//   rest the table holds the Batch's own again.
+// - BP15: paused, its keys' velocities read 0, and a change that takes one then starts it from rest (#464).
 import * as Batch from "@wardic/core/Batch"
 import * as Machine from "@wardic/core/Machine"
 import * as Playback from "@wardic/core/Playback"
 import * as Stagger from "@wardic/core/Stagger"
-import { describe, expect, it } from "vitest"
+import { describe, expect, expectTypeOf, it } from "vitest"
 
 const F = 1 / 60
 const SPRING = { type: "spring", stiffness: 210, damping: 20 } as const
@@ -62,7 +70,7 @@ describe("a Batch's change driven by a Playhead (#665)", () => {
     const head = Playback.make()
     let landed = 0
     const { batch, slot, animation } = oneMember(0, 100, head, () => landed++)
-    Batch.play(animation)
+    expect(Batch.play(animation)).toBe(1)
     const frames = stepped(batch, slot)
     const oracle = springFrames(0, 100)
     expect(frames).toEqual(oracle)
@@ -205,5 +213,95 @@ describe("a Batch's change driven by a Playhead (#665)", () => {
     Array.from({ length: 600 }).some(() => Batch.step(batch, F))
     expect(landed).toBe(0)
     expect(batch.toJSON()).toMatchObject({ transitions: 1, moving: 0 })
+  })
+
+  it("BP10: a change running two transitions, a spring and a tween, moves its Playhead's time once a frame", () => {
+    const head = Playback.make()
+    const batch = Batch.make({ keys: ["x", "opacity"], writer, transition: { type: "spring" } })
+    const slot = Batch.enter(batch, "a", { x: 0, opacity: 0 })
+    const transition = { x: SPRING, opacity: { type: "tween", duration: 0.2 } } as const
+    const animation = Batch.animate(batch, [slot], (_, k) => [100, 1][k], { transition, head })
+    Batch.play(animation)
+    Array.from({ length: 6 }).forEach(() => Batch.step(batch, F))
+    expect(head.time).toBeCloseTo(6 * F, 9)
+    expect(Batch.get(batch, slot, "x")).toBeCloseTo(springFrames(0, 100)[5], 9)
+  })
+
+  it("BP11: animate's two forms give one type, pipe runs the data-last one, and an Animation is Pipeable", () => {
+    const head = Playback.make()
+    const batch = Batch.make({ keys: ["x"], writer, transition: { type: "spring" } })
+    const slot = Batch.enter(batch, "a", { x: 0 })
+    const first = Batch.animate(batch, [slot], () => 10, { head })
+    const second = batch.pipe(Batch.animate([slot], () => 20, { head }))
+    expectTypeOf(first).toEqualTypeOf(second)
+    expect([Batch.isAnimation(first), Batch.isAnimation(second), Batch.isAnimation(batch)]).toEqual([true, true, false])
+    expect(second.pipe((self) => self)).toBe(second)
+    expect(second.toJSON()).toEqual({ _id: "Batch.Animation", keys: 0, playing: false })
+    Batch.play(second)
+    expect(second.toJSON()).toEqual({ _id: "Batch.Animation", keys: 1, playing: true })
+    stepped(batch, slot)
+    expect([Batch.get(batch, slot, "x"), second.toJSON()]).toEqual([20, { _id: "Batch.Animation", keys: 1, playing: false }])
+  })
+
+  it("BP12: stopped mid-tween, a key stays where it is, and rests there", () => {
+    const head = Playback.make()
+    const batch = Batch.make({ keys: ["opacity"], writer, transition: { type: "spring" } })
+    const slot = Batch.enter(batch, "a", { opacity: 0 })
+    const animation = Batch.animate(batch, [slot], () => 1, { transition: { type: "tween", duration: 0.5 }, head })
+    Batch.play(animation)
+    Array.from({ length: 12 }).forEach(() => Batch.step(batch, F))
+    const at = Batch.get(batch, slot, "opacity")
+    expect(at).toBeGreaterThan(0.2)
+    Batch.stop(animation)
+    const after: Array<number> = []
+    Array.from({ length: 60 }).some(() => {
+      const done = Batch.step(batch, F)
+      after.push(Batch.get(batch, slot, "opacity"))
+      return done
+    })
+    expect(after.every((value) => value === at)).toBe(true)
+    expect(after.length).toBe(1)
+  })
+
+  it("BP13: one that moves nothing lands at its play; a play says how many members it sets off from rest", () => {
+    const head = Playback.make()
+    let landed = 0
+    const batch = Batch.make({ keys: ["x"], writer, transition: { type: "spring" } })
+    const slots = ["a", "b", "c"].map((name) => Batch.enter(batch, name, { x: 0 }))
+    const still = Batch.animate(batch, slots, () => 0, { transition: SPRING, head, onLanded: () => landed++ })
+    expect([Batch.play(still), landed]).toEqual([0, 1])
+    Batch.retarget(batch, [slots[0]], () => 50)
+    const moved = Batch.animate(batch, slots, (slot) => [0, 30, 0][slot], { transition: SPRING, head: Playback.make() })
+    // Member 0 was moving already, member 2 stays: it sets one off.
+    expect(Batch.play(moved)).toBe(1)
+  })
+
+  it("BP14: some of its keys taken, it ends unheard once the keys it kept rest; the table holds the Batch's own again", () => {
+    const head = Playback.make()
+    let landed = 0
+    const batch = Batch.make({ keys: ["x"], writer, transition: { type: "spring" } })
+    const slots = ["a", "b"].map((name) => Batch.enter(batch, name, { x: 0 }))
+    const animation = Batch.animate(batch, slots, () => 100, { transition: SPRING, head, onLanded: () => landed++ })
+    Batch.play(animation)
+    Array.from({ length: 5 }).forEach(() => Batch.step(batch, F))
+    Batch.retarget(batch, [slots[1]], () => -40)
+    const kept = stepped(batch, slots[0])
+    expect([kept.at(-1), Batch.get(batch, slots[1], "x"), landed]).toEqual([100, -40, 0])
+    expect(animation.toJSON()).toMatchObject({ playing: false })
+    expect(batch.toJSON()).toMatchObject({ transitions: 1, moving: 0 })
+  })
+
+  it("BP15: paused, its keys' velocities read 0, and a change that takes one starts it from rest", () => {
+    const head = Playback.make()
+    const { batch, slot, animation } = oneMember(0, 100, head)
+    Batch.play(animation)
+    Array.from({ length: 5 }).forEach(() => Batch.step(batch, F))
+    expect(Batch.velocity(batch, slot, "x")).toBeGreaterThan(0)
+    Playback.pause(head)
+    Batch.step(batch, F)
+    const at = Batch.get(batch, slot, "x")
+    expect(Batch.velocity(batch, slot, "x")).toBe(0)
+    Batch.retarget(batch, [slot], () => -40, { transition: SPRING })
+    expect(stepped(batch, slot).slice(0, 20)).toEqual(springFrames(at, -40).slice(0, 20))
   })
 })
