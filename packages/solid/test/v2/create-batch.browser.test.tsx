@@ -6,12 +6,14 @@
 // - CV2: `settled()` is `undefined` and not pending before anything moves, pending while members move,
 //   then the landing, with how many set off; `next("settled")` resolves with it; an unmount stops it.
 // - CV3: `when("settled")` tells an effect every landing.
+// - CV4: `createAnimate`'s `animate(grid, …)` moves its members on Solid 2 too: its controls are awaited,
+//   and `scope.settled()` is pending while it plays.
 //
 // Its misuse errors are the shared work's, and Solid 1's CB7 holds them: one thrown in a Solid 2 render
 // halts that root's reactive system for the file's later tests.
 import { DomLive } from "@wardic/dom"
 import type { JSX } from "@solidjs/web"
-import { createBatch, w, WardicProvider } from "@wardic/solid/unstable/v2"
+import { createAnimate, createBatch, w, type WardicAnimate, type WardicAnimationScope, WardicProvider } from "@wardic/solid/unstable/v2"
 import { createEffect, createSignal, For, isPending } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { raf } from "../browser-helpers.ts"
@@ -119,5 +121,37 @@ describe("createBatch on Solid 2 (#665)", () => {
     setTarget(0)
     for (let f = 0; f < 70; f++) await raf()
     expect(heard).toEqual([2, 2])
+  })
+
+  it("CV4: animate(grid, …) moves its members on Solid 2: its controls are awaited, scope.settled() pending meanwhile", async () => {
+    const members: Array<HTMLDivElement> = []
+    let grid!: ReturnType<typeof createBatch>
+    let scope!: WardicAnimationScope
+    let animate!: WardicAnimate
+    const Scene = (): JSX.Element => {
+      grid = createBatch({ count: 2, initial: false, animate: () => ({ x: 0 }) })
+      ;[scope, animate] = createAnimate()
+      return (
+        <div ref={scope}>
+          <For each={[0, 1]}>{(i) => <div style={BOX} {...grid.at(i, { ref: (el) => (members[i] = el as HTMLDivElement) })} />}</For>
+        </div>
+      )
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await raf()
+    // Its first read is never pending (a ward's settled() isn't either): read before the call, as CV1 of createAnimate's does.
+    expect(scope.settled()).toBeUndefined()
+    const controls = animate(grid, { x: (i) => 50 + i * 10 }, SPRING)
+    await raf()
+    await raf()
+    expect(isPending(() => scope.settled()), "playing").toBe(true)
+    await controls
+    expect(members.map(xOf)).toEqual([50, 60])
+    await raf()
+    expect(isPending(() => scope.settled()), "landed").toBe(false)
   })
 })
