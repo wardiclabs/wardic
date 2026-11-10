@@ -14,12 +14,29 @@
 // - B6: a member entering past the capacity grows the Batch, and every member carries on as it was.
 // - B7: a member that leaves is never written again, and its slot goes to the next to enter, from
 //   that one's own start.
+// - B8: `Batch.run` on the Frame loop: one run while anything moves, `onFrame` once a tick, a second
+//   `run` meanwhile a no-op; it ends at rest, and a change made as it lands starts the next at once.
 import * as Batch from "@wardic/core/Batch"
+import * as Clock from "@wardic/core/Clock"
+import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as Machine from "@wardic/core/Machine"
 import * as Stagger from "@wardic/core/Stagger"
+import { it as effect } from "@effect/vitest"
+import * as Effect from "effect/Effect"
+import * as Fiber from "effect/Fiber"
+import * as Layer from "effect/Layer"
+import * as PubSub from "effect/PubSub"
+import * as Stream from "effect/Stream"
 import { describe, expect, it } from "vitest"
 
 const F = 1 / 60
+
+/** A Clock whose ticks the test pushes, each handled inside the push, as `@wardic/test`'s `pushable` is. */
+const pushable = Effect.fnUntraced(function* () {
+  const pubsub = yield* PubSub.unbounded<number>()
+  const clock = Layer.succeed(Clock.Clock, { ticks: Stream.fromPubSub(pubsub), tick: () => Effect.void, now: () => 0 })
+  return { loop: FrameLoop.layer.pipe(Layer.provideMerge(clock)), advance: () => PubSub.publish(pubsub, F) }
+})
 
 /** A writer that draws nothing: what each frame wrote, per subject, as a copy of its values. */
 const recording = <S,>(keys: ReadonlyArray<string>) => {
@@ -257,4 +274,53 @@ describe("a Batch (#665)", () => {
     Batch.retarget(batch, [c], () => 60)
     expect(steppedAll(batch, [c], "x")[0]).toEqual(springFrames("x", 30, 60, spring))
   })
+
+  effect.effect("B8: Batch.run: one run while anything moves, onFrame once a tick, ended at rest", () =>
+    Effect.gen(function* () {
+      const spring = { type: "spring", stiffness: 210, damping: 20 } as const
+      const { loop, advance } = yield* pushable()
+      const context = yield* Layer.build(loop)
+      const { writer } = recording<string>(["x"])
+      let frames = 0
+      let onLanding = (): void => {}
+      const batch = Batch.make({
+        keys: ["x"], writer, transition: spring,
+        onFrame: () => {
+          frames++
+          onLanding()
+        },
+      })
+      const slot = Batch.enter(batch, "a", { x: 0 })
+      const xs: Array<number> = []
+      const advanceAll = (count: number) =>
+        Effect.forEach(Array.from({ length: count }), () => advance().pipe(Effect.andThen(Effect.sync(() => xs.push(Batch.get(batch, slot, "x"))))))
+
+      Batch.retarget(batch, [slot], () => 100)
+      const first = yield* Effect.forkChild(Effect.provide(Batch.run(batch), context), { startImmediately: true })
+      // A second run while one runs does nothing: the member would step twice a tick.
+      yield* Effect.provide(Batch.run(batch), context)
+      const there = springFrames("x", 0, 100, spring)
+      yield* advanceAll(there.length)
+      expect(xs).toEqual(there)
+      expect(frames).toBe(there.length)
+      // At rest, the run has ended: joined without another tick.
+      yield* Fiber.join(first)
+
+      // A change after rest starts the next run, which moves it on the next tick.
+      xs.length = 0
+      Batch.retarget(batch, [slot], () => 0)
+      const second = yield* Effect.forkChild(Effect.provide(Batch.run(batch), context), { startImmediately: true })
+      // As it lands, a change from `onFrame` turns it again, in the same run.
+      onLanding = () => {
+        if (Batch.get(batch, slot, "x") !== 0) return
+        onLanding = () => {}
+        Batch.retarget(batch, [slot], () => 30)
+      }
+      const back = springFrames("x", 100, 0, spring)
+      const again = springFrames("x", 0, 30, spring)
+      yield* advanceAll(back.length + again.length)
+      expect(xs).toEqual([...back, ...again])
+      yield* Fiber.join(second)
+      expect(frames).toBe(there.length + back.length + again.length)
+    }).pipe(Effect.scoped))
 })

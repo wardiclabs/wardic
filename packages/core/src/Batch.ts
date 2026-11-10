@@ -17,12 +17,15 @@
 // a member's keys at `slot * stride + k` (#663's shape); stepped by `Spring.matrixFor`'s exact step
 // (#370), the probe's loop (`.tmp/564-canvas/perf/group.ts` on `probe/564-canvas`).
 import * as Arr from "effect/Array"
+import * as Effect from "effect/Effect"
 import { identity } from "effect/Function"
 import type { Invariant } from "effect/Types"
 import * as Inspectable from "effect/Inspectable"
 import { type Pipeable, pipeArguments } from "effect/Pipeable"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
+import type * as Frame from "./Frame.ts"
+import type * as FrameLoop from "./FrameLoop.ts"
 import * as Machine from "./Machine.ts"
 import * as Scalar from "./Scalar.ts"
 import * as Spring from "./Spring.ts"
@@ -89,6 +92,9 @@ export interface Options<S> {
   readonly transition: Transition
   /** How many members it holds before it grows. Default 16. */
   readonly capacity?: number
+  /** Called once a frame, after every member's write: Motion's `onUpdate`, for the whole Batch. */
+  // ADR-0069 decision 16: never per member.
+  readonly onFrame?: () => void
 }
 
 /** A Batch of Subjects `S`: built by `make`, never as a literal. */
@@ -136,6 +142,11 @@ interface State<S> {
   count: number
   readonly write: (subject: S, positions: Float64Array, base: number) => void
   readonly flush: () => void
+  readonly onFrame: () => void
+  /** The run stepping it now, by its number, or 0 for none. */
+  running: number
+  /** How many runs it has had: the next one's number. */
+  runs: number
 }
 
 const Proto = {
@@ -219,7 +230,10 @@ export const make = <S>(options: Options<S>): Batch<S> => {
     list: new Int32Array(capacity),
     count: 0,
     write: options.writer.forKeys(options.keys),
-    flush: UndefinedOr.match(options.writer.flush, { onUndefined: () => noop, onDefined: (flush) => flush }),
+    flush: UndefinedOr.match(options.writer.flush, { onUndefined: () => noop, onDefined: identity }),
+    onFrame: UndefinedOr.match(options.onFrame, { onUndefined: () => noop, onDefined: identity }),
+    running: 0,
+    runs: 0,
   }
   return Object.assign(Object.create(Proto), state)
 }
@@ -459,8 +473,59 @@ export const step = <S>(self: Batch<S>, dt: number): boolean => {
   }
   state.count = kept
   state.flush()
-  return kept === 0
+  state.onFrame()
+  // Counted after `onFrame`: a change it makes keeps the run going.
+  return state.count === 0
 }
+
+/** A sink that keeps nothing: a Batch's run writes as it steps. */
+const ignore = (): undefined => undefined
+
+/** The run numbered `id`: a step of the Batch each tick, until nothing moves. */
+const machineOf = <S>(self: Batch<S>, state: State<S>, id: number): Machine.Machine<Frame.Frame<number>> =>
+  Machine.make({
+    settles: true,
+    span: { name: "wardic.batch", attributes: { keys: state.stride } },
+    start: () => {
+      const frame = { value: 0, done: false }
+      // Per frame (ADR-0025): the step, and its count of members moving.
+      return (dt) => {
+        const done = step(self, dt)
+        frame.value = state.count
+        if (!done) return frame
+        frame.done = true
+        // Marked ended in the step that rests, so a change later in the same tick starts the next run.
+        if (state.running === id) state.running = 0
+        return frame
+      }
+    },
+  })
+
+/**
+ * Runs `self` on the Frame loop while any member moves, from the next tick: each tick steps every
+ * moving member and writes it. It succeeds once nothing moves. While one runs, another does nothing,
+ * so a binding calls it after each change.
+ *
+ * @example
+ * Batch.retarget(grid, slots, targetOf)
+ * runtime.runFork(Batch.run(grid))
+ */
+// One run, not a fiber per member (ADR-0069, decision 10). Its span is `wardic.batch`.
+export const run = <S>(self: Batch<S>): Effect.Effect<void, never, FrameLoop.FrameLoop> =>
+  Effect.suspend(() => {
+    const state = stateOf(self)
+    if (state.running !== 0) return Effect.void
+    if (state.count === 0) return Effect.void
+    const id = state.runs + 1
+    state.runs = id
+    state.running = id
+    return Effect.ensuring(
+      Effect.asVoid(Machine.run(machineOf(self, state, id), ignore)),
+      Effect.sync(() => {
+        if (state.running === id) state.running = 0
+      }),
+    )
+  })
 
 /** A member's value for `key` now. */
 // Per frame: a sink may read it for every member.
