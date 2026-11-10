@@ -80,6 +80,15 @@ export interface RetargetOptions {
    */
   // ADR-0069, *Amendment (#665)*: the movers, as Motion's `animate(elements)` counts what it's given.
   readonly delay?: number | ((rank: number, n: number) => number)
+  /**
+   * Where a member's key starts from, `NaN` for where it is: it starts there, at `velocity`'s speed (0
+   * when it gives none), toward its target, the one it has when `targetOf` gives `NaN`. For a driver
+   * handing a member's keys back.
+   */
+  // #665's PR 4 (ADR-0069 decision 17): the Batch takes a key back from the member's value and speed.
+  readonly from?: (slot: number, k: number) => number
+  /** Each started key's speed, with `from`. */
+  readonly velocity?: (slot: number, k: number) => number
 }
 
 /** `make`'s options. */
@@ -623,6 +632,8 @@ export const retarget: {
   // each new target and finds the members that move, so the second can count them for their delays.
   let n = 0
   const given = slots.length
+  const fromOf = UndefinedOr.map(options, (bag) => bag.from)
+  const starts = Predicate.isNotUndefined(fromOf)
   for (let g = 0; g < given; g++) {
     const slot = slots[g]
     const flag = flags[slot]
@@ -636,6 +647,8 @@ export const retarget: {
       const target = targetOf(slot, k)
       pending[at] = target
       if (!Number.isNaN(target) && target !== targets[at]) moves = true
+      // Started from a value given, it moves, onto the target it has too.
+      if (starts && !Number.isNaN((fromOf as (slot: number, k: number) => number)(slot, k))) moves = true
     }
     if (!moves) continue
     flags[slot] = flag | COUNTED
@@ -655,6 +668,7 @@ export const retarget: {
   const held = Arr.dedupe(rules)
   Arr.forEach(held, (rule) => hold(state, rule))
   const driven = state.animations.size > 0
+  const speedOf = UndefinedOr.map(options, (bag) => bag.velocity)
   let setOff = 0
   for (let rank = 0; rank < n; rank++) {
     const slot = movers[rank]
@@ -664,9 +678,19 @@ export const retarget: {
     let ruled = false
     for (let k = 0; k < stride; k++) {
       const at = base + k
-      const target = pending[at]
-      if (Number.isNaN(target)) continue
-      if (target === targets[at]) continue
+      let target = pending[at]
+      // A key started from a value given: there, at its speed, toward its target, the one it has unless a new one's given.
+      let jump = Number.NaN
+      if (starts) jump = (fromOf as (slot: number, k: number) => number)(slot, k)
+      const jumps = !Number.isNaN(jump)
+      if (Number.isNaN(target) && !jumps) continue
+      if (Number.isNaN(target)) target = targets[at]
+      if (target === targets[at] && !jumps) continue
+      if (jumps) {
+        state.positions[at] = jump
+        state.velocities[at] = 0
+        if (Predicate.isNotUndefined(speedOf)) state.velocities[at] = speedOf(slot, k)
+      }
       let rule = rules[k]
       if (Predicate.isNotUndefined(ruleAt)) rule = ruleAt(slot, k)
       const entry = state.entries[rule]

@@ -37,6 +37,8 @@
 // - B18: a change says how many members it sets off from rest, and `isMoving` whether any member moves.
 // - B19: a member's Subject can be replaced mid-flight: the new one is written from the next step, and
 //   the member carries on exactly as it would have, its value, speed and delay kept.
+// - B20: a change can start a member's keys from given values at given speeds, onto targets they already
+//   have too (a driver handing them back, #665's PR 4): each moves as `springValues` from there at that speed.
 import * as Batch from "@wardic/core/Batch"
 import * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -525,5 +527,23 @@ describe("a Batch (#665)", () => {
     expect(rest).toEqual(springFrames("x", 0, 100, { ...spring, delay: 0.05 }).slice(6))
     expect(writes.every((write) => write.subject === "b")).toBe(true)
     expect(writes.length).toBe(rest.length)
+  })
+
+  it("B20: a change starts keys from given values and speeds, onto the same targets too", () => {
+    const { writer } = recording<string>()
+    const spring = { type: "spring", stiffness: 210, damping: 20 } as const
+    const batch = Batch.make({ keys: ["x", "y"], writer, transition: spring })
+    const a = Batch.enter(batch, "a", { x: 100, y: 0 })
+    const b = Batch.enter(batch, "b", { x: 0, y: 0 })
+    // a rests at 100, its target; b at 0. Handed back: a from 40 at 300 px/s toward its 100; b's y from 20 at -50.
+    const from = (slot: number, k: number): number => [[40, Number.NaN], [Number.NaN, 20]][slot][k]
+    const velocity = (slot: number, k: number): number => [[300, 0], [0, -50]][slot][k]
+    expect(Batch.retarget(batch, [a, b], () => Number.NaN, { from, velocity })).toBe(2)
+    const [ax, bx] = steppedAll(batch, [a, b], "x")
+    const oracle = springFrames("x", 40, 100, spring, 300)
+    expect(ax.length).toBe(oracle.length)
+    ax.forEach((x, f) => expect(x, `frame ${f}`).toBeCloseTo(oracle[f], 9))
+    // b's x wasn't given: it stays.
+    bx.forEach((x) => expect(x).toBe(0))
   })
 })

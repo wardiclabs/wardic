@@ -177,9 +177,11 @@ export interface FlushGate {
    * value-map and schedule a flush, which writes `restore[key]` (CSS text) for a key it had
    * written, or else the inline value it overwrote, and tells the sink (`onHeld`). A key the
    * entry doesn't hold, or an unknown id, is a no-op. A binding releases a key back at its `style`
-   * value, so a later `style` change shows at rest. A later `write` brings the key back.
+   * value, so a later `style` change shows at rest. A later `write` brings the key back. A property in
+   * `keep` (`transform` for its keys) is left as it's drawn when it drops out: another writer draws it next.
    */
-  readonly release: (id: string, keys: ReadonlyArray<string>, restore?: Readonly<Record<string, string>>) => void
+  // `keep`: #665's PR 4, a Batch member's group handed back to its Batch, whose writer draws it from then on.
+  readonly release: (id: string, keys: ReadonlyArray<string>, restore?: Readonly<Record<string, string>>, keep?: ReadonlyArray<string>) => void
   /**
    * The element's value for `id`'s `key`, live: an `Atom` set as each write that
    * changes it lands, so it's the value the next commit draws, before the Renderer projects it
@@ -548,9 +550,11 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     commitAll(entries, held)
   }
 
-  const release: FlushGate["release"] = (id, keys, restore) => {
+  const release: FlushGate["release"] = (id, keys, restore, keep) => {
     const entry = accumulator.get(id)
     if (Predicate.isUndefined(entry)) return
+    // A property another writer draws next: dropped from what's saved, so its drop-out writes nothing.
+    if (Predicate.isNotUndefined(keep)) for (const property of keep) entry.committed.delete(property)
     let released = false
     for (const key of keys) {
       if (!Object.hasOwn(entry.values, key)) continue

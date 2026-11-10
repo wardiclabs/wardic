@@ -1462,7 +1462,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         snapshot,
         recordFrame,
         // A drag's start turns its `style`'s will-change value on (#443).
-        setDragging: draggingWithWillChange(live, (on: boolean) => setGesture(el, "dragging", on)),
+        setDragging: draggingWithWillChange(live, (on: boolean) => setGesture(el, "dragging", on), el),
         mapPoint: pagePoint,
         skipAnimations,
         config: {

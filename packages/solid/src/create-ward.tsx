@@ -729,7 +729,7 @@ export function runSpine(opts: RunSpineOptions): void {
         // element that never drags keeps none of them (#551).
         const axis = dragCfg
         const transition = dragTransition
-        const setDrag = draggingWithWillChange(live, setDragging)
+        const setDrag = draggingWithWillChange(live, setDragging, element)
         const nodeAtMount = layoutHandle
         const nodeLater = lateLayout
         // It drives the layout node the element has as it's made, at mount or as `drag` arrives: a
