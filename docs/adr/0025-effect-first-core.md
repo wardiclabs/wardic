@@ -630,3 +630,11 @@ Found in the review of 2026-11-05 (H1). The per-frame rule said where code was, 
 **Measured** with #618's PR 7 (the Renderer read once, M1, and Solid 2's `Reorder.Item`, M3, beside):
 - **`bench:core --base main`:** every workload passed on Bun, Node and Chromium. `keyframesValues/loop` −2.3% on Node and −9.4% on Chromium; the rest within noise.
 - **`bench:solid --base main`:** every gate passed. Warm mount −11.4% on Solid 1 and −4.7% on Solid 2, most of it M1's, whose work moves into the first frame (ADR-0067, *Note (#618, 2026-11-06)*); bytes per element −0.3% and −0.8%; Solid 2's Reorder item retained −3.0%; the layout scenes within noise.
+
+## Amendment (#665, 2026-11-10): a Batch's change is a pass over its typed arrays, as its step is
+
+A Batch (ADR-0069, decisions 10–18) keeps each member's keys in typed arrays. Its step runs over every moving member once a frame, so it's on the per-frame path, and `Batch.ts` joins lint's per-frame loop files. Its change, `Batch.retarget`, runs once a change, but over every member it's given, key by key: retargeting the whole Batch is the same walk over the same arrays as one frame, and it's what a Batch is for (1,000 elements retargeted in 0.1 ms against 12.2 ms, `.tmp/564-canvas/dom/`).
+
+- **The change takes the per-frame forms:** a counted loop over each member's keys, plain index reads and writes, and statements. Its loop over the slots it's given stays `Arr.forEach`.
+- **What it does once a change** follows the full rules: the transitions resolved (a `Match` built once), the delay checked by `internal/options.ts`.
+- Rejected: `Arr` over each member's keys, which builds a closure per member per change.

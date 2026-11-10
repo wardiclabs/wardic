@@ -91,14 +91,11 @@ interface LoopWorkload {
 /**
  * One run for every element (#665): a Batch's, or the hand loop it's measured against. Its run
  * steps all `n` members each tick and calls `onFrame` once; the harness counts that as `n` frames.
+ * Its `scale` is members per element of N, as a loop workload's is runs.
  */
-interface BatchWorkload {
+interface BatchWorkload extends Pick<LoopWorkload, "runsOn" | "scale"> {
   readonly name: string
   readonly batch: (core: Core, n: number, onFrame: () => void) => Effect.Effect<void, never, any>
-  /** As {@link StreamWorkload}'s. */
-  readonly runsOn?: (core: Core) => boolean
-  /** As {@link LoopWorkload}'s: members per element of N. */
-  readonly scale?: number
 }
 
 /** A machine built with a service (`animateValues`, `springBlend`), as a Stream. */
@@ -115,10 +112,12 @@ const isLoopWorkload = (workload: Workload): workload is LoopWorkload => "machin
 
 const isBatchWorkload = (workload: Workload): workload is BatchWorkload => "batch" in workload
 
+/** Whether a workload runs on a Frame loop: a run per element, or one for all. */
+const onLoop = (workload: Workload): workload is LoopWorkload | BatchWorkload => isLoopWorkload(workload) || isBatchWorkload(workload)
+
 /** How many runs a workload times: N, times its `scale` (#545); a Batch's members, counted as runs. */
 const runsOf = (workload: Workload, options: Options): number => {
-  if (isBatchWorkload(workload) && workload.scale !== undefined) return options.n * workload.scale
-  if (!isLoopWorkload(workload) || workload.scale === undefined) return options.n
+  if (!onLoop(workload) || workload.scale === undefined) return options.n
   return options.n * workload.scale
 }
 
@@ -491,9 +490,9 @@ const runRound = async (
     Layer.effect(core.Clock.Clock)(core.Clock.fromRefreshFrames(frames.source)),
     registry,
   )
-  // Only the loop workloads build a Frame loop, so the Stream workloads' Environment is the same in both cores.
+  // Only the workloads on a Frame loop build one, so the Stream workloads' Environment is the same in both cores.
   let environment: Layer.Layer<any, never, AtomRegistry.AtomRegistry> = services
-  if (isLoopWorkload(workload) || isBatchWorkload(workload)) environment = core.FrameLoop.layer.pipe(Layer.provideMerge(services))
+  if (onLoop(workload)) environment = core.FrameLoop.layer.pipe(Layer.provideMerge(services))
   const layer = environment.pipe(
     Layer.provideMerge(AtomRegistry.layer),
     Layer.provideMerge(Layer.succeed(Scheduler.Scheduler, new Scheduler.MixedScheduler("sync"))),

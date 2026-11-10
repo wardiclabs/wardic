@@ -24,6 +24,14 @@
 //   `springValues`' does, a member moving or not.
 // - B12: at rest a Batch forgets the transitions its changes gave, so a bag a call makes each time
 //   doesn't pile up; a member that left takes no change.
+// - B13: after a spring set by duration, a change to another key still rests, and so does a member
+//   that takes the slot.
+// - B14: a change that moves nothing keeps no transition, and a Batch that never rests holds only
+//   the transitions its keys run now, however many bags its changes bring.
+// - B15: `get` and `velocity` name a key the Batch doesn't have; a slot given twice in one change
+//   moves once, and counts once for the delays.
+// - B16: a Batch's own transition can be one per key, with a `default` for the rest; a key with neither
+//   is named.
 import * as Batch from "@wardic/core/Batch"
 import * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -47,7 +55,7 @@ const pushable = Effect.fnUntraced(function* () {
 })
 
 /** A writer that draws nothing: what each frame wrote, per subject, as a copy of its values. */
-const recording = <S,>(keys: ReadonlyArray<string>) => {
+const recording = <S,>() => {
   const writes: Array<{ readonly subject: S; readonly values: Record<string, number> }> = []
   const writer: Batch.Writer<S> = {
     writes: () => true,
@@ -59,7 +67,7 @@ const recording = <S,>(keys: ReadonlyArray<string>) => {
       writes.push({ subject, values })
     },
   }
-  return { writer, writes, keys }
+  return { writer, writes }
 }
 
 /** `batch`'s value for `key` at `slot` each step, until it rests: its frames. */
@@ -118,16 +126,11 @@ const springFrames = (key: string, from: number, to: number, options: Machine.Sp
 describe("a Batch (#665)", () => {
   it("B1: a member's spring lands frame for frame as springValues' does", () => {
     const spring = { stiffness: 210, damping: 20 }
-    const { writer, writes } = recording<string>(["x"])
+    const { writer, writes } = recording<string>()
     const batch = Batch.make({ keys: ["x"], writer, transition: { type: "spring", ...spring } })
     const slot = Batch.enter(batch, "a", { x: 0 })
     Batch.retarget(batch, [slot], () => 100)
-    const steps: Array<number> = []
-    Array.from({ length: 600 }).some(() => {
-      const done = Batch.step(batch, F)
-      steps.push(Batch.get(batch, slot, "x"))
-      return done
-    })
+    const steps = stepped(batch, slot, "x")
     const oracle = springFrames("x", 0, 100, spring)
     expect(steps).toEqual(oracle)
     expect(writes.map((write) => write.values.x)).toEqual(oracle)
@@ -136,7 +139,7 @@ describe("a Batch (#665)", () => {
 
   it("B2: a new target mid-flight turns it at the speed it has", () => {
     const spring = { stiffness: 210, damping: 20 }
-    const { writer } = recording<string>(["x"])
+    const { writer } = recording<string>()
     const batch = Batch.make({ keys: ["x"], writer, transition: { type: "spring", ...spring } })
     const slot = Batch.enter(batch, "a", { x: 0 })
     Batch.retarget(batch, [slot], () => 100)
@@ -150,7 +153,7 @@ describe("a Batch (#665)", () => {
 
   it("B3: a tween as Machine.tween's; a new target starts again from where it is, a spring at its speed", () => {
     const tween = { duration: 0.3, ease: "easeOut" } as const
-    const { writer } = recording<string>(["x"])
+    const { writer } = recording<string>()
     const batch = Batch.make({ keys: ["x"], writer, transition: { type: "tween", ...tween } })
     const slot = Batch.enter(batch, "a", { x: 10 })
     Batch.retarget(batch, [slot], () => 110)
@@ -177,7 +180,7 @@ describe("a Batch (#665)", () => {
   it("B4: members on different transitions step at once; a change can give one per key", () => {
     const soft = { type: "spring", stiffness: 120, damping: 14 } as const
     const stiff = { type: "spring", stiffness: 400, damping: 30 } as const
-    const { writer } = recording<string>(["x", "opacity"])
+    const { writer } = recording<string>()
     const batch = Batch.make({ keys: ["x", "opacity"], writer, transition: soft })
     const a = Batch.enter(batch, "a", { x: 0, opacity: 1 })
     const b = Batch.enter(batch, "b", { x: 0, opacity: 1 })
@@ -210,7 +213,7 @@ describe("a Batch (#665)", () => {
 
   it("B5: a change's delay counts the members it moves; an unchanged member carries on", () => {
     const spring = { type: "spring", stiffness: 210, damping: 20 } as const
-    const { writer, writes } = recording<number>(["x"])
+    const { writer, writes } = recording<number>()
     const batch = Batch.make({ keys: ["x"], writer, transition: spring })
     const slots = [0, 1, 2, 3, 4].map((n) => Batch.enter(batch, n, { x: 0 }))
     // Member 0 sets off for 50 three frames before the change, which leaves its target as it is.
@@ -235,7 +238,7 @@ describe("a Batch (#665)", () => {
 
   it("B6: entering past the capacity grows it, and every member carries on", () => {
     const spring = { type: "spring", stiffness: 210, damping: 20 } as const
-    const { writer } = recording<string>(["x", "y"])
+    const { writer } = recording<string>()
     const batch = Batch.make({ keys: ["x", "y"], writer, transition: spring, capacity: 2 })
     const a = Batch.enter(batch, "a", { x: 0, y: 0 })
     const b = Batch.enter(batch, "b", { x: 0, y: 10 })
@@ -263,7 +266,7 @@ describe("a Batch (#665)", () => {
 
   it("B7: a member that leaves isn't written again, and its slot goes to the next, from its own start", () => {
     const spring = { type: "spring", stiffness: 210, damping: 20 } as const
-    const { writer, writes } = recording<string>(["x"])
+    const { writer, writes } = recording<string>()
     const batch = Batch.make({ keys: ["x"], writer, transition: spring })
     const a = Batch.enter(batch, "a", { x: 0 })
     const b = Batch.enter(batch, "b", { x: 0 })
@@ -288,7 +291,7 @@ describe("a Batch (#665)", () => {
       const spring = { type: "spring", stiffness: 210, damping: 20 } as const
       const { loop, advance } = yield* pushable()
       const context = yield* Layer.build(loop)
-      const { writer } = recording<string>(["x"])
+      const { writer } = recording<string>()
       let frames = 0
       let onLanding = (): void => {}
       const batch = Batch.make({
@@ -334,13 +337,13 @@ describe("a Batch (#665)", () => {
 
   it("B9: what a Batch can't run throws an OptionError naming it", () => {
     const spring = { type: "spring" } as const
-    const { writer } = recording<string>(["x"])
+    const { writer } = recording<string>()
     const drawsX: Batch.Writer<string> = { ...writer, writes: (key) => key === "x" }
     expect(() => Batch.make({ keys: ["x", "color"], writer: drawsX, transition: spring })).toThrow(Machine.OptionError)
     expect(() => Batch.make({ keys: ["x", "color"], writer: drawsX, transition: spring })).toThrow(/"color"/)
     const inertia = { type: "inertia" } as unknown as Batch.Transition
     expect(() => Batch.make({ keys: ["x"], writer, transition: inertia })).toThrow(Machine.OptionError)
-    expect(() => Batch.make({ keys: ["x"], writer, transition: inertia })).toThrow(/"inertia"/)
+    expect(() => Batch.make({ keys: ["x"], writer, transition: inertia })).toThrow(/"spring" \| "tween"/)
     expect(() => Batch.make({ keys: ["x"], writer, transition: { type: "spring", stiffness: -1 } })).toThrow(/stiffness/)
     const batch = Batch.make({ keys: ["x"], writer, transition: spring })
     const slot = Batch.enter(batch, "a", { x: 0 })
@@ -348,7 +351,7 @@ describe("a Batch (#665)", () => {
   })
 
   it("B10: each dual operation's two forms give one type, and pipe runs the data-last form", () => {
-    const { writer } = recording<string>(["x"])
+    const { writer } = recording<string>()
     const batch = Batch.make({ keys: ["x"], writer, transition: { type: "spring" } })
     expectTypeOf(Batch.enter(batch, "a", { x: 0 })).toEqualTypeOf(batch.pipe(Batch.enter("b", { x: 0 })))
     expectTypeOf(Batch.retarget(batch, [0], () => 1)).toEqualTypeOf(batch.pipe(Batch.retarget([1], () => 1, { delay: 0.1 })))
@@ -363,7 +366,7 @@ describe("a Batch (#665)", () => {
 
   it("B11: a spring set by duration starts from rest and lands at its duration, as springValues'", () => {
     const timed = { type: "spring", duration: 0.4, bounce: 0.2 } as const
-    const { writer } = recording<string>(["x"])
+    const { writer } = recording<string>()
     const batch = Batch.make({ keys: ["x"], writer, transition: { type: "spring", stiffness: 210, damping: 20 } })
     const slot = Batch.enter(batch, "a", { x: 0 })
     Batch.retarget(batch, [slot], () => 100)
@@ -379,13 +382,14 @@ describe("a Batch (#665)", () => {
   })
 
   it("B12: at rest a Batch forgets the transitions its changes gave; a member that left takes no change", () => {
-    const { writer, writes } = recording<string>(["x"])
+    const { writer, writes } = recording<string>()
     const batch = Batch.make({ keys: ["x"], writer, transition: { type: "spring" } })
     const slot = Batch.enter(batch, "a", { x: 0 })
     Array.from({ length: 3 }).forEach((_, n) => {
       Batch.retarget(batch, [slot], () => n + 1, { transition: { type: "tween", duration: 0 } })
     })
-    expect(batch.toJSON()).toMatchObject({ transitions: 4, moving: 1 })
+    // Each change's bag replaces the last on the key, which frees it: the Batch's own and the latest.
+    expect(batch.toJSON()).toMatchObject({ transitions: 2, moving: 1 })
     stepped(batch, slot, "x")
     expect(Batch.get(batch, slot, "x")).toBe(3)
     expect(batch.toJSON()).toMatchObject({ transitions: 1, moving: 0 })
@@ -399,5 +403,75 @@ describe("a Batch (#665)", () => {
     expect(batch.toJSON()).toMatchObject({ moving: 0 })
     expect(Batch.step(batch, F)).toBe(true)
     expect(writes.length).toBe(0)
+  })
+
+  it("B13: after a spring set by duration, a change to another key rests, and so does the slot's next member", () => {
+    const timed = { type: "spring", duration: 0.3 } as const
+    const { writer } = recording<string>()
+    const batch = Batch.make({ keys: ["x", "y"], writer, transition: { type: "spring" } })
+    const a = Batch.enter(batch, "a", { x: 0, y: 0 })
+    Batch.retarget(batch, [a], () => 100, { transition: timed })
+    stepped(batch, a, "x")
+    Batch.retarget(batch, [a], (_, k) => [200, Number.NaN][k])
+    expect(stepped(batch, a, "x")).toEqual(springFrames("x", 100, 200, {}))
+    Batch.leave(batch, a)
+    const b = Batch.enter(batch, "b", { x: 0, y: 0 })
+    expect(b).toBe(a)
+    Batch.retarget(batch, [b], (_, k) => [50, Number.NaN][k])
+    expect(stepped(batch, b, "x")).toEqual(springFrames("x", 0, 50, {}))
+  })
+
+  it("B14: a change that moves nothing keeps no transition; a Batch that never rests holds only those its keys run", () => {
+    const { writer } = recording<string>()
+    const batch = Batch.make({ keys: ["x"], writer, transition: { type: "spring" } })
+    const slot = Batch.enter(batch, "a", { x: 0 })
+    Array.from({ length: 100 }).forEach(() => Batch.retarget(batch, [slot], () => 0, { transition: { type: "spring", stiffness: 300 } }))
+    expect(batch.toJSON()).toMatchObject({ transitions: 1, moving: 0 })
+    // A pointer's every move, each with a bag of its own, for 200 frames: it never rests.
+    Array.from({ length: 200 }).forEach((_, n) => {
+      Batch.retarget(batch, [slot], () => 100 + n, { transition: { type: "spring", stiffness: 300 } })
+      Batch.step(batch, F)
+    })
+    expect(batch.toJSON()).toMatchObject({ transitions: 2, moving: 1 })
+    stepped(batch, slot, "x")
+    expect(Batch.get(batch, slot, "x")).toBe(299)
+    expect(batch.toJSON()).toMatchObject({ transitions: 1, moving: 0 })
+  })
+
+  it("B15: get and velocity name a key the Batch lacks; a slot given twice moves once, counted once", () => {
+    const { writer } = recording<string>()
+    const batch = Batch.make({ keys: ["x"], writer, transition: { type: "spring" } })
+    const a = Batch.enter(batch, "a", { x: 0 })
+    const b = Batch.enter(batch, "b", { x: 0 })
+    expect(() => Batch.get(batch, a, "y")).toThrow(/"y"/)
+    expect(() => Batch.velocity(batch, a, "y")).toThrow(/"y"/)
+    const delay = Stagger.make(0.1)
+    Batch.retarget(batch, [a, a, b], () => 100, { delay })
+    const [xa, xb] = steppedAll(batch, [a, b], "x")
+    expect(xa).toEqual(heldTo(springFrames("x", 0, 100, {}), xa.length))
+    expect(xb).toEqual(heldTo(springFrames("x", 0, 100, { delay: delay(1, 2) }), xa.length))
+  })
+
+  it("B16: a Batch's own transition can be one per key, with a default; a key with neither is named", () => {
+    const soft = { type: "spring", stiffness: 120, damping: 14 } as const
+    const fade = { type: "tween", duration: 0.2 } as const
+    const { writer } = recording<string>()
+    const batch = Batch.make({ keys: ["x", "opacity"], writer, transition: { default: soft, opacity: fade } })
+    const slot = Batch.enter(batch, "a", { x: 0, opacity: 1 })
+    Batch.retarget(batch, [slot], (_, k) => [80, 0][k])
+    const x: Array<number> = []
+    const opacity: Array<number> = []
+    Array.from({ length: 600 }).some(() => {
+      const done = Batch.step(batch, F)
+      x.push(Batch.get(batch, slot, "x"))
+      opacity.push(Batch.get(batch, slot, "opacity"))
+      return done
+    })
+    expect(x).toEqual(springFrames("x", 0, 80, soft))
+    expect(opacity).toEqual(heldTo(tweenFrames(1, 0, fade), x.length))
+    // Its own transitions stay when it rests: they're not a change's.
+    expect(batch.toJSON()).toMatchObject({ transitions: 2 })
+    expect(() => Batch.make({ keys: ["x", "y"], writer, transition: { x: soft } })).toThrow(Machine.OptionError)
+    expect(() => Batch.make({ keys: ["x", "y"], writer, transition: { x: soft } })).toThrow(/\["y"\]/)
   })
 })
