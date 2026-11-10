@@ -22,7 +22,7 @@ Call it in a component under a `WardicProvider`: the component's cleanup stops i
 
 `animate(subject, target, options?)` animates the subject's elements to `target`:
 
-- **The subject** is an element (`scope.current`), a selector, looked up inside the scope's element (the page, before it's mounted), or a list of elements. A [Batch](/reference/solid/animation/create-batch#animating-it-from-code), or one member's handle, moves its members as one.
+- **The subject** is an element (`scope.current`), a selector, looked up inside the scope's element (the page, before it's mounted), or a list of elements. A [Batch](/reference/solid/animation/create-batch#animating-it-from-code), or one member's handle, moves its members as one; a member's element moves its member, and the keys the Batch doesn't have as any element's.
 - **The target** is values, each a value or a list of keyframes, as an `animate` prop's: `{ x: 100 }`, `{ opacity: [0, 1] }`.
 - **The options** are a transition (`type`, `duration`, `ease`, a spring's fields…), its `delay` a number or a function of each element's index and their count, such as `stagger(0.05)`, and `onComplete`, called as it lands.
 
