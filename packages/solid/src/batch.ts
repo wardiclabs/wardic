@@ -25,7 +25,6 @@ import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as DomBatchWriter from "@wardic/dom/DomBatchWriter"
 import * as Svg from "@wardic/dom/Svg"
 import * as Arr from "effect/Array"
-import * as Effect from "effect/Effect"
 import type * as Fiber from "effect/Fiber"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -266,11 +265,33 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
       hooks.started()
     }
     moved = moved + setOff
-    const fiber = env.runtime.runFork(Effect.ensuring(Batch.run(batch), Effect.sync(() => {
+    // Heard by an observer, not an `Effect.ensuring`: one primitive fewer at each change (#665's profile).
+    const fiber = env.runtime.runFork(Batch.run(batch))
+    fibers.add(fiber)
+    fiber.addObserver(() => {
       fibers.delete(fiber)
       ended()
-    })))
-    fibers.add(fiber)
+    })
+  }
+
+  /**
+   * A change's transitions: one per key, by its name, when every key has its own; else a function of
+   * a member's slot, for the keys on their Default transition, which each member's target decides.
+   */
+  // A function called per member's key cost a change at 1,000 members a call each (#665's profile).
+  const transitionOf = (planned: ReadonlyArray<Batch.Transition | undefined>): Batch.Transitions | ((slot: number, k: number) => Batch.Transition) => {
+    if (Arr.every(planned, Predicate.isNotUndefined)) {
+      const byKey: Record<string, Batch.Transition> = {}
+      Arr.forEach(keys, (key, k) => {
+        byKey[key] = planned[k] as Batch.Transition
+      })
+      return byKey
+    }
+    return (slot, k) => {
+      const own = planned[k]
+      if (Predicate.isNotUndefined(own)) return own
+      return env.defaultTransition.transitionFor(keys[k], targetOf(slot, k)) as Batch.Transition
+    }
   }
 
   /** The change for `slots` now: their targets, with this moment's transitions. */
@@ -283,11 +304,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
     }
     const reduced = env.reducedMotion() && UndefinedOr.map(configured, (given) => given.respectReducedMotion) !== false
     const planned = plannedOf(env, keys, UndefinedOr.map(configured, undelayed), reduced)
-    const transition = (slot: number, k: number): Batch.Transition => {
-      const own = planned[k]
-      if (Predicate.isNotUndefined(own)) return own
-      return env.defaultTransition.transitionFor(keys[k], targetOf(slot, k)) as Batch.Transition
-    }
+    const transition = transitionOf(planned)
     const delay = delayOf(configured)
     if (Predicate.isUndefined(delay)) {
       wake(Batch.retarget(batch, slots, targetOf, { transition }))

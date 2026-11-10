@@ -527,15 +527,17 @@ export const retarget: {
 } = dual(isBatch, <S>(self: Batch<S>, slots: ReadonlyArray<number>, targetOf: (slot: number, k: number) => number, options?: RetargetOptions): number => {
   const state = stateOf(self)
   const { stride, pending, movers, targets, flags } = state
-  // Per member per key at a change, a Batch's own loop over its typed arrays, as its step's (ADR-0025,
-  // *Amendment (#665)*). The first pass keeps each new target and finds the members that move, so the
-  // second can count them for their delays.
+  // Per member per key at a change, a Batch's own loops over its typed arrays, as its step's (ADR-0025,
+  // *Amendment (#665)*): `Arr.forEach` over the slots cost a closure call each. The first pass keeps
+  // each new target and finds the members that move, so the second can count them for their delays.
   let n = 0
-  Arr.forEach(slots, (slot) => {
+  const given = slots.length
+  for (let g = 0; g < given; g++) {
+    const slot = slots[g]
     const flag = flags[slot]
     // A member that left takes no change; one given twice moves once.
-    if ((flag & LIVE) === 0) return
-    if ((flag & COUNTED) !== 0) return
+    if ((flag & LIVE) === 0) continue
+    if ((flag & COUNTED) !== 0) continue
     const base = slot * stride
     let moves = false
     for (let k = 0; k < stride; k++) {
@@ -544,17 +546,17 @@ export const retarget: {
       pending[at] = target
       if (!Number.isNaN(target) && target !== targets[at]) moves = true
     }
-    if (!moves) return
+    if (!moves) continue
     flags[slot] = flag | COUNTED
     movers[n] = slot
     n++
-  })
+  }
   // A change that moves nothing touches no transition.
   if (n === 0) return 0
-  const given = UndefinedOr.map(options, (bag) => bag.transition)
+  const transitions = UndefinedOr.map(options, (bag) => bag.transition)
   let rules = state.ownRules
-  if (Predicate.isNotUndefined(given) && !Predicate.isFunction(given)) rules = rulesOf(state, given, (k) => state.ownRules[k])
-  const ruleAt = ruleAtOf(state, given)
+  if (Predicate.isNotUndefined(transitions) && !Predicate.isFunction(transitions)) rules = rulesOf(state, transitions, (k) => state.ownRules[k])
+  const ruleAt = ruleAtOf(state, transitions)
   const delay = UndefinedOr.map(options, (bag) => bag.delay)
   if (Predicate.isNotUndefined(delay)) checked(Delay, delay, "delay")
   const delayOf = delayOfChange(delay)

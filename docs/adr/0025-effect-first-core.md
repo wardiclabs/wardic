@@ -635,7 +635,7 @@ Found in the review of 2026-11-05 (H1). The per-frame rule said where code was, 
 
 A Batch (ADR-0069, decisions 10–18) keeps each member's keys in typed arrays. Its step runs over every moving member once a frame, so it's on the per-frame path, and `Batch.ts` joins lint's per-frame loop files. Its change, `Batch.retarget`, runs once a change, but over every member it's given, key by key: retargeting the whole Batch is the same walk over the same arrays as one frame, and it's what a Batch is for (1,000 elements retargeted in 0.1 ms against 12.2 ms, `.tmp/564-canvas/dom/`).
 
-- **The change takes the per-frame forms:** a counted loop over each member's keys, plain index reads and writes, and statements. Its loop over the slots it's given stays `Arr.forEach`.
+- **The change takes the per-frame forms:** counted loops over the slots it's given and each member's keys, plain index reads and writes, and statements. `Arr.forEach` over the slots called a closure of its own for each (Chromium profile, 1,000 members).
 - **What it does once a change** follows the full rules: the transitions resolved (a `Match` built once), the delay checked by `internal/options.ts`.
 - **The bindings' `createBatch`** (`packages/solid/src/batch.ts`) reads its members' targets the same way, a counted loop per member at creation and at each change, and is listed with the mount path's loop files.
 - Rejected: `Arr` over each member's keys, which builds a closure per member per change.
