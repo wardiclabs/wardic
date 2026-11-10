@@ -1,7 +1,7 @@
 ---
 title: createBatch
 description: Animates many elements on the same keys as one Batch, for a list, a grid or a chart's points that move together.
-api: [createBatch, WardicBatch, WardicBatchConfig, WardicBatchEvents, WardicBatchKey, WardicBatchLanding, WardicBatchMember, WardicBatchMemberProps, WardicBatchTransition, WardicBatchValues]
+api: [createBatch, WardicBatch, WardicBatchConfig, WardicBatchEvents, WardicBatchKey, WardicBatchLanding, WardicBatchMember, WardicBatchMemberProps, WardicBatchStop, WardicBatchSubject, WardicBatchTarget, WardicBatchTransition, WardicBatchValues]
 ---
 
 # createBatch
@@ -49,6 +49,19 @@ import { isPending } from "solid-js"
 
 On Solid 1, `onAnimationStart` is called as members set off from rest, and `onAnimationComplete(landing)` once every one is at rest again.
 
+## Animating it from code
+
+[`createAnimate`](/reference/solid/animation/create-animate)'s `animate` takes a Batch, or one member's handle, and returns the same playback controls it returns for an element: `await` it, pause it, seek it, change its speed, complete, cancel or stop it.
+
+```tsx
+const [scope, animate] = createAnimate()
+const shuffle = () => animate(grid, { x: (i) => colX(order[i]), y: (i) => rowY(order[i]) }, { type: "spring", delay: stagger(0.002) })
+animate(grid, { opacity: [0, 1] })     // two stops: every member from 0, to 1
+animate(grid.at(42), { scale: 1.4 })   // one member
+```
+
+Each key takes a number for every member, a function of the member's index and the Batch's count, or two stops, its first and its target. Its keys are the Batch's. A later change of a member's key, by `animate(i)` or another call, takes it: that member goes the later change's way, and the call it left doesn't finish, as a Wardic element's does.
+
 ## Coming from Motion
 
 Motion has no Batch: its `animate(elements, …)` runs each element on its own, as [`createAnimate`](/reference/solid/animation/create-animate) does. A Batch is for the collections where that cost shows: hundreds or thousands of like elements moving at once.
@@ -58,3 +71,4 @@ Motion has no Batch: its `animate(elements, …)` runs each element on its own, 
 - **`WardicBatchConfig`:** its config. **`WardicBatchValues`:** a member's values. **`WardicBatchTransition`:** its transition, its `delay` a `stagger()` too.
 - **`WardicBatch`:** what it returns. **`WardicBatchMember`:** a member's handle. **`WardicBatchMemberProps`:** the element's own props a handle takes.
 - **`WardicBatchLanding`:** a landing, `{ moved }`. **`WardicBatchEvents`:** (Solid 2) its events, for `next` and `when`.
+- **`WardicBatchSubject`:** what `animate` takes for a Batch, a Batch or a member's handle. **`WardicBatchTarget`:** its targets there. **`WardicBatchStop`:** one stop, a number or a function of a member's index and the count.
