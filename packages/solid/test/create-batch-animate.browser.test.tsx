@@ -10,6 +10,10 @@
 //   never finishes (a ward's latest-wins).
 // - CBA4: `animate(grid.at(i), …)` moves that member alone; two stops start each member from its first.
 // - CBA5: a key the Batch doesn't have, and more than two stops, are errors naming them.
+// - CBA6: over two transitions, a spring's `x` and a tween's `opacity`, `time`, `duration`, a backwards
+//   play to its start and `stop` mid-tween act as a plain element's call's.
+// - CBA7: a call that moves nothing resolves, as does one whose own `skipAnimations` lands it at once; a
+//   function that gives a member two stops starts it from its first.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { createAnimate, createBatch, stagger, type WardicAnimate, type WardicBatch, WardicProvider } from "@wardic/solid"
@@ -149,5 +153,53 @@ describe("animate of a Batch on Solid 1 (#665)", () => {
     await raf()
     expect(() => animate(grid, { y: 10 } as never)).toThrow(/"y"/)
     expect(() => animate(grid, { x: [0, 10, 20] } as never)).toThrow(/"x"/)
+  })
+
+  it("CBA6: over two transitions, time, duration, a backwards play and stop mid-tween act as a plain element's call's", async () => {
+    const { grid, animate, members, plain } = mountBoth(1, () => ({ x: 0, opacity: 0.2 }))
+    await animate(plain[0], { opacity: 0.2 }, { duration: 0 })
+    await raf()
+    const target = { x: 120, opacity: 1 }
+    const options = { x: SPRING, opacity: { duration: 0.6 } }
+    const batched = animate(grid, target, options)
+    const own = animate(plain[0], target, options)
+    expect(batched.duration).toBeCloseTo(own.duration, 6)
+    await readsOver(12, [members[0]], xOf)
+    expect(batched.time).toBeCloseTo(own.time, 6)
+    // Backwards to its start, where it ends as an element's call does.
+    batched.speed = -1
+    own.speed = -1
+    const back = await readsOver(20, [members[0], plain[0]], xOf)
+    expectSame(back[0], back[1])
+    expect([xOf(members[0]), batched.state, batched.time]).toEqual([xOf(plain[0]), own.state, own.time])
+    // Stopped mid-tween, opacity stays where it is.
+    const again = animate(grid, { opacity: 0.9 }, { duration: 0.6 })
+    const plainAgain = animate(plain[0], { opacity: 0.9 }, { duration: 0.6 })
+    await readsOver(10, [members[0]], opacityOf)
+    again.stop()
+    plainAgain.stop()
+    const held = await readsOver(6, [members[0], plain[0]], opacityOf)
+    expect(new Set(held[0]).size).toBe(1)
+    expectSame(held[0], held[1])
+    expect(again.state).toBe(plainAgain.state)
+  })
+
+  it("CBA7: a call that moves nothing resolves, and so does one it skips; a function giving two stops starts each from its first", async () => {
+    const { grid, animate, members } = mountBoth(3)
+    await raf()
+    await animate(grid, { x: 0 }, SPRING)
+    const skipped = animate(grid, { x: 80 }, { ...SPRING, skipAnimations: true })
+    await raf()
+    await raf()
+    expect(members.map(xOf)).toEqual([80, 80, 80])
+    await skipped
+    void animate(grid, { x: (i) => [-20 * i, 10] }, { duration: 0.5 })
+    await raf()
+    await raf()
+    const firsts = members.map(xOf)
+    expect(firsts[1]).toBeLessThan(0)
+    expect(firsts[2]).toBeLessThan(firsts[1])
+    await readsOver(40, members, xOf)
+    expect(members.map(xOf)).toEqual([10, 10, 10])
   })
 })

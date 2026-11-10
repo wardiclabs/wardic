@@ -6,8 +6,9 @@
 // - CV2: `settled()` is `undefined` and not pending before anything moves, pending while members move,
 //   then the landing, with how many set off; `next("settled")` resolves with it; an unmount stops it.
 // - CV3: `when("settled")` tells an effect every landing.
-// - CV4: `createAnimate`'s `animate(grid, …)` moves its members on Solid 2 too: its controls are awaited,
-//   and `scope.settled()` is pending while it plays.
+// - CV4: `createAnimate`'s `animate(grid, …)` moves its members on Solid 2 too, each as the same call on a
+//   plain element under the same provider moves it, frame for frame: its controls are awaited, and
+//   `scope.settled()` is pending while it plays.
 //
 // Its misuse errors are the shared work's, and Solid 1's CB7 holds them: one thrown in a Solid 2 render
 // halts that root's reactive system for the file's later tests.
@@ -123,8 +124,9 @@ describe("createBatch on Solid 2 (#665)", () => {
     expect(heard).toEqual([2, 2])
   })
 
-  it("CV4: animate(grid, …) moves its members on Solid 2: its controls are awaited, scope.settled() pending meanwhile", async () => {
+  it("CV4: animate(grid, …) moves each member as the same call on a plain element: awaited, scope.settled() pending meanwhile", async () => {
     const members: Array<HTMLDivElement> = []
+    const plain: Array<HTMLDivElement> = []
     let grid!: ReturnType<typeof createBatch>
     let scope!: WardicAnimationScope
     let animate!: WardicAnimate
@@ -134,6 +136,7 @@ describe("createBatch on Solid 2 (#665)", () => {
       return (
         <div ref={scope}>
           <For each={[0, 1]}>{(i) => <div style={BOX} {...grid.at(i, { ref: (el) => (members[i] = el as HTMLDivElement) })} />}</For>
+          <For each={[0, 1]}>{(i) => <div style={BOX} ref={(el: HTMLDivElement) => (plain[i] = el)} />}</For>
         </div>
       )
     }
@@ -146,9 +149,11 @@ describe("createBatch on Solid 2 (#665)", () => {
     // Its first read is never pending (a ward's settled() isn't either): read before the call, as CV1 of createAnimate's does.
     expect(scope.settled()).toBeUndefined()
     const controls = animate(grid, { x: (i) => 50 + i * 10 }, SPRING)
-    await raf()
-    await raf()
+    plain.forEach((el, i) => animate(el, { x: 50 + i * 10 }, SPRING))
+    const frames = await xsOver(2, [...members, ...plain])
     expect(isPending(() => scope.settled()), "playing").toBe(true)
+    const rest = await xsOver(60, [...members, ...plain])
+    ;[0, 1].forEach((i) => [...frames[i], ...rest[i]].forEach((x, f) => expect(x, `member ${i}, frame ${f}`).toBeCloseTo([...frames[i + 2], ...rest[i + 2]][f], 6)))
     await controls
     expect(members.map(xOf)).toEqual([50, 60])
     await raf()

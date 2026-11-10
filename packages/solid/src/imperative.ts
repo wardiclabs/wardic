@@ -237,10 +237,16 @@ const subjectsOf = (subject: WardicAnimationSubject, scope: Element | undefined)
   return Arr.filter(Arr.makeBy(list.length, (i) => list[i] as Element), Predicate.isNotNullish)
 }
 
+/** A call's options without its `onComplete`: its transition. */
+const withoutComplete = (given: WardicAnimateOptions): Readonly<Record<string, unknown>> => {
+  const { onComplete: _onComplete, ...rest } = given as Readonly<Record<string, unknown>>
+  return rest
+}
+
 /** Each element's transition: its `delay` worked out for it (Motion's `delay(i, n)`). */
 const transitionFor = (options: WardicAnimateOptions | undefined, index: number, count: number): WardicTransition | undefined =>
   UndefinedOr.map(options, (given) => {
-    const { delay, onComplete: _onComplete, ...rest } = given as Readonly<Record<string, unknown>>
+    const { delay, ...rest } = withoutComplete(given)
     if (Predicate.isFunction(delay)) return { ...rest, delay: (delay as (index: number, count: number) => number)(index, count) } as WardicTransition
     if (Predicate.isUndefined(delay)) return rest as WardicTransition
     return { ...rest, delay } as WardicTransition
@@ -248,10 +254,13 @@ const transitionFor = (options: WardicAnimateOptions | undefined, index: number,
 
 /** A Batch call's transition (#665): the options without `onComplete`, a `stagger()` delay kept for the Batch to count its movers. */
 const batchTransitionOf = (options: WardicAnimateOptions | undefined): WardicTransition | undefined =>
-  UndefinedOr.map(options, (given) => {
-    const { onComplete: _onComplete, ...rest } = given as Readonly<Record<string, unknown>>
-    return rest as WardicTransition
-  })
+  UndefinedOr.map(options, (given) => withoutComplete(given) as WardicTransition)
+
+/** Whether a Batch call lands at once: its scope's animations are skipped, or its own `skipAnimations` (#468). */
+const skipsBatchCall = (env: AnimateEnv, options: WardicAnimateOptions | undefined): boolean => {
+  if (env.skipAnimations()) return true
+  return UndefinedOr.match(options, { onUndefined: () => false, onDefined: (given) => given.skipAnimations === true })
+}
 
 /** Where an animation is: `"idle"`, `"running"`, `"paused"` or `"finished"`. Motion's `AnimationPlayState`. */
 export type WardicPlayState = "idle" | "running" | "paused" | "finished"
@@ -533,7 +542,7 @@ export const scopedAnimate = (env: AnimateEnv, scope: () => Element | undefined,
           target: second as WardicBatchTarget,
           transition: batchTransitionOf(third),
           reducedMotion: env.reducedMotion(),
-          skipAnimations: env.skipAnimations(),
+          skipAnimations: skipsBatchCall(env, third),
           head,
           settled,
           member: batch.member,

@@ -59,8 +59,14 @@ export type WardicBatchTransition = WardicTransition extends infer T
 /** A stop of a Batch's `animate` call: a number for every member, or a function of its index and the Batch's count. */
 export type WardicBatchStop = number | ((i: number, n: number) => number)
 
-/** A Batch's targets for an `animate` call, key by key: a stop, or two, the member's first and its target. */
-export type WardicBatchTarget = { readonly [K in WardicBatchKey]?: WardicBatchStop | readonly [WardicBatchStop, WardicBatchStop] }
+/**
+ * A Batch's targets for an `animate` call, key by key: a stop, or two, the member's first and its
+ * target; or a function of the member's index and the count that gives one or two.
+ */
+// ADR-0069 decision 14: Motion's two-stop form, for every member or per member, `(i) => [-2, rowY(i)]`.
+export type WardicBatchTarget = {
+  readonly [K in WardicBatchKey]?: WardicBatchStop | readonly [WardicBatchStop, WardicBatchStop] | ((i: number, n: number) => number | readonly [number, number])
+}
 
 /** What `createAnimate`'s `animate` takes for a Batch: one, or a member's handle, `grid.at(i)`. */
 export type WardicBatchSubject = { readonly at: (i: number, props?: never) => unknown } | { readonly ref: (el: never) => void }
@@ -101,6 +107,8 @@ export interface BatchHooks {
 
 /** A Batch bound to its config: its targets, read by the binding's tracking, and what it does with them. */
 export interface BatchBinding {
+  /** How many members it has. */
+  readonly count: number
   /** Every member's targets, member by member in key order, `NaN` for a key a member's targets leave out. */
   readonly targetsOf: () => Float64Array
   /** A change: every member turned toward `targets`. */
@@ -135,9 +143,15 @@ export interface BatchTrack {
   readonly duration: () => number
 }
 
-/** Each Batch and member handle's binding, so `animate` knows them: a member's by its index. */
+/** What `animate` knows of a Batch or a member's handle: its binding, and a handle's member by its index. */
+export interface BatchSubjectEntry {
+  readonly binding: BatchBinding
+  readonly member: number | undefined
+}
+
+/** Each Batch and member handle's entry, so `animate` knows them. */
 // Module state (#460, Q7): a cache held weakly by the object it's for, so it goes with it.
-const SUBJECTS = new WeakMap<object, { readonly binding: BatchBinding; readonly member: number | undefined }>()
+const SUBJECTS = new WeakMap<object, BatchSubjectEntry>()
 
 /** `handle` is `binding`'s Batch, for `animate`. */
 export const registerBatch = (handle: object, binding: BatchBinding): void => {
@@ -145,7 +159,7 @@ export const registerBatch = (handle: object, binding: BatchBinding): void => {
 }
 
 /** The binding `subject` is a Batch or member handle of, for `animate`; `undefined` for anything else. */
-export const batchSubjectOf = (subject: unknown): { readonly binding: BatchBinding; readonly member: number | undefined } | undefined => {
+export const batchSubjectOf = (subject: unknown): BatchSubjectEntry | undefined => {
   if (!Predicate.isObject(subject)) return undefined
   return SUBJECTS.get(subject)
 }
@@ -202,6 +216,15 @@ const keysOf = (config: BatchConfig): ReadonlyArray<string> => {
 
 /** One change that lands every key at once: `skipAnimations`'. */
 const INSTANT: Batch.Transition = { type: "tween", duration: 0 }
+
+/** A member's slot before its element arrives. */
+const NO_SLOT = -1
+
+/** Whether `value` is two stops. */
+const isPair = (value: unknown): value is readonly [unknown, unknown] => {
+  if (!Arr.isArray(value)) return false
+  return value.length === 2
+}
 
 /** Reduced motion's Snap after `delay`: a 0 s tween, kept by its delay so its keys share one. */
 // Module state (#460, Q7): a cache built once, keyed by what it caches.
@@ -305,13 +328,17 @@ export const serverHandle = <Style>() =>
 const noop = (): void => {}
 
 /** Member handles for `binding`: its `ref`, the element's own `ref` called beside it, and its own `style` kept. */
-export const handlesOf = <Style>(binding: BatchBinding) =>
-  <E extends Element>(i: number, props?: MemberProps<E, Style>): Member<E, Style> => {
+export const handlesOf = <Style>(binding: BatchBinding) => {
+  // Each member's entry, made once: a handle made at each render costs its WeakMap write alone (0.09 ms
+  // a 1,000 handles in Node, against 0.16 with an entry made each time; #665).
+  const entries: ReadonlyArray<BatchSubjectEntry> = Arr.makeBy(binding.count, (member) => ({ binding, member }))
+  return <E extends Element>(i: number, props?: MemberProps<E, Style>): Member<E, Style> => {
     const handle = memberHandleOf<E, Style>(binding, i, props)
     // Known to `animate`, as member `i`'s.
-    SUBJECTS.set(handle, { binding, member: i })
+    SUBJECTS.set(handle, entries[i])
     return handle
   }
+}
 
 const memberHandleOf = <E extends Element, Style>(binding: BatchBinding, i: number, props: MemberProps<E, Style> | undefined): Member<E, Style> => {
   const ref = binding.refOf(i)
@@ -390,8 +417,8 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
   // The writer's write for these keys, built once: an arriving element is drawn with it at once.
   const write = DomBatch.writer.forKeys(keys)
 
-  // Each member's slot by its index (-1 before its element arrives), each slot's member, and its element.
-  const slotOf = new Int32Array(count).fill(-1)
+  // Each member's slot by its index (`NO_SLOT` before its element arrives), each slot's member, and its element.
+  const slotOf = new Int32Array(count).fill(NO_SLOT)
   const memberOf: Array<number> = []
   const elementOf: Array<Element | undefined> = []
   const entered: Array<number> = []
@@ -512,7 +539,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
     elementOf[i] = el
     const slot = slotOf[i]
     // A new element for a member: it takes the member over, its values, speed and delays as they are.
-    if (slot !== -1) {
+    if (slot !== NO_SLOT) {
       Batch.replace(batch, slot, el)
       drawNow(el, Arr.map(keys, (key) => Batch.get(batch, slot, key)))
       return
@@ -536,83 +563,75 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
     ...Arr.filter(["opacity"], () => keyIndex.has("opacity")),
   ])
 
-  /** A stop's value for member `i`. */
-  const valueOf = (stop: WardicBatchStop, i: number): number => {
-    if (Predicate.isFunction(stop)) return stop(i, count)
-    return stop
+  /** One stop's value for member `i`: a number, or a function's of `i` and the count. */
+  const stopAt = (key: string, stop: unknown, i: number): number => {
+    let value = stop
+    if (Predicate.isFunction(stop)) value = stop(i, count)
+    if (Predicate.isNumber(value)) return value
+    return fail(`an animate call's "${key}" gives member ${i} ${JSON.stringify(value)}: a Batch takes numbers`)
   }
+
+  /** The slots an `animate` call moves: every member's there is, or one member's once its element arrives. */
+  const callSlotsOf = (member: number | undefined): ReadonlyArray<number> =>
+    UndefinedOr.match(member, {
+      onUndefined: () => [...entered],
+      onDefined: (i) => Arr.filter([slotOf[i]], (slot) => slot !== NO_SLOT),
+    })
 
   /** An `animate` call's track: its members' targets and first stops by key, its own transitions, its Playhead. */
   const track = (call: BatchCall): BatchTrack => {
-    const tos: Array<WardicBatchStop | undefined> = Arr.map(keys, () => undefined)
-    const froms: Array<WardicBatchStop | undefined> = Arr.map(keys, () => undefined)
-    Arr.forEach(Object.keys(call.target), (key) => {
+    const slots = callSlotsOf(call.member)
+    // Each member's stops by key, its target and its first, `NaN` for none: worked out once, at the call.
+    const tos = new Float64Array(count * stride).fill(Number.NaN)
+    const froms = new Float64Array(count * stride).fill(Number.NaN)
+    let firsts = false
+    const given = call.target as Readonly<Record<string, unknown>>
+    Arr.forEach(Rec.keys(given), (key) => {
       const k = keyIndex.get(key)
       if (Predicate.isUndefined(k)) return fail(`an animate call gives "${key}", which isn't one of the Batch's keys (${keys.join(", ")})`)
-      const value: unknown = (call.target as Readonly<Record<string, unknown>>)[key]
-      if (Predicate.isNumber(value) || Predicate.isFunction(value)) {
-        tos[k] = value as WardicBatchStop
-        return
-      }
-      if (Arr.isArray(value) && value.length === 2) {
-        froms[k] = value[0] as WardicBatchStop
-        tos[k] = value[1] as WardicBatchStop
-        return
-      }
-      return fail(`an animate call's "${key}" is ${JSON.stringify(value)}: a Batch takes a number or a function, or two of them, its first and its target`)
+      const value = given[key]
+      // Per member per key at a call: statements.
+      Arr.forEach(slots, (slot) => {
+        const i = memberOf[slot]
+        const at = i * stride + k
+        let stops = value
+        if (Predicate.isFunction(value)) stops = value(i, count)
+        if (isPair(stops)) {
+          froms[at] = stopAt(key, stops[0], i)
+          tos[at] = stopAt(key, stops[1], i)
+          firsts = true
+          return
+        }
+        if (Predicate.isNumber(stops)) {
+          tos[at] = stops
+          return
+        }
+        return fail(`an animate call's "${key}" is ${JSON.stringify(stops)}: a Batch takes a number or two, its first and its target, or a function of a member's index that gives them`)
+      })
     })
-    const callTarget = (slot: number, k: number): number => {
-      const to = tos[k]
-      if (Predicate.isUndefined(to)) return Number.NaN
-      return valueOf(to, memberOf[slot])
-    }
-    const callFrom = (slot: number, k: number): number => {
-      const from = froms[k]
-      if (Predicate.isUndefined(from)) return Number.NaN
-      return valueOf(from, memberOf[slot])
-    }
-    let slots: ReadonlyArray<number> = [...entered]
-    const member = call.member
-    if (Predicate.isNotUndefined(member)) {
-      const slot = slotOf[member]
-      slots = Arr.filter([slot], (given) => given !== -1)
-    }
-    // Its transitions, its own copies, so the Playhead driving them reaches its keys alone.
-    const copies = new Map<Batch.Transition, Batch.Transition>()
-    const copyOf = (bag: Batch.Transition): Batch.Transition => {
-      const known = copies.get(bag)
-      if (Predicate.isNotUndefined(known)) return known
-      const made = { ...bag } as Batch.Transition
-      copies.set(bag, made)
-      return made
-    }
-    let transition: (slot: number, k: number) => Batch.Transition = () => copyOf(INSTANT)
-    let delay: Batch.RetargetOptions["delay"] = undefined
-    if (!call.skipAnimations) {
-      const planned = plannedOf(env, keys, UndefinedOr.map(call.transition, unstaggered), call.reducedMotion)
-      transition = (slot: number, k: number): Batch.Transition => {
-        const plan = planned[k]
-        if (Predicate.isNotUndefined(plan.own)) return copyOf(plan.own)
-        return copyOf(delayedBy(defaultFor(k, callTarget(slot, k)), plan.delay))
-      }
-      delay = staggerOf(call.transition)
-    }
-    const animation = Batch.animate(batch, slots, callTarget, {
-      head: call.head,
-      transition,
-      onLanded: call.settled,
-      ...Bool.match(Arr.some(froms, Predicate.isNotUndefined), { onTrue: () => ({ from: callFrom }), onFalse: () => ({}) }),
-      ...Bool.match(Predicate.isUndefined(delay), { onTrue: () => ({}), onFalse: () => ({ delay: delay as NonNullable<Batch.RetargetOptions["delay"]> }) }),
+    const targetOf = (slot: number, k: number): number => tos[memberOf[slot] * stride + k]
+    const fromOf = (slot: number, k: number): number => froms[memberOf[slot] * stride + k]
+    // Its transitions, which the Batch copies for it, so the Playhead driving them reaches its keys alone.
+    const transition = Bool.match(call.skipAnimations, {
+      onTrue: () => (): Batch.Transition => INSTANT,
+      onFalse: () => {
+        const planned = plannedOf(env, keys, UndefinedOr.map(call.transition, unstaggered), call.reducedMotion)
+        return (slot: number, k: number): Batch.Transition => {
+          const plan = planned[k]
+          if (Predicate.isNotUndefined(plan.own)) return plan.own
+          return delayedBy(defaultFor(k, targetOf(slot, k)), plan.delay)
+        }
+      },
     })
-    let first = true
+    const options: { -readonly [K in keyof Batch.AnimateOptions]: Batch.AnimateOptions[K] } = { head: call.head, transition, onLanded: call.settled }
+    if (firsts) options.from = fromOf
+    const delay = Bool.match(call.skipAnimations, { onTrue: () => undefined, onFalse: () => staggerOf(call.transition) })
+    if (Predicate.isNotUndefined(delay)) options.delay = delay
+    const animation = Batch.animate(batch, slots, targetOf, options)
     return {
       run: () => {
         if (disposed) return
-        Batch.play(animation)
-        let setOff = 0
-        if (first) setOff = slots.length
-        first = false
-        wake(setOff)
+        wake(Batch.play(animation))
       },
       stop: () => {
         Batch.stop(animation)
@@ -627,6 +646,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
   }
 
   return {
+    count,
     track,
     targetsOf,
     apply: (targets) => {
