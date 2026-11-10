@@ -452,9 +452,6 @@ export interface BatchRound {
   readonly frame: number
 }
 
-/** The median of `xs`. */
-const middle = (xs: ReadonlyArray<number>): number => [...xs].sort((a, b) => a - b)[Math.floor((xs.length - 1) / 2)]!
-
 const batchRound = async (): Promise<BatchRound> => {
   setPhase(0)
   setShown(true)
@@ -481,7 +478,7 @@ const batchRound = async (): Promise<BatchRound> => {
   if (first.style.transform !== "none") throw new Error(`bench:solid: the first div landed at ${first.style.transform}`)
   setShown(false)
   await frames(6)
-  return { retarget: middle(retargets), frame: middle(frameTimes) }
+  return { retarget: median(retargets), frame: median(frameTimes) }
 }
 
 /** One `--live` round's tasks, in ms: the mount and unmount, and the median set and frame. */
