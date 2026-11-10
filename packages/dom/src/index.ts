@@ -40,6 +40,7 @@ import * as DomRenderer from "./DomRenderer.ts"
 
 export const VERSION = "1.0.0-rc.9"
 
+export * as DomBatchWriter from "./DomBatchWriter.ts"
 export * as DomClock from "./DomClock.ts"
 export * as DomInput from "./DomInput.ts"
 export * as DomProbe from "./DomProbe.ts"

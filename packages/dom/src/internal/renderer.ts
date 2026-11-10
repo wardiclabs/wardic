@@ -38,7 +38,8 @@ import * as UndefinedOr from "effect/UndefinedOr"
  * included); `fn` is the CSS function name it renders as; `identity` is core's
  * (ADR-0022), the value at which `project` leaves the key out (ADR-0023).
  */
-const TRANSFORM_FUNCS: ReadonlyArray<{ readonly key: string; readonly fn: string; readonly identity: number }> = [
+// Exported for the Batch writer (#665), which draws a member's transform in the same order.
+export const TRANSFORM_FUNCS: ReadonlyArray<{ readonly key: string; readonly fn: string; readonly identity: number }> = [
   // translate group — shorthands x/y/z map onto translateX/Y/Z
   { key: "x", fn: "translateX" },
   { key: "y", fn: "translateY" },
@@ -80,7 +81,7 @@ const numberOr = (value: unknown, fallback: number): number => {
 }
 
 /** Default unit appended to a bare numeric transform value, by transform key. */
-type TransformUnit = "px" | "deg" | ""
+export type TransformUnit = "px" | "deg" | ""
 
 /**
  * Default-unit map for transform values: translate (and the x/y/z shorthands)
@@ -197,7 +198,8 @@ const formatTransformValue = (key: string, value: unknown): string => {
 }
 
 /** A transform key's default unit; none for a key the table doesn't name. */
-const unitOf = (key: string): TransformUnit => {
+// Exported for the Batch writer (#665).
+export const unitOf = (key: string): TransformUnit => {
   const unit: TransformUnit | undefined = TRANSFORM_UNITS[key]
   if (Predicate.isUndefined(unit)) return ""
   return unit

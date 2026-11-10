@@ -204,6 +204,7 @@ const PER_FRAME_READS = [...PER_FRAME_LOOPS, "packages/core/src/Easing.ts"]
  * full rules by review, as `Machine.ts`'s does.
  */
 const DOM_PER_FRAME = [
+  "packages/dom/src/internal/batch-writer.ts",
   "packages/dom/src/internal/projection.ts",
   "packages/dom/src/internal/gate.ts",
   "packages/dom/src/internal/renderer.ts",
