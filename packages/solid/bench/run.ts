@@ -73,6 +73,12 @@
  * it: the head's page against its reference page, paired per rep, not gated. **A change to one of
  * these features, or to the path they share with every element, runs `--features`** (docs/agents/effect-first.md).
  *
+ * `--batch` (#665) runs `--head` alone too: N elements moved as one `createBatch` (`?kind=batch`) against
+ * the same moves through `createAnimate`, a call per element (`?kind=batch-animate`), paired per rep. Each
+ * change is timed as a task and each frame's rAF callbacks summed while they fly. It fails when the
+ * Batch's change costs more than 1/20 of the per-element one, or its frame more than 0.6× (#665's Q16;
+ * the probe measured 1/120 and 0.42×). Run it at `--n 1000` and `--n 3000`.
+ *
  * `--v2` (#209, ADR-0045) runs `--head` alone too: the Solid 2 binding's page (`page-v2.tsx`, the
  * same N `wardic.div`s, built with Solid 2's compile) against the Solid 1 binding's, paired per rep.
  * It reports each task and the first frame after the mount, where every element's Starting-style
@@ -90,7 +96,7 @@ import { solid2 } from "../vite.solid2.ts"
 import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
-import type { LayoutRound, LiveRound, Round, Scene } from "./page.tsx"
+import type { BatchRound, LayoutRound, LiveRound, Round, Scene } from "./page.tsx"
 import { APP_TARGET, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
 
 const GATE = 1.05
@@ -117,6 +123,7 @@ const rounds = Number(arg("rounds", "4"))
 const allocReps = Number(arg("alloc-reps", "3"))
 const retainedReps = Number(arg("retained-reps", "3"))
 const liveMode = process.argv.includes("--live")
+const batchMode = process.argv.includes("--batch")
 const v2Mode = process.argv.includes("--v2")
 const featuresMode = process.argv.includes("--features")
 const bindingArg = arg("binding", "both")
@@ -131,7 +138,7 @@ type RetainedKind = (typeof RETAINED_KINDS)[number]
 /** `--features`' pages (#460 Q3): `ward` is `tapped`'s reference page. */
 const FEATURE_KINDS = ["keyframes", "auto", "transition-end", "ward", "tapped"] as const
 type FeatureKind = (typeof FEATURE_KINDS)[number]
-type Kind = "wardic" | "plain" | "live" | "live-plain" | "layout" | RetainedKind | FeatureKind
+type Kind = "wardic" | "plain" | "live" | "live-plain" | "layout" | "batch" | "batch-animate" | RetainedKind | FeatureKind
 /** The layout page's scenes, in `page.tsx`'s order (#385): the page isn't imported for its values. */
 const SCENES: ReadonlyArray<Scene> = ["page", "list", "item", "scaled", "own-size"]
 const SCENE_TASKS = ["measure", "frame"] as const
@@ -225,10 +232,10 @@ const headLabel = UndefinedOr.match(headCommit, {
   onUndefined: () => `the working tree${when(dirty, " (modified)")}`,
   onDefined: (commit) => `${headRef} (${commit.slice(0, 7)})`,
 })
-// `--live` and `--v2` run the head alone: their pages can't run on a base before them.
-const headAlone = Bool.or(liveMode, v2Mode)
+// `--live`, `--batch` and `--v2` run the head alone: their pages can't run on a base before them.
+const headAlone = Bool.or(Bool.or(liveMode, batchMode), v2Mode)
 const runSolid1 = Bool.or(headAlone, bindingArg !== "2")
-const wantSolid2 = Bool.and(Bool.not(liveMode), Bool.or(v2Mode, bindingArg !== "1"))
+const wantSolid2 = Bool.and(Bool.not(Bool.or(liveMode, batchMode)), Bool.or(v2Mode, bindingArg !== "1"))
 // The Solid 2 page, head against base (#259), when both have the binding; `--v2`'s head alone.
 const runSolid2 = Bool.and(wantSolid2, Bool.and(hasV2(headCommit), Bool.or(headAlone, hasV2(baseCommit))))
 const headScript = await bundle("head", headCommit, headDeps)
@@ -399,6 +406,41 @@ if (liveMode) {
     )
   }
   process.exit(0)
+}
+
+if (batchMode) {
+  // Head alone: one Batch against a call per element, paired per rep (#665).
+  console.log(`bench:solid --batch: ${headLabel}, Chromium ${browser.version()}, ${n} elements, ${rounds} rounds per page, ${reps} paired reps\n`)
+  const BATCH_TASKS = ["retarget", "frame"] as const
+  /** The most a Batch's task may cost, against the per-element page's: Q16's gates. */
+  const BATCH_GATES: Readonly<Record<(typeof BATCH_TASKS)[number], number>> = { retarget: 1 / 20, frame: 0.6 }
+  const pagesOf: Record<"batch" | "batch-animate", Array<ReadonlyArray<BatchRound>>> = { batch: [], "batch-animate": [] }
+  for (let r = 0; r < reps; r++) {
+    const order: ReadonlyArray<"batch" | "batch-animate"> = Bool.match(r % 2 === 0, {
+      onTrue: (): ReadonlyArray<"batch" | "batch-animate"> => ["batch", "batch-animate"],
+      onFalse: (): ReadonlyArray<"batch" | "batch-animate"> => ["batch-animate", "batch"],
+    })
+    for (const kind of order) pagesOf[kind].push((await runPage("head", kind)) as unknown as ReadonlyArray<BatchRound>)
+    process.stderr.write(`rep ${r + 1}/${reps}\r`)
+  }
+  await browser.close()
+  const warmOf = (page: ReadonlyArray<BatchRound>, task: (typeof BATCH_TASKS)[number]): number => median(page.slice(1).map((round) => round[task]))
+  console.log(`warm (ms, median across reps; batch / per element paired per rep: median [p25 – p75])`)
+  console.log(`  ${"task".padEnd(10)}${"each".padEnd(10)}${"batch".padEnd(10)}${"ratio".padEnd(34)}gate`)
+  let failed = false
+  for (const task of BATCH_TASKS) {
+    const ratios = pagesOf.batch.map((page, r) => warmOf(page, task) / warmOf(pagesOf["batch-animate"][r]!, task))
+    const ratio = quantile(ratios, 0.5)
+    const passes = ratio <= BATCH_GATES[task]
+    if (Bool.not(passes)) failed = true
+    console.log(
+      `  ${task.padEnd(10)}${median(pagesOf["batch-animate"].map((page) => warmOf(page, task))).toFixed(3).padEnd(10)}` +
+        `${median(pagesOf.batch.map((page) => warmOf(page, task))).toFixed(3).padEnd(10)}` +
+        `${`${ratio.toFixed(3)}× [${quantile(ratios, 0.25).toFixed(3)} – ${quantile(ratios, 0.75).toFixed(3)}]`.padEnd(34)}` +
+        Bool.match(passes, { onTrue: () => `ok (≤ ${BATCH_GATES[task].toFixed(2)}×)`, onFalse: () => `FAIL (> ${BATCH_GATES[task].toFixed(2)}×)` }),
+    )
+  }
+  process.exit(Bool.match(failed, { onTrue: () => 1, onFalse: () => 0 }))
 }
 
 if (v2Mode) {

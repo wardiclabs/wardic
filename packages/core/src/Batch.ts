@@ -61,8 +61,13 @@ export type Transitions = Transition | Readonly<Record<string, Transition>>
 
 /** `retarget`'s options. */
 export interface RetargetOptions {
-  /** How this change's keys move: a key it doesn't give, nor its `default`, moves by the Batch's own. */
-  readonly transition?: Transitions
+  /**
+   * How this change's keys move: a key it doesn't give, nor its `default`, moves by the Batch's own. Or
+   * a function of a member's slot and its key's index, for members whose keys move differently. Give the
+   * same object for members that move alike: they then step together.
+   */
+  // #665: the DOM's Default transition, a scale toward 0 on a spring of its own.
+  readonly transition?: Transitions | ((slot: number, k: number) => Transition)
   /**
    * Seconds each member waits before it moves, after its transition's own delay: one for all, or by
    * its rank among the members this change moves, of `n`, as `Stagger.make`'s delays are.
@@ -390,6 +395,33 @@ export const make = <S>(options: Options<S>): Batch<S> => {
   return Object.assign(Object.create(Proto), state)
 }
 
+/** A change's rule for each key, when its transitions are one or one per key; the Batch's own else. */
+// Once a change.
+const changeRulesOf = <S>(state: State<S>, transitions: RetargetOptions["transition"]): ReadonlyArray<number> => {
+  if (Predicate.isUndefined(transitions)) return state.ownRules
+  if (Predicate.isFunction(transitions)) return state.ownRules
+  return rulesOf(state, transitions, (k) => state.ownRules[k])
+}
+
+/**
+ * A change's rule for a member's key, when its transition is a function of them: the bag it gives,
+ * the last one's rule again when it's the same, while the table still holds it.
+ */
+// Most members give the bag the last one gave: one comparison, where `ruleFor` is a Map lookup per
+// member's key (#665's Chromium profile, 1,000 members).
+const ruleAtOf = <S>(state: State<S>, given: RetargetOptions["transition"]): ((slot: number, k: number) => number) | undefined => {
+  if (!Predicate.isFunction(given)) return undefined
+  let lastBag: Transition | undefined = undefined
+  let lastRule = 0
+  return (slot, k) => {
+    const bag = given(slot, k)
+    if (bag === lastBag && state.bags[lastRule] === bag) return lastRule
+    lastBag = bag
+    lastRule = ruleFor(state, bag)
+    return lastRule
+  }
+}
+
 /** No delay: a change's that gives none. */
 const NO_DELAY = (): number => 0
 
@@ -453,6 +485,22 @@ export const leave: {
   state.free.push(slot)
 })
 
+/**
+ * The member at `slot` is drawn on `subject` from now on: its values, speed, targets and delays carry
+ * on as they were. For an element its framework made again for the same member.
+ *
+ * @example
+ * Batch.replace(grid, slot, element)
+ */
+export const replace: {
+  <S>(slot: number, subject: S): (self: Batch<S>) => void
+  <S>(self: Batch<S>, slot: number, subject: S): void
+} = dual(3, <S>(self: Batch<S>, slot: number, subject: S): void => {
+  const state = stateOf(self)
+  if ((state.flags[slot] & LIVE) === 0) return
+  state.subjects[slot] = subject
+})
+
 /** A slot for a new member: one a `leave` freed, else the next, the arrays doubled when they're full. */
 const slotFor = <S>(state: State<S>): number => {
   const freed = state.free.pop()
@@ -492,27 +540,30 @@ const grow = <S>(state: State<S>, capacity: number): void => {
 
 /**
  * One change: each of `slots`' members turned toward `targetOf(slot, k)` for its `k`th key (`NaN`
- * keeps that key's target). A member whose targets are unchanged gets nothing.
+ * keeps that key's target). A member whose targets are unchanged gets nothing. It returns how many
+ * members it sets off from rest.
  *
  * @example
  * const grid = Batch.make({ keys: ["x", "y"], writer, transition: { type: "spring" } })
  * Batch.retarget(grid, slots, (slot, k) => cellOf(slot)[k], { delay: Stagger.make(0.02) })
  */
 export const retarget: {
-  (slots: ReadonlyArray<number>, targetOf: (slot: number, k: number) => number, options?: RetargetOptions): <S>(self: Batch<S>) => void
-  <S>(self: Batch<S>, slots: ReadonlyArray<number>, targetOf: (slot: number, k: number) => number, options?: RetargetOptions): void
-} = dual(isBatch, <S>(self: Batch<S>, slots: ReadonlyArray<number>, targetOf: (slot: number, k: number) => number, options?: RetargetOptions): void => {
+  (slots: ReadonlyArray<number>, targetOf: (slot: number, k: number) => number, options?: RetargetOptions): <S>(self: Batch<S>) => number
+  <S>(self: Batch<S>, slots: ReadonlyArray<number>, targetOf: (slot: number, k: number) => number, options?: RetargetOptions): number
+} = dual(isBatch, <S>(self: Batch<S>, slots: ReadonlyArray<number>, targetOf: (slot: number, k: number) => number, options?: RetargetOptions): number => {
   const state = stateOf(self)
   const { stride, pending, movers, targets, flags } = state
-  // Per member per key at a change, a Batch's own loop over its typed arrays, as its step's (ADR-0025,
-  // *Amendment (#665)*). The first pass keeps each new target and finds the members that move, so the
-  // second can count them for their delays.
+  // Per member per key at a change, a Batch's own loops over its typed arrays, as its step's (ADR-0025,
+  // *Amendment (#665)*): `Arr.forEach` over the slots cost a closure call each. The first pass keeps
+  // each new target and finds the members that move, so the second can count them for their delays.
   let n = 0
-  Arr.forEach(slots, (slot) => {
+  const given = slots.length
+  for (let g = 0; g < given; g++) {
+    const slot = slots[g]
     const flag = flags[slot]
     // A member that left takes no change; one given twice moves once.
-    if ((flag & LIVE) === 0) return
-    if ((flag & COUNTED) !== 0) return
+    if ((flag & LIVE) === 0) continue
+    if ((flag & COUNTED) !== 0) continue
     const base = slot * stride
     let moves = false
     for (let k = 0; k < stride; k++) {
@@ -521,16 +572,16 @@ export const retarget: {
       pending[at] = target
       if (!Number.isNaN(target) && target !== targets[at]) moves = true
     }
-    if (!moves) return
+    if (!moves) continue
     flags[slot] = flag | COUNTED
     movers[n] = slot
     n++
-  })
+  }
   // A change that moves nothing touches no transition.
-  if (n === 0) return
-  const given = UndefinedOr.map(options, (bag) => bag.transition)
-  let rules = state.ownRules
-  if (Predicate.isNotUndefined(given)) rules = rulesOf(state, given, (k) => state.ownRules[k])
+  if (n === 0) return 0
+  const transitions = UndefinedOr.map(options, (bag) => bag.transition)
+  const rules = changeRulesOf(state, transitions)
+  const ruleAt = ruleAtOf(state, transitions)
   const delay = UndefinedOr.map(options, (bag) => bag.delay)
   if (Predicate.isNotUndefined(delay)) checked(Delay, delay, "delay")
   const delayOf = delayOfChange(delay)
@@ -538,6 +589,7 @@ export const retarget: {
   // gives another key; one it gives no key is freed after.
   const held = Arr.dedupe(rules)
   Arr.forEach(held, (rule) => hold(state, rule))
+  let setOff = 0
   for (let rank = 0; rank < n; rank++) {
     const slot = movers[rank]
     const base = slot * stride
@@ -549,7 +601,8 @@ export const retarget: {
       const target = pending[at]
       if (Number.isNaN(target)) continue
       if (target === targets[at]) continue
-      const rule = rules[k]
+      let rule = rules[k]
+      if (Predicate.isNotUndefined(ruleAt)) rule = ruleAt(slot, k)
       const entry = state.entries[rule]
       if (rule !== 0 || entry.kind !== SPRING) ruled = true
       const before = state.rules[at]
@@ -570,6 +623,7 @@ export const retarget: {
     }
     const flag = flags[slot] & ~COUNTED
     flags[slot] = flag
+    if ((flag & (IN_PLAIN | IN_RULED)) === 0) setOff++
     // Into the ruled list, out of the plain one (which drops it at its next step); else into the plain
     // list, if it's in neither.
     if (ruled && (flag & IN_RULED) === 0) {
@@ -584,7 +638,14 @@ export const retarget: {
     }
   }
   Arr.forEach(held, (rule) => release(state, rule))
+  return setOff
 })
+
+/** Whether any member moves: one `step` would move. */
+export const isMoving = <S>(self: Batch<S>): boolean => {
+  const state = stateOf(self)
+  return state.plainCount + state.ruledCount > 0
+}
 
 /**
  * Steps every moving member by `dt` seconds and writes each one: whether nothing moves now. The run

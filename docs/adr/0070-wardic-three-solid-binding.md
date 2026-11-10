@@ -165,7 +165,7 @@ ADR-0068 decision 13 named the scene's Solid 2 pieces: `<WardicScene>`, `<SceneO
 
 #665's build grill (2026-11-10) settled what decisions 10–14 left to building:
 
-- **Decision 10's writer** is the nearest `<WardicScene>`'s, through its Solid context, else the DOM's, which `createBatch` imports itself (`@wardic/dom/DomBatchWriter`). `DomLive` doesn't carry it, so an app that never calls `createBatch` ships none of it (ADR-0069, decision 1).
+- **Decision 10's writer** is the nearest `<WardicScene>`'s, through its Solid context, else the DOM's, which `createBatch` imports itself (`@wardic/dom/DomBatch`). `DomLive` doesn't carry it, so an app that never calls `createBatch` ships none of it (ADR-0069, decision 1).
   - Rejected: a core service that `DomLive` provides, which every app would ship.
 - **Decision 14's handle takes the element's own `style` and `ref`:** `grid.member(id, { style, ref })` and `grid.at(i, { style, ref })`. The app's style goes under the member's keys, key by key, and both refs are called, as a ward's `.with` does (ADR-0045, *Amendment (#264)*). A `.with` method on the spread object would be spread onto the element on Solid 2, whose merge reads every key with `in` (#495).
 - **Decision 11's targets:** `initial`, `exit`, `whileHover` and `whileTap` take `(item, i)` in the keyed form and `(i)` by index, as `animate` does, or an object. Each is read once, untracked, as the member enters, leaves or starts the gesture. Only `animate` retargets when what it reads changes.

@@ -50,6 +50,7 @@ Code that runs **once per Clock tick, per key or per node** keeps both rules, in
   - `svg.ts`: the SVG split inside a flush;
   - `scale-correction.ts`: the scale correctors;
   - `key-rules.ts`: the Key rules' `KeyBlend`s (above).
+  - `batch-writer.ts`: a Batch's write per moving member (#665).
 
   Their cold code (registration, `layoutId` matching, the scale correctors' parsers) follows the full rules;
 - solid's run sinks (`Machine.run((frame) => gate.write(…))`, presence's `commitFrame`, drag's `tapFrame`): one-line closures, in no listed file;
@@ -108,6 +109,7 @@ Code that runs **once per element as it mounts** follows the hot path's rules, b
 - `@wardic/dom`'s Starting style (`internal/starting-style.ts`): the values filter `valuesAt` and `splitValues` share (`filtered`), `resolveInitial`, the style's layering (`over`, `recordOf`, `recordOfInput`) and its held keys (`without`, `isHeld`);
 - solid's config build (`configBuildOf`, `motion-props.ts`) and its variant tree's `inheritedContext` and `startingValuesOf`;
 - core's `ReducedMotion.applies`.
+- solid's `batch.ts` (#665): a Batch's per-member loops at creation and at each change, as core's change (ADR-0025, *Amendment (#665)*).
 
 Measured with `bench:solid --base main`: a warm mount −3.3% on Solid 1 and −1.9% on Solid 2, cold −3.9% and −2.4%, and each element allocating 5.0% and 4.1% less a round.
 

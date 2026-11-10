@@ -7,9 +7,8 @@
  * @module
  */
 import { isServer } from "@solidjs/web"
-import * as Predicate from "effect/Predicate"
-import * as UndefinedOr from "effect/UndefinedOr"
-import { type Accessor, createMemo, createSignal, getOwner, onCleanup, runWithOwner } from "solid-js"
+import * as Bool from "effect/Boolean"
+import { onCleanup } from "solid-js"
 import {
   type AnimateEnv,
   type AnimationWatch,
@@ -21,7 +20,7 @@ import {
   type WardicPlaybackControls,
 } from "../../imperative.ts"
 import { useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
-import { CLIENT_ONLY } from "./solid-reactivity.ts"
+import { flightsOf } from "./flights.ts"
 
 /** A scope's landing: the animation that landed last, as `scope.settled()` gives it. */
 // #433's Q8: held in an object, as the controls are awaitable, which an async value would wait on
@@ -43,49 +42,12 @@ export interface WardicAnimationScopeV2<T extends Element = HTMLElement> extends
 
 /** `scope.settled()` (#433's Q8): its animations in flight, counted, made reactive at its first read. */
 const settledOf = (): { readonly watch: AnimationWatch; readonly read: () => WardicScopeLanding | undefined } => {
-  const owner = getOwner()
-  let flying = 0
-  let last: WardicScopeLanding | undefined
-  let setCount: ((count: number) => void) | undefined
-  let memo: Accessor<WardicScopeLanding | undefined> | undefined
-  let waiting: ((landed: WardicScopeLanding | undefined) => void) | undefined
-  const tell = (): void => {
-    UndefinedOr.map(setCount, (set) => set(flying))
-  }
-  // Its count starts at none in flight, so its first read is never pending; one in flight then is
-  // set from a microtask, as a ward's Retarget in flight is: a start comes in Solid's flush.
-  const make = (): Accessor<WardicScopeLanding | undefined> => {
-    const [count, set] = createSignal(0)
-    setCount = set
-    const made = createMemo((): WardicScopeLanding | undefined | PromiseLike<WardicScopeLanding | undefined> => {
-      if (count() === 0) return last
-      return new Promise<WardicScopeLanding | undefined>((resolve) => {
-        waiting = resolve
-      })
-    }, CLIENT_ONLY)
-    if (flying > 0) queueMicrotask(tell)
-    return made
-  }
+  const flights = flightsOf<WardicScopeLanding>()
   const watch: AnimationWatch = {
-    started: () => {
-      flying++
-      if (Predicate.isNotUndefined(setCount)) queueMicrotask(tell)
-    },
-    ended: (controls, landed) => {
-      flying--
-      if (landed) last = { animation: controls }
-      if (flying > 0) return
-      const resolve = waiting
-      waiting = undefined
-      UndefinedOr.map(resolve, (done) => done(last))
-      tell()
-    },
+    started: () => flights.started(),
+    ended: (controls, landed) => flights.ended(Bool.match(landed, { onTrue: () => ({ animation: controls }), onFalse: () => undefined })),
   }
-  const read = (): WardicScopeLanding | undefined => {
-    if (Predicate.isUndefined(memo)) memo = runWithOwner(owner, make)
-    return (memo as Accessor<WardicScopeLanding | undefined>)()
-  }
-  return { watch, read }
+  return { watch, read: flights.read }
 }
 
 /**

@@ -182,6 +182,18 @@ export { createDragControls, type WardicDragControls, type WardicDragControlsOpt
 // Imperative animation (#433, Motion's `useAnimate`): an Animation scope with `settled()`, its `animate` and its Playback controls.
 // `WardicAnimationScope` on both bindings, each its own (#618, P1), as `isValidWardicProp` is.
 export { createAnimate, type WardicAnimationScopeV2 as WardicAnimationScope, type WardicScopeLanding } from "./create-animate.ts"
+export {
+  createBatch,
+  type WardicBatch,
+  type WardicBatchConfig,
+  type WardicBatchEvents,
+  type WardicBatchKey,
+  type WardicBatchLanding,
+  type WardicBatchMember,
+  type WardicBatchMemberProps,
+  type WardicBatchTransition,
+  type WardicBatchValues,
+} from "./create-batch.ts"
 export type {
   WardicAnimate,
   WardicAnimateOptions,

@@ -97,6 +97,17 @@ export { createDragControls, type WardicDragControls, type WardicDragControlsOpt
 // Imperative animation (#433, Motion's `useAnimate`): an Animation scope, its `animate` and its Playback controls;
 // a sequence of Segments (Motion's), on the same controls.
 export { createAnimate } from "./create-animate.ts"
+export {
+  createBatch,
+  type WardicBatch,
+  type WardicBatchConfig,
+  type WardicBatchKey,
+  type WardicBatchLanding,
+  type WardicBatchMember,
+  type WardicBatchMemberProps,
+  type WardicBatchTransition,
+  type WardicBatchValues,
+} from "./create-batch.ts"
 export type {
   WardicAnimate,
   WardicAnimateOptions,
