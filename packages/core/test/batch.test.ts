@@ -38,7 +38,8 @@
 // - B19: a member's Subject can be replaced mid-flight: the new one is written from the next step, and
 //   the member carries on exactly as it would have, its value, speed and delay kept.
 // - B20: a change can start a member's keys from given values at given speeds, onto targets they already
-//   have too (a driver handing them back, #665's PR 4): each moves as `springValues` from there at that speed.
+//   have too (a driver handing them back, #665's PR 4): each moves as `springValues` from there at that speed,
+//   and `target` reads the targets they keep.
 import * as Batch from "@wardic/core/Batch"
 import * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -539,6 +540,8 @@ describe("a Batch (#665)", () => {
     const from = (slot: number, k: number): number => [[40, Number.NaN], [Number.NaN, 20]][slot][k]
     const velocity = (slot: number, k: number): number => [[300, 0], [0, -50]][slot][k]
     expect(Batch.retarget(batch, [a, b], () => Number.NaN, { from, velocity })).toBe(2)
+    // Their targets kept: what `target` reads.
+    expect([Batch.target(batch, a, "x"), Batch.target(batch, b, "y")]).toEqual([100, 0])
     const [ax, bx] = steppedAll(batch, [a, b], "x")
     const oracle = springFrames("x", 40, 100, spring, 300)
     expect(ax.length).toBe(oracle.length)

@@ -168,6 +168,12 @@ export interface DragTrackOptions {
   readonly recordFrame: (value: Values.Values) => void
   /** Flip the reactive `dragging` signal the spine reads for `whileDrag` + key stripping. */
   readonly setDragging: (dragging: boolean) => void
+  /**
+   * Told before the drag reads where the element rests, or writes `x`/`y`: a Batch member's element
+   * takes its transform from its Batch then (#665's PR 4), so the drag starts where the Batch drew it,
+   * and is the only one drawing it. Omitted, nothing is told.
+   */
+  readonly claim?: (() => void) | undefined
   /** The static drag config (read once at setup). */
   readonly config: DragTrackConfig
   /**
@@ -328,6 +334,17 @@ const snapshotPos = (snapshot: DragSnapshot): Point.Point => {
   return { x: numberOrZero(x), y: numberOrZero(y) }
 }
 
+/** Its `claim` told, when it has one (#665's PR 4): before each read of where it rests and each write. */
+const claimed = (opts: DragTrackOptions): void => {
+  if (Predicate.isNotUndefined(opts.claim)) opts.claim()
+}
+
+/** Where the element rests now, read off the snapshot once its `claim` is told: a Batch member's where its Batch drew it. */
+const restingAt = (opts: DragTrackOptions): Point.Point => {
+  claimed(opts)
+  return snapshotPos(opts.snapshot)
+}
+
 /** A value that's a number, else 0. Built once, at module load. */
 const numberOrZero: (value: unknown) => number = Match.type<unknown>().pipe(
   Match.when(Match.number, (n) => n),
@@ -349,6 +366,7 @@ const directSet = (opts: DragTrackOptions, p: Point.Point): void => {
     opts.projection.dragMove({ x: p.x, y: p.y })
     return
   }
+  claimed(opts)
   opts.gate.write(opts.id, { x: p.x, y: p.y })
   opts.snapshot.values.x = p.x
   opts.snapshot.values.y = p.y
@@ -423,7 +441,7 @@ const snapTo = (opts: DragTrackOptions, state: TrackState, down: InputSource.Poi
   const by = onAxes({ x: cursor.x - centre.x, y: cursor.y - centre.y }, axis)
   UndefinedOr.match(opts.projection, {
     onUndefined: () => {
-      const from = snapshotPos(opts.snapshot)
+      const from = restingAt(opts)
       const to = { x: from.x + by.x, y: from.y + by.y }
       MutableRef.update(state, (s) => ({ ...s, position: to }))
       directSet(opts, to)
@@ -461,7 +479,7 @@ const reportSample = (opts: DragTrackOptions, sample: Drag.Sample): void =>
  */
 const startOf = (opts: DragTrackOptions, st: DragTrackState): Point.Point =>
   UndefinedOr.match(opts.projection, {
-    onUndefined: () => snapshotPos(opts.snapshot),
+    onUndefined: () => restingAt(opts),
     onDefined: () => UndefinedOr.match(st.snapped, { onUndefined: () => ORIGIN, onDefined: identity }),
   })
 
@@ -706,7 +724,7 @@ export const driveDragTrack = (opts: DragTrackOptions): DragTrack => {
             if (Bool.or(st.held, Predicate.isNotUndefined(opts.projection))) return Effect.sync(() => setBounds(to))
             return FiberHandle.clear(releasing).pipe(
               Effect.andThen(Effect.sync(() => {
-                const kept = Drag.keepPlace(snapshotPos(opts.snapshot), toDragAxis(config.axis), from, to)
+                const kept = Drag.keepPlace(restingAt(opts), toDragAxis(config.axis), from, to)
                 MutableRef.update(state, (s) => ({ ...s, bounds: to, position: kept }))
                 directSet(opts, kept)
                 opts.setDragging(false)

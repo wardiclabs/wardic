@@ -83,7 +83,7 @@ On Solid 1, `onAnimationStart` is called as members set off from rest, and `onAn
 A member's element can be a Wardic element, for a gesture or a drag of its own: `<w.div {...grid.at(i)} drag whileTap={{ scale: 0.95 }} />`. The latest driver takes a key:
 
 - **As its leg starts** on a transform key, or as its drag starts, it takes the member's whole `transform` from the Batch, from where the member is and how fast it's moving. `opacity` goes on its own. A key it would leave where the Batch draws it stays the Batch's.
-- **The Batch takes it back** as its last leg on it ends, or its drag's release comes to rest, or at the Batch's own next change of the member, and turns it toward its targets from there. A drag in progress keeps `x` and `y` through a change. To keep a dropped tile where it lands, move its target on drop.
+- **The Batch takes it back** as its last leg on it ends, or its drag's release comes to rest, or at the Batch's own next change that moves it, and turns it toward its targets from there. A drag in progress keeps the transform through a change, and so does a transform key the Batch doesn't draw, such as a hover's `rotate` on an `{ x, y }` Batch, until it's back at rest. To keep a dropped tile where it lands, move its target on drop.
 - A member's Wardic element can't have `layout` or `layoutId`, and an element can be a member of one Batch: either is an error.
 
 ## Animating it from code

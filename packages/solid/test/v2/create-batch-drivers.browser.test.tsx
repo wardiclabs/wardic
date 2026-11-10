@@ -6,13 +6,16 @@
 // - CVD2: a Batch change during the ward's leg takes the transform back at once.
 // - CVD3: dragged, the member follows the pointer, a Batch change mid-drag leaving `x` to it; once its
 //   release rests, the Batch turns it toward its target.
-//
-// Its misuse errors are the shared work's, and Solid 1's CD4 holds them: one thrown in a Solid 2 render
-// halts that root's reactive system for the file's later tests.
+// - CVD4: a member's handle given an element with a layout node, or one another Batch's member has, is an
+//   error naming the element. (Each is given outside a render: one thrown in a Solid 2 render halts that
+//   root's reactive system for the file's later tests. Solid 1's CD4 holds the ones a render throws.)
+// - CVD5: a drag starts where the Batch drew the member, not from 0.
+// - CVD6: a transform key the Batch doesn't draw keeps the transform the ward's through a Batch change;
+//   back at its identity, the Batch takes it back.
 import { DomLive } from "@wardic/dom"
 import type { JSX } from "@solidjs/web"
 import * as InputSource from "@wardic/core/InputSource"
-import { createBatch, drag, w, WardicProvider } from "@wardic/solid/unstable/v2"
+import { createBatch, drag, layout, w, type WardicBatch, WardicProvider } from "@wardic/solid/unstable/v2"
 import { TestInput } from "@wardic/test"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -29,6 +32,7 @@ const TWEEN = { type: "tween", duration: 0.3 } as const
 const matrixOf = (el: Element): DOMMatrix => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)"))
 const xOf = (el: Element): number => matrixOf(el).m41
 const scaleOf = (el: Element): number => matrixOf(el).a
+const turnOf = (el: Element): number => (Math.atan2(matrixOf(el).b, matrixOf(el).a) * 180) / Math.PI
 
 /** `frames` frames of `read`, read after each. */
 const over = async <A,>(frames: number, read: () => A): Promise<ReadonlyArray<A>> => {
@@ -129,5 +133,89 @@ describe("the latest driver of a Batch member's keys on Solid 2 (#665)", () => {
     const back = await over(90, () => xOf(member))
     expect(back.some((x) => x > 41 && x < 99)).toBe(true)
     expect(back[back.length - 1]).toBe(40)
+  })
+
+  it("CVD4: a member's handle on an element with a layout node, or another Batch's member's, is an error naming it", async () => {
+    let one!: WardicBatch
+    let two!: WardicBatch
+    let laid!: HTMLDivElement
+    const Scene = (): JSX.Element => {
+      one = createBatch({ count: 2, animate: () => ({ x: 10 }) })
+      two = createBatch({ count: 1, animate: () => ({ x: 20 }) })
+      return <w.div id="laid" ref={(el: HTMLDivElement) => (laid = el)} style={BOX} layout />
+    }
+    mount(() => (
+      <WardicProvider env={DomLive} features={[layout]}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await over(2, () => 0)
+    expect(() => one.at(0).ref(laid)).toThrow(/\(div#laid\) has `layout` or `layoutId`/)
+    const plain = document.createElement("div")
+    plain.className = "tile"
+    one.at(1).ref(plain)
+    expect(() => two.at(0).ref(plain)).toThrow(/an element \(div\.tile\) is a member of two Batches/)
+  })
+
+  it("CVD5: a drag starts where the Batch drew the member", async () => {
+    const input = Effect.runSync(TestInput.pushable())
+    let member!: HTMLDivElement
+    const Scene = (): JSX.Element => {
+      const grid = createBatch({ count: 1, initial: false, animate: () => ({ x: 60 }), transition: SPRING })
+      return <w.div style={BOX} {...grid.at(0, { ref: (el) => (member = el as HTMLDivElement) })} drag="x" dragMomentum={false} />
+    }
+    mount(() => (
+      <WardicProvider env={input.layer.pipe(Layer.provideMerge(DomLive))} features={[drag]}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await over(20, () => 0)
+    expect(xOf(member)).toBe(60)
+    let t = 0
+    const push = (type: InputSource.PointerLikeEvent["type"], x: number): void => {
+      t += 20
+      Effect.runSync(input.push(InputSource.makePointerLikeEvent({ type, x, y: 0, timeStamp: t })))
+    }
+    push("down", 0)
+    for (let k = 1; k <= 4; k++) push("move", 5 * k)
+    await over(3, () => 0)
+    // The pointer's 20 on the Batch's 60.
+    expect(xOf(member)).toBeCloseTo(80, 0)
+    push("up", 20)
+    const back = await over(90, () => xOf(member))
+    expect(back[back.length - 1]).toBe(60)
+  })
+
+  it("CVD6: a transform key the Batch doesn't draw keeps the transform the ward's through a Batch change", async () => {
+    const [tx, setTx] = createSignal(0)
+    const [r, setR] = createSignal(0)
+    let member!: HTMLDivElement
+    let reference!: HTMLDivElement
+    const Scene = (): JSX.Element => {
+      const grid = createBatch({ count: 1, initial: false, animate: () => ({ x: tx() }), transition: SPRING })
+      return (
+        <>
+          <w.div style={BOX} {...grid.at(0, { ref: (el) => (member = el as HTMLDivElement) })} animate={{ rotate: r() }} transition={TWEEN} />
+          <w.div ref={(el: HTMLDivElement) => (reference = el)} style={BOX} animate={{ rotate: r() }} transition={TWEEN} />
+        </>
+      )
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await over(4, () => 0)
+    setR(30)
+    await over(4, () => 0)
+    setTx(100)
+    const kept = await over(30, () => [turnOf(member), turnOf(reference), xOf(member)] as const)
+    kept.forEach(([own, plain, x], f) => {
+      expect(own, `frame ${f}: rotate`).toBeCloseTo(plain, 4)
+      expect(x, `frame ${f}: x`).toBe(0)
+    })
+    setR(0)
+    const back = await over(90, () => [turnOf(member), xOf(member)] as const)
+    expect(back[back.length - 1]).toEqual([0, 100])
   })
 })
