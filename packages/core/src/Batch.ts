@@ -1232,6 +1232,14 @@ const finish = <S>(animation: AnimationState<S>): void => {
   })
 }
 
+/** Whether the key at `animation`'s `i`th is at rest at its target, past its delay. */
+// Once a step, per key of a playing change: plain reads.
+const keyAtRest = <S>(animation: AnimationState<S>, i: number): boolean => {
+  const { state } = animation
+  const at = animation.ats[i]
+  return state.velocities[at] === 0 && state.positions[at] === animation.goals[i] && state.elapsed[at] >= state.delays[at]
+}
+
 /** The members `animation` moves nothing of, told they landed, once, at its first play (`onMemberLanded`). */
 const tellIdle = <S>(animation: AnimationState<S>): void => {
   if (animation.idleTold) return
@@ -1256,8 +1264,7 @@ const tellMembers = <S>(animation: AnimationState<S>, tell: (slot: number) => vo
     for (let i = firsts[r]; i < firsts[r + 1]; i++) {
       if (!holds(animation, i)) continue
       kept = true
-      const at = ats[i]
-      if (state.velocities[at] !== 0 || state.positions[at] !== animation.goals[i] || state.elapsed[at] < state.delays[at]) {
+      if (!keyAtRest(animation, i)) {
         atRest = false
         break
       }
@@ -1286,8 +1293,7 @@ const checkLanding = <S>(animation: AnimationState<S>): void => {
     if (!holds(animation, i)) continue
     held++
     if (backwards) continue
-    const at = animation.ats[i]
-    if (state.velocities[at] !== 0 || state.positions[at] !== animation.goals[i] || state.elapsed[at] < state.delays[at]) atRest = false
+    if (!keyAtRest(animation, i)) atRest = false
   }
   if (held > 0 && backwards && animation.time > 0) return
   if (!atRest) return
@@ -1548,6 +1554,8 @@ const startOf = <S>(animation: AnimationState<S>): void => {
       count++
     }
     if (count === first) {
+      // Counted too, so a slot given twice is idle once.
+      flags[slot] = flag | COUNTED
       idle.push(slot)
       continue
     }
@@ -1573,7 +1581,8 @@ const startOf = <S>(animation: AnimationState<S>): void => {
   animation.rules = new Uint16Array(count)
   animation.firsts = firsts.slice(0, n + 1)
   animation.told = new Uint8Array(n)
-  animation.idle = Arr.dedupe(idle)
+  for (let s = 0; s < idle.length; s++) flags[idle[s]] = flags[idle[s]] & ~COUNTED
+  animation.idle = idle
   animation.started = true
 }
 

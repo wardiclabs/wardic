@@ -7,8 +7,9 @@
  */
 import { isServer } from "@solidjs/web"
 import type { JSX } from "@solidjs/web"
-import { type Accessor, createEffect, onCleanup, untrack } from "solid-js"
+import { type Accessor, createEffect, getOwner, onCleanup, untrack } from "solid-js"
 import * as Bool from "effect/Boolean"
+import * as Predicate from "effect/Predicate"
 import {
   type BatchConfig,
   bindBatch,
@@ -26,6 +27,7 @@ import {
 import { flightsOf } from "./flights.ts"
 import { useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
+import type { PresenceContextValue } from "../../presence-record.ts"
 import { usePresenceContext } from "./presence.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { neverLands, serverWhen, Waiters, whenOf } from "./waiters.ts"
@@ -82,6 +84,15 @@ export interface WardicKeyedBatch<K> extends BatchLandings {
 }
 
 /** A server render's keyed Batch: its handles pass the element's own props on, and nothing animates or lands. */
+/**
+ * The `<AnimatePresence>` a member's handle is made under: none outside an owner (a handle made in a
+ * handler, or after an `await`), where Solid 2's context read throws.
+ */
+const presenceHere = (): PresenceContextValue | undefined => {
+  if (Predicate.isNullish(getOwner())) return undefined
+  return usePresenceContext()
+}
+
 const serverKeyedBatch: WardicKeyedBatch<unknown> = {
   member: serverHandle<JSX.CSSProperties>(),
   settled: () => undefined,
@@ -166,7 +177,7 @@ export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<u
     when: (name) => whenOf(events, name),
   }
   const grid: WardicBatch | WardicKeyedBatch<unknown> = Bool.match(keyed, {
-    onTrue: (): WardicKeyedBatch<unknown> => ({ member: keyedHandlesOf<JSX.CSSProperties>(binding, usePresenceContext), ...landings }),
+    onTrue: (): WardicKeyedBatch<unknown> => ({ member: keyedHandlesOf<JSX.CSSProperties>(binding, presenceHere), ...landings }),
     onFalse: (): WardicBatch => ({ at: handlesOf<JSX.CSSProperties>(binding), ...landings }),
   })
   // Known to `createAnimate`'s `animate` (#665).

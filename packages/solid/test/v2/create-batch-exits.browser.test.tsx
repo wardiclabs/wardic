@@ -7,9 +7,14 @@
 //   presence handle's `exiting()` holds through them, and `next("exitComplete")` resolves once both are gone.
 // - CVE2: a key back mid-exit: its old element goes at once, and its new one takes the member over, as a
 //   keyed `w.div` takes over (#286).
+// - CVE3: `initial={false}` starts the first render's members at their targets; `mode="wait"` holds an
+//   entering member, unmoved, until the leaver's exit lands; `popLayout` pops the leaver out of the flow;
+//   `exit` as a function hears the presence's `custom`.
 import { DomLive } from "@wardic/dom"
+import * as Bool from "effect/Boolean"
+import * as Predicate from "effect/Predicate"
 import type { JSX } from "@solidjs/web"
-import { AnimatePresence, createBatch, createPresence, type Presence, stagger, w, WardicProvider } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, createBatch, createPresence, type Presence, type PresenceMode, stagger, w, WardicProvider } from "@wardic/solid/unstable/v2"
 import { createSignal, For, untrack } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { raf } from "../browser-helpers.ts"
@@ -26,7 +31,13 @@ const opacityOf = (el: Element): number => Number(getComputedStyle(el).opacity)
  * each under another, each entering from `opacity: 0` to `x: i * 40, opacity: 1`, leaving to
  * `opacity: 0` on a 0.2 s tween, a member staggered by its rank among the leavers, a ward by `rankOf(id)`.
  */
-const mountBoth = (start: ReadonlyArray<string>, rankOf: (id: string) => number) => {
+/** How `mountBoth` mounts its presences: their mode and `initial`. */
+interface Mounting {
+  readonly mode?: PresenceMode
+  readonly initial?: boolean
+}
+
+const mountBoth = (start: ReadonlyArray<string>, rankOf: (id: string) => number, mounting: Mounting = {}) => {
   const [items, setItems] = createSignal<ReadonlyArray<string>>(start)
   const members = new Map<string, HTMLDivElement>()
   const wards = new Map<string, HTMLDivElement>()
@@ -43,10 +54,10 @@ const mountBoth = (start: ReadonlyArray<string>, rankOf: (id: string) => number)
     })
     return (
       <>
-        <AnimatePresence ref={presence}>
+        <AnimatePresence ref={presence} {...mounting}>
           <For each={items()}>{(id) => <div style={BOX} {...list.member(id, { ref: (el) => members.set(id, el as HTMLDivElement) })} />}</For>
         </AnimatePresence>
-        <AnimatePresence>
+        <AnimatePresence {...mounting}>
           <For each={items()}>
             {(id, i) => (
               <w.div
@@ -124,5 +135,66 @@ describe("a keyed Batch's exits under AnimatePresence on Solid 2 (#665)", () => 
     const frames = await readsOver(30, ["a", "b", "c"], both)
     expectSame(frames)
     expect(frames[frames.length - 1].map(([member]) => member[1])).toEqual([1, 1, 1])
+  })
+
+  it("CVE3: initial={false}, mode=wait (held, unmoved), popLayout, and an exit function hearing custom", async () => {
+    // initial={false}: the first render's members at their targets, as their wards.
+    const quiet = mountBoth(["a", "b"], () => 0, { initial: false })
+    const first = await readsOver(2, ["a", "b"], quiet)
+    expectSame(first)
+    expect(first[0].map(([member]) => member[1])).toEqual([1, 1])
+    // mode="wait": c held off the page, unmoved, until b's exit lands, then on with its ward.
+    const waits = mountBoth(["a", "b"], () => 0, { mode: "wait" })
+    await readsOver(30, ["a", "b"], waits)
+    waits.setItems(["a", "c"])
+    const inlineX = (el: Element | undefined): number => new DOMMatrix((el as HTMLElement).style.transform || "none").m41
+    const onPage = (el: Element | undefined): boolean => Bool.and(Predicate.isNotUndefined(el), (el as Element).isConnected)
+    const held: Array<readonly [boolean, boolean, number]> = []
+    for (let f = 0; f < 24; f++) {
+      await raf()
+      held.push([onPage(waits.members.get("c")), onPage(waits.wards.get("c")), inlineX(waits.members.get("c"))])
+    }
+    held.forEach(([member, ward], f) => expect(member, `frame ${f}`).toBe(ward))
+    expect([held[0][0], held[held.length - 1][0]]).toEqual([false, true])
+    held.filter(([member]) => !member).forEach(([, , x], f) => expect(x, `held frame ${f}`).toBe(0))
+    // popLayout: the leaver out of the flow while it exits, as its ward.
+    const pops = mountBoth(["a", "b", "c"], () => 0, { mode: "popLayout" })
+    await readsOver(30, ["a", "b", "c"], pops)
+    pops.setItems(["a", "c"])
+    await raf()
+    const position = (el: Element | undefined): string => getComputedStyle(el as Element).position
+    expect([position(pops.members.get("b")), position(pops.wards.get("b"))]).toEqual(["absolute", "absolute"])
+    // An exit function hears the presence's custom.
+    const [items, setItems] = createSignal<ReadonlyArray<string>>(["a", "b"])
+    const heard: Array<readonly [string, number, unknown]> = []
+    const members = new Map<string, HTMLDivElement>()
+    const Scene = (): JSX.Element => {
+      const list = createBatch({
+        each: items,
+        key: (id) => id,
+        animate: (_, i) => ({ x: i * 40 }),
+        exit: (id, i, custom) => {
+          heard.push([id, i, custom])
+          return { x: custom as number }
+        },
+        transition: { type: "tween", duration: 0.1 },
+      })
+      return (
+        <AnimatePresence custom={-50}>
+          <For each={items()}>{(id) => <div style={BOX} {...list.member(id, { ref: (el) => members.set(id, el as HTMLDivElement) })} />}</For>
+        </AnimatePresence>
+      )
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Scene />
+      </WardicProvider>
+    ))
+    for (let f = 0; f < 20; f++) await raf()
+    const b = members.get("b") as Element
+    setItems(["a"])
+    for (let f = 0; f < 3; f++) await raf()
+    expect(xOf(b)).toBeLessThan(40)
+    expect(heard).toEqual([["b", 1, -50]])
   })
 })

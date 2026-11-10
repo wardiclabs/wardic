@@ -40,7 +40,7 @@ import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicTransition } from "./config.ts"
-import { type PresenceContextValue, presenceBlocksInitial } from "./presence-record.ts"
+import { type PresenceContextValue, presenceBlocksInitial, presenceHold } from "./presence-record.ts"
 import { type Run, runOf, transitionForKey } from "./retarget-legs.ts"
 import type { WardicRuntime } from "./runtime.ts"
 
@@ -723,7 +723,7 @@ interface MembersForm {
 }
 
 /** A keyed member's exit while it plays: its presence's `release`, and its `custom`. */
-interface Exit {
+interface MemberExit {
   readonly release: (completed?: boolean) => void
   readonly custom: unknown
 }
@@ -862,6 +862,17 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
   const keyedInitialOf = (item: unknown, i: number): Readonly<Record<string, unknown>> | undefined =>
     startGiven(byKey.initial, (given: (item: unknown, i: number) => WardicBatchValues) => given(item, i))
 
+  // Keyed: its `exit` as values (an object's, less its `transition`; none for a function's), and that `transition`.
+  const exitObject: WardicBatchExit | undefined = Bool.match(Predicate.isFunction(byKey.exit), {
+    onTrue: () => undefined,
+    onFalse: () => byKey.exit as WardicBatchExit | undefined,
+  })
+  const exitValues: Readonly<Record<string, unknown>> = UndefinedOr.match(exitObject, {
+    onUndefined: () => NO_VALUES,
+    onDefined: ({ transition: _transition, ...values }) => values,
+  })
+  const exitTransition = UndefinedOr.map(exitObject, (given) => given.transition as WardicTransition | undefined)
+
   /** Keyed: the items now, their keys and their targets, as `animate` gives them. A compute: it writes nothing shared. */
   const keyedTargetsOf = (): KeyedTargets => {
     const items = byKey.each()
@@ -872,18 +883,37 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     }
   }
 
-  /** Keyed: the core Batch, made on `targets`' keys (else the config's `keys`) when it has members. */
+  /**
+   * Keyed: the core Batch, made on `targets`' keys and its `exit`'s, as values (else the config's `keys`,
+   * which must hold the `exit`'s), when it has members.
+   */
   const makeFromList = (targets: KeyedTargets): void => {
     if (targets.items.length === 0) return
-    keysAre(UndefinedOr.match(byKey.keys, {
+    keysAre(withExitKeys(UndefinedOr.match(byKey.keys, {
       onUndefined: () => keysFrom(targets.items.length, (i) => targets.values[i], (i) => keyedInitialOf(targets.items[i], i)),
       onDefined: identity,
-    }))
+    })))
     makeBatch((k) => {
       const value = targets.values[0][keys[k]]
       if (Predicate.isNumber(value)) return value
       return Number.NaN
     })
+  }
+
+  /** Keyed: `given` keys with its `exit`'s, as values, after them; with `keys` given, an `exit` key outside them is an error naming it. */
+  const withExitKeys = (given: ReadonlyArray<string>): ReadonlyArray<string> => {
+    const more = Arr.filter(Rec.keys(exitValues), (key) => !Arr.contains(given, key))
+    if (Bool.and(Predicate.isNotUndefined(byKey.keys), more.length > 0)) {
+      return fail(`its \`exit\` gives "${more[0]}", which isn't one of its \`keys\` (${given.join(", ")})`)
+    }
+    return [...given, ...more]
+  }
+
+  /** Keyed: the member for `key`: its member, else a new one. */
+  const memberForKey = (key: unknown): number => {
+    const known = memberOfKey.get(key)
+    if (Predicate.isNotUndefined(known)) return known
+    return newMember(key)
   }
 
   /** A keyed member for `key`, at its first sight: a member given back, else the next. */
@@ -921,8 +951,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     // Per item at a change (#665): statements.
     Arr.forEach(targets.items, (item, i) => {
       const key = targets.keys[i]
-      let member = memberOfKey.get(key)
-      if (Predicate.isUndefined(member)) member = newMember(key)
+      const member = memberForKey(key)
       if (listedIn[member] === listings) return fail(`items ${indexOf[member]} and ${i} both have the key ${JSON.stringify(key)}: each item's key is its own`)
       listedIn[member] = listings
       indexOf[member] = i
@@ -944,13 +973,19 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
    * Batch until its exit lands; else it leaves at once.
    */
   const leavesList = (i: number): void => {
-    const watched = Bool.and(Predicate.isNotUndefined(watchedOn[i]), watchedOn[i] === elementOf[i])
-    if (Bool.or(Predicate.isNotUndefined(exits[i]), watched)) {
+    if (Bool.or(Predicate.isNotUndefined(exits[i]), isWatched(i))) {
       unlisted.add(i)
       flushSoon()
       return
     }
-    leaveList(i)
+    leaveBatch(i)
+  }
+
+  /** Keyed: whether member `i`'s element is the one its presence watches. */
+  const isWatched = (i: number): boolean => {
+    const watched = watchedOn[i]
+    if (Predicate.isUndefined(watched)) return false
+    return watched === elementOf[i]
   }
 
   /** Keyed: member `i`'s exit cut short, its element let go at once, uncompleted (#286's rule). */
@@ -961,12 +996,13 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
   }
 
   /** Keyed: member `i` leaves the Batch, at once; its number is given back. */
-  const leaveList = (i: number): void => {
+  const leaveBatch = (i: number): void => {
     unlisted.delete(i)
     exits[i] = undefined
     presenceOf[i] = undefined
     watchedOn[i] = undefined
     quietStart.delete(i)
+    unhold(i)
     const slot = slotOf[i]
     if (slot !== NO_SLOT) Batch.leave(made(), slot)
     const el = elementOf[i]
@@ -991,9 +1027,15 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
   const watchedOn: Array<Element | undefined> = []
   const quietStart = new Set<number>()
   const unlisted = new Set<number>()
-  const exits: Array<Exit | undefined> = []
+  const exits: Array<MemberExit | undefined> = []
   let starting: Array<number> = []
   let exitsSoon = false
+
+  // Each member's element held off the page by `mode="wait"`, and the call that lets the hold go.
+  const holds = new Map<number, () => void>()
+
+  /** Keyed: whether member `entry` is still member `i`: a member given back and taken by another key isn't. */
+  const isCurrent = (i: number, entry: BatchMemberEntry | undefined): boolean => entries[i] === entry
 
   /** Keyed: member `i`'s element `el` watched by its presence, so its leave plays its exit, holding it on the page. */
   const watchOn = (i: number, el: Element): void => {
@@ -1006,81 +1048,135 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     watch({
       element: () => el,
       holds: true,
-      leave: (custom, release) => exitStarts(i, entry, el, custom, release),
+      leave: (custom, release) => memberLeft(i, entry, el, custom, release),
       gone: () => watchGone(i, entry, el),
       interrupted: () => exitCut(i, entry),
     })
   }
 
-  /** Keyed: member `i`'s element left its presence: its exit starts with this task's others, so `stagger()` counts them (Q25). */
-  const exitStarts = (i: number, entry: BatchMemberEntry | undefined, el: Element, custom: unknown, release: (completed?: boolean) => void): void => {
+  /**
+   * Keyed: whether the member entering at `slot` is held off the page by its presence's `mode="wait"`,
+   * read at its task's end, once the presence has decided: its move starts as the presence lets it on,
+   * as a Wardic element's does then.
+   */
+  const heldBack = (slot: number): boolean => {
+    const i = memberOf[slot]
+    const presence = presenceOf[i]
+    const el = elementOf[i]
+    if (Predicate.isUndefined(presence) || !(el instanceof HTMLElement)) return false
+    unhold(i)
+    const entry = entries[i]
+    const cancel = presenceHold(presence, el, () => {
+      holds.delete(i)
+      if (Bool.and(isCurrent(i, entry), slotOf[i] === slot)) change([slot])
+    })
+    if (Predicate.isUndefined(cancel)) return false
+    holds.set(i, cancel)
+    return true
+  }
+
+  /** Keyed: member `i`'s hold let go, if it had one. */
+  const unhold = (i: number): void => {
+    const cancel = holds.get(i)
+    holds.delete(i)
+    if (Predicate.isNotUndefined(cancel)) cancel()
+  }
+
+  /** Keyed: member `i`'s element left its presence: its exit plays with this task's others', so `stagger()` counts them (Q25). */
+  const memberLeft = (i: number, entry: BatchMemberEntry | undefined, el: Element, custom: unknown, release: (completed?: boolean) => void): void => {
     // Not the member's element now (made again), or never drawn: nothing to exit on it.
-    if (Bool.or(Bool.or(entries[i] !== entry, elementOf[i] !== el), slotOf[i] === NO_SLOT)) {
-      release()
-      return
-    }
+    if (!isCurrent(i, entry)) return release()
+    if (elementOf[i] !== el) return release()
+    if (slotOf[i] === NO_SLOT) return release()
     exits[i] = { release, custom }
     starting.push(i)
     if (exitsSoon) return
     exitsSoon = true
-    queueMicrotask(startExits)
+    queueMicrotask(playExits)
+  }
+
+  /** Keyed: a leaver's exit values: its `exit` read once, a function's called with its item, last index and `custom`. */
+  const exitValuesOf = (i: number, custom: unknown): Readonly<Record<string, unknown>> => {
+    if (Predicate.isFunction(byKey.exit)) return byKey.exit(itemOf[i], indexOf[i], custom)
+    return exitValues
   }
 
   /** Keyed: this task's exits, one driven change of them all, each member let go as its own lands (Q47). */
-  const startExits = (): void => {
+  const playExits = (): void => {
     exitsSoon = false
     const going = Arr.filter(starting, (i) => Bool.and(Predicate.isNotUndefined(exits[i]), slotOf[i] !== NO_SLOT))
     starting = []
-    if (Bool.or(disposed, going.length === 0)) return
-    const given = byKey.exit
+    if (going.length === 0) return
+    // A Batch disposed since lets its leavers go at once.
+    if (disposed) return Arr.forEach(going, cutExit)
     const exitTargets = new Float64Array(capacity * stride).fill(Number.NaN)
-    // Per leaver at its exit (#665): statements.
+    const moving: Array<number> = []
+    // Per leaver at its exit (#665): statements. An exit that fails is reported, and lets its element go.
     Arr.forEach(going, (i) => {
-      const values: Readonly<Record<string, unknown>> = Bool.match(Predicate.isFunction(given), {
-        onTrue: () => (given as (item: unknown, i: number, custom: unknown) => WardicBatchValues)(itemOf[i], indexOf[i], UndefinedOr.getOrThrow(exits[i]).custom),
-        onFalse: () => UndefinedOr.match(given as WardicBatchExit | undefined, { onUndefined: () => NO_VALUES, onDefined: ({ transition: _transition, ...values }) => values }),
-      })
-      targetsInto(exitTargets, i, values)
+      try {
+        targetsInto(exitTargets, i, exitValuesOf(i, UndefinedOr.getOrThrow(exits[i]).custom))
+        moving.push(i)
+      } catch (defect) {
+        env.runtime.runFork(Report.failure("createBatch: a member's exit failed", Cause.die(defect)))
+        cutExit(i)
+        if (unlisted.has(i)) leaveBatch(i)
+      }
     })
-    const exitTransition = Bool.match(Bool.and(Predicate.isObject(given), Bool.not(Predicate.isFunction(given))), {
-      onTrue: () => (given as WardicBatchExit).transition as WardicTransition | undefined,
-      onFalse: () => undefined,
-    })
+    if (moving.length === 0) return
     const configured = configuredOf()
-    const transition = UndefinedOr.match(exitTransition, { onUndefined: () => configured, onDefined: identity })
-    const skips = Bool.or(env.skipAnimations(), UndefinedOr.map(configured, (own) => own.skipAnimations) === true)
-    const slots = Arr.map(going, (i) => slotOf[i])
-    changeOn(slots, (slot, k) => exitTargets[memberOf[slot] * stride + k], undefined, {
-      transition,
+    changeOn(Arr.map(moving, (i) => slotOf[i]), (slot, k) => exitTargets[memberOf[slot] * stride + k], undefined, {
+      transition: UndefinedOr.match(exitTransition, { onUndefined: () => configured, onDefined: identity }),
       reducedMotion: env.reducedMotion(),
-      skipAnimations: skips,
+      skipAnimations: skipsNow(configured),
       head: Playback.make(),
       settled: noop,
       onMemberLanded: (slot) => exitLanded(memberOf[slot]),
     }).run()
   }
 
-  /** Keyed: member `i`'s exit landed: its element let go, and, out of the list, the member leaves the Batch. */
+  /**
+   * Keyed: member `i`'s exit landed: its element let go. Out of the list, the member leaves the Batch; in
+   * it (its element gone with a presence child that left), its slot goes, so its next element enters anew.
+   */
   const exitLanded = (i: number): void => {
     const exit = exits[i]
     if (Predicate.isUndefined(exit)) return
     exits[i] = undefined
     exit.release()
-    if (unlisted.has(i)) leaveList(i)
+    if (unlisted.has(i)) return leaveBatch(i)
+    dropSlot(i)
   }
 
-  /** Keyed: member `i`'s exit cut short by its presence (a take-over, the presence going): out of the list, it leaves the Batch. */
+  /** Keyed: member `i`, still in the list, out of the Batch's run: its next element enters from `initial`. */
+  const dropSlot = (i: number): void => {
+    const slot = slotOf[i]
+    if (slot === NO_SLOT) return
+    Batch.leave(made(), slot)
+    slotOf[i] = NO_SLOT
+    const el = elementOf[i]
+    if (Predicate.isNotUndefined(el)) forget(el, i)
+    elementOf[i] = undefined
+    watchedOn[i] = undefined
+  }
+
+  /**
+   * Keyed: member `i`'s exit cut short by its presence (a take-over of the child it's in, the presence
+   * going): out of the list, it leaves the Batch; in it, it turns back toward its targets.
+   */
   const exitCut = (i: number, entry: BatchMemberEntry | undefined): void => {
-    if (entries[i] !== entry) return
+    if (!isCurrent(i, entry)) return
     exits[i] = undefined
-    if (unlisted.has(i)) leaveList(i)
+    if (unlisted.has(i)) return leaveBatch(i)
+    const slot = slotOf[i]
+    if (slot !== NO_SLOT) change([slot])
   }
 
   /** Keyed: member `i`'s watch dropped with no leave: its element left some other way. Out of the list, it leaves the Batch. */
   const watchGone = (i: number, entry: BatchMemberEntry | undefined, el: Element): void => {
-    if (entries[i] !== entry || watchedOn[i] !== el) return
+    if (!isCurrent(i, entry)) return
+    if (watchedOn[i] !== el) return
     watchedOn[i] = undefined
-    if (Bool.and(unlisted.has(i), Predicate.isUndefined(exits[i]))) leaveList(i)
+    if (Bool.and(unlisted.has(i), Predicate.isUndefined(exits[i]))) leaveBatch(i)
   }
 
   /**
@@ -1088,11 +1184,12 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
    * not inside a child the presence keeps, whose element is off the page with no exit, leaves the Batch.
    */
   const settleUnlisted = (): void =>
-    Arr.forEach(Arr.fromIterable(unlisted), (i) => {
+    Iter.forEach(unlisted, (i) => {
       if (Predicate.isNotUndefined(exits[i])) return
       const el = elementOf[i]
-      if (Bool.and(Predicate.isNotUndefined(el), (el as Element).isConnected)) return
-      leaveList(i)
+      if (Predicate.isUndefined(el)) return leaveBatch(i)
+      if (el.isConnected) return
+      leaveBatch(i)
     })
 
   // Elements whose keys the list didn't have as they arrived, and those reported for still not having them
@@ -1149,8 +1246,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     // On Solid 2 a spread's compute can make one Solid then throws away, so a key's member is made once.
     memberFor: (key, presence) => {
       if (Predicate.isUndefined(batch)) makeFromList(env.untrack(keyedTargetsOf))
-      let member = memberOfKey.get(key)
-      if (Predicate.isUndefined(member)) member = newMember(key)
+      const member = memberForKey(key)
       if (Predicate.isNotUndefined(presence)) {
         presenceOf[member] = presence
         // Made in the presence's first render with `initial={false}`: it starts at its targets.
@@ -1283,11 +1379,27 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     }
   }
 
+  /**
+   * `slots` a change moves now: all of them, but those entering this task that `mode="wait"` holds off
+   * the page, which move as they go on (Q46). With none entering, `slots` as they are.
+   */
+  const movingNow = (slots: ReadonlyArray<number>): ReadonlyArray<number> => {
+    if (arrived.length === 0) return slots
+    const entering = new Set(arrived)
+    return Arr.filter(slots, (slot) => Bool.not(Bool.and(entering.has(slot), heldBack(slot))))
+  }
+
+  /** Whether a change now lands at once: its scope's `skipAnimations`, or its transition's (#468). */
+  const skipsNow = (configured: WardicTransition | undefined): boolean => {
+    if (env.skipAnimations()) return true
+    return UndefinedOr.map(configured, (given) => given.skipAnimations) === true
+  }
+
   /** The change for `slots` now: their targets, with this moment's transitions. */
   const change = (slots: ReadonlyArray<number>): void => {
     if (slots.length === 0) return
     const configured = configuredOf()
-    if (env.skipAnimations() || UndefinedOr.map(configured, (given) => given.skipAnimations) === true) {
+    if (skipsNow(configured)) {
       wake(Batch.retarget(made(), slots, targetOf, { transition: INSTANT }))
       return
     }
@@ -1309,7 +1421,8 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     if (disposed) return
     settleWaiting()
     settleUnlisted()
-    const slots = arrived
+    // An element `mode="wait"` holds off the page moves as it goes on (Q46).
+    const slots = Arr.filter(arrived, (slot) => !heldBack(slot))
     arrived = []
     change(slots)
   }
@@ -1566,7 +1679,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
       if (disposed) return
       form.take(targets)
       if (Predicate.isUndefined(batch)) return
-      change(form.arrivedSlots())
+      change(movingNow(form.arrivedSlots()))
     },
     refOf: (i) => form.refOf(i),
     memberFor: (key, presence) => form.memberFor(key, presence),
@@ -1585,6 +1698,9 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     },
     dispose: () => {
       disposed = true
+      // Its leavers let go at once, uncompleted, and its held elements' holds: a presence waits on them no more.
+      Arr.forEach(Arr.map(exits, (_, i) => i), cutExit)
+      Arr.forEach(Arr.fromIterable(holds.keys()), unhold)
       Iter.forEach(fibers, (fiber) => fiber.interruptUnsafe())
       fibers.clear()
       Arr.forEach(elementOf, (el, i) => {

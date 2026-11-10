@@ -44,6 +44,7 @@ import * as Effect from "effect/Effect"
 import type * as Fiber from "effect/Fiber"
 import { constFalse, constUndefined, constVoid, identity } from "effect/Function"
 import * as Option from "effect/Option"
+import * as Iter from "effect/Iterable"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -629,7 +630,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   // The presence hooks registered (#277's PR 5b), each told at its child's leave.
   const watches = new Set<PresenceWatch>()
   // The hooks each leaving child told it left, while its exit runs: told if it's cut short (#665, Q46).
-  const told = new Map<HTMLElement, ReadonlyArray<PresenceWatch>>()
+  const toldHooks = new Map<HTMLElement, ReadonlyArray<PresenceWatch>>()
 
   // The children `mode="wait"` holds off the page now (#277), and the start of each ward inside one,
   // by its element, called once the child is on the page.
@@ -713,6 +714,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     blocksInitial: () => options.initial() === false && firstRender,
     watch: (watch) => {
       watches.add(watch)
+      watchesWithin = undefined
     },
     hold: (el, start) => {
       if (Bool.not(isHeld(el))) return undefined
@@ -743,7 +745,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   // in-flight fiber bookkeeping. Idempotent. `completed`: its exit ended on its own (#257).
   const finishExit = (el: HTMLElement, completed = true): void => {
     exiting.delete(el)
-    told.delete(el)
+    toldHooks.delete(el)
     registry.delete(el)
     draws.delete(el)
     crossfades.delete(el)
@@ -796,9 +798,13 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // `partDone`, which would tell it completed (#257).
     leaveEnds(el, false)
     // The hooks it told it left hear it was cut short (#665, Q46).
-    const hooks = told.get(el)
-    told.delete(el)
-    UndefinedOr.map(hooks, (inside) => Arr.forEach(inside, (watch) => UndefinedOr.map(watch.interrupted, (hear) => hear())))
+    const hooks = toldHooks.get(el)
+    toldHooks.delete(el)
+    if (Predicate.isNotUndefined(hooks)) {
+      Arr.forEach(hooks, (watch) => {
+        if (Predicate.isNotUndefined(watch.interrupted)) watch.interrupted()
+      })
+    }
     const fiber = exiting.get(el)
     if (Predicate.isNotUndefined(fiber)) {
       debug("exit: interrupt")
@@ -1270,9 +1276,33 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     leave(el, rec, customNow(), inside, holds)
   }
 
-  /** The presence hooks inside `el` (#277's PR 5b): those whose element it holds. */
-  const watchesIn = (el: HTMLElement): ReadonlyArray<PresenceWatch> =>
-    Arr.filter(Arr.fromIterable(watches), (watch) => UndefinedOr.match(watch.element(), { onUndefined: constFalse, onDefined: (at) => el.contains(at) }))
+  /**
+   * The presence hooks by each element they're inside, their own included: built once a change, as a
+   * leaver's are first asked for, and again once a hook is added (#665, Q46). A hook dropped since is
+   * left out as they're read.
+   */
+  // A scan of every hook for each leaver cost a change 12 ms at 1,000 Batch members, half of them leaving,
+  // and 123 ms at 4,000 (against 1.1 and 2.8 with no presence).
+  let watchesWithin: Map<Element, Array<PresenceWatch>> | undefined
+
+  /** `watch` under `at` and each element `at` is inside. */
+  const indexUp = (index: Map<Element, Array<PresenceWatch>>, at: Element | null, watch: PresenceWatch): void => {
+    if (Predicate.isNull(at)) return
+    const known = index.get(at)
+    if (Predicate.isUndefined(known)) index.set(at, [watch])
+    if (Predicate.isNotUndefined(known)) known.push(watch)
+    indexUp(index, at.parentElement, watch)
+  }
+
+  /** The presence hooks inside `el` (#277's PR 5b): those whose element it holds, in the order they were added. */
+  const watchesIn = (el: HTMLElement): ReadonlyArray<PresenceWatch> => {
+    if (Predicate.isUndefined(watchesWithin)) {
+      const index = new Map<Element, Array<PresenceWatch>>()
+      Iter.forEach(watches, (watch) => UndefinedOr.map(watch.element(), (at) => indexUp(index, at, watch)))
+      watchesWithin = index
+    }
+    return Arr.filter(UndefinedOr.match(watchesWithin.get(el), { onUndefined: (): ReadonlyArray<PresenceWatch> => [], onDefined: identity }), (watch) => watches.has(watch))
+  }
 
   /**
    * Tell the hooks inside a leaving child it left (#277's PR 5b), with the presence's `custom`. With
@@ -1281,7 +1311,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    */
   const tellLeave = (el: HTMLElement, inside: ReadonlyArray<PresenceWatch>, counted: boolean): void => {
     const custom = customNow()
-    if (Bool.and(counted, inside.length > 0)) told.set(el, inside)
+    if (Bool.and(counted, inside.length > 0)) toldHooks.set(el, inside)
     Arr.forEach(inside, (watch) => {
       watches.delete(watch)
       let released = false
@@ -1426,6 +1456,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   }
 
   const present = (current: unknown): void => {
+    // Its hooks' elements may have moved since the last change: indexed again as they're asked for.
+    watchesWithin = undefined
     const now = elementsOf(current)
     const kept = new Set(now)
     // A child entering pushes its siblings (#442): not on the page at the last change, the first one
@@ -1500,6 +1532,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     )
 
   const shown = (resolved: unknown): unknown => {
+    watchesWithin = undefined
     const mode = modeNow()
     // `popLayout` (#277): each child leaving in this change is measured where it is, before the change
     // moves it, as Motion's `getSnapshotBeforeUpdate`.

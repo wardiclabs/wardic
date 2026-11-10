@@ -9,14 +9,17 @@
 // - CE2: a key back mid-exit: its old element goes at once, uncompleted, and its new one takes the
 //   member over where it was, at its speed, turning toward `animate`, as a keyed `wardic.div` takes over (#286).
 // - CE3: `initial={false}` starts the first render's members at their targets, a later one from `initial`;
-//   `mode="wait"` holds an entering element until the leaver's exit lands; `popLayout` pops the leaver
-//   out of the flow: each as its ward's.
+//   `mode="wait"` holds an entering element until the leaver's exit lands, then it moves as its ward does,
+//   a frame later; `popLayout` pops the leaver out of the flow: each as its ward's.
 // - CE4: `exit` as a function of the item, its last index and the presence's `custom`.
+// - CE5: an `exit` key `animate` doesn't give is one of the Batch's; members still in the list whose
+//   presence child leaves exit, and their next elements enter from `initial`; under `mode="wait"`, a key
+//   back mid-exit is on the page at once; a Batch disposed mid-exit lets its leavers go.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import * as Predicate from "effect/Predicate"
 import { AnimatePresence, createBatch, type PresenceMode, stagger, wardic, WardicProvider } from "@wardic/solid"
-import { createSignal, For, type JSX } from "solid-js"
+import { createSignal, For, type JSX, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { raf } from "./browser-helpers.ts"
 
@@ -158,17 +161,24 @@ describe("a keyed Batch's exits under AnimatePresence on Solid 1 (#665)", () => 
     const waits = mountBoth(["a", "b"], () => 0, { mode: "wait" })
     await readsOver(30, ["a", "b"], waits)
     waits.setItems(["a", "c"])
-    const onPage = async (frames: number): Promise<ReadonlyArray<readonly [boolean, boolean]>> => {
-      const out: Array<readonly [boolean, boolean]> = []
-      for (let f = 0; f < frames; f++) {
-        await raf()
-        out.push([isOnPage(waits.members.get("c")), isOnPage(waits.wards.get("c"))])
-      }
-      return out
+    // While held, the member doesn't move: the transform the Batch writes on its element stays at its start.
+    const inlineX = (el: Element | undefined): number => new DOMMatrix((el as HTMLElement).style.transform || "none").m41
+    const held: Array<readonly [boolean, boolean, number]> = []
+    for (let f = 0; f < 24; f++) {
+      await raf()
+      held.push([isOnPage(waits.members.get("c")), isOnPage(waits.wards.get("c")), inlineX(waits.members.get("c"))])
     }
-    const held = await onPage(30)
     held.forEach(([member, ward], f) => expect(member, `frame ${f}`).toBe(ward))
     expect([held[0][0], held[held.length - 1][0]]).toEqual([false, true])
+    held.filter(([member]) => !member).forEach(([, , x], f) => expect(x, `held frame ${f}`).toBe(0))
+    // On the page, it sets off, and lands within a frame of its ward. Let on inside the frame its leaver's exit
+    // lands, the ward's run takes its first step in that frame's Late window (#680); the member's change is made
+    // in the Batch's step, which has stepped, so it moves at the next.
+    const on = await readsOver(20, ["c"], waits)
+    const landedAt = (side: 0 | 1): number => on.findIndex((reads) => reads[0][side][0] === 40)
+    expect(on[0][0][0][0]).toBeLessThan(40)
+    expect(landedAt(0) - landedAt(1)).toBeLessThanOrEqual(1)
+    expect(landedAt(0)).toBeGreaterThanOrEqual(landedAt(1))
     cleanup()
     // popLayout: the leaver out of the flow while it exits.
     const pops = mountBoth(["a", "b", "c"], () => 0, { mode: "popLayout" })
@@ -211,5 +221,105 @@ describe("a keyed Batch's exits under AnimatePresence on Solid 1 (#665)", () => 
     for (let f = 0; f < 3; f++) await raf()
     expect(xOf(b)).toBeLessThan(40)
     expect(heard).toEqual([["b", 1, -50]])
+  })
+
+  it("CE5: an exit-only key; a presence child leaving with members in it; wait and a key back; disposal mid-exit", async () => {
+    const [items] = createSignal<ReadonlyArray<string>>(["a", "b"])
+    const [open, setOpen] = createSignal(true)
+    const members = new Map<string, HTMLDivElement>()
+    const Scene = (): JSX.Element => {
+      // `x` only in `exit`: one of the Batch's keys all the same.
+      const list = createBatch({
+        each: items,
+        key: (id) => id,
+        initial: { opacity: 0 },
+        animate: (_, i) => ({ y: i * 48, opacity: 1 }),
+        exit: { opacity: 0, x: -24, transition: { type: "tween", duration: 0.2 } },
+        transition: { type: "tween", duration: 0.2 },
+      })
+      return (
+        <AnimatePresence>
+          <Show when={open()}>
+            <div data-box="list">
+              <For each={items()}>{(id) => <div style={BOX} {...list.member(id, { ref: (el) => members.set(id, el as HTMLDivElement) })} />}</For>
+            </div>
+          </Show>
+        </AnimatePresence>
+      )
+    }
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <Scene />
+      </WardicProvider>
+    ))
+    const frames = async (n: number): Promise<void> => {
+      for (let f = 0; f < n; f++) await raf()
+    }
+    await frames(20)
+    // The presence child leaves with both members still in the list: they exit, `x` included, and it goes.
+    const box = document.querySelector("[data-box=list]") as Element
+    const first = members.get("a") as Element
+    setOpen(false)
+    await frames(4)
+    expect(xOf(first)).toBeLessThan(0)
+    await frames(20)
+    expect(box.isConnected).toBe(false)
+    // Back: their next elements enter from `initial`, not from where their exits left them.
+    setOpen(true)
+    await raf()
+    expect(members.get("a")).not.toBe(first)
+    expect(opacityOf(members.get("a") as Element)).toBeLessThan(0.5)
+    await frames(20)
+    expect([opacityOf(members.get("a") as Element), xOf(members.get("a") as Element)]).toEqual([1, 0])
+    cleanup()
+    // mode="wait", a key back mid-exit: its old element goes at once, so the new one isn't held.
+    const [keyed, setKeyed] = createSignal<ReadonlyArray<string>>(["a", "b"])
+    const waited = new Map<string, HTMLDivElement>()
+    const Waits = (): JSX.Element => {
+      const list = createBatch({ each: keyed, key: (id) => id, animate: () => ({ opacity: 1 }), exit: { opacity: 0, transition: { type: "tween", duration: 0.4 } } })
+      return (
+        <AnimatePresence mode="wait">
+          <For each={keyed()}>{(id) => <div style={BOX} {...list.member(id, { ref: (el) => waited.set(id, el as HTMLDivElement) })} />}</For>
+        </AnimatePresence>
+      )
+    }
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <Waits />
+      </WardicProvider>
+    ))
+    await frames(10)
+    const leaving = waited.get("b") as Element
+    setKeyed(["a"])
+    await frames(4)
+    setKeyed(["a", "b"])
+    await raf()
+    expect([leaving.isConnected, (waited.get("b") as Element).isConnected]).toEqual([false, true])
+    cleanup()
+    // A Batch disposed mid-exit: its leaver goes, the presence waiting on it no more.
+    const [shown, setShown] = createSignal(true)
+    const [gone, setGone] = createSignal<ReadonlyArray<string>>(["a", "b"])
+    const kept = new Map<string, HTMLDivElement>()
+    const Inner = (): JSX.Element => {
+      const list = createBatch({ each: gone, key: (id) => id, animate: () => ({ opacity: 1 }), exit: { opacity: 0, transition: { type: "tween", duration: 2 } } })
+      return <For each={gone()}>{(id) => <div style={BOX} {...list.member(id, { ref: (el) => kept.set(id, el as HTMLDivElement) })} />}</For>
+    }
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <AnimatePresence>
+          <Show when={shown()}>
+            <Inner />
+          </Show>
+        </AnimatePresence>
+      </WardicProvider>
+    ))
+    await frames(4)
+    const b = kept.get("b") as Element
+    setGone(["a"])
+    await frames(2)
+    expect(b.isConnected).toBe(true)
+    setShown(false)
+    await frames(4)
+    expect(b.isConnected).toBe(false)
   })
 })
