@@ -26,6 +26,8 @@
 // - BP15: paused, its keys' velocities read 0, and a change that takes one then starts it from rest (#464).
 // - BP16: played back to its start, its keys rest there: a later change of the member's other key leaves
 //   them where they are.
+// - BP17: `onMemberLanded` tells each member as its own keys land, staggered ones one by one; a member it
+//   moves nothing of at its play; one whose keys a later change takes, never.
 import * as Batch from "@wardic/core/Batch"
 import * as Machine from "@wardic/core/Machine"
 import * as Playback from "@wardic/core/Playback"
@@ -336,5 +338,37 @@ describe("a Batch's change driven by a Playhead (#665)", () => {
     Batch.retarget(batch, [slot], (_, k) => [Number.NaN, 50][k])
     stepped(batch, slot).forEach((x) => expect(x).toBe(0))
     expect(Batch.get(batch, slot, "y")).toBe(50)
+  })
+
+  it("BP17: onMemberLanded tells each member as its keys land; one it moves nothing of at its play; one taken, never", () => {
+    const head = Playback.make()
+    const batch = Batch.make({ keys: ["x", "y"], writer, transition: { type: "spring" } })
+    const slots = ["a", "b", "c", "d"].map((name) => Batch.enter(batch, name, { x: 0, y: 0 }))
+    const told: Array<readonly [number, number]> = []
+    let frame = 0
+    // c is at its target already; d is taken by a later change.
+    const animation = Batch.animate(batch, slots, (slot, k) => [[50, 10], [50, 10], [0, 0], [50, 10]][slot][k], {
+      transition: { type: "tween", duration: 0.2 },
+      delay: Stagger.make(0.1),
+      head,
+      onMemberLanded: (slot) => told.push([slot, frame]),
+    })
+    Batch.play(animation)
+    expect(told).toEqual([[2, 0]])
+    Batch.retarget(batch, [slots[3]], () => 90)
+    Array.from({ length: 60 }).forEach(() => {
+      frame++
+      Batch.step(batch, F)
+    })
+    // a lands at 0.2 s, b at 0.3 s (its rank's 0.1 s delay): the frames their times, summed as steps sum them, take to get there.
+    let time = 0
+    const framesTo = (seconds: number): number => {
+      time = 0
+      return Array.from({ length: 600 }).findIndex(() => {
+        time += F
+        return time >= seconds
+      }) + 1
+    }
+    expect(told).toEqual([[2, 0], [0, framesTo(0.2)], [1, framesTo(0.1 + 0.2)]])
   })
 })

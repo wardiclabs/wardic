@@ -1033,6 +1033,12 @@ export interface AnimateOptions extends RetargetOptions {
   readonly from?: (slot: number, k: number) => number
   /** Called once every key it moves has landed while it still moves it, or at its play when it moves none. */
   readonly onLanded?: () => void
+  /**
+   * Called for each member it's given, once, as every key of it it still moves has landed: at its
+   * first play for a member it moves nothing of; never for one whose keys a later change took.
+   */
+  // #665, Q47: a keyed Batch's leavers, each removed as its own exit lands.
+  readonly onMemberLanded?: (slot: number) => void
 }
 
 /**
@@ -1096,6 +1102,12 @@ interface AnimationState<S> {
   dt: number
   /** Played from partway through: its first step lands where it was played from, as a driven machine's (`Playback.drive`). */
   landing: boolean
+  /** Each member it moves, by rank, its first key's index in `ats`, and one past the last's; whether each has been told it landed. */
+  firsts: Int32Array
+  told: Uint8Array
+  /** The members it's given that it moves nothing of, told they landed at its first play. */
+  idle: ReadonlyArray<number>
+  idleTold: boolean
 }
 
 const AnimationProto = {
@@ -1220,6 +1232,49 @@ const finish = <S>(animation: AnimationState<S>): void => {
   })
 }
 
+/** Whether the key at `animation`'s `i`th is at rest at its target, past its delay. */
+// Once a step, per key of a playing change: plain reads.
+const keyAtRest = <S>(animation: AnimationState<S>, i: number): boolean => {
+  const { state } = animation
+  const at = animation.ats[i]
+  return state.velocities[at] === 0 && state.positions[at] === animation.goals[i] && state.elapsed[at] >= state.delays[at]
+}
+
+/** The members `animation` moves nothing of, told they landed, once, at its first play (`onMemberLanded`). */
+const tellIdle = <S>(animation: AnimationState<S>): void => {
+  if (animation.idleTold) return
+  animation.idleTold = true
+  const tell = animation.options.onMemberLanded
+  if (Predicate.isUndefined(tell)) return
+  Arr.forEach(animation.idle, (slot) => tell(slot))
+}
+
+/**
+ * Each member `animation` moves told, once, as every key of it it still moves has landed (`onMemberLanded`):
+ * at its target, past its delay. One whose keys a later change took all is never told.
+ */
+// Once a step, per key of a playing change that tells its members: counted loops with plain reads.
+const tellMembers = <S>(animation: AnimationState<S>, tell: (slot: number) => void): void => {
+  const { state, firsts, told, ats } = animation
+  const n = told.length
+  for (let r = 0; r < n; r++) {
+    if (told[r] === 1) continue
+    let kept = false
+    let atRest = true
+    for (let i = firsts[r]; i < firsts[r + 1]; i++) {
+      if (!holds(animation, i)) continue
+      kept = true
+      if (!keyAtRest(animation, i)) {
+        atRest = false
+        break
+      }
+    }
+    if (!kept || !atRest) continue
+    told[r] = 1
+    tell(slotAt(state, ats[firsts[r]]))
+  }
+}
+
 /**
  * Whether `animation` has landed, once a step while it plays: every key it still moves at its target,
  * past its delay; or, played backwards, back at its start. It ends then. A key a later change took keeps
@@ -1228,6 +1283,8 @@ const finish = <S>(animation: AnimationState<S>): void => {
 const checkLanding = <S>(animation: AnimationState<S>): void => {
   const { state, options } = animation
   const backwards = options.head.speed < 0
+  const tell = options.onMemberLanded
+  if (Predicate.isNotUndefined(tell) && !backwards) tellMembers(animation, tell)
   const count = animation.ats.length
   let atRest = true
   let held = 0
@@ -1236,8 +1293,7 @@ const checkLanding = <S>(animation: AnimationState<S>): void => {
     if (!holds(animation, i)) continue
     held++
     if (backwards) continue
-    const at = animation.ats[i]
-    if (state.velocities[at] !== 0 || state.positions[at] !== animation.goals[i] || state.elapsed[at] < state.delays[at]) atRest = false
+    if (!keyAtRest(animation, i)) atRest = false
   }
   if (held > 0 && backwards && animation.time > 0) return
   if (!atRest) return
@@ -1328,6 +1384,10 @@ const animationFor = <S>(
     landing: false,
     tracks: [],
     indexAt: new Int32Array(0),
+    firsts: new Int32Array(0),
+    told: new Uint8Array(0),
+    idle: [],
+    idleTold: false,
   }
   return Object.assign(Object.create(AnimationProto), animation)
 }
@@ -1461,6 +1521,7 @@ const startOf = <S>(animation: AnimationState<S>): void => {
   const driven = state.animations.size > 0
   let count = 0
   let n = 0
+  const idle: Array<number> = []
   // Per member per key, once an animation, as a change's (ADR-0025, *Amendment (#665)*): counted loops
   // over its typed arrays. A slot given twice moves once.
   for (let g = 0; g < given; g++) {
@@ -1492,7 +1553,12 @@ const startOf = <S>(animation: AnimationState<S>): void => {
       goals[count] = target
       count++
     }
-    if (count === first) continue
+    if (count === first) {
+      // Counted too, so a slot given twice is idle once.
+      flags[slot] = flag | COUNTED
+      idle.push(slot)
+      continue
+    }
     flags[slot] = flag | COUNTED
     firsts[n] = first
     n++
@@ -1513,6 +1579,10 @@ const startOf = <S>(animation: AnimationState<S>): void => {
   animation.goals = goals.slice(0, count)
   animation.waits = waits
   animation.rules = new Uint16Array(count)
+  animation.firsts = firsts.slice(0, n + 1)
+  animation.told = new Uint8Array(n)
+  for (let s = 0; s < idle.length; s++) flags[idle[s]] = flags[idle[s]] & ~COUNTED
+  animation.idle = idle
   animation.started = true
 }
 
@@ -1601,6 +1671,7 @@ export const play = (self: Animation): number => {
   const { state, options } = animation
   if (!animation.started) startOf(animation)
   finish(animation)
+  tellIdle(animation)
   const count = animation.ats.length
   if (count === 0) {
     UndefinedOr.map(options.onLanded, (told) => told())

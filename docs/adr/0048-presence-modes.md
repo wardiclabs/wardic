@@ -832,3 +832,14 @@ A keyed reorder while a child exited left the leaver where it was, between the m
 - the anchor only where the children ended (PO1, PO2, PO9, POV1), or never there (PO14), or only a child that stays (PO9).
 
 Text nodes between the children (the `nextElementSibling` check) aren't pinned: no test renders any.
+
+## Amendment (#665, 2026-11-10): a presence hook's exit cut short, either way
+
+#665's keyed Batch (PR 3b, Q46) takes part in `<AnimatePresence>` as a plain element does, through the presence hook's watch: each member's element watched, holding it on the page until its exit lands. Two additions to the watch:
+
+- **`release(false)`** lets its child go at once, uncompleted, as a child taken over does (#286): no `onExitComplete`, and `mode="wait"` lets the child it held go on. A Batch member whose key comes back mid-exit cuts its exit so. The Batch knows from its list, so it works whichever runs first, the Batch's change or the presence's, and for any key, where the presence's own take-over matches only a Wardic element's `key`.
+- **`interrupted()`** tells a hook its child's exit, once it was told it left, was cut short by the presence: a take-over of the child it's inside, or the presence going.
+
+- **The hooks are indexed by the elements they're inside,** built once a change as a leaver's hooks are first asked for, and again once a hook is added. The scan of every hook for each leaver it replaces cost a change 11.9 ms with 1,000 Batch members under one presence, half of them leaving, 34.5 ms at 2,000 and 122.9 ms at 4,000, against 1.1, 1.7 and 2.8 ms with no presence. Indexed: 3.5, 5.1 and 9.1 ms.
+
+- Rejected: a keyed watch, so the presence's take-over finds a member mid-exit, which needs a key the presence can hold (a string or a number) and its take-over to run before the Batch's change.

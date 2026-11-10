@@ -167,11 +167,18 @@ export interface PresenceWatch {
   readonly holds: boolean
   /**
    * Its child left: called once, with the node back in place (or popped, `mode="popLayout"`), with
-   * the presence's `custom`, and `release`, which lets the child go once it holds it.
+   * the presence's `custom`, and `release`, which lets the child go once it holds it. `release(false)`
+   * cuts the child's exit short: it goes at once, uncompleted, as a child taken over does (#286).
    */
-  readonly leave: (custom: unknown, release: () => void) => void
+  readonly leave: (custom: unknown, release: (completed?: boolean) => void) => void
   /** Its child went some other way, or the presence did: it's dropped, with no leave. */
   readonly gone: () => void
+  /**
+   * Its child's exit, once it was told it left, was cut short: the child is gone, uncompleted (a
+   * take-over, the presence going). Optional: left out, it isn't told.
+   */
+  // #665, Q46: a keyed Batch's member mid-exit stops waiting on it.
+  readonly interrupted?: () => void
 }
 
 /** Whether `presence` holds an element setting up now at its `animate` ({@link PresenceContextValue.blocksInitial}). */
