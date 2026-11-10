@@ -537,6 +537,12 @@ type PaintLink =
 const NO_LINKS: ReadonlyArray<PaintLink> = []
 
 /**
+ * The map of an ancestor that drew no transform at the pass (#687): a Wardic element at identity,
+ * linked so a translate or scale it starts after the pass is followed.
+ */
+const IDENTITY_MAP: PaintMap = { sx: 1, sy: 1, tx: 0, ty: 0 }
+
+/**
  * An axis-aligned map, `p → s·p + t` on each axis: a translate and a scale (ADR-0012, *Amendment
  * (#137)*). What a twin's ancestors' transforms do to its box, composed.
  */
@@ -3043,6 +3049,36 @@ export const makeProjectionSystem = (
   }
 
   /**
+   * The Wardic elements above `el` up to `<body>` that draw no transform now (#687), into `out`: not a
+   * projection node (linked for its own scale already), not one this pass read for its transform
+   * (`reads`), not one a running transition holds. `walked` keeps a walk from going over what an
+   * earlier twin's walked. Touches no DOM but the parent links. Read phase only.
+   */
+  const untransformedAbove = (el: HTMLElement | null, reads: ReadonlyMap<Element, AncestorRead>, walked: Set<Element>, out: Array<Element>): void => {
+    let at = el
+    while (Predicate.isNotNull(at)) {
+      if (isDocumentTop(at)) return
+      // Walked from another twin, and so everything above it too.
+      if (walked.has(at)) return
+      walked.add(at)
+      const candidate = at
+      at = at.parentElement
+      if (elementToNode.has(candidate)) continue
+      if (Bool.not(elementValues.has(candidate))) continue
+      if (reads.has(candidate)) continue
+      if (passUnheld.has(candidate)) continue
+      out.push(candidate)
+    }
+  }
+
+  /** `el`'s transform origin on the page: its box as read now, and its computed `transform-origin`. Read phase only. */
+  const pageOriginOf = (el: Element): Point.Point => {
+    const box = el.getBoundingClientRect()
+    const origin = transformOriginOf(el)
+    return { x: box.left + origin.x, y: box.top + origin.y }
+  }
+
+  /**
    * The ancestors of twin `node` whose transforms move it, outermost first, in its frame (ADR-0012,
    * *Amendment (#137)*): each element this pass found moving it, and each projection node above it,
    * for its own scale (#8). `undefined` when one can't be mapped, so it's converted as of the pass
@@ -3877,13 +3913,23 @@ export const makeProjectionSystem = (
       holds = Arr.map(wanted, ([el, style]) => holdTransform(el, style))
       // --- READ: each one's box, held, and so its transform origin on the page. ------
       Arr.forEach(wanted, ([el], k) => {
-        const box = el.getBoundingClientRect()
-        const origin = transformOriginOf(el)
+        const origin = pageOriginOf(el)
         ancestorReads.set(el, {
-          origin: { x: box.left + origin.x, y: box.top + origin.y },
-          pass: UndefinedOr.map(passTransforms[k], (m) => mapAbout({ x: box.left + origin.x, y: box.top + origin.y }, m.e, m.f, m.a, m.d)),
+          origin,
+          pass: UndefinedOr.map(passTransforms[k], (m) => mapAbout(origin, m.e, m.f, m.a, m.d)),
         })
       })
+      // Each moved twin's Wardic ancestors at identity (#687): read as the others are, so its chain links
+      // them, and a translate or scale one starts after this pass is followed. Only when a twin moved.
+      let walked: Set<Element> | undefined
+      for (let i = 0; i < ordered.length; i++) {
+        if (Predicate.isUndefined(ordered[i].layoutId)) continue
+        if (Bool.not(moved[i])) continue
+        if (Predicate.isUndefined(walked)) walked = new Set<Element>()
+        const untransformed: Array<Element> = []
+        untransformedAbove(ordered[i].element.parentElement, ancestorReads, walked, untransformed)
+        for (const el of untransformed) ancestorReads.set(el, { origin: pageOriginOf(el), pass: IDENTITY_MAP })
+      }
       // --- READ: those nodes' boxes again, with nothing transformed. ----------
       if (Arr.isArrayNonEmpty(wanted)) {
         for (const i of under) {

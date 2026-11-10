@@ -396,7 +396,9 @@ describe('AnimatePresence mode="popLayout" on Solid 1 (#277)', () => {
   })
 
   it("PL17: sync: a child entering grows the card, and the leaver keeps its own size and its place", async () => {
-    const t = mountCard(["b"], { mode: "sync", card: { type: "tween", duration: 1, ease: "linear" }, exit: { opacity: 0 }, answer: { type: "tween", duration: 1 } })
+    // The leaver's exit outlasts the card's growth, so the card lands with it still on the page. At 1 s each
+    // the two ended in either order: a leaver gone first let the entered child move up into its place (98.3 px).
+    const t = mountCard(["b"], { mode: "sync", card: { type: "tween", duration: 1, ease: "linear" }, exit: { opacity: 0 }, answer: { type: "tween", duration: 1.5 } })
     await frames(5)
     const b = t.node("b")
     const was = rectOf(b)
