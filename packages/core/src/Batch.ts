@@ -173,8 +173,19 @@ const NO_SPRING: Spring.Resolved = Spring.resolve({})
 /** No tween: a spring's entry's. */
 const NO_TWEEN: ResolvedTween = Machine.resolveTween({})
 
+/** The transitions a Batch runs. */
+const RUN_TYPES: ReadonlyArray<unknown> = ["spring", "tween"]
+
+/** Whether a transition's `type` is one a Batch runs. */
+const isRunType = (type: unknown): boolean => RUN_TYPES.includes(type)
+
 /** `transition`, resolved for the table: its bag checked once (`Spring.resolve`, `resolveTween`). */
+// A Batch runs springs and tweens alone (ADR-0069, decision 11): no keyframes, inertia or decay.
 const entryFor = (transition: Transition): Entry => {
+  const type: unknown = transition.type
+  if (!isRunType(type)) {
+    throw new Machine.OptionError({ message: `Expected "spring" | "tween", got ${JSON.stringify(type)}\n  at ["transition"]["type"]` })
+  }
   if (transition.type === "tween") {
     const tween = Machine.resolveTween(transition)
     return { kind: 1, delay: tween.delay, spring: NO_SPRING, tween }
@@ -202,6 +213,10 @@ const ruleOf = <S>(state: State<S>, transition: Transition): number =>
  * const grid = Batch.make({ keys: ["x", "y"], writer, transition: { type: "spring" } })
  */
 export const make = <S>(options: Options<S>): Batch<S> => {
+  options.keys.forEach((key, k) => {
+    if (options.writer.writes(key)) return
+    throw new Machine.OptionError({ message: `Expected a key its writer draws, got ${JSON.stringify(key)}\n  at ["keys"][${k}]` })
+  })
   const capacity = UndefinedOr.match(options.capacity, { onUndefined: () => 16, onDefined: (n) => Math.max(1, n) })
   const stride = options.keys.length
   const size = capacity * stride

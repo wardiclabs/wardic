@@ -15,7 +15,10 @@
 // - B7: a member that leaves is never written again, and its slot goes to the next to enter, from
 //   that one's own start.
 // - B8: `Batch.run` on the Frame loop: one run while anything moves, `onFrame` once a tick, a second
-//   `run` meanwhile a no-op; it ends at rest, and a change made as it lands starts the next at once.
+//   `run` meanwhile a no-op; it ends at rest, a change after rest starts the next, and a change made
+//   from `onFrame` keeps it going.
+// - B9: what a Batch can't run throws an `OptionError` naming it: a key its writer can't draw, a
+//   transition that's neither a spring nor a tween, a spring's or a tween's bad option.
 import * as Batch from "@wardic/core/Batch"
 import * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -323,4 +326,19 @@ describe("a Batch (#665)", () => {
       yield* Fiber.join(second)
       expect(frames).toBe(there.length + back.length + again.length)
     }).pipe(Effect.scoped))
+
+  it("B9: what a Batch can't run throws an OptionError naming it", () => {
+    const spring = { type: "spring" } as const
+    const { writer } = recording<string>(["x"])
+    const drawsX: Batch.Writer<string> = { ...writer, writes: (key) => key === "x" }
+    expect(() => Batch.make({ keys: ["x", "color"], writer: drawsX, transition: spring })).toThrow(Machine.OptionError)
+    expect(() => Batch.make({ keys: ["x", "color"], writer: drawsX, transition: spring })).toThrow(/"color"/)
+    const inertia = { type: "inertia" } as unknown as Batch.Transition
+    expect(() => Batch.make({ keys: ["x"], writer, transition: inertia })).toThrow(Machine.OptionError)
+    expect(() => Batch.make({ keys: ["x"], writer, transition: inertia })).toThrow(/"inertia"/)
+    expect(() => Batch.make({ keys: ["x"], writer, transition: { type: "spring", stiffness: -1 } })).toThrow(/stiffness/)
+    const batch = Batch.make({ keys: ["x"], writer, transition: spring })
+    const slot = Batch.enter(batch, "a", { x: 0 })
+    expect(() => Batch.retarget(batch, [slot], () => 1, { transition: { type: "tween", duration: -1 } })).toThrow(/duration/)
+  })
 })
