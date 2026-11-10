@@ -7,12 +7,13 @@
  *   Batch's are (ADR-0069, decision 10). A key a later `animate` gives is an error naming it.
  * - **A member** is an element given to its handle's `ref`. It starts from `initial`, else at each
  *   key's identity, as an element does with no style of its own; with `initial: false`, at its target.
+ *   An element its framework makes again for the same member carries on where the last one was.
  * - **A change** turns every member toward its targets in one Retarget: a member whose targets are
  *   unchanged gets nothing, and `delay: stagger()` counts the members it moves (ADR-0069, *Amendment
  *   (#665)*).
  * - **Its transitions** are a Wardic element's, read as each change starts: the config's, else the
- *   nearest `WardicConfig`'s, each key's own entry, the Environment's Default transition for a key
- *   without one, reduced motion's Snap for a positional key, and `skipAnimations`.
+ *   nearest `WardicConfig`'s; each key's own entry and its `delay`; the Environment's Default
+ *   transition for a key without one; reduced motion's Snap for a positional key; `skipAnimations`.
  *
  * @module
  */
@@ -22,11 +23,13 @@ import * as Batch from "@wardic/core/Batch"
 import * as BaseValue from "@wardic/core/BaseValue"
 import type * as DefaultTransition from "@wardic/core/DefaultTransition"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
-import * as DomBatchWriter from "@wardic/dom/DomBatchWriter"
+import * as DomBatch from "@wardic/dom/DomBatch"
 import * as Svg from "@wardic/dom/Svg"
 import * as Arr from "effect/Array"
 import type * as Fiber from "effect/Fiber"
+import * as Iter from "effect/Iterable"
 import * as Predicate from "effect/Predicate"
+import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicTransition } from "./config.ts"
 import { type Run, runOf, transitionForKey } from "./retarget-legs.ts"
@@ -44,8 +47,8 @@ export type WardicBatchKey =
 export type WardicBatchValues = { readonly [K in WardicBatchKey]?: number }
 
 /**
- * A Batch's transition: a Wardic element's, its `delay` seconds for every member or a `stagger()`,
- * which counts the members each change moves.
+ * A Batch's transition: a Wardic element's, its `delay` seconds, or a `stagger()`, which holds each
+ * member by its place among the members a change moves.
  */
 export type WardicBatchTransition = WardicTransition extends infer T
   ? T extends unknown ? Omit<T, "delay"> & { readonly delay?: number | ((index: number, total: number) => number) } : never
@@ -93,20 +96,44 @@ export interface BatchBinding {
   readonly apply: (targets: Float64Array) => void
   /** Member `i`'s `ref`: one function a member. */
   readonly refOf: (i: number) => (el: Element) => void
+  /** An element's own `style`, without the properties the Batch draws on it. */
+  readonly styleOf: <Style>(style: Style) => Style
   /** The Batch's run ended, and no member drawn again. */
   readonly dispose: () => void
 }
 
-/** A Batch whose keys the DOM can't draw, or a member it hasn't got: what the error says. */
+/** The props an element gives a member's handle: its own `ref`, and its own `style`, as an object. */
+export interface MemberProps<E extends Element, Style> {
+  readonly ref?: (el: E) => void
+  readonly style?: Style
+}
+
+/** A member's handle: spread onto its element. */
+export interface Member<E extends Element, Style> {
+  readonly ref: (el: E) => void
+  readonly style?: Style | undefined
+}
+
+/** What an error about a Batch says. */
 const fail = (message: string): never => {
   throw new Error(`createBatch: ${message}`)
 }
 
+/** Whether `i` is one of `count` members' indices. */
+const isMember = (i: number, count: number): boolean => Number.isInteger(i) && i >= 0 && i < count
+
+const noMember = (i: number, count: number): never => fail(`it has no member ${i}: its count is ${count}`)
+
 /** Each key's identity: a transform's, and `opacity`'s 1, an element's own with no style of its own. */
-const identityOf = (key: string): number => UndefinedOr.match(BaseValue.TRANSFORM_IDENTITY[key], { onUndefined: () => 1, onDefined: (identity) => identity })
+// Per member per key at mount (#540): statements.
+const identityOf = (key: string): number => {
+  const identity = BaseValue.TRANSFORM_IDENTITY[key]
+  if (Predicate.isUndefined(identity)) return 1
+  return identity
+}
 
 /** `initial` for member `i`, as values, or `undefined` for none. */
-const initialOf = (config: BatchConfig, i: number): WardicBatchValues | undefined => {
+const initialOf = (config: BatchConfig, i: number): Readonly<Record<string, unknown>> | undefined => {
   const initial = config.initial
   if (Predicate.isUndefined(initial) || initial === false) return undefined
   if (Predicate.isFunction(initial)) return initial(i)
@@ -140,16 +167,50 @@ const snapAfter = (delay: number): Batch.Transition => {
   return made
 }
 
-/** Each transition without its `delay`, which a change gives every member, staggered or not: one object each. */
+/**
+ * A Default transition held by a key's own `delay`, as a Wardic element's is when its transition gives
+ * only a delay (ADR-0051): one object for each transition and delay, so the members on it share it.
+ */
 // Module state (#460, Q7): a cache held weakly by the object it's for, so it goes with it.
-const UNDELAYED = new WeakMap<object, WardicTransition>()
+const DELAYED = new WeakMap<object, Map<number, Batch.Transition>>()
 
-const undelayed = (given: WardicBatchTransition | WardicTransition): WardicTransition => {
-  const known = UNDELAYED.get(given)
+const delayedBy = (transition: Batch.Transition, delay: number): Batch.Transition => {
+  if (delay === 0) return transition
+  let byDelay = DELAYED.get(transition)
+  if (Predicate.isUndefined(byDelay)) {
+    byDelay = new Map()
+    DELAYED.set(transition, byDelay)
+  }
+  const known = byDelay.get(delay)
+  if (Predicate.isNotUndefined(known)) return known
+  const made = { ...transition, delay } as Batch.Transition
+  byDelay.set(delay, made)
+  return made
+}
+
+/**
+ * A transition without a `stagger()` delay, which a change gives each member by its place: one object
+ * each. A `delay` in seconds stays, held by the keys the transition's own fields reach, as a Wardic
+ * element's top-level delay is.
+ */
+// Module state (#460, Q7): a cache held weakly by the object it's for, so it goes with it.
+const UNSTAGGERED = new WeakMap<object, WardicTransition>()
+
+const unstaggered = (given: WardicBatchTransition | WardicTransition): WardicTransition => {
+  if (!Predicate.isFunction(given.delay)) return given as WardicTransition
+  const known = UNSTAGGERED.get(given)
   if (Predicate.isNotUndefined(known)) return known
   const made = { ...given, delay: undefined } as unknown as WardicTransition
-  UNDELAYED.set(given, made)
+  UNSTAGGERED.set(given, made)
   return made
+}
+
+/** A change's `stagger()` delay, for the members it moves; `undefined` for none. */
+const staggerOf = (given: WardicTransition | undefined): ((rank: number, n: number) => number) | undefined => {
+  if (Predicate.isUndefined(given)) return undefined
+  const delay: unknown = given.delay
+  if (Predicate.isFunction(delay)) return delay as (rank: number, n: number) => number
+  return undefined
 }
 
 /** A key's transition as a Batch runs it: its run, which can't be an inertia or repeat. */
@@ -159,22 +220,62 @@ const batchRunOf = (run: Run, key: string): Batch.Transition => {
   return run as Batch.Transition
 }
 
+/** A change's plan for one key: its own transition, or `undefined` for its Default transition held by `delay`. */
+interface KeyPlan {
+  readonly own: Batch.Transition | undefined
+  readonly delay: number
+}
+
 /**
- * Each key's transition for a change, by its index: its own, a Snap's under reduced motion for a
- * positional key, or `undefined` for its Default transition, which the member's target decides.
+ * Each key's plan for a change, by its index, as a Wardic element's keys run (#301): its entry, else
+ * `default`, else the transition's own fields; reduced motion's Snap for a positional key that doesn't
+ * opt out; its Default transition, held by its own `delay`, for a key whose transition isn't defined.
  */
-const plannedOf = (env: BatchEnv, keys: ReadonlyArray<string>, given: WardicTransition | undefined, reduced: boolean): ReadonlyArray<Batch.Transition | undefined> =>
-  Arr.map(keys, (key) => {
-    const run = runOf(transitionForKey(given, key))
-    const delay = UndefinedOr.match(run, { onUndefined: () => 0, onDefined: (defined) => UndefinedOr.match(defined.delay, { onUndefined: () => 0, onDefined: (seconds) => seconds }) })
-    if (reduced && env.positionalKeys.isPositional(key)) return snapAfter(delay)
-    if (Predicate.isUndefined(run)) return undefined
-    return batchRunOf(run, key)
+// Once a change, per key.
+const plannedOf = (env: BatchEnv, keys: ReadonlyArray<string>, given: WardicTransition | undefined, reduced: boolean): ReadonlyArray<KeyPlan> =>
+  Arr.map(keys, (key): KeyPlan => {
+    const transition = transitionForKey(given, key)
+    let delay = 0
+    let respects = true
+    if (Predicate.isNotUndefined(transition)) {
+      if (Predicate.isNumber(transition.delay)) delay = transition.delay
+      respects = transition.respectReducedMotion !== false
+    }
+    if (reduced && respects && env.positionalKeys.isPositional(key)) return { own: snapAfter(delay), delay }
+    const run = runOf(transition)
+    if (Predicate.isUndefined(run)) return { own: undefined, delay }
+    return { own: batchRunOf(run, key), delay }
   })
 
-/** A change's delay: its transition's, seconds or a `stagger()` over the members it moves. */
-const delayOf = (given: WardicBatchTransition | WardicTransition | undefined): Batch.RetargetOptions["delay"] =>
-  UndefinedOr.match(given, { onUndefined: () => undefined, onDefined: (transition) => transition.delay as Batch.RetargetOptions["delay"] })
+/** A server render's handle: the element's own props passed on, and nothing animates. */
+export const serverHandle = <Style>() =>
+  <E extends Element>(_: number, props?: MemberProps<E, Style>): Member<E, Style> => {
+    if (Predicate.isUndefined(props)) return { ref: noop }
+    return { ref: noop, style: props.style }
+  }
+
+const noop = (): void => {}
+
+/** Member handles for `binding`: its `ref`, the element's own `ref` called beside it, and its own `style` kept. */
+export const handlesOf = <Style>(binding: BatchBinding) =>
+  <E extends Element>(i: number, props?: MemberProps<E, Style>): Member<E, Style> => {
+    const ref = binding.refOf(i)
+    if (Predicate.isUndefined(props)) return { ref }
+    const own = props.ref
+    return {
+      ref: (el: E) => {
+        ref(el)
+        if (Predicate.isNotUndefined(own)) own(el)
+      },
+      style: binding.styleOf(props.style),
+    }
+  }
+
+/** The nearest `WardicConfig`'s transition, read as each change starts, from either binding's config value. */
+export const configTransitionOf = (config: { readonly transition: () => WardicTransition | undefined } | undefined) => (): WardicTransition | undefined => {
+  if (Predicate.isUndefined(config)) return undefined
+  return config.transition()
+}
 
 /**
  * A Batch for `config`'s members, under `env`'s provider: its writer the DOM's. The binding tracks
@@ -191,36 +292,49 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
     const targets = new Float64Array(count * stride).fill(Number.NaN)
     // Per member per key at a change, the Batch's own loop (ADR-0025, *Amendment (#665)*).
     for (let i = 0; i < count; i++) {
-      const values = config.animate(i) as Readonly<Record<string, number | undefined>>
+      const values = config.animate(i) as Readonly<Record<string, unknown>>
       for (const key in values) {
         const k = keyIndex.get(key)
         if (Predicate.isUndefined(k)) return fail(`member ${i}'s targets give "${key}", which its first targets didn't: a Batch's keys are fixed when it's made`)
         const value = values[key]
-        if (Predicate.isNumber(value)) targets[i * stride + k] = value
+        if (Predicate.isNumber(value)) {
+          targets[i * stride + k] = value
+          continue
+        }
+        if (Predicate.isNotUndefined(value)) fail(`member ${i}'s "${key}" is ${JSON.stringify(value)}: a Batch's targets are numbers, one each`)
       }
     }
     return targets
   }
 
   let current = targetsOf()
+  const configuredOf = (): WardicTransition | undefined => {
+    const given = config.transition as WardicTransition | undefined
+    if (Predicate.isNotUndefined(given)) return given
+    return env.configTransition()
+  }
+  /** A key's Default transition toward `target`. */
+  const defaultFor = (k: number, target: number): Batch.Transition => env.defaultTransition.transitionFor(keys[k], target) as Batch.Transition
+
   // Its own transitions, each key's as it is at creation, so the members a change gives them step by one
   // matrix while they share one (ADR-0069, *Amendment (#665)*): the Default transition toward the first
   // member's target for a key without one.
-  const configuredOf = (): WardicTransition | undefined =>
-    UndefinedOr.match(config.transition as WardicTransition | undefined, { onUndefined: env.configTransition, onDefined: (given) => given })
-  const ownPlan = plannedOf(env, keys, UndefinedOr.map(configuredOf(), undelayed), false)
+  const ownPlan = plannedOf(env, keys, UndefinedOr.map(configuredOf(), unstaggered), false)
   const own: Record<string, Batch.Transition> = {}
   Arr.forEach(keys, (key, k) => {
-    own[key] = UndefinedOr.match(ownPlan[k], {
-      onDefined: (planned) => planned,
-      onUndefined: () => {
-        let target = current[k]
-        if (Number.isNaN(target)) target = identityOf(key)
-        return env.defaultTransition.transitionFor(key, target) as Batch.Transition
-      },
-    })
+    const plan = ownPlan[k]
+    if (Predicate.isNotUndefined(plan.own)) {
+      own[key] = plan.own
+      return
+    }
+    let target = current[k]
+    if (Number.isNaN(target)) target = identityOf(key)
+    own[key] = delayedBy(defaultFor(k, target), plan.delay)
   })
-  const batch = Batch.make({ keys, writer: DomBatchWriter.writer, transition: own, capacity: Math.max(1, count) })
+  const batch = Batch.make({ keys, writer: DomBatch.writer, transition: own, capacity: Math.max(1, count) })
+  // The writer's write for these keys, built once: an arriving element is drawn with it at once.
+  const write = DomBatch.writer.forKeys(keys)
+
   // Each member's slot by its index (-1 before its element arrives), each slot's member, and its element.
   const slotOf = new Int32Array(count).fill(-1)
   const memberOf: Array<number> = []
@@ -229,15 +343,19 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
   const targetOf = (slot: number, k: number): number => current[memberOf[slot] * stride + k]
 
   /** Member `i`'s start: its `initial` over each key's identity, or, with `initial: false`, its targets. */
+  // Per member at mount (#540): statements.
   const startOf = (i: number): Record<string, number> => {
     const start: Record<string, number> = {}
-    const given = initialOf(config, i) as Readonly<Record<string, number | undefined>> | undefined
+    const given = initialOf(config, i)
     Arr.forEach(keys, (key, k) => {
       const target = current[i * stride + k]
       let value = identityOf(key)
       if (config.initial === false && !Number.isNaN(target)) value = target
-      const own = UndefinedOr.map(given, (values) => values[key])
-      if (Predicate.isNumber(own)) value = own
+      if (Predicate.isNotUndefined(given)) {
+        const own = given[key]
+        if (Predicate.isNumber(own)) value = own
+        if (Predicate.isNotUndefined(own) && !Predicate.isNumber(own)) fail(`member ${i}'s "${key}" starts at ${JSON.stringify(own)}: a Batch's values are numbers`)
+      }
       start[key] = value
     })
     return start
@@ -251,6 +369,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
 
   /** A flight lands once a run ends with nothing moving: a run forked while one ran ends at once. */
   const ended = (): void => {
+    if (disposed) return
     if (!flying || Batch.isMoving(batch)) return
     flying = false
     hooks.landed({ moved })
@@ -279,18 +398,18 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
    * a member's slot, for the keys on their Default transition, which each member's target decides.
    */
   // A function called per member's key cost a change at 1,000 members a call each (#665's profile).
-  const transitionOf = (planned: ReadonlyArray<Batch.Transition | undefined>): Batch.Transitions | ((slot: number, k: number) => Batch.Transition) => {
-    if (Arr.every(planned, Predicate.isNotUndefined)) {
+  const transitionOf = (planned: ReadonlyArray<KeyPlan>): Batch.Transitions | ((slot: number, k: number) => Batch.Transition) => {
+    if (Arr.every(planned, (plan) => Predicate.isNotUndefined(plan.own))) {
       const byKey: Record<string, Batch.Transition> = {}
       Arr.forEach(keys, (key, k) => {
-        byKey[key] = planned[k] as Batch.Transition
+        byKey[key] = UndefinedOr.getOrThrow(planned[k].own)
       })
       return byKey
     }
     return (slot, k) => {
-      const own = planned[k]
-      if (Predicate.isNotUndefined(own)) return own
-      return env.defaultTransition.transitionFor(keys[k], targetOf(slot, k)) as Batch.Transition
+      const plan = planned[k]
+      if (Predicate.isNotUndefined(plan.own)) return plan.own
+      return delayedBy(defaultFor(k, targetOf(slot, k)), plan.delay)
     }
   }
 
@@ -302,10 +421,9 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
       wake(Batch.retarget(batch, slots, targetOf, { transition: INSTANT }))
       return
     }
-    const reduced = env.reducedMotion() && UndefinedOr.map(configured, (given) => given.respectReducedMotion) !== false
-    const planned = plannedOf(env, keys, UndefinedOr.map(configured, undelayed), reduced)
-    const transition = transitionOf(planned)
-    const delay = delayOf(configured)
+    const reduced = env.reducedMotion()
+    const transition = transitionOf(plannedOf(env, keys, UndefinedOr.map(configured, unstaggered), reduced))
+    const delay = staggerOf(configured)
     if (Predicate.isUndefined(delay)) {
       wake(Batch.retarget(batch, slots, targetOf, { transition }))
       return
@@ -322,38 +440,46 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
     change(slots)
   }
 
-  const arrive = (i: number, el: Element): void => {
-    if (disposed) return
-    if (!Number.isInteger(i) || i < 0 || i >= count) fail(`it has no member ${i}: its count is ${count}`)
-    if (elementOf[i] === el) return
-    const slot = slotOf[i]
-    let start = startOf(i)
-    // A new element for a member: it goes on from where the one before it was.
-    if (slot !== -1) {
-      start = {}
-      Arr.forEach(keys, (key) => {
-        start[key] = Batch.get(batch, slot, key)
-      })
-      Batch.leave(batch, slot)
-    }
-    const entering = Batch.enter(batch, el, start)
-    slotOf[i] = entering
-    memberOf[entering] = i
-    elementOf[i] = el
-    if (slot === -1) entered.push(entering)
-    // An element inside an `<svg>` turns about its own centre, as an HTML one does (as the renderer's).
+  /** `el` drawn now at `values`, one per key, and turned about its own centre inside an `<svg>`, as the renderer's. */
+  const drawNow = (el: Element, values: ReadonlyArray<number>): void => {
     if (Svg.isInner(el)) {
       const style = (el as SVGElement).style
       style.setProperty("transform-box", "fill-box")
       style.setProperty("transform-origin", "50% 50%")
     }
+    write(el, Float64Array.from(values), 0)
+  }
+
+  const arrive = (i: number, el: Element): void => {
+    if (disposed) return
+    if (!isMember(i, count)) noMember(i, count)
+    if (elementOf[i] === el) return
+    elementOf[i] = el
+    const slot = slotOf[i]
+    // A new element for a member: it takes the member over, its values, speed and delays as they are.
+    if (slot !== -1) {
+      Batch.replace(batch, slot, el)
+      drawNow(el, Arr.map(keys, (key) => Batch.get(batch, slot, key)))
+      return
+    }
+    const start = startOf(i)
+    const entering = Batch.enter(batch, el, start)
+    slotOf[i] = entering
+    memberOf[entering] = i
+    entered.push(entering)
     // Drawn at its start now; its move, with every member that arrives this task, at the task's end.
-    DomBatchWriter.writer.forKeys(keys)(el, Float64Array.from(Arr.map(keys, (key) => start[key])), 0)
+    drawNow(el, Arr.map(keys, (key) => start[key]))
     if (arrived.length === 0) queueMicrotask(flushArrivals)
     arrived.push(entering)
   }
 
   const refs = Arr.makeBy(count, (i) => (el: Element) => arrive(i, el))
+
+  // The CSS properties the Batch draws, which an element's own `style` leaves to it.
+  const drawn: ReadonlySet<string> = new Set([
+    ...Arr.filter(["transform"], () => Arr.some(keys, (key) => key !== "opacity")),
+    ...Arr.filter(["opacity"], () => keyIndex.has("opacity")),
+  ])
 
   return {
     targetsOf,
@@ -363,27 +489,20 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
       change(entered)
     },
     refOf: (i) => {
-      if (!Number.isInteger(i) || i < 0 || i >= count) return fail(`it has no member ${i}: its count is ${count}`)
+      if (!isMember(i, count)) return noMember(i, count)
       return refs[i]
+    },
+    styleOf: <Style>(style: Style): Style => {
+      if (Predicate.isString(style)) {
+        return fail(`give a member's own \`style\` as an object: Solid writes a string over what the Batch draws`)
+      }
+      if (!Predicate.isObject(style)) return style
+      return Rec.filter(style as Readonly<Record<string, unknown>>, (_, name) => !drawn.has(name)) as Style
     },
     dispose: () => {
       disposed = true
-      Arr.forEach(Arr.fromIterable(fibers), (fiber) => fiber.interruptUnsafe())
+      Iter.forEach(fibers, (fiber) => fiber.interruptUnsafe())
       fibers.clear()
     },
   }
-}
-
-/** The CSS properties a member's keys draw, which its element's own `style` leaves to the Batch. */
-const DRAWN: ReadonlySet<string> = new Set(["transform", "opacity"])
-
-/** An element's own `style` as a member's handle passes it on: without the properties its Batch draws. */
-export const memberStyleOf = <S>(style: S): S => {
-  if (!Predicate.isObject(style)) return style
-  const kept: Record<string, unknown> = {}
-  Arr.forEach(Object.keys(style), (name) => {
-    if (DRAWN.has(name)) return
-    kept[name] = (style as Readonly<Record<string, unknown>>)[name]
-  })
-  return kept as S
 }

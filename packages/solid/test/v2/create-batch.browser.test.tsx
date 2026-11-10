@@ -5,13 +5,14 @@
 //   change of `animate`.
 // - CV2: `settled()` is `undefined` and not pending before anything moves, pending while members move,
 //   then the landing, with how many set off; `next("settled")` resolves with it; an unmount stops it.
+// - CV3: `when("settled")` tells an effect every landing.
 //
 // Its misuse errors are the shared work's, and Solid 1's CB7 holds them: one thrown in a Solid 2 render
 // halts that root's reactive system for the file's later tests.
 import { DomLive } from "@wardic/dom"
 import type { JSX } from "@solidjs/web"
 import { createBatch, w, WardicProvider } from "@wardic/solid/unstable/v2"
-import { createSignal, For, isPending } from "solid-js"
+import { createEffect, createSignal, For, isPending } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { raf } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
@@ -95,5 +96,28 @@ describe("createBatch on Solid 2 (#665)", () => {
     await raf()
     await raf()
     expect(members[0].style.transform).toBe(at)
+  })
+
+  it("CV3: when(\"settled\") tells an effect every landing", async () => {
+    const [target, setTarget] = createSignal(0)
+    const heard: Array<number> = []
+    const Scene = (): JSX.Element => {
+      const grid = createBatch({ count: 2, initial: false, animate: (i) => ({ x: target() + i }), transition: SPRING })
+      createEffect(grid.when("settled"), (landing) => {
+        heard.push(landing.moved)
+      })
+      return <For each={[0, 1]}>{(i) => <div style={BOX} {...grid.at(i)} />}</For>
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await raf()
+    setTarget(40)
+    for (let f = 0; f < 70; f++) await raf()
+    setTarget(0)
+    for (let f = 0; f < 70; f++) await raf()
+    expect(heard).toEqual([2, 2])
   })
 })

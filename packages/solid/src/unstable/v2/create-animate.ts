@@ -7,6 +7,7 @@
  * @module
  */
 import { isServer } from "@solidjs/web"
+import * as Bool from "effect/Boolean"
 import { onCleanup } from "solid-js"
 import {
   type AnimateEnv,
@@ -44,13 +45,7 @@ const settledOf = (): { readonly watch: AnimationWatch; readonly read: () => War
   const flights = flightsOf<WardicScopeLanding>()
   const watch: AnimationWatch = {
     started: () => flights.started(),
-    ended: (controls, landed) => {
-      if (landed) {
-        flights.ended({ animation: controls })
-        return
-      }
-      flights.ended(undefined)
-    },
+    ended: (controls, landed) => flights.ended(Bool.match(landed, { onTrue: () => ({ animation: controls }), onFalse: () => undefined })),
   }
   return { watch, read: flights.read }
 }

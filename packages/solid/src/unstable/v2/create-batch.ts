@@ -7,9 +7,8 @@
  */
 import { isServer } from "@solidjs/web"
 import type { JSX } from "@solidjs/web"
-import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createEffect, onCleanup, untrack } from "solid-js"
-import { type BatchConfig, bindBatch, memberStyleOf, type WardicBatchLanding } from "../../batch.ts"
+import { type BatchConfig, bindBatch, configTransitionOf, handlesOf, type Member, type MemberProps, serverHandle, type WardicBatchLanding } from "../../batch.ts"
 import { flightsOf } from "./flights.ts"
 import { useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
@@ -27,17 +26,11 @@ export interface WardicBatchEvents {
   readonly settled: WardicBatchLanding
 }
 
-/** What a member's element takes beside its handle: its own `ref`, and its own `style`, under the member's. */
-export interface WardicBatchMemberProps<E extends Element = HTMLElement> {
-  readonly ref?: (el: E) => void
-  readonly style?: JSX.CSSProperties | string
-}
+/** What a member's element takes beside its handle: its own `ref`, and its own `style`, as an object. */
+export type WardicBatchMemberProps<E extends Element = HTMLElement> = MemberProps<E, JSX.CSSProperties>
 
 /** A member's handle: spread it onto the member's element. */
-export interface WardicBatchMember<E extends Element = HTMLElement> {
-  readonly ref: (el: E) => void
-  readonly style?: JSX.CSSProperties | string | undefined
-}
+export type WardicBatchMember<E extends Element = HTMLElement> = Member<E, JSX.CSSProperties>
 
 /** A Batch on Solid 2: its members' handles, and its landings. */
 export interface WardicBatch {
@@ -57,12 +50,9 @@ export interface WardicBatch {
   readonly when: <E extends keyof WardicBatchEvents>(name: E) => Accessor<WardicBatchEvents[E]>
 }
 
-const noop = (): void => {}
-
 /** A server render's Batch: its handles pass the element's own props on, and nothing animates. */
 const serverBatch: WardicBatch = {
-  at: <E extends Element>(_: number, props?: WardicBatchMemberProps<E>) =>
-    UndefinedOr.match(props, { onUndefined: () => ({ ref: noop }), onDefined: (given) => ({ ref: noop, style: given.style }) }),
+  at: serverHandle<JSX.CSSProperties>(),
   settled: () => undefined,
   next: () => neverLands(),
   when: <E extends keyof WardicBatchEvents>() => serverWhen<WardicBatchEvents[E]>(),
@@ -88,7 +78,7 @@ const serverBatch: WardicBatch = {
 // #665, ADR-0070 decisions 10–15 and *Amendment (#665)*.
 export function createBatch(config: WardicBatchConfig): WardicBatch {
   if (isServer) return serverBatch
-  const wardicConfig = useWardicConfig()
+  const configTransition = configTransitionOf(useWardicConfig())
   const flights = flightsOf<WardicBatchLanding>()
   const events = new Waiters<WardicBatchEvents>("The Batch was disposed before its next event.")
   // Its first targets and starts read untracked, wherever it's called: what tracks them is its own effect.
@@ -100,7 +90,7 @@ export function createBatch(config: WardicBatchConfig): WardicBatch {
         skipAnimations: useWardicSkipAnimations(),
         positionalKeys: useWardicPositionalKeys(),
         defaultTransition: useWardicDefaultTransition(),
-        configTransition: () => UndefinedOr.match(wardicConfig, { onUndefined: () => undefined, onDefined: (given) => given.transition() }),
+        configTransition,
       },
       config,
       {
@@ -119,19 +109,7 @@ export function createBatch(config: WardicBatchConfig): WardicBatch {
     events.dispose()
   })
   return {
-    at: <E extends Element>(i: number, props?: WardicBatchMemberProps<E>): WardicBatchMember<E> => {
-      const ref = binding.refOf(i)
-      return UndefinedOr.match(props, {
-        onUndefined: () => ({ ref }) as WardicBatchMember<E>,
-        onDefined: (given) => ({
-          ref: (el: E) => {
-            ref(el)
-            UndefinedOr.map(given.ref, (own) => own(el))
-          },
-          style: memberStyleOf(given.style),
-        }),
-      })
-    },
+    at: handlesOf<JSX.CSSProperties>(binding),
     settled: flights.read,
     next: (name) => events.wait(name),
     when: (name) => whenOf(events, name),

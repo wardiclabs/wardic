@@ -6,7 +6,7 @@
  */
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createRenderEffect, type JSX, on, onCleanup, untrack } from "solid-js"
-import { type BatchConfig, bindBatch, memberStyleOf, type WardicBatchLanding } from "./batch.ts"
+import { type BatchConfig, bindBatch, configTransitionOf, handlesOf, type Member, type MemberProps, serverHandle, type WardicBatchLanding } from "./batch.ts"
 import { useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { isServer } from "./server.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
@@ -21,17 +21,11 @@ export interface WardicBatchConfig extends BatchConfig {
   readonly onAnimationComplete?: (landing: WardicBatchLanding) => void
 }
 
-/** What a member's element takes beside its handle: its own `ref`, and its own `style`, under the member's. */
-export interface WardicBatchMemberProps<E extends Element = HTMLElement> {
-  readonly ref?: (el: E) => void
-  readonly style?: JSX.CSSProperties | string
-}
+/** What a member's element takes beside its handle: its own `ref`, and its own `style`, as an object. */
+export type WardicBatchMemberProps<E extends Element = HTMLElement> = MemberProps<E, JSX.CSSProperties>
 
 /** A member's handle: spread it onto the member's element. */
-export interface WardicBatchMember<E extends Element = HTMLElement> {
-  readonly ref: (el: E) => void
-  readonly style?: JSX.CSSProperties | string | undefined
-}
+export type WardicBatchMember<E extends Element = HTMLElement> = Member<E, JSX.CSSProperties>
 
 /** A Batch on Solid 1: its members' handles. */
 export interface WardicBatch {
@@ -43,12 +37,7 @@ export interface WardicBatch {
 }
 
 /** A server render's Batch: its handles pass the element's own props on, and nothing animates. */
-const serverBatch: WardicBatch = {
-  at: <E extends Element>(_: number, props?: WardicBatchMemberProps<E>) =>
-    UndefinedOr.match(props, { onUndefined: () => ({ ref: noop }), onDefined: (given) => ({ ref: noop, style: given.style }) }),
-}
-
-const noop = (): void => {}
+const serverBatch: WardicBatch = { at: serverHandle<JSX.CSSProperties>() }
 
 /**
  * Animates many elements on the same keys as one Batch: `count` members, each given to `at(i)`'s
@@ -70,39 +59,26 @@ const noop = (): void => {}
 // and its landing are callbacks, as a Wardic element's `onAnimationStart` and `onAnimationComplete` are.
 export function createBatch(config: WardicBatchConfig): WardicBatch {
   if (isServer) return serverBatch
-  const wardicConfig = useWardicConfig()
+  const configTransition = configTransitionOf(useWardicConfig())
   // Its first targets and starts read untracked, wherever it's called: what tracks them is its own effect.
-  const binding = untrack(() => bindBatch(
-    {
-      runtime: useWardicRuntime(),
-      reducedMotion: useWardicReducedMotion(),
-      skipAnimations: useWardicSkipAnimations(),
-      positionalKeys: useWardicPositionalKeys(),
-      defaultTransition: useWardicDefaultTransition(),
-      configTransition: () => UndefinedOr.match(wardicConfig, { onUndefined: () => undefined, onDefined: (given) => given.transition() }),
-    },
-    config,
-    {
-      started: () => UndefinedOr.map(config.onAnimationStart, (call) => call()),
-      landed: (landing) => UndefinedOr.map(config.onAnimationComplete, (call) => call(landing)),
-    },
-  ))
+  const binding = untrack(() =>
+    bindBatch(
+      {
+        runtime: useWardicRuntime(),
+        reducedMotion: useWardicReducedMotion(),
+        skipAnimations: useWardicSkipAnimations(),
+        positionalKeys: useWardicPositionalKeys(),
+        defaultTransition: useWardicDefaultTransition(),
+        configTransition,
+      },
+      config,
+      {
+        started: () => UndefinedOr.map(config.onAnimationStart, (call) => call()),
+        landed: (landing) => UndefinedOr.map(config.onAnimationComplete, (call) => call(landing)),
+      },
+    ))
   // Its first targets were read as it was made: a change from then on is a Retarget of every member.
   createRenderEffect(on(binding.targetsOf, binding.apply, { defer: true }))
   onCleanup(binding.dispose)
-  return {
-    at: <E extends Element>(i: number, props?: WardicBatchMemberProps<E>): WardicBatchMember<E> => {
-      const ref = binding.refOf(i)
-      return UndefinedOr.match(props, {
-        onUndefined: () => ({ ref }) as WardicBatchMember<E>,
-        onDefined: (given) => ({
-          ref: (el: E) => {
-            ref(el)
-            UndefinedOr.map(given.ref, (own) => own(el))
-          },
-          style: memberStyleOf(given.style),
-        }),
-      })
-    },
-  }
+  return { at: handlesOf<JSX.CSSProperties>(binding) }
 }

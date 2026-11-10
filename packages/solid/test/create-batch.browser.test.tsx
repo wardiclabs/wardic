@@ -13,12 +13,20 @@
 //   does; with `initial: false` it starts at its target.
 // - CB6: `onAnimationStart` comes once as members set off, `onAnimationComplete` once they all rest, with
 //   how many set off; an unmount stops its run.
-// - CB7: a key the DOM's Batch can't draw, a key a later target gives, and an inertia are errors naming them.
+// - CB7: a key the DOM's Batch can't draw, a key a later target gives, a target that isn't a number,
+//   an inertia and a repeat are errors naming them.
+// - CB8: a member's handle keeps its element's own `style`, less the properties the Batch draws, and calls
+//   its `ref`; a `style` given as a string is an error, since Solid would write over the Batch's drawing.
+// - CB9: a member whose element is made again mid-flight carries on, frame for frame, beside one whose isn't.
+// - CB10: with no transition of its own, a Batch runs the nearest `WardicConfig`'s, as a `wardic.div` does.
+// - CB11: per-value entries as a `wardic.div`'s: an entry with only a `delay` holds that key's Default
+//   transition by it; a top-level `delay` holds the keys on the top level's fields, not one with its own entry.
+// - CB12: an element inside an `<svg>` turns about its own centre: `transform-box: fill-box`.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
 import { createBatch, stagger, wardic, WardicConfig, WardicProvider } from "@wardic/solid"
-import { createSignal, For, type JSX } from "solid-js"
+import { createSignal, For, type JSX, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { raf } from "./browser-helpers.ts"
 
@@ -245,11 +253,150 @@ describe("createBatch on Solid 1 (#665)", () => {
       return null
     }
     expect(() => mount(() => <Spun />)).toThrow(/inertia/)
+    const Stops = (): JSX.Element => {
+      const grid = createBatch({ count: 1, animate: () => ({ x: [0, 10, 20] }) as never })
+      return <div {...grid.at(0)} />
+    }
+    expect(() => mount(() => <Stops />)).toThrow(/"x"/)
+    const Repeats = (): JSX.Element => {
+      createBatch({ count: 1, animate: () => ({ x: 10 }), transition: { duration: 0.2, repeat: 2 } })
+      return null
+    }
+    expect(() => mount(() => <Repeats />)).toThrow(/repeat/)
     const [more, setMore] = createSignal(false)
     mount(() => {
       const grid = createBatch({ count: 1, animate: () => Bool.match(more(), { onTrue: () => ({ x: 1, y: 2 }), onFalse: () => ({ x: 1 }) }) as never })
       return <div {...grid.at(0)} />
     })
     expect(() => setMore(true)).toThrow(/"y"/)
+  })
+
+  it("CB8: a handle keeps its element's own style, less what the Batch draws, and calls its ref; a string style is an error", async () => {
+    let moved!: HTMLDivElement
+    let faded!: HTMLDivElement
+    let refs = 0
+    mount(() => {
+      const xs = createBatch({ count: 1, initial: false, animate: () => ({ x: 30 }) })
+      const both = createBatch({ count: 1, initial: false, animate: () => ({ x: 30, opacity: 0.8 }) })
+      const own = { ...BOX, opacity: 0.5 }
+      return (
+        <>
+          <div {...xs.at(0, { style: own, ref: (el) => ((moved = el as HTMLDivElement), refs++) })} />
+          <div {...both.at(0, { style: own, ref: (el) => ((faded = el as HTMLDivElement), refs++) })} />
+        </>
+      )
+    })
+    await raf()
+    await raf()
+    expect(refs).toBe(2)
+    expect([moved.style.background, moved.style.opacity, xOf(moved)]).toEqual(["teal", "0.5", 30])
+    expect([faded.style.background, faded.style.opacity, xOf(faded)]).toEqual(["teal", "0.8", 30])
+    const Text = (): JSX.Element => {
+      const grid = createBatch({ count: 1, animate: () => ({ x: 1 }) })
+      return <div {...grid.at(0, { style: "width: 10px" as never })} />
+    }
+    expect(() => mount(() => <Text />)).toThrow(/style/)
+  })
+
+  it("CB9: a member whose element is made again mid-flight carries on, frame for frame, beside one whose isn't", async () => {
+    const [target, setTarget] = createSignal(0)
+    const [shown, setShown] = createSignal(true)
+    const members: Array<HTMLDivElement> = []
+    mount(() => {
+      const grid = createBatch({ count: 2, initial: false, animate: () => ({ x: target() }), transition: { ...SPRING, delay: 0.05 } })
+      return (
+        <>
+          <Show when={shown()}>
+            <div style={BOX} {...grid.at(0, { ref: (el) => (members[0] = el as HTMLDivElement) })} />
+          </Show>
+          <div style={BOX} {...grid.at(1, { ref: (el) => (members[1] = el as HTMLDivElement) })} />
+        </>
+      )
+    })
+    await raf()
+    setTarget(150)
+    await readsOver(8, members, xOf)
+    setShown(false)
+    await raf()
+    setShown(true)
+    const after = await readsOver(40, members, xOf)
+    expectSame(after[0], after[1])
+    expect(after[0][0]).toBeGreaterThan(10)
+    expect(after[0].at(-1)).toBe(150)
+  })
+
+  it("CB10: with no transition of its own, a Batch runs the nearest WardicConfig's, as a wardic.div does", async () => {
+    let member!: HTMLDivElement
+    let ward!: HTMLDivElement
+    mount(() => {
+      const Inner = (): JSX.Element => {
+        const grid = createBatch({ count: 1, initial: { x: 0 }, animate: () => ({ x: 90 }) })
+        return (
+          <>
+            <div style={BOX} {...grid.at(0, { ref: (el) => (member = el as HTMLDivElement) })} />
+            <wardic.div ref={ward} style={BOX} initial={{ x: 0 }} animate={{ x: 90 }} />
+          </>
+        )
+      }
+      return (
+        <WardicConfig transition={{ duration: 0.4, ease: "linear" }}>
+          <Inner />
+        </WardicConfig>
+      )
+    })
+    const frames = await readsOver(30, [member, ward], xOf)
+    expectSame(frames[0], frames[1])
+    expect(frames[0].some((x) => x > 1 && x < 89)).toBe(true)
+  })
+
+  it("CB11: per-value entries as a wardic.div's: an entry with only a delay, and a top-level delay beside a key's own entry", async () => {
+    const elements: Array<HTMLDivElement> = []
+    const transitions = [
+      { x: { delay: 0.15 } },
+      { ...SPRING, delay: 0.1, opacity: { duration: 0.2 } },
+    ] as const
+    mount(() => (
+      <For each={[0, 1]}>
+        {(n) => {
+          const grid = createBatch({ count: 1, initial: { x: 0, opacity: 0 }, animate: () => ({ x: 70, opacity: 1 }), transition: transitions[n] })
+          return (
+            <>
+              <div style={BOX} {...grid.at(0, { ref: (el) => (elements[n * 2] = el as HTMLDivElement) })} />
+              <wardic.div ref={(el: HTMLDivElement) => (elements[n * 2 + 1] = el)} style={BOX} initial={{ x: 0, opacity: 0 }} animate={{ x: 70, opacity: 1 }} transition={transitions[n]} />
+            </>
+          )
+        }}
+      </For>
+    ))
+    const xs: Array<Array<number>> = elements.map(() => [])
+    const opacities: Array<Array<number>> = elements.map(() => [])
+    for (let f = 0; f < 40; f++) {
+      await raf()
+      elements.forEach((el, e) => {
+        xs[e].push(xOf(el))
+        opacities[e].push(opacityOf(el))
+      })
+    }
+    expectSame(xs[0], xs[1])
+    expectSame(opacities[0], opacities[1])
+    expectSame(xs[2], xs[3])
+    expectSame(opacities[2], opacities[3])
+    // The entry's delay holds `x` 0.15 s; opacity, on its own entry, isn't held by the top level's.
+    expect(xs[0].slice(0, 7).every((x) => x === 0)).toBe(true)
+    expect(opacities[2][2]).toBeGreaterThan(0)
+  })
+
+  it("CB12: an element inside an <svg> turns about its own centre", async () => {
+    let rect!: SVGRectElement
+    mount(() => {
+      const grid = createBatch({ count: 1, initial: false, animate: () => ({ rotate: 45 }) })
+      return (
+        <svg width="100" height="100">
+          <rect width="20" height="20" {...grid.at(0, { ref: (el) => (rect = el as SVGRectElement) })} />
+        </svg>
+      )
+    })
+    await raf()
+    expect([rect.style.transformBox, rect.style.transformOrigin]).toEqual(["fill-box", "50% 50%"])
   })
 })
