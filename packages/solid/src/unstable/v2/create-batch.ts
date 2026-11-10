@@ -83,6 +83,7 @@ const serverBatch: WardicBatch = {
  * })
  * <For each={cells}>{(i) => <div class="cell" {...grid.at(i)} />}</For>
  * <p>{isPending(() => grid.settled()) ? "Moving…" : "Ready"}</p>
+ * @see https://wardic.dev/reference/solid/animation/create-batch
  */
 // #665, ADR-0070 decisions 10–15 and *Amendment (#665)*.
 export function createBatch(config: WardicBatchConfig): WardicBatch {

@@ -159,6 +159,7 @@ export const NAV: ReadonlyArray<NavSection> = [
         title: "Animation",
         pages: [
           { path: "/reference/solid/animation/create-animate", title: "createAnimate" },
+          { path: "/reference/solid/animation/create-batch", title: "createBatch" },
           { path: "/reference/solid/animation/sequences", title: "Sequences" },
           { path: "/reference/solid/animation/create-animation-controls", title: "createAnimationControls" },
         ],

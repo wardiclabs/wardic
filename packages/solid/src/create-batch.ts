@@ -64,6 +64,7 @@ const noop = (): void => {}
  *   transition: { type: "spring", visualDuration: 0.4, bounce: 0.2, delay: stagger(0.005) },
  * })
  * <For each={cells}>{(i) => <div class="cell" {...grid.at(i)} />}</For>
+ * @see https://wardic.dev/reference/solid/animation/create-batch
  */
 // #665, ADR-0070 decisions 10–15 and *Amendment (#665)*. Solid 1 has no async values, so a flight's start
 // and its landing are callbacks, as a Wardic element's `onAnimationStart` and `onAnimationComplete` are.
