@@ -372,12 +372,16 @@ describe("formatDragPasses", () => {
 /**
  * A grab mid-flight (#30): D paints at GRAB while a layout animation of its own flies it
  * 30px down to FLIGHT_SLOT. Frame 0, before the drag starts, is 10% of the way; the drag's
- * frames 1-6 carry the flight on under the pointer, landing at frame 5.
+ * frames 1-6 carry the flight on under the pointer, landing at frame 5. Each frame shows the
+ * newest of `moves` before it: with fewer than six, the pointer holds still after the last.
  */
 const FLIGHT_SLOT: Box = moved(GRAB, 0, 30)
-const flightFrames = (shares: ReadonlyArray<number>): ReadonlyArray<DragFrame> => [
+const flightFrames = (shares: ReadonlyArray<number>, moves: ReadonlyArray<DragMove> = MOVES): ReadonlyArray<DragFrame> => [
   frameOf(0, toward(GRAB, FLIGHT_SLOT, 0.1), FLIGHT_SLOT),
-  ...shares.map((f, i) => frameOf(1 + i, moved(toward(GRAB, FLIGHT_SLOT, f), MOVES[i]!.dx, MOVES[i]!.dy), FLIGHT_SLOT)),
+  ...shares.map((f, i) => {
+    const shown = moves[Math.min(i, moves.length - 1)]!
+    return frameOf(1 + i, moved(toward(GRAB, FLIGHT_SLOT, f), shown.dx, shown.dy), FLIGHT_SLOT)
+  }),
 ]
 const SLIDE = [0.2, 0.4, 0.7, 0.9, 1, 1]
 
@@ -392,7 +396,7 @@ describe("dragChecksOf", () => {
 
   it("judges a grab mid-flight from where its flight lands under the pointer, and says how far it slid (#30)", () => {
     const run = dragRunOf(input(flightFrames(SLIDE), { grabFlight: { slot: FLIGHT_SLOT } }), cleanSpans)
-    expect(run.flight).toEqual({ slidePx: 30, jumpPx: 3, remainingPx: 27, landed: true })
+    expect(run.flight).toEqual({ slidePx: 30, jumpPx: 3, remainingPx: 27, landed: true, closing: false })
     expect(underOf(run)).toEqual(["under pointer", true, "0.00 px · after a 30.00 px slide ✓"])
     // Frames behind reads the moves from the landing on (frames 5 and 6 show moves 4 and 5).
     expect(textsOf(run, S11_EXPECT)[1]).toEqual(["frames behind", true, "0 · 2 moves ✓"])
@@ -435,7 +439,7 @@ describe("dragChecksOf", () => {
   it("reads a grab mid-flight's jump from its box at the press when no frame was painted before the drag started", () => {
     const run = dragRunOf(input(flightFrames(SLIDE).slice(1), { grabFlight: { slot: FLIGHT_SLOT } }), cleanSpans)
     // From the press (0% of the way) to the first dragged frame (20%): one flight step, no jump.
-    expect(run.flight).toEqual({ slidePx: 30, jumpPx: 6, remainingPx: 30, landed: true })
+    expect(run.flight).toEqual({ slidePx: 30, jumpPx: 6, remainingPx: 30, landed: true, closing: false })
     expect(underOf(run)).toEqual(["under pointer", true, "0.00 px · after a 30.00 px slide ✓"])
   })
 
@@ -448,14 +452,65 @@ describe("dragChecksOf", () => {
     ])
   })
 
-  it("fails a grab mid-flight whose flight never lands under the pointer", () => {
+  it("doesn't judge a grab released while its flight still closed in on the pointer (#693)", () => {
+    // Frames 1-6 carry the flight from 20% to 70% of the way: 9 px still to go at the release.
     const run = dragRunOf(input(flightFrames([0.2, 0.3, 0.4, 0.5, 0.6, 0.7]), { grabFlight: { slot: FLIGHT_SLOT } }), cleanSpans)
-    expect(run.flight?.landed).toBe(false)
-    expect(underOf(run)).toEqual([
-      "under pointer",
-      false,
-      "? · after a 30.00 px slide · never landed ✗ expected ≤ 1 px from its landing, no jump",
+    expect(run.flight).toMatchObject({ landed: false, closing: true })
+    expect(underOf(run)).toEqual(["under pointer", true, "? · after a 30.00 px slide · released before its flight landed, not judged"])
+    expect(textsOf(run, S11_EXPECT)[1]).toEqual(["frames behind", true, "? · released before its flight landed, not judged"])
+  })
+
+  it("doesn't judge frames behind for a grab mid-flight held still after its flight landed (#693)", () => {
+    // Three moves, the last before frame 3; the flight lands at frame 5 with the pointer still.
+    const moves = MOVES.slice(0, 3)
+    const run = dragRunOf(input(flightFrames(SLIDE, moves), { moves, grabFlight: { slot: FLIGHT_SLOT } }), cleanSpans)
+    expect(textsOf(run, S11_EXPECT).slice(0, 2)).toEqual([
+      ["under pointer", true, "0.00 px · after a 30.00 px slide ✓"],
+      ["frames behind", true, "? · no move after the landing, not judged"],
     ])
+  })
+
+  it("still fails a grab mid-flight that jumped at the grab when it's released before its flight lands", () => {
+    // The first dragged frame jumps from 10% to 80% of the way; the flight then closes in to 97%.
+    const run = dragRunOf(input(flightFrames([0.8, 0.85, 0.9, 0.92, 0.95, 0.97]), { grabFlight: { slot: FLIGHT_SLOT } }), cleanSpans)
+    expect(run.flight).toMatchObject({ landed: false, closing: true })
+    expect(textsOf(run, S11_EXPECT).slice(0, 2)).toEqual([
+      [
+        "under pointer",
+        false,
+        "? · after a 30.00 px slide · jumped 21.00 px at the grab · released before its flight landed ✗ expected ≤ 1 px from its landing, no jump",
+      ],
+      ["frames behind", true, "? · released before its flight landed, not judged"],
+    ])
+  })
+
+  it("reads a grab mid-flight released after one frame as closing in from the frame before the drag", () => {
+    // Released between frames 1 and 2: frame 1 against frame 0, 10% of the way (27 px to go).
+    const oneFrame = (share: number) =>
+      dragRunOf(
+        input(flightFrames([share]), { grabFlight: { slot: FLIGHT_SLOT }, moves: MOVES.slice(0, 1), releaseAt: frameAtOf(1) + 8 }),
+        cleanSpans,
+      )
+    expect(oneFrame(0.2).flight).toMatchObject({ landed: false, closing: true })
+    expect(underOf(oneFrame(0.2))).toEqual(["under pointer", true, "? · after a 30.00 px slide · released before its flight landed, not judged"])
+    expect(oneFrame(0.1).flight).toMatchObject({ landed: false, closing: false })
+    expect(underOf(oneFrame(0.1))[1]).toBe(false)
+  })
+
+  it("fails a grab mid-flight whose flight stops short of the pointer, or that has no release", () => {
+    // The flight stalls at 30% of the way from frame 2 on: 21 px off the pointer, frame after frame.
+    const stalled = dragRunOf(input(flightFrames([0.2, 0.3, 0.3, 0.3, 0.3, 0.3]), { grabFlight: { slot: FLIGHT_SLOT } }), cleanSpans)
+    const open = dragRunOf(
+      input(flightFrames([0.2, 0.3, 0.4, 0.5, 0.6, 0.7]), { grabFlight: { slot: FLIGHT_SLOT }, releaseAt: null }),
+      cleanSpans,
+    )
+    for (const run of [stalled, open]) {
+      expect(run.flight).toMatchObject({ landed: false, closing: false })
+      expect(textsOf(run, S11_EXPECT).slice(0, 2)).toEqual([
+        ["under pointer", false, "? · after a 30.00 px slide · never landed ✗ expected ≤ 1 px from its landing, no jump"],
+        ["frames behind", false, "? ✗ expected ≤ 0"],
+      ])
+    }
   })
 
   it("passes every line of a drag since #26's fix against scenario 11's expectations", () => {
