@@ -454,3 +454,8 @@ This ADR replaced the one-delta FLIP with the Projection. Core's `Flip` module (
 ## Note (#618, 2026-11-06): no synthetic viewport node
 
 The tree described above is rooted at a synthetic viewport node `WardicProvider` supplies. There is none: a **Projection node** with no layout ancestor projects relative to the page, as the un-nested case above does. The glossary's Projection node says so.
+
+## Amendment (#691, 2026-11-10): Layout mode `false`
+
+`Projection.LayoutMode` gains `false`, Motion's `layout={false}`: a node with no layout animation of its own. The binding gives it to a node only a `layoutRoot` or a `layoutScroll` makes, with no `layout` and no `layoutId`, as Motion attaches no layout listener to one (ADR-0013, *Amendment (#691)*). `shapeOrigin` starts a mode-`false` animation at its target, so a moved node takes its new box at once, and `animatesPositionOnly` is `false` for it. Every other mode is as *Amendment (#42)* decided.
+
