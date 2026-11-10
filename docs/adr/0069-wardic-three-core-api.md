@@ -1,5 +1,7 @@
 # `@wardic/three`'s core API: Motion's call for one object, a Batch for many, and three's own colours and units
 
+*Amended for #665 (2026-11-10): the DOM's Batch is built first, with slots, a table of transitions and a stagger that counts the members that move (*Amendment (#665)*).*
+
 ADR-0068 settled what `@wardic/three` is: Wardic animates a scene's objects and doesn't build the scene, on frames the Host loop pumps. It left the framework-free API open: key names, units, the batch, GPU springs and colours. Two issues added to it:
 - **#665** wants the batch for the DOM's big lists, grids and charts.
 - **#663** (PR #664) gave `springValues` its keys by index (`Frame.SpringValues`), which is the batch's state shape too.
@@ -156,3 +158,17 @@ The grill read Motion's 3D API against the 21 libraries in [`three-api-prior-art
 - a function value per key per member at a retarget (*inferred*: about 5,000 calls at 1,000 members × 5 keys).
 
 **Untouched:** the DOM bindings' behaviour. The spine's move is structural, until the DOM's writer.
+
+## Amendment (#665, 2026-11-10): the DOM's Batch first, with slots and a table of transitions
+
+#665's build grill (2026-11-10, Q1–Q26) read this ADR against building the DOM's Batch, ahead of the rest of the build order.
+
+- **The build order:** step 4, the DOM's writer, runs first, ahead of steps 1–3. The Batch is a new core module, and the DOM's writer needs neither the spine in core nor `@wardic/object`. #665 builds on the spine where it is, in `@wardic/solid`, and #672 moves #665's hooks with the rest of the spine.
+- **Decision 13, membership:** core's Batch holds slots. It has a capacity that doubles when it's full, `enter` takes a free slot (reusing one a `leave` freed) and starts it from its values, and `leave` frees one. `wardic.batch(subjects)` stays fixed for apps. The slot calls are what the bindings' keyed forms and `@wardic/three`'s keyed instances build on. A `move(from, to)`, for an `InstancedMesh`'s swap, comes with its caller.
+  - Rejected: the bindings remaking a Batch at each change, copying its state across (a filter's every keystroke allocates N × keys arrays and new Playback controls); each binding keeping its own free list over a fixed capacity.
+- **Decision 10, transitions:** a Batch keeps a table of the transitions its members run. Each member's key records which one it runs (the binding's `animate`'s, `whileHover`'s, `whileTap`'s or an imperative call's), and members that share one step as one. Motion's `whileHover: { scale: 1.05, transition: { duration: 0.1 } }` and `animate(grid.member(id), …, options)` stay in the Batch. The table stays only if a Batch's step at 1,000 members measures within 5% of one transition per key (bench:core's `batch` scene); otherwise it's one per key, and a member animated with other options leaves the Batch for those keys.
+- **Decision 18, stagger:** `delay: stagger(…)` counts a member's rank among the members a change moves, and `n` is how many move, as Motion's `animate(elements, …)` counts the elements it's given. An exit's counts the members that leave. A member whose target is unchanged, by value per key, gets nothing: no new leg and no delay. Function values (`{ x: (i) => … }`) still take the member's index.
+  - Rejected: the member's index in its list, which holds the 9 tiles that move after item 990 is deleted for 1.98 s.
+- **Decision 10, the Frame:** a Batch's run hands on a plain Frame, and its values are read back by index (decision 16's `get` and `velocity`). `Frame.SpringValues`' records, one per key, don't fit N members × K keys.
+- **Reduced motion and `skipAnimations`** (decision 18) are per-key transitions a binding passes: a 0 s tween after the delay is a Snap, so core adds nothing for them.
+- **Playback controls** (decision 15) come with their caller, `createAnimate`'s `animate(grid, …)`.

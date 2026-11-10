@@ -1,5 +1,7 @@
 # `@wardic/three`'s Solid 2 binding: a Scene object is the scene's Wardic element, and one `createBatch` serves every Environment
 
+*Amended for #665 (2026-11-10): the writer comes from the scene or the DOM, a member takes its element's own `style` and `ref`, and every target can be a function (*Amendment (#665)*).*
+
 ADR-0068 decision 13 named the scene's Solid 2 pieces: `<WardicScene>`, `<SceneObject>` / `createSceneObject` and `createInstances`, in `@wardic/three/solid`. ADR-0069 left them their follow-ups: keyed Batches, #665's Solid primitive, and drag in a scene. The owner asked to rethink how Solid 2 connects to a scene.
 
 **What the grill found** (2026-11-08): with no scene components (ADR-0068 decision 1), nothing carried a scene object's motion props. A config ward was the only form, against the owner's preference that the ward listens and the element animates (ADR-0046, *Amendment (#398)*). So the `<SceneObject>` that already holds an object in the scene now carries its motion too, and is the scene's Wardic element without making its object.
@@ -158,3 +160,15 @@ ADR-0068 decision 13 named the scene's Solid 2 pieces: `<WardicScene>`, `<SceneO
 - a headless test Environment for scenes in `@wardic/test`;
 - `<ScenePresence mode="wait">`, still a later slice (ADR-0068, decision 11);
 - Solid 1 scene pieces, which ADR-0068 decision 13 still rules out.
+
+## Amendment (#665, 2026-11-10): the writer, a member's own props, and functions for every target
+
+#665's build grill (2026-11-10) settled what decisions 10–14 left to building:
+
+- **Decision 10's writer** is the nearest `<WardicScene>`'s, through its Solid context, else the DOM's, which `createBatch` imports itself (`@wardic/dom/DomBatchWriter`). `DomLive` doesn't carry it, so an app that never calls `createBatch` ships none of it (ADR-0069, decision 1).
+  - Rejected: a core service that `DomLive` provides, which every app would ship.
+- **Decision 14's handle takes the element's own `style` and `ref`:** `grid.member(id, { style, ref })` and `grid.at(i, { style, ref })`. The app's style goes under the member's keys, key by key, and both refs are called, as a ward's `.with` does (ADR-0045, *Amendment (#264)*). A `.with` method on the spread object would be spread onto the element on Solid 2, whose merge reads every key with `in` (#495).
+- **Decision 11's targets:** `initial`, `exit`, `whileHover` and `whileTap` take `(item, i)` in the keyed form and `(i)` by index, as `animate` does, or an object. Each is read once, untracked, as the member enters, leaves or starts the gesture. Only `animate` retargets when what it reads changes.
+- **The DOM's keys** (ADR-0069, decision 11): every core transform key (`x`, `y`, `z`, `translateX/Y/Z`, `scale`, `scaleX/Y`, `rotate`, `rotateX/Y/Z`, `skewX/Y`) and `opacity`, as numbers in px, degrees or unitless. Anything else is a type error, and a dev error naming the key.
+- **An `animate` on a member's element** (a selector's, or the element itself) sends the Batch's keys to the Batch and the others to a plain spine for that element, through the element's entry in `imperative.ts`'s registry.
+- **Decision 13, keyed members:** a key that comes back while its leaver's `exit` plays takes over the leaver's slot, its values and velocity, as a keyed presence child does (#286), and `<AnimatePresence>` drops the leaving element at once. A leaver's `exit` delay counts the members that leave (ADR-0069, *Amendment (#665)*).

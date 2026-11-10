@@ -154,3 +154,11 @@ Found building the Solid 2 binding (ADR-0045). The gate told an element's sink t
 - **A Measure pass's `flushPass`** prepares, tells and commits its own entries the same way, with lists of its own.
 - **For Solid 1 nothing changes but the grouping:** its effects ran at each `onHeld`'s write, before that element's commit, and now run at the end of one `batch` before every commit. The per-frame path allocates nothing new: the frame flush reuses its two lists.
 - **Tests:** dom's `gate.node.test.ts` GH4 (every element's keys held heard in one batch, after the restores and before any commit; a frame that keeps its keys runs none); solid's v2 `gate.browser.test.tsx` G3 and `style-fallback.browser.test.tsx` F9, which fail with `onHeld` outside the `batch`.
+
+## Amendment (#665, 2026-11-10): a Batch writes its members itself
+
+A Batch (ADR-0069, decisions 10–18) writes each moving member in its own step on the Frame loop's tick, through its writer, and not through the gate. A gate entry is a value record per element, merged by key: the per-element cost a Batch exists to remove (the probe's 1,000 elements retargeted in 0.1 ms against 12.2 ms, `.tmp/564-canvas/dom/`).
+
+- **No key is written twice.** The gate never holds a member's batch keys: the latest driver takes a key (ADR-0069, decision 17), so a Wardic element's own `animate` that takes a member's `x` makes the gate hold its `transform` (the transform keys move together) and the Batch skip that member.
+- **Both write in the tick,** before the Refresh frame's paint: the Batch as it steps, the gate at the tick's end. A Batch member has no layout node, so a Measure pass reads none of what the Batch writes.
+- Rejected: a gate entry per moving member; a gate hook that runs a Batch's writes at the flush, which puts every DOM write in one place at the cost of a second pass over the moving members.
