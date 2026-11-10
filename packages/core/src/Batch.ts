@@ -58,6 +58,12 @@ export interface RetargetOptions {
    * doesn't give moves by the Batch's own.
    */
   readonly transition?: Transition | Readonly<Record<string, Transition>>
+  /**
+   * Seconds each member waits before it moves, after its transition's own delay: one for all, or by
+   * its rank among the members this change moves, of `n`, as `Stagger.make`'s delays are.
+   */
+  // ADR-0069, *Amendment (#665)*: the movers, as Motion's `animate(elements)` counts what it's given.
+  readonly delay?: number | ((rank: number, n: number) => number)
 }
 
 /** Whether a change's `transition` is one transition, not one per key. */
@@ -115,6 +121,14 @@ interface State<S> {
   readonly entries: Array<Entry>
   /** Each transition's index in `entries`, by the bag it was given as. */
   readonly entryOf: Map<Transition, number>
+  /** A change's new targets, `NaN` for a key it keeps: its first pass's, read by its second. */
+  pending: Float64Array
+  /** A change's members that move, in order: its first pass's. */
+  movers: Int32Array
+  /** Per slot: whether a member holds it (between its `enter` and its `leave`). */
+  live: Uint8Array
+  /** The slots a `leave` freed, the next `enter`'s. */
+  readonly free: Array<number>
   /** Per member: whether it's in `list`. */
   moving: Uint8Array
   /** The members moving now, `count` of them. */
@@ -195,6 +209,10 @@ export const make = <S>(options: Options<S>): Batch<S> => {
     restSpeeds: new Float64Array(size),
     origins: new Float64Array(size),
     rules: new Uint16Array(size),
+    pending: new Float64Array(size),
+    movers: new Int32Array(capacity),
+    live: new Uint8Array(capacity),
+    free: [],
     entries: [entryFor(options.transition)],
     entryOf: new Map([[options.transition, 0]]),
     moving: new Uint8Array(capacity),
@@ -204,6 +222,16 @@ export const make = <S>(options: Options<S>): Batch<S> => {
     flush: UndefinedOr.match(options.writer.flush, { onUndefined: () => noop, onDefined: (flush) => flush }),
   }
   return Object.assign(Object.create(Proto), state)
+}
+
+/** No delay: a change's that gives none. */
+const NO_DELAY = (): number => 0
+
+/** A change's delay as a function of a mover's rank and how many move: once a change. */
+const delayOfChange = (delay: RetargetOptions["delay"]): ((rank: number, n: number) => number) => {
+  if (Predicate.isUndefined(delay)) return NO_DELAY
+  if (Predicate.isNumber(delay)) return () => delay
+  return delay
 }
 
 /** A change's rule for each of `state`'s keys, by index: once a change. */
@@ -229,17 +257,78 @@ export const enter: {
   <S>(self: Batch<S>, subject: S, start: Readonly<Record<string, number>>): number
 } = dual(3, <S>(self: Batch<S>, subject: S, start: Readonly<Record<string, number>>): number => {
   const state = stateOf(self)
-  const slot = state.used
-  state.used = slot + 1
+  const slot = slotFor(state)
   state.subjects[slot] = subject
+  state.live[slot] = 1
   const base = slot * state.stride
   state.keys.forEach((key, k) => {
-    const value = UndefinedOr.match(start[key], { onUndefined: () => 0, onDefined: (v) => v })
-    state.positions[base + k] = value
-    state.targets[base + k] = value
+    const value = UndefinedOr.match(start[key], { onUndefined: () => 0, onDefined: identity })
+    const at = base + k
+    state.positions[at] = value
+    state.targets[at] = value
+    state.velocities[at] = 0
+    // A reused slot keeps nothing of the member before: at rest on its start, on the Batch's own transition.
+    state.elapsed[at] = 0
+    state.delays[at] = 0
+    state.rules[at] = 0
   })
   return slot
 })
+
+/**
+ * The member at `slot` leaves: it isn't written again, and its slot goes to the next to enter.
+ *
+ * @example
+ * Batch.leave(grid, slot)
+ */
+// Its slot stays in the moving list until the next step drops it: no search per leave.
+export const leave: {
+  (slot: number): <S>(self: Batch<S>) => void
+  <S>(self: Batch<S>, slot: number): void
+} = dual(2, <S>(self: Batch<S>, slot: number): void => {
+  const state = stateOf(self)
+  if (state.live[slot] === 0) return
+  state.live[slot] = 0
+  state.subjects[slot] = undefined
+  state.free.push(slot)
+})
+
+/** A slot for a new member: one a `leave` freed, else the next, the arrays doubled when they're full. */
+const slotFor = <S>(state: State<S>): number => {
+  const freed = state.free.pop()
+  if (Predicate.isNotUndefined(freed)) return freed
+  const slot = state.used
+  if (slot === state.capacity) grow(state, state.capacity * 2)
+  state.used = slot + 1
+  return slot
+}
+
+/** `from` copied into a new array of `size`: a grown Batch's. */
+const grown = <A extends Float64Array | Int32Array | Uint8Array | Uint16Array>(from: A, size: number): A => {
+  const to = new (from.constructor as new (size: number) => A)(size)
+  to.set(from)
+  return to
+}
+
+/** `state`'s arrays grown to hold `capacity` members, every member's state copied across. */
+const grow = <S>(state: State<S>, capacity: number): void => {
+  const size = capacity * state.stride
+  state.capacity = capacity
+  state.positions = grown(state.positions, size)
+  state.velocities = grown(state.velocities, size)
+  state.targets = grown(state.targets, size)
+  state.elapsed = grown(state.elapsed, size)
+  state.delays = grown(state.delays, size)
+  state.restDeltas = grown(state.restDeltas, size)
+  state.restSpeeds = grown(state.restSpeeds, size)
+  state.origins = grown(state.origins, size)
+  state.rules = grown(state.rules, size)
+  state.pending = grown(state.pending, size)
+  state.movers = grown(state.movers, capacity)
+  state.live = grown(state.live, capacity)
+  state.moving = grown(state.moving, capacity)
+  state.list = grown(state.list, capacity)
+}
 
 /**
  * One change: each of `slots`' members turned toward `targetOf(slot, k)` for its `k`th key (`NaN`
@@ -253,34 +342,52 @@ export const retarget: {
   <S>(self: Batch<S>, slots: ReadonlyArray<number>, targetOf: (slot: number, k: number) => number, options?: RetargetOptions): void
 } = dual(isBatch, <S>(self: Batch<S>, slots: ReadonlyArray<number>, targetOf: (slot: number, k: number) => number, options?: RetargetOptions): void => {
   const state = stateOf(self)
-  const { stride } = state
+  const { stride, pending, movers, targets } = state
   const rules = rulesOf(state, UndefinedOr.map(options, (given) => given.transition))
+  const delayOf = delayOfChange(UndefinedOr.map(options, (given) => given.delay))
+  // Per member per key at a change, the Batch's own hot loop (ADR-0069, *Amendment (#665)*): counted
+  // loops over its typed arrays. The first pass keeps each new target and finds the members that
+  // move, so the second can count them for their delays.
+  let n = 0
   slots.forEach((slot) => {
     const base = slot * stride
-    // Per member per key at a change, the Batch's own hot loop (ADR-0069, *Amendment (#665)*): a
-    // counted loop over its typed arrays.
+    let moves = false
     for (let k = 0; k < stride; k++) {
       const at = base + k
       const target = targetOf(slot, k)
+      pending[at] = target
+      if (!Number.isNaN(target) && target !== targets[at]) moves = true
+    }
+    if (!moves) return
+    movers[n] = slot
+    n++
+  })
+  for (let rank = 0; rank < n; rank++) {
+    const slot = movers[rank]
+    const base = slot * stride
+    const wait = delayOf(rank, n)
+    for (let k = 0; k < stride; k++) {
+      const at = base + k
+      const target = pending[at]
       if (Number.isNaN(target)) continue
-      if (target === state.targets[at]) continue
+      if (target === targets[at]) continue
       const rule = rules[k]
       const entry = state.entries[rule]
-      state.targets[at] = target
+      targets[at] = target
       state.origins[at] = state.positions[at]
       state.rules[at] = rule
       state.elapsed[at] = 0
-      state.delays[at] = entry.delay
+      state.delays[at] = entry.delay + wait
       const distance = target - state.positions[at]
       state.restDeltas[at] = Spring.restDeltaFor(entry.spring, distance)
       state.restSpeeds[at] = Spring.restSpeedFor(entry.spring, distance)
-      if (state.moving[slot] === 0) {
-        state.moving[slot] = 1
-        state.list[state.count] = slot
-        state.count = state.count + 1
-      }
     }
-  })
+    if (state.moving[slot] === 0) {
+      state.moving[slot] = 1
+      state.list[state.count] = slot
+      state.count = state.count + 1
+    }
+  }
 })
 
 /**
@@ -291,11 +398,16 @@ export const retarget: {
 // moving members and their keys with plain reads, `springValues`' step written out per key.
 export const step = <S>(self: Batch<S>, dt: number): boolean => {
   const state = stateOf(self)
-  const { stride, entries, rules, origins, positions, velocities, targets, elapsed, delays, restDeltas, restSpeeds, list, moving, subjects, write } = state
+  const { stride, entries, rules, origins, positions, velocities, targets, elapsed, delays, restDeltas, restSpeeds, list, moving, live, subjects, write } = state
   const clamped = Math.min(dt, Machine.MAX_DT)
   let kept = 0
   for (let a = 0; a < state.count; a++) {
     const slot = list[a]
+    // A member that left is dropped here, unwritten.
+    if (live[slot] === 0) {
+      moving[slot] = 0
+      continue
+    }
     const base = slot * stride
     let still = true
     for (let k = 0; k < stride; k++) {

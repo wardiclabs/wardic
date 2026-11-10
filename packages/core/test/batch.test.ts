@@ -9,8 +9,14 @@
 //   tween from where it is, and a spring that takes over starts at the speed its last frame moved.
 // - B4: members on different transitions step at once, each as its own; a change can give one per key:
 //   a spring on `x` beside a 0 s tween after a delay on `opacity`, reduced motion's Snap.
+// - B5: a change's delay counts the members it moves, by rank (Q8, Q11): an unchanged member isn't
+//   written, and one mid-flight carries on frame for frame as if the change never came.
+// - B6: a member entering past the capacity grows the Batch, and every member carries on as it was.
+// - B7: a member that leaves is never written again, and its slot goes to the next to enter, from
+//   that one's own start.
 import * as Batch from "@wardic/core/Batch"
 import * as Machine from "@wardic/core/Machine"
+import * as Stagger from "@wardic/core/Stagger"
 import { describe, expect, it } from "vitest"
 
 const F = 1 / 60
@@ -175,5 +181,80 @@ describe("a Batch (#665)", () => {
     expect(landed).toBeGreaterThanOrEqual(5)
     expect(opacity.slice(0, landed).every((value) => value === 1)).toBe(true)
     expect(opacity.slice(landed).every((value) => value === 0)).toBe(true)
+  })
+
+  it("B5: a change's delay counts the members it moves; an unchanged member carries on", () => {
+    const spring = { type: "spring", stiffness: 210, damping: 20 } as const
+    const { writer, writes } = recording<number>(["x"])
+    const batch = Batch.make({ keys: ["x"], writer, transition: spring })
+    const slots = [0, 1, 2, 3, 4].map((n) => Batch.enter(batch, n, { x: 0 }))
+    // Member 0 sets off for 50 three frames before the change, which leaves its target as it is.
+    Batch.retarget(batch, [slots[0]], () => 50)
+    Array.from({ length: 3 }).forEach(() => Batch.step(batch, F))
+    writes.length = 0
+    const delay = Stagger.make(0.05)
+    const targets = [50, 0, 100, 100, 100]
+    Batch.retarget(batch, slots, (slot) => targets[slot], { delay })
+    const frames = steppedAll(batch, slots, "x")
+    const length = frames[0].length
+    expect(frames[0]).toEqual(heldTo(springFrames("x", 0, 50, spring).slice(3), length))
+    // The three that move wait 0, 0.05 and 0.1 s: ranks 0, 1 and 2 of 3, not their indices 2, 3 and 4 of 5.
+    const movers = [2, 3, 4]
+    movers.forEach((slot, rank) => {
+      expect(frames[slot]).toEqual(heldTo(springFrames("x", 0, 100, { ...spring, delay: delay(rank, 3) }), length))
+    })
+    expect(delay(0, 3)).toBe(0)
+    // Member 1 never moved, so it was never written.
+    expect(writes.some((write) => write.subject === 1)).toBe(false)
+  })
+
+  it("B6: entering past the capacity grows it, and every member carries on", () => {
+    const spring = { type: "spring", stiffness: 210, damping: 20 } as const
+    const { writer } = recording<string>(["x", "y"])
+    const batch = Batch.make({ keys: ["x", "y"], writer, transition: spring, capacity: 2 })
+    const a = Batch.enter(batch, "a", { x: 0, y: 0 })
+    const b = Batch.enter(batch, "b", { x: 0, y: 10 })
+    Batch.retarget(batch, [a, b], (slot, k) => [[100, 50], [-40, 90]][slot][k])
+    Array.from({ length: 5 }).forEach(() => Batch.step(batch, F))
+    const c = Batch.enter(batch, "c", { x: 7, y: 8 })
+    const d = Batch.enter(batch, "d", { x: 1, y: 2 })
+    expect([c, d]).toEqual([2, 3])
+    expect([Batch.get(batch, c, "x"), Batch.get(batch, c, "y"), Batch.velocity(batch, c, "x")]).toEqual([7, 8, 0])
+    const values = { ax: [] as Array<number>, ay: [] as Array<number>, bx: [] as Array<number>, by: [] as Array<number> }
+    Array.from({ length: 600 }).some(() => {
+      const done = Batch.step(batch, F)
+      values.ax.push(Batch.get(batch, a, "x"))
+      values.ay.push(Batch.get(batch, a, "y"))
+      values.bx.push(Batch.get(batch, b, "x"))
+      values.by.push(Batch.get(batch, b, "y"))
+      return done
+    })
+    const length = values.ax.length
+    expect(values.ax).toEqual(heldTo(springFrames("x", 0, 100, spring).slice(5), length))
+    expect(values.ay).toEqual(heldTo(springFrames("y", 0, 50, spring).slice(5), length))
+    expect(values.bx).toEqual(heldTo(springFrames("x", 0, -40, spring).slice(5), length))
+    expect(values.by).toEqual(heldTo(springFrames("y", 10, 90, spring).slice(5), length))
+  })
+
+  it("B7: a member that leaves isn't written again, and its slot goes to the next, from its own start", () => {
+    const spring = { type: "spring", stiffness: 210, damping: 20 } as const
+    const { writer, writes } = recording<string>(["x"])
+    const batch = Batch.make({ keys: ["x"], writer, transition: spring })
+    const a = Batch.enter(batch, "a", { x: 0 })
+    const b = Batch.enter(batch, "b", { x: 0 })
+    Batch.retarget(batch, [a, b], () => 100)
+    Array.from({ length: 5 }).forEach(() => Batch.step(batch, F))
+    Batch.leave(batch, a)
+    writes.length = 0
+    const c = Batch.enter(batch, "c", { x: 30 })
+    expect(c).toBe(a)
+    expect([Batch.get(batch, c, "x"), Batch.velocity(batch, c, "x")]).toEqual([30, 0])
+    const [bx, cx] = steppedAll(batch, [b, c], "x")
+    expect(bx).toEqual(springFrames("x", 0, 100, spring).slice(5))
+    expect(cx.every((x) => x === 30)).toBe(true)
+    expect(writes.some((write) => write.subject === "a")).toBe(false)
+    // The one that took the slot moves when it's given a target, from where it started.
+    Batch.retarget(batch, [c], () => 60)
+    expect(steppedAll(batch, [c], "x")[0]).toEqual(springFrames("x", 30, 60, spring))
   })
 })
