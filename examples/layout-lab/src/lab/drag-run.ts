@@ -108,6 +108,15 @@ const LANDED_PX = 0.25
 const SUBPIXEL_PX = 0.5
 
 /**
+ * How much nearer the pointer's place a grab mid-flight's last judged frame must come than the
+ * one before it for its flight to read as still closing in at the release, in px (#693): more
+ * than a painted box's float noise, so an item stuck off the pointer reads stalled. A flight's
+ * last steps before it lands move far more than this: in a hand run of scenario 12 (Chromium,
+ * 2026-11-10), Motion's 0.45 s tween still moved 0.13 px a frame with 0.27 px to go.
+ */
+const CLOSING_PX = 0.01
+
+/**
  * The most a grab mid-flight's first dragged frame may move beyond the pointer, as a share of
  * the flight still to go then (or {@link JUMP_FLOOR_PX}, whichever is more): a frame's step of
  * a flight that goes on, not the whole of it (main's #30 jump).
@@ -578,19 +587,26 @@ export interface DragRun extends DragRunInput {
    * (`jumpPx`; main's #30 jumped the whole remaining flight), and whether the flight
    * landed under the pointer before the release. {@link underPointerMaxPx} is then read
    * against the slot at the press moved by the pointer, from the frame it landed in.
+   * `closing` (#693): it hadn't landed, and was still closing in on the pointer when the
+   * release came, its last judged held frame (a move before it, not in a scroll's wake) more
+   * than {@link CLOSING_PX} nearer the pointer's place than the judged frame before it, or,
+   * the only one, than the frame before the drag (`remainingPx`). `false` for a flight that
+   * landed or stalled short of the pointer, with no judged frame, and with no release.
    */
   readonly flight?: {
     readonly slidePx: number
     readonly jumpPx: number | null
     readonly remainingPx: number | null
     readonly landed: boolean
+    readonly closing: boolean
   }
   /**
    * The most painted frames any move took to show: for each move, the held frames
    * after it until one's painted centre is within 1px of where the move put it (or
    * of where a later move did). A move that the next one replaced before any frame
-   * could show it is skipped, as is one no held frame came after (the release came
-   * first). `null` when no move was measured. A move less than 1px from the one
+   * could show it is skipped, as are one no held frame came after (the release came
+   * first) and one a grab mid-flight made before its flight landed under the pointer
+   * (#30). `null` when no move was measured. A move less than 1px from the one
    * before it reads 0 even when the element lags, so the lag shows on the faster
    * moves.
    */
@@ -691,6 +707,9 @@ const DRAG_LINE_NAMES: ReadonlyArray<DragCheckName> = DRAG_CHECK_NAMES.filter((n
 
 /** Every drag line of a press that never moved past {@link DRAG_THRESHOLD_PX}: no drag started. */
 const CLICK_TEXT = "click, no drag"
+
+/** Why a grab mid-flight's `under pointer` and `frames behind` have no landing to read from (#693). */
+const RELEASED_IN_FLIGHT_TEXT = "released before its flight landed"
 
 /** A keyboard run's drag lines but `ends on slot`: no pointer to read (#43). */
 const KEYBOARD_TEXT = "a keyboard run: no pointer"
@@ -938,18 +957,27 @@ const flightOf = (
   held: ReadonlyArray<DragFrame>,
   moves: ReadonlyArray<DragMove>,
   landed: boolean,
-): { readonly slidePx: number; readonly jumpPx: number | null; readonly remainingPx: number | null; readonly landed: boolean } => {
+  lastOff: number | null,
+  previousOff: number | null,
+): NonNullable<DragRun["flight"]> => {
   const slot = centreOf(grabSlot)
   const slidePx = pointDistance(centreOf(input.grabBox), slot)
+  // Still closing in at the release: the last judged frame nearer the pointer's place than the one
+  // before it, or, the only one, than the frame before the drag (the pointer's offset was 0 then).
+  const closingAgainst = (fallbackPx: number | null): boolean => {
+    const previous = previousOff ?? fallbackPx
+    return !landed && input.releaseAt !== null && lastOff !== null && previous !== null && previous - lastOff > CLOSING_PX
+  }
   const first = held[0]
   // The last frame before the drag started, or the box at the press when none was painted.
   const before = first === undefined ? undefined : input.frames.filter((f) => f.frame < first.frame).at(-1)
   const shown = first === undefined ? undefined : moves.filter((m) => m.frame < first.frame).at(-1)
-  if (first === undefined || shown === undefined) return { slidePx, jumpPx: null, remainingPx: null, landed }
+  if (first === undefined || shown === undefined) return { slidePx, jumpPx: null, remainingPx: null, landed, closing: closingAgainst(null) }
   const from = centreOf(before?.d ?? input.grabBox)
   const at = centreOf(first.d)
   const jumpPx = pointDistance({ x: at.x - shown.dx, y: at.y - shown.dy }, from)
-  return { slidePx, jumpPx, remainingPx: pointDistance(from, slot), landed }
+  const remainingPx = pointDistance(from, slot)
+  return { slidePx, jumpPx, remainingPx, landed, closing: closingAgainst(remainingPx) }
 }
 
 /**
@@ -993,6 +1021,10 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>,
   // pointer here, and frames behind for the moves from that frame on.
   let landed = input.grabFlight === undefined
   let landedFrame = Number.NEGATIVE_INFINITY
+  // The last two judged frames' distances from the pointer's place: whether a flight that never
+  // landed still closed in on the pointer at the release (#693).
+  let lastOff: number | null = null
+  let previousOff: number | null = null
   for (const [k, f] of held.entries()) {
     while (visible < moves.length && moves[visible].frame < f.frame) visible++
     const centre = centreOf(f.d)
@@ -1001,6 +1033,8 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>,
     // every other move reaches it inside its event (#32).
     if (visible > 0 && !wake[k]!) {
       const off = distance(centre, targetOf(moves[visible - 1]))
+      previousOff = lastOff
+      lastOff = off
       // Landed: at the newest move's place.
       if (!landed && off <= LANDED_PX) {
         landed = true
@@ -1068,7 +1102,7 @@ export const dragRunOf = (input: DragRunInput, spans: ReadonlyArray<SpanRecord>,
     ...input,
     heldFrameCount: held.length,
     underPointerMaxPx,
-    ...(flightSlot === undefined ? {} : { flight: flightOf(input, flightSlot, held, moves, landed) }),
+    ...(flightSlot === undefined ? {} : { flight: flightOf(input, flightSlot, held, moves, landed, lastOff, previousOff) }),
     framesBehindMax,
     framesBehindMoves,
     childGlueMaxPx,
@@ -1144,6 +1178,53 @@ const gestureLineOf = (run: DragRun, click: boolean, bound: number | undefined):
 }
 
 /**
+ * The `under pointer` line of a grab mid-flight (#30): judged from the frame the flight
+ * landed under the pointer, and failed by a first dragged frame that jumps more than
+ * {@link JUMP_SHARE} of the flight still to go (or {@link JUMP_FLOOR_PX}). A flight still
+ * closing in at the release has no landing to judge from, and only such a jump fails it; one
+ * that stalled short of the pointer fails `never landed` (#693).
+ */
+const flightLineOf = (flight: NonNullable<DragRun["flight"]>, under: number | undefined, underMax: number | undefined): DragCheck => {
+  const jumped =
+    flight.jumpPx !== null && flight.remainingPx !== null && flight.jumpPx > Math.max(JUMP_FLOOR_PX, flight.remainingPx * JUMP_SHARE)
+  const notes = [
+    `after a ${px(flight.slidePx)} slide`,
+    ...(jumped ? [`jumped ${px(flight.jumpPx!)} at the grab`] : []),
+    ...(flight.landed ? [] : [flight.closing ? RELEASED_IN_FLIGHT_TEXT : "never landed"]),
+  ]
+  // Released while its flight still closed in on the pointer (#693): no landing to judge it from,
+  // and only a jump at the grab, read from the first dragged frame, still fails it.
+  if (flight.closing && !jumped) return lineOf("under pointer", `? · ${notes.join(" · ")}, not judged`, undefined, true)
+  return lineOf(
+    "under pointer",
+    `${under === undefined || !flight.landed ? "?" : px(under)} · ${notes.join(" · ")}`,
+    underMax === undefined ? undefined : `≤ ${underMax} px from its landing, no jump`,
+    under !== undefined && underMax !== undefined && flight.landed && !jumped && under <= underMax,
+  )
+}
+
+/**
+ * The `frames behind` line. A grab mid-flight reads it from the moves after its flight landed
+ * (#30), so it has none to read when the release came while the flight still closed in on the
+ * pointer, or when no move came after the landing: not judged (#693). A flight that stalled short
+ * of the pointer, and any other drag that measured no move, fail `?`.
+ */
+const behindLineOf = (run: DragRun, behindMax: number | undefined): DragCheck => {
+  if (run.flight?.closing === true) return lineOf("frames behind", `? · ${RELEASED_IN_FLIGHT_TEXT}, not judged`, undefined, true)
+  if (run.flight?.landed === true && run.framesBehindMax === null) {
+    return lineOf("frames behind", "? · no move after the landing, not judged", undefined, true)
+  }
+  return lineOf(
+    "frames behind",
+    run.framesBehindMax === null
+      ? "?"
+      : `${run.framesBehindMax} · ${run.framesBehindMoves} move${run.framesBehindMoves === 1 ? "" : "s"}`,
+    behindMax === undefined ? undefined : `≤ ${behindMax}`,
+    run.framesBehindMax !== null && behindMax !== undefined && run.framesBehindMax <= behindMax,
+  )
+}
+
+/**
  * Checks `run` against `expect`: one {@link DragCheck} per name in
  * {@link DRAG_CHECK_NAMES}, in that order. A press with no move past the drag
  * threshold is a click, not a drag: every drag line reads `click, no drag` and none
@@ -1162,29 +1243,13 @@ const gestureLineOf = (run: DragRun, click: boolean, bound: number | undefined):
  * is not judged, nor is a `release held` it couldn't read (`? · cut short by the next
  * press`); a run that timed out is judged. A lost release no unpressed move followed
  * never reached its end in the run, so both read `lost release, no unpressed move`,
- * not judged. The `gesture ends` line is judged for every press (see `gestureLineOf`).
+ * not judged. A grab mid-flight released while its flight still closed in on the pointer
+ * has no landing to read `under pointer` and `frames behind` from (`released before its
+ * flight landed, not judged`), though a jump at the grab still fails the first; one whose
+ * flight landed with no move after it can't read `frames behind` either (`no move after the
+ * landing, not judged`, #693). The `gesture ends` line is judged for every press (see
+ * `gestureLineOf`).
  */
-/**
- * The `under pointer` line of a grab mid-flight (#30): judged from the frame the flight
- * landed under the pointer, and failed by a first dragged frame that jumps more than
- * {@link JUMP_SHARE} of the flight still to go (or {@link JUMP_FLOOR_PX}).
- */
-const flightLineOf = (flight: NonNullable<DragRun["flight"]>, under: number | undefined, underMax: number | undefined): DragCheck => {
-  const jumped =
-    flight.jumpPx !== null && flight.remainingPx !== null && flight.jumpPx > Math.max(JUMP_FLOOR_PX, flight.remainingPx * JUMP_SHARE)
-  const notes = [
-    `after a ${px(flight.slidePx)} slide`,
-    ...(jumped ? [`jumped ${px(flight.jumpPx!)} at the grab`] : []),
-    ...(flight.landed ? [] : ["never landed"]),
-  ]
-  return lineOf(
-    "under pointer",
-    `${under === undefined || !flight.landed ? "?" : px(under)} · ${notes.join(" · ")}`,
-    underMax === undefined ? undefined : `≤ ${underMax} px from its landing, no jump`,
-    under !== undefined && underMax !== undefined && flight.landed && !jumped && under <= underMax,
-  )
-}
-
 export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck> => {
   // The drag's start: its first move past the threshold. A press with none is a click.
   const startMove = run.moves.find((m) => Math.hypot(m.dx, m.dy) > DRAG_THRESHOLD_PX)
@@ -1223,14 +1288,7 @@ export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck>
           under !== undefined && underMax !== undefined && under <= underMax,
         )
       : flightLineOf(run.flight, under, underMax),
-    lineOf(
-      "frames behind",
-      run.framesBehindMax === null
-        ? "?"
-        : `${run.framesBehindMax} · ${run.framesBehindMoves} move${run.framesBehindMoves === 1 ? "" : "s"}`,
-      behindMax === undefined ? undefined : `≤ ${behindMax}`,
-      run.framesBehindMax !== null && behindMax !== undefined && run.framesBehindMax <= behindMax,
-    ),
+    behindLineOf(run, behindMax),
     free && glue.length === 0
       ? lineOf("child glued", "no child", undefined, true)
       : lineOf(
