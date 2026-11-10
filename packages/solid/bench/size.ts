@@ -106,6 +106,22 @@ render(() => <WardicProvider env={DomLive} features={[${features.join(", ")}]}><
 }
 
 /**
+ * A Batch's app (#665): `createBatch` over a grid of plain divs under a `WardicProvider` with no
+ * Features: what an app that animates its collections as one pays, beside the Slim element's.
+ */
+const batch = (render: string, entry: string): string => `import { For } from "solid-js"
+import { render } from "${render}"
+import { DomLive } from "@wardic/dom"
+import { createBatch, WardicProvider } from "${entry}"
+const cells = Array.from({ length: 100 }, (_, i) => i)
+const Grid = () => {
+  const grid = createBatch({ count: 100, animate: (i) => ({ x: (i % 10) * 20, y: Math.floor(i / 10) * 20, opacity: 1 }), transition: { type: "spring", bounce: 0.2 } })
+  return <For each={cells}>{(i) => <div {...grid.at(i)} />}</For>
+}
+render(() => <WardicProvider env={DomLive}><Grid /></WardicProvider>, document.body)
+`
+
+/**
  * A multi-route app (#548): a shell with a hover under a provider giving `domAnimation`, and three pages
  * loaded with `import()`: a plain one, one that drags (`LazyWardic features={[drag]}`) and one that
  * lays out (`features={[layout]}`). Measured, the plain page: what a page that never drags or lays out
@@ -147,6 +163,7 @@ const APPS: ReadonlyArray<App> = [
   { name: "s1-drag", v2: false, source: slim("solid-js/web", "@wardic/solid", ["drag"]) },
   { name: "s1-dom-animation", v2: false, source: slim("solid-js/web", "@wardic/solid", ["domAnimation"]) },
   { name: "s1-dom-max", v2: false, source: slim("solid-js/web", "@wardic/solid", ["domMax"]) },
+  { name: "s1-batch", v2: false, source: batch("solid-js/web", "@wardic/solid") },
   routes("solid-js/web", "@wardic/solid", "s1-routes"),
   { name: "s2-plain", v2: true, source: plain("@solidjs/web") },
   { name: "s2-complete", v2: true, source: complete("@solidjs/web", "@wardic/solid/unstable/v2", false) },
@@ -158,6 +175,7 @@ const APPS: ReadonlyArray<App> = [
   { name: "s2-drag", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["drag"]) },
   { name: "s2-dom-animation", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["domAnimation"]) },
   { name: "s2-dom-max", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["domMax"]) },
+  { name: "s2-batch", v2: true, source: batch("@solidjs/web", "@wardic/solid/unstable/v2") },
   routes("@solidjs/web", "@wardic/solid/unstable/v2", "s2-routes"),
 ]
 
