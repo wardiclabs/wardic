@@ -1,7 +1,7 @@
 ---
 title: createBatch
 description: Animates many elements on the same keys as one Batch, for a list, a grid or a chart's points that move together.
-api: [createBatch, WardicBatch, WardicBatchConfig, WardicKeyedBatch, WardicKeyedBatchConfig, WardicBatchEvents, WardicBatchKey, WardicBatchLanding, WardicBatchMember, WardicBatchMemberProps, WardicBatchStop, WardicBatchSubject, WardicBatchTarget, WardicBatchTransition, WardicBatchValues]
+api: [createBatch, WardicBatch, WardicBatchConfig, WardicBatchExit, WardicKeyedBatch, WardicKeyedBatchConfig, WardicBatchEvents, WardicBatchKey, WardicBatchLanding, WardicBatchMember, WardicBatchMemberProps, WardicBatchStop, WardicBatchSubject, WardicBatchTarget, WardicBatchTransition, WardicBatchValues]
 ---
 
 # createBatch
@@ -46,7 +46,15 @@ const list = createBatch({
 ```
 
 - **`animate(item, i)`** and **`initial(item, i)`** take the item and its index in the list now. A change of the list, or of its order, turns every member once: reordered, each one heads for its new place at the speed it has.
-- **A new item's member** enters as its element arrives, from `initial`, and moves with the others that arrive in the same task. An item that leaves the list takes its member with it at once.
+- **A new item's member** enters as its element arrives, from `initial`, and moves with the others that arrive in the same task. An item that leaves the list takes its member with it at once, unless it's under an `<AnimatePresence>`.
+- **Under `<AnimatePresence>`,** a leaving member plays its `exit`, its element kept until it lands, each one as its own does. `exit` is values with an optional `transition`, or `(item, i, custom) => values`, `custom` the presence's. Its `delay: stagger()` counts the members leaving together. An item back while it exits takes over where it was, at its speed, its old element gone at once. `initial={false}` on the presence starts its first render's members at their targets. Members inside an `<svg>` leave at once, for now.
+
+```tsx
+const list = createBatch({ each: () => todos(), key: "id", initial: { opacity: 0 }, animate: (_, i) => ({ y: i * 48, opacity: 1 }), exit: { opacity: 0, x: -24, transition: { duration: 0.2, delay: stagger(0.03) } } })
+<AnimatePresence>
+  <For each={todos()}>{(todo) => <li {...list.member(todo.id)}>{todo.title}</li>}</For>
+</AnimatePresence>
+```
 - **`list.member(key)`** is its handle, given `{ ref, style }` as `at(i)`'s is. A handle for a key the list doesn't have yet is fine: its element enters once the list has it. An element whose key the list still doesn't have at the end of its task is reported, naming the key, and enters if the list gets it later.
 - **Its keys** are its first members' targets' and starts', so a list that starts empty makes its Batch when its first items come. Give `keys: ["x", "y", "opacity"]` to fix them up front, for a list whose later items use a key its first ones don't.
 - Two items with one key, and an item with no key, are errors naming them.
@@ -95,7 +103,7 @@ Motion has no Batch: its `animate(elements, …)` runs each element on its own, 
 ## Types
 
 - **`WardicBatchConfig`:** its config. **`WardicBatchValues`:** a member's values. **`WardicBatchTransition`:** its transition, its `delay` a `stagger()` too.
-- **`WardicKeyedBatchConfig`:** the keyed form's config. **`WardicKeyedBatch`:** what the keyed form returns, its handles by key.
+- **`WardicKeyedBatchConfig`:** the keyed form's config. **`WardicBatchExit`:** its `exit` as values. **`WardicKeyedBatch`:** what the keyed form returns, its handles by key.
 - **`WardicBatch`:** what it returns. **`WardicBatchMember`:** a member's handle. **`WardicBatchMemberProps`:** the element's own props a handle takes.
 - **`WardicBatchLanding`:** a landing, `{ moved }`. **`WardicBatchEvents`:** (Solid 2) its events, for `next` and `when`.
 - **`WardicBatchSubject`:** what `animate` takes for a Batch: a Batch, by index or keyed, or a member's handle. **`WardicBatchTarget`:** its targets there. **`WardicBatchStop`:** one stop, a number or a function of a member's index and the count, that gives a number.
