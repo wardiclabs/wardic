@@ -256,7 +256,7 @@ Grilled 2026-10-14:
 3. **Translate and scale only** (Q3), as Motion's `transformBox`: `x`, `y`, `translateX`, `translateY` in px, `scale`, `scaleX`, `scaleY`, composed in the renderer's order (translate, then scale) about the ancestor's transform origin.
    - Anything else makes the twin's whole chain fall back to *Amendment (#136)*'s deltas as of the pass: an ancestor whose transform at the pass has a rotation or skew, or is 3D, or uses an individual `translate`/`scale`/`rotate` property, or is held by a running transition.
    - An ancestor whose values draw a rotation, a skew or a translate in another unit, or that isn't Wardic's, keeps its transform as of the pass inside a chain that maps.
-   - An ancestor that carried no transform at the pass, and starts one after, isn't followed.
+   - An ancestor that carried no transform at the pass, and starts one after, isn't followed. Since #687 a Wardic one is: *Amendment (#687)*.
 
 **The lab:** scenario 16's in-place cell gets **Toggle entrance**: ⏸ mounts inside a container scaling in from 0.8 about the cell's corner, so the twin flies from ▶ into it.
 - The grill placed this on the exit cell. There, the container would be presence's direct child and not a twin, so closing drops the twin inside it at once, with no crossfade. That's a gap of its own in how presence hands back a twin inside a non-twin container, on `main` too, and not this Amendment's. So the toggle went where no presence is involved. Filed as #181 and fixed by ADR-0010 *Amendment (#181)*, whose exit cell has its own **Toggle wrapper**. There a twin handed back keeps its chain, with the leaving child read in at the hand-back, and presence registers what the child's exit draws, so the chain follows a leaving container too.
@@ -439,3 +439,55 @@ Motion's `resetTransform` (motion-dom 14.6, `create-projection-node.mjs`) resets
   - a hold at `""` (RP1, RP3);
   - a skip that ignores an Appear (PA4);
   - a restore of every node (RP1).
+
+## Amendment (#687, 2026-11-09): a Wardic ancestor at identity at the pass is linked too
+
+**What happened.** A twin's chain (*Amendment (#137)*) held each ancestor its pass found carrying a transform. A Wardic element drawing nothing then got no link, so a translate or scale it started after the pass was never read: decision 3's last bullet recorded it. MS5's first version, in #680, measured it: a modal at identity when its twin's pass ran, which then started scaling to 0.6 once another element landed (the issue's repro; the MS5 that shipped retargets a modal already scaling in). On `main` the Follower drifted off its Lead, 2.9 px in the first frame and past 50 px by the thirteenth, as long as it showed. Where you'd hit it: a `whileHover` or `whileTap` scale, a drag, or a later state change on a container a twin is flying in. A container scaling in at its mount (`initial: { scale: 0.8 }`, with a `delay` or without) was already followed, since its transform is there at the pass.
+
+**Decided** (#687's grill, 2026-11-09, Q1–Q4; every recommendation taken):
+
+1. **Every Wardic element above a moved twin joins its chain, transformed or not** (Q1 A). One at identity, which the pass doesn't hold, is read in the pass's own READ phase with the others: its box and its transform origin, and an identity map as its transform at the pass. Each frame `composeLink` reads its values, as for every element link. While they draw no translate or scale, the identity map composes, and nothing changes. From the frame they draw one, it's followed.
+   - *Which:* those with registered values (`registerValues`). Not a projection node, which is linked for its own scale already. Not one this pass read for its transform. Not one a running transition holds, which keeps the chain's fallback (decision 3). A twin's ancestors shared with another's are walked and read once a pass.
+   - *The scope stays this Amendment's:* Wardic's own values, a translate and a scale. A CSS or another library's transform that starts after the pass isn't followed, since reading one each frame is a style recalculation in the tick (decision 2's rejection), and nor is a rotation. AT7 pins the first.
+   - *The leaver record* (ADR-0010, *Amendment (#181)*) copies the twin's chain, the new links with it.
+   - *Rejected: a Measure pass when such an ancestor starts drawing a transform* (Q1 B). Telling when it starts needs a per-frame check of every twin's ancestors, about what the links cost anyway, or a new signal from the gate, and the pass would run mid-flight.
+   - *Rejected: keeping the limit* (Q1 C). Motion follows no ancestor transform during a flight (*Amendment (#137)*'s probe), so this goes further past it.
+2. **Cost** (`.tmp/687/probe.browser.test.ts`, the prototype's toggle off against on, 11 reps alternated): 100 twin pairs, each Lead under 3 Wardic ancestors at identity, with frames fired by hand.
+
+   | | Off | On |
+   |---|---|---|
+   | Chromium 147: the Measure pass | 3.0 ms | 4.0 ms |
+   | Chromium 147: a frame | 58 µs | 88 µs |
+   | Firefox 148: the Measure pass | 4 ms | 4 ms (1 ms timer) |
+   | Firefox 148: a frame | 183 µs | 200 µs |
+
+   That's about 3 µs at the pass for each ancestor at identity it reads, once however many moved twins share it, and 0.1 µs a link a frame. #689 asks for a gated twin scene in `bench:solid`, since no bench reaches these paths.
+   - **`bench:solid`** against `main` (410a7ac): every gate passed, with the control at −0.3%. None of its scenes has a twin, so this checks only that nothing else moved:
+     - the layout scenes' Measure passes, −0.9% to +0.7%;
+     - their frames, −3.8% to +8.1% at the median. The +8.1% is Solid 1's page frame, the noisiest gate, with its 25th percentile at −18.2%;
+     - KB per frame −0.6% and +0.3%, and frames to land unchanged.
+
+**The lab** (the prototype off against on, headless):
+- **s16, the crossfade:** its four handovers (overlap, in place, nested, exit), 5 times each, under three option sets (plain, `scaled`, `entrance`), each board run judged by the lab's own crossfade checks (`.tmp/687/drive-s16.ts`). Solid 1 and Solid 2 in Chromium 147 and Solid 1 in Firefox 148: 75 runs a variant, every one clean, both ways.
+- **s1–s10 and the drags** (`.tmp/687/drive.ts`, s7's `layoutId` switch among them), both bindings in Chromium, 5 runs, cold and warm: the same held counts both ways (80 runs at 0, 20 at 1, s3's and s4's), every run clean, the first three painted steps within 0.2 px at the median, and all 40 drags clean.
+
+**Not reached:**
+- *A twin that doesn't move keeps its chain from its last pass.* An ancestor at identity that resizes then doesn't move the twin as painted, so no pass reads it again. If it scales later, the twin is converted about its old origin. A transformed ancestor's resize moves the twin's painted box, so a pass does read it again.
+- *An element Solid mounted before any section had `layout`* has no registered values (#511, `create-ward.tsx`), so it isn't linked. A transformed one isn't followed either, under *Amendment (#137)*.
+
+**Pinned by:**
+- **`packages/dom/test/projection-ancestor-transforms.browser.test.ts`:**
+  - AT6: a Wardic ancestor at identity at the pass starts a scale mid-flight, and the Follower is on the Lead every frame. It failed before, 12.4 px off by frame 11;
+  - AT6b: a translate starting inside an ancestor scaled at the pass, so the two compose;
+  - AT6c: one above the Follower, which its own conversion follows;
+  - AT7: an ancestor Wardic doesn't own, at identity at the pass, whose transform starts after it, is converted as of the pass.
+- **`packages/solid/test/layout-id-ancestor-transform.browser.test.tsx`:** MS6, the issue's repro, in real paint. It failed before, 3.09 px off at frame 5.
+
+**Mutations** (`.tmp/687/mutate.py`, run alone): 3 single-point mutations, 2 caught, and 1 equivalent.
+
+| Mutant | Caught by |
+|---|---|
+| no ancestor at identity linked | AT6, AT6b, AT6c, MS6 |
+| the origin read as 0 | AT6, AT6c, MS6 |
+| an ancestor Wardic doesn't own linked too | none: equivalent. With no values, its link composes the identity map each frame, as no link does. The check saves its reads and its per-frame call. |
+
