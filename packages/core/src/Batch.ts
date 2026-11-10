@@ -319,8 +319,11 @@ const release = <S>(state: State<S>, rule: number): void => {
   if (state.kinds[rule] === FREE) return
   if (state.uses[rule] > 0) state.uses[rule] = state.uses[rule] - 1
   if (state.uses[rule] > 0) return
+  const bag = state.bags[rule]
+  // Forgotten at a rest already (`forgetTransitions`).
+  if (Predicate.isUndefined(bag)) return
   state.kinds[rule] = FREE
-  state.ruleByBag.delete(UndefinedOr.getOrThrow(state.bags[rule]))
+  state.ruleByBag.delete(bag)
   state.bags[rule] = undefined
   state.freeRules.push(rule)
 }
@@ -682,7 +685,8 @@ export const step = <S>(self: Batch<S>, dt: number): boolean => {
   state.onFrame()
   // Counted after `onFrame`: a change it makes keeps the run going.
   if (state.plainCount + state.ruledCount > 0) return false
-  if (state.entries.length > state.pinned) forgetTransitions(state)
+  // An animation playing, paused at rest, still holds its entries.
+  if (state.entries.length > state.pinned && state.animations.size === 0) forgetTransitions(state)
   return true
 }
 
@@ -1012,12 +1016,22 @@ const checkLanding = <S>(animation: AnimationState<S>): void => {
   const head = options.head
   const count = animation.ats.length
   let landed = true
+  let held = 0
   // Once a frame, per key of a playing change: a counted loop with plain reads.
   for (let i = 0; i < count; i++) {
-    if (!holds(animation, i)) return
+    if (!holds(animation, i)) {
+      landed = false
+      continue
+    }
+    held++
     const at = animation.ats[i]
     if (head.speed < 0) continue
     if (state.velocities[at] !== 0 || state.positions[at] !== animation.goals[i] || state.elapsed[at] < animation.waits[i]) landed = false
+  }
+  // Every key taken by later changes: it plays nothing now, and can't land.
+  if (count > 0 && held === 0) {
+    finish(animation)
+    return
   }
   if (head.speed < 0 && head.time > 0) return
   if (!landed) return

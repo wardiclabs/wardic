@@ -200,5 +200,10 @@ describe("a Batch's change driven by a Playhead (#665)", () => {
     })
     expect(xs.slice(0, 20)).toEqual(springFrames(at, -40, SPRING, speed).slice(0, 20))
     expect(landed).toBe(0)
+    // Every key it moved taken, or landed while it held it: at rest, the table holds the Batch's own again.
+    Batch.retarget(batch, [slots[0]], () => 5, { transition: SPRING })
+    Array.from({ length: 600 }).some(() => Batch.step(batch, F))
+    expect(landed).toBe(0)
+    expect(batch.toJSON()).toMatchObject({ transitions: 1, moving: 0 })
   })
 })
