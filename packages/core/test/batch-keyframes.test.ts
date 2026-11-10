@@ -17,6 +17,8 @@
 //   they're back at their first stops; a later change that takes a key moves it its way, and the
 //   animation ends unheard once the keys it kept are done.
 // - BK7: `keyframes`' two forms give one type, `pipe` runs the data-last one.
+// - BK8: played back to its start, its keys rest there: a later change of the member's other key leaves
+//   them where they are.
 import * as Batch from "@wardic/core/Batch"
 import * as Machine from "@wardic/core/Machine"
 import * as Playback from "@wardic/core/Playback"
@@ -223,5 +225,21 @@ describe("a Batch's keyframes driven by a Playhead (#665)", () => {
     expectTypeOf(first).toEqualTypeOf<Batch.Animation>()
     expectTypeOf(last).toEqualTypeOf<Batch.Animation>()
     expect([Batch.isAnimation(first), Batch.isAnimation(last)]).toEqual([true, true])
+  })
+
+  it("BK8: played back to its start, its keys rest there, whatever a later change of another key does", () => {
+    const head = Playback.make()
+    const batch = Batch.make({ keys: ["x", "y"], writer, transition: { type: "spring" } })
+    const slot = Batch.enter(batch, "a", { x: 0, y: 0 })
+    const animation = Batch.keyframes(batch, [slot], (_, k) => [{ stops: [5, 90, 40], transition: { duration: 0.5 } }, undefined][k], { head })
+    Batch.play(animation)
+    stepped(batch, [slot], "x", 20)
+    Playback.setSpeed(head, -1)
+    stepped(batch, [slot])
+    expect(Batch.get(batch, slot, "x")).toBe(5)
+    Batch.retarget(batch, [slot], (_, k) => [Number.NaN, 50][k])
+    const [x] = stepped(batch, [slot])
+    x.forEach((value) => expect(value).toBe(5))
+    expect(Batch.get(batch, slot, "y")).toBe(50)
   })
 })

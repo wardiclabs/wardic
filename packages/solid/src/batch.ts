@@ -32,6 +32,7 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import type * as Fiber from "effect/Fiber"
 import * as Iter from "effect/Iterable"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -296,7 +297,7 @@ export const isMemberElement = (element: Element): boolean => MEMBER_ELEMENTS.ha
 export const memberEntryOf = (element: Element): BatchMemberEntry | undefined => MEMBER_ELEMENTS.get(element)
 
 /** Whether a sequence's subject is a Batch member's entry. */
-export const isMemberEntry = (subject: unknown): subject is BatchMemberEntry => Bool.and(Predicate.hasProperty(subject, "binding"), Predicate.hasProperty(subject, "member"))
+export const isMemberEntry: Predicate.Refinement<unknown, BatchMemberEntry> = Predicate.and(Predicate.hasProperty("binding"), Predicate.hasProperty("member")) as Predicate.Refinement<unknown, BatchMemberEntry>
 
 // --- A sequence's Segments of Batches (#665, Q36–Q40) ---------------------------------------------
 
@@ -445,6 +446,10 @@ const stopNumber = (stop: Sequence.Stop): number => {
   if (Predicate.isNumber(stop)) return stop
   return Number.NaN
 }
+
+/** A key's last stop that's a number, `NaN` (where it is) for none: what its `null`s after it hold. */
+const lastNumber = (stops: ReadonlyArray<number>): number =>
+  Option.getOrElse(Arr.findLast(stops, (stop) => !Number.isNaN(stop)), () => Number.NaN)
 
 /** Whether `value` is a Batch key's value in a sequence: a number, `null`, or stops of them. */
 const isSegmentStops = (value: unknown): boolean => {
@@ -891,21 +896,20 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
     return controlsOf(Batch.animate(batch, slots, targetOf, options))
   }
 
+  /** Whether member `entry`'s element has arrived. */
+  const hasArrived = (entry: BatchMemberEntry): boolean => slotOf[entry.member] !== NO_SLOT
+
   /** The members a sequence's Segment moves (Q39): every member whose element has arrived, in member order, or member `member` once its has. */
-  const membersOf = (member: number | undefined): ReadonlyArray<number> => {
-    const members: Array<number> = []
-    // Per member, once a Segment: a counted loop.
-    if (Predicate.isUndefined(member)) {
-      for (let i = 0; i < count; i++) if (slotOf[i] !== NO_SLOT) members.push(i)
-      return members
-    }
-    if (slotOf[member] !== NO_SLOT) members.push(member)
-    return members
-  }
+  const membersOf = (member: number | undefined): ReadonlyArray<BatchMemberEntry> =>
+    UndefinedOr.match(member, {
+      onUndefined: () => Arr.filter(entries, hasArrived),
+      onDefined: (i) => Arr.filter([entries[i]], hasArrived),
+    })
 
   /** A sequence's Segment of the Batch (Q38, Q39): its members, and each key's value, a function's called with a member's index and the count. */
   const segmentOf = (member: number | undefined, target: Readonly<Record<string, unknown>>): BatchSegment => {
-    const members = membersOf(member)
+    const subjects = membersOf(member)
+    const members = Arr.map(subjects, (entry) => entry.member)
     const values: Record<string, Sequence.Value> = {}
     Arr.forEach(Rec.keys(target), (key) => {
       const value = target[key]
@@ -917,7 +921,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
       }
       values[key] = segmentValueOf(key, value, undefined)
     })
-    return { subjects: Arr.map(members, (i) => entries[i]), values }
+    return { subjects, values }
   }
 
   /** A sequence's Segment of members' elements (Q40): a Batch key's value a number, `null` or stops; no transform the Batch draws without it. */
@@ -950,12 +954,13 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
       if (Predicate.isUndefined(given)) return undefined
       const transition = UndefinedOr.getOrThrow(animation.transition[key])
       const stops = Arr.map(given, stopNumber)
-      const snaps = Bool.and(call.reducedMotion, env.positionalKeys.isPositional(key))
-      if (Bool.not(Bool.or(call.skipAnimations, snaps))) return { stops, transition }
-      // Where its run would end, from where it is: after its delay for reduced motion's Snap, at once when skipped.
-      const end = ReducedMotion.endOf(stops[0], stops[stops.length - 1], transition)
+      const snaps = call.reducedMotion && env.positionalKeys.isPositional(key)
+      if (!call.skipAnimations && !snaps) return { stops, transition }
+      // Where its run would end, from where it is: after its delay for reduced motion's Snap, at once when
+      // skipped. Its last stop is its last number: a sequence ends a key with a \`null\` when its last Segment ends first.
+      const end = ReducedMotion.endOf(stops[0], lastNumber(stops), transition)
       let delay = 0
-      if (Bool.not(call.skipAnimations)) delay = UndefinedOr.match(transition.delay, { onUndefined: () => 0, onDefined: (given) => given })
+      if (!call.skipAnimations && Predicate.isNotUndefined(transition.delay)) delay = transition.delay
       return { stops: [Number.NaN, end], transition: landingAfter(delay) }
     }
     return controlsOf(Batch.keyframes(batch, slots, keyframesOf, { head: call.head, onLanded: call.settled }))

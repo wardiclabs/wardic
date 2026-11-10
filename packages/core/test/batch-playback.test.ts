@@ -24,6 +24,8 @@
 // - BP14: a later change takes some of its keys: once the keys it kept rest, it ends unheard, and at
 //   rest the table holds the Batch's own again.
 // - BP15: paused, its keys' velocities read 0, and a change that takes one then starts it from rest (#464).
+// - BP16: played back to its start, its keys rest there: a later change of the member's other key leaves
+//   them where they are.
 import * as Batch from "@wardic/core/Batch"
 import * as Machine from "@wardic/core/Machine"
 import * as Playback from "@wardic/core/Playback"
@@ -139,6 +141,13 @@ describe("a Batch's change driven by a Playhead (#665)", () => {
     const tween = { type: "tween", duration: 1.6, delay: 0.15 } as const
     const slow = Batch.animate(batch, slots, () => 50, { transition: tween, head: Playback.make() })
     expect(Batch.durationOf(slow)).toBeCloseTo(Machine.durationOf(Machine.tween(0, 50, tween)), 9)
+    // A spring set by its duration: the frames until it lands, as it steps, its delay held first.
+    const timed = { type: "spring", duration: 1.6, bounce: 0, delay: 0.15 } as const
+    const clock = Playback.make()
+    const sprung = Batch.animate(batch, slots, () => 0, { transition: timed, head: clock })
+    Batch.play(sprung)
+    const frames = stepped(batch, slots[0]).length
+    expect(Batch.durationOf(sprung)).toBeCloseTo(frames * F, 9)
   })
 
   it("BP6: stopped, its keys stay where they are and it never lands; cancelled, they're back at their starts", () => {
@@ -312,5 +321,20 @@ describe("a Batch's change driven by a Playhead (#665)", () => {
     expect(Batch.velocity(batch, slot, "x")).toBe(0)
     Batch.retarget(batch, [slot], () => -40, { transition: SPRING })
     expect(stepped(batch, slot).slice(0, 20)).toEqual(springFrames(at, -40).slice(0, 20))
+  })
+
+  it("BP16: played back to its start, its keys rest there, whatever a later change of another key does", () => {
+    const head = Playback.make()
+    const batch = Batch.make({ keys: ["x", "y"], writer, transition: { type: "spring" } })
+    const slot = Batch.enter(batch, "a", { x: 0, y: 0 })
+    const animation = Batch.animate(batch, [slot], (_, k) => [100, Number.NaN][k], { transition: SPRING, head })
+    Batch.play(animation)
+    stepped(batch, slot, 12)
+    Playback.setSpeed(head, -1)
+    stepped(batch, slot)
+    expect(Batch.get(batch, slot, "x")).toBe(0)
+    Batch.retarget(batch, [slot], (_, k) => [Number.NaN, 50][k])
+    stepped(batch, slot).forEach((x) => expect(x).toBe(0))
+    expect(Batch.get(batch, slot, "y")).toBe(50)
   })
 })

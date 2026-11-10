@@ -1241,6 +1241,15 @@ const checkLanding = <S>(animation: AnimationState<S>): void => {
   }
   if (held > 0 && backwards && animation.time > 0) return
   if (!atRest) return
+  // Played back to its start, each key it still moves rests there, its target with it: a later step of the
+  // member, for a change of another key, leaves it there.
+  if (backwards) {
+    for (let i = 0; i < count; i++) {
+      if (!holds(animation, i)) continue
+      const at = animation.ats[i]
+      state.targets[at] = state.origins[at]
+    }
+  }
   finish(animation)
   if (held < count) return
   UndefinedOr.map(options.onLanded, (told) => told())
@@ -1288,12 +1297,21 @@ export const animate: {
     lastCopy = made
     return made
   }
+  return animationFor(state, options, slots, { bag, targetOf, keyframesOf: undefined })
+})
+
+/** A driven change, unplayed: worked out at its first play, toward targets or through keyframes. */
+const animationFor = <S>(
+  state: State<S>,
+  options: AnimateOptions,
+  slots: ReadonlyArray<number>,
+  moves: Pick<AnimationState<S>, "bag" | "targetOf" | "keyframesOf">,
+): Animation => {
   const animation: AnimationState<S> = {
     state,
-    bag,
     options,
     slots,
-    targetOf,
+    ...moves,
     ats: new Int32Array(0),
     starts: new Float64Array(0),
     speeds: new Float64Array(0),
@@ -1308,15 +1326,17 @@ export const animate: {
     frame: 0,
     dt: 0,
     landing: false,
-    keyframesOf: undefined,
     tracks: [],
     indexAt: new Int32Array(0),
   }
   return Object.assign(Object.create(AnimationProto), animation)
-})
+}
 
-/** A `keyframes` change's transitions and targets: its tracks' own, never read. */
-const NO_BAG = (): Transition => ({ type: "tween" })
+/** A `keyframes` change's transition for a key: never read, its tracks run its keys. */
+const UNREAD_TRANSITION: Transition = { type: "tween" }
+const NO_BAG = (): Transition => UNREAD_TRANSITION
+
+/** A `keyframes` change's target for a key: never read, its tracks end its keys. */
 const NO_TARGET = (): number => Number.NaN
 
 /**
@@ -1335,31 +1355,7 @@ export const keyframes: {
   (slots: ReadonlyArray<number>, keyframesOf: (slot: number, k: number) => Keyframes | undefined, options: KeyframesOptions): <S>(self: Batch<S>) => Animation
   <S>(self: Batch<S>, slots: ReadonlyArray<number>, keyframesOf: (slot: number, k: number) => Keyframes | undefined, options: KeyframesOptions): Animation
 } = dual(isBatch, <S>(self: Batch<S>, slots: ReadonlyArray<number>, keyframesOf: (slot: number, k: number) => Keyframes | undefined, options: KeyframesOptions): Animation => {
-  const animation: AnimationState<S> = {
-    state: stateOf(self),
-    bag: NO_BAG,
-    options,
-    slots,
-    targetOf: NO_TARGET,
-    ats: new Int32Array(0),
-    starts: new Float64Array(0),
-    speeds: new Float64Array(0),
-    goals: new Float64Array(0),
-    waits: new Float64Array(0),
-    rules: new Uint16Array(0),
-    held: [],
-    started: false,
-    playing: false,
-    duration: undefined,
-    time: 0,
-    frame: 0,
-    dt: 0,
-    landing: false,
-    keyframesOf,
-    tracks: [],
-    indexAt: new Int32Array(0),
-  }
-  return Object.assign(Object.create(AnimationProto), animation)
+  return animationFor(stateOf(self), options, slots, { bag: NO_BAG, targetOf: NO_TARGET, keyframesOf })
 })
 
 /** A key's keyframes resolved at its first play: its stops, each `NaN` the stop before, the first `current`; `undefined` for none. */
@@ -1682,21 +1678,19 @@ export const cancel = (self: Animation): void => {
   finish(animation)
 }
 
-/** `seconds`, up to a whole number of frames, a hair's rounding allowed: when a machine stepped at 60 Hz reads done. */
-const inFrames = (seconds: number): number => Math.ceil(seconds / FRAME - 1e-9) * FRAME
-
 /**
- * How long a key that ends `seconds` from its start runs, stepped at 60 Hz: the frames its time takes to
- * reach `seconds`, summed as its steps sum them, and as `Machine.durationOf` steps a tween or keyframes;
- * `Infinity` for one not done by `Machine.MAX_DURATION`.
+ * How long a key runs, stepped at 60 Hz: the frames until its time, summed as its steps sum it, less
+ * `after`, reaches `seconds`. A tween or keyframes ends at its end from its start, as `Machine.durationOf`
+ * steps one; a spring set by its duration, its duration past its delay, as its step reads it. `Infinity`
+ * for one not done by `Machine.MAX_DURATION`.
  */
-// 105 frames sum to 1.7499999999999987: a key ending at 1.75 lands at the 106th, where `inFrames` says 105.
-const framesUntil = (seconds: number): number => {
+// 105 frames sum to 1.7499999999999987: a key ending at 1.75 lands at the 106th, where rounding to frames said 105.
+const framesUntil = (seconds: number, after = 0): number => {
   const most = Math.ceil(Machine.MAX_DURATION / FRAME)
   let time = 0
   // Once a duration, per distinct end: a counted loop.
   for (let f = 0; f <= most; f++) {
-    if (time >= seconds) return f * FRAME
+    if (time - after >= seconds) return f * FRAME
     time += FRAME
   }
   return Number.POSITIVE_INFINITY
@@ -1742,7 +1736,7 @@ export const durationOf = (self: Animation): number => {
       continue
     }
     if (entry.kind === TIMED) {
-      longest = Math.max(longest, inFrames(delay + entry.spring.duration))
+      longest = Math.max(longest, framesUntil(entry.spring.duration, delay))
       continue
     }
     const restDelta = Spring.restDeltaFor(entry.spring, distance)

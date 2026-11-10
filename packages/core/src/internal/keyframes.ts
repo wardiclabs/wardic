@@ -17,7 +17,7 @@ const NOT_REPEAT = "Expected a whole number of repeats, 0 or above, or Infinity"
 /** A repeat count: a whole number, 0 or above, or `Infinity` to loop forever. */
 const Repeat = refine(number, (n) => n === Infinity || (Number.isInteger(n) && n >= 0) || NOT_REPEAT)
 
-/** The {@link Modifiers}, resolved: as given, defaults filled in. */
+/** The repeat modifiers (`Machine.Modifiers`), resolved: as given, defaults filled in. */
 export interface ResolvedModifiers {
   readonly repeat: number
   readonly repeatDelay: number
@@ -25,7 +25,7 @@ export interface ResolvedModifiers {
   readonly reverse: boolean
 }
 
-/** The {@link Modifiers}' fields (#66): `animate`'s bag and `keyframes`' (#429) add them to a tween's. */
+/** The repeat modifiers' fields (#66): `animate`'s bag and `keyframes`' (#429) add them to a tween's. */
 export const ModifierFields = {
   repeat: field(Repeat, 0),
   repeatDelay: field(nonNegative, 0),

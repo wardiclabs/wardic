@@ -13,9 +13,14 @@
 // - CBS4: in a Segment of a Batch, a string, a key it doesn't have and a function that gives a string;
 //   through members' elements, a transform the Batch doesn't draw, `transform` and a string for its key:
 //   errors naming the key. A key it doesn't have, through an element, isn't one (Q33, Q40).
+// - CBS5: a Segment's function hears the member's index and the Batch's count, through the Batch and
+//   through a member's handle; a Segment moves, and its `stagger()` counts, only the members whose
+//   elements have arrived (Q38, Q39).
+// - CBS6: under reduced motion, and with `skipAnimations`, each member's keys land where their stops
+//   end, as plain elements' do, a key the sequence's last Segment doesn't name included.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { createAnimate, createBatch, stagger, type WardicAnimate, type WardicBatch, WardicProvider } from "@wardic/solid"
+import { createAnimate, createBatch, stagger, type WardicAnimate, type WardicBatch, WardicConfig, WardicProvider } from "@wardic/solid"
 import { For, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { raf } from "./browser-helpers.ts"
@@ -48,17 +53,25 @@ const expectSame = (batched: ReadonlyArray<number>, plain: ReadonlyArray<number>
   batched.forEach((value, f) => expect(value, `frame ${f}`).toBeCloseTo(plain[f], 6))
 }
 
+/** How `mountBoth` mounts: how many members' elements it renders, the provider's reduced motion, and `skipAnimations`. */
+interface Mounting {
+  readonly rendered?: number
+  readonly reducedMotion?: "always" | "never"
+  readonly skipAnimations?: boolean
+}
+
 /**
- * `count` members of a Batch on `x` and `opacity`, at 0 and 1, and `count` plain elements, each with a
- * title of its own, under one provider and one scope.
+ * `count` members of a Batch on `x` and `opacity`, at 0 and 1, the first `rendered` of them with an
+ * element, and as many plain elements, each with a title of its own, under one provider and one scope.
  */
-const mountBoth = (count: number) => {
+const mountBoth = (count: number, mounting: Mounting = {}) => {
+  const { rendered = count, reducedMotion = "never", skipAnimations = false } = mounting
   let grid!: WardicBatch
   let call!: WardicAnimate
   const members: Array<HTMLDivElement> = []
   const plain: Array<HTMLDivElement> = []
   const titles: Array<HTMLDivElement> = []
-  const indices = Array.from({ length: count }, (_, i) => i)
+  const indices = Array.from({ length: rendered }, (_, i) => i)
   const Scene = (): JSX.Element => {
     grid = createBatch({ count, initial: false, animate: () => ({ x: 0, opacity: 1 }) })
     const [scope, made] = createAnimate()
@@ -73,8 +86,10 @@ const mountBoth = (count: number) => {
     )
   }
   render(() => (
-    <WardicProvider env={DomLive}>
-      <Scene />
+    <WardicProvider env={DomLive} reducedMotion={reducedMotion}>
+      <WardicConfig skipAnimations={skipAnimations}>
+        <Scene />
+      </WardicConfig>
     </WardicProvider>
   ))
   return { grid, animate: call, members, plain, titles }
@@ -194,5 +209,47 @@ describe("a Batch as a sequence's Segment on Solid 1 (#665)", () => {
     expect(() => animate([[members[0], { rotate: 10 }]])).toThrow(/"rotate", a transform the Batch draws without it/)
     expect(() => animate([[members[0], { transform: "none" }]])).toThrow(/"transform": the Batch draws its whole transform/)
     expect(() => animate([[members[0], { "background-color": "red" }, { duration: 0.01 }]])).not.toThrow()
+  })
+
+  it("CBS5: a function hears the member's index and the Batch's count; only arrived members move, and count", async () => {
+    // Three members, two of them rendered.
+    const { grid, animate, members, plain } = mountBoth(3, { rendered: 2 })
+    await raf()
+    const delay = stagger(0.1, { from: "last" })
+    const heard: Array<string> = []
+    void animate([
+      [grid, { x: (i, n) => { heard.push(`${i}/${n}`); return 10 * i + n } }, { duration: 0.2, delay }],
+    ])
+    // The same, element by element: two members, so the last waits 0, the first 0.1.
+    animate([
+      [plain[0], { x: 3 }, { duration: 0.2, delay: delay(0, 2) }],
+      [plain[1], { x: 13 }, { duration: 0.2, delay: delay(1, 2), at: 0 }],
+    ])
+    expect(heard).toEqual(["0/3", "1/3"])
+    const frames = await readsOver(25, each([...members, ...plain], xOf))
+    expectSame(frames[0], frames[2])
+    expectSame(frames[1], frames[3])
+    // A member's handle: its own index, not its place in the Segment.
+    await animate([[grid.at(1), { x: (i, n) => 100 + 10 * i + n }, { duration: 0.1 }]])
+    expect(xOf(members[1])).toBe(113)
+  })
+
+  it("CBS6: under reduced motion and skipAnimations, members' keys land where their stops end, as plain elements' do", async () => {
+    const sequence = (subject: WardicBatch | ReadonlyArray<HTMLDivElement>, title: HTMLDivElement) =>
+      [
+        [subject, { x: [0, 80], opacity: 0.5 }, { duration: 0.2 }],
+        [title, { opacity: 0.2 }, { duration: 0.2 }],
+      ] as const
+    for (const mounting of [{ reducedMotion: "always" }, { skipAnimations: true }] as const) {
+      const { grid, animate, members, plain, titles } = mountBoth(2, mounting)
+      await raf()
+      animate(sequence(grid, titles[0]), { delay: 0.1 })
+      animate(sequence(plain, titles[1]), { delay: 0.1 })
+      const frames = await readsOver(40, [...each([...members, ...plain], xOf), ...each([...members, ...plain], opacityOf)])
+      Array.from({ length: 2 }).forEach((_, i) => expectSame(frames[i], frames[i + 2]))
+      Array.from({ length: 2 }).forEach((_, i) => expectSame(frames[4 + i], frames[6 + i]))
+      expect([frames[0].at(-1), frames[4].at(-1)]).toEqual([80, 0.5])
+      cleanup()
+    }
   })
 })

@@ -33,15 +33,15 @@ A Segment's options are a transition, its `delay` a number or `stagger()`, and `
 ## A Batch's members
 
 ```tsx
-const grid = createBatch({ count: 100, initial: false, animate: (i) => ({ x: colX(i), y: rowY(i) }) })
+const grid = createBatch({ count: 100, initial: false, animate: (i) => ({ x: colX(i), y: rowY(i), opacity: 1 }) })
 animate([
-  [grid, { y: [-40, null], opacity: [0, 1] }, { delay: stagger(0.01) }],
+  [grid, { y: (i) => [rowY(i) - 40, rowY(i)], opacity: [0, 1] }, { delay: stagger(0.01) }],
   [grid, { x: (i) => colX(order[i]) }, { at: "+0.2", type: "spring", bounce: 0.2 }],
   [".title", { opacity: 1 }],
 ])
 ```
 
-- **Its keys** are the Batch's, as numbers, `null` for where a member is, or stops of them. A key the Batch doesn't have, or a string, is an error naming the key.
+- **Its keys** are the Batch's, as numbers, `null` for where a member is (or, after a stop, the stop before), or stops of them. A key the Batch doesn't have, or a string, is an error naming the key.
 - **`stagger()`** counts the Segment's members, as Motion's sequences count a Segment's elements. `animate(grid, …)` counts only the members that move.
 - **A member's element** in a Segment of elements, by a selector or itself, moves its Batch keys in the Batch and the rest as any element's. A transform the Batch doesn't draw is an error naming it. A member named through the Batch and through its element is one subject, so the later Segment's stops replace the ones it overlaps, as they do for one element.
 
