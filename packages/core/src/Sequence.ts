@@ -10,7 +10,8 @@
  *   `repeat` below 20 is unrolled into stops. A spring through two stops or fewer becomes an easing
  *   over the time it takes to rest, so a sequence is tweens all through.
  * - **A key's stops** are its Segments' in time order, a later Segment's replacing the stops it
- *   overlaps. A Segment's single value starts from a `null`, the stop before it.
+ *   overlaps. A Segment's single value starts from a `null`, the stop before it. A value can be a
+ *   function of each subject's index and count, as its `delay` can, for subjects that go their own ways.
  *
  * @example
  * import * as Sequence from "@wardic/core/Sequence"
@@ -62,6 +63,13 @@ export interface Label {
 /** A Segment's delay (Motion's): seconds, or each subject's, by its index in the Segment and their count. */
 export type Delay = number | ((index: number, count: number) => number)
 
+/**
+ * A key's value in a Segment: a value, its stops, or a function of each subject's index in the Segment
+ * and their count that gives one of them. Motion's are a value or stops.
+ */
+// #665, Q38: a Batch's members, each through its own stops, in one Segment.
+export type Value = Stop | ReadonlyArray<Stop> | ((index: number, count: number) => Stop | ReadonlyArray<Stop>)
+
 /** The `delay` a key's transition in a Segment takes, each subject's when it's a function. */
 interface Placing {
   readonly delay?: Delay | undefined
@@ -83,8 +91,8 @@ export type Transition =
 export interface Segment<S> {
   /** What it animates: elements, or anything a binding animates, such as a callback's value. */
   readonly subjects: ReadonlyArray<S>
-  /** Each key's value, or its stops. */
-  readonly target: Readonly<Record<string, Stop | ReadonlyArray<Stop>>>
+  /** Each key's value, or its stops, or a function of each subject's index and count that gives them. */
+  readonly target: Readonly<Record<string, Value>>
   /** Each key's transition, as the binding resolved it; a key with none runs on a 0.3 s `easeOut` tween. */
   readonly transitions: Readonly<Record<string, Transition>>
   /** Where it starts: after the Segment before, when left out. */
@@ -297,9 +305,16 @@ const repeated = (pass: Pass, transition: Transition, repeat: number): Pass => {
   }
 }
 
+/** A key's value or stops for the subject at `index` of `count`: a function's, called for it. */
+const valueOf = (given: Value, index: number, count: number): Stop | ReadonlyArray<Stop> =>
+  Bool.match(Predicate.isFunction(given), {
+    onTrue: () => (given as (index: number, count: number) => Stop | ReadonlyArray<Stop>)(index, count),
+    onFalse: () => given as Stop | ReadonlyArray<Stop>,
+  })
+
 /** A key's {@link Pass} in its Segment, for the subject at `index` of `count`. */
-const passOf = (given: Stop | ReadonlyArray<Stop>, transition: Transition, index: number, count: number): Pass => {
-  const listed = stopsOf(given)
+const passOf = (given: Value, transition: Transition, index: number, count: number): Pass => {
+  const listed = stopsOf(valueOf(given, index, count))
   const { ease, duration } = timingOf(transition, listed)
   // A single value starts from the stop before it.
   const stops = Bool.match(listed.length === 1, { onTrue: () => Arr.prepend(listed, null), onFalse: () => listed })

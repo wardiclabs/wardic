@@ -242,6 +242,22 @@ export const intervalProgress = (time: number, stopTimes: ReadonlyArray<number>,
   return Scalar.clamp((time - start) / length, 0, 1)
 }
 
+/**
+ * A keyframes run's value at `pass` (#429): the Interval its time is in, eased whole, between its two
+ * stops, read from last to first in a flipped pass. `Machine.keyframes` and a Batch's keyframes (#665)
+ * read it. Per frame (ADR-0025).
+ */
+export const keyframeAt = (stops: ArrayLike<number>, stopTimes: ReadonlyArray<number>, eases: ReadonlyArray<Easing.Easing>, pass: Pass, duration: number): number => {
+  // Read before the ease runs: it's the app's code, and may step another run, which writes a shared pass (#618).
+  const flipped = pass.flipped
+  const time = timeIn(pass, duration)
+  const i = intervalAt(time, stopTimes)
+  const eased = eases[i % eases.length](intervalProgress(time, stopTimes, i))
+  const last = stops.length - 1
+  if (flipped) return Scalar.lerp(stops[last - i], stops[last - i - 1], eased)
+  return Scalar.lerp(stops[i], stops[i + 1], eased)
+}
+
 // --- Decay -------------------------------------------------------------------
 
 export interface DecayState {
