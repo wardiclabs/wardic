@@ -23,7 +23,7 @@ import * as Batch from "@wardic/core/Batch"
 import * as BaseValue from "@wardic/core/BaseValue"
 import type * as DefaultTransition from "@wardic/core/DefaultTransition"
 import type * as Machine from "@wardic/core/Machine"
-import type * as Playback from "@wardic/core/Playback"
+import * as Playback from "@wardic/core/Playback"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Sequence from "@wardic/core/Sequence"
 import * as DomBatch from "@wardic/dom/DomBatch"
@@ -40,6 +40,7 @@ import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicTransition } from "./config.ts"
+import { type PresenceContextValue, presenceBlocksInitial } from "./presence-record.ts"
 import { type Run, runOf, transitionForKey } from "./retarget-legs.ts"
 import type { WardicRuntime } from "./runtime.ts"
 
@@ -92,6 +93,9 @@ export interface WardicBatchLanding {
   readonly moved: number
 }
 
+/** A keyed member's exit: its values, and the transition it leaves on, else the Batch's (Q48). */
+export type WardicBatchExit = WardicBatchValues & { readonly transition?: WardicBatchTransition }
+
 /** What both bindings' `createBatch` take by index: `count` members, each by its index. */
 export interface BatchConfig {
   /** How many members it has: read once. */
@@ -119,6 +123,11 @@ export interface KeyedBatchConfig<T> {
   readonly initial?: false | WardicBatchValues | ((item: T, i: number) => WardicBatchValues)
   /** Each member's targets, by its item and its index in `each`: tracked, so a change turns every member once. */
   readonly animate: (item: T, i: number) => WardicBatchValues
+  /**
+   * Where a member leaves to under `<AnimatePresence>`, its element kept until it lands: values with an
+   * optional `transition`, or a function of its item, its last index and the presence's `custom` (Q48).
+   */
+  readonly exit?: WardicBatchExit | ((item: T, i: number, custom: unknown) => WardicBatchValues)
   /** How they move: else the nearest `WardicConfig`'s, else each key's Default transition. */
   readonly transition?: WardicBatchTransition
 }
@@ -153,8 +162,8 @@ export interface BatchBinding {
   readonly apply: (targets: BatchTargets) => void
   /** Member `i`'s `ref`: one function a member. */
   readonly refOf: (i: number) => (el: Element) => void
-  /** The keyed form's member for `key`, made at its first handle: its number. */
-  readonly memberFor: (key: unknown) => number
+  /** The keyed form's member for `key`, made at its first handle, under the `<AnimatePresence>` it's in: its number. */
+  readonly memberFor: (key: unknown, presence: PresenceContextValue | undefined) => number
   /** The members a Batch or a member's handle names: `undefined` for every member, none once a handle's member has left. */
   readonly namedOf: (entry: BatchSubjectEntry) => ReadonlyArray<number> | undefined
   /** An element's own `style`, without the properties the Batch draws on it. */
@@ -517,6 +526,9 @@ const segmentValueOf = (key: string, value: unknown, memberName: string | undefi
 /** A member's slot before its element arrives. */
 const NO_SLOT = -1
 
+/** No values: an exit with none, which moves nothing and lets its element go at once. */
+const NO_VALUES: Readonly<Record<string, unknown>> = {}
+
 /** Whether `value` is two stops. */
 const isPair = (value: unknown): value is readonly [unknown, unknown] => {
   if (!Arr.isArray(value)) return false
@@ -654,9 +666,10 @@ export const configTransitionOf = (config: { readonly transition: () => WardicTr
 }
 
 /** Keyed member handles for `binding`: as {@link handlesOf}'s, each key's member made at its first handle. */
-export const keyedHandlesOf = <Style>(binding: BatchBinding) =>
+export const keyedHandlesOf = <Style>(binding: BatchBinding, presenceNow: () => PresenceContextValue | undefined) =>
   <E extends Element>(key: unknown, props?: MemberProps<E, Style>): Member<E, Style> => {
-    const member = binding.memberFor(key)
+    // The presence it's made under, read as it's made, in its item's render (Q46).
+    const member = binding.memberFor(key, presenceNow())
     const handle = memberHandleOf<E, Style>(binding, member, props)
     SUBJECTS.set(handle, binding.entryOf(member))
     return handle
@@ -705,8 +718,14 @@ interface MembersForm {
   readonly entered: (slot: number) => void
   /** Member `i`'s `ref`, or the error for one it doesn't have. */
   readonly refOf: (i: number) => (el: Element) => void
-  /** The keyed form's member for `key`. */
-  readonly memberFor: (key: unknown) => number
+  /** The keyed form's member for `key`, under `presence`. */
+  readonly memberFor: (key: unknown, presence: PresenceContextValue | undefined) => number
+}
+
+/** A keyed member's exit while it plays: its presence's `release`, and its `custom`. */
+interface Exit {
+  readonly release: (completed?: boolean) => void
+  readonly custom: unknown
 }
 
 /**
@@ -910,15 +929,44 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
       itemOf[member] = item
       targetsInto(current, member, targets.values[i])
       next.push(member)
+      // Back in the list mid-exit (Q26): its exit cut short, its element gone at once, uncompleted; its
+      // next element takes its slot over, its values and speed, and this change turns it toward `animate`.
+      if (unlisted.delete(member)) cutExit(member)
     })
     Arr.forEach(order, (member) => {
-      if (listedIn[member] !== listings) leaveList(member)
+      if (listedIn[member] !== listings) leavesList(member)
     })
     order = next
   }
 
-  /** Keyed: member `i` leaves the list, and the Batch at once; its number is given back. */
+  /**
+   * Keyed: member `i` left the list. Under `<AnimatePresence>` (its element watched), it stays in the
+   * Batch until its exit lands; else it leaves at once.
+   */
+  const leavesList = (i: number): void => {
+    const watched = Bool.and(Predicate.isNotUndefined(watchedOn[i]), watchedOn[i] === elementOf[i])
+    if (Bool.or(Predicate.isNotUndefined(exits[i]), watched)) {
+      unlisted.add(i)
+      flushSoon()
+      return
+    }
+    leaveList(i)
+  }
+
+  /** Keyed: member `i`'s exit cut short, its element let go at once, uncompleted (#286's rule). */
+  const cutExit = (i: number): void => {
+    const exit = exits[i]
+    exits[i] = undefined
+    if (Predicate.isNotUndefined(exit)) exit.release(false)
+  }
+
+  /** Keyed: member `i` leaves the Batch, at once; its number is given back. */
   const leaveList = (i: number): void => {
+    unlisted.delete(i)
+    exits[i] = undefined
+    presenceOf[i] = undefined
+    watchedOn[i] = undefined
+    quietStart.delete(i)
     const slot = slotOf[i]
     if (slot !== NO_SLOT) Batch.leave(made(), slot)
     const el = elementOf[i]
@@ -933,6 +981,119 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     reported.delete(i)
     freeMembers.push(i)
   }
+
+  // --- Keyed under `<AnimatePresence>` (#665, PR 3b, Q46–Q48) ------------------------------------
+
+  // Each member's presence (the one its latest handle was made under) and the element it watches there;
+  // the members that start at their targets (`initial={false}`, its first render); the members out of
+  // the list it holds while they exit; each one's exit while it plays; and the exits starting this task.
+  const presenceOf: Array<PresenceContextValue | undefined> = []
+  const watchedOn: Array<Element | undefined> = []
+  const quietStart = new Set<number>()
+  const unlisted = new Set<number>()
+  const exits: Array<Exit | undefined> = []
+  let starting: Array<number> = []
+  let exitsSoon = false
+
+  /** Keyed: member `i`'s element `el` watched by its presence, so its leave plays its exit, holding it on the page. */
+  const watchOn = (i: number, el: Element): void => {
+    const presence = presenceOf[i]
+    if (Predicate.isUndefined(presence) || watchedOn[i] === el) return
+    const watch = presence.watch
+    if (Predicate.isUndefined(watch)) return
+    watchedOn[i] = el
+    const entry = entries[i]
+    watch({
+      element: () => el,
+      holds: true,
+      leave: (custom, release) => exitStarts(i, entry, el, custom, release),
+      gone: () => watchGone(i, entry, el),
+      interrupted: () => exitCut(i, entry),
+    })
+  }
+
+  /** Keyed: member `i`'s element left its presence: its exit starts with this task's others, so `stagger()` counts them (Q25). */
+  const exitStarts = (i: number, entry: BatchMemberEntry | undefined, el: Element, custom: unknown, release: (completed?: boolean) => void): void => {
+    // Not the member's element now (made again), or never drawn: nothing to exit on it.
+    if (Bool.or(Bool.or(entries[i] !== entry, elementOf[i] !== el), slotOf[i] === NO_SLOT)) {
+      release()
+      return
+    }
+    exits[i] = { release, custom }
+    starting.push(i)
+    if (exitsSoon) return
+    exitsSoon = true
+    queueMicrotask(startExits)
+  }
+
+  /** Keyed: this task's exits, one driven change of them all, each member let go as its own lands (Q47). */
+  const startExits = (): void => {
+    exitsSoon = false
+    const going = Arr.filter(starting, (i) => Bool.and(Predicate.isNotUndefined(exits[i]), slotOf[i] !== NO_SLOT))
+    starting = []
+    if (Bool.or(disposed, going.length === 0)) return
+    const given = byKey.exit
+    const exitTargets = new Float64Array(capacity * stride).fill(Number.NaN)
+    // Per leaver at its exit (#665): statements.
+    Arr.forEach(going, (i) => {
+      const values: Readonly<Record<string, unknown>> = Bool.match(Predicate.isFunction(given), {
+        onTrue: () => (given as (item: unknown, i: number, custom: unknown) => WardicBatchValues)(itemOf[i], indexOf[i], UndefinedOr.getOrThrow(exits[i]).custom),
+        onFalse: () => UndefinedOr.match(given as WardicBatchExit | undefined, { onUndefined: () => NO_VALUES, onDefined: ({ transition: _transition, ...values }) => values }),
+      })
+      targetsInto(exitTargets, i, values)
+    })
+    const exitTransition = Bool.match(Bool.and(Predicate.isObject(given), Bool.not(Predicate.isFunction(given))), {
+      onTrue: () => (given as WardicBatchExit).transition as WardicTransition | undefined,
+      onFalse: () => undefined,
+    })
+    const configured = configuredOf()
+    const transition = UndefinedOr.match(exitTransition, { onUndefined: () => configured, onDefined: identity })
+    const skips = Bool.or(env.skipAnimations(), UndefinedOr.map(configured, (own) => own.skipAnimations) === true)
+    const slots = Arr.map(going, (i) => slotOf[i])
+    changeOn(slots, (slot, k) => exitTargets[memberOf[slot] * stride + k], undefined, {
+      transition,
+      reducedMotion: env.reducedMotion(),
+      skipAnimations: skips,
+      head: Playback.make(),
+      settled: noop,
+      onMemberLanded: (slot) => exitLanded(memberOf[slot]),
+    }).run()
+  }
+
+  /** Keyed: member `i`'s exit landed: its element let go, and, out of the list, the member leaves the Batch. */
+  const exitLanded = (i: number): void => {
+    const exit = exits[i]
+    if (Predicate.isUndefined(exit)) return
+    exits[i] = undefined
+    exit.release()
+    if (unlisted.has(i)) leaveList(i)
+  }
+
+  /** Keyed: member `i`'s exit cut short by its presence (a take-over, the presence going): out of the list, it leaves the Batch. */
+  const exitCut = (i: number, entry: BatchMemberEntry | undefined): void => {
+    if (entries[i] !== entry) return
+    exits[i] = undefined
+    if (unlisted.has(i)) leaveList(i)
+  }
+
+  /** Keyed: member `i`'s watch dropped with no leave: its element left some other way. Out of the list, it leaves the Batch. */
+  const watchGone = (i: number, entry: BatchMemberEntry | undefined, el: Element): void => {
+    if (entries[i] !== entry || watchedOn[i] !== el) return
+    watchedOn[i] = undefined
+    if (Bool.and(unlisted.has(i), Predicate.isUndefined(exits[i]))) leaveList(i)
+  }
+
+  /**
+   * Keyed: the members out of the list whose presence didn't take their elements, at a task's end: one
+   * not inside a child the presence keeps, whose element is off the page with no exit, leaves the Batch.
+   */
+  const settleUnlisted = (): void =>
+    Arr.forEach(Arr.fromIterable(unlisted), (i) => {
+      if (Predicate.isNotUndefined(exits[i])) return
+      const el = elementOf[i]
+      if (Bool.and(Predicate.isNotUndefined(el), (el as Element).isConnected)) return
+      leaveList(i)
+    })
 
   // Elements whose keys the list didn't have as they arrived, and those reported for still not having them
   // at a task's end: each enters once a change lists its key (Q45).
@@ -986,11 +1147,16 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     refOf: (i) => refs[i],
     // A member for a key no list has listed stays until a list does: its handle's element may arrive first.
     // On Solid 2 a spread's compute can make one Solid then throws away, so a key's member is made once.
-    memberFor: (key) => {
+    memberFor: (key, presence) => {
       if (Predicate.isUndefined(batch)) makeFromList(env.untrack(keyedTargetsOf))
-      const known = memberOfKey.get(key)
-      if (Predicate.isNotUndefined(known)) return known
-      return newMember(key)
+      let member = memberOfKey.get(key)
+      if (Predicate.isUndefined(member)) member = newMember(key)
+      if (Predicate.isNotUndefined(presence)) {
+        presenceOf[member] = presence
+        // Made in the presence's first render with `initial={false}`: it starts at its targets.
+        if (Bool.and(slotOf[member] === NO_SLOT, presenceBlocksInitial(presence))) quietStart.add(member)
+      }
+      return member
     },
   }
 
@@ -1040,7 +1206,10 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
   // Per member at mount (#540): statements.
   const startOf = (i: number): Record<string, number> => {
     const start: Record<string, number> = {}
-    const given = form.initialOf(i)
+    // `<AnimatePresence initial={false}>`'s first render (Q46): at its targets, whatever `initial` says.
+    const quiet = quietStart.delete(i)
+    let given = form.initialOf(i)
+    if (quiet) given = undefined
     if (Predicate.isNotUndefined(given)) {
       for (const key in given) {
         if (!keyIndex.has(key)) fail(`${form.nameOf(i)} starts at "${key}", which isn't one of its keys (${keys.join(", ")}): a Batch's keys are fixed when it's made`)
@@ -1049,7 +1218,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     Arr.forEach(keys, (key, k) => {
       const target = current[i * stride + k]
       let value = identityOf(key)
-      if (config.initial === false && !Number.isNaN(target)) value = target
+      if ((config.initial === false || quiet) && !Number.isNaN(target)) value = target
       if (Predicate.isNotUndefined(given)) {
         const own = given[key]
         if (Predicate.isNumber(own)) value = own
@@ -1139,6 +1308,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     flushing = false
     if (disposed) return
     settleWaiting()
+    settleUnlisted()
     const slots = arrived
     arrived = []
     change(slots)
@@ -1185,6 +1355,8 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     elementOf[i] = el
     // Known to `animate`, as member `i`'s element (Q14).
     MEMBER_ELEMENTS.set(el, UndefinedOr.getOrThrow(entries[i]))
+    // Keyed, under `<AnimatePresence>`: watched there, so its leave plays its exit (Q46).
+    watchOn(i, el)
     const slot = slotOf[i]
     // A new element for a member: it takes the member over, its values, speed and delays as they are.
     if (slot !== NO_SLOT) {
@@ -1262,9 +1434,21 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
         return fail(`an animate call's "${key}" is ${JSON.stringify(stops)}: a Batch takes a number or two, its first and its target, or a function of a member's index that gives them`)
       })
     })
-    const targetOf = (slot: number, k: number): number => tos[memberOf[slot] * stride + k]
     const fromOf = (slot: number, k: number): number => froms[memberOf[slot] * stride + k]
-    // Its transitions, which the Batch copies for it, so the Playhead driving them reaches its keys alone.
+    return changeOn(slots, (slot, k) => tos[memberOf[slot] * stride + k], Bool.match(firsts, { onTrue: () => fromOf, onFalse: () => undefined }), call)
+  }
+
+  /**
+   * A driven change of `slots` toward `targetOf`, from `fromOf`'s first stops when it gives them, on its
+   * call's transitions (which the Batch copies for it, so the Playhead driving them reaches its keys
+   * alone), its `stagger()` counting the members it moves: an `animate` call's, or a keyed Batch's exits.
+   */
+  const changeOn = (
+    slots: ReadonlyArray<number>,
+    targetOf: (slot: number, k: number) => number,
+    fromOf: ((slot: number, k: number) => number) | undefined,
+    call: Pick<BatchCall, "transition" | "reducedMotion" | "skipAnimations" | "head" | "settled"> & { readonly onMemberLanded?: (slot: number) => void },
+  ): BatchTrack => {
     const transition = Bool.match(call.skipAnimations, {
       onTrue: () => (): Batch.Transition => INSTANT,
       onFalse: () => {
@@ -1277,7 +1461,8 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
       },
     })
     const options: { -readonly [K in keyof Batch.AnimateOptions]: Batch.AnimateOptions[K] } = { head: call.head, transition, onLanded: call.settled }
-    if (firsts) options.from = fromOf
+    if (Predicate.isNotUndefined(fromOf)) options.from = fromOf
+    if (Predicate.isNotUndefined(call.onMemberLanded)) options.onMemberLanded = call.onMemberLanded
     const delay = Bool.match(call.skipAnimations, { onTrue: () => undefined, onFalse: () => staggerOf(call.transition) })
     if (Predicate.isNotUndefined(delay)) options.delay = delay
     return controlsOf(Batch.animate(made(), slots, targetOf, options))
@@ -1384,7 +1569,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
       change(form.arrivedSlots())
     },
     refOf: (i) => form.refOf(i),
-    memberFor: (key) => form.memberFor(key),
+    memberFor: (key, presence) => form.memberFor(key, presence),
     namedOf: (entry) => {
       if (Predicate.isUndefined(entry.member)) return undefined
       // A keyed handle kept past its member's leave names nothing: its number may be another key's now.

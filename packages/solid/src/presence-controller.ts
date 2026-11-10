@@ -628,6 +628,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
 
   // The presence hooks registered (#277's PR 5b), each told at its child's leave.
   const watches = new Set<PresenceWatch>()
+  // The hooks each leaving child told it left, while its exit runs: told if it's cut short (#665, Q46).
+  const told = new Map<HTMLElement, ReadonlyArray<PresenceWatch>>()
 
   // The children `mode="wait"` holds off the page now (#277), and the start of each ward inside one,
   // by its element, called once the child is on the page.
@@ -741,6 +743,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   // in-flight fiber bookkeeping. Idempotent. `completed`: its exit ended on its own (#257).
   const finishExit = (el: HTMLElement, completed = true): void => {
     exiting.delete(el)
+    told.delete(el)
     registry.delete(el)
     draws.delete(el)
     crossfades.delete(el)
@@ -792,6 +795,10 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     // Told first, as interrupted: the exit's fiber, interrupted below, ends at once through
     // `partDone`, which would tell it completed (#257).
     leaveEnds(el, false)
+    // The hooks it told it left hear it was cut short (#665, Q46).
+    const hooks = told.get(el)
+    told.delete(el)
+    UndefinedOr.map(hooks, (inside) => Arr.forEach(inside, (watch) => UndefinedOr.map(watch.interrupted, (hear) => hear())))
     const fiber = exiting.get(el)
     if (Predicate.isNotUndefined(fiber)) {
       debug("exit: interrupt")
@@ -1274,13 +1281,20 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    */
   const tellLeave = (el: HTMLElement, inside: ReadonlyArray<PresenceWatch>, counted: boolean): void => {
     const custom = customNow()
+    if (Bool.and(counted, inside.length > 0)) told.set(el, inside)
     Arr.forEach(inside, (watch) => {
       watches.delete(watch)
       let released = false
-      const release = (): void => {
+      // `release(false)`: its exit cut short, the child gone at once, uncompleted (#665, Q46).
+      const release = (completed = true): void => {
         if (released) return
         released = true
-        if (Bool.and(counted, watch.holds)) partDone(el)
+        if (Bool.not(Bool.and(counted, watch.holds))) return
+        if (Bool.and(Bool.not(completed), pending.has(el))) {
+          interruptExit(el)
+          return
+        }
+        partDone(el)
       }
       try {
         watch.leave(custom, release)

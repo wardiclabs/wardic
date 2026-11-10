@@ -23,9 +23,10 @@ import {
 } from "./batch.ts"
 import { useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { isServer } from "./server.ts"
+import { usePresenceContext } from "./presence.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 
-export type { WardicBatchKey, WardicBatchLanding, WardicBatchSegmentTarget, WardicBatchSegmentValue, WardicBatchStop, WardicBatchSubject, WardicBatchTarget, WardicBatchTransition, WardicBatchValues } from "./batch.ts"
+export type { WardicBatchKey, WardicBatchExit, WardicBatchLanding, WardicBatchSegmentTarget, WardicBatchSegmentValue, WardicBatchStop, WardicBatchSubject, WardicBatchTarget, WardicBatchTransition, WardicBatchValues } from "./batch.ts"
 
 /** A Batch's callbacks on Solid 1: a flight's start and its landing. */
 interface BatchCallbacks {
@@ -129,7 +130,7 @@ export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<u
   createRenderEffect(on(binding.targetsOf, binding.apply, { defer: true }))
   onCleanup(binding.dispose)
   const grid: WardicBatch | WardicKeyedBatch<unknown> = Bool.match(keyed, {
-    onTrue: (): WardicKeyedBatch<unknown> => ({ member: keyedHandlesOf<JSX.CSSProperties>(binding) }),
+    onTrue: (): WardicKeyedBatch<unknown> => ({ member: keyedHandlesOf<JSX.CSSProperties>(binding, usePresenceContext) }),
     onFalse: (): WardicBatch => ({ at: handlesOf<JSX.CSSProperties>(binding) }),
   })
   // Known to `createAnimate`'s `animate` (#665).

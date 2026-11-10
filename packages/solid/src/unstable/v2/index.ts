@@ -187,6 +187,7 @@ export {
   type WardicBatch,
   type WardicBatchConfig,
   type WardicBatchEvents,
+  type WardicBatchExit,
   type WardicBatchKey,
   type WardicBatchLanding,
   type WardicBatchMember,
