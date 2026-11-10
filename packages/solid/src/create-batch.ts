@@ -11,7 +11,7 @@ import { useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMo
 import { isServer } from "./server.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 
-export type { WardicBatchKey, WardicBatchLanding, WardicBatchStop, WardicBatchSubject, WardicBatchTarget, WardicBatchTransition, WardicBatchValues } from "./batch.ts"
+export type { WardicBatchKey, WardicBatchLanding, WardicBatchSegmentTarget, WardicBatchSegmentValue, WardicBatchStop, WardicBatchSubject, WardicBatchTarget, WardicBatchTransition, WardicBatchValues } from "./batch.ts"
 
 /** `createBatch`'s config on Solid 1: the members, their targets and transition, and its callbacks. */
 export interface WardicBatchConfig extends BatchConfig {

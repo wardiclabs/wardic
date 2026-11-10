@@ -22,8 +22,10 @@
 import * as Batch from "@wardic/core/Batch"
 import * as BaseValue from "@wardic/core/BaseValue"
 import type * as DefaultTransition from "@wardic/core/DefaultTransition"
+import type * as Machine from "@wardic/core/Machine"
 import type * as Playback from "@wardic/core/Playback"
-import type * as ReducedMotion from "@wardic/core/ReducedMotion"
+import * as ReducedMotion from "@wardic/core/ReducedMotion"
+import type * as Sequence from "@wardic/core/Sequence"
 import * as DomBatch from "@wardic/dom/DomBatch"
 import * as Svg from "@wardic/dom/Svg"
 import * as Arr from "effect/Array"
@@ -67,6 +69,16 @@ export type WardicBatchStop = number | ((i: number, n: number) => number)
 export type WardicBatchTarget = {
   readonly [K in WardicBatchKey]?: WardicBatchStop | readonly [WardicBatchStop, WardicBatchStop] | ((i: number, n: number) => number | readonly [number, number])
 }
+
+/**
+ * A Batch's key in a sequence's Segment of it: a number for every member, `null` for where it is, stops
+ * of them, or a function of a member's index and the Batch's count that gives one of them.
+ */
+// #665, Q38: as `animate(grid, …)`'s, its stops placed over the sequence.
+export type WardicBatchSegmentValue = number | null | ReadonlyArray<number | null> | ((i: number, n: number) => number | null | ReadonlyArray<number | null>)
+
+/** A sequence's Segment of a Batch's values, key by key: each one of its keys. */
+export type WardicBatchSegmentTarget = { readonly [K in WardicBatchKey]?: WardicBatchSegmentValue }
 
 /** What `createAnimate`'s `animate` takes for a Batch: one, or a member's handle, `grid.at(i)`. */
 export type WardicBatchSubject = { readonly at: (i: number, props?: never) => unknown } | { readonly ref: (el: never) => void }
@@ -123,6 +135,14 @@ export interface BatchBinding {
   readonly entryOf: (i: number) => BatchMemberEntry
   /** Where an element call's `key` goes for a member's element. */
   readonly routeOf: (key: string) => KeyRoute
+  /** A sequence's Segment of the Batch, or of member `member`: its members' entries, in member order, and its values for core. */
+  readonly segmentOf: (member: number | undefined, target: Readonly<Record<string, unknown>>) => BatchSegment
+  /** A sequence's Segment of members' elements: each Batch key a number, `null` or stops, and no transform the Batch draws without it. */
+  readonly checkElementSegment: (target: Readonly<Record<string, unknown>>) => void
+  /** A sequence's track over its members, each through its own Batch keys' stops, driven by `head`. */
+  readonly sequenceTrack: (call: BatchSequenceCall) => BatchTrack
+  /** Member `i`'s element, once it has arrived. */
+  readonly elementOf: (i: number) => Element | undefined
   /** The Batch's run ended, and no member drawn again. */
   readonly dispose: () => void
 }
@@ -137,6 +157,22 @@ export interface BatchCall {
   readonly settled: () => void
   /** The members it moves, in order: every member when left out. */
   readonly members: ReadonlyArray<number> | undefined
+}
+
+/** A sequence's Segment of a Batch for core (#665, Q38, Q39): its subjects, the members whose elements have arrived, and its values. */
+export interface BatchSegment {
+  readonly subjects: ReadonlyArray<BatchMemberEntry>
+  readonly values: Readonly<Record<string, Sequence.Value>>
+}
+
+/** A sequence's part for a Batch: its members, in order, each one's compiled animation, its scope's settings, its Playhead and landing. */
+export interface BatchSequenceCall {
+  readonly members: ReadonlyArray<number>
+  readonly animations: ReadonlyArray<Sequence.Animation>
+  readonly reducedMotion: boolean
+  readonly skipAnimations: boolean
+  readonly head: Playback.Playhead
+  readonly settled: () => void
 }
 
 /**
@@ -256,6 +292,59 @@ const splitFor = <T extends object>(routeOf: (key: string) => KeyRoute, target: 
 /** Whether `element` is a Batch member's element: one WeakMap read, so a call without one keeps the plain path. */
 export const isMemberElement = (element: Element): boolean => MEMBER_ELEMENTS.has(element)
 
+/** `element`'s member's entry, while it's a Batch member's element: its subject in a sequence (Q40). */
+export const memberEntryOf = (element: Element): BatchMemberEntry | undefined => MEMBER_ELEMENTS.get(element)
+
+/** Whether a sequence's subject is a Batch member's entry. */
+export const isMemberEntry = (subject: unknown): subject is BatchMemberEntry => Bool.and(Predicate.hasProperty(subject, "binding"), Predicate.hasProperty(subject, "member"))
+
+// --- A sequence's Segments of Batches (#665, Q36–Q40) ---------------------------------------------
+
+/** A sequence's part for one Batch: its members, in the order they first appear, and each one's compiled animation. */
+export interface SequencePart {
+  readonly binding: BatchBinding
+  readonly members: ReadonlyArray<number>
+  readonly animations: ReadonlyArray<Sequence.Animation>
+}
+
+/** `animation` with only the keys `keep` keeps; `undefined` when it keeps none. */
+const keysKept = (animation: Sequence.Animation, keep: (key: string) => boolean): Sequence.Animation | undefined => {
+  const keyframes = Rec.filter(animation.keyframes, (_, key) => keep(key))
+  if (Rec.isEmptyRecord(keyframes)) return undefined
+  return { keyframes, transition: Rec.filter(animation.transition, (_, key) => keep(key)) }
+}
+
+/**
+ * A compiled sequence's parts (Q40): each Batch's members as one part, in the order they first appear,
+ * their Batch keys its; each member's other keys as its element's; every other subject as it is.
+ */
+export const sequencePartsOf = <S>(compiled: ReadonlyArray<readonly [S | BatchMemberEntry, Sequence.Animation]>): {
+  readonly batches: ReadonlyArray<SequencePart>
+  readonly others: ReadonlyArray<readonly [S | Element, Sequence.Animation]>
+} => {
+  const byBinding = new Map<BatchBinding, { readonly members: Array<number>; readonly animations: Array<Sequence.Animation> }>()
+  const others: Array<readonly [S | Element, Sequence.Animation]> = []
+  Arr.forEach(compiled, ([subject, animation]) => {
+    if (!isMemberEntry(subject)) {
+      others.push([subject as S, animation])
+      return
+    }
+    const { binding, member } = subject
+    let part = byBinding.get(binding)
+    if (Predicate.isUndefined(part)) {
+      part = { members: [], animations: [] }
+      byBinding.set(binding, part)
+    }
+    part.members.push(member)
+    part.animations.push(animation)
+    // Its keys the Batch doesn't have, its element's: a member element's Segment gave them.
+    const rest = keysKept(animation, (key) => binding.routeOf(key) !== "batch")
+    const element = binding.elementOf(member)
+    if (Bool.and(Predicate.isNotUndefined(rest), Predicate.isNotUndefined(element))) others.push([element as Element, rest as Sequence.Animation])
+  })
+  return { batches: Arr.map(Arr.fromIterable(byBinding), ([binding, part]): SequencePart => ({ binding, ...part })), others }
+}
+
 /**
  * An element call's parts (#665, Q14, Q35): each Batch's member elements as one part, in list order,
  * with the Batch's keys; each element, a member's with the keys left, as one of its own.
@@ -338,6 +427,38 @@ const keysOf = (config: BatchConfig): ReadonlyArray<string> => {
 
 /** One change that lands every key at once: `skipAnimations`'. */
 const INSTANT: Batch.Transition = { type: "tween", duration: 0 }
+
+/** A sequence's run that lands a key at once after `delay`: `skipAnimations`', and reduced motion's Snap of a positional key. */
+// Module state (#460, Q7): a cache built once, keyed by what it caches.
+const LANDINGS = new Map<number, Machine.KeyframesOptions>()
+
+const landingAfter = (delay: number): Machine.KeyframesOptions => {
+  const known = LANDINGS.get(delay)
+  if (Predicate.isNotUndefined(known)) return known
+  const made: Machine.KeyframesOptions = { duration: 0, delay }
+  LANDINGS.set(delay, made)
+  return made
+}
+
+/** A Batch key's stop in a sequence, as core's Batch takes it: a number, `NaN` for `null`. */
+const stopNumber = (stop: Sequence.Stop): number => {
+  if (Predicate.isNumber(stop)) return stop
+  return Number.NaN
+}
+
+/** Whether `value` is a Batch key's value in a sequence: a number, `null`, or stops of them. */
+const isSegmentStops = (value: unknown): boolean => {
+  if (isFirstStop(value)) return true
+  if (!Arr.isArray(value)) return false
+  return Arr.every(value, isFirstStop)
+}
+
+/** A Batch key's value in a sequence (Q38): a number, `null` or stops of them; else an error naming the key, and the member a function gave it. */
+const segmentValueOf = (key: string, value: unknown, member: number | undefined): Sequence.Stop | ReadonlyArray<Sequence.Stop> => {
+  if (isSegmentStops(value)) return value as Sequence.Stop | ReadonlyArray<Sequence.Stop>
+  const whose = UndefinedOr.match(member, { onUndefined: () => "", onDefined: (i) => `member ${i}'s ` })
+  return fail(`a sequence gives ${whose}"${key}" as ${JSON.stringify(value)}: a Batch's key takes a number, \`null\`, or stops of them`)
+}
 
 /** A member's slot before its element arrives. */
 const NO_SLOT = -1
@@ -767,29 +888,105 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig, hooks: BatchHooks)
     if (firsts) options.from = fromOf
     const delay = Bool.match(call.skipAnimations, { onTrue: () => undefined, onFalse: () => staggerOf(call.transition) })
     if (Predicate.isNotUndefined(delay)) options.delay = delay
-    const animation = Batch.animate(batch, slots, targetOf, options)
-    return {
-      run: () => {
-        if (disposed) return
-        wake(Batch.play(animation))
-      },
-      stop: () => {
-        Batch.stop(animation)
-        wake(0)
-      },
-      cancel: () => {
-        Batch.cancel(animation)
-        wake(0)
-      },
-      duration: () => Batch.durationOf(animation),
-    }
+    return controlsOf(Batch.animate(batch, slots, targetOf, options))
   }
+
+  /** The members a sequence's Segment moves (Q39): every member whose element has arrived, in member order, or member `member` once its has. */
+  const membersOf = (member: number | undefined): ReadonlyArray<number> => {
+    const members: Array<number> = []
+    // Per member, once a Segment: a counted loop.
+    if (Predicate.isUndefined(member)) {
+      for (let i = 0; i < count; i++) if (slotOf[i] !== NO_SLOT) members.push(i)
+      return members
+    }
+    if (slotOf[member] !== NO_SLOT) members.push(member)
+    return members
+  }
+
+  /** A sequence's Segment of the Batch (Q38, Q39): its members, and each key's value, a function's called with a member's index and the count. */
+  const segmentOf = (member: number | undefined, target: Readonly<Record<string, unknown>>): BatchSegment => {
+    const members = membersOf(member)
+    const values: Record<string, Sequence.Value> = {}
+    Arr.forEach(Rec.keys(target), (key) => {
+      const value = target[key]
+      if (Predicate.isUndefined(value)) return
+      if (!keyIndex.has(key)) return fail(`a sequence's Segment of a Batch gives "${key}", which isn't one of its keys (${keys.join(", ")})`)
+      if (Predicate.isFunction(value)) {
+        values[key] = (index: number) => segmentValueOf(key, value(members[index], count), members[index])
+        return
+      }
+      values[key] = segmentValueOf(key, value, undefined)
+    })
+    return { subjects: Arr.map(members, (i) => entries[i]), values }
+  }
+
+  /** A sequence's Segment of members' elements (Q40): a Batch key's value a number, `null` or stops; no transform the Batch draws without it. */
+  const checkElementSegment = (target: Readonly<Record<string, unknown>>): void =>
+    Arr.forEach(Rec.keys(target), (key) => {
+      const route = routeOf(key)
+      if (route === "drawn") return drawnKey(key)
+      if (route === "batch") segmentValueOf(key, target[key], undefined)
+    })
+
+  /**
+   * A sequence's track over its members (#665, Q36): each member's Batch keys through the stops and
+   * tween core's Sequence compiled for it; reduced motion's Snap of a positional key, or `skipAnimations`,
+   * landing it at once where its run would end, as an element's.
+   */
+  const sequenceTrack = (call: BatchSequenceCall): BatchTrack => {
+    const slots: Array<number> = []
+    const animations: Array<Sequence.Animation | undefined> = []
+    Arr.forEach(call.members, (i, n) => {
+      const slot = slotOf[i]
+      if (slot === NO_SLOT) return
+      slots.push(slot)
+      animations[slot] = call.animations[n]
+    })
+    // Per member per key, once at its first play: statements.
+    const keyframesOf = (slot: number, k: number): Batch.Keyframes | undefined => {
+      const key = keys[k]
+      const animation = UndefinedOr.getOrThrow(animations[slot])
+      const given = animation.keyframes[key]
+      if (Predicate.isUndefined(given)) return undefined
+      const transition = UndefinedOr.getOrThrow(animation.transition[key])
+      const stops = Arr.map(given, stopNumber)
+      const snaps = Bool.and(call.reducedMotion, env.positionalKeys.isPositional(key))
+      if (Bool.not(Bool.or(call.skipAnimations, snaps))) return { stops, transition }
+      // Where its run would end, from where it is: after its delay for reduced motion's Snap, at once when skipped.
+      const end = ReducedMotion.endOf(stops[0], stops[stops.length - 1], transition)
+      let delay = 0
+      if (Bool.not(call.skipAnimations)) delay = UndefinedOr.match(transition.delay, { onUndefined: () => 0, onDefined: (given) => given })
+      return { stops: [Number.NaN, end], transition: landingAfter(delay) }
+    }
+    return controlsOf(Batch.keyframes(batch, slots, keyframesOf, { head: call.head, onLanded: call.settled }))
+  }
+
+  /** A driven change's controls, as an `animate` call's track: played, it wakes the Batch's run. */
+  const controlsOf = (animation: Batch.Animation): BatchTrack => ({
+    run: () => {
+      if (disposed) return
+      wake(Batch.play(animation))
+    },
+    stop: () => {
+      Batch.stop(animation)
+      wake(0)
+    },
+    cancel: () => {
+      Batch.cancel(animation)
+      wake(0)
+    },
+    duration: () => Batch.durationOf(animation),
+  })
 
   const binding: BatchBinding = {
     count,
     track,
     entryOf: (i) => entries[i],
     routeOf,
+    segmentOf,
+    checkElementSegment,
+    sequenceTrack,
+    elementOf: (i) => elementOf[i],
     targetsOf,
     apply: (targets) => {
       current = targets

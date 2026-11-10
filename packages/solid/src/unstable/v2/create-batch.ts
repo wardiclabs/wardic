@@ -15,7 +15,7 @@ import { CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { neverLands, serverWhen, Waiters, whenOf } from "./waiters.ts"
 
-export type { WardicBatchKey, WardicBatchLanding, WardicBatchStop, WardicBatchSubject, WardicBatchTarget, WardicBatchTransition, WardicBatchValues } from "../../batch.ts"
+export type { WardicBatchKey, WardicBatchLanding, WardicBatchSegmentTarget, WardicBatchSegmentValue, WardicBatchStop, WardicBatchSubject, WardicBatchTarget, WardicBatchTransition, WardicBatchValues } from "../../batch.ts"
 
 /** `createBatch`'s config on Solid 2: the members, their targets and their transition. */
 export interface WardicBatchConfig extends BatchConfig {}

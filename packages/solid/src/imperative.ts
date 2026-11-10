@@ -28,7 +28,18 @@ import type * as Values from "@wardic/core/Values"
 import * as Sequence from "@wardic/core/Sequence"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Report from "@wardic/dom/Report"
-import { type BatchBinding, batchSubjectOf, callPartsOf, isMemberElement, type WardicBatchSubject, type WardicBatchTarget } from "./batch.ts"
+import {
+  type BatchBinding,
+  type BatchMemberEntry,
+  batchSubjectOf,
+  callPartsOf,
+  isMemberElement,
+  memberEntryOf,
+  sequencePartsOf,
+  type WardicBatchSegmentTarget,
+  type WardicBatchSubject,
+  type WardicBatchTarget,
+} from "./batch.ts"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
@@ -494,8 +505,18 @@ export type WardicFunctionSegment =
   | readonly [callback: (value: number) => void, value: number | WardicKeyframes<number>, options: WardicSegmentOptions]
   | readonly [callback: (value: string) => void, value: string | WardicKeyframes<string>, options: WardicSegmentOptions]
 
-/** One step of a sequence: a label, a Segment of elements, or a function Segment. */
-export type WardicSegment = WardicSequenceLabel | WardicElementSegment | WardicFunctionSegment
+/**
+ * A Segment of a Batch, `[batch, target, options?]`: a Batch, every member whose element has arrived, in
+ * member order, or a member's handle, `grid.at(i)`. Each of its keys a number, `null`, stops, or a
+ * function of a member's index and the Batch's count; a `stagger()` counts the Segment's members.
+ */
+// #665, Q36–Q39: each member through its own stops, in the Batch.
+export type WardicBatchSegment =
+  | readonly [batch: WardicBatchSubject, target: WardicBatchSegmentTarget]
+  | readonly [batch: WardicBatchSubject, target: WardicBatchSegmentTarget, options: WardicSegmentOptions]
+
+/** One step of a sequence: a label, a Segment of elements, a function Segment, or a Segment of a Batch. */
+export type WardicSegment = WardicSequenceLabel | WardicElementSegment | WardicFunctionSegment | WardicBatchSegment
 
 /**
  * A sequence: Segments played one after another, unless an `at` says where one starts, and labels to
@@ -606,8 +627,8 @@ interface Callback {
   readonly call: (value: number | string) => void
 }
 
-/** What a sequence animates: elements, and function Segments' values. */
-type Subject = Element | Callback
+/** What a sequence animates: elements, function Segments' values, and Batches' members (#665). */
+type Subject = Element | Callback | BatchMemberEntry
 
 /** Whether a subject is a function Segment's value. */
 const isCallback = (subject: Subject): subject is Callback => Predicate.hasProperty(subject, "call")
@@ -682,6 +703,25 @@ const segmentTransitionsOf = (values: Readonly<Record<string, unknown>>, options
 const atOf = (options: WardicSegmentOptions | undefined): Sequence.Time | undefined => UndefinedOr.map(options, (given) => given.at)
 
 /**
+ * An element Segment's subjects (#665, Q40): each element, a member's as its member's entry, so its Batch
+ * keys run in its Batch, as one subject with the member a Segment of the Batch names. Each Batch checks
+ * the Segment's values once.
+ */
+const subjectsIn = (elements: ReadonlyArray<Element>, target: Readonly<Record<string, unknown>>): ReadonlyArray<Subject> => {
+  if (!Arr.some(elements, isMemberElement)) return elements
+  const checked = new Set<BatchBinding>()
+  return Arr.map(elements, (element): Subject => {
+    const entry = memberEntryOf(element)
+    if (Predicate.isUndefined(entry)) return element
+    if (Bool.not(checked.has(entry.binding))) {
+      checked.add(entry.binding)
+      entry.binding.checkElementSegment(target)
+    }
+    return entry
+  })
+}
+
+/**
  * A sequence's steps for core (#433): labels as they are; an element Segment's elements (a selector
  * looked up once a sequence, inside `scope`), values and each value's transition; a function
  * Segment's own value, from 0 to 1 unless it gives its stops.
@@ -701,6 +741,13 @@ const stepsOf = (sequence: WardicAnimationSequence, scope: Element | undefined, 
     if (Predicate.isString(segment)) return segment
     if (Bool.not(Arr.isArray(segment))) return segment as { readonly name: string; readonly at: Sequence.Time }
     const parts = segment as ReadonlyArray<unknown>
+    // A Batch, or a member's handle (#665, Q38, Q39): its members, each through its own stops in the Batch.
+    const batch = batchSubjectOf(parts[0])
+    if (Predicate.isNotUndefined(batch)) {
+      const options = parts[2] as WardicSegmentOptions | undefined
+      const { subjects, values } = batch.binding.segmentOf(batch.member, parts[1] as Readonly<Record<string, unknown>>)
+      return { subjects, target: values, transitions: segmentTransitionsOf(values, options, defaults), at: atOf(options) }
+    }
     if (Predicate.isFunction(parts[0])) {
       const call = parts[0] as (value: number | string) => void
       const three = parts.length === 3
@@ -711,7 +758,7 @@ const stepsOf = (sequence: WardicAnimationSequence, scope: Element | undefined, 
     }
     const [subject, values, options] = segment as WardicElementSegment
     const target = segmentValuesOf(values)
-    return { subjects: elementsOf(subject), target, transitions: segmentTransitionsOf(target, options, defaults), at: atOf(options) }
+    return { subjects: subjectsIn(elementsOf(subject), target), target, transitions: segmentTransitionsOf(target, options, defaults), at: atOf(options) }
   })
 }
 
@@ -778,12 +825,17 @@ const sequenceOf = (env: AnimateEnv, scope: Element | undefined, watch: Animatio
     ...picked(UndefinedOr.match(options as Readonly<Record<string, unknown>> | undefined, { onUndefined: () => NO_FIELDS, onDefined: identity }), WHOLE),
   } as Sequence.Options
   const compiled = Arr.fromIterable(Sequence.compile(stepsOf(sequence, scope, defaults), whole))
-  return started(watch, compiled.length, UndefinedOr.map(options, (given) => given.onComplete), (head, settled) =>
-    Arr.map(compiled, ([subject, animation]) =>
+  // Each Batch's members as one track, their other keys their elements' (#665, Q40).
+  const parts = sequencePartsOf<Element | Callback>(compiled)
+  return started(watch, compiled.length, UndefinedOr.map(options, (given) => given.onComplete), (head, settled) => [
+    ...Arr.map(parts.others, ([subject, animation]) =>
       Match.value(subject).pipe(
         Match.when(isCallback, (callback) => callbackTrackOf(env, callback, animation, head, settled)),
         Match.orElse((element) => trackOf(env, element as Element, animation.keyframes as WardicVariant, animation.transition as WardicTransition, head, settled)),
-      )))
+      )),
+    ...Arr.map(parts.batches, (part) =>
+      part.binding.sequenceTrack({ members: part.members, animations: part.animations, reducedMotion: env.reducedMotion(), skipAnimations: env.skipAnimations(), head, settled })),
+  ])
 }
 
 /**
