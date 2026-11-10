@@ -50,9 +50,14 @@
  *   at rest, each measured, in a container of a fixed height (the same element, no content added);
  * - `?kind=transition-end` (#428): a `transitionEnd` of `pointer-events` with each target, set once
  *   its legs land.
+ *
+ * `--batch` (#665): N absolutely placed divs on a grid, sprung on `x` and `y` to swapped cells and back,
+ * each change timed as a task (after a GC) and each frame's rAF callbacks summed, as the layout page's
+ * are. `?kind=batch` moves them as one `createBatch`, `?kind=batch-animate` with `createAnimate`, a call
+ * per element: the per-element path the Batch replaces (`.tmp/564-canvas/dom/` on `probe/564-canvas`).
  */
 import { DomLive } from "@wardic/dom"
-import { type AnimateLayout, Reorder, useAnimateLayout, wardic, WardicProvider } from "@wardic/solid"
+import { type AnimateLayout, createAnimate, createBatch, Reorder, useAnimateLayout, wardic, type WardicAnimate, WardicProvider } from "@wardic/solid"
 import { createSignal, For, Show } from "solid-js"
 import { render } from "solid-js/web"
 import * as Bool from "effect/Boolean"
@@ -98,7 +103,9 @@ style.textContent =
   ".item{position:relative;width:9%;height:8px;margin:1px;border-radius:2px;box-shadow:0 1px 1px rgb(0 0 0 / 0.2);background:#888}" +
   ".item.shifted{left:24px}.badge{display:block;width:50%;height:4px;border-radius:2px;background:#222}" +
   // The `auto` page: a container `50%` resolves against (12px; `auto` is 0, the elements being empty).
-  ".fp{height:24px;overflow:hidden}"
+  ".fp{height:24px;overflow:hidden}" +
+  // The batch pages' grid (#665): every div placed by its transform alone.
+  ".g{position:relative;height:1200px}.g .b{position:absolute;left:0;top:0}"
 document.head.append(style)
 
 /** `text` when `cond` holds, else nothing. */
@@ -117,7 +124,7 @@ let currentFrame = 0
 const addFrameJs = (frame: number, ms: number): void => {
   if (timing) frameJs.set(frame, (frameJs.get(frame) ?? 0) + ms)
 }
-if (kind === "layout") {
+if (Bool.or(kind === "layout", kind.startsWith("batch"))) {
   window.requestAnimationFrame = (callback: FrameRequestCallback): number =>
     realRaf((time) => {
       currentFrame = time
@@ -242,6 +249,56 @@ const RetainedReorder = () => (
     </Show>
   </WardicProvider>
 )
+// `--batch` (#665): each div's cell in a phase, the cells swapped end for end at each change.
+const [phase, setPhase] = createSignal(0)
+const COLUMNS = 40
+const cellOf = (i: number, p: number): number => Bool.match(p === 0, { onTrue: () => i, onFalse: () => n - 1 - i })
+const xOfCell = (cell: number): number => (cell % COLUMNS) * 10
+const yOfCell = (cell: number): number => Math.floor(cell / COLUMNS) * 10
+const BATCH_SPRING = { type: "spring", stiffness: 210, damping: 20 } as const
+const BatchGrid = () => {
+  const grid = createBatch({ count: n, initial: false, animate: (i) => ({ x: xOfCell(cellOf(i, phase())), y: yOfCell(cellOf(i, phase())) }), transition: BATCH_SPRING })
+  return <For each={items}>{(i) => <div class="b" {...grid.at(i)} />}</For>
+}
+const BatchPage = () => (
+  <WardicProvider env={DomLive}>
+    <Show when={shown()}>
+      <div class="g">
+        <BatchGrid />
+      </div>
+    </Show>
+  </WardicProvider>
+)
+// `?kind=batch-animate`: the same moves, an `animate` call per element.
+let animateEach: WardicAnimate | undefined
+const AnimateGrid = () => {
+  const [scope, animate] = createAnimate()
+  animateEach = animate
+  return (
+    <div class="g" ref={scope}>
+      <For each={items}>{() => <div class="b" />}</For>
+    </div>
+  )
+}
+const AnimatePage = () => (
+  <WardicProvider env={DomLive}>
+    <Show when={shown()}>
+      <AnimateGrid />
+    </Show>
+  </WardicProvider>
+)
+/** A change to phase `p`: the Batch's, by its signal; the per-element page's, a call per element. */
+const moveTo = (p: number, transition: { readonly duration: number } | typeof BATCH_SPRING): void => {
+  if (kind === "batch") {
+    setPhase(p)
+    return
+  }
+  const animate = animateEach as WardicAnimate
+  boxes().forEach((el, i) => {
+    animate(el, { x: xOfCell(cellOf(i, p)), y: yOfCell(cellOf(i, p)) }, transition)
+  })
+}
+
 // `?kind=layout` (#385): #383's tree, its scenes' four switches, and the hook its scenes call.
 const LISTS = Array.from({ length: 10 }, (_, i) => i)
 const ITEMS = Array.from({ length: 99 }, (_, i) => i)
@@ -310,6 +367,8 @@ const pages = {
   retained: Retained,
   "retained-reorder": RetainedReorder,
   layout: Layout,
+  batch: BatchPage,
+  "batch-animate": AnimatePage,
 } as const
 render(() => {
   const Page = pages[kind as keyof typeof pages]
@@ -385,6 +444,44 @@ const round = async (): Promise<Round> => {
   // The loop drops its Clock subscription, and the Clock idles, before the next round's mount.
   await frames(6)
   return { mount, firstFrame, retarget, restRetarget, unmount }
+}
+
+/** One `--batch` round (#665), in ms: its two changes' tasks, and the median frame's rAF callbacks while they fly. */
+export interface BatchRound {
+  readonly retarget: number
+  readonly frame: number
+}
+
+/** The median of `xs`. */
+const middle = (xs: ReadonlyArray<number>): number => [...xs].sort((a, b) => a - b)[Math.floor((xs.length - 1) / 2)]!
+
+const batchRound = async (): Promise<BatchRound> => {
+  setPhase(0)
+  setShown(true)
+  if (boxes().length !== n) throw new Error(`bench:solid: mounted ${boxes().length} of ${n}`)
+  await frames(2)
+  // The per-element page starts each div at its first cell, as the Batch's start there.
+  if (kind === "batch-animate") moveTo(0, { duration: 0 })
+  await frames(10)
+  const retargets: Array<number> = []
+  const frameTimes: Array<number> = []
+  for (const p of [1, 0]) {
+    await afterPaint()
+    frameJs.clear()
+    timing = true
+    retargets.push(timed(() => moveTo(p, BATCH_SPRING)))
+    await frames(24)
+    timing = false
+    // The frames in flight: the first 20 after the change.
+    frameTimes.push(...[...frameJs.values()].slice(0, 20))
+    await frames(90)
+  }
+  // Back at its first cell, the first div is at the origin.
+  const first = boxes()[0]!
+  if (first.style.transform !== "none") throw new Error(`bench:solid: the first div landed at ${first.style.transform}`)
+  setShown(false)
+  await frames(6)
+  return { retarget: middle(retargets), frame: middle(frameTimes) }
 }
 
 /** One `--live` round's tasks, in ms: the mount and unmount, and the median set and frame. */
@@ -542,6 +639,11 @@ const retained: RetainedPage = {
     await mountLayout()
     for (let i = 0; i < rounds; i++) out.push(await layoutRound())
     return out
+  }
+  if (kind.startsWith("batch")) {
+    const batchOut: Array<BatchRound> = []
+    for (let i = 0; i < rounds; i++) batchOut.push(await batchRound())
+    return batchOut as never
   }
   const one = Bool.match(kind.startsWith("live"), { onTrue: () => liveRound, onFalse: () => round })
   for (let i = 0; i < rounds; i++) out.push(await one())
