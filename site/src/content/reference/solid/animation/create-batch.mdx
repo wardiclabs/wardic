@@ -56,7 +56,7 @@ const list = createBatch({ each: () => todos(), key: "id", initial: { opacity: 0
 </AnimatePresence>
 ```
 - **`list.member(key)`** is its handle, given `{ ref, style }` as `at(i)`'s is. A handle for a key the list doesn't have yet is fine: its element enters once the list has it. An element whose key the list still doesn't have at the end of its task is reported, naming the key, and enters if the list gets it later.
-- **Its keys** are its first members' targets' and starts', so a list that starts empty makes its Batch when its first items come. Give `keys: ["x", "y", "opacity"]` to fix them up front, for a list whose later items use a key its first ones don't.
+- **Its keys** are its first members' targets' and starts', and its `exit`'s, so a list that starts empty makes its Batch when its first items come. Give `keys: ["x", "y", "opacity"]` to fix them up front, for a list whose later items use a key its first ones don't.
 - Two items with one key, and an item with no key, are errors naming them.
 
 ## Its members
