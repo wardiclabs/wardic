@@ -14,14 +14,19 @@
 // - DG9: a real-mouse flick carries on past the release; with `dragMomentum: false` it doesn't (#139).
 // - DG10: a claiming `createDrag` on the parent is refused while the ward drags; `claim: false` sees it (#29).
 // - DG11: with `dragPropagation`, the ward claims nothing: the parent's claiming `createDrag` sees it too.
+// - DG12 (#691): in the lab's s12 scene, a `layoutRoot` alone rides its dragged item's layout animation:
+//   on the item at its place in every frame, through a grab mid-flight and the release, as Motion's.
+//   DG12b: a `layout layoutRoot` is at its new place at that grab, and at its place in the item at the end.
 import { DomLive } from "@wardic/dom"
 import type { JSX } from "@solidjs/web"
 import { createDrag, ward, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
+import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
+import { createSignal, flush } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { commands, page } from "vitest/browser"
 import "../browser-commands.ts"
-import { afterPaint, leftOf, raf, retryGesture, topOf, until } from "../browser-helpers.ts"
+import { afterPaint, leftOf, paintedReads, raf, retryGesture, topOf, until } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
 
 const termOf = (el: HTMLElement, pattern: RegExp, none: number): number =>
@@ -344,5 +349,111 @@ describe("drag claims on Solid 2 (#29)", () => {
     await dragTo(inner, 60, 30, () => translateXOf(inner) !== 0 && claimed() !== null)
     expect(translateXOf(inner)).toBeCloseTo(60, 0)
     expect(claimed()?.offset).toEqual({ x: 60, y: 30 })
+  })
+})
+
+describe("a layoutRoot in a dragged item on Solid 2 (#691)", () => {
+  interface Offset {
+    readonly x: number
+    readonly y: number
+  }
+  afterEach(async () => {
+    await commands.realMouse("move", 5, 5)
+    window.getSelection()?.removeAllRanges()
+  })
+
+  /** How far apart two offsets are, on either axis. */
+  const apartBy = (a: Offset, b: Offset): number => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y))
+
+  /**
+   * The lab's s12, as Solid 1's T19 scene: a `layout` sibling above the draggable `layout` item D, which
+   * holds C1 (`layout`), C2 (`layoutAnchor: false`), M (`layout`, its `layoutDependency` flipped at each
+   * press), and R, a `layoutRoot` (with `layout` too, given `rootLayout`) holding its own `layout` child G.
+   * `grabMidFlight` moves D's slot at rest (the lab's X), grabs D `wait` frames into its FLIP with the real
+   * mouse, drags it `hold` moves 16 ms apart and releases it: R's offset from D in every frame painted from
+   * the X, R's offset at the first frame after the grab and at the end, and G's from R at the end.
+   */
+  const layoutRootScene = async (rootLayout: boolean) => {
+    const [tall, setTall] = createSignal(false)
+    const [mRight, setMRight] = createSignal(false)
+    let d!: HTMLElement
+    let r!: HTMLElement
+    let g!: HTMLElement
+    const child = (left: number, top: number): JSX.CSSProperties => ({ position: "absolute", left: `${left}px`, top: `${top}px`, width: "28px", height: "28px" })
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <div style={{ position: "relative", width: "340px", height: "260px", overflow: "hidden", "margin-top": "40px", "margin-left": "40px" }}>
+          <div style={{ padding: "16px 20px" }}>
+            <wardic.div layout style={{ width: "200px", height: Bool.match(tall(), { onTrue: () => "70px", onFalse: () => "20px" }) }} />
+            <wardic.div
+              layout
+              drag
+              ref={(n: HTMLElement) => (d = n)}
+              style={{ position: "relative", width: "220px", height: "96px", "touch-action": "none", "user-select": "none" }}
+              onPointerDown={() => setMRight((v) => !v)}
+            >
+              <wardic.div layout style={child(10, 10)} />
+              <wardic.div layout layoutAnchor={false} style={child(50, 10)} />
+              <wardic.div layout={rootLayout} layoutRoot ref={(n: HTMLElement) => (r = n)} style={{ ...child(90, 10), width: "40px", height: "40px" }}>
+                <wardic.div layout ref={(n: HTMLElement) => (g = n)} style={{ ...child(8, 8), width: "12px", height: "12px" }} />
+              </wardic.div>
+              <wardic.div
+                layout
+                layoutDependency={mRight()}
+                transition={{ stiffness: 30, damping: 12 }}
+                style={{ ...child(Bool.match(mRight(), { onTrue: () => 180, onFalse: () => 10 }), 60), width: "24px", height: "24px" }}
+              />
+            </wardic.div>
+          </div>
+        </div>
+      </WardicProvider>
+    ))
+    await settle()
+    const offsetOf = (): Offset => {
+      const dBox = d.getBoundingClientRect()
+      const rBox = r.getBoundingClientRect()
+      return { x: rBox.left - dBox.left, y: rBox.top - dBox.top }
+    }
+    const rest = offsetOf()
+    const grabMidFlight = async (wait: number, hold: number) => {
+      const sampling = paintedReads(offsetOf, 130)
+      await raf()
+      setTall((t) => !t) // D's slot moves 50 px at rest, and D FLIPs to it
+      flush()
+      for (let i = 0; i < wait; i++) await raf()
+      const box = d.getBoundingClientRect()
+      const x0 = box.left + box.width / 2
+      const y0 = box.top + box.height / 2
+      await commands.realMouse("down", x0, y0)
+      await afterPaint()
+      const atGrab = offsetOf()
+      for (let k = 1; k <= hold; k++) {
+        await commands.realMouse("move", x0 + 6 * k, y0 + 4 * k)
+        await new Promise((resolve) => setTimeout(resolve, 16))
+      }
+      await commands.realMouse("up", x0 + 6 * hold, y0 + 4 * hold)
+      const frames = await sampling
+      const gBox = g.getBoundingClientRect()
+      const rBox = r.getBoundingClientRect()
+      return { frames, atGrab, end: offsetOf(), g: { x: gBox.left - rBox.left, y: gBox.top - rBox.top } }
+    }
+    return { rest, grabMidFlight }
+  }
+
+  it("DG12: a layoutRoot alone rides D's layout animation: on D at its place in every frame, through a grab mid-flight and the release", async () => {
+    const scene = await layoutRootScene(false)
+    const run = await scene.grabMidFlight(4, 6)
+    const worst = Math.max(...run.frames.map((f) => apartBy(f, scene.rest)))
+    expect.soft(worst, `R's offset from D, worst off its ${JSON.stringify(scene.rest)} (Motion's: 0 every frame)`).toBeLessThan(1)
+    expect.soft(apartBy(run.g, { x: 8, y: 8 }), "G on R").toBeLessThan(1)
+  })
+
+  it("DG12b: a layout layoutRoot is at its new place at a grab mid-flight, and at its place in D once D's flight has ended", async () => {
+    const scene = await layoutRootScene(true)
+    const run = await scene.grabMidFlight(4, 6)
+    // At its new place while D flies, as Motion's: off its place in D by D's remaining flight.
+    expect.soft(apartBy(run.atGrab, scene.rest), `R's offset from D at the grab: ${JSON.stringify(run.atGrab)}`).toBeGreaterThan(10)
+    expect.soft(apartBy(run.end, scene.rest), `R's offset from D at the end: ${JSON.stringify(run.end)}`).toBeLessThan(1)
+    expect.soft(apartBy(run.g, { x: 8, y: 8 }), "G on R").toBeLessThan(1)
   })
 })

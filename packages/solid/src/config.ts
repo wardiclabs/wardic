@@ -668,15 +668,20 @@ export interface WardConfig {
   /**
    * Marks a scrolling element that is itself a layout element, so its descendants' layout animations
    * aren't moved by its scroll. Every other scroll, `position: sticky` included, is accounted for
-   * without it.
+   * without it. With no `layout` or `layoutId`, the element animates no layout of its own: it moves to a
+   * new place at once, as Motion's.
    */
   // ADR-0012 and its Amendments (Reorder, #578). Read once at mount.
   readonly layoutScroll?: boolean
   /**
    * Makes the element a root for the layout animations inside it: it never animates its own layout,
-   * and its descendants' are measured against it.
+   * and its descendants' are measured against it. With `layout` too, it stays at its new place while a
+   * parent's layout animation runs. Alone, it moves with that animation, as Motion's.
+   *
+   * @example <w.div layout layoutRoot>...</w.div>
    */
-  // ADR-0013: it self-snaps, bounds delta accumulation, and anchors its subtree. Read once at mount.
+  // ADR-0013: it self-snaps, bounds delta accumulation, and anchors its subtree; with no `layout` or
+  // `layoutId` it has Layout mode `false` and rides its ancestors (*Amendment (#691)*). Read once at mount.
   readonly layoutRoot?: boolean
   /**
    * Where in its parent's box a layout element anchors as the parent changes size: 0 to 1 on each
