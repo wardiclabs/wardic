@@ -1144,27 +1144,6 @@ const gestureLineOf = (run: DragRun, click: boolean, bound: number | undefined):
 }
 
 /**
- * Checks `run` against `expect`: one {@link DragCheck} per name in
- * {@link DRAG_CHECK_NAMES}, in that order. A press with no move past the drag
- * threshold is a click, not a drag: every drag line reads `click, no drag` and none
- * is judged. So does a press of a pointer that isn't the Primary pointer, which reads
- * `not the primary pointer, no drag` (ADR-0019: it must not drag). In a drag, a value
- * the run could not measure reads `?` and fails its check (the expected drag did not
- * happen), as a `null` hold does on a trigger card. A
- * held pass fails the `passes` check when it seeded more than
- * `expect.maxSeededPerPass` nodes, and the held passes fail it when none of them
- * drag-blocked anything (one pass may find nothing left to change: a resize both a
- * `layoutDependency` and the engine's ResizeObserver report runs two). A held pass started after the
- * drag's first move past the threshold (a pass at the pointerdown comes before the
- * drag) and before the release. A run the next press cut short
- * (`endedBy: "next-press"`) stopped while its release was still settling, so its
- * `ends on slot` shows the last frame's distance `· cut short by the next press` and
- * is not judged, nor is a `release held` it couldn't read (`? · cut short by the next
- * press`); a run that timed out is judged. A lost release no unpressed move followed
- * never reached its end in the run, so both read `lost release, no unpressed move`,
- * not judged. The `gesture ends` line is judged for every press (see `gestureLineOf`).
- */
-/**
  * The `under pointer` line of a grab mid-flight (#30): judged from the frame the flight
  * landed under the pointer, and failed by a first dragged frame that jumps more than
  * {@link JUMP_SHARE} of the flight still to go (or {@link JUMP_FLOOR_PX}).
@@ -1185,6 +1164,38 @@ const flightLineOf = (flight: NonNullable<DragRun["flight"]>, under: number | un
   )
 }
 
+/** The `frames behind` line: the most frames any measured move took to show, `?` (failed) with none measured. */
+const behindLineOf = (run: DragRun, behindMax: number | undefined): DragCheck =>
+  lineOf(
+    "frames behind",
+    run.framesBehindMax === null
+      ? "?"
+      : `${run.framesBehindMax} · ${run.framesBehindMoves} move${run.framesBehindMoves === 1 ? "" : "s"}`,
+    behindMax === undefined ? undefined : `≤ ${behindMax}`,
+    run.framesBehindMax !== null && behindMax !== undefined && run.framesBehindMax <= behindMax,
+  )
+
+/**
+ * Checks `run` against `expect`: one {@link DragCheck} per name in
+ * {@link DRAG_CHECK_NAMES}, in that order. A press with no move past the drag
+ * threshold is a click, not a drag: every drag line reads `click, no drag` and none
+ * is judged. So does a press of a pointer that isn't the Primary pointer, which reads
+ * `not the primary pointer, no drag` (ADR-0019: it must not drag). In a drag, a value
+ * the run could not measure reads `?` and fails its check (the expected drag did not
+ * happen), as a `null` hold does on a trigger card. A
+ * held pass fails the `passes` check when it seeded more than
+ * `expect.maxSeededPerPass` nodes, and the held passes fail it when none of them
+ * drag-blocked anything (one pass may find nothing left to change: a resize both a
+ * `layoutDependency` and the engine's ResizeObserver report runs two). A held pass started after the
+ * drag's first move past the threshold (a pass at the pointerdown comes before the
+ * drag) and before the release. A run the next press cut short
+ * (`endedBy: "next-press"`) stopped while its release was still settling, so its
+ * `ends on slot` shows the last frame's distance `· cut short by the next press` and
+ * is not judged, nor is a `release held` it couldn't read (`? · cut short by the next
+ * press`); a run that timed out is judged. A lost release no unpressed move followed
+ * never reached its end in the run, so both read `lost release, no unpressed move`,
+ * not judged. The `gesture ends` line is judged for every press (see `gestureLineOf`).
+ */
 export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck> => {
   // The drag's start: its first move past the threshold. A press with none is a click.
   const startMove = run.moves.find((m) => Math.hypot(m.dx, m.dy) > DRAG_THRESHOLD_PX)
@@ -1223,14 +1234,7 @@ export const dragChecksOf = (run: DragRun, expect: DragExpect): Array<DragCheck>
           under !== undefined && underMax !== undefined && under <= underMax,
         )
       : flightLineOf(run.flight, under, underMax),
-    lineOf(
-      "frames behind",
-      run.framesBehindMax === null
-        ? "?"
-        : `${run.framesBehindMax} · ${run.framesBehindMoves} move${run.framesBehindMoves === 1 ? "" : "s"}`,
-      behindMax === undefined ? undefined : `≤ ${behindMax}`,
-      run.framesBehindMax !== null && behindMax !== undefined && run.framesBehindMax <= behindMax,
-    ),
+    behindLineOf(run, behindMax),
     free && glue.length === 0
       ? lineOf("child glued", "no child", undefined, true)
       : lineOf(
