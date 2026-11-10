@@ -35,6 +35,8 @@
 // - B17: a change can give each member's key its own transition, by a function of its slot and key:
 //   each runs as `springValues` does on it, and the members it gives one bag share it.
 // - B18: a change says how many members it sets off from rest, and `isMoving` whether any member moves.
+// - B19: a member's Subject can be replaced mid-flight: the new one is written from the next step, and
+//   the member carries on exactly as it would have, its value, speed and delay kept.
 import * as Batch from "@wardic/core/Batch"
 import * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -508,5 +510,20 @@ describe("a Batch (#665)", () => {
     expect(Batch.retarget(batch, slots, (slot) => [5, 15, 25][slot])).toBe(1)
     stepped(batch, slots[0], "x")
     expect(Batch.isMoving(batch)).toBe(false)
+  })
+
+  it("B19: a member's Subject replaced mid-flight carries on exactly as it would have", () => {
+    const spring = { type: "spring", stiffness: 210, damping: 20 } as const
+    const { writer, writes } = recording<string>()
+    const batch = Batch.make({ keys: ["x"], writer, transition: spring })
+    const slot = Batch.enter(batch, "a", { x: 0 })
+    Batch.retarget(batch, [slot], () => 100, { delay: 0.05 })
+    Array.from({ length: 6 }).forEach(() => Batch.step(batch, F))
+    Batch.replace(batch, slot, "b")
+    writes.length = 0
+    const rest = stepped(batch, slot, "x")
+    expect(rest).toEqual(springFrames("x", 0, 100, { ...spring, delay: 0.05 }).slice(6))
+    expect(writes.every((write) => write.subject === "b")).toBe(true)
+    expect(writes.length).toBe(rest.length)
   })
 })
