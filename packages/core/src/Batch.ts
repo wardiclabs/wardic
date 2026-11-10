@@ -75,8 +75,8 @@ const isTransition = (u: Transition | Readonly<Record<string, Transition>>): u i
 /** A transition in a Batch's table, resolved once: a spring's physics, or a tween's curve. */
 // ADR-0069, *Amendment (#665)*: each member's key records which entry it runs.
 interface Entry {
-  /** 0 a spring, 1 a tween. */
-  readonly kind: 0 | 1
+  /** 0 a spring, 1 a tween, 2 a spring that ends at its `duration` (#359). */
+  readonly kind: 0 | 1 | 2
   readonly delay: number
   readonly spring: Spring.Resolved
   readonly tween: ResolvedTween
@@ -125,13 +125,15 @@ interface State<S> {
   rules: Uint16Array
   /** The transitions its members run, the Batch's own first. */
   readonly entries: Array<Entry>
-  /** Each entry's kind by its index, read per key in place of the entry: 0 a spring, 1 a tween. */
+  /** Each entry's kind by its index, read per key in place of the entry: `Entry`'s `kind`. */
   kinds: Uint8Array
   /** Each spring entry's step matrix for this frame's `dt`, four numbers an entry: worked out once a frame. */
   matrices: Float64Array
 
   /** Each transition's index in `entries`, by the bag it was given as. */
   readonly entryOf: Map<Transition, number>
+  /** The Batch's own transition, as it was given: `entries`' first. */
+  readonly own: Transition
   /** A change's new targets, `NaN` for a key it keeps: its first pass's, read by its second. */
   pending: Float64Array
   /** A change's members that move, in order: its first pass's. */
@@ -168,7 +170,7 @@ const Proto = {
   [TypeId]: { _S: identity },
   ...Inspectable.BaseProto,
   toJSON(this: State<unknown>) {
-    return { _id: "Batch", keys: this.keys, members: this.used, moving: this.count + this.tableCount }
+    return { _id: "Batch", keys: this.keys, members: this.used, moving: this.count + this.tableCount, transitions: this.entries.length }
   },
   pipe() {
     return pipeArguments(this, arguments)
@@ -211,6 +213,7 @@ const entryFor = (transition: Transition): Entry => {
     return { kind: 1, delay: tween.delay, spring: NO_SPRING, tween }
   }
   const spring = Spring.resolve(transition)
+  if (Spring.endsOnTime(spring)) return { kind: 2, delay: spring.delay, spring, tween: NO_TWEEN }
   return { kind: 0, delay: spring.delay, spring, tween: NO_TWEEN }
 }
 
@@ -243,7 +246,7 @@ export const make = <S>(options: Options<S>): Batch<S> => {
     if (options.writer.writes(key)) return
     throw new Machine.OptionError({ message: `Expected a key its writer draws, got ${JSON.stringify(key)}\n  at ["keys"][${k}]` })
   })
-  const capacity = UndefinedOr.match(options.capacity, { onUndefined: () => 16, onDefined: (n) => Math.max(1, n) })
+  const capacity = UndefinedOr.match(options.capacity, { onUndefined: () => 16, onDefined: (n) => Math.max(1, Math.ceil(n)) })
   const own = entryFor(options.transition)
   const stride = options.keys.length
   const size = capacity * stride
@@ -271,6 +274,7 @@ export const make = <S>(options: Options<S>): Batch<S> => {
     table: new Int32Array(capacity),
     tableCount: 0,
     entryOf: new Map([[options.transition, 0]]),
+    own: options.transition,
     flags: new Uint8Array(capacity),
     list: new Int32Array(capacity),
     count: 0,
@@ -409,6 +413,8 @@ export const retarget: {
   // move, so the second can count them for their delays.
   let n = 0
   slots.forEach((slot) => {
+    // A member that left takes no change.
+    if ((state.flags[slot] & LIVE) === 0) return
     const base = slot * stride
     let moves = false
     for (let k = 0; k < stride; k++) {
@@ -443,6 +449,13 @@ export const retarget: {
       const distance = target - state.positions[at]
       state.restDeltas[at] = Spring.restDeltaFor(entry.spring, distance)
       state.restSpeeds[at] = Spring.restSpeedFor(entry.spring, distance)
+      // A spring that ends at its duration starts from rest, as Motion's, and rests by no threshold:
+      // it lands at its duration (#359), as `springValues`' does.
+      if (entry.kind === 2) {
+        state.velocities[at] = 0
+        state.restDeltas[at] = -1
+        state.restSpeeds[at] = -1
+      }
     }
     const flags = state.flags[slot]
     // Into the table, out of the list (which drops it at its next step); else into the list, if it's in neither.
@@ -474,7 +487,21 @@ export const step = <S>(self: Batch<S>, dt: number): boolean => {
   state.flush()
   state.onFrame()
   // Counted after `onFrame`: a change it makes keeps the run going.
-  return state.count + state.tableCount === 0
+  if (state.count + state.tableCount > 0) return false
+  if (state.entries.length > 1) forgetTransitions(state)
+  return true
+}
+
+/**
+ * At rest, every transition but the Batch's own is forgotten: no member moves, so no rule is read
+ * until a change sets it again. A bag a caller makes for each change doesn't pile up.
+ */
+// Once a rest, over every member's key (#665).
+const forgetTransitions = <S>(state: State<S>): void => {
+  state.entries.length = 1
+  state.entryOf.clear()
+  state.entryOf.set(state.own, 0)
+  state.rules.fill(0)
 }
 
 /** The members in `list`, every key on the Batch's own spring, by one matrix. */
@@ -558,7 +585,8 @@ const stepTween = <S>(state: State<S>, at: number, tween: ResolvedTween, time: n
 const stepTable = <S>(state: State<S>, clamped: number): void => {
   const { stride, entries, kinds, matrices, rules, positions, velocities, targets, elapsed, delays, restDeltas, restSpeeds, table, flags, subjects, write } = state
   for (let e = 0; e < entries.length; e++) {
-    if (kinds[e] !== 0) continue
+    // Every spring entry, timed ones too: a tween has no matrix.
+    if (kinds[e] === 1) continue
     const m = Spring.matrixFor(entries[e].spring, clamped)
     matrices[e * 4] = m.dd
     matrices[e * 4 + 1] = m.dv
@@ -608,6 +636,8 @@ const stepTable = <S>(state: State<S>, clamped: number): void => {
         speed = part.vd * d + part.vv * speed
       }
       settled = simDt > 0 && Math.abs(speed) <= restSpeeds[at] && Math.abs(position - goal) <= restDeltas[at]
+      // A spring that ends at its duration lands there (#359).
+      if (kinds[rule] === 2 && time - delay >= entries[rule].spring.duration) settled = true
       if (settled) {
         position = goal
         speed = 0

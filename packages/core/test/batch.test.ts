@@ -20,6 +20,10 @@
 // - B9: what a Batch can't run throws an `OptionError` naming it: a key its writer can't draw, a
 //   transition that's neither a spring nor a tween, a spring's or a tween's bad option.
 // - B10: each `dual` operation's two forms give one type, and `pipe` runs the data-last form.
+// - B11: a spring set by `duration` (#359) starts from rest and lands at its duration, as
+//   `springValues`' does, a member moving or not.
+// - B12: at rest a Batch forgets the transitions its changes gave, so a bag a call makes each time
+//   doesn't pile up; a member that left takes no change.
 import * as Batch from "@wardic/core/Batch"
 import * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -355,5 +359,45 @@ describe("a Batch (#665)", () => {
     expect(Batch.get(batch, slot, "x")).toBe(5)
     expect(Batch.isBatch(batch)).toBe(true)
     expect(Batch.isBatch({ keys: ["x"] })).toBe(false)
+  })
+
+  it("B11: a spring set by duration starts from rest and lands at its duration, as springValues'", () => {
+    const timed = { type: "spring", duration: 0.4, bounce: 0.2 } as const
+    const { writer } = recording<string>(["x"])
+    const batch = Batch.make({ keys: ["x"], writer, transition: { type: "spring", stiffness: 210, damping: 20 } })
+    const slot = Batch.enter(batch, "a", { x: 0 })
+    Batch.retarget(batch, [slot], () => 100)
+    Array.from({ length: 5 }).forEach(() => Batch.step(batch, F))
+    const at = Batch.get(batch, slot, "x")
+    expect(Batch.velocity(batch, slot, "x")).toBeGreaterThan(0)
+    Batch.retarget(batch, [slot], () => 300, { transition: timed })
+    const xs = stepped(batch, slot, "x")
+    expect(xs).toEqual(springFrames("x", at, 300, timed))
+    // About 0.4 s at 60 Hz, landing exactly.
+    expect(Math.abs(xs.length - 24)).toBeLessThanOrEqual(1)
+    expect(xs[xs.length - 1]).toBe(300)
+  })
+
+  it("B12: at rest a Batch forgets the transitions its changes gave; a member that left takes no change", () => {
+    const { writer, writes } = recording<string>(["x"])
+    const batch = Batch.make({ keys: ["x"], writer, transition: { type: "spring" } })
+    const slot = Batch.enter(batch, "a", { x: 0 })
+    Array.from({ length: 3 }).forEach((_, n) => {
+      Batch.retarget(batch, [slot], () => n + 1, { transition: { type: "tween", duration: 0 } })
+    })
+    expect(batch.toJSON()).toMatchObject({ transitions: 4, moving: 1 })
+    stepped(batch, slot, "x")
+    expect(Batch.get(batch, slot, "x")).toBe(3)
+    expect(batch.toJSON()).toMatchObject({ transitions: 1, moving: 0 })
+    // A spring after the reset is the Batch's own again, by its fast loop's frames.
+    Batch.retarget(batch, [slot], () => 50)
+    expect(stepped(batch, slot, "x")).toEqual(springFrames("x", 3, 50, {}))
+
+    Batch.leave(batch, slot)
+    writes.length = 0
+    Batch.retarget(batch, [slot], () => 0)
+    expect(batch.toJSON()).toMatchObject({ moving: 0 })
+    expect(Batch.step(batch, F)).toBe(true)
+    expect(writes.length).toBe(0)
   })
 })
