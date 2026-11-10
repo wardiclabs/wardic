@@ -378,4 +378,97 @@ describe("a layoutRoot isolates its subtree from an ancestor's layout animation 
     expect(sk.of("s").length).toBe(writes)
     e.dispose()
   })
+
+  it("LR12: a layoutRoot with no layout of its own (Layout mode false) rides its FLIPping parent, and is still the frame of the node FLIPping inside it (#691)", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const root = stage()
+    const pEl = makeBox(root, 40, 40, 300, 200)
+    const rEl = makeBox(pEl, 10, 30, 260, 150)
+    const cEl = makeBox(rEl, 10, 10, 20, 20)
+    const p = register(e, "p", pEl)
+    register(e, "r", rEl, { layoutRoot: true, layoutMode: () => false })
+    const c = register(e, "c", cEl)
+    await endOfTask()
+    fireFrame()
+    // LR1's change: P moves 100 px down; C moves 140 px right inside R; one pass.
+    pEl.style.top = "140px"
+    cEl.style.left = "150px"
+    p.notify()
+    c.notify()
+    await endOfTask()
+    const run = frames(60, () => ({ p: painted(sk, [["p", pEl]]), r: painted(sk, [["p", pEl], ["r", rEl]]), c: painted(sk, [["p", pEl], ["r", rEl], ["c", cEl]]) }))
+    expect(run[0]!.p.y, "P flies").toBeLessThan(140)
+    run.forEach((f, k) => {
+      expect(f.r.y - f.p.y, `frame ${k}: R rides P, as Motion's \`layoutRoot\` alone`).toBeCloseTo(30, 6)
+      expect(f.c.y - f.r.y, `frame ${k}: C's row on R`).toBeCloseTo(10, 6)
+    })
+    // C's own move animates, inside R.
+    expect(run[0]!.c.x - run[0]!.r.x).toBeGreaterThan(10)
+    expect(run[0]!.c.x - run[0]!.r.x).toBeLessThan(150)
+    expect(run.at(-1)!.c.x - run.at(-1)!.r.x).toBeCloseTo(150, 6)
+    e.dispose()
+  })
+
+  it("LR13: a node with no layout of its own (Layout mode false, a layoutScroll alone) takes no flight when it moves, and still folds its scroll out of its node's box (#691)", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const root = stage()
+    const sEl = el(root, "position:absolute;left:40px;top:40px;width:200px;height:100px;overflow:auto")
+    const cEl = makeBox(sEl, 10, 10, 20, 400)
+    const s = register(e, "s", sEl, { layoutScroll: true, layoutMode: () => false })
+    const c = register(e, "c", cEl)
+    await endOfTask()
+    fireFrame()
+    // S scrolls 30 px, and a pass runs: C doesn't animate, its scroll folded out.
+    sEl.scrollTop = 30
+    c.notify()
+    await endOfTask()
+    const scrolled = frames(30, () => t(sk, "c"))
+    scrolled.forEach((tr, k) => expect(Math.abs(tr.y), `frame ${k}: C at rest in S's scroll`).toBeLessThan(1e-6))
+    // S moves 50 px down: it takes its new place at once, as Motion's, with no FLIP of its own.
+    sEl.style.top = "90px"
+    s.notify()
+    await endOfTask()
+    const moved = frames(30, () => t(sk, "s"))
+    moved.forEach((tr, k) => expect(Math.abs(tr.y), `frame ${k}: S at its new place`).toBeLessThan(1e-6))
+    e.dispose()
+  })
+
+  it("LR14: a layoutRoot isolates from the pass that first finds it a layout of its own, and from then on, as Motion's (#691)", async () => {
+    const sk = makeSink()
+    const e = makeEngine(sk.sink)
+    const root = stage()
+    const pEl = makeBox(root, 40, 40, 300, 200)
+    const rEl = makeBox(pEl, 10, 30, 260, 150)
+    let mode: false | true = false
+    const p = register(e, "p", pEl)
+    register(e, "r", rEl, { layoutRoot: true, layoutMode: () => mode })
+    await endOfTask()
+    fireFrame()
+    /** P moves to `top`, one pass; R's offset from P in each of `n` frames. */
+    const flip = async (top: number, n: number): Promise<ReadonlyArray<number>> => {
+      pEl.style.top = `${top}px`
+      p.notify()
+      await endOfTask()
+      return frames(n, () => {
+        const f = { p: painted(sk, [["p", pEl]]), r: painted(sk, [["p", pEl], ["r", rEl]]) }
+        return f.r.y - f.p.y
+      })
+    }
+    // Alone: R rides P's FLIP.
+    const alone = await flip(140, 60)
+    alone.forEach((dy, k) => expect(dy, `frame ${k}: alone, R rides P`).toBeCloseTo(30, 6))
+    // Given a layout: from the next pass, R sits at its new place while P flies up (above where it rides).
+    mode = true
+    const given = await flip(40, 60)
+    expect(given[0], "given a layout, R isolated at P's first frame").toBeLessThan(30 - 10)
+    expect(given.at(-1), "and on P when P lands").toBeCloseTo(30, 6)
+    // Its layout taken away: still isolated, as Motion's handler stays attached (P flies down: below).
+    mode = false
+    const taken = await flip(140, 60)
+    expect(taken[0], "taken away, R still isolated").toBeGreaterThan(30 + 10)
+    expect(taken.at(-1)).toBeCloseTo(30, 6)
+    e.dispose()
+  })
 })
