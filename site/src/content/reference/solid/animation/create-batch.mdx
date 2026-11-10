@@ -63,6 +63,8 @@ animate(grid.at(42), { scale: 1.4 })            // one member
 
 Each key takes a number for every member, two stops (its first and its target), or a function of the member's index and the Batch's count that gives one or two. Its keys are the Batch's. A later change of a member's key, by the config's `animate` or another call, takes it: that member goes the later change's way, and the call it left doesn't finish, as a Wardic element's doesn't. A call that moves nothing finishes at once.
 
+A member's element moves its member too. `animate(tile, { x: 40, backgroundColor: "tomato" })` moves `x` in the Batch, as `animate(grid.at(i), { x: 40 })` does, and `backgroundColor` as on any element, under one set of controls. A selector or a list of members moves them as one call over them, in the list's order, and its `stagger()` counts the members that move. Through an element, a Batch's key takes a number or two stops. A transform the Batch draws without having it as a key, such as `rotate` on a Batch of `x` and `y`, is an error: the Batch draws the element's whole `transform`.
+
 ## Coming from Motion
 
 Motion has no Batch: its `animate(elements, …)` runs each element on its own, as [`createAnimate`](/reference/solid/animation/create-animate) does. A Batch is for the collections where that cost shows: hundreds or thousands of like elements moving at once.
