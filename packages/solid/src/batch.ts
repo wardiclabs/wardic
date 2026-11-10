@@ -253,6 +253,9 @@ const splitFor = <T extends object>(routeOf: (key: string) => KeyRoute, target: 
   return { batch: batch as WardicBatchTarget, rest: Bool.match(hasRest, { onTrue: () => rest as T, onFalse: () => undefined }) }
 }
 
+/** Whether `element` is a Batch member's element: one WeakMap read, so a call without one keeps the plain path. */
+export const isMemberElement = (element: Element): boolean => MEMBER_ELEMENTS.has(element)
+
 /**
  * An element call's parts (#665, Q14, Q35): each Batch's member elements as one part, in list order,
  * with the Batch's keys; each element, a member's with the keys left, as one of its own.

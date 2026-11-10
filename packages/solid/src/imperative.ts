@@ -28,7 +28,7 @@ import type * as Values from "@wardic/core/Values"
 import * as Sequence from "@wardic/core/Sequence"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Report from "@wardic/dom/Report"
-import { type BatchBinding, batchSubjectOf, callPartsOf, type WardicBatchSubject, type WardicBatchTarget } from "./batch.ts"
+import { type BatchBinding, batchSubjectOf, callPartsOf, isMemberElement, type WardicBatchSubject, type WardicBatchTarget } from "./batch.ts"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
@@ -556,9 +556,16 @@ export const scopedAnimate = (env: AnimateEnv, scope: () => Element | undefined,
     }
     const elements = subjectsOf(first as WardicAnimationSubject, scope())
     const target = second as WardicVariant
+    const onComplete = UndefinedOr.map(third, (given) => given.onComplete)
+    // No member's element among them: each element's track, building no parts (bench:solid --batch's
+    // per-element page, a call per element: 8.2 -> 8.5 ms at 1,000 with the parts built for every call; #665).
+    if (!Arr.some(elements, isMemberElement)) {
+      return started(watch, elements.length, onComplete, (head, settled) =>
+        Arr.map(elements, (element, index) => trackOf(env, element, target, transitionFor(third, index, elements.length), head, settled)))
+    }
     // A Batch's members' elements as one call over them, with its keys; the rest of each element's on its own (#665, Q14, Q35).
     const parts = callPartsOf(elements, target)
-    return started(watch, parts.members.length + parts.elements.length, UndefinedOr.map(third, (given) => given.onComplete), (head, settled) => [
+    return started(watch, parts.members.length + parts.elements.length, onComplete, (head, settled) => [
       ...Arr.map(parts.members, (part) => batchTrackOf(env, part.binding, part.target, part.members, third, head, settled)),
       ...Arr.map(parts.elements, (part) => trackOf(env, part.element, part.target, transitionFor(third, part.index, elements.length), head, settled)),
     ])
