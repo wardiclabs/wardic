@@ -9,7 +9,7 @@
  * import * as Batch from "@wardic/core/Batch"
  *
  * const grid = Batch.make({ keys: ["x", "y"], writer, transition: { type: "spring", visualDuration: 0.4 } })
- * const slots = tiles.map((tile) => Batch.enter(grid, tile, { x: 0, y: 0 }))
+ * const slots = [first, second, third].map((tile) => Batch.enter(grid, tile, { x: 0, y: 0 }))
  * Batch.retarget(grid, slots, (slot, k) => cellOf(slot)[k])
  */
 // #665, ADR-0069 decisions 10–18 and *Amendment (#665)*. Tier 2 (ADR-0008): for binding and Environment
@@ -398,7 +398,8 @@ const grow = <S>(state: State<S>, capacity: number): void => {
  * keeps that key's target). A member whose targets are unchanged gets nothing.
  *
  * @example
- * Batch.retarget(grid, slots, (slot, k) => cellOf(slot)[k])
+ * const grid = Batch.make({ keys: ["x", "y"], writer, transition: { type: "spring" } })
+ * Batch.retarget(grid, slots, (slot, k) => cellOf(slot)[k], { delay: Stagger.make(0.02) })
  */
 export const retarget: {
   (slots: ReadonlyArray<number>, targetOf: (slot: number, k: number) => number, options?: RetargetOptions): <S>(self: Batch<S>) => void
