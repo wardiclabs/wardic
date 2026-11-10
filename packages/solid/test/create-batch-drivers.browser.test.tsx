@@ -37,6 +37,8 @@ afterEach(resetScene)
 const BOX: JSX.CSSProperties = { width: "40px", height: "40px", background: "teal" }
 const SPRING = { type: "spring", stiffness: 210, damping: 20 } as const
 const TWEEN = { type: "tween", duration: 0.3 } as const
+// A point off every test's elements, for the mouse.
+const AWAY = { x: 600, y: 400 }
 
 const matrixOf = (el: Element): DOMMatrix => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)"))
 const xOf = (el: Element): number => matrixOf(el).m41
@@ -342,6 +344,8 @@ describe("the latest driver of a Batch member's keys on Solid 1 (#665)", () => {
       const grid = createBatch({ count: 1, initial: false, animate: () => ({ x: tx() }), transition: { type: "tween", duration: 1 } })
       return <wardic.div style={BOX} {...grid.at(0, { ref: (el) => (member = el as HTMLDivElement) })} whileHover={{ scale: 1.2 }} transition={TWEEN} />
     }
+    // The mouse off the element first: an earlier test leaves it parked over the page's corner.
+    await mouse.move(AWAY)
     render(() => (
       <WardicProvider env={DomLive}>
         <Scene />
@@ -360,7 +364,7 @@ describe("the latest driver of a Batch member's keys on Solid 1 (#665)", () => {
     hovered.forEach(([held], f) => expect(held, `frame ${f}: x held`).toBeCloseTo(x, 6))
     expect(hovered[hovered.length - 1][1]).toBeCloseTo(1.2, 6)
     // Off it: scale back to 1, and the Batch takes the transform back, on toward its 100.
-    await mouse.move({ x: 5, y: 5 })
+    await mouse.move(AWAY)
     const back = await over(120, () => [xOf(member), scaleOf(member)] as const)
     expect(back[back.length - 1]).toEqual([100, 1])
   })

@@ -67,7 +67,7 @@ import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceM
 import type { DragTrack } from "./drag-track.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
 import { delayedBy, type Follows, hasManyStops, keyframesFrom, type Leg, legsOf, mapMachine, type MeasuredPairs, startingAt, type StopsByKey, transitionForKey, type Velocities, withPathAxes } from "./retarget-legs.ts"
-import { type BatchGroup, batchGroupOf, type BatchHandover, type BatchHolder, type BatchMemberEntry, isMemberElement, memberEntryOf } from "./batch.ts"
+import { type MemberHold, memberHoldsNow } from "./member-hold.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import {
   changesContext,
@@ -1864,219 +1864,6 @@ export const draggingWithWillChange = (live: LiveStyle | undefined, setDragging:
  */
 export const claimForDrag = (element: Element): (() => void) => () => tellDrag(element, true)
 
-/** What a Batch member's element's spine gives its {@link MemberHold}. */
-interface MemberHoldParts {
-  readonly element: Element
-  readonly gate: FlushGate.Shape
-  readonly id: string
-  readonly snapshot: Snapshot
-  readonly owners: Owners
-  readonly giveUp: (key: string, running: Running) => void
-  readonly keepTheRest: () => void
-  /** `key` the spine's no more: out of the keys it drove and those it returns. */
-  readonly forget: (key: string) => void
-}
-
-/**
- * A Batch member's element's hold on the groups it takes from its Batch (#665's PR 4, ADR-0069
- * decision 17, Q52–Q54): its transform, or its opacity, taken as a leg on a key of it starts or a drag
- * moves it, and given back as its last leg on it ends, or at its Batch's next change of it.
- */
-interface MemberHold {
-  /**
-   * A Retarget's target `t` against the Batch (Q53): a group a key of it moves (its target other than
-   * what's drawn) is taken; a key it'd leave where the Batch draws it stays the Batch's, out of `t`. A
-   * drag holding `x`/`y` takes the transform.
-   */
-  readonly retarget: (t: Record<string, unknown>, dragged: boolean) => void
-  /** A leg landed: each group no leg runs on any more goes back to the Batch (Q54), from where it is. */
-  readonly settle: () => void
-  /** Its drag reads or writes `x`/`y` (`true`): it takes the transform; or hands them back (`false`). */
-  readonly drag: (on: boolean) => void
-  /** Its element unmounted: every group back to the Batch. */
-  readonly dispose: () => void
-}
-
-/** A Batch member's element's {@link MemberHold}: made as its spine first finds it a member's, at a Retarget or a drag. */
-const makeMemberHold = (parts: MemberHoldParts): MemberHold => {
-  const { element, gate, id, snapshot, owners, giveUp, keepTheRest, forget } = parts
-  // The groups it holds now, each with the Batch's keys in it; the member it took them from; and whether
-  // a drag holds `x`/`y`, from its first read or write to its hand-back.
-  const held = new Map<BatchGroup, ReadonlyArray<string>>()
-  let takenFrom: BatchMemberEntry | undefined
-  let dragging = false
-
-  /** Whether a leg still runs on a key of `group`. */
-  // Per held group at a leg's end (#665): statements.
-  const legRuns = (group: BatchGroup): boolean => {
-    let runs = false
-    Iter.forEach(owners, ([key, running]) => {
-      if (Predicate.isUndefined(running)) return
-      if (running.done) return
-      if (batchGroupOf(key) === group) runs = true
-    })
-    return runs
-  }
-
-  /**
-   * Whether a transform key the Batch doesn't draw (`rotate` on an `{ x, y }` Batch) has a leg running,
-   * or is off its identity: the Batch's transform would drop it.
-   */
-  // Per held transform at a leg's end or a Batch change (#665): statements.
-  const holdsUndrawn = (batchKeys: ReadonlyArray<string>): boolean => {
-    let holds = false
-    Iter.forEach(owners, ([key, running]) => {
-      if (Predicate.isUndefined(running)) return
-      if (running.done) return
-      if (batchGroupOf(key) !== "transform") return
-      if (Arr.contains(batchKeys, key)) return
-      holds = true
-    })
-    if (holds) return true
-    return Arr.some(Rec.keys(snapshot.values), (key) => {
-      if (batchGroupOf(key) !== "transform") return false
-      if (Arr.contains(batchKeys, key)) return false
-      return snapshot.values[key] !== BaseValue.TRANSFORM_IDENTITY[key]
-    })
-  }
-
-  /** Whether it keeps the transform: a drag holds it, or a transform key the Batch doesn't draw. */
-  const keepsTransform = (batchKeys: ReadonlyArray<string>): boolean => {
-    if (dragging) return true
-    return holdsUndrawn(batchKeys)
-  }
-
-  /** `group` given back: its legs give its keys up, the gate draws it no more (what's drawn kept), and its Batch keys' values and speeds. */
-  const surrender = (group: BatchGroup): BatchHandover | undefined => {
-    const batchKeys = held.get(group)
-    if (Predicate.isUndefined(batchKeys)) return undefined
-    held.delete(group)
-    const now = snapshot.now()
-    const values: Record<string, number> = {}
-    const velocities: Record<string, number> = {}
-    Arr.forEach(batchKeys, (key) => {
-      values[key] = snapshot.values[key] as number
-      velocities[key] = velocityAt(snapshot, owners.get(key), key, now)
-    })
-    // Setting a visited key is safe in a Map's iteration.
-    Iter.forEach(owners, ([key, running]) => {
-      if (Predicate.isUndefined(running)) return
-      if (batchGroupOf(key) === group) giveUp(key, running)
-    })
-    keepTheRest()
-    const inGroup = Arr.filter(Rec.keys(snapshot.values), (key) => batchGroupOf(key) === group)
-    // Left as drawn as it drops out: the Batch's writer draws it from its next step. A group's name is its property's.
-    gate.release(id, inGroup, undefined, [group])
-    Arr.forEach(inGroup, (key) => {
-      delete snapshot.values[key]
-      forget(key)
-    })
-    return { values, velocities }
-  }
-
-  const holder: BatchHolder = {
-    surrender,
-    keepsThrough: (group) => {
-      if (group !== "transform") return false
-      const batchKeys = held.get(group)
-      if (Predicate.isUndefined(batchKeys)) return false
-      return keepsTransform(batchKeys)
-    },
-  }
-
-  /** The groups `keys` are in, taken from its element's Batch (Q53): seeded at the member's values and speeds, drawn by the gate from now on. */
-  const claim = (keys: ReadonlyArray<string>): void => {
-    const entry = memberEntryOf(element)
-    if (Predicate.isUndefined(entry)) return
-    // Its element another member's now, or its Batch's no more and back in one: what it held is let go.
-    if (entry !== takenFrom) {
-      held.clear()
-      takenFrom = entry
-    }
-    Arr.forEach(keys, (key) => {
-      const group = batchGroupOf(key)
-      if (Predicate.isUndefined(group)) return
-      if (held.has(group)) return
-      const given = entry.binding.yieldGroup(entry.member, group, holder)
-      if (Predicate.isUndefined(given)) return
-      held.set(group, given.keys)
-      snapshot.values = { ...snapshot.values, ...given.values }
-      snapshot.velocities = { ...snapshot.velocities, ...given.velocities }
-      const now = snapshot.now()
-      Arr.forEach(given.keys, (seeded) => {
-        snapshot.drawnAt[seeded] = now
-      })
-      gate.write(id, given.values)
-    })
-  }
-
-  /** The member it holds groups of, while its element is still that member's; else none, and what it held let go. */
-  const memberNow = (): BatchMemberEntry | undefined => {
-    const entry = memberEntryOf(element)
-    if (entry === takenFrom) return entry
-    held.clear()
-    takenFrom = undefined
-    return undefined
-  }
-
-  /** Each group it holds and `keeps` doesn't, back to the member's Batch, from where it is. Deleting the visited entry is safe in a Map's iteration. */
-  const giveBack = (keeps: (group: BatchGroup, batchKeys: ReadonlyArray<string>) => boolean): void => {
-    if (held.size === 0) return
-    const entry = memberNow()
-    if (Predicate.isUndefined(entry)) return
-    Iter.forEach(held, ([group, batchKeys]) => {
-      if (keeps(group, batchKeys)) return
-      const back = surrender(group)
-      if (Predicate.isNotUndefined(back)) entry.binding.reclaim(entry.member, group, back)
-    })
-  }
-
-  /** Whether `group` stays its own at a leg's end: a leg runs on it, or it's the transform it keeps (Q54). */
-  const stays = (group: BatchGroup, batchKeys: ReadonlyArray<string>): boolean => {
-    if (legRuns(group)) return true
-    if (group !== "transform") return false
-    return keepsTransform(batchKeys)
-  }
-
-  return {
-    retarget: (t, dragged) => {
-      const entry = memberEntryOf(element)
-      if (Predicate.isUndefined(entry)) return
-      if (entry !== takenFrom) {
-        held.clear()
-        takenFrom = entry
-      }
-      if (dragged) claim(TRANSLATE_KEY_LIST)
-      // Per key of a member's Retarget: statements.
-      Arr.forEach(Rec.keys(t), (key) => {
-        const group = batchGroupOf(key)
-        if (Predicate.isUndefined(group)) return
-        if (held.has(group)) return
-        const drawn = entry.binding.drawnValueOf(entry.member, key)
-        if (Predicate.isUndefined(drawn)) return
-        if (t[key] === drawn) {
-          delete t[key]
-          return
-        }
-        claim([key])
-      })
-    },
-    settle: () => giveBack(stays),
-    drag: (on) => {
-      if (on) {
-        dragging = true
-        if (held.has("transform")) return
-        claim(TRANSLATE_KEY_LIST)
-        return
-      }
-      if (!dragging) return
-      dragging = false
-      giveBack(stays)
-    },
-    dispose: () => giveBack(constFalse),
-  }
-}
-
 /** What {@link makeElementSpine} reads. */
 export interface ElementSpineOptions {
   /** The provider runtime the legs fork on. */
@@ -2634,15 +2421,34 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   let memberHold: MemberHold | undefined
   const holdNow = (): MemberHold | undefined => {
     if (Predicate.isNotUndefined(memberHold)) return memberHold
-    if (!isMemberElement(element)) return undefined
-    memberHold = makeMemberHold({
+    // An app with no Batch has no way to make one, nor any member.
+    const holds = memberHoldsNow()
+    if (Predicate.isUndefined(holds)) return undefined
+    if (!holds.isMember(element)) return undefined
+    memberHold = holds.make({
       element,
       gate,
       id,
       snapshot,
-      owners,
-      giveUp,
-      keepTheRest,
+      // Per held group at a leg's end or a Batch change (#665): statements.
+      running: (which) => {
+        let runs = false
+        Iter.forEach(owners, ([key, running]) => {
+          if (Predicate.isUndefined(running)) return
+          if (running.done) return
+          if (which(key)) runs = true
+        })
+        return runs
+      },
+      // Setting a visited key is safe in a Map's iteration.
+      giveUp: (which) => {
+        Iter.forEach(owners, ([key, running]) => {
+          if (Predicate.isUndefined(running)) return
+          if (which(key)) giveUp(key, running)
+        })
+        keepTheRest()
+      },
+      velocityOf: (key, now) => velocityAt(snapshot, owners.get(key), key, now),
       forget: (key) => {
         driven.delete(key)
         returning.delete(key)
