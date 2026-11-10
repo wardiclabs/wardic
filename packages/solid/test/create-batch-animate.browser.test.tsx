@@ -14,6 +14,13 @@
 //   play to its start and `stop` mid-tween act as a plain element's call's.
 // - CBA7: a call that moves nothing resolves, as does one whose own `skipAnimations` lands it at once; a
 //   function that gives a member two stops starts it from its first.
+// - CBA8: `animate(memberEl, …)` moves its Batch keys as `animate(grid.at(i), …)` does and the rest as
+//   the same call on a plain element, under one set of controls (Q14, Q33); the Batch holds what it
+//   moved, so its next change turns the member on from there.
+// - CBA9: a list of members goes as one Batch call over them, its stagger counting the members that
+//   move in list order; a plain element in the list keeps Motion's delay by its index (Q35).
+// - CBA10: through an element, a transform the Batch doesn't draw, a string and three stops for a
+//   Batch key are errors naming the key; another key isn't (Q33, Q34).
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { createAnimate, createBatch, stagger, type WardicAnimate, type WardicBatch, WardicProvider } from "@wardic/solid"
@@ -25,6 +32,7 @@ afterEach(cleanup)
 
 const BOX: JSX.CSSProperties = { width: "40px", height: "40px", background: "teal" }
 const SPRING = { type: "spring", stiffness: 210, damping: 20 } as const
+const TWEEN = { duration: 0.4 } as const
 
 const matrixOf = (el: Element): DOMMatrix => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)"))
 const xOf = (el: Element): number => matrixOf(el).m41
@@ -201,5 +209,57 @@ describe("animate of a Batch on Solid 1 (#665)", () => {
     expect(firsts[2]).toBeLessThan(firsts[1])
     await readsOver(40, members, xOf)
     expect(members.map(xOf)).toEqual([10, 10, 10])
+  })
+
+  it("CBA8: animate(memberEl) moves its Batch keys as animate(grid.at(i)) and the rest as a plain element's call, under one set of controls", async () => {
+    const [target, setTarget] = createSignal(0)
+    const { grid, animate, members, plain } = mountBoth(2, () => ({ x: target() }))
+    await raf()
+    const tomato = "rgb(255, 99, 71)"
+    const split = animate(members[0], { x: 60, "background-color": tomato }, TWEEN)
+    const batched = animate(grid.at(1), { x: 60 }, TWEEN)
+    const own = animate(plain[0], { "background-color": tomato }, TWEEN)
+    const xs = await readsOver(6, [members[0], members[1]], xOf)
+    expectSame(xs[0], xs[1])
+    expect(getComputedStyle(members[0]).backgroundColor).toBe(getComputedStyle(plain[0]).backgroundColor)
+    ;[split, batched, own].forEach((controls) => {
+      controls.pause()
+      controls.time = 0.25
+    })
+    await raf()
+    expect(xOf(members[0])).toBeCloseTo(xOf(members[1]), 6)
+    expect(getComputedStyle(members[0]).backgroundColor).toBe(getComputedStyle(plain[0]).backgroundColor)
+    expect(split.duration).toBeCloseTo(Math.max(batched.duration, own.duration), 6)
+    ;[split, batched, own].forEach((controls) => controls.play())
+    await split
+    expect([xOf(members[0]), getComputedStyle(members[0]).backgroundColor, split.state]).toEqual([60, tomato, "finished"])
+    // The Batch's change takes both members on from 60, as one.
+    setTarget(100)
+    const on = await readsOver(50, [members[0], members[1]], xOf)
+    expectSame(on[0], on[1])
+    expect(on[0][0]).toBeGreaterThan(59)
+  })
+
+  it("CBA9: a list of members goes as one Batch call, its stagger counting the movers; a plain element keeps its index's", async () => {
+    const { animate, members, plain } = mountBoth(5)
+    await raf()
+    const delay = stagger(0.05)
+    // Members 0, 1 and 2 move, ranks 0 to 2 of 3; plain 0 is the list's second of 4; member 3 isn't in it.
+    void animate([members[0], plain[0], members[1], members[2]], { x: 80 }, { ...SPRING, delay })
+    ;[1, 2, 3].forEach((p, rank) => animate(plain[p], { x: 80 }, { ...SPRING, delay: delay(rank, 3) }))
+    animate(plain[4], { x: 80 }, { ...SPRING, delay: delay(1, 4) })
+    const frames = await readsOver(40, [members[0], members[1], members[2], plain[1], plain[2], plain[3], plain[0], plain[4], members[3]], xOf)
+    ;[0, 1, 2].forEach((m) => expectSame(frames[m], frames[m + 3]))
+    expectSame(frames[6], frames[7])
+    expect(new Set(frames[8])).toEqual(new Set([0]))
+  })
+
+  it("CBA10: through an element, a transform the Batch doesn't draw, a string and three stops for a Batch key are errors naming the key", async () => {
+    const { animate, members } = mountBoth(1)
+    await raf()
+    expect(() => animate(members[0], { rotate: 10 })).toThrow(/"rotate"/)
+    expect(() => animate(members[0], { x: "2rem" })).toThrow(/"x"/)
+    expect(() => animate(members[0], { x: [0, 10, 20] })).toThrow(/"x"/)
+    expect(() => animate(members[0], { opacity: 0.5 }, { duration: 0 })).not.toThrow()
   })
 })

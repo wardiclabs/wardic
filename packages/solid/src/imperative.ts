@@ -28,7 +28,7 @@ import type * as Values from "@wardic/core/Values"
 import * as Sequence from "@wardic/core/Sequence"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Report from "@wardic/dom/Report"
-import { batchSubjectOf, type WardicBatchSubject, type WardicBatchTarget } from "./batch.ts"
+import { batchSubjectOf, callPartsOf, type WardicBatchSubject, type WardicBatchTarget } from "./batch.ts"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
@@ -255,6 +255,14 @@ const transitionFor = (options: WardicAnimateOptions | undefined, index: number,
 /** A Batch call's transition (#665): the options without `onComplete`, a `stagger()` delay kept for the Batch to count its movers. */
 const batchTransitionOf = (options: WardicAnimateOptions | undefined): WardicTransition | undefined =>
   UndefinedOr.map(options, (given) => withoutComplete(given) as WardicTransition)
+
+/** A call's transition for a Batch's members' elements: the call's, the target's own over it. */
+const membersTransitionOf = (options: WardicAnimateOptions | undefined, target: WardicVariant): WardicTransition | undefined => {
+  const call = batchTransitionOf(options)
+  const own = (target as { readonly transition?: WardicTransition | undefined }).transition
+  if (Predicate.isUndefined(own)) return call
+  return { ...call, ...own } as WardicTransition
+}
 
 /** Whether a Batch call lands at once: its scope's animations are skipped, or its own `skipAnimations` (#468). */
 const skipsBatchCall = (env: AnimateEnv, options: WardicAnimateOptions | undefined): boolean => {
@@ -545,14 +553,27 @@ export const scopedAnimate = (env: AnimateEnv, scope: () => Element | undefined,
           skipAnimations: skipsBatchCall(env, third),
           head,
           settled,
-          member: batch.member,
+          members: UndefinedOr.map(batch.member, (member) => [member]),
         }),
       ])
     }
     const elements = subjectsOf(first as WardicAnimationSubject, scope())
     const target = second as WardicVariant
-    return started(watch, elements.length, UndefinedOr.map(third, (given) => given.onComplete), (head, settled) =>
-      Arr.map(elements, (element, index) => trackOf(env, element, target, transitionFor(third, index, elements.length), head, settled)))
+    // A Batch's members' elements as one call over them, with its keys; the rest of each element's on its own (#665, Q14, Q35).
+    const parts = callPartsOf(elements, target)
+    return started(watch, parts.members.length + parts.elements.length, UndefinedOr.map(third, (given) => given.onComplete), (head, settled) => [
+      ...Arr.map(parts.members, (part) =>
+        part.binding.track({
+          target: part.target,
+          transition: membersTransitionOf(third, target),
+          reducedMotion: env.reducedMotion(),
+          skipAnimations: skipsBatchCall(env, third),
+          head,
+          settled,
+          members: part.members,
+        })),
+      ...Arr.map(parts.elements, (part) => trackOf(env, part.element, part.target, transitionFor(third, part.index, elements.length), head, settled)),
+    ])
   }) as WardicAnimate
 
 /**
