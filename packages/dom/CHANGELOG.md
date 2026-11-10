@@ -1,5 +1,20 @@
 # @wardic/dom
 
+## 1.0.0-rc.9
+
+### Patch Changes
+
+- 18d6656: A layout change that Wardic sees after a frame's animation tick, but before that frame paints, now moves in that frame instead of holding its old place for one frame. That covers content that grows (seen by Wardic's own ResizeObserver), an effect that runs as Wardic writes a frame, and a change made when a layout animation ends. Its first painted step is the same one a click makes. Wardic can't tell when your own ResizeObserver callback or a later `requestAnimationFrame` callback runs, so a change made there still starts moving at the next frame.
+- 84305f5: A `layoutId` twin's Follower now stays on its Lead when a Wardic element the Lead is inside starts moving or scaling after the shared-layout animation began, such as a `whileHover` scale, a drag, or a later `animate` change on that container. Before, the Follower drifted off by as much as the container moved. A transform that isn't Wardic's, such as CSS's own, still isn't followed during the animation.
+- 4acfef6: An animation that starts after a frame's animation tick, but before that frame paints, now moves in that frame instead of holding its starting value for one frame. That covers an animation an `onAnimationComplete` callback starts, a `when: "beforeChildren"` variant's children, the child that enters after `<AnimatePresence mode="wait">`'s exit, and, on Solid 2, what an effect starts when it reacts to an animation landing. A layout change Solid 2 makes in those effects moves in that frame too. An animation started from a later `requestAnimationFrame` callback, or after an `await`, still starts moving at the next frame.
+- b029b07: An element with `layoutRoot` or `layoutScroll` but no `layout` or `layoutId` no longer animates its own layout, as with Motion. A `layoutRoot` alone now moves with a parent's layout animation instead of holding its new place, while still being the frame its children's layout animations are measured against. A `layoutScroll` alone moves to its new place at once instead of animating there, and still keeps its scroll out of its children's layout animations. Add `layout` to either for the previous behaviour: a `layout layoutRoot` stays at its new place while its parent animates. `Projection.LayoutMode` gains `false` for a node with no layout animation of its own. A keyed presence child that takes over from its leaving element starts no layout animation when its `layout` mode leaves nothing to move, as with Motion.
+- 8bc596b: A `layoutId` element no longer flies back toward a twin that is leaving too. Going back and forth between two pages quickly, under `<AnimatePresence mode="popLayout">`, could make the previous item's photo, on the page that leaves, fly toward its twin on the page that had already gone. It now stays where it's drawn and fades out with its page: a twin hands over only to one that isn't leaving, as Motion's does.
+- 8276e4a: A layout Measure pass no longer writes the transform of each element at rest. A pass that moves nothing, which follows most changes in an app, such as one row's text, wrote every layout element's transform twice and made the browser recalculate their style. At 1,000 layout elements it now takes about half the time in Chromium and a third in Firefox, and Solid's layout benchmark measures 57–61% faster. An element is measured at `transform: none`, as Motion measures it: a stylesheet's `transform` on a layout element is left out of its measured box, as it's left out of what Wardic draws at rest.
+- Updated dependencies [18d6656]
+- Updated dependencies [4acfef6]
+- Updated dependencies [b029b07]
+  - @wardic/core@1.0.0-rc.9
+
 ## 1.0.0-rc.8
 
 ### Patch Changes

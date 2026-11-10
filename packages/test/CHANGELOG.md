@@ -1,5 +1,14 @@
 # @wardic/test
 
+## 1.0.0-rc.9
+
+### Patch Changes
+
+- Updated dependencies [18d6656]
+- Updated dependencies [4acfef6]
+- Updated dependencies [b029b07]
+  - @wardic/core@1.0.0-rc.9
+
 ## 1.0.0-rc.8
 
 ### Patch Changes
