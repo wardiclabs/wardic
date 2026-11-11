@@ -26,6 +26,12 @@ export interface BatchSceneOptions {
   readonly whileTap?: WardicBatchGesture | ((item: string, i: number) => WardicBatchValues)
   /** Each item's exit, its `<For>` under an `<AnimatePresence>`. */
   readonly exit?: WardicBatchExit
+  /** The group's `direction` prop. */
+  readonly direction?: "ltr" | "rtl"
+  /** The group inside an ancestor with `dir="rtl"`, and no prop. */
+  readonly rtl?: boolean
+  /** A grid with no `columns`, its width this, in px, read reactively (Q36). */
+  readonly fromWidth?: Accessor<number>
   readonly announcements?: Partial<CoreReorder.Announcements<string>>
 }
 
@@ -77,15 +83,19 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Scen
       axis={layout}
       itemSize={{ width: l.w, height: l.h }}
       gap={10}
-      {...Bool.match(layout === "xy", { onTrue: () => ({ columns: 3 }), onFalse: () => ({}) })}
+      {...Bool.match(Bool.and(layout === "xy", Predicate.isUndefined(o.fromWidth)), { onTrue: () => ({ columns: 3 }), onFalse: () => ({}) })}
       {...UndefinedOr.match(o.whileDrag, { onUndefined: () => ({}), onDefined: (whileDrag) => ({ whileDrag }) })}
       {...UndefinedOr.match(o.transition, { onUndefined: () => ({}), onDefined: (transition) => ({ transition }) })}
       keyboard={UndefinedOr.match(o.keyboard, { onUndefined: () => undefined, onDefined: (keyboard) => keyboard() })}
       {...UndefinedOr.match(o.whileHover, { onUndefined: () => ({}), onDefined: (whileHover) => ({ whileHover }) })}
       {...UndefinedOr.match(o.whileTap, { onUndefined: () => ({}), onDefined: (whileTap) => ({ whileTap }) })}
       {...UndefinedOr.match(o.exit, { onUndefined: () => ({}), onDefined: (exit) => ({ exit }) })}
+      {...UndefinedOr.match(o.direction, { onUndefined: () => ({}), onDefined: (direction) => ({ direction }) })}
       {...UndefinedOr.match(o.announcements, { onUndefined: () => ({}), onDefined: (announcements) => ({ announcements }) })}
-      style={UndefinedOr.match(o.container, { onUndefined: () => AT, onDefined: () => ({ margin: "0", padding: "0" }) })}
+      style={{
+        ...UndefinedOr.match(o.container, { onUndefined: () => AT, onDefined: () => ({ margin: "0", padding: "0" }) }),
+        ...UndefinedOr.match(o.fromWidth, { onUndefined: () => ({}), onDefined: (width) => ({ width: `${width()}px` }) }),
+      }}
     >
       {Bool.match(Predicate.isUndefined(o.exit), {
         onTrue: () => items(),
@@ -104,7 +114,7 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Scen
             {group()}
           </div>
         ),
-        onUndefined: group,
+        onUndefined: () => Bool.match(o.rtl === true, { onTrue: () => <div dir="rtl">{group()}</div>, onFalse: group }),
       })}
     </WardicProvider>
   ))

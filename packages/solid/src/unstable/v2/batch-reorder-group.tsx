@@ -16,7 +16,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import type { JSX } from "@solidjs/web"
 import { createContext, createEffect, createMemo, createSignal, flush, omit, onCleanup, untrack, useContext } from "solid-js"
 import { configTransitionOf, type WardicBatchExit, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues } from "../../batch.ts"
-import { type BatchReorderBinding, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize } from "../../batch-reorder.ts"
+import { type BatchReorderBinding, type BatchReorderDirection, type BatchReorderMeasure, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize, sameMeasure } from "../../batch-reorder.ts"
 import { refsOf, staticElementOf } from "./element.tsx"
 import { usePresenceContext } from "./presence.tsx"
 import { useBrought, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
@@ -48,8 +48,13 @@ export type ReorderBatchGroupProps<V, Tag extends ReorderElementTag = "ul"> = {
   readonly itemSize: ReorderBatchItemSize
   /** The space between places, in px: one for both axes, or `{ x, y }`. None by default. */
   readonly gap?: ReorderBatchGap | undefined
-  /** A grid's columns: how many items a row holds. */
+  /** A grid's columns: how many items a row holds. Left out, as many as the group's width holds, read again as it's resized. */
   readonly columns?: number | undefined
+  /**
+   * `"rtl"` mirrors a row's and a grid's places, from the group's right edge. Left out, the group's element's
+   * computed direction, read as it mounts (a server render's `"ltr"`).
+   */
+  readonly direction?: BatchReorderDirection | undefined
   /** The keyboard reorder: on unless `false`. */
   readonly keyboard?: boolean | undefined
   /** What a screen reader hears at each step of a keyboard reorder, over the English defaults. */
@@ -115,6 +120,7 @@ interface GroupLocal<V> {
   readonly itemSize: ReorderBatchItemSize
   readonly gap?: ReorderBatchGap | undefined
   readonly columns?: number | undefined
+  readonly direction?: BatchReorderDirection | undefined
   readonly keyboard?: boolean | undefined
   readonly announcements?: Partial<CoreReorder.Announcements<V>> | undefined
   readonly instructions?: string | undefined
@@ -147,6 +153,7 @@ const GROUP_OWN = [
   "itemSize",
   "gap",
   "columns",
+  "direction",
   "keyboard",
   "announcements",
   "instructions",
@@ -194,6 +201,8 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
   const local = props as unknown as GroupLocal<V>
   const runtime = useWardicRuntime()
   const services = useBrought(GROUP_BRINGS)
+  // What the group read of its element: its direction and width (Q35, Q36).
+  const [measured, setMeasured] = createSignal<BatchReorderMeasure | undefined>(undefined, { equals: sameMeasure })
   // Its events (#257 item 3), ended with it.
   const events = new Waiters<ReorderGroupEvents<V>>(GROUP_GONE)
   onCleanup(() => events.dispose())
@@ -212,7 +221,9 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
       },
       {
         values: () => local.values,
-        geometry: () => geometryOf(local),
+        geometry: () => geometryOf(local, measured()),
+        direction: () => local.direction,
+        onMeasure: setMeasured,
         initial: () => local.initial,
         transition: () => local.transition,
         whileDrag: () => local.whileDrag,
@@ -244,7 +255,7 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
   const instructions = (): string => UndefinedOr.match(local.instructions, { onUndefined: () => ReorderController.DEFAULT_INSTRUCTIONS, onDefined: identity })
   const controller = binding.controller
   const group: ReorderBatchGroup<V> = {
-    axis: () => geometryOf(local).axis,
+    axis: () => geometryOf(local, untrack(measured)).axis,
     move: (value, toIndex) => {
       moving = true
       try {

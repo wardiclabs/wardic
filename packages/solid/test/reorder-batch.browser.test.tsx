@@ -26,6 +26,11 @@
 // - BE1: an item leaving under `<AnimatePresence>` plays its `exit` at its last place, its element kept until
 //   it lands and neither focusable nor draggable meanwhile; the others close up at once, and the group
 //   shrinks at once (Q38).
+// - BR1 (Q35): right-to-left: `direction="rtl"` mirrors a row's places as an rtl `Reorder.Group` lays its
+//   items out, and a grid's from its right edge; a page's `dir="rtl"` does it with no prop, at once; the
+//   same drags and keys give an rtl `Reorder.Group`'s orders and announcements.
+// - BC1 (Q36): a grid with no `columns` holds as many a row as its width does, placed there at once as it
+//   mounts; widened, it holds more, its items moving to their new places, its height following.
 // - BG5: no item listens at rest, and the page's listeners are as many for 20 items as for 5; a focus
 //   and a blur leave none behind.
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
@@ -86,7 +91,7 @@ interface Path {
  * `path` driven on a `Reorder.Group` with `layout`'s geometry, then on a `Reorder.BatchGroup` with it: each
  * one's reorders, its DOM's order, and how far its item in hand ended from under the pointer.
  */
-const both = async (layout: Layout, path: Path, options: BatchSceneOptions = {}) => {
+const both = async (layout: Layout, path: Path, options: BatchSceneOptions = {}, reference: { readonly rtl?: boolean } = {}) => {
   const run = async (s: Scene) => {
     const { to, grabOffset } = await drag(s, path.value, path.dx, path.dy, path.steps)
     const result = { reorders: joined(s.reorders), dom: domOrder(s.group()), off: offPointer(s.item(path.value), to, grabOffset) }
@@ -94,9 +99,9 @@ const both = async (layout: Layout, path: Path, options: BatchSceneOptions = {})
     await resetScene()
     return result
   }
-  const reference = await run(await mountReorder({ layout, axis: () => layout }))
+  const referenced = await run(await mountReorder({ ...reference, layout, axis: () => layout }))
   const batch = await run(await mountBatchReorder({ ...options, layout }))
-  return { reference, batch }
+  return { reference: referenced, batch }
 }
 
 /** `el`'s drawn scale, from its transform. */
@@ -444,5 +449,52 @@ describe("Reorder.BatchGroup and Reorder.BatchItem", () => {
     await wait(500)
     expect(b.isConnected, "gone once it lands").toBe(false)
     expect(domOrder(s.group())).toBe("acde")
+  }, 30_000)
+
+  it("BR1: right-to-left places, drags and keys are an rtl Reorder.Group's; a page's dir does it with no prop, at once", async () => {
+    const reference = await mountReorder({ layout: "x", axis: () => "x", rtl: true })
+    const referenceBoxes = ["a", "b", "c", "d", "e"].map((v) => boxOf(reference.item(v)))
+    await resetScene()
+    const row = await mountBatchReorder({ layout: "x", direction: "rtl" })
+    expect(["a", "b", "c", "d", "e"].map((v) => boxOf(row.item(v))), "a row's places, mirrored").toEqual(referenceBoxes)
+    await resetScene()
+    const inherited = await mountBatchReorder({ layout: "x", rtl: true })
+    expect(["a", "b", "c", "d", "e"].map((v) => boxOf(inherited.item(v))), "a page's dir, at once").toEqual(referenceBoxes)
+    await resetScene()
+    const grid = await mountBatchReorder({ layout: "xy", direction: "rtl" })
+    const right = boxOf(grid.group()).left + boxOf(grid.group()).width
+    expect(boxOf(grid.item("a")), "a grid's first place at its right edge").toEqual({ left: right - 80, top: 40, width: 80, height: 50 })
+    expect(boxOf(grid.item("d")).left, "its second row from the right too").toBe(right - 80)
+    await resetScene()
+
+    const paths: ReadonlyArray<Path> = [
+      { value: "a", dx: -201, dy: 0, steps: 67 },
+      { value: "b", dx: 30, dy: 0, steps: 15 },
+    ]
+    for (const path of paths) {
+      const { reference: r, batch } = await both("x", path, { direction: "rtl" }, { rtl: true })
+      expect(batch.reorders, `${path.value} by ${path.dx}: the same orders`).toEqual(r.reorders)
+      expect(batch.off, `${path.value} by ${path.dx}: under the pointer`).toBeLessThan(1)
+    }
+    const pressed = ["Space", "ArrowLeft", "ArrowLeft", "ArrowRight", "Space"]
+    const byKeys = await keys(await mountReorder({ layout: "x", axis: () => "x", rtl: true }), "b", pressed)
+    await resetScene()
+    const batchKeys = await keys(await mountBatchReorder({ layout: "x", direction: "rtl" }), "b", pressed)
+    expect(batchKeys.orders, "the arrows' orders").toEqual(byKeys.orders)
+    expect(batchKeys.said, "the arrows' announcements").toEqual(byKeys.said)
+  }, 60_000)
+
+  it("BC1: a grid's columns from its width, at once as it mounts; widened, more a row, its height following", async () => {
+    const [width, setWidth] = createSignal(300)
+    const s = await mountBatchReorder({ layout: "xy", n: 10, fromWidth: width, transition: { type: "tween", duration: 0.2 } })
+    // 300 px holds three 80 px places 10 px apart.
+    expect(boxOf(s.item("d")), "three a row, at once").toEqual({ left: 40, top: 40 + 60, width: 80, height: 50 })
+    expect(boxOf(s.group()), "its width the app's, its height its four rows'").toEqual({ left: 40, top: 40, width: 300, height: 4 * 50 + 3 * 10 })
+    setWidth(480)
+    await wait(500)
+    // 480 px holds five.
+    expect(boxOf(s.item("d")), "d on the first row").toEqual({ left: 40 + 3 * 90, top: 40, width: 80, height: 50 })
+    expect(boxOf(s.item("f")), "f on the second").toEqual({ left: 40, top: 40 + 60, width: 80, height: 50 })
+    expect(boxOf(s.group()).height, "two rows").toBe(2 * 50 + 10)
   }, 30_000)
 })

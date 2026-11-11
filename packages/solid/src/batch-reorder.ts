@@ -17,6 +17,7 @@ import type * as Box from "@wardic/core/Box"
 import type * as Drag from "@wardic/core/Drag"
 import * as DragRecognizer from "@wardic/core/DragRecognizer"
 import * as InputSource from "@wardic/core/InputSource"
+import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import type * as CoreReorder from "@wardic/core/Reorder"
 import * as ReorderController from "@wardic/dom/ReorderController"
 import * as Report from "@wardic/dom/Report"
@@ -57,36 +58,69 @@ interface XY {
 /** The space between a Batch Reorder group's places, in px: one for both axes, or each its own. */
 export type ReorderBatchGap = number | XY
 
-/** Where a Batch Reorder group's items go (decision 3): its shape, its items' size, the gap and a grid's columns. */
+/** A group's direction: its places from its left edge, or mirrored from its right. */
+export type BatchReorderDirection = "ltr" | "rtl"
+
+/** What the group reads of its element once it's on the page: its computed direction, and its content box's width. */
+export interface BatchReorderMeasure {
+  readonly direction: BatchReorderDirection
+  readonly width: number
+}
+
+/**
+ * Where a Batch Reorder group's items go (decision 3): its shape, its items' size, the gap, a grid's
+ * columns, its direction (its `direction`, else its element's), and its content width once it's read.
+ */
 export interface BatchReorderGeometry {
   readonly axis: CoreReorder.Axis
   readonly itemSize: ReorderBatchItemSize
   readonly gap: ReorderBatchGap | undefined
   readonly columns: number | undefined
+  readonly direction: BatchReorderDirection
+  readonly width: number | undefined
 }
 
-/** A group's geometry from its props, as either binding reads them: its axis `"y"` when it gives none. */
-export const geometryOf = (props: {
-  readonly axis?: CoreReorder.Axis | undefined
-  readonly itemSize: ReorderBatchItemSize
-  readonly gap?: ReorderBatchGap | undefined
-  readonly columns?: number | undefined
-}): BatchReorderGeometry => ({
+/**
+ * A group's geometry from its props, as either binding reads them, and what it read of its element: its
+ * axis `"y"` when it gives none; its `direction`, else its element's, else `"ltr"` (a server's, Q35).
+ */
+export const geometryOf = (
+  props: {
+    readonly axis?: CoreReorder.Axis | undefined
+    readonly itemSize: ReorderBatchItemSize
+    readonly gap?: ReorderBatchGap | undefined
+    readonly columns?: number | undefined
+    readonly direction?: BatchReorderDirection | undefined
+  },
+  measured: BatchReorderMeasure | undefined,
+): BatchReorderGeometry => ({
   axis: UndefinedOr.match(props.axis, { onUndefined: (): CoreReorder.Axis => "y", onDefined: identity }),
   itemSize: props.itemSize,
   gap: props.gap,
   columns: props.columns,
+  direction: UndefinedOr.match(props.direction, {
+    onUndefined: () => UndefinedOr.match(measured, { onUndefined: (): BatchReorderDirection => "ltr", onDefined: (m) => m.direction }),
+    onDefined: identity,
+  }),
+  width: UndefinedOr.map(measured, (m) => m.width),
 })
 
 /**
  * A group's places, resolved from its geometry once a change: how many a row holds, the step from one to
- * the next on each axis, and every item's size.
+ * the next on each axis, where the first column is and which way the next ones go (mirrored, right to
+ * left), every item's size, and the group's width.
  */
 export interface BatchReorderPlaces {
   readonly columns: number
   readonly stepX: number
   readonly stepY: number
+  readonly originX: number
+  readonly signX: number
   readonly itemSize: ReorderBatchItemSize
+  /** The group's width: its places', or, its columns from its width (Q36), its own. */
+  readonly width: number
+  /** Whether its columns come from its width: the group sets no width of its own. */
+  readonly fromWidth: boolean
 }
 
 /** No offset, no gap: (0, 0). */
@@ -102,50 +136,80 @@ const gapsOf: (gap: ReorderBatchGap) => XY = Match.type<ReorderBatchGap>().pipe(
 /** Whether a grid's `columns` is a whole number, 1 or more. */
 const isColumnCount = (columns: number): boolean => Bool.and(Number.isInteger(columns), columns >= 1)
 
-/** A grid's `columns`, checked. */
-// PR 3 (#712, Q21): a grid's columns from the group's width when it's given none.
-const gridColumnsOf = (columns: number | undefined): number =>
-  UndefinedOr.match(columns, {
-    onUndefined: () => fail(`a Reorder.BatchGroup on axis "xy" takes its \`columns\`: how many items a row holds`),
-    onDefined: (given) =>
-      Bool.match(isColumnCount(given), {
-        onTrue: () => given,
-        onFalse: () => fail(`a Reorder.BatchGroup's \`columns\` is ${String(given)}: a whole number, 1 or more`),
-      }),
+/** A grid's given `columns`, checked. */
+const checkedColumns = (columns: number): number =>
+  Bool.match(isColumnCount(columns), {
+    onTrue: () => columns,
+    onFalse: () => fail(`a Reorder.BatchGroup's \`columns\` is ${String(columns)}: a whole number, 1 or more`),
   })
 
-/** How many places a row holds, by axis: one in a column, every item in a row, a grid's `columns`. Built once, at module load. */
-const columnsBy: (axis: CoreReorder.Axis) => (geometry: BatchReorderGeometry, n: number) => number = Match.type<CoreReorder.Axis>().pipe(
+/** How many places of `step` fit `width`, a `gap` after all but the last: at least one; one before the width is read. */
+const fittingIn = (width: number | undefined, step: number, gap: number): number =>
+  UndefinedOr.match(width, { onUndefined: () => 1, onDefined: (w) => Math.max(1, Math.floor((w + gap) / step)) })
+
+/** How many places a row holds, by axis: one in a column, every item in a row, a grid's `columns`, else as many as its width holds (Q36). */
+const columnsBy: (axis: CoreReorder.Axis) => (geometry: BatchReorderGeometry, n: number, step: number, gap: number) => number = Match.type<CoreReorder.Axis>().pipe(
   Match.when("y", () => (): number => 1),
   Match.when("x", () => (_: BatchReorderGeometry, n: number): number => Math.max(n, 1)),
-  Match.orElse(() => (geometry: BatchReorderGeometry): number => gridColumnsOf(geometry.columns)),
+  Match.orElse(() => (geometry: BatchReorderGeometry, _: number, step: number, gap: number): number =>
+    UndefinedOr.match(geometry.columns, { onUndefined: () => fittingIn(geometry.width, step, gap), onDefined: checkedColumns })
+  ),
 )
 
-/** `geometry`'s places for `n` items: an error naming a grid's `columns` that's missing or isn't a whole number. */
+/** A grid whose columns come from its width: `"xy"` with no `columns`. */
+const isFromWidth = (geometry: BatchReorderGeometry): boolean => Bool.and(geometry.axis === "xy", Predicate.isUndefined(geometry.columns))
+
+/** `geometry`'s places for `n` items: an error naming a grid's `columns` that isn't a whole number. */
 export const resolvePlaces = (geometry: BatchReorderGeometry, n: number): BatchReorderPlaces => {
   const gap = UndefinedOr.match(geometry.gap, { onUndefined: () => ORIGIN, onDefined: gapsOf })
+  const stepX = geometry.itemSize.width + gap.x
+  const columns = columnsBy(geometry.axis)(geometry, n, stepX, gap.x)
+  const fromWidth = isFromWidth(geometry)
+  // Its places' width, or its own once read when its columns come from it.
+  const used = Math.min(columns, Math.max(n, 1))
+  const placesWidth = Bool.match(n === 0, { onTrue: () => 0, onFalse: () => (used - 1) * stepX + geometry.itemSize.width })
+  const width = Bool.match(fromWidth, {
+    onTrue: () => UndefinedOr.match(geometry.width, { onUndefined: () => placesWidth, onDefined: identity }),
+    onFalse: () => placesWidth,
+  })
+  const rtl = geometry.direction === "rtl"
   return {
-    columns: columnsBy(geometry.axis)(geometry, n),
-    stepX: geometry.itemSize.width + gap.x,
+    columns,
+    stepX,
     stepY: geometry.itemSize.height + gap.y,
+    // Right to left, the first column at the group's right edge, the next ones leftward.
+    originX: Bool.match(rtl, { onTrue: () => width - geometry.itemSize.width, onFalse: () => 0 }),
+    signX: Bool.match(rtl, { onTrue: () => -1, onFalse: () => 1 }),
     itemSize: geometry.itemSize,
+    width,
+    fromWidth,
   }
 }
 
-/** Item `i`'s place among `places`: its column and row, a step apart, from the group's top-left. */
+/** Whether two reads of a group's element are alike: the same direction and width. */
+export const sameMeasure = (a: BatchReorderMeasure | undefined, b: BatchReorderMeasure | undefined): boolean =>
+  UndefinedOr.match(a, {
+    onUndefined: () => Predicate.isUndefined(b),
+    onDefined: (x) => UndefinedOr.match(b, { onUndefined: () => false, onDefined: (y) => Bool.and(x.direction === y.direction, x.width === y.width) }),
+  })
+
+/** Whether two resolutions place every item alike. */
+const samePlaces = (a: BatchReorderPlaces, b: BatchReorderPlaces): boolean =>
+  Bool.every([a.columns === b.columns, a.stepX === b.stepX, a.stepY === b.stepY, a.originX === b.originX, a.signX === b.signX])
+
+/** Item `i`'s place among `places`: its column and row, a step apart, from the group's top-left, or, mirrored, its top-right. */
 export const placeOf = (places: BatchReorderPlaces, i: number): XY => ({
-  x: (i % places.columns) * places.stepX,
+  x: places.originX + places.signX * (i % places.columns) * places.stepX,
   y: Math.floor(i / places.columns) * places.stepY,
 })
 
-/** The group's size for `n` items: its places' extent, the last place's far edge. */
+/** The group's size for `n` items: its width, and its places' height, the last row's far edge. */
 export const extentOf = (places: BatchReorderPlaces, n: number): ReorderBatchItemSize =>
   Bool.match(n === 0, {
     onTrue: () => NO_SIZE,
     onFalse: () => {
-      const columns = Math.min(places.columns, n)
       const rows = Math.ceil(n / places.columns)
-      return { width: (columns - 1) * places.stepX + places.itemSize.width, height: (rows - 1) * places.stepY + places.itemSize.height }
+      return { width: places.width, height: (rows - 1) * places.stepY + places.itemSize.height }
     },
   })
 
@@ -177,8 +241,12 @@ const isHTMLElement = (node: unknown): node is HTMLElement => node instanceof HT
 export interface BatchReorderOptions<V> {
   /** The list's values, in order: read in the binding's tracking. */
   readonly values: () => ReadonlyArray<V>
-  /** Where its items go: read in the binding's tracking. */
+  /** Where its items go: read in the binding's tracking, what it measured ({@link onMeasure}) in it. */
   readonly geometry: () => BatchReorderGeometry
+  /** Its `direction` prop, which its element's style takes too, so the keyboard and the crossover read it. */
+  readonly direction: () => BatchReorderDirection | undefined
+  /** What the group read of its element, at its mount and as it's resized: for the binding to track into its geometry. */
+  readonly onMeasure: (measure: BatchReorderMeasure) => void
   readonly initial: () => false | WardicBatchValues | ((item: V, i: number) => WardicBatchValues) | undefined
   readonly transition: () => WardicBatchTransition | undefined
   readonly whileDrag: () => WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
@@ -248,6 +316,9 @@ interface InHand {
   y: number
 }
 
+/** A change that lands at once: the first measure's, which places the items before the first paint. */
+const AT_ONCE: WardicBatchTransition = { skipAnimations: true }
+
 /** `px`. */
 const px = (n: number): string => `${n}px`
 
@@ -261,7 +332,8 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
   // only while the keyboard reorder doesn't take them (Q32), read at each key.
   const gestures = batchGesturesOn(runtime, options.brought)
   // The places each item's is read from, resolved once a change: the Batch reads the list before any
-  // item's targets.
+  // item's targets. A change of them its first measure makes lands at once (Q35, Q36): no flight from a
+  // guess, before the first paint.
   let resolved: BatchReorderPlaces = resolvePlaces(env.untrack(options.geometry), env.untrack(options.values).length)
   /** An item's place now, at index `i`. */
   const placeAt = (i: number): XY => placeOf(resolved, i)
@@ -279,6 +351,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     })
     return startMade
   }
+  let atOnce = false
   // Whether any member is moving, from a flight's start to its landing; the items raised as they come to
   // rest, let down at the landing; and the members a pointer let go of, still flying to their places,
   // which a grab stops.
@@ -298,6 +371,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       return startOf(env.untrack(options.initial))
     },
     get transition() {
+      if (atOnce) return AT_ONCE
       return env.untrack(options.transition)
     },
     get whileDrag() {
@@ -537,6 +611,52 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     }
   }
 
+  // --- What it reads of its element (Q35, Q36) -------------------------------------------------
+
+  let measured = false
+  let sizes: ResizeObserver | undefined
+  // Whether it's gone: a read a frame callback still had waiting does nothing then.
+  let gone = false
+  /**
+   * Its element's computed direction and content width, told its binding: the first time, its items go to
+   * the places they give at once when those aren't where they are.
+   */
+  const measure = (el: Element): void => {
+    if (gone) return
+    if (Bool.not(el.isConnected)) return
+    const style = getComputedStyle(el)
+    const read: BatchReorderMeasure = {
+      direction: Bool.match(style.direction === "rtl", { onTrue: (): BatchReorderDirection => "rtl", onFalse: () => "ltr" }),
+      width: el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight),
+    }
+    if (Bool.not(measured)) {
+      measured = true
+      const n = env.untrack(options.values).length
+      atOnce = Bool.not(samePlaces(resolved, resolvePlaces(geometryAfter(read), n)))
+    }
+    options.onMeasure(read)
+  }
+  /** The geometry once `read` is told: the props', with what was read. */
+  const geometryAfter = (read: BatchReorderMeasure): BatchReorderGeometry => {
+    const now = env.untrack(options.geometry)
+    return { ...now, direction: UndefinedOr.match(options.direction(), { onUndefined: () => read.direction, onDefined: identity }), width: read.width }
+  }
+  /**
+   * Its element read again as it's resized: a grid's columns from its width (Q36). Read the frame after: a new
+   * column count changes the group's height, which inside the observer's own delivery is a notification it
+   * can't deliver (the page's "ResizeObserver loop" error).
+   */
+  const observeSize = (el: Element): void => {
+    if (Predicate.isNotUndefined(sizes)) sizes.disconnect()
+    // The Environment's frames (ADR-0031), called detached as the flush gate's are: the web's is
+    // `requestAnimationFrame` itself, which won't run with another object as its `this`.
+    const { requestFrame } = runtime.runSync(RefreshFrameSource.RefreshFrameSource)
+    sizes = new ResizeObserver(() => {
+      requestFrame(() => measure(el))
+    })
+    sizes.observe(el)
+  }
+
   /** Member `i`'s keyboard lift: its `whileDrag` on, or off at its drop, then let down. */
   const onLift = (i: number, lifted: boolean): void => {
     turnWhileDrag(i, lifted)
@@ -551,17 +671,28 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       if (values !== placedValues) controller.valuesChanged()
       placedValues = values
       batch.apply(targets)
+      atOnce = false
       version = version + 1
       controller.placed()
     },
     groupStyle: (own) => {
       const n = options.values().length
-      const extent = extentOf(resolvePlaces(options.geometry(), n), n)
-      return Style.over(own, { ...ReorderController.GROUP_STYLE, position: "relative", width: px(extent.width), height: px(extent.height) })
+      const places = resolvePlaces(options.geometry(), n)
+      const extent = extentOf(places, n)
+      const sized: Record<string, string> = { ...ReorderController.GROUP_STYLE, position: "relative", height: px(extent.height) }
+      // Its columns from its width (Q36): its width is the app's, which it reads.
+      if (Bool.not(places.fromWidth)) sized.width = px(extent.width)
+      UndefinedOr.map(options.direction(), (direction) => {
+        sized.direction = direction
+      })
+      return Style.over(own, sized)
     },
     attach: (el) => {
       groupEl = el
       controller.attach(el)
+      observeSize(el)
+      // Once it's on the page: its computed direction and width, before the first paint.
+      queueMicrotask(() => measure(el))
     },
     item: (value, presence) => {
       const member = batch.memberFor(value, presence)
@@ -599,6 +730,8 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     controller,
     pressable,
     dispose: () => {
+      gone = true
+      UndefinedOr.map(sizes, (observer) => observer.disconnect())
       gestures.close()
       OwnerScope.close(runtime, scope, CLOSE_FAILED)
       batch.dispose()

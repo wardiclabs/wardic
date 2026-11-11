@@ -26,6 +26,12 @@ export interface BatchSceneOptions {
   readonly whileTap?: WardicBatchGesture | ((item: string, i: number) => WardicBatchValues)
   /** Each item's exit, its `<For>` under an `<AnimatePresence>`. */
   readonly exit?: WardicBatchExit
+  /** The group's `direction` prop. */
+  readonly direction?: "ltr" | "rtl"
+  /** The group inside an ancestor with `dir="rtl"`, and no prop. */
+  readonly rtl?: boolean
+  /** A grid with no `columns`, its width this, in px, read reactively (Q36). */
+  readonly fromWidth?: Accessor<number>
 }
 
 export interface BatchScene {
@@ -95,14 +101,18 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Batc
       axis={layout as CoreReorder.Axis}
       itemSize={{ width: size.w, height: size.h }}
       gap={10}
-      {...Bool.match(layout === "xy", { onTrue: () => ({ columns: 3 }), onFalse: () => ({}) })}
+      {...Bool.match(Bool.and(layout === "xy", Predicate.isUndefined(o.fromWidth)), { onTrue: () => ({ columns: 3 }), onFalse: () => ({}) })}
+      {...optional("direction", o.direction)}
       {...optional("whileDrag", o.whileDrag)}
       {...optional("transition", o.transition)}
       {...optional("whileHover", o.whileHover)}
       {...optional("whileTap", o.whileTap)}
       {...optional("exit", o.exit)}
       keyboard={UndefinedOr.match(o.keyboard, { onUndefined: () => undefined, onDefined: (keyboard) => keyboard() })}
-      style={UndefinedOr.match(o.container, { onUndefined: () => AT, onDefined: () => ({ margin: "0", padding: "0" }) })}
+      style={{
+        ...UndefinedOr.match(o.container, { onUndefined: () => AT, onDefined: () => ({ margin: "0", padding: "0" }) }),
+        ...UndefinedOr.match(o.fromWidth, { onUndefined: () => ({}), onDefined: (width) => ({ width: `${width()}px` }) }),
+      }}
     >
       {Bool.match(Predicate.isUndefined(o.exit), {
         onTrue: () => items(),
@@ -121,7 +131,7 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Batc
             {group()}
           </div>
         ),
-        onUndefined: group,
+        onUndefined: () => Bool.match(o.rtl === true, { onTrue: () => <div dir="rtl">{group()}</div>, onFalse: group }),
       })}
     </WardicProvider>
   ))
