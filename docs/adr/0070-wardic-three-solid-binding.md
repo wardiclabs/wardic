@@ -212,3 +212,5 @@ ADR-0068 decision 13 named the scene's Solid 2 pieces: `<WardicScene>`, `<SceneO
 ## Amendment (#712, 2026-11-11): members dragged and focused through a Batch Reorder group
 
 Decision 12's "still none: drag, focus" holds for a plain Batch. A `Reorder.BatchGroup`'s members (ADR-0072) are dragged and focused through the group: it hears a member's press through the delegated feed over its members, runs core's drag recognizer for that one member, and makes each member a tab stop for the keyboard reorder, whose Space and Enter lift it rather than press it. `inView` and variants stay out.
+
+- **The Override stack gains the item in hand** (PR 2, Q26, Q27): `animate` < `whileHover` < `whileTap` < `whileDrag`, the drag layer on through a drag or a keyboard lift. While it's dragged, its `x` and `y` are held where the pointer has it, over every layer, each sample's a 0 s change of one member; let go, they turn toward the stack's from where they were held, at the release's speed.

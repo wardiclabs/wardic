@@ -168,6 +168,15 @@ export interface KeyedBatchConfig<T> {
   readonly transition?: WardicBatchTransition
 }
 
+/**
+ * A Batch Reorder group's Batch (#712, ADR-0072 decision 8): a keyed Batch's config, and where an item
+ * goes while it's in hand, dragged or lifted from the keyboard, over its gestures': values with an
+ * optional `transition`, or a function of its item and index, read as it's taken.
+ */
+export interface ReorderBatchConfig<T> extends KeyedBatchConfig<T> {
+  readonly whileDrag?: WardicBatchGesture | ((item: T, i: number) => WardicBatchValues) | undefined
+}
+
 /** Whether a Batch's config is the keyed form's. */
 export const isKeyed = (config: BatchConfig | KeyedBatchConfig<unknown>): config is KeyedBatchConfig<unknown> => Predicate.hasProperty(config, "each")
 
@@ -195,8 +204,11 @@ export interface BatchGestureWatches {
   readonly listen: (gesture: "hover" | "press", host: BatchGestureHost) => void
 }
 
-/** A member's gesture layer over its `animate` targets (ADR-0070 decision 12): its hover's, or its press's over that. */
-export type BatchGestureLayer = "hover" | "press"
+/**
+ * A member's gesture layer over its `animate` targets (ADR-0070 decision 12): its hover's, its press's over
+ * that, and a Batch Reorder group's item in hand's over both (#712, ADR-0072 decision 8).
+ */
+export type BatchGestureLayer = "hover" | "press" | "drag"
 
 /** What a Batch's gestures work its members through (Q58, Q59): their layers, its keys, and how each member is named. */
 export interface BatchGestureHost {
@@ -225,8 +237,19 @@ export interface BatchGestureHost {
   /** Its config's `whileHover` and `whileTap`, as given. */
   readonly hoverGiven: unknown
   readonly tapGiven: unknown
+  /** A Batch Reorder group's `whileDrag` now, as given (#712). */
+  readonly dragGiven: () => unknown
   /** A member's gesture event, told its binding. */
   readonly tell: (told: BatchGestureTold) => void
+  /**
+   * Member `i` in hand, a Batch Reorder group's dragged item (#712, ADR-0072 decision 7): its `x` and `y`
+   * there now, with no spring, over its Override stack's, until {@link handOff}.
+   */
+  readonly handAt: (i: number, x: number, y: number) => void
+  /** Member `i` let go: its `x` and `y` turned toward its Override stack's on the Batch's transition, from where they are at `vx` and `vy` a second. */
+  readonly handOff: (i: number, vx: number, vy: number) => void
+  /** What member `i`'s `key` is drawn at now: {@link BatchBinding.drawnValueOf}'s. */
+  readonly drawnValueOf: (i: number, key: string) => number | undefined
 }
 
 /**
@@ -299,6 +322,8 @@ export interface BatchBinding {
    * when the Batch has `whileHover` or `whileTap`, a gesture callback, or a first ask for a gesture event.
    */
   readonly listen: (gesture: "hover" | "press") => void
+  /** What its members' gestures, and a Batch Reorder group's item in hand (#712), work them through. */
+  readonly host: BatchGestureHost
   /** The Batch's run ended, and no member drawn again. */
   readonly dispose: () => void
 }
@@ -639,6 +664,9 @@ const keysOf = (config: BatchConfig): ReadonlyArray<string> =>
 /** One change that lands every key at once: `skipAnimations`'. */
 const INSTANT: Batch.Transition = { type: "tween", duration: 0 }
 
+/** A Batch Reorder group's item in hand's change (#712): its `x` and `y` where it's held, at once. */
+const IN_HAND: Batch.RetargetOptions = { transition: { x: INSTANT, y: INSTANT } }
+
 /** A sequence's run that lands a key at once after `delay`: `skipAnimations`', and reduced motion's Snap of a positional key. */
 // Module state (#460, Q7): a cache built once, keyed by what it caches.
 const LANDINGS = new Map<number, Machine.KeyframesOptions>()
@@ -759,7 +787,8 @@ const startOn = (
 
 /**
  * A Batch's keys: `given`, with those its `exit`, `whileHover` and `whileTap` objects give as values after
- * them (Q48, Q58); with `keys` given (`fixed`), one outside them is an error naming it.
+ * them (Q48, Q58), and a Batch Reorder group's `whileDrag` (#712); with `keys` given (`fixed`), one
+ * outside them is an error naming it.
  */
 const withConfigKeys = (given: ReadonlyArray<string>, fixed: boolean, config: BatchConfig | KeyedBatchConfig<unknown>): ReadonlyArray<string> => {
   let all = given
@@ -767,6 +796,7 @@ const withConfigKeys = (given: ReadonlyArray<string>, fixed: boolean, config: Ba
     ["exit", objectFormValues((config as { readonly exit?: unknown }).exit)],
     ["whileHover", objectFormValues((config as { readonly whileHover?: unknown }).whileHover)],
     ["whileTap", objectFormValues((config as { readonly whileTap?: unknown }).whileTap)],
+    ["whileDrag", objectFormValues((config as { readonly whileDrag?: unknown }).whileDrag)],
   ]
   Arr.forEach(more, ([name, values]) => {
     const added = Arr.filter(Rec.keys(values), (key) => !Arr.contains(all, key))
@@ -1162,7 +1192,14 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
   // alone. Declared before `targetOf`, which reads them per member per key at a change.
   const hovering: Array<Float64Array | undefined> = []
   const pressing: Array<Float64Array | undefined> = []
-  const layers: Readonly<Record<BatchGestureLayer, Array<Float64Array | undefined>>> = { hover: hovering, press: pressing }
+  // A Batch Reorder group's item in hand (#712): its `whileDrag` layer over its press's, and where its
+  // `x` and `y` are held, over every layer's, while it's dragged.
+  const dragging: Array<Float64Array | undefined> = []
+  const layers: Readonly<Record<BatchGestureLayer, Array<Float64Array | undefined>>> = { hover: hovering, press: pressing, drag: dragging }
+  const hands: Array<Float64Array | undefined> = []
+  // `x`'s and `y`'s key index, once a hand's held: -1 for a Batch without them.
+  let handX = -1
+  let handY = -1
   let gesturing = 0
   // Where each key only a gesture gives (none of `animate`'s) was as the member's first layer came on:
   // what it returns to as its last goes (decision 12), `NaN` for the rest; kept while a layer is on.
@@ -1750,12 +1787,20 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
 
   /**
    * Member `slot`'s target for its `k`th key: its Override stack's (ADR-0070 decision 12, #665's PR 5),
-   * its press's over its hover's over `animate`'s.
+   * its press's over its hover's over `animate`'s; a Batch Reorder group's item in hand's `x` and `y` where
+   * it's held, over its `whileDrag`'s, over the rest (#712).
    */
   // Per member per key at a change: with no member's gesture on, `animate`'s read alone.
   const targetOf = (slot: number, k: number): number => {
     const i = memberOf[slot]
     if (gesturing === 0) return current[i * stride + k]
+    const hand = hands[i]
+    if (Predicate.isNotUndefined(hand)) {
+      if (k === handX) return hand[0]
+      if (k === handY) return hand[1]
+    }
+    const dragged = dragging[i]
+    if (Predicate.isNotUndefined(dragged) && !Number.isNaN(dragged[k])) return dragged[k]
     const pressed = pressing[i]
     if (Predicate.isNotUndefined(pressed) && !Number.isNaN(pressed[k])) return pressed[k]
     const hovered = hovering[i]
@@ -1845,9 +1890,13 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     let on = 0
     if (Predicate.isNotUndefined(hovering[i])) on++
     if (Predicate.isNotUndefined(pressing[i])) on++
+    if (Predicate.isNotUndefined(dragging[i])) on++
+    if (Predicate.isNotUndefined(hands[i])) on++
     if (on === 0) return
     hovering[i] = undefined
     pressing[i] = undefined
+    dragging[i] = undefined
+    hands[i] = undefined
     const slot = slotOf[i]
     if (Bool.and(slot !== NO_SLOT, !disposed)) turnMember(slot, configuredOf())
     // Counted until it's turned, so `targetOf` reads its bases.
@@ -1870,6 +1919,68 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
       if (!Number.isNaN(base[k])) continue
       base[k] = Batch.get(made(), slot, keys[k])
     }
+  }
+
+  /** Whether member `i` has no gesture layer on. */
+  const noLayer = (i: number): boolean =>
+    Bool.and(Bool.and(Predicate.isUndefined(hovering[i]), Predicate.isUndefined(pressing[i])), Predicate.isUndefined(dragging[i]))
+
+  // --- A Batch Reorder group's item in hand (#712, ADR-0072 decision 7) ---------------------------------
+
+  // The one slot a hand's change moves, reused at each drag sample.
+  const handSlots: Array<number> = [NO_SLOT]
+  // A hand let go: where its `x` and `y` start from, and at what speeds.
+  let letGoX = 0
+  let letGoY = 0
+  let letGoVx = 0
+  let letGoVy = 0
+  const letGoFrom = (_: number, k: number): number => {
+    if (k === handX) return letGoX
+    if (k === handY) return letGoY
+    return Number.NaN
+  }
+  const letGoSpeed = (_: number, k: number): number => {
+    if (k === handX) return letGoVx
+    if (k === handY) return letGoVy
+    return 0
+  }
+  const LET_GO: HandedStarts = { from: letGoFrom, velocity: letGoSpeed }
+
+  /** A key's index, -1 for a key the Batch hasn't. */
+  const keyIndexOr = (k: number | undefined): number => UndefinedOr.match(k, { onUndefined: () => -1, onDefined: identity })
+
+  /** Member `i` held at (`x`, `y`): its `x` and `y` there at the next frame, with no spring. */
+  // Per drag sample (#712): statements, its hand's array made once a hold.
+  const handAt = (i: number, x: number, y: number): void => {
+    const slot = slotOf[i]
+    if (Bool.or(slot === NO_SLOT, disposed)) return
+    let hand = hands[i]
+    if (Predicate.isUndefined(hand)) {
+      hand = new Float64Array(2)
+      hands[i] = hand
+      gesturing++
+      handX = keyIndexOr(keyIndex.get("x"))
+      handY = keyIndexOr(keyIndex.get("y"))
+    }
+    hand[0] = x
+    hand[1] = y
+    handSlots[0] = slot
+    wake(Batch.retarget(made(), handSlots, targetOf, IN_HAND))
+  }
+
+  /** Member `i` let go: from where it was held, at (`vx`, `vy`) a second, toward its Override stack's targets. */
+  const handOff = (i: number, vx: number, vy: number): void => {
+    const hand = hands[i]
+    if (Predicate.isUndefined(hand)) return
+    hands[i] = undefined
+    letGoX = hand[0]
+    letGoY = hand[1]
+    letGoVx = vx
+    letGoVy = vy
+    const slot = slotOf[i]
+    if (Bool.and(slot !== NO_SLOT, !disposed)) turnOn([slot], configuredOf(), undefined, LET_GO)
+    // Counted until it's turned, so `targetOf` read its hand's keys from its stack.
+    gesturing--
   }
 
   /** What its gestures work its members through. */
@@ -1899,7 +2010,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
       if (Predicate.isUndefined(was)) return
       // Lifted: counted until it's turned, so `targetOf` read its bases.
       gesturing--
-      if (Bool.and(Predicate.isUndefined(hovering[i]), Predicate.isUndefined(pressing[i]))) bases[i] = undefined
+      if (noLayer(i)) bases[i] = undefined
     },
     keys: () => keys,
     nameOf: (i) => form.nameOf(i),
@@ -1910,7 +2021,11 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     configured: configuredOf,
     hoverGiven,
     tapGiven,
+    dragGiven: () => (config as { readonly whileDrag?: unknown }).whileDrag,
     tell: (told) => UndefinedOr.map(hooks.gesture, (tellIt) => tellIt(told)),
+    handAt,
+    handOff,
+    drawnValueOf: (i, key) => drawnValueOf(i, key),
   }
 
   /**
@@ -2387,6 +2502,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     reclaim,
     drawnValueOf,
     listen,
+    host: gestureHost,
     targetsOf: () => form.targetsOf(),
     apply: (targets) => {
       if (disposed) return

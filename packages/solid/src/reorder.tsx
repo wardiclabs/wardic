@@ -81,6 +81,9 @@ import { useVariantContext } from "./variants.ts"
 import { configOfMotion, type WardicProps } from "./element.tsx"
 import { MOTION_PROPS, type WardicMotionProps } from "./motion-props.ts"
 import { w } from "./w.tsx"
+import { BatchReorder } from "./batch-reorder-group.tsx"
+
+export type { ReorderBatchGap, ReorderBatchGroupProps, ReorderBatchItemProps, ReorderBatchItemSize } from "./batch-reorder-group.tsx"
 
 /**
  * A Reorder group's config: its `values` in order, and `onReorder`, given each new order to set them
@@ -696,7 +699,8 @@ function Item<V, Tag extends ReorderElementTag = "li">(props: ReorderItemProps<V
 /**
  * A list put in order by dragging its items, or from the keyboard: `Reorder.Group` and `Reorder.Item`.
  * Your app owns the order: the group takes it as `values`, and `onReorder` hands each new one back.
- * Motion's `Reorder`.
+ * Motion's `Reorder`. A long list of items of one size reorders as one Batch: `Reorder.BatchGroup` and
+ * `Reorder.BatchItem`.
  *
  * @example
  * <Reorder.Group values={items()} onReorder={setItems}>
@@ -704,5 +708,5 @@ function Item<V, Tag extends ReorderElementTag = "li">(props: ReorderItemProps<V
  * </Reorder.Group>
  * @see https://wardic.dev/reference/solid/reorder/reorder
  */
-// ADR-0020.
-export const Reorder = { Group, Item } as const
+// ADR-0020; the Batch pair, ADR-0072 (#712).
+export const Reorder = { Group, Item, BatchGroup: BatchReorder.BatchGroup, BatchItem: BatchReorder.BatchItem } as const

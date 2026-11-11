@@ -1,0 +1,280 @@
+// `Reorder.BatchGroup` and `Reorder.BatchItem` on Solid 1 (#712, ADR-0072): a long list reordered as one
+// keyed Batch, each item at the place its index gives, driven with real Playwright mouse input. The
+// reference is a `Reorder.Group` of `Reorder.Item`s on the same geometry (`reorder-harness.tsx`).
+//
+// - BG1: the group lays its items out at their places, a column, a row or a grid, and is sized to them;
+//   each item is sized from `itemSize`; the DOM is in the list's order.
+// - BG2: a real mouse's drags reorder as they reorder a `Reorder.Group` on the same geometry, the same
+//   paths giving the same orders, a column's, a row's and a grid's; the DOM follows the order; the item in
+//   hand stays under the pointer, on its axis.
+// - BG3: the keyboard reorder is `Reorder.Group`'s: the same keys (Space and Enter lift and drop, the
+//   arrows step, Escape cancels) give the same values and announcements; focus stays on the item; a lift
+//   raises it; each item is a tab stop reading the instructions. In a scroller, End reveals the item's place.
+// - BG4: the item in hand: `whileDrag` on through a drag and a keyboard lift, off as it's let go; raised
+//   (`z-index` 2) in hand, 1 as it comes to rest, none once it lands; let go while flung, it carries on
+//   along the fling before it turns back to its place.
+// - BG5: no item listens at rest, and the page's listeners are as many for 20 items as for 5; a focus
+//   and a blur leave none behind.
+import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
+import * as ReorderController from "@wardic/dom/ReorderController"
+import { commands } from "vitest/browser"
+import { raf } from "./browser-helpers.ts"
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+import { page } from "vitest/browser"
+import { type BatchSceneOptions, mountBatchReorder } from "./reorder-batch-harness.tsx"
+import { add, centreOf, glide, grabOffsetOf, type Layout, mountReorder, mouse, offPointer, type Pt, resetScene, sampleFrames, type Scene, wait } from "./reorder-harness.tsx"
+
+afterEach(resetScene)
+
+// The rows reach past the test iframe's default 414 px: widen it, as the Reorder tests do.
+let viewport = { width: 0, height: 0 }
+beforeAll(async () => {
+  viewport = { width: window.innerWidth, height: window.innerHeight }
+  await page.viewport(1000, viewport.height)
+  await wait(50)
+})
+afterAll(async () => {
+  await page.viewport(viewport.width, viewport.height)
+})
+
+/** `el`'s box on the page, rounded. */
+const boxOf = (el: Element): { readonly left: number; readonly top: number; readonly width: number; readonly height: number } => {
+  const b = el.getBoundingClientRect()
+  return { left: Math.round(b.left), top: Math.round(b.top), width: Math.round(b.width), height: Math.round(b.height) }
+}
+
+/** Press on `value`'s centre, glide by (dx, dy) in `steps`, hold `holdMs`, and return the grab. */
+const drag = async (s: Scene, value: string, dx: number, dy: number, steps: number, holdMs = 300): Promise<{ readonly to: Pt; readonly grabOffset: Pt }> => {
+  const el = s.item(value)
+  const g = centreOf(el)
+  const grabOffset = grabOffsetOf(el, g)
+  const to = add(g, dx, dy)
+  await mouse.down(g)
+  await glide(g, to, steps, 20)
+  await wait(holdMs)
+  return { to, grabOffset }
+}
+
+const joined = (orders: ReadonlyArray<ReadonlyArray<string>>): ReadonlyArray<string> => orders.map((o) => o.join(""))
+
+/** The values in DOM order, under `group`. */
+const domOrder = (group: Element): string => [...group.querySelectorAll<HTMLElement>("[data-value]")].map((el) => el.dataset.value).join("")
+
+/** A drag's path: the item, and how far and in how many moves. */
+interface Path {
+  readonly value: string
+  readonly dx: number
+  readonly dy: number
+  readonly steps: number
+}
+
+/**
+ * `path` driven on a `Reorder.Group` with `layout`'s geometry, then on a `Reorder.BatchGroup` with it: each
+ * one's reorders, its DOM's order, and how far its item in hand ended from under the pointer.
+ */
+const both = async (layout: Layout, path: Path, options: BatchSceneOptions = {}) => {
+  const run = async (s: Scene) => {
+    const { to, grabOffset } = await drag(s, path.value, path.dx, path.dy, path.steps)
+    const result = { reorders: joined(s.reorders), dom: domOrder(s.group()), off: offPointer(s.item(path.value), to, grabOffset) }
+    await mouse.up(to)
+    await resetScene()
+    return result
+  }
+  const reference = await run(await mountReorder({ layout, axis: () => layout }))
+  const batch = await run(await mountBatchReorder({ ...options, layout }))
+  return { reference, batch }
+}
+
+/** `el`'s drawn scale, from its transform. */
+const scaleOf = (el: Element): number => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)")).a
+
+/** `count` frames. */
+const frames = async (count: number): Promise<void> => {
+  for (let f = 0; f < count; f++) await raf()
+}
+
+/** Every text the page's live region shows from now on, in order. */
+const recordAnnouncements = (): { readonly texts: Array<string>; readonly stop: () => void } => {
+  const region = document.querySelector(`[${DomAnnouncer.ATTRIBUTE}]`)
+  const texts: Array<string> = []
+  const observer = new MutationObserver(() => texts.push((region?.textContent ?? "").replace(/\u00A0$/, "")))
+  if (region !== null) observer.observe(region, { childList: true, characterData: true, subtree: true })
+  return { texts, stop: () => observer.disconnect() }
+}
+
+/** Keys pressed on `value`'s item, focused: the values after each, what was said, and where focus ended. */
+const keys = async (s: Scene, value: string, pressed: ReadonlyArray<string>) => {
+  const el = s.item(value)
+  el.focus()
+  const said = recordAnnouncements()
+  const orders: Array<string> = []
+  const raises: Array<string> = []
+  for (const key of pressed) {
+    await commands.realKey("press", key)
+    await frames(3)
+    orders.push(s.order().join(""))
+    raises.push(getComputedStyle(el).zIndex)
+  }
+  said.stop()
+  return { orders, said: said.texts.filter((text) => text !== ""), focused: document.activeElement === el, raises, dom: domOrder(s.group()) }
+}
+
+describe("Reorder.BatchGroup and Reorder.BatchItem", () => {
+  it("BG1: the group lays its items out at their places, a column, a row or a grid, and is sized to them", async () => {
+    const column = await mountBatchReorder({ layout: "y" })
+    expect(boxOf(column.group()), "the column's group").toEqual({ left: 40, top: 40, width: 200, height: 5 * 50 + 4 * 10 })
+    expect(["a", "b", "c", "d", "e"].map((v) => boxOf(column.item(v))), "the column's items").toEqual(
+      [0, 1, 2, 3, 4].map((i) => ({ left: 40, top: 40 + i * 60, width: 200, height: 50 })),
+    )
+    expect([...column.group().children].map((el) => (el as HTMLElement).dataset.value).join(""), "the DOM in the list's order").toBe("abcde")
+    await resetScene()
+    const row = await mountBatchReorder({ layout: "x" })
+    expect(boxOf(row.group()), "the row's group").toEqual({ left: 40, top: 40, width: 5 * 80 + 4 * 10, height: 50 })
+    expect(boxOf(row.item("c")), "the row's third").toEqual({ left: 40 + 2 * 90, top: 40, width: 80, height: 50 })
+    await resetScene()
+    const grid = await mountBatchReorder({ layout: "xy" })
+    expect(boxOf(grid.group()), "the grid's group").toEqual({ left: 40, top: 40, width: 3 * 80 + 2 * 10, height: 2 * 50 + 10 })
+    expect(boxOf(grid.item("e")), "the grid's fifth: row 2, column 2").toEqual({ left: 40 + 90, top: 40 + 60, width: 80, height: 50 })
+  })
+
+  it("BG2: a real mouse's drags reorder as a Reorder.Group's on the same geometry; the DOM follows; the item stays under the pointer", async () => {
+    const paths: ReadonlyArray<readonly [Layout, Path]> = [
+      ["y", { value: "b", dx: 0, dy: 46, steps: 23 }],
+      ["y", { value: "a", dx: 0, dy: 201, steps: 67 }],
+      ["y", { value: "e", dx: 0, dy: -150, steps: 50 }],
+      ["x", { value: "a", dx: 201, dy: 0, steps: 67 }],
+      ["xy", { value: "a", dx: 90, dy: 60, steps: 40 }],
+    ]
+    for (const [layout, path] of paths) {
+      const { reference, batch } = await both(layout, path)
+      const name = `${layout}: ${path.value} by (${path.dx}, ${path.dy})`
+      expect(reference.reorders.length, `${name}: the reference reorders`).toBeGreaterThan(0)
+      expect(batch.reorders, `${name}: the same orders`).toEqual(reference.reorders)
+      expect(batch.dom, `${name}: the DOM follows`).toBe(reference.reorders.at(-1))
+      expect(batch.off, `${name}: under the pointer`).toBeLessThan(1)
+    }
+  }, 60_000)
+
+  it("BG3: the keyboard reorder is Reorder.Group's: values, announcements, focus, the raise, the tab stop", async () => {
+    const sequences: ReadonlyArray<readonly [string, ReadonlyArray<string>]> = [
+      ["b", ["Space", "ArrowDown", "ArrowDown", "Space"]],
+      ["d", ["Enter", "ArrowUp", "Home", "Escape"]],
+      ["a", ["Space", "End", "Enter"]],
+    ]
+    for (const [value, pressed] of sequences) {
+      const reference = await keys(await mountReorder({ layout: "y", axis: () => "y" }), value, pressed)
+      await resetScene()
+      const batch = await keys(await mountBatchReorder({ layout: "y" }), value, pressed)
+      await resetScene()
+      const name = `${value}: ${pressed.join(" ")}`
+      expect(reference.said.length, `${name}: the reference speaks`).toBeGreaterThan(0)
+      expect(batch.orders, `${name}: the same values`).toEqual(reference.orders)
+      expect(batch.said, `${name}: the same announcements`).toEqual(reference.said)
+      expect(batch.focused, `${name}: focus stays`).toBe(true)
+      expect(batch.raises[0], `${name}: raised as it's lifted`).toBe("2")
+      expect(batch.dom, `${name}: the DOM follows`).toBe(batch.orders.at(-1))
+    }
+    const s = await mountBatchReorder({ layout: "y" })
+    const b = s.item("b")
+    expect(b.getAttribute("tabindex"), "a tab stop").toBe("0")
+    expect(document.getElementById(b.getAttribute("aria-describedby") ?? "")?.textContent, "the instructions").toBe(ReorderController.DEFAULT_INSTRUCTIONS)
+    await resetScene()
+    // In a scroller 120 px tall: End steps a to the last place, below it, and the place is revealed.
+    const scrolled = await mountBatchReorder({ layout: "y", n: 10, container: 120 })
+    const scroller = scrolled.scroller as HTMLElement
+    await keys(scrolled, "a", ["Space", "End"])
+    await frames(4)
+    expect(scrolled.order().at(-1), "stepped to the end").toBe("a")
+    expect(scroller.scrollTop, "its place in view").toBe(9 * 60 + 50 - 120)
+  }, 60_000)
+
+  it("BG4: the item in hand: whileDrag through a drag and a lift, the raise, and a fling's speed carried on", async () => {
+    const fast = { type: "spring", stiffness: 400, damping: 40 } as const
+    const s = await mountBatchReorder({ layout: "y", whileDrag: { scale: 1.1 }, transition: fast })
+    const b = s.item("b")
+    const g = centreOf(b)
+    await mouse.down(g)
+    await glide(g, add(g, 0, 20), 5, 20)
+    await wait(400)
+    expect(scaleOf(b), "whileDrag while dragged").toBeCloseTo(1.1, 2)
+    expect(getComputedStyle(b).zIndex, "raised in hand").toBe("2")
+    await mouse.up(add(g, 0, 20))
+    await frames(1)
+    expect(getComputedStyle(b).zIndex, "coming to rest").toBe("1")
+    await wait(800)
+    expect(scaleOf(b), "whileDrag off").toBeCloseTo(1, 3)
+    expect(getComputedStyle(b).zIndex, "let down once it lands").toBe("auto")
+    expect(Math.round(b.getBoundingClientRect().top), "back at its place").toBe(40 + 60)
+
+    // A keyboard lift: whileDrag on, raised; dropped, off and let down.
+    b.focus()
+    await commands.realKey("press", "Space")
+    await wait(400)
+    expect(scaleOf(b), "whileDrag while lifted").toBeCloseTo(1.1, 2)
+    expect(getComputedStyle(b).zIndex, "raised while lifted").toBe("2")
+    await commands.realKey("press", "Space")
+    await wait(800)
+    expect(scaleOf(b), "whileDrag off at the drop").toBeCloseTo(1, 3)
+    expect(getComputedStyle(b).zIndex, "let down once it lands").toBe("auto")
+    await resetScene()
+
+    // Flung down, let go 30 px below its place (short of b's crossover): it carries on down before it turns back.
+    const t = await mountBatchReorder({ layout: "y", transition: { type: "spring", stiffness: 120, damping: 14 } })
+    const a = t.item("a")
+    const ga = centreOf(a)
+    await mouse.down(ga)
+    await glide(ga, add(ga, 0, 6), 3, 20)
+    for (let k = 1; k <= 3; k++) {
+      await mouse.move(add(ga, 0, 6 + 6 * k))
+      await wait(30)
+    }
+    const tops = sampleFrames(() => a.getBoundingClientRect().top)
+    await mouse.up(add(ga, 0, 30))
+    const releasedAt = performance.now()
+    await wait(300)
+    const after = tops.stop().filter((frame) => frame.frameAt > releasedAt).map((frame) => frame.v)
+    expect(t.order().join(""), "no reorder").toBe("abcde")
+    expect(Math.max(...after.slice(0, 6)), "carried on down past where it was let go").toBeGreaterThan(40 + 30 + 1)
+    await wait(1200)
+    expect(Math.round(a.getBoundingClientRect().top), "then back at its place").toBe(40)
+  }, 30_000)
+
+  it("BG5: no item listens at rest, as many listeners for 20 items as for 5; a focus and a blur leave none behind", async () => {
+    // Every listener added and removed while it runs, by its target.
+    const live = new Map<EventTarget, number>()
+    const realAdd = EventTarget.prototype.addEventListener
+    const realRemove = EventTarget.prototype.removeEventListener
+    EventTarget.prototype.addEventListener = function (this: EventTarget, ...args: Parameters<typeof realAdd>) {
+      live.set(this, (live.get(this) ?? 0) + 1)
+      return realAdd.apply(this, args)
+    }
+    EventTarget.prototype.removeEventListener = function (this: EventTarget, ...args: Parameters<typeof realRemove>) {
+      live.set(this, (live.get(this) ?? 0) - 1)
+      return realRemove.apply(this, args)
+    }
+    const total = (): number => [...live.values()].reduce((sum, n) => sum + n, 0)
+    const onItems = (s: Scene): number => [...s.group().children].reduce((sum, el) => sum + (live.get(el) ?? 0), 0)
+    try {
+      const before = total()
+      const five = await mountBatchReorder({ layout: "y", n: 5 })
+      const forFive = total() - before
+      expect(onItems(five), "no item listens at rest").toBe(0)
+      await resetScene()
+      const afterFive = total()
+      const twenty = await mountBatchReorder({ layout: "y", n: 20 })
+      expect(total() - afterFive, "as many listeners for 20 items as for 5").toBe(forFive)
+      expect(onItems(twenty), "no item listens at rest").toBe(0)
+      const atRest = total()
+      const b = twenty.item("b")
+      b.focus()
+      await frames(1)
+      b.blur()
+      await frames(2)
+      expect(total(), "a focus and a blur leave none behind").toBe(atRest)
+      expect(onItems(twenty), "no item listens after").toBe(0)
+    } finally {
+      EventTarget.prototype.addEventListener = realAdd
+      EventTarget.prototype.removeEventListener = realRemove
+    }
+  })
+})

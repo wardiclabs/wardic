@@ -44,12 +44,13 @@ export interface BatchGesturesOn {
 interface Gesture {
   readonly layer: BatchGestureLayer
   /** Its config key, as an error names it. */
-  readonly name: "whileHover" | "whileTap"
+  readonly name: "whileHover" | "whileTap" | "whileDrag"
   readonly given: (host: BatchGestureHost) => unknown
 }
 
 const HOVER: Gesture = { layer: "hover", name: "whileHover", given: (host) => host.hoverGiven }
 const PRESS: Gesture = { layer: "press", name: "whileTap", given: (host) => host.tapGiven }
+const DRAG: Gesture = { layer: "drag", name: "whileDrag", given: (host) => host.dragGiven() }
 
 /** A hover's events, by whether it's on. */
 const HOVER_EVENT = { true: "hoverStart", false: "hoverEnd" } as const
@@ -107,6 +108,12 @@ const turn = (host: BatchGestureHost, gesture: Gesture, i: number, on: boolean):
   if (Bool.and(gesture === PRESS, host.layered("hover", i))) return host.layer(gesture.layer, i, undefined, transitionOf(host, host.hoverGiven))
   host.layer(gesture.layer, i, undefined, host.configured())
 }
+
+/**
+ * A Batch Reorder group's item in hand (#712, ADR-0072 decision 8): its `whileDrag` on as it's taken, by a
+ * drag or a keyboard lift, from its values on their transition; off as it's let go, on the Batch's.
+ */
+export const turnDrag = (host: BatchGestureHost, i: number, on: boolean): void => turn(host, DRAG, i, on)
 
 /** A member's gesture event, told its binding with its point, element and member (Q60). */
 const tell = (host: BatchGestureHost, i: number, told: Omit<BatchGestureTold, "i" | "item">): void =>
