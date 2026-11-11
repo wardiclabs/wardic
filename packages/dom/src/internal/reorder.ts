@@ -433,7 +433,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
           Match.tag("Cancel", () => {
             if (Bool.not(lifted)) return
             event.handle()
-            const placement = revealingAcross(value, () => Reorder.cancel(group, value))
+            const placement = withReveal(value, () => Reorder.cancel(group, value))
             Option.match(placement, {
               onNone: constVoid,
               onSome: (placement) => {
@@ -457,7 +457,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
    * Batch Reorder group's, #712) says they're laid out before the reorder returns. Moving nothing, the
    * ask is taken back.
    */
-  const revealingAcross = (value: V, reorder: () => Option.Option<Reorder.Placement>): Option.Option<Reorder.Placement> => {
+  const withReveal = (value: V, reorder: () => Option.Option<Reorder.Placement>): Option.Option<Reorder.Placement> => {
     const before = MutableRef.get(reveal)
     MutableRef.set(reveal, Option.some(value))
     const placement = reorder()
@@ -471,7 +471,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
     // Not lifted, the arrows, Home and End keep their own work (scrolling the page).
     if (Bool.not(lifted)) return
     event.handle()
-    Option.match(revealingAcross(value, () => Reorder.moveLifted(group, value, intent)), {
+    Option.match(withReveal(value, () => Reorder.moveLifted(group, value, intent)), {
       onNone: constVoid,
       onSome: (placement) => {
         // A repeat before the last step was laid out moved nothing: nothing to say.

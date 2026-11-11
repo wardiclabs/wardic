@@ -74,7 +74,7 @@ import { drivenWard, type GivenWard, givenOf, handOver, listOf, refsOf, sets, se
 import { w } from "./w.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
 import { eachOf, neverLands, NO_EVENTS, serverWhen, Waiters, whenOf } from "./waiters.ts"
-import { BatchReorder } from "./batch-reorder-group.tsx"
+import { BatchGroup, BatchItem } from "./batch-reorder-group.tsx"
 
 export type { ReorderBatchGap, ReorderBatchGroup, ReorderBatchGroupProps, ReorderBatchItemProps, ReorderBatchItemSize } from "./batch-reorder-group.tsx"
 
@@ -881,4 +881,4 @@ function Item<V, Tag extends ReorderElementTag = "li", C = {}>(props: ReorderIte
  * @see https://wardic.dev/reference/solid/reorder/reorder
  */
 // ADR-0020; the Batch pair, ADR-0072 (#712).
-export const Reorder = { Group, Item, BatchGroup: BatchReorder.BatchGroup, BatchItem: BatchReorder.BatchItem } as const
+export const Reorder = { Group, Item, BatchGroup, BatchItem } as const

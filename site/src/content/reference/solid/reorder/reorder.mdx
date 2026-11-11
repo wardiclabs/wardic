@@ -1,7 +1,7 @@
 ---
 title: Reorder
-description: Reorder.Group and Reorder.Item, a list put in order by dragging its items or from the keyboard, with their props on both bindings.
-api: [Reorder, ReorderGroupProps, ReorderItemProps, ReorderGroupComponentProps, ReorderItemComponentProps, ReorderGroupOf, ReorderItemOf, GroupRefCallback, ReorderElementTag, ReorderItemLayout]
+description: Reorder.Group and Reorder.Item, a list put in order by dragging its items or from the keyboard, and Reorder.BatchGroup and Reorder.BatchItem for a long list as one Batch, with their props on both bindings.
+api: [Reorder, ReorderGroupProps, ReorderItemProps, ReorderGroupComponentProps, ReorderItemComponentProps, ReorderGroupOf, ReorderItemOf, GroupRefCallback, ReorderElementTag, ReorderItemLayout, ReorderBatchGroupProps, ReorderBatchItemProps, ReorderBatchGroup, ReorderBatchItemSize, ReorderBatchGap]
 ---
 
 # Reorder
@@ -58,6 +58,29 @@ Beside them, the element's own props and any motion prop but `drag` and `layoutI
 
 On Solid 2, an item made with [`reorderItem`](/reference/solid/reorder/reorder-item) can be given as `wardRef`, to hear its events, with the props its config doesn't set beside it; or a function as `wardRef` is handed the item's ward.
 
+## Reorder.BatchGroup and Reorder.BatchItem
+
+A long list of items of one size reorders as one [Batch](/guides/batches): `Reorder.BatchGroup` places each item at the place its index gives, never measuring it, so a list of thousands mounts and drags at a Batch's cost. It drags, steps from the keyboard, speaks and ends a reorder as `Reorder.Group` does, and the DOM follows the order.
+
+```tsx
+<Reorder.BatchGroup values={items()} onReorder={setItems} itemSize={{ width: 240, height: 48 }} gap={8} whileDrag={{ scale: 1.03 }}>
+  <For each={items()}>{(item) => <Reorder.BatchItem value={item}>{item}</Reorder.BatchItem>}</For>
+</Reorder.BatchGroup>
+```
+
+| Prop | |
+| --- | --- |
+| `values`, `onReorder`, `keyboard`, `announcements`, `instructions`, `as` | As `Reorder.Group`'s. Each value is its own: it's its item's key. |
+| `axis` | The list's shape: `"y"`, a column (the default), `"x"`, a row, or `"xy"`, a grid that wraps. |
+| `itemSize` | Every item's size, `{ width, height }` in px. |
+| `gap` | The space between places, in px: one for both axes, or `{ x, y }`. |
+| `columns` | A grid's columns: how many items a row holds. |
+| `initial` | Where each item starts: values, a function of its item and index, or `false`. It starts at its place, but for the keys `initial` gives. |
+| `transition` | How the items move to their places. |
+| `whileDrag` | Where an item goes while it's in hand, dragged or lifted from the keyboard: values with an optional `transition`, or a function of its item and index. |
+
+The group is `position: relative`, sized to its places; each item is `position: absolute` at its top-left, sized from `itemSize`, placed by its transform. An item is a member of the group's Batch, not a Wardic element: it takes its `value`, `as` (`"li"` by default), and its element's own props, its `style` without a transform or `opacity` the Batch draws. Its events are as `Reorder.Group`'s: on Solid 1, `onReorderEnd`, `onHoldStart` and `onHoldEnd`; on Solid 2, a function as `groupRef` is handed the group, with its `next`, `each` and `when` of `reorderEnd`, `holdStart` and `holdEnd`, its `move` and its `axis`.
+
 ## Coming from Motion
 
 Motion's `Reorder`, with its props. Wardic adds the keyboard reorder, which Motion's lacks, and the events for a reorder's end and an item taken in hand.
@@ -70,3 +93,5 @@ Motion's `Reorder`, with its props. Wardic adds the keyboard reorder, which Moti
 - **`GroupRefCallback`:** (Solid 2) a function `groupRef` hands the component's group.
 - **`ReorderElementTag`:** a tag `as` takes.
 - **`ReorderItemLayout`:** an item's `layout`, `true` or `"position"`.
+- **`ReorderBatchGroupProps`**, **`ReorderBatchItemProps`:** `Reorder.BatchGroup`'s and `Reorder.BatchItem`'s props. **`ReorderBatchItemSize`:** `itemSize`. **`ReorderBatchGap`:** `gap`.
+- **`ReorderBatchGroup`:** (Solid 2) the group a `Reorder.BatchGroup`'s `groupRef` is handed.

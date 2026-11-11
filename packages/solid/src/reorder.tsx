@@ -81,7 +81,7 @@ import { useVariantContext } from "./variants.ts"
 import { configOfMotion, type WardicProps } from "./element.tsx"
 import { MOTION_PROPS, type WardicMotionProps } from "./motion-props.ts"
 import { w } from "./w.tsx"
-import { BatchReorder } from "./batch-reorder-group.tsx"
+import { BatchGroup, BatchItem } from "./batch-reorder-group.tsx"
 
 export type { ReorderBatchGap, ReorderBatchGroupProps, ReorderBatchItemProps, ReorderBatchItemSize } from "./batch-reorder-group.tsx"
 
@@ -709,4 +709,4 @@ function Item<V, Tag extends ReorderElementTag = "li">(props: ReorderItemProps<V
  * @see https://wardic.dev/reference/solid/reorder/reorder
  */
 // ADR-0020; the Batch pair, ADR-0072 (#712).
-export const Reorder = { Group, Item, BatchGroup: BatchReorder.BatchGroup, BatchItem: BatchReorder.BatchItem } as const
+export const Reorder = { Group, Item, BatchGroup, BatchItem } as const

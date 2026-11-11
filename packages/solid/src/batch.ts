@@ -248,8 +248,6 @@ export interface BatchGestureHost {
   readonly handAt: (i: number, x: number, y: number) => void
   /** Member `i` let go: its `x` and `y` turned toward its Override stack's on the Batch's transition, from where they are at `vx` and `vy` a second. */
   readonly handOff: (i: number, vx: number, vy: number) => void
-  /** What member `i`'s `key` is drawn at now: {@link BatchBinding.drawnValueOf}'s. */
-  readonly drawnValueOf: (i: number, key: string) => number | undefined
 }
 
 /**
@@ -664,6 +662,9 @@ const keysOf = (config: BatchConfig): ReadonlyArray<string> =>
 /** One change that lands every key at once: `skipAnimations`'. */
 const INSTANT: Batch.Transition = { type: "tween", duration: 0 }
 
+/** A key's index, -1 for a key the Batch hasn't. Built once. */
+const keyIndexOr: (k: number | undefined) => number = UndefinedOr.match({ onUndefined: (): number => -1, onDefined: (k: number): number => k })
+
 /** A Batch Reorder group's item in hand's change (#712): its `x` and `y` where it's held, at once. */
 const IN_HAND: Batch.RetargetOptions = { transition: { x: INSTANT, y: INSTANT } }
 
@@ -787,16 +788,22 @@ const startOn = (
 
 /**
  * A Batch's keys: `given`, with those its `exit`, `whileHover` and `whileTap` objects give as values after
- * them (Q48, Q58), and a Batch Reorder group's `whileDrag` (#712); with `keys` given (`fixed`), one
- * outside them is an error naming it.
+ * them (Q48, Q58), and a Batch Reorder group's `whileDrag` (#712), a function's by `firstDrag`, its values
+ * for the list's first item (Q27); with `keys` given (`fixed`), one outside them is an error naming it.
  */
-const withConfigKeys = (given: ReadonlyArray<string>, fixed: boolean, config: BatchConfig | KeyedBatchConfig<unknown>): ReadonlyArray<string> => {
+const withConfigKeys = (
+  given: ReadonlyArray<string>,
+  fixed: boolean,
+  config: BatchConfig | KeyedBatchConfig<unknown>,
+  firstDrag: Readonly<Record<string, unknown>> = NO_VALUES,
+): ReadonlyArray<string> => {
   let all = given
   const more: ReadonlyArray<readonly [string, Readonly<Record<string, unknown>>]> = [
     ["exit", objectFormValues((config as { readonly exit?: unknown }).exit)],
     ["whileHover", objectFormValues((config as { readonly whileHover?: unknown }).whileHover)],
     ["whileTap", objectFormValues((config as { readonly whileTap?: unknown }).whileTap)],
     ["whileDrag", objectFormValues((config as { readonly whileDrag?: unknown }).whileDrag)],
+    ["whileDrag", firstDrag],
   ]
   Arr.forEach(more, ([name, values]) => {
     const added = Arr.filter(Rec.keys(values), (key) => !Arr.contains(all, key))
@@ -1334,7 +1341,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     keysAre(withMoreKeys(UndefinedOr.match(byKey.keys, {
       onUndefined: () => keysFrom(targets.items.length, (i) => targets.values[i], (i) => keyedInitialOf(byKey, targets.items[i], i)),
       onDefined: identity,
-    })))
+    }), firstDragOf(targets)))
     makeBatch((k) => {
       const value = targets.values[0][keys[k]]
       if (Predicate.isNumber(value)) return value
@@ -1346,7 +1353,20 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
    * `given` keys with those its `exit`, `whileHover` and `whileTap` give as values after them (Q48, Q58);
    * with `keys` given, one outside them is an error naming it.
    */
-  const withMoreKeys = (given: ReadonlyArray<string>): ReadonlyArray<string> => withConfigKeys(given, Predicate.isNotUndefined(byKey.keys), config)
+  const withMoreKeys = (given: ReadonlyArray<string>, firstDrag: Readonly<Record<string, unknown>> = NO_VALUES): ReadonlyArray<string> =>
+    withConfigKeys(given, Predicate.isNotUndefined(byKey.keys), config, firstDrag)
+
+  /**
+   * Keyed: a Batch Reorder group's function `whileDrag`'s values for the list's first item (#712, Q27): its
+   * keys join the Batch's, as `animate`'s first targets' do; none for an object's, or for none.
+   */
+  const firstDragOf = (targets: KeyedTargets): Readonly<Record<string, unknown>> => {
+    const given = (config as { readonly whileDrag?: unknown }).whileDrag
+    return Bool.match(Predicate.isFunction(given), {
+      onTrue: () => env.untrack(() => (given as (item: unknown, i: number) => Readonly<Record<string, unknown>>)(targets.items[0], 0)),
+      onFalse: () => NO_VALUES,
+    })
+  }
 
   /** Keyed: the member for `key`: its member, else a new one. */
   const memberForKey = (key: unknown): number => {
@@ -1927,45 +1947,45 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
 
   // --- A Batch Reorder group's item in hand (#712, ADR-0072 decision 7) ---------------------------------
 
-  // The one slot a hand's change moves, reused at each drag sample.
-  const handSlots: Array<number> = [NO_SLOT]
-  // A hand let go: where its `x` and `y` start from, and at what speeds.
-  let letGoX = 0
-  let letGoY = 0
-  let letGoVx = 0
-  let letGoVy = 0
+  // The member a hand's change moves, by its place in the Batch's run, reused at each drag sample.
+  const handMovers: Array<number> = [NO_SLOT]
+  // A hand let go: where its `x` and `y` start from, and their speeds, `[x, y, vx, vy]`.
+  const handLetGo = new Float64Array(4)
+  // Per key at the hand's change, core's retarget calling them (the hot path): statements.
   const letGoFrom = (_: number, k: number): number => {
-    if (k === handX) return letGoX
-    if (k === handY) return letGoY
+    if (k === handX) return handLetGo[0]
+    if (k === handY) return handLetGo[1]
     return Number.NaN
   }
   const letGoSpeed = (_: number, k: number): number => {
-    if (k === handX) return letGoVx
-    if (k === handY) return letGoVy
+    if (k === handX) return handLetGo[2]
+    if (k === handY) return handLetGo[3]
     return 0
   }
   const LET_GO: HandedStarts = { from: letGoFrom, velocity: letGoSpeed }
 
-  /** A key's index, -1 for a key the Batch hasn't. */
-  const keyIndexOr = (k: number | undefined): number => UndefinedOr.match(k, { onUndefined: () => -1, onDefined: identity })
+  /** Member `i`'s hand, made as it's first held: counted with its layers, and the Batch's `x` and `y` found. */
+  // A change of one member, batch.ts's site (#665): statements.
+  const handOf = (i: number): Float64Array => {
+    const known = hands[i]
+    if (Predicate.isNotUndefined(known)) return known
+    const made = new Float64Array(2)
+    hands[i] = made
+    gesturing++
+    handX = keyIndexOr(keyIndex.get("x"))
+    handY = keyIndexOr(keyIndex.get("y"))
+    return made
+  }
 
   /** Member `i` held at (`x`, `y`): its `x` and `y` there at the next frame, with no spring. */
-  // Per drag sample (#712): statements, its hand's array made once a hold.
   const handAt = (i: number, x: number, y: number): void => {
     const slot = slotOf[i]
     if (Bool.or(slot === NO_SLOT, disposed)) return
-    let hand = hands[i]
-    if (Predicate.isUndefined(hand)) {
-      hand = new Float64Array(2)
-      hands[i] = hand
-      gesturing++
-      handX = keyIndexOr(keyIndex.get("x"))
-      handY = keyIndexOr(keyIndex.get("y"))
-    }
+    const hand = handOf(i)
     hand[0] = x
     hand[1] = y
-    handSlots[0] = slot
-    wake(Batch.retarget(made(), handSlots, targetOf, IN_HAND))
+    handMovers[0] = slot
+    wake(Batch.retarget(made(), handMovers, targetOf, IN_HAND))
   }
 
   /** Member `i` let go: from where it was held, at (`vx`, `vy`) a second, toward its Override stack's targets. */
@@ -1973,10 +1993,10 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     const hand = hands[i]
     if (Predicate.isUndefined(hand)) return
     hands[i] = undefined
-    letGoX = hand[0]
-    letGoY = hand[1]
-    letGoVx = vx
-    letGoVy = vy
+    handLetGo[0] = hand[0]
+    handLetGo[1] = hand[1]
+    handLetGo[2] = vx
+    handLetGo[3] = vy
     const slot = slotOf[i]
     if (Bool.and(slot !== NO_SLOT, !disposed)) turnOn([slot], configuredOf(), undefined, LET_GO)
     // Counted until it's turned, so `targetOf` read its hand's keys from its stack.
@@ -2025,7 +2045,6 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     tell: (told) => UndefinedOr.map(hooks.gesture, (tellIt) => tellIt(told)),
     handAt,
     handOff,
-    drawnValueOf: (i, key) => drawnValueOf(i, key),
   }
 
   /**

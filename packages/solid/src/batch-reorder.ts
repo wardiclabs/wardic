@@ -8,6 +8,8 @@
  *   item is `position: absolute` at its top-left, placed by its transform (decision 4).
  * - **The Batch**: keyed by the value itself, each member turned toward its place, `x` and `y`, whenever
  *   the list or the geometry changes, in one change.
+ * - **The item in hand** (decision 7): held where the pointer has it, raised, `whileDrag` on; let go, it
+ *   flies to its place at its release's speed, and a grab stops it where it is, as a `Reorder.Item`'s.
  *
  * @module
  */
@@ -19,10 +21,12 @@ import type * as CoreReorder from "@wardic/core/Reorder"
 import * as ReorderController from "@wardic/dom/ReorderController"
 import * as Report from "@wardic/dom/Report"
 import * as Style from "@wardic/dom/Style"
+import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
-import type * as Cause from "effect/Cause"
+import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import { identity } from "effect/Function"
+import * as Iter from "effect/Iterable"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -30,32 +34,47 @@ import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type BatchBinding, type BatchEnv, type BatchHooks, bindBatch, fail, type KeyedBatchConfig, type ReorderBatchConfig, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues } from "./batch.ts"
 import { turnDrag } from "./batch-gestures.ts"
+import type { Feature } from "./feature.ts"
+import { input } from "./features/input.ts"
 import * as OwnerScope from "./owner-scope.ts"
 import type { PresenceContextValue } from "./presence-record.ts"
 import { watchItemsInputAmong } from "./reorder-input.ts"
 
-/** An item's size in a Batch Reorder group: every item's. */
-export interface BatchReorderItemSize {
+/** Every item's size in a Batch Reorder group, in px. */
+export interface ReorderBatchItemSize {
   readonly width: number
   readonly height: number
 }
 
-/** The space between a Batch Reorder group's places: one for both axes, or each its own. */
-export type BatchReorderGap = number | { readonly x: number; readonly y: number }
+/** A point, or a length on each axis, in px. */
+interface XY {
+  readonly x: number
+  readonly y: number
+}
+
+/** The space between a Batch Reorder group's places, in px: one for both axes, or each its own. */
+export type ReorderBatchGap = number | XY
 
 /** Where a Batch Reorder group's items go (decision 3): its shape, its items' size, the gap and a grid's columns. */
 export interface BatchReorderGeometry {
   readonly axis: CoreReorder.Axis
-  readonly itemSize: BatchReorderItemSize
-  readonly gap: BatchReorderGap | undefined
+  readonly itemSize: ReorderBatchItemSize
+  readonly gap: ReorderBatchGap | undefined
   readonly columns: number | undefined
 }
 
-/** A place in its group, from the group's top-left. */
-export interface BatchReorderPlace {
-  readonly x: number
-  readonly y: number
-}
+/** A group's geometry from its props, as either binding reads them: its axis `"y"` when it gives none. */
+export const geometryOf = (props: {
+  readonly axis?: CoreReorder.Axis | undefined
+  readonly itemSize: ReorderBatchItemSize
+  readonly gap?: ReorderBatchGap | undefined
+  readonly columns?: number | undefined
+}): BatchReorderGeometry => ({
+  axis: UndefinedOr.match(props.axis, { onUndefined: (): CoreReorder.Axis => "y", onDefined: identity }),
+  itemSize: props.itemSize,
+  gap: props.gap,
+  columns: props.columns,
+})
 
 /**
  * A group's places, resolved from its geometry once a change: how many a row holds, the step from one to
@@ -65,25 +84,29 @@ export interface BatchReorderPlaces {
   readonly columns: number
   readonly stepX: number
   readonly stepY: number
-  readonly itemSize: BatchReorderItemSize
+  readonly itemSize: ReorderBatchItemSize
 }
 
-const NO_GAP = { x: 0, y: 0 } as const
-const NO_SIZE: BatchReorderItemSize = { width: 0, height: 0 }
+/** No offset, no gap: (0, 0). */
+const ORIGIN: XY = { x: 0, y: 0 }
+const NO_SIZE: ReorderBatchItemSize = { width: 0, height: 0 }
 
 /** A gap's two axes: one number for both, else each its own. Built once, at module load. */
-const gapsOf: (gap: BatchReorderGap) => { readonly x: number; readonly y: number } = Match.type<BatchReorderGap>().pipe(
-  Match.when(Predicate.isNumber, (gap): { readonly x: number; readonly y: number } => ({ x: gap, y: gap })),
-  Match.orElse((gap) => gap as { readonly x: number; readonly y: number }),
+const gapsOf: (gap: ReorderBatchGap) => XY = Match.type<ReorderBatchGap>().pipe(
+  Match.when(Predicate.isNumber, (gap): XY => ({ x: gap, y: gap })),
+  Match.orElse((gap) => gap as XY),
 )
 
-/** A grid's `columns`, checked: a whole number, 1 or more. */
+/** Whether a grid's `columns` is a whole number, 1 or more. */
+const isColumnCount = (columns: number): boolean => Bool.and(Number.isInteger(columns), columns >= 1)
+
+/** A grid's `columns`, checked. */
 // PR 3 (#712, Q21): a grid's columns from the group's width when it's given none.
 const gridColumnsOf = (columns: number | undefined): number =>
   UndefinedOr.match(columns, {
     onUndefined: () => fail(`a Reorder.BatchGroup on axis "xy" takes its \`columns\`: how many items a row holds`),
     onDefined: (given) =>
-      Bool.match(Bool.and(Number.isInteger(given), given >= 1), {
+      Bool.match(isColumnCount(given), {
         onTrue: () => given,
         onFalse: () => fail(`a Reorder.BatchGroup's \`columns\` is ${String(given)}: a whole number, 1 or more`),
       }),
@@ -97,8 +120,8 @@ const columnsBy: (axis: CoreReorder.Axis) => (geometry: BatchReorderGeometry, n:
 )
 
 /** `geometry`'s places for `n` items: an error naming a grid's `columns` that's missing or isn't a whole number. */
-export const placesOf = (geometry: BatchReorderGeometry, n: number): BatchReorderPlaces => {
-  const gap = UndefinedOr.match(geometry.gap, { onUndefined: () => NO_GAP, onDefined: gapsOf })
+export const resolvePlaces = (geometry: BatchReorderGeometry, n: number): BatchReorderPlaces => {
+  const gap = UndefinedOr.match(geometry.gap, { onUndefined: () => ORIGIN, onDefined: gapsOf })
   return {
     columns: columnsBy(geometry.axis)(geometry, n),
     stepX: geometry.itemSize.width + gap.x,
@@ -107,15 +130,14 @@ export const placesOf = (geometry: BatchReorderGeometry, n: number): BatchReorde
   }
 }
 
-/** Item `i`'s place: its column and row, a step apart. */
-// Per item at a change (#712): arithmetic.
-export const placeOf = (places: BatchReorderPlaces, i: number): BatchReorderPlace => ({
+/** Item `i`'s place among `places`: its column and row, a step apart, from the group's top-left. */
+export const placeOf = (places: BatchReorderPlaces, i: number): XY => ({
   x: (i % places.columns) * places.stepX,
   y: Math.floor(i / places.columns) * places.stepY,
 })
 
 /** The group's size for `n` items: its places' extent, the last place's far edge. */
-export const extentOf = (places: BatchReorderPlaces, n: number): BatchReorderItemSize =>
+export const extentOf = (places: BatchReorderPlaces, n: number): ReorderBatchItemSize =>
   Bool.match(n === 0, {
     onTrue: () => NO_SIZE,
     onFalse: () => {
@@ -130,6 +152,24 @@ const dragAxisFor: (axis: CoreReorder.Axis) => true | "x" | "y" = Match.type<Cor
   Match.when("xy", (): true => true),
   Match.orElse((axis) => axis as "x" | "y"),
 )
+
+/** A let-go's speed: its release's, or none for a cancelled drag (#431). Built once, at module load. */
+const releaseVelocityOf: (sample: Drag.Sample) => XY = Match.type<Drag.Sample>().pipe(
+  Match.when({ cancelled: true }, (): XY => ORIGIN),
+  Match.orElse((sample): XY => sample.velocity),
+)
+
+/** What a group brings (ADR-0067 decision 12): the gestures' input, its items' drags heard through it. Either binding's. */
+export const GROUP_BRINGS: ReadonlyArray<Feature> = [{ name: "Reorder.BatchGroup", key: InputSource.InputSource, layer: input }]
+
+/** An item's `aria-describedby`: the app's own ids, then the instructions', or none. */
+export const describedByOf = (own: string | undefined, instructions: string | undefined): string | undefined => {
+  const ids = Arr.filter([own, instructions], Predicate.isNotUndefined)
+  return Bool.match(ids.length === 0, { onTrue: () => undefined, onFalse: () => ids.join(" ") })
+}
+
+/** Whether a node is an HTML element: what a raise's `z-index` is written on. */
+const isHTMLElement = (node: unknown): node is HTMLElement => node instanceof HTMLElement
 
 /** What a Batch Reorder group takes from its binding: its values, geometry and motion, each read as it's needed. */
 export interface BatchReorderOptions<V> {
@@ -187,8 +227,11 @@ const CLOSE_FAILED = "Reorder.BatchGroup: a finalizer failed"
 const IN_HAND_Z = "2"
 const COMING_TO_REST_Z = "1"
 
-/** A dragged member, where it was drawn at its drag's start, and where it's held now, in its group. */
-interface Held {
+/** A let-go's raise, by whether anything's moving: `1` while it comes to rest, none at rest. */
+const RAISE_AFTER = { true: COMING_TO_REST_Z, false: undefined } as const
+
+/** A dragged member: where it was drawn at its drag's start, and where it's held now, in its group. */
+interface InHand {
   readonly member: number
   readonly originX: number
   readonly originY: number
@@ -207,9 +250,9 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
   const runtime = env.runtime
   // The places each item's is read from, resolved once a change: the Batch reads the list before any
   // item's targets.
-  let placesNow: BatchReorderPlaces = placesOf(env.untrack(options.geometry), env.untrack(options.values).length)
+  let resolved: BatchReorderPlaces = resolvePlaces(env.untrack(options.geometry), env.untrack(options.values).length)
   /** An item's place now, at index `i`. */
-  const placeNow = (i: number): BatchReorderPlace => placeOf(placesNow, i)
+  const placeAt = (i: number): XY => placeOf(resolved, i)
   // An item starts at its place: none given, or `false`, starts it at its targets; values or a function
   // start it there, but for the keys they give. Made once a given `initial`.
   let startGiven: unknown = undefined
@@ -219,21 +262,25 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     if (given === startGiven) return startMade
     startGiven = given
     startMade = Bool.match(Predicate.isFunction(given), {
-      onTrue: () => (item: V, i: number): WardicBatchValues => ({ ...placeNow(i), ...(given as (item: V, i: number) => WardicBatchValues)(item, i) }),
-      onFalse: () => (_: V, i: number): WardicBatchValues => ({ ...placeNow(i), ...(given as WardicBatchValues) }),
+      onTrue: () => (item: V, i: number): WardicBatchValues => ({ ...placeAt(i), ...(given as (item: V, i: number) => WardicBatchValues)(item, i) }),
+      onFalse: () => (_: V, i: number): WardicBatchValues => ({ ...placeAt(i), ...(given as WardicBatchValues) }),
     })
     return startMade
   }
-  // The items raised as they come to rest after a release: let down once the Batch lands.
-  const coming = new Set<HTMLElement>()
+  // Whether any member is moving, from a flight's start to its landing; the items raised as they come to
+  // rest, let down at the landing; and the members a pointer let go of, still flying to their places,
+  // which a grab stops.
+  let flying = false
+  const comingToRest = new Set<HTMLElement>()
+  const released = new Set<number>()
   const config = {
     each: () => {
       const values = options.values()
-      placesNow = placesOf(options.geometry(), values.length)
+      resolved = resolvePlaces(options.geometry(), values.length)
       return values
     },
     key: (item: V) => item,
-    animate: (_: V, i: number) => placeNow(i),
+    animate: (_: V, i: number) => placeAt(i),
     // Read as a change starts or a member enters, which a binding's effect may run in its apply: untracked.
     get initial() {
       return startOf(env.untrack(options.initial))
@@ -247,9 +294,15 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
   }
   const batch = bindBatch(env, config as ReorderBatchConfig<V> as KeyedBatchConfig<unknown>, {
     ...hooks,
+    started: () => {
+      flying = true
+      hooks.started()
+    },
     landed: (landing) => {
-      coming.forEach((el) => el.style.removeProperty("z-index"))
-      coming.clear()
+      flying = false
+      Iter.forEach(comingToRest, (el) => el.style.removeProperty("z-index"))
+      comingToRest.clear()
+      released.clear()
       hooks.landed(landing)
     },
   })
@@ -278,53 +331,75 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
   // The values it last placed: a change of the geometry alone is no change of the app's.
   let placedValues: ReadonlyArray<V> | undefined = env.untrack(options.values)
 
+  const report = (message: string) => (cause: Cause.Cause<unknown>): void => {
+    runtime.runFork(Report.failure(message, cause))
+  }
+  const onDefect = report("Reorder.BatchGroup: an item's input failed")
+
   /** A raise's `z-index` on member `i`'s element, or none. */
   const raise = (i: number, z: string | undefined): void => {
     const el = batch.elementOf(i)
-    if (!(el instanceof HTMLElement)) return
-    coming.delete(el)
+    if (!isHTMLElement(el)) return
+    comingToRest.delete(el)
     if (Predicate.isUndefined(z)) {
       el.style.removeProperty("z-index")
       return
     }
     el.style.setProperty("z-index", z)
-    if (z === COMING_TO_REST_Z) coming.add(el)
+    if (z === COMING_TO_REST_Z) comingToRest.add(el)
+  }
+
+  /** Member `i` let go, its turn made: raised while it comes to rest, or let down at once when nothing moves. */
+  const settle = (i: number): void => raise(i, RAISE_AFTER[`${flying}`])
+
+  /** Member `i`'s `whileDrag` on or off; one that fails is reported, and the hand goes on without it. */
+  const turnWhileDrag = (i: number, on: boolean): void => {
+    try {
+      turnDrag(host, i, on)
+    } catch (defect) {
+      report("Reorder.BatchGroup: an item's whileDrag failed")(Cause.die(defect))
+    }
   }
 
   // --- The drag (decision 7) ---------------------------------------------------------------------
 
-  // Each dragged member's hold.
-  const held = new Map<number, Held>()
+  // Each dragged member's hand; the members a grab stopped as they flew back, to go on if no drag follows.
+  const inHand = new Map<number, InHand>()
+  const stopped = new Set<number>()
+
+  /** Where member `i` is drawn now, on `key`: the Batch draws every item of the group. */
+  const drawnOf = (i: number, key: string): number => UndefinedOr.getOrThrow(batch.drawnValueOf(i, key))
 
   /** Member `i` taken in hand at its drag's start: held where it's drawn, moved by the drag's offset, raised. */
   const take = (i: number, sample: Drag.Sample): void => {
-    const place = placeNow(host.indexOf(i))
-    const originX = UndefinedOr.match(host.drawnValueOf(i, "x"), { onUndefined: () => place.x, onDefined: identity })
-    const originY = UndefinedOr.match(host.drawnValueOf(i, "y"), { onUndefined: () => place.y, onDefined: identity })
-    const hold: Held = { member: i, originX, originY, x: originX + sample.offset.x, y: originY + sample.offset.y }
-    held.set(i, hold)
-    host.handAt(i, hold.x, hold.y)
-    turnDrag(host, i, true)
+    stopped.delete(i)
+    released.delete(i)
+    const originX = drawnOf(i, "x")
+    const originY = drawnOf(i, "y")
+    const hand: InHand = { member: i, originX, originY, x: originX + sample.offset.x, y: originY + sample.offset.y }
+    inHand.set(i, hand)
+    host.handAt(i, hand.x, hand.y)
+    turnWhileDrag(i, true)
     raise(i, IN_HAND_Z)
   }
 
   /** Member `i` held where the pointer has it now. */
-  // Per drag sample (#712): statements.
   const follow = (i: number, sample: Drag.Sample): void => {
-    const hold = held.get(i)
-    if (Predicate.isUndefined(hold)) return
-    hold.x = hold.originX + sample.offset.x
-    hold.y = hold.originY + sample.offset.y
-    host.handAt(i, hold.x, hold.y)
+    const hand = inHand.get(i)
+    if (Predicate.isUndefined(hand)) return
+    hand.x = hand.originX + sample.offset.x
+    hand.y = hand.originY + sample.offset.y
+    host.handAt(i, hand.x, hand.y)
   }
 
-  /** Member `i` let go: toward its place at the release's speed (a cancelled drag's at none), `whileDrag` off, coming to rest raised. */
+  /** Member `i` let go: toward its place at the release's speed, `whileDrag` off, raised while it comes to rest. */
   const letGo = (i: number, sample: Drag.Sample): void => {
-    held.delete(i)
-    const velocity = Bool.match(sample.cancelled === true, { onTrue: () => NO_OFFSET, onFalse: () => sample.velocity })
+    inHand.delete(i)
+    const velocity = releaseVelocityOf(sample)
     host.handOff(i, velocity.x, velocity.y)
-    turnDrag(host, i, false)
-    raise(i, COMING_TO_REST_Z)
+    turnWhileDrag(i, false)
+    released.add(i)
+    settle(i)
   }
 
   // Each drag phase's step: the item held where the pointer has it before the controller's crossover reads
@@ -345,7 +420,6 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
   }
 
   /** A member's drag sample, its phase's step. */
-  // Per drag sample (#712): statements.
   const onDrag = (element: unknown, sample: Drag.Sample): void => {
     const i = host.memberAt(element)
     if (Predicate.isUndefined(i)) return
@@ -354,9 +428,26 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     steps[sample.phase](i, driver, sample)
   }
 
-  const onDefect = (cause: Cause.Cause<unknown>): void => {
-    runtime.runFork(Report.failure("Reorder.BatchGroup: an item's input failed", cause))
+  /**
+   * A grab of an item flying back from a release stops it where it is: a drag that follows starts from there,
+   * and a press that ends with none lets it go on, from rest (a `Reorder.Item`'s, Motion's `stopAnimation`).
+   */
+  const onPress = (target: unknown): void => {
+    const i = host.memberAt(target)
+    if (Predicate.isUndefined(i)) return
+    if (!released.has(i)) return
+    released.delete(i)
+    stopped.add(i)
+    host.handAt(i, drawnOf(i, "x"), drawnOf(i, "y"))
   }
+  const onPressEnd = (target: unknown): void => {
+    const i = host.memberAt(target)
+    if (Predicate.isUndefined(i)) return
+    if (!stopped.delete(i)) return
+    host.handOff(i, 0, 0)
+    released.add(i)
+  }
+
   /** The driver of the item `target` is, while it has one. */
   const driverOf = (target: unknown): ReorderController.ItemDriver | undefined =>
     UndefinedOr.map(host.memberAt(target), (i) => drivers.get(host.itemOf(i) as V))
@@ -365,7 +456,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
   runtime.runSync(
     Effect.all([
       DragRecognizer.watchDragAmong(host.memberElementOf, { axis: () => controller.axis() }, { on: onDrag, onDefect }),
-      watchItemsInputAmong(host.memberElementOf, driverOf, (effect) => void runtime.runFork(effect), onDefect),
+      watchItemsInputAmong(host.memberElementOf, { driverOf, onPress, onPressEnd, fork: (effect) => void runtime.runFork(effect), onDefect }),
     ]).pipe(
       Effect.provideService(InputSource.InputSource, options.input()),
       Scope.provide(scope),
@@ -374,10 +465,10 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
 
   /** A dragged member's offset from its place now: where it's held, less where its index places it. Built once. */
   const offsetOf = UndefinedOr.match({
-    onUndefined: (): BatchReorderPlace => NO_OFFSET,
-    onDefined: (hold: Held): BatchReorderPlace => {
-      const place = placeNow(host.indexOf(hold.member))
-      return { x: hold.x - place.x, y: hold.y - place.y }
+    onUndefined: (): XY => ORIGIN,
+    onDefined: (hand: InHand): XY => {
+      const place = placeAt(host.indexOf(hand.member))
+      return { x: hand.x - place.x, y: hand.y - place.y }
     },
   })
 
@@ -388,32 +479,42 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     let boxIndex = -1
     let boxPlaces: BatchReorderPlaces | undefined
     let box: Option.Option<Box.Box> = Option.none()
-    // Per drag sample, per item (#712): statements.
+    // Per item, per drag sample (the hot path): statements.
     const boxOf = (): Option.Option<Box.Box> => {
       const index = host.indexOf(i)
       if (index < 0) return Option.none()
-      if (index === boxIndex && placesNow === boxPlaces) return box
-      const place = placeNow(index)
-      const size = placesNow.itemSize
+      if (index === boxIndex && resolved === boxPlaces) return box
+      const place = placeAt(index)
+      const size = resolved.itemSize
       boxIndex = index
-      boxPlaces = placesNow
+      boxPlaces = resolved
       box = Option.some({ x: { min: place.x, max: place.x + size.width }, y: { min: place.y, max: place.y + size.height } })
       return box
     }
     return {
       layoutBox: boxOf,
-      dragOffset: () => offsetOf(held.get(i)),
+      dragOffset: () => offsetOf(inHand.get(i)),
       layoutVersion: () => version,
-      setLifted: (lifted) => raise(i, Bool.match(lifted, { onTrue: () => IN_HAND_Z, onFalse: () => COMING_TO_REST_Z })),
+      // A lift raises it; its drop lets it down as its `whileDrag` turns off, in the item's `onLift`.
+      setLifted: (lifted) => {
+        if (lifted) raise(i, IN_HAND_Z)
+      },
+      // Called for a reveal, once the group is attached and the item placed.
       placeOnScreen: () => {
-        const at = UndefinedOr.match(groupEl, { onUndefined: () => NO_RECT, onDefined: (el) => el.getBoundingClientRect() })
-        const inner = UndefinedOr.match(groupEl, { onUndefined: () => NO_OFFSET, onDefined: (el) => ({ x: el.clientLeft, y: el.clientTop }) })
-        const placed = Option.getOrElse(boxOf(), () => NO_BOX)
-        const left = at.left + inner.x
-        const top = at.top + inner.y
+        const el = UndefinedOr.getOrThrow(groupEl)
+        const at = el.getBoundingClientRect()
+        const placed = Option.getOrThrow(boxOf())
+        const left = at.left + el.clientLeft
+        const top = at.top + el.clientTop
         return { left: left + placed.x.min, top: top + placed.y.min, right: left + placed.x.max, bottom: top + placed.y.max }
       },
     }
+  }
+
+  /** Member `i`'s keyboard lift: its `whileDrag` on, or off at its drop, then let down. */
+  const onLift = (i: number, lifted: boolean): void => {
+    turnWhileDrag(i, lifted)
+    if (Bool.not(lifted)) settle(i)
   }
 
   return {
@@ -429,7 +530,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     },
     groupStyle: (own) => {
       const n = options.values().length
-      const extent = extentOf(placesOf(options.geometry(), n), n)
+      const extent = extentOf(resolvePlaces(options.geometry(), n), n)
       return Style.over(own, { ...ReorderController.GROUP_STYLE, position: "relative", width: px(extent.width), height: px(extent.height) })
     },
     attach: (el) => {
@@ -438,7 +539,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     },
     item: (value, presence) => {
       const member = batch.memberFor(value, presence)
-      const driver = controller.item(value, () => Option.fromUndefinedOr(batch.elementOf(member)), (lifted) => turnDrag(host, member, lifted))
+      const driver = controller.item(value, () => Option.fromUndefinedOr(batch.elementOf(member)), (lifted) => onLift(member, lifted))
       drivers.set(value, driver)
       const unregister = driver.register(handleOf(member))
       return {
@@ -458,7 +559,9 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
         dispose: () => {
           driver.dispose()
           unregister()
-          held.delete(member)
+          inHand.delete(member)
+          stopped.delete(member)
+          released.delete(member)
           if (drivers.get(value) === driver) drivers.delete(value)
         },
       }
@@ -470,7 +573,3 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     },
   }
 }
-
-const NO_OFFSET = { x: 0, y: 0 } as const
-const NO_RECT = { left: 0, top: 0 } as const
-const NO_BOX = { x: { min: 0, max: 0 }, y: { min: 0, max: 0 } } as const

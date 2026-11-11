@@ -5,11 +5,9 @@
  *
  * @module
  */
-import * as InputSource from "@wardic/core/InputSource"
 import type * as CoreReorder from "@wardic/core/Reorder"
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as ReorderController from "@wardic/dom/ReorderController"
-import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constUndefined, identity } from "effect/Function"
 import * as Option from "effect/Option"
@@ -18,9 +16,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import type { JSX } from "@solidjs/web"
 import { createContext, createEffect, createMemo, createSignal, flush, omit, onCleanup, untrack, useContext } from "solid-js"
 import { configTransitionOf, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues } from "../../batch.ts"
-import { type BatchReorderBinding, type BatchReorderGap, type BatchReorderGeometry, type BatchReorderItemSize, bindBatchReorder } from "../../batch-reorder.ts"
-import type { Feature } from "../../feature.ts"
-import { input } from "../../features/input.ts"
+import { type BatchReorderBinding, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize } from "../../batch-reorder.ts"
 import { inputIn } from "../../gesture-features.ts"
 import { refsOf, staticElementOf } from "./element.tsx"
 import { usePresenceContext } from "./presence.tsx"
@@ -30,13 +26,13 @@ import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
 import { eachOf, Waiters, whenOf } from "./waiters.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 
-export type { BatchReorderGap as ReorderBatchGap, BatchReorderItemSize as ReorderBatchItemSize } from "../../batch-reorder.ts"
+export type { ReorderBatchGap, ReorderBatchItemSize } from "../../batch-reorder.ts"
 
 /**
  * A `Reorder.BatchGroup`'s group, handed to its `groupRef` (Q25): `reorderGroup()`'s events (`next`, `each`
- * and `when` of `reorderEnd`, `holdStart` and `holdEnd`), `move`, its axis and its keyboard reorder's settings.
+ * and `when` of `reorderEnd`, `holdStart` and `holdEnd`), `move` and its axis.
  */
-export type ReorderBatchGroup<V> = Pick<ReorderGroup<V>, "group" | "axis" | "move" | "next" | "each" | "when" | "keyboard" | "instructions">
+export type ReorderBatchGroup<V> = Pick<ReorderGroup<V>, "axis" | "move" | "next" | "each" | "when">
 
 /**
  * `Reorder.BatchGroup`'s props: `Reorder.Group`'s (its `values`, `onReorder` and keyboard), its places'
@@ -50,9 +46,9 @@ export type ReorderBatchGroupProps<V, Tag extends ReorderElementTag = "ul"> = {
   /** The list's shape: `"y"`, a column (the default), `"x"`, a row, or `"xy"`, a grid that wraps. */
   readonly axis?: CoreReorder.Axis | undefined
   /** Every item's size, in px: the group places them by it. */
-  readonly itemSize: BatchReorderItemSize
+  readonly itemSize: ReorderBatchItemSize
   /** The space between places, in px: one for both axes, or `{ x, y }`. None by default. */
-  readonly gap?: BatchReorderGap | undefined
+  readonly gap?: ReorderBatchGap | undefined
   /** A grid's columns: how many items a row holds. */
   readonly columns?: number | undefined
   /** The keyboard reorder: on unless `false`. */
@@ -101,8 +97,8 @@ interface GroupLocal<V> {
   readonly values: ReadonlyArray<V>
   readonly onReorder: (values: Array<V>) => void
   readonly axis?: CoreReorder.Axis | undefined
-  readonly itemSize: BatchReorderItemSize
-  readonly gap?: BatchReorderGap | undefined
+  readonly itemSize: ReorderBatchItemSize
+  readonly gap?: ReorderBatchGap | undefined
   readonly columns?: number | undefined
   readonly keyboard?: boolean | undefined
   readonly announcements?: Partial<CoreReorder.Announcements<V>> | undefined
@@ -147,9 +143,6 @@ const GROUP_OWN = [
 ] as const
 const ITEM_OWN = ["value", "as", "ref", "style", "children", "tabindex", "aria-describedby"] as const
 
-/** What a group brings (ADR-0067 decision 12): the gestures' input, its items' drags heard through it. */
-const GROUP_BRINGS: ReadonlyArray<Feature> = [{ name: "Reorder.BatchGroup", key: InputSource.InputSource, layer: input }]
-
 /** The `AbortError`'s message for a group's `next` its disposal cut off. */
 const GROUP_GONE = "The Reorder group was disposed before its next event."
 
@@ -162,14 +155,6 @@ interface GroupForItems<V> {
 
 /** The nearest `Reorder.BatchGroup`, for its items: `null` for none (Solid 2's contexts). */
 const BatchGroupContext = createContext<GroupForItems<unknown> | null>(null)
-
-/** A group's geometry from its props: its axis `"y"` when it gives none. */
-const geometryOf = (local: GroupLocal<unknown>): BatchReorderGeometry => ({
-  axis: UndefinedOr.match(local.axis, { onUndefined: (): CoreReorder.Axis => "y", onDefined: identity }),
-  itemSize: local.itemSize,
-  gap: local.gap,
-  columns: local.columns,
-})
 
 /**
  * A long list put in order by dragging its items, or from the keyboard, as one Batch: every item one
@@ -184,7 +169,7 @@ const geometryOf = (local: GroupLocal<unknown>): BatchReorderGeometry => ({
  * @see https://wardic.dev/reference/solid/reorder/reorder
  */
 // #712, ADR-0072.
-function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: ReorderBatchGroupProps<V, Tag>): JSX.Element {
+export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: ReorderBatchGroupProps<V, Tag>): JSX.Element {
   const local = props as unknown as GroupLocal<V>
   const runtime = useWardicRuntime()
   const services = useBrought(GROUP_BRINGS)
@@ -206,7 +191,7 @@ function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: ReorderBatch
       },
       {
         values: () => local.values,
-        geometry: () => geometryOf(local as GroupLocal<unknown>),
+        geometry: () => geometryOf(local),
         initial: () => local.initial,
         transition: () => local.transition,
         whileDrag: () => local.whileDrag,
@@ -235,8 +220,7 @@ function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: ReorderBatch
   const instructions = (): string => UndefinedOr.match(local.instructions, { onUndefined: () => ReorderController.DEFAULT_INSTRUCTIONS, onDefined: identity })
   const controller = binding.controller
   const group: ReorderBatchGroup<V> = {
-    group: controller.group,
-    axis: () => geometryOf(local as GroupLocal<unknown>).axis,
+    axis: () => geometryOf(local).axis,
     move: (value, toIndex) => {
       moving = true
       try {
@@ -248,8 +232,6 @@ function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: ReorderBatch
     next: (name) => events.wait(name),
     each: (name) => eachOf(events, name),
     when: (name) => whenOf(events, name),
-    keyboard,
-    instructions,
   }
   // The group, to its `groupRef`, read once, untracked, as `ref` is.
   UndefinedOr.map(untrack(() => local.groupRef), (give) => give(group))
@@ -271,7 +253,7 @@ function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: ReorderBatch
  * @see https://wardic.dev/reference/solid/reorder/reorder
  */
 // #712, ADR-0072.
-function BatchItem<V, Tag extends ReorderElementTag = "li">(props: ReorderBatchItemProps<V, Tag>): JSX.Element {
+export function BatchItem<V, Tag extends ReorderElementTag = "li">(props: ReorderBatchItemProps<V, Tag>): JSX.Element {
   const group = useContext(BatchGroupContext) as GroupForItems<V> | null
   if (Predicate.isNull(group)) throw new Error("Reorder.BatchItem must be a child of Reorder.BatchGroup")
   const local = props as unknown as ItemLocal<V>
@@ -308,12 +290,3 @@ function BatchItem<V, Tag extends ReorderElementTag = "li">(props: ReorderBatchI
 
 const noop = (): void => {}
 
-/** An item's `aria-describedby`: the app's own ids, then the instructions', or none. */
-const describedByOf = (own: string | undefined, instructions: string | undefined): string | undefined => {
-  const ids = Arr.filter([own, instructions], Predicate.isNotUndefined)
-  if (ids.length === 0) return undefined
-  return ids.join(" ")
-}
-
-/** `Reorder.BatchGroup` and `Reorder.BatchItem`, for the `Reorder` namespace. */
-export const BatchReorder = { BatchGroup, BatchItem } as const

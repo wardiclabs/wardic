@@ -6,7 +6,7 @@ import type * as ReorderController from "@wardic/dom/ReorderController"
 import { render } from "@solidjs/testing-library"
 import type * as CoreReorder from "@wardic/core/Reorder"
 import { DomLive } from "@wardic/dom"
-import { Reorder, type WardicBatchGesture, type WardicBatchTransition, WardicProvider } from "@wardic/solid"
+import { Reorder, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal, For, type JSX } from "solid-js"
@@ -15,7 +15,7 @@ import { itemCss, LAYOUTS, type Layout, type Scene, settle, VALUES } from "./reo
 export interface BatchSceneOptions {
   readonly layout?: Layout
   readonly n?: number
-  readonly whileDrag?: WardicBatchGesture
+  readonly whileDrag?: WardicBatchGesture | ((item: string, i: number) => WardicBatchValues)
   readonly transition?: WardicBatchTransition
   /** Inside a plain `overflow: auto` container this tall. */
   readonly container?: number

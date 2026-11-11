@@ -4,7 +4,7 @@
 // the page, so one drag path drives both. Not a test file itself.
 import type * as CoreReorder from "@wardic/core/Reorder"
 import { DomLive } from "@wardic/dom"
-import { Reorder, type ReorderBatchGroup, type WardicBatchGesture, type WardicBatchTransition, WardicProvider } from "@wardic/solid/unstable/v2"
+import { Reorder, type ReorderBatchGroup, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues, WardicProvider } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
 import * as Bool from "effect/Boolean"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -15,7 +15,7 @@ import { type Layout, resetScene, settle, VALUES } from "./reorder-scene.tsx"
 export interface BatchSceneOptions {
   readonly layout?: Layout
   readonly n?: number
-  readonly whileDrag?: WardicBatchGesture
+  readonly whileDrag?: WardicBatchGesture | ((item: string, i: number) => WardicBatchValues)
   readonly transition?: WardicBatchTransition
   /** Inside a plain `overflow: auto` container this tall. */
   readonly container?: number

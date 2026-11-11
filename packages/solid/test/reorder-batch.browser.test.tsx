@@ -11,8 +11,13 @@
 //   arrows step, Escape cancels) give the same values and announcements; focus stays on the item; a lift
 //   raises it; each item is a tab stop reading the instructions. In a scroller, End reveals the item's place.
 // - BG4: the item in hand: `whileDrag` on through a drag and a keyboard lift, off as it's let go; raised
-//   (`z-index` 2) in hand, 1 as it comes to rest, none once it lands; let go while flung, it carries on
-//   along the fling before it turns back to its place.
+//   (`z-index` 2) in hand, 1 as it comes to rest, none once it lands, or at once when nothing moves; let
+//   go while flung, it carries on along the fling before it turns back to its place.
+// - BG7: a drag held near its scroller's edge scrolls it (Auto-scroll), the item moving down the list and
+//   staying under the pointer.
+// - BG8: a grab of an item flying back from a release stops it where it is; a press that ends with no drag
+//   lets it go on to its place.
+// - BG9: a function `whileDrag`'s keys join the group's: it lays its values over an item dragged or lifted.
 // - BG5: no item listens at rest, and the page's listeners are as many for 20 items as for 5; a focus
 //   and a blur leave none behind.
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
@@ -218,6 +223,18 @@ describe("Reorder.BatchGroup and Reorder.BatchItem", () => {
     expect(getComputedStyle(b).zIndex, "let down once it lands").toBe("auto")
     await resetScene()
 
+    // With no whileDrag a lift and its drop move nothing: the raise goes at once.
+    const plain = await mountBatchReorder({ layout: "y" })
+    const c = plain.item("c")
+    c.focus()
+    await commands.realKey("press", "Space")
+    await frames(2)
+    expect(getComputedStyle(c).zIndex, "raised while lifted").toBe("2")
+    await commands.realKey("press", "Space")
+    await frames(2)
+    expect(getComputedStyle(c).zIndex, "let down at once, nothing moving").toBe("auto")
+    await resetScene()
+
     // Flung down, let go 30 px below its place (short of b's crossover): it carries on down before it turns back.
     const t = await mountBatchReorder({ layout: "y", transition: { type: "spring", stiffness: 120, damping: 14 } })
     const a = t.item("a")
@@ -277,4 +294,62 @@ describe("Reorder.BatchGroup and Reorder.BatchItem", () => {
       EventTarget.prototype.removeEventListener = realRemove
     }
   })
+
+  it("BG7: a drag held near its scroller's bottom edge scrolls it, the item moving down the list under the pointer", async () => {
+    const s = await mountBatchReorder({ layout: "y", n: 20, container: 300 })
+    const sc = s.scroller as HTMLElement
+    const c = s.item("c")
+    const g = centreOf(c)
+    const grabOffset = grabOffsetOf(c, g)
+    const edge = sc.getBoundingClientRect().bottom
+    await mouse.down(g)
+    const to = { x: g.x, y: edge - 15 }
+    await glide(g, to, 20)
+    const atHold = sc.scrollTop
+    await wait(400)
+    expect(sc.scrollTop, "keeps scrolling while the pointer holds still").toBeGreaterThan(atHold + 20)
+    await wait(400)
+    await frames(4)
+    expect(s.order().indexOf("c"), "c moved down the list").toBeGreaterThan(5)
+    expect(offPointer(c, to, grabOffset), "the item under the pointer").toBeLessThan(2)
+    expect(domOrder(s.group()), "the DOM follows").toBe(s.order().join(""))
+  }, 30_000)
+
+  it("BG8: a grab stops an item flying back from a release; a press with no drag lets it go on", async () => {
+    const s = await mountBatchReorder({ layout: "y", transition: { type: "spring", stiffness: 60, damping: 12 } })
+    const a = s.item("a")
+    const g = centreOf(a)
+    await mouse.down(g)
+    await glide(g, add(g, 0, 30), 10, 20)
+    await wait(100)
+    await mouse.up(add(g, 0, 30))
+    await wait(60)
+    const grabAt = centreOf(a)
+    await mouse.down(grabAt)
+    await frames(1)
+    const stoppedAt = a.getBoundingClientRect().top
+    await wait(250)
+    expect(stoppedAt, "still off its place").toBeGreaterThan(40 + 2)
+    expect(Math.abs(a.getBoundingClientRect().top - stoppedAt), "held where the grab stopped it").toBeLessThan(0.5)
+    await mouse.up(grabAt)
+    await wait(2000)
+    expect(Math.round(a.getBoundingClientRect().top), "gone on to its place").toBe(40)
+    expect(s.order().join(""), "no reorder").toBe("abcde")
+  }, 30_000)
+
+  it("BG9: a function whileDrag's keys join the group's, laid over an item dragged or lifted", async () => {
+    const s = await mountBatchReorder({ layout: "y", whileDrag: (_, i) => ({ scale: 1.1 + i * 0 }), transition: { type: "spring", stiffness: 400, damping: 40 } })
+    const b = s.item("b")
+    const { to } = await drag(s, "b", 0, 46, 23, 400)
+    expect(scaleOf(b), "laid over the dragged item").toBeCloseTo(1.1, 2)
+    expect(s.order().join(""), "it reorders").toBe("acbde")
+    await mouse.up(to)
+    await wait(800)
+    expect(scaleOf(b), "off at the drop").toBeCloseTo(1, 3)
+    b.focus()
+    await commands.realKey("press", "Space")
+    await wait(400)
+    expect(scaleOf(b), "laid over the lifted item").toBeCloseTo(1.1, 2)
+    await commands.realKey("press", "Escape")
+  }, 30_000)
 })
