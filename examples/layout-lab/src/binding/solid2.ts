@@ -9,7 +9,7 @@ import type { LabBinding } from "../lab/lab.ts"
 export { wardic, type WardicEnv, WardicProvider } from "@wardic/solid/unstable/v2"
 // The provider's projection system, for the tree panel (#681): internal to the binding, so the lab takes
 // it from the binding's source, the module `@wardic/solid/unstable/v2` itself runs.
-export { useWardicProjection } from "../../../../packages/solid/src/unstable/v2/layout-projection.ts"
+export { useWardicProjection } from "../../../../packages/solid/src/unstable/v2/layout-projection.tsx"
 export { type JSX, render } from "@solidjs/web"
 
 /** Solid 2 has no `batch`: writes batch until its flush. A call, so the shared UI reads the same. */

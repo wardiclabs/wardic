@@ -22,7 +22,7 @@ import * as Bool from "effect/Boolean"
 import { createContext, createEffect, createMemo, type JSX, on, onCleanup, untrack, useContext } from "solid-js"
 import { layoutGroupIdOf, type LayoutGroupInherit } from "./layout-group.ts"
 import { registrationOf, type CreateProjectionNodeOptions } from "./layout-member.ts"
-import { useWardicProjection } from "./layout-projection.ts"
+import { useWardicProjection } from "./layout-projection.tsx"
 import { isServer } from "./server.ts"
 
 export type { CreateProjectionNodeOptions } from "./layout-member.ts"

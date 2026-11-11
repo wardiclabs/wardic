@@ -38,7 +38,7 @@ import { isHydrating, isServer } from "./server.ts"
  */
 // `Stream.runForEach` through `runScoped`; `set(() => v)`, so an object or function value is stored as
 // it is. The stream's `R` is the provider runtime's services.
-export const streamToSignal = <A>(
+export const streamToSignal = <A,>(
   stream: Stream.Stream<A, never, WardicServices>,
   initial: A,
 ): Accessor<A> => {
@@ -56,7 +56,7 @@ export const streamToSignal = <A>(
  * watch run with {@link runWatch} (a Scope of its own, closed with the owner; a handler's throw
  * reported). Must be called within a Solid owner under a `WardicProvider`.
  */
-export const watchToSignal = <A>(
+export const watchToSignal = <A,>(
   watchOf: (handlers: InputFeed.Handlers<A>) => Effect.Effect<void, never, Scope.Scope | WardicServices>,
   initial: A,
 ): Accessor<A> => {
@@ -76,7 +76,7 @@ export const watchToSignal = <A>(
  */
 // Solid's `from`, seeded with the atom's value; `set(() => v)`, so an object or function value is stored
 // as it is. A server builds no registry (ADR-0021); the Hydration hold is decision 8.
-export const fromAtom = <A>(atom: Atom.Atom<A>, options?: { readonly serverValue?: A }): Accessor<A> => {
+export const fromAtom = <A,>(atom: Atom.Atom<A>, options?: { readonly serverValue?: A }): Accessor<A> => {
   const runtime = useWardicRuntime()
   const held = Predicate.isNotUndefined(options) && "serverValue" in options
   if (held && isServer) {

@@ -9,7 +9,7 @@ import { press } from "../../features/press.ts"
 import { PressGesture } from "../../features/keys.ts"
 import { serviceOf } from "../../gesture-features.ts"
 import { useBrought } from "./provider.tsx"
-import { type Sensor, watchSensorOf } from "./sensors.ts"
+import { type Sensor, watchSensorOf } from "./sensors.tsx"
 
 /** What it brings (ADR-0067 decision 12): its gesture's Feature, whatever its section has (#511). */
 const PRESS: ReadonlyArray<Feature> = [press]

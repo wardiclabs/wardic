@@ -59,7 +59,7 @@ import {
 import { Dynamic } from "solid-js/web"
 import * as OwnerScope from "./owner-scope.ts"
 import { runWatch, useBrought, useWardicGate, useWardicRuntime } from "./provider.tsx"
-import { useLayoutServices } from "./layout-projection.ts"
+import { useLayoutServices } from "./layout-projection.tsx"
 import { watchItemInput } from "./reorder-input.ts"
 import type { Feature } from "./feature.ts"
 import { drag } from "./features/drag.ts"

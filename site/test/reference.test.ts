@@ -40,7 +40,7 @@ const apiOf = (file: string): ReadonlyArray<string> => {
     .filter((name) => name !== "")
 }
 
-const program = ts.createProgram([join(SOLID, "index.ts"), join(SOLID, "unstable/v2/index.ts")], {
+const program = ts.createProgram([join(SOLID, "index.tsx"), join(SOLID, "unstable/v2/index.tsx")], {
   allowImportingTsExtensions: true,
   noEmit: true,
   jsx: ts.JsxEmit.Preserve,
@@ -50,7 +50,7 @@ const program = ts.createProgram([join(SOLID, "index.ts"), join(SOLID, "unstable
   customConditions: ["@wardic/source"],
   skipLibCheck: true,
 })
-const exported = new Set([...exportsOf(program, join(SOLID, "index.ts")), ...exportsOf(program, join(SOLID, "unstable/v2/index.ts"))])
+const exported = new Set([...exportsOf(program, join(SOLID, "index.tsx")), ...exportsOf(program, join(SOLID, "unstable/v2/index.tsx"))])
 const pages = pagesUnder(REFERENCE)
 const documented = new Map(pages.flatMap((page) => apiOf(page).map((name) => [name, relative(REFERENCE, page)] as const)))
 

@@ -9,6 +9,7 @@ import { cpSync, existsSync, readFileSync } from "node:fs"
 import { dirname, join, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import type { Plugin } from "vite"
+import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
 import * as UndefinedOr from "effect/UndefinedOr"
 
@@ -64,8 +65,14 @@ export const sourcesInto = (root: string, commit: string | undefined, manifests 
   execSync(`git archive ${commit} ${paths.join(" ")} | tar -x -C ${JSON.stringify(root)}`, { cwd: REPO })
 }
 
-/** A `@wardic/*` subpath that's a folder, not a module: its index. */
-const SUBPATHS: Readonly<Record<string, string>> = { "unstable/v2": "unstable/v2/index.ts" }
+/** A `@wardic/*` subpath that's a folder, not a module: its index, without its extension. */
+const SUBPATHS: Readonly<Record<string, string>> = { "unstable/v2": "unstable/v2/index" }
+
+/**
+ * A side's module `stem`: `.tsx` when the side has it, else `.ts`. `@wardic/solid`'s entries are `index.tsx`,
+ * as they re-export components, and a base before that rename has `index.ts`.
+ */
+const moduleOf = (stem: string): string => Bool.match(existsSync(`${stem}.tsx`), { onTrue: () => `${stem}.tsx`, onFalse: () => `${stem}.ts` })
 
 /** Whether a side's package declares its modules free of side effects, read from the manifest `sourcesInto` copied. */
 const sideEffectsOf = (root: string, pkg: string): boolean => {
@@ -87,16 +94,16 @@ export const sideResolver = (root: string, deps: string): Plugin => ({
     const wardic = /^@wardic\/(core|dom|solid)(?:\/(.+))?$/.exec(source)
     if (wardic !== null) {
       const [, pkg, sub] = wardic
-      const id = join(
+      const id = moduleOf(join(
         root,
         "packages",
         pkg!,
         "src",
         UndefinedOr.match(sub, {
-          onUndefined: () => "index.ts",
-          onDefined: (name) => Option.getOrElse(Option.fromUndefinedOr(SUBPATHS[name]), () => `${name}.ts`),
+          onUndefined: () => "index",
+          onDefined: (name) => Option.getOrElse(Option.fromUndefinedOr(SUBPATHS[name]), () => name),
         }),
-      )
+      ))
       return { id, moduleSideEffects: sideEffectsOf(root, pkg!) }
     }
     if (importer === undefined || !importer.startsWith(root)) return null

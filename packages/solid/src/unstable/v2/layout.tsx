@@ -11,7 +11,7 @@ import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
 import { createContext, createEffect, createMemo, untrack, useContext } from "solid-js"
 import { layoutGroupIdOf, type LayoutGroupInherit } from "../../layout-group.ts"
-import { useWardicProjection } from "./layout-projection.ts"
+import { useWardicProjection } from "./layout-projection.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
 
 /**

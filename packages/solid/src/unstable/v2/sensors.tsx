@@ -33,7 +33,7 @@ import type { WardicViewport } from "../../config.ts"
 import { inViewOptionsOf } from "../../gesture-callbacks.ts"
 import * as OwnerScope from "../../owner-scope.ts"
 import type { WardicServices } from "../../runtime.ts"
-import { fromAtom } from "./bridge.ts"
+import { fromAtom } from "./bridge.tsx"
 import { useWardicReducedMotionSetting, useWardicRuntime } from "./provider.tsx"
 
 export type { CreateDragOptions } from "../../drag-samples.ts"
@@ -58,7 +58,7 @@ const isElement = (value: unknown): value is Element => Predicate.hasProperty(va
  * runs in a Scope of its own, closed when the sensor is given another element or its owner is
  * disposed. Call within an owner.
  */
-export const watchSensorOf = <A>(
+export const watchSensorOf = <A,>(
   watchOf: (target: Element, handlers: InputFeed.Handlers<A>) => Effect.Effect<void, never, Scope.Scope | WardicServices>,
   initial: A,
 ): Sensor<A> => {

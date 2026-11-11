@@ -67,6 +67,9 @@ const tagOf = (name: string): string => {
   if (inPreMode() && hasStable(name)) return "next"
   return "latest"
 }
+/** A package's root module: `@wardic/solid`'s is `index.tsx`, as it re-exports components; the rest's `index.ts`. */
+const indexOf = (dir: string): string => [join(dir, "src", "index.tsx"), join(dir, "src", "index.ts")].find((file) => existsSync(file)) ?? join(dir, "src", "index.ts")
+
 const tarballs = mkdtempSync(join(tmpdir(), "wardic-publish-"))
 
 for (const pkg of PACKAGES) {
@@ -76,7 +79,7 @@ for (const pkg of PACKAGES) {
     console.log(`${name}@${version} is on npm already: skipped`)
     continue
   }
-  const constant = /^export const VERSION = "([^"]*)"$/m.exec(readFileSync(join(dir, "src", "index.ts"), "utf8"))
+  const constant = /^export const VERSION = "([^"]*)"$/m.exec(readFileSync(indexOf(dir), "utf8"))
   if (constant !== null && constant[1] !== version) throw new Error(`${name}@${version} exports VERSION "${constant[1]}": run bun run version-packages`)
   run("bun", ["pm", "pack", "--destination", tarballs, "--quiet"], dir)
   const tarball = readdirSync(tarballs).find((file) => file.startsWith(`wardic-${pkg}-${version}`))

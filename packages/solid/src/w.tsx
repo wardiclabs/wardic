@@ -17,7 +17,7 @@
 import type { Accessor, JSX } from "solid-js"
 import type { WardConfig, WardicVariantLabels } from "./config.ts"
 import { createWardWith, type SpineInternals, type Ward } from "./create-ward.tsx"
-import { runDirective } from "./directive.ts"
+import { runDirective } from "./directive.tsx"
 import { type Create, createOf, formOf, type WardicComponent } from "./element.tsx"
 import type { InferredMotion, TargetKey } from "./ward-keys.ts"
 
