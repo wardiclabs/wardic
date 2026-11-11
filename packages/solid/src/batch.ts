@@ -289,6 +289,11 @@ export interface BatchBinding {
   readonly targetsOf: () => BatchTargets
   /** A change: every member turned toward `targets`; in the keyed form, members entering and leaving. */
   readonly apply: (targets: BatchTargets) => void
+  /**
+   * A change that lands now (#712): every member at its targets and drawn at once, before the page paints, as
+   * a Batch Reorder group's first read of its element places its items.
+   */
+  readonly applyNow: (targets: BatchTargets) => void
   /** Member `i`'s `ref`: one function a member. */
   readonly refOf: (i: number) => (el: Element) => void
   /** The keyed form's member for `key`, made at its first handle, under the `<AnimatePresence>` it's in: its number. */
@@ -2546,6 +2551,14 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
       form.take(targets)
       if (Predicate.isUndefined(batch)) return
       change(movingNow(form.arrivedSlots()))
+    },
+    applyNow: (targets) => {
+      if (disposed) return
+      form.take(targets)
+      if (Predicate.isUndefined(batch)) return
+      // Started from its targets on a 0 s tween: there now, drawn now; the run lands it there.
+      wake(Batch.retarget(made(), form.arrivedSlots(), targetOf, { transition: INSTANT, from: targetOf }))
+      Batch.draw(made())
     },
     refOf: (i) => form.refOf(i),
     memberFor: (key, presence) => form.memberFor(key, presence),

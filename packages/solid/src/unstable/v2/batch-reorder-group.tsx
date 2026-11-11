@@ -8,21 +8,22 @@
 import type * as CoreReorder from "@wardic/core/Reorder"
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as ReorderController from "@wardic/dom/ReorderController"
+import * as Style from "@wardic/dom/Style"
 import * as Bool from "effect/Boolean"
 import { constUndefined, identity } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import type { JSX } from "@solidjs/web"
+import { isServer, type JSX } from "@solidjs/web"
 import { createContext, createEffect, createMemo, createSignal, flush, omit, onCleanup, untrack, useContext } from "solid-js"
 import { configTransitionOf, type WardicBatchExit, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues } from "../../batch.ts"
-import { type BatchReorderBinding, type BatchReorderDirection, type BatchReorderMeasure, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize, sameMeasure } from "../../batch-reorder.ts"
+import { type BatchReorderBinding, type BatchReorderItems, serverBatchReorder, type BatchReorderDirection, type BatchReorderMeasure, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize, sameMeasure } from "../../batch-reorder.ts"
 import { refsOf, staticElementOf } from "./element.tsx"
 import { usePresenceContext } from "./presence.tsx"
 import { useBrought, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import type { ReorderElementTag, ReorderGroup, ReorderGroupEvents } from "./reorder.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
-import { eachOf, Waiters, whenOf } from "./waiters.ts"
+import { eachOf, neverLands, NO_EVENTS, serverWhen, Waiters, whenOf } from "./waiters.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 
 export type { ReorderBatchGap, ReorderBatchItemSize } from "../../batch-reorder.ts"
@@ -176,7 +177,7 @@ const GROUP_GONE = "The Reorder group was disposed before its next event."
 
 /** What a group's items read of it: its binding, and its keyboard reorder's settings. */
 interface GroupForItems<V> {
-  readonly binding: BatchReorderBinding<V>
+  readonly binding: BatchReorderItems<V>
   readonly keyboard: () => boolean
   readonly instructions: () => string
 }
@@ -199,6 +200,28 @@ const BatchGroupContext = createContext<GroupForItems<unknown> | null>(null)
 // #712, ADR-0072.
 export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: ReorderBatchGroupProps<V, Tag>): JSX.Element {
   const local = props as unknown as GroupLocal<V>
+  const keyboard = (): boolean => local.keyboard !== false
+  const instructions = (): string => UndefinedOr.match(local.instructions, { onUndefined: () => ReorderController.DEFAULT_INSTRUCTIONS, onDefined: identity })
+  const Element = staticElementOf(UndefinedOr.match(untrack(() => local.as), { onUndefined: () => "ul", onDefined: identity }))
+  const rest = omit(props as unknown as Record<string, unknown>, ...GROUP_OWN)
+  // On a server (Q39): its items' starts, no runtime, and a group whose events never come, as
+  // `Reorder.Group`'s there. A plain `if`, so a client build drops it (#518).
+  if (isServer) {
+    const server = serverBatchReorder<V>(
+      { values: () => local.values, geometry: () => geometryOf(local, undefined), direction: () => local.direction, initial: () => local.initial, whileTap: () => local.whileTap },
+      untrack,
+    )
+    UndefinedOr.map(untrack(() => local.groupRef), (give) =>
+      give({ axis: () => geometryOf(local, undefined).axis, move: constUndefined, next: neverLands, each: () => NO_EVENTS, when: serverWhen }))
+    // eslint-disable-next-line solid/components-return-once -- `isServer` is a constant: the component takes one path for its life
+    return (
+      <BatchGroupContext value={{ binding: server as BatchReorderItems<unknown>, keyboard, instructions }}>
+        <Element {...rest} style={server.groupStyle(local.style)}>
+          {local.children}
+        </Element>
+      </BatchGroupContext>
+    )
+  }
   const runtime = useWardicRuntime()
   const services = useBrought(GROUP_BRINGS)
   // What the group read of its element: its direction and width (Q35, Q36).
@@ -223,7 +246,12 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
         values: () => local.values,
         geometry: () => geometryOf(local, measured()),
         direction: () => local.direction,
-        onMeasure: setMeasured,
+        // Its places from what it read land within the read, before the page paints (Q35–Q37): Solid 2 runs
+        // the effect that places them at its next flush, which may come after a paint, so it's flushed now.
+        onMeasure: (read) => {
+          setMeasured(read)
+          flush()
+        },
         initial: () => local.initial,
         transition: () => local.transition,
         whileDrag: () => local.whileDrag,
@@ -251,8 +279,6 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
   // Solid runs only for a compute it keeps, turns every item.
   createEffect(binding.batch.targetsOf, binding.apply, CLIENT_ONLY_DEFERRED)
   onCleanup(binding.dispose)
-  const keyboard = (): boolean => local.keyboard !== false
-  const instructions = (): string => UndefinedOr.match(local.instructions, { onUndefined: () => ReorderController.DEFAULT_INSTRUCTIONS, onDefined: identity })
   const controller = binding.controller
   const group: ReorderBatchGroup<V> = {
     axis: () => geometryOf(local, untrack(measured)).axis,
@@ -270,8 +296,6 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
   }
   // The group, to its `groupRef`, read once, untracked, as `ref` is.
   UndefinedOr.map(untrack(() => local.groupRef), (give) => give(group))
-  const Element = staticElementOf(UndefinedOr.match(untrack(() => local.as), { onUndefined: () => "ul", onDefined: identity }))
-  const rest = omit(props as unknown as Record<string, unknown>, ...GROUP_OWN)
   return (
     <BatchGroupContext value={{ binding: binding as BatchReorderBinding<unknown>, keyboard, instructions }}>
       <Element {...rest} style={binding.groupStyle(local.style)} ref={refsOf(local, [binding.attach])}>
@@ -298,12 +322,8 @@ export function BatchItem<V, Tag extends ReorderElementTag = "li">(props: Reorde
   // page's document's, until the element's own replaces it (an iframe's). An effect adds the instructions
   // element, writing nothing (#320).
   const [document, setDocument] = createSignal<Document>(globalThis.document)
-  const describedBy = createMemo(() => DomAnnouncer.instructionsIdOf(document(), group.instructions()), CLIENT_ONLY)
-  createEffect(
-    () => ({ doc: document(), text: group.instructions() }),
-    ({ doc, text }) => DomAnnouncer.showInstructions(doc, text),
-    CLIENT_ONLY,
-  )
+  // eslint-disable-next-line solid/reactivity -- the accessor itself is handed on, read where its memo tracks it
+  const describedBy = instructionsIdOn(document, group.instructions)
   const Element = staticElementOf(UndefinedOr.match(untrack(() => local.as), { onUndefined: () => "li", onDefined: identity }))
   const rest = omit(props as unknown as Record<string, unknown>, ...ITEM_OWN)
   const onElement = (el: HTMLElement): void => {
@@ -314,6 +334,7 @@ export function BatchItem<V, Tag extends ReorderElementTag = "li">(props: Reorde
     <Element
       {...rest}
       style={item.style(local.style)}
+      draggable={Style.DRAG_DEFAULT_ATTRIBUTES.draggable}
       tabindex={UndefinedOr.match(local.tabindex, { onDefined: identity, onUndefined: () => Bool.match(Bool.or(group.keyboard(), group.binding.pressable), { onTrue: () => 0, onFalse: constUndefined }) })}
       aria-describedby={describedByOf(local["aria-describedby"], Bool.match(group.keyboard(), { onTrue: describedBy, onFalse: constUndefined }))}
       ref={refsOf(local, [onElement])}
@@ -324,4 +345,19 @@ export function BatchItem<V, Tag extends ReorderElementTag = "li">(props: Reorde
 }
 
 const noop = (): void => {}
+
+/**
+ * An item's instructions' id, derived, so its element renders with its `aria-describedby`: the page's
+ * document's, until the element's own replaces it (an iframe's); an effect adds the instructions element,
+ * writing nothing (#320). The element exists on the client only: on a server, none. A plain `if` (#518).
+ */
+const instructionsIdOn = (document: () => Document, instructions: () => string): (() => string | undefined) => {
+  if (isServer) return constUndefined
+  createEffect(
+    () => ({ doc: document(), text: instructions() }),
+    ({ doc, text }) => DomAnnouncer.showInstructions(doc, text),
+    CLIENT_ONLY,
+  )
+  return createMemo(() => DomAnnouncer.instructionsIdOf(document(), instructions()), CLIENT_ONLY)
+}
 

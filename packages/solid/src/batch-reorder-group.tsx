@@ -8,6 +8,7 @@
 import type * as CoreReorder from "@wardic/core/Reorder"
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as ReorderController from "@wardic/dom/ReorderController"
+import * as Style from "@wardic/dom/Style"
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Bool from "effect/Boolean"
 import { constUndefined, identity } from "effect/Function"
@@ -17,7 +18,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import { createContext, createEffect, createRenderEffect, createSignal, type JSX, on, onCleanup, splitProps, untrack, useContext } from "solid-js"
 import { Dynamic } from "solid-js/web"
 import { configTransitionOf, type WardicBatchExit, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues } from "./batch.ts"
-import { type BatchReorderBinding, type BatchReorderDirection, type BatchReorderMeasure, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize, sameMeasure } from "./batch-reorder.ts"
+import { type BatchReorderBinding, type BatchReorderItems, serverBatchReorder, type BatchReorderDirection, type BatchReorderMeasure, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize, sameMeasure } from "./batch-reorder.ts"
 import { usePresenceContext } from "./presence.tsx"
 import { useBrought, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import type { ReorderElementTag } from "./reorder.tsx"
@@ -174,7 +175,7 @@ const ITEM_OWN = ["value", "as", "ref", "style", "children", "tabIndex", "aria-d
 
 /** What a group's items read of it: its binding, and its keyboard reorder's settings. */
 interface GroupForItems<V> {
-  readonly binding: BatchReorderBinding<V>
+  readonly binding: BatchReorderItems<V>
   readonly keyboard: () => boolean
   readonly instructions: () => string
 }
@@ -196,6 +197,23 @@ const BatchGroupContext = createContext<GroupForItems<unknown>>()
 // #712, ADR-0072.
 export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: ReorderBatchGroupProps<V, Tag>): JSX.Element {
   const [local, rest] = splitProps(props as unknown as GroupLocal<V> & Record<string, unknown>, GROUP_OWN)
+  const keyboard = (): boolean => local.keyboard !== false
+  const instructions = (): string => UndefinedOr.match(local.instructions, { onUndefined: () => ReorderController.DEFAULT_INSTRUCTIONS, onDefined: identity })
+  const tag = UndefinedOr.match(untrack(() => local.as), { onUndefined: () => "ul", onDefined: identity })
+  // On a server (Q39): its items' starts, and no runtime. A plain `if`, so a client build drops it (#518).
+  if (isServer) {
+    const server = serverBatchReorder<V>(
+      { values: () => local.values, geometry: () => geometryOf(local, undefined), direction: () => local.direction, initial: () => local.initial, whileTap: () => local.whileTap },
+      untrack,
+    )
+    return (
+      <BatchGroupContext.Provider value={{ binding: server as BatchReorderItems<unknown>, keyboard, instructions }}>
+        <Dynamic component={tag} {...rest} style={server.groupStyle(local.style) as JSX.CSSProperties}>
+          {local.children}
+        </Dynamic>
+      </BatchGroupContext.Provider>
+    )
+  }
   const runtime = useWardicRuntime()
   const services = useBrought(GROUP_BRINGS)
   // What the group read of its element: its direction and width (Q35, Q36).
@@ -235,9 +253,6 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
   // Its first places were read as it was made: a change of the list or the geometry from then on turns every item.
   createRenderEffect(on(binding.batch.targetsOf, binding.apply, { defer: true }))
   onCleanup(binding.dispose)
-  const keyboard = (): boolean => local.keyboard !== false
-  const instructions = (): string => UndefinedOr.match(local.instructions, { onUndefined: () => ReorderController.DEFAULT_INSTRUCTIONS, onDefined: identity })
-  const tag = UndefinedOr.match(untrack(() => local.as), { onUndefined: () => "ul", onDefined: identity })
   return (
     <BatchGroupContext.Provider value={{ binding: binding as BatchReorderBinding<unknown>, keyboard, instructions }}>
       <Dynamic component={tag} {...rest} ref={mergeRefs(local.ref, binding.attach)} style={binding.groupStyle(local.style) as JSX.CSSProperties}>
@@ -275,6 +290,7 @@ export function BatchItem<V, Tag extends ReorderElementTag = "li">(props: Reorde
       {...rest}
       ref={mergeRefs(local.ref, item.ref, setElement)}
       style={item.style(local.style) as JSX.CSSProperties}
+      draggable={Style.DRAG_DEFAULT_ATTRIBUTES.draggable}
       tabindex={UndefinedOr.match(local.tabIndex, { onDefined: identity, onUndefined: () => Bool.match(Bool.or(group.keyboard(), group.binding.pressable), { onTrue: () => 0, onFalse: constUndefined }) })}
       aria-describedby={describedByOf(local["aria-describedby"], Bool.match(group.keyboard(), { onTrue: describedBy, onFalse: constUndefined }))}
     >

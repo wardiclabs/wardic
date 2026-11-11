@@ -34,7 +34,20 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { type BatchBinding, type BatchEnv, type BatchHooks, bindBatch, fail, type KeyedBatchConfig, type ReorderBatchConfig, type WardicBatchExit, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues } from "./batch.ts"
+import {
+  type BatchBinding,
+  type BatchEnv,
+  type BatchHooks,
+  bindBatch,
+  fail,
+  type KeyedBatchConfig,
+  type ReorderBatchConfig,
+  serverKeyedHandlesOf,
+  type WardicBatchExit,
+  type WardicBatchGesture,
+  type WardicBatchTransition,
+  type WardicBatchValues,
+} from "./batch.ts"
 import { batchGesturesOn, turnDrag } from "./batch-gestures.ts"
 import type { Feature } from "./feature.ts"
 import { input } from "./features/input.ts"
@@ -268,8 +281,16 @@ export interface BatchReorderOptions<V> {
   readonly brought: () => Context.Context<never>
 }
 
+/** What a group's items read of it: each one's half, and whether they're pressed. A server's group is one. */
+export interface BatchReorderItems<V> {
+  /** The item with `value`, its element made under `presence`. */
+  readonly item: (value: V, presence: PresenceContextValue | undefined) => BatchReorderItem
+  /** Whether its items are pressed (`whileTap`): each one a tab stop, Enter and Space pressing it while the keyboard reorder is off. */
+  readonly pressable: boolean
+}
+
 /** A Batch Reorder group bound to its binding: its Batch, its group's style, and each item's half. */
-export interface BatchReorderBinding<V> {
+export interface BatchReorderBinding<V> extends BatchReorderItems<V> {
   /** Its Batch: the binding tracks its `targetsOf` and hands each new value to {@link apply}. */
   readonly batch: BatchBinding
   /** A change of the list or the geometry: every item turned toward its place, and the controller told they're placed. */
@@ -278,12 +299,8 @@ export interface BatchReorderBinding<V> {
   readonly groupStyle: (own: Style.Input) => Style.Style
   /** The group's element: what its Auto-scroll, its direction and its reveal go by. */
   readonly attach: (el: Element) => void
-  /** The item with `value`, its element made under `presence`. */
-  readonly item: (value: V, presence: PresenceContextValue | undefined) => BatchReorderItem
   /** Its controller: its group, its axis, `move`. */
   readonly controller: ReorderController.Placed<V>
-  /** Whether its items are pressed (`whileTap`): each one a tab stop, Enter and Space pressing it while the keyboard reorder is off. */
-  readonly pressable: boolean
   /** Its controller, its drag and its Batch's run ended. */
   readonly dispose: () => void
 }
@@ -316,8 +333,59 @@ interface InHand {
   y: number
 }
 
-/** A change that lands at once: the first measure's, which places the items before the first paint. */
-const AT_ONCE: WardicBatchTransition = { skipAnimations: true }
+/** An item's `initial`: values, a function of its item and index, `false`, or none. */
+type Initial<V> = false | WardicBatchValues | ((item: V, i: number) => WardicBatchValues) | undefined
+
+/**
+ * An item starts at its place: `initial` none, or `false`, starts it at its targets; values or a function
+ * start it there, but for the keys they give. Made once a given `initial`.
+ */
+const startsAtPlace = <V>(placeAt: (i: number) => XY) => {
+  let startGiven: unknown = undefined
+  let startMade: false | ((item: V, i: number) => WardicBatchValues) = false
+  return (given: Initial<V>): false | ((item: V, i: number) => WardicBatchValues) => {
+    if (Bool.or(Predicate.isUndefined(given), given === false)) return false
+    if (given === startGiven) return startMade
+    startGiven = given
+    startMade = Bool.match(Predicate.isFunction(given), {
+      onTrue: () => (item: V, i: number): WardicBatchValues => ({ ...placeAt(i), ...(given as (item: V, i: number) => WardicBatchValues)(item, i) }),
+      onFalse: () => (_: V, i: number): WardicBatchValues => ({ ...placeAt(i), ...(given as WardicBatchValues) }),
+    })
+    return startMade
+  }
+}
+
+/** The group element's style for `places` and `n` items: positioned and sized, its `direction`, under `own`. */
+const groupStyleOf = (places: BatchReorderPlaces, n: number, geometry: BatchReorderGeometry, direction: BatchReorderDirection | undefined, own: Style.Input): Style.Style => {
+  const sized: Record<string, string> = { ...ReorderController.GROUP_STYLE, position: "relative" }
+  UndefinedOr.map(direction, (given) => {
+    sized.direction = given
+  })
+  // A grid whose width it hasn't read (a server's, Q37; a client's until its first read): laid out by CSS grid,
+  // as many columns as its width holds, each item in flow. The same on both, so hydrating keeps the markup.
+  if (inGridFlow(places, geometry)) {
+    sized.display = "grid"
+    sized["grid-template-columns"] = `repeat(auto-fill, ${px(places.itemSize.width)})`
+    sized["column-gap"] = px(places.stepX - places.itemSize.width)
+    sized["row-gap"] = px(places.stepY - places.itemSize.height)
+    return Style.over(own, sized)
+  }
+  const extent = extentOf(places, n)
+  sized.height = px(extent.height)
+  // Its columns from its width (Q36): its width is the app's, which it reads.
+  if (Bool.not(places.fromWidth)) sized.width = px(extent.width)
+  return Style.over(own, sized)
+}
+
+/** Whether a group's items are laid out in flow by CSS grid: its columns from a width it hasn't read. */
+const inGridFlow = (places: BatchReorderPlaces, geometry: BatchReorderGeometry): boolean => Bool.and(places.fromWidth, Predicate.isUndefined(geometry.width))
+
+/** An item's own style under its group's: sized, a drag element's defaults, and, unless its group lays it out in flow, absolute at the group's top-left. */
+const itemBaseOf = (geometry: BatchReorderGeometry, inFlow: boolean): Record<string, string> => {
+  const base: Record<string, string> = { ...Style.dragDefaults(dragAxisFor(geometry.axis)), width: px(geometry.itemSize.width), height: px(geometry.itemSize.height) }
+  if (inFlow) return base
+  return { ...base, position: "absolute", top: "0px", left: "0px" }
+}
 
 /** `px`. */
 const px = (n: number): string => `${n}px`
@@ -337,20 +405,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
   let resolved: BatchReorderPlaces = resolvePlaces(env.untrack(options.geometry), env.untrack(options.values).length)
   /** An item's place now, at index `i`. */
   const placeAt = (i: number): XY => placeOf(resolved, i)
-  // An item starts at its place: none given, or `false`, starts it at its targets; values or a function
-  // start it there, but for the keys they give. Made once a given `initial`.
-  let startGiven: unknown = undefined
-  let startMade: false | ((item: V, i: number) => WardicBatchValues) = false
-  const startOf = (given: false | WardicBatchValues | ((item: V, i: number) => WardicBatchValues) | undefined): false | ((item: V, i: number) => WardicBatchValues) => {
-    if (Bool.or(Predicate.isUndefined(given), given === false)) return false
-    if (given === startGiven) return startMade
-    startGiven = given
-    startMade = Bool.match(Predicate.isFunction(given), {
-      onTrue: () => (item: V, i: number): WardicBatchValues => ({ ...placeAt(i), ...(given as (item: V, i: number) => WardicBatchValues)(item, i) }),
-      onFalse: () => (_: V, i: number): WardicBatchValues => ({ ...placeAt(i), ...(given as WardicBatchValues) }),
-    })
-    return startMade
-  }
+  const startOf = startsAtPlace<V>(placeAt)
   let atOnce = false
   // Whether any member is moving, from a flight's start to its landing; the items raised as they come to
   // rest, let down at the landing; and the members a pointer let go of, still flying to their places,
@@ -371,7 +426,6 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       return startOf(env.untrack(options.initial))
     },
     get transition() {
-      if (atOnce) return AT_ONCE
       return env.untrack(options.transition)
     },
     get whileDrag() {
@@ -670,22 +724,16 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       const values = env.untrack(options.values)
       if (values !== placedValues) controller.valuesChanged()
       placedValues = values
-      batch.apply(targets)
+      // The first read of its element's places, drawn now, before the page paints (Q35, Q36, Q37).
+      Bool.match(atOnce, { onTrue: () => batch.applyNow(targets), onFalse: () => batch.apply(targets) })
       atOnce = false
       version = version + 1
       controller.placed()
     },
     groupStyle: (own) => {
       const n = options.values().length
-      const places = resolvePlaces(options.geometry(), n)
-      const extent = extentOf(places, n)
-      const sized: Record<string, string> = { ...ReorderController.GROUP_STYLE, position: "relative", height: px(extent.height) }
-      // Its columns from its width (Q36): its width is the app's, which it reads.
-      if (Bool.not(places.fromWidth)) sized.width = px(extent.width)
-      UndefinedOr.map(options.direction(), (direction) => {
-        sized.direction = direction
-      })
-      return Style.over(own, sized)
+      const geometry = options.geometry()
+      return groupStyleOf(resolvePlaces(geometry, n), n, geometry, options.direction(), own)
     },
     attach: (el) => {
       groupEl = el
@@ -703,15 +751,8 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
         ref: batch.refOf(member),
         style: (own) => {
           const geometry = options.geometry()
-          const base = {
-            ...Style.dragDefaults(dragAxisFor(geometry.axis)),
-            position: "absolute",
-            top: "0px",
-            left: "0px",
-            width: px(geometry.itemSize.width),
-            height: px(geometry.itemSize.height),
-          }
-          return batch.styleOf(Style.over(own, base))
+          const inFlow = inGridFlow(resolvePlaces(geometry, options.values().length), geometry)
+          return batch.styleOf(Style.over(own, itemBaseOf(geometry, inFlow)))
         },
         dispose: () => {
           // Under `<AnimatePresence>` its element stays while it exits (Q38): neither focused nor pressed meanwhile.
@@ -738,3 +779,61 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     },
   }
 }
+
+/** A Batch Reorder group as a server renders it (Q37, Q39): its element's style, and its items' starts. */
+export interface ServerBatchReorder<V> extends BatchReorderItems<V> {
+  readonly groupStyle: (own: Style.Input) => Style.Style
+}
+
+/** What a server's group reads: its values, geometry (no element's, Q35), `direction`, `initial` and `whileTap`. */
+export type ServerBatchReorderOptions<V> = Pick<BatchReorderOptions<V>, "values" | "geometry" | "direction" | "initial" | "whileTap">
+
+const noop = (): void => {}
+
+/**
+ * A Batch Reorder group during a server render (Q39): no runtime, no Batch, no controller. Its element is
+ * sized to its places, and each item drawn at its start, its place or `initial`'s, as the client's Batch
+ * starts it, so hydrating moves nothing. A grid whose columns come from its width, which a server can't
+ * know, lays its items out by CSS grid, each in flow (Q37): the client's first read places them at once,
+ * where the grid had them.
+ */
+export const serverBatchReorder = <V>(options: ServerBatchReorderOptions<V>, untrack: <A>(read: () => A) => A): ServerBatchReorder<V> => {
+  const geometry = untrack(options.geometry)
+  const values = untrack(options.values)
+  const places = resolvePlaces(geometry, values.length)
+  const placeAt = (i: number): XY => placeOf(places, i)
+  const startOf = startsAtPlace<V>(placeAt)
+  const config = {
+    each: () => values,
+    key: (item: V) => item,
+    animate: (_: V, i: number) => placeAt(i),
+    get initial() {
+      return startOf(untrack(options.initial))
+    },
+  }
+  // Each item's start, its keyed Batch's server handle's.
+  let handles: ReturnType<typeof serverKeyedHandlesOf<Style.Style>> | undefined
+  const handlesFor = (presence: PresenceContextValue | undefined) => {
+    if (Predicate.isUndefined(handles)) handles = serverKeyedHandlesOf<Style.Style>(config as KeyedBatchConfig<unknown>, () => presence)
+    return handles
+  }
+  const inFlow = inGridFlow(places, geometry)
+  return {
+    groupStyle: (own) => groupStyleOf(places, values.length, geometry, untrack(options.direction), own),
+    item: (value, presence) => ({
+      ref: noop,
+      style: (own) =>
+        Bool.match(inFlow, {
+          onTrue: () => Style.over(own, itemBaseOf(geometry, true)),
+          onFalse: () => {
+            const placed = Style.over(own, itemBaseOf(geometry, false))
+            // Its start over its own and its group's: what the handle draws, the base when it draws none.
+            return UndefinedOr.match(handlesFor(presence)(value, { style: placed }).style, { onUndefined: () => placed, onDefined: identity })
+          },
+        }),
+      dispose: noop,
+    }),
+    pressable: Predicate.isNotUndefined(untrack(options.whileTap)),
+  }
+}
+
