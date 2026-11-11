@@ -9,6 +9,7 @@
 // - IA3: two watches with the same `memberOf` share one listener set, gone with the last; none per member.
 // - IA4: a member's own focus is its own, one inside it isn't; each member on the path hears it.
 // - IA5: a focus already within a member as a watch subscribes is told it first, as its focus.
+import * as DragRecognizer from "@wardic/core/DragRecognizer"
 import * as InputSource from "@wardic/core/InputSource"
 import { expect, layer } from "@effect/vitest"
 import * as Bool from "effect/Boolean"
@@ -16,6 +17,8 @@ import * as Effect from "effect/Effect"
 import { constVoid } from "effect/Function"
 import * as Option from "effect/Option"
 import * as UndefinedOr from "effect/UndefinedOr"
+import { commands } from "vitest/browser"
+import "./browser-commands.ts"
 import { InputDomLive } from "../src/internal/input.ts"
 
 const pointerEvent = (type: string, init: PointerEventInit = {}): PointerEvent =>
@@ -114,6 +117,61 @@ layer(InputDomLive)("InputDomLive: feeds over many targets (#665)", (it) => {
       document.body.dispatchEvent(pointerEvent("pointermove", { clientX: 70, buttons: 0 }))
       expect(heard).toHaveLength(6)
       stop()
+    }).pipe(Effect.scoped))
+
+  it.effect("IA6: a drag among members: none listens until it's pressed, the pressed one's listeners gone with its gesture; its down handed over as its PointerEvent (#712)", () =>
+    Effect.gen(function* () {
+      const p = yield* page
+      // Every listener added and removed, on the members and the window, while it runs.
+      const added: Array<unknown> = []
+      const removed: Array<unknown> = []
+      const realAdd = EventTarget.prototype.addEventListener
+      const realRemove = EventTarget.prototype.removeEventListener
+      EventTarget.prototype.addEventListener = function (this: EventTarget, ...args: Parameters<typeof realAdd>) {
+        added.push(this)
+        return realAdd.apply(this, args)
+      }
+      EventTarget.prototype.removeEventListener = function (this: EventTarget, ...args: Parameters<typeof realRemove>) {
+        removed.push(this)
+        return realRemove.apply(this, args)
+      }
+      const onMembers = (list: Array<unknown>) => list.filter((t) => t === p.outer || t === p.inner || t === p.b).length
+      const onWindow = (list: Array<unknown>) => list.filter((t) => t === window).length
+      try {
+        const told: Array<string> = []
+        // The DOM adopts only a pressed pointer's own PointerEvent: a drag at all shows the down's handed over.
+        yield* DragRecognizer.watchDragAmong(p.memberOf, {}, { on: (target, sample) => told.push(`${p.nameOf(target)} ${sample.phase} ${sample.offset.x}`) })
+        const watching = { window: onWindow(added) - onWindow(removed), members: onMembers(added) }
+        expect(watching.members, "no member listens until it's pressed").toBe(0)
+        p.bChild.dispatchEvent(pointerEvent("pointerdown", { clientX: 10, buttons: 1 }))
+        document.body.dispatchEvent(pointerEvent("pointermove", { clientX: 30, buttons: 1 }))
+        document.body.dispatchEvent(pointerEvent("pointermove", { clientX: 50, buttons: 1 }))
+        p.plain.dispatchEvent(pointerEvent("pointerup", { clientX: 50 }))
+        expect(told).toEqual(["b start 20", "b move 40", "b end 40"])
+        yield* Effect.promise(() => Promise.resolve())
+        expect(onMembers(added) - onMembers(removed), "the pressed member's listeners gone with its gesture").toBe(0)
+        expect(onWindow(added) - onWindow(removed), "the window's back to the watch's own").toBe(watching.window)
+      } finally {
+        EventTarget.prototype.addEventListener = realAdd
+        EventTarget.prototype.removeEventListener = realRemove
+      }
+    }).pipe(Effect.scoped))
+
+  it.effect("IA7: a real mouse's drag among members tells its end: the feed's release runs first, and the page's microtasks between (#712)", () =>
+    Effect.gen(function* () {
+      const box = document.createElement("div")
+      box.style.cssText = "position:fixed;left:20px;top:20px;width:100px;height:40px"
+      document.body.append(box)
+      yield* Effect.addFinalizer(() => Effect.sync(() => box.remove()))
+      const memberOf = (node: unknown): Option.Option<unknown> => Bool.match(node === box, { onTrue: () => Option.some(node), onFalse: () => Option.none() })
+      const told: Array<string> = []
+      yield* DragRecognizer.watchDragAmong(memberOf, {}, { on: (_, sample) => told.push(sample.phase) })
+      yield* Effect.promise(() => commands.realMouse("down", 40, 40))
+      yield* Effect.promise(() => commands.realMouse("move", 60, 40))
+      yield* Effect.promise(() => commands.realMouse("move", 90, 40))
+      yield* Effect.promise(() => commands.realMouse("up", 90, 40))
+      expect(told.at(0), "it started").toBe("start")
+      expect(told.at(-1), "and ended").toBe("end")
     }).pipe(Effect.scoped))
 
   it.effect("IA3: two watches with the same memberOf share one listener set, gone with the last", () =>

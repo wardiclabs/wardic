@@ -33,7 +33,8 @@ import * as InputSource from "./InputSource.ts"
 import * as PressClaims from "./PressClaims.ts"
 import * as Probe from "./Probe.ts"
 import { tracedScoped } from "./internal/tracing.ts"
-import { streamOf, watchFeed } from "./internal/watch.ts"
+import { amongFeed, streamOf, watchFeed } from "./internal/watch.ts"
+import type { AmongHandlers } from "./internal/watch.ts"
 
 /**
  * One state recognizer's fold: a start state, a pure step per event, and the boolean
@@ -208,18 +209,8 @@ export const watchHover: (target: unknown, handlers: HoverHandlers) => Effect.Ef
     yield* watchFeed("wardic.hover", {}, input.pointer(target), handle, handlers)
   })
 
-/** A watch's handlers over many targets: `on`, each target's start and end, with the target. */
-// #665's PR 5 (Q56).
-export interface AmongHandlers<A> extends Pick<InputFeed.Handlers<never>, "onDefect" | "onEnd" | "onStop"> {
-  readonly on: (target: unknown, value: A) => void
-}
-
-/** An InputSource's feed over many targets, or a defect naming it: an Environment without one can't watch many targets as one. */
-const amongFeed = <A>(feed: A | undefined, name: string): Effect.Effect<A> =>
-  UndefinedOr.match(feed, {
-    onUndefined: () => Effect.die(new Error(`wardic: the Environment's InputSource has no \`${name}\`, which a gesture over many targets needs`)),
-    onDefined: Effect.succeed,
-  })
+// In internal/watch.ts, shared with DragRecognizer's watch over many members (#712).
+export type { AmongHandlers } from "./internal/watch.ts"
 
 /**
  * Each target's state in a watch over many targets: held weakly by a target that's an object, so a

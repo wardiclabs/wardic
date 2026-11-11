@@ -283,8 +283,12 @@ A drag's start from outside its element (#431, Motion's `useDragControls`): cont
 _Avoid_: drag handle (one use of them), drag trigger.
 
 **Reorder group**:
-The items a drag can reorder, and the rules that do it. Core's `Reorder.Group` (built by `Reorder.make`) holds each item's box, read from its projection handle at each drag sample, and decides each **Crossover**. `@wardic/dom`'s controller wires it to the items' drags, Auto-scroll and the axis. The binding owns the `values` array, `onReorder`, the elements and JSX. After a reorder it makes no further one until a Measure pass has measured the new order (ADR-0020).
+The items a drag can reorder, and the rules that do it. Core's `Reorder.Group` (built by `Reorder.make`) holds each item's box, read from its projection handle at each drag sample, or, in a **Batch Reorder group**, computed from the item's place, and decides each **Crossover**. `@wardic/dom`'s controller wires it to the items' drags, Auto-scroll and the axis. The binding owns the `values` array, `onReorder`, the elements and JSX. After a reorder it makes no further one until the new order's boxes are known: a Measure pass has measured them, or the Batch has placed them (ADR-0020).
 _Avoid_: sortable, list (the element), reorder context.
+
+**Batch Reorder group**:
+A **Reorder group** whose items are a keyed **Batch**'s members, each at the place its index gives: one item size, the gap between, and a grid's columns. Its items' boxes are computed, never measured, so a **Crossover** waits for no Measure pass, and its items are dragged and focused through the group (ADR-0072).
+_Avoid_: virtual list (every item is mounted), sortable, slot (a **Projection node**'s box; an item's position is its place).
 
 **Crossover**:
 The point at which a dragged item has moved far enough past a neighbour to take its place, which changes the order.

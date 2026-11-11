@@ -6,5 +6,7 @@ declare module "vitest/browser" {
   interface BrowserCommands {
     /** Two full garbage collections (#418): a `WeakRef` read after it is empty if nothing else holds its target. */
     collectGarbage: () => Promise<void>
+    /** Playwright's mouse moved to the client point `(x, y)`, then pressed or released: trusted input (#712). */
+    realMouse: (type: "move" | "down" | "up", x: number, y: number) => Promise<void>
   }
 }

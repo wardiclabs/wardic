@@ -254,3 +254,11 @@ With no `axis`, a group runs `detectAxis` at each drag's start, each keyboard li
 - **Each box is compared with the one that ends first,** which is enough: if `a` ends at or before `b` starts, so does that box, unless it's `b`, and then `a` is apart from it. One pass finds it, among the boxes whose end is a number, and one more compares; nothing is made per pair.
 - **The answers are Motion's** for every list: CR12 holds them to Motion's own loop over every pair, `NaN` and infinite coordinates included.
 - **The docs** say what `axis` takes: `"y"`, `"x"` or `"xy"`, found from the items' boxes when it's left out, as Motion's is. They called `"y"` the default.
+
+## Amendment (#712, 2026-11-11): a Batch Reorder group's items are Batch members
+
+"The items are ordinary `layout` + `drag` elements" holds for `Reorder.Group`. `Reorder.BatchGroup` (ADR-0072) reorders a long list of like items as one keyed Batch: its items are Batch members, each at the place its index gives, so their boxes are computed, never measured.
+
+- **Core's group is the same,** fed an `ItemSource` whose `layoutBox` is the item's place, and whose `layoutVersion` rises once the Batch has placed a new order: the guard after a reorder waits for that, not for a Measure pass.
+- **The DOM controller takes a structural item handle:** a source and how to raise its item. A projection handle is one, and so is a Batch member's.
+- **What tells the controller its boxes are fresh** is the Measure pass's end for `Reorder.Group`, and the Batch's placing for a `BatchGroup`; a stepped item is revealed from its place there.

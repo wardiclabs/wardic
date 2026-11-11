@@ -12,7 +12,7 @@ import { scrollersOf } from "./scrollers.ts"
 import * as Arr from "effect/Array"
 
 /** A box on screen, in client coordinates. */
-interface Rect {
+export interface Rect {
   readonly left: number
   readonly top: number
   readonly right: number
@@ -46,11 +46,17 @@ const scrollToShow = (min: number, max: number, viewMin: number, viewMax: number
   return 0
 }
 
-/** Scroll `el`'s new place into view (see the module doc). */
-export const revealLayoutOf = (el: Element): void => {
+/** Scroll `el`'s new place into view (see the module doc): its layout box, its own transform undone. */
+export const revealLayoutOf = (el: Element): void => revealRectOf(el, layoutRectOf(el))
+
+/**
+ * Scroll `place`, `el`'s place on screen, into view in each scroller around `el` and then the page: a
+ * placed item's (#712), whose place is computed, not where it's drawn.
+ */
+export const revealRectOf = (el: Element, place: Rect): void => {
   const { ancestors, page } = scrollersOf(el)
   // Each scroller in turn, nearest first: what it scrolls moves the element for the next.
-  const rect = Arr.reduce(ancestors, layoutRectOf(el), (rect, scroller) => {
+  const rect = Arr.reduce(ancestors, place, (rect, scroller) => {
     const box = scroller.getBoundingClientRect()
     const top = box.top + scroller.clientTop
     const left = box.left + scroller.clientLeft
