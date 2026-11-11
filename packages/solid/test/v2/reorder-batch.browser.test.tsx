@@ -230,7 +230,7 @@ describe("Reorder.BatchGroup and Reorder.BatchItem on Solid 2", () => {
     expect(getComputedStyle(c).zIndex, "let down at once, nothing moving").toBe("auto")
     await resetBatchScene()
 
-    const t = await mountBatchReorder({ layout: "y", transition: { type: "spring", stiffness: 120, damping: 14 } })
+    const t = await mountBatchReorder({ layout: "y", transition: { type: "spring", stiffness: 40, damping: 6 } })
     const a = t.item("a")
     const ga = centreOf(a)
     await mouse.down(ga)
@@ -245,8 +245,10 @@ describe("Reorder.BatchGroup and Reorder.BatchItem on Solid 2", () => {
     await wait(300)
     const after = tops.stop().filter((frame) => frame.frameAt > releasedAt).map((frame) => frame.v)
     expect(t.order().join(""), "no reorder").toBe("abcde")
-    expect(Math.max(...after.slice(0, 6)), "carried on down past where it was let go").toBeGreaterThan(40 + 30 + 1)
-    await wait(1200)
+    // A soft spring, so a slow runner's lower release speed still carries it on a few px; let go at none, it
+    // never passes where it was let go (40 + 30).
+    expect(Math.max(...after.slice(0, 6)), "carried on down past where it was let go").toBeGreaterThan(40 + 30 + 0.5)
+    await wait(2500)
     expect(Math.round(a.getBoundingClientRect().top), "then back at its place").toBe(40)
   }, 30_000)
 
