@@ -29,12 +29,20 @@ const FUNCS = Arr.filter(TRANSFORM_FUNCS, (func) => func.key !== "pathRotation")
 /** The keys the DOM's writer draws: those transform keys and `opacity`. */
 const DRAWS: ReadonlySet<string> = new Set([...Arr.map(FUNCS, (func) => func.key), "opacity"])
 
+/** Each transform function's key, what goes either side of its value, and its identity, in the renderer's order: what `forKeys` and `styleOf` draw. */
+const FUNC_PARTS: ReadonlyArray<Omit<Part, "k"> & { readonly key: string }> = Arr.map(FUNCS, (func) => ({
+  key: func.key,
+  open: `${func.fn}(`,
+  close: `${unitOf(func.key)})`,
+  identity: func.identity,
+}))
+
 /** A Batch's write, for its keys in their order: built once, when the Batch is made. */
 const forKeys = (keys: ReadonlyArray<string>): ((el: Element, positions: Float64Array, base: number) => void) => {
-  const parts: ReadonlyArray<Part> = Arr.filterMap(FUNCS, (func) =>
-    Option.match(Arr.findFirstIndex(keys, (key) => key === func.key), {
+  const parts: ReadonlyArray<Part> = Arr.filterMap(FUNC_PARTS, (part) =>
+    Option.match(Arr.findFirstIndex(keys, (key) => key === part.key), {
       onNone: () => Result.failVoid,
-      onSome: (k) => Result.succeed({ k, open: `${func.fn}(`, close: `${unitOf(func.key)})`, identity: func.identity }),
+      onSome: (k) => Result.succeed({ k, open: part.open, close: part.close, identity: part.identity }),
     }))
   const count = parts.length
   // Its index for the per-frame write, or -1 for none: a plain read there (ADR-0025, the per-frame path).
@@ -68,17 +76,13 @@ const forKeys = (keys: ReadonlyArray<string>): ((el: Element, positions: Float64
  */
 export const styleOf = (values: Readonly<Record<string, number>>): Readonly<Record<string, string>> => {
   const style: Record<string, string> = {}
-  let transform = ""
-  let separator = ""
   // Once a member on a server: in the renderer's order, as `forKeys`' write.
-  Arr.forEach(FUNCS, (func) => {
-    const value = values[func.key]
-    if (Predicate.isUndefined(value)) return
-    if (value === func.identity) return
-    transform = transform + separator + `${func.fn}(` + value + `${unitOf(func.key)})`
-    separator = " "
+  const functions = Arr.filterMap(FUNC_PARTS, (part) => {
+    const value = values[part.key]
+    if (Bool.or(Predicate.isUndefined(value), value === part.identity)) return Result.failVoid
+    return Result.succeed(part.open + value + part.close)
   })
-  if (transform !== "") style.transform = transform
+  if (functions.length > 0) style.transform = functions.join(" ")
   const opacity = values.opacity
   if (Bool.and(Predicate.isNotUndefined(opacity), opacity !== 1)) style.opacity = String(opacity)
   return style

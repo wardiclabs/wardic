@@ -8,10 +8,11 @@
 // - CBS3: `initial` as a function of the index; `initial: false`, the targets; no `initial`, nothing.
 // - CBS4: keyed (Q65): each member's start by its item and its index in the list; a key the list
 //   doesn't have renders none; under `<AnimatePresence initial={false}>`, the targets.
-// - CBS5: a handle given to `ref` alone renders nothing of the Batch's.
+// - CBS5: the element's own `style` goes through its handle: given beside the spread, the server's start
+//   takes its place, as Solid's spread lets the later `style` win; given to the handle, both are kept.
 // - CBS6: the client's errors are thrown on the server, with its messages (Q67): a string `style`, a
 //   start that isn't a number, a target that isn't one, a start outside a keyed Batch's `keys`, two
-//   items with one key.
+//   items with one key, a key the DOM's writer doesn't draw.
 import * as DomBatch from "@wardic/dom/DomBatch"
 import { AnimatePresence, createBatch, stagger, type WardicBatchConfig, type WardicBatchValues } from "@wardic/solid"
 import { For } from "solid-js"
@@ -102,12 +103,18 @@ describe("createBatch's types and server render (#665)", () => {
     expect(tagOf(html, "q-b")?.style).toEqual({ transform: "translateY(30px)" })
   })
 
-  it("CBS5: a handle given to ref alone renders nothing of the Batch's", () => {
+  it("CBS5: the element's own style goes through its handle: beside the spread, the start takes its place", () => {
     const html = serve(() => {
-      const grid = createBatch({ count: 1, initial: { x: 10 }, animate: () => ({ x: 0 }) })
-      return <div data-k="r" ref={grid.at(0).ref} />
+      const grid = createBatch({ count: 2, initial: { x: 10 }, animate: () => ({ x: 0 }) })
+      return (
+        <>
+          <div data-k="beside" style={{ width: "20px" }} {...grid.at(0)} />
+          <div data-k="given" {...grid.at(1, { style: { width: "20px" } })} />
+        </>
+      )
     })
-    expect(tagOf(html, "r")?.style).toEqual({})
+    expect(tagOf(html, "beside")?.style).toEqual({ transform: "translateX(10px)" })
+    expect(tagOf(html, "given")?.style).toEqual({ width: "20px", transform: "translateX(10px)" })
   })
 
   it("CBS6: the client's errors are thrown on the server, with its messages", () => {
@@ -132,5 +139,9 @@ describe("createBatch's types and server render (#665)", () => {
       const list = createBatch({ each: () => ["a", "a"], key: (id) => id, animate: () => ({ x: 0 }) })
       return <div {...list.member("a")} />
     })).toThrow(/items 0 and 1 both have the key "a"/)
+    expect(render(() => {
+      const grid = createBatch({ count: 1, initial: { width: 10 } as never, animate: () => ({ x: 0 }) })
+      return <div {...grid.at(0)} />
+    })).toThrow(/Expected a key its writer draws, got "width"/)
   })
 })

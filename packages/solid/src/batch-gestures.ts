@@ -23,7 +23,7 @@ import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { type BatchGestureHost, type BatchGestureLayer, type BatchGestureTold, fail, gestureObjectOf, gestureObjectValues } from "./batch.ts"
+import { type BatchGestureHost, type BatchGestureLayer, type BatchGestureTold, fail, objectFormOf, objectFormValues } from "./batch.ts"
 import type { WardicTransition } from "./config.ts"
 import type { Feature } from "./feature.ts"
 import { input } from "./features/input.ts"
@@ -73,7 +73,7 @@ const valuesOf = (host: BatchGestureHost, gesture: Gesture, given: unknown, i: n
           onFalse: () => (given as (i: number) => Readonly<Record<string, unknown>>)(i),
         })
       ),
-    onFalse: () => gestureObjectValues(given),
+    onFalse: () => objectFormValues(given),
   })
   const keys = host.keys()
   const out = new Float64Array(keys.length).fill(Number.NaN)
@@ -91,7 +91,7 @@ const valuesOf = (host: BatchGestureHost, gesture: Gesture, given: unknown, i: n
 
 /** A gesture's own transition, its object's (Q58), else the Batch's. */
 const transitionOf = (host: BatchGestureHost, given: unknown): WardicTransition | undefined => {
-  const own = UndefinedOr.map(gestureObjectOf(given), (object) => object.transition as WardicTransition | undefined)
+  const own = UndefinedOr.map(objectFormOf(given), (object) => object.transition as WardicTransition | undefined)
   if (Predicate.isNotUndefined(own)) return own
   return host.configured()
 }

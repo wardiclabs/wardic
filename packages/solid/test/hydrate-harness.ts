@@ -52,13 +52,20 @@ export interface Hydrated {
   readonly dispose: () => void
 }
 
+/** Where a fixture comes from, and what runs before its hydration. */
+export interface HydrateOptions {
+  /** The fixtures module, `FIXTURES_FILE` by default. */
+  readonly file?: string
+  /** Run with the page's host once the server's markup is on it, before hydration: a page's JS comes later. */
+  readonly waiting?: (host: HTMLElement) => Promise<void>
+}
+
 /**
- * Server-render fixture `name` (under `renderId = name`) from `file`, put its markup on the page and
- * hydrate it with `code`, after `waiting` has run with the page's host. A server error rejects with its
- * first line.
+ * Server-render fixture `name` (under `renderId = name`), put its markup on the page and hydrate it
+ * with `code`. A server error rejects with its first line.
  */
-export const hydrateFixture = async (name: string, code: () => JSX.Element, file: string = FIXTURES_FILE, waiting?: (host: HTMLElement) => Promise<void>): Promise<Hydrated> => {
-  const { html, script, error } = await commands.serverRender(file, name, name)
+export const hydrateFixture = async (name: string, code: () => JSX.Element, options: HydrateOptions = {}): Promise<Hydrated> => {
+  const { html, script, error } = await commands.serverRender(options.file ?? FIXTURES_FILE, name, name)
   if (error !== "") throw new Error(`server render of ${name} failed: ${error}`)
   injectHydrationScript(script)
   const host = document.createElement("div")
@@ -67,7 +74,7 @@ export const hydrateFixture = async (name: string, code: () => JSX.Element, file
   document.body.append(host)
   const before = [...host.querySelectorAll("*")]
   const serverAttributes = new Map(before.map((el) => [el, Object.fromEntries([...el.attributes].map((a) => [a.name, a.value]))]))
-  if (waiting !== undefined) await waiting(host)
+  if (options.waiting !== undefined) await options.waiting(host)
   // A delegated event or a mismatch marks hydration done, after which `hydrate` only renders.
   ;(globalThis as { _$HY?: { done?: boolean } })._$HY!.done = false
   sharedConfig.done = false

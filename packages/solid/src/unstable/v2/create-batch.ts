@@ -133,7 +133,6 @@ export interface WardicKeyedBatch<K> extends BatchLandings {
   readonly member: <E extends Element = HTMLElement>(key: K, props?: WardicBatchMemberProps<E>) => WardicBatchMember<E>
 }
 
-/** A server render's keyed Batch: its handles pass the element's own props on, and nothing animates or lands. */
 /**
  * The `<AnimatePresence>` a member's handle is made under: none outside an owner (a handle made in a
  * handler, or after an `await`), where Solid 2's context read throws.

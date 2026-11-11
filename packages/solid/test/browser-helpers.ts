@@ -189,3 +189,13 @@ export const expectMovedFirst = (xs: ReadonlyArray<number>, origin: number, dest
   expect(Math.abs(xs[0]! - destination)).toBeGreaterThan(1)
   expect(Math.abs(xs[1]! - xs[0]!), "a single first step: the second is larger").toBeGreaterThan(Math.abs(xs[0]! - origin))
 }
+
+/** `frames` frames of `read`, read after each. */
+export const over = async <A>(frames: number, read: () => A): Promise<ReadonlyArray<A>> => {
+  const out: Array<A> = []
+  for (let f = 0; f < frames; f++) {
+    await raf()
+    out.push(read())
+  }
+  return out
+}
