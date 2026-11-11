@@ -450,3 +450,15 @@ ADR-0020's *Amendment (#618)* moves the Reorder controller's pass-end hook into 
 *Note (#618, 2026-11-06):* `toJSON()`'s types are `ProjectionSystem.Tree` and `ProjectionSystem.TreeNode`, no longer `Snapshot` and `NodeSnapshot`. The glossary's **Snapshot** is a binding's seed of an element's values, so the tree took a name of its own (A3).
 
 *Note (#618, 2026-11-06):* decision 7 listed `DomKeyRules` with the services' implementations that each hold a `layer`. It holds none: it's the DOM's Key rules, which `DomInterpolators.layer` installs and a hand-built registry takes (`InterpolatorRegistry.make(DomInterpolators.all, DomKeyRules.all)`). It keeps the `Dom` prefix as the DOM's own rules; dom's index and `pipeable.md` now say so (A3).
+
+## Amendment (#712, 2026-11-11): the Reorder controller for items placed, not measured
+
+Q2's `ReorderController.make` takes its projection system and the Measure passes' ends from its context. A Batch Reorder group's items (ADR-0072) are placed from their index and never measured, so the controller gains a second constructor over the same internals:
+
+```ts
+ReorderController.makePlaced(options): Effect<ReorderController.Placed<V>, never, Announcer | Scope>
+```
+
+- **The internal factory's wiring** is what the controller runs on, not the projection system: its runner, `announce`, `layOut` (have the items laid out in new `values`: `make`'s a Measure pass, `makePlaced`'s nothing, its binding placing them itself), and `onLaidOut` (each time they have been: `make`'s the engine's pass ends, `makePlaced`'s its binding's `placed()`).
+- **An item registers a `ReorderController.ItemHandle`:** core's `ItemSource`, how to raise it, and, for a placed item, its place on screen, which a keyboard step reveals. A projection handle is one, so `make`'s items register as before.
+- **`Placed<V>`** is a `ReorderController<V>` with `placed()`, which its binding calls once it has placed a new order.

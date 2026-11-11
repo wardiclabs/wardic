@@ -8,7 +8,7 @@
  * and routes each item's drag samples: the start opens the group's gesture, each move
  * runs the Crossover and Auto-scroll, the end (or the item's disposal mid-gesture)
  * closes both. The items' `touch-action` needs the axis before a touch starts, so after
- * every Measure pass the controller detects the axis from the items' boxes and reports
+ * the items are laid out (a Measure pass, or a placed group's placing) the controller detects the axis from the items' boxes and reports
  * a change through `onAxis`; while the app sets the axis it detects nothing. Motion
  * detects on every item's every measurement (Group.tsx:121-133 at 16c6122). When the app
  * clears its axis, no Measure pass comes with that: a binding reads `detect()`, the axis
@@ -20,7 +20,7 @@
  * itself that the page didn't take (Space or Enter lifts and drops, Escape cancels, the arrows,
  * Home and End move the lifted item) goes to core's `Reorder` model, its default prevented; each
  * step is an **Announcement** (a held arrow's thinned to the last), scrolls the item's new place
- * into view after the Measure pass that lays it out, and keeps focus on the item; the lifted node is
+ * into view once the items are laid out again, and keeps focus on the item; the lifted node is
  * raised as a dragged one is, and the binding turns its `whileDrag` on. Focus leaving the item, a
  * press on it, or the app changing `values` drops it where it is; its unmount ends the lift unsaid.
  *
@@ -54,9 +54,8 @@ import * as Str from "effect/String"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { documentOf, prepareAnnouncer } from "./announcer.ts"
 import { type AutoScroller, makeAutoScroller } from "./auto-scroll.ts"
-import type { ProjectionNodeHandle, ProjectionSystem } from "./projection.ts"
 import { debugOf } from "./report.ts"
-import { revealLayoutOf } from "./reveal.ts"
+import { type Rect, revealLayoutOf, revealRectOf } from "./reveal.ts"
 import type { Runner } from "./runner.ts"
 
 /**
@@ -67,19 +66,36 @@ import type { Runner } from "./runner.ts"
 export const REORDER_GROUP_STYLE = Object.freeze({ "overflow-anchor": "none" } as const)
 
 /**
- * What {@link makeReorderController} runs on: the runner it logs through, the projection system the
- * items are nodes of, and the Environment's `Announcer`. `ReorderController.make` takes them from
- * its context (#132's PR 3, ADR-0041).
+ * What {@link makeReorderController} runs on: the runner it logs through, how its items are laid out
+ * again and when they have been, and the Environment's `Announcer`. `ReorderController.make` wires
+ * them to the projection system its items are nodes of (#132's PR 3, ADR-0041); `makePlaced` to a
+ * binding that places its items itself, a Batch Reorder group's (#712, ADR-0072).
  */
 export interface ReorderControllerWiring {
   /** The runner the controller logs through and waits in. */
   readonly runtime: Runner<never>
-  /** The projection system the items are nodes of. */
-  readonly projection: Omit<ProjectionSystem, "dispose" | "onPassEnd">
+  /** The app changed `values`: have the items laid out in it, a Measure pass, or nothing for items the binding places itself. */
+  readonly layOut: () => void
   /** Speak an **Announcement**: the Environment's `Announcer`. Left out, nothing is announced. */
   readonly announce?: ((message: string) => void) | undefined
-  /** The engine's Measure-pass ends: its `PassEnds` service (internal/pass-ends.ts). */
-  readonly onPassEnd: (listener: () => void) => () => void
+  /** Hears each time the items have been laid out: a Measure pass's end (the engine's `PassEnds`), or the binding's placing. */
+  readonly onLaidOut: (listener: () => void) => () => void
+}
+
+/**
+ * What an item registers with its group: core's `ItemSource` (its box, its drag offset, its box's
+ * version), how to raise it over the rest while it's lifted, and, for an item placed rather than
+ * measured, its place on screen, for a keyboard step's reveal. A projection handle is one.
+ */
+// #712: structural, so a Batch Reorder group's member registers as a layout node does.
+export interface ReorderItemHandle extends Reorder.ItemSource {
+  /** Raise the item over the rest, or let it down: a keyboard lift's. */
+  readonly setLifted: (lifted: boolean) => void
+  /**
+   * Its place on screen, in client coordinates, which a keyboard step reveals once the items are laid
+   * out. Left out, its painted box with its own transform undone, a layout node's.
+   */
+  readonly placeOnScreen?: (() => Rect) | undefined
 }
 
 /**
@@ -147,7 +163,7 @@ export interface ReorderControllerOptions<V> {
   readonly onHoldEnd?: ((end: ReorderHoldEnd<V>) => void) | undefined
   /** The app's axis, overriding detection; `None` to detect. */
   readonly axis?: (() => Option.Option<Reorder.Axis>) | undefined
-  /** Called when the detected axis changes (after a Measure pass, or {@link ReorderController.resolve}). */
+  /** Called when the detected axis changes (once the items are laid out, or {@link ReorderController.resolve}). */
   readonly onAxis?: ((axis: Reorder.Axis) => void) | undefined
   /**
    * How the binding keys its items, for the warning logged once per controller when an
@@ -166,8 +182,8 @@ export interface ReorderControllerOptions<V> {
 
 /** One item of a {@link ReorderController}: its binding feeds it the item's handle, drag samples, keys, focus and presses. */
 export interface ReorderItemDriver {
-  /** Register the item's projection handle with the group; returns the unregister. */
-  readonly register: (handle: ProjectionNodeHandle) => () => void
+  /** Register the item's handle, a projection node's or a placed item's, with the group; returns the unregister. */
+  readonly register: (handle: ReorderItemHandle) => () => void
   /** The axis the item's drag takes, read at each gesture's start. */
   readonly dragAxis: () => Reorder.Axis
   /** The item's drag samples, as the drag delivers them. */
@@ -232,15 +248,15 @@ export interface ReorderController<V> {
    */
   // #257's audit.
   readonly detect: () => Reorder.Axis
-  /** The app's values changed: re-measure, so the items animate to their slots. */
+  /** The app's values changed: its items laid out in them (a Measure pass), so they animate to their new places. */
   readonly valuesChanged: () => void
-  /** Stops listening to measures and ends the auto-scroll. The Scope calls it. */
+  /** Stops listening for the items' layouts and ends the auto-scroll. The Scope calls it. */
   readonly dispose: () => void
 }
 
 /** Build a {@link ReorderController}: a **Reorder group** over `wiring.projection`'s nodes. */
 export const makeReorderController = <V>(wiring: ReorderControllerWiring, options: ReorderControllerOptions<V>): ReorderController<V> => {
-  const { runtime, projection, announce } = wiring
+  const { runtime, announce } = wiring
   const debug = debugOf(runtime, "wardic.reorder")
   // Speak an Announcement, or nothing without an `announce`.
   const speak = UndefinedOr.match(announce, { onUndefined: () => constVoid, onDefined: identity })
@@ -286,12 +302,13 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
   /** The lifted item's element, its handle and its `onLift`, by value, while it's registered. */
   interface Keyed {
     readonly element: () => Option.Option<Element>
-    handle: Option.Option<ProjectionNodeHandle>
+    handle: Option.Option<ReorderItemHandle>
     readonly onLift: (lifted: boolean) => void
   }
   const keyed = new Map<V, Keyed>()
-  const elementOf = (value: V): Option.Option<Element> => Option.flatMap(Option.fromUndefinedOr(keyed.get(value)), (k) => k.element())
-  // The item whose new place the next Measure pass lays out, to scroll into view then.
+  const keyedOf = (value: V): Option.Option<Keyed> => Option.fromUndefinedOr(keyed.get(value))
+  const elementOf = (value: V): Option.Option<Element> => Option.flatMap(keyedOf(value), (k) => k.element())
+  // The item whose new place the next layout lays out, to scroll into view then.
   const reveal = MutableRef.make(Option.none<V>())
   // A held arrow's latest announcement, waiting for the next repeat (ADR-0025, *Amendment (#69)*): a
   // fiber in the Scope the controller was built in, which closes it after `dispose`.
@@ -442,7 +459,7 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
     Option.match(Reorder.moveLifted(group, value, intent), {
       onNone: constVoid,
       onSome: (placement) => {
-        // A repeat before the last step's Measure pass moved nothing: nothing to say.
+        // A repeat before the last step was laid out moved nothing: nothing to say.
         if (placement.waiting) return
         if (placement.moved) {
           MutableRef.set(reveal, Option.some(value))
@@ -454,14 +471,20 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
     })
   }
 
-  // Every Measure pass measures every node, so its end is when the boxes are fresh, and when a
-  // stepped item's new place is laid out.
-  const stopPassEnd = wiring.onPassEnd(() => {
+  /** `value`'s element in view, connected: by its place on screen when its handle gives one, else by its layout box. */
+  const revealOf = (value: V): void => {
+    const el = Option.filter(elementOf(value), (e) => e.isConnected)
+    if (Option.isNone(el)) return
+    const place = Option.flatMap(Option.flatMap(keyedOf(value), (k) => k.handle), (handle) => Option.fromUndefinedOr(handle.placeOnScreen))
+    Option.match(place, { onNone: () => revealLayoutOf(el.value), onSome: (placeOf) => revealRectOf(el.value, placeOf()) })
+  }
+  // Every Measure pass measures every node, and a binding that places its items says when it has: either
+  // way the items are laid out, and a stepped item's new place with them.
+  const stopLaidOut = wiring.onLaidOut(() => {
     resolve()
     const stepped = MutableRef.get(reveal)
     MutableRef.set(reveal, Option.none())
-    const el = Option.filter(Option.flatMap(stepped, elementOf), (e) => e.isConnected)
-    if (Option.isSome(el)) revealLayoutOf(el.value)
+    if (Option.isSome(stepped)) revealOf(stepped.value)
   })
 
   const keyedWith = UndefinedOr.match(options.keyedWith, { onUndefined: () => "their value", onDefined: identity })
@@ -572,10 +595,10 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
     valuesChanged: () => {
       // The app changed `values` itself while an item is lifted: it's dropped at its new place.
       if (Option.isSome(Reorder.liftedValue(group)) && options.values() !== asked) dropLifted()
-      projection.notify()
+      wiring.layOut()
     },
     dispose: () => {
-      stopPassEnd()
+      stopLaidOut()
       resetAutoScroll()
     },
   }
