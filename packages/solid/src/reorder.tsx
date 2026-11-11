@@ -110,7 +110,7 @@ export interface ReorderGroupConfig<V> {
    */
   // A Reorder hold's end (#348).
   readonly onHoldEnd?: (end: ReorderController.HoldEnd<V>) => void
-  /** The list's direction: `"y"`, a column, or `"x"`, a row. Left out, it's found from the items' boxes. */
+  /** The list's direction: `"y"`, a column, `"x"`, a row, or `"xy"`, a grid that wraps. Left out, it's found from the items' boxes. */
   readonly axis?: CoreReorder.Axis
   /** The keyboard reorder: on unless `false`. Off, the items have no keys, no tab stop and no instructions. */
   // ADR-0037.
@@ -533,7 +533,7 @@ export type ReorderGroupProps<V, Tag extends ReorderElementTag = "ul"> = {
   readonly onHoldStart?: ((start: ReorderController.HoldStart<V>) => void) | undefined
   /** Called once as an item in hand is let go, however; after `onReorderEnd` when it moved. */
   readonly onHoldEnd?: ((end: ReorderController.HoldEnd<V>) => void) | undefined
-  /** The list's direction: `"y"`, a column, or `"x"`, a row. Left out, it's found from the items' boxes. */
+  /** The list's direction: `"y"`, a column, `"x"`, a row, or `"xy"`, a grid that wraps. Left out, it's found from the items' boxes. */
   readonly axis?: CoreReorder.Axis | undefined
   /** The keyboard reorder: on unless `false`. */
   readonly keyboard?: boolean | undefined
