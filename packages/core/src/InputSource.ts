@@ -232,6 +232,14 @@ export interface FocusLikeEvent {
   readonly visible?: boolean
 }
 
+/** An event, with the target it's for: what a feed over many targets tells, `pointerAmong`'s and `focusAmong`'s. */
+// #665's PR 5 (Q56): a Batch's members' gestures, from one source.
+export interface TargetEvent<A> {
+  /** The target it's for, as the feed's `memberOf` named it. */
+  readonly target: unknown
+  readonly event: A
+}
+
 /**
  * Input from the Environment, as Input feeds: each target's pointer, keys and focus, shared by every
  * subscriber to that target, and heard inside the platform's dispatch. A consumer that wants a Stream
@@ -282,6 +290,23 @@ export class InputSource extends Context.Service<InputSource, {
    */
   // #431: **Drag controls**. An `Option` (#618, A1): a down that may not be there, outside the per-frame path.
   readonly adoptPointer: (target: unknown, raw: unknown) => Option.Option<PointerLikeEvent>
+  /**
+   * The pointer events over many targets, from one source, each told with the target it's for:
+   * `memberOf(node)` names the target a node the pointer hit is, `undefined` for none, and each target
+   * hears what `pointer(target)` would, its enter and leave, the downs and releases over it, and a held
+   * pointer's events wherever they land. For many like targets, a Batch's members, where a feed each
+   * would cost a listener set each. Absent: `Recognizer.watchHoverAmong` and `watchPressAmong` fail,
+   * naming it.
+   */
+  // #665's PR 5 (Q56, Q17's probe: a listener set per member cost 12 ms and 4.6 KB a member per 1,000).
+  readonly pointerAmong?: ((memberOf: (node: unknown) => unknown) => InputFeed.InputFeed<TargetEvent<PointerLikeEvent>>) | undefined
+  /**
+   * The focus and blur of many targets and of whatever inside each, from one source, each told with the
+   * target it's for, as its `memberOf` names it: what `focus(target)` would tell it. Absent: no
+   * key presses a target among them.
+   */
+  // #665's PR 5 (Q57): a **Keyboard press** on a Batch's member.
+  readonly focusAmong?: ((memberOf: (node: unknown) => unknown) => InputFeed.InputFeed<TargetEvent<FocusLikeEvent>>) | undefined
 }>()("@wardic/core/InputSource") {}
 
 /**

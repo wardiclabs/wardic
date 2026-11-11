@@ -1,3 +1,4 @@
+import type * as InputFeed from "@wardic/core/InputFeed"
 import * as InputSource from "@wardic/core/InputSource"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
@@ -66,18 +67,27 @@ export const layer = (
  * `options.focusWithin` is the source's `focusWithin`, for a test of a **Keyboard press** that
  * holds its keys only while focus is within its target. Without it the source says nothing of focus,
  * and a press hears every key pushed.
+ *
+ * `pushTo(target, event)` and `pushFocusTo(target, event)` feed `pointerAmong` and `focusAmong`, the feeds
+ * over many targets: each subscriber hears the event with the target its `memberOf` names `target`, or
+ * nothing when it names none. `push` and `pushFocus` reach neither, nor these the per-target feeds.
  */
-// The hub: #318. No yield: ADR-0032. Keys: #427. adoptPointer: #431. focusWithin: #460.
+// The hub: #318. No yield: ADR-0032. Keys: #427. adoptPointer: #431. focusWithin: #460. The feeds over
+// many targets: #665's PR 5.
 export const pushable = (options?: { readonly focusWithin?: ((target: unknown) => boolean) | undefined }): Effect.Effect<{
   readonly layer: Layer.Layer<InputSource.InputSource>
   readonly push: (event: InputSource.PointerLikeEvent) => Effect.Effect<void>
   readonly pushFocus: (event: InputSource.FocusLikeEvent) => Effect.Effect<void>
   readonly pushKey: (event: InputSource.KeyboardLikeEvent) => Effect.Effect<void>
+  readonly pushTo: (target: unknown, event: InputSource.PointerLikeEvent) => Effect.Effect<void>
+  readonly pushFocusTo: (target: unknown, event: InputSource.FocusLikeEvent) => Effect.Effect<void>
 }> =>
   Effect.sync(() => {
     const pointer = Feeds.hub<InputSource.PointerLikeEvent>()
     const focus = Feeds.hub<InputSource.FocusLikeEvent>()
     const keys = Feeds.hub<InputSource.KeyboardLikeEvent>()
+    const pointerAmong = Feeds.hub<InputSource.TargetEvent<InputSource.PointerLikeEvent>>()
+    const focusAmong = Feeds.hub<InputSource.TargetEvent<InputSource.FocusLikeEvent>>()
     return {
       layer: Layer.succeed(InputSource.InputSource, {
         pointer: () => pointer.feed,
@@ -92,12 +102,30 @@ export const pushable = (options?: { readonly focusWithin?: ((target: unknown) =
           }
           return Option.none()
         },
+        pointerAmong: among(pointerAmong),
+        focusAmong: among(focusAmong),
       }),
       push: pointer.push,
       pushFocus: focus.push,
       pushKey: keys.push,
+      pushTo: (target, event) => pointerAmong.push({ target, event }),
+      pushFocusTo: (target, event) => focusAmong.push({ target, event }),
     }
   })
+
+/**
+ * A feed over many targets on `hub`, for a subscriber's `memberOf`: each pushed event with the target
+ * `memberOf` names its pushed one, none when it names none.
+ */
+const among =
+  <A>(hub: Feeds.Hub<InputSource.TargetEvent<A>>) =>
+  (memberOf: (node: unknown) => unknown): InputFeed.InputFeed<InputSource.TargetEvent<A>> =>
+  (emit, end) =>
+    hub.feed((pushed) => {
+      const target = memberOf(pushed.target)
+      if (Predicate.isUndefined(target)) return
+      emit({ target, event: pushed.event })
+    }, end)
 
 /** Whether `raw` is a pointer event with a button pressed: one the pushable InputSource adopts (#431). */
 const isPressedPointer = (raw: unknown): raw is InputSource.PointerLikeEvent =>
