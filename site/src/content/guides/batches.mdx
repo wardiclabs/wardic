@@ -58,7 +58,8 @@ The slider changes the depth, and `animate: (i) => leafAt(i, depth())` turns eve
 <CodeTabs sample="batch-gestures" />
 
 - **`whileHover` and `whileTap`** move a member while the pointer is over it and while it's pressed, as a Wardic element's do. A press that ends with the pointer still over it goes back to the hover's values.
-- **Here `whileHover` is a function** of the member's index, since a swatch's `y` is where it sits: values would send every swatch to one row. A function's keys must be keys the Batch already has. Given as values, a gesture's keys join the Batch's, and go back to where they were as it ends.
+- **Here `whileHover` lifts the hovered swatch** from its own row: a function of its index, since a swatch's `y` is where it sits, and values would send every swatch to one row. A function's keys must be keys the Batch already has. Given as values, a gesture's keys join the Batch's, and go back to where they were as it ends.
+- **Its neighbours grow with it.** `hoverStart` puts the hovered swatch in a signal, and `animate` scales every swatch by its distance from it: 1.25 on it, less with each cell away. A new hover is one change for all 96, and leaving the palette clears it.
 - **The tap** tells you which member: `onTap`'s `{ i }` on Solid 1, `swatches.when("tap")`'s on Solid 2, with `item` too when keyed. Each swatch is a `<button>`, so Enter and Space press it; a member that isn't focusable is given `tabindex="0"`.
 - **One set of listeners** on the window hears every swatch, however many there are, where each of Motion's 96 buttons listens for itself. The gesture code loads with the first Batch that needs it.
 
