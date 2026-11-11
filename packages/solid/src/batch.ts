@@ -689,6 +689,109 @@ export const gestureObjectValues = (given: unknown): Readonly<Record<string, unk
     onDefined: ({ transition: _transition, ...values }) => values,
   })
 
+/**
+ * Member `name`'s `values` written as its targets on `keys` into `into` at `base`, `NaN` for a key they
+ * leave out: each one of `keys`, and a number, else an error naming it. The client's at each change, and
+ * the server's for a member's start (#665's PR 6).
+ */
+// Per member per key at a change (#665): statements.
+const targetsOn = (into: Float64Array, base: number, name: string, keys: ReadonlyArray<string>, keyIndex: ReadonlyMap<string, number>, values: Readonly<Record<string, unknown>>): void => {
+  for (let k = 0; k < keys.length; k++) into[base + k] = Number.NaN
+  for (const key in values) {
+    const k = keyIndex.get(key)
+    if (Predicate.isUndefined(k)) return fail(`${name}'s targets give "${key}", which isn't one of its keys (${keys.join(", ")}): a Batch's keys are fixed when it's made`)
+    const value = values[key]
+    if (Predicate.isNumber(value)) {
+      into[base + k] = value
+      continue
+    }
+    if (Predicate.isNotUndefined(value)) fail(`${name}'s "${key}" is ${JSON.stringify(value)}: a Batch's targets are numbers, one each`)
+  }
+}
+
+/**
+ * Member `name`'s start on `keys` (Q63): `given`'s value for each key it gives, else its target (`targetAt`)
+ * when it starts at its targets, else the key's identity; a key it gives that isn't one of `keys`, or a
+ * value that isn't a number, is an error naming it. The client's as a member enters, and the server's.
+ */
+// Per member at mount (#540): statements.
+const startOn = (
+  name: string,
+  keys: ReadonlyArray<string>,
+  keyIndex: ReadonlyMap<string, number>,
+  given: Readonly<Record<string, unknown>> | undefined,
+  targetAt: (k: number) => number,
+  atTargets: boolean,
+): Record<string, number> => {
+  const start: Record<string, number> = {}
+  if (Predicate.isNotUndefined(given)) {
+    for (const key in given) {
+      if (!keyIndex.has(key)) fail(`${name} starts at "${key}", which isn't one of its keys (${keys.join(", ")}): a Batch's keys are fixed when it's made`)
+    }
+  }
+  Arr.forEach(keys, (key, k) => {
+    const target = targetAt(k)
+    let value = identityOf(key)
+    if (atTargets && !Number.isNaN(target)) value = target
+    if (Predicate.isNotUndefined(given)) {
+      const own = given[key]
+      if (Predicate.isNumber(own)) value = own
+      if (Predicate.isNotUndefined(own) && !Predicate.isNumber(own)) fail(`${name}'s "${key}" starts at ${JSON.stringify(own)}: a Batch's values are numbers`)
+    }
+    start[key] = value
+  })
+  return start
+}
+
+/** An `exit` given as an object (Q48), else `undefined`: a function's values are read at each leave. */
+const exitObjectOf = (given: unknown): WardicBatchExit | undefined => {
+  if (Predicate.isFunction(given)) return undefined
+  return given as WardicBatchExit | undefined
+}
+
+/** An `exit` object's values, less its `transition`; none for a function, or for none given. */
+const exitObjectValues = (given: unknown): Readonly<Record<string, unknown>> =>
+  UndefinedOr.match(exitObjectOf(given), {
+    onUndefined: () => NO_VALUES,
+    onDefined: ({ transition: _transition, ...values }) => values,
+  })
+
+/**
+ * A Batch's keys: `given`, with those its `exit`, `whileHover` and `whileTap` objects give as values after
+ * them (Q48, Q58); with `keys` given (`fixed`), one outside them is an error naming it.
+ */
+const withConfigKeys = (given: ReadonlyArray<string>, fixed: boolean, config: BatchConfig | KeyedBatchConfig<unknown>): ReadonlyArray<string> => {
+  let all = given
+  const more: ReadonlyArray<readonly [string, Readonly<Record<string, unknown>>]> = [
+    ["exit", exitObjectValues((config as { readonly exit?: unknown }).exit)],
+    ["whileHover", gestureObjectValues((config as { readonly whileHover?: unknown }).whileHover)],
+    ["whileTap", gestureObjectValues((config as { readonly whileTap?: unknown }).whileTap)],
+  ]
+  Arr.forEach(more, ([name, values]) => {
+    const added = Arr.filter(Rec.keys(values), (key) => !Arr.contains(all, key))
+    if (added.length === 0) return
+    if (fixed) fail(`its \`${name}\` gives "${added[0]}", which isn't one of its \`keys\` (${given.join(", ")})`)
+    all = [...all, ...added]
+  })
+  return all
+}
+
+/** The properties a Batch on `keys` draws on its members' elements: `transform`, with a transform key, and `opacity`, with it. */
+const drawnBy = (keys: ReadonlyArray<string>): ReadonlySet<string> =>
+  new Set([...Arr.filter(["transform"], () => Arr.some(keys, (key) => key !== "opacity")), ...Arr.filter(["opacity"], () => Arr.contains(keys, "opacity"))])
+
+/** A member's own `style`, without the properties the Batch draws (`drawn`): a string's an error, Solid writing it over them. */
+const ownStyleOf = <Style>(style: Style, drawn: ReadonlySet<string>): Style => {
+  if (Predicate.isString(style)) {
+    return fail(`give a member's own \`style\` as an object: Solid writes a string over what the Batch draws`)
+  }
+  if (!Predicate.isObject(style)) return style
+  return Rec.filter(style as Readonly<Record<string, unknown>>, (_, name) => !drawn.has(name)) as Style
+}
+
+/** Two items with one key: an error naming both. */
+const twoWithKey = (first: number, second: number, key: unknown): never => fail(`items ${first} and ${second} both have the key ${JSON.stringify(key)}: each item's key is its own`)
+
 /** A member's slot before its element arrives. */
 const NO_SLOT = -1
 
@@ -835,11 +938,81 @@ const plannedOf = (env: BatchEnv, keys: ReadonlyArray<string>, given: WardicTran
   })
 
 /** A server render's handle: the element's own props passed on, and nothing animates. */
-export const serverHandle = <Style>() =>
-  <E extends Element>(_: unknown, props?: MemberProps<E, Style>): Member<E, Style> => {
-    if (Predicate.isUndefined(props)) return { ref: noop }
-    return { ref: noop, style: props.style }
+// --- A server render's start (#665's PR 6, ADR-0070 decision 14, Q63–Q67) ----------------------------
+
+/** A keyed member's `initial` for its item and index: values, a function's, or `undefined` for none or `false`. */
+const keyedStartOf = (config: KeyedBatchConfig<unknown>, item: unknown, i: number): Readonly<Record<string, unknown>> | undefined =>
+  startGiven(config.initial, (given: (item: unknown, i: number) => WardicBatchValues) => given(item, i))
+
+/**
+ * A spread member's handle on a server: no `ref` to run, and its `start` drawn as the DOM writer draws it,
+ * over its own `style` less the properties the Batch draws (`drawn`). The client writes the same as the
+ * member arrives, so its element doesn't move at hydration.
+ */
+const serverMemberOf = <E extends Element, Style>(start: Readonly<Record<string, number>> | undefined, drawn: ReadonlySet<string>, props: MemberProps<E, Style> | undefined): Member<E, Style> => {
+  const own = ownStyleOf(UndefinedOr.map(props, (given) => given.style), drawn)
+  const written = UndefinedOr.match(start, { onUndefined: () => NO_STYLE, onDefined: DomBatch.styleOf })
+  if (Bool.and(Predicate.isUndefined(own), Rec.isEmptyRecord(written))) return { ref: noop }
+  return { ref: noop, style: { ...(own as object | undefined), ...written } as Style }
+}
+
+/** No style of the Batch's to write. */
+const NO_STYLE: Readonly<Record<string, string>> = {}
+
+/**
+ * A server render's handles by index (Q63): each member's start, its `initial`'s values, its targets
+ * with `initial: false`, else nothing, on the keys the client makes it with, its checks the client's.
+ */
+export const serverHandlesOf = <Style>(config: BatchConfig) => {
+  const keys = withConfigKeys(keysOf(config), false, config)
+  const keyIndex = new Map(Arr.map(keys, (key, k) => [key, k] as const))
+  const drawn = drawnBy(keys)
+  const targets = new Float64Array(keys.length)
+  return <E extends Element>(i: number, props?: MemberProps<E, Style>): Member<E, Style> => {
+    if (!isMember(i, config.count)) return noMember(i, config.count)
+    const name = `member ${i}`
+    targetsOn(targets, 0, name, keys, keyIndex, config.animate(i) as Readonly<Record<string, unknown>>)
+    return serverMemberOf(startOn(name, keys, keyIndex, initialOf(config, i), (k) => targets[k], config.initial === false), drawn, props)
   }
+}
+
+/**
+ * A server render's keyed handles (Q63, Q65): the list read once, each key's member started by its item
+ * and its index there, its targets under `<AnimatePresence initial={false}>`; a key the list doesn't have,
+ * nothing. Its keys and checks the client's.
+ */
+export const serverKeyedHandlesOf = <Style>(config: KeyedBatchConfig<unknown>, presenceOf: () => PresenceContextValue | undefined) => {
+  const items = config.each()
+  const reader = keyReaderOf(config)
+  const indexOfKey = new Map<unknown, number>()
+  Arr.forEach(items, (item, i) => {
+    const key = reader(item, i)
+    const known = indexOfKey.get(key)
+    if (Predicate.isNotUndefined(known)) twoWithKey(known, i, key)
+    indexOfKey.set(key, i)
+  })
+  const values = Arr.map(items, (item, i) => config.animate(item, i) as Readonly<Record<string, unknown>>)
+  const fixed = config.keys as ReadonlyArray<string> | undefined
+  const keys = withConfigKeys(
+    UndefinedOr.match(fixed, { onUndefined: () => keysFrom(items.length, (i) => values[i], (i) => keyedStartOf(config, items[i], i)), onDefined: identity }),
+    Predicate.isNotUndefined(fixed),
+    config,
+  )
+  const keyIndex = new Map(Arr.map(keys, (key, k) => [key, k] as const))
+  const drawn = drawnBy(keys)
+  const targets = new Float64Array(keys.length)
+  return <E extends Element>(key: unknown, props?: MemberProps<E, Style>): Member<E, Style> => {
+    const i = indexOfKey.get(key)
+    if (Predicate.isUndefined(i)) return serverMemberOf(undefined, drawn, props)
+    const name = `member ${JSON.stringify(key)}`
+    targetsOn(targets, 0, name, keys, keyIndex, values[i])
+    // `<AnimatePresence initial={false}>`'s first render (Q46): at its targets, whatever `initial` says.
+    const quiet = presenceBlocksInitial(presenceOf())
+    let given = keyedStartOf(config, items[i], i)
+    if (quiet) given = undefined
+    return serverMemberOf(startOn(name, keys, keyIndex, given, (k) => targets[k], Bool.or(config.initial === false, quiet)), drawn, props)
+  }
+}
 
 const noop = (): void => {}
 
@@ -1001,20 +1174,8 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
 
   /** Member `i`'s `values` written as its targets into `into`, `NaN` for a key they leave out; each one a number. */
   // Per member per key at a change (#665): statements.
-  const targetsInto = (into: Float64Array, i: number, values: Readonly<Record<string, unknown>>): void => {
-    const base = i * stride
-    for (let k = 0; k < stride; k++) into[base + k] = Number.NaN
-    for (const key in values) {
-      const k = keyIndex.get(key)
-      if (Predicate.isUndefined(k)) return fail(`${form.nameOf(i)}'s targets give "${key}", which isn't one of its keys (${keys.join(", ")}): a Batch's keys are fixed when it's made`)
-      const value = values[key]
-      if (Predicate.isNumber(value)) {
-        into[base + k] = value
-        continue
-      }
-      if (Predicate.isNotUndefined(value)) fail(`${form.nameOf(i)}'s "${key}" is ${JSON.stringify(value)}: a Batch's targets are numbers, one each`)
-    }
-  }
+  const targetsInto = (into: Float64Array, i: number, values: Readonly<Record<string, unknown>>): void =>
+    targetsOn(into, i * stride, form.nameOf(i), keys, keyIndex, values)
 
   const configuredOf = (): WardicTransition | undefined => {
     const given = config.transition as WardicTransition | undefined
@@ -1074,10 +1235,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     groupKs.transform = Arr.filter(Arr.map(keys, (_, k) => k), (k) => batchGroupOf(keys[k]) === "transform")
     groupKs.opacity = Arr.filter(Arr.map(keys, (_, k) => k), (k) => keys[k] === "opacity")
     batch = Batch.make({ keys, writer: { writes: DomBatch.writer.writes, forKeys: () => masking }, transition: own, capacity })
-    drawn = new Set([
-      ...Arr.filter(["transform"], () => Arr.some(keys, (key) => key !== "opacity")),
-      ...Arr.filter(["opacity"], () => keyIndex.has("opacity")),
-    ])
+    drawn = drawnBy(keys)
   }
 
   // --- Keyed: a list's items by key (#665, Q42–Q45, Q51) ------------------------------------
@@ -1097,18 +1255,11 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
   let listings = 0
 
   /** Keyed: member `item`'s `initial` at `i`, as values, or `undefined` for none. */
-  const keyedInitialOf = (item: unknown, i: number): Readonly<Record<string, unknown>> | undefined =>
-    startGiven(byKey.initial, (given: (item: unknown, i: number) => WardicBatchValues) => given(item, i))
+  const keyedInitialOf = (item: unknown, i: number): Readonly<Record<string, unknown>> | undefined => keyedStartOf(byKey, item, i)
 
   // Keyed: its `exit` as values (an object's, less its `transition`; none for a function's), and that `transition`.
-  const exitObject: WardicBatchExit | undefined = Bool.match(Predicate.isFunction(byKey.exit), {
-    onTrue: () => undefined,
-    onFalse: () => byKey.exit as WardicBatchExit | undefined,
-  })
-  const exitValues: Readonly<Record<string, unknown>> = UndefinedOr.match(exitObject, {
-    onUndefined: () => NO_VALUES,
-    onDefined: ({ transition: _transition, ...values }) => values,
-  })
+  const exitObject = exitObjectOf(byKey.exit)
+  const exitValues = exitObjectValues(byKey.exit)
   const exitTransition = UndefinedOr.map(exitObject, (given) => given.transition as WardicTransition | undefined)
 
   /** Keyed: the items now, their keys and their targets, as `animate` gives them. A compute: it writes nothing shared. */
@@ -1142,21 +1293,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
    * `given` keys with those its `exit`, `whileHover` and `whileTap` give as values after them (Q48, Q58);
    * with `keys` given, one outside them is an error naming it.
    */
-  const withMoreKeys = (given: ReadonlyArray<string>): ReadonlyArray<string> => {
-    let all = given
-    const more: ReadonlyArray<readonly [string, Readonly<Record<string, unknown>>]> = [
-      ["exit", exitValues],
-      ["whileHover", gestureObjectValues(hoverGiven)],
-      ["whileTap", gestureObjectValues(tapGiven)],
-    ]
-    Arr.forEach(more, ([name, values]) => {
-      const added = Arr.filter(Rec.keys(values), (key) => !Arr.contains(all, key))
-      if (added.length === 0) return
-      if (Predicate.isNotUndefined(byKey.keys)) fail(`its \`${name}\` gives "${added[0]}", which isn't one of its \`keys\` (${given.join(", ")})`)
-      all = [...all, ...added]
-    })
-    return all
-  }
+  const withMoreKeys = (given: ReadonlyArray<string>): ReadonlyArray<string> => withConfigKeys(given, Predicate.isNotUndefined(byKey.keys), config)
 
   /** Keyed: the member for `key`: its member, else a new one. */
   const memberForKey = (key: unknown): number => {
@@ -1201,7 +1338,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     Arr.forEach(targets.items, (item, i) => {
       const key = targets.keys[i]
       const member = memberForKey(key)
-      if (listedIn[member] === listings) return fail(`items ${indexOf[member]} and ${i} both have the key ${JSON.stringify(key)}: each item's key is its own`)
+      if (listedIn[member] === listings) return twoWithKey(indexOf[member], i, key)
       listedIn[member] = listings
       indexOf[member] = i
       itemOf[member] = item
@@ -1554,28 +1691,11 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
   /** Member `i`'s start: its `initial` over each key's identity, or, with `initial: false`, its targets. */
   // Per member at mount (#540): statements.
   const startOf = (i: number): Record<string, number> => {
-    const start: Record<string, number> = {}
     // `<AnimatePresence initial={false}>`'s first render (Q46): at its targets, whatever `initial` says.
     const quiet = quietStart.delete(i)
     let given = form.initialOf(i)
     if (quiet) given = undefined
-    if (Predicate.isNotUndefined(given)) {
-      for (const key in given) {
-        if (!keyIndex.has(key)) fail(`${form.nameOf(i)} starts at "${key}", which isn't one of its keys (${keys.join(", ")}): a Batch's keys are fixed when it's made`)
-      }
-    }
-    Arr.forEach(keys, (key, k) => {
-      const target = current[i * stride + k]
-      let value = identityOf(key)
-      if ((config.initial === false || quiet) && !Number.isNaN(target)) value = target
-      if (Predicate.isNotUndefined(given)) {
-        const own = given[key]
-        if (Predicate.isNumber(own)) value = own
-        if (Predicate.isNotUndefined(own) && !Predicate.isNumber(own)) fail(`${form.nameOf(i)}'s "${key}" starts at ${JSON.stringify(own)}: a Batch's values are numbers`)
-      }
-      start[key] = value
-    })
-    return start
+    return startOn(form.nameOf(i), keys, keyIndex, given, (k) => current[i * stride + k], Bool.or(config.initial === false, quiet))
   }
 
   // The runs it forked, interrupted when it's disposed; whether a flight is on, and the members it set off.
@@ -2263,13 +2383,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
       if (entries[entry.member] !== entry) return []
       return [entry.member]
     },
-    styleOf: <Style>(style: Style): Style => {
-      if (Predicate.isString(style)) {
-        return fail(`give a member's own \`style\` as an object: Solid writes a string over what the Batch draws`)
-      }
-      if (!Predicate.isObject(style)) return style
-      return Rec.filter(style as Readonly<Record<string, unknown>>, (_, name) => !drawn.has(name)) as Style
-    },
+    styleOf: <Style>(style: Style): Style => ownStyleOf(style, drawn),
     dispose: () => {
       disposed = true
       // Its leavers let go at once, uncompleted, and its held elements' holds: a presence waits on them no more.

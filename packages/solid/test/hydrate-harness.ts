@@ -53,11 +53,12 @@ export interface Hydrated {
 }
 
 /**
- * Server-render fixture `name` (under `renderId = name`), put its markup on the page and
- * hydrate it with `code`. A server error rejects with its first line.
+ * Server-render fixture `name` (under `renderId = name`) from `file`, put its markup on the page and
+ * hydrate it with `code`, after `waiting` has run with the page's host. A server error rejects with its
+ * first line.
  */
-export const hydrateFixture = async (name: string, code: () => JSX.Element): Promise<Hydrated> => {
-  const { html, script, error } = await commands.serverRender(FIXTURES_FILE, name, name)
+export const hydrateFixture = async (name: string, code: () => JSX.Element, file: string = FIXTURES_FILE, waiting?: (host: HTMLElement) => Promise<void>): Promise<Hydrated> => {
+  const { html, script, error } = await commands.serverRender(file, name, name)
   if (error !== "") throw new Error(`server render of ${name} failed: ${error}`)
   injectHydrationScript(script)
   const host = document.createElement("div")
@@ -66,6 +67,7 @@ export const hydrateFixture = async (name: string, code: () => JSX.Element): Pro
   document.body.append(host)
   const before = [...host.querySelectorAll("*")]
   const serverAttributes = new Map(before.map((el) => [el, Object.fromEntries([...el.attributes].map((a) => [a.name, a.value]))]))
+  if (waiting !== undefined) await waiting(host)
   // A delegated event or a mismatch marks hydration done, after which `hydrate` only renders.
   ;(globalThis as { _$HY?: { done?: boolean } })._$HY!.done = false
   sharedConfig.done = false

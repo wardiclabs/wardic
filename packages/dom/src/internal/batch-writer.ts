@@ -9,7 +9,9 @@
 // Flush gate (ADR-0034, *Amendment (#665)*), so its write is a `setProperty` per moving member.
 import type * as Batch from "@wardic/core/Batch"
 import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import { TRANSFORM_FUNCS, unitOf } from "./renderer.ts"
 
@@ -57,6 +59,29 @@ const forKeys = (keys: ReadonlyArray<string>): ((el: Element, positions: Float64
     }
     if (opacityAt !== -1) style.setProperty("opacity", String(positions[base + opacityAt]))
   }
+}
+
+/**
+ * A member's style as a server writes it (#665's PR 6, Q63): `values`' `transform` and `opacity`, the
+ * strings `forKeys`' write draws them with, each left out at its identity. What the client then writes
+ * at the member's arrival is the same, so its element doesn't move at hydration.
+ */
+export const styleOf = (values: Readonly<Record<string, number>>): Readonly<Record<string, string>> => {
+  const style: Record<string, string> = {}
+  let transform = ""
+  let separator = ""
+  // Once a member on a server: in the renderer's order, as `forKeys`' write.
+  Arr.forEach(FUNCS, (func) => {
+    const value = values[func.key]
+    if (Predicate.isUndefined(value)) return
+    if (value === func.identity) return
+    transform = transform + separator + `${func.fn}(` + value + `${unitOf(func.key)})`
+    separator = " "
+  })
+  if (transform !== "") style.transform = transform
+  const opacity = values.opacity
+  if (Bool.and(Predicate.isNotUndefined(opacity), opacity !== 1)) style.opacity = String(opacity)
+  return style
 }
 
 /** The DOM's Batch writer: an element's `transform` and `opacity`. */

@@ -9,8 +9,13 @@
  * import * as DomBatch from "@wardic/dom/DomBatch"
  *
  * const grid = Batch.make({ keys: ["x", "y", "opacity"], writer: DomBatch.writer, transition: { type: "spring" } })
+ *
+ * A server renders a member's start with `styleOf`, the strings the writer draws it with:
+ *
+ * @example
+ * DomBatch.styleOf({ x: 10, opacity: 0 }) // { transform: "translateX(10px)", opacity: "0" }
  */
 // `@wardic/dom/DomBatch` (#665, ADR-0070 *Amendment (#665)*): the DOM's implementation of core's
 // `Batch.Writer`, Dom-prefixed as `DomRenderer` is, its member without the module's noun (ADR-0041).
 // Not in `DomLive`: a binding's `createBatch` imports it, so an app that never makes a Batch ships none.
-export { writer } from "./internal/batch-writer.ts"
+export { styleOf, writer } from "./internal/batch-writer.ts"
