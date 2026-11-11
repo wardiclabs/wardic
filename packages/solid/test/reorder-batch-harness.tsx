@@ -28,6 +28,8 @@ export interface BatchSceneOptions {
   readonly exit?: WardicBatchExit
   /** The group's `direction` prop. */
   readonly direction?: "ltr" | "rtl"
+  /** The group's `direction` prop, read reactively (it wins over `direction`). */
+  readonly directionOf?: Accessor<"ltr" | "rtl" | undefined>
   /** The group inside an ancestor with `dir="rtl"`, and no prop. */
   readonly rtl?: boolean
   /** A grid with no `columns`, its width this, in px, read reactively (Q36). */
@@ -91,6 +93,7 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Scen
       {...UndefinedOr.match(o.whileTap, { onUndefined: () => ({}), onDefined: (whileTap) => ({ whileTap }) })}
       {...UndefinedOr.match(o.exit, { onUndefined: () => ({}), onDefined: (exit) => ({ exit }) })}
       {...UndefinedOr.match(o.direction, { onUndefined: () => ({}), onDefined: (direction) => ({ direction }) })}
+      {...UndefinedOr.match(o.directionOf, { onUndefined: () => ({}), onDefined: (directionOf) => ({ get direction() { return directionOf() } }) })}
       {...UndefinedOr.match(o.announcements, { onUndefined: () => ({}), onDefined: (announcements) => ({ announcements }) })}
       style={{
         ...UndefinedOr.match(o.container, { onUndefined: () => AT, onDefined: () => ({ margin: "0", padding: "0" }) }),

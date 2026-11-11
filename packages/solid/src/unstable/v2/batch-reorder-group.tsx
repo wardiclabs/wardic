@@ -16,8 +16,8 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { isServer, type JSX } from "@solidjs/web"
 import { createContext, createEffect, createMemo, createSignal, flush, omit, onCleanup, untrack, useContext } from "solid-js"
-import { configTransitionOf, type WardicBatchExit, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues } from "../../batch.ts"
-import { type BatchReorderBinding, type BatchReorderItems, serverBatchReorder, type BatchReorderDirection, type BatchReorderMeasure, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize, sameMeasure } from "../../batch-reorder.ts"
+import { configTransitionOf, type WardicBatchTransition } from "../../batch.ts"
+import { type BatchReorderBinding, type BatchReorderExit, type BatchReorderGesture, type BatchReorderInitial, type BatchReorderItems, serverBatchReorder, type BatchReorderRead, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize, sameRead } from "../../batch-reorder.ts"
 import { refsOf, staticElementOf } from "./element.tsx"
 import { usePresenceContext } from "./presence.tsx"
 import { useBrought, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
@@ -55,7 +55,7 @@ export type ReorderBatchGroupProps<V, Tag extends ReorderElementTag = "ul"> = {
    * `"rtl"` mirrors a row's and a grid's places, from the group's right edge. Left out, the group's element's
    * computed direction, read as it mounts (a server render's `"ltr"`).
    */
-  readonly direction?: BatchReorderDirection | undefined
+  readonly direction?: "ltr" | "rtl" | undefined
   /** The keyboard reorder: on unless `false`. */
   readonly keyboard?: boolean | undefined
   /** What a screen reader hears at each step of a keyboard reorder, over the English defaults. */
@@ -63,30 +63,30 @@ export type ReorderBatchGroupProps<V, Tag extends ReorderElementTag = "ul"> = {
   /** What each item's `aria-describedby` reads, over the English default. */
   readonly instructions?: string | undefined
   /** Where each item starts: values, a function of its item and index, or `false` to start at its place. */
-  readonly initial?: false | WardicBatchValues | ((item: V, i: number) => WardicBatchValues) | undefined
+  readonly initial?: BatchReorderInitial<V> | undefined
   /** How the items move to their places: else the nearest `WardicConfig`'s, else each key's Default transition. */
   readonly transition?: WardicBatchTransition | undefined
   /**
    * Where an item goes while it's in hand, dragged or lifted from the keyboard: values with an optional
    * `transition`, or a function of its item and index. Back on the group's transition as it's let go.
    */
-  readonly whileDrag?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
+  readonly whileDrag?: BatchReorderGesture<V> | undefined
   /**
    * Where an item goes while the pointer is over it (touch never hovers): values with an optional
    * `transition`, or a function of its item and index, read as its hover starts.
    */
-  readonly whileHover?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
+  readonly whileHover?: BatchReorderGesture<V> | undefined
   /**
    * Where an item goes while it's pressed, by a pointer, or by Enter or Space while it has focus and the
    * keyboard reorder is off (on, they lift it): values with an optional `transition`, or a function of its
    * item and index, read as its press starts.
    */
-  readonly whileTap?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
+  readonly whileTap?: BatchReorderGesture<V> | undefined
   /**
    * Where an item leaving under `<AnimatePresence>` goes, at its last place, its element kept until it lands:
    * values with an optional `transition`, or a function of its item, its last index and the presence's `custom`.
    */
-  readonly exit?: WardicBatchExit | ((item: V, i: number, custom: unknown) => WardicBatchValues) | undefined
+  readonly exit?: BatchReorderExit<V> | undefined
   /** Given the group once, as it's made, as `Reorder.Group`'s `groupRef` is: for its events and `move`. */
   readonly groupRef?: ((group: ReorderBatchGroup<V>) => void) | undefined
   /** The element it renders: `"ul"` by default. Read once. */
@@ -121,16 +121,16 @@ interface GroupLocal<V> {
   readonly itemSize: ReorderBatchItemSize
   readonly gap?: ReorderBatchGap | undefined
   readonly columns?: number | undefined
-  readonly direction?: BatchReorderDirection | undefined
+  readonly direction?: "ltr" | "rtl" | undefined
   readonly keyboard?: boolean | undefined
   readonly announcements?: Partial<CoreReorder.Announcements<V>> | undefined
   readonly instructions?: string | undefined
-  readonly initial?: false | WardicBatchValues | ((item: V, i: number) => WardicBatchValues) | undefined
+  readonly initial?: BatchReorderInitial<V> | undefined
   readonly transition?: WardicBatchTransition | undefined
-  readonly whileDrag?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
-  readonly whileHover?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
-  readonly whileTap?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
-  readonly exit?: WardicBatchExit | ((item: V, i: number, custom: unknown) => WardicBatchValues) | undefined
+  readonly whileDrag?: BatchReorderGesture<V> | undefined
+  readonly whileHover?: BatchReorderGesture<V> | undefined
+  readonly whileTap?: BatchReorderGesture<V> | undefined
+  readonly exit?: BatchReorderExit<V> | undefined
   readonly groupRef?: ((group: ReorderBatchGroup<V>) => void) | undefined
   readonly as?: string | undefined
   readonly ref?: unknown
@@ -208,7 +208,7 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
   // `Reorder.Group`'s there. A plain `if`, so a client build drops it (#518).
   if (isServer) {
     const server = serverBatchReorder<V>(
-      { values: () => local.values, geometry: () => geometryOf(local, undefined), direction: () => local.direction, initial: () => local.initial, whileTap: () => local.whileTap },
+      { values: () => local.values, geometry: () => geometryOf(local, undefined), initial: () => local.initial, whileTap: () => local.whileTap },
       untrack,
     )
     UndefinedOr.map(untrack(() => local.groupRef), (give) =>
@@ -224,8 +224,8 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
   }
   const runtime = useWardicRuntime()
   const services = useBrought(GROUP_BRINGS)
-  // What the group read of its element: its direction and width (Q35, Q36).
-  const [measured, setMeasured] = createSignal<BatchReorderMeasure | undefined>(undefined, { equals: sameMeasure })
+  // What the group read of its element: the direction it inherits and a grid's width (Q35, Q36).
+  const [read, setRead] = createSignal<BatchReorderRead | undefined>(undefined, { equals: sameRead })
   // Its events (#257 item 3), ended with it.
   const events = new Waiters<ReorderGroupEvents<V>>(GROUP_GONE)
   onCleanup(() => events.dispose())
@@ -244,12 +244,12 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
       },
       {
         values: () => local.values,
-        geometry: () => geometryOf(local, measured()),
-        direction: () => local.direction,
+        geometryOf: (seen) => geometryOf(local, seen),
+        read,
         // Its places from what it read land within the read, before the page paints (Q35–Q37): Solid 2 runs
         // the effect that places them at its next flush, which may come after a paint, so it's flushed now.
-        onMeasure: (read) => {
-          setMeasured(read)
+        onRead: (seen) => {
+          setRead(seen)
           flush()
         },
         initial: () => local.initial,
@@ -281,7 +281,7 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
   onCleanup(binding.dispose)
   const controller = binding.controller
   const group: ReorderBatchGroup<V> = {
-    axis: () => geometryOf(local, untrack(measured)).axis,
+    axis: () => geometryOf(local, untrack(read)).axis,
     move: (value, toIndex) => {
       moving = true
       try {

@@ -2,7 +2,8 @@
 // environment, on DomLive.
 //
 // - BS1: a column: the group sized to its places, `overflow-anchor: none`; each item in the list's order, at
-//   its place (the DOM writer's own transform), sized, with a drag element's defaults and a tab stop.
+//   its static position (no `top` or `left`) and its place (the DOM writer's own transform), sized, with a
+//   drag element's defaults and a tab stop.
 // - BS2: `direction="rtl"` mirrors a row's places on the server, and the group takes the direction.
 // - BS3: a grid with no `columns` lays its items out by CSS grid, each in flow at its size: the server can't
 //   know the width (Q37).
@@ -55,7 +56,8 @@ describe("Reorder.BatchGroup on a server", () => {
     expect([group?.style.position, group?.style.width, group?.style.height, group?.style["overflow-anchor"]]).toEqual(["relative", "200px", "290px", "none"])
     expect(items.map((t) => t.attrs["data-value"])).toEqual(VALUES)
     items.forEach((item, i) => {
-      expect([item.name, item.style.position, item.style.top, item.style.left, item.style.width, item.style.height]).toEqual(["li", "absolute", "0px", "0px", "200px", "50px"])
+      // No `top` or `left`: at its static position, the group's content box's start, its padding kept.
+      expect([item.name, item.style.position, item.style.top, item.style.left, item.style.width, item.style.height]).toEqual(["li", "absolute", undefined, undefined, "200px", "50px"])
       expect(item.style.transform, `${VALUES[i]}'s place`).toBe(writerStyleOf({ y: i * 60 }).transform)
       expect(item.style.background).toBe("teal")
       expect(item.attrs.tabindex).toBe("0")
@@ -66,7 +68,8 @@ describe("Reorder.BatchGroup on a server", () => {
   it("BS2: direction rtl mirrors a row's places, and the group takes the direction", () => {
     const [group, ...items] = tagsOf(serve(list({ axis: "x", direction: "rtl" })))
     expect([group?.style.direction, group?.style.width]).toEqual(["rtl", "440px"])
-    expect(items.map((item) => item.style.transform)).toEqual([0, 1, 2, 3, 4].map((i) => writerStyleOf({ x: 360 - i * 90 }).transform))
+    // Right to left, each item's static position is at the group's right edge, its place leftward from there.
+    expect(items.map((item) => item.style.transform)).toEqual([0, 1, 2, 3, 4].map((i) => writerStyleOf({ x: -i * 90 }).transform))
   })
 
   it("BS3: a grid with no columns lays out by CSS grid, each item in flow", () => {

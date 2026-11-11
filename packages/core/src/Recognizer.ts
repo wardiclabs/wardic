@@ -478,22 +478,24 @@ export interface PressOptions {
 /** Whether keys can press a target with `options`: its `keys`, unless `false`; a function's may, from key to key. */
 const keysPressOf = (options: PressOptions | undefined): boolean => UndefinedOr.match(options, { onUndefined: constTrue, onDefined: (o) => o.keys !== false })
 
-/** Whether keys press a target with `options` now: its `keys`, a function's read now, else `true`. */
-const keysOnOf = (options: PressOptions | undefined): LazyArg<boolean> => {
-  const keys = UndefinedOr.map(options, (o) => o.keys)
-  if (Predicate.isUndefined(keys)) return constTrue
-  if (Predicate.isBoolean(keys)) return constant(keys)
-  return keys
+/** An option given as a flag or as a function of now, as a function: `true` when it's left out. */
+const flagNowOf = (given: boolean | LazyArg<boolean> | undefined): LazyArg<boolean> => {
+  if (Predicate.isUndefined(given)) return constTrue
+  if (Predicate.isBoolean(given)) return constant(given)
+  return given
 }
+
+/** Whether keys press a target with `options` now: its `keys`, a function's read now, else `true`. */
+const keysOnOf = (options: PressOptions | undefined): LazyArg<boolean> => flagNowOf(UndefinedOr.map(options, (o) => o.keys))
 
 /**
  * `handle` for the keys a target's `keys` lets press it now (#712, Q32): a key's down while they're off is
  * left to the page, unstepped; a key's up is always stepped, so a press its down started ends.
  */
-// Per key event: statements.
 const whileKeysOn = (keysOn: LazyArg<boolean>) => (handle: (event: InputSource.KeyboardLikeEvent) => boolean) => (event: InputSource.KeyboardLikeEvent): boolean => {
-  if (event.type === "down" && !keysOn()) return true
-  return handle(event)
+  if (event.type !== "down") return handle(event)
+  if (keysOn()) return handle(event)
+  return true
 }
 
 /**
@@ -517,12 +519,7 @@ const tellPress = <Ev>(
 }
 
 /** Whether a press with `options` propagates now: its `propagate`, read now, else `true`. */
-const propagatesOf = (options: PressOptions | undefined): LazyArg<boolean> => {
-  const propagate = UndefinedOr.map(options, (o) => o.propagate)
-  if (Predicate.isUndefined(propagate)) return constTrue
-  if (Predicate.isBoolean(propagate)) return constant(propagate)
-  return propagate
-}
+const propagatesOf = (options: PressOptions | undefined): LazyArg<boolean> => flagNowOf(UndefinedOr.map(options, (o) => o.propagate))
 
 /**
  * `press`'s starts and ends with how each began or ended, as Motion's `onTapStart`, `onTap` and

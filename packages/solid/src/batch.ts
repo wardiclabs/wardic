@@ -290,10 +290,12 @@ export interface BatchBinding {
   /** A change: every member turned toward `targets`; in the keyed form, members entering and leaving. */
   readonly apply: (targets: BatchTargets) => void
   /**
-   * A change that lands now (#712): every member at its targets and drawn at once, before the page paints, as
-   * a Batch Reorder group's first read of its element places its items.
+   * A change that moves the targets under its members (#712: a Batch Reorder group's first read of its
+   * element): each key whose target moves carries its motion over by the shift, so a member at rest is at its
+   * new targets at once and one mid-flight goes on as far off them as it was off its old; drawn now, before
+   * the page paints.
    */
-  readonly applyNow: (targets: BatchTargets) => void
+  readonly applyShifted: (targets: BatchTargets) => void
   /** Member `i`'s `ref`: one function a member. */
   readonly refOf: (i: number) => (el: Element) => void
   /** The keyed form's member for `key`, made at its first handle, under the `<AnimatePresence>` it's in: its number. */
@@ -2020,6 +2022,22 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     gesturing--
   }
 
+  // --- A change that moves the targets under its members (#712) ----------------------------------------
+
+  // A key's speed as `shiftedFrom` found it, for `shiftedSpeed`, which core reads right after, the same key.
+  let shiftedVelocity = 0
+  /** Where `slot`'s `k`th key starts as its target moves under it: as far off its new target as off its old; `NaN`, unmoved. */
+  // Per member per key at the change (batch.ts's site, #665): statements.
+  const shiftedFrom = (slot: number, k: number): number => {
+    const next = targetOf(slot, k)
+    const was = Batch.target(made(), slot, keys[k])
+    if (Number.isNaN(next) || Number.isNaN(was) || next === was) return Number.NaN
+    shiftedVelocity = Batch.velocity(made(), slot, keys[k])
+    return Batch.get(made(), slot, keys[k]) + next - was
+  }
+  const shiftedSpeed = (): number => shiftedVelocity
+  const SHIFTED: HandedStarts = { from: shiftedFrom, velocity: shiftedSpeed }
+
   /** What its gestures work its members through. */
   const gestureHost: BatchGestureHost = {
     memberElementOf: (node) => {
@@ -2552,12 +2570,11 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
       if (Predicate.isUndefined(batch)) return
       change(movingNow(form.arrivedSlots()))
     },
-    applyNow: (targets) => {
+    applyShifted: (targets) => {
       if (disposed) return
       form.take(targets)
       if (Predicate.isUndefined(batch)) return
-      // Started from its targets on a 0 s tween: there now, drawn now; the run lands it there.
-      wake(Batch.retarget(made(), form.arrivedSlots(), targetOf, { transition: INSTANT, from: targetOf }))
+      turnOn(movingNow(form.arrivedSlots()), configuredOf(), undefined, SHIFTED)
       Batch.draw(made())
     },
     refOf: (i) => form.refOf(i),

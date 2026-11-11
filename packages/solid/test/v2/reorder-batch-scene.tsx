@@ -28,6 +28,8 @@ export interface BatchSceneOptions {
   readonly exit?: WardicBatchExit
   /** The group's `direction` prop. */
   readonly direction?: "ltr" | "rtl"
+  /** The group's `direction` prop, read reactively (it wins over `direction`). */
+  readonly directionOf?: Accessor<"ltr" | "rtl" | undefined>
   /** The group inside an ancestor with `dir="rtl"`, and no prop. */
   readonly rtl?: boolean
   /** A grid with no `columns`, its width this, in px, read reactively (Q36). */
@@ -103,6 +105,7 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Batc
       gap={10}
       {...Bool.match(Bool.and(layout === "xy", Predicate.isUndefined(o.fromWidth)), { onTrue: () => ({ columns: 3 }), onFalse: () => ({}) })}
       {...optional("direction", o.direction)}
+      {...UndefinedOr.match(o.directionOf, { onUndefined: () => ({}), onDefined: (directionOf) => ({ get direction() { return directionOf() } }) })}
       {...optional("whileDrag", o.whileDrag)}
       {...optional("transition", o.transition)}
       {...optional("whileHover", o.whileHover)}
