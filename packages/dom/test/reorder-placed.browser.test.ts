@@ -12,6 +12,8 @@
 //   where it's still drawn.
 // - RP4: once its Scope has closed, `placed()` reveals nothing.
 // - RP5: a drag near its scroller's edge, moving toward it, scrolls the scroller: Auto-scroll over the group.
+// - RP6: a binding that places a new order inside `onReorder` itself, as a Batch Reorder group's does: a
+//   step's and a cancel's reveals still come, though `placed()` is told before the step returns.
 import type * as Drag from "@wardic/core/Drag"
 import type * as InputSource from "@wardic/core/InputSource"
 import * as Announcer from "@wardic/core/Announcer"
@@ -53,9 +55,11 @@ interface Placed {
   readonly close: () => Promise<void>
 }
 
-const mount = async (n: number): Promise<Placed> => {
+const mount = async (n: number, placesAtOnce = false): Promise<Placed> => {
   const values = Array.from({ length: n }, (_, i) => String.fromCharCode(97 + i))
   let order: ReadonlyArray<string> = values
+  // Set once the scene's made: a binding that places at once places within `onReorder`.
+  let placeNow: () => void = () => {}
   const said: Array<string> = []
   const lifts: Array<string> = []
   const scroller = document.createElement("div")
@@ -68,7 +72,14 @@ const mount = async (n: number): Promise<Placed> => {
   const scope = Effect.runSync(Scope.make())
   const announcer = Layer.succeed(Announcer.Announcer, { announce: (message) => said.push(message) })
   const controller = Effect.runSync(
-    ReorderController.makePlaced<string>({ values: () => order, onReorder: (next) => (order = next), axis: () => Option.some<Reorder.Axis>("y") }).pipe(
+    ReorderController.makePlaced<string>({
+      values: () => order,
+      onReorder: (next) => {
+        order = next
+        if (placesAtOnce) placeNow()
+      },
+      axis: () => Option.some<Reorder.Axis>("y"),
+    }).pipe(
       Effect.provide(announcer),
       Scope.provide(scope),
     ),
@@ -118,6 +129,7 @@ const mount = async (n: number): Promise<Placed> => {
     })
   }
   placed.place()
+  placeNow = () => placed.place()
   return placed
 }
 
@@ -212,6 +224,21 @@ describe("the Reorder controller for placed items (#712)", () => {
     a.onSample(near)
     expect(p.scroller.scrollTop, "scrolled toward the edge").toBeGreaterThan(0)
     a.onSample(sample("end", { x: 0, y: 80 }, 32))
+    await p.close()
+  })
+
+  it("RP6: a binding that places inside onReorder: a step's and a cancel's reveals still come", async () => {
+    const p = await mount(10, true)
+    const a = p.drivers.get("a")!
+    p.elements.get("a")!.focus()
+    a.onKey(key("space"))
+    a.onKey(key("end"))
+    expect(p.order().at(-1), "stepped to the end").toBe("a")
+    expect(p.scroller.scrollTop, "its place in view").toBe(9 * STEP + HEIGHT - 120)
+    // Escape puts it back at the top, its place revealed again.
+    a.onKey(key("escape"))
+    expect(p.order()[0], "back at the start").toBe("a")
+    expect(p.scroller.scrollTop, "its place in view").toBe(0)
     await p.close()
   })
 })
