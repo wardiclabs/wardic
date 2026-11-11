@@ -6,7 +6,7 @@ api: [createBatch, WardicBatch, WardicBatchConfig, WardicBatchExit, WardicBatchG
 
 # createBatch
 
-Animates many elements on the same keys as one Batch: each member's values, speeds and targets are kept together, and every frame steps them all in one run. Changing a thousand members' targets costs about what one element's change does, and each member turns toward its new target at the speed it already has.
+Animates many elements on the same keys as one Batch: each member's values, speeds and targets are kept together, and every frame steps them all in one run. Changing a thousand members' targets costs about a twentieth of changing them one at a time ([measured](/why#fast-where-motion-happens)), and each member turns toward its new target at the speed it already has.
 
 ```tsx
 import { createBatch, stagger } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
@@ -73,7 +73,7 @@ const list = createBatch({ each: () => todos(), key: "id", initial: { opacity: 0
 
 `grid.at(i)` is member `i`'s handle: spread it onto its element. Give the element's own `ref` and `style` beside it, `grid.at(i, { ref, style })`: its `style` is kept, without the properties the Batch draws (`transform` and `opacity`).
 
-A member hovers and presses (below), but has no variants, drag or layout of its own: for those, make its element a Wardic element. An element inside an `<svg>` turns about its own centre, as an HTML one does.
+A member hovers and presses (below), but has no variants, drag or layout of its own: for variants or a drag, make its element a Wardic element (one that can't have `layout`, below). An element inside an `<svg>` turns about its own centre, as an HTML one does.
 
 ## Hover and press
 

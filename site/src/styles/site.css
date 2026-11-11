@@ -897,3 +897,45 @@ a {
   box-shadow: var(--shadow-m);
   pointer-events: none;
 }
+
+/* The Batch samples (#665): 1,000 tiles, and Sierpiński's 2,187 leaves. Each member is placed by its
+   transform alone, from the board's top-left corner. */
+.sample-tiles,
+.sample-sierpinski {
+  position: relative;
+}
+
+.sample-tiles {
+  width: 280px;
+  height: 175px;
+}
+
+.sample-tile {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 1.5px;
+}
+
+/* A leaf is the whole triangle, scaled from its top-left corner to its ancestor's size. */
+.sample-leaf {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+.sample-range {
+  display: grid;
+  gap: var(--space-1);
+  width: min(100%, 288px);
+  font-size: var(--text-s);
+  font-weight: 650;
+}
+
+.sample-range input {
+  width: 100%;
+  accent-color: var(--accent);
+}
