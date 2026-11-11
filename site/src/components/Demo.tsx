@@ -1,6 +1,7 @@
 /**
- * A sample, running (#558): `samples/<name>/solid2.tsx`'s default export, on the site's own Wardic. It
- * loads once its frame scrolls into view, which a ward on the frame hears (`when("viewportEnter")`), so a
+ * A sample, running (#558): `samples/<name>/solid2.tsx`'s default export, on the site's own Wardic, or
+ * its `demo.tsx`'s when it has one (#665's PR 7, Q24), a page's own wrapping of the sample. It loads
+ * once its frame scrolls into view, which a ward on the frame hears (`when("viewportEnter")`), so a
  * page ships no demo's code until it's wanted. Replay mounts it again, so its entrance plays again.
  * A demo that fails to load or render says so in its frame, and the page around it stays.
  * The samples shown only as code, such as a test or an app's setup, aren't demos and aren't built.
@@ -9,18 +10,19 @@ import { dynamic } from "@solidjs/web"
 import { w } from "@wardic/solid/unstable/v2"
 import type { Component } from "solid-js"
 import { createEffect, createMemo, createSignal, Errored, For, Loading, Show } from "solid-js"
+import { demoFileOf } from "~/components/demo-file.ts"
 import { Failed } from "~/components/Failed.tsx"
 
 const DEMOS = import.meta.glob<{ readonly default: Component }>([
-  "../../samples/*/solid2.tsx",
+  "../../samples/*/{demo,solid2}.tsx",
   "!../../samples/{testing,observability}/*",
 ])
 
-/** A sample's demo: its Solid 2 file's default export. */
+/** A sample's demo: its `demo.tsx`'s default export when it has one, else its Solid 2 file's. */
 const demoOf = async (sample: string): Promise<Component> => {
-  const load = DEMOS[`../../samples/${sample}/solid2.tsx`]
-  if (load === undefined) throw new Error(`No Solid 2 sample "${sample}" in site/samples`)
-  return (await load()).default
+  const file = demoFileOf(sample, (path) => path in DEMOS)
+  if (file === undefined) throw new Error(`No Solid 2 sample "${sample}" in site/samples`)
+  return (await DEMOS[file]()).default
 }
 
 export function Demo(props: { readonly sample: string }) {
