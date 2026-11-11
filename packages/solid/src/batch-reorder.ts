@@ -1,15 +1,15 @@
 /**
  * A **Batch Reorder group**'s work (#712, ADR-0072), Solid-free: a long list reordered as one keyed Batch,
- * each item at the place its index gives, never measured. Both bindings' `Reorder.BatchGroup` build on it,
- * each tracking its values and geometry with its own Solid.
+ * each item at the place its index gives (`batch-reorder-places.ts`), never measured. Both bindings'
+ * `Reorder.BatchGroup` build on it, each tracking its values and geometry with its own Solid.
  *
- * - **Places** (decision 3): every item is one size; `axis` picks the shape, a column (`"y"`), a row
- *   (`"x"`) or a wrapping grid (`"xy"`, its `columns`), `gap` apart. The group is sized to them, and each
- *   item is `position: absolute` at its top-left, placed by its transform (decision 4).
  * - **The Batch**: keyed by the value itself, each member turned toward its place, `x` and `y`, whenever
  *   the list or the geometry changes, in one change.
  * - **The item in hand** (decision 7): held where the pointer has it, raised, `whileDrag` on; let go, it
  *   flies to its place at its release's speed, and a grab stops it where it is, as a `Reorder.Item`'s.
+ * - **What it reads of its element** (Q35, Q36): the direction it inherits, as it mounts, and a grid's width
+ *   as it's resized; its first read's places drawn before the page paints.
+ * - **A server's group** (Q37, Q39): each item's start, with no runtime.
  *
  * @module
  */
@@ -17,141 +17,79 @@ import type * as Box from "@wardic/core/Box"
 import type * as Drag from "@wardic/core/Drag"
 import * as DragRecognizer from "@wardic/core/DragRecognizer"
 import * as InputSource from "@wardic/core/InputSource"
+import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import type * as CoreReorder from "@wardic/core/Reorder"
+import * as DomBatch from "@wardic/dom/DomBatch"
 import * as ReorderController from "@wardic/dom/ReorderController"
 import * as Report from "@wardic/dom/Report"
 import * as Style from "@wardic/dom/Style"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
+import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import { identity } from "effect/Function"
 import * as Iter from "effect/Iterable"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import * as Rec from "effect/Record"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { type BatchBinding, type BatchEnv, type BatchHooks, bindBatch, fail, type KeyedBatchConfig, type ReorderBatchConfig, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues } from "./batch.ts"
-import { turnDrag } from "./batch-gestures.ts"
+import {
+  type BatchBinding,
+  type BatchEnv,
+  type BatchHooks,
+  bindBatch,
+  type KeyedBatchConfig,
+  type ReorderBatchConfig,
+  serverKeyedHandlesOf,
+  type WardicBatchExit,
+  type WardicBatchGesture,
+  type WardicBatchTransition,
+  type WardicBatchValues,
+} from "./batch.ts"
+import { batchGesturesOn, turnDrag } from "./batch-gestures.ts"
+import {
+  type BatchReorderDirection,
+  type BatchReorderGeometry,
+  type BatchReorderPlaces,
+  type BatchReorderRead,
+  groupStyleOf,
+  inGridFlow,
+  isFromWidth,
+  itemBaseOf,
+  placeOf,
+  resolvePlaces,
+  samePlaces,
+  type XY,
+} from "./batch-reorder-places.ts"
 import type { Feature } from "./feature.ts"
 import { input } from "./features/input.ts"
+import { serviceOf } from "./gesture-features.ts"
 import * as OwnerScope from "./owner-scope.ts"
 import type { PresenceContextValue } from "./presence-record.ts"
 import { watchItemsInputAmong } from "./reorder-input.ts"
 
-/** Every item's size in a Batch Reorder group, in px. */
-export interface ReorderBatchItemSize {
-  readonly width: number
-  readonly height: number
-}
+export {
+  type BatchReorderDirection,
+  type BatchReorderRead,
+  geometryOf,
+  type ReorderBatchGap,
+  type ReorderBatchItemSize,
+  sameRead,
+} from "./batch-reorder-places.ts"
 
-/** A point, or a length on each axis, in px. */
-interface XY {
-  readonly x: number
-  readonly y: number
-}
+/** An item's gesture, `whileDrag`'s, `whileHover`'s or `whileTap`'s: values with an optional `transition`, or a function of its item and index. */
+export type BatchReorderGesture<V> = WardicBatchGesture | ((item: V, i: number) => WardicBatchValues)
 
-/** The space between a Batch Reorder group's places, in px: one for both axes, or each its own. */
-export type ReorderBatchGap = number | XY
+/** An item's `initial`: values, a function of its item and index, `false` (at its place), or none. */
+export type BatchReorderInitial<V> = false | WardicBatchValues | ((item: V, i: number) => WardicBatchValues)
 
-/** Where a Batch Reorder group's items go (decision 3): its shape, its items' size, the gap and a grid's columns. */
-export interface BatchReorderGeometry {
-  readonly axis: CoreReorder.Axis
-  readonly itemSize: ReorderBatchItemSize
-  readonly gap: ReorderBatchGap | undefined
-  readonly columns: number | undefined
-}
+/** An item's `exit`: values with an optional `transition`, or a function of its item, last index and the presence's `custom`. */
+export type BatchReorderExit<V> = WardicBatchExit | ((item: V, i: number, custom: unknown) => WardicBatchValues)
 
-/** A group's geometry from its props, as either binding reads them: its axis `"y"` when it gives none. */
-export const geometryOf = (props: {
-  readonly axis?: CoreReorder.Axis | undefined
-  readonly itemSize: ReorderBatchItemSize
-  readonly gap?: ReorderBatchGap | undefined
-  readonly columns?: number | undefined
-}): BatchReorderGeometry => ({
-  axis: UndefinedOr.match(props.axis, { onUndefined: (): CoreReorder.Axis => "y", onDefined: identity }),
-  itemSize: props.itemSize,
-  gap: props.gap,
-  columns: props.columns,
-})
-
-/**
- * A group's places, resolved from its geometry once a change: how many a row holds, the step from one to
- * the next on each axis, and every item's size.
- */
-export interface BatchReorderPlaces {
-  readonly columns: number
-  readonly stepX: number
-  readonly stepY: number
-  readonly itemSize: ReorderBatchItemSize
-}
-
-/** No offset, no gap: (0, 0). */
 const ORIGIN: XY = { x: 0, y: 0 }
-const NO_SIZE: ReorderBatchItemSize = { width: 0, height: 0 }
-
-/** A gap's two axes: one number for both, else each its own. Built once, at module load. */
-const gapsOf: (gap: ReorderBatchGap) => XY = Match.type<ReorderBatchGap>().pipe(
-  Match.when(Predicate.isNumber, (gap): XY => ({ x: gap, y: gap })),
-  Match.orElse((gap) => gap as XY),
-)
-
-/** Whether a grid's `columns` is a whole number, 1 or more. */
-const isColumnCount = (columns: number): boolean => Bool.and(Number.isInteger(columns), columns >= 1)
-
-/** A grid's `columns`, checked. */
-// PR 3 (#712, Q21): a grid's columns from the group's width when it's given none.
-const gridColumnsOf = (columns: number | undefined): number =>
-  UndefinedOr.match(columns, {
-    onUndefined: () => fail(`a Reorder.BatchGroup on axis "xy" takes its \`columns\`: how many items a row holds`),
-    onDefined: (given) =>
-      Bool.match(isColumnCount(given), {
-        onTrue: () => given,
-        onFalse: () => fail(`a Reorder.BatchGroup's \`columns\` is ${String(given)}: a whole number, 1 or more`),
-      }),
-  })
-
-/** How many places a row holds, by axis: one in a column, every item in a row, a grid's `columns`. Built once, at module load. */
-const columnsBy: (axis: CoreReorder.Axis) => (geometry: BatchReorderGeometry, n: number) => number = Match.type<CoreReorder.Axis>().pipe(
-  Match.when("y", () => (): number => 1),
-  Match.when("x", () => (_: BatchReorderGeometry, n: number): number => Math.max(n, 1)),
-  Match.orElse(() => (geometry: BatchReorderGeometry): number => gridColumnsOf(geometry.columns)),
-)
-
-/** `geometry`'s places for `n` items: an error naming a grid's `columns` that's missing or isn't a whole number. */
-export const resolvePlaces = (geometry: BatchReorderGeometry, n: number): BatchReorderPlaces => {
-  const gap = UndefinedOr.match(geometry.gap, { onUndefined: () => ORIGIN, onDefined: gapsOf })
-  return {
-    columns: columnsBy(geometry.axis)(geometry, n),
-    stepX: geometry.itemSize.width + gap.x,
-    stepY: geometry.itemSize.height + gap.y,
-    itemSize: geometry.itemSize,
-  }
-}
-
-/** Item `i`'s place among `places`: its column and row, a step apart, from the group's top-left. */
-export const placeOf = (places: BatchReorderPlaces, i: number): XY => ({
-  x: (i % places.columns) * places.stepX,
-  y: Math.floor(i / places.columns) * places.stepY,
-})
-
-/** The group's size for `n` items: its places' extent, the last place's far edge. */
-export const extentOf = (places: BatchReorderPlaces, n: number): ReorderBatchItemSize =>
-  Bool.match(n === 0, {
-    onTrue: () => NO_SIZE,
-    onFalse: () => {
-      const columns = Math.min(places.columns, n)
-      const rows = Math.ceil(n / places.columns)
-      return { width: (columns - 1) * places.stepX + places.itemSize.width, height: (rows - 1) * places.stepY + places.itemSize.height }
-    },
-  })
-
-/** A Reorder item's drag axis for its group's: a grid's `xy` is a free drag. Built once, at module load. */
-const dragAxisFor: (axis: CoreReorder.Axis) => true | "x" | "y" = Match.type<CoreReorder.Axis>().pipe(
-  Match.when("xy", (): true => true),
-  Match.orElse((axis) => axis as "x" | "y"),
-)
 
 /** A let-go's speed: its release's, or none for a cancelled drag (#431). Built once, at module load. */
 const releaseVelocityOf: (sample: Drag.Sample) => XY = Match.type<Drag.Sample>().pipe(
@@ -168,6 +106,22 @@ export const describedByOf = (own: string | undefined, instructions: string | un
   return Bool.match(ids.length === 0, { onTrue: () => undefined, onFalse: () => ids.join(" ") })
 }
 
+/**
+ * The direction `el` inherits: its parent's computed one, which its own `direction` (its group's prop, which
+ * the group writes on it) doesn't change; its own, at the top of a document.
+ */
+const directionAbove = (el: Element): BatchReorderDirection =>
+  Bool.match(getComputedStyle(Option.getOrElse(Option.fromNullishOr(el.parentElement), () => el)).direction === "rtl", {
+    onTrue: (): BatchReorderDirection => "rtl",
+    onFalse: (): BatchReorderDirection => "ltr",
+  })
+
+/** `el`'s content box's width: its client width less its padding. */
+const contentWidthOf = (el: Element): number => {
+  const style = getComputedStyle(el)
+  return el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight)
+}
+
 /** Whether a node is an HTML element: what a raise's `z-index` is written on. */
 const isHTMLElement = (node: unknown): node is HTMLElement => node instanceof HTMLElement
 
@@ -175,11 +129,20 @@ const isHTMLElement = (node: unknown): node is HTMLElement => node instanceof HT
 export interface BatchReorderOptions<V> {
   /** The list's values, in order: read in the binding's tracking. */
   readonly values: () => ReadonlyArray<V>
-  /** Where its items go: read in the binding's tracking. */
-  readonly geometry: () => BatchReorderGeometry
-  readonly initial: () => false | WardicBatchValues | ((item: V, i: number) => WardicBatchValues) | undefined
+  /** Where its items go, given what it read of its element: read in the binding's tracking (its props'). */
+  readonly geometryOf: (read: BatchReorderRead | undefined) => BatchReorderGeometry
+  /** What it read of its element ({@link onRead}): read in the binding's tracking, a signal of the binding's own. */
+  readonly read: () => BatchReorderRead | undefined
+  /** What it read of its element, as it mounts and as it's resized: for the binding to keep, and track. */
+  readonly onRead: (read: BatchReorderRead) => void
+  readonly initial: () => BatchReorderInitial<V> | undefined
   readonly transition: () => WardicBatchTransition | undefined
-  readonly whileDrag: () => WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
+  readonly whileDrag: () => BatchReorderGesture<V> | undefined
+  /** Where an item goes while the pointer is over it, and while it's pressed (#712's PR 3), read as each starts. */
+  readonly whileHover: () => BatchReorderGesture<V> | undefined
+  readonly whileTap: () => BatchReorderGesture<V> | undefined
+  /** Where an item leaving under `<AnimatePresence>` goes (Q38), read as it's made. */
+  readonly exit: () => BatchReorderExit<V> | undefined
   /** Given each new order, as an item crosses another: the app sets `values` from it, and the binding places it at once. */
   readonly onReorder: (values: Array<V>) => void
   readonly onReorderEnd?: ((end: ReorderController.End<V>) => void) | undefined
@@ -189,12 +152,20 @@ export interface BatchReorderOptions<V> {
   readonly keyboard: () => boolean
   /** The announcements over the defaults, read at each one. */
   readonly announcements: () => Option.Option<Partial<CoreReorder.Announcements<V>>>
-  /** The gestures' input the group brings: what its items' drags are heard through. */
-  readonly input: () => InputSource.InputSource["Service"]
+  /** What the group brings ({@link GROUP_BRINGS}): the gestures' input its items are heard through. */
+  readonly brought: () => Context.Context<never>
+}
+
+/** What a group's items read of it: each one's half, and whether they're pressed. A server's group is one. */
+export interface BatchReorderItems<V> {
+  /** The item with `value`, its element made under `presence`. */
+  readonly item: (value: V, presence: PresenceContextValue | undefined) => BatchReorderItem
+  /** Whether its items are pressed (`whileTap`): each one a tab stop, Enter and Space pressing it while the keyboard reorder is off. */
+  readonly pressable: boolean
 }
 
 /** A Batch Reorder group bound to its binding: its Batch, its group's style, and each item's half. */
-export interface BatchReorderBinding<V> {
+export interface BatchReorderBinding<V> extends BatchReorderItems<V> {
   /** Its Batch: the binding tracks its `targetsOf` and hands each new value to {@link apply}. */
   readonly batch: BatchBinding
   /** A change of the list or the geometry: every item turned toward its place, and the controller told they're placed. */
@@ -203,8 +174,6 @@ export interface BatchReorderBinding<V> {
   readonly groupStyle: (own: Style.Input) => Style.Style
   /** The group's element: what its Auto-scroll, its direction and its reveal go by. */
   readonly attach: (el: Element) => void
-  /** The item with `value`, its element made under `presence`. */
-  readonly item: (value: V, presence: PresenceContextValue | undefined) => BatchReorderItem
   /** Its controller: its group, its axis, `move`. */
   readonly controller: ReorderController.Placed<V>
   /** Its controller, its drag and its Batch's run ended. */
@@ -214,7 +183,7 @@ export interface BatchReorderBinding<V> {
 /** An item's half of a Batch Reorder group: its element's `ref` and style, and its end. */
 export interface BatchReorderItem {
   readonly ref: (el: Element) => void
-  /** The element's style: absolute at its group's top-left, sized and with a drag's defaults, under `own`, less what the Batch draws. */
+  /** The element's style: absolute at its static position, sized and with a drag's defaults, under `own`, less what the Batch draws. */
   readonly style: (own: Style.Input) => Style.Style
   /** The item is going: a gesture or a lift of it ended, and it leaves the controller. */
   readonly dispose: () => void
@@ -239,25 +208,15 @@ interface InHand {
   y: number
 }
 
-/** `px`. */
-const px = (n: number): string => `${n}px`
 
 /**
- * A Batch Reorder group for `options`, under `env`'s provider. The binding tracks `batch.targetsOf` and
- * hands each new value to `apply`.
+ * An item starts at its place: `initial` none, or `false`, starts it at its targets; values or a function
+ * start it there, but for the keys they give. Made once a given `initial`.
  */
-export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<V>, hooks: BatchHooks): BatchReorderBinding<V> => {
-  const runtime = env.runtime
-  // The places each item's is read from, resolved once a change: the Batch reads the list before any
-  // item's targets.
-  let resolved: BatchReorderPlaces = resolvePlaces(env.untrack(options.geometry), env.untrack(options.values).length)
-  /** An item's place now, at index `i`. */
-  const placeAt = (i: number): XY => placeOf(resolved, i)
-  // An item starts at its place: none given, or `false`, starts it at its targets; values or a function
-  // start it there, but for the keys they give. Made once a given `initial`.
+const startsAtPlace = <V>(placeAt: (i: number) => XY) => {
   let startGiven: unknown = undefined
   let startMade: false | ((item: V, i: number) => WardicBatchValues) = false
-  const startOf = (given: false | WardicBatchValues | ((item: V, i: number) => WardicBatchValues) | undefined): false | ((item: V, i: number) => WardicBatchValues) => {
+  return (given: BatchReorderInitial<V> | undefined): false | ((item: V, i: number) => WardicBatchValues) => {
     if (Bool.or(Predicate.isUndefined(given), given === false)) return false
     if (given === startGiven) return startMade
     startGiven = given
@@ -267,6 +226,27 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     })
     return startMade
   }
+}
+
+/**
+ * A Batch Reorder group for `options`, under `env`'s provider. The binding tracks `batch.targetsOf` and
+ * hands each new value to `apply`.
+ */
+export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<V>, hooks: BatchHooks): BatchReorderBinding<V> => {
+  const runtime = env.runtime
+  // Its items' hover and presses, over the input it brings (#712's PR 3): a focused item's keys press it
+  // only while the keyboard reorder doesn't take them (Q32), read at each key.
+  const gestures = batchGesturesOn(runtime, options.brought)
+  /** Where its items go now: its props', with what it read of its element. */
+  const geometryNow = (): BatchReorderGeometry => options.geometryOf(options.read())
+  // The places each item's is read from, resolved once a change: the Batch reads the list before any
+  // item's targets. A change of them its first read makes lands at once (Q35, Q36): no flight from a guess,
+  // drawn before the first paint.
+  let resolved: BatchReorderPlaces = resolvePlaces(env.untrack(geometryNow), env.untrack(options.values).length)
+  /** An item's place now, at index `i`. */
+  const placeAt = (i: number): XY => placeOf(resolved, i)
+  const startOf = startsAtPlace<V>(placeAt)
+  let atOnce = false
   // Whether any member is moving, from a flight's start to its landing; the items raised as they come to
   // rest, let down at the landing; and the members a pointer let go of, still flying to their places,
   // which a grab stops.
@@ -276,7 +256,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
   const config = {
     each: () => {
       const values = options.values()
-      resolved = resolvePlaces(options.geometry(), values.length)
+      resolved = resolvePlaces(geometryNow(), values.length)
       return values
     },
     key: (item: V) => item,
@@ -291,8 +271,18 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     get whileDrag() {
       return env.untrack(options.whileDrag)
     },
+    get whileHover() {
+      return env.untrack(options.whileHover)
+    },
+    get whileTap() {
+      return env.untrack(options.whileTap)
+    },
+    get exit() {
+      return env.untrack(options.exit)
+    },
+    gestureKeysFromFirst: true as const,
   }
-  const batch = bindBatch(env, config as ReorderBatchConfig<V> as KeyedBatchConfig<unknown>, {
+  const batch = bindBatch({ ...env, gestures, pressKeys: () => Bool.not(options.keyboard()) }, config as ReorderBatchConfig<V> as KeyedBatchConfig<unknown>, {
     ...hooks,
     started: () => {
       flying = true
@@ -307,6 +297,10 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     },
   })
   const host = batch.host
+  // Its items' hover and presses watched when it's made with `whileHover` or `whileTap`.
+  const pressable = Predicate.isNotUndefined(env.untrack(options.whileTap))
+  if (Predicate.isNotUndefined(env.untrack(options.whileHover))) batch.listen("hover")
+  if (pressable) batch.listen("press")
 
   // The group's controller (ADR-0072 decision 6), in a Scope of the group's own: its items placed, never
   // measured, so a reorder waits for the Batch to place the new order (`placed`).
@@ -318,7 +312,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       onReorderEnd: options.onReorderEnd,
       onHoldStart: options.onHoldStart,
       onHoldEnd: options.onHoldEnd,
-      axis: () => Option.some(env.untrack(options.geometry).axis),
+      axis: () => Option.some(env.untrack(geometryNow).axis),
       keyedWith: "<For>",
       keyboard: options.keyboard,
       announcements: options.announcements,
@@ -458,7 +452,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       DragRecognizer.watchDragAmong(host.memberElementOf, { axis: () => controller.axis() }, { on: onDrag, onDefect }),
       watchItemsInputAmong(host.memberElementOf, { driverOf, onPress, onPressEnd, fork: (effect) => void runtime.runFork(effect), onDefect }),
     ]).pipe(
-      Effect.provideService(InputSource.InputSource, options.input()),
+      Effect.provideService(InputSource.InputSource, serviceOf(options.brought(), InputSource.InputSource)),
       Scope.provide(scope),
     ),
   )
@@ -499,16 +493,56 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       setLifted: (lifted) => {
         if (lifted) raise(i, IN_HAND_Z)
       },
-      // Called for a reveal, once the group is attached and the item placed.
+      // Called for a reveal, once the group is attached and the item placed: from the item's static position
+      // (its untransformed offset in its group, padding and direction counted), its place.
       placeOnScreen: () => {
-        const el = UndefinedOr.getOrThrow(groupEl)
-        const at = el.getBoundingClientRect()
+        const group = UndefinedOr.getOrThrow(groupEl)
+        const item = batch.elementOf(i) as HTMLElement
+        const at = group.getBoundingClientRect()
         const placed = Option.getOrThrow(boxOf())
-        const left = at.left + el.clientLeft
-        const top = at.top + el.clientTop
+        const left = at.left + group.clientLeft + item.offsetLeft
+        const top = at.top + group.clientTop + item.offsetTop
         return { left: left + placed.x.min, top: top + placed.y.min, right: left + placed.x.max, bottom: top + placed.y.max }
       },
     }
+  }
+
+  // --- What it reads of its element (Q35, Q36) -------------------------------------------------
+
+  // The direction its element inherits, read the first time (Q35: as it mounts); its observer of its size;
+  // and whether it's gone: a read a frame callback still had waiting does nothing then.
+  let inherited: BatchReorderDirection | undefined
+  let resizes: ResizeObserver | undefined
+  let gone = false
+  /**
+   * What it reads of its element, told its binding: the direction its parent gives it (not its own, which
+   * its `direction` sets), the first time; and, for a grid whose columns come from it, its content width.
+   * The first time, its items go to the places that gives at once when those aren't where they are.
+   */
+  const readElement = (el: Element): void => {
+    if (gone) return
+    if (Bool.not(el.isConnected)) return
+    const first = Predicate.isUndefined(inherited)
+    const direction = UndefinedOr.match(inherited, { onUndefined: () => directionAbove(el), onDefined: identity })
+    inherited = direction
+    const seen: BatchReorderRead = { direction, width: Bool.match(isFromWidth(env.untrack(geometryNow)), { onTrue: () => contentWidthOf(el), onFalse: () => undefined }) }
+    if (first) atOnce = Bool.not(samePlaces(resolved, resolvePlaces(env.untrack(() => options.geometryOf(seen)), env.untrack(options.values).length)))
+    options.onRead(seen)
+  }
+  /**
+   * Its element read again as it's resized: a grid's columns from its width (Q36). Read the frame after: a new
+   * column count changes the group's height, which inside the observer's own delivery is a notification it
+   * can't deliver (the page's "ResizeObserver loop" error).
+   */
+  const observeSize = (el: Element): void => {
+    UndefinedOr.map(resizes, (observer) => observer.disconnect())
+    // The Environment's frames (ADR-0031), called detached as the flush gate's are: the web's is
+    // `requestAnimationFrame` itself, which won't run with another object as its `this`.
+    const { requestFrame } = runtime.runSync(RefreshFrameSource.RefreshFrameSource)
+    resizes = new ResizeObserver(() => {
+      requestFrame(() => readElement(el))
+    })
+    resizes.observe(el)
   }
 
   /** Member `i`'s keyboard lift: its `whileDrag` on, or off at its drop, then let down. */
@@ -524,18 +558,24 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       const values = env.untrack(options.values)
       if (values !== placedValues) controller.valuesChanged()
       placedValues = values
-      batch.apply(targets)
+      // The first read of its element's places, drawn now, before the page paints (Q35, Q36, Q37): each item as
+      // far off its new place as it was off its guessed one, an entrance from `initial` going on.
+      Bool.match(atOnce, { onTrue: () => batch.applyShifted(targets), onFalse: () => batch.apply(targets) })
+      atOnce = false
       version = version + 1
       controller.placed()
     },
     groupStyle: (own) => {
       const n = options.values().length
-      const extent = extentOf(resolvePlaces(options.geometry(), n), n)
-      return Style.over(own, { ...ReorderController.GROUP_STYLE, position: "relative", width: px(extent.width), height: px(extent.height) })
+      const geometry = geometryNow()
+      return groupStyleOf(resolvePlaces(geometry, n), n, geometry, own)
     },
     attach: (el) => {
       groupEl = el
       controller.attach(el)
+      observeSize(el)
+      // Once it's on the page: the direction it inherits and its width, before the first paint.
+      queueMicrotask(() => readElement(el))
     },
     item: (value, presence) => {
       const member = batch.memberFor(value, presence)
@@ -544,19 +584,16 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       const unregister = driver.register(handleOf(member))
       return {
         ref: batch.refOf(member),
-        style: (own) => {
-          const geometry = options.geometry()
-          const base = {
-            ...Style.dragDefaults(dragAxisFor(geometry.axis)),
-            position: "absolute",
-            top: "0px",
-            left: "0px",
-            width: px(geometry.itemSize.width),
-            height: px(geometry.itemSize.height),
-          }
-          return batch.styleOf(Style.over(own, base))
-        },
+        style: (own) => batch.styleOf(Style.over(own, itemBaseOf(geometryNow()))),
         dispose: () => {
+          // Under `<AnimatePresence>` its element stays while it exits (Q38), at its last place: let go if it was
+          // in hand, `whileDrag` off, let down, and neither focused nor pressed meanwhile.
+          host.handOff(member, 0, 0)
+          turnWhileDrag(member, false)
+          raise(member, undefined)
+          UndefinedOr.map(batch.elementOf(member), (el) => {
+            if (isHTMLElement(el)) el.inert = true
+          })
           driver.dispose()
           unregister()
           inHand.delete(member)
@@ -567,9 +604,83 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       }
     },
     controller,
+    pressable,
     dispose: () => {
+      gone = true
+      UndefinedOr.map(resizes, (observer) => observer.disconnect())
+      gestures.close()
       OwnerScope.close(runtime, scope, CLOSE_FAILED)
       batch.dispose()
     },
   }
 }
+
+/** A Batch Reorder group as a server renders it (Q37, Q39): its element's style, and its items' starts. */
+export interface ServerBatchReorder<V> extends BatchReorderItems<V> {
+  readonly groupStyle: (own: Style.Input) => Style.Style
+}
+
+/** What a server's group reads: its values, its geometry (no element's, Q35), `initial` and `whileTap`. */
+export interface ServerBatchReorderOptions<V> extends Pick<BatchReorderOptions<V>, "values" | "initial" | "whileTap"> {
+  readonly geometry: () => BatchReorderGeometry
+}
+
+const noop = (): void => {}
+
+/**
+ * A Batch Reorder group during a server render (Q39): no runtime, no Batch, no controller. Its element is
+ * sized to its places, and each item drawn at its start, its place or `initial`'s, as the client's Batch
+ * starts it, so hydrating moves nothing. A grid whose columns come from its width, which a server can't
+ * know, lays its items out by CSS grid, each in flow at its `initial`'s other keys (Q37): the client's first
+ * read places them where the grid had them.
+ */
+export const serverBatchReorder = <V>(options: ServerBatchReorderOptions<V>, untrack: <A>(read: () => A) => A): ServerBatchReorder<V> => {
+  const geometry = untrack(options.geometry)
+  const values = untrack(options.values)
+  const places = resolvePlaces(geometry, values.length)
+  const placeAt = (i: number): XY => placeOf(places, i)
+  const startOf = startsAtPlace<V>(placeAt)
+  const config = {
+    each: () => values,
+    key: (item: V) => item,
+    animate: (_: V, i: number) => placeAt(i),
+    get initial() {
+      return startOf(untrack(options.initial))
+    },
+  }
+  // Each item's start, its keyed Batch's server handle's.
+  let handles: ReturnType<typeof serverKeyedHandlesOf<Style.Style>> | undefined
+  const handlesFor = (presence: PresenceContextValue | undefined) => {
+    if (Predicate.isUndefined(handles)) handles = serverKeyedHandlesOf<Style.Style>(config as KeyedBatchConfig<unknown>, () => presence)
+    return handles
+  }
+  /** An item in flow's start: `initial`'s keys but its place's, which the grid gives. */
+  const inFlowStartOf = (value: V): Readonly<Record<string, string>> => {
+    const given = startOf(untrack(options.initial))
+    return Bool.match(given === false, {
+      onTrue: () => NO_STYLE,
+      onFalse: () =>
+        DomBatch.styleOf(Rec.filter((given as (item: V, i: number) => WardicBatchValues)(value, values.indexOf(value)) as Readonly<Record<string, number>>, (_, key) => Bool.and(key !== "x", key !== "y"))),
+    })
+  }
+  const base = itemBaseOf(geometry)
+  return {
+    groupStyle: (own) => groupStyleOf(places, values.length, geometry, own),
+    item: (value, presence) => ({
+      ref: noop,
+      style: (own) =>
+        Bool.match(inGridFlow(geometry), {
+          onTrue: () => ({ ...Style.over(own, base), ...inFlowStartOf(value) }),
+          onFalse: () => {
+            const placed = Style.over(own, base)
+            // Its start over its own and its group's: what the handle draws, the base when it draws none.
+            return UndefinedOr.match(handlesFor(presence)(value, { style: placed }).style, { onUndefined: () => placed, onDefined: identity })
+          },
+        }),
+      dispose: noop,
+    }),
+    pressable: Predicate.isNotUndefined(untrack(options.whileTap)),
+  }
+}
+
+const NO_STYLE: Readonly<Record<string, string>> = {}

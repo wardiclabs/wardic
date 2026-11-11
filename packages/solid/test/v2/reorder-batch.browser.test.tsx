@@ -15,10 +15,21 @@
 // - BG7: a drag held near its scroller's edge scrolls it, the item moving down the list under the pointer.
 // - BG8: a grab stops an item flying back from a release; a press with no drag lets it go on.
 // - BG9: a function `whileDrag`'s keys join the group's.
+// - BP1 (#712's PR 3): `whileHover` and `whileTap` by the pointer; Space lifts while the keyboard reorder is
+//   on and presses while it's off, from the next key once it's switched (Q32).
+// - BP2: a drag takes over a press; a function `whileTap`'s keys join the group's (Q34).
+// - BE1: a leaver under `<AnimatePresence>` plays its exit at its last place, inert; the others close up at
+//   once, and the group shrinks at once (Q38).
+// - BR1 (Q35): right-to-left places, drags and keys are an rtl `Reorder.Group`'s; a page's `dir` does it with
+//   no prop, at once.
+// - BC1 (Q36): a grid's columns from its width, at once as it mounts; widened, more a row.
+// - BR2 (Q35): `direction` taken away after it mounts: the places the inherited direction gives.
+// - BE2 (Q38): an item that leaves while it's dragged exits at its last place, let go, whileDrag off.
 // - BG6: `groupRef`'s group (Q25): its `next`, `when` and `each` of `holdStart`, `reorderEnd` and `holdEnd`,
 //   as `reorderGroup()`'s, its `axis`, and `move`, announced.
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as ReorderController from "@wardic/dom/ReorderController"
+import { createSignal, flush } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { commands, page } from "vitest/browser"
 import "../browser-commands.ts"
@@ -82,7 +93,7 @@ interface Path {
 }
 
 /** `path` driven on a `Reorder.Group` with `layout`'s geometry, then on a `Reorder.BatchGroup` with it. */
-const both = async (layout: Layout, path: Path, options: BatchSceneOptions = {}) => {
+const both = async (layout: Layout, path: Path, options: BatchSceneOptions = {}, reference: { readonly rtl?: boolean } = {}) => {
   const run = async (s: Scene) => {
     const { to, grabOffset } = await drag(s, path.value, path.dx, path.dy, path.steps)
     const result = { reorders: joined(s.reorders), dom: domOrder(s.group()), off: offPointer(s.item(path.value), to, grabOffset) }
@@ -90,9 +101,9 @@ const both = async (layout: Layout, path: Path, options: BatchSceneOptions = {})
     await resetBatchScene()
     return result
   }
-  const reference = await run(await mountReorder({ layout, axis: () => layout }))
+  const referenced = await run(await mountReorder({ ...reference, layout, axis: () => layout }))
   const batch = await run(await mountBatchReorder({ ...options, layout }))
-  return { reference, batch }
+  return { reference: referenced, batch }
 }
 
 /** Every text the page's live region shows from now on, in order. */
@@ -366,5 +377,168 @@ describe("Reorder.BatchGroup and Reorder.BatchItem on Solid 2", () => {
     await wait(400)
     expect(scaleOf(b), "laid over the lifted item").toBeCloseTo(1.1, 2)
     await commands.realKey("press", "Escape")
+  }, 30_000)
+
+  it("BP1: whileHover and whileTap by the pointer; Space lifts while the keyboard reorder is on, presses while it's off", async () => {
+    const [keyboard, setKeyboard] = createSignal(true)
+    const fast = { type: "spring", stiffness: 500, damping: 40 } as const
+    const s = await mountBatchReorder({ layout: "y", keyboard, whileHover: { scale: 1.05 }, whileTap: { scale: 0.9 }, transition: fast })
+    const b = s.item("b")
+    const g = centreOf(b)
+    await mouse.move(g)
+    await wait(300)
+    expect(scaleOf(b), "whileHover").toBeCloseTo(1.05, 2)
+    await mouse.down(g)
+    await wait(300)
+    expect(scaleOf(b), "whileTap").toBeCloseTo(0.9, 2)
+    await mouse.up(g)
+    await wait(300)
+    expect(scaleOf(b), "back to whileHover").toBeCloseTo(1.05, 2)
+    await mouse.move({ x: 5, y: 5 })
+    await wait(300)
+    expect(scaleOf(b), "back to rest").toBeCloseTo(1, 3)
+
+    const c = s.item("c")
+    c.focus()
+    await commands.realKey("down", "Space")
+    await wait(300)
+    expect(getComputedStyle(c).zIndex, "lifted").toBe("2")
+    expect(scaleOf(c), "not pressed").toBeCloseTo(1, 3)
+    await commands.realKey("up", "Space")
+    await commands.realKey("press", "Space")
+    await frames(2)
+    setKeyboard(false)
+    flush()
+    await commands.realKey("down", "Space")
+    await wait(300)
+    expect(scaleOf(c), "pressed by Space").toBeCloseTo(0.9, 2)
+    expect(getComputedStyle(c).zIndex, "not lifted").toBe("auto")
+    await commands.realKey("up", "Space")
+    await wait(300)
+    expect(scaleOf(c), "the press ends").toBeCloseTo(1, 3)
+    setKeyboard(true)
+    flush()
+    await commands.realKey("press", "Space")
+    await wait(300)
+    expect(getComputedStyle(c).zIndex, "lifted again").toBe("2")
+    expect(scaleOf(c), "not pressed").toBeCloseTo(1, 3)
+    await commands.realKey("press", "Escape")
+  }, 30_000)
+
+  it("BP2: a drag takes over a press: whileTap off as it starts, whileDrag on; a function whileTap's keys join", async () => {
+    const fast = { type: "spring", stiffness: 500, damping: 40 } as const
+    const s = await mountBatchReorder({ layout: "y", whileTap: (_, i) => ({ scale: 0.9, opacity: 0.8 + i * 0 }), whileDrag: { scale: 1.1 }, transition: fast })
+    const b = s.item("b")
+    const g = centreOf(b)
+    await mouse.down(g)
+    await wait(300)
+    expect(scaleOf(b), "pressed").toBeCloseTo(0.9, 2)
+    expect(Number(getComputedStyle(b).opacity), "the function's own key").toBeCloseTo(0.8, 2)
+    await glide(g, add(g, 0, 20), 5, 20)
+    await wait(300)
+    expect(scaleOf(b), "dragged: whileDrag, not whileTap").toBeCloseTo(1.1, 2)
+    await mouse.up(add(g, 0, 20))
+    await wait(500)
+    expect(scaleOf(b), "at rest").toBeCloseTo(1, 3)
+  }, 30_000)
+
+  it("BE1: a leaver plays its exit at its last place, inert; the others close up at once, the group shrinks at once", async () => {
+    const s = await mountBatchReorder({ layout: "y", exit: { opacity: 0, transition: { type: "tween", duration: 0.6 } }, transition: { type: "tween", duration: 0.3 } })
+    const b = s.item("b")
+    s.setOrder(["a", "c", "d", "e"])
+    await frames(2)
+    expect(b.isConnected, "kept while it exits").toBe(true)
+    expect(boxOf(b).top, "at its last place").toBe(40 + 60)
+    expect(b.inert, "neither focusable nor draggable").toBe(true)
+    expect(Number(getComputedStyle(b).opacity), "fading").toBeLessThan(1)
+    expect(boxOf(s.group()).height, "the group shrinks at once").toBe(4 * 50 + 3 * 10)
+    await wait(400)
+    expect(boxOf(s.item("c")).top, "c closed up").toBe(40 + 60)
+    await wait(500)
+    expect(b.isConnected, "gone once it lands").toBe(false)
+    expect(domOrder(s.group())).toBe("acde")
+  }, 30_000)
+
+  it("BR1: right-to-left places, drags and keys are an rtl Reorder.Group's; a page's dir does it with no prop, at once", async () => {
+    const reference = await mountReorder({ layout: "x", axis: () => "x", rtl: true })
+    const referenceBoxes = ["a", "b", "c", "d", "e"].map((v) => boxOf(reference.item(v)))
+    await resetBatchScene()
+    const row = await mountBatchReorder({ layout: "x", direction: "rtl" })
+    expect(["a", "b", "c", "d", "e"].map((v) => boxOf(row.item(v))), "a row's places, mirrored").toEqual(referenceBoxes)
+    await resetBatchScene()
+    const inherited = await mountBatchReorder({ layout: "x", rtl: true })
+    expect(["a", "b", "c", "d", "e"].map((v) => boxOf(inherited.item(v))), "a page's dir, at once").toEqual(referenceBoxes)
+    await resetBatchScene()
+    const grid = await mountBatchReorder({ layout: "xy", direction: "rtl" })
+    const right = boxOf(grid.group()).left + boxOf(grid.group()).width
+    expect(boxOf(grid.item("a")), "a grid's first place at its right edge").toEqual({ left: right - 80, top: 40, width: 80, height: 50 })
+    expect(boxOf(grid.item("d")).left, "its second row from the right too").toBe(right - 80)
+    await resetBatchScene()
+    const paths: ReadonlyArray<Path> = [
+      { value: "a", dx: -201, dy: 0, steps: 67 },
+      { value: "b", dx: 30, dy: 0, steps: 15 },
+    ]
+    for (const path of paths) {
+      const { reference: r, batch } = await both("x", path, { direction: "rtl" }, { rtl: true })
+      expect(batch.reorders, `${path.value} by ${path.dx}: the same orders`).toEqual(r.reorders)
+      expect(batch.off, `${path.value} by ${path.dx}: under the pointer`).toBeLessThan(1)
+    }
+    const gridPaths: ReadonlyArray<Path> = [
+      { value: "a", dx: -90, dy: 60, steps: 40 },
+      { value: "c", dx: 180, dy: 0, steps: 60 },
+    ]
+    for (const path of gridPaths) {
+      const { reference: r, batch } = await both("xy", path, { direction: "rtl" }, { rtl: true })
+      expect(r.reorders.length, `grid ${path.value}: the reference reorders`).toBeGreaterThan(0)
+      expect(batch.reorders, `grid ${path.value} by (${path.dx}, ${path.dy}): the same orders`).toEqual(r.reorders)
+    }
+    const pressed = ["Space", "ArrowLeft", "ArrowLeft", "ArrowRight", "Space"]
+    const byKeys = await keys(await mountReorder({ layout: "x", axis: () => "x", rtl: true }), "b", pressed)
+    await resetBatchScene()
+    const batchKeys = await keys(await mountBatchReorder({ layout: "x", direction: "rtl" }), "b", pressed)
+    expect(batchKeys.orders, "the arrows' orders").toEqual(byKeys.orders)
+    expect(batchKeys.said, "the arrows' announcements").toEqual(byKeys.said)
+  }, 60_000)
+
+  it("BC1: a grid's columns from its width, at once as it mounts; widened, more a row, its height following", async () => {
+    const [width, setWidth] = createSignal(300)
+    const s = await mountBatchReorder({ layout: "xy", n: 10, fromWidth: width, transition: { type: "tween", duration: 0.2 } })
+    expect(boxOf(s.item("d")), "three a row, at once").toEqual({ left: 40, top: 40 + 60, width: 80, height: 50 })
+    expect(boxOf(s.group()), "its width the app's, its height its four rows'").toEqual({ left: 40, top: 40, width: 300, height: 4 * 50 + 3 * 10 })
+    setWidth(480)
+    flush()
+    await wait(500)
+    expect(boxOf(s.item("d")), "d on the first row").toEqual({ left: 40 + 3 * 90, top: 40, width: 80, height: 50 })
+    expect(boxOf(s.item("f")), "f on the second").toEqual({ left: 40, top: 40 + 60, width: 80, height: 50 })
+    expect(boxOf(s.group()).height, "two rows").toBe(2 * 50 + 10)
+  }, 30_000)
+
+  it("BR2: direction taken away after it mounts: the items go to the places the inherited direction gives", async () => {
+    const [direction, setDirection] = createSignal<"ltr" | "rtl" | undefined>("rtl")
+    const s = await mountBatchReorder({ layout: "x", directionOf: direction, transition: { type: "tween", duration: 0.1 } })
+    expect(boxOf(s.item("a")).left, "rtl: a at the right").toBe(40 + 360)
+    setDirection(undefined)
+    flush()
+    await wait(400)
+    expect(boxOf(s.item("a")).left, "the page's ltr: a at the left").toBe(40)
+    expect(boxOf(s.item("e")).left).toBe(40 + 360)
+  }, 30_000)
+
+  it("BE2: an item that leaves while it's dragged plays its exit at its last place: let go, whileDrag off, let down", async () => {
+    const fast = { type: "spring", stiffness: 500, damping: 40 } as const
+    const s = await mountBatchReorder({ layout: "y", whileDrag: { scale: 1.1 }, exit: { opacity: 0, transition: { type: "tween", duration: 0.8 } }, transition: fast })
+    const b = s.item("b")
+    const g = centreOf(b)
+    await mouse.down(g)
+    await glide(g, add(g, 0, 20), 5, 20)
+    await wait(300)
+    expect(getComputedStyle(b).zIndex, "in hand").toBe("2")
+    s.setOrder(["a", "c", "d", "e"])
+    await wait(400)
+    expect(b.isConnected, "kept while it exits").toBe(true)
+    expect(boxOf(b).top, "at its last place, not where the pointer held it").toBe(40 + 60)
+    expect(scaleOf(b), "whileDrag off").toBeCloseTo(1, 2)
+    expect(getComputedStyle(b).zIndex, "let down").toBe("auto")
+    await mouse.up(add(g, 0, 20))
   }, 30_000)
 })

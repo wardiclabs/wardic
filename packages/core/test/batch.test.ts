@@ -40,6 +40,10 @@
 // - B20: a change can start a member's keys from given values at given speeds, onto targets they already
 //   have too (a driver handing them back, #665's PR 4): each moves as `springValues` from there at that speed,
 //   and `target` reads the targets they keep.
+// - B21 (#712): a key on a tween that no change has turned since its member entered stays at its start when
+//   another of its keys tweens, and so does one in a slot a member that left gave back.
+// - B22 (#712): `draw` writes every member where it is now, with no step, and flushes: a change that started
+//   its members from its targets, drawn before the page paints; a member that left isn't written.
 import * as Batch from "@wardic/core/Batch"
 import * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -548,5 +552,43 @@ describe("a Batch (#665)", () => {
     ax.forEach((x, f) => expect(x, `frame ${f}`).toBeCloseTo(oracle[f], 9))
     // b's x wasn't given: it stays.
     bx.forEach((x) => expect(x).toBe(0))
+  })
+
+  it("B21: a key no change has turned since its member entered stays at its start while another key tweens", () => {
+    const { writer } = recording<string>()
+    const tween = { type: "tween", duration: 0.3 } as const
+    const grid = Batch.make({ keys: ["y", "opacity"], writer, transition: tween })
+    const a = Batch.enter(grid, "a", { y: 60, opacity: 1 })
+    // A slot given back and taken again: its start is the new member's, whatever its last one tweened.
+    const gone = Batch.enter(grid, "gone", { y: 0, opacity: 0.2 })
+    Batch.retarget(grid, [gone], (_, k) => [Number.NaN, 0.9][k])
+    stepped(grid, gone, "opacity")
+    Batch.leave(grid, gone)
+    const b = Batch.enter(grid, "b", { y: 120, opacity: 1 })
+    Batch.retarget(grid, [a, b], (_, k) => [0, Number.NaN][k])
+    const frames = steppedAll(grid, [a, b], "opacity")
+    frames.forEach((member, n) => member.forEach((opacity, f) => expect(opacity, `member ${n}, frame ${f}`).toBe(1)))
+    expect(Batch.get(grid, a, "y"), "y tweened").toBe(0)
+  })
+
+  it("B22: draw writes every member where it is, with no step, and flushes; a member that left isn't written", () => {
+    const writes: Array<string> = []
+    let flushes = 0
+    const writer: Batch.Writer<string> = {
+      writes: () => true,
+      forKeys: () => (subject, positions, base) => void writes.push(`${subject} ${positions[base]}`),
+      flush: () => void flushes++,
+    }
+    const grid = Batch.make({ keys: ["x"], writer, transition: { type: "tween", duration: 0.3 } })
+    const a = Batch.enter(grid, "a", { x: 0 })
+    const b = Batch.enter(grid, "b", { x: 0 })
+    const gone = Batch.enter(grid, "gone", { x: 0 })
+    Batch.leave(grid, gone)
+    // Started from its targets: there now, before any step.
+    Batch.retarget(grid, [a, b], (slot) => [40, 80][slot], { from: (slot) => [40, 80][slot] })
+    writes.length = 0
+    Batch.draw(grid)
+    expect(writes).toEqual(["a 40", "b 80"])
+    expect(flushes, "flushed once").toBe(1)
   })
 })

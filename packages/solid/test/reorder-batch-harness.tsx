@@ -6,10 +6,11 @@ import type * as ReorderController from "@wardic/dom/ReorderController"
 import { render } from "@solidjs/testing-library"
 import type * as CoreReorder from "@wardic/core/Reorder"
 import { DomLive } from "@wardic/dom"
-import { Reorder, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues, WardicProvider } from "@wardic/solid"
+import { AnimatePresence, Reorder, type WardicBatchExit, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
+import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { createSignal, For, type JSX } from "solid-js"
+import { type Accessor, createSignal, For, type JSX } from "solid-js"
 import { itemCss, LAYOUTS, type Layout, type Scene, settle, VALUES } from "./reorder-harness.tsx"
 
 export interface BatchSceneOptions {
@@ -19,7 +20,20 @@ export interface BatchSceneOptions {
   readonly transition?: WardicBatchTransition
   /** Inside a plain `overflow: auto` container this tall. */
   readonly container?: number
-  readonly keyboard?: boolean
+  /** The keyboard reorder, read reactively: on when left out. */
+  readonly keyboard?: Accessor<boolean>
+  readonly whileHover?: WardicBatchGesture | ((item: string, i: number) => WardicBatchValues)
+  readonly whileTap?: WardicBatchGesture | ((item: string, i: number) => WardicBatchValues)
+  /** Each item's exit, its `<For>` under an `<AnimatePresence>`. */
+  readonly exit?: WardicBatchExit
+  /** The group's `direction` prop. */
+  readonly direction?: "ltr" | "rtl"
+  /** The group's `direction` prop, read reactively (it wins over `direction`). */
+  readonly directionOf?: Accessor<"ltr" | "rtl" | undefined>
+  /** The group inside an ancestor with `dir="rtl"`, and no prop. */
+  readonly rtl?: boolean
+  /** A grid with no `columns`, its width this, in px, read reactively (Q36). */
+  readonly fromWidth?: Accessor<number>
   readonly announcements?: Partial<CoreReorder.Announcements<string>>
 }
 
@@ -48,6 +62,15 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Scen
     reorderTimes.push(performance.now())
     setOrder(values)
   }
+  const items = (): JSX.Element => (
+    <For each={order()}>
+      {(value) => (
+        <Reorder.BatchItem value={value} data-value={value} style={lookOf(o)}>
+          {value}
+        </Reorder.BatchItem>
+      )}
+    </For>
+  )
   const group = (): JSX.Element => (
     <Reorder.BatchGroup
       ref={(el: HTMLElement) => setGroupEl(el)}
@@ -62,20 +85,25 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Scen
       axis={layout}
       itemSize={{ width: l.w, height: l.h }}
       gap={10}
-      {...Bool.match(layout === "xy", { onTrue: () => ({ columns: 3 }), onFalse: () => ({}) })}
+      {...Bool.match(Bool.and(layout === "xy", Predicate.isUndefined(o.fromWidth)), { onTrue: () => ({ columns: 3 }), onFalse: () => ({}) })}
       {...UndefinedOr.match(o.whileDrag, { onUndefined: () => ({}), onDefined: (whileDrag) => ({ whileDrag }) })}
       {...UndefinedOr.match(o.transition, { onUndefined: () => ({}), onDefined: (transition) => ({ transition }) })}
-      {...UndefinedOr.match(o.keyboard, { onUndefined: () => ({}), onDefined: (keyboard) => ({ keyboard }) })}
+      keyboard={UndefinedOr.match(o.keyboard, { onUndefined: () => undefined, onDefined: (keyboard) => keyboard() })}
+      {...UndefinedOr.match(o.whileHover, { onUndefined: () => ({}), onDefined: (whileHover) => ({ whileHover }) })}
+      {...UndefinedOr.match(o.whileTap, { onUndefined: () => ({}), onDefined: (whileTap) => ({ whileTap }) })}
+      {...UndefinedOr.match(o.exit, { onUndefined: () => ({}), onDefined: (exit) => ({ exit }) })}
+      {...UndefinedOr.match(o.direction, { onUndefined: () => ({}), onDefined: (direction) => ({ direction }) })}
+      {...UndefinedOr.match(o.directionOf, { onUndefined: () => ({}), onDefined: (directionOf) => ({ get direction() { return directionOf() } }) })}
       {...UndefinedOr.match(o.announcements, { onUndefined: () => ({}), onDefined: (announcements) => ({ announcements }) })}
-      style={UndefinedOr.match(o.container, { onUndefined: () => AT, onDefined: () => ({ margin: "0", padding: "0" }) })}
+      style={{
+        ...UndefinedOr.match(o.container, { onUndefined: () => AT, onDefined: () => ({ margin: "0", padding: "0" }) }),
+        ...UndefinedOr.match(o.fromWidth, { onUndefined: () => ({}), onDefined: (width) => ({ width: `${width()}px` }) }),
+      }}
     >
-      <For each={order()}>
-        {(value) => (
-          <Reorder.BatchItem value={value} data-value={value} style={lookOf(o)}>
-            {value}
-          </Reorder.BatchItem>
-        )}
-      </For>
+      {Bool.match(Predicate.isUndefined(o.exit), {
+        onTrue: () => items(),
+        onFalse: () => <AnimatePresence>{items()}</AnimatePresence>,
+      })}
     </Reorder.BatchGroup>
   )
   render(() => (
@@ -89,7 +117,7 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Scen
             {group()}
           </div>
         ),
-        onUndefined: group,
+        onUndefined: () => Bool.match(o.rtl === true, { onTrue: () => <div dir="rtl">{group()}</div>, onFalse: group }),
       })}
     </WardicProvider>
   ))

@@ -14,6 +14,8 @@
 // - WA6: `memberOf` names the target: a pushed node that's no target's tells nothing.
 // - WA7: an InputSource with no `pointerAmong` is a defect naming it.
 // - WA8: five hundred targets, their enters and leaves interleaved: each target's edges are its own.
+// - WA9: `keys` given as a function is read at each key (#712, Q32): while it's `false`, a focused target's
+//   Enter and Space press nothing and the page keeps them; once it's `true`, the next key presses it.
 import * as DragActivity from "@wardic/core/DragActivity"
 import * as InputSource from "@wardic/core/InputSource"
 import * as PressClaims from "@wardic/core/PressClaims"
@@ -258,3 +260,31 @@ it.effect("WA8: five hundred targets, interleaved: each target's edges are its o
     }).pipe(Effect.provide(input.layer))
     many.forEach((target) => expect(heard.get(target), `target ${target.n}`).toEqual(Bool.match(target.n % 2 === 0, { onTrue: () => [true, false], onFalse: () => [true] })))
   }))
+
+it.effect("WA9: keys as a function is read at each key: off, a focused target's keys press nothing; on, the next one does", () =>
+  Effect.gen(function* () {
+    const input = yield* TestInput.pushable()
+    const heard: Array<readonly [unknown, string, string]> = []
+    let keysOn = false
+    const handled: Array<string> = []
+    const pressed = (type: "down" | "up", name: InputSource.Key): InputSource.KeyboardLikeEvent => ({ ...key(type, name), handle: () => void handled.push(`${type} ${name}`) })
+    yield* Effect.gen(function* () {
+      yield* opened(Recognizer.watchPressAmong(memberOf, { on: (target, press) => heard.push([target, press.phase, press.input]) }, { keys: () => keysOn }))
+      yield* input.pushFocusTo("a", focusOf("focus"))
+      // Off: nothing pressed, and Space left to the page.
+      yield* input.pushKey(pressed("down", "space"))
+      yield* input.pushKey(pressed("up", "space"))
+      yield* input.pushKey(pressed("down", "enter"))
+      yield* input.pushKey(pressed("up", "enter"))
+      expect(heard, "off: no press").toEqual([])
+      expect(handled, "off: no key taken").toEqual([])
+      keysOn = true
+      yield* input.pushKey(pressed("down", "space"))
+      yield* input.pushKey(pressed("up", "space"))
+    }).pipe(Effect.provide(input.layer))
+    expect(heard).toEqual([
+      ["a", "start", "keyboard"],
+      ["a", "tap", "keyboard"],
+    ])
+  }))
+

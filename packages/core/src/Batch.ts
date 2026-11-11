@@ -503,6 +503,9 @@ export const enter: {
     const at = base + k
     state.positions[at] = value
     state.targets[at] = value
+    // Its origin too: a tween steps every key of a member it moves, and one no change has turned lerps
+    // from its origin to its target, both its start (#712).
+    state.origins[at] = value
     state.velocities[at] = 0
     // A reused slot keeps nothing of the member before: at rest on its start, on its own transition.
     state.elapsed[at] = 0
@@ -762,6 +765,23 @@ export const step = <S>(self: Batch<S>, dt: number): boolean => {
   // A driven change playing, paused at rest, still holds its entries.
   if (state.entries.length > state.pinned && state.animations.size === 0) forgetTransitions(state)
   return true
+}
+
+/**
+ * Writes every member where it is now, with no step, then flushes the writer: a change that started its
+ * members from their targets (`retarget`'s `from`), drawn now, before the page paints, where the run would
+ * draw it at its next tick.
+ */
+// #712: a Batch Reorder group's first read of its element places its items at once. Once a change, over
+// every slot (ADR-0025, *Amendment (#665)*): a counted loop.
+export const draw = <S>(self: Batch<S>): void => {
+  const state = stateOf(self)
+  const { flags, subjects, positions, stride, write } = state
+  for (let slot = 0; slot < state.used; slot++) {
+    if ((flags[slot] & LIVE) === 0) continue
+    write(subjects[slot] as S, positions, slot * stride)
+  }
+  state.flush()
 }
 
 /**

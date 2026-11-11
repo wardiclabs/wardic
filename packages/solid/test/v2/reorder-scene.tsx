@@ -137,6 +137,8 @@ export interface SceneOptions {
   readonly given?: boolean
   /** Read with the values, so a change to it re-reads them, unchanged (#348). */
   readonly alsoRead?: Accessor<unknown>
+  /** The group's `direction: rtl` (#712's Batch group tests). */
+  readonly rtl?: boolean
 }
 
 export interface Scene {
@@ -163,6 +165,7 @@ const groupCss = (o: SceneOptions): JSX.CSSProperties => ({
   margin: "0",
   padding: "0",
   ...LAYOUTS[o.layout ?? "y"].group,
+  ...Bool.match(o.rtl === true, { onTrue: () => ({ direction: "rtl" }), onFalse: () => ({}) }),
 })
 
 const itemCss = (o: SceneOptions): JSX.CSSProperties => {

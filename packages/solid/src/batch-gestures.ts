@@ -149,7 +149,8 @@ export const batchGesturesOn = (runtime: WardicRuntime, services: () => Context.
   // Each gesture's watch, over its host.
   const watches: Readonly<Record<"hover" | "press", (host: BatchGestureHost) => void>> = {
     hover: (host) => run(Recognizer.watchHoverAmong(host.memberElementOf, { on: hoverOf(host), onDefect })),
-    press: (host) => run(Recognizer.watchPressAmong(host.memberElementOf, { on: pressOf(host), onDefect })),
+    // A Batch Reorder group's keys press a member only while its keyboard reorder doesn't take them (#712, Q32).
+    press: (host) => run(Recognizer.watchPressAmong(host.memberElementOf, { on: pressOf(host), onDefect }, { keys: host.pressKeys })),
   }
   return {
     listen: (gesture, host) => watches[gesture](host),

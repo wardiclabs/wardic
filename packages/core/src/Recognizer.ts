@@ -460,10 +460,12 @@ export type PressEvent =
 export interface PressOptions {
   /**
    * `false`: no key presses it, for a target whose Enter and Space are someone else's: a Reorder item's,
-   * which lift it. Default `true`.
+   * which lift it. A function is read at each key's down, so a target whose keys are someone else's only
+   * some of the time (a Batch Reorder group's item, while the keyboard reorder is on) presses from its next
+   * key once it says so; a key's up always ends the press its down started. Default `true`.
    */
-  // #427, ADR-0037: **Keyboard presses**.
-  readonly keys?: boolean | undefined
+  // #427, ADR-0037: **Keyboard presses**; a function, #712 (Q32).
+  readonly keys?: boolean | LazyArg<boolean> | undefined
   /**
    * Whether its presses reach its pressable ancestors, as Motion's `propagate.tap`, read at each press's
    * start. `false` claims the down or the key it starts from, so no ancestor's press starts from it.
@@ -473,8 +475,28 @@ export interface PressOptions {
   readonly propagate?: boolean | LazyArg<boolean> | undefined
 }
 
-/** Whether keys press a target with `options`: its `keys`, else `true`. */
+/** Whether keys can press a target with `options`: its `keys`, unless `false`; a function's may, from key to key. */
 const keysPressOf = (options: PressOptions | undefined): boolean => UndefinedOr.match(options, { onUndefined: constTrue, onDefined: (o) => o.keys !== false })
+
+/** An option given as a flag or as a function of now, as a function: `true` when it's left out. */
+const flagNowOf = (given: boolean | LazyArg<boolean> | undefined): LazyArg<boolean> => {
+  if (Predicate.isUndefined(given)) return constTrue
+  if (Predicate.isBoolean(given)) return constant(given)
+  return given
+}
+
+/** Whether keys press a target with `options` now: its `keys`, a function's read now, else `true`. */
+const keysOnOf = (options: PressOptions | undefined): LazyArg<boolean> => flagNowOf(UndefinedOr.map(options, (o) => o.keys))
+
+/**
+ * `handle` for the keys a target's `keys` lets press it now (#712, Q32): a key's down while they're off is
+ * left to the page, unstepped; a key's up is always stepped, so a press its down started ends.
+ */
+const whileKeysOn = (keysOn: LazyArg<boolean>) => (handle: (event: InputSource.KeyboardLikeEvent) => boolean) => (event: InputSource.KeyboardLikeEvent): boolean => {
+  if (event.type !== "down") return handle(event)
+  if (keysOn()) return handle(event)
+  return true
+}
 
 /**
  * A press's state stepped from `was` to `now` by `event`: when it turned, its edge, `out`'s, marked by
@@ -497,12 +519,7 @@ const tellPress = <Ev>(
 }
 
 /** Whether a press with `options` propagates now: its `propagate`, read now, else `true`. */
-const propagatesOf = (options: PressOptions | undefined): LazyArg<boolean> => {
-  const propagate = UndefinedOr.map(options, (o) => o.propagate)
-  if (Predicate.isUndefined(propagate)) return constTrue
-  if (Predicate.isBoolean(propagate)) return constant(propagate)
-  return propagate
-}
+const propagatesOf = (options: PressOptions | undefined): LazyArg<boolean> => flagNowOf(UndefinedOr.map(options, (o) => o.propagate))
 
 /**
  * `press`'s starts and ends with how each began or ended, as Motion's `onTapStart`, `onTap` and
@@ -574,7 +591,8 @@ export const watchPress: (
       marking(event, told)
       takeSpace(event, told)
     }
-    const onKey = step(keyStep(activity, claims, target), keyPressOf, keyTaken)
+    const keyed = whileKeysOn(keysOnOf(options))
+    const onKey = () => keyed(step(keyStep(activity, claims, target), keyPressOf, keyTaken)())
     const onFocus = step(focusStep, blurPressOf, constVoid)
     if (Predicate.isUndefined(focusWithin)) {
       yield* InputFeed.watchWith(input.keyboard(target), onKey, watching)
@@ -642,6 +660,7 @@ export const watchPressAmong: (
     const pointer = yield* amongFeed(input.pointerAmong, "pointerAmong")
     const focusAmong = input.focusAmong
     const keys = Bool.and(keysPressOf(options), Predicate.isNotUndefined(focusAmong))
+    const keyed = whileKeysOn(keysOnOf(options))
     const propagates = propagatesOf(options)
     // Each target with a press held, and each focused target's keys.
     const states = targetStates<PressState>()
@@ -690,7 +709,14 @@ export const watchPressAmong: (
         marking(event, told)
         takeSpace(event, told)
       }
-      const keysNow = InputFeed.switched(input.keyboard(target), (event) => stepOn(target, event, keyStep(activity, claims, target), keyPressOf, keyTaken), handlers.onDefect)
+      const keysNow = InputFeed.switched(
+        input.keyboard(target),
+        keyed((event) => {
+          stepOn(target, event, keyStep(activity, claims, target), keyPressOf, keyTaken)
+          return true
+        }),
+        handlers.onDefect,
+      )
       keysOf.set(target, keysNow)
       keysNow.open()
     }
