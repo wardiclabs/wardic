@@ -246,3 +246,11 @@ The controller found the engine's pass-end listeners in a WeakMap keyed by the e
 **Decision (2026-11-05, #618 decision 12):** the engine's pass ends are a `@wardic/dom`-internal service, `PassEnds` (`internal/pass-ends.ts`), which `DomProjectionSystem.make` and `layer` provide beside the engine, and `ReorderController.make` requires. Its tag isn't exported, so decision 2's reason holds: there's still no public push hook. The WeakMap goes. Rejected: keeping the WeakMap and documenting the wrapper case.
 
 **Tests:** DS8 (`services.browser.test.ts`), a controller over a wrapped `ProjectionSystem` detects the row, and a type check that `make` takes `PassEnds` from its context.
+
+## Amendment (#710, 2026-11-11): `detectAxis` in linear time
+
+With no `axis`, a group runs `detectAxis` at each drag's start, each keyboard lift and the end of every Measure pass, which a drag runs at each crossover. Ported from Motion's, it built every unordered pair of boxes before checking any: 12.5 million at 5,000 items, every one of them checked in a column, where no two boxes are apart across. A 5,000-row list stalled for up to 1.8 s at a crossover.
+
+- **Each box is compared with the one that ends first,** which is enough: if `a` ends at or before `b` starts, so does that box, unless it's `b`, and then `a` is apart from it. One pass finds it, among the boxes whose end is a number, and one more compares; nothing is made per pair.
+- **The answers are Motion's** for every list: CR12 holds them to Motion's own loop over every pair, `NaN` and infinite coordinates included.
+- **The docs** say what `axis` takes: `"y"`, `"x"` or `"xy"`, found from the items' boxes when it's left out, as Motion's is. They called `"y"` the default.

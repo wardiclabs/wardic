@@ -24,7 +24,7 @@
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Equivalence from "effect/Equivalence"
-import { constVoid, identity } from "effect/Function"
+import { constFalse, constVoid, identity } from "effect/Function"
 import * as Inspectable from "effect/Inspectable"
 import * as Match from "effect/Match"
 import * as MutableRef from "effect/MutableRef"
@@ -275,27 +275,48 @@ const distanceToBox = (point: Point.Point, box: Box.Box): number => {
   return x * x + y * y
 }
 
-const isSeparated = (a: Box.Axis, b: Box.Axis): boolean => Bool.or(a.max <= b.min, b.max <= a.min)
+/** The box that ends first on `axis`, by its index: `None` when no box's end there is a number. */
+const firstToEnd = (layouts: ReadonlyArray<Box.Box>, axis: "x" | "y"): Option.Option<number> =>
+  Arr.reduce(layouts, Option.none<number>(), (first, box, i) =>
+    Option.match(first, {
+      onNone: () => Bool.match(Number.isNaN(box[axis].max), { onTrue: () => first, onFalse: () => Option.some(i) }),
+      onSome: (k) => Bool.match(box[axis].max < Arr.getUnsafe(layouts, k)[axis].max, { onTrue: () => Option.some(i), onFalse: () => first }),
+    }),
+  )
 
 /**
- * The axis a list's item boxes are laid out on, as Motion's `detectAxis`: `"x"` if some two don't
- * overlap across, `"y"` if some two don't overlap down, `"xy"` if both, a grid that wraps, and `"y"`
- * otherwise. It stops once it has found both.
+ * Whether some two of `layouts` are apart on `axis`: one ends at or before the other starts. Each box is
+ * compared with the one that ends first, which is enough: if `a` ends before `b` starts, so does that
+ * box, unless it's `b`, and then `a` is apart from it.
+ */
+// #710: two passes over the boxes, nothing made per pair, where Motion compares every pair (quadratic
+// for a column, where no two boxes are ever apart across).
+const someApart = (layouts: ReadonlyArray<Box.Box>, axis: "x" | "y"): boolean =>
+  Option.match(firstToEnd(layouts, axis), {
+    onNone: constFalse,
+    onSome: (k) => {
+      const first = Arr.getUnsafe(layouts, k)[axis]
+      return Arr.some(layouts, (box, j) => Bool.and(j !== k, Bool.or(first.max <= box[axis].min, box[axis].max <= first.min)))
+    },
+  })
+
+/** The axis two answers make: whether some two boxes are apart across, and down. Built once (#618). */
+const axisOfApart = Match.type<{ readonly x: boolean; readonly y: boolean }>().pipe(
+  Match.when({ x: true, y: true }, (): Axis => "xy"),
+  Match.when({ x: true }, (): Axis => "x"),
+  Match.orElse((): Axis => "y"),
+)
+
+/**
+ * The axis a list's item boxes are laid out on, as Motion's `detectAxis` finds it: `"x"` if some two
+ * don't overlap across, `"y"` if some two don't overlap down, `"xy"` if both, a grid that wraps, and
+ * `"y"` otherwise.
  */
 // Motion's Reorder/utils/detect-axis.ts @ 16c61222c4166bbef5ff6ab0051192faa79fa8c8
-// (https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/components/Reorder/utils/detect-axis.ts),
-// ported. Tier 2 (ADR-0008).
-export const detectAxis = (layouts: ReadonlyArray<Box.Box>): Axis => {
-  // Every unordered pair of boxes.
-  const pairs = Arr.flatMap(layouts, (a, i) => Arr.map(Arr.drop(layouts, i + 1), (b) => [a, b] as const))
-  const x = Arr.some(pairs, ([a, b]) => isSeparated(a.x, b.x))
-  const y = Arr.some(pairs, ([a, b]) => isSeparated(a.y, b.y))
-  return Match.value({ x, y }).pipe(
-    Match.when({ x: true, y: true }, (): Axis => "xy"),
-    Match.when({ x: true }, (): Axis => "x"),
-    Match.orElse((): Axis => "y"),
-  )
-}
+// (https://github.com/motiondivision/motion/blob/16c61222c4166bbef5ff6ab0051192faa79fa8c8/packages/framer-motion/src/components/Reorder/utils/detect-axis.ts):
+// its answers, in linear time (#710; CR12 holds them to its loop). Tier 2 (ADR-0008).
+export const detectAxis = (layouts: ReadonlyArray<Box.Box>): Axis =>
+  axisOfApart({ x: someApart(layouts, "x"), y: someApart(layouts, "y") })
 
 // --- The group ----------------------------------------------------------------
 
