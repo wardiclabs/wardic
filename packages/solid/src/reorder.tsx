@@ -41,6 +41,7 @@ import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import {
+  $PROXY,
   type Accessor,
   type Component,
   createContext,
@@ -61,6 +62,7 @@ import * as OwnerScope from "./owner-scope.ts"
 import { runWatch, useBrought, useWardicGate, useWardicRuntime } from "./provider.tsx"
 import { useLayoutServices } from "./layout-projection.tsx"
 import { watchItemInput } from "./reorder-input.ts"
+import { plainOrder } from "./reorder-values.ts"
 import type { Feature } from "./feature.ts"
 import { drag } from "./features/drag.ts"
 import { focus } from "./features/focus.ts"
@@ -209,6 +211,8 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
     return serverReorderGroup(cfg)
   }
   const [detected, setDetected] = createSignal<CoreReorder.Axis>("y")
+  // The order as a plain array (#721): a store's copied, so a store changed in place is a new order.
+  const values = (): ReadonlyArray<V> => plainOrder(cfg().values, $PROXY)
   const runtime = useWardicRuntime()
   // The group's controller, over the provider's projection system and the Environment's channel to
   // assistive technology (ADR-0037), in a Scope of the group's own, closed on unmount (#132's PR 3),
@@ -217,7 +221,7 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
   onCleanup(() => OwnerScope.close(runtime, scope, CLOSE_FAILED))
   const controller = runtime.runSync(
     ReorderController.make<V>({
-      values: () => untrack(cfg).values,
+      values: () => untrack(values),
       onReorder: (values) => untrack(cfg).onReorder(values),
       onReorderEnd: (end) => UndefinedOr.map(untrack(cfg).onReorderEnd, (tell) => tell(end)),
       onHoldStart: (start) => UndefinedOr.map(untrack(cfg).onHoldStart, (tell) => tell(start)),
@@ -244,7 +248,7 @@ export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<R
 
   // A `values` change re-measures, so the items animate to their new slots whoever
   // reordered them (as LayoutGroup's layoutDependency does).
-  createEffect(on(() => cfg().values, () => controller.valuesChanged(), { defer: true }))
+  createEffect(on(values, () => controller.valuesChanged(), { defer: true }))
 
   const spread = (userProps: ReorderGroupUserProps = NO_GROUP_PROPS): ReorderGroupSpread => ({
     ref: mergeRefs(userProps.ref, (el: HTMLElement) => controller.attach(el)),

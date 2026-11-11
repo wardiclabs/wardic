@@ -15,11 +15,12 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { isServer, type JSX } from "@solidjs/web"
-import { createContext, createEffect, createMemo, createSignal, flush, omit, onCleanup, untrack, useContext } from "solid-js"
+import { $PROXY, createContext, createEffect, createMemo, createSignal, flush, omit, onCleanup, untrack, useContext } from "solid-js"
 import { configTransitionOf, type WardicBatchTransition } from "../../batch.ts"
 import { type BatchReorderBinding, type BatchReorderExit, type BatchReorderGesture, type BatchReorderInitial, type BatchReorderItems, serverBatchReorder, type BatchReorderRead, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize, sameRead, tabStopOf } from "../../batch-reorder.ts"
 import { refsOf, staticElementOf } from "./element.tsx"
 import { usePresenceContext } from "./presence.tsx"
+import { plainOrder } from "../../reorder-values.ts"
 import { useBrought, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import type { ReorderElementTag, ReorderGroup, ReorderGroupEvents } from "./reorder.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
@@ -225,6 +226,8 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
   }
   const runtime = useWardicRuntime()
   const services = useBrought(GROUP_BRINGS)
+  // The order as a plain array (#721): a store's copied, so a store changed in place is a new order.
+  const values = (): ReadonlyArray<V> => plainOrder(local.values, $PROXY)
   // What the group read of its element: the direction it inherits and a grid's width (Q35, Q36).
   const [read, setRead] = createSignal<BatchReorderRead | undefined>(undefined, { equals: sameRead })
   // Its events (#257 item 3), ended with it.
@@ -244,7 +247,7 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
         untrack,
       },
       {
-        values: () => local.values,
+        values,
         geometryOf: (seen) => geometryOf(local, seen),
         read,
         // Its places from what it read land within the read, before the page paints (Q35–Q37): Solid 2 runs

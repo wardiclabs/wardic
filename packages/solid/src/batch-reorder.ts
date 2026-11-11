@@ -25,10 +25,11 @@ import * as Report from "@wardic/dom/Report"
 import * as Style from "@wardic/dom/Style"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import * as Equivalence from "effect/Equivalence"
 import * as Cause from "effect/Cause"
 import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import { constUndefined, identity } from "effect/Function"
+import { constFalse, constUndefined, identity } from "effect/Function"
 import * as Iter from "effect/Iterable"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
@@ -193,6 +194,9 @@ export interface BatchReorderItem {
   /** The item is going: a gesture or a lift of it ended, and it leaves the controller. */
   readonly dispose: () => void
 }
+
+/** Whether two orders hold the same items in the same order. */
+const sameOrder: Equivalence.Equivalence<ReadonlyArray<unknown>> = Arr.makeEquivalence(Equivalence.strictEqual())
 
 /** An item's tab stop when it gives none of its own: `0` with the keyboard reorder on, or with its items pressable. */
 export const tabStopOf = (keyboard: boolean, pressable: boolean): 0 | undefined => Bool.match(Bool.or(keyboard, pressable), { onTrue: (): 0 => 0, onFalse: constUndefined })
@@ -564,7 +568,8 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     apply: (targets) => {
       // The app's own change of `values` while an item is lifted drops it: not the geometry's.
       const values = env.untrack(options.values)
-      if (values !== placedValues) controller.valuesChanged()
+      // By its items: a store's order is a new array at each read (#721).
+      if (Bool.not(UndefinedOr.match(placedValues, { onUndefined: constFalse, onDefined: (placed) => sameOrder(placed, values) }))) controller.valuesChanged()
       placedValues = values
       // The first read of its element's places, drawn now, before the page paints (Q35, Q36, Q37): each item as
       // far off its new place as it was off its guessed one, an entrance from `initial` going on.
