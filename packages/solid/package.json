@@ -41,9 +41,9 @@
   "exports": {
     "./package.json": "./package.json",
     ".": {
-      "@wardic/source": "./src/index.ts",
+      "@wardic/source": "./src/index.tsx",
       "types": "./dist/solid/index.d.ts",
-      "solid": "./dist/solid/index.js",
+      "solid": "./dist/solid/index.jsx",
       "browser": "./dist/browser/index.js",
       "worker": "./dist/server/index.js",
       "deno": "./dist/server/index.js",
@@ -51,9 +51,9 @@
       "default": "./dist/browser/index.js"
     },
     "./unstable/v2": {
-      "@wardic/source": "./src/unstable/v2/index.ts",
+      "@wardic/source": "./src/unstable/v2/index.tsx",
       "types": "./dist/solid/unstable/v2/index.d.ts",
-      "solid": "./dist/solid/unstable/v2/index.js",
+      "solid": "./dist/solid/unstable/v2/index.jsx",
       "browser": "./dist/browser/unstable/v2/index.js",
       "worker": "./dist/server/unstable/v2/index.js",
       "deno": "./dist/server/unstable/v2/index.js",

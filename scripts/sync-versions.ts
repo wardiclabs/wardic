@@ -38,7 +38,8 @@ writeFileSync(LOCKFILE, lock)
 
 for (const pkg of PACKAGES) {
   const dir = join(ROOT, "packages", pkg)
-  const index = join(dir, "src", "index.ts")
+  // `@wardic/solid`'s root module is `index.tsx`, as it re-exports components; the rest's `index.ts`.
+  const index = [join(dir, "src", "index.tsx"), join(dir, "src", "index.ts")].find((file) => existsSync(file)) ?? join(dir, "src", "index.ts")
   const source = readFileSync(index, "utf8")
   const constant = /^export const VERSION = "([^"]*)"$/m.exec(source)
   const version = versionIn(dir)

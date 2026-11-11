@@ -29,7 +29,7 @@ import { onSettledClientOnly } from "./solid-reactivity.ts"
  */
 // `Stream.runForEach` through `runScoped`; `set(() => v)`, so an object or function value is stored as
 // it is. The stream's `R` is the provider runtime's services.
-export const streamToSignal = <A>(stream: Stream.Stream<A, never, WardicServices>, initial: A): Accessor<A> => {
+export const streamToSignal = <A,>(stream: Stream.Stream<A, never, WardicServices>, initial: A): Accessor<A> => {
   const runtime = useWardicRuntime()
   const [value, setValue] = createSignal<A>(initial as Exclude<A, Function>)
   runScoped(runtime, Stream.runForEach(stream, (next) => Effect.sync(() => setValue(() => next))))
@@ -41,7 +41,7 @@ export const streamToSignal = <A>(stream: Stream.Stream<A, never, WardicServices
  * the owner is disposed. Every Atom the binding hands to Solid goes through it (a ward's `read`, the
  * Live-value helpers, `fromAtom`). Call it where you'd make a signal.
  */
-export const followAtom = <A>(registry: AtomRegistry.AtomRegistry, atom: Atom.Atom<A>): Accessor<A> => {
+export const followAtom = <A,>(registry: AtomRegistry.AtomRegistry, atom: Atom.Atom<A>): Accessor<A> => {
   const [value, setValue] = createSignal<A>(registry.get(atom) as Exclude<A, Function>)
   onCleanup(registry.subscribe(atom, (next) => setValue(() => next as Exclude<A, Function>)))
   // eslint-disable-next-line solid/reactivity -- the accessor itself is returned, for its caller to read where it tracks
@@ -60,7 +60,7 @@ export const followAtom = <A>(registry: AtomRegistry.AtomRegistry, atom: Atom.At
  */
 // Solid's `from`, seeded with the atom's value; `set(() => v)`, so an object or function value is stored
 // as it is. A server builds no registry (ADR-0021); the Hydration hold is decision 8.
-export const fromAtom = <A>(atom: Atom.Atom<A>, options?: { readonly serverValue?: A }): Accessor<A> => {
+export const fromAtom = <A,>(atom: Atom.Atom<A>, options?: { readonly serverValue?: A }): Accessor<A> => {
   const runtime = useWardicRuntime()
   const held = Predicate.isNotUndefined(options) && "serverValue" in options
   if (held && isServer) {

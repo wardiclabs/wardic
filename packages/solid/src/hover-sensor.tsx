@@ -5,7 +5,7 @@
  * @module
  */
 import type { Accessor } from "solid-js"
-import { watchToSignal } from "./bridge.ts"
+import { watchToSignal } from "./bridge.tsx"
 import type { Feature } from "./feature.ts"
 import { hover } from "./features/hover.ts"
 import { HoverGesture } from "./features/keys.ts"

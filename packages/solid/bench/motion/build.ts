@@ -17,7 +17,7 @@ import { APP_TARGET } from "../sides.ts"
 
 const D = import.meta.dirname
 const DEPS = join(D, "react", "node_modules")
-const SOLID_INDEX = join(D, "..", "..", "src", "index.ts")
+const SOLID_INDEX = join(D, "..", "..", "src", "index.tsx")
 
 /** The pages' bare imports resolved as `@wardic/solid`'s own are: Solid from its install, not the repo root's. */
 const resolveAsSolid: Plugin = {

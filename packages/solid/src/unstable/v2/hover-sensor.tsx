@@ -9,7 +9,7 @@ import { hover } from "../../features/hover.ts"
 import { HoverGesture } from "../../features/keys.ts"
 import { serviceOf } from "../../gesture-features.ts"
 import { useBrought } from "./provider.tsx"
-import { type Sensor, watchSensorOf } from "./sensors.ts"
+import { type Sensor, watchSensorOf } from "./sensors.tsx"
 
 /** What it brings (ADR-0067 decision 12): its gesture's Feature, whatever its section has (#511). */
 const HOVER: ReadonlyArray<Feature> = [hover]

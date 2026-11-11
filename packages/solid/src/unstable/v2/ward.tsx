@@ -143,7 +143,7 @@ import {
   withOnUpdate,
 } from "../../spine.ts"
 import { inheritedContext, serverVariantNode, startsAtAnimate, startsQuiet, type WardicVariantContextValue } from "../../variant-tree.ts"
-import { followAtom } from "./bridge.ts"
+import { followAtom } from "./bridge.tsx"
 import {
   appearStyle,
   useWardicAppear,

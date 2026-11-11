@@ -9,7 +9,7 @@ import { runDragTrack, useWardicGate, useWardicRuntime, WardicProvider } from "@
 import * as Bool from "effect/Boolean"
 import * as MutableRef from "effect/MutableRef"
 import { afterEach, expect, it } from "vitest"
-import { dragTransitionOf } from "../src/drag.ts"
+import { dragTransitionOf } from "../src/drag.tsx"
 import { raf } from "./browser-helpers.ts"
 import { envWith, errorsNamed, type Logged } from "./report-env.ts"
 

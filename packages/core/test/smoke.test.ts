@@ -24,7 +24,9 @@ it("the four packages share one version, and each VERSION constant is it", () =>
   const versionOf = (pkg: string): string => JSON.parse(read(`../../${pkg}/package.json`)).version
   const version = versionOf("core")
   expect(["dom", "solid", "test"].map(versionOf)).toEqual([version, version, version])
+  // `@wardic/solid`'s root module is `index.tsx`: it re-exports components.
+  const indexes: Record<string, string> = { dom: "index.ts", solid: "index.tsx", test: "index.ts" }
   for (const pkg of ["dom", "solid", "test"]) {
-    expect(/^export const VERSION = "([^"]*)"$/m.exec(read(`../../${pkg}/src/index.ts`))?.[1], `@wardic/${pkg}'s VERSION`).toBe(version)
+    expect(/^export const VERSION = "([^"]*)"$/m.exec(read(`../../${pkg}/src/${indexes[pkg]}`))?.[1], `@wardic/${pkg}'s VERSION`).toBe(version)
   }
 })

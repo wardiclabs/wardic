@@ -148,8 +148,8 @@ const TASKS = ["mount", "retarget", "restRetarget", "unmount"] as const
 
 
 
-/** The Solid 2 binding's entry, which a commit before #209 doesn't have. */
-const V2_ENTRY = "packages/solid/src/unstable/v2/index.ts"
+/** The Solid 2 binding's folder, which a commit before #209 doesn't have: its entry is `index.ts` or, since its rename, `index.tsx`. */
+const V2_ENTRY = "packages/solid/src/unstable/v2"
 /** Whether `commit` (the working tree when undefined) has the Solid 2 binding. */
 const hasV2 = (commit: string | undefined): boolean =>
   UndefinedOr.match(commit, {

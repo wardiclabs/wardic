@@ -89,14 +89,14 @@ export type { Shape as FlushGate, Sink as FlushSink } from "@wardic/dom/FlushGat
  * scoped fiber) and `fromAtom` (Effect `Atom` -> Solid signal via the runtime's
  * `AtomRegistry`).
  */
-export { fromAtom, streamToSignal } from "./bridge.ts"
+export { fromAtom, streamToSignal } from "./bridge.tsx"
 export type { WardicDragInfo, WardicPoint, WardicPointInfo, WardicPressEvent, WardicPressInfo, WardicPressInput } from "./gesture-info.ts"
 export type { WardicBoundingBox, WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
 // Drag controls (#431, Motion's `useDragControls`): a drag started from a handle or a track.
 export { createDragControls, type WardicDragControls, type WardicDragControlsOptions } from "./drag-controls.ts"
 // Imperative animation (#433, Motion's `useAnimate`): an Animation scope, its `animate` and its Playback controls;
 // a sequence of Segments (Motion's), on the same controls.
-export { createAnimate } from "./create-animate.ts"
+export { createAnimate } from "./create-animate.tsx"
 export {
   createBatch,
   type WardicBatch,
@@ -116,7 +116,7 @@ export {
   type WardicBatchValues,
   type WardicKeyedBatch,
   type WardicKeyedBatchConfig,
-} from "./create-batch.ts"
+} from "./create-batch.tsx"
 export type {
   WardicAnimate,
   WardicAnimateOptions,
@@ -150,11 +150,11 @@ export {
   createPageInView,
   createReducedMotion,
   createReducedMotionConfig,
-} from "./sensors.ts"
-export { createDrag } from "./drag-sensor.ts"
-export { createFocus } from "./focus-sensor.ts"
-export { createHover } from "./hover-sensor.ts"
-export { createPress } from "./press-sensor.ts"
+} from "./sensors.tsx"
+export { createDrag } from "./drag-sensor.tsx"
+export { createFocus } from "./focus-sensor.tsx"
+export { createHover } from "./hover-sensor.tsx"
+export { createPress } from "./press-sensor.tsx"
 // `createCycle` (#443, Motion's `useCycle`): one of a list of states at a time, stepped through.
 export { createCycle, type Cycle } from "./cycle.ts"
 
@@ -174,8 +174,8 @@ export {
   createTransform,
   createVelocity,
   createWillChange,
-} from "./live-value.ts"
-export { createScroll, type ElementSource, type ScrollOptions, type ScrollValues } from "./live-scroll.ts"
+} from "./live-value.tsx"
+export { createScroll, type ElementSource, type ScrollOptions, type ScrollValues } from "./live-scroll.tsx"
 export type { FollowAccessor, FollowValueOptions, Live, LiveSource, SpringAccessor, WillChange } from "./live-style.ts"
 
 /**
@@ -184,7 +184,7 @@ export type { FollowAccessor, FollowValueOptions, Live, LiveSource, SpringAccess
  * element (ADR-0034), with an SSR-correct synchronous initial (ADR-0003). Returns a callable
  * `Ward` to spread onto a JSX element (`<div {...ward()}>`).
  */
-export { createWard } from "./complete.ts"
+export { createWard } from "./complete.tsx"
 export { type Ward, type WardStyle, type WardValue, type WardProps, type WardUserProps } from "./create-ward.tsx"
 export type {
   WardConfig,
@@ -256,7 +256,7 @@ export {
   type DragTrackConfig,
   type RunDragTrackOptions,
   runDragTrack,
-} from "./drag.ts"
+} from "./drag.tsx"
 
 /**
  * Variant orchestration context (ADR-0007): the `WardicVariantContext` that

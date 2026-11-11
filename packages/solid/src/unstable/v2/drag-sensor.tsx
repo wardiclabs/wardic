@@ -13,7 +13,7 @@ import { drag } from "../../features/drag.ts"
 import { inputIn } from "../../gesture-features.ts"
 import { transformPagePointOf } from "../../wardic-config-value.ts"
 import { useBrought } from "./provider.tsx"
-import { type Sensor, watchSensorOf } from "./sensors.ts"
+import { type Sensor, watchSensorOf } from "./sensors.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 
 /** What it brings (ADR-0067 decision 12): its gesture's Feature, whatever its section has (#511). */

@@ -7,7 +7,7 @@
  */
 import type { JSX } from "@solidjs/web"
 import { type Create, createOf, formOf, type WardicComponent } from "./element.tsx"
-import { COMPLETE } from "./complete.ts"
+import { COMPLETE } from "./complete.tsx"
 
 export {
   type GivenWard,
