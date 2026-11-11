@@ -77,7 +77,9 @@
  * the same moves through `createAnimate`, a call per element (`?kind=batch-animate`), paired per rep. Each
  * change is timed as a task and each frame's rAF callbacks summed while they fly. It fails when the
  * Batch's change costs more than 1/20 of the per-element one, or its frame more than 0.6× (#665's Q16;
- * the probe measured 1/120 and 0.42×). Run it at `--n 1000` and `--n 3000`.
+ * the probe measured 1/120 and 0.42×). Run it at `--n 1000` and `--n 3000`. A third page, the same Batch
+ * with `whileHover` and `whileTap` (`?kind=batch-gestures`, #665's PR 5), is gated against the plain one's
+ * mount, change and frame by the per-element bench's rule (+5%, its p25 above 1).
  *
  * `--v2` (#209, ADR-0045) runs `--head` alone too: the Solid 2 binding's page (`page-v2.tsx`, the
  * same N `wardic.div`s, built with Solid 2's compile) against the Solid 1 binding's, paired per rep.
@@ -138,7 +140,7 @@ type RetainedKind = (typeof RETAINED_KINDS)[number]
 /** `--features`' pages (#460 Q3): `ward` is `tapped`'s reference page. */
 const FEATURE_KINDS = ["keyframes", "auto", "transition-end", "ward", "tapped"] as const
 type FeatureKind = (typeof FEATURE_KINDS)[number]
-type Kind = "wardic" | "plain" | "live" | "live-plain" | "layout" | "batch" | "batch-animate" | RetainedKind | FeatureKind
+type Kind = "wardic" | "plain" | "live" | "live-plain" | "layout" | "batch" | "batch-gestures" | "batch-animate" | RetainedKind | FeatureKind
 /** The layout page's scenes, in `page.tsx`'s order (#385): the page isn't imported for its values. */
 const SCENES: ReadonlyArray<Scene> = ["page", "list", "item", "scaled", "own-size"]
 const SCENE_TASKS = ["measure", "frame"] as const
@@ -414,17 +416,18 @@ if (batchMode) {
   const BATCH_TASKS = ["retarget", "frame"] as const
   /** The most a Batch's task may cost, against the per-element page's: Q16's gates. */
   const BATCH_GATES: Readonly<Record<(typeof BATCH_TASKS)[number], number>> = { retarget: 1 / 20, frame: 0.6 }
-  const pagesOf: Record<"batch" | "batch-animate", Array<ReadonlyArray<BatchRound>>> = { batch: [], "batch-animate": [] }
+  type BatchKind = "batch" | "batch-gestures" | "batch-animate"
+  const pagesOf: Record<BatchKind, Array<ReadonlyArray<BatchRound>>> = { batch: [], "batch-gestures": [], "batch-animate": [] }
   for (let r = 0; r < reps; r++) {
-    const order: ReadonlyArray<"batch" | "batch-animate"> = Bool.match(r % 2 === 0, {
-      onTrue: (): ReadonlyArray<"batch" | "batch-animate"> => ["batch", "batch-animate"],
-      onFalse: (): ReadonlyArray<"batch" | "batch-animate"> => ["batch-animate", "batch"],
+    const order: ReadonlyArray<BatchKind> = Bool.match(r % 2 === 0, {
+      onTrue: (): ReadonlyArray<BatchKind> => ["batch", "batch-gestures", "batch-animate"],
+      onFalse: (): ReadonlyArray<BatchKind> => ["batch-animate", "batch-gestures", "batch"],
     })
     for (const kind of order) pagesOf[kind].push((await runPage("head", kind)) as unknown as ReadonlyArray<BatchRound>)
     process.stderr.write(`rep ${r + 1}/${reps}\r`)
   }
   await browser.close()
-  const warmOf = (page: ReadonlyArray<BatchRound>, task: (typeof BATCH_TASKS)[number]): number => median(page.slice(1).map((round) => round[task]))
+  const warmOf = (page: ReadonlyArray<BatchRound>, task: keyof BatchRound): number => median(page.slice(1).map((round) => round[task]))
   console.log(`warm (ms, median across reps; batch / per element paired per rep: median [p25 – p75])`)
   console.log(`  ${"task".padEnd(10)}${"each".padEnd(10)}${"batch".padEnd(10)}${"ratio".padEnd(34)}gate`)
   let failed = false
@@ -438,6 +441,19 @@ if (batchMode) {
         `${median(pagesOf.batch.map((page) => warmOf(page, task))).toFixed(3).padEnd(10)}` +
         `${`${ratio.toFixed(3)}× [${quantile(ratios, 0.25).toFixed(3)} – ${quantile(ratios, 0.75).toFixed(3)}]`.padEnd(34)}` +
         Bool.match(passes, { onTrue: () => `ok (≤ ${BATCH_GATES[task].toFixed(2)}×)`, onFalse: () => `FAIL (> ${BATCH_GATES[task].toFixed(2)}×)` }),
+    )
+  }
+  // With gestures (#665's PR 5): against the plain Batch, paired per rep.
+  console.log(`\nwith whileHover and whileTap (ms, median across reps; gestures / plain Batch paired per rep: median [p25 – p75])`)
+  console.log(`  ${"task".padEnd(10)}${"plain".padEnd(10)}${"gestures".padEnd(10)}change`)
+  for (const task of ["mount", "retarget", "frame"] as const) {
+    const ratios = pagesOf["batch-gestures"].map((page, r) => warmOf(page, task) / warmOf(pagesOf.batch[r]!, task))
+    const fails = quantile(ratios, 0.5) > GATE && quantile(ratios, 0.25) > 1
+    if (fails) failed = true
+    console.log(
+      `  ${task.padEnd(10)}${median(pagesOf.batch.map((page) => warmOf(page, task))).toFixed(3).padEnd(10)}` +
+        `${median(pagesOf["batch-gestures"].map((page) => warmOf(page, task))).toFixed(3).padEnd(10)}` +
+        `${percent(quantile(ratios, 0.5))} [${percent(quantile(ratios, 0.25))} – ${percent(quantile(ratios, 0.75))}]${when(fails, "  FAIL")}`,
     )
   }
   process.exit(Bool.match(failed, { onTrue: () => 1, onFalse: () => 0 }))

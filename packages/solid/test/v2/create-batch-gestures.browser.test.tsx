@@ -6,7 +6,7 @@
 // - CVG1: hovered, a member moves into `whileHover`'s values as the ward does, frame for frame, and back
 //   as the pointer leaves; pressed, into `whileTap`'s, and back to `whileHover`'s.
 // - CVG2: `next` and `when` hear each member's gestures with its point, its element and the member, `{ i,
-//   item }` keyed; asking for a gesture's event watches it from then on.
+//   item }` keyed; asking for a gesture's event watches it from then on, once its code has loaded (Q62).
 import { DomLive } from "@wardic/dom"
 import type { JSX } from "@solidjs/web"
 import * as InputSource from "@wardic/core/InputSource"
@@ -24,6 +24,12 @@ const TWEEN = { type: "tween", duration: 0.2 } as const
 const TAP = { type: "tween", duration: 0.15 } as const
 
 const scaleOf = (el: Element): number => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)")).a
+
+/** A Batch's gesture code loaded (Q62: at its first need), and its watches started. */
+const gesturesLoaded = async (): Promise<void> => {
+  await import("../../src/batch-gestures.ts")
+  await raf()
+}
 
 /** `frames` frames of `read`, read after each. */
 const over = async <A,>(frames: number, read: () => A): Promise<ReadonlyArray<A>> => {
@@ -72,7 +78,7 @@ describe("hover and press per member on Solid 2 (#665)", () => {
         <Scene />
       </WardicProvider>
     ))
-    await over(4, () => 0)
+    await gesturesLoaded()
     let t = 0
     const both = (type: InputSource.PointerLikeEvent["type"]): void => {
       t += 16
@@ -120,6 +126,7 @@ describe("hover and press per member on Solid 2 (#665)", () => {
     Effect.runSync(input.pushTo(b, ev("down", 1)))
     Effect.runSync(input.pushTo(b, ev("up", 2)))
     const tapped = list.next("tap")
+    await gesturesLoaded()
     Effect.runSync(input.pushTo(b, ev("down", 3)))
     Effect.runSync(input.pushTo(b, ev("up", 4)))
     const told: WardicBatchPressInfo = await tapped

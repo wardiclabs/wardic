@@ -1,7 +1,7 @@
 ---
 title: createBatch
 description: Animates many elements on the same keys as one Batch, for a list, a grid or a chart's points that move together.
-api: [createBatch, WardicBatch, WardicBatchConfig, WardicBatchExit, WardicKeyedBatch, WardicKeyedBatchConfig, WardicBatchEvents, WardicBatchKey, WardicBatchLanding, WardicBatchMember, WardicBatchMemberProps, WardicBatchStop, WardicBatchSubject, WardicBatchTarget, WardicBatchTransition, WardicBatchValues]
+api: [createBatch, WardicBatch, WardicBatchConfig, WardicBatchExit, WardicBatchGesture, WardicKeyedBatch, WardicKeyedBatchConfig, WardicBatchEvents, WardicBatchKey, WardicBatchLanding, WardicBatchMember, WardicBatchMemberProps, WardicBatchStop, WardicBatchSubject, WardicBatchTarget, WardicBatchTransition, WardicBatchValues]
 ---
 
 # createBatch
@@ -63,7 +63,34 @@ const list = createBatch({ each: () => todos(), key: "id", initial: { opacity: 0
 
 `grid.at(i)` is member `i`'s handle: spread it onto its element. Give the element's own `ref` and `style` beside it, `grid.at(i, { ref, style })`: its `style` is kept, without the properties the Batch draws (`transform` and `opacity`).
 
-A member has no gestures, variants or layout of its own: for those, use a Wardic element. An element inside an `<svg>` turns about its own centre, as an HTML one does.
+A member hovers and presses (below), but has no variants, drag or layout of its own: for those, make its element a Wardic element. An element inside an `<svg>` turns about its own centre, as an HTML one does.
+
+## Hover and press
+
+`whileHover` and `whileTap` move a member while the pointer is over it, or while it's pressed, as a Wardic element's do. Each takes values with an optional `transition`, or a function of the member's index (keyed: its item and index), read as the gesture starts:
+
+```tsx
+const grid = createBatch({
+  count: 100,
+  animate: (i) => ({ x: colX(i), y: rowY(i), scale: 1 }),
+  whileHover: { scale: 1.08, transition: { duration: 0.15 } },
+  whileTap: (i) => ({ scale: 0.95, y: rowY(i) + 2 }),
+})
+```
+
+- **Each member's layers:** `whileTap` over `whileHover` over `animate`. A gesture moves its member into its values on its own `transition`, else the Batch's, and back on the Batch's. It never staggers.
+- **A change during a gesture** moves the keys the gesture doesn't hold. A tile shuffled mid-hover heads for its new cell, still lifted, and drops back to its new `scale` as the hover ends.
+- **Keys:** an object's keys join the Batch's. A function's must be keys the Batch already has, else the hover or press is reported, naming the key.
+- **Keyboard:** with `whileTap`, a member's element takes `tabindex="0"` unless it's focusable already, and Enter and Space press it while it has focus.
+- **Touch** never hovers, as on a Wardic element.
+
+Its events: on Solid 1, `onHoverStart`, `onHoverEnd`, `onTapStart`, `onTap` and `onTapCancel` in its config, each `(event, { point, i })`, with `item` keyed, and a press's `input`. On Solid 2, `grid.next("tap")` and `grid.when("hoverStart")`, with `hoverEnd`, `pressStart` and `tapCancel`, each with the member's `element`, `i`, `item` and `point`:
+
+```tsx
+createEffect(grid.when("tap"), ({ i }) => select(i))
+```
+
+A Batch listens for hover and presses from one source each, however many members it has. It starts once it has `whileHover` or `whileTap`, a gesture callback, or on Solid 2 a first `next` or `when` of a gesture's event. Its gesture code loads then, so an app whose Batches have no gestures ships none of it.
 
 ## Its landings
 
@@ -80,7 +107,7 @@ On Solid 1, `onAnimationStart` is called as members set off from rest, and `onAn
 
 ## A Wardic element as a member
 
-A member's element can be a Wardic element, for a gesture or a drag of its own: `<w.div {...grid.at(i)} drag whileTap={{ scale: 0.95 }} />`. The latest driver takes a key:
+A member's element can be a Wardic element, for a drag or a variant of its own: `<w.div {...grid.at(i)} drag whileTap={{ scale: 0.95 }} />`. The latest driver takes a key:
 
 - **As its leg starts** on a transform key, or as its drag starts, it takes the member's whole `transform` from the Batch, from where the member is and how fast it's moving. `opacity` goes on its own. A key it would leave where the Batch draws it stays the Batch's.
 - **The Batch takes it back** as its last leg on it ends, or its drag's release comes to rest, or at the Batch's own next change that moves it, and turns it toward its targets from there. A drag in progress keeps the transform through a change, and so does a transform key the Batch doesn't draw, such as a hover's `rotate` on an `{ x, y }` Batch, until it's back at rest. To keep a dropped tile where it lands, move its target on drop.

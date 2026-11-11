@@ -25,12 +25,11 @@ import {
   serverHandle,
   type WardicBatchLanding,
 } from "../../batch.ts"
-import { BATCH_GESTURES, batchGestureWatches } from "../../batch-gestures.ts"
-import { pointInfoOf, pressInfoOf, type WardicPointInfo, type WardicPressInput } from "../../gesture-info.ts"
-import * as OwnerScope from "../../owner-scope.ts"
+import type { WardicPointInfo, WardicPressInput } from "../../gesture-info.ts"
+import { lazyBatchGestures } from "../../lazy-batch-gestures.ts"
 import { flightsOf } from "./flights.ts"
 import { provideMemberHolds } from "../../member-hold.ts"
-import { useBrought, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
+import { useFeatureRegistry, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
 import type { PresenceContextValue } from "../../presence-record.ts"
 import { usePresenceContext } from "./presence.tsx"
@@ -89,9 +88,9 @@ const GESTURE_OF: Readonly<Record<keyof WardicBatchEvents, "hover" | "press" | u
 
 /** A member's gesture event's info (Q60): its point, its element and the member, and a press's input. */
 const gestureInfoOf = (told: BatchGestureTold): WardicBatchPointInfo | WardicBatchPressInfo => {
-  const member = { element: told.element, i: told.i, item: told.item }
-  if ("edge" in told) return { ...pointInfoOf(told.edge.event), ...member }
-  return { ...pressInfoOf(told.press, told.element), ...member }
+  const info: Record<string, unknown> = { point: told.point, element: told.element, i: told.i, item: told.item }
+  if (Predicate.isNotUndefined(told.input)) info.input = told.input
+  return info as unknown as WardicBatchPointInfo
 }
 
 /** What a member's element takes beside its handle: its own `ref`, and its own `style`, as an object. */
@@ -160,7 +159,8 @@ const serverBatch: WardicBatch = {
  * Animates many elements on the same keys as one Batch: `count` members, each given to `at(i)`'s
  * handle, turned toward `animate(i)` whenever what it reads changes, all in one run. For a list, a grid
  * or a chart's points: a change of a thousand members costs about what a change of one element does.
- * Its keys are the transforms and `opacity`; a member has no gestures, variants or layout of its own.
+ * Its keys are the transforms and `opacity`; a member hovers and presses (`whileHover`, `whileTap`), but
+ * has no variants, drag or layout of its own.
  * Call it in a component under a `WardicProvider`.
  *
  * Keyed, it takes a list, `each`, and each item's `key`: an item's member enters as its element
@@ -195,10 +195,10 @@ export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<u
   const events = new Waiters<WardicBatchEvents>("The Batch was disposed before its next event.")
   const runtime = useWardicRuntime()
   // Its members' gestures (#665's PR 5, Q60), watched from its config's `whileHover` and `whileTap`, or a
-  // first ask for a gesture's event: run until it's disposed, over the input it brings.
-  const scope = OwnerScope.open(runtime)
-  onCleanup(() => OwnerScope.close(runtime, scope, "createBatch: a gesture's finalizer failed"))
-  const gestures = batchGestureWatches(runtime, useBrought(BATCH_GESTURES), scope)
+  // first ask for a gesture's event: run until it's disposed, over the input it brings, their code loaded
+  // at the first (Q62).
+  const gestures = lazyBatchGestures(runtime, useFeatureRegistry())
+  onCleanup(gestures.close)
   // Its first targets and starts read untracked, wherever it's called: what tracks them is its own effect.
   const binding = untrack(() =>
     bindBatch(

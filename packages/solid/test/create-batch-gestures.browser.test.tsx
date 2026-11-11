@@ -12,8 +12,10 @@
 // - CG5: Enter and Space press a focused member (Q57): its element takes `tabindex="0"`, a button none.
 // - CG6: a function form's key the Batch doesn't have is reported, naming it (Q58); an object form's
 //   key joins the Batch's.
-// - CG7: a Batch with no gesture adds no window listener; one with `whileHover` adds its set once, at its
-//   making, whatever its count (S5).
+// - CG7: a Batch with no gesture adds no window listener; one with `whileHover` adds its set once, as its
+//   gesture code arrives, whatever its count (S5).
+//
+// A Batch's gesture code loads at its first need (Q62): each test waits for it before the mouse moves.
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { createBatch, wardic, WardicProvider } from "@wardic/solid"
@@ -34,6 +36,12 @@ const AWAY = { x: 600, y: 400 }
 const matrixOf = (el: Element): DOMMatrix => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)"))
 const xOf = (el: Element): number => matrixOf(el).m41
 const scaleOf = (el: Element): number => matrixOf(el).a
+
+/** A Batch's gesture code loaded (Q62: at its first need), and its watches started: what each test waits for before it moves the mouse. */
+const gesturesLoaded = async (): Promise<void> => {
+  await import("../src/batch-gestures.ts")
+  await raf()
+}
 
 /** `frames` frames of `read`, read after each. */
 const over = async <A,>(frames: number, read: () => A): Promise<ReadonlyArray<A>> => {
@@ -87,7 +95,7 @@ describe("hover and press per member on Solid 1 (#665)", () => {
   it("CG1: hovered, a member moves into whileHover's values as a ward does, and back as the pointer leaves", async () => {
     await mouse.move(AWAY)
     const pair = mountPair()
-    await over(4, () => 0)
+    await gesturesLoaded()
     await mouse.move(centreOf(pair.ward()))
     const into = await over(20, () => [scaleOf(pair.member()), scaleOf(pair.ward())] as const)
     expectSame(into, "into the hover")
@@ -101,7 +109,7 @@ describe("hover and press per member on Solid 1 (#665)", () => {
   it("CG2: pressed, into whileTap's values, and back to whileHover's while still hovered, frame for frame", async () => {
     await mouse.move(AWAY)
     const pair = mountPair()
-    await over(4, () => 0)
+    await gesturesLoaded()
     const at = centreOf(pair.ward())
     await mouse.move(at)
     await over(20, () => 0)
@@ -129,7 +137,7 @@ describe("hover and press per member on Solid 1 (#665)", () => {
         <Scene />
       </WardicProvider>
     ))
-    await over(4, () => 0)
+    await gesturesLoaded()
     await mouse.move(add(centreOf(member), 0, 0))
     await over(20, () => 0)
     expect(scaleOf(member)).toBeCloseTo(1.2, 6)
@@ -178,6 +186,7 @@ describe("hover and press per member on Solid 1 (#665)", () => {
       </WardicProvider>
     ))
     await over(40, () => 0)
+    await gesturesLoaded()
     const one = centreOf(indexed.get(1) as Element)
     await mouse.move(one)
     await mouse.down(one)
@@ -226,7 +235,7 @@ describe("hover and press per member on Solid 1 (#665)", () => {
         <Scene />
       </WardicProvider>
     ))
-    await over(2, () => 0)
+    await gesturesLoaded()
     expect([div.getAttribute("tabindex"), button.hasAttribute("tabindex")]).toEqual(["0", false])
     div.focus()
     div.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
@@ -261,7 +270,7 @@ describe("hover and press per member on Solid 1 (#665)", () => {
         <Scene />
       </WardicProvider>
     ))
-    await over(4, () => 0)
+    await gesturesLoaded()
     await mouse.move(centreOf(bad))
     await over(4, () => 0)
     expect(errorsNamed(logs, "createBatch: a gesture failed")).toHaveLength(1)
@@ -301,7 +310,7 @@ describe("hover and press per member on Solid 1 (#665)", () => {
           <Hovered />
         </WardicProvider>
       ))
-      await over(2, () => 0)
+      await gesturesLoaded()
       expect(added.sort()).toEqual(["pointercancel", "pointerdown", "pointerout", "pointerover", "pointerup"])
     } finally {
       window.addEventListener = real
