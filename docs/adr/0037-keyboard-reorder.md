@@ -113,3 +113,11 @@ So the web's default instructions end with "Some screen readers need focus mode 
 ## Note (#427, 2026-10-28): a Reorder item's keys aren't a press
 
 Enter and Space now press any focused Wardic element (ADR-0056, keyboard presses). A Reorder item's are its keyboard reorder's: its press recognizer hears no keys (`keysTaken`), so a lift is no press, `whileTap` stays off through it, and a drop is no tap.
+
+## Amendment (#721, 2026-11-11): the app's change of `values` is told by its items
+
+Decision 9 drops a lifted item when the app changes `values` itself. The controller told that change from its own step by identity: an order other than the array it handed to `onReorder`, or read as the lift began (#348). A store's order is a proxy, never that array, so with `values` from a store the keyboard reorder dropped its item after one step; and a store changed in place keeps its proxy, so an app's own change went unseen.
+
+- **The app's change is an order other than the one the group last asked for, told by its items:** the same items in the same order are the group's own, whatever array holds them. It's compared only while an item is lifted.
+- **A binding reads a store's order as a plain array** (`plainOrder`), copied at each read; a plain array as it is. The controller keeps a copy of each order it hands `onReorder`, so an app that keeps that very array in its store, then changes it in place, has made its own change. A store changed in place is then a new order to every check of it, and a group whose effects follow `values` runs a Measure pass, or places its items, for it.
+- Rejected: copying a store's order once a change, in a memo. On Solid 2 the memo took a hydration id the server's group didn't, and read in a flush's cleanup it could still have the order before it.

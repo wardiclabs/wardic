@@ -24,6 +24,8 @@ The words are English by default. The group's `announcements` replaces any of th
 - **On Solid 1,** `onReorderEnd={(end) => save(end.values)}` on the group.
 - **On Solid 2,** the group's `reorderEnd` event, from `reorderGroup({ values, onReorder })` given to the group as `groupRef`.
 
+`values` can be a store's array too, on either group. Set it from `onReorder` as the store takes an array: on Solid 1, `setItems(values)` for a root store, or `setState("items", values)` for a field; on Solid 2, which takes it in place, `setItems(() => values)` for a root store, or `setState((draft) => { draft.items.splice(0, draft.items.length, ...values) })` for a field. A signal holding the array is the cheaper of the two: the group reads every item at each step, and a store reads each one through its proxy.
+
 ## Its props
 
 - `axis` is `"y"` (a column), `"x"` (a row) or `"xy"` (a grid that wraps). Left out, the group finds it from its items' boxes, as Motion's does; give it when you know it.

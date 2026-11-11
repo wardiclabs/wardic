@@ -8,7 +8,7 @@ api: [createReorderGroup, reorderGroup, ReorderGroup, ReorderGroupConfig, Reorde
 
 A Reorder group makes a list of your own elements reorderable, by dragging or from the keyboard: the group its items join, spread on the list's element. [`Reorder.Group`](/reference/solid/reorder/reorder) is built on it. Make each item with [`createReorderItem` or `reorderItem`](/reference/solid/reorder/reorder-item), keyed with `<For>`.
 
-Its config is `Reorder.Group`'s props, but `as`: `values`, `onReorder`, and the options `axis`, `keyboard`, `announcements` and `instructions`. Your app owns `values`, and sets them from `onReorder`; a reorder it makes itself animates too. The group gives its element `overflow-anchor: none`, so the browser doesn't scroll the page as items move.
+Its config is `Reorder.Group`'s props, but `as`: `values`, `onReorder`, and the options `axis`, `keyboard`, `announcements` and `instructions`. Your app owns `values`, an array or a store's, and sets them from `onReorder`; a reorder it makes itself animates too, a store's changed in place included. The group gives its element `overflow-anchor: none`, so the browser doesn't scroll the page as items move.
 
 ## Solid 1: createReorderGroup
 
