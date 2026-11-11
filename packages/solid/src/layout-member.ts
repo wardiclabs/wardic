@@ -14,6 +14,7 @@ import { constFalse, constTrue, identity } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
+import { markLayoutElement } from "./batch.ts"
 import type * as Values from "@wardic/core/Values"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type { WardConfig, WardicTransition } from "./config.ts"
@@ -147,6 +148,9 @@ const layoutSkips = (transition: WardicTransition | undefined): boolean =>
  * system needs it, outside the binding's tracking.
  */
 export const registrationOf = (opts: CreateProjectionNodeOptions): ProjectionSystem.RegisterNodeOptions => {
+  // A Batch member's element has no layout node (#665's PR 4, Q52): the projection measures its box under
+  // the Batch's transform, which it doesn't draw. Marked, so a Batch it joins later says so too.
+  markLayoutElement(opts.element)
   const { crossfade, dragTransition, element, enteredFrom, fadeFrom, id, layoutAnchor, layoutId, layoutMode, layoutRoot, layoutScroll, heldTransform, onBeforeMeasure, onMeasure, onLayoutAnimationComplete, onLayoutAnimationStart, onReleaseEnd, ownOpacity, ownRotate, ownScale, ownTranslate, raiseWhileDragged, reducedMotion, skipAnimations, transition } = opts
   const configSkips = UndefinedOr.match(skipAnimations, { onUndefined: () => constFalse, onDefined: identity })
   return {

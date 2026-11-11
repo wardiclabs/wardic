@@ -182,6 +182,19 @@ export interface BatchBinding {
   readonly sequenceTrack: (call: BatchSequenceCall) => BatchTrack
   /** Member `i`'s element, once it has arrived. */
   readonly elementOf: (i: number) => Element | undefined
+  /**
+   * A Wardic element on member `i`'s element takes its `group` (#665's PR 4, ADR-0069 decision 17):
+   * the Batch's keys in it at the member's values and speeds, the Batch drawing them no more until it
+   * takes them back. `undefined` when the Batch has none of its keys, or the member isn't drawn yet.
+   */
+  readonly yieldGroup: (i: number, group: BatchGroup, holder: BatchHolder) => BatchYield | undefined
+  /** The Wardic element gives member `i`'s `group` back: from its values and speeds, toward the member's targets. */
+  readonly reclaim: (i: number, group: BatchGroup, back: BatchHandover) => void
+  /**
+   * What member `i`'s `key` is drawn at now, by its Batch: its value, or for a transform key it hasn't,
+   * its identity while it draws `transform`; `undefined` when it draws none of `key`'s group.
+   */
+  readonly drawnValueOf: (i: number, key: string) => number | undefined
   /** The Batch's run ended, and no member drawn again. */
   readonly dispose: () => void
 }
@@ -251,6 +264,41 @@ export interface BatchSubjectEntry {
 /** A member's entry: its handle's and its element's. */
 export interface BatchMemberEntry extends BatchSubjectEntry {
   readonly member: number
+}
+
+/** A Batch member's keys a driver on its element takes together (#665's PR 4, Q53): its `transform`, or its `opacity`. */
+export type BatchGroup = "transform" | "opacity"
+
+/** The group `key` is drawn in on the DOM: a transform key's `transform`, `opacity`'s own, or none. */
+export const batchGroupOf = (key: string): BatchGroup | undefined => {
+  if (key === "opacity") return "opacity"
+  if (Predicate.isNotUndefined(BaseValue.TRANSFORM_IDENTITY[key])) return "transform"
+  return undefined
+}
+
+/** A group's keys handed over: each one's value and speed. */
+export interface BatchHandover {
+  /** Each key's value, where it's drawn as it's handed over. */
+  readonly values: Readonly<Record<string, number>>
+  /** Each key's speed then, per second. */
+  readonly velocities: Readonly<Record<string, number>>
+}
+
+/** What a Wardic element holding a member's group tells its Batch (Q54). */
+export interface BatchHolder {
+  /** Gives `group` back now, its keys' values and speeds, or `undefined` when it holds it no more. */
+  readonly surrender: (group: BatchGroup) => BatchHandover | undefined
+  /**
+   * Whether it keeps `group` through a Batch change of the member: a drag in progress keeps the
+   * transform, as does a transform key the Batch doesn't draw that it animates or has off its identity.
+   */
+  readonly keepsThrough: (group: BatchGroup) => boolean
+}
+
+/** A group a Batch gave a Wardic element: the Batch's keys in it, at the member's values and speeds. */
+export interface BatchYield extends BatchHandover {
+  /** The Batch's keys in the group, which the Wardic element draws until it gives them back. */
+  readonly keys: ReadonlyArray<string>
 }
 
 /** Each Batch and member handle's entry, so `animate` knows them. */
@@ -525,6 +573,47 @@ const segmentValueOf = (key: string, value: unknown, memberName: string | undefi
 
 /** A member's slot before its element arrives. */
 const NO_SLOT = -1
+
+/** A key a writer draws nothing for: a group a Wardic element holds (#665's PR 4). */
+const UNDRAWN = "~undrawn"
+
+/** Each group's bit in a held element's mask: the groups a Wardic element on it holds, which its Batch doesn't draw. */
+const GROUP_BITS: Readonly<Record<BatchGroup, number>> = { transform: 1, opacity: 2 }
+
+/** A member's groups a Wardic element on its element holds (#665's PR 4): that element, and each group's holder. */
+interface HeldMember {
+  readonly el: Element
+  readonly groups: Map<BatchGroup, BatchHolder>
+}
+
+/** Where a change starts a member's handed keys from, and at what speeds (Q54). */
+type HandedStarts = Pick<Batch.RetargetOptions, "from" | "velocity">
+
+/** An element as an error names it: its tag, then its `id` and first class, as `div#card.tile`. */
+export const elementName = (el: Element): string => {
+  let name = el.tagName.toLowerCase()
+  if (el.id !== "") name = `${name}#${el.id}`
+  const first = el.classList.item(0)
+  if (Predicate.isNotNull(first)) name = `${name}.${first}`
+  return name
+}
+
+/** The elements a Wardic element has a layout node on: a Batch member's can have none (Q52). */
+// Module state (#460, Q7): held weakly by the element, so it goes with it.
+const LAYOUT_ELEMENTS = new WeakSet<Element>()
+
+/**
+ * `element` given a layout node (#665's PR 4, Q52): an error when it's a Batch member's, whose
+ * transform its Batch draws, under which the projection would measure it.
+ */
+export const markLayoutElement = (element: Element): void => {
+  if (MEMBER_ELEMENTS.has(element)) return fail(layoutOnMember(element))
+  LAYOUT_ELEMENTS.add(element)
+}
+
+/** The error for a layout node on a Batch member's element. */
+const layoutOnMember = (element: Element): string =>
+  `a member's element (${elementName(element)}) has \`layout\` or \`layoutId\`: the Batch draws its transform, under which the projection measures it. Give its Wardic element no layout, or leave it out of the Batch`
 
 /** No values: an exit with none, which moves nothing and lets its element go at once. */
 const NO_VALUES: Readonly<Record<string, unknown>> = {}
@@ -833,9 +922,26 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
       if (Number.isNaN(target)) target = identityOf(key)
       own[key] = delayedBy(defaultFor(k, target), plan.delay)
     })
-    batch = Batch.make({ keys, writer: DomBatch.writer, transition: own, capacity })
-    // The writer's write for these keys, built once: an arriving element is drawn with it at once.
+    // The writer's write for these keys, built once: an arriving element is drawn with it at once. A member
+    // a Wardic element holds a group of is drawn without it (#665's PR 4): one check a member while none is.
     write = DomBatch.writer.forKeys(keys)
+    const without = (group: BatchGroup): ((el: Element, positions: Float64Array, base: number) => void) =>
+      DomBatch.writer.forKeys(Arr.map(keys, (key) => Bool.match(batchGroupOf(key) === group, { onTrue: () => UNDRAWN, onFalse: () => key })))
+    const withoutTransform = without("transform")
+    const withoutOpacity = without("opacity")
+    const full = write
+    // Per frame, per moving member: a size check, and with a member held, a Map read. A member both of
+    // whose groups are held is drawn by its Wardic element alone: the Batch draws nothing else.
+    const masking = (el: Element, positions: Float64Array, base: number): void => {
+      if (masks.size === 0) return full(el, positions, base)
+      const mask = masks.get(el)
+      if (Predicate.isUndefined(mask)) return full(el, positions, base)
+      if (mask === GROUP_BITS.transform) return withoutTransform(el, positions, base)
+      if (mask === GROUP_BITS.opacity) return withoutOpacity(el, positions, base)
+    }
+    groupKs.transform = Arr.filter(Arr.map(keys, (_, k) => k), (k) => batchGroupOf(keys[k]) === "transform")
+    groupKs.opacity = Arr.filter(Arr.map(keys, (_, k) => k), (k) => keys[k] === "opacity")
+    batch = Batch.make({ keys, writer: { writes: DomBatch.writer.writes, forKeys: () => masking }, transition: own, capacity })
     drawn = new Set([
       ...Arr.filter(["transform"], () => Arr.some(keys, (key) => key !== "opacity")),
       ...Arr.filter(["opacity"], () => keyIndex.has("opacity")),
@@ -1123,8 +1229,12 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
       }
     })
     if (moving.length === 0) return
+    const slots = Arr.map(moving, (i) => slotOf[i])
+    const exitOf = (slot: number, k: number): number => exitTargets[memberOf[slot] * stride + k]
+    // The groups Wardic elements hold of the leavers that their exits move come back first (Q54).
+    retakeFor(slots, givesGroup((slot, k) => !Number.isNaN(exitOf(slot, k))))
     const configured = configuredOf()
-    changeOn(Arr.map(moving, (i) => slotOf[i]), (slot, k) => exitTargets[memberOf[slot] * stride + k], undefined, {
+    changeOn(slots, exitOf, undefined, {
       transition: UndefinedOr.match(exitTransition, { onUndefined: () => configured, onDefined: identity }),
       reducedMotion: env.reducedMotion(),
       skipAnimations: skipsNow(configured),
@@ -1396,21 +1506,190 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
   }
 
   /** The change for `slots` now: their targets, with this moment's transitions. */
-  const change = (slots: ReadonlyArray<number>): void => {
+  const change = (slots: ReadonlyArray<number>, starts?: HandedStarts): void => {
     if (slots.length === 0) return
+    // The groups Wardic elements hold of these members that it moves come back first (Q54), from where they've left them.
+    const back = UndefinedOr.match(starts, { onUndefined: () => startsOf(takeBack(slots, changesGroup)), onDefined: identity })
     const configured = configuredOf()
     if (skipsNow(configured)) {
-      wake(Batch.retarget(made(), slots, targetOf, { transition: INSTANT }))
+      wake(Batch.retarget(made(), slots, targetOf, { transition: INSTANT, ...back }))
       return
     }
     const reduced = env.reducedMotion()
     const transition = transitionOf(plannedOf(env, keys, UndefinedOr.map(configured, unstaggered), reduced))
     const delay = staggerOf(configured)
     if (Predicate.isUndefined(delay)) {
-      wake(Batch.retarget(made(), slots, targetOf, { transition }))
+      wake(Batch.retarget(made(), slots, targetOf, { transition, ...back }))
       return
     }
-    wake(Batch.retarget(made(), slots, targetOf, { transition, delay }))
+    wake(Batch.retarget(made(), slots, targetOf, { transition, delay, ...back }))
+  }
+
+  // --- The latest driver (#665's PR 4, ADR-0069 decision 17, Q52–Q54) ---------------------------------
+
+  // Each member's groups a Wardic element on its element holds; each held element's groups, as bits; and
+  // each group's keys' indices, from `makeBatch`.
+  const heldBy: Array<HeldMember | undefined> = []
+  const masks = new Map<Element, number>()
+  const groupKs: Record<BatchGroup, ReadonlyArray<number>> = { transform: [], opacity: [] }
+
+  /** Member `i`'s `group` drawn by the Batch again. */
+  const unmask = (i: number, group: BatchGroup): void => {
+    const held = heldBy[i]
+    if (Predicate.isUndefined(held)) return
+    held.groups.delete(group)
+    const left = bitsOf(held.el) & ~GROUP_BITS[group]
+    if (left !== 0) {
+      masks.set(held.el, left)
+      return
+    }
+    masks.delete(held.el)
+    heldBy[i] = undefined
+  }
+
+  /** Member `i`'s held groups let go with its element: the Batch draws it no more, or another element now. */
+  const letGo = (i: number): void => {
+    const held = heldBy[i]
+    if (Predicate.isUndefined(held)) return
+    masks.delete(held.el)
+    heldBy[i] = undefined
+  }
+
+  /** An element's held groups' bits: 0 for none. */
+  const bitsOf = (el: Element): number => UndefinedOr.match(masks.get(el), { onUndefined: () => 0, onDefined: identity })
+
+  /** Whether a change toward the members' targets moves `slot`'s `group`: a key of it whose target it changes. */
+  // Per held member's group at a change (#665): statements.
+  const changesGroup = (slot: number, group: BatchGroup): boolean => {
+    const ks = groupKs[group]
+    for (let n = 0; n < ks.length; n++) {
+      const k = ks[n]
+      const goal = targetOf(slot, k)
+      if (Number.isNaN(goal)) continue
+      if (goal !== Batch.target(made(), slot, keys[k])) return true
+    }
+    return false
+  }
+
+  /** Whether `given(slot, k)` gives a key of `group`: a driven change's or an exit's, which moves it. */
+  // Per held member's group at a call (#665): statements.
+  const givesGroup = (given: (slot: number, k: number) => boolean) => (slot: number, group: BatchGroup): boolean => {
+    const ks = groupKs[group]
+    for (let n = 0; n < ks.length; n++) {
+      if (given(slot, ks[n])) return true
+    }
+    return false
+  }
+
+  /** A handover's starts, for a change: each handed key's value and speed, `NaN` (and 0) for the rest. */
+  const startsOf = (byMember: ReadonlyMap<number, BatchHandover> | undefined): HandedStarts | undefined => {
+    if (Predicate.isUndefined(byMember)) return undefined
+    // Per member per key at a change (#665): statements.
+    const handed = (slot: number, k: number, of: (back: BatchHandover) => Readonly<Record<string, number>>, none: number): number => {
+      const back = byMember.get(memberOf[slot])
+      if (Predicate.isUndefined(back)) return none
+      const value = of(back)[keys[k]]
+      if (Predicate.isUndefined(value)) return none
+      return value
+    }
+    return {
+      from: (slot, k) => handed(slot, k, (back) => back.values, Number.NaN),
+      velocity: (slot, k) => handed(slot, k, (back) => back.velocities, 0),
+    }
+  }
+
+  /**
+   * The groups Wardic elements hold of `slots`' members that a change `moves`, taken back for it (Q54):
+   * each from where its holder leaves it, but one its holder keeps through it. Each member's handover,
+   * or `undefined` for none.
+   */
+  const takeBack = (slots: ReadonlyArray<number>, moves: (slot: number, group: BatchGroup) => boolean): ReadonlyMap<number, BatchHandover> | undefined => {
+    if (masks.size === 0) return undefined
+    let byMember: Map<number, BatchHandover> | undefined
+    // Per held member at a change (#665): statements. Deleting the entry being visited is safe in a Map's iteration.
+    Arr.forEach(slots, (slot) => {
+      const i = memberOf[slot]
+      const held = heldBy[i]
+      if (Predicate.isUndefined(held)) return
+      Iter.forEach(held.groups, ([group, holder]) => {
+        if (!moves(slot, group)) return
+        if (holder.keepsThrough(group)) return
+        const back = holder.surrender(group)
+        unmask(i, group)
+        if (Predicate.isUndefined(back)) return
+        if (Predicate.isUndefined(byMember)) byMember = new Map()
+        const was = byMember.get(i)
+        if (Predicate.isUndefined(was)) {
+          byMember.set(i, back)
+          return
+        }
+        byMember.set(i, { values: { ...was.values, ...back.values }, velocities: { ...was.velocities, ...back.velocities } })
+      })
+    })
+    return byMember
+  }
+
+  /**
+   * Before a driven change of `slots` (an `animate` call's, a sequence's, a keyed Batch's exits): the
+   * groups Wardic elements hold of them that it `moves`, taken back, each turned from there toward its
+   * targets, which the change then takes as it plays.
+   */
+  const retakeFor = (slots: ReadonlyArray<number>, moves: (slot: number, group: BatchGroup) => boolean): void => {
+    const back = takeBack(slots, moves)
+    if (Predicate.isUndefined(back)) return
+    change(Arr.filter(slots, (slot) => back.has(memberOf[slot])), startsOf(back))
+  }
+
+  /** A Wardic element on member `i`'s element takes its `group` (Q53). */
+  const yieldGroup = (i: number, group: BatchGroup, holder: BatchHolder): BatchYield | undefined => {
+    const slot = slotOf[i]
+    if (slot === NO_SLOT) return undefined
+    const el = elementOf[i]
+    if (Predicate.isUndefined(el)) return undefined
+    const ks = groupKs[group]
+    if (ks.length === 0) return undefined
+    const inGroup: Array<string> = []
+    const values: Record<string, number> = {}
+    const velocities: Record<string, number> = {}
+    // Per key of a group a Wardic element takes (#665): statements.
+    Arr.forEach(ks, (k) => {
+      const key = keys[k]
+      inGroup.push(key)
+      values[key] = Batch.get(made(), slot, key)
+      velocities[key] = Batch.velocity(made(), slot, key)
+    })
+    let held = heldBy[i]
+    if (Predicate.isUndefined(held)) {
+      held = { el, groups: new Map() }
+      heldBy[i] = held
+    }
+    held.groups.set(group, holder)
+    masks.set(el, bitsOf(el) | GROUP_BITS[group])
+    return { keys: inGroup, values, velocities }
+  }
+
+  /** What member `i`'s `key` is drawn at now: its Batch value, a transform key it hasn't at its identity, or none. */
+  const drawnValueOf = (i: number, key: string): number | undefined => {
+    const group = batchGroupOf(key)
+    if (Predicate.isUndefined(group)) return undefined
+    const slot = slotOf[i]
+    if (slot === NO_SLOT) return undefined
+    if (keyIndex.has(key)) return Batch.get(made(), slot, key)
+    if (groupKs[group].length === 0) return undefined
+    return identityOf(key)
+  }
+
+  /**
+   * The Wardic element gives member `i`'s `group` back (Q54): the Batch draws it again, from there, toward
+   * its targets. A leaver mid-exit is drawn where its exit has it, which its element goes as it lands.
+   */
+  const reclaim = (i: number, group: BatchGroup, back: BatchHandover): void => {
+    unmask(i, group)
+    if (disposed) return
+    const slot = slotOf[i]
+    if (slot === NO_SLOT) return
+    if (Predicate.isNotUndefined(exits[i])) return
+    change([slot], startsOf(new Map([[i, back]])))
   }
 
   // Elements that arrived this task: entered at once, turned toward their targets together at its end.
@@ -1445,6 +1724,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
 
   /** `el` no longer known to `animate` as member `i`'s element, unless another member has it now. */
   const forget = (el: Element, i: number): void => {
+    letGo(i)
     if (MEMBER_ELEMENTS.get(el) === entries[i]) MEMBER_ELEMENTS.delete(el)
   }
 
@@ -1460,9 +1740,20 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     arrived.push(entering)
   }
 
+  /** Whether another Batch draws `el`: it's a member's element there. */
+  const drawnByAnother = (el: Element): boolean => {
+    const other = MEMBER_ELEMENTS.get(el)
+    if (Predicate.isUndefined(other)) return false
+    return other.binding !== binding
+  }
+
   const arrive = (i: number, el: Element): void => {
     if (disposed) return
     if (elementOf[i] === el) return
+    // One Batch draws an element (Q52): a second's would write over the first's. One with a layout node
+    // can't be a member: the projection measures it under the transform the Batch draws.
+    if (drawnByAnother(el)) return fail(`an element (${elementName(el)}) is a member of two Batches: one Batch draws an element's \`transform\` and \`opacity\``)
+    if (LAYOUT_ELEMENTS.has(el)) return fail(layoutOnMember(el))
     const was = elementOf[i]
     if (Predicate.isNotUndefined(was)) forget(was, i)
     elementOf[i] = el
@@ -1512,6 +1803,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     return "free"
   }
 
+
   /** A track that moves nothing: a call before a keyed Batch has members, which finishes at its play (Q51). */
   const landedTrack = (settled: () => void): BatchTrack => ({ run: settled, stop: noop, cancel: noop, duration: () => 0 })
 
@@ -1548,7 +1840,10 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
       })
     })
     const fromOf = (slot: number, k: number): number => froms[memberOf[slot] * stride + k]
-    return changeOn(slots, (slot, k) => tos[memberOf[slot] * stride + k], Bool.match(firsts, { onTrue: () => fromOf, onFalse: () => undefined }), call)
+    const toOf = (slot: number, k: number): number => tos[memberOf[slot] * stride + k]
+    // The groups Wardic elements hold of its members that it moves come back first, from where they've left them (Q54).
+    retakeFor(slots, givesGroup((slot, k) => !Number.isNaN(toOf(slot, k))))
+    return changeOn(slots, toOf, Bool.match(firsts, { onTrue: () => fromOf, onFalse: () => undefined }), call)
   }
 
   /**
@@ -1629,6 +1924,8 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
       slots.push(slot)
       animations[slot] = call.animations[n]
     })
+    // The groups Wardic elements hold of its members that it moves come back first (Q54).
+    retakeFor(slots, givesGroup((slot, k) => Predicate.isNotUndefined(UndefinedOr.getOrThrow(animations[slot]).keyframes[keys[k]])))
     // Per member per key, once at its first play (#665): statements.
     const keyframesOf = (slot: number, k: number): Batch.Keyframes | undefined => {
       const key = keys[k]
@@ -1674,6 +1971,9 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     checkElementSegment,
     sequenceTrack,
     elementOf: (i) => elementOf[i],
+    yieldGroup,
+    reclaim,
+    drawnValueOf,
     targetsOf: () => form.targetsOf(),
     apply: (targets) => {
       if (disposed) return

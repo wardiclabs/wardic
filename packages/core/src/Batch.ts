@@ -80,6 +80,15 @@ export interface RetargetOptions {
    */
   // ADR-0069, *Amendment (#665)*: the movers, as Motion's `animate(elements)` counts what it's given.
   readonly delay?: number | ((rank: number, n: number) => number)
+  /**
+   * Where a member's key starts from, `NaN` for where it is: it starts there, at `velocity`'s speed (0
+   * when it gives none), toward its target, the one it has when `targetOf` gives `NaN`. For a driver
+   * handing a member's keys back.
+   */
+  // #665's PR 4 (ADR-0069 decision 17): the Batch takes a key back from the member's value and speed.
+  readonly from?: (slot: number, k: number) => number
+  /** Each started key's speed, with `from`. */
+  readonly velocity?: (slot: number, k: number) => number
 }
 
 /** `make`'s options. */
@@ -623,6 +632,9 @@ export const retarget: {
   // each new target and finds the members that move, so the second can count them for their delays.
   let n = 0
   const given = slots.length
+  const fromOf = UndefinedOr.map(options, (bag) => bag.from)
+  const starts = Predicate.isNotUndefined(fromOf)
+  const speedOf = UndefinedOr.map(options, (bag) => bag.velocity)
   for (let g = 0; g < given; g++) {
     const slot = slots[g]
     const flag = flags[slot]
@@ -633,7 +645,20 @@ export const retarget: {
     let moves = false
     for (let k = 0; k < stride; k++) {
       const at = base + k
-      const target = targetOf(slot, k)
+      let target = targetOf(slot, k)
+      // A key started from a value given (#665's PR 4): there now, at its speed, toward its target, the
+      // one it has unless a new one's given. A member it's given for moves, so it's set off below: its
+      // target is cleared here, so it turns there even onto the one it had.
+      if (starts) {
+        const jump = (fromOf as (slot: number, k: number) => number)(slot, k)
+        if (!Number.isNaN(jump)) {
+          if (Number.isNaN(target)) target = targets[at]
+          state.positions[at] = jump
+          state.velocities[at] = 0
+          if (Predicate.isNotUndefined(speedOf)) state.velocities[at] = speedOf(slot, k)
+          targets[at] = Number.NaN
+        }
+      }
       pending[at] = target
       if (!Number.isNaN(target) && target !== targets[at]) moves = true
     }
@@ -1899,6 +1924,13 @@ const keyAt = <S>(state: State<S>, key: string): number => {
 export const get = <S>(self: Batch<S>, slot: number, key: string): number => {
   const state = stateOf(self)
   return state.positions[slot * state.stride + keyAt(state, key)]
+}
+
+/** A member's target for `key` now: where a change last turned it, toward which it moves or rests. */
+// At a change, per key of a member a driver holds (#665's PR 4): whether the change moves it.
+export const target = <S>(self: Batch<S>, slot: number, key: string): number => {
+  const state = stateOf(self)
+  return state.targets[slot * state.stride + keyAt(state, key)]
 }
 
 /** A member's velocity for `key` now, per second: what an animation that takes the key over starts with. */

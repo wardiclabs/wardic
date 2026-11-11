@@ -67,6 +67,7 @@ import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceM
 import type { DragTrack } from "./drag-track.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
 import { delayedBy, type Follows, hasManyStops, keyframesFrom, type Leg, legsOf, mapMachine, type MeasuredPairs, startingAt, type StopsByKey, transitionForKey, type Velocities, withPathAxes } from "./retarget-legs.ts"
+import { type MemberHold, memberHoldsNow } from "./member-hold.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
 import {
   changesContext,
@@ -1826,17 +1827,42 @@ const turnWillChangeOn = (live: LiveStyle | undefined, legs: ReadonlyArray<Leg>)
 }
 
 /**
- * A binding's `setDragging`, turning the element's will-change value on as a drag starts (#443,
- * Motion's): `"transform"`, as its drag draws `x` and `y`.
+ * Each draggable element's spine's drag hook (#665's PR 4): told `true` as its drag reads where the
+ * element rests or writes `x`/`y`, and `false` as it hands them back. A Batch member's takes its
+ * transform from its Batch then, and gives it back.
  */
-export const draggingWithWillChange = (live: LiveStyle | undefined, setDragging: (on: boolean) => void): ((on: boolean) => void) =>
-  UndefinedOr.match(live, {
+// Module state (#460, Q7): held weakly by the element, so it goes with it.
+const DRAG_HOOKS = new WeakMap<Element, (on: boolean) => void>()
+
+/** `element`'s drag hook told `on`, when its spine has one. */
+const tellDrag = (element: Element, on: boolean): void => {
+  UndefinedOr.map(DRAG_HOOKS.get(element), (tell) => tell(on))
+}
+
+/**
+ * A binding's `setDragging`, turning the element's will-change value on as a drag starts (#443,
+ * Motion's): `"transform"`, as its drag draws `x` and `y`. Its spine hears each start and end too, for
+ * a Batch member's `x` and `y` (#665's PR 4).
+ */
+export const draggingWithWillChange = (live: LiveStyle | undefined, setDragging: (on: boolean) => void, element: Element): ((on: boolean) => void) => {
+  const set = UndefinedOr.match(live, {
     onUndefined: () => setDragging,
     onDefined: (style) => (on: boolean) => {
       if (on) UndefinedOr.map(style.willChange(), (turnOn) => turnOn())
       setDragging(on)
     },
   })
+  return (on) => {
+    set(on)
+    tellDrag(element, on)
+  }
+}
+
+/**
+ * A drag track's `claim` for `element` (#665's PR 4): told before the drag reads where the element
+ * rests or writes `x`/`y`, so a Batch member's element takes its transform from its Batch first.
+ */
+export const claimForDrag = (element: Element): (() => void) => () => tellDrag(element, true)
 
 /** What {@link makeElementSpine} reads. */
 export interface ElementSpineOptions {
@@ -2388,6 +2414,56 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     return !tookRelease
   }
 
+  // --- A Batch member's element (#665's PR 4, ADR-0069 decision 17, Q52–Q54) -----------------------
+
+  // Its hold on what it takes from its Batch: made as its element is first found a member's, at a
+  // Retarget or a drag. Nearly no element is one: the rest pay a WeakMap read a Retarget.
+  let memberHold: MemberHold | undefined
+  const holdNow = (): MemberHold | undefined => {
+    if (Predicate.isNotUndefined(memberHold)) return memberHold
+    // An app with no Batch has no way to make one, nor any member.
+    const holds = memberHoldsNow()
+    if (Predicate.isUndefined(holds)) return undefined
+    if (!holds.isMember(element)) return undefined
+    memberHold = holds.make({
+      element,
+      gate,
+      id,
+      snapshot,
+      // Per held group at a leg's end or a Batch change (#665): statements.
+      running: (which) => {
+        let runs = false
+        Iter.forEach(owners, ([key, running]) => {
+          if (Predicate.isUndefined(running)) return
+          if (running.done) return
+          if (which(key)) runs = true
+        })
+        return runs
+      },
+      // Setting a visited key is safe in a Map's iteration.
+      giveUp: (which) => {
+        Iter.forEach(owners, ([key, running]) => {
+          if (Predicate.isUndefined(running)) return
+          if (which(key)) giveUp(key, running)
+        })
+        keepTheRest()
+      },
+      velocityOf: (key, now) => velocityAt(snapshot, owners.get(key), key, now),
+      forget: (key) => {
+        driven.delete(key)
+        returning.delete(key)
+      },
+    })
+    return memberHold
+  }
+  // A draggable element's drag tells it as it holds `x`/`y` and hands them back: a member's hold hears.
+  if (Predicate.isNotUndefined(options.dragAxis)) {
+    DRAG_HOOKS.set(element, (on) => {
+      const member = holdNow()
+      if (Predicate.isNotUndefined(member)) member.drag(on)
+    })
+  }
+
   const retarget = (given: Resolution): void => {
     // A Controls change (#433): the element is in it from the Retarget it makes it run, held or not.
     if (given.change !== joined) joinChange(given.change)
@@ -2467,6 +2543,10 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     if (taken.size > 0) Iter.forEach(taken, ([key]) => {
       delete t[key]
     })
+    // A Batch member's element (#665's PR 4, Q53): a group it moves is taken from its Batch first, and a
+    // key it'd leave where the Batch draws it stays the Batch's. A drag takes `x` and `y`.
+    const member = holdNow()
+    if (Predicate.isNotUndefined(member)) member.retarget(t, held)
     // The keys this Retarget returns; once it lands, a key back at its `style` value is
     // handed back to the element's style (D4) and the rest rest inline.
     const returns = [...returning]
@@ -2484,6 +2564,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     let previous: Resolution | undefined
     const legDone = (): void => {
       if (current !== landing) return
+      // A Batch member's groups go back as their last legs end (Q54), each on its own.
+      if (Predicate.isNotUndefined(memberHold)) memberHold.settle()
       if (--legs !== 0) return
       settleReturns(returns)
       // The Retarget settled with its last leg (#257): told once the gate has flushed its last frame,
@@ -2843,6 +2925,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     const landed = legs === 0
     if (landed) {
       settleReturns(returns)
+      if (Predicate.isNotUndefined(memberHold)) memberHold.settle()
       leaveAfterFlush()
       if (Predicate.isNotUndefined(pendingLog)) {
         if (logsDebugOn(runtime)) runtime.runFork(pendingLog)
@@ -2939,6 +3022,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       if (Predicate.isUndefined(running)) return
       if (!running.done) endLeg(running)
     })
+    // Its Batch member's groups go back to the Batch (#665's PR 4).
+    if (Predicate.isNotUndefined(memberHold)) memberHold.dispose()
   }
 
   // A child back under its key (#286): its values and velocities from where the leaver is drawn, a

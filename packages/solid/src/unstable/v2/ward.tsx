@@ -110,6 +110,7 @@ import {
   applyDragDefaults,
   dragAxisOf,
   dragDefaultsOf,
+  claimForDrag,
   draggingWithWillChange,
   drawnAtRest,
   followTemplate,
@@ -1462,7 +1463,9 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         snapshot,
         recordFrame,
         // A drag's start turns its `style`'s will-change value on (#443).
-        setDragging: draggingWithWillChange(live, (on: boolean) => setGesture(el, "dragging", on)),
+        setDragging: draggingWithWillChange(live, (on: boolean) => setGesture(el, "dragging", on), el),
+        // A Batch member's element takes its transform from its Batch as its drag reads or writes it (#665).
+        claim: claimForDrag(el),
         mapPoint: pagePoint,
         skipAnimations,
         config: {

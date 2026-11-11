@@ -23,6 +23,7 @@ import {
 } from "./batch.ts"
 import { useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { isServer } from "./server.ts"
+import { provideMemberHolds } from "./member-hold.ts"
 import { usePresenceContext } from "./presence.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 
@@ -107,6 +108,8 @@ export function createBatch(config: WardicBatchConfig): WardicBatch
 export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<unknown>): WardicBatch | WardicKeyedBatch<unknown> {
   const keyed = isKeyed(config)
   if (isServer) return Bool.match(keyed, { onTrue: () => serverKeyedBatch, onFalse: () => serverBatch })
+  // Its members' elements can be Wardic elements, which hand keys back and forth with it (#665's PR 4).
+  provideMemberHolds()
   const configTransition = configTransitionOf(useWardicConfig())
   // Its first targets and starts read untracked, wherever it's called: what tracks them is its own effect.
   const binding = untrack(() =>

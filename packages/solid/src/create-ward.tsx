@@ -99,6 +99,7 @@ import {
   applyDragDefaults,
   dragAxisOf,
   dragDefaultsOf,
+  claimForDrag,
   draggingWithWillChange,
   drawnAtRest,
   followTemplate,
@@ -729,7 +730,7 @@ export function runSpine(opts: RunSpineOptions): void {
         // element that never drags keeps none of them (#551).
         const axis = dragCfg
         const transition = dragTransition
-        const setDrag = draggingWithWillChange(live, setDragging)
+        const setDrag = draggingWithWillChange(live, setDragging, element)
         const nodeAtMount = layoutHandle
         const nodeLater = lateLayout
         // It drives the layout node the element has as it's made, at mount or as `drag` arrives: a
@@ -759,6 +760,8 @@ export function runSpine(opts: RunSpineOptions): void {
             recordFrame,
             // A drag's start turns its `style`'s will-change value on (#443).
             setDragging: setDrag,
+            // A Batch member's element takes its transform from its Batch as its drag reads or writes it (#665).
+            claim: claimForDrag(element),
             mapPoint: pagePoint,
             config: trackConfig,
             skipAnimations,
