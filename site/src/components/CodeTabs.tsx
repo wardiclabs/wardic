@@ -12,7 +12,8 @@ interface Highlighted {
   readonly html: string
 }
 
-const CODE = import.meta.glob<Highlighted>("../../samples/*/*.tsx", { query: "?code", import: "default" })
+// The bindings' files alone: a page's own `demo.tsx` (#665) is never a tab, so it isn't highlighted.
+const CODE = import.meta.glob<Highlighted>("../../samples/*/{solid2,solid1,motion}.tsx", { query: "?code", import: "default" })
 
 /** The bindings a sample can be written for, in the tabs' order: the site's own first. */
 const BINDINGS = [

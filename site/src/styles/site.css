@@ -897,3 +897,128 @@ a {
   box-shadow: var(--shadow-m);
   pointer-events: none;
 }
+
+/* The Batch samples (#665): 1,000 tiles, and Sierpiński's 2,187 leaves. Each member is placed by its
+   transform alone, from the board's top-left corner. */
+.sample-tiles,
+.sample-sierpinski {
+  position: relative;
+}
+
+.sample-tiles {
+  width: 280px;
+  height: 175px;
+}
+
+.sample-tile {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 6px;
+  height: 6px;
+  border-radius: 1.5px;
+}
+
+/* A leaf is the whole triangle, scaled from its top-left corner to its ancestor's size. */
+.sample-leaf {
+  position: absolute;
+  inset: 0;
+  transform-origin: 0 0;
+  clip-path: polygon(50% 0, 100% 100%, 0 100%);
+}
+
+.sample-range {
+  display: grid;
+  gap: var(--space-1);
+  width: min(100%, 288px);
+  font-size: var(--text-s);
+  font-weight: 650;
+}
+
+.sample-range input {
+  width: 100%;
+  accent-color: var(--accent);
+}
+
+/* The Batch's hover-and-press sample (#665): 96 swatches, each placed by its transform. */
+.sample-palette {
+  position: relative;
+  width: 288px;
+  height: 192px;
+}
+
+.sample-swatch {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.sample-swatch:hover,
+.sample-swatch:focus-visible {
+  z-index: 1;
+}
+
+.sample-swatch[aria-pressed="true"] {
+  outline: 2px solid var(--ink);
+  outline-offset: 1px;
+}
+
+/* The Batch's exits sample (#665): a pantry of 48 items, each placed by its transform; Motion's in a grid. */
+.sample-pantry,
+.sample-pantry-grid {
+  width: 288px;
+  height: 240px;
+}
+
+.sample-pantry {
+  position: relative;
+}
+
+/* Its four filters fit a phone's stage. */
+.sample-filters .sample-tab {
+  padding: 8px 12px;
+}
+
+.sample-pantry-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 44px);
+  grid-auto-rows: 26px;
+  align-content: start;
+  gap: 4px;
+}
+
+.sample-produce {
+  position: absolute;
+  top: 0;
+  left: 0;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 26px;
+  border-radius: var(--radius-s);
+  color: #2e3440;
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.sample-pantry-grid .sample-produce {
+  position: static;
+}
+
+.sample-produce[data-kind="Fruit"] {
+  background: hsl(350 65% 80%);
+}
+
+.sample-produce[data-kind="Veg"] {
+  background: hsl(95 40% 72%);
+}
+
+.sample-produce[data-kind="Herbs"] {
+  background: hsl(170 45% 72%);
+}

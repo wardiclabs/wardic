@@ -61,6 +61,7 @@ export const NAV: ReadonlyArray<NavSection> = [
       { path: "/guides/reorder", title: "Reorder" },
       { path: "/guides/scroll", title: "Scroll" },
       { path: "/guides/live-values", title: "Live values" },
+      { path: "/guides/batches", title: "Many elements at once" },
     ],
   },
   {

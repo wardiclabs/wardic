@@ -1,5 +1,5 @@
 {
-  "// note": "The docs' Solid 2 samples (#558), typechecked against Solid 2 and @wardic/solid/unstable/v2, as the site itself is.",
+  "// note": "The docs' Solid 2 samples (#558), and a page's own demo.tsx around one (#665), typechecked against Solid 2 and @wardic/solid/unstable/v2, as the site itself is.",
   "extends": "../tsconfig.json",
-  "include": ["*/solid2.tsx"]
+  "include": ["*/solid2.tsx", "*/demo.tsx"]
 }
