@@ -102,6 +102,7 @@ export {
   type WardicBatch,
   type WardicBatchConfig,
   type WardicBatchExit,
+  type WardicBatchGesture,
   type WardicBatchKey,
   type WardicBatchLanding,
   type WardicBatchMember,
