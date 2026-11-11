@@ -17,7 +17,6 @@ import type { JSX } from "@solidjs/web"
 import { createContext, createEffect, createMemo, createSignal, flush, omit, onCleanup, untrack, useContext } from "solid-js"
 import { configTransitionOf, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues } from "../../batch.ts"
 import { type BatchReorderBinding, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize } from "../../batch-reorder.ts"
-import { inputIn } from "../../gesture-features.ts"
 import { refsOf, staticElementOf } from "./element.tsx"
 import { usePresenceContext } from "./presence.tsx"
 import { useBrought, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
@@ -66,6 +65,17 @@ export type ReorderBatchGroupProps<V, Tag extends ReorderElementTag = "ul"> = {
    * `transition`, or a function of its item and index. Back on the group's transition as it's let go.
    */
   readonly whileDrag?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
+  /**
+   * Where an item goes while the pointer is over it (touch never hovers): values with an optional
+   * `transition`, or a function of its item and index, read as its hover starts.
+   */
+  readonly whileHover?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
+  /**
+   * Where an item goes while it's pressed, by a pointer, or by Enter or Space while it has focus and the
+   * keyboard reorder is off (on, they lift it): values with an optional `transition`, or a function of its
+   * item and index, read as its press starts.
+   */
+  readonly whileTap?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
   /** Given the group once, as it's made, as `Reorder.Group`'s `groupRef` is: for its events and `move`. */
   readonly groupRef?: ((group: ReorderBatchGroup<V>) => void) | undefined
   /** The element it renders: `"ul"` by default. Read once. */
@@ -106,6 +116,8 @@ interface GroupLocal<V> {
   readonly initial?: false | WardicBatchValues | ((item: V, i: number) => WardicBatchValues) | undefined
   readonly transition?: WardicBatchTransition | undefined
   readonly whileDrag?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
+  readonly whileHover?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
+  readonly whileTap?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
   readonly groupRef?: ((group: ReorderBatchGroup<V>) => void) | undefined
   readonly as?: string | undefined
   readonly ref?: unknown
@@ -135,6 +147,8 @@ const GROUP_OWN = [
   "initial",
   "transition",
   "whileDrag",
+  "whileHover",
+  "whileTap",
   "groupRef",
   "as",
   "ref",
@@ -195,6 +209,8 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
         initial: () => local.initial,
         transition: () => local.transition,
         whileDrag: () => local.whileDrag,
+        whileHover: () => local.whileHover,
+        whileTap: () => local.whileTap,
         // The DOM and the Batch follow a reorder within the controller's call, as `Reorder.Group`'s do: the
         // controller keeps focus on a lifted item right after. A `move` the app calls doesn't flush: the
         // app may call it inside an `action`, where Solid refuses a flush (#257 item 12).
@@ -208,7 +224,7 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
         onHoldEnd: (end) => events.tell("holdEnd", () => end),
         keyboard: () => untrack(() => local.keyboard) !== false,
         announcements: () => Option.fromUndefinedOr(untrack(() => local.announcements)),
-        input: () => inputIn(services()),
+        brought: services,
       },
       { started: noop, landed: noop },
     ))
@@ -279,7 +295,7 @@ export function BatchItem<V, Tag extends ReorderElementTag = "li">(props: Reorde
     <Element
       {...rest}
       style={item.style(local.style)}
-      tabindex={UndefinedOr.match(local.tabindex, { onDefined: identity, onUndefined: () => Bool.match(group.keyboard(), { onTrue: () => 0, onFalse: constUndefined }) })}
+      tabindex={UndefinedOr.match(local.tabindex, { onDefined: identity, onUndefined: () => Bool.match(Bool.or(group.keyboard(), group.binding.pressable), { onTrue: () => 0, onFalse: constUndefined }) })}
       aria-describedby={describedByOf(local["aria-describedby"], Bool.match(group.keyboard(), { onTrue: describedBy, onFalse: constUndefined }))}
       ref={refsOf(local, [onElement])}
     >

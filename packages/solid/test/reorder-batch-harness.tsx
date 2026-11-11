@@ -9,7 +9,7 @@ import { DomLive } from "@wardic/dom"
 import { Reorder, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { createSignal, For, type JSX } from "solid-js"
+import { type Accessor, createSignal, For, type JSX } from "solid-js"
 import { itemCss, LAYOUTS, type Layout, type Scene, settle, VALUES } from "./reorder-harness.tsx"
 
 export interface BatchSceneOptions {
@@ -19,7 +19,10 @@ export interface BatchSceneOptions {
   readonly transition?: WardicBatchTransition
   /** Inside a plain `overflow: auto` container this tall. */
   readonly container?: number
-  readonly keyboard?: boolean
+  /** The keyboard reorder, read reactively: on when left out. */
+  readonly keyboard?: Accessor<boolean>
+  readonly whileHover?: WardicBatchGesture | ((item: string, i: number) => WardicBatchValues)
+  readonly whileTap?: WardicBatchGesture | ((item: string, i: number) => WardicBatchValues)
   readonly announcements?: Partial<CoreReorder.Announcements<string>>
 }
 
@@ -65,7 +68,9 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Scen
       {...Bool.match(layout === "xy", { onTrue: () => ({ columns: 3 }), onFalse: () => ({}) })}
       {...UndefinedOr.match(o.whileDrag, { onUndefined: () => ({}), onDefined: (whileDrag) => ({ whileDrag }) })}
       {...UndefinedOr.match(o.transition, { onUndefined: () => ({}), onDefined: (transition) => ({ transition }) })}
-      {...UndefinedOr.match(o.keyboard, { onUndefined: () => ({}), onDefined: (keyboard) => ({ keyboard }) })}
+      keyboard={UndefinedOr.match(o.keyboard, { onUndefined: () => undefined, onDefined: (keyboard) => keyboard() })}
+      {...UndefinedOr.match(o.whileHover, { onUndefined: () => ({}), onDefined: (whileHover) => ({ whileHover }) })}
+      {...UndefinedOr.match(o.whileTap, { onUndefined: () => ({}), onDefined: (whileTap) => ({ whileTap }) })}
       {...UndefinedOr.match(o.announcements, { onUndefined: () => ({}), onDefined: (announcements) => ({ announcements }) })}
       style={UndefinedOr.match(o.container, { onUndefined: () => AT, onDefined: () => ({ margin: "0", padding: "0" }) })}
     >

@@ -18,7 +18,6 @@ import { createContext, createEffect, createRenderEffect, createSignal, type JSX
 import { Dynamic } from "solid-js/web"
 import { configTransitionOf, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues } from "./batch.ts"
 import { type BatchReorderBinding, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize } from "./batch-reorder.ts"
-import { inputIn } from "./gesture-features.ts"
 import { usePresenceContext } from "./presence.tsx"
 import { useBrought, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import type { ReorderElementTag } from "./reorder.tsx"
@@ -65,6 +64,17 @@ export type ReorderBatchGroupProps<V, Tag extends ReorderElementTag = "ul"> = {
    * `transition`, or a function of its item and index. Back on the group's transition as it's let go.
    */
   readonly whileDrag?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
+  /**
+   * Where an item goes while the pointer is over it (touch never hovers): values with an optional
+   * `transition`, or a function of its item and index, read as its hover starts.
+   */
+  readonly whileHover?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
+  /**
+   * Where an item goes while it's pressed, by a pointer, or by Enter or Space while it has focus and the
+   * keyboard reorder is off (on, they lift it): values with an optional `transition`, or a function of its
+   * item and index, read as its press starts.
+   */
+  readonly whileTap?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
   /** The element it renders: `"ul"` by default. Read once. */
   readonly as?: Tag
   readonly style?: JSX.CSSProperties | undefined
@@ -106,6 +116,8 @@ interface GroupLocal<V> {
   readonly initial?: false | WardicBatchValues | ((item: V, i: number) => WardicBatchValues) | undefined
   readonly transition?: WardicBatchTransition | undefined
   readonly whileDrag?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
+  readonly whileHover?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
+  readonly whileTap?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
   readonly as?: string | undefined
   readonly ref?: ((el: HTMLElement) => void) | undefined
   readonly style?: JSX.CSSProperties | undefined
@@ -137,6 +149,8 @@ const GROUP_OWN = [
   "initial",
   "transition",
   "whileDrag",
+  "whileHover",
+  "whileTap",
   "as",
   "ref",
   "style",
@@ -187,13 +201,15 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
         initial: () => local.initial,
         transition: () => local.transition,
         whileDrag: () => local.whileDrag,
+        whileHover: () => local.whileHover,
+        whileTap: () => local.whileTap,
         onReorder: (values) => untrack(() => local.onReorder)(values),
         onReorderEnd: (end) => UndefinedOr.map(untrack(() => local.onReorderEnd), (tell) => tell(end)),
         onHoldStart: (start) => UndefinedOr.map(untrack(() => local.onHoldStart), (tell) => tell(start)),
         onHoldEnd: (end) => UndefinedOr.map(untrack(() => local.onHoldEnd), (tell) => tell(end)),
         keyboard: () => untrack(() => local.keyboard) !== false,
         announcements: () => Option.fromUndefinedOr(untrack(() => local.announcements)),
-        input: () => inputIn(services()),
+        brought: services,
       },
       { started: noop, landed: noop },
     ))
@@ -240,7 +256,7 @@ export function BatchItem<V, Tag extends ReorderElementTag = "li">(props: Reorde
       {...rest}
       ref={mergeRefs(local.ref, item.ref, setElement)}
       style={item.style(local.style) as JSX.CSSProperties}
-      tabindex={UndefinedOr.match(local.tabIndex, { onDefined: identity, onUndefined: () => Bool.match(group.keyboard(), { onTrue: () => 0, onFalse: constUndefined }) })}
+      tabindex={UndefinedOr.match(local.tabIndex, { onDefined: identity, onUndefined: () => Bool.match(Bool.or(group.keyboard(), group.binding.pressable), { onTrue: () => 0, onFalse: constUndefined }) })}
       aria-describedby={describedByOf(local["aria-describedby"], Bool.match(group.keyboard(), { onTrue: describedBy, onFalse: constUndefined }))}
     >
       {local.children}

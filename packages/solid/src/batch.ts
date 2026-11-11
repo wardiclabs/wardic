@@ -175,6 +175,8 @@ export interface KeyedBatchConfig<T> {
  */
 export interface ReorderBatchConfig<T> extends KeyedBatchConfig<T> {
   readonly whileDrag?: WardicBatchGesture | ((item: T, i: number) => WardicBatchValues) | undefined
+  /** A function `whileHover`, `whileTap` or `whileDrag` gives keys the Batch takes from its first item (Q27, Q34). */
+  readonly gestureKeysFromFirst: true
 }
 
 /** Whether a Batch's config is the keyed form's. */
@@ -193,6 +195,11 @@ export interface BatchEnv {
   readonly untrack: <A>(read: () => A) => A
   /** Its members' gestures (#665's PR 5, Q56): what watches them, from one source each. None, none listen. */
   readonly gestures?: BatchGestureWatches | undefined
+  /**
+   * Whether a focused member's Enter and Space press it now (#712, Q32): a Batch Reorder group's, not while
+   * its keyboard reorder takes them. Left out, they always do.
+   */
+  readonly pressKeys?: (() => boolean) | undefined
 }
 
 /**
@@ -234,9 +241,11 @@ export interface BatchGestureHost {
   readonly untrack: <A>(read: () => A) => A
   /** The Batch's transition now. */
   readonly configured: () => WardicTransition | undefined
-  /** Its config's `whileHover` and `whileTap`, as given. */
+  /** Its config's `whileHover` and `whileTap`, as given, read as a gesture starts. */
   readonly hoverGiven: unknown
   readonly tapGiven: unknown
+  /** Whether a focused member's keys press it now: {@link BatchEnv.pressKeys}. */
+  readonly pressKeys: (() => boolean) | undefined
   /** A Batch Reorder group's `whileDrag` now, as given (#712). */
   readonly dragGiven: () => unknown
   /** A member's gesture event, told its binding. */
@@ -788,14 +797,15 @@ const startOn = (
 
 /**
  * A Batch's keys: `given`, with those its `exit`, `whileHover` and `whileTap` objects give as values after
- * them (Q48, Q58), and a Batch Reorder group's `whileDrag` (#712), a function's by `firstDrag`, its values
- * for the list's first item (Q27); with `keys` given (`fixed`), one outside them is an error naming it.
+ * them (Q48, Q58), and a Batch Reorder group's `whileDrag` (#712), and its function gestures' by
+ * `firstGestures`, their values for the list's first item (Q27, Q34); with `keys` given (`fixed`), one
+ * outside them is an error naming it.
  */
 const withConfigKeys = (
   given: ReadonlyArray<string>,
   fixed: boolean,
   config: BatchConfig | KeyedBatchConfig<unknown>,
-  firstDrag: Readonly<Record<string, unknown>> = NO_VALUES,
+  firstGestures: Readonly<Record<string, unknown>> = NO_VALUES,
 ): ReadonlyArray<string> => {
   let all = given
   const more: ReadonlyArray<readonly [string, Readonly<Record<string, unknown>>]> = [
@@ -803,7 +813,7 @@ const withConfigKeys = (
     ["whileHover", objectFormValues((config as { readonly whileHover?: unknown }).whileHover)],
     ["whileTap", objectFormValues((config as { readonly whileTap?: unknown }).whileTap)],
     ["whileDrag", objectFormValues((config as { readonly whileDrag?: unknown }).whileDrag)],
-    ["whileDrag", firstDrag],
+    ["function whileHover, whileTap or whileDrag", firstGestures],
   ]
   Arr.forEach(more, ([name, values]) => {
     const added = Arr.filter(Rec.keys(values), (key) => !Arr.contains(all, key))
@@ -1245,8 +1255,6 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
   }
 
   // Its gestures as given (#665's PR 5): `whileHover` and `whileTap`, an object or a function.
-  const hoverGiven: unknown = (config as { readonly whileHover?: unknown }).whileHover
-  const tapGiven: unknown = (config as { readonly whileTap?: unknown }).whileTap
   /** A key's Default transition toward `target`. */
   const defaultFor = (k: number, target: number): Batch.Transition => env.defaultTransition.transitionFor(keys[k], target) as Batch.Transition
 
@@ -1341,7 +1349,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     keysAre(withMoreKeys(UndefinedOr.match(byKey.keys, {
       onUndefined: () => keysFrom(targets.items.length, (i) => targets.values[i], (i) => keyedInitialOf(byKey, targets.items[i], i)),
       onDefined: identity,
-    }), firstDragOf(targets)))
+    }), firstGesturesOf(targets)))
     makeBatch((k) => {
       const value = targets.values[0][keys[k]]
       if (Predicate.isNumber(value)) return value
@@ -1353,19 +1361,23 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
    * `given` keys with those its `exit`, `whileHover` and `whileTap` give as values after them (Q48, Q58);
    * with `keys` given, one outside them is an error naming it.
    */
-  const withMoreKeys = (given: ReadonlyArray<string>, firstDrag: Readonly<Record<string, unknown>> = NO_VALUES): ReadonlyArray<string> =>
-    withConfigKeys(given, Predicate.isNotUndefined(byKey.keys), config, firstDrag)
+  const withMoreKeys = (given: ReadonlyArray<string>, firstGestures: Readonly<Record<string, unknown>> = NO_VALUES): ReadonlyArray<string> =>
+    withConfigKeys(given, Predicate.isNotUndefined(byKey.keys), config, firstGestures)
 
   /**
-   * Keyed: a Batch Reorder group's function `whileDrag`'s values for the list's first item (#712, Q27): its
-   * keys join the Batch's, as `animate`'s first targets' do; none for an object's, or for none.
+   * Keyed: a Batch Reorder group's function gestures' values for the list's first item (#712, Q27, Q34):
+   * `whileHover`'s, `whileTap`'s and `whileDrag`'s keys join the Batch's, as `animate`'s first targets' do.
+   * None for an object's, or for any other Batch, whose function gestures give keys it has.
    */
-  const firstDragOf = (targets: KeyedTargets): Readonly<Record<string, unknown>> => {
-    const given = (config as { readonly whileDrag?: unknown }).whileDrag
-    return Bool.match(Predicate.isFunction(given), {
-      onTrue: () => env.untrack(() => (given as (item: unknown, i: number) => Readonly<Record<string, unknown>>)(targets.items[0], 0)),
-      onFalse: () => NO_VALUES,
-    })
+  const firstGesturesOf = (targets: KeyedTargets): Readonly<Record<string, unknown>> => {
+    if (Bool.not(Predicate.hasProperty(config, "gestureKeysFromFirst"))) return NO_VALUES
+    const given = config as unknown as Readonly<Record<"whileHover" | "whileTap" | "whileDrag", unknown>>
+    const first = (gesture: unknown): Readonly<Record<string, unknown>> =>
+      Bool.match(Predicate.isFunction(gesture), {
+        onTrue: () => env.untrack(() => (gesture as (item: unknown, i: number) => Readonly<Record<string, unknown>>)(targets.items[0], 0)),
+        onFalse: () => NO_VALUES,
+      })
+    return { ...first(given.whileHover), ...first(given.whileTap), ...first(given.whileDrag) }
   }
 
   /** Keyed: the member for `key`: its member, else a new one. */
@@ -2039,8 +2051,14 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     keyed,
     untrack: env.untrack,
     configured: configuredOf,
-    hoverGiven,
-    tapGiven,
+    // Read as each gesture starts: a Batch Reorder group's are its props now (#712).
+    get hoverGiven() {
+      return (config as { readonly whileHover?: unknown }).whileHover
+    },
+    get tapGiven() {
+      return (config as { readonly whileTap?: unknown }).whileTap
+    },
+    pressKeys: env.pressKeys,
     dragGiven: () => (config as { readonly whileDrag?: unknown }).whileDrag,
     tell: (told) => UndefinedOr.map(hooks.gesture, (tellIt) => tellIt(told)),
     handAt,

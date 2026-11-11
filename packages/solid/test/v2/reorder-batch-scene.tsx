@@ -19,6 +19,10 @@ export interface BatchSceneOptions {
   readonly transition?: WardicBatchTransition
   /** Inside a plain `overflow: auto` container this tall. */
   readonly container?: number
+  /** The keyboard reorder, read reactively: on when left out. */
+  readonly keyboard?: Accessor<boolean>
+  readonly whileHover?: WardicBatchGesture | ((item: string, i: number) => WardicBatchValues)
+  readonly whileTap?: WardicBatchGesture | ((item: string, i: number) => WardicBatchValues)
 }
 
 export interface BatchScene {
@@ -82,6 +86,9 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Batc
       {...Bool.match(layout === "xy", { onTrue: () => ({ columns: 3 }), onFalse: () => ({}) })}
       {...optional("whileDrag", o.whileDrag)}
       {...optional("transition", o.transition)}
+      {...optional("whileHover", o.whileHover)}
+      {...optional("whileTap", o.whileTap)}
+      keyboard={UndefinedOr.match(o.keyboard, { onUndefined: () => undefined, onDefined: (keyboard) => keyboard() })}
       style={UndefinedOr.match(o.container, { onUndefined: () => AT, onDefined: () => ({ margin: "0", padding: "0" }) })}
     >
       <For each={order()}>

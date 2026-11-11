@@ -15,10 +15,14 @@
 // - BG7: a drag held near its scroller's edge scrolls it, the item moving down the list under the pointer.
 // - BG8: a grab stops an item flying back from a release; a press with no drag lets it go on.
 // - BG9: a function `whileDrag`'s keys join the group's.
+// - BP1 (#712's PR 3): `whileHover` and `whileTap` by the pointer; Space lifts while the keyboard reorder is
+//   on and presses while it's off, from the next key once it's switched (Q32).
+// - BP2: a drag takes over a press; a function `whileTap`'s keys join the group's (Q34).
 // - BG6: `groupRef`'s group (Q25): its `next`, `when` and `each` of `holdStart`, `reorderEnd` and `holdEnd`,
 //   as `reorderGroup()`'s, its `axis`, and `move`, announced.
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as ReorderController from "@wardic/dom/ReorderController"
+import { createSignal, flush } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { commands, page } from "vitest/browser"
 import "../browser-commands.ts"
@@ -366,5 +370,68 @@ describe("Reorder.BatchGroup and Reorder.BatchItem on Solid 2", () => {
     await wait(400)
     expect(scaleOf(b), "laid over the lifted item").toBeCloseTo(1.1, 2)
     await commands.realKey("press", "Escape")
+  }, 30_000)
+
+  it("BP1: whileHover and whileTap by the pointer; Space lifts while the keyboard reorder is on, presses while it's off", async () => {
+    const [keyboard, setKeyboard] = createSignal(true)
+    const fast = { type: "spring", stiffness: 500, damping: 40 } as const
+    const s = await mountBatchReorder({ layout: "y", keyboard, whileHover: { scale: 1.05 }, whileTap: { scale: 0.9 }, transition: fast })
+    const b = s.item("b")
+    const g = centreOf(b)
+    await mouse.move(g)
+    await wait(300)
+    expect(scaleOf(b), "whileHover").toBeCloseTo(1.05, 2)
+    await mouse.down(g)
+    await wait(300)
+    expect(scaleOf(b), "whileTap").toBeCloseTo(0.9, 2)
+    await mouse.up(g)
+    await wait(300)
+    expect(scaleOf(b), "back to whileHover").toBeCloseTo(1.05, 2)
+    await mouse.move({ x: 5, y: 5 })
+    await wait(300)
+    expect(scaleOf(b), "back to rest").toBeCloseTo(1, 3)
+
+    const c = s.item("c")
+    c.focus()
+    await commands.realKey("down", "Space")
+    await wait(300)
+    expect(getComputedStyle(c).zIndex, "lifted").toBe("2")
+    expect(scaleOf(c), "not pressed").toBeCloseTo(1, 3)
+    await commands.realKey("up", "Space")
+    await commands.realKey("press", "Space")
+    await frames(2)
+    setKeyboard(false)
+    flush()
+    await commands.realKey("down", "Space")
+    await wait(300)
+    expect(scaleOf(c), "pressed by Space").toBeCloseTo(0.9, 2)
+    expect(getComputedStyle(c).zIndex, "not lifted").toBe("auto")
+    await commands.realKey("up", "Space")
+    await wait(300)
+    expect(scaleOf(c), "the press ends").toBeCloseTo(1, 3)
+    setKeyboard(true)
+    flush()
+    await commands.realKey("press", "Space")
+    await wait(300)
+    expect(getComputedStyle(c).zIndex, "lifted again").toBe("2")
+    expect(scaleOf(c), "not pressed").toBeCloseTo(1, 3)
+    await commands.realKey("press", "Escape")
+  }, 30_000)
+
+  it("BP2: a drag takes over a press: whileTap off as it starts, whileDrag on; a function whileTap's keys join", async () => {
+    const fast = { type: "spring", stiffness: 500, damping: 40 } as const
+    const s = await mountBatchReorder({ layout: "y", whileTap: (_, i) => ({ scale: 0.9, opacity: 0.8 + i * 0 }), whileDrag: { scale: 1.1 }, transition: fast })
+    const b = s.item("b")
+    const g = centreOf(b)
+    await mouse.down(g)
+    await wait(300)
+    expect(scaleOf(b), "pressed").toBeCloseTo(0.9, 2)
+    expect(Number(getComputedStyle(b).opacity), "the function's own key").toBeCloseTo(0.8, 2)
+    await glide(g, add(g, 0, 20), 5, 20)
+    await wait(300)
+    expect(scaleOf(b), "dragged: whileDrag, not whileTap").toBeCloseTo(1.1, 2)
+    await mouse.up(add(g, 0, 20))
+    await wait(500)
+    expect(scaleOf(b), "at rest").toBeCloseTo(1, 3)
   }, 30_000)
 })

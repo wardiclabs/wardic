@@ -18,12 +18,18 @@
 // - BG8: a grab of an item flying back from a release stops it where it is; a press that ends with no drag
 //   lets it go on to its place.
 // - BG9: a function `whileDrag`'s keys join the group's: it lays its values over an item dragged or lifted.
+// - BP1 (#712's PR 3): `whileHover` over an item the pointer is on and `whileTap` while a pointer presses
+//   it; with the keyboard reorder on, Space lifts it and doesn't press it; off, Space presses it; switched
+//   back on, the next Space lifts again (Q32).
+// - BP2: a drag takes over a press: `whileTap` off as the drag starts, `whileDrag` on; a function
+//   `whileTap`'s keys join the group's (Q34).
 // - BG5: no item listens at rest, and the page's listeners are as many for 20 items as for 5; a focus
 //   and a blur leave none behind.
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as ReorderController from "@wardic/dom/ReorderController"
 import { commands } from "vitest/browser"
 import { raf } from "./browser-helpers.ts"
+import { createSignal } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { page } from "vitest/browser"
 import { type BatchSceneOptions, mountBatchReorder } from "./reorder-batch-harness.tsx"
@@ -353,5 +359,70 @@ describe("Reorder.BatchGroup and Reorder.BatchItem", () => {
     await wait(400)
     expect(scaleOf(b), "laid over the lifted item").toBeCloseTo(1.1, 2)
     await commands.realKey("press", "Escape")
+  }, 30_000)
+
+  it("BP1: whileHover and whileTap by the pointer; Space lifts while the keyboard reorder is on, presses while it's off", async () => {
+    const [keyboard, setKeyboard] = createSignal(true)
+    const fast = { type: "spring", stiffness: 500, damping: 40 } as const
+    const s = await mountBatchReorder({ layout: "y", keyboard, whileHover: { scale: 1.05 }, whileTap: { scale: 0.9 }, transition: fast })
+    const b = s.item("b")
+    const g = centreOf(b)
+    await mouse.move(g)
+    await wait(300)
+    expect(scaleOf(b), "whileHover").toBeCloseTo(1.05, 2)
+    await mouse.down(g)
+    await wait(300)
+    expect(scaleOf(b), "whileTap").toBeCloseTo(0.9, 2)
+    await mouse.up(g)
+    await wait(300)
+    expect(scaleOf(b), "back to whileHover").toBeCloseTo(1.05, 2)
+    await mouse.move({ x: 5, y: 5 })
+    await wait(300)
+    expect(scaleOf(b), "back to rest").toBeCloseTo(1, 3)
+
+    // The keyboard reorder on: Space lifts c, and doesn't press it.
+    const c = s.item("c")
+    c.focus()
+    await commands.realKey("down", "Space")
+    await wait(300)
+    expect(getComputedStyle(c).zIndex, "lifted").toBe("2")
+    expect(scaleOf(c), "not pressed").toBeCloseTo(1, 3)
+    await commands.realKey("up", "Space")
+    await commands.realKey("press", "Space")
+    await frames(2)
+    // Off: Space presses it.
+    setKeyboard(false)
+    await commands.realKey("down", "Space")
+    await wait(300)
+    expect(scaleOf(c), "pressed by Space").toBeCloseTo(0.9, 2)
+    expect(getComputedStyle(c).zIndex, "not lifted").toBe("auto")
+    await commands.realKey("up", "Space")
+    await wait(300)
+    expect(scaleOf(c), "the press ends").toBeCloseTo(1, 3)
+    // Back on: the next Space lifts.
+    setKeyboard(true)
+    await commands.realKey("press", "Space")
+    await wait(300)
+    expect(getComputedStyle(c).zIndex, "lifted again").toBe("2")
+    expect(scaleOf(c), "not pressed").toBeCloseTo(1, 3)
+    await commands.realKey("press", "Escape")
+  }, 30_000)
+
+  it("BP2: a drag takes over a press: whileTap off as it starts, whileDrag on; a function whileTap's keys join", async () => {
+    const fast = { type: "spring", stiffness: 500, damping: 40 } as const
+    // A function whileTap's keys join the group's from its first item (Q34): `opacity` is no other prop's.
+    const s = await mountBatchReorder({ layout: "y", whileTap: (_, i) => ({ scale: 0.9, opacity: 0.8 + i * 0 }), whileDrag: { scale: 1.1 }, transition: fast })
+    const b = s.item("b")
+    const g = centreOf(b)
+    await mouse.down(g)
+    await wait(300)
+    expect(scaleOf(b), "pressed").toBeCloseTo(0.9, 2)
+    expect(Number(getComputedStyle(b).opacity), "the function's own key").toBeCloseTo(0.8, 2)
+    await glide(g, add(g, 0, 20), 5, 20)
+    await wait(300)
+    expect(scaleOf(b), "dragged: whileDrag, not whileTap").toBeCloseTo(1.1, 2)
+    await mouse.up(add(g, 0, 20))
+    await wait(500)
+    expect(scaleOf(b), "at rest").toBeCloseTo(1, 3)
   }, 30_000)
 })

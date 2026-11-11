@@ -24,6 +24,7 @@ import * as Style from "@wardic/dom/Style"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
+import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import { identity } from "effect/Function"
 import * as Iter from "effect/Iterable"
@@ -33,9 +34,10 @@ import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type BatchBinding, type BatchEnv, type BatchHooks, bindBatch, fail, type KeyedBatchConfig, type ReorderBatchConfig, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues } from "./batch.ts"
-import { turnDrag } from "./batch-gestures.ts"
+import { batchGesturesOn, turnDrag } from "./batch-gestures.ts"
 import type { Feature } from "./feature.ts"
 import { input } from "./features/input.ts"
+import { serviceOf } from "./gesture-features.ts"
 import * as OwnerScope from "./owner-scope.ts"
 import type { PresenceContextValue } from "./presence-record.ts"
 import { watchItemsInputAmong } from "./reorder-input.ts"
@@ -180,6 +182,9 @@ export interface BatchReorderOptions<V> {
   readonly initial: () => false | WardicBatchValues | ((item: V, i: number) => WardicBatchValues) | undefined
   readonly transition: () => WardicBatchTransition | undefined
   readonly whileDrag: () => WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
+  /** Where an item goes while the pointer is over it, and while it's pressed (#712's PR 3), read as each starts. */
+  readonly whileHover: () => WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
+  readonly whileTap: () => WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
   /** Given each new order, as an item crosses another: the app sets `values` from it, and the binding places it at once. */
   readonly onReorder: (values: Array<V>) => void
   readonly onReorderEnd?: ((end: ReorderController.End<V>) => void) | undefined
@@ -189,8 +194,8 @@ export interface BatchReorderOptions<V> {
   readonly keyboard: () => boolean
   /** The announcements over the defaults, read at each one. */
   readonly announcements: () => Option.Option<Partial<CoreReorder.Announcements<V>>>
-  /** The gestures' input the group brings: what its items' drags are heard through. */
-  readonly input: () => InputSource.InputSource["Service"]
+  /** What the group brings ({@link GROUP_BRINGS}): the gestures' input its items are heard through. */
+  readonly brought: () => Context.Context<never>
 }
 
 /** A Batch Reorder group bound to its binding: its Batch, its group's style, and each item's half. */
@@ -207,6 +212,8 @@ export interface BatchReorderBinding<V> {
   readonly item: (value: V, presence: PresenceContextValue | undefined) => BatchReorderItem
   /** Its controller: its group, its axis, `move`. */
   readonly controller: ReorderController.Placed<V>
+  /** Whether its items are pressed (`whileTap`): each one a tab stop, Enter and Space pressing it while the keyboard reorder is off. */
+  readonly pressable: boolean
   /** Its controller, its drag and its Batch's run ended. */
   readonly dispose: () => void
 }
@@ -248,6 +255,9 @@ const px = (n: number): string => `${n}px`
  */
 export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<V>, hooks: BatchHooks): BatchReorderBinding<V> => {
   const runtime = env.runtime
+  // Its items' hover and presses, over the input it brings (#712's PR 3): a focused item's keys press it
+  // only while the keyboard reorder doesn't take them (Q32), read at each key.
+  const gestures = batchGesturesOn(runtime, options.brought)
   // The places each item's is read from, resolved once a change: the Batch reads the list before any
   // item's targets.
   let resolved: BatchReorderPlaces = resolvePlaces(env.untrack(options.geometry), env.untrack(options.values).length)
@@ -291,8 +301,15 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     get whileDrag() {
       return env.untrack(options.whileDrag)
     },
+    get whileHover() {
+      return env.untrack(options.whileHover)
+    },
+    get whileTap() {
+      return env.untrack(options.whileTap)
+    },
+    gestureKeysFromFirst: true as const,
   }
-  const batch = bindBatch(env, config as ReorderBatchConfig<V> as KeyedBatchConfig<unknown>, {
+  const batch = bindBatch({ ...env, gestures, pressKeys: () => Bool.not(options.keyboard()) }, config as ReorderBatchConfig<V> as KeyedBatchConfig<unknown>, {
     ...hooks,
     started: () => {
       flying = true
@@ -307,6 +324,10 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     },
   })
   const host = batch.host
+  // Its items' hover and presses watched when it's made with `whileHover` or `whileTap`.
+  const pressable = Predicate.isNotUndefined(env.untrack(options.whileTap))
+  if (Predicate.isNotUndefined(env.untrack(options.whileHover))) batch.listen("hover")
+  if (pressable) batch.listen("press")
 
   // The group's controller (ADR-0072 decision 6), in a Scope of the group's own: its items placed, never
   // measured, so a reorder waits for the Batch to place the new order (`placed`).
@@ -458,7 +479,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       DragRecognizer.watchDragAmong(host.memberElementOf, { axis: () => controller.axis() }, { on: onDrag, onDefect }),
       watchItemsInputAmong(host.memberElementOf, { driverOf, onPress, onPressEnd, fork: (effect) => void runtime.runFork(effect), onDefect }),
     ]).pipe(
-      Effect.provideService(InputSource.InputSource, options.input()),
+      Effect.provideService(InputSource.InputSource, serviceOf(options.brought(), InputSource.InputSource)),
       Scope.provide(scope),
     ),
   )
@@ -567,7 +588,9 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       }
     },
     controller,
+    pressable,
     dispose: () => {
+      gestures.close()
       OwnerScope.close(runtime, scope, CLOSE_FAILED)
       batch.dispose()
     },
