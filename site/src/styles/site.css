@@ -919,6 +919,21 @@ a {
   border-radius: 1.5px;
 }
 
+/* The grid demo's drawings of Wardic's mark (samples/batch/demo.tsx): each tile holds its colour in the
+   grid and in each drawing, and the board's drawing picks one, each tile's fade a moment after the last's. */
+.sample-logo .sample-tile {
+  background: var(--grid);
+  transition: background-color 0.5s var(--delay);
+}
+
+.sample-logo[data-drawing="mosaic"] .sample-tile {
+  background: var(--mosaic);
+}
+
+.sample-logo[data-drawing="lines"] .sample-tile {
+  background: var(--lines);
+}
+
 /* A leaf is the whole triangle, scaled from its top-left corner to its ancestor's size. */
 .sample-leaf {
   position: absolute;

@@ -19,6 +19,8 @@ A Wardic element carries its own animation: its values, its springs, and the wor
 - **`stagger()`** counts the tiles a change moves, so the wave runs through the ones that go somewhere.
 - **"Moving…" and "Ready"** come from the Batch's landings: on Solid 2 `tiles.settled()`, pending while any tile moves; on Solid 1 `onAnimationStart` and `onAnimationComplete`. The frame rate is the page's own readout, the frames it drew in each second ([`site/samples/frames.ts`](https://github.com/wardiclabs/wardic/blob/main/site/samples/frames.ts)).
 
+The demo's Mosaic and Lines turn the same tiles to Wardic's mark, a tile to each of its cells, or shrunk and turned along its strokes: each drawing is one change of the Batch's targets, as a shuffle is. They're the demo's alone ([`demo.tsx`](https://github.com/wardiclabs/wardic/blob/main/site/samples/batch/demo.tsx)).
+
 Motion has no Batch. Its tab runs the same grid through `animate()`, a call per tile, as [`createAnimate`](/reference/solid/animation/create-animate) would.
 
 ## Sierpiński's triangle, at scale
