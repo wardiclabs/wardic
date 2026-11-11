@@ -964,6 +964,12 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
   const refs: Array<(el: Element) => void> = []
   const memberOf: Array<number> = []
   let current: Float64Array = new Float64Array(0)
+  // Each member's gestures on (#665's PR 5), a layer each over `animate`'s targets: its values while it's
+  // on, `NaN` for a key it doesn't give; and how many layers are on, so a change with none reads `animate`'s
+  // alone. Declared before `targetOf`, which reads them per member per key at a change.
+  const hovering: Array<Float64Array | undefined> = []
+  const tapping: Array<Float64Array | undefined> = []
+  let gesturing = 0
   let binding: BatchBinding | undefined = undefined
 
   /** Room for `wanted` members: every member's typed arrays grown to the next power of two times their size that holds it. */
@@ -1675,13 +1681,8 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
 
   // --- Hover and press per member (#665's PR 5, ADR-0070 decision 12, Q56–Q60) ----------------------
 
-  // Each member's gestures on, a layer each over `animate`'s targets: its values while it's on, `NaN` for
-  // a key it doesn't give; how many layers are on, so a change with none reads `animate`'s alone; and
-  // whether the Batch watches its members' hover and presses yet. What lays them on and lifts them is
-  // `batch-gestures.ts`', loaded at its first need (Q62).
-  const hovering: Array<Float64Array | undefined> = []
-  const tapping: Array<Float64Array | undefined> = []
-  let gesturing = 0
+  // Whether the Batch watches its members' hover and presses yet. What lays their layers on and lifts
+  // them is `batch-gestures.ts`', loaded at its first need (Q62).
   let listensHover = false
   let listensPress = false
 

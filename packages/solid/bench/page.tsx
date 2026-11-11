@@ -257,8 +257,9 @@ const xOfCell = (cell: number): number => (cell % COLUMNS) * 10
 const yOfCell = (cell: number): number => Math.floor(cell / COLUMNS) * 10
 const BATCH_SPRING = { type: "spring", stiffness: 210, damping: 20 } as const
 // `?kind=batch-gestures` (#665's PR 5, Q61's S5): the same Batch with `whileHover` and `whileTap`, which
-// listen from one source, so its mount, changes and frames cost what the plain Batch's do.
-const GESTURES = { whileHover: { scale: 1.05 }, whileTap: { scale: 0.95 } } as const
+// listen from one source, so its mount, changes and frames cost what the plain Batch's do. Their values
+// are on its own keys: a key of theirs it doesn't have would join them, a third key to step and draw.
+const GESTURES = { whileHover: { y: -4 }, whileTap: { x: 0 } } as const
 const BatchGrid = () => {
   const gestures = Bool.match(kind === "batch-gestures", { onTrue: () => GESTURES, onFalse: () => ({}) })
   const grid = createBatch({ count: n, initial: false, animate: (i) => ({ x: xOfCell(cellOf(i, phase())), y: yOfCell(cellOf(i, phase())) }), transition: BATCH_SPRING, ...gestures })
@@ -460,7 +461,11 @@ export interface BatchRound {
 
 const batchRound = async (): Promise<BatchRound> => {
   setPhase(0)
-  const mount = timed(() => setShown(true))
+  // Timed without the collection `timed` runs first: one before the mount moved the change's time after it
+  // (0.35 → 0.69 ms on Chromium, #665's PR 5), by where the mount's objects then lived.
+  const mountStart = performance.now()
+  setShown(true)
+  const mount = performance.now() - mountStart
   if (boxes().length !== n) throw new Error(`bench:solid: mounted ${boxes().length} of ${n}`)
   await frames(2)
   // The per-element page starts each div at its first cell, as the Batch's start there.
