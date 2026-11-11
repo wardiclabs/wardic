@@ -14,6 +14,10 @@
 // - RP5: a drag near its scroller's edge, moving toward it, scrolls the scroller: Auto-scroll over the group.
 // - RP6: a binding that places a new order inside `onReorder` itself, as a Batch Reorder group's does: a
 //   step's and a cancel's reveals still come, though `placed()` is told before the step returns.
+// - RP7 (#721, Q3): a binding whose `values()` is a new array at every read, the same items in the same
+//   order (a store's order read as a plain array), keeps a lifted item through its steps, telling
+//   `valuesChanged()` at each: the group knows its own order by its items. The app's own order, another
+//   order of them, drops it at its new place.
 import type * as Drag from "@wardic/core/Drag"
 import type * as InputSource from "@wardic/core/InputSource"
 import * as Announcer from "@wardic/core/Announcer"
@@ -22,6 +26,7 @@ import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import type { PassEnds } from "../src/internal/pass-ends.ts"
 import * as ReorderController from "@wardic/dom/ReorderController"
 import { afterEach, describe, expect, it } from "vitest"
+import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
@@ -44,6 +49,8 @@ interface Placed {
   readonly controller: ReorderController.Placed<string>
   readonly scroller: HTMLElement
   readonly order: () => ReadonlyArray<string>
+  /** The app's own order, set as an app sets `values`. */
+  readonly setOrder: (next: ReadonlyArray<string>) => void
   readonly elements: Map<string, HTMLElement>
   readonly drivers: Map<string, ReorderController.ItemDriver>
   readonly lifts: Array<string>
@@ -55,7 +62,13 @@ interface Placed {
   readonly close: () => Promise<void>
 }
 
-const mount = async (n: number, placesAtOnce = false): Promise<Placed> => {
+/** How the scene's binding behaves: placing a new order inside `onReorder`, and reading its order as a new array each time. */
+interface Binding {
+  readonly placesAtOnce?: boolean
+  readonly copies?: boolean
+}
+
+const mount = async (n: number, { placesAtOnce = false, copies = false }: Binding = {}): Promise<Placed> => {
   const values = Array.from({ length: n }, (_, i) => String.fromCharCode(97 + i))
   let order: ReadonlyArray<string> = values
   // Set once the scene's made: a binding that places at once places within `onReorder`.
@@ -73,7 +86,8 @@ const mount = async (n: number, placesAtOnce = false): Promise<Placed> => {
   const announcer = Layer.succeed(Announcer.Announcer, { announce: (message) => said.push(message) })
   const controller = Effect.runSync(
     ReorderController.makePlaced<string>({
-      values: () => order,
+      // A store's order, read as a plain array: a new one at every read.
+      values: () => Bool.match(copies, { onTrue: () => [...order], onFalse: () => order }),
       onReorder: (next) => {
         order = next
         if (placesAtOnce) placeNow()
@@ -92,6 +106,9 @@ const mount = async (n: number, placesAtOnce = false): Promise<Placed> => {
     controller,
     scroller,
     order: () => order,
+    setOrder: (next) => {
+      order = next
+    },
     elements,
     drivers,
     lifts,
@@ -228,7 +245,7 @@ describe("the Reorder controller for placed items (#712)", () => {
   })
 
   it("RP6: a binding that places inside onReorder: a step's and a cancel's reveals still come", async () => {
-    const p = await mount(10, true)
+    const p = await mount(10, { placesAtOnce: true })
     const a = p.drivers.get("a")!
     p.elements.get("a")!.focus()
     a.onKey(key("space"))
@@ -239,6 +256,28 @@ describe("the Reorder controller for placed items (#712)", () => {
     a.onKey(key("escape"))
     expect(p.order()[0], "back at the start").toBe("a")
     expect(p.scroller.scrollTop, "its place in view").toBe(0)
+    await p.close()
+  })
+
+  it("RP7 (#721): values() a new array at every read: a lift goes on through its steps; the app's own order drops it", async () => {
+    const p = await mount(4, { copies: true })
+    const a = p.drivers.get("a")!
+    a.onKey(key("space"))
+    for (const step of [1, 2]) {
+      a.onKey(key("down"))
+      // The binding: the new order read as a new array, told, then placed.
+      p.controller.valuesChanged()
+      p.place()
+      expect(p.order().indexOf("a"), `step ${step}: a moved on`).toBe(step)
+    }
+    expect(p.lifts, "still lifted after two steps").toEqual(["a true"])
+    // The app's own order while a is lifted: dropped, at its new place.
+    p.setOrder(["d", "c", "a", "b"])
+    p.controller.valuesChanged()
+    p.place()
+    expect(p.lifts, "dropped by the app's own order").toEqual(["a true", "a false"])
+    a.onKey(key("down"))
+    expect(p.order(), "no longer lifted: an arrow moves nothing").toEqual(["d", "c", "a", "b"])
     await p.close()
   })
 })
