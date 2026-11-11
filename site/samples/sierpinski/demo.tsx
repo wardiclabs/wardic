@@ -4,7 +4,7 @@
  */
 import { w } from "@wardic/solid/unstable/v2"
 import { createSignal, For, onSettled, Show } from "solid-js"
-import { longestFrames } from "../frames.ts"
+import { framesPerSecond } from "../frames.ts"
 import Sierpinski, { SPRING } from "./solid2.tsx"
 import { colorOf, DEPTH, HEIGHT, LEAVES, leafAt, WIDTH } from "./triangle.ts"
 
@@ -13,7 +13,7 @@ const LEAF_INDICES: ReadonlyArray<number> = Array.from({ length: LEAVES }, (_, i
 /** The same triangle with a ward per leaf, on the sample's spring: each depth retargets 2,187 elements, each on its own. */
 function WardEach() {
   const [depth, setDepth] = createSignal(0)
-  const [longest, setLongest] = createSignal(0)
+  const [fps, setFps] = createSignal<number>()
   let climb: ReturnType<typeof setInterval> | undefined
   onSettled(() => {
     let steps = 0
@@ -22,7 +22,7 @@ function WardEach() {
       setDepth(steps)
       if (steps === 5) clearInterval(climb)
     }, 700)
-    const stopFrames = longestFrames(setLongest)
+    const stopFrames = framesPerSecond(setFps)
     return () => {
       clearInterval(climb)
       stopFrames()
@@ -36,7 +36,7 @@ function WardEach() {
         </For>
       </div>
       <label class="sample-range">
-        Depth {depth()}
+        Depth {depth()} · {(3 ** depth()).toLocaleString("en")} triangles
         <input
           type="range"
           min="0"
@@ -48,7 +48,7 @@ function WardEach() {
           }}
         />
       </label>
-      <p class="sample-note">{LEAVES.toLocaleString("en")} Wardic elements · longest frame {longest()} ms</p>
+      <p class="sample-note">{LEAVES.toLocaleString("en")} Wardic elements · {fps() ?? "–"} fps</p>
     </div>
   )
 }

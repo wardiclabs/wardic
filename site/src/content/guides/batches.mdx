@@ -17,7 +17,7 @@ A Wardic element carries its own animation: its values, its springs, and the wor
 - **`tiles.member(id, { style })`** is a tile's handle, spread onto its element. Give the element's own `style` to the handle, not beside it: the Batch draws `transform` and `opacity` over the rest.
 - **The tiles render once.** `<For each={TILES}>` makes the thousand elements, and a new order changes only what the Batch reads.
 - **`stagger()`** counts the tiles a change moves, so the wave runs through the ones that go somewhere.
-- **"Moving…" and "Ready"** come from the Batch's landings: on Solid 2 `tiles.settled()`, pending while any tile moves; on Solid 1 `onAnimationStart` and `onAnimationComplete`. The longest frame is the page's own readout, the longest gap between frames in each second ([`site/samples/frames.ts`](https://github.com/wardiclabs/wardic/blob/main/site/samples/frames.ts)).
+- **"Moving…" and "Ready"** come from the Batch's landings: on Solid 2 `tiles.settled()`, pending while any tile moves; on Solid 1 `onAnimationStart` and `onAnimationComplete`. The frame rate is the page's own readout, the frames it drew in each second ([`site/samples/frames.ts`](https://github.com/wardiclabs/wardic/blob/main/site/samples/frames.ts)).
 
 Motion has no Batch. Its tab runs the same grid through `animate()`, a call per tile, as [`createAnimate`](/reference/solid/animation/create-animate) would.
 
@@ -27,7 +27,7 @@ Motion has no Batch. Its tab runs the same grid through `animate()`, a call per 
 
 <CodeTabs sample="sierpinski" />
 
-Its 2,187 triangles are always mounted, a Batch by index (`count`). Each leaf has an address, its number in base 3: at each level a 0 takes its triangle's top half, a 1 its bottom-left and a 2 its bottom-right. At depth `d`, a leaf sits on its ancestor `d` levels down, so the leaves sharing one cover it as one triangle:
+Its 2,187 leaves are always mounted, one Batch by index (`count`), and at depth `d` they cover `3 ** d` triangles, 243 at depth 5. Each leaf has an address, its number in base 3: at each level a 0 takes its triangle's top half, a 1 its bottom-left and a 2 its bottom-right. At depth `d`, a leaf sits on its ancestor `d` levels down, so the leaves sharing one cover it as one triangle:
 
 ```ts
 // triangle.ts
@@ -49,14 +49,34 @@ export const leafAt = (i: number, depth: number): { x: number; y: number; scale:
 
 Its sizes, `HALVES` (each half's top-left corner as a share of its triangle) and the colours are in [`triangle.ts`](https://github.com/wardiclabs/wardic/blob/main/site/samples/sierpinski/triangle.ts).
 
-The slider changes the depth, and `animate: (i) => leafAt(i, depth())` turns every leaf toward its new place in one change. Drag it back and forth and the leaves carry their speed through each turn. "A ward each" runs the same triangle with a Wardic element per leaf: compare the longest frame while it moves.
+The slider changes the depth, and `animate: (i) => leafAt(i, depth())` turns every leaf toward its new place in one change. Drag it back and forth and the leaves carry their speed through each turn. "A ward each" runs the same triangle with a Wardic element per leaf: compare the frame rate while it moves.
+
+## Hover and press
+
+<Demo sample="batch-gestures" />
+
+<CodeTabs sample="batch-gestures" />
+
+- **`whileHover` and `whileTap`** move a member while the pointer is over it and while it's pressed, as a Wardic element's do. A press that ends with the pointer still over it goes back to the hover's values.
+- **Here `whileHover` is a function** of the member's index, since a swatch's `y` is where it sits: values would send every swatch to one row. A function's keys must be keys the Batch already has. Given as values, a gesture's keys join the Batch's, and go back to where they were as it ends.
+- **The tap** tells you which member: `onTap`'s `{ i }` on Solid 1, `swatches.when("tap")`'s on Solid 2, with `item` too when keyed. Each swatch is a `<button>`, so Enter and Space press it; a member that isn't focusable is given `tabindex="0"`.
+- **One set of listeners** on the window hears every swatch, however many there are, where each of Motion's 96 buttons listens for itself. The gesture code loads with the first Batch that needs it.
+
+## Items that come and go
+
+<Demo sample="batch-presence" />
+
+<CodeTabs sample="batch-presence" />
+
+- **Keyed by name,** its `each` is the filtered list. Filter an item out and it leaves the list, and the rest turn toward their new places in the same change: each one's place is its index, so they need no `layout`.
+- **Under `<AnimatePresence>`,** a leaving item plays its `exit` before its element goes. `stagger()` in the exit's transition counts the items leaving together.
+- **An item back** enters from `initial`. Switch filters before an exit lands and the items coming back turn around where they are, at the speed they have, their old elements gone at once.
+- Motion's tab gives every item `layout`, and its presence `mode="popLayout"`, so a leaving item gives up its place in the grid as it fades.
 
 ## What else a Batch does
 
 Each of these is on [`createBatch`'s page](/reference/solid/animation/create-batch):
 
-- **Items that come and go.** Keyed under `<AnimatePresence>`, a leaving member plays its `exit` before its element goes, and an item back mid-exit takes over where it was. [Keyed, for a list](/reference/solid/animation/create-batch#keyed-for-a-list).
-- **Hover and press.** `whileHover` and `whileTap` per member, with one set of listeners for the whole Batch, however many members. [Hover and press](/reference/solid/animation/create-batch#hover-and-press).
 - **Landings.** Pending while anything moves, then how many members set off. [Its landings](/reference/solid/animation/create-batch#its-landings).
 - **From code.** `animate(grid, …)` with Playback controls, a member's own call, and a Batch as a sequence's Segment. [Animating it from code](/reference/solid/animation/create-batch#animating-it-from-code).
 - **One member that does more.** A Wardic element on a member's element drags, or runs variants or a hover of its own, and hands its keys back to the Batch once it's done. [A Wardic element as a member](/reference/solid/animation/create-batch#a-wardic-element-as-a-member).

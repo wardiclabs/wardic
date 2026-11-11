@@ -1,6 +1,6 @@
 import { createBatch } from "@wardic/solid/unstable/v2"
 import { createSignal, For, isPending, onSettled } from "solid-js"
-import { longestFrames } from "../frames.ts"
+import { framesPerSecond } from "../frames.ts"
 import { colorOf, DEPTH, HEIGHT, LEAVES, leafAt, WIDTH } from "./triangle.ts"
 
 const LEAF_INDICES: ReadonlyArray<number> = Array.from({ length: LEAVES }, (_, i) => i)
@@ -9,7 +9,7 @@ export const SPRING = { type: "spring", visualDuration: 0.5, bounce: 0.25 } as c
 /** Sierpiński's triangle in 2,187 leaves, one Batch: a new depth moves every leaf in one change. */
 export default function Sierpinski() {
   const [depth, setDepth] = createSignal(0)
-  const [longest, setLongest] = createSignal(0)
+  const [fps, setFps] = createSignal<number>()
   // Its entrance climbs a level every 0.7 s, to 5, until the slider takes over.
   let climb: ReturnType<typeof setInterval> | undefined
   onSettled(() => {
@@ -19,7 +19,7 @@ export default function Sierpinski() {
       setDepth(steps)
       if (steps === 5) clearInterval(climb)
     }, 700)
-    const stopFrames = longestFrames(setLongest)
+    const stopFrames = framesPerSecond(setFps)
     return () => {
       clearInterval(climb)
       stopFrames()
@@ -37,7 +37,7 @@ export default function Sierpinski() {
         <For each={LEAF_INDICES}>{(i) => <div class="sample-leaf" {...leaves.at(i, { style: { background: colorOf(i) } })} />}</For>
       </div>
       <label class="sample-range">
-        Depth {depth()}
+        Depth {depth()} · {(3 ** depth()).toLocaleString("en")} triangles
         <input
           type="range"
           min="0"
@@ -50,7 +50,7 @@ export default function Sierpinski() {
         />
       </label>
       <p class="sample-note">
-        {LEAVES.toLocaleString("en")} triangles · {isPending(() => leaves.settled()) ? "Moving…" : "Ready"} · longest frame {longest()} ms
+        {LEAVES.toLocaleString("en")} elements · {isPending(() => leaves.settled()) ? "Moving…" : "Ready"} · {fps() ?? "–"} fps
       </p>
     </div>
   )

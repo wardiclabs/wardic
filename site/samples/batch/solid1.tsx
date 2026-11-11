@@ -1,6 +1,6 @@
 import { createBatch, stagger } from "@wardic/solid"
 import { createSignal, For, onCleanup, onMount } from "solid-js"
-import { longestFrames } from "../frames.ts"
+import { framesPerSecond } from "../frames.ts"
 
 const COLUMNS = 40
 const STEP = 7
@@ -22,8 +22,8 @@ const shuffled = (ids: ReadonlyArray<number>): ReadonlyArray<number> => {
 export default function Tiles() {
   const [order, setOrder] = createSignal(TILES)
   const [moving, setMoving] = createSignal(false)
-  const [longest, setLongest] = createSignal(0)
-  onMount(() => onCleanup(longestFrames(setLongest)))
+  const [fps, setFps] = createSignal<number>()
+  onMount(() => onCleanup(framesPerSecond(setFps)))
   // Keyed by tile, so a new order moves each tile from where it is, at the speed it has.
   const tiles = createBatch({
     each: order,
@@ -45,7 +45,7 @@ export default function Tiles() {
         <For each={TILES}>{(id) => <div class="sample-tile" {...tiles.member(id, { style: { background: `hsl(${190 + id * 0.15} 60% 62%)` } })} />}</For>
       </div>
       <p class="sample-note">
-        1,000 tiles · {moving() ? "Moving…" : "Ready"} · longest frame {longest()} ms
+        1,000 tiles · {moving() ? "Moving…" : "Ready"} · {fps() ?? "–"} fps
       </p>
     </div>
   )

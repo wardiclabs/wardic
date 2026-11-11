@@ -1,6 +1,6 @@
 import { animate } from "motion/react"
 import { useEffect, useRef, useState } from "react"
-import { longestFrames } from "../frames.ts"
+import { framesPerSecond } from "../frames.ts"
 
 const COLUMNS = 40
 const STEP = 7
@@ -27,8 +27,8 @@ export default function Tiles() {
   const runs = useRef(0)
   const [order, setOrder] = useState(TILES)
   const [moving, setMoving] = useState(false)
-  const [longest, setLongest] = useState(0)
-  useEffect(() => longestFrames(setLongest), [])
+  const [fps, setFps] = useState<number>()
+  useEffect(() => framesPerSecond(setFps), [])
   // Motion has no Batch: each tile runs on its own, staggered by its place.
   useEffect(() => {
     const run = ++runs.current
@@ -65,7 +65,7 @@ export default function Tiles() {
         ))}
       </div>
       <p className="sample-note">
-        1,000 tiles · {moving ? "Moving…" : "Ready"} · longest frame {longest} ms
+        1,000 tiles · {moving ? "Moving…" : "Ready"} · {fps ?? "–"} fps
       </p>
     </div>
   )

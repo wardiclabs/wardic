@@ -1,18 +1,16 @@
 /**
- * The Batch samples' frame readout (#665): each second, the longest frame of it in ms, from the gaps
- * between `requestAnimationFrame`'s calls, told to `report`. Returns its stop.
+ * The Batch samples' frame rate (#665): each second, how many frames the page drew in it, from
+ * `requestAnimationFrame`'s calls, told to `report` as frames per second. Returns its stop.
  */
-export const longestFrames = (report: (ms: number) => void): (() => void) => {
-  let last = performance.now()
-  let since = last
-  let longest = 0
+export const framesPerSecond = (report: (fps: number) => void): (() => void) => {
+  let since = performance.now()
+  let frames = 0
   let frame = 0
   const tick = (now: number): void => {
-    longest = Math.max(longest, now - last)
-    last = now
+    frames++
     if (now - since >= 1000) {
-      report(Math.round(longest))
-      longest = 0
+      report(Math.round((frames * 1000) / (now - since)))
+      frames = 0
       since = now
     }
     frame = requestAnimationFrame(tick)
