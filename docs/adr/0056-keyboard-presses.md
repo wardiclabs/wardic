@@ -170,3 +170,7 @@ Measured against `main`, this change alone: 0.85 KB less held at rest by a press
 ## Amendment (#709, 2026-11-11): the focusability check has a module of its own
 
 `makeFocusable` moves out of `DomInput`'s input module into `@wardic/dom/KeyboardPress`; `DomInput.makeFocusable` stays, the same function. A Batch's members are made focusable as each arrives (#665, Q57), and the Batch's gesture code loads lazily (ADR-0067): reached through it, each member's call cost more than the check (a profile of `bench:solid`'s gesture page, 1,000 members). From its own module a binding calls it directly, without the DOM's input. The rule is unchanged.
+
+## Amendment (#712, 2026-11-11): `keys` read at each key
+
+`PressOptions.keys` takes a function too, read at each key's down, as `propagate` is read at each press's start. A Batch Reorder group's items (ADR-0072 decision 10) press from Enter and Space only while its keyboard reorder is off, which `keyboard` can switch at any time: the next key reads it. A key's up is always stepped, so a press its down started ends. `false` still watches no keys at all.

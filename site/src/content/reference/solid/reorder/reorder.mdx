@@ -74,12 +74,15 @@ A long list of items of one size reorders as one [Batch](/guides/batches): `Reor
 | `axis` | The list's shape: `"y"`, a column (the default), `"x"`, a row, or `"xy"`, a grid that wraps. |
 | `itemSize` | Every item's size, `{ width, height }` in px. |
 | `gap` | The space between places, in px: one for both axes, or `{ x, y }`. |
-| `columns` | A grid's columns: how many items a row holds. |
+| `columns` | A grid's columns: how many items a row holds. Left out, as many as the group's width holds, read again as it's resized: give the group its width, say `width: 100%`. |
+| `direction` | `"rtl"` mirrors a row's and a grid's places, from the group's right edge. Left out, the group's element's own direction, so a page's `dir="rtl"` needs none; on a server, `"ltr"` unless given. |
 | `initial` | Where each item starts: values, a function of its item and index, or `false`. It starts at its place, but for the keys `initial` gives. |
 | `transition` | How the items move to their places. |
 | `whileDrag` | Where an item goes while it's in hand, dragged or lifted from the keyboard: values with an optional `transition`, or a function of its item and index. |
+| `whileHover`, `whileTap` | Where an item goes while the pointer is over it, and while it's pressed: by a pointer, or by Enter or Space while the keyboard reorder is off (on, they lift it). |
+| `exit` | Where an item leaving under `<AnimatePresence>` goes, at its last place: values with an optional `transition`, or a function of its item, last index and `custom`. Put the `<AnimatePresence>` around the `<For>`. |
 
-The group is `position: relative`, sized to its places; each item is `position: absolute` at its top-left, sized from `itemSize`, placed by its transform. An item is a member of the group's Batch, not a Wardic element: it takes its `value`, `as` (`"li"` by default), and its element's own props, its `style` without a transform or `opacity` the Batch draws. Its events are as `Reorder.Group`'s: on Solid 1, `onReorderEnd`, `onHoldStart` and `onHoldEnd`; on Solid 2, a function as `groupRef` is handed the group, with its `next`, `each` and `when` of `reorderEnd`, `holdStart` and `holdEnd`, its `move` and its `axis`.
+The group is `position: relative`, sized to its places; each item is `position: absolute` at its top-left, sized from `itemSize`, placed by its transform. On a server each item renders at its place, so hydrating moves nothing; a grid with no `columns` is laid out there by CSS grid, as the server can't know its width, and placed by the group once it reads it. An item's own DOM events (`onClick`, say) work as on any element; the group tells no gesture events of its own. An item is a member of the group's Batch, not a Wardic element: it takes its `value`, `as` (`"li"` by default), and its element's own props, its `style` without a transform or `opacity` the Batch draws. Its events are as `Reorder.Group`'s: on Solid 1, `onReorderEnd`, `onHoldStart` and `onHoldEnd`; on Solid 2, a function as `groupRef` is handed the group, with its `next`, `each` and `when` of `reorderEnd`, `holdStart` and `holdEnd`, its `move` and its `axis`.
 
 ## Coming from Motion
 
