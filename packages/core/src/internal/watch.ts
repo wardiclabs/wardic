@@ -7,6 +7,7 @@ import { constFalse } from "effect/Function"
 import * as Queue from "effect/Queue"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
+import * as UndefinedOr from "effect/UndefinedOr"
 import * as InputFeed from "../InputFeed.ts"
 import { tracedScoped } from "./tracing.ts"
 
@@ -53,3 +54,17 @@ export const streamOf = <A, R>(
       },
     })
   )
+
+/** An InputSource's feed over many targets, or a defect naming it: an Environment without one can't watch many targets as one. */
+// #665's PR 5; shared by the hover's, the press's and the drag's watches over many targets (#712).
+export const amongFeed = <A>(feed: A | undefined, name: string): Effect.Effect<A> =>
+  UndefinedOr.match(feed, {
+    onUndefined: () => Effect.die(new Error(`wardic: the Environment's InputSource has no \`${name}\`, which a gesture over many targets needs`)),
+    onDefined: Effect.succeed,
+  })
+
+/** A watch's handlers over many targets: `on`, each target's start and end, with the target. */
+// #665's PR 5 (Q56).
+export interface AmongHandlers<A> extends Pick<InputFeed.Handlers<never>, "onDefect" | "onEnd" | "onStop"> {
+  readonly on: (target: unknown, value: A) => void
+}

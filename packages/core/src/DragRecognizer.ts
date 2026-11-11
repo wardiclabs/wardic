@@ -22,12 +22,13 @@
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
+import * as Exit from "effect/Exit"
 import { constant, constTrue, constVoid, identity, type LazyArg } from "effect/Function"
 import * as Match from "effect/Match"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
-import type * as Scope from "effect/Scope"
+import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Drag from "./Drag.ts"
@@ -37,7 +38,8 @@ import * as InputSource from "./InputSource.ts"
 import type * as Point from "./Point.ts"
 import * as Velocity from "./Velocity.ts"
 
-import { streamOf, watchFeed } from "./internal/watch.ts"
+import { tracedScoped } from "./internal/tracing.ts"
+import { type AmongHandlers, amongFeed, streamOf, watchFeed } from "./internal/watch.ts"
 
 /**
  * Movement distance (px) from the down-origin required before a gesture
@@ -521,6 +523,99 @@ const axisAtOf = (axis: Drag.Axis | LazyArg<Drag.Axis>): LazyArg<Drag.Axis> =>
     Match.when(Predicate.isString, (fixed) => constant(fixed)),
     Match.orElse((read) => read),
   )
+
+// A host global in every environment Wardic runs on, which core's own `lib` doesn't declare (Microtask.ts).
+declare const queueMicrotask: (callback: () => void) => void
+
+/** A press's release: its pointer let go or cancelled, or a lost release (an unpressed move). */
+const isRelease = (event: InputSource.PointerLikeEvent): boolean =>
+  Bool.or(Bool.or(event.type === "up", event.type === "cancel"), Bool.and(event.type === "move", Bool.not(event.pressed)))
+
+/** A pressed member's own drag watch: its Scope, the pointer that pressed it, and whether its gesture started. */
+interface PressedMember {
+  readonly scope: Scope.Closeable
+  pointerId: number
+  started: boolean
+}
+
+/**
+ * Watches drags among many members while the Scope is open, from one feed over them (`pointerAmong`):
+ * a member's down starts `watchDrag` on that member alone, handed the down as drag controls hand one
+ * (`adoptPointer`), so it drags as its own press would, with the same threshold, claim, samples and
+ * velocity. `handlers.on` hears each sample with its member. No member listens until it's pressed.
+ * - **A gesture that started** ends its member's watch at its `"end"`, which the member's own feed hears.
+ * - **A press that never started** ends it at that pointer's release, a lost one too: there's nothing
+ *   to tell, and no claim to give back. Another pointer's release on the member ends nothing.
+ * - **A down on a member pressed but not started** is handed to its watch, as the gesture's new press.
+ *
+ * @example
+ * yield* DragRecognizer.watchDragAmong(memberOf, { axis: "y" }, { on: (member, sample) => follow(member, sample) })
+ */
+// #712, ADR-0072 decision 7: a Batch Reorder group's members, where a drag watch each would cost a listener
+// set each. Over the feed `watchHoverAmong` and `watchPressAmong` watch (ADR-0055, *Amendment (#665)*).
+// Held strongly, not weakly as their states are: each pressed member's entry is a Scope to close, gone at
+// its gesture's end. A trusted event runs the page's microtasks between its listeners, and this feed's run
+// before the member's own, so a started gesture's watch isn't touched at the release: it ends at its own
+// `"end"`. Tier 2, for bindings.
+export const watchDragAmong: (
+  memberOf: (node: unknown) => Option.Option<unknown>,
+  options: Omit<DragOptions, "listen" | "adoptable">,
+  handlers: AmongHandlers<Drag.Sample>,
+) => Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> = /*#__PURE__*/ Effect.fnUntraced(
+  function* (memberOf: (node: unknown) => Option.Option<unknown>, options: Omit<DragOptions, "listen" | "adoptable">, handlers: AmongHandlers<Drag.Sample>) {
+    yield* Effect.logDebug("wardic.drag: watch among")
+    const input = yield* InputSource.InputSource
+    const pointer = yield* amongFeed(input.pointerAmong, "pointerAmong")
+    const scope = yield* Effect.scope
+    const run = Effect.runSyncWith(yield* Effect.context<InputSource.InputSource>())
+    const pressed = new Map<unknown, PressedMember>()
+    /** `member`'s watch ended: after this event's dispatch, which its own feed may still be hearing. */
+    const end = (member: unknown, own: PressedMember): void => {
+      if (pressed.get(member) !== own) return
+      pressed.delete(member)
+      queueMicrotask(() => run(Scope.close(own.scope, Exit.void)))
+    }
+    /** `told`'s down handed to `member`'s watch, as drag controls hand one: the event's own platform event, else the event. */
+    const hand = (member: unknown, own: PressedMember, told: InputSource.PointerLikeEvent): void => {
+      own.pointerId = told.pointerId
+      const raw = UndefinedOr.match(told.raw, { onUndefined: () => told, onDefined: identity })
+      // A down that isn't a pressed pointer's starts nothing.
+      if (Option.isNone(input.adoptPointer(member, raw))) end(member, own)
+    }
+    /** `member`'s down: handed to its watch while one is open and hasn't started, else to a new one. */
+    const press = (member: unknown, told: InputSource.PointerLikeEvent): void => {
+      const open = pressed.get(member)
+      if (Predicate.isNotUndefined(open)) {
+        if (open.started) return
+        return hand(member, open, told)
+      }
+      const own: PressedMember = { scope: Scope.forkUnsafe(scope, "sequential"), pointerId: told.pointerId, started: false }
+      pressed.set(member, own)
+      const on = (sample: Drag.Sample): void => {
+        if (sample.phase === "start") own.started = true
+        handlers.on(member, sample)
+        if (sample.phase === "end") end(member, own)
+      }
+      run(watchDrag(member, { ...options, listen: false, adoptable: true }, { on, onDefect: handlers.onDefect }).pipe(Scope.provide(own.scope)))
+      hand(member, own, told)
+    }
+    /** A release by the pointer that pressed `member`, its gesture never started: its watch ends. */
+    const released = (member: unknown, told: InputSource.PointerLikeEvent): void => {
+      const own = pressed.get(member)
+      if (Predicate.isUndefined(own)) return
+      if (own.started) return
+      if (own.pointerId !== told.pointerId) return
+      end(member, own)
+    }
+    const onPointer = (): ((told: InputSource.TargetEvent<InputSource.PointerLikeEvent>) => boolean) => ({ target, event }) => {
+      if (event.type === "down") press(target, event)
+      if (isRelease(event)) released(target, event)
+      return true
+    }
+    yield* InputFeed.watchWith(pointer(memberOf), onPointer, { onDefect: handlers.onDefect, onEnd: handlers.onEnd, onStop: handlers.onStop })
+  },
+  (self) => tracedScoped(self, "wardic.drag"),
+)
 
 /**
  * A drag on `target`, as a Stream of samples kept to its `axis`, with `watchDrag`'s rules: each sample
