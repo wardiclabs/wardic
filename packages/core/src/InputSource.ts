@@ -292,21 +292,21 @@ export class InputSource extends Context.Service<InputSource, {
   readonly adoptPointer: (target: unknown, raw: unknown) => Option.Option<PointerLikeEvent>
   /**
    * The pointer events over many targets, from one source, each told with the target it's for:
-   * `memberOf(node)` names the target a node the pointer hit is, `undefined` for none, and each target
+   * `memberOf(node)` names the target a node the pointer hit is, `Option.none()` for none, and each target
    * hears what `pointer(target)` would, its enter and leave, the downs and releases over it, and a held
    * pointer's events wherever they land. For many like targets, a Batch's members, where a feed each
    * would cost a listener set each. Absent: `Recognizer.watchHoverAmong` and `watchPressAmong` fail,
    * naming it.
    */
   // #665's PR 5 (Q56, Q17's probe: a listener set per member cost 12 ms and 4.6 KB a member per 1,000).
-  readonly pointerAmong?: ((memberOf: (node: unknown) => unknown) => InputFeed.InputFeed<TargetEvent<PointerLikeEvent>>) | undefined
+  readonly pointerAmong?: ((memberOf: (node: unknown) => Option.Option<unknown>) => InputFeed.InputFeed<TargetEvent<PointerLikeEvent>>) | undefined
   /**
    * The focus and blur of many targets and of whatever inside each, from one source, each told with the
-   * target it's for, as its `memberOf` names it: what `focus(target)` would tell it. Absent: no
-   * key presses a target among them.
+   * target it's for, as its `memberOf` names it: what `focus(target)` would tell it, and at its start a
+   * focus already within one. Absent: no key presses a target among them.
    */
   // #665's PR 5 (Q57): a **Keyboard press** on a Batch's member.
-  readonly focusAmong?: ((memberOf: (node: unknown) => unknown) => InputFeed.InputFeed<TargetEvent<FocusLikeEvent>>) | undefined
+  readonly focusAmong?: ((memberOf: (node: unknown) => Option.Option<unknown>) => InputFeed.InputFeed<TargetEvent<FocusLikeEvent>>) | undefined
 }>()("@wardic/core/InputSource") {}
 
 /**

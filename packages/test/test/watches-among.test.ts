@@ -9,9 +9,11 @@
 //   cancel), a lost release, a press a drag took over.
 // - WA4: a down a press inside claimed starts no press among the targets; one only marked does.
 // - WA5: a focused target's Enter and Space press it, as `watchPress`'s keyboard press: keys before its
-//   focus, or another target's, press nothing; a blur cancels a key's press.
+//   focus, or after its blur, press nothing, and another target's focus has its own keys; a blur cancels a
+//   key's press.
 // - WA6: `memberOf` names the target: a pushed node that's no target's tells nothing.
 // - WA7: an InputSource with no `pointerAmong` is a defect naming it.
+// - WA8: five hundred targets, their enters and leaves interleaved: each target's edges are its own.
 import * as DragActivity from "@wardic/core/DragActivity"
 import * as InputSource from "@wardic/core/InputSource"
 import * as PressClaims from "@wardic/core/PressClaims"
@@ -23,6 +25,7 @@ import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 
@@ -55,7 +58,7 @@ const opened = <R>(watch: Effect.Effect<void, never, Scope.Scope | R>) =>
 
 /** Targets a, b and c, by name: what `memberOf` names. */
 const TARGETS = new Set<unknown>(["a", "b", "c"])
-const memberOf = (node: unknown): unknown => Bool.match(TARGETS.has(node), { onTrue: () => node, onFalse: () => undefined })
+const memberOf = (node: unknown): Option.Option<unknown> => Bool.match(TARGETS.has(node), { onTrue: () => Option.some(node), onFalse: () => Option.none() })
 
 /** `heard`'s list for `target`, with `value` added. */
 const told = <A>(heard: Map<unknown, Array<A>>, target: unknown, value: A): void => {
@@ -201,12 +204,19 @@ it.effect("WA5: a focused target's Enter and Space press it; a blur cancels a ke
       // Its keys let go with its focus.
       yield* input.pushKey(key("up", "space"))
       yield* input.pushKey(key("down"))
+      yield* input.pushKey(key("up"))
+      // Another target's focus: its keys, and none of a's.
+      yield* input.pushFocusTo("b", focusOf("focus"))
+      yield* input.pushKey(key("down"))
+      yield* input.pushKey(key("up"))
     }).pipe(Effect.provide(input.layer))
     expect(heard).toEqual([
       ["a", "start", "keyboard"],
       ["a", "tap", "keyboard"],
       ["a", "start", "keyboard"],
       ["a", "cancel", "keyboard"],
+      ["b", "start", "keyboard"],
+      ["b", "tap", "keyboard"],
     ])
   }))
 
@@ -232,4 +242,19 @@ it.effect("WA7: an InputSource with no pointerAmong is a defect naming it", () =
     expect(Exit.isFailure(exit)).toBe(true)
     const defect = Exit.match(exit, { onSuccess: () => undefined, onFailure: (cause) => Cause.squash(cause) })
     expect(String(UndefinedOr.getOrThrow(defect))).toMatch(/pointerAmong/)
+  }))
+
+it.effect("WA8: five hundred targets, interleaved: each target's edges are its own", () =>
+  Effect.gen(function* () {
+    const many = Array.from({ length: 500 }, (_, n) => ({ n }))
+    const known = new Set<unknown>(many)
+    const input = yield* TestInput.pushable()
+    const heard = new Map<unknown, Array<boolean>>()
+    yield* Effect.gen(function* () {
+      yield* opened(Recognizer.watchHoverAmong((node) => Bool.match(known.has(node), { onTrue: () => Option.some(node), onFalse: () => Option.none() }), { on: (target, edge) => told(heard, target, edge.active) }))
+      // Each one entered, then every other one left, in another order.
+      for (const target of many) yield* input.pushTo(target, ev("enter"))
+      for (const target of [...many].reverse()) if (target.n % 2 === 0) yield* input.pushTo(target, ev("leave"))
+    }).pipe(Effect.provide(input.layer))
+    many.forEach((target) => expect(heard.get(target), `target ${target.n}`).toEqual(Bool.match(target.n % 2 === 0, { onTrue: () => [true, false], onFalse: () => [true] })))
   }))

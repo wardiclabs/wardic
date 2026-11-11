@@ -51,8 +51,8 @@ export interface WardicKeyedBatchConfig<T> extends KeyedBatchConfig<T> {}
 export interface WardicBatchPointInfo extends WardicPointInfo {
   readonly element: Element
   readonly i: number
-  /** A keyed member's item; `undefined` by index. */
-  readonly item: unknown
+  /** A keyed member's item; none by index. */
+  readonly item?: unknown
 }
 
 /** A member's press event on Solid 2 (Q60): as its hover's, and how it was made, `"pointer"` or `"keyboard"`. */
@@ -86,11 +86,13 @@ const GESTURE_OF: Readonly<Record<keyof WardicBatchEvents, "hover" | "press" | u
   tapCancel: "press",
 }
 
-/** A member's gesture event's info (Q60): its point, its element and the member, and a press's input. */
-const gestureInfoOf = (told: BatchGestureTold): WardicBatchPointInfo | WardicBatchPressInfo => {
-  const info: Record<string, unknown> = { point: told.point, element: told.element, i: told.i, item: told.item }
+/** A member's gesture event's info (Q60): its point, its element and the member (with its item keyed), and a press's input. */
+const gestureInfoOf = (told: BatchGestureTold, keyed: boolean): WardicBatchPressInfo => {
+  const info: { -readonly [K in keyof WardicBatchPressInfo]?: WardicBatchPressInfo[K] } = { point: told.point, element: told.element, i: told.i }
+  if (keyed) info.item = told.item
   if (Predicate.isNotUndefined(told.input)) info.input = told.input
-  return info as unknown as WardicBatchPointInfo
+  // A hover's has no `input`: its name's type says which it is.
+  return info as WardicBatchPressInfo
 }
 
 /** What a member's element takes beside its handle: its own `ref`, and its own `style`, as an object. */
@@ -219,7 +221,7 @@ export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<u
           flights.ended(landing)
           events.tell("settled", () => landing)
         },
-        gesture: (told) => events.tell(told.name, () => gestureInfoOf(told) as WardicBatchPressInfo),
+        gesture: (told) => events.tell(told.name, () => gestureInfoOf(told, keyed)),
       },
     ))
   if (Predicate.isNotUndefined(config.whileHover)) binding.listen("hover")

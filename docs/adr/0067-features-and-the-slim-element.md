@@ -292,7 +292,7 @@ So decision 4's target, about 105 KB on Solid 1, was met. `main` was a few bytes
 
 ## Amendment (#665, 2026-11-11): a Batch's gestures load at their first need
 
-`createBatch`'s `whileHover` and `whileTap` (ADR-0070, *Amendment (#665)*) stand on the gestures' input, as a Wardic element's gesture Features do. A Batch brings it (decision 12), but not statically: imported with the rest, about 7.4 KB gzipped, nearly all the DOM's input, went into every Batch app, gestures or not (`s1-batch` +9.4%, `s2-batch` +8.1%). Its gesture code is in a chunk of its own, `batch-gestures.ts`, imported at the Batch's first need (Q62): its watches start as it arrives, nothing before them replayed, as a lazily loaded Feature's do. The Batch keeps its members' layers and what reads them, about 2.2 KB gzipped with Vite's preload helper for the `import()`.
+`createBatch`'s `whileHover` and `whileTap` (ADR-0070, *Amendment (#665)*) stand on the gestures' input, as a Wardic element's gesture Features do. A Batch brings it (decision 12), but not statically: imported with the rest, about 7.4 KB gzipped, nearly all the DOM's input, went into every Batch app, gestures or not (`s1-batch` +9.4%, `s2-batch` +8.1%). Its gesture code is in a chunk of its own, `batch-gestures.ts`, imported at the page's first Batch that needs it (Q62): its watches start as it arrives, nothing before them replayed, as a lazily loaded Feature's do, and every Batch after sets its gestures up as it's made. The Batch keeps its members' layers and what reads them, about 2.2 KB gzipped with Vite's preload helper for the `import()`.
 
 - Rejected: the provider's `hover` and `press` Features, as a Slim element's, which a Complete app's provider doesn't have unless it's given them.
 

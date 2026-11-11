@@ -9,17 +9,21 @@
 //   toward the new targets as the hover ends (Q59).
 // - CG4: its callbacks, each with the platform's event, its point and the member: `{ i }` by index,
 //   `{ i, item }` keyed; a release elsewhere is a cancel.
-// - CG5: Enter and Space press a focused member (Q57): its element takes `tabindex="0"`, a button none.
+// - CG5: Enter and Space press a focused member (Q57): its element takes `tabindex="0"`, a button none,
+//   and one given a `tabindex` keeps it.
 // - CG6: a function form's key the Batch doesn't have is reported, naming it (Q58); an object form's
-//   key joins the Batch's.
+//   key joins the Batch's, and goes back to where it was as the hover ends.
+// - CG8: a leaving member's gestures don't take its exit: hovered as it leaves, and left, its exit
+//   lands and its element goes.
+// - CG9: a member whose element is replaced mid-hover turns back to `animate`'s on its new element.
 // - CG7: a Batch with no gesture adds no window listener; one with `whileHover` adds its set once, as its
 //   gesture code arrives, whatever its count (S5).
 //
 // A Batch's gesture code loads at its first need (Q62): each test waits for it before the mouse moves.
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { createBatch, wardic, WardicProvider } from "@wardic/solid"
-import { createSignal, For, type JSX } from "solid-js"
+import { AnimatePresence, createBatch, wardic, WardicProvider } from "@wardic/solid"
+import { createSignal, For, type JSX, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { raf } from "./browser-helpers.ts"
 import { envWith, errorsNamed, type Logged } from "./report-env.ts"
@@ -215,9 +219,10 @@ describe("hover and press per member on Solid 1 (#665)", () => {
     const heard: Array<string> = []
     let div!: HTMLDivElement
     let button!: HTMLButtonElement
+    let given!: HTMLDivElement
     const Scene = (): JSX.Element => {
       const grid = createBatch({
-        count: 2,
+        count: 3,
         animate: () => ({ scale: 1 }),
         whileTap: { scale: 0.9 },
         onTapStart: (event, info) => heard.push(`start ${info.i} ${event.type} ${info.input}`),
@@ -227,6 +232,7 @@ describe("hover and press per member on Solid 1 (#665)", () => {
         <>
           <div style={BOX} {...grid.at(0, { ref: (el) => (div = el as HTMLDivElement) })} />
           <button style={BOX} {...grid.at(1, { ref: (el) => (button = el as HTMLButtonElement) })} />
+          <div style={BOX} tabindex="-1" {...grid.at(2, { ref: (el) => (given = el as HTMLDivElement) })} />
         </>
       )
     }
@@ -236,7 +242,7 @@ describe("hover and press per member on Solid 1 (#665)", () => {
       </WardicProvider>
     ))
     await gesturesLoaded()
-    expect([div.getAttribute("tabindex"), button.hasAttribute("tabindex")]).toEqual(["0", false])
+    expect([div.getAttribute("tabindex"), button.hasAttribute("tabindex"), given.getAttribute("tabindex")]).toEqual(["0", false, "-1"])
     div.focus()
     div.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }))
     const pressed = await over(30, () => scaleOf(div))
@@ -278,6 +284,76 @@ describe("hover and press per member on Solid 1 (#665)", () => {
     await mouse.move(centreOf(good))
     const grown = await over(20, () => scaleOf(good))
     expect(grown[grown.length - 1]).toBeCloseTo(1.2, 6)
+    // Off it: `scale`, which only the hover gives, goes back to where it was, its identity.
+    await mouse.move(AWAY)
+    const back = await over(20, () => scaleOf(good))
+    expect(back[back.length - 1]).toBe(1)
+  })
+
+  it("CG8: a leaving member's gestures don't take its exit: its exit lands and its element goes", async () => {
+    await mouse.move(AWAY)
+    const [items, setItems] = createSignal<ReadonlyArray<string>>(["a", "b"])
+    const members = new Map<string, HTMLDivElement>()
+    const Scene = (): JSX.Element => {
+      const list = createBatch({
+        each: items,
+        key: (id) => id,
+        initial: false,
+        animate: (_, i) => ({ x: i * 80, opacity: 1 }),
+        whileHover: { opacity: 0.5 },
+        exit: { opacity: 0, transition: TWEEN },
+        transition: TWEEN,
+      })
+      return (
+        <AnimatePresence>
+          <For each={items()}>{(id) => <div style={BOX} {...list.member(id, { ref: (el) => members.set(id, el as HTMLDivElement) })} />}</For>
+        </AnimatePresence>
+      )
+    }
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await gesturesLoaded()
+    const b = members.get("b") as HTMLDivElement
+    await mouse.move(centreOf(b))
+    await over(20, () => 0)
+    setItems(["a"])
+    await over(2, () => 0)
+    // The pointer leaves mid-exit: the hover's end turns nothing back.
+    await mouse.move(AWAY)
+    const exit = await over(30, () => [Number(getComputedStyle(b).opacity), b.isConnected] as const)
+    expect(exit.every(([opacity], f) => f === 0 || opacity <= exit[f - 1][0] + 1e-9)).toBe(true)
+    expect(exit[exit.length - 1][1]).toBe(false)
+  })
+
+  it("CG9: a member whose element is replaced mid-hover turns back to animate's on its new element", async () => {
+    await mouse.move(AWAY)
+    const [first, setFirst] = createSignal(true)
+    let member!: HTMLDivElement
+    const Scene = (): JSX.Element => {
+      const grid = createBatch({ count: 1, initial: false, animate: () => ({ scale: 1 }), whileHover: { scale: 1.2 }, transition: TWEEN })
+      const handle = () => grid.at(0, { ref: (el) => (member = el as HTMLDivElement) })
+      return (
+        <Show when={first()} fallback={<div style={{ ...BOX, "margin-left": "300px" }} {...handle()} />}>
+          <div style={BOX} {...handle()} />
+        </Show>
+      )
+    }
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <Scene />
+      </WardicProvider>
+    ))
+    await gesturesLoaded()
+    await mouse.move(centreOf(member))
+    await over(20, () => 0)
+    expect(scaleOf(member)).toBeCloseTo(1.2, 6)
+    // Its element made again, away from the pointer: the new one heads back to `animate`'s 1.
+    setFirst(false)
+    const back = await over(30, () => scaleOf(member))
+    expect(back[back.length - 1]).toBe(1)
   })
 
   it("CG7: a Batch with no gesture adds no window listener; one with whileHover adds its set once", async () => {

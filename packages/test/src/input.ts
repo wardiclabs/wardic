@@ -119,12 +119,10 @@ export const pushable = (options?: { readonly focusWithin?: ((target: unknown) =
  */
 const among =
   <A>(hub: Feeds.Hub<InputSource.TargetEvent<A>>) =>
-  (memberOf: (node: unknown) => unknown): InputFeed.InputFeed<InputSource.TargetEvent<A>> =>
+  (memberOf: (node: unknown) => Option.Option<unknown>): InputFeed.InputFeed<InputSource.TargetEvent<A>> =>
   (emit, end) =>
     hub.feed((pushed) => {
-      const target = memberOf(pushed.target)
-      if (Predicate.isUndefined(target)) return
-      emit({ target, event: pushed.event })
+      Option.map(memberOf(pushed.target), (target) => emit({ target, event: pushed.event }))
     }, end)
 
 /** Whether `raw` is a pointer event with a button pressed: one the pushable InputSource adopts (#431). */

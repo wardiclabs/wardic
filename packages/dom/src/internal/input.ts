@@ -543,35 +543,36 @@ const AMONG_POINTER: ReadonlyArray<string> = ["pointerover", "pointerout", "poin
 const parentOf = (node: Node): Node | null => {
   const parent = node.parentNode
   if (Predicate.isNull(parent)) return null
-  if (parent.nodeType === 11) {
+  if (parent.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
     const host = (parent as ShadowRoot).host
     if (Predicate.isNotUndefined(host)) return host
   }
   return parent
 }
 
-/** The members `node` is or is inside, innermost first, as `memberOf` names them. */
-// Per pointer event over the page (#665): a walk up its ancestors.
-const membersFrom = (node: EventTarget | null, memberOf: (node: unknown) => unknown): ReadonlyArray<unknown> => {
+/** What names the member a node is, `Option.none()` for none: core's `pointerAmong`'s and `focusAmong`'s. */
+type MemberOf = (node: unknown) => Option.Option<unknown>
+
+/** The members `node` is or is inside, innermost first, as `memberOf` names them: for a node with no path, a `relatedTarget`. */
+// Per pointer event over the page (#665).
+const membersFrom = (node: EventTarget | null, memberOf: MemberOf): ReadonlyArray<unknown> => {
   const found: Array<unknown> = []
   if (isNode(node)) membersUp(node as Node, memberOf, found)
   return found
 }
 
-/** `at`'s member, then its ancestors', into `found`. */
-const membersUp = (at: Node, memberOf: (node: unknown) => unknown, found: Array<unknown>): void => {
-  const member = memberOf(at)
-  if (Predicate.isNotUndefined(member)) found.push(member)
+/** `at`'s member, then its ancestors', up the composed tree, into `found`: a recursion as deep as the node. */
+const membersUp = (at: Node, memberOf: MemberOf, found: Array<unknown>): void => {
+  Option.map(memberOf(at), (member) => found.push(member))
   const parent = parentOf(at)
   if (Predicate.isNotNull(parent)) membersUp(parent, memberOf, found)
 }
 
 /** The members an event passed through, innermost first: its composed path's, so a member in a shadow root counts. */
-const membersOnPath = (ev: Event, memberOf: (node: unknown) => unknown): ReadonlyArray<unknown> => {
+const membersOnPath = (ev: Event, memberOf: MemberOf): ReadonlyArray<unknown> => {
   const found: Array<unknown> = []
   Arr.forEach(ev.composedPath(), (node) => {
-    const member = memberOf(node)
-    if (Predicate.isNotUndefined(member)) found.push(member)
+    Option.map(memberOf(node), (member) => found.push(member))
   })
   return found
 }
@@ -591,7 +592,9 @@ interface HeldMember {
  * a member, that pointer's events wherever they land, through core's `heldPointer`, made for the member
  * at the down and let go once nothing it pressed is held.
  */
-const pointerAmongOf = (memberOf: (node: unknown) => unknown): InputFeed.InputFeed<InputSource.TargetEvent<InputSource.PointerLikeEvent>> => (emit) => {
+// The page's window: a member in an iframe's document is heard by none (a feed over many targets has no one
+// target whose window to take, as each per-target feed does).
+const pointerAmongOf = (memberOf: MemberOf): InputFeed.InputFeed<InputSource.TargetEvent<InputSource.PointerLikeEvent>> => (emit) => {
   const win = window
   const held = new Map<unknown, HeldMember>()
   /** `member`'s event: through its held pointer while it has one, else told at once. */
@@ -644,22 +647,8 @@ const pointerAmongOf = (memberOf: (node: unknown) => unknown): InputFeed.InputFe
     // By reference: `Arr.contains`' structural equality would walk a DOM node.
     return Arr.filter(membersOnPath(ev, memberOf), (member) => Bool.not(Arr.some(other, (outside) => outside === member)))
   }
-  // Per pointer event over the page (#665): statements, as the per-target feeds' are.
-  const listener = (raw: Event): void => {
-    const ev = raw as PointerEvent
-    if (ev.type === "pointerover") {
-      const entered = crossed(ev)
-      if (entered.length === 0) return
-      const event = toPointer("enter", ev)
-      // Outermost first, as `pointerenter`.
-      return Arr.forEach(Arr.reverse(entered), (member) => deliver(member, event, ev))
-    }
-    if (ev.type === "pointerout") {
-      const left = crossed(ev)
-      if (left.length === 0) return
-      const event = toPointer("leave", ev)
-      return Arr.forEach(left, (member) => deliver(member, event, ev))
-    }
+  /** A down, a release or a cancel: each member it passed through hears it, innermost first, a down holding it. */
+  const toEach = (ev: PointerEvent): void => {
     const members = membersOnPath(ev, memberOf)
     if (members.length === 0) return
     const event = toPointer(UndefinedOr.getOrThrow(POINTER_TYPE[ev.type]), ev)
@@ -668,6 +657,26 @@ const pointerAmongOf = (memberOf: (node: unknown) => unknown): InputFeed.InputFe
       deliver(member, event, ev)
     })
   }
+  // Each event type's handling, made once a subscription: one record read an event.
+  const byType: Readonly<Record<string, (ev: PointerEvent) => void>> = {
+    pointerover: (ev) => {
+      const entered = crossed(ev)
+      if (entered.length === 0) return
+      const event = toPointer("enter", ev)
+      // Outermost first, as `pointerenter`.
+      Arr.forEach(Arr.reverse(entered), (member) => deliver(member, event, ev))
+    },
+    pointerout: (ev) => {
+      const left = crossed(ev)
+      if (left.length === 0) return
+      const event = toPointer("leave", ev)
+      Arr.forEach(left, (member) => deliver(member, event, ev))
+    },
+    pointerdown: toEach,
+    pointerup: toEach,
+    pointercancel: toEach,
+  }
+  const listener = (raw: Event): void => UndefinedOr.getOrThrow(byType[raw.type])(raw as PointerEvent)
   Arr.forEach(AMONG_POINTER, (type) => win.addEventListener(type, listener, PASSIVE))
   return () => {
     Arr.forEach(AMONG_POINTER, (type) => win.removeEventListener(type, listener, PASSIVE))
@@ -683,18 +692,41 @@ const endsHoldOf = (event: InputSource.PointerLikeEvent): boolean => {
   return Bool.and(event.type === "move", Bool.not(event.pressed))
 }
 
+/** The element focus is on in `doc`, inside any shadow root it's in; `null` for none but the page's own. */
+const deepActiveOf = (doc: Document): Element | null => {
+  const active = doc.activeElement
+  if (Bool.or(Predicate.isNull(active), active === doc.body)) return null
+  return innermostActive(active as Element)
+}
+
+/** The element focus is on inside `el`'s shadow root, and inside its, else `el`. */
+const innermostActive = (el: Element): Element => {
+  const root = el.shadowRoot
+  if (Predicate.isNull(root)) return el
+  const inner = root.activeElement
+  if (Predicate.isNull(inner)) return el
+  return innermostActive(inner)
+}
+
 /**
  * The focus and blur of `memberOf`'s members and of what's inside each (core's `focusAmong`): `focusin`
  * and `focusout` on the window in the capture phase, as a target's own feed hears them (#460), told to
- * each member on the event's path, innermost first, a member's own when the path starts at it.
+ * each member on the event's path, innermost first, a member's own when the path starts at it. A focus
+ * already within a member at subscribe is told as its focus first, so its keys press it from now, as a
+ * per-target press opens its keys when `focusWithin` says so.
  */
-const focusAmongOf = (memberOf: (node: unknown) => unknown): InputFeed.InputFeed<InputSource.TargetEvent<InputSource.FocusLikeEvent>> => (emit) => {
+const focusAmongOf = (memberOf: MemberOf): InputFeed.InputFeed<InputSource.TargetEvent<InputSource.FocusLikeEvent>> => (emit) => {
   const win = window
   const listener = (raw: Event): void => {
     const ev = raw as FocusEvent
     const members = membersOnPath(ev, memberOf)
     if (members.length === 0) return
     Arr.forEach(members, (member) => emit({ target: member, event: toPathFocus(ev, member) }))
+  }
+  const active = deepActiveOf(win.document)
+  if (Predicate.isNotNull(active)) {
+    Arr.forEach(membersFrom(active, memberOf), (member) =>
+      emit({ target: member, event: { type: "focus", timeStamp: win.performance.now(), visible: focusVisible(active), fromTarget: active === member } }))
   }
   Arr.forEach(FOCUS.types, (type) => win.addEventListener(type, listener, FOCUS.capture))
   return () => Arr.forEach(FOCUS.types, (type) => win.removeEventListener(type, listener, FOCUS.capture))
@@ -731,8 +763,8 @@ const make = Effect.gen(function* () {
   const focus = InputFeed.byTarget(focusOf)
   const keyboard = InputFeed.byTarget(keyboardOf)
   // Feeds over many targets (#665's PR 5): one listener set for each `memberOf`, shared by its watches.
-  const pointerAmong = InputFeed.byTarget((memberOf) => pointerAmongOf(memberOf as (node: unknown) => unknown))
-  const focusAmong = InputFeed.byTarget((memberOf) => focusAmongOf(memberOf as (node: unknown) => unknown))
+  const pointerAmong = InputFeed.byTarget((memberOf) => pointerAmongOf(memberOf as MemberOf))
+  const focusAmong = InputFeed.byTarget((memberOf) => focusAmongOf(memberOf as MemberOf))
 
   return InputSource.InputSource.of({
     pointer,

@@ -78,10 +78,10 @@ const grid = createBatch({
 })
 ```
 
-- **Each member's layers:** `whileTap` over `whileHover` over `animate`. A gesture moves its member into its values on its own `transition`, else the Batch's, and back on the Batch's. It never staggers.
+- **Each member's layers:** `whileTap` over `whileHover` over `animate`. A gesture moves its member into its values on its own `transition`, else the Batch's, and back on the Batch's: a press that ends while the member's still hovered goes back to `whileHover`'s values on its transition, as on a Wardic element. A key only a gesture gives goes back to where it was. A gesture never staggers, and a leaving member's exit isn't interrupted by one.
 - **A change during a gesture** moves the keys the gesture doesn't hold. A tile shuffled mid-hover heads for its new cell, still lifted, and drops back to its new `scale` as the hover ends.
 - **Keys:** an object's keys join the Batch's. A function's must be keys the Batch already has, else the hover or press is reported, naming the key.
-- **Keyboard:** with `whileTap`, a member's element takes `tabindex="0"` unless it's focusable already, and Enter and Space press it while it has focus.
+- **Keyboard:** with `whileTap` or a tap event, a member's element takes `tabindex="0"` unless it's focusable or has a `tabindex` already, and Enter and Space press it while it has focus.
 - **Touch** never hovers, as on a Wardic element.
 
 Its events: on Solid 1, `onHoverStart`, `onHoverEnd`, `onTapStart`, `onTap` and `onTapCancel` in its config, each `(event, { point, i })`, with `item` keyed, and a press's `input`. On Solid 2, `grid.next("tap")` and `grid.when("hoverStart")`, with `hoverEnd`, `pressStart` and `tapCancel`, each with the member's `element`, `i`, `item` and `point` (**`WardicBatchPointInfo`**; a press's **`WardicBatchPressInfo`** has its `input` too):

@@ -174,8 +174,7 @@ export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<u
   // Its members' gestures (#665's PR 5, Q60): watched only when its config asks for them.
   const hovers = wantsHover(config)
   const presses = wantsPress(config)
-  let gestures: BatchGestureWatches | undefined
-  if (Bool.or(hovers, presses)) gestures = gestureWatchesOf(runtime)
+  const gestures = Bool.match(Bool.or(hovers, presses), { onTrue: () => gestureWatchesOf(runtime), onFalse: () => undefined })
   // Its first targets and starts read untracked, wherever it's called: what tracks them is its own effect.
   const binding = untrack(() =>
     bindBatch(

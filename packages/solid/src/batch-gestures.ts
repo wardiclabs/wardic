@@ -23,7 +23,7 @@ import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
-import type { BatchGestureHost, BatchGestureLayer, BatchGestureTold, WardicBatchGesture } from "./batch.ts"
+import { type BatchGestureHost, type BatchGestureLayer, type BatchGestureTold, fail, gestureObjectOf, gestureObjectValues } from "./batch.ts"
 import type { WardicTransition } from "./config.ts"
 import type { Feature } from "./feature.ts"
 import { input } from "./features/input.ts"
@@ -42,35 +42,39 @@ export interface BatchGesturesOn {
   readonly close: () => void
 }
 
-/** What a Batch's error about its gesture says. */
-const fail = (message: string): never => {
-  throw new Error(`createBatch: ${message}`)
+/** A gesture of a member's, and where the Batch's config gives it. */
+interface Gesture {
+  readonly layer: BatchGestureLayer
+  /** Its config key, as an error names it. */
+  readonly name: "whileHover" | "whileTap"
+  readonly given: (host: BatchGestureHost) => unknown
 }
 
-/** A gesture given as an object (Q58), else `undefined`: a function's values are read at each start. */
-const objectOf = (given: unknown): WardicBatchGesture | undefined => {
-  if (Predicate.isFunction(given)) return undefined
-  return given as WardicBatchGesture | undefined
-}
+const HOVER: Gesture = { layer: "hover", name: "whileHover", given: (host) => host.hoverGiven }
+const PRESS: Gesture = { layer: "press", name: "whileTap", given: (host) => host.tapGiven }
+
+/** A hover's events, by whether it's on. */
+const HOVER_EVENT = { true: "hoverStart", false: "hoverEnd" } as const
+
+/** Each press phase's event: a press a drag took over has none, as a Wardic element's. */
+const PRESS_EVENT = { start: "pressStart", tap: "tap", cancel: "tapCancel", dragged: undefined } as const
 
 /**
- * `name`'s values for member `i` now (Q58), by key index, `NaN` for a key they don't give: an object's,
+ * `gesture`'s values for member `i` now (Q58), by key index, `NaN` for a key they don't give: an object's,
  * less its `transition`, or a function's, called untracked with its index (keyed: its item and index).
  * A key the Batch doesn't have, or a value that isn't a number, is an error naming it.
  */
-const valuesOf = (host: BatchGestureHost, name: "whileHover" | "whileTap", given: unknown, i: number): Float64Array => {
-  let values: Readonly<Record<string, unknown>> = UndefinedOr.match(objectOf(given), {
-    onUndefined: () => ({}),
-    onDefined: ({ transition: _transition, ...rest }) => rest,
+const valuesOf = (host: BatchGestureHost, gesture: Gesture, given: unknown, i: number): Float64Array => {
+  const values: Readonly<Record<string, unknown>> = Bool.match(Predicate.isFunction(given), {
+    onTrue: () =>
+      host.untrack(() =>
+        Bool.match(host.keyed, {
+          onTrue: () => (given as (item: unknown, i: number) => Readonly<Record<string, unknown>>)(host.itemOf(i), host.indexOf(i)),
+          onFalse: () => (given as (i: number) => Readonly<Record<string, unknown>>)(i),
+        })
+      ),
+    onFalse: () => gestureObjectValues(given),
   })
-  if (Predicate.isFunction(given)) {
-    values = host.untrack(() =>
-      Bool.match(host.keyed, {
-        onTrue: () => (given as (item: unknown, i: number) => Readonly<Record<string, unknown>>)(host.itemOf(i), host.indexOf(i)),
-        onFalse: () => (given as (i: number) => Readonly<Record<string, unknown>>)(i),
-      })
-    )
-  }
   const keys = host.keys()
   const out = new Float64Array(keys.length).fill(Number.NaN)
   // Per key of a gesture, once at its start: statements.
@@ -78,8 +82,8 @@ const valuesOf = (host: BatchGestureHost, name: "whileHover" | "whileTap", given
     const value = values[key]
     if (Predicate.isUndefined(value)) return
     const k = keys.indexOf(key)
-    if (k === -1) return fail(`${host.nameOf(i)}'s \`${name}\` gives "${key}", which isn't one of its keys (${keys.join(", ")}): a Batch's keys are fixed when it's made`)
-    if (!Predicate.isNumber(value)) return fail(`${host.nameOf(i)}'s \`${name}\` "${key}" is ${JSON.stringify(value)}: a Batch's values are numbers`)
+    if (k === -1) return fail(`${host.nameOf(i)}'s \`${gesture.name}\` gives "${key}", which isn't one of its keys (${keys.join(", ")}): a Batch's keys are fixed when it's made`)
+    if (!Predicate.isNumber(value)) return fail(`${host.nameOf(i)}'s \`${gesture.name}\` "${key}" is ${JSON.stringify(value)}: a Batch's values are numbers`)
     out[k] = value
   })
   return out
@@ -87,25 +91,23 @@ const valuesOf = (host: BatchGestureHost, name: "whileHover" | "whileTap", given
 
 /** A gesture's own transition, its object's (Q58), else the Batch's. */
 const transitionOf = (host: BatchGestureHost, given: unknown): WardicTransition | undefined => {
-  const own = UndefinedOr.map(objectOf(given), (object) => object.transition as WardicTransition | undefined)
+  const own = UndefinedOr.map(gestureObjectOf(given), (object) => object.transition as WardicTransition | undefined)
   if (Predicate.isNotUndefined(own)) return own
   return host.configured()
 }
 
-/** Each press phase's event: a press a drag took over has none, as a Wardic element's. */
-const PRESS_EVENT = { start: "pressStart", tap: "tap", cancel: "tapCancel", dragged: undefined } as const
-
 /**
- * Member `i`'s `layer` on, from its `given` values on their transition (Q58), or off: back toward the
- * layer under it, a press's toward its hover's on the hover's transition while it's hovered, else
- * toward `animate`'s on the Batch's (Q59).
+ * Member `i`'s `gesture` on, from its given values on their transition (Q58), or off: back to the layer
+ * under it, a press's to its hover's on the hover's transition while it's hovered (a Wardic element's
+ * way, Motion's), else to `animate`'s on the Batch's (Q59).
  */
-const turn = (host: BatchGestureHost, layer: BatchGestureLayer, given: unknown, i: number, on: boolean): void => {
+const turn = (host: BatchGestureHost, gesture: Gesture, i: number, on: boolean): void => {
+  const given = gesture.given(host)
   if (Predicate.isUndefined(given)) return
-  if (on === host.layered(layer, i)) return
-  if (on) return host.layer(layer, i, valuesOf(host, Bool.match(layer === "hover", { onTrue: () => "whileHover", onFalse: () => "whileTap" }), given, i), transitionOf(host, given))
-  if (Bool.and(layer === "tap", host.layered("hover", i))) return host.layer(layer, i, undefined, transitionOf(host, host.hoverGiven))
-  host.layer(layer, i, undefined, host.configured())
+  if (on === host.layered(gesture.layer, i)) return
+  if (on) return host.layer(gesture.layer, i, valuesOf(host, gesture, given, i), transitionOf(host, given))
+  if (Bool.and(gesture === PRESS, host.layered("hover", i))) return host.layer(gesture.layer, i, undefined, transitionOf(host, host.hoverGiven))
+  host.layer(gesture.layer, i, undefined, host.configured())
 }
 
 /** A member's gesture event, told its binding with its point, element and member (Q60). */
@@ -124,26 +126,28 @@ export const batchGesturesOn = (runtime: WardicRuntime, services: () => Context.
   const run = (watch: Effect.Effect<void, never, Scope.Scope | InputSource.InputSource>): void => {
     runtime.runSync(watch.pipe(Effect.provideService(InputSource.InputSource, serviceOf(services(), InputSource.InputSource)), Scope.provide(scope)))
   }
-  const hoverOf = (host: BatchGestureHost) => (target: unknown, edge: Recognizer.Edge): void => {
-    const i = host.memberAt(target)
+  const hoverOf = (host: BatchGestureHost) => (element: unknown, edge: Recognizer.Edge): void => {
+    const i = host.memberAt(element)
     if (Predicate.isUndefined(i)) return
-    turn(host, "hover", host.hoverGiven, i, edge.active)
+    turn(host, HOVER, i, edge.active)
     const event = edge.event
-    tell(host, i, { name: Bool.match(edge.active, { onTrue: () => "hoverStart" as const, onFalse: () => "hoverEnd" as const }), raw: event.raw, ...pointInfoOf(event), input: undefined, element: target as Element })
+    tell(host, i, { name: HOVER_EVENT[`${edge.active}`], raw: event.raw, ...pointInfoOf(event), input: undefined, element: element as Element })
   }
-  const pressOf = (host: BatchGestureHost) => (target: unknown, press: Recognizer.PressEvent): void => {
-    const i = host.memberAt(target)
+  const pressOf = (host: BatchGestureHost) => (element: unknown, press: Recognizer.PressEvent): void => {
+    const i = host.memberAt(element)
     if (Predicate.isUndefined(i)) return
-    turn(host, "tap", host.tapGiven, i, press.phase === "start")
+    turn(host, PRESS, i, press.phase === "start")
     const name = PRESS_EVENT[press.phase]
     if (Predicate.isUndefined(name)) return
-    tell(host, i, { name, raw: press.event.raw, ...pressInfoOf(press, target as Element), element: target as Element })
+    tell(host, i, { name, raw: press.event.raw, ...pressInfoOf(press, element as Element), element: element as Element })
+  }
+  // Each gesture's watch, over its host.
+  const watches: Readonly<Record<"hover" | "press", (host: BatchGestureHost) => void>> = {
+    hover: (host) => run(Recognizer.watchHoverAmong(host.memberElementOf, { on: hoverOf(host), onDefect })),
+    press: (host) => run(Recognizer.watchPressAmong(host.memberElementOf, { on: pressOf(host), onDefect })),
   }
   return {
-    listen: (gesture, host) => {
-      if (gesture === "hover") return run(Recognizer.watchHoverAmong(host.targetOf, { on: hoverOf(host), onDefect }))
-      run(Recognizer.watchPressAmong(host.targetOf, { on: pressOf(host), onDefect }))
-    },
+    listen: (gesture, host) => watches[gesture](host),
     focusable: DomInput.makeFocusable,
     close: () => OwnerScope.close(runtime, scope, "createBatch: a gesture's finalizer failed"),
   }

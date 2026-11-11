@@ -8,11 +8,13 @@
 //   release elsewhere reach it, off the target, until the release; the page-wide listeners go with it.
 // - IA3: two watches with the same `memberOf` share one listener set, gone with the last; none per member.
 // - IA4: a member's own focus is its own, one inside it isn't; each member on the path hears it.
+// - IA5: a focus already within a member as a watch subscribes is told it first, as its focus.
 import * as InputSource from "@wardic/core/InputSource"
 import { expect, layer } from "@effect/vitest"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import { constVoid } from "effect/Function"
+import * as Option from "effect/Option"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { InputDomLive } from "../src/internal/input.ts"
 
@@ -36,7 +38,7 @@ const page = Effect.acquireRelease(
     root.append(outer, b, plain)
     document.body.append(root)
     const members = new Map<unknown, string>([[outer, "outer"], [inner, "inner"], [b, "b"]])
-    const memberOf = (node: unknown): unknown => UndefinedOr.match(members.get(node), { onUndefined: () => undefined, onDefined: () => node })
+    const memberOf = (node: unknown): Option.Option<unknown> => UndefinedOr.match(members.get(node), { onUndefined: () => Option.none(), onDefined: () => Option.some(node) })
     const nameOf = (target: unknown): string => UndefinedOr.getOrThrow(members.get(target))
     return { root, outer, child, inner, innerChild, b, bChild, plain, memberOf, nameOf }
   }),
@@ -148,6 +150,22 @@ layer(InputDomLive)("InputDomLive: feeds over many targets (#665)", (it) => {
       p.innerChild.focus()
       p.innerChild.blur()
       expect(heard).toEqual(["focus:inner own", "focus:outer", "blur:inner own", "blur:outer", "focus:inner", "focus:outer", "blur:inner", "blur:outer"])
+      stop()
+    }).pipe(Effect.scoped))
+
+  it.effect("IA5: a focus already within a member as a watch subscribes is told it first, as its focus", () =>
+    Effect.gen(function* () {
+      const input = yield* InputSource.InputSource
+      const p = yield* page
+      p.innerChild.tabIndex = 0
+      p.innerChild.focus()
+      const heard: Array<string> = []
+      const stop = UndefinedOr.getOrThrow(input.focusAmong)(p.memberOf)(
+        ({ target, event }) => heard.push(`${event.type}:${p.nameOf(target)}${Bool.match(event.fromTarget === true, { onTrue: () => " own", onFalse: () => "" })}`),
+        constVoid,
+      )
+      expect(heard).toEqual(["focus:inner", "focus:outer"])
+      p.innerChild.blur()
       stop()
     }).pipe(Effect.scoped))
 })
