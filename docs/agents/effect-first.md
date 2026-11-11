@@ -111,6 +111,7 @@ Code that runs **once per element as it mounts** follows the hot path's rules, b
 - core's `ReducedMotion.applies`.
 - solid's `batch.ts` (#665): a Batch's per-member loops at creation and at each change, as core's change (ADR-0025, *Amendment (#665)*).
 - `@wardic/dom`'s Keyboard press check (`internal/keyboard-press.ts`, #709): `takesFocus` and `makeFocusable`, per pressable element as it mounts (ADR-0025, *Amendment (#709)*).
+- solid's `Reorder.BatchItem` on Solid 1 (`batch-reorder-group.tsx`, #712): its element made as `<Dynamic>` makes one, and its style, tab stop and `aria-describedby` written on it directly, the group's shared by every item (ADR-0025, *Amendment (#712)*).
 
 Measured with `bench:solid --base main`: a warm mount −3.3% on Solid 1 and −1.9% on Solid 2, cold −3.9% and −2.4%, and each element allocating 5.0% and 4.1% less a round.
 

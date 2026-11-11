@@ -850,6 +850,58 @@ a {
   user-select: none;
 }
 
+/* The long list sample (#712): 1,000 items in a scroll container. A Batch Reorder group sizes and places
+   each item itself, from the start of its content box; Motion's rows are sized here, in the list's flow. */
+.sample-long-list {
+  width: min(100%, 280px);
+  height: 320px;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding: 8px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-m);
+}
+
+.sample-batch-list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.sample-batch-motion {
+  display: grid;
+  gap: 6px;
+}
+
+.sample-batch-row {
+  display: flex;
+  align-items: center;
+  padding: 0 14px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  font-size: var(--text-s);
+  cursor: grab;
+  user-select: none;
+}
+
+.sample-batch-motion .sample-batch-row {
+  width: 240px;
+  height: 36px;
+}
+
+.sample-batch-tile {
+  display: grid;
+  place-items: center;
+  border-radius: 6px;
+  background: var(--hue);
+  color: #2e3440;
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  cursor: grab;
+  user-select: none;
+}
+
 /* The scroll sample's panel, its progress bar scaled across from the left. */
 .sample-scroller {
   width: min(100%, 360px);
@@ -959,7 +1011,7 @@ a {
 .sample-palette {
   position: relative;
   width: 288px;
-  height: 192px;
+  height: 240px;
 }
 
 .sample-swatch {
@@ -984,11 +1036,11 @@ a {
   outline-offset: 1px;
 }
 
-/* The Batch's exits sample (#665): a pantry of 48 items, each placed by its transform; Motion's in a grid. */
+/* The Batch's exits sample (#665): a pantry of 102 items, each placed by its transform; Motion's in a grid. */
 .sample-pantry,
 .sample-pantry-grid {
   width: 288px;
-  height: 240px;
+  height: 506px;
 }
 
 .sample-pantry {

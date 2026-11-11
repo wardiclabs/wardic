@@ -15,10 +15,13 @@
 import type * as CoreReorder from "@wardic/core/Reorder"
 import * as ReorderController from "@wardic/dom/ReorderController"
 import * as Style from "@wardic/dom/Style"
+import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import * as Equivalence from "effect/Equivalence"
 import { identity } from "effect/Function"
 import * as Match from "effect/Match"
 import * as Predicate from "effect/Predicate"
+import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { fail } from "./batch.ts"
 
@@ -243,3 +246,12 @@ export const itemBaseOf = (geometry: BatchReorderGeometry): Readonly<Record<stri
   const base = { ...Style.dragDefaults(dragAxisFor(geometry.axis)), width: px(geometry.itemSize.width), height: px(geometry.itemSize.height) }
   return Bool.match(inGridFlow(geometry), { onTrue: () => base, onFalse: () => ({ ...base, position: "absolute" }) })
 }
+
+/**
+ * A style as CSS text: the one every item of a group shares, written once as each is made, where a key at
+ * a time cost each item a write per key (#712, Q47).
+ */
+export const cssTextOf = (style: Style.Style): string => Arr.join(Arr.map(Rec.toEntries(style), ([key, value]) => `${key}:${String(value)}`), ";")
+
+/** Whether two styles have the same keys, each at the same value. */
+export const sameStyle: Equivalence.Equivalence<Style.Style> = Rec.makeEquivalence(Equivalence.strictEqual<unknown>())

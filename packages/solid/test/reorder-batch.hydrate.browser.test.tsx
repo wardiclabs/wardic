@@ -6,9 +6,11 @@
 //   each hydrates with nothing thrown or logged.
 // - HR2: padded groups, a grid from its width fading in from `initial` and a column: every item where it is,
 //   inside the padding, before and after; the grid's items at `initial`'s opacity until hydrated.
+// - HR3 (Q47): items with no style of their own, the group's alone, in a grid from its width and a padded
+//   column: every item where it is, before and after.
 import { describe, expect, it } from "vitest"
 import { over } from "./browser-helpers.ts"
-import { R1, R2, R3, R4, R5 } from "./reorder-batch-hydrate-fixtures.tsx"
+import { R1, R2, R3, R4, R5, R6, R7 } from "./reorder-batch-hydrate-fixtures.tsx"
 import { hydrateFixture } from "./hydrate-harness.ts"
 import "./browser-commands.ts"
 
@@ -72,6 +74,19 @@ describe("Reorder.BatchGroup from a server render to hydration on Solid 1 (#712)
       before.forEach((frame, f) => expect(frame, `${name}: before hydration, frame ${f}`).toEqual(expected[name]))
       after.forEach((frame, f) => expect(frame, `${name}: hydrated, frame ${f}`).toEqual(expected[name]))
       if (name === "R4") expect(fadedBefore[0], "R4: at initial's opacity on the server").toEqual([0, 0, 0, 0, 0])
+    }
+  }, 60_000)
+
+  it("HR3: items with nothing of their own, in a grid from its width and a padded column: each where it is", async () => {
+    const expected: Record<string, ReadonlyArray<string>> = {
+      R6: KS.map((k, i) => `${k} ${(i % 3) * 90},${Math.floor(i / 3) * 60} 80x50`),
+      R7: KS.map((k, i) => `${k} 12,${12 + i * 60} 80x50`),
+    }
+    for (const [name, code] of [["R6", R6], ["R7", R7]] as const) {
+      const { before, after, errors, threw } = await run(name, code)
+      expect([threw, errors], `${name}: nothing thrown or logged`).toEqual(["", []])
+      before.forEach((frame, f) => expect(frame, `${name}: before hydration, frame ${f}`).toEqual(expected[name]))
+      after.forEach((frame, f) => expect(frame, `${name}: hydrated, frame ${f}`).toEqual(expected[name]))
     }
   }, 60_000)
 })

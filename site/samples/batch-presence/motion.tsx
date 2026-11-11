@@ -3,10 +3,10 @@ import * as m from "motion/react-m"
 import { useState } from "react"
 
 type Kind = "Fruit" | "Veg" | "Herbs"
-const FRUIT = ["Apple", "Pear", "Plum", "Fig", "Kiwi", "Lime", "Lemon", "Mango", "Peach", "Cherry", "Grape", "Melon", "Apricot", "Banana", "Orange", "Quince"]
-const VEG = ["Leek", "Kale", "Okra", "Pea", "Bean", "Beet", "Carrot", "Celery", "Chard", "Corn", "Cress", "Onion", "Potato", "Radish", "Squash", "Turnip"]
-const HERBS = ["Basil", "Bay", "Chive", "Dill", "Fennel", "Lovage", "Anise", "Mint", "Borage", "Parsley", "Savory", "Sage", "Sorrel", "Hyssop", "Thyme", "Chervil"]
-/** 48 items, the kinds mixed. */
+const FRUIT = ["Apple", "Pear", "Plum", "Fig", "Kiwi", "Lime", "Lemon", "Mango", "Peach", "Cherry", "Grape", "Melon", "Apricot", "Banana", "Orange", "Quince", "Date", "Guava", "Prune", "Lychee", "Olive", "Raisin", "Medlar", "Sloe", "Yuzu", "Citron", "Ackee", "Feijoa", "Jujube", "Durian", "Loquat", "Cassis", "Nashi", "Sapote"]
+const VEG = ["Leek", "Kale", "Okra", "Pea", "Bean", "Beet", "Carrot", "Celery", "Chard", "Corn", "Cress", "Onion", "Potato", "Radish", "Squash", "Turnip", "Swede", "Yam", "Taro", "Endive", "Garlic", "Shallot", "Chili", "Pepper", "Fava", "Lentil", "Rocket", "Yucca", "Tatsoi", "Gourd", "Sprout", "Daikon", "Jicama", "Salsify"]
+const HERBS = ["Basil", "Bay", "Chive", "Dill", "Fennel", "Lovage", "Anise", "Mint", "Borage", "Parsley", "Savory", "Sage", "Sorrel", "Hyssop", "Thyme", "Chervil", "Clove", "Rue", "Tansy", "Yarrow", "Catnip", "Mace", "Tulsi", "Cassia", "Perilla", "Shiso", "Hops", "Myrtle", "Cumin", "Nettle", "Sumac", "Ajwain", "Cicely", "Ginger"]
+/** 102 items, the kinds mixed. */
 const PRODUCE = FRUIT.flatMap((_, k) => [
   { name: FRUIT[k], kind: "Fruit" as Kind },
   { name: VEG[k], kind: "Veg" as Kind },

@@ -11,14 +11,18 @@ import * as ReorderController from "@wardic/dom/ReorderController"
 import * as Style from "@wardic/dom/Style"
 import { mergeRefs } from "@solid-primitives/refs"
 import * as Bool from "effect/Boolean"
+import * as Arr from "effect/Array"
 import { constUndefined, identity } from "effect/Function"
+import * as Iter from "effect/Iterable"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { createContext, createEffect, createRenderEffect, createSignal, type JSX, on, onCleanup, splitProps, untrack, useContext } from "solid-js"
-import { Dynamic } from "solid-js/web"
+import { type Accessor, createComponent, createContext, createEffect, createMemo, createRenderEffect, createSignal, type JSX, on, onCleanup, sharedConfig, splitProps, untrack, useContext } from "solid-js"
+import { Dynamic, getNextElement, insert, setAttribute, spread } from "solid-js/web"
 import { configTransitionOf, type WardicBatchTransition } from "./batch.ts"
-import { type BatchReorderBinding, type BatchReorderExit, type BatchReorderGesture, type BatchReorderInitial, type BatchReorderItems, serverBatchReorder, type BatchReorderRead, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize, sameRead } from "./batch-reorder.ts"
+import { type BatchReorderBinding, type BatchReorderExit, type BatchReorderGesture, type BatchReorderInitial, type BatchReorderItem, type BatchReorderItems, serverBatchReorder, type BatchReorderRead, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize, sameRead, tabStopOf } from "./batch-reorder.ts"
+import { cssTextOf, sameStyle } from "./batch-reorder-places.ts"
 import { usePresenceContext } from "./presence.tsx"
 import { useBrought, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import type { ReorderElementTag } from "./reorder.tsx"
@@ -173,11 +177,92 @@ const GROUP_OWN = [
 ] as const
 const ITEM_OWN = ["value", "as", "ref", "style", "children", "tabIndex", "aria-describedby"] as const
 
-/** What a group's items read of it: its binding, and its keyboard reorder's settings. */
+/** What a group's items read of it: its binding, its keyboard reorder's switch, and on a client what it writes on them. */
 interface GroupForItems<V> {
   readonly binding: BatchReorderItems<V>
   readonly keyboard: () => boolean
-  readonly instructions: () => string
+  /** On a client, what the group writes on each item that gives none of its own; on a server, none. */
+  readonly writes: GroupWrites | undefined
+}
+
+/**
+ * What a group writes on each of its items that gives none of its own (#712, Q47): the same for them all, so
+ * each item is written once as it's made, and the group writes a change on every one of them, with no
+ * computation per item.
+ */
+interface GroupWrites {
+  readonly style: SharedStyle
+  readonly tabStop: SharedAttribute
+  readonly describedBy: SharedAttribute
+  /** An item gone: the group writes on it no more. */
+  readonly forget: (el: HTMLElement) => void
+}
+
+/** The style a group writes on its items: its record, as CSS text for a new element, and the items that take it. */
+interface SharedStyle {
+  readonly record: Accessor<Style.Style>
+  readonly css: Accessor<string>
+  readonly items: Set<HTMLElement>
+}
+
+/** An attribute a group writes on its items: its name, its value, and the items that take it. */
+interface SharedAttribute {
+  readonly name: string
+  readonly value: Accessor<string | undefined>
+  readonly items: Set<HTMLElement>
+}
+
+/** An attribute every item without its own takes, each change written on them all. */
+const sharedAttributeOf = (name: string, value: () => string | undefined): SharedAttribute => {
+  const attribute: SharedAttribute = { name, value: createMemo(value), items: new Set() }
+  createRenderEffect(on(attribute.value, (next) => Iter.forEach(attribute.items, (el) => attributeOn(el, name, next)), { defer: true }))
+  return attribute
+}
+
+/** A group's {@link GroupWrites}: an item made later reads each as it's made. */
+const groupWritesOf = (binding: BatchReorderBinding<unknown>, keyboard: () => boolean, instructionsId: Accessor<string | undefined>): GroupWrites => {
+  const record = createMemo(binding.itemStyle, undefined, { equals: sameStyle })
+  const style: SharedStyle = { record, css: createMemo(() => cssTextOf(record())), items: new Set() }
+  createRenderEffect(
+    on(
+      record,
+      (next, prev) => {
+        const was = UndefinedOr.match(prev, { onUndefined: () => NO_STYLE, onDefined: identity })
+        Iter.forEach(style.items, (el) => restyle(el, was, next))
+      },
+      { defer: true },
+    ),
+  )
+  const tabStop = sharedAttributeOf("tabindex", () => UndefinedOr.map(tabStopOf(keyboard(), binding.pressable), String))
+  const describedBy = sharedAttributeOf("aria-describedby", () => Bool.match(keyboard(), { onTrue: instructionsId, onFalse: constUndefined }))
+  return {
+    style,
+    tabStop,
+    describedBy,
+    forget: (el) => {
+      style.items.delete(el)
+      tabStop.items.delete(el)
+      describedBy.items.delete(el)
+    },
+  }
+}
+
+/** No style: a hydrated item's, before the group's is written key by key. */
+const NO_STYLE: Style.Style = {}
+
+/** Solid's `setAttribute`: none removes it, and while hydrating it writes nothing, as the server wrote it. */
+const attributeOn = (el: Element, name: string, value: string | undefined): void => setAttribute(el, name, value as string)
+
+/** `el`'s style taken from `prev` to `next`: each key `next` drops removed, each it changes set. */
+const restyle = (el: HTMLElement, prev: Style.Style, next: Style.Style): void => {
+  // Per element at mount (#540): statements.
+  Arr.forEach(Rec.keys(prev), (key) => {
+    if (Predicate.isNullish(next[key])) el.style.removeProperty(key)
+  })
+  Arr.forEach(Rec.keys(next), (key) => {
+    const value = next[key]
+    if (Predicate.isNotNullish(value) && value !== prev[key]) el.style.setProperty(key, String(value))
+  })
 }
 
 /** The nearest `Reorder.BatchGroup`, for its items. */
@@ -207,7 +292,7 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
       untrack,
     )
     return (
-      <BatchGroupContext.Provider value={{ binding: server as BatchReorderItems<unknown>, keyboard, instructions }}>
+      <BatchGroupContext.Provider value={{ binding: server as BatchReorderItems<unknown>, keyboard, writes: undefined }}>
         <Dynamic component={tag} {...rest} style={server.groupStyle(local.style) as JSX.CSSProperties}>
           {local.children}
         </Dynamic>
@@ -253,9 +338,17 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
   // Its first places were read as it was made: a change of the list or the geometry from then on turns every item.
   createRenderEffect(on(binding.batch.targetsOf, binding.apply, { defer: true }))
   onCleanup(binding.dispose)
+  // The keyboard instructions (ADR-0037), one element per document and text: its id, once the group's element
+  // is on a page, every item's `aria-describedby`.
+  const [element, setElement] = createSignal<Element>()
+  const [instructionsId, setInstructionsId] = createSignal<string>()
+  createEffect(on([element, instructions] as const, ([el, text]) => {
+    if (Predicate.isNotUndefined(el)) setInstructionsId(DomAnnouncer.instructionsId(DomAnnouncer.documentOf(el), text))
+  }))
+  const writes = groupWritesOf(binding as BatchReorderBinding<unknown>, keyboard, instructionsId)
   return (
-    <BatchGroupContext.Provider value={{ binding: binding as BatchReorderBinding<unknown>, keyboard, instructions }}>
-      <Dynamic component={tag} {...rest} ref={mergeRefs(local.ref, binding.attach)} style={binding.groupStyle(local.style) as JSX.CSSProperties}>
+    <BatchGroupContext.Provider value={{ binding: binding as BatchReorderBinding<unknown>, keyboard, writes }}>
+      <Dynamic component={tag} {...rest} ref={mergeRefs(local.ref, binding.attach, setElement)} style={binding.groupStyle(local.style) as JSX.CSSProperties}>
         {local.children}
       </Dynamic>
     </BatchGroupContext.Provider>
@@ -275,29 +368,108 @@ export function BatchItem<V, Tag extends ReorderElementTag = "li">(props: Reorde
   const [local, rest] = splitProps(props as unknown as ItemLocal<V> & Record<string, unknown>, ITEM_OWN)
   const item = group.binding.item(untrack(() => local.value), usePresenceContext())
   onCleanup(item.dispose)
-  const [element, setElement] = createSignal<HTMLElement>()
-  // The instructions element exists on the client only, so `aria-describedby` waits for the mount.
-  const [describedBy, setDescribedBy] = createSignal<string>()
-  if (!isServer) {
-    createEffect(on([element, group.instructions] as const, ([el, text]) => {
-      if (Predicate.isNotUndefined(el)) setDescribedBy(DomAnnouncer.instructionsId(DomAnnouncer.documentOf(el), text))
-    }))
-  }
   const tag = UndefinedOr.match(untrack(() => local.as), { onUndefined: () => "li", onDefined: identity })
-  return (
-    <Dynamic
-      component={tag}
-      {...rest}
-      ref={mergeRefs(local.ref, item.ref, setElement)}
-      style={item.style(local.style) as JSX.CSSProperties}
-      draggable={Style.DRAG_DEFAULT_ATTRIBUTES.draggable}
-      tabindex={UndefinedOr.match(local.tabIndex, { onDefined: identity, onUndefined: () => Bool.match(Bool.or(group.keyboard(), group.binding.pressable), { onTrue: () => 0, onFalse: constUndefined }) })}
-      aria-describedby={describedByOf(local["aria-describedby"], Bool.match(group.keyboard(), { onTrue: describedBy, onFalse: constUndefined }))}
-    >
-      {local.children}
-    </Dynamic>
-  )
+  // On a server, its element as `<Dynamic>` renders it, with no instructions: they're a client's. A plain `if` (#518).
+  if (isServer) {
+    return (
+      <Dynamic
+        component={tag}
+        {...rest}
+        style={item.style(local.style) as JSX.CSSProperties}
+        draggable={Style.DRAG_DEFAULT_ATTRIBUTES.draggable}
+        tabindex={UndefinedOr.match(local.tabIndex, { onDefined: identity, onUndefined: () => tabStopOf(group.keyboard(), group.binding.pressable) })}
+        aria-describedby={describedByOf(local["aria-describedby"], undefined)}
+      >
+        {local.children}
+      </Dynamic>
+    )
+  }
+  // A component of its own, as `<Dynamic>` is on a server: hydrating, its element's key is the server's.
+  return createComponent(ItemElement, { tag, local, rest, item, writes: UndefinedOr.getOrThrow(group.writes) })
 }
+
+/** What {@link ItemElement} makes an item's element from. */
+interface ItemElementProps<V> {
+  readonly tag: string
+  readonly local: ItemLocal<V>
+  readonly rest: Record<string, unknown>
+  readonly item: BatchReorderItem
+  readonly writes: GroupWrites
+}
+
+/**
+ * An item's element on a client (#712, Q47), made as `<Dynamic>` makes one: its style, tab stop and
+ * `aria-describedby` written on it directly, the group's unless it gives its own, and the rest of its
+ * props through Solid's `spread`. Its style is written before its `ref`s run, where the Batch draws it.
+ */
+const ItemElement = <V,>({ tag, local, rest, item, writes }: ItemElementProps<V>): HTMLElement => {
+  // Hydrating, the server's element, its attributes as the server wrote them.
+  const hydrating = Predicate.isNotUndefined(sharedConfig.context)
+  const el = elementFor(tag, hydrating)
+  itemStyleOn(el, hydrating, local, item, writes.style)
+  attributeOn(el, "draggable", Style.DRAG_DEFAULT_ATTRIBUTES.draggable)
+  attributeFor(el, local, "tabIndex", writes.tabStop, ownTabStop)
+  attributeFor(el, local, "aria-describedby", writes.describedBy, ownDescribedBy)
+  onCleanup(() => writes.forget(el))
+  spread(el, rest, false, true)
+  insert(el, () => local.children)
+  UndefinedOr.map(untrack(() => local.ref), (ref) => ref(el))
+  item.ref(el)
+  return el
+}
+
+/** A new element for `tag`, or, hydrating, the server's next one: Solid's `<Dynamic>`'s. */
+const elementFor = (tag: string, hydrating: boolean): HTMLElement => {
+  // Per element at mount (#540): statements.
+  if (hydrating) return getNextElement() as HTMLElement
+  return document.createElement(tag)
+}
+
+/**
+ * An item's style: its own over the group's, a key at a time as either changes; or the group's alone, on a
+ * new element as one CSS text (Q47), hydrating a key at a time, and from then on the group's to write.
+ */
+const itemStyleOn = <V,>(el: HTMLElement, hydrating: boolean, local: ItemLocal<V>, item: BatchReorderItem, shared: SharedStyle): void => {
+  // Per element at mount (#540): statements.
+  if ("style" in local) {
+    createRenderEffect((prev: Style.Style) => {
+      const next = item.style(local.style)
+      restyle(el, prev, next)
+      return next
+    }, NO_STYLE)
+    return
+  }
+  shared.items.add(el)
+  if (hydrating) {
+    restyle(el, NO_STYLE, shared.record())
+    return
+  }
+  el.style.cssText = shared.css()
+}
+
+/** An item's `shared` attribute: from its own `key`, with the group's, as `own` reads it; else the group's, the group's to write. */
+const attributeFor = <V,>(
+  el: HTMLElement,
+  local: ItemLocal<V>,
+  key: "tabIndex" | "aria-describedby",
+  shared: SharedAttribute,
+  own: (local: ItemLocal<V>, shared: SharedAttribute) => string | undefined,
+): void => {
+  // Per element at mount (#540): statements.
+  if (key in local) {
+    createRenderEffect(() => attributeOn(el, shared.name, own(local, shared)))
+    return
+  }
+  shared.items.add(el)
+  attributeOn(el, shared.name, shared.value())
+}
+
+/** An item's own tab stop, else the group's. */
+const ownTabStop = <V,>(local: ItemLocal<V>, shared: SharedAttribute): string | undefined =>
+  UndefinedOr.match(local.tabIndex, { onDefined: String, onUndefined: shared.value })
+
+/** An item's own ids, then the instructions'. */
+const ownDescribedBy = <V,>(local: ItemLocal<V>, shared: SharedAttribute): string | undefined => describedByOf(local["aria-describedby"], shared.value())
 
 const noop = (): void => {}
 

@@ -28,7 +28,7 @@ import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import { identity } from "effect/Function"
+import { constUndefined, identity } from "effect/Function"
 import * as Iter from "effect/Iterable"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
@@ -174,6 +174,11 @@ export interface BatchReorderBinding<V> extends BatchReorderItems<V> {
   readonly groupStyle: (own: Style.Input) => Style.Style
   /** The group's element: what its Auto-scroll, its direction and its reveal go by. */
   readonly attach: (el: Element) => void
+  /**
+   * Every item's style but its own, the same for them all: sized, a drag's defaults and, out of flow,
+   * absolute at its static position, less what the Batch draws. An item with its own takes its `style`.
+   */
+  readonly itemStyle: () => Style.Style
   /** Its controller: its group, its axis, `move`. */
   readonly controller: ReorderController.Placed<V>
   /** Its controller, its drag and its Batch's run ended. */
@@ -188,6 +193,9 @@ export interface BatchReorderItem {
   /** The item is going: a gesture or a lift of it ended, and it leaves the controller. */
   readonly dispose: () => void
 }
+
+/** An item's tab stop when it gives none of its own: `0` with the keyboard reorder on, or with its items pressable. */
+export const tabStopOf = (keyboard: boolean, pressable: boolean): 0 | undefined => Bool.match(Bool.or(keyboard, pressable), { onTrue: (): 0 => 0, onFalse: constUndefined })
 
 /** What a group's Scope reports when one of its finalizers fails as it goes. */
 const CLOSE_FAILED = "Reorder.BatchGroup: a finalizer failed"
@@ -577,6 +585,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       // Once it's on the page: the direction it inherits and its width, before the first paint.
       queueMicrotask(() => readElement(el))
     },
+    itemStyle: () => batch.styleOf(itemBaseOf(geometryNow())),
     item: (value, presence) => {
       const member = batch.memberFor(value, presence)
       const driver = controller.item(value, () => Option.fromUndefinedOr(batch.elementOf(member)), (lifted) => onLift(member, lifted))

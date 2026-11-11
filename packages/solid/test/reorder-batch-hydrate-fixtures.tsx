@@ -9,7 +9,7 @@ import { For, type JSX } from "solid-js"
 const VALUES = ["a", "b", "c", "d", "e"]
 const LOOK: JSX.CSSProperties = { background: "teal", "box-sizing": "border-box" }
 
-const list = (props: { readonly axis: "x" | "y" | "xy"; readonly width?: number; readonly direction?: "rtl"; readonly padding?: number; readonly fades?: boolean }) => (
+const list = (props: { readonly axis: "x" | "y" | "xy"; readonly width?: number; readonly direction?: "rtl"; readonly padding?: number; readonly fades?: boolean; readonly plain?: boolean }) => (
   <Reorder.BatchGroup
     values={VALUES}
     onReorder={() => {}}
@@ -26,7 +26,7 @@ const list = (props: { readonly axis: "x" | "y" | "xy"; readonly width?: number;
   >
     <For each={VALUES}>
       {(value) => (
-        <Reorder.BatchItem value={value} data-k={value} style={LOOK}>
+        <Reorder.BatchItem value={value} data-k={value} {...Bool.match(props.plain === true, { onTrue: () => ({}), onFalse: () => ({ style: LOOK }) })}>
           {value}
         </Reorder.BatchItem>
       )}
@@ -49,3 +49,8 @@ export const R4 = (): JSX.Element => <WardicProvider env={DomLive}>{list({ axis:
 /** A column, padded 12 px. */
 export const R5 = (): JSX.Element => <WardicProvider env={DomLive}>{list({ axis: "y", padding: 12 })}</WardicProvider>
 
+/** A grid with no `columns` in a 300 px group, its items with no style of their own: the group's alone (Q47). */
+export const R6 = (): JSX.Element => <WardicProvider env={DomLive}>{list({ axis: "xy", width: 300, plain: true })}</WardicProvider>
+
+/** A padded column, its items the group's alone. */
+export const R7 = (): JSX.Element => <WardicProvider env={DomLive}>{list({ axis: "y", padding: 12, plain: true })}</WardicProvider>
