@@ -24,7 +24,7 @@ export interface LazyBatchGestures extends BatchGestureWatches {
 /** The gestures' module, once it has loaded: every Batch after the first sets its gestures up at once. */
 // Module state (#460, Q7): one module, loaded once for the page.
 let gesturesModule: typeof import("./batch-gestures.ts") | undefined
-// Its load, settled once, never rejected: a failed load reported, and nothing watched.
+// Module state (#460, Q7): its load, settled once, never rejected: a failed load reported, and nothing watched.
 let loadingModule: Promise<typeof import("./batch-gestures.ts") | undefined> | undefined
 
 /** The gestures' module's load, started at its first need; a failure reported on `runtime`. */
