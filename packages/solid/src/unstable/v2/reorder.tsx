@@ -52,7 +52,7 @@ import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { isServer, type JSX } from "@solidjs/web"
-import { type Accessor, type Component, createContext, createEffect, createMemo, createSignal, flush, omit, onCleanup, untrack, useContext } from "solid-js"
+import { $PROXY, type Accessor, type Component, createContext, createEffect, createMemo, createSignal, flush, omit, onCleanup, untrack, useContext } from "solid-js"
 import { MOTION_PROPS_V2 as MOTION_PROPS, type WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
 import type { Feature } from "../../feature.ts"
 import { drag } from "../../features/drag.ts"
@@ -65,6 +65,7 @@ import { press } from "../../features/press.ts"
 import { inputIn } from "../../gesture-features.ts"
 import * as OwnerScope from "../../owner-scope.ts"
 import { watchItemInput } from "../../reorder-input.ts"
+import { plainOrder } from "../../reorder-values.ts"
 import { changesContext } from "../../variant-tree.ts"
 import { configView, type PerKey } from "./config-view.ts"
 import { useBrought, useWardicRuntime } from "./provider.tsx"
@@ -337,6 +338,9 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> 
   const runtime = useWardicRuntime()
   if (isServer) return layered(serverReorderGroup(cfg), config, beside)
   const [detected, setDetected] = createSignal<CoreReorder.Axis>("y")
+  // The order as a plain array (#721): a store's copied, so a store changed in place is a new order, read
+  // untracked by the controller and tracked by the effect below.
+  const values = (): ReadonlyArray<V> => plainOrder(cfg().values, $PROXY)
   // Its events (#257 item 3), ended with it.
   const events = new Waiters<ReorderGroupEvents<V>>(GROUP_GONE)
   onCleanup(() => events.dispose())
@@ -349,7 +353,7 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> 
   onCleanup(() => OwnerScope.close(runtime, scope, CLOSE_FAILED))
   const controller = runtime.runSync(
     ReorderController.make<V>({
-      values: () => untrack(() => cfg().values),
+      values: () => untrack(values),
       // The DOM follows a reorder within the controller's call, as on Solid 1, whose updates are
       // synchronous: the controller keeps focus on a lifted item right after (moving a focused node
       // can blur it), and Solid 2 would otherwise move the node at its next flush, after that.
@@ -389,7 +393,7 @@ export function reorderGroup<V>(config: ReorderGroupConfig<V>): ReorderGroup<V> 
 
   // A `values` change re-measures, so the items animate to their new slots whoever reordered them.
   createEffect(
-    () => cfg().values,
+    values,
     () => {
       controller.valuesChanged()
     },

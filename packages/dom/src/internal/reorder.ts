@@ -40,11 +40,13 @@ import * as AutoScroll from "@wardic/core/AutoScroll"
 import type * as Drag from "@wardic/core/Drag"
 import type * as InputSource from "@wardic/core/InputSource"
 import * as Reorder from "@wardic/core/Reorder"
+import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Duration from "effect/Duration"
 import * as Effect from "effect/Effect"
+import * as Equivalence from "effect/Equivalence"
 import * as FiberHandle from "effect/FiberHandle"
-import { constTrue, constVoid, identity } from "effect/Function"
+import { constFalse, constTrue, constVoid, identity } from "effect/Function"
 import * as Match from "effect/Match"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
@@ -275,7 +277,8 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
   const group = Reorder.make<V>({
     values: options.values,
     onReorder: (values) => {
-      asked = values
+      // A copy of what it hands on: an app that keeps that array, a store's own, may change it in place (#721).
+      asked = Arr.copy(values)
       options.onReorder(values)
     },
     axis: () => appAxis(),
@@ -605,8 +608,9 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
       }),
     detect: () => Reorder.resolveAxis(group),
     valuesChanged: () => {
-      // The app changed `values` itself while an item is lifted: it's dropped at its new place.
-      if (Option.isSome(Reorder.liftedValue(group)) && options.values() !== asked) dropLifted()
+      // The app changed `values` itself while an item is lifted: it's dropped at its new place. The group's
+      // own order is told by its items, not its array: a binding reads a store's order as a new one (#721).
+      if (Option.isSome(Reorder.liftedValue(group)) && Bool.not(isAsked(asked, options.values()))) dropLifted()
       wiring.layOut()
     },
     dispose: () => {
@@ -617,6 +621,13 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
 }
 
 const noop = (): void => {}
+
+/** Whether two orders hold the same items in the same order. */
+const sameOrder: Equivalence.Equivalence<ReadonlyArray<unknown>> = Arr.makeEquivalence(Equivalence.strictEqual())
+
+/** Whether `values` is the order the group last asked for (ADR-0037, *Amendment (#721)*): its items, in its order. */
+const isAsked = (asked: ReadonlyArray<unknown> | undefined, values: ReadonlyArray<unknown>): boolean =>
+  UndefinedOr.match(asked, { onUndefined: constFalse, onDefined: (order) => sameOrder(order, values) })
 
 /**
  * A {@link ReorderController} for a server render (ADR-0021), where there's no projection

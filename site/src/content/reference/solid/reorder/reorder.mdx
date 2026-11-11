@@ -19,11 +19,13 @@ const [items, setItems] = createSignal(["Bowls", "Plates", "Cups"])
 
 Key the items with `<For>`, by their values. An item brings its own drag, layout and gestures, so a list works under any provider.
 
+`values` can be a store's array. Set it from `onReorder` as the store takes an array: on Solid 1, `setItems(values)` for a root store or `setState("items", values)` for a field; on Solid 2, `setItems(() => values)` for a root store or a splice of the field in a draft. A signal holding the array is the cheaper input: the group reads every item at each step, and a store reads each one through its proxy. See [Saving the order](/guides/reorder#saving-the-order).
+
 ## Reorder.Group
 
 | Prop | |
 | --- | --- |
-| `values` | The list's values, in order. |
+| `values` | The list's values, in order: an array, or a store's. |
 | `onReorder` | Given each new order, as an item crosses another: set `values` from it. |
 | `axis` | `"y"`, a column, `"x"`, a row, or `"xy"`, a grid that wraps. Left out, it's found from the items' boxes, as Motion's is; give it when you know it. |
 | `as` | The element it renders: `"ul"` by default. Read once. |

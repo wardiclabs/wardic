@@ -18,12 +18,13 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { type Accessor, createComponent, createContext, createEffect, createMemo, createRenderEffect, createSignal, type JSX, on, onCleanup, sharedConfig, splitProps, untrack, useContext } from "solid-js"
+import { $PROXY, type Accessor, createComponent, createContext, createEffect, createMemo, createRenderEffect, createSignal, type JSX, on, onCleanup, sharedConfig, splitProps, untrack, useContext } from "solid-js"
 import { Dynamic, getNextElement, insert, setAttribute, spread } from "solid-js/web"
 import { configTransitionOf, type WardicBatchTransition } from "./batch.ts"
 import { type BatchReorderBinding, type BatchReorderExit, type BatchReorderGesture, type BatchReorderInitial, type BatchReorderItem, type BatchReorderItems, serverBatchReorder, type BatchReorderRead, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize, sameRead, tabStopOf } from "./batch-reorder.ts"
 import { cssTextOf, sameStyle } from "./batch-reorder-places.ts"
 import { usePresenceContext } from "./presence.tsx"
+import { plainOrder } from "./reorder-values.ts"
 import { useBrought, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import type { ReorderElementTag } from "./reorder.tsx"
 import { isServer } from "./server.ts"
@@ -301,6 +302,8 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
   }
   const runtime = useWardicRuntime()
   const services = useBrought(GROUP_BRINGS)
+  // The order as a plain array (#721): a store's copied, so a store changed in place is a new order.
+  const values = (): ReadonlyArray<V> => plainOrder(local.values, $PROXY)
   // What the group read of its element: the direction it inherits and a grid's width (Q35, Q36).
   const [read, setRead] = createSignal<BatchReorderRead | undefined>(undefined, { equals: sameRead })
   const binding = untrack(() =>
@@ -315,7 +318,7 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
         untrack,
       },
       {
-        values: () => local.values,
+        values,
         geometryOf: (seen) => geometryOf(local, seen),
         read,
         onRead: setRead,
