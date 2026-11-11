@@ -166,3 +166,7 @@ The final review (#460, Part 1) found a press's keyboard side to be most of what
 - **A cancel's event is the `focusout`.** On Solid 1, a keyboard press a blur cancels hands `onTapCancel` the `focusout`, where it was the `blur` (decision 4): the same `FocusEvent`, the same target and `relatedTarget`.
 
 Measured against `main`, this change alone: 0.85 KB less held at rest by a pressable element; on the `tapped()` page, 4.1 KB less allocated per element per round, 2.1 ms off 1,000 elements' mount and 2.8 ms off their unmount. The rest of the keyboard side's cost is the focus feed's own subscription, which the press needs at rest. KP9 and KB12 pin the new behaviour.
+
+## Amendment (#709, 2026-11-11): the focusability check has a module of its own
+
+`makeFocusable` moves out of `DomInput`'s input module into `@wardic/dom/KeyboardPress`; `DomInput.makeFocusable` stays, the same function. A Batch's members are made focusable as each arrives (#665, Q57), and the Batch's gesture code loads lazily (ADR-0067): reached through it, each member's call cost more than the check (a profile of `bench:solid`'s gesture page, 1,000 members). From its own module a binding calls it directly, without the DOM's input. The rule is unchanged.

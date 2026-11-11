@@ -9,7 +9,8 @@ import * as Match from "effect/Match"
 import * as Ref from "effect/Ref"
 import * as Stream from "effect/Stream"
 import * as Option from "effect/Option"
-import { InputDomLive, keyOf, makeFocusable } from "../src/internal/input.ts"
+import { InputDomLive, keyOf } from "../src/internal/input.ts"
+import { makeFocusable } from "../src/internal/keyboard-press.ts"
 
 /** Hand the scheduler a fixed budget of turns so async steps settle. */
 const drain = Effect.forEach(Array.from({ length: 16 }), () => Effect.yieldNow, { discard: true })
@@ -257,7 +258,7 @@ layer(InputDomLive)("InputDomLive", (it) => {
       host.remove()
     }))
 
-  it("KA2: makeFocusable gives tabindex 0 to an HTML element that doesn't take focus, and leaves the rest (#427)", () => {
+  it("KA2: makeFocusable gives tabindex 0 to an HTML element that doesn't take focus, and leaves the rest (#427; every case, #709)", () => {
     const html = (markup: string): Element => {
       const wrap = document.createElement("div")
       wrap.innerHTML = markup
@@ -270,12 +271,26 @@ layer(InputDomLive)("InputDomLive", (it) => {
       ["button", html("<button></button>")],
       ["link", html("<a href='#x'>a</a>")],
       ["input", html("<input>")],
+      ["select", html("<select></select>")],
+      ["textarea", html("<textarea></textarea>")],
+      ["summary", html("<details><summary>s</summary></details>").firstElementChild!],
+      ["iframe", html("<iframe></iframe>")],
+      ["area", html("<map name='m'><area href='#x'></map>").firstElementChild!],
+      ["area with no href", html("<map name='n'><area></map>").firstElementChild!],
       ["editable", html("<div contenteditable='true'></div>")],
+      ["inside an editable", html("<div contenteditable='true'><span>s</span></div>").firstElementChild!],
+      ["anchor with no href, editable", html("<a contenteditable='true'>a</a>")],
+      ["anchor with no href, inside an editable", html("<div contenteditable='true'><a>a</a></div>").firstElementChild!],
       ["given tabindex -1", html("<div tabindex='-1'></div>")],
+      ["given tabindex 0", html("<div tabindex='0'></div>")],
       ["svg", document.createElementNS("http://www.w3.org/2000/svg", "rect")],
     ]
-    for (const [, el] of cases) document.body.appendChild(el)
+    // Each at its root in the page: one inside a wrapper (a summary, an area, an editable's child) goes in with it.
+    const roots = cases.map(([, el]) => el.parentElement ?? el)
+    for (const root of roots) document.body.appendChild(root)
     for (const [, el] of cases) makeFocusable(el)
+    // Not an element: left as it is, nothing thrown.
+    for (const notElement of [undefined, null, 1, "div", {}, () => {}, document.createTextNode("t")]) makeFocusable(notElement)
     expect(cases.map(([name, el]) => `${name}: ${el.getAttribute("tabindex")}`)).toEqual([
       "div: 0",
       "li: 0",
@@ -283,11 +298,21 @@ layer(InputDomLive)("InputDomLive", (it) => {
       "button: null",
       "link: null",
       "input: null",
+      "select: null",
+      "textarea: null",
+      "summary: null",
+      "iframe: null",
+      "area: null",
+      "area with no href: 0",
       "editable: null",
+      "inside an editable: null",
+      "anchor with no href, editable: null",
+      "anchor with no href, inside an editable: null",
       "given tabindex -1: -1",
+      "given tabindex 0: 0",
       "svg: null",
     ])
-    for (const [, el] of cases) el.remove()
+    for (const root of roots) root.remove()
   })
 
   it("keyOf names the browser's keys in core's names, and every other key other (#43)", () => {
