@@ -27,6 +27,7 @@ import * as Playback from "@wardic/core/Playback"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Sequence from "@wardic/core/Sequence"
 import * as DomBatch from "@wardic/dom/DomBatch"
+import * as KeyboardPress from "@wardic/dom/KeyboardPress"
 import * as Report from "@wardic/dom/Report"
 import * as Svg from "@wardic/dom/Svg"
 import * as Arr from "effect/Array"
@@ -192,8 +193,6 @@ export interface BatchEnv {
 export interface BatchGestureWatches {
   /** Its members' hover, or presses (a pointer's, and a focused member's keys), watched from now on. */
   readonly listen: (gesture: "hover" | "press", host: BatchGestureHost) => void
-  /** A pressable member's element made focusable, so a key can press it (Q57): `tabindex="0"` unless it takes focus. */
-  readonly focusable: (el: Element) => void
 }
 
 /** A member's gesture layer over its `animate` targets (ADR-0070 decision 12): its hover's, or its press's over that. */
@@ -1928,7 +1927,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     listening[gesture] = true
     if (gesture === "press") {
       Arr.forEach(elementOf, (el) => {
-        if (Predicate.isNotUndefined(el)) watches.focusable(el)
+        if (Predicate.isNotUndefined(el)) KeyboardPress.makeFocusable(el)
       })
     }
     watches.listen(gesture, gestureHost)
@@ -2169,8 +2168,9 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     elementOf[i] = el
     // Known to `animate`, as member `i`'s element (Q14).
     MEMBER_ELEMENTS.set(el, UndefinedOr.getOrThrow(entries[i]))
-    // Pressable, it's focusable, so a key can press it (Q57).
-    if (listening.press) UndefinedOr.map(env.gestures, (watches) => watches.focusable(el))
+    // Pressable, it's focusable, so a key can press it (Q57): called here, not through the lazily loaded
+    // gestures, whose route cost a mount more than the check (#709, Q2).
+    if (listening.press) KeyboardPress.makeFocusable(el)
     // Keyed, under `<AnimatePresence>`: watched there, so its leave plays its exit (Q46).
     watchOn(i, el)
     const slot = slotOf[i]

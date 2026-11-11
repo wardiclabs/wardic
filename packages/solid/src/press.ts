@@ -8,7 +8,7 @@
 import type * as InputFeed from "@wardic/core/InputFeed"
 import type * as InputSource from "@wardic/core/InputSource"
 import * as Recognizer from "@wardic/core/Recognizer"
-import * as DomInput from "@wardic/dom/DomInput"
+import * as KeyboardPress from "@wardic/dom/KeyboardPress"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import { constTrue, type LazyArg } from "effect/Function"
@@ -34,7 +34,7 @@ export const watchPressOn = (
 ): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> =>
   Effect.andThen(
     Effect.sync(() => {
-      if (Bool.not(keysTaken)) DomInput.makeFocusable(element)
+      if (Bool.not(keysTaken)) KeyboardPress.makeFocusable(element)
     }),
     Recognizer.watchPress(element, handlers, { keys: Bool.not(keysTaken), propagate: propagates }),
   )
