@@ -19,7 +19,17 @@ const grid = createBatch({
 <For each={cells}>{(i) => <div class="cell" {...grid.at(i)} />}</For>
 ```
 
-Call it in a component under a `WardicProvider`: the component's cleanup stops it. On a server it animates nothing, and each member's element renders with its own props.
+Call it in a component under a `WardicProvider`: the component's cleanup stops it.
+
+## Server rendering
+
+On a server a Batch animates nothing, and each spread member's element renders with its start, so a hydrated page doesn't jump:
+
+- **With `initial`,** its values, as the DOM draws them (`transform: translateY(20px); opacity: 0`), over the element's own `style`. Hydrated, the member animates from there to its targets.
+- **With `initial: false`,** or, keyed, under an `<AnimatePresence initial={false}>`'s first render, its targets. A server-rendered grid that should arrive in place takes `initial: false`.
+- **With neither,** nothing: it starts at each key's identity and animates to its targets once hydrated, as a Wardic element with no `initial` does.
+
+Give the element's own `style` to its handle, `grid.at(i, { style })`: on a server the handle writes the start into `style`, and a `style` beside the spread would take its place, or be replaced by it. A keyed Batch reads its list once on the server; a handle for a key the list doesn't have renders no start. A handle given to `ref` alone, not spread, renders nothing of the Batch's. An SVG member's translate is right from the server; a rotate or scale turns about the SVG's origin until hydration, which turns it about its own centre. Its entrance plays once the page's JS has run, not from first paint as a Wardic element's Appear animation does ([#706](https://github.com/wardiclabs/wardic/issues/706)).
 
 ## Its config
 

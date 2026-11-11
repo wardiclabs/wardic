@@ -9,7 +9,9 @@
 // Flush gate (ADR-0034, *Amendment (#665)*), so its write is a `setProperty` per moving member.
 import type * as Batch from "@wardic/core/Batch"
 import * as Arr from "effect/Array"
+import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
+import * as Predicate from "effect/Predicate"
 import * as Result from "effect/Result"
 import { TRANSFORM_FUNCS, unitOf } from "./renderer.ts"
 
@@ -27,12 +29,20 @@ const FUNCS = Arr.filter(TRANSFORM_FUNCS, (func) => func.key !== "pathRotation")
 /** The keys the DOM's writer draws: those transform keys and `opacity`. */
 const DRAWS: ReadonlySet<string> = new Set([...Arr.map(FUNCS, (func) => func.key), "opacity"])
 
+/** Each transform function's key, what goes either side of its value, and its identity, in the renderer's order: what `forKeys` and `styleOf` draw. */
+const FUNC_PARTS: ReadonlyArray<Omit<Part, "k"> & { readonly key: string }> = Arr.map(FUNCS, (func) => ({
+  key: func.key,
+  open: `${func.fn}(`,
+  close: `${unitOf(func.key)})`,
+  identity: func.identity,
+}))
+
 /** A Batch's write, for its keys in their order: built once, when the Batch is made. */
 const forKeys = (keys: ReadonlyArray<string>): ((el: Element, positions: Float64Array, base: number) => void) => {
-  const parts: ReadonlyArray<Part> = Arr.filterMap(FUNCS, (func) =>
-    Option.match(Arr.findFirstIndex(keys, (key) => key === func.key), {
+  const parts: ReadonlyArray<Part> = Arr.filterMap(FUNC_PARTS, (part) =>
+    Option.match(Arr.findFirstIndex(keys, (key) => key === part.key), {
       onNone: () => Result.failVoid,
-      onSome: (k) => Result.succeed({ k, open: `${func.fn}(`, close: `${unitOf(func.key)})`, identity: func.identity }),
+      onSome: (k) => Result.succeed({ k, open: part.open, close: part.close, identity: part.identity }),
     }))
   const count = parts.length
   // Its index for the per-frame write, or -1 for none: a plain read there (ADR-0025, the per-frame path).
@@ -57,6 +67,25 @@ const forKeys = (keys: ReadonlyArray<string>): ((el: Element, positions: Float64
     }
     if (opacityAt !== -1) style.setProperty("opacity", String(positions[base + opacityAt]))
   }
+}
+
+/**
+ * A member's style as a server writes it (#665's PR 6, Q63): `values`' `transform` and `opacity`, the
+ * strings `forKeys`' write draws them with, each left out at its identity. What the client then writes
+ * at the member's arrival is the same, so its element doesn't move at hydration.
+ */
+export const styleOf = (values: Readonly<Record<string, number>>): Readonly<Record<string, string>> => {
+  const style: Record<string, string> = {}
+  // Once a member on a server: in the renderer's order, as `forKeys`' write.
+  const functions = Arr.filterMap(FUNC_PARTS, (part) => {
+    const value = values[part.key]
+    if (Bool.or(Predicate.isUndefined(value), value === part.identity)) return Result.failVoid
+    return Result.succeed(part.open + value + part.close)
+  })
+  if (functions.length > 0) style.transform = functions.join(" ")
+  const opacity = values.opacity
+  if (Bool.and(Predicate.isNotUndefined(opacity), opacity !== 1)) style.opacity = String(opacity)
+  return style
 }
 
 /** The DOM's Batch writer: an element's `transform` and `opacity`. */

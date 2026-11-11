@@ -22,7 +22,8 @@ import {
   type Member,
   type MemberProps,
   registerBatch,
-  serverHandle,
+  serverHandlesOf,
+  serverKeyedHandlesOf,
   type WardicBatchLanding,
 } from "../../batch.ts"
 import type { WardicPointInfo, WardicPressInput } from "../../gesture-info.ts"
@@ -132,7 +133,6 @@ export interface WardicKeyedBatch<K> extends BatchLandings {
   readonly member: <E extends Element = HTMLElement>(key: K, props?: WardicBatchMemberProps<E>) => WardicBatchMember<E>
 }
 
-/** A server render's keyed Batch: its handles pass the element's own props on, and nothing animates or lands. */
 /**
  * The `<AnimatePresence>` a member's handle is made under: none outside an owner (a handle made in a
  * handler, or after an `await`), where Solid 2's context read throws.
@@ -142,20 +142,22 @@ const presenceHere = (): PresenceContextValue | undefined => {
   return usePresenceContext()
 }
 
-const serverKeyedBatch: WardicKeyedBatch<unknown> = {
-  member: serverHandle<JSX.CSSProperties>(),
+/** A server render's landings: none, ever. */
+const SERVER_LANDINGS: BatchLandings = {
   settled: () => undefined,
   next: () => neverLands(),
   when: <E extends keyof WardicBatchEvents>() => serverWhen<WardicBatchEvents[E]>(),
 }
 
-/** A server render's Batch: its handles pass the element's own props on, and nothing animates or lands. */
-const serverBatch: WardicBatch = {
-  at: serverHandle<JSX.CSSProperties>(),
-  settled: () => undefined,
-  next: () => neverLands(),
-  when: <E extends keyof WardicBatchEvents>() => serverWhen<WardicBatchEvents[E]>(),
-}
+/**
+ * A server render's Batch (#665's PR 6, ADR-0070 decision 14): its handles draw each spread member's
+ * start, over the element's own props, and nothing animates or lands.
+ */
+const serverBatchOf = (config: WardicBatchConfig | WardicKeyedBatchConfig<unknown>, keyed: boolean): WardicBatch | WardicKeyedBatch<unknown> =>
+  Bool.match(keyed, {
+    onTrue: (): WardicKeyedBatch<unknown> => ({ member: serverKeyedHandlesOf<JSX.CSSProperties>(config as WardicKeyedBatchConfig<unknown>, presenceHere), ...SERVER_LANDINGS }),
+    onFalse: (): WardicBatch => ({ at: serverHandlesOf<JSX.CSSProperties>(config as WardicBatchConfig), ...SERVER_LANDINGS }),
+  })
 
 /**
  * Animates many elements on the same keys as one Batch: `count` members, each given to `at(i)`'s
@@ -189,7 +191,7 @@ export function createBatch<T, K>(config: WardicKeyedBatchConfig<T> & { readonly
 export function createBatch(config: WardicBatchConfig): WardicBatch
 export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<unknown>): WardicBatch | WardicKeyedBatch<unknown> {
   const keyed = isKeyed(config)
-  if (isServer) return Bool.match(keyed, { onTrue: () => serverKeyedBatch, onFalse: () => serverBatch })
+  if (isServer) return serverBatchOf(config, keyed)
   // Its members' elements can be Wardic elements, which hand keys back and forth with it (#665's PR 4).
   provideMemberHolds()
   const configTransition = configTransitionOf(useWardicConfig())

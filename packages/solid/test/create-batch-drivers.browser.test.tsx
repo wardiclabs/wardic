@@ -260,10 +260,14 @@ describe("the latest driver of a Batch member's keys on Solid 1 (#665)", () => {
     // It moves member 1 alone.
     setTx(100)
     const frames = await over(24, () => [scaleOf(held), scaleOf(reference), xOf(moved)] as const)
-    // Up to its leg's landing, after which the Batch takes it back.
-    const landed = frames.findIndex(([, plain]) => plain === 1.5)
-    expect(landed).toBeGreaterThan(4)
-    frames.slice(0, landed + 1).forEach(([own, plain], f) => expect(own, `frame ${f}: scale`).toBeCloseTo(plain, 6))
+    // Its ward's up to its leg's landing: every frame before the first that reads the ward's 1.5. A computed
+    // matrix keeps six figures, so the frame before the landing can read 1.5 too, by the frame timing.
+    const landing = frames.findIndex(([, plain]) => plain === 1.5)
+    expect(landing).toBeGreaterThan(4)
+    frames.slice(0, landing).forEach(([own, plain], f) => expect(own, `frame ${f}: scale`).toBeCloseTo(plain, 6))
+    // Then the Batch takes it back in the landing's own frame, its run stepping after the ward's leg in the
+    // tick, and turns it toward its scale of 1.
+    expect(frames[frames.length - 1][0]).toBeLessThan(1.5)
     expect(frames[frames.length - 1][2]).toBeGreaterThan(50)
   })
 

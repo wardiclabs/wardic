@@ -48,9 +48,17 @@ export interface Hydrated2 {
   readonly dispose: () => void
 }
 
+/** Where a fixture comes from, and what runs before its hydration. */
+export interface HydrateOptions2 {
+  /** The fixtures module, `FIXTURES_FILE` by default. */
+  readonly file?: string
+  /** Run with the page's host once the server's markup is on it, before hydration: a page's JS comes later. */
+  readonly waiting?: (host: HTMLElement) => Promise<void>
+}
+
 /** Server-render fixture `name` (under `renderId = name`), put it on the page, and hydrate it with `code`. */
-export const hydrateFixture2 = async (name: string, code: () => JSX.Element): Promise<Hydrated2> => {
-  const { html, head, script, error } = await commands.serverRender2(FIXTURES_FILE, name, name)
+export const hydrateFixture2 = async (name: string, code: () => JSX.Element, options: HydrateOptions2 = {}): Promise<Hydrated2> => {
+  const { html, head, script, error } = await commands.serverRender2(options.file ?? FIXTURES_FILE, name, name)
   if (error !== "") throw new Error(`server render of ${name} failed: ${error}`)
   const headNodes = appendHtml(document.head, head)
   const host = document.createElement("div")
@@ -58,6 +66,7 @@ export const hydrateFixture2 = async (name: string, code: () => JSX.Element): Pr
   document.body.append(host)
   const server = new Map([...host.querySelectorAll<HTMLElement>("[data-k]")].map((el) => [el.dataset.k!, el]))
   injectHydrationScript(script)
+  if (options.waiting !== undefined) await options.waiting(host)
   // Every test shares one page: a hydration marks it done (`_$HY.done`), and `hydrate` then renders
   // afresh over the server's markup. Each hydrates as a page's first would.
   ;(globalThis as { _$HY?: { done?: boolean } })._$HY!.done = false
