@@ -433,12 +433,12 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
           Match.tag("Cancel", () => {
             if (Bool.not(lifted)) return
             event.handle()
-            Option.match(Reorder.cancel(group, value), {
+            const placement = withReveal(value, () => Reorder.cancel(group, value))
+            Option.match(placement, {
               onNone: constVoid,
               onSome: (placement) => {
                 setLifted(value, false)
                 keepFocus(value)
-                if (placement.moved) MutableRef.set(reveal, Option.some(value))
                 announceNow(say("cancel", value, placement))
                 holdEnd(value, "cancel")
               },
@@ -451,20 +451,32 @@ export const makeReorderController = <V>(wiring: ReorderControllerWiring, option
         ),
     })
   }
+  /**
+   * `reorder`'s placement, `value`'s new place to be revealed once its items are laid out when it moved.
+   * Asked before the reorder: a binding that places its items as `onReorder` sets them (`makePlaced`'s, a
+   * Batch Reorder group's, #712) says they're laid out before the reorder returns. Moving nothing, the
+   * ask is taken back.
+   */
+  const withReveal = (value: V, reorder: () => Option.Option<Reorder.Placement>): Option.Option<Reorder.Placement> => {
+    const before = MutableRef.get(reveal)
+    MutableRef.set(reveal, Option.some(value))
+    const placement = reorder()
+    const moved = Option.exists(placement, (p) => p.moved)
+    // Laid out within it, its reveal was taken: nothing to take back.
+    if (Bool.and(Bool.not(moved), Option.contains(MutableRef.get(reveal), value))) MutableRef.set(reveal, before)
+    return placement
+  }
   /** An arrow, Home or End: the lifted item's step, its announcement (a held arrow's thinned), its reveal. */
   const stepLifted = (event: InputSource.KeyboardLikeEvent, value: V, lifted: boolean, intent: Extract<Reorder.KeyIntent, { readonly _tag: "Step" | "End" }>): void => {
     // Not lifted, the arrows, Home and End keep their own work (scrolling the page).
     if (Bool.not(lifted)) return
     event.handle()
-    Option.match(Reorder.moveLifted(group, value, intent), {
+    Option.match(withReveal(value, () => Reorder.moveLifted(group, value, intent)), {
       onNone: constVoid,
       onSome: (placement) => {
         // A repeat before the last step was laid out moved nothing: nothing to say.
         if (placement.waiting) return
-        if (placement.moved) {
-          MutableRef.set(reveal, Option.some(value))
-          keepFocus(value)
-        }
+        if (placement.moved) keepFocus(value)
         const message = say("step", value, placement)
         Bool.match(event.repeat, { onTrue: () => announceLater(message), onFalse: () => announceNow(message) })
       },
