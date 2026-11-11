@@ -26,6 +26,7 @@ import * as Predicate from "effect/Predicate"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as UndefinedOr from "effect/UndefinedOr"
+import * as Iter from "effect/Iterable"
 import * as DragActivity from "./DragActivity.ts"
 import * as InputFeed from "./InputFeed.ts"
 import * as InputSource from "./InputSource.ts"
@@ -206,6 +207,99 @@ export const watchHover: (target: unknown, handlers: HoverHandlers) => Effect.Ef
     })
     yield* watchFeed("wardic.hover", {}, input.pointer(target), handle, handlers)
   })
+
+/** A watch's handlers over many targets: `on`, each target's start and end, with the target. */
+// #665's PR 5 (Q56).
+export interface AmongHandlers<A> extends Pick<InputFeed.Handlers<never>, "onDefect" | "onEnd" | "onStop"> {
+  readonly on: (target: unknown, value: A) => void
+}
+
+/** An InputSource's feed over many targets, or a defect naming it: an Environment without one can't watch many targets as one. */
+const amongFeed = <A>(feed: A | undefined, name: string): Effect.Effect<A> =>
+  UndefinedOr.match(feed, {
+    onUndefined: () => Effect.die(new Error(`wardic: the Environment's InputSource has no \`${name}\`, which a gesture over many targets needs`)),
+    onDefined: Effect.succeed,
+  })
+
+/**
+ * Each target's state in a watch over many targets: held weakly by a target that's an object, so a
+ * target gone mid-gesture (an element removed under the pointer, which hears no leave) keeps nothing.
+ */
+interface TargetStates<S> {
+  readonly get: (target: unknown) => S | undefined
+  readonly set: (target: unknown, state: S) => void
+  readonly delete: (target: unknown) => void
+}
+
+/** A {@link TargetStates}: a `WeakMap` for objects, a `Map` for the rest (a test's names). */
+// Per event over a target: statements.
+const targetStates = <S>(): TargetStates<S> => {
+  const objects = new WeakMap<object, S>()
+  const others = new Map<unknown, S>()
+  return {
+    get: (target) => {
+      if (Predicate.isObject(target)) return objects.get(target)
+      return others.get(target)
+    },
+    set: (target, state) => {
+      if (Predicate.isObject(target)) {
+        objects.set(target, state)
+        return
+      }
+      others.set(target, state)
+    },
+    delete: (target) => {
+      if (Predicate.isObject(target)) {
+        objects.delete(target)
+        return
+      }
+      others.delete(target)
+    },
+  }
+}
+
+/** Whether a hover's state is at rest: no pointer over its target or holding it, so it needs none kept. */
+const hoverAtRest = (state: HoverState): boolean => {
+  if (state.inside) return false
+  if (state.deferred) return false
+  return Predicate.isNull(state.held)
+}
+
+/**
+ * Watches hover on many targets from one source while the Scope is open: `memberOf(node)` names the
+ * target a node is, `Option.none()` for none, and `handlers.on` hears each target's starts and ends, with
+ * it, as `watchHover` would tell it of its own events. A target a pointer has never touched keeps
+ * nothing, and one that's an object is held weakly.
+ *
+ * @example
+ * yield* Recognizer.watchHoverAmong((node) => Option.fromUndefinedOr(tiles.get(node)), {
+ *   on: (tile, { active }) => lift(tile, active),
+ * })
+ */
+// #665's PR 5 (Q56): a Batch's members, over the InputSource's `pointerAmong`. Hover's fold, a state a
+// target, made at its first event and dropped at rest, held weakly. Tier 2, for bindings.
+export const watchHoverAmong: (memberOf: (node: unknown) => Option.Option<unknown>, handlers: AmongHandlers<Edge>) => Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> = /*#__PURE__*/ Effect.fnUntraced(
+  function* (memberOf: (node: unknown) => Option.Option<unknown>, handlers: AmongHandlers<Edge>) {
+    const input = yield* InputSource.InputSource
+    const activity = yield* DragActivity.DragActivity
+    const among = yield* amongFeed(input.pointerAmong, "pointerAmong")
+    const fold = hoverFold(activity)
+    const handle = (): ((told: InputSource.TargetEvent<InputSource.PointerLikeEvent>) => boolean) => {
+      const states = targetStates<HoverState>()
+      // Per pointer event over a target: statements.
+      return ({ target, event }) => {
+        const was = UndefinedOr.match(states.get(target), { onUndefined: () => noHover, onDefined: identity })
+        const next = fold.step(was, event)
+        states.set(target, next)
+        if (hoverAtRest(next)) states.delete(target)
+        const active = fold.active(next)
+        if (active !== fold.active(was)) handlers.on(target, { active, event })
+        return true
+      }
+    }
+    yield* watchFeed("wardic.hover", { among: true }, among(memberOf), handle, handlers)
+  },
+)
 
 /** Whether `event` moves a pointer over the target while `state`'s hover is on (#397). */
 const movesOver = (state: HoverState, event: InputSource.PointerLikeEvent): boolean =>
@@ -388,6 +482,29 @@ export interface PressOptions {
   readonly propagate?: boolean | LazyArg<boolean> | undefined
 }
 
+/** Whether keys press a target with `options`: its `keys`, else `true`. */
+const keysPressOf = (options: PressOptions | undefined): boolean => UndefinedOr.match(options, { onUndefined: constTrue, onDefined: (o) => o.keys !== false })
+
+/**
+ * A press's state stepped from `was` to `now` by `event`: when it turned, its edge, `out`'s, marked by
+ * `taken` and told `on`; nothing when it didn't.
+ */
+// Per press event: statements.
+const tellPress = <Ev>(
+  was: PressState,
+  now: PressState,
+  event: Ev,
+  out: (ended: PressState, e: Ev, active: boolean) => PressEvent,
+  taken: (e: Ev, told: PressEvent) => void,
+  on: (told: PressEvent) => void,
+): void => {
+  const active = isPressed(now)
+  if (active === isPressed(was)) return
+  const told = out(now, event, active)
+  taken(event, told)
+  on(told)
+}
+
 /** Whether a press with `options` propagates now: its `propagate`, read now, else `true`. */
 const propagatesOf = (options: PressOptions | undefined): LazyArg<boolean> => {
   const propagate = UndefinedOr.map(options, (o) => o.propagate)
@@ -428,7 +545,7 @@ export const watchPress: (
     const input = yield* InputSource.InputSource
     const activity = yield* DragActivity.DragActivity
     const claims = yield* PressClaims.PressClaims
-    const keys = UndefinedOr.match(options, { onUndefined: constTrue, onDefined: (o) => o.keys !== false })
+    const keys = keysPressOf(options)
     const propagates = propagatesOf(options)
     // A press's start marks what it started from (#439): claimed when it doesn't propagate.
     const marking = (event: PressClaims.Markable, told: PressEvent): void => {
@@ -457,11 +574,7 @@ export const watchPress: (
         const was = MutableRef.get(state)
         const now = next(was, event)
         MutableRef.set(state, now)
-        const active = isPressed(now)
-        if (active === isPressed(was)) return true
-        const told = out(now, event, active)
-        taken(event, told)
-        handlers.on(told)
+        tellPress(was, now, event, out, taken, handlers.on)
         return true
       }
     yield* InputFeed.watchWith(input.pointer(target), step(pointerStep(activity, claims, target), pointerPressOf, marking), watching)
@@ -506,6 +619,101 @@ const feedsWatched = (keys: boolean, keysOnFocus: boolean): number => {
   if (keysOnFocus) return 2
   return 3
 }
+
+/**
+ * Watches presses on many targets from one source while the Scope is open: `memberOf(node)` names the
+ * target a node is, `Option.none()` for none, and `handlers.on` hears each target's starts and ends, with
+ * it, as `watchPress` would tell it of its own events. A focused target's Enter and Space press it, its
+ * keys heard only while focus is within it, through the InputSource's `focusAmong`, which tells a focus
+ * already within one as it starts; without one, only pointers press. A target with no press held keeps
+ * nothing.
+ *
+ * @example
+ * yield* Recognizer.watchPressAmong((node) => Option.fromUndefinedOr(tiles.get(node)), {
+ *   on: (tile, { phase }) => {
+ *     if (phase === "tap") open(tile)
+ *   },
+ * })
+ */
+// #665's PR 5 (Q56, Q57): a Batch's members, over `pointerAmong` and `focusAmong`. Press's steps, a state a
+// target, made at its first event and dropped once no press is held; its **Press claims** marked per
+// target (#439); each focused target's keys a switch of its own (#460). Tier 2, for bindings.
+export const watchPressAmong: (
+  memberOf: (node: unknown) => Option.Option<unknown>,
+  handlers: AmongHandlers<PressEvent>,
+  options?: PressOptions,
+) => Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> = /*#__PURE__*/ Effect.fnUntraced(
+  function* (memberOf: (node: unknown) => Option.Option<unknown>, handlers: AmongHandlers<PressEvent>, options?: PressOptions) {
+    yield* Effect.logDebug("wardic.press: watch")
+    const input = yield* InputSource.InputSource
+    const activity = yield* DragActivity.DragActivity
+    const claims = yield* PressClaims.PressClaims
+    const pointer = yield* amongFeed(input.pointerAmong, "pointerAmong")
+    const focusAmong = input.focusAmong
+    const keys = Bool.and(keysPressOf(options), Predicate.isNotUndefined(focusAmong))
+    const propagates = propagatesOf(options)
+    // Each target with a press held, and each focused target's keys.
+    const states = targetStates<PressState>()
+    const keysOf = new Map<unknown, InputFeed.Switch>()
+    // Its pointer, and with keys its focus: each one's end counted for `onEnd`.
+    const feeds = MutableRef.make(feedsWatched(keys, true))
+    const onEnd = (): void => {
+      MutableRef.set(feeds, MutableRef.get(feeds) - 1)
+      if (MutableRef.get(feeds) === 0) UndefinedOr.map(handlers.onEnd, (end) => end())
+    }
+    // Told once, as the watch stops: with its pointer's.
+    const onStop = (): void => {
+      Iter.forEach(keysOf, ([, keysNow]) => keysNow.close())
+      keysOf.clear()
+      UndefinedOr.map(handlers.onStop, (stop) => stop())
+    }
+    /** `target`'s event stepped by `next`: its edge told, and its state kept while a press is held. */
+    // Per event over a target: statements.
+    const stepOn = <Ev>(target: unknown, event: Ev, next: (s: PressState, e: Ev) => PressState, out: (ended: PressState, e: Ev, active: boolean) => PressEvent, taken: (e: Ev, told: PressEvent) => void): void => {
+      const was = UndefinedOr.match(states.get(target), { onUndefined: () => noPress, onDefined: identity })
+      const now = next(was, event)
+      states.set(target, now)
+      if (Bool.not(isPressed(now))) states.delete(target)
+      tellPress(was, now, event, out, taken, (told) => handlers.on(target, told))
+    }
+    /** A press's start on `target` marks what it started from (#439): claimed when it doesn't propagate. */
+    const markingOn = (target: unknown) => (event: PressClaims.Markable, told: PressEvent): void => {
+      if (told.phase === "start") claims.mark(event, target, Bool.not(propagates()))
+    }
+    const onPointer = (): ((told: InputSource.TargetEvent<InputSource.PointerLikeEvent>) => boolean) => ({ target, event }) => {
+      stepOn(target, event, pointerStep(activity, claims, target), pointerPressOf, markingOn(target))
+      return true
+    }
+    yield* InputFeed.watchWith(pointer(memberOf), onPointer, { onDefect: handlers.onDefect, onEnd, onStop })
+    if (Bool.not(keys)) return
+    if (Predicate.isUndefined(focusAmong)) return
+    const closeKeys = (target: unknown): void => {
+      UndefinedOr.map(keysOf.get(target), (keysNow) => keysNow.close())
+      keysOf.delete(target)
+    }
+    // A target's keys only while focus is within it (#460), from its focus to its blur.
+    const openKeys = (target: unknown): void => {
+      if (keysOf.has(target)) return
+      const marking = markingOn(target)
+      const keyTaken = (event: InputSource.KeyboardLikeEvent, told: PressEvent): void => {
+        marking(event, told)
+        takeSpace(event, told)
+      }
+      const keysNow = InputFeed.switched(input.keyboard(target), (event) => stepOn(target, event, keyStep(activity, claims, target), keyPressOf, keyTaken), handlers.onDefect)
+      keysOf.set(target, keysNow)
+      keysNow.open()
+    }
+    const onFocus = (): ((told: InputSource.TargetEvent<InputSource.FocusLikeEvent>) => boolean) => ({ target, event }) => {
+      if (event.type === "focus") openKeys(target)
+      // A blur first ends a Keyboard press it cancels, then lets the keys go.
+      stepOn(target, event, focusStep, blurPressOf, constVoid)
+      if (event.type === "blur") closeKeys(target)
+      return true
+    }
+    yield* InputFeed.watchWith(focusAmong(memberOf), onFocus, { onDefect: handlers.onDefect, onEnd })
+  },
+  (self) => tracedScoped(self, "wardic.press"),
+)
 
 /** A pointer's press edge, with how it began or ended. */
 const pointerPressOf = (next: PressState, event: InputSource.PointerLikeEvent, active: boolean): PressEvent => ({

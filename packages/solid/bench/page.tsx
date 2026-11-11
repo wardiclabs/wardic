@@ -256,8 +256,13 @@ const cellOf = (i: number, p: number): number => Bool.match(p === 0, { onTrue: (
 const xOfCell = (cell: number): number => (cell % COLUMNS) * 10
 const yOfCell = (cell: number): number => Math.floor(cell / COLUMNS) * 10
 const BATCH_SPRING = { type: "spring", stiffness: 210, damping: 20 } as const
+// `?kind=batch-gestures` (#665's PR 5, Q61's S5): the same Batch with `whileHover` and `whileTap`, which
+// listen from one source, so its mount, changes and frames cost what the plain Batch's do. Their values
+// are on its own keys: a key of theirs it doesn't have would join them, a third key to step and draw.
+const GESTURES = { whileHover: { y: -4 }, whileTap: { x: 0 } } as const
 const BatchGrid = () => {
-  const grid = createBatch({ count: n, initial: false, animate: (i) => ({ x: xOfCell(cellOf(i, phase())), y: yOfCell(cellOf(i, phase())) }), transition: BATCH_SPRING })
+  const gestures = Bool.match(kind === "batch-gestures", { onTrue: () => GESTURES, onFalse: () => ({}) })
+  const grid = createBatch({ count: n, initial: false, animate: (i) => ({ x: xOfCell(cellOf(i, phase())), y: yOfCell(cellOf(i, phase())) }), transition: BATCH_SPRING, ...gestures })
   return <For each={items}>{(i) => <div class="b" {...grid.at(i)} />}</For>
 }
 const BatchPage = () => (
@@ -289,7 +294,7 @@ const AnimatePage = () => (
 )
 /** A change to phase `p`: the Batch's, by its signal; the per-element page's, a call per element. */
 const moveTo = (p: number, transition: { readonly duration: number } | typeof BATCH_SPRING): void => {
-  if (kind === "batch") {
+  if (Bool.or(kind === "batch", kind === "batch-gestures")) {
     setPhase(p)
     return
   }
@@ -368,6 +373,7 @@ const pages = {
   "retained-reorder": RetainedReorder,
   layout: Layout,
   batch: BatchPage,
+  "batch-gestures": BatchPage,
   "batch-animate": AnimatePage,
 } as const
 render(() => {
@@ -448,13 +454,18 @@ const round = async (): Promise<Round> => {
 
 /** One `--batch` round (#665), in ms: its two changes' tasks, and the median frame's rAF callbacks while they fly. */
 export interface BatchRound {
+  readonly mount: number
   readonly retarget: number
   readonly frame: number
 }
 
 const batchRound = async (): Promise<BatchRound> => {
   setPhase(0)
+  // Timed without the collection `timed` runs first: one before the mount moved the change's time after it
+  // (0.35 → 0.69 ms on Chromium, #665's PR 5), by where the mount's objects then lived.
+  const mountStart = performance.now()
   setShown(true)
+  const mount = performance.now() - mountStart
   if (boxes().length !== n) throw new Error(`bench:solid: mounted ${boxes().length} of ${n}`)
   await frames(2)
   // The per-element page starts each div at its first cell, as the Batch's start there.
@@ -478,7 +489,7 @@ const batchRound = async (): Promise<BatchRound> => {
   if (first.style.transform !== "none") throw new Error(`bench:solid: the first div landed at ${first.style.transform}`)
   setShown(false)
   await frames(6)
-  return { retarget: median(retargets), frame: median(frameTimes) }
+  return { mount, retarget: median(retargets), frame: median(frameTimes) }
 }
 
 /** One `--live` round's tasks, in ms: the mount and unmount, and the median set and frame. */

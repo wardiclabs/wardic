@@ -40,6 +40,7 @@ import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicTransition } from "./config.ts"
+import type { WardicPoint, WardicPressInput } from "./gesture-info.ts"
 import { type PresenceContextValue, presenceBlocksInitial, presenceHold } from "./presence-record.ts"
 import { type Run, runOf, transitionForKey } from "./retarget-legs.ts"
 import type { WardicRuntime } from "./runtime.ts"
@@ -96,6 +97,16 @@ export interface WardicBatchLanding {
 /** A keyed member's exit: its values, and the transition it leaves on, else the Batch's (Q48). */
 export type WardicBatchExit = WardicBatchValues & { readonly transition?: WardicBatchTransition }
 
+/**
+ * A member's gesture, `whileHover`'s or `whileTap`'s (#665's PR 5, Q58): its values, and the transition it
+ * moves into them on, else the Batch's. It moves back on the Batch's, or a press ending while the member's
+ * hovered back to `whileHover`'s values on the hover's.
+ */
+export type WardicBatchGesture = WardicBatchValues & { readonly transition?: WardicBatchTransition }
+
+/** A member's gesture events (ADR-0070 decision 12, Q60): its hover's start and end, its press's start, and how it ended. */
+export type WardicBatchGestureName = "hoverStart" | "hoverEnd" | "pressStart" | "tap" | "tapCancel"
+
 /** What both bindings' `createBatch` take by index: `count` members, each by its index. */
 export interface BatchConfig {
   /** How many members it has: read once. */
@@ -104,6 +115,19 @@ export interface BatchConfig {
   readonly initial?: false | WardicBatchValues | ((i: number) => WardicBatchValues)
   /** Each member's targets, by its index: tracked, so a change turns every member once. */
   readonly animate: (i: number) => WardicBatchValues
+  /**
+   * Where a member goes while the pointer is over it (touch never hovers), over `animate`'s: values with
+   * an optional `transition`, or a function of its index, read as its hover starts (Q58). Back to
+   * `animate`'s as it ends.
+   */
+  readonly whileHover?: WardicBatchGesture | ((i: number) => WardicBatchValues)
+  /**
+   * Where a member goes while it's pressed, over `whileHover`'s and `animate`'s: by a pointer, or by Enter
+   * or Space while it has focus (with it, or a tap event, a member's element takes `tabindex="0"` unless
+   * it's focusable): values with an optional `transition`, or a function of its index, read as its press
+   * starts (Q57, Q58).
+   */
+  readonly whileTap?: WardicBatchGesture | ((i: number) => WardicBatchValues)
   /** How they move: else the nearest `WardicConfig`'s, else each key's Default transition. */
   readonly transition?: WardicBatchTransition
 }
@@ -128,6 +152,17 @@ export interface KeyedBatchConfig<T> {
    * optional `transition`, or a function of its item, its last index and the presence's `custom` (Q48).
    */
   readonly exit?: WardicBatchExit | ((item: T, i: number, custom: unknown) => WardicBatchValues)
+  /**
+   * Where a member goes while the pointer is over it (touch never hovers), over `animate`'s: values with
+   * an optional `transition`, or a function of its item and index, read as its hover starts (Q58).
+   */
+  readonly whileHover?: WardicBatchGesture | ((item: T, i: number) => WardicBatchValues)
+  /**
+   * Where a member goes while it's pressed, over `whileHover`'s and `animate`'s, by a pointer or by Enter or
+   * Space while it has focus: values with an optional `transition`, or a function of its item and index,
+   * read as its press starts (Q57, Q58).
+   */
+  readonly whileTap?: WardicBatchGesture | ((item: T, i: number) => WardicBatchValues)
   /** How they move: else the nearest `WardicConfig`'s, else each key's Default transition. */
   readonly transition?: WardicBatchTransition
 }
@@ -146,12 +181,77 @@ export interface BatchEnv {
   readonly configTransition: () => WardicTransition | undefined
   /** Its binding's Solid's `untrack`: a keyed Batch reads its list again at a task's end, outside its tracking. */
   readonly untrack: <A>(read: () => A) => A
+  /** Its members' gestures (#665's PR 5, Q56): what watches them, from one source each. None, none listen. */
+  readonly gestures?: BatchGestureWatches | undefined
 }
 
-/** What a Batch tells its binding: a flight's start, and its landing. */
+/**
+ * How a Batch watches its members' gestures (#665's PR 5, Q56, Q60, Q62): its hover and its presses over
+ * them, each started once, at its first need, over its host, and stopped with the Batch.
+ */
+export interface BatchGestureWatches {
+  /** Its members' hover, or presses (a pointer's, and a focused member's keys), watched from now on. */
+  readonly listen: (gesture: "hover" | "press", host: BatchGestureHost) => void
+  /** A pressable member's element made focusable, so a key can press it (Q57): `tabindex="0"` unless it takes focus. */
+  readonly focusable: (el: Element) => void
+}
+
+/** A member's gesture layer over its `animate` targets (ADR-0070 decision 12): its hover's, or its press's over that. */
+export type BatchGestureLayer = "hover" | "press"
+
+/** What a Batch's gestures work its members through (Q58, Q59): their layers, its keys, and how each member is named. */
+export interface BatchGestureHost {
+  /** The element a node is, while it's this Batch's member's, else `Option.none()`: what its watches are over. */
+  readonly memberElementOf: (node: unknown) => Option.Option<unknown>
+  /** The member such an element is: its number. */
+  readonly memberAt: (element: unknown) => number | undefined
+  /** Whether member `i`'s `layer` is on. */
+  readonly layered: (layer: BatchGestureLayer, i: number) => boolean
+  /**
+   * Member `i`'s `layer` at `values`, by key index (`NaN` for a key they don't give), or off: then the
+   * member turned toward its Override stack's targets on `transition`, never staggered, a key only a
+   * layer gave back to where it was as the first came on; a leaver not turned, its exit holding its keys.
+   */
+  readonly layer: (layer: BatchGestureLayer, i: number, values: Float64Array | undefined, transition: WardicTransition | undefined) => void
+  /** Its keys, in their order. */
+  readonly keys: () => ReadonlyArray<string>
+  /** Member `i` as an error names it, its index (a keyed member's in its list now), and its item. */
+  readonly nameOf: (i: number) => string
+  readonly indexOf: (i: number) => number
+  readonly itemOf: (i: number) => unknown
+  readonly keyed: boolean
+  readonly untrack: <A>(read: () => A) => A
+  /** The Batch's transition now. */
+  readonly configured: () => WardicTransition | undefined
+  /** Its config's `whileHover` and `whileTap`, as given. */
+  readonly hoverGiven: unknown
+  readonly tapGiven: unknown
+  /** A member's gesture event, told its binding. */
+  readonly tell: (told: BatchGestureTold) => void
+}
+
+/**
+ * A member's gesture event, as its Batch tells its binding (Q60): its name, the platform's event behind
+ * it, its point and a press's input, the member's element, its index (a keyed member's in its list now)
+ * and a keyed member's item.
+ */
+export interface BatchGestureTold {
+  readonly name: WardicBatchGestureName
+  readonly raw: unknown
+  readonly point: WardicPoint
+  /** A press's input; `undefined` for a hover. */
+  readonly input: WardicPressInput | undefined
+  readonly element: Element
+  readonly i: number
+  readonly item: unknown
+}
+
+/** What a Batch tells its binding: a flight's start, and its landing; and its members' gestures. */
 export interface BatchHooks {
   readonly started: () => void
   readonly landed: (landing: WardicBatchLanding) => void
+  /** A member's gesture event (Q60), after the member has turned toward its gesture's targets. */
+  readonly gesture?: ((told: BatchGestureTold) => void) | undefined
 }
 
 /** A Batch bound to its config: its targets, read by the binding's tracking, and what it does with them. */
@@ -195,6 +295,11 @@ export interface BatchBinding {
    * its identity while it draws `transform`; `undefined` when it draws none of `key`'s group.
    */
   readonly drawnValueOf: (i: number, key: string) => number | undefined
+  /**
+   * Its members' hover, or presses, watched from now on (#665's PR 5, Q60): once each. A binding calls it
+   * when the Batch has `whileHover` or `whileTap`, a gesture callback, or a first ask for a gesture event.
+   */
+  readonly listen: (gesture: "hover" | "press") => void
   /** The Batch's run ended, and no member drawn again. */
   readonly dispose: () => void
 }
@@ -488,7 +593,7 @@ export interface Member<E extends Element, Style> {
 }
 
 /** What an error about a Batch says. */
-const fail = (message: string): never => {
+export const fail = (message: string): never => {
   throw new Error(`createBatch: ${message}`)
 }
 
@@ -570,6 +675,19 @@ const segmentValueOf = (key: string, value: unknown, memberName: string | undefi
   const whose = UndefinedOr.match(memberName, { onUndefined: () => "", onDefined: (name) => `${name}'s ` })
   return fail(`a sequence gives ${whose}"${key}" as ${JSON.stringify(value)}: a Batch's key takes a number, \`null\`, or stops of them`)
 }
+
+/** A gesture given as an object (Q58), else `undefined`: a function's values are read at each start. */
+export const gestureObjectOf = (given: unknown): WardicBatchGesture | undefined => {
+  if (Predicate.isFunction(given)) return undefined
+  return given as WardicBatchGesture | undefined
+}
+
+/** A gesture object's values, less its `transition`; none for a function, or for none given. */
+export const gestureObjectValues = (given: unknown): Readonly<Record<string, unknown>> =>
+  UndefinedOr.match(gestureObjectOf(given), {
+    onUndefined: () => NO_VALUES,
+    onDefined: ({ transition: _transition, ...values }) => values,
+  })
 
 /** A member's slot before its element arrives. */
 const NO_SLOT = -1
@@ -849,6 +967,16 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
   const refs: Array<(el: Element) => void> = []
   const memberOf: Array<number> = []
   let current: Float64Array = new Float64Array(0)
+  // Each member's gestures on (#665's PR 5), a layer each over `animate`'s targets: its values while it's
+  // on, `NaN` for a key it doesn't give; and how many layers are on, so a change with none reads `animate`'s
+  // alone. Declared before `targetOf`, which reads them per member per key at a change.
+  const hovering: Array<Float64Array | undefined> = []
+  const pressing: Array<Float64Array | undefined> = []
+  const layers: Readonly<Record<BatchGestureLayer, Array<Float64Array | undefined>>> = { hover: hovering, press: pressing }
+  let gesturing = 0
+  // Where each key only a gesture gives (none of `animate`'s) was as the member's first layer came on:
+  // what it returns to as its last goes (decision 12), `NaN` for the rest; kept while a layer is on.
+  const bases: Array<Float64Array | undefined> = []
   let binding: BatchBinding | undefined = undefined
 
   /** Room for `wanted` members: every member's typed arrays grown to the next power of two times their size that holds it. */
@@ -893,6 +1021,10 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     if (Predicate.isNotUndefined(given)) return given
     return env.configTransition()
   }
+
+  // Its gestures as given (#665's PR 5): `whileHover` and `whileTap`, an object or a function.
+  const hoverGiven: unknown = (config as { readonly whileHover?: unknown }).whileHover
+  const tapGiven: unknown = (config as { readonly whileTap?: unknown }).whileTap
   /** A key's Default transition toward `target`. */
   const defaultFor = (k: number, target: number): Batch.Transition => env.defaultTransition.transitionFor(keys[k], target) as Batch.Transition
 
@@ -995,7 +1127,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
    */
   const makeFromList = (targets: KeyedTargets): void => {
     if (targets.items.length === 0) return
-    keysAre(withExitKeys(UndefinedOr.match(byKey.keys, {
+    keysAre(withMoreKeys(UndefinedOr.match(byKey.keys, {
       onUndefined: () => keysFrom(targets.items.length, (i) => targets.values[i], (i) => keyedInitialOf(targets.items[i], i)),
       onDefined: identity,
     })))
@@ -1006,13 +1138,24 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     })
   }
 
-  /** Keyed: `given` keys with its `exit`'s, as values, after them; with `keys` given, an `exit` key outside them is an error naming it. */
-  const withExitKeys = (given: ReadonlyArray<string>): ReadonlyArray<string> => {
-    const more = Arr.filter(Rec.keys(exitValues), (key) => !Arr.contains(given, key))
-    if (Bool.and(Predicate.isNotUndefined(byKey.keys), more.length > 0)) {
-      return fail(`its \`exit\` gives "${more[0]}", which isn't one of its \`keys\` (${given.join(", ")})`)
-    }
-    return [...given, ...more]
+  /**
+   * `given` keys with those its `exit`, `whileHover` and `whileTap` give as values after them (Q48, Q58);
+   * with `keys` given, one outside them is an error naming it.
+   */
+  const withMoreKeys = (given: ReadonlyArray<string>): ReadonlyArray<string> => {
+    let all = given
+    const more: ReadonlyArray<readonly [string, Readonly<Record<string, unknown>>]> = [
+      ["exit", exitValues],
+      ["whileHover", gestureObjectValues(hoverGiven)],
+      ["whileTap", gestureObjectValues(tapGiven)],
+    ]
+    Arr.forEach(more, ([name, values]) => {
+      const added = Arr.filter(Rec.keys(values), (key) => !Arr.contains(all, key))
+      if (added.length === 0) return
+      if (Predicate.isNotUndefined(byKey.keys)) fail(`its \`${name}\` gives "${added[0]}", which isn't one of its \`keys\` (${given.join(", ")})`)
+      all = [...all, ...added]
+    })
+    return all
   }
 
   /** Keyed: the member for `key`: its member, else a new one. */
@@ -1467,7 +1610,24 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     })
   }
 
-  const targetOf = (slot: number, k: number): number => current[memberOf[slot] * stride + k]
+  /**
+   * Member `slot`'s target for its `k`th key: its Override stack's (ADR-0070 decision 12, #665's PR 5),
+   * its press's over its hover's over `animate`'s.
+   */
+  // Per member per key at a change: with no member's gesture on, `animate`'s read alone.
+  const targetOf = (slot: number, k: number): number => {
+    const i = memberOf[slot]
+    if (gesturing === 0) return current[i * stride + k]
+    const pressed = pressing[i]
+    if (Predicate.isNotUndefined(pressed) && !Number.isNaN(pressed[k])) return pressed[k]
+    const hovered = hovering[i]
+    if (Predicate.isNotUndefined(hovered) && !Number.isNaN(hovered[k])) return hovered[k]
+    const target = current[i * stride + k]
+    if (!Number.isNaN(target)) return target
+    const base = bases[i]
+    if (Predicate.isUndefined(base)) return target
+    return base[k]
+  }
 
   /**
    * A change's transitions: one per key, by its name, when every key has its own; else a function of
@@ -1511,18 +1671,128 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     // The groups Wardic elements hold of these members that it moves come back first (Q54), from where they've left them.
     const back = UndefinedOr.match(starts, { onUndefined: () => startsOf(takeBack(slots, changesGroup)), onDefined: identity })
     const configured = configuredOf()
+    turnOn(slots, configured, staggerOf(configured), back)
+  }
+
+  /** `slots` turned toward their targets on `configured`, each held by `delay`'s for its rank when given, from `back`'s starts. */
+  const turnOn = (slots: ReadonlyArray<number>, configured: WardicTransition | undefined, delay: ((rank: number, n: number) => number) | undefined, back: HandedStarts | undefined): void => {
     if (skipsNow(configured)) {
       wake(Batch.retarget(made(), slots, targetOf, { transition: INSTANT, ...back }))
       return
     }
     const reduced = env.reducedMotion()
     const transition = transitionOf(plannedOf(env, keys, UndefinedOr.map(configured, unstaggered), reduced))
-    const delay = staggerOf(configured)
     if (Predicate.isUndefined(delay)) {
       wake(Batch.retarget(made(), slots, targetOf, { transition, ...back }))
       return
     }
     wake(Batch.retarget(made(), slots, targetOf, { transition, delay, ...back }))
+  }
+
+  // --- Hover and press per member (#665's PR 5, ADR-0070 decision 12, Q56–Q60) ----------------------
+
+  // Whether the Batch watches its members' hover and presses yet. What lays their layers on and lifts
+  // them is `batch-gestures.ts`', loaded at its first need (Q62).
+  const listening: Record<"hover" | "press", boolean> = { hover: false, press: false }
+
+  /** The member at `slot` turned toward its Override stack's targets on `transition`: one member, never staggered (Q58). */
+  const turnMember = (slot: number, transition: WardicTransition | undefined): void =>
+    turnOn([slot], transition, undefined, startsOf(takeBack([slot], changesGroup)))
+
+  /**
+   * Member `i`'s gestures dropped with its element (Q59): with its slot kept (its element replaced), back
+   * toward `animate`'s on the Batch's transition, as at a gesture's end; its next one starts afresh.
+   */
+  const ungesture = (i: number): void => {
+    let on = 0
+    if (Predicate.isNotUndefined(hovering[i])) on++
+    if (Predicate.isNotUndefined(pressing[i])) on++
+    if (on === 0) return
+    hovering[i] = undefined
+    pressing[i] = undefined
+    const slot = slotOf[i]
+    if (Bool.and(slot !== NO_SLOT, !disposed)) turnMember(slot, configuredOf())
+    // Counted until it's turned, so `targetOf` reads its bases.
+    gesturing -= on
+    bases[i] = undefined
+  }
+
+  /** Where member `i`'s keys only `values` give were as they came on, kept for its layers' end. */
+  // Per gesture start, a loop over the Batch's keys (#665).
+  const baseFor = (i: number, slot: number, values: Float64Array): void => {
+    let base = bases[i]
+    for (let k = 0; k < stride; k++) {
+      if (Number.isNaN(values[k])) continue
+      if (!Number.isNaN(current[i * stride + k])) continue
+      if (Predicate.isUndefined(base)) {
+        base = new Float64Array(stride).fill(Number.NaN)
+        bases[i] = base
+      }
+      // Kept from the first layer that gave it.
+      if (!Number.isNaN(base[k])) continue
+      base[k] = Batch.get(made(), slot, keys[k])
+    }
+  }
+
+  /** What its gestures work its members through. */
+  const gestureHost: BatchGestureHost = {
+    memberElementOf: (node) => {
+      if (!Predicate.isObject(node)) return Option.none()
+      // Any node's object: a WeakMap read, which an element this Batch drew answers.
+      const entry = MEMBER_ELEMENTS.get(node as unknown as Element)
+      if (Predicate.isUndefined(entry)) return Option.none()
+      if (entry.binding !== binding) return Option.none()
+      return Option.some(node)
+    },
+    memberAt: (element) => UndefinedOr.map(MEMBER_ELEMENTS.get(element as Element), (entry) => entry.member),
+    layered: (layer, i) => Predicate.isNotUndefined(layers[layer][i]),
+    layer: (layer, i, values, transition) => {
+      const slot = slotOf[i]
+      if (slot === NO_SLOT) return
+      const was = layers[layer][i]
+      if (Predicate.isNotUndefined(values)) {
+        if (Predicate.isUndefined(was)) gesturing++
+        baseFor(i, slot, values)
+      }
+      layers[layer][i] = values
+      // A leaver's exit holds its keys (Q47), and lands: its gestures move nothing.
+      if (Predicate.isUndefined(exits[i])) turnMember(slot, transition)
+      if (Predicate.isNotUndefined(values)) return
+      if (Predicate.isUndefined(was)) return
+      // Lifted: counted until it's turned, so `targetOf` read its bases.
+      gesturing--
+      if (Bool.and(Predicate.isUndefined(hovering[i]), Predicate.isUndefined(pressing[i]))) bases[i] = undefined
+    },
+    keys: () => keys,
+    nameOf: (i) => form.nameOf(i),
+    indexOf: (i) => indexOf[i],
+    itemOf: (i) => itemOf[i],
+    keyed,
+    untrack: env.untrack,
+    configured: configuredOf,
+    hoverGiven,
+    tapGiven,
+    tell: (told) => UndefinedOr.map(hooks.gesture, (tellIt) => tellIt(told)),
+  }
+
+  /**
+   * Its members' hover, or presses, watched from now on (Q60): once each. Presses start hover first, so a
+   * release off a member tells its hover's end before its press's whatever was asked first, as a Wardic
+   * element's do; and make each pressable member's element focusable (Q57).
+   */
+  const listen = (gesture: "hover" | "press"): void => {
+    const watches = env.gestures
+    if (Predicate.isUndefined(watches)) return
+    if (disposed) return
+    if (listening[gesture]) return
+    if (gesture === "press") listen("hover")
+    listening[gesture] = true
+    if (gesture === "press") {
+      Arr.forEach(elementOf, (el) => {
+        if (Predicate.isNotUndefined(el)) watches.focusable(el)
+      })
+    }
+    watches.listen(gesture, gestureHost)
   }
 
   // --- The latest driver (#665's PR 4, ADR-0069 decision 17, Q52–Q54) ---------------------------------
@@ -1725,6 +1995,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
   /** `el` no longer known to `animate` as member `i`'s element, unless another member has it now. */
   const forget = (el: Element, i: number): void => {
     letGo(i)
+    ungesture(i)
     if (MEMBER_ELEMENTS.get(el) === entries[i]) MEMBER_ELEMENTS.delete(el)
   }
 
@@ -1759,6 +2030,8 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     elementOf[i] = el
     // Known to `animate`, as member `i`'s element (Q14).
     MEMBER_ELEMENTS.set(el, UndefinedOr.getOrThrow(entries[i]))
+    // Pressable, it's focusable, so a key can press it (Q57).
+    if (listening.press) UndefinedOr.map(env.gestures, (watches) => watches.focusable(el))
     // Keyed, under `<AnimatePresence>`: watched there, so its leave plays its exit (Q46).
     watchOn(i, el)
     const slot = slotOf[i]
@@ -1974,6 +2247,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     yieldGroup,
     reclaim,
     drawnValueOf,
+    listen,
     targetsOf: () => form.targetsOf(),
     apply: (targets) => {
       if (disposed) return
@@ -2023,7 +2297,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     return bound
   }
   growMembersTo(Math.max(1, count))
-  keysAre(keysOf(byIndex))
+  keysAre(withMoreKeys(keysOf(byIndex)))
   current = indexTargetsOf()
   makeBatch((k) => current[k])
   Arr.forEach(indices, (i) => {

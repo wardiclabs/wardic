@@ -51,6 +51,7 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import { constTrue, constVoid, identity } from "effect/Function"
+import * as Iter from "effect/Iterable"
 import * as Layer from "effect/Layer"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
@@ -528,6 +529,209 @@ const focusWithin = (target: unknown): boolean => {
   return (target as Node).contains(active)
 }
 
+// --- Feeds over many targets (#665's PR 5, Q56): a Batch's members, from one listener set ------------
+
+/**
+ * The pointer events a feed over many targets hears, at its window in the bubble phase: after the page's
+ * handlers and each element's own listeners, so a press inside a member has marked its **Press claim**
+ * by then (#439). No `pointermove`: a held pointer's moves come through its page-wide feed, and a move
+ * that isn't held changes no hover or press.
+ */
+const AMONG_POINTER: ReadonlyArray<string> = ["pointerover", "pointerout", "pointerdown", "pointerup", "pointercancel"]
+
+/** `node`'s parent, a shadow root's host for the root: the composed tree's. */
+const parentOf = (node: Node): Node | null => {
+  const parent = node.parentNode
+  if (Predicate.isNull(parent)) return null
+  if (parent.nodeType === Node.DOCUMENT_FRAGMENT_NODE) {
+    const host = (parent as ShadowRoot).host
+    if (Predicate.isNotUndefined(host)) return host
+  }
+  return parent
+}
+
+/** What names the member a node is, `Option.none()` for none: core's `pointerAmong`'s and `focusAmong`'s. */
+type MemberOf = (node: unknown) => Option.Option<unknown>
+
+/** The members `node` is or is inside, innermost first, as `memberOf` names them: for a node with no path, a `relatedTarget`. */
+// Per pointer event over the page (#665).
+const membersFrom = (node: EventTarget | null, memberOf: MemberOf): ReadonlyArray<unknown> => {
+  const found: Array<unknown> = []
+  if (isNode(node)) membersUp(node as Node, memberOf, found)
+  return found
+}
+
+/** `at`'s member, then its ancestors', up the composed tree, into `found`: a recursion as deep as the node. */
+const membersUp = (at: Node, memberOf: MemberOf, found: Array<unknown>): void => {
+  Option.map(memberOf(at), (member) => found.push(member))
+  const parent = parentOf(at)
+  if (Predicate.isNotNull(parent)) membersUp(parent, memberOf, found)
+}
+
+/** The members an event passed through, innermost first: its composed path's, so a member in a shadow root counts. */
+const membersOnPath = (ev: Event, memberOf: MemberOf): ReadonlyArray<unknown> => {
+  const found: Array<unknown> = []
+  Arr.forEach(ev.composedPath(), (node) => {
+    Option.map(memberOf(node), (member) => found.push(member))
+  })
+  return found
+}
+
+/** A member's held pointer, while one pressed on it is held: how its events reach it, and what stops it. */
+interface HeldMember {
+  toTarget: ((event: InputSource.PointerLikeEvent, raw: unknown) => void) | undefined
+  readonly pointers: Set<number>
+  stop: () => void
+}
+
+/**
+ * The pointer events over `memberOf`'s members, each told with its member (core's `pointerAmong`): their
+ * enters and leaves, from `pointerover` and `pointerout` (a member's from where the pointer was, outside
+ * it; nested members each once, enters outermost first and leaves innermost first, as the DOM's
+ * `pointerenter` and `pointerleave`), the downs, releases and cancels over each, and once one goes down on
+ * a member, that pointer's events wherever they land, through core's `heldPointer`, made for the member
+ * at the down and let go once nothing it pressed is held.
+ */
+// The page's window: a member in an iframe's document is heard by none (a feed over many targets has no one
+// target whose window to take, as each per-target feed does).
+const pointerAmongOf = (memberOf: MemberOf): InputFeed.InputFeed<InputSource.TargetEvent<InputSource.PointerLikeEvent>> => (emit) => {
+  const win = window
+  const held = new Map<unknown, HeldMember>()
+  /** `member`'s event: through its held pointer while it has one, else told at once. */
+  const deliver = (member: unknown, event: InputSource.PointerLikeEvent, raw: unknown): void => {
+    const holding = held.get(member)
+    if (Predicate.isUndefined(holding)) return emit({ target: member, event })
+    const toTarget = holding.toTarget
+    if (Predicate.isUndefined(toTarget)) return emit({ target: member, event })
+    toTarget(event, raw)
+  }
+  /** `member`'s held pointer, made for a down on it. */
+  const holdOn = (member: unknown): HeldMember => {
+    const known = held.get(member)
+    if (Predicate.isNotUndefined(known)) return known
+    const made: HeldMember = { toTarget: undefined, pointers: new Set(), stop: constVoid }
+    held.set(member, made)
+    made.stop = InputSource.heldPointer({
+      target: (toTarget) => {
+        made.toTarget = toTarget
+        return () => {
+          made.toTarget = undefined
+        }
+      },
+      global: feedOf(windowOf(member), HELD_POINTER_EVENTS, CAPTURE_PASSIVE, landedOn(member)),
+      scroll: scrollFeedOf(member),
+    })(
+      (event) => {
+        emit({ target: member, event })
+        // Let go once nothing pressed on it is held: after this dispatch, which may still reach it.
+        if (event.type === "down") {
+          if (event.adopted !== true) made.pointers.add(event.pointerId)
+          return
+        }
+        if (Bool.not(endsHoldOf(event))) return
+        made.pointers.delete(event.pointerId)
+        if (made.pointers.size > 0) return
+        queueMicrotask(() => {
+          if (Bool.or(made.pointers.size > 0, held.get(member) !== made)) return
+          held.delete(member)
+          made.stop()
+        })
+      },
+      constVoid,
+    )
+    return made
+  }
+  /** The members `ev` crossed into (`pointerover`) or out of (`pointerout`): on its path, not where the pointer came from or went. */
+  const crossed = (ev: PointerEvent): ReadonlyArray<unknown> => {
+    const other = membersFrom(ev.relatedTarget, memberOf)
+    // By reference: `Arr.contains`' structural equality would walk a DOM node.
+    return Arr.filter(membersOnPath(ev, memberOf), (member) => Bool.not(Arr.some(other, (outside) => outside === member)))
+  }
+  /** A down, a release or a cancel: each member it passed through hears it, innermost first, a down holding it. */
+  const toEach = (ev: PointerEvent): void => {
+    const members = membersOnPath(ev, memberOf)
+    if (members.length === 0) return
+    const event = toPointer(UndefinedOr.getOrThrow(POINTER_TYPE[ev.type]), ev)
+    Arr.forEach(members, (member) => {
+      if (event.type === "down") holdOn(member)
+      deliver(member, event, ev)
+    })
+  }
+  // Each event type's handling, made once a subscription: one record read an event.
+  const byType: Readonly<Record<string, (ev: PointerEvent) => void>> = {
+    pointerover: (ev) => {
+      const entered = crossed(ev)
+      if (entered.length === 0) return
+      const event = toPointer("enter", ev)
+      // Outermost first, as `pointerenter`.
+      Arr.forEach(Arr.reverse(entered), (member) => deliver(member, event, ev))
+    },
+    pointerout: (ev) => {
+      const left = crossed(ev)
+      if (left.length === 0) return
+      const event = toPointer("leave", ev)
+      Arr.forEach(left, (member) => deliver(member, event, ev))
+    },
+    pointerdown: toEach,
+    pointerup: toEach,
+    pointercancel: toEach,
+  }
+  const listener = (raw: Event): void => UndefinedOr.getOrThrow(byType[raw.type])(raw as PointerEvent)
+  Arr.forEach(AMONG_POINTER, (type) => win.addEventListener(type, listener, PASSIVE))
+  return () => {
+    Arr.forEach(AMONG_POINTER, (type) => win.removeEventListener(type, listener, PASSIVE))
+    Iter.forEach(held, ([, holding]) => holding.stop())
+    held.clear()
+  }
+}
+
+/** Whether `event` ends its pointer's hold: its release, its cancel, or a move with no button pressed. */
+const endsHoldOf = (event: InputSource.PointerLikeEvent): boolean => {
+  if (event.type === "up") return true
+  if (event.type === "cancel") return true
+  return Bool.and(event.type === "move", Bool.not(event.pressed))
+}
+
+/** The element focus is on in `doc`, inside any shadow root it's in; `null` for none but the page's own. */
+const deepActiveOf = (doc: Document): Element | null => {
+  const active = doc.activeElement
+  if (Bool.or(Predicate.isNull(active), active === doc.body)) return null
+  return innermostActive(active as Element)
+}
+
+/** The element focus is on inside `el`'s shadow root, and inside its, else `el`. */
+const innermostActive = (el: Element): Element => {
+  const root = el.shadowRoot
+  if (Predicate.isNull(root)) return el
+  const inner = root.activeElement
+  if (Predicate.isNull(inner)) return el
+  return innermostActive(inner)
+}
+
+/**
+ * The focus and blur of `memberOf`'s members and of what's inside each (core's `focusAmong`): `focusin`
+ * and `focusout` on the window in the capture phase, as a target's own feed hears them (#460), told to
+ * each member on the event's path, innermost first, a member's own when the path starts at it. A focus
+ * already within a member at subscribe is told as its focus first, so its keys press it from now, as a
+ * per-target press opens its keys when `focusWithin` says so.
+ */
+const focusAmongOf = (memberOf: MemberOf): InputFeed.InputFeed<InputSource.TargetEvent<InputSource.FocusLikeEvent>> => (emit) => {
+  const win = window
+  const listener = (raw: Event): void => {
+    const ev = raw as FocusEvent
+    const members = membersOnPath(ev, memberOf)
+    if (members.length === 0) return
+    Arr.forEach(members, (member) => emit({ target: member, event: toPathFocus(ev, member) }))
+  }
+  const active = deepActiveOf(win.document)
+  if (Predicate.isNotNull(active)) {
+    Arr.forEach(membersFrom(active, memberOf), (member) =>
+      emit({ target: member, event: { type: "focus", timeStamp: win.performance.now(), visible: focusVisible(active), fromTarget: active === member } }))
+  }
+  Arr.forEach(FOCUS.types, (type) => win.addEventListener(type, listener, FOCUS.capture))
+  return () => Arr.forEach(FOCUS.types, (type) => win.removeEventListener(type, listener, FOCUS.capture))
+}
+
 /**
  * The DOM's **Input feeds** (#318): each shared per target by core's `InputFeed.byTarget`, so a
  * target's hover, press and drag start one listener-set, not three. `pointer`'s target, page-wide
@@ -558,6 +762,9 @@ const make = Effect.gen(function* () {
   )
   const focus = InputFeed.byTarget(focusOf)
   const keyboard = InputFeed.byTarget(keyboardOf)
+  // Feeds over many targets (#665's PR 5): one listener set for each `memberOf`, shared by its watches.
+  const pointerAmong = InputFeed.byTarget((memberOf) => pointerAmongOf(memberOf as MemberOf))
+  const focusAmong = InputFeed.byTarget((memberOf) => focusAmongOf(memberOf as MemberOf))
 
   return InputSource.InputSource.of({
     pointer,
@@ -566,6 +773,8 @@ const make = Effect.gen(function* () {
     keyboard,
     focusWithin,
     adoptPointer: adoptPointerIn(adopters),
+    pointerAmong,
+    focusAmong,
   })
 })
 
