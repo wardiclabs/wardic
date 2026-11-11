@@ -55,6 +55,12 @@
  * each change timed as a task (after a GC) and each frame's rAF callbacks summed, as the layout page's
  * are. `?kind=batch` moves them as one `createBatch`, `?kind=batch-animate` with `createAnimate`, a call
  * per element: the per-element path the Batch replaces (`.tmp/564-canvas/dom/` on `probe/564-canvas`).
+ *
+ * `--reorder-batch` (#712): N items in a column or a grid of 40 columns (`?layout=`), `?kind=reorder-batch`
+ * a `Reorder.BatchGroup` and `?kind=reorder-group` a `Reorder.Group` of `Reorder.Item`s at the same places.
+ * Per round: the mount to its first paint, then a drag the page drives, a pointer event at the start of
+ * each frame, the item held moved five places in 30 moves, each move's frame timed to just after its
+ * paint, then checked: the order has it five places on, and its element landed there.
  */
 import { DomLive } from "@wardic/dom"
 import { type AnimateLayout, createAnimate, createBatch, Reorder, useAnimateLayout, wardic, type WardicAnimate, WardicProvider } from "@wardic/solid"
@@ -105,7 +111,10 @@ style.textContent =
   // The `auto` page: a container `50%` resolves against (12px; `auto` is 0, the elements being empty).
   ".fp{height:24px;overflow:hidden}" +
   // The batch pages' grid (#665): every div placed by its transform alone.
-  ".g{position:relative;height:1200px}.g .b{position:absolute;left:0;top:0}"
+  ".g{position:relative;height:1200px}.g .b{position:absolute;left:0;top:0}" +
+  // The reorder pages' lists (#712): `Reorder.Group`'s laid out by CSS grid at the Batch group's places.
+  ".rl{margin:0;padding:0;list-style:none}.ri{background:#888}" +
+  ".rg{display:grid;gap:4px;grid-template-columns:120px;grid-auto-rows:16px}.rg.grid{grid-template-columns:repeat(40,16px)}"
 document.head.append(style)
 
 /** `text` when `cond` holds, else nothing. */
@@ -304,6 +313,48 @@ const moveTo = (p: number, transition: { readonly duration: number } | typeof BA
   })
 }
 
+// `--reorder-batch` (#712, ADR-0072 decision 11): N items in a column (`?layout=column`) or a grid of 40
+// columns (`?layout=grid`), reordered by a drag. `?kind=reorder-batch` is a `Reorder.BatchGroup`,
+// `?kind=reorder-group` a `Reorder.Group` of `Reorder.Item`s with its `axis` given, laid out by CSS grid at
+// the same size and gap: the same places, and the same spring.
+const reorderGrid = params.get("layout") === "grid"
+const REORDER_COLUMNS = 40
+const REORDER_GAP = 4
+const REORDER_SIZE = Bool.match(reorderGrid, { onTrue: () => ({ width: 16, height: 16 }), onFalse: () => ({ width: 120, height: 16 }) })
+const REORDER_AXIS = Bool.match(reorderGrid, { onTrue: () => "xy" as const, onFalse: () => "y" as const })
+const REORDER_SPRING = { type: "spring", stiffness: 400, damping: 40 } as const
+const [order, setOrder] = createSignal<ReadonlyArray<number>>(items)
+const reorderValues = (values: Array<number>): void => {
+  setOrder(values)
+}
+const ReorderBatchPage = () => (
+  <WardicProvider env={DomLive}>
+    <Show when={shown()}>
+      <Reorder.BatchGroup
+        class="rl"
+        values={order()}
+        onReorder={reorderValues}
+        axis={REORDER_AXIS}
+        itemSize={REORDER_SIZE}
+        gap={REORDER_GAP}
+        columns={REORDER_COLUMNS}
+        transition={REORDER_SPRING}
+      >
+        <For each={order()}>{(value) => <Reorder.BatchItem class="ri" value={value} />}</For>
+      </Reorder.BatchGroup>
+    </Show>
+  </WardicProvider>
+)
+const ReorderGroupPage = () => (
+  <WardicProvider env={DomLive}>
+    <Show when={shown()}>
+      <Reorder.Group class={`rl rg${when(reorderGrid, " grid")}`} values={order()} onReorder={reorderValues} axis={REORDER_AXIS}>
+        <For each={order()}>{(value) => <Reorder.Item class="ri" value={value} transition={REORDER_SPRING} />}</For>
+      </Reorder.Group>
+    </Show>
+  </WardicProvider>
+)
+
 // `?kind=layout` (#385): #383's tree, its scenes' four switches, and the hook its scenes call.
 const LISTS = Array.from({ length: 10 }, (_, i) => i)
 const ITEMS = Array.from({ length: 99 }, (_, i) => i)
@@ -375,6 +426,8 @@ const pages = {
   batch: BatchPage,
   "batch-gestures": BatchPage,
   "batch-animate": AnimatePage,
+  "reorder-batch": ReorderBatchPage,
+  "reorder-group": ReorderGroupPage,
 } as const
 render(() => {
   const Page = pages[kind as keyof typeof pages]
@@ -490,6 +543,127 @@ const batchRound = async (): Promise<BatchRound> => {
   setShown(false)
   await frames(6)
   return { mount, retarget: median(retargets), frame: median(frameTimes) }
+}
+
+/**
+ * One `--reorder-batch` round (#712), in ms: the **mount** to its first paint (its task and the microtasks it
+ * queues, then the frame after it, from its first rAF callback to just after its paint), and the drag's frames, each from its
+ * first rAF callback (where the page moves the pointer) to just after its paint: their **frame** mean,
+ * a crossover's Measure pass included, and the **longest**.
+ */
+export interface ReorderRound {
+  readonly mount: number
+  readonly frame: number
+  readonly longest: number
+}
+
+/** The item held: the sixteenth in a column, row 10's eleventh in the grid, mid-viewport, clear of its edges. */
+const HELD = Bool.match(reorderGrid, { onTrue: () => 10 * REORDER_COLUMNS + 10, onFalse: () => 15 })
+/** How far the drag goes: five places, along the column or the row. */
+const PLACES = 5
+const DRAG_MOVES = 30
+const reorderItems = (): ReadonlyArray<HTMLElement> => [...host.querySelectorAll<HTMLElement>(".ri")]
+const pointerAt = (target: Element, type: string, x: number, y: number, buttons: number): void => {
+  target.dispatchEvent(
+    new PointerEvent(type, {
+      bubbles: true,
+      cancelable: true,
+      composed: true,
+      pointerId: 1,
+      pointerType: "mouse",
+      isPrimary: true,
+      button: Bool.match(type === "pointermove", { onTrue: () => -1, onFalse: () => 0 }),
+      buttons,
+      clientX: x,
+      clientY: y,
+    }),
+  )
+}
+
+/**
+ * A drag of `target` by `(dx, dy)`, one pointer event at the start of each frame, as Chromium delivers a
+ * real pointer's: down, `DRAG_MOVES` moves, up. Each move's frame is timed from that rAF callback, which
+ * runs before Wardic's (requested first, it stays first), to just after its paint.
+ */
+const dragFrames = (target: Element, x: number, y: number, dx: number, dy: number): Promise<ReadonlyArray<number>> =>
+  new Promise((resolve) => {
+    const out: Array<number> = []
+    let step = 0
+    const frame = (): void => {
+      const start = performance.now()
+      if (step === DRAG_MOVES + 1) {
+        pointerAt(target, "pointerup", x + dx, y + dy, 0)
+        resolve(out)
+        return
+      }
+      realRaf(frame)
+      if (step === 0) pointerAt(target, "pointerdown", x, y, 1)
+      else {
+        const along = step / DRAG_MOVES
+        pointerAt(target, "pointermove", x + dx * along, y + dy * along, 1)
+        const channel = new MessageChannel()
+        channel.port1.onmessage = () => {
+          channel.port1.close()
+          out.push(performance.now() - start)
+        }
+        channel.port2.postMessage(undefined)
+      }
+      step++
+    }
+    realRaf(frame)
+  })
+
+/**
+ * `mount`, timed to its first paint, in ms: from its start through the microtasks it queues (a group's first
+ * read of its element among them), to the next task or the next frame, whichever runs first, so no idle wait
+ * counts; then that frame, from its first rAF callback, requested before the mount's, to just after its paint.
+ */
+const mountToPaint = (mount: () => void): Promise<number> =>
+  new Promise((resolve) => {
+    let start = 0
+    let settled = 0
+    let frameStart = 0
+    const next = new MessageChannel()
+    next.port1.onmessage = () => {
+      next.port1.close()
+      if (settled === 0) settled = performance.now()
+    }
+    const painted = new MessageChannel()
+    painted.port1.onmessage = () => {
+      painted.port1.close()
+      resolve(settled - start + (performance.now() - frameStart))
+    }
+    realRaf(() => {
+      frameStart = performance.now()
+      if (settled === 0) settled = frameStart
+      painted.port2.postMessage(undefined)
+    })
+    gc()
+    start = performance.now()
+    next.port2.postMessage(undefined)
+    mount()
+  })
+
+const reorderRound = async (): Promise<ReorderRound> => {
+  setOrder(items)
+  await afterPaint()
+  const mount = await mountToPaint(() => setShown(true))
+  if (reorderItems().length !== n) throw new Error(`bench:solid: mounted ${reorderItems().length} of ${n}`)
+  await frames(30)
+  const held = reorderItems()[HELD]!
+  const from = held.getBoundingClientRect()
+  const step = Bool.match(reorderGrid, { onTrue: () => ({ x: PLACES * 20, y: 0 }), onFalse: () => ({ x: 0, y: PLACES * 20 }) })
+  const drag = await dragFrames(held, from.left + from.width / 2, from.top + from.height / 2, step.x, step.y)
+  await frames(90)
+  // The drag moved the item held five places, and it landed there.
+  if (order()[HELD + PLACES] !== HELD) throw new Error(`bench:solid: the item held is at ${order().indexOf(HELD)}, not ${HELD + PLACES}`)
+  const to = held.getBoundingClientRect()
+  if (Math.hypot(to.left - from.left - step.x, to.top - from.top - step.y) > 0.5) {
+    throw new Error(`bench:solid: the item held landed at ${to.left - from.left},${to.top - from.top}, not ${step.x},${step.y}`)
+  }
+  setShown(false)
+  await frames(6)
+  return { mount, frame: drag.reduce((sum, ms) => sum + ms, 0) / drag.length, longest: Math.max(...drag) }
 }
 
 /** One `--live` round's tasks, in ms: the mount and unmount, and the median set and frame. */
@@ -647,6 +821,11 @@ const retained: RetainedPage = {
     await mountLayout()
     for (let i = 0; i < rounds; i++) out.push(await layoutRound())
     return out
+  }
+  if (kind.startsWith("reorder")) {
+    const reorderOut: Array<ReorderRound> = []
+    for (let i = 0; i < rounds; i++) reorderOut.push(await reorderRound())
+    return reorderOut as never
   }
   if (kind.startsWith("batch")) {
     const batchOut: Array<BatchRound> = []

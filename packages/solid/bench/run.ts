@@ -81,6 +81,15 @@
  * with `whileHover` and `whileTap` (`?kind=batch-gestures`, #665's PR 5), is gated against the plain one's
  * mount, change and frame by the per-element bench's rule (+5%, its p25 above 1).
  *
+ * `--reorder-batch` (#712, ADR-0072 decision 11) runs `--head` alone too: N items reordered by a drag in a
+ * `Reorder.BatchGroup` (`?kind=reorder-batch`) against a `Reorder.Group` of `Reorder.Item`s with its `axis`
+ * given (`?kind=reorder-group`), at the same places, in a column and in a grid of 40 columns, paired per
+ * rep. The page drives the drag: a pointer event at the start of each frame, as Chromium delivers a real
+ * pointer's, the item held moved five places in 30 moves. It fails when the Batch group's mount, to its
+ * first paint (its task and microtasks, then its first frame, no idle wait between), costs more than 0.3× the group's, or its frame while dragging (the mean of the moves'
+ * frames, from their first rAF callback to just after their paint) more than 0.75×. Run it at `--n 1000`
+ * and `--n 5000`. The longest frame is reported, not gated.
+ *
  * `--v2` (#209, ADR-0045) runs `--head` alone too: the Solid 2 binding's page (`page-v2.tsx`, the
  * same N `wardic.div`s, built with Solid 2's compile) against the Solid 1 binding's, paired per rep.
  * It reports each task and the first frame after the mount, where every element's Starting-style
@@ -98,7 +107,7 @@ import { solid2 } from "../vite.solid2.ts"
 import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
-import type { BatchRound, LayoutRound, LiveRound, Round, Scene } from "./page.tsx"
+import type { BatchRound, LayoutRound, LiveRound, ReorderRound, Round, Scene } from "./page.tsx"
 import { APP_TARGET, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
 
 const GATE = 1.05
@@ -126,6 +135,7 @@ const allocReps = Number(arg("alloc-reps", "3"))
 const retainedReps = Number(arg("retained-reps", "3"))
 const liveMode = process.argv.includes("--live")
 const batchMode = process.argv.includes("--batch")
+const reorderBatchMode = process.argv.includes("--reorder-batch")
 const v2Mode = process.argv.includes("--v2")
 const featuresMode = process.argv.includes("--features")
 const bindingArg = arg("binding", "both")
@@ -140,7 +150,19 @@ type RetainedKind = (typeof RETAINED_KINDS)[number]
 /** `--features`' pages (#460 Q3): `ward` is `tapped`'s reference page. */
 const FEATURE_KINDS = ["keyframes", "auto", "transition-end", "ward", "tapped"] as const
 type FeatureKind = (typeof FEATURE_KINDS)[number]
-type Kind = "wardic" | "plain" | "live" | "live-plain" | "layout" | "batch" | "batch-gestures" | "batch-animate" | RetainedKind | FeatureKind
+type Kind =
+  | "wardic"
+  | "plain"
+  | "live"
+  | "live-plain"
+  | "layout"
+  | "batch"
+  | "batch-gestures"
+  | "batch-animate"
+  | "reorder-batch"
+  | "reorder-group"
+  | RetainedKind
+  | FeatureKind
 /** The layout page's scenes, in `page.tsx`'s order (#385): the page isn't imported for its values. */
 const SCENES: ReadonlyArray<Scene> = ["page", "list", "item", "scaled", "own-size"]
 const SCENE_TASKS = ["measure", "frame"] as const
@@ -234,10 +256,10 @@ const headLabel = UndefinedOr.match(headCommit, {
   onUndefined: () => `the working tree${when(dirty, " (modified)")}`,
   onDefined: (commit) => `${headRef} (${commit.slice(0, 7)})`,
 })
-// `--live`, `--batch` and `--v2` run the head alone: their pages can't run on a base before them.
-const headAlone = Bool.or(Bool.or(liveMode, batchMode), v2Mode)
+// `--live`, `--batch`, `--reorder-batch` and `--v2` run the head alone: their pages can't run on a base before them.
+const headAlone = Bool.some([liveMode, batchMode, reorderBatchMode, v2Mode])
 const runSolid1 = Bool.or(headAlone, bindingArg !== "2")
-const wantSolid2 = Bool.and(Bool.not(Bool.or(liveMode, batchMode)), Bool.or(v2Mode, bindingArg !== "1"))
+const wantSolid2 = Bool.and(Bool.not(Bool.some([liveMode, batchMode, reorderBatchMode])), Bool.or(v2Mode, bindingArg !== "1"))
 // The Solid 2 page, head against base (#259), when both have the binding; `--v2`'s head alone.
 const runSolid2 = Bool.and(wantSolid2, Bool.and(hasV2(headCommit), Bool.or(headAlone, hasV2(baseCommit))))
 const headScript = await bundle("head", headCommit, headDeps)
@@ -250,8 +272,8 @@ const v2BaseScript = await Bool.match(Bool.and(runSolid2, Bool.not(headAlone)), 
 const scripts: Record<Side, string> = { base: baseScript, head: headScript, v2Base: v2BaseScript, v2Head: v2HeadScript }
 
 const browser = await chromium.launch({ args: ["--js-flags=--expose-gc"] })
-/** A page of `side`'s build for `kind`, its script loaded, and the errors it throws. */
-const openPage = async (side: Side, kind: Kind): Promise<{ readonly page: Page; readonly errors: Array<string> }> => {
+/** A page of `side`'s build for `kind`, with `query`'s further parameters, its script loaded, and the errors it throws. */
+const openPage = async (side: Side, kind: Kind, query = ""): Promise<{ readonly page: Page; readonly errors: Array<string> }> => {
   const page = await browser.newPage()
   const errors: Array<string> = []
   page.on("pageerror", (e) => errors.push(String(e)))
@@ -268,7 +290,7 @@ const openPage = async (side: Side, kind: Kind): Promise<{ readonly page: Page; 
     })
   })
   const elements = Bool.match(kind === "plain", { onTrue: () => n * CONTROL_SCALE, onFalse: () => n })
-  await page.goto(`http://localhost:4174/?n=${elements}&kind=${kind}`)
+  await page.goto(`http://localhost:4174/?n=${elements}&kind=${kind}${query}`)
   if (!(await page.evaluate(() => crossOriginIsolated))) throw new Error("bench:solid: page not cross-origin isolated")
   await page.addScriptTag({ url: "http://localhost:4174/page.js" })
   return { page, errors }
@@ -279,8 +301,8 @@ const runRounds = (page: Page): Promise<ReadonlyArray<Round>> =>
   page.evaluate((k) => (globalThis as unknown as { __wardicBenchSolid: (k: number) => Promise<ReadonlyArray<Round>> }).__wardicBenchSolid(k), rounds)
 
 /** One page of `side`'s build: `rounds` rounds of `kind`. */
-const runPage = async (side: Side, kind: Kind): Promise<ReadonlyArray<Round>> => {
-  const { page, errors } = await openPage(side, kind)
+const runPage = async (side: Side, kind: Kind, query = ""): Promise<ReadonlyArray<Round>> => {
+  const { page, errors } = await openPage(side, kind, query)
   const out = await runRounds(page)
   await page.close()
   if (errors.length > 0) throw new Error(`bench:solid: ${side} ${kind}: ${errors.join("; ")}`)
@@ -456,6 +478,48 @@ if (batchMode) {
         `${percent(quantile(ratios, 0.5))} [${percent(quantile(ratios, 0.25))} – ${percent(quantile(ratios, 0.75))}]${when(fails, "  FAIL")}`,
     )
   }
+  process.exit(Bool.match(failed, { onTrue: () => 1, onFalse: () => 0 }))
+}
+
+if (reorderBatchMode) {
+  // Head alone: a Batch Reorder group against `Reorder.Group`, in each layout, paired per rep (#712).
+  console.log(`bench:solid --reorder-batch: ${headLabel}, Chromium ${browser.version()}, ${n} items, ${rounds} rounds per page, ${reps} paired reps\n`)
+  /** The most the Batch group's task may cost, against `Reorder.Group`'s (ADR-0072 decision 11): its longest frame isn't gated. */
+  const REORDER_GATES: Readonly<Record<keyof ReorderRound, number | undefined>> = { mount: 0.3, frame: 0.75, longest: undefined }
+  type ReorderKind = "reorder-batch" | "reorder-group"
+  const warmOf = (page: ReadonlyArray<ReorderRound>, task: keyof ReorderRound): number => median(page.slice(1).map((round) => round[task]))
+  let failed = false
+  for (const layout of ["column", "grid"] as const) {
+    const pagesOf: Record<ReorderKind, Array<ReadonlyArray<ReorderRound>>> = { "reorder-batch": [], "reorder-group": [] }
+    for (let r = 0; r < reps; r++) {
+      const order: ReadonlyArray<ReorderKind> = Bool.match(r % 2 === 0, {
+        onTrue: (): ReadonlyArray<ReorderKind> => ["reorder-batch", "reorder-group"],
+        onFalse: (): ReadonlyArray<ReorderKind> => ["reorder-group", "reorder-batch"],
+      })
+      for (const kind of order) pagesOf[kind].push((await runPage("head", kind, `&layout=${layout}`)) as unknown as ReadonlyArray<ReorderRound>)
+      process.stderr.write(`${layout} rep ${r + 1}/${reps}\r`)
+    }
+    console.log(`${layout} (ms, median across reps; Batch group / Reorder.Group paired per rep: median [p25 – p75])`)
+    console.log(`  ${"task".padEnd(10)}${"group".padEnd(10)}${"batch".padEnd(10)}${"ratio".padEnd(34)}gate`)
+    for (const task of ["mount", "frame", "longest"] as const) {
+      const ratios = pagesOf["reorder-batch"].map((page, r) => warmOf(page, task) / warmOf(pagesOf["reorder-group"][r]!, task))
+      const ratio = quantile(ratios, 0.5)
+      const most = REORDER_GATES[task]
+      const passes = UndefinedOr.match(most, { onUndefined: () => true, onDefined: (m) => ratio <= m })
+      if (Bool.not(passes)) failed = true
+      const gate = UndefinedOr.match(most, {
+        onUndefined: () => "not gated",
+        onDefined: (m) => Bool.match(passes, { onTrue: () => `ok (≤ ${m.toFixed(2)}×)`, onFalse: () => `FAIL (> ${m.toFixed(2)}×)` }),
+      })
+      console.log(
+        `  ${task.padEnd(10)}${median(pagesOf["reorder-group"].map((page) => warmOf(page, task))).toFixed(2).padEnd(10)}` +
+          `${median(pagesOf["reorder-batch"].map((page) => warmOf(page, task))).toFixed(2).padEnd(10)}` +
+          `${`${ratio.toFixed(3)}× [${quantile(ratios, 0.25).toFixed(3)} – ${quantile(ratios, 0.75).toFixed(3)}]`.padEnd(34)}${gate}`,
+      )
+    }
+    console.log("")
+  }
+  await browser.close()
   process.exit(Bool.match(failed, { onTrue: () => 1, onFalse: () => 0 }))
 }
 
