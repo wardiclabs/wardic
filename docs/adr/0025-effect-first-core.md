@@ -648,3 +648,13 @@ A Batch (ADR-0069, decisions 10–18) keeps each member's keys in typed arrays. 
 - **Its target's test** is `hasProperty`'s own (`Predicate.isObjectKeyword` and `in`), without the `dual` call.
 
 **Measured** with a profile of `bench:solid`'s gesture page (1,000 members, 30 warm mounts), and `bench:solid --batch`: see #709's PR.
+
+## Amendment (#712, 2026-11-11): a Batch Reorder group's item is a mount-path site
+
+A `Reorder.BatchItem` (ADR-0072) mounts once per item of a list of thousands, and its group is gated on its mount: at most 0.3× a `Reorder.Group`'s (decision 11). On Solid 1 it rendered through `<Dynamic>`, its own props merged over the app's (`mergeProps`, then `splitProps` and `spread`'s `assign` reading each through the merge), its style an object written a key at a time, and an effect per item for the keyboard instructions' id. A profile of 5,000 items' mount had 51 of its 139 ms in `<Dynamic>`'s spread, 21 ms of it the style. `bench:solid --reorder-batch` measured it at 0.36–0.38× of `Reorder.Group`'s.
+
+- **The item's element is made as `<Dynamic>` makes one,** in a component of its own so a hydrating item's key is the server's: `document.createElement`, or hydrating, Solid's `getNextElement`. Solid's `spread` takes the app's own props alone; the item's style, `draggable`, tab stop and `aria-describedby` are written on it directly, in statements, a mount-path site.
+- **What every item shares is the group's:** its style, as a record and as one CSS text, written once as each item is made, before its `ref`s run, where the Batch draws it; its tab stop; and its instructions' id. The group keeps the items with none of their own, and writes a change on each of them: no computation per item. An item with its own `style`, `tabIndex` or `aria-describedby` keeps an effect for it, over the group's.
+- **Solid 2's item** already rendered a static element; its instructions' id is the group's too, once for every item.
+
+**Measured** with `bench:solid --reorder-batch`, 7 paired reps, the Batch group's mount to its first paint (its task and the microtasks it queues, then its first frame) against `Reorder.Group`'s: 1,000 items 27.3 → 11.9 ms in a column and 27.8 → 13.1 ms in a grid (0.37–0.38× → 0.16–0.18×), 5,000 items 123.4 → 51.4 ms and 130.7 → 57.1 ms (0.36–0.38× → 0.15–0.17×). A frame while dragging stays 0.43–0.52× at 1,000 items and 0.25–0.46× at 5,000.

@@ -35,6 +35,8 @@ export interface BatchSceneOptions {
   /** A grid with no `columns`, its width this, in px, read reactively (Q36). */
   readonly fromWidth?: Accessor<number>
   readonly announcements?: Partial<CoreReorder.Announcements<string>>
+  /** Items with no `style` of their own: each takes the group's alone (Q47). */
+  readonly plain?: boolean
 }
 
 /** The group's place on the page: `reorder-harness.tsx`'s. */
@@ -65,7 +67,7 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Scen
   const items = (): JSX.Element => (
     <For each={order()}>
       {(value) => (
-        <Reorder.BatchItem value={value} data-value={value} style={lookOf(o)}>
+        <Reorder.BatchItem value={value} data-value={value} {...Bool.match(o.plain === true, { onTrue: () => ({}), onFalse: () => ({ style: lookOf(o) }) })}>
           {value}
         </Reorder.BatchItem>
       )}

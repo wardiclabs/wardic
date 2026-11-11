@@ -17,7 +17,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import { isServer, type JSX } from "@solidjs/web"
 import { createContext, createEffect, createMemo, createSignal, flush, omit, onCleanup, untrack, useContext } from "solid-js"
 import { configTransitionOf, type WardicBatchTransition } from "../../batch.ts"
-import { type BatchReorderBinding, type BatchReorderExit, type BatchReorderGesture, type BatchReorderInitial, type BatchReorderItems, serverBatchReorder, type BatchReorderRead, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize, sameRead } from "../../batch-reorder.ts"
+import { type BatchReorderBinding, type BatchReorderExit, type BatchReorderGesture, type BatchReorderInitial, type BatchReorderItems, serverBatchReorder, type BatchReorderRead, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize, sameRead, tabStopOf } from "../../batch-reorder.ts"
 import { refsOf, staticElementOf } from "./element.tsx"
 import { usePresenceContext } from "./presence.tsx"
 import { useBrought, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
@@ -179,7 +179,8 @@ const GROUP_GONE = "The Reorder group was disposed before its next event."
 interface GroupForItems<V> {
   readonly binding: BatchReorderItems<V>
   readonly keyboard: () => boolean
-  readonly instructions: () => string
+  /** The keyboard instructions' id, the same for every item: the group's document's (#712, Q47). */
+  readonly instructionsId: () => string | undefined
 }
 
 /** The nearest `Reorder.BatchGroup`, for its items: `null` for none (Solid 2's contexts). */
@@ -215,7 +216,7 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
       give({ axis: () => geometryOf(local, undefined).axis, move: constUndefined, next: neverLands, each: () => NO_EVENTS, when: serverWhen }))
     // eslint-disable-next-line solid/components-return-once -- `isServer` is a constant: the component takes one path for its life
     return (
-      <BatchGroupContext value={{ binding: server as BatchReorderItems<unknown>, keyboard, instructions }}>
+      <BatchGroupContext value={{ binding: server as BatchReorderItems<unknown>, keyboard, instructionsId: constUndefined }}>
         <Element {...rest} style={server.groupStyle(local.style)}>
           {local.children}
         </Element>
@@ -296,9 +297,17 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
   }
   // The group, to its `groupRef`, read once, untracked, as `ref` is.
   UndefinedOr.map(untrack(() => local.groupRef), (give) => give(group))
+  // The keyboard instructions, once for every item (Q47): the page's document's, until the group's element's
+  // own replaces it (an iframe's).
+  const [document, setDocument] = createSignal<Document>(globalThis.document)
+  const onElement = (el: HTMLElement): void => {
+    setDocument(DomAnnouncer.documentOf(el))
+  }
+  // eslint-disable-next-line solid/reactivity -- the accessor itself is handed on, read where its memo tracks it
+  const instructionsId = instructionsIdOn(document, instructions)
   return (
-    <BatchGroupContext value={{ binding: binding as BatchReorderBinding<unknown>, keyboard, instructions }}>
-      <Element {...rest} style={binding.groupStyle(local.style)} ref={refsOf(local, [binding.attach])}>
+    <BatchGroupContext value={{ binding: binding as BatchReorderBinding<unknown>, keyboard, instructionsId }}>
+      <Element {...rest} style={binding.groupStyle(local.style)} ref={refsOf(local, [binding.attach, onElement])}>
         {local.children}
       </Element>
     </BatchGroupContext>
@@ -318,26 +327,16 @@ export function BatchItem<V, Tag extends ReorderElementTag = "li">(props: Reorde
   const local = props as unknown as ItemLocal<V>
   const item = group.binding.item(untrack(() => local.value), usePresenceContext())
   onCleanup(item.dispose)
-  // The instructions' id (ADR-0037), derived, so the element renders with its `aria-describedby`: the
-  // page's document's, until the element's own replaces it (an iframe's). An effect adds the instructions
-  // element, writing nothing (#320).
-  const [document, setDocument] = createSignal<Document>(globalThis.document)
-  // eslint-disable-next-line solid/reactivity -- the accessor itself is handed on, read where its memo tracks it
-  const describedBy = instructionsIdOn(document, group.instructions)
   const Element = staticElementOf(UndefinedOr.match(untrack(() => local.as), { onUndefined: () => "li", onDefined: identity }))
   const rest = omit(props as unknown as Record<string, unknown>, ...ITEM_OWN)
-  const onElement = (el: HTMLElement): void => {
-    item.ref(el)
-    setDocument(DomAnnouncer.documentOf(el))
-  }
   return (
     <Element
       {...rest}
       style={item.style(local.style)}
       draggable={Style.DRAG_DEFAULT_ATTRIBUTES.draggable}
-      tabindex={UndefinedOr.match(local.tabindex, { onDefined: identity, onUndefined: () => Bool.match(Bool.or(group.keyboard(), group.binding.pressable), { onTrue: () => 0, onFalse: constUndefined }) })}
-      aria-describedby={describedByOf(local["aria-describedby"], Bool.match(group.keyboard(), { onTrue: describedBy, onFalse: constUndefined }))}
-      ref={refsOf(local, [onElement])}
+      tabindex={UndefinedOr.match(local.tabindex, { onDefined: identity, onUndefined: () => tabStopOf(group.keyboard(), group.binding.pressable) })}
+      aria-describedby={describedByOf(local["aria-describedby"], Bool.match(group.keyboard(), { onTrue: group.instructionsId, onFalse: constUndefined }))}
+      ref={refsOf(local, [item.ref])}
     >
       {local.children}
     </Element>
@@ -347,9 +346,10 @@ export function BatchItem<V, Tag extends ReorderElementTag = "li">(props: Reorde
 const noop = (): void => {}
 
 /**
- * An item's instructions' id, derived, so its element renders with its `aria-describedby`: the page's
- * document's, until the element's own replaces it (an iframe's); an effect adds the instructions element,
- * writing nothing (#320). The element exists on the client only: on a server, none. A plain `if` (#518).
+ * The keyboard instructions' id (ADR-0037), derived, so each item renders with its `aria-describedby`: the
+ * page's document's, until the group's element's own replaces it (an iframe's); an effect adds the
+ * instructions element, writing nothing (#320). The element exists on the client only: on a server, none.
+ * A plain `if` (#518).
  */
 const instructionsIdOn = (document: () => Document, instructions: () => string): (() => string | undefined) => {
   if (isServer) return constUndefined

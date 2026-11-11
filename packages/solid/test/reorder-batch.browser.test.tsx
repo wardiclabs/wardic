@@ -37,10 +37,17 @@
 //   mounts; widened, it holds more, its items moving to their new places, its height following.
 // - BG5: no item listens at rest, and the page's listeners are as many for 20 items as for 5; a focus
 //   and a blur leave none behind.
+// - BG10 (Q47): an item with no style, tab stop or `aria-describedby` of its own has the group's, written as
+//   it mounts and kept as the group's changes (its item size, its instructions, its keyboard reorder); one
+//   with its own keeps them, over the group's. A grid of such items from its width is placed at once, and
+//   widened, holds more a row.
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as ReorderController from "@wardic/dom/ReorderController"
 import { commands } from "vitest/browser"
 import { raf } from "./browser-helpers.ts"
+import { render } from "@solidjs/testing-library"
+import { DomLive } from "@wardic/dom"
+import { Reorder, WardicProvider } from "@wardic/solid"
 import { createSignal } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { page } from "vitest/browser"
@@ -510,6 +517,68 @@ describe("Reorder.BatchGroup and Reorder.BatchItem", () => {
     expect(boxOf(s.item("d")), "d on the first row").toEqual({ left: 40 + 3 * 90, top: 40, width: 80, height: 50 })
     expect(boxOf(s.item("f")), "f on the second").toEqual({ left: 40, top: 40 + 60, width: 80, height: 50 })
     expect(boxOf(s.group()).height, "two rows").toBe(2 * 50 + 10)
+  }, 30_000)
+
+  it("BG10 (Q47): an item with nothing of its own has the group's style, tab stop and instructions, kept as they change", async () => {
+    const [size, setSize] = createSignal(80)
+    const [instructions, setInstructions] = createSignal<string | undefined>(undefined)
+    const [keyboard, setKeyboard] = createSignal(true)
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <Reorder.BatchGroup
+          values={["p", "q"]}
+          onReorder={() => {}}
+          itemSize={{ width: size(), height: 50 }}
+          gap={10}
+          instructions={instructions()}
+          keyboard={keyboard()}
+          style={{ position: "absolute", left: "40px", top: "40px", margin: "0", padding: "0" }}
+        >
+          <Reorder.BatchItem value="p" data-value="p">
+            p
+          </Reorder.BatchItem>
+          <Reorder.BatchItem value="q" data-value="q" tabIndex={-1} aria-describedby="mine" style={{ background: "teal" }}>
+            q
+          </Reorder.BatchItem>
+        </Reorder.BatchGroup>
+      </WardicProvider>
+    ))
+    await wait(50)
+    const p = document.querySelector<HTMLElement>('[data-value="p"]')!
+    const q = document.querySelector<HTMLElement>('[data-value="q"]')!
+    const instructionsOf = (el: HTMLElement): string | undefined => document.getElementById(el.getAttribute("aria-describedby")!.split(" ").at(-1)!)?.textContent ?? undefined
+    expect(boxOf(p), "p at its place, sized").toEqual({ left: 40, top: 40, width: 80, height: 50 })
+    expect(boxOf(q), "q at its place, sized").toEqual({ left: 40, top: 100, width: 80, height: 50 })
+    expect([p.style.position, p.style.top, p.style.left, p.style.touchAction], "absolute at its static position, a column's touch").toEqual(["absolute", "", "", "pan-x"])
+    expect(p.getAttribute("draggable")).toBe("false")
+    expect(p.getAttribute("tabindex"), "the group's tab stop").toBe("0")
+    expect(instructionsOf(p), "the group's instructions").toBe(ReorderController.DEFAULT_INSTRUCTIONS)
+    expect(q.getAttribute("tabindex"), "its own tab stop").toBe("-1")
+    expect(q.getAttribute("aria-describedby")!.split(" ")[0], "its own ids first").toBe("mine")
+    expect(instructionsOf(q), "then the instructions'").toBe(ReorderController.DEFAULT_INSTRUCTIONS)
+    expect([q.style.background, q.style.position], "its own style over the group's").toEqual(["teal", "absolute"])
+    setSize(120)
+    await wait(50)
+    expect([boxOf(p).width, boxOf(q).width], "the new size, on both").toEqual([120, 120])
+    setInstructions("Drag it, or press Space")
+    await wait(50)
+    expect([instructionsOf(p), instructionsOf(q)], "the new instructions, on both").toEqual(["Drag it, or press Space", "Drag it, or press Space"])
+    setKeyboard(false)
+    await wait(50)
+    expect([p.hasAttribute("tabindex"), p.hasAttribute("aria-describedby")], "no tab stop and no instructions with the keyboard reorder off").toEqual([false, false])
+    expect([q.getAttribute("tabindex"), q.getAttribute("aria-describedby")], "its own kept").toEqual(["-1", "mine"])
+    setKeyboard(true)
+    await wait(50)
+    expect([p.getAttribute("tabindex"), instructionsOf(p)], "back on").toEqual(["0", "Drag it, or press Space"])
+    await resetScene()
+    // A grid from its width, its items the group's alone: placed at once, then from its first read.
+    const [width, setWidth] = createSignal(300)
+    const s = await mountBatchReorder({ layout: "xy", n: 10, fromWidth: width, plain: true, transition: { type: "tween", duration: 0.2 } })
+    expect(boxOf(s.item("d")), "three a row, at once").toEqual({ left: 40, top: 40 + 60, width: 80, height: 50 })
+    expect(s.item("d").style.position, "absolute once it's read").toBe("absolute")
+    setWidth(480)
+    await wait(500)
+    expect(boxOf(s.item("d")), "five a row").toEqual({ left: 40 + 3 * 90, top: 40, width: 80, height: 50 })
   }, 30_000)
 
   it("BR2: direction taken away after it mounts: the items go to the places the inherited direction gives", async () => {
