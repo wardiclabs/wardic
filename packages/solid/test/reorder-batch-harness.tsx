@@ -6,8 +6,9 @@ import type * as ReorderController from "@wardic/dom/ReorderController"
 import { render } from "@solidjs/testing-library"
 import type * as CoreReorder from "@wardic/core/Reorder"
 import { DomLive } from "@wardic/dom"
-import { Reorder, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues, WardicProvider } from "@wardic/solid"
+import { AnimatePresence, Reorder, type WardicBatchExit, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
+import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createSignal, For, type JSX } from "solid-js"
 import { itemCss, LAYOUTS, type Layout, type Scene, settle, VALUES } from "./reorder-harness.tsx"
@@ -23,6 +24,8 @@ export interface BatchSceneOptions {
   readonly keyboard?: Accessor<boolean>
   readonly whileHover?: WardicBatchGesture | ((item: string, i: number) => WardicBatchValues)
   readonly whileTap?: WardicBatchGesture | ((item: string, i: number) => WardicBatchValues)
+  /** Each item's exit, its `<For>` under an `<AnimatePresence>`. */
+  readonly exit?: WardicBatchExit
   readonly announcements?: Partial<CoreReorder.Announcements<string>>
 }
 
@@ -51,6 +54,15 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Scen
     reorderTimes.push(performance.now())
     setOrder(values)
   }
+  const items = (): JSX.Element => (
+    <For each={order()}>
+      {(value) => (
+        <Reorder.BatchItem value={value} data-value={value} style={lookOf(o)}>
+          {value}
+        </Reorder.BatchItem>
+      )}
+    </For>
+  )
   const group = (): JSX.Element => (
     <Reorder.BatchGroup
       ref={(el: HTMLElement) => setGroupEl(el)}
@@ -71,16 +83,14 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Scen
       keyboard={UndefinedOr.match(o.keyboard, { onUndefined: () => undefined, onDefined: (keyboard) => keyboard() })}
       {...UndefinedOr.match(o.whileHover, { onUndefined: () => ({}), onDefined: (whileHover) => ({ whileHover }) })}
       {...UndefinedOr.match(o.whileTap, { onUndefined: () => ({}), onDefined: (whileTap) => ({ whileTap }) })}
+      {...UndefinedOr.match(o.exit, { onUndefined: () => ({}), onDefined: (exit) => ({ exit }) })}
       {...UndefinedOr.match(o.announcements, { onUndefined: () => ({}), onDefined: (announcements) => ({ announcements }) })}
       style={UndefinedOr.match(o.container, { onUndefined: () => AT, onDefined: () => ({ margin: "0", padding: "0" }) })}
     >
-      <For each={order()}>
-        {(value) => (
-          <Reorder.BatchItem value={value} data-value={value} style={lookOf(o)}>
-            {value}
-          </Reorder.BatchItem>
-        )}
-      </For>
+      {Bool.match(Predicate.isUndefined(o.exit), {
+        onTrue: () => items(),
+        onFalse: () => <AnimatePresence>{items()}</AnimatePresence>,
+      })}
     </Reorder.BatchGroup>
   )
   render(() => (

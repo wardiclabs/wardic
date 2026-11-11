@@ -33,7 +33,7 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { type BatchBinding, type BatchEnv, type BatchHooks, bindBatch, fail, type KeyedBatchConfig, type ReorderBatchConfig, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues } from "./batch.ts"
+import { type BatchBinding, type BatchEnv, type BatchHooks, bindBatch, fail, type KeyedBatchConfig, type ReorderBatchConfig, type WardicBatchExit, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues } from "./batch.ts"
 import { batchGesturesOn, turnDrag } from "./batch-gestures.ts"
 import type { Feature } from "./feature.ts"
 import { input } from "./features/input.ts"
@@ -185,6 +185,8 @@ export interface BatchReorderOptions<V> {
   /** Where an item goes while the pointer is over it, and while it's pressed (#712's PR 3), read as each starts. */
   readonly whileHover: () => WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
   readonly whileTap: () => WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
+  /** Where an item leaving under `<AnimatePresence>` goes (Q38), read as it's made. */
+  readonly exit: () => WardicBatchExit | ((item: V, i: number, custom: unknown) => WardicBatchValues) | undefined
   /** Given each new order, as an item crosses another: the app sets `values` from it, and the binding places it at once. */
   readonly onReorder: (values: Array<V>) => void
   readonly onReorderEnd?: ((end: ReorderController.End<V>) => void) | undefined
@@ -306,6 +308,9 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     },
     get whileTap() {
       return env.untrack(options.whileTap)
+    },
+    get exit() {
+      return env.untrack(options.exit)
     },
     gestureKeysFromFirst: true as const,
   }
@@ -578,6 +583,10 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
           return batch.styleOf(Style.over(own, base))
         },
         dispose: () => {
+          // Under `<AnimatePresence>` its element stays while it exits (Q38): neither focused nor pressed meanwhile.
+          UndefinedOr.map(batch.elementOf(member), (el) => {
+            if (isHTMLElement(el)) el.inert = true
+          })
           driver.dispose()
           unregister()
           inHand.delete(member)

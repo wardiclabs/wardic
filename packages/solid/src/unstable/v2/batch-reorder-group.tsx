@@ -15,7 +15,7 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { JSX } from "@solidjs/web"
 import { createContext, createEffect, createMemo, createSignal, flush, omit, onCleanup, untrack, useContext } from "solid-js"
-import { configTransitionOf, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues } from "../../batch.ts"
+import { configTransitionOf, type WardicBatchExit, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues } from "../../batch.ts"
 import { type BatchReorderBinding, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize } from "../../batch-reorder.ts"
 import { refsOf, staticElementOf } from "./element.tsx"
 import { usePresenceContext } from "./presence.tsx"
@@ -76,6 +76,11 @@ export type ReorderBatchGroupProps<V, Tag extends ReorderElementTag = "ul"> = {
    * item and index, read as its press starts.
    */
   readonly whileTap?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
+  /**
+   * Where an item leaving under `<AnimatePresence>` goes, at its last place, its element kept until it lands:
+   * values with an optional `transition`, or a function of its item, its last index and the presence's `custom`.
+   */
+  readonly exit?: WardicBatchExit | ((item: V, i: number, custom: unknown) => WardicBatchValues) | undefined
   /** Given the group once, as it's made, as `Reorder.Group`'s `groupRef` is: for its events and `move`. */
   readonly groupRef?: ((group: ReorderBatchGroup<V>) => void) | undefined
   /** The element it renders: `"ul"` by default. Read once. */
@@ -118,6 +123,7 @@ interface GroupLocal<V> {
   readonly whileDrag?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
   readonly whileHover?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
   readonly whileTap?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
+  readonly exit?: WardicBatchExit | ((item: V, i: number, custom: unknown) => WardicBatchValues) | undefined
   readonly groupRef?: ((group: ReorderBatchGroup<V>) => void) | undefined
   readonly as?: string | undefined
   readonly ref?: unknown
@@ -149,6 +155,7 @@ const GROUP_OWN = [
   "whileDrag",
   "whileHover",
   "whileTap",
+  "exit",
   "groupRef",
   "as",
   "ref",
@@ -211,6 +218,7 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
         whileDrag: () => local.whileDrag,
         whileHover: () => local.whileHover,
         whileTap: () => local.whileTap,
+        exit: () => local.exit,
         // The DOM and the Batch follow a reorder within the controller's call, as `Reorder.Group`'s do: the
         // controller keeps focus on a lifted item right after. A `move` the app calls doesn't flush: the
         // app may call it inside an `action`, where Solid refuses a flush (#257 item 12).

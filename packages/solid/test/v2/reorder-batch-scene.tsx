@@ -4,9 +4,10 @@
 // the page, so one drag path drives both. Not a test file itself.
 import type * as CoreReorder from "@wardic/core/Reorder"
 import { DomLive } from "@wardic/dom"
-import { Reorder, type ReorderBatchGroup, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues, WardicProvider } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, Reorder, type ReorderBatchGroup, type WardicBatchExit, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues, WardicProvider } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
 import * as Bool from "effect/Boolean"
+import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createSignal, flush, For } from "solid-js"
 import { mount } from "./mount.tsx"
@@ -23,6 +24,8 @@ export interface BatchSceneOptions {
   readonly keyboard?: Accessor<boolean>
   readonly whileHover?: WardicBatchGesture | ((item: string, i: number) => WardicBatchValues)
   readonly whileTap?: WardicBatchGesture | ((item: string, i: number) => WardicBatchValues)
+  /** Each item's exit, its `<For>` under an `<AnimatePresence>`. */
+  readonly exit?: WardicBatchExit
 }
 
 export interface BatchScene {
@@ -74,6 +77,15 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Batc
     reorders.push(values)
     setOrder(values)
   }
+  const items = (): JSX.Element => (
+    <For each={order()}>
+      {(value) => (
+        <Reorder.BatchItem value={value} data-value={value} style={LOOK}>
+          {value}
+        </Reorder.BatchItem>
+      )}
+    </For>
+  )
   const group = (): JSX.Element => (
     <Reorder.BatchGroup
       ref={(el: HTMLElement) => (groupEl = el)}
@@ -88,16 +100,14 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Batc
       {...optional("transition", o.transition)}
       {...optional("whileHover", o.whileHover)}
       {...optional("whileTap", o.whileTap)}
+      {...optional("exit", o.exit)}
       keyboard={UndefinedOr.match(o.keyboard, { onUndefined: () => undefined, onDefined: (keyboard) => keyboard() })}
       style={UndefinedOr.match(o.container, { onUndefined: () => AT, onDefined: () => ({ margin: "0", padding: "0" }) })}
     >
-      <For each={order()}>
-        {(value) => (
-          <Reorder.BatchItem value={value} data-value={value} style={LOOK}>
-            {value}
-          </Reorder.BatchItem>
-        )}
-      </For>
+      {Bool.match(Predicate.isUndefined(o.exit), {
+        onTrue: () => items(),
+        onFalse: () => <AnimatePresence>{items()}</AnimatePresence>,
+      })}
     </Reorder.BatchGroup>
   )
   const { unmount } = mount(() => (

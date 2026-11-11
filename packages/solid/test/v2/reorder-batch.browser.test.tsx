@@ -18,6 +18,8 @@
 // - BP1 (#712's PR 3): `whileHover` and `whileTap` by the pointer; Space lifts while the keyboard reorder is
 //   on and presses while it's off, from the next key once it's switched (Q32).
 // - BP2: a drag takes over a press; a function `whileTap`'s keys join the group's (Q34).
+// - BE1: a leaver under `<AnimatePresence>` plays its exit at its last place, inert; the others close up at
+//   once, and the group shrinks at once (Q38).
 // - BG6: `groupRef`'s group (Q25): its `next`, `when` and `each` of `holdStart`, `reorderEnd` and `holdEnd`,
 //   as `reorderGroup()`'s, its `axis`, and `move`, announced.
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
@@ -433,5 +435,22 @@ describe("Reorder.BatchGroup and Reorder.BatchItem on Solid 2", () => {
     await mouse.up(add(g, 0, 20))
     await wait(500)
     expect(scaleOf(b), "at rest").toBeCloseTo(1, 3)
+  }, 30_000)
+
+  it("BE1: a leaver plays its exit at its last place, inert; the others close up at once, the group shrinks at once", async () => {
+    const s = await mountBatchReorder({ layout: "y", exit: { opacity: 0, transition: { type: "tween", duration: 0.6 } }, transition: { type: "tween", duration: 0.3 } })
+    const b = s.item("b")
+    s.setOrder(["a", "c", "d", "e"])
+    await frames(2)
+    expect(b.isConnected, "kept while it exits").toBe(true)
+    expect(boxOf(b).top, "at its last place").toBe(40 + 60)
+    expect(b.inert, "neither focusable nor draggable").toBe(true)
+    expect(Number(getComputedStyle(b).opacity), "fading").toBeLessThan(1)
+    expect(boxOf(s.group()).height, "the group shrinks at once").toBe(4 * 50 + 3 * 10)
+    await wait(400)
+    expect(boxOf(s.item("c")).top, "c closed up").toBe(40 + 60)
+    await wait(500)
+    expect(b.isConnected, "gone once it lands").toBe(false)
+    expect(domOrder(s.group())).toBe("acde")
   }, 30_000)
 })

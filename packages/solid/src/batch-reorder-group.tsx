@@ -16,7 +16,7 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createContext, createEffect, createRenderEffect, createSignal, type JSX, on, onCleanup, splitProps, untrack, useContext } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { configTransitionOf, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues } from "./batch.ts"
+import { configTransitionOf, type WardicBatchExit, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues } from "./batch.ts"
 import { type BatchReorderBinding, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize } from "./batch-reorder.ts"
 import { usePresenceContext } from "./presence.tsx"
 import { useBrought, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
@@ -75,6 +75,11 @@ export type ReorderBatchGroupProps<V, Tag extends ReorderElementTag = "ul"> = {
    * item and index, read as its press starts.
    */
   readonly whileTap?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
+  /**
+   * Where an item leaving under `<AnimatePresence>` goes, at its last place, its element kept until it lands:
+   * values with an optional `transition`, or a function of its item, its last index and the presence's `custom`.
+   */
+  readonly exit?: WardicBatchExit | ((item: V, i: number, custom: unknown) => WardicBatchValues) | undefined
   /** The element it renders: `"ul"` by default. Read once. */
   readonly as?: Tag
   readonly style?: JSX.CSSProperties | undefined
@@ -118,6 +123,7 @@ interface GroupLocal<V> {
   readonly whileDrag?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
   readonly whileHover?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
   readonly whileTap?: WardicBatchGesture | ((item: V, i: number) => WardicBatchValues) | undefined
+  readonly exit?: WardicBatchExit | ((item: V, i: number, custom: unknown) => WardicBatchValues) | undefined
   readonly as?: string | undefined
   readonly ref?: ((el: HTMLElement) => void) | undefined
   readonly style?: JSX.CSSProperties | undefined
@@ -151,6 +157,7 @@ const GROUP_OWN = [
   "whileDrag",
   "whileHover",
   "whileTap",
+  "exit",
   "as",
   "ref",
   "style",
@@ -203,6 +210,7 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
         whileDrag: () => local.whileDrag,
         whileHover: () => local.whileHover,
         whileTap: () => local.whileTap,
+        exit: () => local.exit,
         onReorder: (values) => untrack(() => local.onReorder)(values),
         onReorderEnd: (end) => UndefinedOr.map(untrack(() => local.onReorderEnd), (tell) => tell(end)),
         onHoldStart: (start) => UndefinedOr.map(untrack(() => local.onHoldStart), (tell) => tell(start)),
