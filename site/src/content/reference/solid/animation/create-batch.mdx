@@ -1,7 +1,7 @@
 ---
 title: createBatch
 description: Animates many elements on the same keys as one Batch, for a list, a grid or a chart's points that move together.
-api: [createBatch, WardicBatch, WardicBatchConfig, WardicBatchExit, WardicBatchGesture, WardicKeyedBatch, WardicKeyedBatchConfig, WardicBatchEvents, WardicBatchKey, WardicBatchLanding, WardicBatchMember, WardicBatchMemberProps, WardicBatchStop, WardicBatchSubject, WardicBatchTarget, WardicBatchTransition, WardicBatchValues]
+api: [createBatch, WardicBatch, WardicBatchConfig, WardicBatchExit, WardicBatchGesture, WardicKeyedBatch, WardicKeyedBatchConfig, WardicBatchEvents, WardicBatchKey, WardicBatchLanding, WardicBatchMember, WardicBatchMemberProps, WardicBatchPointInfo, WardicBatchPressInfo, WardicBatchStop, WardicBatchSubject, WardicBatchTarget, WardicBatchTransition, WardicBatchValues]
 ---
 
 # createBatch
@@ -84,9 +84,13 @@ const grid = createBatch({
 - **Keyboard:** with `whileTap`, a member's element takes `tabindex="0"` unless it's focusable already, and Enter and Space press it while it has focus.
 - **Touch** never hovers, as on a Wardic element.
 
-Its events: on Solid 1, `onHoverStart`, `onHoverEnd`, `onTapStart`, `onTap` and `onTapCancel` in its config, each `(event, { point, i })`, with `item` keyed, and a press's `input`. On Solid 2, `grid.next("tap")` and `grid.when("hoverStart")`, with `hoverEnd`, `pressStart` and `tapCancel`, each with the member's `element`, `i`, `item` and `point`:
+Its events: on Solid 1, `onHoverStart`, `onHoverEnd`, `onTapStart`, `onTap` and `onTapCancel` in its config, each `(event, { point, i })`, with `item` keyed, and a press's `input`. On Solid 2, `grid.next("tap")` and `grid.when("hoverStart")`, with `hoverEnd`, `pressStart` and `tapCancel`, each with the member's `element`, `i`, `item` and `point` (**`WardicBatchPointInfo`**; a press's **`WardicBatchPressInfo`** has its `input` too):
 
 ```tsx
+import { createBatch } from "@wardic/solid/unstable/v2"
+import { createEffect } from "solid-js"
+
+const grid = createBatch({ count: 100, animate: (i) => ({ x: colX(i), y: rowY(i) }), whileTap: { scale: 0.95 } })
 createEffect(grid.when("tap"), ({ i }) => select(i))
 ```
 
