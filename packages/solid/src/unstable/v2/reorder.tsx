@@ -81,7 +81,7 @@ export interface ReorderGroupConfigValues<V> {
   readonly values: ReadonlyArray<V>
   /** Given each new order, as an item crosses another: set `values` from it. */
   readonly onReorder: (values: Array<V>) => void
-  /** The list's direction: `"y"`, a column, or `"x"`, a row. Left out, it's found from the items' boxes. */
+  /** The list's direction: `"y"`, a column, `"x"`, a row, or `"xy"`, a grid that wraps. Left out, it's found from the items' boxes. */
   readonly axis?: CoreReorder.Axis | undefined
   /** The keyboard reorder: on unless `false`. Off, the items have no keys, no tab stop and no instructions. */
   // ADR-0037.

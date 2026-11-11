@@ -25,7 +25,7 @@ Key the items with `<For>`, by their values. An item brings its own drag, layout
 | --- | --- |
 | `values` | The list's values, in order. |
 | `onReorder` | Given each new order, as an item crosses another: set `values` from it. |
-| `axis` | `"y"`, a column (the default), or `"x"`, a row. Left out, it's found from the items' boxes. |
+| `axis` | `"y"`, a column, `"x"`, a row, or `"xy"`, a grid that wraps. Left out, it's found from the items' boxes, as Motion's is; give it when you know it. |
 | `as` | The element it renders: `"ul"` by default. Read once. |
 | `keyboard` | `false` turns the keyboard reorder off: the items have no keys, no tab stop and no instructions. |
 | `announcements` | What a screen reader hears at each step of a keyboard reorder, over the English defaults: `lift`, `step`, `drop`, `cancel`, and `move`, each a function of the item's `label`, `position` and the list's `count`. |

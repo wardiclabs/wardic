@@ -2,11 +2,12 @@ import type * as Box from "@wardic/core/Box"
 import * as Reorder from "@wardic/core/Reorder"
 import { expect, it } from "@effect/vitest"
 
-// The Crossover (ADR-0020, grill decisions 3 and 4): Motion's `checkReorder` and
-// `detectAxis`, ported, with the single-axis neighbour chosen by position. CR1-CR5 are
-// Motion's own tests (packages/framer-motion/src/components/Reorder/utils/__tests__/
+// The Crossover (ADR-0020, grill decisions 3 and 4): Motion's `checkReorder`, ported, and its
+// `detectAxis`'s answers, in linear time (#710), with the single-axis neighbour chosen by position.
+// CR1-CR5 are Motion's own tests (packages/framer-motion/src/components/Reorder/utils/__tests__/
 // check-reorder.test.ts at 16c61222c4166bbef5ff6ab0051192faa79fa8c8), same boxes, same
-// expectations. CR6-CR11 pin the geometric neighbour and the reference semantics.
+// expectations. CR6-CR11 pin the geometric neighbour and the reference semantics; CR12 holds
+// `detectAxis` to Motion's own loop, and CR13 to linear time.
 
 /** Build a Box from its edges (left/top/right/bottom). */
 const box = (left: number, top: number, right: number, bottom: number): Box.Box => ({
@@ -140,4 +141,77 @@ it("CR11: a value not in the order returns the same order; a move returns a new 
   expect(moved).not.toBe(column)
   expect(values(moved)).toEqual(["b", "a", "c"])
   expect(values(column)).toEqual(["a", "b", "c"])
+})
+
+// #710: detectAxis's answers are Motion's. The reference is Motion's own loop over every pair
+// (Reorder/utils/detect-axis.ts at 16c61222c4166bbef5ff6ab0051192faa79fa8c8), a different method.
+const motionDetectAxis = (layouts: ReadonlyArray<Box.Box>): Reorder.Axis => {
+  const isSeparated = (a: Box.Axis, b: Box.Axis): boolean => a.max <= b.min || b.max <= a.min
+  let x = false
+  let y = false
+  for (let i = 0; i < layouts.length; i++) {
+    for (let j = i + 1; j < layouts.length; j++) {
+      x ||= isSeparated(layouts[i]!.x, layouts[j]!.x)
+      y ||= isSeparated(layouts[i]!.y, layouts[j]!.y)
+      if (x && y) return "xy"
+    }
+  }
+  if (x) return "x"
+  return "y"
+}
+
+/** A seeded generator, so every run checks the same lists. */
+const seeded = (seed: number): (() => number) => {
+  let state = seed
+  return () => {
+    state = (state * 1664525 + 1013904223) % 4294967296
+    return state / 4294967296
+  }
+}
+
+/** A list's boxes, as `[left,right|top,bottom]`: JSON would print NaN and the infinities as null. */
+const shown = (list: ReadonlyArray<Box.Box>): string => list.map((b) => `[${b.x.min},${b.x.max}|${b.y.min},${b.y.max}]`).join(" ")
+
+it("CR12: detectAxis gives Motion's answer for columns, rows, grids, overlapping, touching, empty and non-finite boxes, and 0 to 2 of them", () => {
+  const random = seeded(710)
+  const int = (below: number): number => Math.floor(random() * below)
+  // One coordinate in ten is NaN or an infinity, as no browser measures but an Environment might.
+  const NON_FINITE = [Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY]
+  const coordinate = (finite: number): number => {
+    if (random() < 0.1) return NON_FINITE[int(3)]!
+    return finite
+  }
+  const lists: Array<ReadonlyArray<Box.Box>> = [
+    [],
+    [box(0, 0, 10, 10)],
+    [box(0, 0, 10, 10), box(0, 0, 10, 10)],
+    [box(0, 0, 10, 10), box(10, 0, 20, 10)],
+    [box(0, 0, 10, 10), box(0, 10, 10, 20)],
+    [box(5, 5, 5, 5), box(5, 5, 5, 5)],
+    [box(Number.POSITIVE_INFINITY, 0, Number.POSITIVE_INFINITY, 10)],
+    [box(Number.NaN, 0, Number.NaN, 10), box(50, 0, 50, 10), box(50, 0, 60, 10)],
+    // A column, a row and a wrapping grid, each with its gaps.
+    Array.from({ length: 12 }, (_, i) => box(0, i * 32, 100, i * 32 + 28)),
+    Array.from({ length: 12 }, (_, i) => box(i * 32, 0, i * 32 + 28, 100)),
+    Array.from({ length: 12 }, (_, i) => box((i % 4) * 32, Math.floor(i / 4) * 32, (i % 4) * 32 + 28, Math.floor(i / 4) * 32 + 28)),
+  ]
+  // And 4,000 lists of up to 9 boxes on a small grid, so they overlap, touch and match often.
+  for (let n = 0; n < 4000; n++) {
+    lists.push(
+      Array.from({ length: int(10) }, () => {
+        const left = int(6)
+        const top = int(6)
+        return box(coordinate(left), coordinate(top), coordinate(left + int(4)), coordinate(top + int(4)))
+      }),
+    )
+  }
+  for (const list of lists) expect(Reorder.detectAxis(list), shown(list)).toBe(motionDetectAxis(list))
+})
+
+// #710: a column made every pair before; 200 million at 20,000 boxes.
+it("CR13: detectAxis isn't quadratic: a 20,000-box column well inside a second", () => {
+  const column = Array.from({ length: 20000 }, (_, i) => box(0, i * 32, 100, i * 32 + 28))
+  const started = performance.now()
+  expect(Reorder.detectAxis(column)).toBe("y")
+  expect(performance.now() - started).toBeLessThan(1000)
 })

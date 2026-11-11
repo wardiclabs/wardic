@@ -26,7 +26,7 @@ The words are English by default. The group's `announcements` replaces any of th
 
 ## Its props
 
-- `axis` is `"y"` (a column, the default) or `"x"` (a row).
+- `axis` is `"y"` (a column), `"x"` (a row) or `"xy"` (a grid that wraps). Left out, the group finds it from its items' boxes, as Motion's does; give it when you know it.
 - `as` picks the elements: the group is a `ul` and each item an `li` by default.
 - An item takes any motion prop but `drag` and `layoutId`, which it sets itself: `whileDrag` for the item in hand, say. Its `layout` is `true` or `"position"`.
 
