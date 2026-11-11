@@ -503,6 +503,9 @@ export const enter: {
     const at = base + k
     state.positions[at] = value
     state.targets[at] = value
+    // Its origin too: a tween steps every key of a member it moves, and one no change has turned lerps
+    // from its origin to its target, both its start (#712).
+    state.origins[at] = value
     state.velocities[at] = 0
     // A reused slot keeps nothing of the member before: at rest on its start, on its own transition.
     state.elapsed[at] = 0

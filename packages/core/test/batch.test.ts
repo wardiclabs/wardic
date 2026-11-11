@@ -40,6 +40,8 @@
 // - B20: a change can start a member's keys from given values at given speeds, onto targets they already
 //   have too (a driver handing them back, #665's PR 4): each moves as `springValues` from there at that speed,
 //   and `target` reads the targets they keep.
+// - B21 (#712): a key on a tween that no change has turned since its member entered stays at its start when
+//   another of its keys tweens, and so does one in a slot a member that left gave back.
 import * as Batch from "@wardic/core/Batch"
 import * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -548,5 +550,22 @@ describe("a Batch (#665)", () => {
     ax.forEach((x, f) => expect(x, `frame ${f}`).toBeCloseTo(oracle[f], 9))
     // b's x wasn't given: it stays.
     bx.forEach((x) => expect(x).toBe(0))
+  })
+
+  it("B21: a key no change has turned since its member entered stays at its start while another key tweens", () => {
+    const { writer } = recording<string>()
+    const tween = { type: "tween", duration: 0.3 } as const
+    const grid = Batch.make({ keys: ["y", "opacity"], writer, transition: tween })
+    const a = Batch.enter(grid, "a", { y: 60, opacity: 1 })
+    // A slot given back and taken again: its start is the new member's, whatever its last one tweened.
+    const gone = Batch.enter(grid, "gone", { y: 0, opacity: 0.2 })
+    Batch.retarget(grid, [gone], (_, k) => [Number.NaN, 0.9][k])
+    stepped(grid, gone, "opacity")
+    Batch.leave(grid, gone)
+    const b = Batch.enter(grid, "b", { y: 120, opacity: 1 })
+    Batch.retarget(grid, [a, b], (_, k) => [0, Number.NaN][k])
+    const frames = steppedAll(grid, [a, b], "opacity")
+    frames.forEach((member, n) => member.forEach((opacity, f) => expect(opacity, `member ${n}, frame ${f}`).toBe(1)))
+    expect(Batch.get(grid, a, "y"), "y tweened").toBe(0)
   })
 })
