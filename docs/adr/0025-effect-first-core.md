@@ -639,3 +639,12 @@ A Batch (ADR-0069, decisions 10–18) keeps each member's keys in typed arrays. 
 - **What it does once a change** follows the full rules: the transitions resolved (a `Match` built once), the delay checked by `internal/options.ts`.
 - **The bindings' `createBatch`** (`packages/solid/src/batch.ts`) reads its members' targets the same way, a counted loop per member at creation and at each change, and is listed with the mount path's loop files.
 - Rejected: `Arr` over each member's keys, which builds a closure per member per change.
+
+## Amendment (#709, 2026-11-11): the Keyboard press's check is a mount-path site
+
+`makeFocusable` (`@wardic/dom/KeyboardPress`, ADR-0056) runs once per pressable element as it mounts: every Wardic element with a press, and every member of a Batch with `whileTap` or a tap event. It built an array of every check at once (`Bool.some([...])`), reading `isContentEditable` and two attributes even for a `div`, and tested its target through `Predicate.hasProperty`'s `dual` call.
+
+- **The check is statements,** the cheapest reads first, each only if the ones before it didn't settle it: the tag, a `tabindex`, a link's `href`, then `isContentEditable`. Its answers are the same (KA2 covers every case).
+- **Its target's test** is `hasProperty`'s own (`Predicate.isObjectKeyword` and `in`), without the `dual` call.
+
+**Measured** with a profile of `bench:solid`'s gesture page (1,000 members, 30 warm mounts), and `bench:solid --batch`: see #709's PR.

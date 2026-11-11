@@ -12,8 +12,8 @@
  *     `DomInterpolators`, `DomPositionalKeys`, `DomDefaultTransition`), and `DomKeyRules`, the Key
  *     rules `DomInterpolators.layer` installs, which has none of its own;
  *   - dom's own concepts, by the glossary's names: `FlushGate`, `ProjectionSystem`,
- *     `ReorderController`, `Style`, `Svg`, `Color`, `Variables`, `ScrollOffset`, `Appear`, `OwnValues`
- *     and `Report`.
+ *     `ReorderController`, `Style`, `Svg`, `Color`, `Variables`, `ScrollOffset`, `Appear`, `OwnValues`,
+ *     `KeyboardPress` and `Report`.
  *
  * Everything under `internal/` is dom's own and not exported.
  */
@@ -62,6 +62,7 @@ export * as Variables from "./Variables.ts"
 export * as ScrollOffset from "./ScrollOffset.ts"
 export * as Appear from "./Appear.ts"
 export * as OwnValues from "./OwnValues.ts"
+export * as KeyboardPress from "./KeyboardPress.ts"
 export * as Report from "./Report.ts"
 
 /**

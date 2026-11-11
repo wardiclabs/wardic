@@ -15,8 +15,9 @@ export {
   InputDomLive as layer,
   keyOf,
   kindOf,
-  makeFocusable,
   buttonOf,
   toPointer,
   type Where,
 } from "./internal/input.ts"
+// The Keyboard press's own module's (#709): `KeyboardPress.makeFocusable`, the same function.
+export { makeFocusable } from "./internal/keyboard-press.ts"

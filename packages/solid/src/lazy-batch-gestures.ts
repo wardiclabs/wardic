@@ -70,7 +70,6 @@ export const lazyBatchGestures = (runtime: WardicRuntime, registry: FeatureRegis
   }
   return {
     listen: (gesture, host) => withGestures((on) => on.listen(gesture, host)),
-    focusable: (el) => withGestures((on) => on.focusable(el)),
     close: () => {
       closed = true
       if (Predicate.isNotUndefined(loaded)) loaded.close()

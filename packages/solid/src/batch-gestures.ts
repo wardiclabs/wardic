@@ -12,7 +12,6 @@
 // the gesture Features' (`features/input.ts`), brought as the Batch listens (ADR-0067 decision 12).
 import * as InputSource from "@wardic/core/InputSource"
 import * as Recognizer from "@wardic/core/Recognizer"
-import * as DomInput from "@wardic/dom/DomInput"
 import * as Report from "@wardic/dom/Report"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
@@ -35,10 +34,9 @@ import type { WardicRuntime } from "./runtime.ts"
 /** What a Batch's gestures stand on, which it brings (ADR-0067 decision 12): the gestures' input. */
 export const BATCH_GESTURES: ReadonlyArray<Feature> = [{ name: "createBatch's gestures", key: InputSource.InputSource, layer: input }]
 
-/** A Batch's gestures once their code has loaded: each watched over its host, a pressable element made focusable, all stopped at `close`. */
+/** A Batch's gestures once their code has loaded: each watched over its host, all stopped at `close`. */
 export interface BatchGesturesOn {
   readonly listen: (gesture: "hover" | "press", host: BatchGestureHost) => void
-  readonly focusable: (el: Element) => void
   readonly close: () => void
 }
 
@@ -148,7 +146,6 @@ export const batchGesturesOn = (runtime: WardicRuntime, services: () => Context.
   }
   return {
     listen: (gesture, host) => watches[gesture](host),
-    focusable: DomInput.makeFocusable,
     close: () => OwnerScope.close(runtime, scope, "createBatch: a gesture's finalizer failed"),
   }
 }
