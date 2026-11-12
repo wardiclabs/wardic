@@ -32,7 +32,7 @@ function WardEach() {
     <div class="sample-stack">
       <div class="sample-sierpinski" style={{ width: `${WIDTH}px`, height: `${HEIGHT}px` }}>
         <For each={LEAF_INDICES}>
-          {(i) => <w.div class="sample-leaf" style={{ background: colorOf(i) }} initial={false} animate={leafAt(i, depth())} transition={SPRING} />}
+          {(i) => <w.div class="sample-leaf" style={{ color: colorOf(i) }} initial={false} animate={leafAt(i, depth())} transition={SPRING} />}
         </For>
       </div>
       <label class="sample-range">

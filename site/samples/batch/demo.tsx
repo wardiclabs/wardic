@@ -4,7 +4,7 @@
  * shuffle is. Not a code tab: the tabs show the bindings' files.
  */
 import { createBatch, stagger } from "@wardic/solid/unstable/v2"
-import { createSignal, For, isPending, onSettled } from "solid-js"
+import { createEffect, createSignal, For, isPending, onSettled } from "solid-js"
 import { framesPerSecond } from "../frames.ts"
 import { BOARD, gridAt, LINES, MOSAIC, TILE_COUNT } from "./logo.ts"
 
@@ -17,6 +17,13 @@ const DRAWINGS: ReadonlyArray<{ readonly drawing: Drawing; readonly label: strin
   { drawing: "mosaic", label: "Mosaic" },
   { drawing: "lines", label: "Lines" },
 ]
+
+/** A tile's colour in each drawing. */
+const COLOURS: Readonly<Record<Drawing, (id: number) => string>> = {
+  grid: (id) => `hsl(${190 + id * 0.15} 60% 62%)`,
+  mosaic: (id) => MOSAIC[id].color,
+  lines: (id) => LINES[id].color,
+}
 
 const shuffled = (ids: ReadonlyArray<number>): ReadonlyArray<number> => {
   const out = [...ids]
@@ -46,6 +53,14 @@ export default function Demo() {
     },
     transition: { type: "spring", visualDuration: 0.6, bounce: 0.2, delay: stagger(0.0004) },
   })
+  // Each tile's colour, written onto its element as the drawing changes, a step at its own delay
+  // (site.css). Not as custom properties for CSS to pick from: a tile restyled each frame it moves
+  // resolves them again, about twice the style work of the move itself.
+  const tileElements: Array<HTMLDivElement> = []
+  createEffect(drawing, (now) => {
+    const colourOf = COLOURS[now]
+    tileElements.forEach((el, id) => el.style.setProperty("background-color", colourOf(id)))
+  })
   const sorted = () => order() === TILES
   // Shuffle and Sort are the grid's: from the mark, they bring the tiles back to it.
   const reorder = () => {
@@ -66,18 +81,16 @@ export default function Demo() {
       <button class="sample-button" onClick={reorder}>
         {sorted() ? "Shuffle" : "Sort"}
       </button>
-      <div class="sample-tiles sample-logo" data-drawing={drawing()} style={{ width: `${BOARD.width}px`, height: `${BOARD.height}px` }}>
+      <div class="sample-tiles sample-logo" style={{ width: `${BOARD.width}px`, height: `${BOARD.height}px` }}>
         <For each={TILES}>
           {(id) => (
             <div
               class="sample-tile"
               {...tiles.member(id, {
-                style: {
-                  "--grid": `hsl(${190 + id * 0.15} 60% 62%)`,
-                  "--mosaic": MOSAIC[id].color,
-                  "--lines": LINES[id].color,
-                  "--delay": `${id * 0.4}ms`,
+                ref: (el: HTMLDivElement) => {
+                  tileElements[id] = el
                 },
+                style: { background: COLOURS.grid(id), "transition-delay": `${id * 0.4}ms` },
               })}
             />
           )}

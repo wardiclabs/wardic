@@ -971,27 +971,24 @@ a {
   border-radius: 1.5px;
 }
 
-/* The grid demo's drawings of Wardic's mark (samples/batch/demo.tsx): each tile holds its colour in the
-   grid and in each drawing, and the board's drawing picks one, each tile's fade a moment after the last's. */
+/* The grid demo's drawings of Wardic's mark (samples/batch/demo.tsx): as the drawing changes, each tile's
+   colour steps to the new one at its own delay (its `transition-delay`), a moment after the last tile's. A
+   step, not a fade: 1,000 tiles' colours fading together are drawn again each frame, halving the frame rate. */
 .sample-logo .sample-tile {
-  background: var(--grid);
-  transition: background-color 0.5s var(--delay);
+  transition: background-color 0s;
 }
 
-.sample-logo[data-drawing="mosaic"] .sample-tile {
-  background: var(--mosaic);
-}
-
-.sample-logo[data-drawing="lines"] .sample-tile {
-  background: var(--lines);
-}
-
-/* A leaf is the whole triangle, scaled from its top-left corner to its ancestor's size. */
+/* A leaf is the whole triangle (triangle.ts's WIDTH by HEIGHT), scaled from its top-left corner to its
+   ancestor's size, drawn by its borders in its `color`. Not a `clip-path`: 2,187 clipped leaves, stacked up
+   to 729 deep, are drawn again each frame they move, ten times what the borders cost to draw. */
 .sample-leaf {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  border-style: solid;
+  border-color: transparent transparent currentColor;
+  border-width: 0 144px 249px;
   transform-origin: 0 0;
-  clip-path: polygon(50% 0, 100% 100%, 0 100%);
 }
 
 .sample-range {
