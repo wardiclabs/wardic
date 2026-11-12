@@ -1,6 +1,6 @@
 {
   "name": "@wardic/test",
-  "version": "1.0.0-rc.10",
+  "version": "1.0.0-rc.11",
   "description": "Headless testing Layers for Wardic: a clock that replays the frames you give it, a renderer that records what it's asked to draw, and input you push, so animation code runs without a browser.",
   "keywords": [
     "animation",
