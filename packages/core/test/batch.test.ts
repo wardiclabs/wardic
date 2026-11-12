@@ -44,6 +44,17 @@
 //   another of its keys tweens, and so does one in a slot a member that left gave back.
 // - B22 (#712): `draw` writes every member where it is now, with no step, and flushes: a change that started
 //   its members from its targets, drawn before the page paints; a member that left isn't written.
+// - B23 (#706): a change can start its members partway (`startAt`), read at each one's first step, which
+//   draws it where a member stepped from the change's start is at that time, at that speed; it steps on as
+//   that member does.
+// - B24 (#706): a tween, a spring set by duration and a spring, each with a stagger's delays or one delay
+//   for all, started partway as from the start.
+// - B25 (#706): started past its rest, a spring is drawn where its closed form has it, unlanded, and lands at
+//   its next step; a tween started past its end is at its target; `NaN` starts it from its start.
+// - B26 (#706): a member's key another change moves steps on a frame at its first step; a later change's keys
+//   start from their start; a member that leaves before its first step leaves its slot's next one alone.
+// - B27 (#706): a step of 0 s moves no member, whether its keys run the Batch's own spring or each its
+//   own transition (a Clock's tick can be 0 s: a repeated timestamp).
 import * as Batch from "@wardic/core/Batch"
 import * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -590,5 +601,170 @@ describe("a Batch (#665)", () => {
     Batch.draw(grid)
     expect(writes).toEqual(["a 40", "b 80"])
     expect(flushes, "flushed once").toBe(1)
+  })
+
+  it("B23: a change started partway draws each member at its first step where one stepped from its start is", () => {
+    const spring = { type: "spring", stiffness: 210, damping: 20 } as const
+    const { writer, writes } = recording<string>()
+    const batch = Batch.make({ keys: ["x"], writer, transition: spring })
+    const ahead = Batch.enter(batch, "ahead", { x: 0 })
+    const late = Batch.enter(batch, "late", { x: 0 })
+    // `ahead` runs from the change's start; `late` starts 18 frames in, read at its first step.
+    Batch.retarget(batch, [ahead], () => 100)
+    const before = stepped(batch, ahead, "x", 18)
+    const speed = Batch.velocity(batch, ahead, "x")
+    const reads: Array<number> = []
+    Batch.retarget(batch, [late], () => 100, {
+      startAt: (slot) => {
+        reads.push(slot)
+        return 18 * F
+      },
+    })
+    expect(reads, "not read at the change").toEqual([])
+    writes.length = 0
+    Batch.step(batch, F)
+    expect(reads, "read once, at its first step").toEqual([late])
+    // Drawn there in that step, at that speed: the step doesn't also move it on by the frame.
+    expect(Batch.get(batch, late, "x")).toBeCloseTo(before[17], 9)
+    expect(Batch.velocity(batch, late, "x")).toBeCloseTo(speed, 6)
+    const drawn = writes.filter((write) => write.subject === "late")
+    expect(drawn, "written once in that step").toHaveLength(1)
+    expect(drawn[0].values.x).toBeCloseTo(before[17], 9)
+    // Then frame for frame as the member that ran from the start, one frame behind it.
+    const rest = springFrames("x", 0, 100, spring).slice(18)
+    const frames = stepped(batch, late, "x")
+    frames.forEach((value, i) => expect(value, `frame ${i}`).toBeCloseTo(rest[i], 9))
+    expect(frames.length).toBe(rest.length)
+    expect(reads, "read only once").toEqual([late])
+  })
+
+  it("B24: a tween, a spring set by duration and a stagger's delays, each started partway as from the start", () => {
+    const transitions = [
+      { type: "tween", duration: 0.5, ease: "easeInOut" },
+      { type: "spring", duration: 0.6, bounce: 0.3 },
+      { type: "spring", stiffness: 300, damping: 18 },
+    ] as const
+    // A stagger's delays, 0.1 s apart: 9 frames in, the third still waits out its 0.2 s; or one for all.
+    const delays = [Stagger.make(0.1), 0.05]
+    transitions.flatMap((transition) => delays.map((delay) => [transition, delay] as const)).forEach(([transition, delay]) => {
+      const frames = (startAt: number | undefined): Array<ReadonlyArray<number>> => {
+        const { writer } = recording<number>()
+        const batch = Batch.make({ keys: ["x", "opacity"], writer, transition })
+        const slots = [0, 1, 2].map((n) => Batch.enter(batch, n, { x: 0, opacity: 0 }))
+        const targetOf = (slot: number, k: number): number => [100 * (slot + 1), 1][k]
+        if (startAt === undefined) Batch.retarget(batch, slots, targetOf, { delay })
+        if (startAt !== undefined) Batch.retarget(batch, slots, targetOf, { delay, startAt: () => startAt })
+        const out: Array<ReadonlyArray<number>> = []
+        Array.from({ length: 600 }).some(() => {
+          const done = Batch.step(batch, F)
+          out.push(slots.flatMap((slot) => [Batch.get(batch, slot, "x"), Batch.get(batch, slot, "opacity"), Batch.velocity(batch, slot, "x")]))
+          return done
+        })
+        return out
+      }
+      const fromStart = frames(undefined)
+      const late = frames(9 * F)
+      // Its first step draws the 9th frame, then frame for frame on, to the same landing.
+      const oracle = fromStart.slice(8)
+      expect(late.length, `${transition.type}: lands as from the start`).toBe(oracle.length)
+      late.forEach((frame, i) => frame.forEach((value, j) => expect(value, `${JSON.stringify(transition)}, ${String(delay)}: frame ${i}, ${j}`).toBeCloseTo(oracle[i][j], 6)))
+      expect(late[0][3]).toBeGreaterThan(0)
+    })
+    // The stagger's third member hasn't moved at 9 frames: its 0.2 s holds it.
+    const { writer } = recording<number>()
+    const held = Batch.make({ keys: ["x"], writer, transition: transitions[2] })
+    const slots = [0, 1, 2].map((n) => Batch.enter(held, n, { x: 0 }))
+    Batch.retarget(held, slots, (slot) => 100 * (slot + 1), { delay: Stagger.make(0.1), startAt: () => 9 * F })
+    Batch.step(held, F)
+    expect(Batch.get(held, slots[2], "x")).toBe(0)
+    expect(Batch.get(held, slots[1], "x")).toBeGreaterThan(0)
+  })
+
+  it("B25: started past its rest a spring is drawn unlanded and lands at its next step; a tween at its end; NaN from its start", () => {
+    const spring = { type: "spring", stiffness: 210, damping: 20 } as const
+    const oracle = springFrames("x", 0, 100, spring)
+    // The frame it lands at, from the start: just before, it's within its thresholds but not there.
+    const lands = oracle.indexOf(100)
+    expect(oracle[lands - 1]).not.toBe(100)
+    const { writer } = recording<string>()
+    const batch = Batch.make({ keys: ["x"], writer, transition: spring })
+    const slot = Batch.enter(batch, "a", { x: 0 })
+    Batch.retarget(batch, [slot], () => 100, { startAt: () => (lands + 1) * F })
+    expect(Batch.step(batch, F), "still moving after its first step").toBe(false)
+    const drawn = Batch.get(batch, slot, "x")
+    expect(drawn).not.toBe(100)
+    expect(Math.abs(drawn - 100)).toBeLessThan(0.5)
+    expect(Batch.step(batch, F), "at rest after its next").toBe(true)
+    expect(Batch.get(batch, slot, "x")).toBe(100)
+
+    // A tween started past its end is there at its first step, at rest at its next.
+    const tweened = Batch.make({ keys: ["x"], writer, transition: { type: "tween", duration: 0.3 } })
+    const t = Batch.enter(tweened, "t", { x: 10 })
+    Batch.retarget(tweened, [t], () => 60, { startAt: () => 2 })
+    Batch.step(tweened, F)
+    expect(Batch.get(tweened, t, "x")).toBe(60)
+    expect(Batch.velocity(tweened, t, "x")).toBe(0)
+    expect(Batch.step(tweened, F)).toBe(true)
+
+    // `NaN`: from its start, frame for frame as a change with no `startAt`.
+    const fromStart = Batch.make({ keys: ["x"], writer, transition: spring })
+    const n = Batch.enter(fromStart, "n", { x: 0 })
+    Batch.retarget(fromStart, [n], () => 100, { startAt: () => Number.NaN })
+    expect(stepped(fromStart, n, "x")).toEqual(oracle)
+  })
+
+  it("B26: a key another change moves steps on a frame; a later change's keys start from their start; a leaver's start isn't its slot's next", () => {
+    const spring = { type: "spring", stiffness: 210, damping: 20 } as const
+    const { writer } = recording<string>()
+    const batch = Batch.make({ keys: ["x", "y"], writer, transition: spring })
+    const a = Batch.enter(batch, "a", { x: 0, y: 0 })
+    // `y` sets off from the start; 5 frames on, a change starts `x` 12 frames in, `y` left moving.
+    Batch.retarget(batch, [a], (_, k) => [Number.NaN, 50][k])
+    Array.from({ length: 5 }).forEach(() => Batch.step(batch, F))
+    Batch.retarget(batch, [a], (_, k) => [100, Number.NaN][k], { startAt: () => 12 * F })
+    Batch.step(batch, F)
+    expect(Batch.get(batch, a, "x")).toBeCloseTo(springFrames("x", 0, 100, spring)[11], 9)
+    expect(Batch.get(batch, a, "y")).toBeCloseTo(springFrames("y", 0, 50, spring)[5], 9)
+
+    // A change that turns `y` before the member's first step: `x` still starts 12 frames in, `y` from its start.
+    const b = Batch.enter(batch, "b", { x: 0, y: 0 })
+    Batch.retarget(batch, [b], (_, k) => [100, 50][k], { startAt: () => 12 * F })
+    Batch.retarget(batch, [b], (_, k) => [Number.NaN, 80][k])
+    Batch.step(batch, F)
+    expect(Batch.get(batch, b, "x")).toBeCloseTo(springFrames("x", 0, 100, spring)[11], 9)
+    expect(Batch.get(batch, b, "y")).toBeCloseTo(springFrames("y", 0, 80, spring)[0], 9)
+
+    // A member that leaves before its first step: the next in its slot moves from its own start.
+    const reads: Array<number> = []
+    const gone = Batch.enter(batch, "gone", { x: 0, y: 0 })
+    Batch.retarget(batch, [gone], (_, k) => [100, 50][k], {
+      startAt: (slot) => {
+        reads.push(slot)
+        return 12 * F
+      },
+    })
+    Batch.leave(batch, gone)
+    const next = Batch.enter(batch, "next", { x: 0, y: 0 })
+    expect(next).toBe(gone)
+    Batch.retarget(batch, [next], (_, k) => [100, Number.NaN][k])
+    const frames = stepped(batch, next, "x")
+    expect(frames).toEqual(heldTo(springFrames("x", 0, 100, spring), frames.length))
+    expect(reads, "the leaver's start, never read").toEqual([])
+  })
+
+  it("B27: a step of 0 s moves no member, on the Batch's own spring or on a transition a key", () => {
+    const spring = { type: "spring", stiffness: 210, damping: 20 } as const
+    const transitions = [spring, { default: spring, opacity: { type: "tween", duration: 0.3 } }] as const
+    transitions.forEach((transition) => {
+      const { writer } = recording<string>()
+      const batch = Batch.make({ keys: ["x", "opacity"], writer, transition })
+      const slot = Batch.enter(batch, "a", { x: 0, opacity: 0 })
+      Batch.retarget(batch, [slot], (_, k) => [400, 1][k])
+      expect(Batch.step(batch, 0), "still moving").toBe(false)
+      expect(Batch.get(batch, slot, "x"), `${JSON.stringify(transition)}: x where it was`).toBe(0)
+      expect(Batch.get(batch, slot, "opacity")).toBe(0)
+      // Then frame for frame as if the 0 s step had never come.
+      expect(stepped(batch, slot, "x")).toEqual(springFrames("x", 0, 400, spring))
+    })
   })
 })
