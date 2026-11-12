@@ -1,6 +1,6 @@
 {
   "name": "@wardic/core",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Wardic's animation engine on Effect: springs, tweens, keyframes, variants, the projection geometry, and the services an environment provides.",
   "keywords": [
     "animation",
