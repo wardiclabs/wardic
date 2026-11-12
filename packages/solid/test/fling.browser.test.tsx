@@ -1,10 +1,10 @@
-// A free drag's release with real Playwright mouse input (ADR-0004, *Amendment (#139)*): the
-// release reads the pointer's velocity over its last 100 ms, the release point counted, as a
-// layout drag's does. A flick with moves more than 30 ms apart carries on (the old 30 ms window
-// held only the last move and the up, at the same point, and read none); a pause before letting
-// go reads none; `dragMomentum={false}` never carries; `dragSnapToOrigin` springs back from the
-// flick's velocity. A layout drag past elastic constraints releases with the pointer's velocity,
-// not its slower elastic offsets'. Each release runs on the drag transition (ADR-0016, *Amendment
+// A free drag's release (ADR-0004, *Amendment (#139)*), FL1–FL4 with real Playwright mouse input and
+// FL5 with pushed input: the release reads the pointer's velocity over its last 100 ms, the release
+// point counted, as a layout drag's does. A flick with moves more than 30 ms apart carries on (the old
+// 30 ms window held only the last move and the up, at the same point, and read none); a pause before
+// letting go reads none; `dragMomentum={false}` never carries; `dragSnapToOrigin` springs back from the
+// flick's velocity. A layout drag past elastic constraints releases with the pointer's velocity, not
+// its slower elastic offsets'. Each release runs on the drag transition (ADR-0016, *Amendment
 // (#140)*): FL4 and FL5 give it a soft bounce, so a release's carry outward before it turns back
 // shows its velocity. A release that should carry lets go with its flick's last move (`fling`, #496,
 // as drag-transition's did for #369): FL1 and FL4. FL2 and FL3 let go a command after it, since
