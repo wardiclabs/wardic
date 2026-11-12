@@ -12,16 +12,13 @@
 // crossfade) are pinned against a fake sink in @wardic/dom's
 // projection-release.browser.test.ts; these are what only the real track and real paint show.
 import { render } from "@solidjs/testing-library"
-import * as InputSource from "@wardic/core/InputSource"
 import { DomLive } from "@wardic/dom"
 import { wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
-import { TestInput } from "@wardic/test"
-import * as Effect from "effect/Effect"
-import * as Layer from "effect/Layer"
 import { createSignal } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { commands, page } from "vitest/browser"
 import { loseNextRelease, raf } from "./browser-helpers.ts"
+import { pushedPointer } from "./pushed-pointer.ts"
 import { add, centreOf, glide, mountReorder, mouse, type Pt, resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
 
 afterEach(resetScene)
@@ -67,28 +64,23 @@ describe("a layout drag's release through the drag track (ADR-0016, Amendment (v
       // Pushed input with the gesture's own timestamps, so the release's velocity is the same on
       // any host, however late the events arrive (#206). The track, the projection and the paint
       // are the real ones.
-      const input = Effect.runSync(TestInput.pushable())
-      const s = await mountBox(momentum, input.layer.pipe(Layer.provideMerge(DomLive)))
-      let t = 0
-      const push = (type: InputSource.PointerLikeEvent["type"], x: number, after: number): void => {
-        t += after
-        Effect.runSync(input.push(InputSource.makePointerLikeEvent({ type, x, y: 0, timeStamp: t })))
-      }
-      push("down", 0, 0)
+      const pointer = pushedPointer()
+      const s = await mountBox(momentum, pointer.env)
+      pointer.push("down", 0, 0)
       // Out 220 px, 20 ms apart, each move painted.
       for (let k = 1; k <= 11; k++) {
-        push("move", 20 * k, 20)
+        pointer.push("move", 20 * k, 20)
         await raf()
       }
       // Back toward the slot fast: 50 px moves 35 ms apart, let go 5 ms after the last, 20 px short
       // of it. The window starts at the newest point more than 100 ms before the release, the first
       // move back: (20 - 170) px over 110 ms, about -1,360 px/s.
       for (let k = 1; k <= 4; k++) {
-        push("move", 220 - 50 * k, 35)
+        pointer.push("move", 220 - 50 * k, 35)
         await raf()
       }
       const sampling = sampleFrames(() => dxOf(s))
-      push("up", 20, 5)
+      pointer.push("up", 20, 5)
       await wait(400)
       const frames = sampling.stop()
       lows.push(Math.min(...frames.map((f) => f.v)))
