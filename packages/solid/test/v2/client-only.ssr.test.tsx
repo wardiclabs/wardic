@@ -22,6 +22,7 @@ const BOTH_SIDES: ReadonlyArray<readonly [file: string, starts: string, why: str
   ["waiters.ts", "createMemo<Events[E]>(() => from<", "`when(name)`: made in a component's body on both sides, a server's `serverWhen` in its place (#355)"],
   ["waiters.ts", "createMemo<A>(constUndefined", "`serverWhen`: the server's side of `when(name)`, adopted by the browser's (#355)"],
   ["element.tsx", "createMemo(() => render(props))", "a server element's own memo, whose id the browser's plain owner takes (AR14)"],
+  ["element.tsx", "createRoot(() => render(props))", "the browser's plain owner, taking the id its server's memo took (AR14); a root since rc.21 left `createOwner` to renderers"],
 ]
 
 /** Whether `options`, a call's last argument, is CLIENT_ONLY, sets `transparent: true`, or is a constant of `text`'s spreading CLIENT_ONLY. */

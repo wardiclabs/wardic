@@ -3,7 +3,7 @@ name: agent-loops
 description: Verify Solid 2.0 reactive code with evidence from @solidjs/diagnostics captureArtifact instead of reading it; generation, acceptance, attribution, responsiveness and server-render loops. Use when checking that generated or ported Solid code is quiet, within budget and re-runs only for the right reasons.
 ---
 
-<!-- Copied from @solidjs/diagnostics@2.0.0-rc.20 by scripts/sync-agent-skills.ts: run `bun run skills` after a bump, and don't edit this copy. -->
+<!-- Copied from @solidjs/diagnostics@2.0.0-rc.21 by scripts/sync-agent-skills.ts: run `bun run skills` after a bump, and don't edit this copy. -->
 
 # Agent loops with @solidjs/diagnostics
 

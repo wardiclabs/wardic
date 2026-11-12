@@ -98,7 +98,8 @@ The tests that cover each pass unchanged.
   pairs (`:4762-4777`), one pair per key: `wardic:packages/core/src/Machine.ts:1413` and `:1523`,
   where a Machine's blenders are built, not per frame.
 - **`MutableRef`** is `Equal` by reference with a random hash (`src/MutableRef.ts:81-86`). Wardic's
-  one `Equal.equals` compares `Option`s of edges (`dom/src/internal/auto-scroll.ts:140`).
+  one `Equal.equals` compares `Option`s of edges (`dom/src/internal/auto-scroll.ts:140`). Reverted
+  in 4.1.2, with no changeset: refs compare structurally again ([the 4.1.4 read](effect-4-1-4-upgrade.md)).
 - **`Match`'s tuple patterns** check the array's length (`src/internal/matcher.ts:143`). Wardic's
   `Match` has no tuple pattern.
 

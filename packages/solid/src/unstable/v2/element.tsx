@@ -28,7 +28,7 @@ import * as Predicate from "effect/Predicate"
 import { identity } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type ComponentProps, dynamic, isServer, type JSX, type ValidComponent } from "@solidjs/web"
-import { $PROXY, children, type Component, createEffect, createMemo, createOwner, omit, runWithOwner, untrack } from "solid-js"
+import { $PROXY, children, type Component, createEffect, createMemo, createRoot, omit, runWithOwner, untrack } from "solid-js"
 import { MOTION_PROPS_V2 as MOTION_PROPS, type WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
 import { changesContext, isVariantChild } from "../../variant-tree.ts"
 import { type AnyWard, GESTURE_KEYS, shareOf, type Ward, WARD, type WardConfig, type WardConfigValues, wardConfigView, type WardInternals, type WardRead, type WardShare, type WardStyle, wardWith } from "./ward.tsx"
@@ -388,7 +388,9 @@ const staticElement = (tag: string): Component<Record<string, unknown>> => {
       // A component may return a memo, as `dynamic()`'s does; Solid 2's `JSX.Element` names no accessor.
       return rendered as unknown as JSX.Element
     }
-    return runWithOwner(createOwner(), () => render(props))
+    // Under a plain owner, which takes the hydration id the server's memo took (#525): a root, as
+    // `createOwner` left solid-js's types in rc.21. It's its parent's, so it goes with the element.
+    return createRoot(() => render(props))
   }
 }
 

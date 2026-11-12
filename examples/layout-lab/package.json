@@ -26,7 +26,7 @@
     "@wardic/core": "workspace:*",
     "@wardic/dom": "workspace:*",
     "@wardic/solid": "workspace:*",
-    "effect": "4.1.1",
+    "effect": "4.1.4",
     "mermaid": "12.2.0",
     "solid-js": "1.9.18"
   },

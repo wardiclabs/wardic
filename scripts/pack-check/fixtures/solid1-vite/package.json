@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": { "build": "vite build", "preview": "vite preview" },
   "dependencies": {
-    "effect": "4.1.1",
+    "effect": "4.1.4",
     "solid-js": "1.9.18"
   },
   "devDependencies": {
