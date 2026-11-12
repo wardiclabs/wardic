@@ -11,7 +11,7 @@
  *
  * @see https://wardic.dev/reference/solid/utilities/version
  */
-export const VERSION = "1.0.0-rc.9"
+export const VERSION = "1.0.0-rc.10"
 
 /**
  * `WardicProvider` (one Effect runtime + `AtomRegistry` per ADR-0006), the
