@@ -78,8 +78,9 @@ A long list of items of one size reorders as one [Batch](/guides/batches): `Reor
 | `gap` | The space between places, in px: one for both axes, or `{ x, y }`. |
 | `columns` | A grid's columns: how many items a row holds. Left out, as many as the group's width holds, read again as it's resized: give the group its width, say `width: 100%`. |
 | `direction` | `"rtl"` mirrors a row's and a grid's places, from the group's right edge. Left out, the group's element's own direction, so a page's `dir="rtl"` needs none; on a server, `"ltr"` unless given. |
-| `initial` | Where each item starts: values, a function of its item and index, or `false`. It starts at its place, but for the keys `initial` gives. |
+| `initial` | Where each item starts: values, a function of its item and index, or `false`. It starts at its place, but for the keys `initial` gives, and its entrance moves those to their identity: `initial={{ opacity: 0 }}` fades each item in. |
 | `transition` | How the items move to their places. |
+| `appear` | `true` plays the items' entrance from the first paint of a server-rendered page, as [a Batch's](/reference/solid/animation/create-batch#its-entrance-from-the-first-paint). Off by default. |
 | `whileDrag` | Where an item goes while it's in hand, dragged or lifted from the keyboard: values with an optional `transition`, or a function of its item and index. |
 | `whileHover`, `whileTap` | Where an item goes while the pointer is over it, and while it's pressed: by a pointer, or by Enter or Space while the keyboard reorder is off (on, they lift it). |
 | `exit` | Where an item leaving under `<AnimatePresence>` goes, at its last place: values with an optional `transition`, or a function of its item, last index and `custom`. Put the `<AnimatePresence>` around the `<For>`. |

@@ -910,9 +910,12 @@ const stepPlain = <S>(state: State<S>, clamped: number): void => {
 // Per frame: `Machine.tween`'s value, eased from the key's start, its speed from its last frame.
 const stepTween = <S>(state: State<S>, at: number, tween: ResolvedTween, time: number, dt: number): boolean => {
   const delay = state.delays[at]
-  const eased = tween.ease(Scalar.clamp(Math.max(0, time - delay) / tween.duration, 0, 1))
-  const next = Scalar.lerp(state.origins[at], state.targets[at], eased)
-  const landed = time >= delay + tween.duration
+  // By its duration as given: a 0 s tween lands as its delay ends, at that very time (#706), where its
+  // resolved duration, at least `Number.EPSILON` so it divides, would hold it a step longer.
+  const landed = time >= delay + tween.seconds
+  // Landed, at its target.
+  let next = state.targets[at]
+  if (!landed) next = Scalar.lerp(state.origins[at], state.targets[at], tween.ease(Scalar.clamp(Math.max(0, time - delay) / tween.duration, 0, 1)))
   if (landed) state.velocities[at] = 0
   if (!landed && dt > 0) state.velocities[at] = (next - state.positions[at]) / dt
   state.positions[at] = next
@@ -1280,8 +1283,10 @@ const valueAt = <S>(state: State<S>, at: number, rule: number, time: number, res
   const active = Math.max(0, time - delay)
   if (entry.kind === TWEEN) {
     const tween = entry.tween
-    const landed = time >= delay + tween.duration
-    const value = Scalar.lerp(from, goal, tween.ease(Scalar.clamp(active / tween.duration, 0, 1)))
+    const landed = time >= delay + tween.seconds
+    // Landed, at its target, as `stepTween`'s.
+    let value = goal
+    if (!landed) value = Scalar.lerp(from, goal, tween.ease(Scalar.clamp(active / tween.duration, 0, 1)))
     const before = Scalar.lerp(from, goal, tween.ease(Scalar.clamp(Math.max(0, active - FRAME) / tween.duration, 0, 1)))
     state.positions[at] = value
     state.velocities[at] = (value - before) / FRAME

@@ -45,12 +45,10 @@ export {
   matchesBatch,
   MAX_SECONDS,
   nameOf,
-  pending,
   type Play,
-  PREFIX,
-  release,
   sheet,
   type Sheet,
   type Slot,
   type Spec,
 } from "./internal/appear.ts"
+export { pending, PREFIX, release } from "./internal/appear-slot.ts"

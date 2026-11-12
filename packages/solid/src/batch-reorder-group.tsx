@@ -20,6 +20,7 @@ import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { $PROXY, type Accessor, createComponent, createContext, createEffect, createMemo, createRenderEffect, createSignal, type JSX, on, onCleanup, sharedConfig, splitProps, untrack, useContext } from "solid-js"
 import { Dynamic, getNextElement, insert, setAttribute, spread } from "solid-js/web"
+import { batchHandoffHere, batchServerAppearHere } from "./batch-appear-here.tsx"
 import { configTransitionOf, type WardicBatchTransition } from "./batch.ts"
 import { type BatchReorderBinding, type BatchReorderExit, type BatchReorderGesture, type BatchReorderInitial, type BatchReorderItem, type BatchReorderItems, serverBatchReorder, type BatchReorderRead, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize, sameRead, tabStopOf } from "./batch-reorder.ts"
 import { cssTextOf, sameStyle } from "./batch-reorder-places.ts"
@@ -70,6 +71,12 @@ export type ReorderBatchGroupProps<V, Tag extends ReorderElementTag = "ul"> = {
   readonly initial?: BatchReorderInitial<V> | undefined
   /** How the items move to their places: else the nearest `WardicConfig`'s, else each key's Default transition. */
   readonly transition?: WardicBatchTransition | undefined
+  /**
+   * Whether a server render plays its items' entrance (`initial`'s keys) in CSS from first paint, and hydration
+   * takes it over where it's got to (an **Appear animation**, #706): off unless `true`, under a provider whose
+   * `appear` isn't `false`.
+   */
+  readonly appear?: boolean | undefined
   /**
    * Where an item goes while it's in hand, dragged or lifted from the keyboard: values with an optional
    * `transition`, or a function of its item and index. Back on the group's transition as it's let go.
@@ -132,6 +139,7 @@ interface GroupLocal<V> {
   readonly instructions?: string | undefined
   readonly initial?: BatchReorderInitial<V> | undefined
   readonly transition?: WardicBatchTransition | undefined
+  readonly appear?: boolean | undefined
   readonly whileDrag?: BatchReorderGesture<V> | undefined
   readonly whileHover?: BatchReorderGesture<V> | undefined
   readonly whileTap?: BatchReorderGesture<V> | undefined
@@ -166,6 +174,7 @@ const GROUP_OWN = [
   "announcements",
   "instructions",
   "initial",
+  "appear",
   "transition",
   "whileDrag",
   "whileHover",
@@ -289,7 +298,15 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
   // On a server (Q39): its items' starts, and no runtime. A plain `if`, so a client build drops it (#518).
   if (isServer) {
     const server = serverBatchReorder<V>(
-      { values: () => local.values, geometry: () => geometryOf(local, undefined), initial: () => local.initial, whileTap: () => local.whileTap },
+      {
+        values: () => local.values,
+        geometry: () => geometryOf(local, undefined),
+        initial: () => local.initial,
+        whileTap: () => local.whileTap,
+        transition: () => local.transition,
+        appear: () => local.appear,
+        server: batchServerAppearHere(),
+      },
       untrack,
     )
     return (
@@ -316,6 +333,7 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
         defaultTransition: useWardicDefaultTransition(),
         configTransition: configTransitionOf(useWardicConfig()),
         untrack,
+        ...batchHandoffHere(),
       },
       {
         values,
@@ -324,6 +342,7 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
         onRead: setRead,
         initial: () => local.initial,
         transition: () => local.transition,
+        appear: () => local.appear,
         whileDrag: () => local.whileDrag,
         whileHover: () => local.whileHover,
         whileTap: () => local.whileTap,

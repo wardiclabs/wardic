@@ -28,6 +28,7 @@ import {
 } from "../../batch.ts"
 import type { WardicPointInfo, WardicPressInput } from "../../gesture-info.ts"
 import { lazyBatchGestures } from "../../lazy-batch-gestures.ts"
+import { batchHandoffHere, batchServerAppearHere } from "./batch-appear-here.tsx"
 import { flightsOf } from "./flights.ts"
 import { provideMemberHolds } from "../../member-hold.ts"
 import { useFeatureRegistry, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
@@ -149,14 +150,16 @@ const SERVER_LANDINGS: BatchLandings = {
   when: <E extends keyof WardicBatchEvents>() => serverWhen<WardicBatchEvents[E]>(),
 }
 
+/** The provider's Appear animations and the nearest `WardicConfig`'s settings, as a server's Batch reads them here (#706). */
+
 /**
  * A server render's Batch (#665's PR 6, ADR-0070 decision 14): its handles draw each spread member's
- * start, over the element's own props, and nothing animates or lands.
+ * start, over the element's own props, and its entrance as an Appear animation (#706); nothing animates or lands.
  */
 const serverBatchOf = (config: WardicBatchConfig | WardicKeyedBatchConfig<unknown>, keyed: boolean): WardicBatch | WardicKeyedBatch<unknown> =>
   Bool.match(keyed, {
-    onTrue: (): WardicKeyedBatch<unknown> => ({ member: serverKeyedHandlesOf<JSX.CSSProperties>(config as WardicKeyedBatchConfig<unknown>, presenceHere), ...SERVER_LANDINGS }),
-    onFalse: (): WardicBatch => ({ at: serverHandlesOf<JSX.CSSProperties>(config as WardicBatchConfig), ...SERVER_LANDINGS }),
+    onTrue: (): WardicKeyedBatch<unknown> => ({ member: serverKeyedHandlesOf<JSX.CSSProperties>(config as WardicKeyedBatchConfig<unknown>, presenceHere, batchServerAppearHere()), ...SERVER_LANDINGS }),
+    onFalse: (): WardicBatch => ({ at: serverHandlesOf<JSX.CSSProperties>(config as WardicBatchConfig, batchServerAppearHere()), ...SERVER_LANDINGS }),
   })
 
 /**
@@ -214,6 +217,7 @@ export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<u
         defaultTransition: useWardicDefaultTransition(),
         configTransition,
         untrack,
+        ...batchHandoffHere(),
         gestures,
       },
       config,

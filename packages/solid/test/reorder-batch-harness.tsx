@@ -37,6 +37,8 @@ export interface BatchSceneOptions {
   readonly announcements?: Partial<CoreReorder.Announcements<string>>
   /** Items with no `style` of their own: each takes the group's alone (Q47). */
   readonly plain?: boolean
+  /** Where each item starts (#706's Q20: a key but `x` and `y` moves to its identity as it enters). */
+  readonly initial?: WardicBatchValues | ((item: string, i: number) => WardicBatchValues)
 }
 
 /** The group's place on the page: `reorder-harness.tsx`'s. */
@@ -90,6 +92,7 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Scen
       {...Bool.match(Bool.and(layout === "xy", Predicate.isUndefined(o.fromWidth)), { onTrue: () => ({ columns: 3 }), onFalse: () => ({}) })}
       {...UndefinedOr.match(o.whileDrag, { onUndefined: () => ({}), onDefined: (whileDrag) => ({ whileDrag }) })}
       {...UndefinedOr.match(o.transition, { onUndefined: () => ({}), onDefined: (transition) => ({ transition }) })}
+      {...UndefinedOr.match(o.initial, { onUndefined: () => ({}), onDefined: (initial) => ({ initial }) })}
       keyboard={UndefinedOr.match(o.keyboard, { onUndefined: () => undefined, onDefined: (keyboard) => keyboard() })}
       {...UndefinedOr.match(o.whileHover, { onUndefined: () => ({}), onDefined: (whileHover) => ({ whileHover }) })}
       {...UndefinedOr.match(o.whileTap, { onUndefined: () => ({}), onDefined: (whileTap) => ({ whileTap }) })}

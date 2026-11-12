@@ -22,7 +22,9 @@
 //   key, a Batch over the elements started at each one's elapsed time, its first step written by the
 //   DOM's writer and the animations released, draws where the CSS was; nothing is left running.
 // - HA11 (#706): `findAll` reads a document's Appear animations in one call, by element: each member's
-//   the one `find` gets, an element's too, and not an app's own animation.
+//   Batch rule, an element's the one `find` gets, and not an app's own animation.
+// - HA12 (#706): `find` passes over a Batch's rule: a Wardic element on a member's element takes none of
+//   its Batch's animation for its own, which its Batch takes over.
 import * as Batch from "@wardic/core/Batch"
 import * as Machine from "@wardic/core/Machine"
 import type * as Frame from "@wardic/core/Frame"
@@ -78,6 +80,13 @@ const at = (machine: Machine.Machine<Frame.Frame<Values.Values>>, seconds: numbe
   Machine.startAt(machine, () => seconds).start()(1 / 60).value
 
 const found = (element: Element): Animation => Option.getOrThrow(Appear.find(element))
+
+/** A Batch member's animation, as its Handoff reads it: from the page's (`find` passes over a Batch's rule). */
+const memberFound = (element: Element): Animation => {
+  const animation = Appear.findAll(document).get(element)
+  if (animation === undefined) throw new Error("no Appear animation")
+  return animation
+}
 
 describe("Appear animations in a browser (#48, ADR-0044)", () => {
   it("HA1: the element plays the rule from its first frame, the machine at its elapsed time", async () => {
@@ -353,7 +362,7 @@ describe("a Batch's members in a browser (#706)", () => {
     for (let i = 0; i < 20; i++) {
       await raf()
       elements.forEach((element, m) => {
-        const elapsed = Appear.elapsedOf(found(element))
+        const elapsed = Appear.elapsedOf(memberFound(element))
         // The rule draws the Batch's 60 Hz frames, a line between them (decision 9): a frame that isn't on
         // that grid (Firefox's) reads the line, so the member's own frames either side of it, drawn so.
         const before = Math.floor(elapsed * 60) / 60
@@ -380,7 +389,8 @@ describe("a Batch's members in a browser (#706)", () => {
     await wait(120)
     const handoff = await new Promise<{ readonly before: ReadonlyArray<ReturnType<typeof drawnX>>; readonly after: ReadonlyArray<ReturnType<typeof drawnX>> }>((resolve) =>
       requestAnimationFrame(() => {
-        const animations = elements.map(found)
+        const all = Appear.findAll(document)
+        const animations = elements.map((element) => all.get(element) as Animation)
         expect(animations.every((animation) => Appear.matchesBatch(animation, "HA10"))).toBe(true)
         expect(animations.some((animation) => Appear.matchesBatch(animation, "HA9"))).toBe(false)
         const before = elements.map(drawnX)
@@ -437,8 +447,29 @@ describe("a Batch's members in a browser (#706)", () => {
     })
     await raf()
     const all = Appear.findAll(document)
-    for (const node of [...members, element]) expect(all.get(node), "the one find gets").toBe(found(node))
+    for (const node of members) expect(Appear.matchesBatch(all.get(node) as Animation, "HA11"), "each member's Batch rule").toBe(true)
+    expect(all.get(element), "the one find gets").toBe(found(element))
     expect(all.has(own), "an app's own animation isn't an Appear").toBe(false)
     expect(all.size).toBe(members.length + 1)
+  })
+
+  it("HA12: find passes over a Batch's rule, which its Batch takes over", async () => {
+    const rule = Result.getOrThrow(Appear.batchKeyframes({ key: "HA12", keys: BATCH_KEYS, transition: SPRING, starts: STARTS, targets: TARGETS }))
+    const sheet = Appear.sheet()
+    const batch = sheet.batch(rule)
+    const style = document.createElement("style")
+    style.textContent = sheet.css()
+    document.head.append(style)
+    const member = document.createElement("div")
+    for (const [property, value] of Object.entries(batch.styleOf(0, 0) as Readonly<Record<string, string>>)) member.style.setProperty(property, value)
+    document.body.append(member)
+    cleanups.push(() => {
+      member.remove()
+      style.remove()
+    })
+    await raf()
+    expect(Appear.pending(member), "its slot named").toBe(true)
+    expect(Appear.matchesBatch(Appear.findAll(document).get(member) as Animation, "HA12"), "its Batch's rule, running").toBe(true)
+    expect(Option.isNone(Appear.find(member)), "no element's Appear animation").toBe(true)
   })
 })

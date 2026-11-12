@@ -473,11 +473,11 @@ From a server render until the element mounts, a client hydrating that markup re
 _Avoid_: deferred hydration, two-pass render.
 
 **Appear animation**:
-An element's mount animation as a server render starts it: the server samples it from Wardic's own machines into a CSS `@keyframes` rule in the page's head, and the element plays it from first paint, before any script runs (with none, to its end). An element qualifies whole, when the server knows its whole mount animation: static `initial` and `animate`, every key starting from `initial`. One that doesn't keeps its **Starting style** until mount. At mount the engine takes it over, the **Handoff** (#48, ADR-0044; Motion's "optimised appear").
+An element's mount animation, or a **Batch member**'s entrance, as a server render starts it: the server samples it from Wardic's own machines into a CSS `@keyframes` rule in the page's head, and the element plays it from first paint, before any script runs (with none, to its end). An element qualifies whole, when the server knows its whole mount animation: static `initial` and `animate`, every key starting from `initial`. One that doesn't keeps its **Starting style** until mount. A **Batch** asks for one (`appear: true`); its members on one set of transitions share a rule, each one's own values read from its element. At mount the engine takes it over, the **Handoff** (#48, #706, ADR-0044; Motion's "optimised appear").
 _Avoid_: optimised appear, pre-hydration animation, server animation.
 
 **Handoff**:
-The engine taking over an **Appear animation** at mount: the element's run starts as far in as the CSS has got, read in the frame that draws its first Frame, and that frame's commit removes the CSS animation, with no paint between (ADR-0044). Motion's word for the same step.
+The engine taking over an **Appear animation** at mount: the element's run starts as far in as the CSS has got, read in the frame that draws its first Frame, and that frame's commit removes the CSS animation, with no paint between (ADR-0044). A **Batch**'s first change starts each member so, at its first step (#706). Motion's word for the same step.
 
 **Late chunk**:
 Server markup a streamed render sends after its shell: a `Suspense` boundary's content, once its data has resolved. A **Late chunk** brings its own **Appear animation** rules, which the client moves into the page's head before it hydrates the chunk, and its animations start when it lands, not at the page's first paint (#245, ADR-0044 *Amendment (#245)*).

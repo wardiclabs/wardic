@@ -19,7 +19,6 @@ import * as DragRecognizer from "@wardic/core/DragRecognizer"
 import * as InputSource from "@wardic/core/InputSource"
 import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import type * as CoreReorder from "@wardic/core/Reorder"
-import * as DomBatch from "@wardic/dom/DomBatch"
 import * as ReorderController from "@wardic/dom/ReorderController"
 import * as Report from "@wardic/dom/Report"
 import * as Style from "@wardic/dom/Style"
@@ -41,7 +40,9 @@ import {
   type BatchBinding,
   type BatchEnv,
   type BatchHooks,
+  type BatchServerAppear,
   bindBatch,
+  identityOf,
   type KeyedBatchConfig,
   type ReorderBatchConfig,
   serverKeyedHandlesOf,
@@ -138,6 +139,8 @@ export interface BatchReorderOptions<V> {
   readonly onRead: (read: BatchReorderRead) => void
   readonly initial: () => BatchReorderInitial<V> | undefined
   readonly transition: () => WardicBatchTransition | undefined
+  /** Its `appear`: whether its items' entrance from a server render is taken over at hydration (#706, Q21). */
+  readonly appear: () => boolean | undefined
   readonly whileDrag: () => BatchReorderGesture<V> | undefined
   /** Where an item goes while the pointer is over it, and while it's pressed (#712's PR 3), read as each starts. */
   readonly whileHover: () => BatchReorderGesture<V> | undefined
@@ -221,6 +224,45 @@ interface InHand {
 }
 
 
+/** No targets beyond an item's place: an `initial` that gives none but `x` and `y`, or none. */
+const NO_IDENTITIES: Readonly<Record<string, number>> = {}
+
+/** Whether `key` is one an item's place sets: `x` or `y`. */
+const isPlaceKey: Predicate.Predicate<string> = (key) => Bool.or(key === "x", key === "y")
+
+/** `values` but the keys an item's place sets. */
+const withoutPlaceKeys = (values: WardicBatchValues): WardicBatchValues =>
+  Rec.filter(values as Readonly<Record<string, number>>, (_, key) => Bool.not(isPlaceKey(key))) as WardicBatchValues
+
+/**
+ * Each item's targets (#706, Q20): its place, and the identity of each key its `initial` gives but `x` and
+ * `y`, so its entrance moves them there: `initial: { opacity: 0 }` fades in. A function `initial`'s keys
+ * are its values' for the list's first item. Made once a given `initial` and a list with an item.
+ */
+const targetsAtPlace = <V>(placeAt: (i: number) => XY, firstItem: () => V | undefined) => {
+  let given: unknown = undefined
+  let identities = NO_IDENTITIES
+  /** The identities of `initial`'s keys but `x` and `y`. */
+  const identitiesOf = (initial: BatchReorderInitial<V> | undefined): Readonly<Record<string, number>> => {
+    if (Bool.or(Predicate.isUndefined(initial), initial === false)) return NO_IDENTITIES
+    if (initial === given) return identities
+    const values = Bool.match(Predicate.isFunction(initial), {
+      onTrue: () => UndefinedOr.map(firstItem(), (item) => (initial as (item: V, i: number) => WardicBatchValues)(item, 0)),
+      onFalse: () => initial as WardicBatchValues,
+    })
+    if (Predicate.isUndefined(values)) return NO_IDENTITIES
+    given = initial
+    identities = Rec.map(withoutPlaceKeys(values) as Readonly<Record<string, number>>, (_, key) => identityOf(key))
+    return identities
+  }
+  // Per member at a change (#665): its place alone when `initial` gives nothing more, as before Q20.
+  return (initial: BatchReorderInitial<V> | undefined, i: number): WardicBatchValues => {
+    const own = identitiesOf(initial)
+    if (Rec.isEmptyRecord(own)) return placeAt(i)
+    return { ...own, ...placeAt(i) }
+  }
+}
+
 /**
  * An item starts at its place: `initial` none, or `false`, starts it at its targets; values or a function
  * start it there, but for the keys they give. Made once a given `initial`.
@@ -258,6 +300,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
   /** An item's place now, at index `i`. */
   const placeAt = (i: number): XY => placeOf(resolved, i)
   const startOf = startsAtPlace<V>(placeAt)
+  const targetsOf = targetsAtPlace<V>(placeAt, () => env.untrack(options.values)[0])
   let atOnce = false
   // Whether any member is moving, from a flight's start to its landing; the items raised as they come to
   // rest, let down at the landing; and the members a pointer let go of, still flying to their places,
@@ -272,13 +315,16 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       return values
     },
     key: (item: V) => item,
-    animate: (_: V, i: number) => placeAt(i),
+    animate: (_: V, i: number) => targetsOf(env.untrack(options.initial), i),
     // Read as a change starts or a member enters, which a binding's effect may run in its apply: untracked.
     get initial() {
       return startOf(env.untrack(options.initial))
     },
     get transition() {
       return env.untrack(options.transition)
+    },
+    get appear() {
+      return env.untrack(options.appear)
     },
     get whileDrag() {
       return env.untrack(options.whileDrag)
@@ -635,8 +681,12 @@ export interface ServerBatchReorder<V> extends BatchReorderItems<V> {
 }
 
 /** What a server's group reads: its values, its geometry (no element's, Q35), `initial` and `whileTap`. */
-export interface ServerBatchReorderOptions<V> extends Pick<BatchReorderOptions<V>, "values" | "initial" | "whileTap"> {
+export interface ServerBatchReorderOptions<V> extends Pick<BatchReorderOptions<V>, "values" | "initial" | "whileTap" | "transition"> {
   readonly geometry: () => BatchReorderGeometry
+  /** The group's `appear`: its items' entrance an Appear animation with `true` (#706, Q16, Q21). */
+  readonly appear: () => boolean | undefined
+  /** The provider's Appear animations and the nearest `WardicConfig`'s settings, as the binding reads them here. */
+  readonly server: BatchServerAppear
 }
 
 const noop = (): void => {}
@@ -652,49 +702,63 @@ export const serverBatchReorder = <V>(options: ServerBatchReorderOptions<V>, unt
   const geometry = untrack(options.geometry)
   const values = untrack(options.values)
   const places = resolvePlaces(geometry, values.length)
-  const placeAt = (i: number): XY => placeOf(places, i)
+  // In flow (Q37), the grid places each item: drawn at no place, and `initial`'s `x` and `y` left out.
+  const inFlow = inGridFlow(geometry)
+  const placeAt = (i: number): XY => Bool.match(inFlow, { onTrue: () => AT_NO_PLACE, onFalse: () => placeOf(places, i) })
   const startOf = startsAtPlace<V>(placeAt)
+  const targetsOf = targetsAtPlace<V>(placeAt, () => values[0])
+  const initialNow = (): BatchReorderInitial<V> | undefined => Bool.match(inFlow, { onTrue: () => withoutPlace(untrack(options.initial)), onFalse: () => untrack(options.initial) })
   const config = {
     each: () => values,
     key: (item: V) => item,
-    animate: (_: V, i: number) => placeAt(i),
+    animate: (_: V, i: number) => targetsOf(initialNow(), i),
     get initial() {
-      return startOf(untrack(options.initial))
+      return startOf(initialNow())
+    },
+    get transition() {
+      return untrack(options.transition)
+    },
+    get appear() {
+      return untrack(options.appear)
     },
   }
-  // Each item's start, its keyed Batch's server handle's.
+  // Each item's start and its entrance, its keyed Batch's server handle's (#706, Q16).
   let handles: ReturnType<typeof serverKeyedHandlesOf<Style.Style>> | undefined
   const handlesFor = (presence: PresenceContextValue | undefined) => {
-    if (Predicate.isUndefined(handles)) handles = serverKeyedHandlesOf<Style.Style>(config as KeyedBatchConfig<unknown>, () => presence)
+    if (Predicate.isUndefined(handles)) handles = serverKeyedHandlesOf<Style.Style>(config as KeyedBatchConfig<unknown>, () => presence, options.server)
     return handles
-  }
-  /** An item in flow's start: `initial`'s keys but its place's, which the grid gives. */
-  const inFlowStartOf = (value: V): Readonly<Record<string, string>> => {
-    const given = startOf(untrack(options.initial))
-    return Bool.match(given === false, {
-      onTrue: () => NO_STYLE,
-      onFalse: () =>
-        DomBatch.styleOf(Rec.filter((given as (item: V, i: number) => WardicBatchValues)(value, values.indexOf(value)) as Readonly<Record<string, number>>, (_, key) => Bool.and(key !== "x", key !== "y"))),
-    })
   }
   const base = itemBaseOf(geometry)
   return {
     groupStyle: (own) => groupStyleOf(places, values.length, geometry, own),
     item: (value, presence) => ({
       ref: noop,
-      style: (own) =>
-        Bool.match(inGridFlow(geometry), {
-          onTrue: () => ({ ...Style.over(own, base), ...inFlowStartOf(value) }),
-          onFalse: () => {
-            const placed = Style.over(own, base)
-            // Its start over its own and its group's: what the handle draws, the base when it draws none.
-            return UndefinedOr.match(handlesFor(presence)(value, { style: placed }).style, { onUndefined: () => placed, onDefined: identity })
-          },
-        }),
+      style: (own) => {
+        const placed = Style.over(own, base)
+        // Its start over its own and its group's: what the handle draws, the base when it draws none.
+        return UndefinedOr.match(handlesFor(presence)(value, { style: placed }).style, { onUndefined: () => placed, onDefined: identity })
+      },
       dispose: noop,
     }),
     pressable: Predicate.isNotUndefined(untrack(options.whileTap)),
   }
 }
 
-const NO_STYLE: Readonly<Record<string, string>> = {}
+/** An item in flow's place: none, the grid's (Q37). */
+const AT_NO_PLACE: XY = { x: 0, y: 0 }
+
+/** `initial` but its `x` and `y`, an item in flow's (Q37): made once a given `initial`. */
+// Module state (#460, Q7): a cache held weakly by the object it's for, so it goes with it.
+const WITHOUT_PLACE = /*#__PURE__*/ new WeakMap<object, BatchReorderInitial<unknown>>()
+
+const withoutPlace = <V>(given: BatchReorderInitial<V> | undefined): BatchReorderInitial<V> | undefined => {
+  if (Bool.or(Predicate.isUndefined(given), given === false)) return given
+  const known = WITHOUT_PLACE.get(given as object)
+  if (Predicate.isNotUndefined(known)) return known as BatchReorderInitial<V>
+  const made = Bool.match(Predicate.isFunction(given), {
+    onTrue: () => (item: V, i: number): WardicBatchValues => withoutPlaceKeys((given as (item: V, i: number) => WardicBatchValues)(item, i)),
+    onFalse: () => withoutPlaceKeys(given as WardicBatchValues),
+  }) as BatchReorderInitial<V>
+  WITHOUT_PLACE.set(given as object, made as BatchReorderInitial<unknown>)
+  return made
+}

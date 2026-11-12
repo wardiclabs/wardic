@@ -9,8 +9,9 @@
  * - **A sheet** collects one render's rules. An element's inline style names only a custom
  *   property, `animation: var(--wardic-aN)`, which the sheet defines in `:root` once the render
  *   knows its timing (decision 5); undefined, it leaves the element at its Starting style.
- * - **The Handoff's reads:** the element's `wardic-…` animation, how far it has got, and its
- *   removal, written in the same task as the engine's first frame (decision 6).
+ * - **The Handoff's reads:** the element's `wardic-…` animation and how far it has got. Its removal,
+ *   written in the same task as the engine's first frame (decision 6), is `appear-slot.ts`'s, with
+ *   `pending`: what a page's code asks before any Handoff, kept out of this module.
  *
  * @module
  */
@@ -32,6 +33,7 @@ import * as Result from "effect/Result"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { spacesRegistered } from "./colors.ts"
 import { drawnUnitOf, project, TEMPLATE_KEY, TRANSFORM_FUNCS, type TransformTemplate, unitOf } from "./renderer.ts"
+import { PREFIX } from "./appear-slot.ts"
 import { dashCase, isPathKey, isSvgInnerTag, splitPatchForTag, svgAttrNameOf } from "./svg.ts"
 
 /** An element's mount animation, as its binding describes it. */
@@ -99,13 +101,10 @@ export interface Play {
   readonly delay: number
 }
 
-/** The prefix every Appear rule's name starts with. */
-export const PREFIX = "wardic-"
-
 /** The longest mount animation sampled, in seconds; a longer one keeps its Starting style. */
 export const MAX_SECONDS = 60
 
-const MAX_STEPS = Math.round(MAX_SECONDS / Machine.CATCH_UP_DT)
+const MAX_STEPS = /*#__PURE__*/ Math.round(MAX_SECONDS / Machine.CATCH_UP_DT)
 
 // --- The spec's name ---------------------------------------------------------------------------
 
@@ -122,7 +121,7 @@ const hash53 = (text: string): string => {
 
 /** Each spec's name by its text, so a page's elements sharing a spec hash it once; the oldest dropped past `NAMES_SIZE`. */
 // Module state (#460, Q7): a cache keyed by what it caches: a bounded set of names.
-const names = new Map<string, string>()
+const names = /*#__PURE__*/ new Map<string, string>()
 
 const NAMES_SIZE = 4096
 
@@ -251,7 +250,7 @@ const bareTolerance = (key: string): number =>
   })
 
 /** The opacities an svg-inner element draws as attributes, judged as opacity is. */
-const SVG_OPACITIES: ReadonlySet<string> = new Set(["opacity", "fillOpacity", "strokeOpacity", "stopOpacity", "floodOpacity"])
+const SVG_OPACITIES: ReadonlySet<string> = /*#__PURE__*/ new Set(["opacity", "fillOpacity", "strokeOpacity", "stopOpacity", "floodOpacity"])
 
 /**
  * A bare number's tolerance on an svg-inner element (#245), by what its attribute means: a
@@ -361,7 +360,7 @@ const UNSAFE = /[<>{};]|\/\*|\\/
  * presentation attributes, which a stylesheet's or an animation's value overrides, so the attribute
  * the engine writes at the Handoff takes over value for value. Unitless, as the attribute is.
  */
-const SVG_PRESENTATION: ReadonlySet<string> = new Set([
+const SVG_PRESENTATION: ReadonlySet<string> = /*#__PURE__*/ new Set([
   "opacity",
   "fill",
   "stroke",
@@ -382,10 +381,10 @@ const SVG_PRESENTATION: ReadonlySet<string> = new Set([
  * `@supports (width: 0px)` holds for HTML in every browser, so it can't tell whether one draws a
  * `<rect>`'s from CSS.
  */
-const SVG_GEOMETRY: ReadonlySet<string> = new Set(["cx", "cy", "r", "rx", "ry", "x", "y"])
+const SVG_GEOMETRY: ReadonlySet<string> = /*#__PURE__*/ new Set(["cx", "cy", "r", "rx", "ry", "x", "y"])
 
 /** The attribute the stroke dash writes beside it, `pathLength="1"`: the Starting style writes it too, and it never changes. */
-const SVG_FIXED: ReadonlySet<string> = new Set(["pathLength"])
+const SVG_FIXED: ReadonlySet<string> = /*#__PURE__*/ new Set(["pathLength"])
 
 const BARE_NUMBER = /^-?(?:\d+\.?\d*|\.\d+)(?:e[-+]?\d+)?$/i
 
@@ -531,7 +530,7 @@ const conditionOf = (properties: ReadonlyArray<string>): string => Arr.map(prope
  * registered when it was (#511); the oldest dropped past `CACHE_SIZE`.
  */
 // Module state (#460, Q7): a cache keyed by what it caches: each mount animation's sampled keyframes, by its text.
-const cache = new Map<string, Sampled>()
+const cache = /*#__PURE__*/ new Map<string, Sampled>()
 
 /** A spec's rule as sampled, and whether the colour spaces were registered then. */
 interface Sampled {
@@ -795,7 +794,7 @@ const batchNameOf = (spec: BatchSpec, columns: ReadonlyArray<Column>): string =>
 
 /** The Batch rules sampled so far, across requests, by name (as {@link keyframes}' cache): each member's own values aren't in them. */
 // Module state (#460, Q7): a cache keyed by what it caches.
-const batchCache = new Map<string, Result.Result<Keyframes, string>>()
+const batchCache = /*#__PURE__*/ new Map<string, Result.Result<Keyframes, string>>()
 
 /** A spec's first key with a start or target that isn't a finite number: a rule can't write it. */
 const unfiniteKeyOf = (spec: BatchSpec): Option.Option<string> =>
@@ -1027,7 +1026,7 @@ const escapeAttribute = (value: string): string => value.replaceAll("&", "&amp;"
 
 /** The documents {@link adoptChunks} watches, or has: one observer a document. */
 // Module state (#460, Q7): the documents already watched, held weakly.
-const watched = new WeakSet<Document>()
+const watched = /*#__PURE__*/ new WeakSet<Document>()
 
 /**
  * Moves each late chunk's Appear rules into the head: its `<style data-wardic-appear-chunk>`'s text into a
@@ -1068,21 +1067,35 @@ const nameOfAnimation = (animation: Animation): Option.Option<string> =>
 /** Whether `animation` is an Appear one: a `wardic-…` CSS animation. */
 const isAppearAnimation = (animation: Animation): boolean => Option.exists(nameOfAnimation(animation), (name) => name.startsWith(PREFIX))
 
+/**
+ * Whether `name` is a Batch's rule's (#706): `wardic-b<key>-<shape>`, two hashes, where an element's is
+ * `wardic-<hash>`, one, and a hash has no `-`.
+ */
+const isBatchRuleName = (name: string): boolean => name.includes("-", PREFIX.length)
+
+/** Whether `animation` is an element's own Appear one: a `wardic-…` CSS animation, not a Batch's rule. */
+const isElementAppearAnimation = (animation: Animation): boolean =>
+  Option.exists(nameOfAnimation(animation), (name) => Bool.and(name.startsWith(PREFIX), Bool.not(isBatchRuleName(name))))
+
 /** The element an animation draws, where it has one. */
 const targetOf = (animation: Animation): Option.Option<Element> =>
   Option.flatMap(Option.fromNullishOr(animation.effect), (effect) => Option.fromNullishOr((effect as KeyframeEffect).target))
 
-/** The element's Appear animation: its `wardic-…` CSS animation, running, or finished and filling. */
+/**
+ * The element's Appear animation: its `wardic-…` CSS animation, running, or finished and filling. A
+ * Batch's rule on a member's element isn't one (#706): its Batch takes it over, not a Wardic element there.
+ */
 // ADR-0044, decision 6.
 export const find = (element: Element): Option.Option<Animation> =>
   Bool.match(Predicate.hasProperty(element, "getAnimations"), {
     onFalse: () => Option.none(),
-    onTrue: () => Arr.findFirst(element.getAnimations(), isAppearAnimation),
+    onTrue: () => Arr.findFirst(element.getAnimations(), isElementAppearAnimation),
   })
 
 /**
  * A document's Appear animations by element, running or finished and filling: one `getAnimations()` for
- * the page, for a Handoff of many elements at once, a Batch's members (#706). Each is the one `find` gets.
+ * the page, for a Handoff of many elements at once, a Batch's members (#706). Each element's first: a
+ * member's Batch rule, or the one `find` gets.
  */
 // #706, Q3: measured at a Batch's 1,000 members in one list, Chromium's `Element.getAnimations()` cost
 // about a whole document's each (5.6 s for every member; the document's, 5.6 ms); Firefox's, alike either way.
@@ -1119,24 +1132,3 @@ export const delayOf = (animation: Animation): number =>
     onNone: () => 0,
     onSome: (effect) => Option.getOrElse(Option.filter(Option.some(effect.getTiming().delay), Predicate.isNumber), () => 0) / 1000,
   })
-
-/** What a slot's inline `animation` starts with: `var(--wardic-a`. */
-const SLOT_PREFIX = `var(--${PREFIX}a`
-
-/**
- * Whether `element`'s Appear animation is running, not yet handed over: its inline style still names its
- * slot, which `release` removes. A layout measure asks it of each node, so a running animation's
- * transform, which beats the inline one, stays out of the box it reads.
- */
-// #245: a Measure pass; a string read, no style resolved.
-export const pending = (element: ElementCSSInlineStyle): boolean => element.style.getPropertyValue("animation").startsWith(SLOT_PREFIX)
-
-/**
- * The handover's last step: the element's inline `animation` removed, in the task that writes the
- * engine's first frame, so no paint falls between. While it ran, its value beat the inline style the
- * engine writes; removing it ends the CSS animation at that task's style update.
- */
-// The **Handoff** (ADR-0044, decision 6). A `cancel()` too changed nothing (a mutation, #48's PR 1).
-export const release = (element: ElementCSSInlineStyle): void => {
-  element.style.removeProperty("animation")
-}

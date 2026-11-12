@@ -25,6 +25,7 @@ import {
   serverKeyedHandlesOf,
   type WardicBatchLanding,
 } from "./batch.ts"
+import { batchHandoffHere, batchServerAppearHere } from "./batch-appear-here.tsx"
 import type { WardicPointInfo, WardicPressEvent, WardicPressInfo } from "./gesture-info.ts"
 import { lazyBatchGestures } from "./lazy-batch-gestures.ts"
 import { useFeatureRegistry, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
@@ -129,14 +130,16 @@ export interface WardicKeyedBatch<K> {
   readonly member: <E extends Element = HTMLElement>(key: K, props?: WardicBatchMemberProps<E>) => WardicBatchMember<E>
 }
 
+/** The provider's Appear animations and the nearest `WardicConfig`'s settings, as a server's Batch reads them here (#706). */
+
 /**
  * A server render's Batch (#665's PR 6, ADR-0070 decision 14): its handles draw each spread member's
- * start, over the element's own props, and nothing animates.
+ * start, over the element's own props, and its entrance as an Appear animation (#706); nothing animates.
  */
 const serverBatchOf = (config: WardicBatchConfig | WardicKeyedBatchConfig<unknown>, keyed: boolean): WardicBatch | WardicKeyedBatch<unknown> =>
   Bool.match(keyed, {
-    onTrue: (): WardicKeyedBatch<unknown> => ({ member: serverKeyedHandlesOf<JSX.CSSProperties>(config as WardicKeyedBatchConfig<unknown>, usePresenceContext) }),
-    onFalse: (): WardicBatch => ({ at: serverHandlesOf<JSX.CSSProperties>(config as WardicBatchConfig) }),
+    onTrue: (): WardicKeyedBatch<unknown> => ({ member: serverKeyedHandlesOf<JSX.CSSProperties>(config as WardicKeyedBatchConfig<unknown>, usePresenceContext, batchServerAppearHere()) }),
+    onFalse: (): WardicBatch => ({ at: serverHandlesOf<JSX.CSSProperties>(config as WardicBatchConfig, batchServerAppearHere()) }),
   })
 
 /**
@@ -191,6 +194,7 @@ export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<u
         defaultTransition: useWardicDefaultTransition(),
         configTransition,
         untrack,
+        ...batchHandoffHere(),
         gestures,
       },
       config,

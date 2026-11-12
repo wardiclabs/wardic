@@ -55,6 +55,9 @@
 //   start from their start; a member that leaves before its first step leaves its slot's next one alone.
 // - B27 (#706): a step of 0 s moves no member, whether its keys run the Batch's own spring or each its
 //   own transition (a Clock's tick can be 0 s: a repeated timestamp).
+// - B28 (#706): a 0 s tween lands as its delay ends, at that very time: a step of 0 s after its change,
+//   and a start partway at 0 s, draw its target (a skipped change's, and reduced motion's Snap, from the
+//   first stop of an Appear rule, as an element's); held by a delay, not before it ends.
 import * as Batch from "@wardic/core/Batch"
 import * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -766,5 +769,28 @@ describe("a Batch (#665)", () => {
       // Then frame for frame as if the 0 s step had never come.
       expect(stepped(batch, slot, "x")).toEqual(springFrames("x", 0, 400, spring))
     })
+  })
+
+  it("B28: a 0 s tween lands as its delay ends, at that very time", () => {
+    const { writer } = recording<string>()
+    const snap = { type: "tween", duration: 0 } as const
+    const transition = { x: snap, opacity: { type: "tween", duration: 0.3 } } as const
+    const batch = Batch.make({ keys: ["x", "opacity"], writer, transition })
+    const slot = Batch.enter(batch, "a", { x: 0, opacity: 0 })
+    Batch.retarget(batch, [slot], (_, k) => [100, 1][k])
+    Batch.step(batch, 0)
+    expect(Batch.get(batch, slot, "x"), "at its target at 0 s").toBe(100)
+    // Started partway at 0 s: there too.
+    const late = Batch.make({ keys: ["x", "opacity"], writer, transition })
+    const member = Batch.enter(late, "b", { x: 0, opacity: 0 })
+    Batch.retarget(late, [member], (_, k) => [100, 1][k], { startAt: () => 0 })
+    Batch.step(late, F)
+    expect(Batch.get(late, member, "x")).toBe(100)
+    // Held by a delay, it lands as the delay ends, not before.
+    const held = Batch.make({ keys: ["x", "opacity"], writer, transition: { x: { ...snap, delay: 0.1 }, opacity: snap } })
+    const waits = Batch.enter(held, "c", { x: 0, opacity: 0 })
+    Batch.retarget(held, [waits], (_, k) => [100, 1][k], { startAt: () => 0.05 })
+    Batch.step(held, F)
+    expect(Batch.get(held, waits, "x")).toBe(0)
   })
 })
