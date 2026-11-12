@@ -1,6 +1,6 @@
 {
   "name": "@wardic/example-hand-checks",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "The start examples' shared hand checks (#209): the /ssr hydration report, the /appear report, and the save-log handler. Plain DOM and Node, no framework.",
