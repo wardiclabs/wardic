@@ -243,9 +243,13 @@ describe("Appear animations in a browser (#48, ADR-0044)", () => {
     Appear.adoptChunks(document)
     expect(host.querySelector(`style[${Appear.CHUNK_ATTRIBUTE}]`), "the node is gone").toBeNull()
     expect(document.head.querySelector("style[data-wardic-appear]")?.textContent).toContain(`@keyframes ${Appear.nameOf(spec)}{`)
-    await raf()
+    // Running on: still playing, its time moved on from where it was. A loaded runner's frame may leave
+    // the document timeline where it was (#729), so wait up to 10 frames for the time to move at all;
+    // moved back, the animation restarted. A pause holds its time only from the next frame, so its state says it.
+    for (let k = 0; k < 10 && Number(animation.currentTime) === before; k++) await raf()
     expect(found(element), "the same animation").toBe(animation)
-    expect(Number(animation.currentTime)).toBeGreaterThan(before)
+    expect(animation.playState, "still playing").toBe("running")
+    expect(Number(animation.currentTime), "its time moved on").toBeGreaterThan(before)
     expect(drawn(element).opacity, "still drawn by it").toBeGreaterThan(0.05)
     // Another call, as a second provider hydrating makes: what's there now is moved too.
     host.insertAdjacentHTML("beforeend", Appear.chunkStyle("@keyframes ha8-second{to{opacity:1}}"))

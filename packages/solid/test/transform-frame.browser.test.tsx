@@ -12,6 +12,7 @@
 // the leaver. Every browser file shares the page's one mouse, parked at (5, 5), and the
 // iframe is about 414 px wide, so the scenes sit right of and below it, and stay narrow.
 import { cleanup, render } from "@solidjs/testing-library"
+import * as Spring from "@wardic/core/Spring"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, Reorder, wardic, WardicProvider } from "@wardic/solid"
 import { createSignal, For, type JSX, onCleanup, Show } from "solid-js"
@@ -85,11 +86,56 @@ const drag = async (at: Pt, dx: number, dy: number, whileHeld: () => void = () =
 
 const SPRING = { stiffness: 170, damping: 26 }
 
-/** A twin's first painted frame is on its other twin `from`: within a sixth of its way to its own box `to`. */
-const startsOn = (first: DOMRect, from: DOMRect, to: Pick<DOMRect, "left" | "top" | "width">): void => {
-  expect(Math.abs(first.left - from.left)).toBeLessThanOrEqual(Math.abs(to.left - from.left) / 6 + 1)
-  expect(Math.abs(first.top - from.top)).toBeLessThanOrEqual(Math.abs(to.top - from.top) / 6 + 1)
-  expect(Math.abs(first.width - from.width)).toBeLessThanOrEqual(Math.abs(to.width - from.width) / 6 + 1)
+/** A Refresh frame at 60 Hz, in ms: a flight's first step (core's `NOMINAL_DT`). */
+const FRAME_MS = 1000 / 60
+
+/** {@link SPRING}, resolved once, and rest thresholds it never meets: its curve, unsettled. */
+const SPRING_RESOLVED = Spring.resolve(SPRING)
+const NEVER_RESTS: Spring.Rest = { delta: -1, speed: -1 }
+
+/** How far a flight on {@link SPRING} has gone `ms` into it: 0 at its start, 1 at its end. */
+const progressAt = (ms: number): number => Spring.step(Spring.init({}), ms / 1000, 1, SPRING_RESOLVED, NEVER_RESTS).value
+
+/** The first box a twin paints after a change, and how long the flight the change started has run by then, in ms. */
+interface FirstPaint {
+  readonly box: DOMRect
+  readonly ran: number
+}
+
+/**
+ * Run `change`, then read the box the twin `el` returns paints in the 2nd frame from it, as
+ * {@link paintedFrames} reads it. A loaded runner can read it several frames late (#729), so its frame is
+ * the latest one when the box is read, by rAF's own timestamps (HA8 saw `document.timeline` stand still
+ * for a frame). The flight's first step is the 1st frame's tick, a nominal frame (ADR-0033), and each
+ * frame after it steps by its interval: it has run the frames since the 1st and one more.
+ */
+const firstPaintAfter = async (change: () => void, el: () => Element): Promise<FirstPaint> => {
+  change()
+  const firstAt = await new Promise<number>((resolve) => requestAnimationFrame(resolve))
+  let frameAt = firstAt
+  let reading = true
+  const track = (t: number): void => {
+    frameAt = t
+    if (reading) requestAnimationFrame(track)
+  }
+  requestAnimationFrame(track)
+  const [box] = await paintedFrames(el(), 1)
+  reading = false
+  return { box, ran: frameAt - firstAt + FRAME_MS }
+}
+
+/**
+ * A twin's first painted frame is where a flight from its other twin `from` to its own box `to` puts it
+ * by then, on {@link SPRING}: within a sixth of its way. Read at once, that's within a sixth of `from`.
+ */
+const startsOn = (first: FirstPaint, from: DOMRect, to: Pick<DOMRect, "left" | "top" | "width">): void => {
+  const gone = progressAt(first.ran)
+  for (const key of ["left", "top", "width"] as const) {
+    const way = to[key] - from[key]
+    const expected = from[key] + way * gone
+    const at = `its ${key} ${first.box[key]} ${first.ran.toFixed(0)} ms into a flight from ${from[key]} to ${to[key]}, where ${expected} is expected`
+    expect(Math.abs(first.box[key] - expected), at).toBeLessThanOrEqual(Math.abs(way) / 6 + 1)
+  }
 }
 
 /** A y list of three 100x40 items, 10 px apart: a +60 move crosses the next one's centre and reorders. */
@@ -267,12 +313,10 @@ describe("a box carries no ancestor transform (ADR-0012, Amendment (#136))", () 
     ))
     await settle()
     const from = a.getBoundingClientRect()
-    setOpen(true)
-    await raf()
-    const [first] = await paintedFrames(b, 1)
+    const first = await firstPaintAfter(() => setOpen(true), () => b)
     await until(() => Math.abs(b.getBoundingClientRect().width - 160) < 0.5)
     await settle()
-    startsOn(first!, from, b.getBoundingClientRect())
+    startsOn(first, from, b.getBoundingClientRect())
   })
 
   /** A thumbnail twin A in the page, and its twin B in a modal scaled 0.5 (`open`). */
@@ -319,11 +363,9 @@ describe("a box carries no ancestor transform (ADR-0012, Amendment (#136))", () 
     const t = scaledTwins(false)
     await settle()
     const from = t.a().getBoundingClientRect()
-    t.setOpen(true)
-    await raf()
-    const [first] = await paintedFrames(t.b(), 1)
+    const first = await firstPaintAfter(() => t.setOpen(true), t.b)
     // Its own box: the modal at 200,80 scaled 0.5 from there, B 40 px in, 200 wide.
-    startsOn(first!, from, { left: 200 + 20, top: 80 + 20, width: 100 })
+    startsOn(first, from, { left: 200 + 20, top: 80 + 20, width: 100 })
     let worst = 0
     await until(() => {
       if (op(t.a()) > 0.1) worst = Math.max(worst, Math.abs(leftOf(t.a()) - leftOf(t.b())), Math.abs(widthOf(t.a()) - widthOf(t.b())))
@@ -340,10 +382,8 @@ describe("a box carries no ancestor transform (ADR-0012, Amendment (#136))", () 
     await wait(200)
     const b = t.b()
     const from = b.getBoundingClientRect()
-    t.setOpen(false)
-    await raf()
-    const [first] = await paintedFrames(t.a(), 1)
-    startsOn(first!, from, { left: 20 + 10, top: 60 + 280, width: 100 })
+    const first = await firstPaintAfter(() => t.setOpen(false), t.a)
+    startsOn(first, from, { left: 20 + 10, top: 60 + 280, width: 100 })
     let worst = 0
     let sampled = 0
     await until(() => {
