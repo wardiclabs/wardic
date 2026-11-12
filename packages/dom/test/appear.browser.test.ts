@@ -15,10 +15,20 @@
 // - HA8 (#245): a late chunk's `<style>` adopted into the head: its node gone, its element's
 //   animation the same one, running on; in a document still loading, one that lands later is
 //   moved as it lands, and none after `DOMContentLoaded` (the observer is gone).
+// - HA9 (#706): one Batch rule on three elements with their own targets, one staggered: each draws
+//   its own member's frames, its Batch started at the 60 Hz frames either side of the animation's elapsed
+//   time and a line between them, within the sampler's tolerances.
+// - HA10 (#706): the Batch's Handoff: in one frame, each member's animation found and matched by its
+//   key, a Batch over the elements started at each one's elapsed time, its first step written by the
+//   DOM's writer and the animations released, draws where the CSS was; nothing is left running.
+// - HA11 (#706): `findAll` reads a document's Appear animations in one call, by element: each member's
+//   the one `find` gets, an element's too, and not an app's own animation.
+import * as Batch from "@wardic/core/Batch"
 import * as Machine from "@wardic/core/Machine"
 import type * as Frame from "@wardic/core/Frame"
 import type * as Values from "@wardic/core/Values"
 import * as Appear from "@wardic/dom/Appear"
+import * as DomBatch from "@wardic/dom/DomBatch"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import * as Renderer from "@wardic/core/Renderer"
 import * as Effect from "effect/Effect"
@@ -283,5 +293,152 @@ describe("Appear animations in a browser (#48, ADR-0044)", () => {
     expect(Appear.elapsedOf(animation)).toBeGreaterThan(0.05)
     expect(Appear.elapsedOf(animation)).toBeLessThan(1)
     expect(Appear.delayOf(animation), "its animation-delay, in seconds").toBe(10)
+  })
+})
+
+// --- A Batch's members (#706) ------------------------------------------------------------------
+
+const F = 1 / 60
+const BATCH_KEYS = ["x", "opacity"]
+const SPRING = { type: "spring", stiffness: 210, damping: 20 } as const
+const TARGETS = [[300, 1], [80, 1], [-120, 1]]
+const STARTS = TARGETS.map(() => [0, 0])
+/** The third member staggered 0.1 s, as a change's delay holds it. */
+const DELAYS = [0, 0, 0.1]
+
+/** A Batch rule's sheet in the head and an element for each member, its own style on it, as a server render leaves them. */
+const batchAppear = (key: string): ReadonlyArray<HTMLElement> => {
+  const rule = Result.getOrThrow(Appear.batchKeyframes({ key, keys: BATCH_KEYS, transition: SPRING, starts: STARTS, targets: TARGETS }))
+  const sheet = Appear.sheet()
+  const slot = sheet.batch(rule)
+  const style = document.createElement("style")
+  style.textContent = sheet.css()
+  document.head.append(style)
+  const elements = TARGETS.map((_, m) => {
+    const element = document.createElement("div")
+    element.style.cssText = `position: absolute; left: 0; top: ${m * 30}px; width: 20px; height: 20px; background: teal`
+    const own = { ...DomBatch.styleOf({ x: 0, opacity: 0 }), ...slot.styleOf(m, DELAYS[m] as number) }
+    for (const [property, value] of Object.entries(own)) element.style.setProperty(property, value)
+    document.body.append(element)
+    return element
+  })
+  cleanups.push(() => {
+    for (const element of elements) element.remove()
+    style.remove()
+  })
+  return elements
+}
+
+/** What a member draws now: its translateX and opacity. */
+const drawnX = (element: Element) => {
+  const computed = getComputedStyle(element)
+  return { x: new DOMMatrix(computed.transform).m41, opacity: Number(computed.opacity) }
+}
+
+const UNDRAWN: Batch.Writer<null> = { writes: () => true, forKeys: () => () => undefined }
+
+/** Member `m`'s own Batch `seconds` into its change, its delay counted: started there, as the Handoff starts it. */
+const memberAt = (m: number, seconds: number) => {
+  const batch = Batch.make({ keys: BATCH_KEYS, writer: UNDRAWN, transition: SPRING })
+  const slot = Batch.enter(batch, null, { x: 0, opacity: 0 })
+  Batch.retarget(batch, [slot], (_, k) => (TARGETS[m] as ReadonlyArray<number>)[k] as number, { delay: DELAYS[m], startAt: () => seconds })
+  Batch.step(batch, F)
+  return { x: Batch.get(batch, slot, "x"), opacity: Batch.get(batch, slot, "opacity") }
+}
+
+describe("a Batch's members in a browser (#706)", () => {
+  it("HA9: one rule plays each element as its own member, its Batch at the animation's elapsed time", async () => {
+    const elements = batchAppear("HA9")
+    await wait(50)
+    for (let i = 0; i < 20; i++) {
+      await raf()
+      elements.forEach((element, m) => {
+        const elapsed = Appear.elapsedOf(found(element))
+        // The rule draws the Batch's 60 Hz frames, a line between them (decision 9): a frame that isn't on
+        // that grid (Firefox's) reads the line, so the member's own frames either side of it, drawn so.
+        const before = Math.floor(elapsed * 60) / 60
+        const f = (elapsed - before) * 60
+        const a = memberAt(m, before)
+        const b = memberAt(m, before + F)
+        const own = { x: a.x + (b.x - a.x) * f, opacity: a.opacity + (b.opacity - a.opacity) * f }
+        const read = drawnX(element)
+        // Within the sampler's tolerance, or the member's rest threshold once its Batch has landed it (Q8).
+        const landed = own.x === (TARGETS[m] as ReadonlyArray<number>)[0]
+        expect(Math.abs(read.x - own.x), `member ${m} x at ${elapsed}`).toBeLessThanOrEqual(Math.max(0.11, Number(landed) * 0.51))
+        // An opacity past 1 (the spring's overshoot) draws as 1, the engine's own write too.
+        const opacity = Math.min(1, Math.max(0, own.opacity))
+        expect(Math.abs(read.opacity - opacity), `member ${m} opacity at ${elapsed}`).toBeLessThanOrEqual(0.0055)
+      })
+    }
+    // The staggered one waited its 0.1 s at its start.
+    expect(drawnX(elements[0] as HTMLElement).x).toBeGreaterThan(drawnX(elements[2] as HTMLElement).x)
+  })
+
+  it("HA10: the Batch's Handoff draws each member where its CSS was, and leaves nothing running", async () => {
+    const elements = batchAppear("HA10")
+    expect(elements.every((element) => Appear.pending(element)), "each one's animation pending").toBe(true)
+    await wait(120)
+    const handoff = await new Promise<{ readonly before: ReadonlyArray<ReturnType<typeof drawnX>>; readonly after: ReadonlyArray<ReturnType<typeof drawnX>> }>((resolve) =>
+      requestAnimationFrame(() => {
+        const animations = elements.map(found)
+        expect(animations.every((animation) => Appear.matchesBatch(animation, "HA10"))).toBe(true)
+        expect(animations.some((animation) => Appear.matchesBatch(animation, "HA9"))).toBe(false)
+        const before = elements.map(drawnX)
+        // The client's Batch, its members entered at their starts as they arrive, then the change that
+        // starts each where its CSS has got, read at its first step: this frame's.
+        const batch = Batch.make({ keys: BATCH_KEYS, writer: DomBatch.writer, transition: SPRING })
+        const slots = elements.map((element) => Batch.enter(batch, element, { x: 0, opacity: 0 }))
+        Batch.retarget(batch, slots, (slot, k) => (TARGETS[slot] as ReadonlyArray<number>)[k] as number, {
+          delay: (rank) => DELAYS[rank] as number,
+          startAt: (slot) => Appear.elapsedOf(animations[slot] as Animation),
+        })
+        Batch.step(batch, F)
+        for (const element of elements) Appear.release(element)
+        resolve({ before, after: elements.map(drawnX) })
+      }))
+    handoff.after.forEach((after, m) => {
+      const before = handoff.before[m] as ReturnType<typeof drawnX>
+      expect(Math.abs(after.x - before.x), `member ${m} x`).toBeLessThanOrEqual(0.11)
+      expect(Math.abs(after.opacity - before.opacity), `member ${m} opacity`).toBeLessThanOrEqual(0.0025)
+    })
+    expect(handoff.before[0]!.x, "mid-flight").toBeGreaterThan(30)
+    for (const element of elements) {
+      expect(element.getAnimations()).toHaveLength(0)
+      expect(Appear.pending(element)).toBe(false)
+    }
+    await raf()
+    await raf()
+    expect(elements.every((element) => element.getAnimations().length === 0), "not restarted").toBe(true)
+  })
+
+  it("HA11: findAll reads the document's Appear animations in one call, by element", async () => {
+    // One render's sheet, as a page has: the Batch's slot and an element's.
+    const rule = Result.getOrThrow(Appear.batchKeyframes({ key: "HA11", keys: BATCH_KEYS, transition: SPRING, starts: STARTS, targets: TARGETS }))
+    const sheet = Appear.sheet()
+    const batch = sheet.batch(rule)
+    const slot = sheet.slot()
+    expect(Result.isSuccess(slot.define({ spec: { key: "HA11 element", tag: "div", machine: () => rise() }, delay: 0 }))).toBe(true)
+    const style = document.createElement("style")
+    style.textContent = `${sheet.css()}@keyframes spin{to{transform:rotate(1turn)}}`
+    document.head.append(style)
+    const members = TARGETS.map((_, m) => {
+      const member = document.createElement("div")
+      for (const [property, value] of Object.entries(batch.styleOf(m, DELAYS[m] as number) as Readonly<Record<string, string>>)) member.style.setProperty(property, value)
+      return member
+    })
+    const element = document.createElement("div")
+    element.style.animation = slot.animation
+    const own = document.createElement("div")
+    own.style.animation = "spin 1s linear infinite"
+    document.body.append(...members, element, own)
+    cleanups.push(() => {
+      for (const node of [...members, element, own]) node.remove()
+      style.remove()
+    })
+    await raf()
+    const all = Appear.findAll(document)
+    for (const node of [...members, element]) expect(all.get(node), "the one find gets").toBe(found(node))
+    expect(all.has(own), "an app's own animation isn't an Appear").toBe(false)
+    expect(all.size).toBe(members.length + 1)
   })
 })

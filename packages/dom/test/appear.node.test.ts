@@ -27,6 +27,20 @@
 //   translate on top, as the client draws it; named apart from a plain one.
 // - AP17 (#245): a sheet's `css()` writes what's new since its last call: a late chunk's rules
 //   the head didn't send, and the slots defined since; `chunkStyle` wraps it, "" for none.
+// - AP18 (#706): one rule for a Batch's members, each with its own targets: what it draws for each,
+//   its custom properties put in, is that member's own Batch stepped at 60 Hz, within each key's
+//   tolerance, and within its rest threshold once that Batch has landed it (Q8); what every member shares
+//   is written into the rule.
+// - AP19 (#706): a rule writes each key as its members need: starts of their own, places that don't
+//   move (a Batch Reorder group's, only `opacity` written), a key every member holds, a member that
+//   doesn't move (it plays nothing, and shares nothing), none moving (no rule), a value that isn't a
+//   finite number (no rule, the key named).
+// - AP20 (#706): one rule a shape and span, members' own values not in its name; a longer move's span,
+//   another rule under the same prefix; another key, another prefix; a reduced rule's snap holds its
+//   start to halfway past its delay, then steps.
+// - AP21 (#706): a sheet gives a Batch's rules one slot, the reduced rule's under the media query; a
+//   member's style is its own values, the slot and its delay; a rule written once.
+import * as Batch from "@wardic/core/Batch"
 import * as Machine from "@wardic/core/Machine"
 import type * as Frame from "@wardic/core/Frame"
 import type * as Values from "@wardic/core/Values"
@@ -431,5 +445,247 @@ describe("a render's sheet (#48, ADR-0044)", () => {
 
   it("AP12: an empty sheet writes nothing", () => {
     expect(Appear.sheet().css()).toBe("")
+  })
+})
+
+// --- A Batch's rule (#706) ---------------------------------------------------------------------
+
+/** The keys a Batch rule's stops write, by the transform function or property that draws them. */
+const KEY_OF_FUNCTION: Readonly<Record<string, string>> = { translateX: "x", translateY: "y", scale: "scale", rotate: "rotate" }
+
+/** `text`'s top-level function calls, `name(args)`, in order. */
+const callsOf = (text: string): Array<{ readonly name: string; readonly args: string }> => {
+  const out: Array<{ name: string; args: string }> = []
+  let depth = 0
+  let start = 0
+  let name = ""
+  Array.from(text).forEach((char, i) => {
+    if (char === "(") {
+      if (depth === 0) {
+        name = text.slice(start, i).trim()
+        start = i + 1
+      }
+      depth++
+    }
+    if (char === ")") {
+      depth--
+      if (depth === 0) {
+        out.push({ name, args: text.slice(start, i) })
+        start = i + 1
+      }
+    }
+  })
+  return out
+}
+
+/** A stop's expression worked out for a member: its custom properties put in, units dropped, the arithmetic done. */
+const evaluate = (expression: string, properties: Readonly<Record<string, string>>): number => {
+  const put = expression.replace(/var\((--[\w-]+)\)/g, (_, name: string) => {
+    const value = properties[name]
+    if (value === undefined) throw new Error(`no ${name} for ${expression}`)
+    return value
+  })
+  const arithmetic = put.replace(/calc/g, "").replace(/(\d)(px|deg)/g, "$1")
+  if (!/^[\d.\s+\-*()e]+$/.test(arithmetic)) throw new Error(`not arithmetic: ${arithmetic}`)
+  return Number(new Function(`return (${arithmetic})`)())
+}
+
+/** A Batch rule's stops: each one's time in seconds and its declarations by property. */
+const stopsOf = (rule: Appear.Keyframes): Array<{ readonly time: number; readonly declarations: Readonly<Record<string, string>> }> => {
+  const body = rule.css.slice(rule.css.indexOf("{") + 1, -1)
+  return Array.from(body.matchAll(/([\d.,%]+)\{([^{}]*)\}/g)).flatMap((match) => {
+    const declarations = Object.fromEntries(String(match[2]).split(";").map((d) => [d.slice(0, d.indexOf(":")), d.slice(d.indexOf(":") + 1)]))
+    return String(match[1]).split(",").map((offset) => ({ time: (Number.parseFloat(offset) / 100) * rule.duration, declarations }))
+  })
+}
+
+/** What a stop draws for a member, by key: its transform's functions and its opacity, worked out. */
+const drawnAt = (declarations: Readonly<Record<string, string>>, properties: Readonly<Record<string, string>>): Record<string, number> => {
+  const out: Record<string, number> = {}
+  callsOf(declarations.transform ?? "").forEach(({ name, args }) => {
+    out[KEY_OF_FUNCTION[name] as string] = evaluate(args, properties)
+  })
+  if (declarations.opacity !== undefined) out.opacity = evaluate(declarations.opacity, properties)
+  return out
+}
+
+/** What a Batch rule draws for a member at `time`: the line between the stops either side, held at its last. */
+const ruleAt = (rule: Appear.Keyframes, properties: Readonly<Record<string, string>>, time: number): Record<string, number> => {
+  const stops = stopsOf(rule)
+  const after = stops.findIndex((stop) => stop.time > time + 1e-9)
+  if (after === -1) return drawnAt(stops[stops.length - 1].declarations, properties)
+  if (after === 0) return drawnAt(stops[0].declarations, properties)
+  const a = stops[after - 1]
+  const b = stops[after]
+  const from = drawnAt(a.declarations, properties)
+  const to = drawnAt(b.declarations, properties)
+  const f = (time - a.time) / (b.time - a.time)
+  return Object.fromEntries(Object.keys(from).map((key) => [key, from[key] + (to[key] - from[key]) * f]))
+}
+
+/** A member's own frames, a Batch of one stepped at 60 Hz from its start to its target: the oracle. */
+const memberFrames = (keys: ReadonlyArray<string>, transition: Batch.Transitions, start: ReadonlyArray<number>, target: ReadonlyArray<number>): Array<Record<string, number>> => {
+  const writer: Batch.Writer<null> = { writes: () => true, forKeys: () => () => undefined }
+  const batch = Batch.make({ keys, writer, transition })
+  const slot = Batch.enter(batch, null, Object.fromEntries(keys.map((key, k) => [key, start[k]])))
+  Batch.retarget(batch, [slot], (_, k) => target[k])
+  const frames: Array<Record<string, number>> = []
+  let done = Batch.step(batch, 0)
+  frames.push(Object.fromEntries(keys.map((key) => [key, Batch.get(batch, slot, key)])))
+  while (!done) {
+    done = Batch.step(batch, Machine.CATCH_UP_DT)
+    frames.push(Object.fromEntries(keys.map((key) => [key, Batch.get(batch, slot, key)])))
+  }
+  return frames
+}
+
+/** A stand-in for a member's CSS animation, named by `rule`: what `matchesBatch` reads of it. */
+const playing = (rule: Appear.Keyframes): Animation => ({ animationName: rule.name }) as unknown as Animation
+
+/** What a frame may miss its oracle by: a key's tolerance (decision 9), or its rest threshold once the oracle has landed it (Q8). */
+const allowed = (key: string, landed: boolean, distance: number): number => {
+  const tolerance: Readonly<Record<string, number>> = { x: 0.1, y: 0.1, rotate: 0.1, scale: 0.001, opacity: 0.002 }
+  if (!landed) return (tolerance[key] as number) + 1e-6
+  if (Math.abs(distance) < 5) return 0.005 + 1e-6
+  return 0.5 + 1e-6
+}
+
+describe("a Batch's rule (#706)", () => {
+  it("AP18: one rule for members with their own targets: each member's frames are its own Batch's, within tolerance", () => {
+    const keys = ["x", "y", "scale", "opacity"]
+    const transition = { default: { type: "spring", stiffness: 210, damping: 20 }, opacity: { type: "tween", duration: 0.3, ease: "easeOut" } } as const
+    // A far mover, a short one, two in between; each fades in and grows from 0.8.
+    const targets = [[400, 0, 1, 1], [8, 0, 1, 1], [60, 60, 1, 1], [120, 60, 1, 1]]
+    const starts = targets.map(() => [0, 0, 0.8, 0])
+    const rule = ok(Appear.batchKeyframes({ key: "spring 210/20, opacity tween 0.3 easeOut", keys, transition, starts, targets }))
+    expect(Appear.matchesBatch(playing(rule), "spring 210/20, opacity tween 0.3 easeOut")).toBe(true)
+    // What every member shares is written into the rule; what differs, as custom properties.
+    expect(rule.css).toContain("var(--wardic-x1)")
+    expect(rule.css).toContain("var(--wardic-y1)")
+    expect(rule.css).not.toContain("--wardic-scale")
+    expect(rule.css).not.toContain("--wardic-opacity")
+    expect(rule.memberStyle(0)).toEqual({ "--wardic-x1": "400px", "--wardic-y1": "0px" })
+    expect(rule.memberStyle(3)).toEqual({ "--wardic-x1": "120px", "--wardic-y1": "60px" })
+    // Not from the Batch: the far mover starts at its start, is on its way 0.1 s in, and the springs
+    // outlast the 0.3 s tween.
+    const far = rule.memberStyle(0) as Readonly<Record<string, string>>
+    expect(ruleAt(rule, far, 0)).toEqual({ x: 0, y: 0, scale: 0.8, opacity: 0 })
+    expect(ruleAt(rule, far, 0.1).x).toBeGreaterThan(40)
+    expect(ruleAt(rule, far, 0.1).x).toBeLessThan(360)
+    expect(rule.duration).toBeGreaterThan(0.5)
+    targets.forEach((target, m) => {
+      const properties = rule.memberStyle(m) as Readonly<Record<string, string>>
+      const oracle = memberFrames(keys, transition, starts[m], target)
+      const frames = Math.max(oracle.length, Math.round(rule.duration / Machine.CATCH_UP_DT) + 2)
+      Array.from({ length: frames }, (_, i) => i).forEach((i) => {
+        const own = oracle[Math.min(i, oracle.length - 1)]
+        const drawn = ruleAt(rule, properties, i * Machine.CATCH_UP_DT)
+        keys.forEach((key, k) => {
+          const landed = own[key] === target[k]
+          expect(Math.abs(drawn[key] - own[key]), `member ${m}, ${key} at frame ${i}: ${drawn[key]} vs ${own[key]}`).toBeLessThanOrEqual(allowed(key, landed, target[k] - starts[m][k]))
+        })
+      })
+    })
+  })
+
+  it("AP19: a rule writes each key as its members need: starts of their own, places that don't move, a key that holds, none moving", () => {
+    const keys = ["x", "y", "rotate", "opacity"]
+    const transition = { type: "spring", stiffness: 300, damping: 30 } as const
+    const spec = (starts: ReadonlyArray<ReadonlyArray<number>>, targets: ReadonlyArray<ReadonlyArray<number>>) =>
+      Appear.batchKeyframes({ key: "spring 300/30", keys, transition, starts, targets })
+
+    // Members gathering from their own places to one: each one's start a property, the rule from it to 0.
+    const gather = ok(spec([[100, 0, 45, 1], [-60, 30, 45, 1]], [[0, 0, 45, 1], [0, 0, 45, 1]]))
+    expect(gather.memberStyle(0)).toEqual({ "--wardic-x0": "100px", "--wardic-y0": "0px" })
+    expect(gather.css).toContain("var(--wardic-x0)")
+    expect(gather.css).not.toContain("--wardic-x1")
+    // The turn every member holds is in the rule's transform, as it is: the rule's `transform` is the element's whole.
+    expect(gather.css).toContain("rotate(45deg)")
+    expect(gather.css).not.toContain("opacity")
+    const back = gather.memberStyle(1) as Readonly<Record<string, string>>
+    expect(ruleAt(gather, back, 0)).toEqual({ x: -60, y: 30, rotate: 45 })
+    expect(ruleAt(gather, back, 10)).toEqual({ x: 0, y: 0, rotate: 45 })
+
+    // A Batch Reorder group's entrance: each item at its own place, which doesn't move, fading in. The rule
+    // writes only `opacity`, and an item needs no property: its place stays its inline style's.
+    const fade = ok(spec([[0, 0, 0, 0], [0, 60, 0, 0], [0, 120, 0, 0]], [[0, 0, 0, 1], [0, 60, 0, 1], [0, 120, 0, 1]]))
+    expect(fade.css).not.toContain("transform")
+    expect(fade.memberStyle(2)).toEqual({})
+    expect(ruleAt(fade, {}, 0)).toEqual({ opacity: 0 })
+
+    // A member whose every key is at its target plays nothing, and shares nothing with the rule: the one
+    // that moves has every value written into it.
+    const one = ok(spec([[0, 0, 0, 0], [50, 0, 0, 1]], [[100, 0, 0, 1], [50, 0, 0, 1]]))
+    expect(one.memberStyle(1)).toBeUndefined()
+    expect(one.memberStyle(0)).toEqual({})
+    expect(ruleAt(one, {}, 10)).toEqual({ x: 100, opacity: 1 })
+
+    // None moving: no rule.
+    expect(Result.isFailure(spec([[10, 0, 0, 1]], [[10, 0, 0, 1]]))).toBe(true)
+
+    // A value a rule can't write, `NaN` or an infinity: no rule, the key named.
+    const unwritable = spec([[0, 0, 0, 0], [0, 0, 0, 0]], [[100, 0, 0, 1], [Number.NaN, 0, 0, 1]])
+    expect(Result.isFailure(unwritable) && unwritable.failure).toBe("a start or target that isn't a finite number (x)")
+    const infinite = spec([[0, 0, Number.POSITIVE_INFINITY, 0]], [[100, 0, 0, 1]])
+    expect(Result.isFailure(infinite) && infinite.failure).toBe("a start or target that isn't a finite number (rotate)")
+  })
+
+  it("AP20: one rule a shape and span, its name under its key's prefix; a reduced rule's snap holds its start to its delay", () => {
+    const keys = ["x", "opacity"]
+    const transition = { type: "spring", stiffness: 300, damping: 30 } as const
+    const rule = (key: string, targets: ReadonlyArray<number>, t: Batch.Transitions = transition) =>
+      ok(Appear.batchKeyframes({ key, keys, transition: t, starts: targets.map(() => [0, 0]), targets: targets.map((x) => [x, 1]) }))
+    // Members' own values aren't in the rule: two lists whose longest moves share a span share it.
+    const a = rule("spring 300/30", [120, 400, 260])
+    const b = rule("spring 300/30", [300, 10])
+    expect(b.name).toBe(a.name)
+    expect(b.css).toBe(a.css)
+    // A longer move, another span: another rule, under the same prefix, which the client checks.
+    const far = rule("spring 300/30", [120, 900])
+    expect(far.name).not.toBe(a.name)
+    expect(Appear.matchesBatch(playing(far), "spring 300/30")).toBe(true)
+    // Another transition, another prefix; every one an Appear rule's name, which `find` takes.
+    expect(Appear.matchesBatch(playing(a), "spring 300/31")).toBe(false)
+    expect(a.name.startsWith(Appear.PREFIX)).toBe(true)
+
+    // Reduced motion's Snap (ADR-0029): `x` a 0 s tween after 0.1 s, `opacity` a tween. The rule holds `x` at
+    // its start to halfway between the frames either side of its snap, then steps, as an element's jump.
+    const reduced = rule("reduced", [100, 300], { x: { type: "tween", duration: 0, delay: 0.1 }, opacity: { type: "tween", duration: 0.3 } })
+    expect(Appear.matchesBatch(playing(reduced), "reduced")).toBe(true)
+    const own = reduced.memberStyle(1) as Readonly<Record<string, string>>
+    expect(ruleAt(reduced, own, 0).x).toBe(0)
+    expect(ruleAt(reduced, own, 0.09).x).toBe(0)
+    expect(ruleAt(reduced, own, 6.4 * Machine.CATCH_UP_DT).x).toBe(0)
+    expect(ruleAt(reduced, own, 6.6 * Machine.CATCH_UP_DT).x).toBeCloseTo(300, 6)
+    expect(ruleAt(reduced, own, 0.15).opacity).toBeGreaterThan(0.3)
+    expect(ruleAt(reduced, own, 0.15).opacity).toBeLessThan(0.7)
+  })
+
+  it("AP21: a sheet gives a Batch's rules one slot; a member's style is its own values, the slot and its delay", () => {
+    const keys = ["x", "opacity"]
+    const starts = [[0, 0], [0, 0], [5, 1]]
+    const targets = [[100, 1], [300, 1], [5, 1]]
+    const play = ok(Appear.batchKeyframes({ key: "spring", keys, transition: { type: "spring", stiffness: 300, damping: 30 }, starts, targets }))
+    const reducedTransition = { x: { type: "tween", duration: 0 }, opacity: { type: "tween", duration: 0.3 } } as const
+    const reduced = ok(Appear.batchKeyframes({ key: "reduced", keys, transition: reducedTransition, starts, targets }))
+    const render = Appear.sheet()
+    const slot = render.batch(play, reduced)
+    expect(slot.styleOf(0, 0)).toEqual({ "--wardic-x1": "100px", animation: "var(--wardic-a0)" })
+    // Its delay the shorthand's second time, after the slot's duration: no longhand (HA10's `pending`).
+    expect(slot.styleOf(1, 0.035)).toEqual({ "--wardic-x1": "300px", animation: "var(--wardic-a0) 0.035s" })
+    // A member that doesn't move plays nothing.
+    expect(slot.styleOf(2, 0)).toBeUndefined()
+    // Each rule, and the slot: the play's, and under reduced motion the reduced one's, each with no delay.
+    const css = render.css()
+    expect(css).toContain(play.css)
+    expect(css).toContain(reduced.css)
+    expect(css).toMatch(new RegExp(`:root\\{--wardic-a0:${play.name} \\d+(\\.\\d+)?s linear 1 forwards\\}`))
+    expect(css).toMatch(new RegExp(`@media \\(prefers-reduced-motion: reduce\\)\\{:root\\{--wardic-a0:${reduced.name} [\\d.]+s linear 1 forwards\\}\\}`))
+    // Another group on the same rule, one play alone: its own slot, the rule not written again.
+    const again = render.batch(play)
+    expect(again.styleOf(0, 0.5)).toEqual({ "--wardic-x1": "100px", animation: "var(--wardic-a1) 0.5s" })
+    expect(render.css()).toMatch(new RegExp(`^:root\\{--wardic-a1:${play.name} [\\d.]+s linear 1 forwards\\}$`))
+    // An element's slot after them is the next.
+    expect(render.slot().animation).toBe("var(--wardic-a2)")
   })
 })
