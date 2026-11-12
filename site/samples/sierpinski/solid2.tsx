@@ -34,7 +34,7 @@ export default function Sierpinski() {
   return (
     <div class="sample-stack">
       <div class="sample-sierpinski" style={{ width: `${WIDTH}px`, height: `${HEIGHT}px` }}>
-        <For each={LEAF_INDICES}>{(i) => <div class="sample-leaf" {...leaves.at(i, { style: { background: colorOf(i) } })} />}</For>
+        <For each={LEAF_INDICES}>{(i) => <div class="sample-leaf" {...leaves.at(i, { style: { color: colorOf(i) } })} />}</For>
       </div>
       <label class="sample-range">
         Depth {depth()} · {(3 ** depth()).toLocaleString("en")} triangles

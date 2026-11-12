@@ -45,7 +45,7 @@ export default function Sierpinski() {
             <m.div
               key={i}
               className="sample-leaf"
-              style={{ background: colorOf(i) }}
+              style={{ color: colorOf(i) }}
               initial={false}
               animate={leafAt(i, depth)}
               transition={SPRING}

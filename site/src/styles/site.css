@@ -986,12 +986,17 @@ a {
   background: var(--lines);
 }
 
-/* A leaf is the whole triangle, scaled from its top-left corner to its ancestor's size. */
+/* A leaf is the whole triangle (triangle.ts's WIDTH by HEIGHT), scaled from its top-left corner to its
+   ancestor's size, drawn by its borders in its `color`. Not a `clip-path`: 2,187 clipped leaves, stacked up
+   to 729 deep, are drawn again each frame they move, ten times what the borders cost to draw. */
 .sample-leaf {
   position: absolute;
-  inset: 0;
+  top: 0;
+  left: 0;
+  border-style: solid;
+  border-color: transparent transparent currentColor;
+  border-width: 0 144px 249px;
   transform-origin: 0 0;
-  clip-path: polygon(50% 0, 100% 100%, 0 100%);
 }
 
 .sample-range {
