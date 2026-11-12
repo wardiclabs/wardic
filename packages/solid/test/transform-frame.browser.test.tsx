@@ -12,6 +12,7 @@
 // the leaver. Every browser file shares the page's one mouse, parked at (5, 5), and the
 // iframe is about 414 px wide, so the scenes sit right of and below it, and stay narrow.
 import { cleanup, render } from "@solidjs/testing-library"
+import * as Spring from "@wardic/core/Spring"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, Reorder, wardic, WardicProvider } from "@wardic/solid"
 import { createSignal, For, type JSX, onCleanup, Show } from "solid-js"
@@ -85,11 +86,62 @@ const drag = async (at: Pt, dx: number, dy: number, whileHeld: () => void = () =
 
 const SPRING = { stiffness: 170, damping: 26 }
 
-/** A twin's first painted frame is on its other twin `from`: within a sixth of its way to its own box `to`. */
-const startsOn = (first: DOMRect, from: DOMRect, to: Pick<DOMRect, "left" | "top" | "width">): void => {
-  expect(Math.abs(first.left - from.left)).toBeLessThanOrEqual(Math.abs(to.left - from.left) / 6 + 1)
-  expect(Math.abs(first.top - from.top)).toBeLessThanOrEqual(Math.abs(to.top - from.top) / 6 + 1)
-  expect(Math.abs(first.width - from.width)).toBeLessThanOrEqual(Math.abs(to.width - from.width) / 6 + 1)
+/** A Refresh frame at 60 Hz, in ms. */
+const FRAME_MS = 1000 / 60
+
+/** {@link SPRING}, resolved once, and rest thresholds it never meets: its curve, unsettled. */
+const RESOLVED = Spring.resolve(SPRING)
+const NEVER_RESTS: Spring.Rest = { delta: -1, speed: -1 }
+
+/** How far a flight on {@link SPRING} has gone `ms` into it: 0 at its start, 1 at its end. */
+const progressAt = (ms: number): number => Spring.step(Spring.init({}), ms / 1000, 1, RESOLVED, NEVER_RESTS).value
+
+/** The first box a twin paints after a change, and the least and most time a flight the change started can have run by then, in ms. */
+interface FirstPaint {
+  readonly box: DOMRect
+  readonly ran: { readonly min: number; readonly max: number }
+}
+
+/**
+ * Run `change`, then read the box the twin `el` returns paints in the 2nd frame from it, as
+ * {@link paintedFrames} reads it. Its frame is the latest one when the box is read: a loaded runner can
+ * read it several frames late (#729). The flight starts with the change, a frame's step at the task's
+ * end (ADR-0017's Priming tick), so it has run a frame more than the frames since the 1st. The least is
+ * those, less a frame; the most, the longer of the time since the change and those plus a frame, plus a frame.
+ */
+const firstPaintAfter = async (change: () => void, el: () => Element): Promise<FirstPaint> => {
+  const changedAt = performance.now()
+  change()
+  const firstAt = await new Promise<number>((resolve) => requestAnimationFrame(resolve))
+  let frameAt = firstAt
+  let reading = true
+  const track = (t: number): void => {
+    frameAt = t
+    if (reading) requestAnimationFrame(track)
+  }
+  requestAnimationFrame(track)
+  const [box] = await paintedFrames(el(), 1)
+  reading = false
+  return { box: box!, ran: { min: Math.max(0, frameAt - firstAt - FRAME_MS), max: Math.max(frameAt - changedAt, frameAt - firstAt + FRAME_MS) + FRAME_MS } }
+}
+
+/**
+ * A twin's first painted frame is where a flight from its other twin `from` to its own box `to` puts it
+ * by then, on {@link SPRING}: between its progress at the least and the most time it can have run,
+ * within a sixth of its way. At once, that's within a sixth of `from`; read late, it's on from there.
+ */
+const startsOn = (first: FirstPaint, from: DOMRect, to: Pick<DOMRect, "left" | "top" | "width">): void => {
+  const least = progressAt(first.ran.min)
+  const most = progressAt(first.ran.max)
+  for (const key of ["left", "top", "width"] as const) {
+    const way = to[key] - from[key]
+    const slack = Math.abs(way) / 6 + 1
+    const nearest = Math.min(from[key] + way * least, from[key] + way * most)
+    const farthest = Math.max(from[key] + way * least, from[key] + way * most)
+    const at = `its ${key} ${first.box[key]} after ${first.ran.min.toFixed(0)}-${first.ran.max.toFixed(0)} ms of a flight from ${from[key]} to ${to[key]}`
+    expect(first.box[key], at).toBeGreaterThanOrEqual(nearest - slack)
+    expect(first.box[key], at).toBeLessThanOrEqual(farthest + slack)
+  }
 }
 
 /** A y list of three 100x40 items, 10 px apart: a +60 move crosses the next one's centre and reorders. */
@@ -267,12 +319,10 @@ describe("a box carries no ancestor transform (ADR-0012, Amendment (#136))", () 
     ))
     await settle()
     const from = a.getBoundingClientRect()
-    setOpen(true)
-    await raf()
-    const [first] = await paintedFrames(b, 1)
+    const first = await firstPaintAfter(() => setOpen(true), () => b)
     await until(() => Math.abs(b.getBoundingClientRect().width - 160) < 0.5)
     await settle()
-    startsOn(first!, from, b.getBoundingClientRect())
+    startsOn(first, from, b.getBoundingClientRect())
   })
 
   /** A thumbnail twin A in the page, and its twin B in a modal scaled 0.5 (`open`). */
@@ -319,11 +369,9 @@ describe("a box carries no ancestor transform (ADR-0012, Amendment (#136))", () 
     const t = scaledTwins(false)
     await settle()
     const from = t.a().getBoundingClientRect()
-    t.setOpen(true)
-    await raf()
-    const [first] = await paintedFrames(t.b(), 1)
+    const first = await firstPaintAfter(() => t.setOpen(true), t.b)
     // Its own box: the modal at 200,80 scaled 0.5 from there, B 40 px in, 200 wide.
-    startsOn(first!, from, { left: 200 + 20, top: 80 + 20, width: 100 })
+    startsOn(first, from, { left: 200 + 20, top: 80 + 20, width: 100 })
     let worst = 0
     await until(() => {
       if (op(t.a()) > 0.1) worst = Math.max(worst, Math.abs(leftOf(t.a()) - leftOf(t.b())), Math.abs(widthOf(t.a()) - widthOf(t.b())))
@@ -340,10 +388,8 @@ describe("a box carries no ancestor transform (ADR-0012, Amendment (#136))", () 
     await wait(200)
     const b = t.b()
     const from = b.getBoundingClientRect()
-    t.setOpen(false)
-    await raf()
-    const [first] = await paintedFrames(t.a(), 1)
-    startsOn(first!, from, { left: 20 + 10, top: 60 + 280, width: 100 })
+    const first = await firstPaintAfter(() => t.setOpen(false), t.a)
+    startsOn(first, from, { left: 20 + 10, top: 60 + 280, width: 100 })
     let worst = 0
     let sampled = 0
     await until(() => {
