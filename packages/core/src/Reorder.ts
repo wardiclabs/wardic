@@ -84,8 +84,10 @@ const indexOf = <V>(order: ReadonlyArray<ItemData<V>>, value: V): Option.Option<
  * The order after the item holding `value` has been dragged `offset` from its place, moving at
  * `velocity`: the rule for when a dragged item swaps places. The same `order` when nothing moves, so a
  * caller can compare by reference.
- * - **One axis** moves the item one place at most: toward the neighbour, of the two next to it, whose
- *   centre lies the way it's moving, once its edge facing that neighbour crosses the neighbour's centre.
+ * - **One axis** moves the item toward the neighbour, of the two next to it, whose centre lies the way
+ *   it's moving, once its edge facing that neighbour crosses the neighbour's centre, and on past each
+ *   further item on that side whose centre the edge has crossed too, as one-place moves would over many
+ *   samples: a sample that carries it several places, as Auto-scroll can, leaves no order trailing it.
  *   No velocity on the axis moves nothing.
  * - **A grid** (`"xy"`), as Motion's: the dragged centre picks the nearest row. In another row, the item
  *   goes before the first item whose centre is past it in `direction`; in its own, it steps one place
@@ -144,19 +146,52 @@ const checkReorderOnAxis = <V>(
       const centre = centreOf(own)
       const neighbour = (n: number) =>
         Option.map(centreOnSide(order, n, axis, centre, forward), (nextCentre) => [n, nextCentre] as const)
+      // The item's edge facing the way it moves, where the drag holds it.
+      const edge = Bool.match(forward, { onTrue: () => own.max + offset[axis], onFalse: () => own.min + offset[axis] })
+      const passes = (nextCentre: number): boolean => Bool.match(forward, { onTrue: () => edge > nextCentre, onFalse: () => edge < nextCentre })
       // The neighbour on the side the item moves toward: index - 1, else index + 1.
       return Option.match(Option.orElse(neighbour(index - 1), () => neighbour(index + 1)), {
         onNone: () => order,
-        onSome: ([n, nextCentre]) => {
-          const crossed = Bool.match(forward, {
-            onTrue: () => own.max + offset[axis] > nextCentre,
-            onFalse: () => own.min + offset[axis] < nextCentre,
-          })
-          return Bool.match(crossed, { onTrue: () => moveItem(order, index, n), onFalse: () => order })
-        },
+        onSome: ([n, nextCentre]) =>
+          Bool.match(passes(nextCentre), {
+            onTrue: () => moveItem(order, index, farthestPassed(order, index, n - index, axis, centre, forward, passes)),
+            onFalse: () => order,
+          }),
       })
     },
   })
+
+/**
+ * Past the neighbour at `index + step`, the farthest place on that side whose centre the item's edge has
+ * passed too: where one-place moves, each over the order laid out again, would take it, since the items past
+ * the ones it passes stay where they were. A sample can carry the item past several, as Auto-scroll past a
+ * scroller's edge does; a place a sample would leave the order trailing the item, and its release there.
+ */
+// Per drag sample (an input event): Arr's searches from the dragged index, no copy of the order.
+const farthestPassed = <V>(
+  order: ReadonlyArray<ItemData<V>>,
+  index: number,
+  step: number,
+  axis: "x" | "y",
+  centre: number,
+  forward: boolean,
+  passes: (nextCentre: number) => boolean,
+): number => {
+  /** Whether the item at `i`, past the dragged one on the walk's side, stops the walk: its centre not passed. */
+  const stops = (_: ItemData<V>, i: number): boolean =>
+    Bool.match(Bool.match(step > 0, { onTrue: () => i > index, onFalse: () => i < index }), {
+      onTrue: () =>
+        Option.match(centreOnSide(order, i, axis, centre, forward), {
+          onNone: () => true,
+          onSome: (c) => Bool.not(passes(c)),
+        }),
+      onFalse: () => false,
+    })
+  return Bool.match(step > 0, {
+    onTrue: () => Option.match(Arr.findFirstIndex(order, stops), { onNone: () => order.length - 1, onSome: (stop) => stop - 1 }),
+    onFalse: () => Option.match(Arr.findLastIndex(order, stops), { onNone: () => 0, onSome: (stop) => stop + 1 }),
+  })
+}
 
 /** `order[n]`'s centre on `axis` if it lies past `centre` in the direction of motion, else NaN. */
 const centreOnSide = <V>(

@@ -143,6 +143,71 @@ it("CR11: a value not in the order returns the same order; a move returns a new 
   expect(values(column)).toEqual(["a", "b", "c"])
 })
 
+// A column of six, 50 px items 10 px apart: centres 25, 85, 145, 205, 265 and 325.
+const six: Array<Reorder.ItemData<string>> = ["a", "b", "c", "d", "e", "f"].map((value, i) => ({ value, layout: box(0, i * 60, 200, i * 60 + 50) }))
+
+it("CR14: a sample that carries the item past several neighbours' centres moves it past them all, either way, in any flow", () => {
+  // a's bottom 50 + 200 = 250 passes b's, c's and d's centres (85, 145, 205), short of e's (265).
+  expect(values(Reorder.check(six, "a", { offset: { x: 0, y: 200 }, velocity: { x: 0, y: 1 }, axis: "y" }))).toEqual(["b", "c", "d", "a", "e", "f"])
+  // f's top 300 - 200 = 100 passes e's, d's and c's (265, 205, 145), short of b's (85).
+  expect(values(Reorder.check(six, "f", { offset: { x: 0, y: -200 }, velocity: { x: 0, y: -1 }, axis: "y" }))).toEqual(["a", "b", "f", "c", "d", "e"])
+  // A column-reverse column, a at the bottom: a's top 240 - 200 = 40 passes b's, c's and d's centres (205, 145,
+  // 85), short of e's (25). The walk goes by position, as the first neighbour is chosen.
+  const reversed = ["a", "b", "c", "d", "e"].map((value, i) => ({ value, layout: box(0, 240 - i * 60, 200, 290 - i * 60) }))
+  expect(values(Reorder.check(reversed, "a", { offset: { x: 0, y: -200 }, velocity: { x: 0, y: -1 }, axis: "y" }))).toEqual(["b", "c", "d", "a", "e"])
+})
+
+/** `heights` laid out in a column, `gap` apart, in the order of `order`'s indices into them. */
+const columnOf = (order: ReadonlyArray<number>, heights: ReadonlyArray<number>, gap: number): Array<Reorder.ItemData<number>> => {
+  let top = 0
+  return order.map((value) => {
+    const layout = box(0, top, 200, top + heights[value]!)
+    top += heights[value]! + gap
+    return { value, layout }
+  })
+}
+
+/**
+ * Motion's single-axis rule as it ran before CR14, one place a check, applied again over the order laid out
+ * again after each move, until it moves nothing: the order many samples would reach with the item held still.
+ * `step` is the way it moves, 1 down the column or -1 up it.
+ */
+const oneAtATime = (heights: ReadonlyArray<number>, gap: number, dragged: number, edge: number, step: number): Array<number> => {
+  let order = heights.map((_, i) => i)
+  for (;;) {
+    const laid = columnOf(order, heights, gap)
+    const index = order.indexOf(dragged)
+    const n = index + step
+    const next = laid[n]
+    if (next === undefined) return order
+    const centre = (next.layout.y.min + next.layout.y.max) / 2
+    // Past the neighbour's centre, the way it moves.
+    if (step * (edge - centre) <= 0) return order
+    order = [...order]
+    order.splice(index, 1)
+    order.splice(n, 0, dragged)
+  }
+}
+
+it("CR15: one check lands where one-place checks over the order laid out again each time would: 400 seeded columns, sizes mixed", () => {
+  const next = seeded(715)
+  for (let run = 0; run < 400; run++) {
+    const n = 2 + Math.floor(next() * 30)
+    const heights = Array.from({ length: n }, () => 20 + Math.floor(next() * 60))
+    const gap = Math.floor(next() * 12)
+    const laid = columnOf(heights.map((_, i) => i), heights, gap)
+    const dragged = Math.floor(next() * n)
+    // Down the column (1) or up it (-1).
+    const step = 2 * Math.floor(next() * 2) - 1
+    const offset = step * Math.floor(next() * 1500)
+    const own = laid[dragged]!.layout.y
+    // Where the item's edge facing the way it moves is held: one place in the content, whatever slot it's in.
+    const edge = (own.min + own.max) / 2 + (step * (own.max - own.min)) / 2 + offset
+    const checked = Reorder.check(laid, dragged, { offset: { x: 0, y: offset }, velocity: { x: 0, y: step }, axis: "y" })
+    expect(checked.map(({ value }) => value), `run ${run}: ${n} items, ${dragged} by ${offset}`).toEqual(oneAtATime(heights, gap, dragged, edge, step))
+  }
+})
+
 // #710: detectAxis's answers are Motion's. The reference is Motion's own loop over every pair
 // (Reorder/utils/detect-axis.ts at 16c61222c4166bbef5ff6ab0051192faa79fa8c8), a different method.
 const motionDetectAxis = (layouts: ReadonlyArray<Box.Box>): Reorder.Axis => {

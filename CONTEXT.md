@@ -292,7 +292,7 @@ _Avoid_: virtual list (every item is mounted), sortable, slot (a **Projection no
 
 **Crossover**:
 The point at which a dragged item has moved far enough past a neighbour to take its place, which changes the order.
-- On a single axis: its leading edge passes the centre of the neighbour on the side it's moving toward, the direction coming from a 100 ms window of its drag.
+- On a single axis: its leading edge passes the centre of the neighbour on the side it's moving toward, the direction coming from a 100 ms window of its drag. A sample that carries it past several centres moves it past them all.
 - In `"xy"`: its centre is nearer another line of items, or another item's box.
 It's Motion's rule, with the neighbour chosen by position rather than by index (ADR-0020).
 _Avoid_: swap (one outcome), collision (dnd-kit's term for a different model).
