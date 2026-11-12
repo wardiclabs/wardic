@@ -1,5 +1,37 @@
 # @wardic/dom
 
+## 1.0.0-rc.10
+
+### Minor Changes
+
+- 3c42ac4: `@wardic/dom/Appear` samples one rule for a Batch's members (`batchKeyframes`), each member's own values read from custom properties on its element, and a render's sheet gives them one slot (`sheet.batch`), each member its style with its own delay. At the Handoff, `matchesBatch` checks a member's animation against the client's transitions, and `findAll` reads every Appear animation on a page in one call.
+- e507fab: `createBatch` animates many elements on the same keys as one Batch, on Solid 1 and Solid 2: a list, a grid or a chart's points that move together. Give it a `count`, each member's targets as `animate(i)` (tracked, so a change turns every member at once, from where it is and at the speed it has), an optional `initial` and a `transition`, then spread `grid.at(i)` onto each element. A change of a thousand members costs about what one element's does, and `delay: stagger()` counts the members a change moves. Its keys are the transforms and `opacity`, as numbers, and its transitions are a Wardic element's: each key's own, the Default transition, reduced motion and `skipAnimations`. On Solid 2, `grid.settled()` is pending while members move; on Solid 1, `onAnimationStart` and `onAnimationComplete` say so. `@wardic/dom` gains `DomBatch`, which draws a Batch's members as Wardic's renderer draws the same values, and `@wardic/core`'s Batch gains `replace` (a member drawn on a new Subject, its state kept) and `isMoving`, and its changes can give each member its own transition and say how many members they set off.
+- 1c8385e: A Batch member's element can be a Wardic element, `<w.div {...grid.at(i)} drag whileTap={{ scale: 0.95 }} />`: the latest driver takes a key. As one of its legs starts on a transform key, or its drag starts, it takes the member's `transform` (or `opacity`) from the Batch at its value and speed, and the Batch takes it back, from there, toward its targets, as its last leg on it ends or its drag's release rests, or at the Batch's next change that moves it. An element given two Batches' handles, and `layout` or `layoutId` on a member's Wardic element, are errors naming the element. Core's `Batch.retarget` takes `from` and `velocity`, starting keys there at that speed onto the targets they have, and `Batch.target` reads a member's target; the Flush gate's `release` takes `keep`, properties another writer draws next.
+- 7a5ca37: A Batch's members hover and press: `createBatch`'s `whileHover` and `whileTap` take values with a `transition`, or a function of a member's index (keyed: its item and index), each member's layered over `animate`'s targets as a Wardic element's Override stack is, a Batch change mid-gesture moving only the keys the gesture doesn't hold. Enter and Space press a focused member, whose element takes `tabindex="0"`. Solid 1 has `onHoverStart`, `onHoverEnd`, `onTapStart`, `onTap` and `onTapCancel`; Solid 2 `next` and `when` of `hoverStart`, `hoverEnd`, `pressStart`, `tap` and `tapCancel`, each with the member's `i` and `item`. A Batch listens from one source each, its gesture code loaded at its first need. Core's `InputSource` gains optional `pointerAmong` and `focusAmong` feeds over many targets, which the DOM's input gives, and `Recognizer.watchHoverAmong` and `watchPressAmong` watch them; `TestInput.pushable`'s `pushTo` and `pushFocusTo` feed them.
+- 5abbfd4: A server-rendered Batch draws each spread member's start, so a hydrated page doesn't jump: its `initial`'s values, its targets with `initial: false` or, keyed, under `<AnimatePresence initial={false}>`, else nothing, as a Wardic element's, over the element's own `style` given to its handle. A keyed Batch reads its list once on the server. The server checks what the client does, with its messages. `DomBatch.styleOf(values)` gives the `transform` and `opacity` the Batch writer draws.
+- 2f034cf: A Batch with `whileTap` or a tap event mounts faster, about 0.3 ms less per 1,000 members, back within a plain Batch's mount. Each member's element is still made focusable as it arrives (`tabindex="0"` unless it takes focus of itself), but the Batch now makes it so directly, not through its lazily loaded gesture code, and the check reads only what it needs, for every Wardic element with a press too. `@wardic/dom/KeyboardPress` is new: its `makeFocusable` is `DomInput.makeFocusable`, in a module of its own, so a binding can call it without loading the DOM's input.
+- 615a5af: `ReorderController.makePlaced` builds a Reorder group's controller for items placed from their index rather than measured, a Batch Reorder group's: it needs only an `Announcer`, no projection system, and its binding calls `placed()` once it has placed a new order, where `make`'s controller waits for a Measure pass; it's a `ReorderController.Placed`. An item registers a `ReorderController.ItemHandle`, its box, drag offset and version, how to raise it, and, for a placed item, its place on screen (`placeOnScreen`), which a keyboard step's reveal scrolls into view. A projection node's handle is one, so `make`'s items register as before.
+
+### Patch Changes
+
+- 2fe83eb: `Appear.find` passes over a Batch's rule: a Wardic element on a Batch member's element no longer takes its Batch's Appear animation for its own. `Appear.pending` and `Appear.release` sit in a module of their own, so code that only asks whether an element's Appear animation still runs, or lets it go, no longer bundles the Handoff's reads (`findAll`, `matchesBatch`, `elapsedOf`) with them.
+- 9252f04: A Reorder controller built with `ReorderController.makePlaced` reveals a keyboard step's and a cancel's new place when its binding calls `placed()` within `onReorder` itself, before the reorder returns.
+- 09d24ef: `Reorder.Group` and `Reorder.BatchGroup` take `values` from a store. The keyboard reorder no longer drops its item after one step, an app's own change while an item is lifted drops it at its new place, a drag goes on past its first crossover, and an app's reorder of the store in place animates, on both bindings. The Reorder controller tells the order it asked for by its items, not its array.
+- Updated dependencies [6c32276]
+- Updated dependencies [cbf7e3d]
+- Updated dependencies [e507fab]
+- Updated dependencies [3aa118d]
+- Updated dependencies [1c8385e]
+- Updated dependencies [78d2073]
+- Updated dependencies [7a5ca37]
+- Updated dependencies [ea365ae]
+- Updated dependencies [3228bd5]
+- Updated dependencies [81af468]
+- Updated dependencies [18cd165]
+- Updated dependencies [3aa118d]
+- Updated dependencies [2de6a9a]
+  - @wardic/core@1.0.0-rc.10
+
 ## 1.0.0-rc.9
 
 ### Patch Changes
