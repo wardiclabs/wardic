@@ -38,11 +38,13 @@ jobs:
       # No changeset waiting: the version PR has merged, and this push publishes. In pre mode a
       # changeset a version step has used stays on disk, listed in pre.json's `changesets`, so only
       # one it doesn't list is waiting (1.0.0-rc.1's run counted them all, and skipped pack-check).
+      # Leaving pre mode (`"mode": "exit"`), every one waits again, for the stable version, as
+      # changesets/action counts them.
       - name: Changesets waiting
         id: changesets
         run: |
           used=""
-          if [ -f .changeset/pre.json ]; then used=$(jq -r '.changesets[]' .changeset/pre.json); fi
+          if [ -f .changeset/pre.json ] && [ "$(jq -r .mode .changeset/pre.json)" = pre ]; then used=$(jq -r '.changesets[]' .changeset/pre.json); fi
           waiting=0
           for file in .changeset/*.md; do
             id=$(basename "$file" .md)
