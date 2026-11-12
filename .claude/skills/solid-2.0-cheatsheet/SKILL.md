@@ -3,7 +3,7 @@ name: solid-2.0-cheatsheet
 description: The complete Solid 2.0 API cheatsheet (solid-js 2.x, @solidjs/web). Use to look up the exact signature or form of a Solid 2.0 primitive, component, store setter, prop, attribute or SSR entry, and for the full list of 1.x APIs that no longer exist and their replacements.
 ---
 
-<!-- Copied from solid-js@2.0.0-rc.20 by scripts/sync-agent-skills.ts: run `bun run skills` after a bump, and don't edit this copy. -->
+<!-- Copied from solid-js@2.0.0-rc.21 by scripts/sync-agent-skills.ts: run `bun run skills` after a bump, and don't edit this copy. -->
 
 <!-- Generated from CHEATSHEET.md by scripts/build-cheatsheet-skill.mjs. Edit CHEATSHEET.md, not this file. -->
 

@@ -11,17 +11,17 @@
     "typecheck": "../../node_modules/typescript-7/bin/tsc --noEmit"
   },
   "dependencies": {
-    "@solidjs/router": "2.0.0-next.43",
-    "@solidjs/web": "2.0.0-rc.20",
+    "@solidjs/router": "2.0.0-next.44",
+    "@solidjs/web": "2.0.0-rc.21",
     "@wardic/core": "workspace:*",
     "@wardic/dom": "workspace:*",
     "@wardic/example-hand-checks": "workspace:*",
     "@wardic/solid": "workspace:*",
-    "effect": "4.1.1",
-    "solid-js": "2.0.0-rc.20"
+    "effect": "4.1.4",
+    "solid-js": "2.0.0-rc.21"
   },
   "devDependencies": {
-    "@solidjs/vite-plugin": "3.0.0-next.54",
+    "@solidjs/vite-plugin": "3.0.0-next.57",
     "filesystem-routing": "0.4.0",
     "vite": "8.3.4"
   },

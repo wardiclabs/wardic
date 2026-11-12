@@ -3,7 +3,7 @@ name: server-components
 description: Rules for writing Solid 2.0 server components ("use server" functions that return a template) and their slots with @solidjs/web. Use when writing or reviewing a server component, deciding what lives on the server versus the client, or wiring a slot.
 ---
 
-<!-- Copied from @solidjs/web@2.0.0-rc.20 by scripts/sync-agent-skills.ts: run `bun run skills` after a bump, and don't edit this copy. -->
+<!-- Copied from @solidjs/web@2.0.0-rc.21 by scripts/sync-agent-skills.ts: run `bun run skills` after a bump, and don't edit this copy. -->
 
 # Writing Solid server components with slots
 
