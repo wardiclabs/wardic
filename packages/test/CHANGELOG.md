@@ -1,5 +1,12 @@
 # @wardic/test
 
+## 1.0.1
+
+### Patch Changes
+
+- Updated dependencies [6d7a15d]
+  - @wardic/core@1.0.1
+
 ## 1.0.0
 
 ### Major Changes

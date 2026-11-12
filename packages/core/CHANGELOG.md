@@ -1,5 +1,11 @@
 # @wardic/core
 
+## 1.0.1
+
+### Patch Changes
+
+- 6d7a15d: A single-axis Reorder group's Crossover keeps up with the dragged item: a drag sample that carries it past several items' centres, as Auto-scroll past a scroller's edge does, moves it past them all. Held past the edge, then brought back and let go, an item lands where it's let go, not back where the order had trailed it.
+
 ## 1.0.0
 
 ### Major Changes
