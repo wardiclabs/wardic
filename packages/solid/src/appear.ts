@@ -137,6 +137,15 @@ export const keyOf = (m: MountAnimation): Option.Option<string> => {
   return Option.map(base, (text) => Bool.match(m.skipped === true, { onTrue: () => `${text}|skipped`, onFalse: () => `${text}|reduced:${m.reduced}` }))
 }
 
+/**
+ * A Batch's entrance's key (#706, Q9): its keys and each one's transition as a member's change runs them,
+ * as canonical text, and whether motion is reduced, or the change is skipped (#468). The server's rule
+ * group's, and what a client checks a member's Appear animation against. `None` when a transition holds
+ * a function with no easing name: the Batch waits for the JavaScript (Q4).
+ */
+export const batchKeyOf = (keys: ReadonlyArray<string>, transitions: ReadonlyArray<unknown>, reduced: boolean, skipped: boolean): Option.Option<string> =>
+  Option.map(canonical({ keys, transitions }), (text) => Bool.match(skipped, { onTrue: () => `${text}|skipped`, onFalse: () => `${text}|reduced:${reduced}` }))
+
 /** Whether a mount animation plays for ever: its transition repeats for ever, and it isn't skipped (#468), which lands it. */
 const playsForever = (m: MountAnimation): boolean => Bool.and(m.skipped !== true, repeatsForever(m.transition))
 
@@ -362,6 +371,13 @@ export interface ServerAppear {
   readonly chunk: () => string
   /** The nonce the page's Content Security Policy gives inline styles, which each `<style>` carries (#618, P1). */
   readonly nonce: string | undefined
+  /**
+   * A Batch's rule group's slot (#706): `play`'s rule, and `reduced`'s under the media query when given;
+   * each member's style its own values, the slot and its delay. In the head's CSS, or a late chunk's.
+   */
+  readonly batch: (play: Appear.BatchKeyframes, reduced?: Appear.BatchKeyframes | undefined) => Appear.BatchSlot
+  /** Says why a Batch, or one of its members, named by `name`, waits for the JavaScript, when the provider explains (#585, #706). */
+  readonly waits: (name: string, reason: string) => void
 }
 
 /** No transition: no orchestration. */
@@ -410,10 +426,12 @@ const nameOf = (entry: Entry): string => {
 export const serverAppear = (reducedMotion: ReducedMotion.Config, explain?: (message: string) => void, nonce?: string): ServerAppear => {
   const sheet = Appear.sheet()
   const entries: Array<Entry> = []
-  /** Says why `entry` waits for the JavaScript, when the provider explains. */
-  const waits = (entry: Entry, reason: string): void => {
-    if (Predicate.isNotUndefined(explain)) explain(`wardic.appear: ${nameOf(entry)} waits for the JavaScript: ${reason}`)
+  /** Says why what `name` names waits for the JavaScript, when the provider explains. */
+  const waitsNamed = (name: string, reason: string): void => {
+    if (Predicate.isNotUndefined(explain)) explain(`wardic.appear: ${name} waits for the JavaScript: ${reason}`)
   }
+  /** Says why `entry` waits for the JavaScript, when the provider explains. */
+  const waits = (entry: Entry, reason: string): void => waitsNamed(nameOf(entry), reason)
   // The shell is flushed once the head's CSS is asked for: what enters after is late (#245).
   let flushed = false
   // The entries written so far, and how deep the render is in late elements.
@@ -484,6 +502,8 @@ export const serverAppear = (reducedMotion: ReducedMotion.Config, explain?: (mes
     chunkCss,
     chunk: () => Appear.chunkStyle(chunkCss(), nonce),
     nonce,
+    batch: (play, reduced) => sheet.batch(play, reduced),
+    waits: waitsNamed,
     group: (leader, transition) => {
       const { staggerChildren = 0, delayChildren = 0, from = "first", staggerDirection = 1, when } = UndefinedOr.match(transition, {
         onUndefined: () => NO_TRANSITION,

@@ -41,6 +41,9 @@
 //   it mounts and kept as the group's changes (its item size, its instructions, its keyboard reorder); one
 //   with its own keeps them, over the group's. A grid of such items from its width is placed at once, and
 //   widened, holds more a row.
+// - BG11 (#706, Q20): an item's `initial` keys but `x` and `y` move to their identity as it enters, at its
+//   place: a column fades and grows in; a function `initial` in a grid from its width too; and an item
+//   added later enters so.
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as ReorderController from "@wardic/dom/ReorderController"
 import { commands } from "vitest/browser"
@@ -607,5 +610,35 @@ describe("Reorder.BatchGroup and Reorder.BatchItem", () => {
     expect(scaleOf(b), "whileDrag off").toBeCloseTo(1, 2)
     expect(getComputedStyle(b).zIndex, "let down").toBe("auto")
     await mouse.up(add(g, 0, 20))
+  }, 30_000)
+
+  it("BG11 (Q20): an item's initial keys but x and y move to their identity as it enters, at its place", async () => {
+    const opacityOf = (el: HTMLElement): number => Number(getComputedStyle(el).opacity)
+    const scaleOfEl = (el: HTMLElement): number => new DOMMatrix(getComputedStyle(el).transform).a
+    const s = await mountBatchReorder({ n: 4, initial: { opacity: 0, scale: 0.8 }, transition: { type: "tween", duration: 0.3 } })
+    const c = s.item("c")
+    // Settled: at their identity, at their places.
+    await wait(400)
+    expect(opacityOf(c)).toBe(1)
+    expect(scaleOfEl(c)).toBeCloseTo(1, 6)
+    expect(boxOf(c).top - boxOf(s.item("a")).top, "at its place").toBe(2 * 60)
+    // An item added later enters so: on its way a frame or two in, then there.
+    s.setOrder(["a", "b", "c", "d", "e"])
+    await raf()
+    await raf()
+    const e = s.item("e")
+    expect(opacityOf(e)).toBeGreaterThan(0)
+    expect(opacityOf(e)).toBeLessThan(1)
+    await wait(400)
+    expect(opacityOf(e)).toBe(1)
+    await resetScene()
+
+    // A function's keys, in a grid from its width.
+    const [width] = createSignal(300)
+    const grid = await mountBatchReorder({ layout: "xy", fromWidth: width, n: 5, initial: (_, i) => ({ opacity: 0, rotate: i * 10 }), transition: { type: "tween", duration: 0.2 } })
+    await wait(350)
+    const d = grid.item("d")
+    expect(opacityOf(d)).toBe(1)
+    expect(new DOMMatrix(getComputedStyle(d).transform).b, "no turn left").toBeCloseTo(0, 6)
   }, 30_000)
 })

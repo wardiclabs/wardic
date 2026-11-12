@@ -26,7 +26,10 @@ import type * as Machine from "@wardic/core/Machine"
 import * as Playback from "@wardic/core/Playback"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Sequence from "@wardic/core/Sequence"
+import * as Appear from "@wardic/dom/Appear"
 import * as DomBatch from "@wardic/dom/DomBatch"
+import * as DomDefaultTransition from "@wardic/dom/DomDefaultTransition"
+import * as DomPositionalKeys from "@wardic/dom/DomPositionalKeys"
 import * as KeyboardPress from "@wardic/dom/KeyboardPress"
 import * as Report from "@wardic/dom/Report"
 import * as Svg from "@wardic/dom/Svg"
@@ -39,12 +42,15 @@ import * as Iter from "effect/Iterable"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
+import * as Result from "effect/Result"
 import * as UndefinedOr from "effect/UndefinedOr"
+import { batchKeyOf, type ServerAppear, setsAnimation } from "./appear.ts"
 import type { WardicTransition } from "./config.ts"
 import type { WardicPoint, WardicPressInput } from "./gesture-info.ts"
 import { type PresenceContextValue, presenceBlocksInitial, presenceHold } from "./presence-record.ts"
 import { type Run, runOf, transitionForKey } from "./retarget-legs.ts"
 import type { WardicRuntime } from "./runtime.ts"
+import { settingOf, type WardicConfigValue } from "./wardic-config-value.ts"
 
 /** The keys a Batch's members animate on the DOM: the transforms and `opacity`, as numbers. */
 export type WardicBatchKey =
@@ -131,6 +137,12 @@ export interface BatchConfig {
   readonly whileTap?: WardicBatchGesture | ((i: number) => WardicBatchValues)
   /** How they move: else the nearest `WardicConfig`'s, else each key's Default transition. */
   readonly transition?: WardicBatchTransition
+  /**
+   * Whether a server render plays its members' entrances in CSS from first paint, and hydration takes them
+   * over where they've got to (an **Appear animation**, #706): off unless `true`, under a provider whose
+   * `appear` isn't `false`. Without it, a server render draws each member's start, as before.
+   */
+  readonly appear?: boolean | undefined
 }
 
 /**
@@ -166,6 +178,8 @@ export interface KeyedBatchConfig<T> {
   readonly whileTap?: WardicBatchGesture | ((item: T, i: number) => WardicBatchValues)
   /** How they move: else the nearest `WardicConfig`'s, else each key's Default transition. */
   readonly transition?: WardicBatchTransition
+  /** Whether a server render plays its members' entrances from first paint (#706): off unless `true`. */
+  readonly appear?: boolean | undefined
 }
 
 /**
@@ -193,6 +207,16 @@ export interface BatchEnv {
   readonly configTransition: () => WardicTransition | undefined
   /** Its binding's Solid's `untrack`: a keyed Batch reads its list again at a task's end, outside its tracking. */
   readonly untrack: <A>(read: () => A) => A
+  /**
+   * Whether it's made while hydrating a server render (#706): its members' elements may run their Appear
+   * animation, which its first change takes over. Left out, it never looks.
+   */
+  readonly hydrating?: boolean | undefined
+  /**
+   * In development alone (each binding's Solid `DEV`), what checks a taken-over Appear animation against the
+   * member's own transitions (#706, Q9): left out of a production build, with the canonical text it writes.
+   */
+  readonly appearKeyOf?: typeof batchKeyOf | undefined
   /** Its members' gestures (#665's PR 5, Q56): what watches them, from one source each. None, none listen. */
   readonly gestures?: BatchGestureWatches | undefined
   /**
@@ -642,7 +666,7 @@ const noMember = (i: number, count: number): never => fail(`it has no member ${i
 
 /** Each key's identity: a transform's, and `opacity`'s 1, an element's own with no style of its own. */
 // Per member per key at mount (#540): statements.
-const identityOf = (key: string): number => {
+export const identityOf = (key: string): number => {
   const identity = BaseValue.TRANSFORM_IDENTITY[key]
   if (Predicate.isUndefined(identity)) return 1
   return identity
@@ -977,7 +1001,7 @@ interface KeyPlan {
  * opt out; its Default transition, held by its own `delay`, for a key whose transition isn't defined.
  */
 // Once a change, per key.
-const plannedOf = (env: BatchEnv, keys: ReadonlyArray<string>, given: WardicTransition | undefined, reduced: boolean): ReadonlyArray<KeyPlan> =>
+const plannedOf = (positional: ReducedMotion.PositionalKeys["Service"], keys: ReadonlyArray<string>, given: WardicTransition | undefined, reduced: boolean): ReadonlyArray<KeyPlan> =>
   Arr.map(keys, (key): KeyPlan => {
     const transition = transitionForKey(given, key)
     let delay = 0
@@ -986,11 +1010,56 @@ const plannedOf = (env: BatchEnv, keys: ReadonlyArray<string>, given: WardicTran
       if (Predicate.isNumber(transition.delay)) delay = transition.delay
       respects = transition.respectReducedMotion !== false
     }
-    if (reduced && respects && env.positionalKeys.isPositional(key)) return { own: snapAfter(delay), delay }
+    if (reduced && respects && positional.isPositional(key)) return { own: snapAfter(delay), delay }
     const run = runOf(transition)
     if (Predicate.isUndefined(run)) return { own: undefined, delay }
     return { own: batchRunOf(run, key), delay }
   })
+
+/**
+ * A member's transitions on `keys` for a change planned as `planned`: each key's own, else its Default
+ * transition (`defaultFor`) toward its target there, `targetAt(k)`; every key at once when it's skipped.
+ * A server's Appear plan's (#706) and a client's check of it.
+ */
+// Per member per key, at a server's render and at a hydrating client's first change (#706): statements.
+const memberTransitionsOf = (
+  keys: ReadonlyArray<string>,
+  planned: ReadonlyArray<KeyPlan>,
+  defaultFor: (key: string, target: number) => Batch.Transition,
+  targetAt: (k: number) => number,
+  skipped: boolean,
+): ReadonlyArray<Batch.Transition> =>
+  Arr.map(keys, (key, k) => {
+    if (skipped) return INSTANT
+    const plan = planned[k] as KeyPlan
+    if (Predicate.isNotUndefined(plan.own)) return plan.own
+    return delayedBy(defaultFor(key, targetAt(k)), plan.delay)
+  })
+
+/** The Handoff's module, once it has loaded (#706, Q11): every Batch after the first takes its members over at once. */
+// Module state (#460, Q7): one module, loaded once for the page.
+let handoffModule: typeof import("./batch-handoff.ts") | undefined = undefined
+// Module state (#460, Q7): its load, settled once, never rejected: a failed load reported, and nothing taken over.
+let loadingHandoff: Promise<typeof import("./batch-handoff.ts") | undefined> | undefined = undefined
+
+/** The Handoff's module's load, started at its first need; a failure reported on `runtime`. */
+const loadHandoff = (runtime: WardicRuntime): Promise<typeof import("./batch-handoff.ts") | undefined> => {
+  if (Predicate.isUndefined(loadingHandoff)) {
+    loadingHandoff = import("./batch-handoff.ts").then(
+      (module) => {
+        handoffModule = module
+        return module
+      },
+      (error: unknown) => {
+        // Let a later Batch try again.
+        loadingHandoff = undefined
+        runtime.runFork(Report.failure("wardic: a Batch's Handoff code failed to load; its members' Appear animations are let go", Cause.die(error)))
+        return undefined
+      },
+    )
+  }
+  return loadingHandoff
+}
 
 // --- A server render's start (#665's PR 6, ADR-0070 decision 14, Q63–Q67) ----------------------------
 
@@ -1004,12 +1073,38 @@ const keyedInitialOf = (config: KeyedBatchConfig<unknown>, item: unknown, i: num
  * the member arrives, so its element doesn't move at hydration. Its element's own `style` is the handle's:
  * a `style` beside the spread is replaced by the one it carries, as Solid's spread lets the later win.
  */
-const serverMemberOf = <E extends Element, Style>(start: Readonly<Record<string, number>> | undefined, drawn: ReadonlySet<string>, props: MemberProps<E, Style> | undefined): Member<E, Style> => {
+const serverMemberOf = <E extends Element, Style>(
+  start: Readonly<Record<string, number>> | undefined,
+  drawn: ReadonlySet<string>,
+  props: MemberProps<E, Style> | undefined,
+  appear: ServerMemberAppear = NO_MEMBER_APPEAR,
+): Member<E, Style> => {
   const own = ownStyleOf(UndefinedOr.map(props, (given) => given.style), drawn)
-  const written = UndefinedOr.match(start, { onUndefined: () => NO_STYLE, onDefined: DomBatch.styleOf })
-  if (Bool.and(Predicate.isUndefined(own), Rec.isEmptyRecord(written))) return { ref: noop }
-  return { ref: noop, style: { ...(own as object | undefined), ...written } as Style }
+  const started = UndefinedOr.match(start, { onUndefined: () => NO_STYLE, onDefined: DomBatch.styleOf })
+  /** The member's handle, its own style under what the Batch writes. */
+  const writing = (written: Readonly<Record<string, string>>): Member<E, Style> => {
+    if (Bool.and(Predicate.isUndefined(own), Rec.isEmptyRecord(written))) return { ref: noop }
+    return { ref: noop, style: { ...(own as object | undefined), ...written } as Style }
+  }
+  // Its Appear animation (#706) over its start, unless its own style sets an `animation`, which it keeps
+  // (Q4): then its group's rule isn't asked for on its account.
+  if (setsAnimation(own as object | string | undefined)) {
+    appear.vetoed()
+    return writing(started)
+  }
+  return writing(UndefinedOr.match(appear.style(), { onUndefined: () => started, onDefined: (style) => ({ ...started, ...style }) }))
 }
+
+/** A member's Appear animation on a server (#706): its style, and what says it waits when its own style vetoes it. */
+interface ServerMemberAppear {
+  /** Its style, its group's rule sampled at the first ask: asked only when its own style doesn't veto it. */
+  readonly style: () => Readonly<Record<string, string>> | undefined
+  /** Its own style sets an `animation`: said, once, where it would have played one. */
+  readonly vetoed: () => void
+}
+
+/** No Appear animation. */
+const NO_MEMBER_APPEAR: ServerMemberAppear = { style: () => undefined, vetoed: () => {} }
 
 /** No style of the Batch's to write. */
 const NO_STYLE: Readonly<Record<string, string>> = {}
@@ -1033,16 +1128,286 @@ const serverKeysOf = (keys: ReadonlyArray<string>): ServerKeys => {
   return { keys, keyIndex: new Map(Arr.map(keys, (key, k) => [key, k] as const)), drawn: drawnBy(keys), targets: new Float64Array(keys.length) }
 }
 
+// --- A server render's Appear animations (#706, ADR-0044 *Amendment (#706)*) -------------------------
+
+/** What a server render's Batch reads of its provider and its nearest `WardicConfig` for its members' Appear animations (#706). */
+export interface BatchServerAppear {
+  /** The render's Appear animations: none with the provider's `appear={false}`, or no provider. */
+  readonly state: ServerAppear | undefined
+  /** Its nearest `WardicConfig`'s reduced motion, else `undefined` for the provider's (#434). */
+  readonly setting: ReducedMotion.Config | undefined
+  /** Whether its nearest `WardicConfig` skips its animations (#468). */
+  readonly skipped: boolean
+  /** Its nearest `WardicConfig`'s transition, for a Batch with none of its own. */
+  readonly configTransition: WardicTransition | undefined
+}
+
+/** A server Batch's read of its provider's Appear animations and its nearest `WardicConfig` (#706): each binding's hooks give them. */
+export const batchServerAppearOf = (state: ServerAppear | undefined, config: WardicConfigValue | undefined, skipped: boolean): BatchServerAppear => ({
+  state,
+  setting: settingOf(config),
+  skipped,
+  configTransition: configTransitionOf(config)(),
+})
+
+/** No Appear animations: a server render's Batch that's given none. */
+export const NO_SERVER_APPEAR: BatchServerAppear = { state: undefined, setting: undefined, skipped: false, configTransition: undefined }
+
+/** The DOM's Positional keys, which a server's reduced rule snaps, as an element's (ADR-0029). */
+const SERVER_POSITIONAL: ReducedMotion.PositionalKeys["Service"] = { isPositional: DomPositionalKeys.isPositional }
+
+/** The DOM's Default transition, which a server samples a key with no transition defined on, as the client runs it (ADR-0051). */
+const serverDefaultFor = (key: string, target: number): Batch.Transition => DomDefaultTransition.transitionFor(key, target) as Batch.Transition
+
+/** `startAt`, as a change's options take it: none without one. */
+const startAtOption = (startAt: ((slot: number) => number) | undefined): Pick<Batch.RetargetOptions, "startAt"> =>
+  UndefinedOr.match(startAt, { onUndefined: () => ({}), onDefined: (given) => ({ startAt: given }) })
+
+/** A member on a server: its start, and its start and targets a number a key, a key its targets leave out at its start. */
+interface ServerMember {
+  readonly start: Record<string, number>
+  readonly from: ReadonlyArray<number>
+  readonly to: ReadonlyArray<number>
+}
+
+/** A target, or `start` for a key the targets leave out (`NaN`): a key a change keeps where it is. */
+// Per member per key at a server's render: statements.
+const targetOr = (target: number, start: number): number => {
+  if (Number.isNaN(target)) return start
+  return target
+}
+
+/** A member's values on a server, from its start and its targets as `targetsOn` wrote them into `targets`. */
+const serverMemberValuesOf = (keys: ReadonlyArray<string>, start: Record<string, number>, targets: Float64Array): ServerMember => {
+  const from = Arr.map(keys, (key) => start[key] as number)
+  return { start, from, to: Arr.map(from, (value, k) => targetOr(targets[k] as number, value)) }
+}
+
+/** Whether a member moves: some key's start isn't its target. */
+const movesFrom = (member: ServerMember): boolean => Arr.some(member.from, (value, k) => value !== member.to[k])
+
+/** A Batch's members on one set of transitions, on a server: one rule for them, and its reduced one, registered as its first member asks. */
+interface RuleGroup {
+  readonly key: string
+  readonly transitions: Batch.Transitions
+  readonly reduced: { readonly key: string; readonly transitions: Batch.Transitions } | undefined
+  readonly members: Array<number>
+  slot: Option.Option<Appear.BatchSlot> | undefined
+}
+
+/** Each key's transition, by its name. */
+const byKey = (keys: ReadonlyArray<string>, transitions: ReadonlyArray<Batch.Transition>): Batch.Transitions =>
+  Rec.fromEntries(Arr.map(keys, (key, k) => [key, transitions[k] as Batch.Transition] as const))
+
+/**
+ * `batchKeyOf` remembered by its transitions' identities, for one Batch's members at a server's render: a
+ * set of transitions' canonical text written once.
+ */
+const ruleKeyMemo = (keys: ReadonlyArray<string>) => {
+  const ids = new WeakMap<object, number>()
+  let next = 0
+  const known = new Map<string, Option.Option<string>>()
+  /** A transition's number among those seen. */
+  const idOf = (transition: object): number => {
+    const seen = ids.get(transition)
+    if (Predicate.isNotUndefined(seen)) return seen
+    const made = next
+    next++
+    ids.set(transition, made)
+    return made
+  }
+  // Per member at a server's render: its transitions' numbers, its key written the first time they come.
+  return (transitions: ReadonlyArray<Batch.Transition>, reduced: boolean, skipped: boolean): Option.Option<string> => {
+    const signature = `${Arr.map(transitions, idOf).join(",")}|${reduced}|${skipped}`
+    const seen = known.get(signature)
+    if (Predicate.isNotUndefined(seen)) return seen
+    const made = batchKeyOf(keys, transitions, reduced, skipped)
+    known.set(signature, made)
+    return made
+  }
+}
+
+/** A server Batch's members' Appear styles, by member, and whether each plays one. */
+interface MemberStyles {
+  readonly styleAt: (i: number) => Readonly<Record<string, string>> | undefined
+  readonly plays: (i: number) => boolean
+}
+
+/** No Appear animation for any member. */
+const NO_STYLES: MemberStyles = { styleAt: () => undefined, plays: () => false }
+
+/**
+ * A server Batch's members' Appear styles (#706, Q1–Q6, Q21: with its `appear: true`), by member: its own values, its group's slot and
+ * its delay, or `undefined` for one that plays none. Its members on one set of transitions share a rule,
+ * planned as the client plans its first change, by its setting: `"never"` the normal one, `"always"` the
+ * reduced one, `"user"` both, the reduced under the media query; skipped, every key at once (#468). A
+ * group's rules go to the render's sheet as its first member asks, so a Batch none of whose members renders
+ * one writes none. Each member's delay is its stagger by its rank among the members that move, as the
+ * client counts them. Why it plays none is said when the provider explains (#585).
+ */
+// Once a Batch at a server's render, a loop over its members (#665's per-member site): with it, 1,000
+// members rendered in 5.5 ms, against 1.15 ms without (4.3 µs a member; #706, measured in Node).
+const serverAppearStylesOf = (
+  server: BatchServerAppear,
+  state: ServerAppear,
+  config: BatchConfig | KeyedBatchConfig<unknown>,
+  keys: ReadonlyArray<string>,
+  members: ReadonlyArray<ServerMember>,
+): MemberStyles => {
+  const name = `a Batch (${keys.join(", ")})`
+  const moving = Arr.map(members, movesFrom)
+  const movers = Arr.reduce(moving, 0, (count, moves) => count + Number(moves))
+  if (movers === 0) {
+    state.waits(name, "no member moves from its start")
+    return NO_STYLES
+  }
+  let configured = config.transition as WardicTransition | undefined
+  if (Predicate.isUndefined(configured)) configured = server.configTransition
+  const skipped = Bool.or(server.skipped, UndefinedOr.map(configured, (given) => given.skipAnimations) === true)
+  let setting = server.setting
+  if (Predicate.isUndefined(setting)) setting = state.reducedMotion
+  const plain = UndefinedOr.map(configured, unstaggered)
+  const normal = plannedOf(SERVER_POSITIONAL, keys, plain, false)
+  const reduced = plannedOf(SERVER_POSITIONAL, keys, plain, true)
+  // The play each member's rule draws, and under `"user"` the reduced one beside it.
+  const reducedAlways = Bool.and(setting === "always", Bool.not(skipped))
+  let play = normal
+  if (reducedAlways) play = reduced
+  const reducedBeside = Bool.and(setting === "user", Bool.not(skipped))
+  let stagger = staggerOf(configured)
+  if (skipped) stagger = undefined
+  // Each member's key by its transitions' identities: members on the same transitions share the objects
+  // (`delayedBy`'s, the Default transitions'), so their canonical text is written once, not once a member.
+  const ruleKeyOf = ruleKeyMemo(keys)
+  const groups = new Map<string, RuleGroup>()
+  const groupOf: Array<RuleGroup | undefined> = []
+  const indexInGroup: Array<number> = []
+  const delays: Array<number> = []
+  let rank = 0
+  for (let i = 0; i < members.length; i++) {
+    if (!moving[i]) continue
+    const member = members[i] as ServerMember
+    const transitions = memberTransitionsOf(keys, play, serverDefaultFor, (k) => member.to[k] as number, skipped)
+    const key = ruleKeyOf(transitions, reducedAlways, skipped)
+    if (Option.isNone(key)) {
+      state.waits(name, "its transition holds a function with no easing name")
+      return NO_STYLES
+    }
+    let group = groups.get(key.value)
+    if (Predicate.isUndefined(group)) {
+      let reducedRule: RuleGroup["reduced"] = undefined
+      if (reducedBeside) {
+        const reducedTransitions = memberTransitionsOf(keys, reduced, serverDefaultFor, (k) => member.to[k] as number, false)
+        reducedRule = { key: Option.getOrThrow(batchKeyOf(keys, reducedTransitions, true, false)), transitions: byKey(keys, reducedTransitions) }
+      }
+      group = { key: key.value, transitions: byKey(keys, transitions), reduced: reducedRule, members: [], slot: undefined }
+      groups.set(key.value, group)
+    }
+    groupOf[i] = group
+    indexInGroup[i] = group.members.length
+    group.members.push(i)
+    let delay = 0
+    if (Predicate.isNotUndefined(stagger)) delay = stagger(rank, movers)
+    delays[i] = delay
+    rank++
+  }
+  /** A group's slot: its rules sampled and registered at its first member's ask, or `None` when one can't be. */
+  const slotOf = (group: RuleGroup): Option.Option<Appear.BatchSlot> => {
+    if (Predicate.isNotUndefined(group.slot)) return group.slot
+    const specOf = (key: string, transitions: Batch.Transitions): Appear.BatchSpec => ({
+      key,
+      keys,
+      transition: transitions,
+      starts: Arr.map(group.members, (i) => (members[i] as ServerMember).from),
+      targets: Arr.map(group.members, (i) => (members[i] as ServerMember).to),
+    })
+    const rule = Appear.batchKeyframes(specOf(group.key, group.transitions))
+    const reducedRule = UndefinedOr.map(group.reduced, (r) => Appear.batchKeyframes(specOf(r.key, r.transitions)))
+    const failure = Option.orElse(Result.getFailure(rule), () => Option.flatMap(Option.fromUndefinedOr(reducedRule), Result.getFailure))
+    if (Option.isSome(failure)) {
+      state.waits(name, failure.value)
+      group.slot = Option.none()
+      return group.slot
+    }
+    group.slot = Option.some(state.batch(Result.getOrThrow(rule), UndefinedOr.map(reducedRule, Result.getOrThrow)))
+    return group.slot
+  }
+  return {
+    styleAt: (i) => {
+      const group = groupOf[i]
+      if (Predicate.isUndefined(group)) return undefined
+      return Option.getOrUndefined(Option.flatMap(slotOf(group), (slot) => Option.fromUndefinedOr(slot.styleOf(indexInGroup[i] as number, delays[i] as number))))
+    },
+    plays: (i) => Predicate.isNotUndefined(groupOf[i]),
+  }
+}
+
+/**
+ * Each member's Appear animation on a server, by its index: its style, made once, and, when its own style
+ * vetoes it, the provider's explanation, once a member (Solid's spread calls a handle once for each prop it
+ * reads).
+ */
+const memberAppearsOf = (state: ServerAppear, styles: MemberStyles, nameOf: NameOf) => {
+  const said = new Set<number>()
+  // Each member's style, made once: Solid's spread calls its handle once for each prop it reads.
+  const made = new Map<number, Readonly<Record<string, string>> | undefined>()
+  const styleOnce = (i: number): Readonly<Record<string, string>> | undefined => {
+    if (made.has(i)) return made.get(i)
+    const style = styles.styleAt(i)
+    made.set(i, style)
+    return style
+  }
+  return (i: number): ServerMemberAppear => ({
+    style: () => styleOnce(i),
+    vetoed: () => {
+      if (Bool.or(Bool.not(styles.plays(i)), said.has(i))) return
+      said.add(i)
+      state.waits(`a Batch's ${nameOf(i)}`, "its own style sets an animation")
+    },
+  })
+}
+
+/** A server render's members and their Appear animations: each member's values, and its Appear. */
+interface ServerMembers {
+  readonly memberAt: (i: number) => ServerMember
+  readonly appearOf: (i: number) => ServerMemberAppear
+}
+
+/**
+ * A server Batch's members (#706): with its `appear: true` (Q21) and a render that writes Appear
+ * animations, every member read up front, as a rule is its group's and a delay its rank's; else each as
+ * its handle asks, and none plays one.
+ */
+const serverMembersOf = (
+  server: BatchServerAppear,
+  config: BatchConfig | KeyedBatchConfig<unknown>,
+  keys: ReadonlyArray<string>,
+  count: number,
+  memberAt: (i: number) => ServerMember,
+  nameOf: NameOf,
+): ServerMembers => {
+  const plain: ServerMembers = { memberAt, appearOf: () => NO_MEMBER_APPEAR }
+  const state = server.state
+  if (Predicate.isUndefined(state)) return plain
+  if (config.appear !== true) return plain
+  const members = Arr.makeBy(count, memberAt)
+  return { memberAt: (i) => members[i] as ServerMember, appearOf: memberAppearsOf(state, serverAppearStylesOf(server, state, config, keys, members), nameOf) }
+}
+
 /**
  * A server render's handles by index (Q63): each member's start, its `initial`'s values, its targets
  * with `initial: false`, else nothing, on the keys the client makes it with, its checks the client's.
  */
-export const serverHandlesOf = <Style>(config: BatchConfig) => {
+export const serverHandlesOf = <Style>(config: BatchConfig, server: BatchServerAppear = NO_SERVER_APPEAR) => {
   const { keys, keyIndex, drawn, targets } = serverKeysOf(withConfigKeys(keysOf(config), false, config))
+  const memberAt = (i: number): ServerMember => {
+    targetsOn(targets, 0, keys, keyIndex, config.animate(i) as Readonly<Record<string, unknown>>, indexName, i)
+    return serverMemberValuesOf(keys, startOn(keys, keyIndex, initialOf(config, i), targets, 0, config.initial === false, indexName, i), targets)
+  }
+  const members = serverMembersOf(server, config, keys, config.count, memberAt, indexName)
   return <E extends Element>(i: number, props?: MemberProps<E, Style>): Member<E, Style> => {
     if (!isMember(i, config.count)) return noMember(i, config.count)
-    targetsOn(targets, 0, keys, keyIndex, config.animate(i) as Readonly<Record<string, unknown>>, indexName, i)
-    return serverMemberOf(startOn(keys, keyIndex, initialOf(config, i), targets, 0, config.initial === false, indexName, i), drawn, props)
+    return serverMemberOf(members.memberAt(i).start, drawn, props, members.appearOf(i))
   }
 }
 
@@ -1051,7 +1416,7 @@ export const serverHandlesOf = <Style>(config: BatchConfig) => {
  * and its index there, its targets under `<AnimatePresence initial={false}>`; a key the list doesn't have,
  * nothing. Its keys and checks the client's: with `keys` given and no items, its keys as given.
  */
-export const serverKeyedHandlesOf = <Style>(config: KeyedBatchConfig<unknown>, presenceOf: () => PresenceContextValue | undefined) => {
+export const serverKeyedHandlesOf = <Style>(config: KeyedBatchConfig<unknown>, presenceOf: () => PresenceContextValue | undefined, server: BatchServerAppear = NO_SERVER_APPEAR) => {
   const items = config.each()
   const reader = keyReaderOf(config)
   const keyAt: Array<unknown> = []
@@ -1071,17 +1436,23 @@ export const serverKeyedHandlesOf = <Style>(config: KeyedBatchConfig<unknown>, p
   let given = listed
   if (Bool.or(Predicate.isUndefined(fixed), items.length > 0)) given = withConfigKeys(listed, Predicate.isNotUndefined(fixed), config)
   const { keys, keyIndex, drawn, targets } = serverKeysOf(given)
-  return <E extends Element>(key: unknown, props?: MemberProps<E, Style>): Member<E, Style> => {
-    const i = indexOfKey.get(key)
-    if (Predicate.isUndefined(i)) return serverMemberOf(undefined, drawn, props)
-    targetsOn(targets, 0, keys, keyIndex, values[i], nameOf, i)
-    // `<AnimatePresence initial={false}>`'s first render (Q46): at its targets, whatever `initial` says.
-    const quiet = presenceBlocksInitial(presenceOf())
+  /** Item `i`'s values, at its targets when `quiet` or with `initial: false`. */
+  const memberAt = (i: number, quiet: boolean): ServerMember => {
+    targetsOn(targets, 0, keys, keyIndex, values[i] as Readonly<Record<string, unknown>>, nameOf, i)
     let initial = keyedInitialOf(config, items[i], i)
     if (quiet) initial = undefined
     let atTargets = quiet
     if (config.initial === false) atTargets = true
-    return serverMemberOf(startOn(keys, keyIndex, initial, targets, 0, atTargets, nameOf, i), drawn, props)
+    return serverMemberValuesOf(keys, startOn(keys, keyIndex, initial, targets, 0, atTargets, nameOf, i), targets)
+  }
+  // Each from its `initial`: one under `<AnimatePresence initial={false}>`, which its own render tells, plays none.
+  const members = serverMembersOf(server, config, keys, items.length, (i) => memberAt(i, false), nameOf)
+  return <E extends Element>(key: unknown, props?: MemberProps<E, Style>): Member<E, Style> => {
+    const i = indexOfKey.get(key)
+    if (Predicate.isUndefined(i)) return serverMemberOf(undefined, drawn, props)
+    // `<AnimatePresence initial={false}>`'s first render (Q46): at its targets, whatever `initial` says.
+    if (presenceBlocksInitial(presenceOf())) return serverMemberOf(memberAt(i, true).start, drawn, props)
+    return serverMemberOf(members.memberAt(i).start, drawn, props, members.appearOf(i))
   }
 }
 
@@ -1279,7 +1650,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
    * `firstTarget(k)`, its first member's, for a key without one.
    */
   const makeBatch = (firstTarget: (k: number) => number): void => {
-    const ownPlan = plannedOf(env, keys, UndefinedOr.map(configuredOf(), unstaggered), false)
+    const ownPlan = plannedOf(env.positionalKeys, keys, UndefinedOr.map(configuredOf(), unstaggered), false)
     const own: Record<string, Batch.Transition> = {}
     Arr.forEach(keys, (key, k) => {
       const plan = ownPlan[k]
@@ -1896,19 +2267,96 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     turnOn(slots, configured, staggerOf(configured), back)
   }
 
-  /** `slots` turned toward their targets on `configured`, each held by `delay`'s for its rank when given, from `back`'s starts. */
+  /**
+   * `slots` turned toward their targets on `configured`, each held by `delay`'s for its rank when given, from
+   * `back`'s starts. The first change after members arrive running their Appear animation, whichever it is
+   * (the arrival's, or a Batch Reorder group's own first), starts each where that has got to (#706).
+   */
   const turnOn = (slots: ReadonlyArray<number>, configured: WardicTransition | undefined, delay: ((rank: number, n: number) => number) | undefined, back: HandedStarts | undefined): void => {
-    if (skipsNow(configured)) {
-      wake(Batch.retarget(made(), slots, targetOf, { transition: INSTANT, ...back }))
-      return
-    }
+    // Its Appear animations' Handoff (#706): at the page's first, after its code has loaded (Q11), its
+    // members drawn by their CSS meanwhile.
+    const startsHandoff = appearing.size > 0 && Predicate.isUndefined(handoffAt)
+    if (startsHandoff && Predicate.isUndefined(handoffModule)) return afterHandoffLoads(() => turnOn(slots, configured, delay, back))
+    const skipped = skipsNow(configured)
     const reduced = env.reducedMotion()
-    const transition = transitionOf(plannedOf(env, keys, UndefinedOr.map(configured, unstaggered), reduced))
-    if (Predicate.isUndefined(delay)) {
-      wake(Batch.retarget(made(), slots, targetOf, { transition, ...back }))
+    const planned = plannedOf(env.positionalKeys, keys, UndefinedOr.map(configured, unstaggered), reduced)
+    // The first change after members arrive running their Appear animation starts each where that has got
+    // to; every change before its first step starts them the same way, a member arriving then among them.
+    if (startsHandoff) handoffAt = handoffStartAt((slot) => memberRuleKeyOf(slot, planned, reduced, skipped))
+    const startAt = handoffAt
+    // Skipped, every key at once and no stagger; else this moment's transitions, each member held by its rank's delay.
+    const options: Batch.RetargetOptions = Bool.match(skipped, {
+      onTrue: () => ({ transition: INSTANT, ...back, ...startAtOption(startAt) }),
+      onFalse: () => ({ transition: transitionOf(planned), ...UndefinedOr.match(delay, { onUndefined: () => ({}), onDefined: (given) => ({ delay: given }) }), ...back, ...startAtOption(startAt) }),
+    })
+    wake(Batch.retarget(made(), slots, targetOf, options))
+    // A change that took none of them over: no step reads them, so each is let go now.
+    if (Predicate.isNotUndefined(startAt) && !Batch.isMoving(made())) releaseAppearing()
+  }
+
+  // --- The Handoff (#706, ADR-0044 *Amendment (#706)*, Q3, Q8, Q9) --------------------------------------
+
+  // A hydrating Batch's members whose elements run their Appear animation, by slot, as they arrive: what its
+  // arrival change takes over. Read only while it hydrates, and asked for one (Q21; a string read a
+  // member): a client-only Batch never looks, and a member's element running a Wardic element's own Appear
+  // animation, where its Batch didn't ask, stays that element's.
+  let looksForAppear = false
+  if (env.hydrating === true) looksForAppear = config.appear === true
+  const appearing = new Set<number>()
+  // The Handoff's `startAt`, while its first change waits for its first step: every change till then takes it.
+  let handoffAt: ((slot: number) => number) | undefined = undefined
+
+  /**
+   * A member's rule's key, as the server's rule group named its transitions in this change: what its Appear
+   * animation's name is checked against, in development (`env.appearKeyOf`); `None` otherwise.
+   */
+  const memberRuleKeyOf = (slot: number, planned: ReadonlyArray<KeyPlan>, reduced: boolean, skipped: boolean): Option.Option<string> =>
+    UndefinedOr.match(env.appearKeyOf, {
+      onUndefined: () => Option.none(),
+      onDefined: (keyOf) =>
+        keyOf(keys, memberTransitionsOf(keys, planned, (key, target) => env.defaultTransition.transitionFor(key, target) as Batch.Transition, (k) => targetOr(targetOf(slot, k), Batch.get(made(), slot, keys[k] as string)), skipped), reduced, skipped),
+    })
+
+  /** What the Handoff's module reads of this Batch's members running their Appear animation. */
+  const handoffMembers = (keyOf: (slot: number) => Option.Option<string>) => ({
+    appearing,
+    elementOf: (slot: number) => elementOf[memberOf[slot] as number],
+    keyOf: UndefinedOr.map(env.appearKeyOf, () => keyOf),
+    runtime: env.runtime,
+    release: releaseAppearing,
+  })
+
+  /** The first change's `startAt`, its members' times read at its first step (`batch-handoff.ts`, loaded by now). */
+  const handoffStartAt = (keyOf: (slot: number) => Option.Option<string>): ((slot: number) => number) =>
+    UndefinedOr.getOrThrow(handoffModule).startAtOf(handoffMembers(keyOf))
+
+  // Changes that wait for the Handoff's code, run in order once it has loaded; none once it's disposed.
+  let waitingForHandoff: Array<() => void> | undefined = undefined
+  /** `run` once the Handoff's code has loaded, after any change waiting before it; its members let go if it fails to. */
+  const afterHandoffLoads = (run: () => void): void => {
+    if (Predicate.isNotUndefined(waitingForHandoff)) {
+      waitingForHandoff.push(run)
       return
     }
-    wake(Batch.retarget(made(), slots, targetOf, { transition, delay, ...back }))
+    waitingForHandoff = [run]
+    void loadHandoff(env.runtime).then((module) => {
+      const waiting = UndefinedOr.getOrThrow(waitingForHandoff)
+      waitingForHandoff = undefined
+      if (disposed) return
+      // Not loaded: each member let go of its animation, and moved from its start.
+      if (Predicate.isUndefined(module)) releaseAppearing()
+      Arr.forEach(waiting, (next) => next())
+    })
+  }
+
+  /**
+   * Every member still running its Appear animation let go of it: once the Handoff's first step has read
+   * them, one a change didn't move among them, or each one the Handoff's code never came for.
+   */
+  const releaseAppearing = (): void => {
+    Iter.forEach(appearing, (slot) => UndefinedOr.map(elementOf[memberOf[slot] as number] as (Element & ElementCSSInlineStyle) | undefined, Appear.release))
+    appearing.clear()
+    handoffAt = undefined
   }
 
   // --- Hover and press per member (#665's PR 5, ADR-0070 decision 12, Q56–Q60) ----------------------
@@ -2317,6 +2765,11 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     const start = startOf(i)
     const entering = Batch.enter(made(), el, start)
     slotOf[i] = entering
+    // Hydrating, its element may run its Appear animation (#706): the arrival change takes it over. A
+    // client-only Batch reads nothing of it. Per member at mount (#540): statements.
+    if (looksForAppear) {
+      if (Appear.pending(el as ElementCSSInlineStyle & Element)) appearing.add(entering)
+    }
     memberOf[entering] = i
     form.entered(entering)
     drawNow(el, Arr.map(keys, (key) => start[key]))
@@ -2447,7 +2900,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     const transition = Bool.match(call.skipAnimations, {
       onTrue: () => (): Batch.Transition => INSTANT,
       onFalse: () => {
-        const planned = plannedOf(env, keys, UndefinedOr.map(call.transition, unstaggered), call.reducedMotion)
+        const planned = plannedOf(env.positionalKeys, keys, UndefinedOr.map(call.transition, unstaggered), call.reducedMotion)
         return (slot: number, k: number): Batch.Transition => {
           const plan = planned[k]
           if (Predicate.isNotUndefined(plan.own)) return plan.own
