@@ -18,6 +18,8 @@
 // - BH8 (Q21): a Batch without `appear` leaves a Wardic element on its member's element its own Appear
 //   animation, which goes on through hydration, and moves its member from its start.
 import * as Batch from "@wardic/core/Batch"
+import * as Bool from "effect/Boolean"
+import * as Rec from "effect/Record"
 import type { JSX } from "@solidjs/web"
 import { commands } from "vitest/browser"
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
@@ -130,7 +132,16 @@ describe("a Batch's members' Appear animations, server render to hydration (#706
     const reduced = { x: { type: "tween", duration: 0 }, opacity: B2_TWEEN } as const
     const r = await run("B2", B2, { hydrateAfter: 300, forMs: 1200 })
     for (const i of [0, 1, 2]) {
-      const after = followsMachine(r, `t${i}`, (seconds) => tileAt(i, seconds, reduced))
+      // A display frame near a member's snap can land on either side of it: its x doesn't count there,
+      // as in AH9. The delays are whole 60 Hz frames, so a frame lands on the snap itself, where the rAF
+      // time this reads and the animation's own can fall either side of it (#736).
+      const delay = i * B2_STAGGER
+      const nearSnap = (seconds: number): boolean => Math.abs(seconds - delay) < 0.02
+      const want = (seconds: number): Record<string, number> => {
+        const values = tileAt(i, seconds, reduced)
+        return Bool.match(nearSnap(seconds), { onTrue: () => Rec.remove(values, "x"), onFalse: () => values })
+      }
+      const after = followsMachine(r, `t${i}`, want)
       expect(after).toBeGreaterThan(5)
       expect(handedOff(r, `t${i}`)).toBe(true)
     }
