@@ -53,27 +53,24 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      - name: Typecheck
-        run: bun run typecheck
-
-      # The Effect-first rules on @wardic/core (ADR-0025, docs/agents/effect-first.md).
-      - name: Lint
-        run: bun run lint
-
-      # Fast node tier — @wardic/core + @wardic/test (pure logic). `bun run test`
-      # (vitest), NOT `bun test` (Bun's native runner, which would mis-handle the
-      # @effect/vitest suites).
-      - name: Test (node tier)
-        run: bun run test
-
       # Canonical DOM tier — @wardic/dom + @wardic/solid in real Chromium. Locally
       # the browser comes from the nix devshell; on CI we install Playwright's
       # pinned browser (package.json pins playwright 1.59.1) the normal way.
       - name: Install Playwright browser
         run: bunx playwright install --with-deps chromium
 
+      # PROBE (#729): the full browser tier, its FL5 reports in the log, not stopping the job; then
+      # FL5 alone, ten times.
       - name: Test (browser tier)
+        continue-on-error: true
         run: bun run test:browser
 
-      - name: Build
-        run: bun run build
+      - name: FL5 alone, ten times
+        continue-on-error: true
+        working-directory: packages/solid
+        run: |
+          for i in $(seq 1 10); do
+            echo "== FL5 alone, run $i"
+            bunx vitest run --config vitest.browser.config.ts test/fling.browser.test.tsx -t FL5 2>&1 | grep -E 'FL5PROBE|Tests |AssertionError' || true
+          done
+

@@ -16,7 +16,7 @@ import * as Bool from "effect/Boolean"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
-import { page } from "vitest/browser"
+import { commands, page } from "vitest/browser"
 import { add, flingFrom, glide, mouse, type Pt, resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
 
 afterEach(resetScene)
@@ -155,6 +155,12 @@ describe("a free drag's release reads the pointer's last 100 ms (ADR-0004, Amend
     // half of it; the release reads the pointer's.
     const carries: Array<number> = []
     for (const constrained of [false, true]) {
+      // PROBE (#729): every pointer event the document gets, from the grab to 400 ms after the up.
+      const events: Array<string> = []
+      const note = (e: PointerEvent): void => {
+        events.push(`${e.type.slice(7)}@${e.timeStamp.toFixed(1)}:${e.clientX.toFixed(1)},${e.clientY.toFixed(1)}`)
+      }
+      for (const type of ["pointerdown", "pointermove", "pointerup"] as const) document.addEventListener(type, note, true)
       const b = await mountBox({ layout: true, dragTransition: SOFT, ...Bool.match(constrained, { onTrue: () => ({ constraints: { left: 0, right: 50 } }), onFalse: () => ({}) }) })
       const { pointer, released } = await fling(
         b,
@@ -164,9 +170,16 @@ describe("a free drag's release reads the pointer's last 100 ms (ADR-0004, Amend
       )
       expect(released, "let go 150 px right of the slot").toBeCloseTo(150, -1)
       const sampling = sampleFrames(() => dxOf(b))
+      const upAt = performance.now()
       await mouse.up(pointer)
       await wait(400)
-      carries.push(Math.max(...sampling.stop().map((f) => f.v)) - released)
+      const frames = sampling.stop()
+      carries.push(Math.max(...frames.map((f) => f.v)) - released)
+      for (const type of ["pointerdown", "pointermove", "pointerup"] as const) document.removeEventListener(type, note, true)
+      const side = constrained ? "constrained" : "free"
+      await commands.report(`FL5PROBE ${side} released=${released.toFixed(2)} carry=${carries[carries.length - 1]!.toFixed(2)} upAt=${upAt.toFixed(1)}`)
+      await commands.report(`FL5PROBE ${side} events ${events.join(" ")}`)
+      await commands.report(`FL5PROBE ${side} frames ${frames.map((f) => `${f.frameAt.toFixed(1)}:${f.v.toFixed(2)}`).join(" ")}`)
       await wait(1400)
       expect(Math.abs(dxOf(b)), "it lands on its slot").toBeLessThan(0.5)
       await resetScene()
