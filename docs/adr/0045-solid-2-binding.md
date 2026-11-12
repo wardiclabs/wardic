@@ -850,3 +850,19 @@ rc.19 to rc.20 changed nothing in Wardic. What it changes beside it:
   - Kobalte 2.0's Tabs (alpha.4): `Tabs.List` copies the selected trigger into its context from an effect, and `Tabs.Content`'s presence (`@solid-primitives/presence` 1.0.0-next.2) sets its own source from one (`EFFECT_RELAY_TEAR`, `EFFECT_WRITES_OWN_SOURCE`). Named on the example, not Wardic's or the example's to fix.
 - **rc.20's `onFlush`:** the binding's two writes from a microtask when a Retarget starts (`settled()`'s count, `createAnimate`'s) aren't writes a hold catches: they come from a flush that has landed. `onFlush` in `started()` passes the same tests (SE1–SE11); `queueMicrotask` stays, for #315's reason. The two made when a memo is (`tapped()`, `createAnimate`) can be in a computation, where `onFlush` warns.
 - **rc.20's adopted computes:** none of the binding's memos that make a promise (`settled()`, `tapped()`, `createAnimate`) is adopted. Each is `transparent`, so it takes no hydration id, and a server ward's reads are constants.
+
+## Note (#560, 2026-11-12): rc.21
+
+Bumped per decision 9 before 1.0.0, with Effect 4.1.4, and released as 1.0.0-rc.11 ([`docs/research/effect-4-1-4-upgrade.md`](../research/effect-4-1-4-upgrade.md)):
+- `solid-js` (`solid-js-2`), `@solidjs/web`, `@solidjs/babel-plugin` and `@solidjs/diagnostics` are pinned at 2.0.0-rc.21 in dev, with `@solidjs/signals` beside them, and the peer floor is `^2.0.0-rc.21`;
+- the examples and the site move to rc.21 too, `@solidjs/router` to 2.0.0-next.44 and `@solidjs/vite-plugin` to 3.0.0-next.57, with its `@solidjs/compiler` at rc.21 (the lock had kept rc.20 under it, as #505 found of next.51).
+
+What it changes in Wardic: `createOwner` left `solid-js`'s types, typed only from `solid-js/internal`, for renderers. A browser's plain element (#525) renders under `createRoot` in its place: rc.21's `createRoot` makes the same owner, its parent's, with the same hydration id, and one bound `dispose` more per mount. CO1 lists it beside the server's memo whose id it takes.
+
+What it changes beside it:
+- **`defer: true` effects** skip their first run when an action or a transition mounts them, as the binding's watches mean to.
+- **`latest()`** in a verdict window reads a non-keyed `<Show>`'s or `<Match>`'s accessor for a branch that mounted in the flush its condition landed in: #335's in-flight setup read, which its tests cover.
+- **Two new dev diagnostics:** `CAUGHT_REACTIVE_READ`, a reactive read's throw caught inside a computation, and `OPTIMISTIC_WRITE_BEFORE_LOAD`, which throws. The binding's one catch around a read (`config-view.ts`, #335) runs under `runWithOwner(null, …)`, outside any computation, so it doesn't warn, and the binding makes no optimistic source. #320's gate fails on both, and neither fired.
+- **For apps:** a dozen fixes to hydration, `<Loading>` and `<Errored>`, optimistic lists and the keyed `<For>`.
+
+**Checked** (the research doc's *Checked* has the numbers): typecheck and lint; every suite, under #320's gate; the storefront's three apps and the Solid 2 app's dev smoke, every route; both start examples' routes and `/appear`'s hand check; the site's build; `pack:check`; the size gate; and `bench:core` and `bench:solid` against `main`, every gate passing on both bindings.
