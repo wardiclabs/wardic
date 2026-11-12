@@ -9,6 +9,11 @@
  * - **At mount:** `find` the element's animation, check it `matches` the client's own spec, start the run
  *   `elapsedOf` it in (`Machine.startAt`), and `release` the element in the task that writes the engine's
  *   first frame.
+ * - **A Batch's members** (#706): `batchKeyframes` samples one rule for every member on one set of
+ *   transitions, each member's own values read from custom properties; a sheet's `batch` gives them one
+ *   slot, and each member its style. At the Handoff, `findAll` reads every member's animation in one call,
+ *   each `matchesBatch` the client's key, and its change starts `elapsedOf` it in (`Batch.retarget`'s
+ *   `startAt`).
  *
  * @example
  * import * as Appear from "@wardic/dom/Appear"
@@ -24,14 +29,20 @@
 export {
   adoptChunks,
   animationOf,
+  batchKeyframes,
+  type BatchKeyframes,
+  type BatchSlot,
+  type BatchSpec,
   CHUNK_ATTRIBUTE,
   chunkStyle,
   delayOf,
   elapsedOf,
   find,
+  findAll,
   keyframes,
   type Keyframes,
   matches,
+  matchesBatch,
   MAX_SECONDS,
   nameOf,
   pending,

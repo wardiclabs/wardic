@@ -89,6 +89,15 @@ export interface RetargetOptions {
   readonly from?: (slot: number, k: number) => number
   /** Each started key's speed, with `from`. */
   readonly velocity?: (slot: number, k: number) => number
+  /**
+   * How far each member's change has run, in seconds, its delay included, or `NaN` for from its start:
+   * read once, at the member's first step, which draws the keys this change turns there, at the speed
+   * they have there (a spring's by its closed form, a tween's by its curve), and steps on from it at the
+   * next. A spring under its rest thresholds there lands at that next step. For an Appear animation taken
+   * over, read in the frame that draws it.
+   */
+  // #706, Q3 and Q8: a server-rendered member's Appear animation, taken over at its Handoff.
+  readonly startAt?: (slot: number) => number
 }
 
 /** `make`'s options. */
@@ -157,6 +166,13 @@ const IN_PLAIN = 2
 const IN_RULED = 4
 /** A change counted it among its movers: a slot given twice moves once. */
 const COUNTED = 8
+/**
+ * A change started it partway (`startAt`), read at its first step: the keys that change turned have
+ * `elapsed` `NaN` until then. It's in `startList`, which each step's start pass reads before the loops.
+ */
+const STARTS = 16
+/** The start pass drew it this step: its loop keeps it, unstepped, and clears the flag. */
+const STARTED = 32
 
 /** A Batch's state, which only this module's operations write. */
 interface State<S> {
@@ -193,6 +209,10 @@ interface State<S> {
   flags: Uint8Array
   /** The slots a `leave` freed, the next `enter`'s. */
   readonly free: Array<number>
+  /** Each `STARTS` member's `startAt`, by slot, read once at its first step. */
+  readonly startAts: Array<((slot: number) => number) | undefined>
+  /** The `STARTS` members, in the order their changes came: the next step's start pass. */
+  readonly startList: Array<number>
   /** The members moving with every key on the Batch's own spring, `plainCount` of them: one matrix for all. */
   plainList: Int32Array
   plainCount: number
@@ -412,6 +432,8 @@ export const make = <S>(options: Options<S>): Batch<S> => {
     movers: new Int32Array(capacity),
     flags: new Uint8Array(capacity),
     free: [],
+    startAts: [],
+    startList: [],
     plainList: new Int32Array(capacity),
     plainCount: 0,
     ruledList: new Int32Array(capacity),
@@ -494,7 +516,8 @@ export const enter: {
   const state = stateOf(self)
   const slot = slotFor(state)
   state.subjects[slot] = subject
-  state.flags[slot] = state.flags[slot] | LIVE
+  // A start a member that left never took isn't this one's.
+  state.flags[slot] = (state.flags[slot] & ~(STARTS | STARTED)) | LIVE
   const base = slot * state.stride
   Arr.forEach(state.keys, (key, k) => {
     const given = start[key]
@@ -683,6 +706,10 @@ export const retarget: {
   const held = Arr.dedupe(rules)
   Arr.forEach(held, (rule) => hold(state, rule))
   const driven = state.animations.size > 0
+  // Started partway (#706): each key it turns waits, `elapsed` `NaN`, for its member's first step to read where.
+  const startAt = UndefinedOr.map(options, (bag) => bag.startAt)
+  let fresh = 0
+  if (Predicate.isNotUndefined(startAt)) fresh = Number.NaN
   let setOff = 0
   for (let rank = 0; rank < n; rank++) {
     const slot = movers[rank]
@@ -701,7 +728,8 @@ export const retarget: {
       if (rule !== 0 || entry.kind !== SPRING) ruled = true
       // Taken from a driven change its Playhead holds, it starts from rest (#464).
       if (driven && heldAt(state, at)) state.velocities[at] = 0
-      // `turn`'s body, inline, less its start's speed, which only a driven change reads, and sets at its play.
+      // `turn`'s body, inline, less its start's speed, which a driven change sets at its play and a start
+      // partway at its first step.
       const before = state.rules[at]
       if (before !== rule) {
         hold(state, rule)
@@ -710,7 +738,7 @@ export const retarget: {
       }
       targets[at] = target
       state.origins[at] = state.positions[at]
-      state.elapsed[at] = 0
+      state.elapsed[at] = fresh
       state.delays[at] = entry.delay + wait
       const distance = target - state.positions[at]
       state.restDeltas[at] = Spring.restDeltaFor(entry.spring, distance)
@@ -718,7 +746,12 @@ export const retarget: {
       // A spring that ends at its duration starts from rest, as Motion's (#359).
       if (entry.kind === TIMED) state.velocities[at] = 0
     }
-    const flag = flags[slot] & ~COUNTED
+    let flag = flags[slot] & ~COUNTED
+    if (Predicate.isNotUndefined(startAt)) {
+      if ((flag & STARTS) === 0) state.startList.push(slot)
+      flag = flag | STARTS
+      state.startAts[slot] = startAt
+    }
     flags[slot] = flag
     if ((flag & (IN_PLAIN | IN_RULED)) === 0) setOff++
     // Into the ruled list, out of the plain one (which drops it at its next step); else into the plain
@@ -755,6 +788,7 @@ export const step = <S>(self: Batch<S>, dt: number): boolean => {
   const state = stateOf(self)
   const clamped = Math.min(dt, Machine.MAX_DT)
   state.frame = state.frame + 1
+  if (state.startList.length > 0) startPass(state, clamped)
   if (state.plainCount > 0) stepPlain(state, clamped)
   if (state.ruledCount > 0) stepRuled(state, clamped)
   if (state.animations.size > 0) Iter.forEach(state.animations, checkLanding)
@@ -817,8 +851,15 @@ const stepPlain = <S>(state: State<S>, clamped: number): void => {
   for (let a = 0; a < count; a++) {
     const slot = plainList[a]
     const flag = flags[slot]
-    // A member a change gave another transition is the ruled list's now; one that left is dropped here, unwritten.
+    // A member a change gave another transition is the ruled list's now; one that left is dropped here,
+    // unwritten. One the start pass drew this step is kept, unstepped (#706).
     if (flag !== (LIVE | IN_PLAIN)) {
+      if (flag === (LIVE | IN_PLAIN | STARTED)) {
+        flags[slot] = LIVE | IN_PLAIN
+        plainList[kept] = slot
+        kept++
+        continue
+      }
       if ((flag & IN_PLAIN) !== 0) flags[slot] = flag & ~IN_PLAIN
       continue
     }
@@ -895,7 +936,10 @@ const stepRuled = <S>(state: State<S>, clamped: number): void => {
       dt = drivenStep(driver, clamped, state.frame)
     }
     dts[e] = dt
-    if (kind === TWEEN || dt <= 0) continue
+    // A step of 0 s too, the identity: the loop below moves a spring by its matrix whenever all its step
+    // is past the delay, which 0 s is, and the matrix a 0 s step skipped was the last frame's, or zeros,
+    // landing every spring on its target (a Clock's tick can be 0 s; #706).
+    if (kind === TWEEN || dt < 0) continue
     const m = Spring.matrixFor(entries[e].spring, dt)
     matrices[e * MATRIX] = m.dd
     matrices[e * MATRIX + 1] = m.dv
@@ -913,10 +957,18 @@ const stepRuled = <S>(state: State<S>, clamped: number): void => {
   for (let a = 0; a < count; a++) {
     const slot = ruledList[a]
     const flag = flags[slot]
-    // A member that left is dropped here, unwritten.
-    if ((flag & LIVE) === 0) {
-      flags[slot] = flag & ~IN_RULED
-      continue
+    // A member that left is dropped here, unwritten; one the start pass drew this step is kept, unstepped (#706).
+    if (flag !== (LIVE | IN_RULED)) {
+      if ((flag & LIVE) === 0) {
+        flags[slot] = flag & ~IN_RULED
+        continue
+      }
+      if ((flag & STARTED) !== 0) {
+        flags[slot] = flag & ~STARTED
+        ruledList[kept] = slot
+        kept++
+        continue
+      }
     }
     const base = slot * stride
     let still = true
@@ -981,10 +1033,18 @@ const stepRuledDriven = <S>(state: State<S>): void => {
   for (let a = 0; a < count; a++) {
     const slot = ruledList[a]
     const flag = flags[slot]
-    // A member that left is dropped here, unwritten.
-    if ((flag & LIVE) === 0) {
-      flags[slot] = flag & ~IN_RULED
-      continue
+    // A member that left is dropped here, unwritten; one the start pass drew this step is kept, unstepped (#706).
+    if (flag !== (LIVE | IN_RULED)) {
+      if ((flag & LIVE) === 0) {
+        flags[slot] = flag & ~IN_RULED
+        continue
+      }
+      if ((flag & STARTED) !== 0) {
+        flags[slot] = flag & ~STARTED
+        ruledList[kept] = slot
+        kept++
+        continue
+      }
     }
     const base = slot * stride
     let still = true
@@ -1207,9 +1267,11 @@ const heldAt = <S>(state: State<S>, at: number): boolean => {
 
 /**
  * The key at `at`'s value and speed at `time` into its change, from its start: a spring's by its closed
- * form, a tween's by its curve, keyframes' by their stops. Whether it has landed there.
+ * form, a tween's by its curve, keyframes' by their stops. Whether it has landed there. A spring under its
+ * rest thresholds lands there when it `rests`; else it's left where its closed form has it, to land at its
+ * next step (a start partway, drawn where the Appear animation it takes over drew it, #706).
  */
-const valueAt = <S>(state: State<S>, at: number, rule: number, time: number): boolean => {
+const valueAt = <S>(state: State<S>, at: number, rule: number, time: number, rests: boolean): boolean => {
   const entry = state.entries[rule]
   if (entry.kind === KEYFRAMES) return keyframesAt(state, at, rule, time)
   const delay = state.delays[at]
@@ -1236,7 +1298,7 @@ const valueAt = <S>(state: State<S>, at: number, rule: number, time: number): bo
   const v0 = state.originVelocities[at]
   let position = goal + m.dd * d + m.dv * v0
   let speed = m.vd * d + m.vv * v0
-  let landed = Math.abs(speed) <= state.restSpeeds[at] && Math.abs(position - goal) <= state.restDeltas[at]
+  let landed = rests && Math.abs(speed) <= state.restSpeeds[at] && Math.abs(position - goal) <= state.restDeltas[at]
   if (entry.kind === TIMED) landed = active >= entry.spring.duration
   if (landed) {
     position = goal
@@ -1247,12 +1309,109 @@ const valueAt = <S>(state: State<S>, at: number, rule: number, time: number): bo
   return landed
 }
 
+/**
+ * Each step's start pass, before the loops: each `STARTS` member where its change's `startAt` says, drawn,
+ * and flagged `STARTED` so its loop keeps it unstepped; one given `NaN` moves from its start, its loop
+ * stepping it as any other.
+ */
+// Once a member, at its first step after a change that starts it partway (#706): out of the loops, which
+// only clear a flag, so their code is the same size it was (Bun's step was 5–9% slower with this in them).
+const startPass = <S>(state: State<S>, dt: number): void => {
+  const { flags, startList } = state
+  // Over the members a change started partway since the last step: a counted loop, as the step's.
+  for (let i = 0; i < startList.length; i++) {
+    const slot = startList[i]
+    const flag = flags[slot]
+    if ((flag & STARTS) === 0) continue
+    flags[slot] = flag & ~STARTS
+    // A member that left takes no start, nor keeps one.
+    if ((flag & LIVE) === 0) {
+      state.startAts[slot] = undefined
+      continue
+    }
+    if (startedPartway(state, slot, dt)) flags[slot] = flags[slot] | STARTED
+  }
+  startList.length = 0
+}
+
+/**
+ * A member's start partway: where its change's `startAt` says, or, given `NaN`, nowhere yet (its keys wait
+ * at its start, and its loop moves it this step). Whether it started there, drawn: the keys the change
+ * turned at that time, unlanded (`valueAt`'s `rests`), from the speed they had when it came; its other
+ * moving keys a step on from where they are, as its loop would.
+ */
+const startedPartway = <S>(state: State<S>, slot: number, dt: number): boolean => {
+  const { stride, elapsed, rules, positions, velocities, targets, originVelocities, startAts } = state
+  const startAt = UndefinedOr.getOrThrow(startAts[slot])
+  startAts[slot] = undefined
+  const time = startAt(slot)
+  const base = slot * stride
+  const started = !Number.isNaN(time)
+  for (let k = 0; k < stride; k++) {
+    const at = base + k
+    const turned = Number.isNaN(elapsed[at])
+    // From its start, given `NaN`: its loop moves it.
+    if (turned && !started) elapsed[at] = 0
+    if (!started) continue
+    if (turned) {
+      // Nothing has moved it since its change: its speed is the one it came with.
+      originVelocities[at] = velocities[at]
+      elapsed[at] = time
+      valueAt(state, at, rules[at], time, false)
+      continue
+    }
+    if (velocities[at] === 0 && positions[at] === targets[at]) continue
+    stepKey(state, at, rules[at], dt)
+  }
+  if (started) state.write(state.subjects[slot] as S, positions, base)
+  return started
+}
+
+/**
+ * The key at `at` a step of `dt` on, as the loops step it: a tween's, keyframes', or a spring's by its
+ * matrix for the part past its delay, landing by its thresholds or its duration.
+ */
+// Rare: a key the loops don't reach this step, of a member started partway that another change moves.
+const stepKey = <S>(state: State<S>, at: number, rule: number, dt: number): void => {
+  const entry = state.entries[rule]
+  const time = state.elapsed[at] + dt
+  state.elapsed[at] = time
+  if (entry.kind === TWEEN) {
+    stepTween(state, at, entry.tween, time, dt)
+    return
+  }
+  if (entry.kind === KEYFRAMES) {
+    stepKeyframes(state, at, rule, time, dt)
+    return
+  }
+  // The loops' spring step: only the part of this step past the delay moves it.
+  const delay = state.delays[at]
+  const goal = state.targets[at]
+  const simDt = Math.max(0, Math.min(dt, time - delay))
+  let position = state.positions[at]
+  let speed = state.velocities[at]
+  if (simDt > 0) {
+    const m = Spring.matrixFor(entry.spring, simDt)
+    const d = position - goal
+    position = goal + m.dd * d + m.dv * speed
+    speed = m.vd * d + m.vv * speed
+  }
+  let settled = simDt > 0 && Math.abs(speed) <= state.restSpeeds[at] && Math.abs(position - goal) <= state.restDeltas[at]
+  if (entry.kind === TIMED) settled = time - delay >= entry.spring.duration
+  if (settled) {
+    position = goal
+    speed = 0
+  }
+  state.positions[at] = position
+  state.velocities[at] = speed
+}
+
 /** A key played backwards by `dt`: its value where its Playhead went back to; at its start, at rest there. */
 // Per frame, per key of a change played backwards: rare, so out of line.
 const stepBack = <S>(state: State<S>, at: number, rule: number, dt: number): boolean => {
   const time = Math.max(0, state.elapsed[at] + dt)
   state.elapsed[at] = time
-  valueAt(state, at, rule, time)
+  valueAt(state, at, rule, time, true)
   if (time > 0) return false
   state.positions[at] = state.origins[at]
   state.velocities[at] = 0
@@ -1740,7 +1899,7 @@ export const play = (self: Animation): number => {
     const rule = animation.rules[i]
     turn(state, at, rule, animation.goals[i], animation.starts[i], animation.speeds[i], animation.waits[i])
     state.elapsed[at] = time
-    valueAt(state, at, rule, time)
+    valueAt(state, at, rule, time, true)
     setOff += moving(state, slotAt(state, at))
   }
   return setOff
