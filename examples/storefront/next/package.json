@@ -1,6 +1,6 @@
 {
   "name": "@wardic/example-storefront-next",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "The storefront showcase's Motion side (#366): every example on Next.js (App Router), React 19 and motion/react, so each Wardic example's page shows the Motion version beside it, and it runs.",

@@ -1,6 +1,6 @@
 {
   "name": "@wardic/example-storefront-shared",
-  "version": "0.0.0",
+  "version": "0.0.1",
   "private": true,
   "type": "module",
   "description": "What the storefront showcase's apps share (#296, #366): the catalog and its photos, the stylesheet, the examples' registry, the apps' addresses, the store in Effect and the smoke runner.",
