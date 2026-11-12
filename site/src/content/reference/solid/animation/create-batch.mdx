@@ -29,7 +29,29 @@ On a server a Batch animates nothing, and each spread member's element renders w
 - **With `initial: false`,** or, keyed, under an `<AnimatePresence initial={false}>`'s first render, its targets. A server-rendered grid that should arrive in place takes `initial: false`.
 - **With neither,** nothing: it starts at each key's identity and animates to its targets once hydrated, as a Wardic element with no `initial` does.
 
-Give the element's own `style` to its handle, `grid.at(i, { style })`: on a server the handle writes the start into `style`, and a `style` beside the spread would take its place, or be replaced by it. A keyed Batch reads its list once on the server; a handle for a key the list doesn't have renders no start. A handle given to `ref` alone, not spread, renders nothing of the Batch's. An SVG member's translate is right from the server; a rotate or scale turns about the SVG's origin until hydration, which turns it about its own centre. Its entrance plays once the page's JS has run, not from first paint as a Wardic element's Appear animation does ([#706](https://github.com/wardiclabs/wardic/issues/706)).
+Give the element's own `style` to its handle, `grid.at(i, { style })`: on a server the handle writes the start into `style`, and a `style` beside the spread would take its place, or be replaced by it. A keyed Batch reads its list once on the server; a handle for a key the list doesn't have renders no start. A handle given to `ref` alone, not spread, renders nothing of the Batch's. An SVG member's translate is right from the server; a rotate or scale turns about the SVG's origin until hydration, which turns it about its own centre.
+
+### Its entrance from the first paint
+
+By default a Batch's entrance plays once the page's JavaScript has run. Give it `appear: true` and the server plays it from the first paint, as a Wardic element's [entrance before the JavaScript](/guides/server-rendering#entrances-before-the-javascript): one CSS animation in the page's head for all its members, each member's own start and targets written on its element as custom properties, and its `stagger()` its own delay. As the page hydrates, the Batch takes each member over where its CSS has got to, at the speed it has there. With the JavaScript off, each member plays to its targets and stays there.
+
+```tsx
+const grid = createBatch({
+  appear: true,
+  count: 1000,
+  initial: { opacity: 0, scale: 0.8 },
+  animate: (i) => ({ x: (i % 40) * 24, y: Math.floor(i / 40) * 24, opacity: 1, scale: 1 }),
+  transition: { type: "spring", visualDuration: 0.4, delay: stagger(0.001) },
+})
+```
+
+- **What plays:** springs and tweens with a named ease. A Batch whose ease is a function waits for the JavaScript, as does a member whose own `style` sets an `animation`, which it keeps.
+- **[A Wardic element as a member](#a-wardic-element-as-a-member)** with an entrance of its own: under a Batch with `appear`, the Batch's plays from the first paint and the element's waits for the JavaScript; without `appear`, the element's plays from the first paint, as any element's.
+- **Its cost:** a few KB of CSS for each set of transitions its members run, and on each member its `animation` and each value of its own that its members don't all share: about 85 bytes for a tile of that grid, before compression.
+- **Reduced motion and `skipAnimations`** apply as to an element's entrance, and the provider's `appear={false}` turns it off with the rest. With `appear="explain"`, the server says why a Batch that asked waits.
+- **Streamed content:** a Batch under a `Suspense` (`Loading` on Solid 2) that arrives after the shell plays when a Wardic element in the same chunk does: that element brings the chunk's CSS. With none, its members wait for the JavaScript.
+- **On SVG,** give a member that turns or scales `transform-box: fill-box; transform-origin: center` in its own `style`, so it turns about its own centre from the first paint.
+- **Thousands of members:** taking them over reads every animation on the page once, which Chromium sorts by where each element sits, and ends that many CSS animations at once, which Chromium draws again. In Chromium, a grid of 1,000 members in one parent drops two frames as it hydrates, and one of 5,000 holds the page about 0.4 s. Rows of 50, each its own parent, cut the read from 170 ms to 6 ms at 5,000. For a Batch that large, leave `appear` off, or give it to the members on screen first.
 
 ## Its config
 
@@ -37,6 +59,7 @@ Give the element's own `style` to its handle, `grid.at(i, { style })`: on a serv
 - **`animate(i)`:** member `i`'s targets. What it reads is tracked: when it changes, every member turns toward its new targets in one change. A member whose targets didn't change is left alone.
 - **`initial`:** where each member starts, values or a function of its index. Without it, a member starts at each key's identity (`x: 0`, `scale: 1`, `opacity: 1`) and animates to its targets as it mounts, as a Wardic element with no `initial` does. With `initial: false`, it starts at its targets.
 - **`transition`:** a Wardic element's: a spring or a tween, each key's own under its name, else the nearest `WardicConfig`'s, else each key's Default transition. Reduced motion and `skipAnimations` apply as on any animation. Its `delay` is seconds, or `stagger()`, which counts only the members a change moves: delete one item of a long list and the few that shift start at once.
+- **`appear`:** `true` plays its entrance from the first paint of a server-rendered page ([above](#its-entrance-from-the-first-paint)). Off by default.
 
 Its keys are the transforms and `opacity` (**`WardicBatchKey`**), as numbers: `px` for a move, degrees for a turn, unitless for a scale. They're the ones its first targets and starts give: a key a later `animate` gives is an error.
 

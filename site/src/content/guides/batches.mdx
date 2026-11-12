@@ -83,7 +83,7 @@ Each of these is on [`createBatch`'s page](/reference/solid/animation/create-bat
 - **Landings.** Pending while anything moves, then how many members set off. [Its landings](/reference/solid/animation/create-batch#its-landings).
 - **From code.** `animate(grid, …)` with Playback controls, a member's own call, and a Batch as a sequence's Segment. [Animating it from code](/reference/solid/animation/create-batch#animating-it-from-code).
 - **One member that does more.** A Wardic element on a member's element drags, or runs variants or a hover of its own, and hands its keys back to the Batch once it's done. [A Wardic element as a member](/reference/solid/animation/create-batch#a-wardic-element-as-a-member).
-- **Server rendering.** Each member renders its start, so a hydrated page doesn't jump. [Server rendering](/reference/solid/animation/create-batch#server-rendering).
+- **Server rendering.** Each member renders its start, so a hydrated page doesn't jump, and with `appear: true` its entrance plays from the first paint, before the JavaScript. [Server rendering](/reference/solid/animation/create-batch#server-rendering).
 
 A list the reader puts in order is a Batch too: [`Reorder.BatchGroup`](/guides/reorder#thousands-of-items-reorderbatchgroup) places thousands of items of one size and keeps `Reorder`'s drag, keyboard and announcements.
 

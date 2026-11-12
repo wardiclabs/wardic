@@ -55,3 +55,8 @@ At 1,000 items every way held 17 ms frames, and the Batch mounted in 51 to 58 ms
 - **ADR-0070 decision 12's "still none: drag, focus"** holds for a plain Batch; a `BatchGroup`'s members are dragged and focused through the group (ADR-0070, *Amendment (#712)*).
 - **The DOM controller gains a second wiring:** its items' handles are structural (a projection handle is one), and what tells it the boxes are fresh is a Measure pass or the Batch's placing.
 - **Uniform places are a limit:** a list of items of different sizes keeps `Reorder.Group` until #714.
+
+## Note (#706, 2026-11-12): `initial`'s keys move
+
+Decision 8's "each item starts at its place, `initial` giving only the keys it names" left those keys where `initial` put them: the group's only targets were its places, so `initial={{ opacity: 0 }}` held every item invisible. An item's `initial` keys but `x` and `y` now move to their identity as it enters (Q20), so `initial` is its entrance; with `appear`, that entrance plays from a server-rendered page's first paint (ADR-0044, *Amendment (#706)*).
+

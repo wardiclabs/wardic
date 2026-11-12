@@ -61,6 +61,17 @@ Under the default `reducedMotion="user"`, the page carries both plays, the reduc
 
 Content streamed after the page's shell, under a `Suspense` (`Loading` on Solid 2) waiting on data, plays too: its chunk brings its own rules, and its entrances start when it lands.
 
+### Batches
+
+A Batch's entrance plays from the first paint when it asks, with `appear: true` on `createBatch` or on a `Reorder.BatchGroup`; without it, it plays once the JavaScript has run. One CSS animation serves every member on the same transitions, and each member carries its own values and delay on its element. The client takes each member over where its CSS has got to, as it does an element.
+
+- **What plays:** springs and tweens with a named ease, as for an element. A member whose own `style` sets an `animation` keeps it, and waits.
+- **Off, and why:** the provider's `appear={false}` turns a Batch's entrance off with the rest, and `appear="explain"` logs why one that asked waits.
+- **Streamed content:** a Batch under a streamed `Suspense` (`Loading` on Solid 2) plays when a Wardic element in the same chunk does, which brings that chunk's CSS. With none, its members wait for the JavaScript.
+- **On SVG,** a member that turns or scales needs `transform-box: fill-box; transform-origin: center` in its own `style` to turn about its own centre from the first paint.
+
+[Its entrance from the first paint](/reference/solid/animation/create-batch#its-entrance-from-the-first-paint) has the rest, and what thousands of members cost as the page hydrates.
+
 ## On the server
 
 Hooks give their server values, which the page keeps until it mounts:
@@ -71,6 +82,6 @@ Hooks give their server values, which the page keeps until it mounts:
 
 ## What it costs
 
-- **On the server,** about 9 µs for each element, and 8 µs more for each one that plays from the first paint. The first render of an entrance samples it, in about 0.1 ms, and every request after that reuses it.
-- **In the page,** 1 to 2 KB of CSS for each distinct entrance, and about 70 bytes for each element, before compression.
-- **In the browser,** one read for each element as it hydrates, and nothing for each frame.
+- **On the server,** about 9 µs for each element, and 8 µs more for each one that plays from the first paint; about 4 µs more for each member of a Batch that does. The first render of an entrance samples it, in about 0.1 ms, and every request after that reuses it.
+- **In the page,** 1 to 2 KB of CSS for each distinct entrance, and about 70 bytes for each element, before compression. A Batch's is a few KB for each set of transitions its members run, and about 85 bytes for each member.
+- **In the browser,** one read for each element as it hydrates, and nothing for each frame. A Batch reads every animation on the page once, for all its members, with code it loads the first time one takes its members over.

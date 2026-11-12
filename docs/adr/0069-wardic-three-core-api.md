@@ -195,3 +195,8 @@ The grill read Motion's 3D API against the 21 libraries in [`three-api-prior-art
 
 - **`Batch.enter` sets each key's origin to its start**, beside its position and target. A tween steps every key of a member it moves, and lerps one no change has turned from its origin to its target: with the origin left at 0, or at a reused slot's last, a keyed Batch's members, moved on a tween while one left under `<AnimatePresence>`, drew each other key from 0 (#665's exits; found by a Batch Reorder group's).
 - **`Batch.draw`** writes every member where it is now, with no step, and flushes the writer. A change that starts its members from their targets (`retarget`'s `from`) is drawn at once, before the page paints, where the run would draw it at its next tick: a Batch Reorder group's first read of its element places its items so (ADR-0072 decision 3).
+
+## Note (#706, 2026-11-12): a member's entrance before the JavaScript
+
+#665's Q64 ("the server's start only") is superseded: with `appear: true`, a Batch's members play their entrance from first paint as an **Appear animation**, and the first change at hydration takes each over with `Batch.retarget`'s `startAt` (ADR-0044, *Amendment (#706)*).
+
