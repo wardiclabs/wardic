@@ -7,7 +7,7 @@
 // rules as a head patch (#245). The report (examples/hand-checks/src/appear-report.ts) judges each
 // element marked `data-appear-k` two seconds after hydration.
 import { DomLive } from "@wardic/dom"
-import { wardic, WardicProvider } from "@wardic/solid/unstable/v2"
+import { createBatch, Reorder, stagger, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 import { useLocation } from "@solidjs/router"
 import { type JSX, Loading } from "@solidjs/web"
 import { createMemo, createSignal, For, onSettled } from "solid-js"
@@ -17,6 +17,24 @@ const row: JSX.CSSProperties = { display: "flex", gap: "16px", "align-items": "c
 const label: JSX.CSSProperties = { font: "13px system-ui, sans-serif", width: "12rem" }
 
 const items = { hidden: { opacity: 0, x: -40 }, shown: { opacity: 1, x: 0 } }
+
+/** The Batch's tiles (#706): twelve in two rows, each from the middle to its place, fading in. */
+const TILES = Array.from({ length: 12 }, (_, i) => i)
+const tile: JSX.CSSProperties = { position: "absolute", left: "0", top: "0", width: "22px", height: "22px", background: "#a63", "border-radius": "4px" }
+/** The Batch Reorder group's items (#706). */
+const GROUPED = ["a", "b", "c", "d"]
+
+/** The Batch's tiles (#706), its entrance an Appear animation, asked for: under the provider, as a Batch is made. */
+function BatchTiles(): JSX.Element {
+  const tiles = createBatch({
+    appear: true,
+    count: TILES.length,
+    initial: { x: 72, y: 13, opacity: 0, scale: 0.5 },
+    animate: (i) => ({ x: (i % 6) * 28, y: Math.floor(i / 6) * 26, opacity: 1, scale: 1 }),
+    transition: { type: "spring", stiffness: 160, damping: 18, delay: stagger(0.06) },
+  })
+  return <For each={TILES}>{(i) => <div data-appear-k={`tile${i}`} {...tiles.at(i, { style: tile })} />}</For>
+}
 
 export default function AppearRoute(): JSX.Element {
   // The layout card's spacer (#245): Move it grows it, a layout change the card animates.
@@ -153,6 +171,20 @@ export default function AppearRoute(): JSX.Element {
               </For>
             </Loading>
           </wardic.ul>
+        </div>
+
+        <div style={row}>
+          <span style={label}>a Batch, appear: twelve tiles staggered in (#706)</span>
+          <div style={{ position: "relative", width: "168px", height: "48px" }}>
+            <BatchTiles />
+          </div>
+        </div>
+
+        <div style={row}>
+          <span style={label}>a Batch Reorder group, appear: fading in at its places (#706)</span>
+          <Reorder.BatchGroup appear values={GROUPED} onReorder={() => {}} axis="x" itemSize={{ width: 28, height: 28 }} gap={6} initial={{ opacity: 0, scale: 0.6 }} transition={{ type: "tween", duration: 1.2 }}>
+            <For each={GROUPED}>{(v) => <Reorder.BatchItem value={v} data-appear-k={`group-${v}`} style={{ background: "#37a", "border-radius": "6px" }} />}</For>
+          </Reorder.BatchGroup>
         </div>
 
         <div style={row}>
