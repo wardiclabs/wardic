@@ -56,6 +56,11 @@
  * are. `?kind=batch` moves them as one `createBatch`, `?kind=batch-animate` with `createAnimate`, a call
  * per element: the per-element path the Batch replaces (`.tmp/564-canvas/dom/` on `probe/564-canvas`).
  *
+ * `--batch-frames`: the same grid's frames, head against base, where members are written without moving.
+ * `?kind=batch` moves every member at once; `?kind=batch-stagger` staggers the moves across half a second
+ * whatever N is, so most members wait out a delay through the frames measured; `?kind=batch-paused` moves the
+ * grid from code, `animate(grid, …)`, and pauses partway, its frames timed while every member holds still.
+ *
  * `--reorder-batch` (#712): N items in a column or a grid of 40 columns (`?layout=`), `?kind=reorder-batch`
  * a `Reorder.BatchGroup` and `?kind=reorder-group` a `Reorder.Group` of `Reorder.Item`s at the same places.
  * Per round: the mount to its first paint, then a drag the page drives, a pointer event at the start of
@@ -63,7 +68,18 @@
  * paint, then checked: the order has it five places on, and its element landed there.
  */
 import { DomLive } from "@wardic/dom"
-import { type AnimateLayout, createAnimate, createBatch, Reorder, useAnimateLayout, wardic, type WardicAnimate, WardicProvider } from "@wardic/solid"
+import {
+  type AnimateLayout,
+  createAnimate,
+  createBatch,
+  Reorder,
+  stagger,
+  useAnimateLayout,
+  wardic,
+  type WardicAnimate,
+  type WardicPlaybackControls,
+  WardicProvider,
+} from "@wardic/solid"
 import { createSignal, For, Show } from "solid-js"
 import { render } from "solid-js/web"
 import * as Bool from "effect/Boolean"
@@ -269,9 +285,20 @@ const BATCH_SPRING = { type: "spring", stiffness: 210, damping: 20 } as const
 // listen from one source, so its mount, changes and frames cost what the plain Batch's do. Their values
 // are on its own keys: a key of theirs it doesn't have would join them, a third key to step and draw.
 const GESTURES = { whileHover: { y: -4 }, whileTap: { x: 0 } } as const
+// `?kind=batch-stagger` (`--batch-frames`): its moves staggered across half a second whatever N is, so most
+// members wait out a delay through the 20 frames measured.
+const STAGGER_SPREAD = 0.5
+const STAGGERED = { ...BATCH_SPRING, delay: stagger(STAGGER_SPREAD / n) }
+// `?kind=batch-paused` (`--batch-frames`): the grid moved to phase `p` from code, with the call's controls.
+let animateGrid: ((p: number) => WardicPlaybackControls) | undefined
 const BatchGrid = () => {
   const gestures = Bool.match(kind === "batch-gestures", { onTrue: () => GESTURES, onFalse: () => ({}) })
-  const grid = createBatch({ count: n, initial: false, animate: (i) => ({ x: xOfCell(cellOf(i, phase())), y: yOfCell(cellOf(i, phase())) }), transition: BATCH_SPRING, ...gestures })
+  const transition = Bool.match(kind === "batch-stagger", { onTrue: () => STAGGERED, onFalse: () => BATCH_SPRING })
+  const grid = createBatch({ count: n, initial: false, animate: (i) => ({ x: xOfCell(cellOf(i, phase())), y: yOfCell(cellOf(i, phase())) }), transition, ...gestures })
+  if (kind === "batch-paused") {
+    const [, animate] = createAnimate()
+    animateGrid = (p) => animate(grid, { x: (i) => xOfCell(cellOf(i, p)), y: (i) => yOfCell(cellOf(i, p)) }, BATCH_SPRING)
+  }
   return <For each={items}>{(i) => <div class="b" {...grid.at(i)} />}</For>
 }
 const BatchPage = () => (
@@ -303,7 +330,7 @@ const AnimatePage = () => (
 )
 /** A change to phase `p`: the Batch's, by its signal; the per-element page's, a call per element. */
 const moveTo = (p: number, transition: { readonly duration: number } | typeof BATCH_SPRING): void => {
-  if (Bool.or(kind === "batch", kind === "batch-gestures")) {
+  if (Bool.some([kind === "batch", kind === "batch-gestures", kind === "batch-stagger"])) {
     setPhase(p)
     return
   }
@@ -425,6 +452,8 @@ const pages = {
   layout: Layout,
   batch: BatchPage,
   "batch-gestures": BatchPage,
+  "batch-stagger": BatchPage,
+  "batch-paused": BatchPage,
   "batch-animate": AnimatePage,
   "reorder-batch": ReorderBatchPage,
   "reorder-group": ReorderGroupPage,
@@ -538,6 +567,47 @@ const batchRound = async (): Promise<BatchRound> => {
     await frames(90)
   }
   // Back at its first cell, the first div is at the origin.
+  const first = boxes()[0]!
+  if (first.style.transform !== "none") throw new Error(`bench:solid: the first div landed at ${first.style.transform}`)
+  setShown(false)
+  await frames(6)
+  return { mount, retarget: median(retargets), frame: median(frameTimes) }
+}
+
+/**
+ * One `?kind=batch-paused` round (`--batch-frames`), in ms: two changes from code, `animate(grid, …)`, each
+ * timed as a task, and the median frame's rAF callbacks while each is paused partway, every member still.
+ */
+const batchPausedRound = async (): Promise<BatchRound> => {
+  setPhase(0)
+  const mountStart = performance.now()
+  setShown(true)
+  const mount = performance.now() - mountStart
+  if (boxes().length !== n) throw new Error(`bench:solid: mounted ${boxes().length} of ${n}`)
+  await frames(12)
+  const retargets: Array<number> = []
+  const frameTimes: Array<number> = []
+  for (const p of [1, 0]) {
+    await afterPaint()
+    let controls!: WardicPlaybackControls
+    retargets.push(
+      timed(() => {
+        controls = animateGrid!(p)
+      }),
+    )
+    // Under way, then paused: every member holds where it is.
+    await frames(4)
+    controls.pause()
+    await afterPaint()
+    frameJs.clear()
+    timing = true
+    await frames(24)
+    timing = false
+    frameTimes.push(...[...frameJs.values()].slice(0, 20))
+    controls.complete()
+    await frames(30)
+  }
+  // Completed back at its first cell, the first div is at the origin.
   const first = boxes()[0]!
   if (first.style.transform !== "none") throw new Error(`bench:solid: the first div landed at ${first.style.transform}`)
   setShown(false)
@@ -829,7 +899,8 @@ const retained: RetainedPage = {
   }
   if (kind.startsWith("batch")) {
     const batchOut: Array<BatchRound> = []
-    for (let i = 0; i < rounds; i++) batchOut.push(await batchRound())
+    const oneBatch = Bool.match(kind === "batch-paused", { onTrue: () => batchPausedRound, onFalse: () => batchRound })
+    for (let i = 0; i < rounds; i++) batchOut.push(await oneBatch())
     return batchOut as never
   }
   const one = Bool.match(kind.startsWith("live"), { onTrue: () => liveRound, onFalse: () => round })
