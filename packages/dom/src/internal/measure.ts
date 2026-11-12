@@ -20,7 +20,7 @@ import { constVoid } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Str from "effect/String"
-import { pending as appearRuns } from "./appear.ts"
+import { pending as appearRuns } from "./appear-slot.ts"
 
 /**
  * The document timeline's time, in ms. Inside a Refresh frame (its rAF callbacks, their microtasks,
