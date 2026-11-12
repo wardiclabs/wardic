@@ -7,16 +7,23 @@
 // not its slower elastic offsets'. Each release runs on the drag transition (ADR-0016, *Amendment
 // (#140)*): FL4 and FL5 give it a soft bounce, so a release's carry outward before it turns back
 // shows its velocity. A release that should carry lets go with its flick's last move (`fling`, #496,
-// as drag-transition's did for #369): FL1, FL4 and FL5. FL2 and FL3 let go a command after it, since
-// theirs shouldn't carry.
+// as drag-transition's did for #369): FL1 and FL4. FL2 and FL3 let go a command after it, since
+// theirs shouldn't carry. FL5 compares two releases' carries, so it runs on pushed input whose
+// timestamps it sets (#729, as DR1 does for #206): on the real mouse a loaded runner can land one
+// run's up late, and its velocity reads low.
 import { render } from "@solidjs/testing-library"
+import * as InputSource from "@wardic/core/InputSource"
 import { DomLive } from "@wardic/dom"
-import { wardic, type WardicBoundingBox, type WardicDragTransition, WardicProvider } from "@wardic/solid"
+import { wardic, type WardicBoundingBox, type WardicDragTransition, type WardicEnv, WardicProvider } from "@wardic/solid"
+import { TestInput } from "@wardic/test"
 import * as Bool from "effect/Boolean"
+import * as Effect from "effect/Effect"
+import * as Layer from "effect/Layer"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { page } from "vitest/browser"
+import { raf } from "./browser-helpers.ts"
 import { add, flingFrom, glide, mouse, type Pt, resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
 
 afterEach(resetScene)
@@ -37,20 +44,23 @@ interface Box {
 }
 
 /**
- * A 120x80 draggable box at (40, 400): free (a Fling on release), or `layout`, or springing back.
- * Low on the page: the browser files run side by side in one page and share its one mouse, and
+ * A 120x80 draggable box at (40, 400), on `env`: free (a Fling on release), or `layout`, or springing
+ * back. Low on the page: the browser files run side by side in one page and share its one mouse, and
  * most mount near the top, where a flick here could hover them.
  */
-const mountBox = async (opts: {
-  readonly momentum?: boolean
-  readonly snapToOrigin?: boolean
-  readonly layout?: boolean
-  readonly constraints?: Partial<WardicBoundingBox>
-  readonly dragTransition?: WardicDragTransition
-}): Promise<Box> => {
+const mountBox = async (
+  opts: {
+    readonly momentum?: boolean
+    readonly snapToOrigin?: boolean
+    readonly layout?: boolean
+    readonly constraints?: Partial<WardicBoundingBox>
+    readonly dragTransition?: WardicDragTransition
+  },
+  env: WardicEnv = DomLive,
+): Promise<Box> => {
   const [el, setEl] = createSignal<HTMLElement>()
   render(() => (
-    <WardicProvider env={DomLive}>
+    <WardicProvider env={env}>
       <div style={{ position: "absolute", top: "400px", left: "40px" }}>
         <wardic.div
           ref={(n: HTMLElement) => setEl(n)}
@@ -97,12 +107,11 @@ interface Fling {
 /**
  * {@link flick}'s moves, but the up makes the last one and lets go in one command ({@link flingFrom},
  * #496), so the release reads the flick's velocity however loaded the suite is. Returns where the up
- * lets go, and where the box is then: a step on from where it is, `follows` of it (1 for a free
- * drag, `dragElastic` past a bound).
+ * lets go, and where the box is then: a step on from where it is.
  */
-const fling = async (b: Box, slow: number, step: number, follows = 1): Promise<Fling> => {
+const fling = async (b: Box, slow: number, step: number): Promise<Fling> => {
   const pointer = await flingFrom({ x: b.slot.left + 20, y: b.slot.top + 40 }, slow, step)
-  return { pointer, released: dxOf(b) + step * follows }
+  return { pointer, released: dxOf(b) + step }
 }
 
 /** A soft bounce (40/12), so a release's carry outward before it turns back shows its velocity. */
@@ -149,22 +158,42 @@ describe("a free drag's release reads the pointer's last 100 ms (ADR-0004, Amend
   })
 
   it("FL5: a layout drag past elastic constraints releases with the pointer's velocity, as one at the same offset with none", async () => {
-    // Both runs let go 150 px right of the slot, at the same pointer speed: free (50 px, then 4 x 25 px)
-    // and past a 50 px bound with dragElastic 0.5 (150 px, then 4 x 25 px: 50 + (250 - 50) / 2 = 150).
-    // The offsets past the bound move at half the pointer's speed, so the box follows the up's step by
-    // half of it; the release reads the pointer's.
+    // Both runs let go 150 px right of the slot, on the same gesture: free (50 px, then 4 x 25 px) and
+    // past a 50 px bound with dragElastic 0.5 (150 px, then 4 x 25 px: 50 + (250 - 50) / 2 = 150). The
+    // offsets past the bound move at half the pointer's speed; the release reads the pointer's. Pushed
+    // input with the gesture's own timestamps, so both runs read the same velocity on any host (#729):
+    // the 4 moves are 50 ms apart and the up 5 ms after the last, so the window starts at the second,
+    // (150 - 100) px over 105 ms, about 476 px/s. On the soft bounce from 150 px that carries about
+    // 13 px; at half of it, about 4 px. The track, the projection and the paint are the real ones.
     const carries: Array<number> = []
     for (const constrained of [false, true]) {
-      const b = await mountBox({ layout: true, dragTransition: SOFT, ...Bool.match(constrained, { onTrue: () => ({ constraints: { left: 0, right: 50 } }), onFalse: () => ({}) }) })
-      const { pointer, released } = await fling(
-        b,
-        Bool.match(constrained, { onTrue: () => 150, onFalse: () => 50 }),
-        25,
-        Bool.match(constrained, { onTrue: () => 0.5, onFalse: () => 1 }),
+      const input = Effect.runSync(TestInput.pushable())
+      const b = await mountBox(
+        { layout: true, dragTransition: SOFT, ...Bool.match(constrained, { onTrue: () => ({ constraints: { left: 0, right: 50 } }), onFalse: () => ({}) }) },
+        input.layer.pipe(Layer.provideMerge(DomLive)),
       )
-      expect(released, "let go 150 px right of the slot").toBeCloseTo(150, -1)
+      let t = 0
+      const push = (type: InputSource.PointerLikeEvent["type"], x: number, after: number): void => {
+        t += after
+        Effect.runSync(input.push(InputSource.makePointerLikeEvent({ type, x, y: 0, timeStamp: t })))
+      }
+      const slow = Bool.match(constrained, { onTrue: () => 150, onFalse: () => 50 })
+      push("down", 0, 0)
+      for (let k = 1; k <= 10; k++) {
+        push("move", (slow * k) / 10, 20)
+        await raf()
+      }
+      for (let k = 1; k <= 4; k++) {
+        push("move", slow + 25 * k, 50)
+        await raf()
+      }
+      // The last move painted.
+      await raf()
+      await raf()
+      const released = dxOf(b)
+      expect(released, "let go 150 px right of the slot").toBeCloseTo(150, 0)
       const sampling = sampleFrames(() => dxOf(b))
-      await mouse.up(pointer)
+      push("up", slow + 100, 5)
       await wait(400)
       carries.push(Math.max(...sampling.stop().map((f) => f.v)) - released)
       await wait(1400)
@@ -172,7 +201,7 @@ describe("a free drag's release reads the pointer's last 100 ms (ADR-0004, Amend
       await resetScene()
     }
     const [free, constrained] = carries as [number, number]
-    expect(free, `free, it carried on ${free} px`).toBeGreaterThan(2)
+    expect(free, `free, it carried on ${free} px (about 13 at the pointer's velocity, 4 at half of it)`).toBeGreaterThan(8)
     expect(constrained / free, `constrained ${constrained} px against free ${free} px`).toBeGreaterThan(0.7)
   })
 })
