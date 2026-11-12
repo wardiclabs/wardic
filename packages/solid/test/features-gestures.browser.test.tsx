@@ -14,16 +14,14 @@ import { cleanup, render } from "@solidjs/testing-library"
 import * as InputSource from "@wardic/core/InputSource"
 import { DomLive } from "@wardic/dom"
 import { domAnimation, drag, type FeatureLoad, hover, LazyWardic, w, WardicProvider } from "@wardic/solid"
-import { TestInput } from "@wardic/test"
 import * as Context from "effect/Context"
-import * as Effect from "effect/Effect"
-import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import { For, type JSX } from "solid-js"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import type { FeatureRegistry } from "../src/feature.ts"
 import { useFeatureRegistry } from "../src/provider.tsx"
 import { opacityOf, until, waitAtMost } from "./browser-helpers.ts"
+import { pushedPointer } from "./pushed-pointer.ts"
 import { resetScene, settle, wait } from "./reorder-harness.tsx"
 
 afterEach(async () => {
@@ -137,23 +135,18 @@ describe("The gesture Features (#511), Solid 1", () => {
   })
 
   it("FG4: `drag` runs on the Environment's own input; without `drag`, development says so", async () => {
-    const input = Effect.runSync(TestInput.pushable())
+    const pointer = pushedPointer()
     let el!: HTMLElement
     render(() => (
-      <WardicProvider env={input.layer.pipe(Layer.provideMerge(DomLive))} features={[drag]}>
+      <WardicProvider env={pointer.env} features={[drag]}>
         <w.div ref={(n: HTMLElement) => (el = n)} style={BOX} drag="x" dragMomentum={false} />
       </WardicProvider>
     ))
     await settle()
     const x0 = el.getBoundingClientRect().left
-    let t = 0
-    const push = (type: InputSource.PointerLikeEvent["type"], x: number): void => {
-      t += 20
-      Effect.runSync(input.push(InputSource.makePointerLikeEvent({ type, x, y: 0, timeStamp: t })))
-    }
-    push("down", 0)
-    for (let k = 1; k <= 5; k++) push("move", 20 * k)
-    push("up", 100)
+    pointer.push("down", 0)
+    for (let k = 1; k <= 5; k++) pointer.push("move", 20 * k)
+    pointer.push("up", 100)
     await until(() => el.getBoundingClientRect().left - x0 > 90, 2000)
     expect(el.getBoundingClientRect().left - x0, "dragged on the pushed input").toBeGreaterThan(90)
 
@@ -169,7 +162,7 @@ describe("The gesture Features (#511), Solid 1", () => {
     expect(lines.filter((l) => l.includes(word("drag"))), "one word").toHaveLength(1)
   })
   it("FG5 (#551): `drag` loaded lazily: an element mounted while it's on its way drags once it's here, and a load without it says so then", async () => {
-    const input = Effect.runSync(TestInput.pushable())
+    const pointer = pushedPointer()
     let arrive!: () => void
     const load: FeatureLoad = () =>
       new Promise((resolve) => {
@@ -178,7 +171,7 @@ describe("The gesture Features (#511), Solid 1", () => {
     let el!: HTMLElement
     const lines = await logged(async () => {
       render(() => (
-        <WardicProvider env={input.layer.pipe(Layer.provideMerge(DomLive))}>
+        <WardicProvider env={pointer.env}>
           <LazyWardic features={load}>
             <w.div ref={(n: HTMLElement) => (el = n)} style={BOX} drag="x" dragMomentum={false} />
           </LazyWardic>
@@ -188,15 +181,10 @@ describe("The gesture Features (#511), Solid 1", () => {
     })
     expect(lines.filter((l) => l.includes(word("drag"))), "nothing said while the load is on its way").toEqual([])
     const x0 = el.getBoundingClientRect().left
-    let t = 0
-    const push = (type: InputSource.PointerLikeEvent["type"], x: number): void => {
-      t += 20
-      Effect.runSync(input.push(InputSource.makePointerLikeEvent({ type, x, y: 0, timeStamp: t })))
-    }
     const fling = (): void => {
-      push("down", 0)
-      for (let k = 1; k <= 5; k++) push("move", 20 * k)
-      push("up", 100)
+      pointer.push("down", 0)
+      for (let k = 1; k <= 5; k++) pointer.push("move", 20 * k)
+      pointer.push("up", 100)
     }
     fling()
     await wait(100)

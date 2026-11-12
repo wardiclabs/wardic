@@ -11,12 +11,10 @@
 // sample's inner. A move then painted one frame late, and a release could hold one.
 import { cleanup, render } from "@solidjs/testing-library"
 import * as FrameLoop from "@wardic/core/FrameLoop"
-import * as InputSource from "@wardic/core/InputSource"
 import * as Projection from "@wardic/core/Projection"
 import { DomLive } from "@wardic/dom"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import { useWardicGate, wardic, type WardicEnv, WardicProvider } from "@wardic/solid"
-import { TestInput } from "@wardic/test"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
@@ -27,6 +25,7 @@ import { afterEach, describe, expect, it } from "vitest"
 import { commands } from "vitest/browser"
 import "./browser-commands.ts"
 import { afterPaint, raf } from "./browser-helpers.ts"
+import { pushedPointer } from "./pushed-pointer.ts"
 
 /** `env` on a browser's Effect scheduler: `setTimeout(0)` dispatch, for every fiber its runtime runs. */
 const onBrowserScheduler = (env: WardicEnv): WardicEnv => {
@@ -337,26 +336,22 @@ it("H7 (rule B, the order): a Stale gesture's end and the grab of the same down:
   // An input with no page-wide feed, so the owner's second down reaches the drag as one
   // event (ADR-0019, rule B), the stale "end" and the grab together. With `dragSnapToOrigin`,
   // a release that ran would spring the element back toward 0.
-  const input = Effect.runSync(TestInput.pushable())
-  const env = input.layer.pipe(Layer.provideMerge(onBrowserScheduler(DomLive)))
-  const scene = await mount("free", { snapToOrigin: true, env })
-  let t = 0
-  const push = (type: InputSource.PointerLikeEvent["type"], x: number): void =>
-    Effect.runSync(input.push(InputSource.makePointerLikeEvent({ type, x, y: 0, timeStamp: (t += 16) })))
-  push("down", 0)
-  push("move", 10)
-  push("move", 40)
+  const pointer = pushedPointer({ step: 16, over: onBrowserScheduler(DomLive) })
+  const scene = await mount("free", { snapToOrigin: true, env: pointer.env })
+  pointer.push("down", 0)
+  pointer.push("move", 10)
+  pointer.push("move", 40)
   await settle()
   expect(translateXOf(scene.el)).toBe(40)
   // The owner goes down again, its release lost: the old gesture's "end" and this down's grab.
-  push("down", 60)
+  pointer.push("down", 60)
   for (let i = 0; i < 6; i++) await raf()
   await afterPaint()
   expect(translateXOf(scene.el), "no spring back toward the origin").toBe(40)
   // The second gesture: offset 10 from its down, from where the first ended.
-  push("move", 70)
+  pointer.push("move", 70)
   await settle()
   expect(translateXOf(scene.el)).toBe(50)
-  push("up", 70)
+  pointer.push("up", 70)
   await settle()
 })

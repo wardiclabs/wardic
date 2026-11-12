@@ -12,18 +12,15 @@
 // timestamps it sets (#729, as DR1 does for #206): on the real mouse a loaded runner can land one
 // run's up late, and its velocity reads low.
 import { render } from "@solidjs/testing-library"
-import * as InputSource from "@wardic/core/InputSource"
 import { DomLive } from "@wardic/dom"
 import { wardic, type WardicBoundingBox, type WardicDragTransition, type WardicEnv, WardicProvider } from "@wardic/solid"
-import { TestInput } from "@wardic/test"
 import * as Bool from "effect/Boolean"
-import * as Effect from "effect/Effect"
-import * as Layer from "effect/Layer"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { page } from "vitest/browser"
 import { raf } from "./browser-helpers.ts"
+import { pushedPointer } from "./pushed-pointer.ts"
 import { add, flingFrom, glide, mouse, type Pt, resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
 
 afterEach(resetScene)
@@ -167,24 +164,19 @@ describe("a free drag's release reads the pointer's last 100 ms (ADR-0004, Amend
     // 13 px; at half of it, about 4 px. The track, the projection and the paint are the real ones.
     const carries: Array<number> = []
     for (const constrained of [false, true]) {
-      const input = Effect.runSync(TestInput.pushable())
+      const pointer = pushedPointer()
       const b = await mountBox(
         { layout: true, dragTransition: SOFT, ...Bool.match(constrained, { onTrue: () => ({ constraints: { left: 0, right: 50 } }), onFalse: () => ({}) }) },
-        input.layer.pipe(Layer.provideMerge(DomLive)),
+        pointer.env,
       )
-      let t = 0
-      const push = (type: InputSource.PointerLikeEvent["type"], x: number, after: number): void => {
-        t += after
-        Effect.runSync(input.push(InputSource.makePointerLikeEvent({ type, x, y: 0, timeStamp: t })))
-      }
       const slow = Bool.match(constrained, { onTrue: () => 150, onFalse: () => 50 })
-      push("down", 0, 0)
+      pointer.push("down", 0, 0)
       for (let k = 1; k <= 10; k++) {
-        push("move", (slow * k) / 10, 20)
+        pointer.push("move", (slow * k) / 10, 20)
         await raf()
       }
       for (let k = 1; k <= 4; k++) {
-        push("move", slow + 25 * k, 50)
+        pointer.push("move", slow + 25 * k, 50)
         await raf()
       }
       // The last move painted.
@@ -193,7 +185,7 @@ describe("a free drag's release reads the pointer's last 100 ms (ADR-0004, Amend
       const released = dxOf(b)
       expect(released, "let go 150 px right of the slot").toBeCloseTo(150, 0)
       const sampling = sampleFrames(() => dxOf(b))
-      push("up", slow + 100, 5)
+      pointer.push("up", slow + 100, 5)
       await wait(400)
       carries.push(Math.max(...sampling.stop().map((f) => f.v)) - released)
       await wait(1400)

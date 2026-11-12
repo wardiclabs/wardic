@@ -14,14 +14,11 @@
 //   back at its identity, the Batch takes it back.
 import { DomLive } from "@wardic/dom"
 import type { JSX } from "@solidjs/web"
-import * as InputSource from "@wardic/core/InputSource"
 import { createBatch, drag, layout, w, type WardicBatch, WardicProvider } from "@wardic/solid/unstable/v2"
-import { TestInput } from "@wardic/test"
-import * as Effect from "effect/Effect"
-import * as Layer from "effect/Layer"
 import { createSignal } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { raf } from "../browser-helpers.ts"
+import { pushedPointer } from "../pushed-pointer.ts"
 import { mount } from "./mount.tsx"
 
 
@@ -101,7 +98,7 @@ describe("the latest driver of a Batch member's keys on Solid 2 (#665)", () => {
 
   it("CVD3: dragged, it follows the pointer, a Batch change mid-drag leaving x; once released, it turns toward its target", async () => {
     // On the Environment's own input, pushed, under a provider with the `drag` Feature.
-    const input = Effect.runSync(TestInput.pushable())
+    const pointer = pushedPointer()
     const [tx, setTx] = createSignal(0)
     let member!: HTMLDivElement
     const Scene = (): JSX.Element => {
@@ -109,26 +106,21 @@ describe("the latest driver of a Batch member's keys on Solid 2 (#665)", () => {
       return <w.div style={BOX} {...grid.at(0, { ref: (el) => (member = el as HTMLDivElement) })} drag="x" dragMomentum={false} />
     }
     mount(() => (
-      <WardicProvider env={input.layer.pipe(Layer.provideMerge(DomLive))} features={[drag]}>
+      <WardicProvider env={pointer.env} features={[drag]}>
         <Scene />
       </WardicProvider>
     ))
     await over(20, () => 0)
-    let t = 0
-    const push = (type: InputSource.PointerLikeEvent["type"], x: number): void => {
-      t += 20
-      Effect.runSync(input.push(InputSource.makePointerLikeEvent({ type, x, y: 0, timeStamp: t })))
-    }
-    push("down", 0)
-    for (let k = 1; k <= 4; k++) push("move", 20 * k)
+    pointer.push("down", 0)
+    for (let k = 1; k <= 4; k++) pointer.push("move", 20 * k)
     await over(3, () => 0)
     expect(xOf(member)).toBeCloseTo(80, 0)
     // A Batch change mid-drag: x stays the pointer's.
     setTx(40)
-    push("move", 100)
+    pointer.push("move", 100)
     await over(3, () => 0)
     expect(xOf(member)).toBeCloseTo(100, 0)
-    push("up", 100)
+    pointer.push("up", 100)
     // Released where it's let go: the Batch turns it toward its 40, from 100.
     const back = await over(90, () => xOf(member))
     expect(back.some((x) => x > 41 && x < 99)).toBe(true)
@@ -158,30 +150,25 @@ describe("the latest driver of a Batch member's keys on Solid 2 (#665)", () => {
   })
 
   it("CVD5: a drag starts where the Batch drew the member", async () => {
-    const input = Effect.runSync(TestInput.pushable())
+    const pointer = pushedPointer()
     let member!: HTMLDivElement
     const Scene = (): JSX.Element => {
       const grid = createBatch({ count: 1, initial: false, animate: () => ({ x: 60 }), transition: SPRING })
       return <w.div style={BOX} {...grid.at(0, { ref: (el) => (member = el as HTMLDivElement) })} drag="x" dragMomentum={false} />
     }
     mount(() => (
-      <WardicProvider env={input.layer.pipe(Layer.provideMerge(DomLive))} features={[drag]}>
+      <WardicProvider env={pointer.env} features={[drag]}>
         <Scene />
       </WardicProvider>
     ))
     await over(20, () => 0)
     expect(xOf(member)).toBe(60)
-    let t = 0
-    const push = (type: InputSource.PointerLikeEvent["type"], x: number): void => {
-      t += 20
-      Effect.runSync(input.push(InputSource.makePointerLikeEvent({ type, x, y: 0, timeStamp: t })))
-    }
-    push("down", 0)
-    for (let k = 1; k <= 4; k++) push("move", 5 * k)
+    pointer.push("down", 0)
+    for (let k = 1; k <= 4; k++) pointer.push("move", 5 * k)
     await over(3, () => 0)
     // The pointer's 20 on the Batch's 60.
     expect(xOf(member)).toBeCloseTo(80, 0)
-    push("up", 20)
+    pointer.push("up", 20)
     const back = await over(90, () => xOf(member))
     expect(back[back.length - 1]).toBe(60)
   })

@@ -19,18 +19,15 @@
 //   sections built such Features only when something read them, which no element did. Last, as colour
 //   spaces are the page's.
 import type { JSX } from "@solidjs/web"
-import * as InputSource from "@wardic/core/InputSource"
 import { DomLive } from "@wardic/dom"
 import { AnimatePresence, colors, drag, type FeatureLoad, type FeaturesProp, hover, layout, LayoutGroup, LazyWardic, useAnimateLayout, w, WardicProvider } from "@wardic/solid/unstable/v2"
-import { TestInput } from "@wardic/test"
 import * as Bool from "effect/Boolean"
-import * as Effect from "effect/Effect"
 import { constVoid } from "effect/Function"
-import * as Layer from "effect/Layer"
 import { createSignal, flush, For, Show } from "solid-js"
 import { describe, expect, it, vi } from "vitest"
 import { useBuiltProjection } from "../../src/unstable/v2/provider.tsx"
 import { leftOf, raf, until } from "../browser-helpers.ts"
+import { pushedPointer } from "../pushed-pointer.ts"
 import { mount } from "./mount.tsx"
 import { sampleFrames, settle, wait } from "./reorder-scene.tsx"
 
@@ -214,10 +211,10 @@ describe("The layout Feature (#511), Solid 2", () => {
     /** One gesture on a `w.div drag layout` under `features`: where it's drawn as it's held, and once it has landed. */
     const gesture = async (features: FeaturesProp, arrive: () => void): Promise<{ readonly held: number; readonly after: number }> => {
       // Pushed input: one draggable on the page at a time, as drags are claimed page-wide (ADR-0019).
-      const input = Effect.runSync(TestInput.pushable())
+      const pointer = pushedPointer()
       let el!: HTMLElement
       const scene = mount(() => (
-        <WardicProvider env={input.layer.pipe(Layer.provideMerge(DomLive))}>
+        <WardicProvider env={pointer.env}>
           <div style={stage(() => 0)}>
             <LazyWardic features={features}>
               <w.div ref={(n: HTMLElement) => (el = n)} style={BOX} drag="x" dragMomentum={false} layout />
@@ -229,17 +226,12 @@ describe("The layout Feature (#511), Solid 2", () => {
       arrive()
       await wait(50)
       const x0 = leftOf(el)
-      let t = 0
-      const push = (type: InputSource.PointerLikeEvent["type"], x: number): void => {
-        t += 20
-        Effect.runSync(input.push(InputSource.makePointerLikeEvent({ type, x, y: 0, timeStamp: t })))
-      }
-      push("down", 0)
-      for (let k = 1; k <= 5; k++) push("move", 20 * k)
+      pointer.push("down", 0)
+      for (let k = 1; k <= 5; k++) pointer.push("move", 20 * k)
       await raf()
       await raf()
       const held = leftOf(el) - x0
-      push("up", 100)
+      pointer.push("up", 100)
       await wait(1200)
       const after = leftOf(el) - x0
       scene.unmount()
