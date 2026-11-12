@@ -13,6 +13,8 @@
 //   it turns back.
 // - BG5: no item listens at rest, and the page's listeners are as many for 10 items as for 5.
 // - BG7: a drag held near its scroller's edge scrolls it, the item moving down the list under the pointer.
+// - BG10: held past its scroller's edge while Auto-scroll runs faster than a place a drag update, brought back
+//   and let go, the item's place keeps up with it and it lands where it's let go.
 // - BG8: a grab stops an item flying back from a release; a press with no drag lets it go on.
 // - BG9: a function `whileDrag`'s keys join the group's.
 // - BP1 (#712's PR 3): `whileHover` and `whileTap` by the pointer; Space lifts while the keyboard reorder is
@@ -339,6 +341,32 @@ describe("Reorder.BatchGroup and Reorder.BatchItem on Solid 2", () => {
     expect(s.order().indexOf("c"), "c moved down the list").toBeGreaterThan(4)
     expect(offPointer(c, to, grabOffset), "the item under the pointer").toBeLessThan(2)
     expect(domOrder(s.group()), "the DOM follows").toBe(s.order().join(""))
+  }, 30_000)
+
+  it("BG10: held past its scroller's edge while Auto-scroll runs, then brought back and let go, the item lands where it's let go", async () => {
+    // 400 values 60 px apart in a scroller 200 px tall. Held 60 px past its edge, Auto-scroll scrolls 25 × 2.2²
+    // = 121 px a drag update, two places each: the Crossover has to keep up with the item, not trail it a place
+    // a sample, or its release sends it back up the list to where the order had fallen behind.
+    const s = await mountBatchReorder({ layout: "y", values: Array.from({ length: 400 }, (_, i) => `v${i}`), container: 200 })
+    const sc = s.scroller as HTMLElement
+    const v2 = s.item("v2")
+    const g = centreOf(v2)
+    const grabOffset = grabOffsetOf(v2, g)
+    const view = sc.getBoundingClientRect()
+    await mouse.down(g)
+    const outside = { x: g.x, y: view.bottom + 60 }
+    await glide(g, outside, 20)
+    await wait(500)
+    expect(sc.scrollTop, "Auto-scroll ran").toBeGreaterThan(2000)
+    const inside = { x: g.x, y: view.top + view.height / 2 }
+    await glide(outside, inside, 20)
+    await wait(200)
+    // The place it's held over: its top in the group, to the nearest place.
+    const heldOver = Math.round((v2.getBoundingClientRect().top - s.group().getBoundingClientRect().top) / 60)
+    expect(s.order().indexOf("v2"), "its place in the order is the one it's held over").toBe(heldOver)
+    await mouse.up(inside)
+    await wait(800)
+    expect(offPointer(v2, inside, grabOffset), "it lands under the pointer, within half a place").toBeLessThan(31)
   }, 30_000)
 
   it("BG8: a grab stops an item flying back from a release; a press with no drag lets it go on", async () => {

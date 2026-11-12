@@ -16,6 +16,8 @@ import { type Layout, resetScene, settle, VALUES } from "./reorder-scene.tsx"
 export interface BatchSceneOptions {
   readonly layout?: Layout
   readonly n?: number
+  /** The values, in place of the first `n` of `VALUES`: a list longer than its ten. */
+  readonly values?: ReadonlyArray<string>
   readonly whileDrag?: WardicBatchGesture | ((item: string, i: number) => WardicBatchValues)
   readonly transition?: WardicBatchTransition
   /** Inside a plain `overflow: auto` container this tall. */
@@ -76,7 +78,7 @@ export const resetBatchScene = async (): Promise<void> => {
 export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<BatchScene> => {
   const layout = o.layout ?? "y"
   const size = SIZES[layout]
-  const [order, setOrder] = createSignal<ReadonlyArray<string>>(VALUES.slice(0, o.n ?? size.n))
+  const [order, setOrder] = createSignal<ReadonlyArray<string>>(o.values ?? VALUES.slice(0, o.n ?? size.n))
   let groupEl!: HTMLElement
   let scroller: HTMLElement | undefined
   let list!: ReorderBatchGroup<string>
