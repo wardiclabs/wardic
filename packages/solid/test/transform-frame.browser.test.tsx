@@ -86,31 +86,30 @@ const drag = async (at: Pt, dx: number, dy: number, whileHeld: () => void = () =
 
 const SPRING = { stiffness: 170, damping: 26 }
 
-/** A Refresh frame at 60 Hz, in ms. */
+/** A Refresh frame at 60 Hz, in ms: a flight's first step (core's `NOMINAL_DT`). */
 const FRAME_MS = 1000 / 60
 
 /** {@link SPRING}, resolved once, and rest thresholds it never meets: its curve, unsettled. */
-const RESOLVED = Spring.resolve(SPRING)
+const SPRING_RESOLVED = Spring.resolve(SPRING)
 const NEVER_RESTS: Spring.Rest = { delta: -1, speed: -1 }
 
 /** How far a flight on {@link SPRING} has gone `ms` into it: 0 at its start, 1 at its end. */
-const progressAt = (ms: number): number => Spring.step(Spring.init({}), ms / 1000, 1, RESOLVED, NEVER_RESTS).value
+const progressAt = (ms: number): number => Spring.step(Spring.init({}), ms / 1000, 1, SPRING_RESOLVED, NEVER_RESTS).value
 
-/** The first box a twin paints after a change, and the least and most time a flight the change started can have run by then, in ms. */
+/** The first box a twin paints after a change, and how long the flight the change started has run by then, in ms. */
 interface FirstPaint {
   readonly box: DOMRect
-  readonly ran: { readonly min: number; readonly max: number }
+  readonly ran: number
 }
 
 /**
  * Run `change`, then read the box the twin `el` returns paints in the 2nd frame from it, as
- * {@link paintedFrames} reads it. Its frame is the latest one when the box is read: a loaded runner can
- * read it several frames late (#729). The flight starts with the change, a frame's step at the task's
- * end (ADR-0017's Priming tick), so it has run a frame more than the frames since the 1st. The least is
- * those, less a frame; the most, the longer of the time since the change and those plus a frame, plus a frame.
+ * {@link paintedFrames} reads it. A loaded runner can read it several frames late (#729), so its frame is
+ * the latest one when the box is read, by rAF's own timestamps (HA8 saw `document.timeline` stand still
+ * for a frame). The flight's first step is the 1st frame's tick, a nominal frame (ADR-0033), and each
+ * frame after it steps by its interval: it has run the frames since the 1st and one more.
  */
 const firstPaintAfter = async (change: () => void, el: () => Element): Promise<FirstPaint> => {
-  const changedAt = performance.now()
   change()
   const firstAt = await new Promise<number>((resolve) => requestAnimationFrame(resolve))
   let frameAt = firstAt
@@ -122,25 +121,20 @@ const firstPaintAfter = async (change: () => void, el: () => Element): Promise<F
   requestAnimationFrame(track)
   const [box] = await paintedFrames(el(), 1)
   reading = false
-  return { box: box!, ran: { min: Math.max(0, frameAt - firstAt - FRAME_MS), max: Math.max(frameAt - changedAt, frameAt - firstAt + FRAME_MS) + FRAME_MS } }
+  return { box, ran: frameAt - firstAt + FRAME_MS }
 }
 
 /**
  * A twin's first painted frame is where a flight from its other twin `from` to its own box `to` puts it
- * by then, on {@link SPRING}: between its progress at the least and the most time it can have run,
- * within a sixth of its way. At once, that's within a sixth of `from`; read late, it's on from there.
+ * by then, on {@link SPRING}: within a sixth of its way. Read at once, that's within a sixth of `from`.
  */
 const startsOn = (first: FirstPaint, from: DOMRect, to: Pick<DOMRect, "left" | "top" | "width">): void => {
-  const least = progressAt(first.ran.min)
-  const most = progressAt(first.ran.max)
+  const gone = progressAt(first.ran)
   for (const key of ["left", "top", "width"] as const) {
     const way = to[key] - from[key]
-    const slack = Math.abs(way) / 6 + 1
-    const nearest = Math.min(from[key] + way * least, from[key] + way * most)
-    const farthest = Math.max(from[key] + way * least, from[key] + way * most)
-    const at = `its ${key} ${first.box[key]} after ${first.ran.min.toFixed(0)}-${first.ran.max.toFixed(0)} ms of a flight from ${from[key]} to ${to[key]}`
-    expect(first.box[key], at).toBeGreaterThanOrEqual(nearest - slack)
-    expect(first.box[key], at).toBeLessThanOrEqual(farthest + slack)
+    const expected = from[key] + way * gone
+    const at = `its ${key} ${first.box[key]} ${first.ran.toFixed(0)} ms into a flight from ${from[key]} to ${to[key]}, where ${expected} is expected`
+    expect(Math.abs(first.box[key] - expected), at).toBeLessThanOrEqual(Math.abs(way) / 6 + 1)
   }
 }
 
