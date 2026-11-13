@@ -11,7 +11,9 @@
 //   every Feature, with no `NeedsFeature` anywhere.
 // - ITV5: the other forms take its Features' props alone: `w.create(tag)`, `w.create(Component)`,
 //   `w.create(string)` and `w.ward(config)`, whose unknown key is still `NotAWardKey` (#756).
-// - ITV6: `WardConfigOf<F>` is what an instance's element takes, for a wrapper's props.
+// - ITV6: `WardConfigOf<F>` is what an instance's element takes, its Features' props: a wrapper typed
+//   with it rejects another's, and hands them on to the instance's element, to one with more Features,
+//   and to a plain `w.*`.
 // - ITV7: an instance with `layout`, given at once or loaded, has the three layout hooks (Q6).
 // - ITV8: an instance's ward's `next`, `each` and `when` take `settled` and its Features' events; another
 //   Feature's event is an error (Q19). A plain ward's take every event, as they did.
@@ -298,7 +300,6 @@ describe("a Wardic instance's types on Solid 2 (#516)", () => {
   it("ITV6: WardConfigOf<F> is what an instance's element takes, for a wrapper's props", () => {
     type HoverCard = WardConfigOf<[typeof hover]>
     typed((): HoverCard => ({ whileHover: { scale: 1.1 }, animate: { opacity: 1 } }))
-    typed((): HoverCard => ({ layout: needs("layout") }))
     typed(
       (): HoverCard => ({
         // @ts-expect-error hover alone has no drag
@@ -309,6 +310,12 @@ describe("a Wardic instance's types on Solid 2 (#516)", () => {
     typed(() => {
       const Card = (props: WardConfigOf<[typeof hover]> & { readonly title: string }) => <hovers.article {...props}>{props.title}</hovers.article>
       return <Card title="Lamp" whileHover={{ scale: 1.05 }} />
+    })
+    typed(() => {
+      const more = null as unknown as W<[typeof domAnimation, typeof layout]>
+      const Laid = (props: WardConfigOf<[typeof hover]>) => <more.li {...props} layout />
+      const Plain = (props: WardConfigOf<[typeof hover]>) => <w.li {...props} drag />
+      return [<Laid whileHover={{ scale: 1.05 }} />, <Plain whileHover={{ scale: 1.05 }} />]
     })
   })
 

@@ -12,8 +12,9 @@
 //   Feature (`domMax`), with no `NeedsFeature` anywhere.
 // - IT5: the other forms of an instance's `w` take its Features' props alone: `w.create(tag)`,
 //   `w.create(Component)`, `w.create(string)` and `w.createWard(config)`, a value or an accessor.
-// - IT6: `WardConfigOf<F>` is what an instance's element takes: a wrapper typed with it takes its
-//   Features' props, rejects another's naming it, and hands them on to the instance's element.
+// - IT6: `WardConfigOf<F>` is what an instance's element takes, its Features' props: a wrapper typed
+//   with it rejects another's, and hands them on to the instance's element, to one with more Features,
+//   and to a plain `w.*`. It has no `NeedsFeature`, which nothing else's props would take.
 // - IT7: an instance with `layout`, given at once or loaded, has the three layout hooks, as the global
 //   ones are typed (Q6); one without it hasn't them.
 import { domAnimation, domMax, drag, focus, hover, inView, layout, pan, press, type W as PlainW, w, type WardConfig, type WardConfigOf, type WardicComponent, type WardicInstance, createInstantLayoutTransition, createResetProjection, useAnimateLayout } from "@wardic/solid"
@@ -321,7 +322,6 @@ describe("a Wardic instance's element props (#516)", () => {
   it("IT6: WardConfigOf<F> is what an instance's element takes, for a wrapper's props", () => {
     type HoverCard = WardConfigOf<[typeof hover]>
     typed((): HoverCard => ({ whileHover: { scale: 1.1 }, animate: { opacity: 1 }, onHoverStart: noop }))
-    typed((): HoverCard => ({ layout: needs("layout"), drag: needs("drag") }))
     typed(
       (): HoverCard => ({
         // @ts-expect-error hover alone has no drag
@@ -333,6 +333,12 @@ describe("a Wardic instance's element props (#516)", () => {
     typed(() => {
       const Card = (props: WardConfigOf<[typeof hover]> & { readonly title: string }) => <hovers.article {...props}>{props.title}</hovers.article>
       return <Card title="Lamp" whileHover={{ scale: 1.05 }} />
+    })
+    typed(() => {
+      const more = null as unknown as W<[typeof domAnimation, typeof layout]>
+      const Laid = (props: WardConfigOf<[typeof hover]>) => <more.li {...props} layout />
+      const Plain = (props: WardConfigOf<[typeof hover]>) => <w.li {...props} drag />
+      return [<Laid whileHover={{ scale: 1.05 }} />, <Plain whileHover={{ scale: 1.05 }} />]
     })
   })
 
