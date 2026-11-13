@@ -58,10 +58,17 @@
 // - B28 (#706): a 0 s tween lands as its delay ends, at that very time: a step of 0 s after its change,
 //   and a start partway at 0 s, draw its target (a skipped change's, and reduced motion's Snap, from the
 //   first stop of an Appear rule, as an element's); held by a delay, not before it ends.
+// - B29: a member a step doesn't move isn't written: one waiting out its delay, until it moves, but once at
+//   its first step after it enters, so a writer's first draw of it stands.
+// - B30: a change that starts a member from a given value (`from`) has it written at its next step, though
+//   it waits out a delay, and not again until it moves.
+// - B31: a change paused on its Playhead writes nothing while it holds; a seek while paused is written at
+//   the next step, and so is a stop, which rests it where it is.
 import * as Batch from "@wardic/core/Batch"
 import * as Clock from "@wardic/core/Clock"
 import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as Machine from "@wardic/core/Machine"
+import * as Playback from "@wardic/core/Playback"
 import * as Stagger from "@wardic/core/Stagger"
 import { it as effect } from "@effect/vitest"
 import * as Effect from "effect/Effect"
@@ -792,5 +799,71 @@ describe("a Batch (#665)", () => {
     Batch.retarget(held, [waits], (_, k) => [100, 1][k], { startAt: () => 0.05 })
     Batch.step(held, F)
     expect(Batch.get(held, waits, "x")).toBe(0)
+  })
+  const STEADY = { type: "spring", stiffness: 210, damping: 20 } as const
+
+  /** Each step's written subjects, in order: `count` steps of `batch` by a frame. */
+  const writtenEach = <S,>(batch: Batch.Batch<S>, writes: ReadonlyArray<{ readonly subject: S }>, count: number): Array<Array<S>> =>
+    Array.from({ length: count }, () => {
+      const from = writes.length
+      Batch.step(batch, F)
+      return writes.slice(from).map((w) => w.subject)
+    })
+
+  it("B29: a member a step doesn't move isn't written; one that just entered is, once, though it waits", () => {
+    const { writer, writes } = recording<number>()
+    const batch = Batch.make({ keys: ["x"], writer, transition: STEADY })
+    const slots = [0, 1, 2].map((n) => Batch.enter(batch, n, { x: 0 }))
+    // Member 0 sets off now, member 1 after 5 frames, member 2 after 10.
+    Batch.retarget(batch, slots, () => 50, { delay: (rank) => rank * 5 * F })
+    const each = writtenEach(batch, writes, 14)
+    // Its first step writes every member it entered, at its start: a writer's first draw of it stands.
+    expect(each[0]).toEqual([0, 1, 2])
+    // Then a member waiting out its delay isn't written, until it moves.
+    each.slice(1, 4).forEach((subjects, f) => expect(subjects, `step ${f + 2}`).toEqual([0]))
+    each.slice(6, 9).forEach((subjects, f) => expect(subjects, `step ${f + 7}`).toEqual([0, 1]))
+    each.slice(11).forEach((subjects, f) => expect(subjects, `step ${f + 12}`).toEqual([0, 1, 2]))
+  })
+
+  it("B30: a change from a given value is written at its next step though it waits, then not until it moves", () => {
+    const { writer, writes } = recording<string>()
+    const batch = Batch.make({ keys: ["x"], writer, transition: STEADY })
+    const slot = Batch.enter(batch, "a", { x: 0 })
+    Batch.retarget(batch, [slot], () => 10)
+    Array.from({ length: 200 }).some(() => Batch.step(batch, F))
+    expect(Batch.get(batch, slot, "x")).toBe(10)
+    // Taken back from 30, toward 40, after 4 frames: drawn at 30 at once, then held there unwritten.
+    Batch.retarget(batch, [slot], () => 40, { from: () => 30, delay: 4 * F })
+    const from = writes.length
+    const each = writtenEach(batch, writes, 6)
+    expect(each[0]).toEqual(["a"])
+    expect(writes[from].values.x).toBe(30)
+    each.slice(1, 3).forEach((subjects, f) => expect(subjects, `step ${f + 2}`).toEqual([]))
+    expect(each[5]).toEqual(["a"])
+  })
+
+  it("B31: paused on its Playhead, a change writes nothing; a seek is written at the next step, and so is a stop", () => {
+    const { writer, writes } = recording<string>()
+    const batch = Batch.make({ keys: ["x"], writer, transition: STEADY })
+    const slot = Batch.enter(batch, "a", { x: 0 })
+    const head = Playback.make()
+    const animation = Batch.animate(batch, [slot], () => 100, { transition: STEADY, head })
+    Batch.play(animation)
+    writtenEach(batch, writes, 4)
+    Playback.pause(head)
+    const at = Batch.get(batch, slot, "x")
+    // Paused: every member still, nothing written.
+    expect(writtenEach(batch, writes, 5)).toEqual([[], [], [], [], []])
+    // A seek while paused, played from there as a binding's track plays it: written once, where it has it.
+    Playback.seek(head, 12 * F)
+    Batch.play(animation)
+    expect(writtenEach(batch, writes, 3)).toEqual([["a"], [], []])
+    expect(Batch.get(batch, slot, "x")).not.toBe(at)
+    // A stop: written once more, where it is, and at rest.
+    const stopped = Batch.get(batch, slot, "x")
+    Batch.stop(animation)
+    expect(writtenEach(batch, writes, 2)).toEqual([["a"], []])
+    expect(writes.at(-1)?.values.x).toBe(stopped)
+    expect(Batch.isMoving(batch)).toBe(false)
   })
 })

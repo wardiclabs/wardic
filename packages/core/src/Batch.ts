@@ -173,6 +173,14 @@ const COUNTED = 8
 const STARTS = 16
 /** The start pass drew it this step: its loop keeps it, unstepped, and clears the flag. */
 const STARTED = 32
+/**
+ * Its values changed outside a step (it entered, took a new Subject, a change started it from a given value,
+ * or a play, seek, stop or cancel put it somewhere): its next step writes it, though that step may not move
+ * it. A step writes a member it moves, or one due; not one a delay or a paused Playhead holds still. A bit
+ * of the flags each step reads anyway: the plain list's check stays one compare, and only a member due takes
+ * the slow path.
+ */
+const DUE = 64
 
 /** A Batch's state, which only this module's operations write. */
 interface State<S> {
@@ -517,7 +525,8 @@ export const enter: {
   const slot = slotFor(state)
   state.subjects[slot] = subject
   // A start a member that left never took isn't this one's.
-  state.flags[slot] = (state.flags[slot] & ~(STARTS | STARTED)) | LIVE
+  // Drawn at its first step, at its start, though a delay holds it there.
+  state.flags[slot] = (state.flags[slot] & ~(STARTS | STARTED)) | LIVE | DUE
   const base = slot * state.stride
   Arr.forEach(state.keys, (key, k) => {
     const given = start[key]
@@ -571,6 +580,8 @@ export const replace: {
   const state = stateOf(self)
   if ((state.flags[slot] & LIVE) === 0) return
   state.subjects[slot] = subject
+  // The new Subject has nothing drawn on it yet.
+  state.flags[slot] = state.flags[slot] | DUE
 })
 
 /** A slot for a new member: one a `leave` freed, else the next, the arrays doubled when they're full. */
@@ -669,6 +680,8 @@ export const retarget: {
     if ((flag & COUNTED) !== 0) continue
     const base = slot * stride
     let moves = false
+    // Started from a value given: drawn there at its next step, though a delay holds it there.
+    let jumped = false
     for (let k = 0; k < stride; k++) {
       const at = base + k
       let target = targetOf(slot, k)
@@ -680,6 +693,7 @@ export const retarget: {
         if (!Number.isNaN(jump)) {
           if (Number.isNaN(target)) target = targets[at]
           state.positions[at] = jump
+          jumped = true
           state.velocities[at] = 0
           if (Predicate.isNotUndefined(speedOf)) state.velocities[at] = speedOf(slot, k)
           targets[at] = Number.NaN
@@ -690,6 +704,7 @@ export const retarget: {
     }
     if (!moves) continue
     flags[slot] = flag | COUNTED
+    if (jumped) flags[slot] = flags[slot] | DUE
     movers[n] = slot
     n++
   }
@@ -778,8 +793,10 @@ export const isMoving = <S>(self: Batch<S>): boolean => {
 }
 
 /**
- * Steps every moving member by `dt` seconds and writes each one: whether nothing moves now. The run
- * on the Frame loop calls it each tick.
+ * Steps every moving member by `dt` seconds and writes each one the step moves, or whose values a change
+ * outside a step set (an `enter`, a `replace`, a start from a given value, a play, seek, stop or cancel):
+ * whether nothing moves now. One a delay or a paused Playhead holds still isn't written. The run on the
+ * Frame loop calls it each tick.
  */
 // Per frame (ADR-0025, ADR-0030 decisions 10 and 11): `dt` clamped once (#78), then the two moving
 // lists. Each steps a key by `springValues`' exact step, or `Machine.tween`'s, its spring's matrix
@@ -813,6 +830,7 @@ export const draw = <S>(self: Batch<S>): void => {
   const { flags, subjects, positions, stride, write } = state
   for (let slot = 0; slot < state.used; slot++) {
     if ((flags[slot] & LIVE) === 0) continue
+    flags[slot] = flags[slot] & ~DUE
     write(subjects[slot] as S, positions, slot * stride)
   }
   state.flush()
@@ -851,8 +869,10 @@ const stepPlain = <S>(state: State<S>, clamped: number): void => {
   for (let a = 0; a < count; a++) {
     const slot = plainList[a]
     const flag = flags[slot]
+    // Whether to write it: this step moved a key, or a change outside a step left it due.
+    let moved = false
     // A member a change gave another transition is the ruled list's now; one that left is dropped here,
-    // unwritten. One the start pass drew this step is kept, unstepped (#706).
+    // unwritten. One the start pass drew this step is kept, unstepped (#706). One due is stepped and written.
     if (flag !== (LIVE | IN_PLAIN)) {
       if (flag === (LIVE | IN_PLAIN | STARTED)) {
         flags[slot] = LIVE | IN_PLAIN
@@ -860,8 +880,14 @@ const stepPlain = <S>(state: State<S>, clamped: number): void => {
         kept++
         continue
       }
-      if ((flag & IN_PLAIN) !== 0) flags[slot] = flag & ~IN_PLAIN
-      continue
+      if (flag === (LIVE | IN_PLAIN | DUE)) {
+        flags[slot] = LIVE | IN_PLAIN
+        moved = true
+      }
+      if (!moved) {
+        if ((flag & IN_PLAIN) !== 0) flags[slot] = flag & ~IN_PLAIN
+        continue
+      }
     }
     const base = slot * stride
     let still = true
@@ -873,16 +899,19 @@ const stepPlain = <S>(state: State<S>, clamped: number): void => {
       let speed = velocities[at]
       // Only the part of this tick past the delay moves it: all of it, or, the frame its delay ends, a part.
       const simDt = Math.max(0, Math.min(clamped, time - delays[at]))
+      // A key moves only in these two branches, so they say so: no compare per key (bench:core's `batch`).
       if (simDt === clamped) {
         const d = position - goal
         position = goal + dd * d + dv * speed
         speed = vd * d + vv * speed
+        moved = true
       }
       if (simDt > 0 && simDt < clamped) {
         const part = Spring.matrixFor(spring, simDt)
         const d = position - goal
         position = goal + part.dd * d + part.dv * speed
         speed = part.vd * d + part.vv * speed
+        moved = true
       }
       const settled = simDt > 0 && Math.abs(speed) <= restSpeeds[at] && Math.abs(position - goal) <= restDeltas[at]
       if (settled) {
@@ -894,7 +923,8 @@ const stepPlain = <S>(state: State<S>, clamped: number): void => {
       velocities[at] = speed
       elapsed[at] = time
     }
-    write(subjects[slot] as S, positions, base)
+    // One a delay holds still isn't written: an unchanged write is a style write all the same.
+    if (moved) write(subjects[slot] as S, positions, base)
     // At rest: still its member's, in neither list.
     if (still) {
       flags[slot] = LIVE
@@ -975,6 +1005,9 @@ const stepRuled = <S>(state: State<S>, clamped: number): void => {
     }
     const base = slot * stride
     let still = true
+    // Whether to write it: this step moved a key, or a change outside a step left it due.
+    let moved = (flag & DUE) !== 0
+    if (moved) flags[slot] = flag & ~DUE
     for (let k = 0; k < stride; k++) {
       const at = base + k
       const rule = rules[at]
@@ -983,7 +1016,9 @@ const stepRuled = <S>(state: State<S>, clamped: number): void => {
       elapsed[at] = time
       // A tween, out of line.
       if (kind === TWEEN) {
+        const was = positions[at]
         if (!stepTween(state, at, entries[rule].tween, time, clamped)) still = false
+        if (positions[at] !== was) moved = true
         continue
       }
       // A spring, as `springValues`': only the part of this tick past the delay moves it.
@@ -997,17 +1032,21 @@ const stepRuled = <S>(state: State<S>, clamped: number): void => {
         const d = position - goal
         position = goal + matrices[mi] * d + matrices[mi + 1] * speed
         speed = matrices[mi + 2] * d + matrices[mi + 3] * speed
+        moved = true
       }
       if (simDt > 0 && simDt < clamped) {
         const part = Spring.matrixFor(entries[rule].spring, simDt)
         const d = position - goal
         position = goal + part.dd * d + part.dv * speed
         speed = part.vd * d + part.vv * speed
+        moved = true
       }
-      // A spring rests by its thresholds; one that ends at its duration, there (#359).
+      // A spring rests by its thresholds; one that ends at its duration, there (#359), with no step if its
+      // duration is 0: a settle that moves it says so, once a key.
       let settled = simDt > 0 && Math.abs(speed) <= restSpeeds[at] && Math.abs(position - goal) <= restDeltas[at]
       if (kind === TIMED) settled = time - delay >= entries[rule].spring.duration
       if (settled) {
+        if (position !== goal) moved = true
         position = goal
         speed = 0
       }
@@ -1015,7 +1054,7 @@ const stepRuled = <S>(state: State<S>, clamped: number): void => {
       positions[at] = position
       velocities[at] = speed
     }
-    write(subjects[slot] as S, positions, base)
+    if (moved) write(subjects[slot] as S, positions, base)
     // At rest: still its member's, in neither list (a member is in one at most).
     if (still) {
       flags[slot] = LIVE
@@ -1051,6 +1090,9 @@ const stepRuledDriven = <S>(state: State<S>): void => {
     }
     const base = slot * stride
     let still = true
+    // Whether to write it: this step moved a key, or a change outside a step left it due. Paused, none moves.
+    let moved = (flag & DUE) !== 0
+    if (moved) flags[slot] = flag & ~DUE
     for (let k = 0; k < stride; k++) {
       const at = base + k
       const rule = rules[at]
@@ -1058,19 +1100,25 @@ const stepRuledDriven = <S>(state: State<S>): void => {
       const dt = dts[rule]
       // Played backwards: its value worked out again where its Playhead has gone back to, out of line.
       if (dt < 0) {
+        const was = positions[at]
         if (!stepBack(state, at, rule, dt)) still = false
+        if (positions[at] !== was) moved = true
         continue
       }
       const time = elapsed[at] + dt
       elapsed[at] = time
       // A tween, out of line.
       if (kind === TWEEN) {
+        const was = positions[at]
         if (!stepTween(state, at, entries[rule].tween, time, dt)) still = false
+        if (positions[at] !== was) moved = true
         continue
       }
       // Keyframes, out of line: only a driven change's.
       if (kind === KEYFRAMES) {
+        const was = positions[at]
         if (!stepKeyframes(state, at, rule, time, dt)) still = false
+        if (positions[at] !== was) moved = true
         continue
       }
       // A spring, as `springValues`': only the part of this tick past the delay moves it.
@@ -1084,12 +1132,14 @@ const stepRuledDriven = <S>(state: State<S>): void => {
         const d = position - goal
         position = goal + matrices[mi] * d + matrices[mi + 1] * speed
         speed = matrices[mi + 2] * d + matrices[mi + 3] * speed
+        moved = true
       }
       if (simDt > 0 && simDt < dt) {
         const part = Spring.matrixFor(entries[rule].spring, simDt)
         const d = position - goal
         position = goal + part.dd * d + part.dv * speed
         speed = part.vd * d + part.vv * speed
+        moved = true
       }
       // A spring rests by its thresholds; one that ends at its duration, there (#359). Held by a paused
       // Playhead, one already on its target is at rest.
@@ -1097,6 +1147,7 @@ const stepRuledDriven = <S>(state: State<S>): void => {
       if (kind === TIMED) settled = time - delay >= entries[rule].spring.duration
       if (dt === 0) settled = speed === 0 && position === goal && time >= delay
       if (settled) {
+        if (position !== goal) moved = true
         position = goal
         speed = 0
       }
@@ -1104,7 +1155,7 @@ const stepRuledDriven = <S>(state: State<S>): void => {
       positions[at] = position
       velocities[at] = speed
     }
-    write(subjects[slot] as S, positions, base)
+    if (moved) write(subjects[slot] as S, positions, base)
     // At rest: still its member's, in neither list (a member is in one at most).
     if (still) {
       flags[slot] = LIVE
@@ -1368,7 +1419,10 @@ const startedPartway = <S>(state: State<S>, slot: number, dt: number): boolean =
     if (velocities[at] === 0 && positions[at] === targets[at]) continue
     stepKey(state, at, rules[at], dt)
   }
-  if (started) state.write(state.subjects[slot] as S, positions, base)
+  if (started) {
+    state.flags[slot] = state.flags[slot] & ~DUE
+    state.write(state.subjects[slot] as S, positions, base)
+  }
   return started
 }
 
@@ -1912,7 +1966,9 @@ export const play = (self: Animation): number => {
 
 /** The member at `slot` moving in the ruled list, so the next step draws it and rests it: 1 when that sets it off from rest. */
 const moving = <S>(state: State<S>, slot: number): number => {
-  const flag = state.flags[slot]
+  // Its values were set outside a step (a play, a seek, a stop or a cancel): drawn at the next, moved or not.
+  const flag = state.flags[slot] | DUE
+  state.flags[slot] = flag
   if ((flag & IN_RULED) !== 0) return 0
   state.flags[slot] = (flag & ~IN_PLAIN) | IN_RULED
   state.ruledList[state.ruledCount] = slot
