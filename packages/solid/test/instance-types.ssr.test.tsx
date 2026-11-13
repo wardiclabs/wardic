@@ -10,6 +10,8 @@
 //   keys its targets and drag axis set, and another's is an error.
 // - IT4: the defaults are the props as they were: `WardicComponent<Tag>`, `W`, and an instance of every
 //   Feature (`domMax`), with no `NeedsFeature` anywhere.
+// - IT5: the other forms of an instance's `w` take its Features' props alone: `w.create(tag)`,
+//   `w.create(Component)`, `w.create(string)` and `w.createWard(config)`, a value or an accessor.
 import { domAnimation, domMax, drag, focus, hover, inView, layout, pan, press, type W as PlainW, w, type WardicComponent, type WardicInstance } from "@wardic/solid"
 import type { JSX } from "solid-js"
 import { describe, expectTypeOf, it } from "vitest"
@@ -269,5 +271,46 @@ describe("a Wardic instance's element props (#516)", () => {
       // @ts-expect-error nor on an instance of every Feature
       <all.div layout={needs("layout")} />
     ))
+  })
+
+  it("IT5: the other forms of an instance's w take its Features' props alone", () => {
+    const shell = null as unknown as W<typeof domAnimation>
+    typed(() => {
+      const Card = shell.create("article")
+      return <Card whileHover={{ scale: 1.1 }} animate={{ x: 1 }} transition={{ x: FAST }} />
+    })
+    typed(() => {
+      const Card = shell.create("article")
+      // @ts-expect-error domAnimation has no layout
+      return <Card layout />
+    })
+    typed(() => {
+      const Buy = shell.create((props: { readonly ref?: (el: HTMLElement) => void; readonly label: string }) => <button ref={props.ref}>{props.label}</button>)
+      return <Buy label="Buy" whileTap={{ scale: 0.9 }} />
+    })
+    typed(() => {
+      const Buy = shell.create((props: { readonly ref?: (el: HTMLElement) => void; readonly label: string }) => <button ref={props.ref}>{props.label}</button>)
+      // @ts-expect-error domAnimation has no drag
+      return <Buy label="Buy" drag />
+    })
+    typed(() => {
+      const tag: string = "section"
+      const Section = shell.create(tag)
+      // @ts-expect-error domAnimation has no drag
+      return <Section whileHover={{ scale: 1.1 }} drag />
+    })
+    typed(() => shell.createWard({ whileHover: { scale: 1.1 }, animate: { x: 1 }, transition: { x: FAST } }))
+    typed(() => shell.createWard(() => ({ whileFocus: { opacity: 1 } })))
+    typed(() =>
+      shell.createWard({
+        animate: { opacity: 1 },
+        // @ts-expect-error domAnimation has no drag
+        drag: "x",
+      }),
+    )
+    typed(() =>
+      // @ts-expect-error nor has it layout, in an accessor's config
+      shell.createWard(() => ({ layoutId: "card" })),
+    )
   })
 })
