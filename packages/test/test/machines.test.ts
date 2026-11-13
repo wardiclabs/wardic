@@ -8,6 +8,7 @@ import { TestClock } from "@wardic/test"
 import { motionKeyframesAt, motionRunAt, motionRunDone, type RunOptions } from "./motion-oracle.ts"
 import { describe, expect, it } from "@effect/vitest"
 import * as Bool from "effect/Boolean"
+import type * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Fiber from "effect/Fiber"
@@ -23,6 +24,8 @@ import * as Stream from "effect/Stream"
  *   generic combinators' seams are `combinators.test.ts`';
  * - **driver parity:** every constructor through `Machine.toStream` against `Machine.run` on the
  *   Frame loop, Frame for Frame.
+ * - **`nextFrame`** (#714, a binding's): NF1, it succeeds at the loop's next tick, alone on the loop, then
+ *   leaves it, once; interrupted first, it leaves at once and never succeeds.
  *
  * The dts are uneven on purpose: 60, 30 and 120 Hz frames, a repeated timestamp (0), a 0.25 s
  * stall, and a 0.6 s one above `MAX_DT`, which every constructor clamps (#78).
@@ -449,3 +452,48 @@ describe("Machine.delay against the steppers' delay", () => {
       }))
   }
 })
+
+type LoopShape = Context.Service.Shape<typeof FrameLoop.FrameLoop>
+
+/** A pushable Clock and the Frame loop on it, counting the runs on the loop. */
+const countingLoop = () =>
+  Effect.gen(function* () {
+    const clock = yield* TestClock.pushable()
+    let live = 0
+    const count = (go: LoopShape["run"]): LoopShape["run"] =>
+      ((machine: Machine.Machine<Frame.Frame<unknown>>, sink: FrameLoop.Sink<Frame.Frame<unknown>>, options?: Machine.RunOptions) =>
+        Effect.suspend(() => {
+          live++
+          return go(machine, sink, options as Machine.RunOptions)
+        }).pipe(Effect.ensuring(Effect.sync(() => void live--)))) as unknown as LoopShape["run"]
+    const loop = Layer.effect(FrameLoop.FrameLoop)(FrameLoop.FrameLoop.useSync((l) => ({ ...l, run: count(l.run), runLast: count(l.runLast) }))).pipe(
+      Layer.provide(FrameLoop.layer),
+    )
+    return { clock, layer: loop.pipe(Layer.provideMerge(clock.layer)), live: () => live }
+  })
+
+describe("Machine.nextFrame: the loop's next tick, once (#714)", () => {
+  it.effect("NF1: succeeds at the next tick alone on the loop, then leaves it, once; interrupted first, leaves at once", () =>
+    Effect.gen(function* () {
+      const h = yield* countingLoop()
+      yield* Effect.gen(function* () {
+        let done = 0
+        yield* Effect.forkChild(Machine.nextFrame.pipe(Effect.andThen(Effect.sync(() => void done++))))
+        yield* Effect.yieldNow
+        expect(done, "nothing before the tick").toBe(0)
+        expect(h.live(), "its run keeps the loop ticking").toBe(1)
+        yield* h.clock.advance(1 / 60)
+        expect(done, "at the tick").toBe(1)
+        expect(h.live(), "and off the loop").toBe(0)
+        yield* h.clock.advance(1 / 60)
+        expect(done, "once").toBe(1)
+        const fiber = yield* Effect.forkChild(Machine.nextFrame.pipe(Effect.andThen(Effect.sync(() => void done++))))
+        yield* Effect.yieldNow
+        yield* Fiber.interrupt(fiber)
+        expect(h.live(), "interrupted: off the loop at once").toBe(0)
+        yield* h.clock.advance(1 / 60)
+        expect(done, "interrupted: never").toBe(1)
+      }).pipe(Effect.scoped, Effect.provide(h.layer))
+    }))
+})
+
