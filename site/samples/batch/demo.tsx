@@ -39,16 +39,17 @@ export default function Demo() {
   const [drawing, setDrawing] = createSignal<Drawing>("grid")
   const [fps, setFps] = createSignal<number>()
   onSettled(() => framesPerSecond(setFps))
-  // In the grid, a tile's place is its index in the order; in the mark, its own spot, by its id, so
-  // from a shuffled grid each crosses the board to it.
+  // In every drawing, a tile's place is its index in the order: a cell of the grid, or a cell of the mark.
+  // Its colour is its own (`COLOURS`, by its id), so in order the mark is whole, and shuffled it's scrambled
+  // until Sort puts it back together.
   const tiles = createBatch({
     each: order,
     key: (id) => id,
     initial: (_, i) => ({ ...gridAt(i), scale: 0, rotate: 0, opacity: 0 }),
-    animate: (id, i) => {
+    animate: (_, i) => {
       const now = drawing()
-      if (now === "mosaic") return MOSAIC[id].values
-      if (now === "lines") return LINES[id].values
+      if (now === "mosaic") return MOSAIC[i].values
+      if (now === "lines") return LINES[i].values
       return { ...gridAt(i), scale: 1, rotate: 0, opacity: 1 }
     },
     transition: { type: "spring", visualDuration: 0.6, bounce: 0.2, delay: stagger(0.0004) },
@@ -62,11 +63,8 @@ export default function Demo() {
     tileElements.forEach((el, id) => el.style.setProperty("background-color", colourOf(id)))
   })
   const sorted = () => order() === TILES
-  // Shuffle and Sort are the grid's: from the mark, they bring the tiles back to it.
-  const reorder = () => {
-    setDrawing("grid")
-    setOrder(sorted() ? shuffled(TILES) : TILES)
-  }
+  // Shuffle and Sort reorder the tiles in whichever drawing is up: a new order, each tile to its new place.
+  const reorder = () => setOrder(sorted() ? shuffled(TILES) : TILES)
   return (
     <div class="sample-stack">
       <div class="sample-tabs" role="group" aria-label="The tiles draw">
