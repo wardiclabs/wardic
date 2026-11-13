@@ -80,7 +80,7 @@ const list = createBatch({
 
 - **`animate(item, i)`** and **`initial(item, i)`** take the item and its index in the list now. A change of the list, or of its order, turns every member once: reordered, each one heads for its new place at the speed it has.
 - **A new item's member** enters as its element arrives, from `initial`, and moves with the others that arrive in the same task. An item that leaves the list takes its member with it at once, unless it's under an `<AnimatePresence>`.
-- **Under `<AnimatePresence>`,** a leaving member plays its `exit`, its element kept until it lands, each one as its own does. `exit` is values with an optional `transition`, or `(item, i, custom) => values`, `custom` the presence's. Its `delay: stagger()` counts the members leaving together. An item back while it exits takes over where it was, at its speed, its old element gone at once. `initial={false}` on the presence starts its first render's members at their targets. Members inside an `<svg>` leave at once, for now.
+- **Under `<AnimatePresence>`,** a leaving member plays its `exit`, its element kept until it lands, each one as its own does. `exit` is values with an optional `transition`, or `(item, i, custom) => values`, `custom` the presence's. Its `delay: stagger()` counts the members leaving together. An item back while it exits takes over where it was, at its speed, its old element gone at once. `initial={false}` on the presence starts its first render's members at their targets.
 
 ```tsx
 const list = createBatch({ each: () => todos(), key: "id", initial: { opacity: 0 }, animate: (_, i) => ({ y: i * 48, opacity: 1 }), exit: { opacity: 0, x: -24, transition: { duration: 0.2, delay: stagger(0.03) } } })

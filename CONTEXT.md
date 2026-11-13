@@ -510,7 +510,7 @@ A **Subject** a scene holds for its owner: it joins its parent when it enters, a
 _Avoid_: entity, presence child (the DOM's), node.
 
 **Presence child**:
-An element among an `<AnimatePresence>`'s children, whatever made it (a `<Show>`'s branch, a `<For>`'s item, a Batch member's element) and whatever its kind: HTML, SVG or MathML (#702). Text is never one. One that drops out of the children is a *leaver*: it stays on the page, in its place, until its exit and the exits inside it have landed.
+An element among an `<AnimatePresence>`'s children, whatever made it (a `<Show>`'s branch, a `<For>`'s item, a Batch member's element) and whatever its kind: HTML, SVG or MathML (#702). Text is never one. One that drops out of the children is a *leaver*: with an exit to play, its own or one inside it, it stays on the page until they have landed.
 _Avoid_: presence item, exiting node.
 
 **Host loop**:
