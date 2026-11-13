@@ -9,6 +9,7 @@ import { type JSX, sharedConfig } from "solid-js"
 import { hydrate } from "solid-js/web"
 import { commands } from "vitest/browser"
 import { expect } from "vitest"
+import { uncounted } from "./appear-reads.ts"
 import "./browser-commands.ts"
 
 /** What one element draws in one frame. */
@@ -74,12 +75,20 @@ export const runServerRendered = async (
   file: string,
   name: string,
   code: () => JSX.Element,
-  options: { readonly hydrateAfter?: number; readonly forMs: number; readonly then?: { readonly afterMs: number; readonly act: () => void } },
+  options: {
+    readonly hydrateAfter?: number
+    readonly forMs: number
+    readonly then?: { readonly afterMs: number; readonly act: () => void }
+    /** Whether the server plays an Appear animation, its style in the head: yes, unless `false` (#724). */
+    readonly played?: boolean
+    /** Whether the markup goes inside an open shadow root, which holds the head's styles too (#724). */
+    readonly shadow?: boolean
+  },
 ): Promise<Run> => {
   const renderId = `${name}-${runs++}`
   const { html, head, script, error } = await commands.serverRenderPage(file, name, renderId)
   if (error !== "") throw new Error(`server render of ${name} failed: ${error}`)
-  expect(head, "the head carries the Appear style").toContain("data-wardic-appear")
+  if (options.played !== false) expect(head, "the head carries the Appear style").toContain("data-wardic-appear")
   if ((globalThis as { _$HY?: unknown })._$HY === undefined) {
     const tag = document.createElement("script")
     tag.textContent = /<script[^>]*>([\s\S]*?)<\/script>/.exec(script)?.[1] ?? ""
@@ -91,27 +100,39 @@ export const runServerRendered = async (
   document.head.append(...styles)
   const host = document.createElement("div")
   host.innerHTML = html
-  document.body.append(host)
+  // In a shadow root (#724), its tree holds the head's rules too: an animation's name is looked up in the
+  // element's own tree, while a slot's custom property is inherited from the document's `:root`.
+  let page: Document | ShadowRoot = document
+  let placed: Element = host
+  if (options.shadow === true) {
+    placed = document.createElement("div")
+    const shadow = placed.attachShadow({ mode: "open" })
+    shadow.append(...styles.map((style) => style.cloneNode(true)), host)
+    page = shadow
+  }
+  document.body.append(placed)
   const watched = [...host.querySelectorAll("[data-k]")]
   let hydrated = false
   let dispose = (): void => {}
   cleanups.push(() => {
     dispose()
-    host.remove()
+    placed.remove()
     for (const style of styles) style.remove()
   })
   const startOf: Record<string, number> = {}
   // Each watched element's CSS animation's start, once it has one: a frame's read notes it, and so
   // does the Handoff, just before it takes them over, as a slow runner can skip every read before it (#524).
   // The page's, as a Batch's Handoff reads them: `find` passes over a Batch's rule (#706).
-  const noteStarts = (): void => {
-    const all = Appear.findAll(document)
-    for (const el of watched) {
-      const k = (el as HTMLElement).dataset.k!
-      const animation = all.get(el)
-      if (animation !== undefined && startOf[k] === undefined && typeof animation.startTime === "number") startOf[k] = animation.startTime
-    }
-  }
+  // The harness's own reads, uncounted (#724).
+  const noteStarts = (): void =>
+    uncounted(() => {
+      const all = Appear.findAll(page)
+      for (const el of watched) {
+        const k = (el as HTMLElement).dataset.k!
+        const animation = all.get(el)
+        if (animation !== undefined && startOf[k] === undefined && typeof animation.startTime === "number") startOf[k] = animation.startTime
+      }
+    })
   const hydratedStyle: Record<string, string> = {}
   const frames: Array<Recorded> = []
   const begun = performance.now()
@@ -148,7 +169,9 @@ export const runServerRendered = async (
         if (frameCount !== seen) return
         const drawn: Record<string, Drawn> = {}
         noteStarts()
-        for (const el of watched) drawn[(el as HTMLElement).dataset.k!] = drawnOf(el)
+        uncounted(() => {
+          for (const el of watched) drawn[(el as HTMLElement).dataset.k!] = drawnOf(el)
+        })
         frames.push({ at: now, hydrated, drawn })
       }, 0)
       if (performance.now() - begun < options.forMs) requestAnimationFrame(frame)

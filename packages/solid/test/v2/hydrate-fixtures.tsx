@@ -531,3 +531,41 @@ export const A10 = (): JSX.Element => {
   ))
 }
 
+/**
+ * A card and a staggered list under a provider whose `appear` is off (#724): the server gives no element an
+ * Appear animation, so each animates from hydration, and the Handoff has nothing to read.
+ */
+export const R1 = (): JSX.Element => {
+  const variants = { hidden: { opacity: 0, x: -30 }, shown: { opacity: 1, x: 0 } }
+  return (
+    <WardicProvider env={env} appear={false}>
+      <wardic.div data-k="card" style={{ width: "40px", height: "40px" }} initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} />
+      <wardic.ul initial="hidden" animate="shown" variants={{ hidden: {}, shown: {} }} transition={{ type: "tween", duration: 0.5, staggerChildren: 0.12 }}>
+        <wardic.li data-k="i0" variants={variants} style={{ height: "10px" }} />
+        <wardic.li data-k="i1" variants={variants} style={{ height: "10px" }} />
+      </wardic.ul>
+    </WardicProvider>
+  )
+}
+
+/**
+ * A card in the shell, and a list whose items stream in a late `<Loading>` chunk (#724): two hydration
+ * passes, the shell's and, when the chunk lands after it, the chunk's.
+ */
+export const R2 = (): JSX.Element => {
+  const items = { hidden: { opacity: 0, x: -30 }, shown: { opacity: 1, x: 0 } }
+  const [data] = createSignal(async (): Promise<ReadonlyArray<number>> => {
+    await new Promise((resolve) => setTimeout(resolve, 30))
+    return [0, 1, 2]
+  })
+  return page(() => (
+    <>
+      <wardic.div data-k="card" style={{ width: "40px", height: "40px" }} initial={{ opacity: 0, y: 40 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "tween", duration: 1.5 }} />
+      <wardic.ul data-k="list" initial="hidden" animate="shown" variants={{ hidden: {}, shown: {} }} transition={{ type: "tween", duration: 0.5, staggerChildren: 0.12 }}>
+        <Loading fallback={<li>loading</li>}>
+          <For each={data()}>{(i) => <wardic.li data-k={`s${i}`} variants={items} style={{ height: "10px" }} />}</For>
+        </Loading>
+      </wardic.ul>
+    </>
+  ))
+}

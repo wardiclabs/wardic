@@ -50,7 +50,7 @@ export const startAtOf = (members: HandoffMembers): ((slot: number) => number) =
     Iter.forEach(members.appearing, (slot) => {
       const el = members.elementOf(slot)
       if (Predicate.isUndefined(el)) return
-      const animation = pageAnimationsOf(el.ownerDocument).get(el)
+      const animation = pageAnimationsOf(el).get(el)
       if (Predicate.isUndefined(animation)) return
       const name = (animation as Animation & { readonly animationName: string }).animationName
       if (Predicate.isNotUndefined(keyOf) && !checked.has(name)) {
