@@ -386,5 +386,6 @@ A **Timeline value** is a Live value derived from a container's scroll by ranges
 ### Implementation
 
 **PR 1** (core and dom): `LiveValue.ScrollDerivation`, `ScrollMap` and `scrollDerivationOf`; `packages/dom/src/internal/timeline.ts` and `@wardic/dom/TimelineValue`; the gate's `timeline` (`internal/gate.ts`; `FlushGate.inert`'s does nothing); `addsToTransform` and `transformFunctionOf` in `internal/renderer.ts`; `positionOf` and `pageOf` shared from `internal/scroll.ts`. `timeline.ts` is a per-frame file (its `sync` runs at each flush).
+- **Measured** (`.tmp/240-timeline/gate-flush.ts`: the gate's flush of 1,000 elements each written every frame, none with a Timeline value, main's `gate.ts` against this one in one process, 15 paired reps, Bun): +0.3% [p25 −0.2%, p75 +0.4%], 11.2 µs a flush on both. The gate keeps the Timeline values in two maps beside its entries, and the flush checks their sizes. A first version kept them on each entry and checked them in `prepare`: +6.0% [5.4, 6.6], every element paying for a field it didn't use.
 
 **PR 2** (the Solid surface): both bindings set and clear a key's Timeline value; scenario 19's gate-drawn bar and the screencast script in the lab; the scroll guide; `bun run size`; the screencast before and after.

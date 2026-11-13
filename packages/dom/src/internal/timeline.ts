@@ -91,9 +91,11 @@ interface Plan {
 /** A container's or target's timelines, one an axis. */
 type ByAxis<T> = { x?: T; y?: T }
 
-// Module state (#460, Q7): caches keyed by what they cache, held weakly. One timeline a container (or
-// target) and an axis, shared by every value on it, as Motion's `get-timeline.ts`.
+// Module state (#460, Q7): a cache keyed by what it caches, held weakly. One `ScrollTimeline` a
+// container and an axis, shared by every value on it, as Motion's `get-timeline.ts`.
 const scrollTimelines = new WeakMap<Element, ByAxis<ScrollTimeline>>()
+// Module state (#460, Q7): a cache keyed by what it caches, held weakly. One `ViewTimeline` a target and
+// an axis: its scroller is the target's own.
 const viewTimelines = new WeakMap<Element, ByAxis<ViewTimeline>>()
 
 /** `cache`'s timeline for `element` on `axis`, made by `make` the first time. */
