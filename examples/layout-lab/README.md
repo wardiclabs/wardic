@@ -748,6 +748,17 @@ The sidebar's **Projection tree** panel draws the projection engine's tree with 
 
 Both builds have the panel: the engine is the same `@wardic/dom` under each. It reads the engine through the binding's `useWardicRuntime()`.
 
+## Scroll gap (#240)
+
+Scenario 19 draws three bars over its scroll box's progress: Wardic's progress bar, a Timeline value where the browser has scroll timelines; CSS's own scroll-driven bar in orange, the reference; and a grey bar the flush gate draws, `createTransform(scrollYProgress, (p) => p)`. How far each trails the screen can't be read from the page: a touch fling scrolls off the main thread. `scripts/scroll-gap.ts` reads it off screen captures instead, one per composited frame, through a touch fling and wheel notches, Busy off and on:
+
+```sh
+# with the Solid 1 dev server running
+bun examples/layout-lab/scripts/scroll-gap.ts mobile hidpi hidpiWheel desktop
+```
+
+It prints each bar's gap to the reference while the scroll moves, in px and in frames. `LAB_URL` points it at another server; it needs Chromium (Playwright's) and `pngjs`. ADR-0043's *Amendment (#240)* has its numbers.
+
 ## Scheduler note
 
 By default the lab installs **no** `setImmediate` polyfill, so Effect's scheduler

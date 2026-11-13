@@ -42,6 +42,7 @@
         "solid-js": "1.9.18",
       },
       "devDependencies": {
+        "pngjs": "7.0.0",
         "vite": "6.4.2",
         "vite-plugin-solid": "2.11.15",
       },
