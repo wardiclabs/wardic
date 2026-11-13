@@ -81,6 +81,13 @@
  * with `whileHover` and `whileTap` (`?kind=batch-gestures`, #665's PR 5), is gated against the plain one's
  * mount, change and frame by the per-element bench's rule (+5%, its p25 above 1).
  *
+ * `--batch-frames` runs the Batch's frames head against base, paired per rep, with the plain-div noise
+ * control, on three pages (see `page.tsx`): every member moving (`?kind=batch`), a stagger across half a
+ * second holding most of them waiting (`?kind=batch-stagger`), and a change from code paused partway, every
+ * member still (`?kind=batch-paused`). Each page's change task and frame fail as the per-element bench's
+ * tasks do (+5%, its p25 above 1); the frames a member doesn't move in are where a write it doesn't need
+ * shows. The base needs `createBatch` (#665). Run it at `--n 1000` and `--n 3000`.
+ *
  * `--reorder-batch` (#712, ADR-0072 decision 11) runs `--head` alone too: N items reordered by a drag in a
  * `Reorder.BatchGroup` (`?kind=reorder-batch`) against a `Reorder.Group` of `Reorder.Item`s with its `axis`
  * given (`?kind=reorder-group`), at the same places, in a column and in a grid of 40 columns, paired per
@@ -135,6 +142,7 @@ const allocReps = Number(arg("alloc-reps", "3"))
 const retainedReps = Number(arg("retained-reps", "3"))
 const liveMode = process.argv.includes("--live")
 const batchMode = process.argv.includes("--batch")
+const batchFramesMode = process.argv.includes("--batch-frames")
 const reorderBatchMode = process.argv.includes("--reorder-batch")
 const v2Mode = process.argv.includes("--v2")
 const featuresMode = process.argv.includes("--features")
@@ -159,6 +167,8 @@ type Kind =
   | "batch"
   | "batch-gestures"
   | "batch-animate"
+  | "batch-stagger"
+  | "batch-paused"
   | "reorder-batch"
   | "reorder-group"
   | RetainedKind
@@ -259,7 +269,7 @@ const headLabel = UndefinedOr.match(headCommit, {
 // `--live`, `--batch`, `--reorder-batch` and `--v2` run the head alone: their pages can't run on a base before them.
 const headAlone = Bool.some([liveMode, batchMode, reorderBatchMode, v2Mode])
 const runSolid1 = Bool.or(headAlone, bindingArg !== "2")
-const wantSolid2 = Bool.and(Bool.not(Bool.some([liveMode, batchMode, reorderBatchMode])), Bool.or(v2Mode, bindingArg !== "1"))
+const wantSolid2 = Bool.and(Bool.not(Bool.some([liveMode, batchMode, batchFramesMode, reorderBatchMode])), Bool.or(v2Mode, bindingArg !== "1"))
 // The Solid 2 page, head against base (#259), when both have the binding; `--v2`'s head alone.
 const runSolid2 = Bool.and(wantSolid2, Bool.and(hasV2(headCommit), Bool.or(headAlone, hasV2(baseCommit))))
 const headScript = await bundle("head", headCommit, headDeps)
@@ -550,6 +560,60 @@ if (v2Mode) {
     )
   }
   process.exit(0)
+}
+
+if (batchFramesMode) {
+  // Head against base: a Batch's frames while every member moves, while most wait out a stagger, and while a
+  // change is paused, paired per rep, with the plain-div noise control.
+  console.log(
+    `bench:solid --batch-frames: base ${base} (${baseCommit.slice(0, 7)}) against ${headLabel}, Chromium ${browser.version()}, ${n} elements, ${rounds} rounds per page, ${reps} paired reps\n`,
+  )
+  const FRAME_KINDS = ["batch", "batch-stagger", "batch-paused"] as const
+  type FrameKind = (typeof FRAME_KINDS)[number]
+  const LABELS: Record<FrameKind, string> = { batch: "all moving", "batch-stagger": "staggered", "batch-paused": "paused" }
+  const pagesOf: Record<FrameKind, Record<"base" | "head", Array<ReadonlyArray<BatchRound>>>> = {
+    batch: { base: [], head: [] },
+    "batch-stagger": { base: [], head: [] },
+    "batch-paused": { base: [], head: [] },
+  }
+  const plain: Record<"base" | "head", Array<ReadonlyArray<Round>>> = { base: [], head: [] }
+  for (let r = 0; r < reps; r++) {
+    // Base first on even reps, head first on odd ones.
+    const order: ReadonlyArray<"base" | "head"> = Bool.match(r % 2 === 0, {
+      onTrue: (): ReadonlyArray<"base" | "head"> => ["base", "head"],
+      onFalse: (): ReadonlyArray<"base" | "head"> => ["head", "base"],
+    })
+    for (const kind of FRAME_KINDS) for (const side of order) pagesOf[kind][side].push((await runPage(side, kind)) as unknown as ReadonlyArray<BatchRound>)
+    for (const side of order) plain[side].push(await runPage(side, "plain"))
+    process.stderr.write(`rep ${r + 1}/${reps}\r`)
+  }
+  await browser.close()
+  const warmOf = (page: ReadonlyArray<BatchRound>, task: "retarget" | "frame"): number => median(page.slice(1).map((round) => round[task]))
+  const plainTotal = (page: ReadonlyArray<Round>): number => TASKS.reduce((sum, task) => sum + median(page.slice(1).map((round) => round[task])), 0)
+  const controlRatios = plain.head.map((page, r) => plainTotal(page) / plainTotal(plain.base[r]!))
+  const control = median(controlRatios)
+  const noisy = Math.abs(control - 1) > NOISE
+  console.log(
+    `control (${n * CONTROL_SCALE} plain divs, all four tasks, warm): ${percent(control)} [${percent(quantile(controlRatios, 0.25))} – ${percent(quantile(controlRatios, 0.75))}]${when(noisy, "  too noisy: rerun on a quiet host")}\n`,
+  )
+  console.log(`warm (ms, median across reps; head / base paired per rep: median [p25 – p75])`)
+  console.log(`  ${"page".padEnd(12)}${"task".padEnd(10)}${"base".padEnd(10)}${"head".padEnd(10)}change`)
+  let failed = false
+  for (const kind of FRAME_KINDS) {
+    for (const task of ["retarget", "frame"] as const) {
+      const pages = pagesOf[kind]
+      const ratios = pages.head.map((page, r) => warmOf(page, task) / warmOf(pages.base[r]!, task))
+      const fails = quantile(ratios, 0.5) > GATE && quantile(ratios, 0.25) > 1
+      failed ||= fails
+      console.log(
+        `  ${LABELS[kind].padEnd(12)}${task.padEnd(10)}${median(pages.base.map((page) => warmOf(page, task))).toFixed(3).padEnd(10)}` +
+          `${median(pages.head.map((page) => warmOf(page, task))).toFixed(3).padEnd(10)}` +
+          `${percent(quantile(ratios, 0.5))} [${percent(quantile(ratios, 0.25))} – ${percent(quantile(ratios, 0.75))}]${when(fails, "  FAIL")}`,
+      )
+    }
+  }
+  if (noisy) process.exit(2)
+  process.exit(Bool.match(failed, { onTrue: () => 1, onFalse: () => 0 }))
 }
 
 console.log(`bench:solid: base ${base} (${baseCommit.slice(0, 7)}) against ${headLabel}`)

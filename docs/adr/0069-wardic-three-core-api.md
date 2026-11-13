@@ -200,3 +200,14 @@ The grill read Motion's 3D API against the 21 libraries in [`three-api-prior-art
 
 #665's Q64 ("the server's start only") is superseded: with `appear: true`, a Batch's members play their entrance from first paint as an **Appear animation**, and the first change at hydration takes each over with `Batch.retarget`'s `startAt` (ADR-0044, *Amendment (#706)*).
 
+
+## Amendment (2026-11-12): a step writes the members it moves
+
+A step wrote every member in its moving lists whether it moved it or not: one waiting out a stagger's delay, and every member of a change paused on its Playhead, each frame for as long as the pause lasted. An unchanged write is a style write all the same: 0.7–0.8 ms per 1,000 members a frame in Chromium, all of it in `setProperty`, Blink skipping the restyle.
+
+- **Decision:** a step writes a member when it moved one of its keys, or when the member is due: its values changed outside a step (it entered, took a new Subject, a change started it from a given value, or a play, seek, stop or cancel put it somewhere). Due is a bit of its flags (`DUE`), set there and cleared by its write; `draw` and a start partway write and clear it too. A writer's first draw of a member that enters waiting still comes at its first step.
+- **Its cost on the step:** the spring branches that move a key say so, so a moving key pays no compare; a settle compares once. With a compare per key, `bench:core`'s `batch` measured +21–25% on Bun; with a separate array for the mark, +8–14% (a load and a store per member a frame); as decided, +3–8% on Bun and −1–3% on Node, within this host's noise (WSL, 5 reps). The gate's verdict is the bench server's.
+- **What it saves** (`bench:solid --batch-frames`, 1,000 members, headless Chromium 147, 3 reps, indicative): a frame's rAF callbacks with every member moving −1.7%, with most waiting out a stagger −32%, with a change paused −72%.
+- **Rejected:** caching each member's last string in the writer, which measured +17% on moving members and goes stale on a slot's reuse, a `replace`, and a group a Wardic element hands back.
+- **Not changed:** a paused change's run still ticks; it writes nothing now.
+- **Tests:** B29 (a waiting member isn't written, but is once after it enters), B30 (a start from a given value is written though it waits), B31 (paused, nothing is written; a seek played from, and a stop, are written once).
