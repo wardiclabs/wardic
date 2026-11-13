@@ -29,6 +29,9 @@ const TWEEN = { type: "tween", duration: 0.3 } as const
 const xOf = (el: Element): number => new DOMMatrix(getComputedStyle(el).transform.replace(/^none$/, "matrix(1, 0, 0, 1, 0, 0)")).m41
 const opacityOf = (el: Element): number => Number(getComputedStyle(el).opacity)
 
+/** Whether an element is made and on the page. */
+const isOnPage = (el: Element | undefined): boolean => Predicate.isNotUndefined(el) && el.isConnected
+
 /**
  * A keyed Batch of `start`'s items under one `<AnimatePresence>`, its handle `presence`, and a `w.div` for
  * each under another, each entering from `opacity: 0` to `x: i * 40, opacity: 1`, leaving to
@@ -260,10 +263,10 @@ describe("a keyed Batch's exits under AnimatePresence on Solid 2 (#665)", () => 
     waiting.setItems(["b"])
     await settle(3)
     expect(a.isConnected, "a exits").toBe(true)
-    expect(Bool.and(waiting.rects.has("b"), (waiting.rects.get("b") as SVGRectElement).isConnected), "b waits off the page").toBe(false)
+    expect(isOnPage(waiting.rects.get("b")), "b waits off the page").toBe(false)
     for (let f = 0; f < 60; f++) {
       await raf()
-      if (Bool.and(waiting.rects.has("b"), (waiting.rects.get("b") as SVGRectElement).isConnected)) break
+      if (isOnPage(waiting.rects.get("b"))) break
     }
     const held = waiting.rects.get("b") as SVGRectElement
     expect(held.isConnected, "b goes on once a has gone").toBe(true)

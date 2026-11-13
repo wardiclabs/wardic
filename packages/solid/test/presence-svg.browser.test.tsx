@@ -4,11 +4,12 @@
 // - PS1: a `wardic.circle` under a presence inside an `<svg>` runs its exit; it stays until it ends;
 //   `onExitComplete` after.
 // - PS2: its exit runs on an attribute key (`r`).
-// - PS3: `mode="wait"`: the entering circle waits off the page until the leaving one's exit has ended.
+// - PS3: `mode="wait"`: the leaving circle exits on `r` and `opacity`; the entering one waits off the page
+//   until that exit has ended.
 // - PS4: a plain `<g>` with a Wardic element inside stays until that element's exit ends (#392).
 // - PS5: an SVG Wardic element inside an HTML leaver runs its exit, and the leaver stays for it.
 // - PS6: `popLayout`: an `<svg>` root isn't popped: it runs its exit in place, in the flow, keeping its input.
-// - PS7: `popLayout`: an inner SVG leaver isn't popped either.
+// - PS7: `popLayout`: an inner SVG leaver isn't popped either: a circle exits on `r` where it was.
 // - PS8: `sync`: once an `<svg>` root is removed, a `layout` sibling slides into its space.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
@@ -30,7 +31,7 @@ const rOf = (el: Element): number => Number(el.getAttribute("r"))
 const TWEEN = { type: "tween", duration: 0.3 } as const
 
 /** Whether `el` was seen partway (`mid` of its value) while connected, until it's gone. */
-const fadesOut = async (el: Element, valueOf: (el: Element) => number, mid: (value: number) => boolean): Promise<boolean> => {
+const seenPartway = async (el: Element, valueOf: (el: Element) => number, mid: (value: number) => boolean): Promise<boolean> => {
   let seen = false
   await until(() => {
     if (Bool.and(mid(valueOf(el)), el.isConnected)) seen = true
@@ -42,8 +43,14 @@ const fadesOut = async (el: Element, valueOf: (el: Element) => number, mid: (val
 /** Partway between 1 and 0. */
 const between = (o: number): boolean => Math.min(o, 1 - o) > 0.1
 
-/** A presence around one child, inside `outer`; `close` takes it out; `q` finds a `data-k`. */
-const mountOne = (child: () => JSX.Element, options: { readonly mode?: PresenceMode; readonly svg?: boolean; readonly after?: () => JSX.Element } = {}) => {
+/** 1 when a 20-radius circle's `r` and its opacity are both partway, else 0. */
+const bothPartway = (el: Element): number => Number(Bool.and(between(rOf(el) / 20), between(opacityOf(el))))
+
+/**
+ * A presence around one child, inside an `<svg>` or, with `html`, a `<div>` with `after` after it;
+ * `close` takes it out; `q` finds a `data-k`.
+ */
+const mountOne = (child: () => JSX.Element, options: { readonly mode?: PresenceMode; readonly html?: boolean; readonly after?: () => JSX.Element } = {}) => {
   const [open, setOpen] = createSignal(true)
   let completes = 0
   const presence = () => (
@@ -53,7 +60,7 @@ const mountOne = (child: () => JSX.Element, options: { readonly mode?: PresenceM
   )
   const { container } = render(() => (
     <WardicProvider env={DomLive}>
-      {Bool.match(options.svg === false, {
+      {Bool.match(options.html === true, {
         onTrue: () => (
           <div style={{ position: "relative", width: "200px" }}>
             {presence()}
@@ -82,7 +89,7 @@ const mountCircles = (start: ReadonlyArray<string>, mode: PresenceMode) => {
     <WardicProvider env={DomLive}>
       <svg width="200" height="100">
         <AnimatePresence mode={mode}>
-          <For each={items()}>{(k) => <wardic.circle data-k={k} cx={50} cy={50} r={20} exit={{ opacity: 0 }} transition={TWEEN} />}</For>
+          <For each={items()}>{(k) => <wardic.circle data-k={k} cx={50} cy={50} r={20} exit={{ opacity: 0, r: 0 }} transition={TWEEN} />}</For>
         </AnimatePresence>
       </svg>
     </WardicProvider>
@@ -125,7 +132,7 @@ describe("SVG presence children on Solid 1 (#702)", () => {
     one.close()
     await raf()
     expect(dot.isConnected, "the circle stays for its exit").toBe(true)
-    expect(await fadesOut(dot, opacityOf, between), "it faded while it stayed").toBe(true)
+    expect(await seenPartway(dot, opacityOf, between), "it faded while it stayed").toBe(true)
     expect(dot.isConnected, "gone once its exit ended").toBe(false)
     expect(one.completes(), "onExitComplete once, after").toBe(1)
   })
@@ -136,7 +143,7 @@ describe("SVG presence children on Solid 1 (#702)", () => {
     const dot = one.q("dot")
     expect(rOf(dot)).toBe(20)
     one.close()
-    expect(await fadesOut(dot, rOf, (r) => Bool.and(r > 2, r < 18)), "its radius shrank while it stayed").toBe(true)
+    expect(await seenPartway(dot, rOf, (r) => Bool.and(r > 2, r < 18)), "its radius shrank while it stayed").toBe(true)
     expect(one.completes()).toBe(1)
   })
 
@@ -148,7 +155,7 @@ describe("SVG presence children on Solid 1 (#702)", () => {
     await frames(3)
     expect(a.isConnected, "a exits").toBe(true)
     expect(list.q("b"), "b waits off the page").toBeNull()
-    await until(() => !a.isConnected, 3000)
+    expect(await seenPartway(a, bothPartway, (both) => both === 1), "a's radius and opacity were partway on one frame while it stayed").toBe(true)
     await until(() => list.q("b") !== null, 1000)
     expect(list.q("b")).toBeInstanceOf(SVGCircleElement)
   })
@@ -165,7 +172,7 @@ describe("SVG presence children on Solid 1 (#702)", () => {
     one.close()
     await raf()
     expect(group.isConnected, "the group stays").toBe(true)
-    expect(await fadesOut(dot, opacityOf, between), "the circle faded while the group stayed").toBe(true)
+    expect(await seenPartway(dot, opacityOf, between), "the circle faded while the group stayed").toBe(true)
     expect(group.isConnected, "gone once the exit inside it ended").toBe(false)
     expect(one.completes()).toBe(1)
   })
@@ -179,7 +186,7 @@ describe("SVG presence children on Solid 1 (#702)", () => {
           </svg>
         </div>
       ),
-      { svg: false },
+      { html: true },
     )
     await frames(3)
     const card = one.q("card")
@@ -187,12 +194,12 @@ describe("SVG presence children on Solid 1 (#702)", () => {
     one.close()
     await raf()
     expect(card.isConnected, "the card stays").toBe(true)
-    expect(await fadesOut(dot, opacityOf, between), "the circle faded while the card stayed").toBe(true)
+    expect(await seenPartway(dot, opacityOf, between), "the circle faded while the card stayed").toBe(true)
     expect(card.isConnected).toBe(false)
   })
 
   it("PS6: popLayout: an `<svg>` root isn't popped: it exits in place, in the flow", async () => {
-    const one = mountOne(icon, { mode: "popLayout", svg: false, after })
+    const one = mountOne(icon, { mode: "popLayout", html: true, after })
     await frames(3)
     const svg = one.q("icon")
     const next = one.q("after")
@@ -205,23 +212,23 @@ describe("SVG presence children on Solid 1 (#702)", () => {
     expect(getComputedStyle(svg).pointerEvents, "it keeps its input").toBe("auto")
     expect(svg.getBoundingClientRect().top).toBe(was.top)
     expect(next.getBoundingClientRect().top, "still in the flow: its sibling stays below it").toBe(nextWas)
-    expect(await fadesOut(svg, opacityOf, between), "it faded in place").toBe(true)
+    expect(await seenPartway(svg, opacityOf, between), "it faded in place").toBe(true)
   })
 
   it("PS7: popLayout: an inner SVG leaver isn't popped either", async () => {
-    const one = mountOne(() => <wardic.rect data-k="box" x={10} y={10} width={40} height={40} exit={{ opacity: 0 }} transition={TWEEN} />, { mode: "popLayout" })
+    const one = mountOne(() => <wardic.circle data-k="dot" cx={50} cy={50} r={20} exit={{ r: 0 }} transition={TWEEN} />, { mode: "popLayout" })
     await frames(3)
-    const box = one.q("box")
+    const dot = one.q("dot")
     one.close()
     await raf()
-    expect(box.isConnected).toBe(true)
-    expect(getComputedStyle(box).position).toBe("static")
-    expect(box.getAttribute("x"), "drawn where it was").toBe("10")
-    expect(await fadesOut(box, opacityOf, between)).toBe(true)
+    expect(dot.isConnected).toBe(true)
+    expect(getComputedStyle(dot).position).toBe("static")
+    expect(dot.getAttribute("cx"), "drawn where it was").toBe("50")
+    expect(await seenPartway(dot, rOf, (r) => Bool.and(r > 2, r < 18)), "its radius shrank in place").toBe(true)
   })
 
   it("PS8: sync: once an `<svg>` root is removed, a `layout` sibling slides into its space", async () => {
-    const one = mountOne(icon, { svg: false, after })
+    const one = mountOne(icon, { html: true, after })
     await frames(5)
     const svg = one.q("icon")
     const next = one.q("after")

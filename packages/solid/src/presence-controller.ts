@@ -225,7 +225,7 @@ interface PreparedExit {
 const exitMeasuredOf = (element: Element, from: Values.Values, to: Values.Values, stops: StopsByKey | undefined): MeasuredPairs | undefined => {
   const pairs = Rec.filter(to, (target, key) => Bool.and(Bool.and(Object.hasOwn(from, key), Bool.not(hasManyStops(stops, key))), keepsMeasured(key, from[key], target)))
   if (Rec.isEmptyRecord(pairs)) return undefined
-  return MeasuredPair.measure(asDom(element), Rec.map(pairs, (target, key) => ({ from: UndefinedOr.getOrThrow(from[key]), to: target })), from)
+  return MeasuredPair.measure(castForDom(element), Rec.map(pairs, (target, key) => ({ from: UndefinedOr.getOrThrow(from[key]), to: target })), from)
 }
 
 /** Whether a start and a target make a Measured pair (#430). */
@@ -254,13 +254,20 @@ const transitionOfName = (exit: PresenceExit, name: string | undefined): WardicT
  * Whether a resolved child is a presence child (#702): any element, HTML, SVG or MathML; text never.
  * Only called on the client, where `Element` exists.
  */
-const isElement = (node: unknown): node is Element => node instanceof Element
+const isPresenceChild = (node: unknown): node is Element => node instanceof Element
 
 /** Whether an element is an HTML one, which alone has the CSS box `popLayout` pins (#702, Motion's). */
 const isHTMLElement = (node: unknown): node is HTMLElement => node instanceof HTMLElement
 
+/**
+ * An element as dom's projection and Measured pairs take it (#702): typed for HTML elements, they read
+ * only what an SVG element has too (lookups by element, `contains`, its box and its inline style), so an
+ * SVG presence child goes through as one, as the bindings' SVG Wardic elements already do.
+ */
+const castForDom = (el: Element): HTMLElement => el as HTMLElement
+
 /** The elements of what a binding's `children()` resolved: one node, a flat array, or none. */
-const elementsOf = (resolved: unknown): ReadonlyArray<Element> => Arr.filter(Arr.ensure(resolved), isElement)
+const elementsOf = (resolved: unknown): ReadonlyArray<Element> => Arr.filter(Arr.ensure(resolved), isPresenceChild)
 
 /** A child present at the last change: its element, and where it was then, to put it back as it leaves. */
 interface Placed {
@@ -567,19 +574,12 @@ export const exitCompleteEvents = (runtime: WardicRuntime, onExitComplete: () =>
   },
 })
 
-/**
- * An element as dom's projection and Measured pairs take it (#702): typed for HTML elements, they read
- * only what an SVG element has too (lookups by element, `contains`, its box and its inline style), so an
- * SVG presence child goes through as one, as the bindings' SVG Wardic elements already do.
- */
-const asDom = (el: Element): HTMLElement => el as HTMLElement
-
 /** A projection method that takes an HTML element first, taking any element. */
-type OnElement<F> = F extends (...args: infer P) => infer A ? P extends [HTMLElement, ...infer R] ? (el: Element, ...rest: R) => A : F : F
+type TakingAnyElement<F> = F extends (...args: infer P) => infer A ? P extends [HTMLElement, ...infer R] ? (el: Element, ...rest: R) => A : F : F
 
 /** What a presence asks of the projection system, of any presence child (#702). */
 type PresenceProjection = {
-  readonly [K in "notify" | "handleLeave" | "handBackWithin" | "keepLeaving" | "awaitsTwin" | "keepSeen" | "registerValues" | "rootBoxOf" | "dropLeaver"]: OnElement<
+  readonly [K in "notify" | "handleLeave" | "handBackWithin" | "keepLeaving" | "awaitsTwin" | "keepSeen" | "registerValues" | "rootBoxOf" | "dropLeaver"]: TakingAnyElement<
     ProjectionSystem.Shape[K]
   >
 }
@@ -595,14 +595,14 @@ const presenceProjectionOf = (projection: () => ProjectionSystem.Shape | undefin
   const call = <A>(use: (system: ProjectionSystem.Shape) => A, none: () => A): A => UndefinedOr.match(projection(), { onUndefined: none, onDefined: use })
   return {
     notify: () => call((system) => system.notify(), constVoid),
-    handleLeave: (el, onDone) => call((system) => system.handleLeave(asDom(el), onDone), constFalse),
-    handBackWithin: (el, onDone) => call((system) => system.handBackWithin(asDom(el), onDone), Option.none),
-    keepLeaving: (el, taken) => call((system) => system.keepLeaving(asDom(el), taken), () => constVoid),
-    awaitsTwin: (el) => call((system) => system.awaitsTwin(asDom(el)), constFalse),
-    keepSeen: (el, move) => call((system) => system.keepSeen(asDom(el), move), constVoid),
+    handleLeave: (el, onDone) => call((system) => system.handleLeave(castForDom(el), onDone), constFalse),
+    handBackWithin: (el, onDone) => call((system) => system.handBackWithin(castForDom(el), onDone), Option.none),
+    keepLeaving: (el, taken) => call((system) => system.keepLeaving(castForDom(el), taken), () => constVoid),
+    awaitsTwin: (el) => call((system) => system.awaitsTwin(castForDom(el)), constFalse),
+    keepSeen: (el, move) => call((system) => system.keepSeen(castForDom(el), move), constVoid),
     registerValues: (el, read) => call((system) => system.registerValues(el, read), () => constVoid),
-    rootBoxOf: (el) => call((system) => system.rootBoxOf(asDom(el)), Option.none),
-    dropLeaver: (el) => call((system) => system.dropLeaver(asDom(el)), Option.none),
+    rootBoxOf: (el) => call((system) => system.rootBoxOf(castForDom(el)), Option.none),
+    dropLeaver: (el) => call((system) => system.dropLeaver(castForDom(el)), Option.none),
   }
 }
 
