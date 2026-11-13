@@ -22,8 +22,10 @@ import type * as Point from "@wardic/core/Point"
 import * as Projection from "@wardic/core/Projection"
 import * as Renderer from "@wardic/core/Renderer"
 import { dashCase, isSvgInner, setSvgAttrs, splitPatch } from "./svg.ts"
+import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 
@@ -72,6 +74,18 @@ export const TRANSFORM_FUNCS: ReadonlyArray<{ readonly key: string; readonly fn:
 const isIdentity = (value: unknown, identity: number): boolean => {
   if (Predicate.isNumber(value)) return value === identity
   return Predicate.isString(value) && Number.parseFloat(value) === identity
+}
+
+/**
+ * Whether `key`'s `value` adds to the element's `transform` (#240): a transform key off its identity, a
+ * `transform` string, the projection's value or a Transform template. A Timeline value drawing
+ * `transform` runs only while nothing else does. Per frame: statements.
+ */
+export const addsToTransform = (key: string, value: unknown): boolean => {
+  if (key === Projection.KEY || key === TEMPLATE_KEY || key === "transform") return true
+  const identity = BaseValue.TRANSFORM_IDENTITY[key]
+  if (Predicate.isUndefined(identity)) return false
+  return !isIdentity(value, identity)
 }
 
 /** `value` when it's a number, else `fallback`. Per frame: an early return, no Option. */
@@ -196,6 +210,14 @@ const formatTransformValue = (key: string, value: unknown): string => {
   if (Predicate.isNumber(value)) return `${value}${unitOf(key)}`
   return String(value)
 }
+
+/**
+ * `key`'s own transform function for `value`, drawn even at its identity: a Timeline value's keyframe
+ * (#240), so each blends with its neighbours as one function, as the gate's values do. `None` for a key
+ * that isn't a transform key.
+ */
+export const transformFunctionOf = (key: string, value: unknown): Option.Option<string> =>
+  Option.map(Arr.findFirst(TRANSFORM_FUNCS, (f) => f.key === key), ({ fn }) => `${fn}(${formatTransformValue(key, value)})`)
 
 /** A transform key's default unit; none for a key the table doesn't name. */
 // Exported for the Batch writer (#665).

@@ -111,8 +111,8 @@ const pairOf: (stop: ScrollOffset.Stop) => Pair = Match.type<ScrollOffset.Stop>(
   Match.orElse((pair) => pair as Pair),
 )
 
-/** A stop as a scroll position: where the target's edge meets the container's. */
-const positionOf = (stop: ScrollOffset.Stop, containerLength: number, targetLength: number, targetInset: number): number => {
+/** A stop as a scroll position: where the target's edge meets the container's. A Timeline value probes it for its range (#240). */
+export const positionOf = (stop: ScrollOffset.Stop, containerLength: number, targetLength: number, targetInset: number): number => {
   const [target, container] = pairOf(stop)
   return targetInset + edgeOffset({ edge: target, length: targetLength }) - edgeOffset({ edge: container, length: containerLength })
 }
@@ -271,7 +271,7 @@ const sameScroll = (a: ScrollSource.Scroll, b: ScrollSource.Scroll): boolean =>
   )
 
 /** The page's scroller: `document.scrollingElement`, else the root element. */
-const pageOf = (): Element => Option.getOrElse(Option.fromNullOr(document.scrollingElement), () => document.documentElement)
+export const pageOf = (): Element => Option.getOrElse(Option.fromNullOr(document.scrollingElement), () => document.documentElement)
 
 /** A container's listener set, opened for its first reader. */
 const open = (element: Element): Container => {

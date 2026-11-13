@@ -200,8 +200,9 @@ const PER_FRAME_READS = [...PER_FRAME_LOOPS, "packages/core/src/Easing.ts"]
  * dom's per-frame files (ADR-0025, *Amendment (#69)*, decision 2), by core's file-level rule: the
  * projection pass and the Measure pass's reads per node, the gate's `write` and flush, the
  * Renderer's `project`, the SVG split in a flush, the scale correctors and the Key rules'
- * `KeyBlend`s, and the Measure pass's scroller walk (`scrollers.ts`, #548). Their cold code follows the
- * full rules by review, as `Machine.ts`'s does.
+ * `KeyBlend`s, the Measure pass's scroller walk (`scrollers.ts`, #548), and a Timeline value's `sync`
+ * at each flush (`timeline.ts`, #240). Their cold code follows the full rules by review, as
+ * `Machine.ts`'s does.
  */
 const DOM_PER_FRAME = [
   "packages/dom/src/internal/batch-writer.ts",
@@ -213,6 +214,7 @@ const DOM_PER_FRAME = [
   "packages/dom/src/internal/key-rules.ts",
   "packages/dom/src/internal/measure.ts",
   "packages/dom/src/internal/scrollers.ts",
+  "packages/dom/src/internal/timeline.ts",
 ]
 
 /**
