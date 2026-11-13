@@ -31,6 +31,7 @@ import * as SharedSource from "@wardic/core/SharedSource"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
+import { identity } from "effect/Function"
 import * as Iter from "effect/Iterable"
 import * as Layer from "effect/Layer"
 import * as Match from "effect/Match"
@@ -111,8 +112,8 @@ const pairOf: (stop: ScrollOffset.Stop) => Pair = Match.type<ScrollOffset.Stop>(
   Match.orElse((pair) => pair as Pair),
 )
 
-/** A stop as a scroll position: where the target's edge meets the container's. */
-const positionOf = (stop: ScrollOffset.Stop, containerLength: number, targetLength: number, targetInset: number): number => {
+/** A stop as a scroll position: where the target's edge meets the container's. A Timeline value probes it for its range (#240). */
+export const positionOf = (stop: ScrollOffset.Stop, containerLength: number, targetLength: number, targetInset: number): number => {
   const [target, container] = pairOf(stop)
   return targetInset + edgeOffset({ edge: target, length: targetLength }) - edgeOffset({ edge: container, length: containerLength })
 }
@@ -186,7 +187,8 @@ const insetOf = (element: Element | null, container: Element, x: number, y: numb
   return { x, y }
 }
 
-const isHTMLElement = (e: Element): e is HTMLElement => e instanceof HTMLElement
+/** Whether `u` is an HTML element: what a Timeline value's target must be too (#240). */
+export const isHTMLElement = (u: unknown): u is HTMLElement => u instanceof HTMLElement
 
 /**
  * `x`, `y` from `parent`, where the offset chain left `container`, made `container`'s: its own offset
@@ -219,17 +221,30 @@ const sizeOf = (target: Element): { readonly width: number; readonly height: num
 /** A container's progress on one axis with no target or offset: Motion's `progress(0, length, current)`, 1 for no range. */
 const plainProgress = (current: number, length: number): number => Bool.match(length === 0, { onTrue: () => 1, onFalse: () => current / length })
 
+/** `options`' offset, the DOM's (core passes it through as the Environment's own): `All` with a target and none. */
+export const offsetOf = (options: ScrollSource.Options): ScrollOffset.ScrollOffset =>
+  UndefinedOr.match(options.offset as ScrollOffset.ScrollOffset | undefined, { onUndefined: () => ScrollOffset.All, onDefined: identity })
+
+/**
+ * Whether `options`' progress on `axis` runs through its offsets: with a target or an offset, on the
+ * options' own axis (`"y"` when left out). Else it's the container's plain progress. A Timeline value
+ * reads it as a reader does (#240).
+ */
+export const resolvesOn = (options: ScrollSource.Options, axis: "x" | "y"): boolean =>
+  Bool.and(
+    Bool.or(Predicate.isNotUndefined(options.target), Predicate.isNotUndefined(options.offset)),
+    UndefinedOr.match(options.axis, { onUndefined: () => "y", onDefined: identity }) === axis,
+  )
+
+/** An element's client size on `axis`: a container's length, as a reader and a Timeline value read it. */
+export const clientLengthOf = (element: Element, axis: "x" | "y"): number =>
+  Bool.match(axis === "y", { onTrue: () => element.clientHeight, onFalse: () => element.clientWidth })
+
 /** What a reader measures, for `options` on `element`. Reads layout: called in events, never per frame. */
 const measureOf = (element: Element, options: ScrollSource.Options): (() => ScrollSource.Scroll) => {
   const { axis = "y" } = options
-  // The DOM's offset (core passes it through as the Environment's own); `All` with a target and none.
-  const offset = UndefinedOr.match(options.offset as ScrollOffset.ScrollOffset | undefined, {
-    onUndefined: () => ScrollOffset.All,
-    onDefined: (given) => given,
-  })
+  const offset = offsetOf(options)
   const target = UndefinedOr.match(options.target as Element | undefined, { onUndefined: () => element, onDefined: (given) => given })
-  // A target's progress, or an offset's through the container itself; else the plain one.
-  const resolves = Bool.or(Predicate.isNotUndefined(options.target), Predicate.isNotUndefined(options.offset))
   const onAxis = (current: number): number => {
     const own = target === element
     const inset = Bool.match(own, { onTrue: (): Point => ({ x: 0, y: 0 }), onFalse: () => insetOf(target, element, 0, 0) })
@@ -238,20 +253,22 @@ const measureOf = (element: Element, options: ScrollSource.Options): (() => Scro
       onFalse: () => sizeOf(target),
     })
     const y = axis === "y"
-    const containerLength = Bool.match(y, { onTrue: () => element.clientHeight, onFalse: () => element.clientWidth })
+    const containerLength = clientLengthOf(element, axis)
     const targetLength = Bool.match(y, { onTrue: () => size.height, onFalse: () => size.width })
     const targetInset = Bool.match(y, { onTrue: () => inset.y, onFalse: () => inset.x })
     return progressThrough(Arr.map(offset, (stop) => positionOf(stop, containerLength, targetLength, targetInset)), current)
   }
+  // A target's progress, or an offset's through the container itself, on its axis; else the plain one.
+  const onX = resolvesOn(options, "x")
+  const onY = resolvesOn(options, "y")
   return () => {
     const x = Math.abs(element.scrollLeft)
     const y = Math.abs(element.scrollTop)
     const xLength = element.scrollWidth - element.clientWidth
     const yLength = element.scrollHeight - element.clientHeight
-    const resolvesOn = (on: "x" | "y"): boolean => Bool.and(resolves, axis === on)
     return {
-      x: { current: x, length: xLength, progress: Bool.match(resolvesOn("x"), { onTrue: () => onAxis(x), onFalse: () => plainProgress(x, xLength) }) },
-      y: { current: y, length: yLength, progress: Bool.match(resolvesOn("y"), { onTrue: () => onAxis(y), onFalse: () => plainProgress(y, yLength) }) },
+      x: { current: x, length: xLength, progress: Bool.match(onX, { onTrue: () => onAxis(x), onFalse: () => plainProgress(x, xLength) }) },
+      y: { current: y, length: yLength, progress: Bool.match(onY, { onTrue: () => onAxis(y), onFalse: () => plainProgress(y, yLength) }) },
     }
   }
 }
@@ -271,7 +288,7 @@ const sameScroll = (a: ScrollSource.Scroll, b: ScrollSource.Scroll): boolean =>
   )
 
 /** The page's scroller: `document.scrollingElement`, else the root element. */
-const pageOf = (): Element => Option.getOrElse(Option.fromNullOr(document.scrollingElement), () => document.documentElement)
+export const pageOf = (): Element => Option.getOrElse(Option.fromNullOr(document.scrollingElement), () => document.documentElement)
 
 /** A container's listener set, opened for its first reader. */
 const open = (element: Element): Container => {

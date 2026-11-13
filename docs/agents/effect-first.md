@@ -51,6 +51,7 @@ Code that runs **once per Clock tick, per key or per node** keeps both rules, in
   - `scale-correction.ts`: the scale correctors;
   - `key-rules.ts`: the Key rules' `KeyBlend`s (above).
   - `batch-writer.ts`: a Batch's write per moving member (#665).
+  - `timeline.ts`: a Timeline value's `sync`, at each flush that commits its element (#240).
 
   Their cold code (registration, `layoutId` matching, the scale correctors' parsers) follows the full rules;
 - solid's run sinks (`Machine.run((frame) => gate.write(…))`, presence's `commitFrame`, drag's `tapFrame`): one-line closures, in no listed file;

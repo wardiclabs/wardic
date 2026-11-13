@@ -32,12 +32,14 @@ import * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as LiveValue from "@wardic/core/LiveValue"
 import * as Machine from "@wardic/core/Machine"
+import type * as ScrollSource from "@wardic/core/ScrollSource"
 import { TestClock, TestProbe } from "@wardic/test"
 import { describe, expect, it } from "@effect/vitest"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
+import * as Option from "effect/Option"
 import { Atom, AtomRegistry } from "effect/reactivity"
 import * as Scope from "effect/Scope"
 
@@ -488,6 +490,63 @@ describe("LiveValue.scroll: Motion's four values from the Environment's ScrollSo
         expect(heard).toEqual([0.5])
       }).pipe(Effect.scoped, Effect.provide(Layer.merge(probe.layer, AtomRegistry.layer)))
     }))
+})
+
+describe("LiveValue.scrollDerivationOf: how a value derives from a scroll, for a Timeline value (#240)", () => {
+  /** Runs `body` with a pushable Probe's scroll, the harness's Clock, Frame loop and registry, and the InterpolatorRegistry. */
+  const withScroll = <A>(
+    body: Effect.Effect<A, never, Scope.Scope | AtomRegistry.AtomRegistry | InterpolatorRegistry.InterpolatorRegistry | ScrollSource.ScrollSource | FrameLoop.FrameLoop>,
+  ) =>
+    Effect.gen(function* () {
+      const h = yield* harness()
+      const probe = yield* TestProbe.pushable()
+      return yield* body.pipe(Effect.scoped, Effect.provide(Layer.mergeAll(probe.layer, h.layer, InterpolatorRegistry.layer)))
+    })
+  const container = { id: "box" }
+  const target = { id: "card" }
+
+  it.effect("TD1: each of scroll's four values describes what it reads, on which axis, from the scroll as given, with no transforms", () =>
+    withScroll(Effect.gen(function* () {
+      const options = { container, target, offset: ["start end", "end start"], axis: "y" as const }
+      const v = yield* LiveValue.scroll(options)
+      expect(LiveValue.scrollDerivationOf(v.scrollX)).toEqual(Option.some({ scroll: options, read: "current", axis: "x", transforms: [] }))
+      expect(LiveValue.scrollDerivationOf(v.scrollY)).toEqual(Option.some({ scroll: options, read: "current", axis: "y", transforms: [] }))
+      expect(LiveValue.scrollDerivationOf(v.scrollXProgress)).toEqual(Option.some({ scroll: options, read: "progress", axis: "x", transforms: [] }))
+      expect(LiveValue.scrollDerivationOf(v.scrollYProgress)).toEqual(Option.some({ scroll: options, read: "progress", axis: "y", transforms: [] }))
+      const page = yield* LiveValue.scroll()
+      expect(LiveValue.scrollDerivationOf(page.scrollYProgress)).toEqual(Option.some({ scroll: {}, read: "progress", axis: "y", transforms: [] }))
+    })))
+
+  it.effect("TD2: a transform over one adds it as given (input, output, ease, clamp, a mixer's), and a transform over that adds a second", () =>
+    withScroll(Effect.gen(function* () {
+      const { scrollY, scrollYProgress } = yield* LiveValue.scroll({ container })
+      const reveal = yield* LiveValue.transform(scrollYProgress, [0, 0.5, 1], [0, 1, 0])
+      expect(LiveValue.scrollDerivationOf(reveal)).toEqual(Option.some({
+        scroll: { container },
+        read: "progress",
+        axis: "y",
+        transforms: [{ input: [0, 0.5, 1], output: [0, 1, 0], ease: Option.none(), clamp: true, mixed: false }],
+      }))
+      const header = yield* LiveValue.transform(scrollY, [0, 120], ["1", "0.9"], { ease: [Easing.easeOut], clamp: false })
+      expect(Option.map(LiveValue.scrollDerivationOf(header), (d) => d.transforms)).toEqual(Option.some([
+        { input: [0, 120], output: ["1", "0.9"], ease: Option.some([Easing.easeOut]), clamp: false, mixed: false },
+      ]))
+      const mixed = yield* LiveValue.transform(scrollYProgress, [0, 1], [{ n: 0 }, { n: 1 }], { mixer: (a, b) => (t) => ({ n: a.n + (b.n - a.n) * t }) })
+      expect(Option.map(LiveValue.scrollDerivationOf(mixed), (d) => d.transforms[0]?.mixed)).toEqual(Option.some(true))
+      const chained = yield* LiveValue.transform(reveal, [0, 1], [0.5, 1])
+      expect(Option.map(LiveValue.scrollDerivationOf(chained), (d) => d.transforms.length)).toEqual(Option.some(2))
+    })))
+
+  it.effect("TD3: a value not derived from a scroll by ranges describes none: a plain Atom, a transform of one, a spring or a velocity of a scroll value", () =>
+    withScroll(Effect.gen(function* () {
+      const plain = Atom.make(0)
+      expect(LiveValue.scrollDerivationOf(plain)).toEqual(Option.none())
+      expect(LiveValue.scrollDerivationOf(yield* LiveValue.transform(plain, [0, 1], [0, 1]))).toEqual(Option.none())
+      const { scrollYProgress } = yield* LiveValue.scroll({ container })
+      const sprung = yield* LiveValue.spring(scrollYProgress)
+      expect(LiveValue.scrollDerivationOf(sprung)).toEqual(Option.none())
+      expect(LiveValue.scrollDerivationOf(yield* LiveValue.velocity(scrollYProgress))).toEqual(Option.none())
+    })))
 })
 
 describe("LiveValue.velocity: a value's velocity per frame while it moves (#234)", () => {

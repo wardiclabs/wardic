@@ -65,6 +65,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import * as Scope from "effect/Scope"
 import { reportFailure } from "./report.ts"
 import { TEMPLATE_KEY } from "./renderer.ts"
+import type { TimelineValue } from "./timeline.ts"
 import { dashCase } from "./svg.ts"
 
 /**
@@ -146,6 +147,11 @@ const inlineValueOf = (target: unknown, key: string): string => {
   return style.getPropertyValue(dashCase(key))
 }
 
+/** Each of `values` cancelled (#240). Per flush: a plain loop. */
+const cancelEach = (values: Iterable<TimelineValue>): void => {
+  for (const value of values) value.cancel()
+}
+
 /** A Flush gate: what a binding registers its elements with and writes their values into, one per provider. */
 export interface FlushGate {
   /**
@@ -192,6 +198,16 @@ export interface FlushGate {
    * keys asked for cost anything.
    */
   readonly valueOf: (id: string, key: string) => Atom.Atom<unknown>
+  /**
+   * Run `key`'s Timeline value on `id`'s element (#240), or stop it (`undefined`): a binding sets one
+   * while the key shows its Live value, and clears it when an entry of the Override stack takes the
+   * key. The gate goes on writing the key: at each flush that commits the element, before the commit,
+   * it starts the value's animation over it, or cancels it while something else adds to its property
+   * (a projection, a Transform template, another transform key off its identity), so a frame shows one
+   * or the other. A cleared or replaced one is cancelled at the next flush; a released key's, an
+   * unregistered element's and a disposed gate's, at once. Setting one schedules a flush.
+   */
+  readonly timeline: (id: string, key: string, timeline: TimelineValue | undefined) => void
   /**
    * Call `fn` once, after the gate's next flush: the end of the Frame loop's tick, for a call
    * made in one, else the next Refresh frame's, so what was written before it is on the elements.
@@ -275,6 +291,10 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   let recording: Set<string> | undefined
   // The entries committed since the last frame flush whose sink has an `onCommit` (#233).
   const committedSince = new Set<Entry>()
+  // Each element's Timeline values by key (#240), and those let go of since its last flush, cancelled at
+  // its next: only the elements that have one, so the per-frame path checks their sizes alone.
+  const timelines = new Map<Entry, Map<string, TimelineValue>>()
+  const endings = new Map<Entry, Array<TimelineValue>>()
   // A frame flush's entries, in order, prepared and waiting for their commit; and those whose
   // keys held changed, which the binding hears first. Reused each flush: the per-frame path.
   const prepared: Array<Entry> = []
@@ -319,6 +339,34 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     if (Predicate.isNotUndefined(restore)) commit(target, restore)
     // The keys held changed (the usual frame changes none): the binding hears before the commit.
     if ((added || Predicate.isNotUndefined(restore)) && Predicate.isNotUndefined(sink.onHeld)) held.push(entry)
+  }
+
+  /**
+   * Before a flush's commits (#240): cancel the Timeline values each element committing now let go of,
+   * and sync the rest with its values, so each starts or stops as nothing else adds to its property.
+   * An entry is committing while it holds a prepared patch. Kept beside the entries, not on them, so an
+   * element with none pays nothing per frame: the flush checks two sizes. Per flush: plain loops.
+   */
+  const syncTimelines = (): void => {
+    for (const [entry, ended] of endings) {
+      if (Predicate.isUndefined(entry.patch)) continue
+      endings.delete(entry)
+      cancelEach(ended)
+    }
+    for (const [entry, byKey] of timelines) {
+      if (Predicate.isUndefined(entry.patch)) continue
+      for (const value of byKey.values()) value.sync(entry.values)
+    }
+  }
+
+  /** Every Timeline value of `entry`, cancelled at once: its element is gone, or the gate is. */
+  const cancelTimelines = (entry: Entry): void => {
+    const ended = endings.get(entry)
+    endings.delete(entry)
+    if (Predicate.isNotUndefined(ended)) cancelEach(ended)
+    const byKey = timelines.get(entry)
+    timelines.delete(entry)
+    if (Predicate.isNotUndefined(byKey)) cancelEach(byKey.values())
   }
 
   /** Commit a prepared entry's patch onto its element. */
@@ -419,6 +467,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
       // Every dirty element, once. No auto-reschedule — the next write() does. A write()
       // from an effect a sink's hook runs requests the next frame (it isn't stranded).
       for (const entry of accumulator.values()) if (entry.dirty) prepare(entry, prepared, heldChanged)
+      if (timelines.size > 0 || endings.size > 0) syncTimelines()
       commitAll(prepared, heldChanged)
       if (committedSince.size > 0) tellCommitted()
     } catch (defect) {
@@ -465,10 +514,23 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   }
 
   const register: FlushGate["register"] = (id, sink, values) => {
-    const entry: Entry = { values: UndefinedOr.match(values, { onUndefined: () => ({}), onDefined: (start) => ({ ...start }) }), sink, dirty: false, committed: new Map(), outputs: outputsById.get(id), latest: undefined, failing: false, patch: undefined }
+    const entry: Entry = {
+      values: UndefinedOr.match(values, { onUndefined: () => ({}), onDefined: (start) => ({ ...start }) }),
+      sink,
+      dirty: false,
+      committed: new Map(),
+      outputs: outputsById.get(id),
+      latest: undefined,
+      failing: false,
+      patch: undefined,
+    }
+    // An entry the id had: its Timeline values end with it (#240).
+    const replaced = accumulator.get(id)
+    if (Predicate.isNotUndefined(replaced)) cancelTimelines(replaced)
     accumulator.set(id, entry)
     if (Predicate.isNotUndefined(sink.beforeFirstCommit)) firstCommits.add(id)
     return () => {
+      cancelTimelines(entry)
       accumulator.delete(id)
       firstCommits.delete(id)
       committedSince.delete(entry)
@@ -547,12 +609,55 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
       const entry = accumulator.get(id)
       if (Predicate.isNotUndefined(entry) && entry.dirty) prepare(entry, entries, held)
     }
+    if (timelines.size > 0 || endings.size > 0) syncTimelines()
     commitAll(entries, held)
+  }
+
+  // Per key per Retarget, as the Override stack takes a key and lets it go: statements (the hot path).
+  const timeline: FlushGate["timeline"] = (id, key, value) => {
+    const entry = accumulator.get(id)
+    if (Predicate.isUndefined(entry)) return
+    let byKey = timelines.get(entry)
+    let known: TimelineValue | undefined
+    if (Predicate.isNotUndefined(byKey)) known = byKey.get(key)
+    if (known === value) return
+    // The one it had is cancelled at the next flush, with the commit that draws the key without it.
+    if (Predicate.isNotUndefined(known)) {
+      const ending = endings.get(entry)
+      if (Predicate.isNotUndefined(ending)) ending.push(known)
+      if (Predicate.isUndefined(ending)) endings.set(entry, [known])
+      if (Predicate.isNotUndefined(byKey)) byKey.delete(key)
+    }
+    if (Predicate.isNotUndefined(value)) {
+      if (Predicate.isUndefined(byKey)) {
+        byKey = new Map()
+        timelines.set(entry, byKey)
+      }
+      byKey.set(key, value)
+    }
+    // An element left with none leaves the map, so the flush skips it.
+    if (Predicate.isNotUndefined(byKey) && byKey.size === 0) timelines.delete(entry)
+    entry.dirty = true
+    scheduleFlush()
+  }
+
+  /** `entry`'s Timeline values for `keys`, cancelled at once: those keys go back to the element's own style. */
+  const releaseTimelines = (entry: Entry, keys: ReadonlyArray<string>): void => {
+    const byKey = timelines.get(entry)
+    if (Predicate.isUndefined(byKey)) return
+    for (const key of keys) {
+      const value = byKey.get(key)
+      if (Predicate.isUndefined(value)) continue
+      byKey.delete(key)
+      value.cancel()
+    }
+    if (byKey.size === 0) timelines.delete(entry)
   }
 
   const release: FlushGate["release"] = (id, keys, restore, keep) => {
     const entry = accumulator.get(id)
     if (Predicate.isUndefined(entry)) return
+    releaseTimelines(entry, keys)
     // A property another writer draws next: dropped from what's saved, so its drop-out writes nothing.
     if (Predicate.isNotUndefined(keep)) for (const property of keep) entry.committed.delete(property)
     let released = false
@@ -579,6 +684,9 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
       cancelFrame(frame)
       scheduled = false
     }
+    for (const entry of accumulator.values()) cancelTimelines(entry)
+    timelines.clear()
+    endings.clear()
     accumulator.clear()
     firstCommits.clear()
     committedSince.clear()
@@ -592,7 +700,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   const ticks = Scope.forkUnsafe(runtime.scope, "sequential")
   runtime.runSync(afterTick(flushTicked).pipe(Scope.provide(ticks)))
 
-  return { register, write, flushPass, release, valueOf, afterFlush, dispose }
+  return { register, write, flushPass, release, valueOf, afterFlush, timeline, dispose }
 }
 
 

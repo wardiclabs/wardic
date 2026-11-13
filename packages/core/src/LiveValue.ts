@@ -173,7 +173,7 @@ export const transform: {
   <O extends number | string>(source: Atom.Atom<number>, input: ReadonlyArray<number>, output: ReadonlyArray<O>, options?: TransformOptions<O>): Effect.Effect<Atom.Atom<O>, never, InterpolatorRegistry.InterpolatorRegistry>
   <O>(source: Atom.Atom<number>, input: ReadonlyArray<number>, output: ReadonlyArray<O>, options: MixedTransformOptions<O>): Effect.Effect<Atom.Atom<O>, never, InterpolatorRegistry.InterpolatorRegistry>
 } = <O>(source: Atom.Atom<number>, input: ReadonlyArray<number>, output: ReadonlyArray<O>, options: TransformOptions<O> = {}) =>
-  Effect.map(interpolateWith(input, output, options), (map) => Atom.make((get) => map(get(source))))
+  Effect.map(interpolateWith(input, output, options), (map) => transformedFrom(Atom.make((get) => map(get(source))), source, input, output, options))
 
 /** `v`'s stretch, as Motion's: the first that ends above it, else the last. Read on each change of the source. */
 const stretchAt = <O>(stretches: Arr.NonEmptyReadonlyArray<Stretch<O>>, v: number): Stretch<O> =>
@@ -542,12 +542,78 @@ export const scroll: (options?: ScrollSource.Options) => Effect.Effect<ScrollVal
     const source = yield* ScrollSource.ScrollSource
     const info = yield* source.scroll(options)
     return {
-      scrollX: Atom.make((get) => get(info).x.current),
-      scrollY: Atom.make((get) => get(info).y.current),
-      scrollXProgress: Atom.make((get) => get(info).x.progress),
-      scrollYProgress: Atom.make((get) => get(info).y.progress),
+      scrollX: derivedFrom(Atom.make((get) => get(info).x.current), options, "current", "x"),
+      scrollY: derivedFrom(Atom.make((get) => get(info).y.current), options, "current", "y"),
+      scrollXProgress: derivedFrom(Atom.make((get) => get(info).x.progress), options, "progress", "x"),
+      scrollYProgress: derivedFrom(Atom.make((get) => get(info).y.progress), options, "progress", "y"),
     }
   })
+
+/** One `transform` a scroll-derived value went through: its ranges and options, as given (#240). */
+export interface ScrollTransform {
+  /** Its input stops, in the terms of the value it maps. */
+  readonly input: ReadonlyArray<number>
+  /** Its outputs, one a stop. */
+  readonly output: ReadonlyArray<unknown>
+  /** Its `ease` as given: one for every stretch, or a list, one a stretch; `None` for linear. */
+  readonly ease: Option.Option<Easing.Definition | ReadonlyArray<Easing.Definition>>
+  /** Whether the ends hold past the first and last stops: `clamp` not `false`. */
+  readonly clamp: boolean
+  /** Whether a `mixer` blends its outputs, rather than the registry. */
+  readonly mixed: boolean
+}
+
+/**
+ * How a Live value derives from a container's scroll, in no Environment's terms (#240): the scroll it
+ * reads, as `scroll` was given it; whether it reads how far the container is scrolled (`current`) or
+ * its progress; on which axis; and each `transform` it went through since, in order. An Environment
+ * that can run a scroll-linked value with the scroll itself, as the DOM's native scroll timelines do (a
+ * **Timeline value**), reads it to decide whether it can, and how.
+ */
+export interface ScrollDerivation {
+  /** The scroll's options, as `scroll` was given them. */
+  readonly scroll: ScrollSource.Options
+  /** How far the container is scrolled, or its progress. */
+  readonly read: "current" | "progress"
+  /** The axis the value is read on. */
+  readonly axis: "x" | "y"
+  /** The `transform`s since, first to last: none for one of `scroll`'s own values. */
+  readonly transforms: ReadonlyArray<ScrollTransform>
+}
+
+// Module state (#460, Q7): each scroll-derived Atom's derivation, keyed by the Atom and held weakly, so
+// an Atom gone takes its entry with it.
+const derivations = new WeakMap<Atom.Atom<unknown>, ScrollDerivation>()
+
+/** `atom`, described as one of `scroll`'s values. */
+const derivedFrom = <A>(atom: Atom.Atom<A>, scroll: ScrollSource.Options, read: ScrollDerivation["read"], axis: ScrollDerivation["axis"]): Atom.Atom<A> => {
+  derivations.set(atom, { scroll, read, axis, transforms: [] })
+  return atom
+}
+
+/** `atom`, `transform`'s over `source`: described as `source`'s derivation and this transform, when `source` has one. */
+const transformedFrom = <A, O>(atom: Atom.Atom<A>, source: Atom.Atom<number>, input: ReadonlyArray<number>, output: ReadonlyArray<O>, options: TransformOptions<O>): Atom.Atom<A> => {
+  const from = derivations.get(source)
+  // Most transforms map no scroll: nothing is built for them.
+  if (Predicate.isUndefined(from)) return atom
+  const step: ScrollTransform = { input, output, ease: Option.fromUndefinedOr(options.ease), clamp: options.clamp !== false, mixed: Predicate.isNotUndefined(options.mixer) }
+  derivations.set(atom, { ...from, transforms: [...from.transforms, step] })
+  return atom
+}
+
+/**
+ * How `atom` derives from a container's scroll (#240): one of `scroll`'s values, or a `transform` over
+ * one, a `transform` over that, and so on; `None` for any other, a `spring` or a `velocity` of one
+ * among them. An Environment reads it to run the value on a native scroll timeline where it can (a
+ * **Timeline value**). Tier 2 (ADR-0008), for Environment authors.
+ *
+ * @example
+ * const { scrollYProgress } = yield* LiveValue.scroll({ container })
+ * const opacity = yield* LiveValue.transform(scrollYProgress, [0, 1], [1, 0])
+ * LiveValue.scrollDerivationOf(opacity)
+ * // Some({ scroll: { container }, read: "progress", axis: "y", transforms: [{ input: [0, 1], output: [1, 0], … }] })
+ */
+export const scrollDerivationOf = (atom: Atom.Atom<unknown>): Option.Option<ScrollDerivation> => Option.fromUndefinedOr(derivations.get(atom))
 
 /** A machine of one number a tick, from a run's step. */
 const numberMachine = (name: string, settles: boolean, start: () => (dt: number) => Frame.Frame<number>): Machine.Machine<Frame.Frame<number>> =>

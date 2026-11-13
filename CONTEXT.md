@@ -491,6 +491,10 @@ _Avoid_: motion value (Motion's name, for a value the engine writes into), signa
 A **Live value** that animates on a transition toward its source's latest value, from wherever it is when the source changes (Motion's `useFollowValue`, Wardic's `createFollowValue`). A spring one is `createSpring`'s.
 _Avoid_: follower (a **Shared layout** twin that isn't the **Lead**), spring value (one kind of it).
 
+**Timeline value**:
+A **Live value** derived from a container's scroll by ranges alone, which the DOM gives to a native scroll timeline, so the browser draws it with the scroll, over the value the **Flush gate** goes on writing. It runs there only while it's what its key shows: an entry of the **Override stack** that sets the key takes it back to the gate, and the key returns to the timeline when the entry lets go. Where the browser has no scroll timeline, or the timeline would draw it otherwise than the gate, the gate draws it as any Live value (#240, ADR-0043 *Amendment (#240)*).
+_Avoid_: accelerated value (Motion's), handoff (the **Appear animation**'s), compositor value (a key the browser can't composite still runs on the main thread).
+
 **Base value**:
 The value a key returns to when no entry of the Override stack (`animate`, an inherited variant, the gestures) sets it any more. In order: the key's `initial` value, its value in the element's `style`, then its **Own value** (ADR-0022). With `initial={false}`, a key the element started at from `animate`: its `style` value, then the value it started at (#134, Motion's `baseTarget`). A key with no value yet starts from the same links (`initial` already seeds the Snapshot). A key at rest at its `style` value follows a later `style` change. While any entry of the Override stack sets a key, the element shows Wardic's value whatever its `style` says: `style` is the key's fallback, never an override (#79).
 _Avoid_: default (a transform key's Identity, which is one kind of Own value), fallback.
