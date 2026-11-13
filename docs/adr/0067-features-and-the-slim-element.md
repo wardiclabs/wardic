@@ -296,3 +296,38 @@ So decision 4's target, about 105 KB on Solid 1, was met. `main` was a few bytes
 
 - Rejected: the provider's `hover` and `press` Features, as a Slim element's, which a Complete app's provider doesn't have unless it's given them.
 
+
+## Amendment (#516, 2026-11-13): Wardic instances, Features typed by name
+
+**Found during #511's `layout` PR.** A Slim element takes every prop whatever its section has. A prop whose Feature isn't there does nothing, and only development says so (decision 7). `useAnimateLayout` and the Instant changes work only once some section has built `layout` (decision 15's refinement). What a page can use is known when its module is written, but no type says it.
+
+**Grilled 2026-11-13 (#516; Q1–Q19, issuecomment-6867362539).**
+
+1. **A Wardic instance: `createWardic(features)` returns a `w` and the hooks its Features unlock** (Q1 A, Q4). It sits beside `w`, `WardicProvider features` and `LazyWardic`, which don't change. 1.0.0 is public, so this is added in 1.1, and a section still gives Features to a subtree you don't make, such as a third-party component's plain `w.*`. Glossary: **Wardic instance** (never bare "instance", three's word).
+   - Rejected: deprecating the section API for 2.0.
+2. **An instance's elements bring their Features** (Q2 A), as a Complete element brings every one: its `w` passes `{ brings: F }` to the spine, joined with the section's Features at runtime, and its props are typed to `F` alone. So the types are true wherever the element renders. The module that calls `createWardic` puts its Features on every page that imports it (*Amendment (#548)*): per-page Features are per-page instance modules.
+   - Rejected: types only, the runtime still reading the section, where `<w.li layout>` would compile and do nothing.
+3. **A Feature carries its name as a type** (Q3 A): `Feature<I, S, N extends string = string>`. Each binding maps names to its own prop groups: Solid 1's callbacks, Solid 2's events, Foldkit's Messages. One `drag` serves both Solid bindings, so a Feature can't carry props of its own. `WardConfig` becomes its base group and one group per Feature, `hover`, `press`, `focus`, `inView`, `pan`, `drag` and `layout`, and the presets keep their Features' names as tuples.
+   - Rejected: `Feature<Props, Hooks>`, the issue's form, which needs a Feature object per binding.
+4. **Every form of `w`** (Q5 A, decision 6): `w.<tag>`, `w.create()`, `w.createWard()` and `w.ward()`, typed to `F`. Solid 1's `use:w` stays callable, bringing `F`. Solid types a directive by its name through the global `JSX.Directives`, so `use:w` takes every prop: the one form an instance can't narrow.
+   - Rejected: no directive on an instance's `w`, which `use:w` would still type-check against and throw on.
+5. **The hooks** (Q6, Q13 A): an instance with `layout` returns `useAnimateLayout`, `createInstantLayoutTransition` and `createResetProjection`, and they bring `layout`, which costs no bytes the instance doesn't already ship. Calling one counts as a use of the instance. The hooks that bring their own Feature (decision 12) stay global, and so do these three.
+6. **`colors` has no type surface** (Q7): a colour string in a space only `colors` reads isn't a type error. `var()`, `color-mix()` and a colour built at runtime would pass anyway.
+7. **A list entry may be a load** (Q8 B): `createWardic([domAnimation, () => import("./drag-feature").then((m) => m.drag)])`, typed from what the `import()` resolves to. Each load starts on the client at the instance's first mount, or its first hook call, once per instance; its Features take effect as they arrive (decision 8, *Amendments (#551)* and *(#582)*). The provider's `features` is unchanged.
+   - Rejected: one load for the whole list; no lazy instances.
+8. **`strict` allows an instance's elements, whatever their list** (Q9 A): the list is named in the instance's module, as `strict` asks. An instance of `domMax` isn't a Complete element.
+9. **The public types** (Q10 A): `WardConfigOf<F>`, `WardicInstance<F>`, a second parameter `F` on `WardicComponent` whose default, every Feature, is today's type, and `Feature`'s name parameter. The prop groups and the name map stay internal; exporting them, so a third-party Feature could add its props, is additive.
+10. **A missing Feature's prop is typed `NeedsFeature<"name">`** (Q15 B): the compiler says `Type 'boolean' is not assignable to type 'NeedsFeature<"drag">'`, as development's warning names the Feature today. On Solid 2, an instance's ward's `next` and `when` take `settled` and its Features' events; another's is the same error (Q19 A).
+    - Rejected: leaving the prop out, whose error (`Property 'drag' does not exist on type 'IntrinsicAttributes & Omit<…> & …'`) names no Feature.
+11. **Foldkit's `Wardic.make` handle is a Wardic instance** (Q11, Q12 A; ADR-0071's *Amendment (#516)*).
+12. **The docs and the storefront lead with instances** (Q16 A). Sections are taught for subtrees you don't make and for Features handed in at runtime, with the storefront's cart flight (`arrive(piece, layout)`, #526) as their example.
+13. **Three PRs** (Q17): this record and the types, with no runtime change; `createWardic` on both bindings, with type tests and size apps; the docs and the storefront. The first fixes #756 (Q18): Solid 2's `ward()` kept an unknown key once another matched, and an instance's `w.ward()` needs the guard that closes it.
+
+**Measured** (the storefront's two apps, every `w` import pointed at an instance-typed `w`; `tsc --noEmit --extendedDiagnostics`, median of 5, on `main` f9ffced):
+
+| | TS 6 check | TS 7, one checker | Types / instantiations |
+|---|---|---|---|
+| `WardConfig` split into groups | ±0 | ±0 | ±0 |
+| Instance-typed `w` on every element | −0.7% (Solid 1), +0.7% (Solid 2) | +0.7% | +0.2–0.6% |
+
+TS 7's default parallel check read +14% on Solid 2: adding the prototype's four files with `main`'s types gave +11.9% alone, as TS 7 splits files across its checkers. Over that control the types add 1.8–2.6%. A `Pick` of `WardConfig` by key measured the same as the groups' intersection, and `NeedsFeature` the same as leaving the props out.

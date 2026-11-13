@@ -194,7 +194,7 @@
 - #674: a pass that finds nothing moved still writes 2N transforms;
 - #675: Solid's presence lets a leaver drift on a reorder.
 
-**Not decided:** what `features` defaults to when `Wardic.make` isn't given one.
+**Not decided:** what `features` defaults to when `Wardic.make` isn't given one. *Decided in Amendment (#516): none.*
 - Every `w.*` element is a **Slim element**, whose Features are the handle's, so with none given, gesture and layout props would do nothing.
 - Solid's `wardic.*` (**Complete**) has no Foldkit counterpart.
 
@@ -203,3 +203,11 @@
 - WebKit;
 - hydration on the preview;
 - a tree-wide Measurement before the patch.
+
+## Amendment (#516, 2026-11-13): the handle is a Wardic instance
+
+ADR-0067's *Amendment (#516)* types a Solid **Wardic instance** (`createWardic(features)`): its `w.*` take only their Features' props, and a prop of a missing one is typed `NeedsFeature<"name">`.
+
+1. **`Wardic.make`'s handle is typed the same way** (#516 Q11). Its `w.*` take its Features' props, through Foldkit's own map from a Feature's name to its props, since Foldkit's callbacks are Messages (decision 23). The lift (#672) and the binding's slices build it typed from the start.
+2. **Without `features`, a handle has none** (#516 Q12 A): `Wardic.make({ env })` gives the base props alone. The *Not decided* above worried that gesture and layout props would do nothing. With the types, `<w.div drag>` is a compile error naming `drag`.
+   - Rejected: `domMax` by default, every Feature shipped unless chosen; `features` required, `[]` written by every app without one.
