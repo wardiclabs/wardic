@@ -14,7 +14,8 @@
 // - BG5: no item listens at rest, and the page's listeners are as many for 10 items as for 5.
 // - BG7: a drag held near its scroller's edge scrolls it, the item moving down the list under the pointer.
 // - BG10: held past its scroller's edge while Auto-scroll runs faster than a place a drag update, brought back
-//   and let go, the item's place keeps up with it and it lands where it's let go.
+//   and let go, the item's place keeps up with it and it lands at that place, under the pointer by the
+//   Crossover's rule.
 // - BG8: a grab stops an item flying back from a release; a press with no drag lets it go on.
 // - BG9: a function `whileDrag`'s keys join the group's.
 // - BP1 (#712's PR 3): `whileHover` and `whileTap` by the pointer; Space lifts while the keyboard reorder is
@@ -404,7 +405,13 @@ describe("Reorder.BatchGroup and Reorder.BatchItem on Solid 2", () => {
     expect(Math.abs(top - place * 60), `its place in the order (${place}) is the one it's held over (top ${top.toFixed(1)} px)`).toBeLessThanOrEqual(35)
     await mouse.up(inside)
     await wait(800)
-    expect(offPointer(v2, inside, grabOffset), "it lands under the pointer, within half a place").toBeLessThan(31)
+    // Let go, it lands at that place: as far from the pointer as it was held from it, up to the Crossover's
+    // 35 px, not half a place's 30. Where Auto-scroll stops on the way back decides which, run to run: a
+    // run held 32 px off landed 32 px off, as it should (#754's CI).
+    expect(s.order().indexOf("v2"), "the release keeps its place").toBe(place)
+    const landed = v2.getBoundingClientRect().top - s.group().getBoundingClientRect().top
+    expect(Math.abs(landed - place * 60), "it lands at its place").toBeLessThan(1)
+    expect(offPointer(v2, inside, grabOffset), "under the pointer, by the Crossover's rule").toBeLessThanOrEqual(36)
   }, 30_000)
 
   it("BG8: a grab stops an item flying back from a release; a press with no drag lets it go on", async () => {
