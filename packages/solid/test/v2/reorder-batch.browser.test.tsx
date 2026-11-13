@@ -361,9 +361,12 @@ describe("Reorder.BatchGroup and Reorder.BatchItem on Solid 2", () => {
     const inside = { x: g.x, y: view.top + view.height / 2 }
     await glide(outside, inside, 20)
     await wait(200)
-    // The place it's held over: its top in the group, to the nearest place.
-    const heldOver = Math.round((v2.getBoundingClientRect().top - s.group().getBoundingClientRect().top) / 60)
-    expect(s.order().indexOf("v2"), "its place in the order is the one it's held over").toBe(heldOver)
+    // The place it's held over, by the Crossover's own rule, not the nearest place: a 50 px item passes a
+    // neighbour once its leading edge passes that neighbour's centre, so place i holds while its top is within
+    // 35 px of i's, whichever way it came (the nearest place disagrees in the 5 px each side of the halfway).
+    const top = v2.getBoundingClientRect().top - s.group().getBoundingClientRect().top
+    const place = s.order().indexOf("v2")
+    expect(Math.abs(top - place * 60), `its place in the order (${place}) is the one it's held over (top ${top.toFixed(1)} px)`).toBeLessThanOrEqual(35)
     await mouse.up(inside)
     await wait(800)
     expect(offPointer(v2, inside, grabOffset), "it lands under the pointer, within half a place").toBeLessThan(31)
