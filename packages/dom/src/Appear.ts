@@ -8,7 +8,8 @@
  *   timing is defined.
  * - **At mount:** `find` the element's animation, check it `matches` the client's own spec, start the run
  *   `elapsedOf` it in (`Machine.startAt`), and `release` the element in the task that writes the engine's
- *   first frame.
+ *   first frame. Elements that hydrate together read their page once, with `findAll`, and each looks its
+ *   own up in that read with `findIn`.
  * - **A Batch's members** (#706): `batchKeyframes` samples one rule for every member on one set of
  *   transitions, each member's own values read from custom properties; a sheet's `batch` gives them one
  *   slot, and each member its style. At the Handoff, `findAll` reads every member's animation in one call,
@@ -25,7 +26,7 @@
  * // At mount:
  * const elapsed = Option.map(Appear.find(element), Appear.elapsedOf)
  */
-// #48, ADR-0044: the **Handoff**. `@wardic/dom/Appear` (ADR-0041).
+// #48, ADR-0044: the **Handoff**. `@wardic/dom/Appear` (ADR-0041). One read a page for a hydration's elements: #724.
 export {
   adoptChunks,
   animationOf,
@@ -39,6 +40,7 @@ export {
   elapsedOf,
   find,
   findAll,
+  findIn,
   keyframes,
   type Keyframes,
   matches,

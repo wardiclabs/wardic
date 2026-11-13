@@ -25,6 +25,9 @@
 //   Batch rule, an element's the one `find` gets, and not an app's own animation.
 // - HA12 (#706): `find` passes over a Batch's rule: a Wardic element on a member's element takes none of
 //   its Batch's animation for its own, which its Batch takes over.
+// - HA13 (#724): `findIn` looks an element's own Appear animation up in a page's read (`findAll`'s): the
+//   one `find` gets, and none for a Batch's rule or an app's own animation.
+// - HA14 (#724): `findAll` reads a shadow root's Appear animations, which the document's read misses.
 import * as Batch from "@wardic/core/Batch"
 import * as Machine from "@wardic/core/Machine"
 import type * as Frame from "@wardic/core/Frame"
@@ -483,5 +486,40 @@ describe("a Batch's members in a browser (#706)", () => {
     expect(Appear.pending(member), "its slot named").toBe(true)
     expect(Appear.matchesBatch(Appear.findAll(document).get(member) as Animation, "HA12"), "its Batch's rule, running").toBe(true)
     expect(Option.isNone(Appear.find(member)), "no element's Appear animation").toBe(true)
+  })
+
+  it("HA13: findIn looks an element's own Appear animation up in a page's read: the one find gets, none for a Batch's rule (#724)", async () => {
+    const { members, element, own } = await onePage("HA13")
+    const all = Appear.findAll(document)
+    expect(Option.getOrThrow(Appear.findIn(all, element)), "the one find gets").toBe(found(element))
+    for (const member of members) expect(Option.isNone(Appear.findIn(all, member)), "a Batch's rule isn't an element's").toBe(true)
+    expect(Option.isNone(Appear.findIn(all, own)), "nor an app's own animation").toBe(true)
+  })
+
+  it("HA14: findAll reads a shadow root's Appear animations, which the document's read doesn't reach (#724)", async () => {
+    const sheet = Appear.sheet()
+    const slot = sheet.slot()
+    expect(Result.isSuccess(slot.define({ spec: { key: "HA14", tag: "div", machine: () => rise() }, delay: 0 }))).toBe(true)
+    // The slot's custom property is the document's (a shadow tree inherits it; its own `:root` matches
+    // nothing), and the rule the tree's: an animation's name is looked up in the element's own tree.
+    const css = sheet.css()
+    const style = document.createElement("style")
+    style.textContent = css
+    document.head.append(style)
+    const host = document.createElement("div")
+    const shadow = host.attachShadow({ mode: "open" })
+    const inner = document.createElement("style")
+    inner.textContent = css
+    const element = document.createElement("div")
+    element.style.animation = slot.animation
+    shadow.append(inner, element)
+    document.body.append(host)
+    cleanups.push(() => {
+      host.remove()
+      style.remove()
+    })
+    await raf()
+    expect(Appear.findAll(document).has(element), "the document's read misses it").toBe(false)
+    expect(Appear.findAll(shadow).get(element), "its root's read finds it").toBe(found(element))
   })
 })
