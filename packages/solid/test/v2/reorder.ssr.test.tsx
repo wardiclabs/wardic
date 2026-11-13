@@ -12,11 +12,13 @@
 // - RS5: `Reorder.Item` outside a `Reorder.Group` throws, as Motion's does.
 // - RS6 (#257 item 3): a group's `next("reorderEnd")` never settles on a server and its `each` ends at
 //   once: nothing happens there. `Reorder.Group`'s `groupRef` hands the group over there too.
-import { Reorder, type ReorderGroup, reorderGroup, reorderItem } from "@wardic/solid/unstable/v2"
+// - RS7 (#748): an item's `value` is of any type, never its element's own `value` attribute; an item made
+//   with `reorderItem` and given as `wardRef` still takes none beside it.
+import { Reorder, type ReorderGroup, reorderGroup, type ReorderItemComponentProps, reorderItem } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { For } from "solid-js"
-import { describe, expect, it } from "vitest"
+import { describe, expect, expectTypeOf, it } from "vitest"
 import { serve, type Tag, tagsOf } from "./ssr.ts"
 
 const VALUES = ["a", "b", "c"]
@@ -165,5 +167,30 @@ describe("<Reorder> on a server, on Solid 2", () => {
     await new Promise((resolve) => setTimeout(resolve, 10))
     expect(seen, "each ends at once").toEqual([])
     expect(settled, "next never settles").toBe(false)
+  })
+
+  it("RS7 (#748): an item's value is of any type, never its element's own value attribute; a kept item takes none beside it", () => {
+    type Todo = { readonly id: number; readonly name: string }
+    const TODOS: ReadonlyArray<Todo> = [{ id: 1, name: "One" }, { id: 2, name: "Two" }]
+    const todoList = () => (
+      <Reorder.Group values={TODOS} onReorder={() => {}}>
+        <For each={TODOS}>{(todo) => <Reorder.Item value={todo}>{todo.name}</Reorder.Item>}</For>
+      </Reorder.Group>
+    )
+    const [, ...items] = tagsOf(serve(todoList))
+    expect(items.map((item) => item.attrs.value), "no value attribute on an element").toEqual([undefined, undefined])
+    // An object given directly typechecks, its type the item's alone, as JSX infers it: not met with the
+    // element's `value` attribute's.
+    const direct = () => <Reorder.Item value={{ id: 1 }}>one</Reorder.Item>
+    void direct
+    const valueOf = <V,>(props: ReorderItemComponentProps<V>): V | undefined => props.value
+    expectTypeOf(valueOf({ value: { id: 1 } })).toEqualTypeOf<{ id: number } | undefined>()
+    const kept = () => {
+      const list = reorderGroup({ values: VALUES, onReorder: () => {} })
+      const row = reorderItem(list, { value: "a" })
+      // @ts-expect-error an item made with `reorderItem` is made with its value: none beside it
+      return <Reorder.Item wardRef={row} value="a" />
+    }
+    void kept
   })
 })

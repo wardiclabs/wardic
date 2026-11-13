@@ -15,10 +15,10 @@
 // rest (the raise is the engine's, while dragged) and no transform at its Initial value,
 // so neither is pinned. The markup is parsed rather than compared whole, because Solid's
 // `renderToString` adds hydration keys.
-import { createReorderGroup, Reorder, wardic } from "@wardic/solid"
+import { createReorderGroup, Reorder, type ReorderItemProps, wardic } from "@wardic/solid"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { For, type JSX } from "solid-js"
-import { describe, expect, it } from "vitest"
+import { describe, expect, expectTypeOf, it } from "vitest"
 import { expectDragDefaults, serve, tagsOf } from "./ssr-helpers.ts"
 
 const VALUES = ["a", "b", "c"]
@@ -118,5 +118,23 @@ describe("server rendering", () => {
       </Reorder.Group>
     )
     for (const item of tagsOf(serve(off)).slice(1)) expect(item.attrs.tabindex).toBeUndefined()
+  })
+
+  it("SS8 (#748): an item's value is of any type, never its element's own value attribute", () => {
+    type Todo = { readonly id: number; readonly name: string }
+    const TODOS: ReadonlyArray<Todo> = [{ id: 1, name: "One" }, { id: 2, name: "Two" }]
+    const todoList = () => (
+      <Reorder.Group values={TODOS} onReorder={() => {}}>
+        <For each={TODOS}>{(todo) => <Reorder.Item value={todo}>{todo.name}</Reorder.Item>}</For>
+      </Reorder.Group>
+    )
+    const [, ...items] = tagsOf(serve(todoList))
+    expect(items.map((item) => item.attrs.value), "no value attribute on an element").toEqual([undefined, undefined])
+    // An object given directly typechecks, its type the item's alone, as JSX infers it: not met with the
+    // element's `value` attribute's.
+    const direct = () => <Reorder.Item value={{ id: 1 }}>one</Reorder.Item>
+    void direct
+    const valueOf = <V,>(props: ReorderItemProps<V>): V => props.value
+    expectTypeOf(valueOf({ value: { id: 1 } })).toEqualTypeOf<{ id: number }>()
   })
 })

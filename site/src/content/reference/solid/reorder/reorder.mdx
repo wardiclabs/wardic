@@ -52,11 +52,11 @@ createEffect(list.when("reorderEnd"), (end) => save(end.values))
 
 | Prop | |
 | --- | --- |
-| `value` | Its value in the group's `values`. Read once. |
+| `value` | Its value in the group's `values`, of any type (an object too), not its element's `value` attribute. Read once. |
 | `layout` | `true`, its place and size animating (the default), or `"position"`, its place alone, its size changing at once. |
 | `as` | The element it renders: `"li"` by default. Read once. |
 
-Beside them, the element's own props and any motion prop but `drag` and `layoutId`, which the group sets: `whileDrag` for the item in hand, say. Each item is a tab stop for the keyboard reorder; your own `tabIndex` (Solid 2: `tabindex`) wins over its `0`, and your `aria-describedby` ids come before its instructions. Outside a `Reorder.Group` it throws.
+Beside them, the element's own props and any motion prop but `drag` and `layoutId`, which the group sets: `whileDrag` for the item in hand, say. To set the element's own `value` attribute, use a `ref`. Each item is a tab stop for the keyboard reorder; your own `tabIndex` (Solid 2: `tabindex`) wins over its `0`, and your `aria-describedby` ids come before its instructions. Outside a `Reorder.Group` it throws.
 
 On Solid 2, an item made with [`reorderItem`](/reference/solid/reorder/reorder-item) can be given as `wardRef`, to hear its events, with the props its config doesn't set beside it; or a function as `wardRef` is handed the item's ward.
 
