@@ -79,20 +79,25 @@ const handedOff = (r: Run, k: string): boolean => {
   return after.slice(released).every((frame) => frame.drawn[k]?.css === false)
 }
 
+/** B1's member and Wardic element, frame for frame, within the tolerances: how many frames had both. */
+const comparedAlike = (r: Run): number => {
+  let compared = 0
+  for (const frame of r.frames) {
+    const member = frame.drawn.member
+    const element = frame.drawn.element
+    if (member === undefined || element === undefined) continue
+    const where = `at ${frame.at.toFixed(1)} (${Bool.match(frame.hydrated, { onTrue: () => "hydrated", onFalse: () => "before hydration" })})`
+    expect(Math.abs(member.y - element.y), `${where}: y ${member.y} vs ${element.y}`).toBeLessThanOrEqual(TOL.px)
+    expect(Math.abs(member.opacity - element.opacity), `${where}: opacity ${member.opacity} vs ${element.opacity}`).toBeLessThanOrEqual(TOL.opacity)
+    compared++
+  }
+  return compared
+}
+
 describe("a Batch's members' Appear animations, server render to hydration (#706)", () => {
   it("BH1: a member and a Wardic element on one spec rise in alike, frame for frame, through the Handoff", async () => {
     const r = await run("B1", B1, { hydrateAfter: 150, forMs: 1200 })
-    let compared = 0
-    for (const frame of r.frames) {
-      const member = frame.drawn.member
-      const element = frame.drawn.element
-      if (member === undefined || element === undefined) continue
-      const where = `at ${frame.at.toFixed(1)} (${["before hydration", "hydrated"][Number(frame.hydrated)]})`
-      expect(Math.abs(member.y - element.y), `${where}: y ${member.y} vs ${element.y}`).toBeLessThanOrEqual(TOL.px)
-      expect(Math.abs(member.opacity - element.opacity), `${where}: opacity ${member.opacity} vs ${element.opacity}`).toBeLessThanOrEqual(TOL.opacity)
-      compared++
-    }
-    expect(compared).toBeGreaterThan(40)
+    expect(comparedAlike(r), "frames compared").toBeGreaterThan(40)
     expect(r.frames.some((frame) => !frame.hydrated && (frame.drawn.member?.y ?? 40) < 39), "moving before hydration").toBe(true)
     expect(handedOff(r, "member")).toBe(true)
   }, 30_000)

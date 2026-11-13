@@ -342,6 +342,37 @@ const batchAppear = (key: string): ReadonlyArray<HTMLElement> => {
   return elements
 }
 
+/**
+ * One render's sheet, as a page has, the Batch's slot and an element's: the Batch's members, an element on
+ * its own slot, and one running an app's own animation, all playing.
+ */
+const onePage = async (key: string) => {
+  const rule = Result.getOrThrow(Appear.batchKeyframes({ key, keys: BATCH_KEYS, transition: SPRING, starts: STARTS, targets: TARGETS }))
+  const sheet = Appear.sheet()
+  const batch = sheet.batch(rule)
+  const slot = sheet.slot()
+  expect(Result.isSuccess(slot.define({ spec: { key: `${key} element`, tag: "div", machine: () => rise() }, delay: 0 }))).toBe(true)
+  const style = document.createElement("style")
+  style.textContent = `${sheet.css()}@keyframes spin{to{transform:rotate(1turn)}}`
+  document.head.append(style)
+  const members = TARGETS.map((_, m) => {
+    const member = document.createElement("div")
+    for (const [property, value] of Object.entries(batch.styleOf(m, DELAYS[m] as number) as Readonly<Record<string, string>>)) member.style.setProperty(property, value)
+    return member
+  })
+  const element = document.createElement("div")
+  element.style.animation = slot.animation
+  const own = document.createElement("div")
+  own.style.animation = "spin 1s linear infinite"
+  document.body.append(...members, element, own)
+  cleanups.push(() => {
+    for (const node of [...members, element, own]) node.remove()
+    style.remove()
+  })
+  await raf()
+  return { members, element, own }
+}
+
 /** What a member draws now: its translateX and opacity. */
 const drawnX = (element: Element) => {
   const computed = getComputedStyle(element)
@@ -426,30 +457,7 @@ describe("a Batch's members in a browser (#706)", () => {
   })
 
   it("HA11: findAll reads the document's Appear animations in one call, by element", async () => {
-    // One render's sheet, as a page has: the Batch's slot and an element's.
-    const rule = Result.getOrThrow(Appear.batchKeyframes({ key: "HA11", keys: BATCH_KEYS, transition: SPRING, starts: STARTS, targets: TARGETS }))
-    const sheet = Appear.sheet()
-    const batch = sheet.batch(rule)
-    const slot = sheet.slot()
-    expect(Result.isSuccess(slot.define({ spec: { key: "HA11 element", tag: "div", machine: () => rise() }, delay: 0 }))).toBe(true)
-    const style = document.createElement("style")
-    style.textContent = `${sheet.css()}@keyframes spin{to{transform:rotate(1turn)}}`
-    document.head.append(style)
-    const members = TARGETS.map((_, m) => {
-      const member = document.createElement("div")
-      for (const [property, value] of Object.entries(batch.styleOf(m, DELAYS[m] as number) as Readonly<Record<string, string>>)) member.style.setProperty(property, value)
-      return member
-    })
-    const element = document.createElement("div")
-    element.style.animation = slot.animation
-    const own = document.createElement("div")
-    own.style.animation = "spin 1s linear infinite"
-    document.body.append(...members, element, own)
-    cleanups.push(() => {
-      for (const node of [...members, element, own]) node.remove()
-      style.remove()
-    })
-    await raf()
+    const { members, element, own } = await onePage("HA11")
     const all = Appear.findAll(document)
     for (const node of members) expect(Appear.matchesBatch(all.get(node) as Animation, "HA11"), "each member's Batch rule").toBe(true)
     expect(all.get(element), "the one find gets").toBe(found(element))
