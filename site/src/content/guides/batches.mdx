@@ -76,6 +76,16 @@ The slider changes the depth, and `animate: (i) => leafAt(i, depth())` turns eve
 - **An item back** enters from `initial`. Switch filters before an exit lands and the items coming back turn around where they are, at the speed they have, their old elements gone at once.
 - Motion's tab gives every item `layout`, and its presence `mode="popLayout"`, so a leaving item gives up its place in the grid as it fades.
 
+### Inside an `<svg>`
+
+<Demo sample="batch-scatter" />
+
+<CodeTabs sample="batch-scatter" />
+
+- **A member can be an SVG element.** Each point here is a `<circle>`, placed by its own `cx` and `cy`, and the Batch animates its `scale` and `opacity`. A member scales and turns about its own centre, as an HTML one does.
+- **Under `<AnimatePresence>`,** a point filtered out shrinks away before its circle goes, as an HTML member does.
+- **`stagger()` counts both ways:** in `transition`, the points entering together; in the exit's, the points leaving together. Motion's tab has no stagger for its leavers: each point's exit is its own animation, so it gives the entering ones a delay by index.
+
 ## What else a Batch does
 
 Each of these is on [`createBatch`'s page](/reference/solid/animation/create-batch):
