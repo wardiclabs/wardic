@@ -85,6 +85,28 @@ const runScripts = (root: ParentNode): void => {
 }
 
 /**
+ * Land a write's `nodes` at the end of the body and run their own scripts, each once, as the parser would:
+ * none of the page's others, which a chunk landing after hydration would run again (#724). Returns what
+ * it put on the page.
+ */
+const landNodes = (nodes: ReadonlyArray<Element>): ReadonlyArray<Element> => {
+  const placed: Array<Element> = []
+  for (const node of nodes) {
+    document.body.append(node)
+    if (node.tagName !== "SCRIPT") {
+      runScripts(node)
+      placed.push(node)
+      continue
+    }
+    const script = document.createElement("script")
+    script.textContent = node.textContent
+    node.replaceWith(script)
+    placed.push(script)
+  }
+  return placed
+}
+
+/**
  * Stream `name` (#245): its head and shell on the page, its later writes (a late chunk's
  * `<template>` and the script that places it) landing `chunkAfter` ms later as the stream would,
  * and hydration `hydrateAfter` ms after the shell. Each frame finds the `data-k` elements afresh:
@@ -125,11 +147,7 @@ const runStreamed = async (
     for (const write of later) {
       const box = document.createElement("div")
       box.innerHTML = write
-      for (const node of [...box.children]) {
-        document.body.append(node)
-        landed.push(node)
-      }
-      runScripts(document.body)
+      landed.push(...landNodes([...box.children]))
     }
   }, options.chunkAfter)
   cleanups.push(() => clearTimeout(chunk))
