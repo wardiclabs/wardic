@@ -19,7 +19,7 @@ A Wardic element carries its own animation: its values, its springs, and the wor
 - **`stagger()`** counts the tiles a change moves, so the wave runs through the ones that go somewhere.
 - **"Moving…" and "Ready"** come from the Batch's landings: on Solid 2 `tiles.settled()`, pending while any tile moves; on Solid 1 `onAnimationStart` and `onAnimationComplete`. The frame rate is the page's own readout, the frames it drew in each second ([`site/samples/frames.ts`](https://github.com/wardiclabs/wardic/blob/main/site/samples/frames.ts)).
 
-The demo's Mosaic and Lines turn the same tiles to Wardic's mark, a tile to each of its cells, or shrunk and turned along its strokes: each drawing is one change of the Batch's targets, as a shuffle is. They're the demo's alone ([`demo.tsx`](https://github.com/wardiclabs/wardic/blob/main/site/samples/batch/demo.tsx)).
+The demo's Mosaic and Lines turn the same tiles to Wardic's mark, a tile to each of its cells, or shrunk and turned along its strokes: each drawing is one change of the Batch's targets, as a shuffle is. Shuffle and Sort work in them too: a tile's cell is its place in the order, and its colour its own, so a shuffled mark is scrambled until Sort puts it back together. They're the demo's alone ([`demo.tsx`](https://github.com/wardiclabs/wardic/blob/main/site/samples/batch/demo.tsx)).
 
 Motion has no Batch. Its tab runs the same grid through `animate()`, a call per tile, as [`createAnimate`](/reference/solid/animation/create-animate) would.
 
@@ -75,6 +75,8 @@ The slider changes the depth, and `animate: (i) => leafAt(i, depth())` turns eve
 - **Under `<AnimatePresence>`,** a leaving item plays its `exit` before its element goes. `stagger()` in the exit's transition counts the items leaving together.
 - **An item back** enters from `initial`. Switch filters before an exit lands and the items coming back turn around where they are, at the speed they have, their old elements gone at once.
 - Motion's tab gives every item `layout`, and its presence `mode="popLayout"`, so a leaving item gives up its place in the grid as it fades.
+
+The demo's 612 items run the same pantry at six times its size, each item six times in a scroller, with the frame rate: two thirds of them leave at a filter, their exits staggered across the same half second. It's the demo's alone ([`demo.tsx`](https://github.com/wardiclabs/wardic/blob/main/site/samples/batch-presence/demo.tsx)).
 
 ### Inside an `<svg>`
 

@@ -6,12 +6,12 @@ const FRUIT = ["Apple", "Pear", "Plum", "Fig", "Kiwi", "Lime", "Lemon", "Mango",
 const VEG = ["Leek", "Kale", "Okra", "Pea", "Bean", "Beet", "Carrot", "Celery", "Chard", "Corn", "Cress", "Onion", "Potato", "Radish", "Squash", "Turnip", "Swede", "Yam", "Taro", "Endive", "Garlic", "Shallot", "Chili", "Pepper", "Fava", "Lentil", "Rocket", "Yucca", "Tatsoi", "Gourd", "Sprout", "Daikon", "Jicama", "Salsify"]
 const HERBS = ["Basil", "Bay", "Chive", "Dill", "Fennel", "Lovage", "Anise", "Mint", "Borage", "Parsley", "Savory", "Sage", "Sorrel", "Hyssop", "Thyme", "Chervil", "Clove", "Rue", "Tansy", "Yarrow", "Catnip", "Mace", "Tulsi", "Cassia", "Perilla", "Shiso", "Hops", "Myrtle", "Cumin", "Nettle", "Sumac", "Ajwain", "Cicely", "Ginger"]
 /** 102 items, the kinds mixed. */
-const PRODUCE = FRUIT.flatMap((_, k) => [
+export const PRODUCE = FRUIT.flatMap((_, k) => [
   { name: FRUIT[k], kind: "Fruit" as Kind },
   { name: VEG[k], kind: "Veg" as Kind },
   { name: HERBS[k], kind: "Herbs" as Kind },
 ])
-const FILTERS = ["All", "Fruit", "Veg", "Herbs"] as const
+export const FILTERS = ["All", "Fruit", "Veg", "Herbs"] as const
 
 const COLUMNS = 6
 /** The `i`th place in the grid. */

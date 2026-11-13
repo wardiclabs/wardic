@@ -1105,6 +1105,15 @@ a {
   padding: 8px 12px;
 }
 
+/* The pantry demo's 612 items (samples/batch-presence/demo.tsx): the sample's board, as tall as all of them,
+   in a scroller as tall as the sample's. */
+.sample-pantry-scroll {
+  width: min(100%, 304px);
+  height: 506px;
+  overflow: auto;
+  overscroll-behavior: contain;
+}
+
 .sample-pantry-grid {
   display: grid;
   grid-template-columns: repeat(6, 44px);
