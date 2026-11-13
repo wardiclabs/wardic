@@ -975,6 +975,19 @@ a {
   user-select: none;
 }
 
+/* Its rows of text (#714): no `itemSize`, each note as tall as its text, as wide as the list; spaced by the
+   group's `gap`, never a margin, which counts in flow but not in a place. */
+.sample-batch-note {
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-s);
+  background: var(--surface);
+  font-size: var(--text-s);
+  line-height: 1.4;
+  cursor: grab;
+  user-select: none;
+}
+
 /* The scroll sample's panel, its progress bar scaled across from the left. */
 .sample-scroller {
   width: min(100%, 360px);
