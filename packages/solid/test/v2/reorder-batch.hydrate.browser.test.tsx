@@ -9,10 +9,12 @@
 // - HR4 (#714): items each their own size, a function's: a padded column, a grid of rows (`flex-wrap` on the
 //   server, its places once hydrated), and a padded column whose items take its width (`100cqi`): every item
 //   where it is, its own size, before and after.
+// - HR5 (#714): items whose sizes are read from the page, in flow on the server: a padded column, a row and a
+//   grid of rows, each item where it is before hydration and after.
 import * as Bool from "effect/Boolean"
 import { describe, expect, it } from "vitest"
 import { over } from "../browser-helpers.ts"
-import { R1, R10, R2, R3, R4, R5, R8, R9 } from "./reorder-batch-hydrate-fixtures.tsx"
+import { R1, R10, R11, R12, R13, R2, R3, R4, R5, R8, R9 } from "./reorder-batch-hydrate-fixtures.tsx"
 import { hydrateFixture2 } from "./hydrate.ts"
 
 const FILE = "./test/v2/reorder-batch-hydrate-fixtures.tsx"
@@ -92,6 +94,21 @@ describe("Reorder.BatchGroup from a server render to hydration on Solid 2 (#712)
       R10: KS.map((k, i) => `${k} 12,${12 + i * 60} 300x50`),
     }
     for (const [name, code] of [["R8", R8], ["R9", R9], ["R10", R10]] as const) {
+      const { before, after, errors, threw } = await run(name, code)
+      expect([threw, errors], `${name}: claimed, nothing logged`).toEqual(["", []])
+      before.forEach((frame, f) => expect(frame, `${name}: before hydration, frame ${f}`).toEqual(expected[name]))
+      after.forEach((frame, f) => expect(frame, `${name}: hydrated, frame ${f}`).toEqual(expected[name]))
+    }
+  }, 60_000)
+
+  it("HR5: items whose sizes are read, in flow on the server: a padded column, a row, a grid: each where it is", async () => {
+    const expected: Record<string, ReadonlyArray<string>> = {
+      R11: ["a 12,12 200x40", "b 12,62 200x70", "c 12,142 200x50", "d 12,202 200x90", "e 12,302 200x60"],
+      R12: ["a 0,0 80x40", "b 90,0 120x70", "c 220,0 60x50", "d 290,0 100x90", "e 400,0 40x60"],
+      // 280 px: a, b and c fill the first row to its edge; d and e start the second, below b's 70.
+      R13: ["a 0,0 80x40", "b 90,0 120x70", "c 220,0 60x50", "d 0,80 100x90", "e 110,80 40x60"],
+    }
+    for (const [name, code] of [["R11", R11], ["R12", R12], ["R13", R13]] as const) {
       const { before, after, errors, threw } = await run(name, code)
       expect([threw, errors], `${name}: claimed, nothing logged`).toEqual(["", []])
       before.forEach((frame, f) => expect(frame, `${name}: before hydration, frame ${f}`).toEqual(expected[name]))

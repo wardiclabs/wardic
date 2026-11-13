@@ -122,7 +122,7 @@ interface GroupLocal<V> {
   readonly values: ReadonlyArray<V>
   readonly onReorder: (values: Array<V>) => void
   readonly axis?: CoreReorder.Axis | undefined
-  readonly itemSize: BatchReorderItemSizes
+  readonly itemSize?: BatchReorderItemSizes
   readonly gap?: ReorderBatchGap | undefined
   readonly columns?: number | undefined
   readonly direction?: "ltr" | "rtl" | undefined
@@ -249,6 +249,10 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
   const values = (): ReadonlyArray<V> => plainOrder(local.values, $PROXY)
   // What the group read of its element: the direction it inherits and a grid's width (Q35, Q36).
   const [read, setRead] = createSignal<BatchReorderRead | undefined>(undefined, { equals: sameRead })
+  // Its items' sizes read from the page (#714): each delivery, the first, and the group's own size.
+  const [sizesVersion, setSizesVersion] = createSignal(0)
+  const [sizesPlaced, setSizesPlaced] = createSignal(false)
+  const [groupVersion, setGroupVersion] = createSignal(0)
   // Its events (#257 item 3), ended with it.
   const events = new Waiters<ReorderGroupEvents<V>>(GROUP_GONE)
   onCleanup(() => events.dispose())
@@ -297,6 +301,22 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
         keyboard: () => untrack(() => local.keyboard) !== false,
         announcements: () => Option.fromUndefinedOr(untrack(() => local.announcements)),
         brought: services,
+        sizes: {
+          version: sizesVersion,
+          placed: sizesPlaced,
+          groupVersion,
+          // Placed within the observer's delivery, before the page paints: Solid 2 runs its effects at its next
+          // flush, which may come after a paint, so it's flushed now, as `onRead` is.
+          arrived: (first) =>
+            flush(() => {
+              setSizesVersion((v) => v + 1)
+              if (first) {
+                setSizesPlaced(true)
+                setGroupVersion((v) => v + 1)
+              }
+            }),
+          resizeGroup: () => flush(() => setGroupVersion((v) => v + 1)),
+        },
       },
       { started: noop, landed: noop },
     ))

@@ -38,6 +38,11 @@ export interface BatchSceneOptions {
   readonly fromWidth?: Accessor<number>
   /** Each item's own size, by its value, the group's `itemSize` function (#714): a grid's rows from its width. */
   readonly sizeOf?: (value: string) => { readonly width: number; readonly height: number }
+  /**
+   * Each item's own size, by its value, set by its own CSS and read by the group, its `itemSize` left out
+   * (#714): a column's items take the group's width, the layout's, a grid's rows from its width.
+   */
+  readonly readSizeOf?: (value: string) => { readonly width: number; readonly height: number }
 }
 
 export interface BatchScene {
@@ -67,6 +72,16 @@ const LOOK: JSX.CSSProperties = { "box-sizing": "border-box", border: "1px solid
 const optional = <K extends string, A>(key: K, value: A | undefined): Partial<Record<K, A>> =>
   UndefinedOr.match(value, { onUndefined: () => ({}), onDefined: (v) => ({ [key]: v }) as Record<K, A> })
 
+/** An item's own size, its group reading it (#714): a column's height alone, its width the group's. */
+const readSizeStyleOf = (o: BatchSceneOptions, value: string): JSX.CSSProperties =>
+  UndefinedOr.match(o.readSizeOf, {
+    onUndefined: () => ({}),
+    onDefined: (sizeOf) => Bool.match((o.layout ?? "y") === "y", {
+      onTrue: () => ({ height: `${sizeOf(value).height}px` }),
+      onFalse: () => ({ width: `${sizeOf(value).width}px`, height: `${sizeOf(value).height}px` }),
+    }),
+  })
+
 // The Batch scene mounted last, unmounted by `resetBatchScene` (and by `mount`'s own `afterEach`).
 let unmountBatch: () => void = () => {}
 
@@ -92,7 +107,7 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Batc
   const items = (): JSX.Element => (
     <For each={order()}>
       {(value) => (
-        <Reorder.BatchItem value={value} data-value={value} style={LOOK}>
+        <Reorder.BatchItem value={value} data-value={value} style={{ ...LOOK, ...readSizeStyleOf(o, value) }}>
           {value}
         </Reorder.BatchItem>
       )}
@@ -106,10 +121,14 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Batc
       onReorder={onReorder}
       axis={layout as CoreReorder.Axis}
       {...UndefinedOr.match(o.sizeOf, {
-        onUndefined: () => ({
-          itemSize: { width: size.w, height: size.h },
-          ...Bool.match(Bool.and(layout === "xy", Predicate.isUndefined(o.fromWidth)), { onTrue: () => ({ columns: 3 }), onFalse: () => ({}) }),
-        }),
+        onUndefined: () =>
+          Bool.match(Predicate.isNotUndefined(o.readSizeOf), {
+            onTrue: () => ({}),
+            onFalse: () => ({
+              itemSize: { width: size.w, height: size.h },
+              ...Bool.match(Bool.and(layout === "xy", Predicate.isUndefined(o.fromWidth)), { onTrue: () => ({ columns: 3 }), onFalse: () => ({}) }),
+            }),
+          }),
         onDefined: (sizeOf) => ({ itemSize: sizeOf }),
       })}
       gap={10}
@@ -124,6 +143,8 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Batc
       style={{
         ...UndefinedOr.match(o.container, { onUndefined: () => AT, onDefined: () => ({ margin: "0", padding: "0" }) }),
         ...UndefinedOr.match(o.fromWidth, { onUndefined: () => ({}), onDefined: (width) => ({ width: `${width()}px` }) }),
+        // A column whose items take its width, read from the page: the layout's (#714).
+        ...Bool.match(Bool.and(Predicate.isNotUndefined(o.readSizeOf), layout === "y"), { onTrue: () => ({ width: `${size.w}px` }), onFalse: () => ({}) }),
       }}
     >
       {Bool.match(Predicate.isUndefined(o.exit), {

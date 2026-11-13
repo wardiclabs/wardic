@@ -1669,3 +1669,23 @@ export const keyframesValues: (
     })
   },
 )
+
+/** `nextFrame`'s one Frame: settled at its first step. */
+const SETTLED_AT_ONCE: Frame.Frame<number> = { value: 0, done: true }
+
+/** `nextFrame`'s sink: it keeps nothing. */
+const keepNothing = (): undefined => undefined
+
+/**
+ * Succeeds at the Frame loop's next tick, once its runs have stepped: a run of one Frame, settled at its
+ * first step. It keeps the loop ticking for that one tick, though nothing else runs. Added in a tick's Late
+ * window, it succeeds in that tick's Late round. Interrupted first, it leaves the loop at once.
+ *
+ * @internal
+ */
+// #714: for a binding's write that must wait a frame on the Frame loop, as a Batch Reorder group's own size
+// does. Here, not beside `LiveValue.eachFrame`: every app that animates has `Machine`, where importing
+// `LiveValue` cost a Batch Reorder app 3.6 KB gzipped (ADR-0072, *Amendment (#714)*, decision 5).
+export const nextFrame: Effect.Effect<void, never, FrameLoop.FrameLoop> = Effect.asVoid(
+  run(make({ settles: true, span: { name: "wardic.nextFrame", attributes: {} }, start: () => () => SETTLED_AT_ONCE }), keepNothing),
+)

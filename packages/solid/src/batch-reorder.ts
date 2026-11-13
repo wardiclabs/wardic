@@ -11,7 +11,8 @@
  *   as it's resized, its rows from it (#714 too); its first read's places drawn before the page paints.
  * - **Items each their own size** (#714, ADR-0072 *Amendment (#714)*): a function's, called for every item
  *   at each change, in the binding's tracking; each item's size written on its element as it's made, and
- *   again at a change that changes it.
+ *   again at a change that changes it. Or each read from the page, `itemSize` left out (decisions 3 to 5):
+ *   one observer over every item, its delivery placing them, the group's own size a tick after.
  * - **A server's group** (Q37, Q39): each item's start, with no runtime.
  *
  * @module
@@ -20,6 +21,7 @@ import type * as Box from "@wardic/core/Box"
 import type * as Drag from "@wardic/core/Drag"
 import * as DragRecognizer from "@wardic/core/DragRecognizer"
 import * as InputSource from "@wardic/core/InputSource"
+import * as Machine from "@wardic/core/Machine"
 import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import type * as CoreReorder from "@wardic/core/Reorder"
 import * as ReorderController from "@wardic/dom/ReorderController"
@@ -60,18 +62,23 @@ import {
   type BatchReorderGeometry,
   type BatchReorderPlaces,
   type BatchReorderRead,
+  type ReorderBatchItemSize,
   groupStyleOf,
   heightAt,
-  inGridFlow,
   isFromWidth,
   itemBaseOf,
+  itemsInFlow,
   placeOf,
+  readsSizes,
+  type SizesRead,
   releaseGroupWidth,
   resolvePlaces,
   samePlaces,
   sizeStyleOf,
   widthAt,
+  unwriteSizeOn,
   writeSizeOn,
+  writesSizes,
   type WrittenSize,
   type XY,
 } from "./batch-reorder-places.ts"
@@ -149,6 +156,21 @@ const contentWidthOf = (el: Element): number => {
   })
 }
 
+/**
+ * What `el`'s own `width` and `height` hold besides its content box (#714): its padding and border on each
+ * axis when it's `border-box`, as a CSS reset makes it; none when it's `content-box`.
+ */
+const edgesOf = (el: Element): XY => {
+  const style = getComputedStyle(el)
+  return Bool.match(style.boxSizing === "border-box", {
+    onTrue: (): XY => ({
+      x: parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) + parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth),
+      y: parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth),
+    }),
+    onFalse: (): XY => ORIGIN,
+  })
+}
+
 /** Whether a node is an HTML element: what a raise's `z-index` is written on. */
 const isHTMLElement = (node: unknown): node is HTMLElement => node instanceof HTMLElement
 
@@ -183,6 +205,30 @@ export interface BatchReorderOptions<V> {
   readonly announcements: () => Option.Option<Partial<CoreReorder.Announcements<V>>>
   /** What the group brings ({@link GROUP_BRINGS}): the gestures' input its items are heard through. */
   readonly brought: () => Context.Context<never>
+  /** Its items' sizes read from the page (#714): signals of the binding's own. */
+  readonly sizes: BatchReorderSizeSignals
+}
+
+/**
+ * A group's signals for its items' sizes read from the page, `itemSize` left out (#714, decisions 3 to 5),
+ * its binding's own, each read in its tracking: the Batch's places read `version` and `placed`, its items'
+ * style `placed`, the group's style `placed` and `groupVersion`, so its own size never changes in its
+ * items' delivery (the page's "ResizeObserver loop" error).
+ */
+export interface BatchReorderSizeSignals {
+  /** How many deliveries of new sizes there have been. */
+  readonly version: () => number
+  /** Whether the first came in: its items out of flow from then on. */
+  readonly placed: () => boolean
+  /** The group's own size's version: written a tick after a later delivery's. */
+  readonly groupVersion: () => number
+  /**
+   * New sizes in: every change they make runs now, in the delivery, before the page paints. The first
+   * also takes the items out of flow and sizes the group with them, where flow had it already.
+   */
+  readonly arrived: (first: boolean) => void
+  /** The group's own size, written at the Frame loop's tick after a later delivery. */
+  readonly resizeGroup: () => void
 }
 
 /** What a group's items read of it: each one's half, and whether they're pressed. A server's group is one. */
@@ -321,8 +367,16 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
   // The places each item's is read from, resolved once a change, and the list they're for: the Batch reads
   // the list before any item's targets. A change of them its first read makes lands at once (Q35, Q36): no
   // flight from a guess, drawn before the first paint.
+  // Its items' sizes as read from the page (#714), by value: what its places read, `itemSize` left out.
+  const sizesByValue = new Map<V, ReorderBatchItemSize>()
+  const readSoFar: SizesRead = {
+    sizeOf: (item) => sizesByValue.get(item as V),
+    get arrived() {
+      return options.sizes.placed()
+    },
+  }
   let resolvedValues: ReadonlyArray<V> = env.untrack(options.values)
-  let resolved: BatchReorderPlaces = resolvePlaces(env.untrack(geometryNow), resolvedValues)
+  let resolved: BatchReorderPlaces = env.untrack(() => resolvePlaces(geometryNow(), resolvedValues, readSoFar))
   /** An item's place now, at index `i`. */
   const placeAt = (i: number): XY => placeOf(resolved, i)
   const startOf = startsAtPlace<V>(placeAt)
@@ -337,8 +391,11 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
   const config = {
     each: () => {
       const values = options.values()
+      const geometry = geometryNow()
       // A function `itemSize` is called here for every item, tracked: what it reads places them again (#714, Q8).
-      resolved = resolvePlaces(geometryNow(), values)
+      // Sizes read from the page place them again at each delivery.
+      if (readsSizes(geometry)) options.sizes.version()
+      resolved = resolvePlaces(geometry, values, readSoFar)
       resolvedValues = values
       return values
     },
@@ -616,8 +673,8 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     const first = Predicate.isUndefined(inherited)
     const direction = UndefinedOr.match(inherited, { onUndefined: () => directionAbove(el), onDefined: identity })
     inherited = direction
-    const seen: BatchReorderRead = { direction, width: Bool.match(isFromWidth(env.untrack(geometryNow)), { onTrue: () => contentWidthOf(el), onFalse: () => undefined }) }
-    if (first) atOnce = Bool.not(samePlaces(resolved, resolvePlaces(env.untrack(() => options.geometryOf(seen)), env.untrack(options.values))))
+    const seen: BatchReorderRead = { direction, width: Bool.match(isFromWidth(env.untrack(geometryNow)), { onTrue: () => contentWidthOf(el), onFalse: () => undefined }), edges: edgesOf(el) }
+    if (first) atOnce = Bool.not(samePlaces(resolved, env.untrack(() => resolvePlaces(options.geometryOf(seen), options.values(), readSoFar))))
     options.onRead(seen)
   }
   /**
@@ -636,61 +693,146 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     resizes.observe(el)
   }
 
-  // Items each their own size (#714): the size last written on each one's element, and whether the last
-  // change's items were.
+  // --- Its items' own sizes (#714) -------------------------------------------------------------
+
+  // The size last written on each item's element, given by a function; and the last change's sizing.
   let written = new WeakMap<Element, WrittenSize>()
-  let eachSized = Predicate.isNotUndefined(resolved.each)
-  /** Every listed item's own size written on its element where it isn't already: its items each their own size. */
-  const writeEachSize = (): void => {
-    if (gone) return
+  let givenSizes = writesSizes(resolved)
+  let readingSizes = resolved.sizesRead
+  /** Every listed item's element, where it has one. */
+  const eachElement = (f: (el: HTMLElement, value: V, i: number) => void): void => {
     // Per item at a change: statements.
     Arr.forEach(resolvedValues, (value, i) => {
       const el = batch.elementOf(batch.memberFor(value, undefined))
-      if (isHTMLElement(el)) writeSizeOn(el, resolved, i, written)
+      if (isHTMLElement(el)) f(el, value, i)
     })
   }
+  /** Every listed item's own size written on its element where it isn't already: its items each their own size. */
+  const writeEachSize = (): void => {
+    if (gone) return
+    eachElement((el, _, i) => writeSizeOn(el, resolved, i, written))
+  }
   /**
-   * Each item's own size at a change. Switched to sizes from a function, after the change's style writes: the
-   * group's style for every item drops the one size it had, which, written after these, would take theirs.
-   * Switched back to one size with a width, an item whose width was the group's gets its own sizing back; with
-   * none, the group's style for every item has them border-box still.
+   * Its items' sizes at a change: each one's own written, a function's; or each one's observed, read from the
+   * page. Switched to a function's, after the change's style writes: the group's style for every item drops
+   * the one size it had, which, written after these, would take theirs. Switched from one, an item whose width
+   * was the group's gets its own sizing back where its style gives no width; and to sizes read from the page,
+   * each item's written size goes, after the change's style writes, where it's still the one written.
    */
-  const writeSizes = (): void => {
-    const each = Predicate.isNotUndefined(resolved.each)
-    const switched = each !== eachSized
-    eachSized = each
-    if (switched) {
-      const was = written
-      written = new WeakMap()
-      if (Bool.not(Bool.or(each, resolved.takesWidth))) {
-        // Per item at a change: statements.
-        Arr.forEach(resolvedValues, (value) => {
-          const el = batch.elementOf(batch.memberFor(value, undefined))
-          if (isHTMLElement(el)) releaseGroupWidth(el, was.get(el))
-        })
-      }
-    }
-    if (Bool.not(each)) return
-    if (switched) {
+  const changeSizes = (): void => {
+    const nowGiven = writesSizes(resolved)
+    const nowReading = resolved.sizesRead
+    const fromGiven = Bool.and(givenSizes, Bool.not(nowGiven))
+    const toGiven = Bool.and(Bool.not(givenSizes), nowGiven)
+    const was = written
+    if (Bool.or(fromGiven, toGiven)) written = new WeakMap()
+    if (Bool.and(fromGiven, Bool.not(Bool.or(nowReading, resolved.takesWidth)))) eachElement((el) => releaseGroupWidth(el, was.get(el)))
+    if (Bool.and(fromGiven, nowReading)) queueMicrotask(() => eachElement((el) => unwriteSizeOn(el, was.get(el))))
+    if (nowReading !== readingSizes) Bool.match(nowReading, { onTrue: () => eachElement(observe), onFalse: stopReading })
+    givenSizes = nowGiven
+    readingSizes = nowReading
+    if (Bool.not(nowGiven)) return
+    if (toGiven) {
       queueMicrotask(writeEachSize)
       return
     }
     writeEachSize()
   }
 
+  // Its items' sizes as read (decisions 3 to 5): one observer over every item, made at the first; each
+  // observed element's value; and whether the group's own size waits for the Frame loop's next tick.
+  let sizes: ResizeObserver | undefined
+  const observedValue = new WeakMap<Element, V>()
+  let resizePending = false
   /**
-   * Member `member`'s `ref`, for `value`: its items each their own size (#714), its size written on its element
-   * too, now when the places have its index, else at the change that lists it.
+   * New sizes, in the observer's delivery: placed now, before the page paints, by their transforms alone. The
+   * first takes the items out of flow, at once, where flow had them: no flight from a guess, and the group
+   * sized as flow sized it. A later one moves the items after a changed one on the group's transition, and the
+   * group's own size waits for the Frame loop's next tick: a size change in the delivery of an element its
+   * items are inside is one the browser can't deliver to its observers (the page's "ResizeObserver loop" error).
+   */
+  const onSizes = (entries: ReadonlyArray<ResizeObserverEntry>): void => {
+    if (Bool.or(gone, Bool.not(resolved.sizesRead))) return
+    let changed = false
+    // Per item at a delivery: statements. Its layout size, its border box: the Batch's transforms change none.
+    // None at all is an item under a hidden ancestor (a tab, a closed `<details>`): its last size is kept, so
+    // shown again it's where it was, and hidden from the start, its group stays in flow.
+    Arr.forEach(entries, (entry) => {
+      const value = observedValue.get(entry.target)
+      const box = entry.borderBoxSize[0]
+      if (Predicate.isUndefined(value) || Predicate.isUndefined(box)) return
+      if (box.inlineSize === 0 && box.blockSize === 0) return
+      const was = sizesByValue.get(value)
+      if (Predicate.isNotUndefined(was) && was.width === box.inlineSize && was.height === box.blockSize) return
+      sizesByValue.set(value, { width: box.inlineSize, height: box.blockSize })
+      changed = true
+    })
+    if (Bool.not(changed)) return
+    const first = Bool.not(env.untrack(options.sizes.placed))
+    if (first) atOnce = true
+    options.sizes.arrived(first)
+    if (Bool.not(first)) resizeAtNextTick()
+  }
+  /** The group's own size, at the Frame loop's next tick (core's `Machine.nextFrame`): once for a frame's deliveries. */
+  const resizeAtNextTick = (): void => {
+    if (resizePending) return
+    resizePending = true
+    runtime.runFork(
+      Effect.andThen(
+        Machine.nextFrame,
+        Effect.sync(() => {
+          resizePending = false
+          if (Bool.not(gone)) options.sizes.resizeGroup()
+        }),
+      ),
+    )
+  }
+  /** `el`, `value`'s element, observed: its size delivered now, and at each change. */
+  const observe = (el: Element, value: V): void => {
+    // Per element at mount, by the hot path's rules: statements.
+    observedValue.set(el, value)
+    if (Predicate.isUndefined(sizes)) sizes = new ResizeObserver(onSizes)
+    sizes.observe(el)
+  }
+  /** `el`, `value`'s element, gone: observed no more, its size forgotten. */
+  const forget = (el: Element, value: V): void => {
+    // Per element as it goes: statements.
+    if (observedValue.get(el) !== value) return
+    observedValue.delete(el)
+    if (Predicate.isNotUndefined(sizes)) sizes.unobserve(el)
+    sizesByValue.delete(value)
+  }
+  /** No sizes read for now: its `itemSize` given. The sizes read so far stay, for a switch back. */
+  const stopReading = (): void => {
+    UndefinedOr.map(sizes, (observer) => observer.disconnect())
+    sizes = undefined
+  }
+
+  /**
+   * Member `member`'s `ref`, for `value`: its size read from the page, its element observed; given by a
+   * function, written on its element, now when the places have its index, else at the change that lists it.
    */
   const refOf = (member: number, value: V): ((el: Element) => void) => {
     // Per element at mount, by the hot path's rules: statements.
     const memberRef = batch.refOf(member)
+    if (resolved.sizesRead) {
+      return (el) => {
+        memberRef(el)
+        observe(el, value)
+      }
+    }
     if (Predicate.isUndefined(resolved.each)) return memberRef
     return (el) => {
       memberRef(el)
       const index = host.indexOf(member)
       if (isHTMLElement(el) && index >= 0 && resolvedValues[index] === value) writeSizeOn(el, resolved, index, written)
     }
+  }
+
+  /** An item's own style under its group's now, in flow or not: read in the binding's tracking. */
+  const itemBaseNow = (): Readonly<Record<string, string>> => {
+    const geometry = geometryNow()
+    return itemBaseOf(geometry, itemsInFlow(geometry, options.sizes.placed()))
   }
 
   /** Member `i`'s keyboard lift: its `whileDrag` on, or off at its drop, then let down. */
@@ -707,11 +849,14 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       // By its items: a store's order is a new array at each read (#721).
       if (Bool.not(UndefinedOr.match(placedValues, { onUndefined: constFalse, onDefined: (placed) => sameOrder(placed, values) }))) controller.valuesChanged()
       placedValues = values
+      // Switched to sizes read from the page (#714): into flow, or to the places read so far, at once, as their
+      // first delivery takes them out of it: no flight from a guess.
+      if (Bool.and(resolved.sizesRead, Bool.not(readingSizes))) atOnce = true
       // The first read of its element's places, drawn now, before the page paints (Q35, Q36, Q37): each item as
       // far off its new place as it was off its guessed one, an entrance from `initial` going on.
       Bool.match(atOnce, { onTrue: () => batch.applyShifted(targets), onFalse: () => batch.apply(targets) })
       atOnce = false
-      writeSizes()
+      changeSizes()
       version = version + 1
       controller.placed()
     },
@@ -719,7 +864,11 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       const values = options.values()
       const geometry = geometryNow()
       // Its own resolution, tracked as the Batch's is: a function `itemSize`'s sizes size it (#714).
-      return groupStyleOf(resolvePlaces(geometry, values), values.length, geometry, own)
+      if (Bool.not(readsSizes(geometry))) return groupStyleOf(resolvePlaces(geometry, values), values.length, geometry, own)
+      // Sizes read from the page: its own size from its own version, never in its items' delivery (`onSizes`).
+      options.sizes.placed()
+      options.sizes.groupVersion()
+      return groupStyleOf(env.untrack(() => resolvePlaces(geometry, values, readSoFar)), values.length, geometry, own)
     },
     attach: (el) => {
       groupEl = el
@@ -728,7 +877,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       // Once it's on the page: the direction it inherits and its width, before the first paint.
       queueMicrotask(() => readElement(el))
     },
-    itemStyle: () => batch.styleOf(itemBaseOf(geometryNow())),
+    itemStyle: () => batch.styleOf(itemBaseNow()),
     item: (value, presence) => {
       const member = batch.memberFor(value, presence)
       const driver = controller.item(value, () => Option.fromUndefinedOr(batch.elementOf(member)), (lifted) => onLift(member, lifted))
@@ -736,7 +885,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       const unregister = driver.register(handleOf(member))
       return {
         ref: refOf(member, value),
-        style: (own) => batch.styleOf(Style.over(own, itemBaseOf(geometryNow()))),
+        style: (own) => batch.styleOf(Style.over(own, itemBaseNow())),
         dispose: () => {
           // Under `<AnimatePresence>` its element stays while it exits (Q38), at its last place: let go if it was
           // in hand, `whileDrag` off, let down, and neither focused nor pressed meanwhile.
@@ -745,6 +894,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
           raise(member, undefined)
           UndefinedOr.map(batch.elementOf(member), (el) => {
             if (isHTMLElement(el)) el.inert = true
+            forget(el, value)
           })
           driver.dispose()
           unregister()
@@ -760,6 +910,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     dispose: () => {
       gone = true
       UndefinedOr.map(resizes, (observer) => observer.disconnect())
+      UndefinedOr.map(sizes, (observer) => observer.disconnect())
       gestures.close()
       OwnerScope.close(runtime, scope, CLOSE_FAILED)
       batch.dispose()
@@ -794,8 +945,8 @@ export const serverBatchReorder = <V>(options: ServerBatchReorderOptions<V>, unt
   const geometry = untrack(options.geometry)
   const values = untrack(options.values)
   const places = resolvePlaces(geometry, values)
-  // In flow (Q37), the grid places each item: drawn at no place, and `initial`'s `x` and `y` left out.
-  const inFlow = inGridFlow(geometry)
+  // In flow (Q37; #714, decision 4), CSS places each item: drawn at no place, and `initial`'s `x` and `y` left out.
+  const inFlow = places.inFlow
   const placeAt = (i: number): XY => Bool.match(inFlow, { onTrue: () => AT_NO_PLACE, onFalse: () => placeOf(places, i) })
   const startOf = startsAtPlace<V>(placeAt)
   const targetsOf = targetsAtPlace<V>(placeAt, () => values[0])
@@ -820,7 +971,7 @@ export const serverBatchReorder = <V>(options: ServerBatchReorderOptions<V>, unt
     if (Predicate.isUndefined(handles)) handles = serverKeyedHandlesOf<Style.Style>(config as KeyedBatchConfig<unknown>, () => presence, options.server)
     return handles
   }
-  const base = itemBaseOf(geometry)
+  const base = itemBaseOf(geometry, inFlow)
   // Each item's index, for its own size (#714): built at the first item that needs it.
   let indexOfValue: Map<V, number> | undefined
   const indexOf = (value: V): number => {

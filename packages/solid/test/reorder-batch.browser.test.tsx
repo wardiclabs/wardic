@@ -59,14 +59,34 @@
 //   with their own: each item takes the sizes it's given each time, border-box while it takes the group's width.
 // - BD7: right to left, a row of items each their own width: the places and the drags of an rtl `Reorder.Group`
 //   of the same sizes.
+//
+// Items whose sizes are read from the page, `itemSize` left out (#714, decisions 3 to 5), each sized by its own
+// CSS; never a "ResizeObserver loop" error:
+// - BM5: each item at the place the browser's flexbox gives a `Reorder.Group`'s of the same sizes, a column's,
+//   a row's and a grid's; the group sized as the flexbox's.
+// - BM6: a real mouse's drags reorder as the `Reorder.Group`'s do, right to left too.
+// - BM7: an item's size changed: it's read, the items after it move on the group's transition, and the group
+//   follows.
+// - BM8: rows of text as wide as the group: stacked a gap apart as they mount; the group widened, they wrap
+//   again, are read again and stacked again, the group as tall as them.
+// - BM9: an item added later is read and placed after the others; one put in the middle, those after it make
+//   room.
+// - BM10: no flight as they mount: out of flow at their places at the first frame, as they are at rest.
+// - BM11: a border-box group with padding and a border, its items read or one size: the group as large as its
+//   places and its padding and border, its items inside them; read, no loop error as they go out of flow.
+// - BM12: switched to sizes read from the page at runtime, from one size and from a function's, and back: no
+//   flight from a guess, and no pile; each item sized by the page's stylesheet.
+// - BM13: hidden under an ancestor and shown again: no flight from a pile, each item's last size kept.
+// - BM14: a column emptied keeps its width the app's, a size container; filled again, its items take it.
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as ReorderController from "@wardic/dom/ReorderController"
 import { commands } from "vitest/browser"
-import { raf } from "./browser-helpers.ts"
+import { raf, recordLoopErrors, unstacked } from "./browser-helpers.ts"
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { Reorder, type ReorderBatchSizing, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
+import * as Predicate from "effect/Predicate"
 import { createSignal, For } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { page } from "vitest/browser"
@@ -843,5 +863,245 @@ describe("Reorder.BatchGroup of items of different sizes (#714)", () => {
       expect(batch.off, `${path.value} by ${path.dx}: under the pointer`).toBeLessThan(1)
     }
   }, 120_000)
+})
+
+describe("Reorder.BatchGroup of items whose sizes are read from the page (#714)", () => {
+  it("BM5: each item at the place the browser's flexbox gives it, its own size; the group sized as the flexbox's", async () => {
+    const loops = recordLoopErrors()
+    for (const [layout, values] of [["y", "abcde"], ["x", "abcde"], ["xy", "abcdef"]] as const) {
+      const reference = await mountReorder({ layout, sizeOf: SIZE_OF[layout] })
+      const expected = { items: boxesOf(reference, [...values]), group: boxOf(reference.group()) }
+      await resetScene()
+      const batch = await mountBatchReorder({ layout, readSizeOf: SIZE_OF[layout], ...Bool.match(layout === "xy", { onTrue: () => ({ fromWidth: GRID_WIDTH }), onFalse: () => ({}) }) })
+      await frames(3)
+      expect(boxesOf(batch, [...values]), `${layout}: the items`).toEqual(expected.items)
+      expect(boxOf(batch.group()), `${layout}: the group`).toEqual(expected.group)
+      expect(batch.item("a").style.position, `${layout}: out of flow`).toBe("absolute")
+      await resetScene()
+    }
+    loops.stop()
+    expect(loops.count(), "no ResizeObserver loop error").toBe(0)
+  }, 30_000)
+
+  it("BM6: a real mouse's drags reorder as a Reorder.Group's of the same sizes on the same paths, right to left too", async () => {
+    const loops = recordLoopErrors()
+    const paths: ReadonlyArray<readonly [Layout, Path, "ltr" | "rtl"]> = [
+      ["y", { value: "a", dx: 0, dy: 80, steps: 40 }, "ltr"],
+      ["y", { value: "d", dx: 0, dy: -150, steps: 50 }, "ltr"],
+      ["x", { value: "e", dx: -260, dy: 0, steps: 50 }, "ltr"],
+      ["x", { value: "a", dx: -150, dy: 0, steps: 50 }, "rtl"],
+      ["xy", { value: "a", dx: 150, dy: 90, steps: 50 }, "ltr"],
+    ]
+    for (const [layout, path, direction] of paths) {
+      const rtl = direction === "rtl"
+      const { reference, batch } = await both(
+        layout,
+        path,
+        { readSizeOf: SIZE_OF[layout], ...Bool.match(layout === "xy", { onTrue: () => ({ fromWidth: GRID_WIDTH }), onFalse: () => ({}) }), ...Bool.match(rtl, { onTrue: () => ({ direction }), onFalse: () => ({}) }) },
+        { sizeOf: SIZE_OF[layout], rtl },
+      )
+      const name = `${layout} ${direction} ${path.value}`
+      expect(reference.reorders.length, `${name}: the path reorders`).toBeGreaterThan(0)
+      expect(batch.reorders, `${name}: the orders`).toEqual(reference.reorders)
+      expect(batch.dom, `${name}: the DOM`).toBe(reference.dom)
+      expect(batch.off, `${name}: under the pointer`).toBeLessThan(1)
+    }
+    loops.stop()
+    expect(loops.count(), "no ResizeObserver loop error").toBe(0)
+  }, 120_000)
+
+  it("BM7: an item's size changed is read: the items after it move on the group's transition, and the group follows", async () => {
+    const loops = recordLoopErrors()
+    const [heights, setHeights] = createSignal<Readonly<Record<string, number>>>(HEIGHTS)
+    const s = await mountBatchReorder({ layout: "y", readSizeOf: (value) => ({ width: 200, height: heights()[value]! }), transition: { type: "tween", duration: 0.2 } })
+    await frames(3)
+    expect(boxesOf(s, ["a", "b", "c"]).map((b) => [b.top, b.height])).toEqual([[40, 40], [90, 70], [170, 50]])
+    setHeights({ ...HEIGHTS, b: 100 })
+    await frames(3)
+    const c = boxOf(s.item("c")).top
+    expect(Bool.and(c > 170, c < 200), `c on its way, at ${c}`).toBe(true)
+    await wait(400)
+    expect(boxOf(s.item("b")).height, "b's new height").toBe(100)
+    expect(boxesOf(s, ["c", "d", "e"]).map((b) => b.top), "those after it moved").toEqual([200, 260, 360])
+    expect(boxOf(s.group()).height, "the group as tall as them all").toBe(40 + 100 + 50 + 90 + 60 + 4 * 10)
+    loops.stop()
+    expect(loops.count(), "no ResizeObserver loop error").toBe(0)
+  }, 30_000)
+
+  it("BM8: rows of text as wide as the group, stacked a gap apart; widened, read again and stacked again", async () => {
+    const loops = recordLoopErrors()
+    const [width, setWidth] = createSignal(240)
+    const texts = Array.from({ length: 12 }, (_, i) => `row ${i} ${"and more words ".repeat(1 + (i * 7) % 5)}`)
+    let group: HTMLElement | undefined
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <Reorder.BatchGroup
+          ref={(el: HTMLElement) => (group = el)}
+          values={texts}
+          onReorder={() => {}}
+          gap={4}
+          transition={{ type: "tween", duration: 0.05 }}
+          style={{ position: "absolute", left: "40px", top: "40px", margin: "0", padding: "0", width: `${width()}px`, "font-size": "16px", "line-height": "20px", "list-style": "none" }}
+        >
+          <For each={texts}>
+            {(text) => (
+              <Reorder.BatchItem value={text} style={{ padding: "4px 8px", border: "1px solid" }}>
+                {text}
+              </Reorder.BatchItem>
+            )}
+          </For>
+        </Reorder.BatchGroup>
+      </WardicProvider>
+    ))
+    await wait(100)
+    const items = [...group!.querySelectorAll<HTMLElement>(":scope > li")]
+    expect(new Set(items.map((el) => el.getBoundingClientRect().height)).size, "rows of different heights").toBeGreaterThan(1)
+    expect(unstacked(group!, items, 4), "stacked as they mount").toEqual([])
+    const tall = group!.getBoundingClientRect().height
+    setWidth(400)
+    await wait(300)
+    expect(items.every((el) => Math.round(el.getBoundingClientRect().width) === 400), "as wide as the group").toBe(true)
+    expect(unstacked(group!, items, 4), "stacked again, widened").toEqual([])
+    expect(group!.getBoundingClientRect().height, "shorter, its rows wrapping less").toBeLessThan(tall)
+    loops.stop()
+    expect(loops.count(), "no ResizeObserver loop error").toBe(0)
+  }, 30_000)
+
+  it("BM9: an item added later is read and placed after the others; one put in the middle, those after it make room", async () => {
+    const loops = recordLoopErrors()
+    const s = await mountBatchReorder({ layout: "y", readSizeOf: SIZE_OF.y, transition: { type: "tween", duration: 0.1 } })
+    s.setOrder(["a", "b", "c", "d", "e", "f"])
+    await wait(300)
+    expect(boxOf(s.item("f")), "f after e, its own height").toEqual({ left: 40, top: 40 + 40 + 70 + 50 + 90 + 60 + 5 * 10, width: 200, height: 30 })
+    await resetScene()
+    const middle = await mountBatchReorder({ layout: "y", readSizeOf: SIZE_OF.y, transition: { type: "tween", duration: 0.1 } })
+    middle.setOrder(["a", "f", "b", "c", "d", "e"])
+    await wait(300)
+    expect(boxesOf(middle, ["a", "f", "b", "c", "d", "e"]).map((b) => b.top), "room made for f").toEqual([40, 90, 130, 210, 270, 370])
+    expect(boxOf(middle.group()).height).toBe(40 + 30 + 70 + 50 + 90 + 60 + 5 * 10)
+    loops.stop()
+    expect(loops.count(), "no ResizeObserver loop error").toBe(0)
+  }, 30_000)
+
+  it("BM10: no flight as they mount: out of flow at their places from the first frame, as at rest", async () => {
+    const s = await mountBatchReorder({ layout: "y", readSizeOf: SIZE_OF.y, transition: { type: "tween", duration: 1 } })
+    // `mountBatchReorder` settles over 4 frames: a flight of a second from a guess would still be under way.
+    const now = boxesOf(s, ["a", "b", "c", "d", "e"])
+    await wait(1200)
+    expect(now, "where they rest").toEqual(boxesOf(s, ["a", "b", "c", "d", "e"]))
+  }, 30_000)
+
+  it("BM11: a border-box group with padding and a border, read or one size: sized to its places and its edges", async () => {
+    const loops = recordLoopErrors()
+    const edges = { position: "absolute", left: "40px", top: "40px", margin: "0", padding: "12px", border: "2px solid", "box-sizing": "border-box" } as const
+    for (const sizing of [{}, { itemSize: { width: 200, height: 50 } }] as ReadonlyArray<ReorderBatchSizing<string>>) {
+      const read = Predicate.isUndefined(sizing.itemSize)
+      render(() => (
+        <WardicProvider env={DomLive}>
+          <Reorder.BatchGroup values={["a", "b", "c"]} onReorder={() => {}} {...sizing} gap={10} style={{ ...edges, ...Bool.match(read, { onTrue: () => ({ width: "228px" }), onFalse: () => ({}) }) }}>
+            <For each={["a", "b", "c"]}>
+              {(value) => (
+                <Reorder.BatchItem value={value} data-value={value} style={Bool.match(read, { onTrue: () => ({ height: `${HEIGHTS[value]}px`, "box-sizing": "border-box" }), onFalse: () => ({}) })}>
+                  {value}
+                </Reorder.BatchItem>
+              )}
+            </For>
+          </Reorder.BatchGroup>
+        </WardicProvider>
+      ))
+      await wait(150)
+      const group = document.querySelector<HTMLElement>('[data-value="a"]')!.parentElement!
+      const g = group.getBoundingClientRect()
+      const items = ["a", "b", "c"].map((value) => document.querySelector<HTMLElement>(`[data-value="${value}"]`)!.getBoundingClientRect())
+      const heights = Bool.match(read, { onTrue: () => 40 + 70 + 50, onFalse: () => 3 * 50 })
+      expect([g.width, g.height], `${Bool.match(read, { onTrue: () => "read", onFalse: () => "one size" })}: its places and its edges`).toEqual([228, heights + 2 * 10 + 2 * 14])
+      expect([items[0]!.left - g.left, items[0]!.top - g.top, items[0]!.width], "the first item inside them").toEqual([14, 14, 200])
+      expect(g.bottom - items[2]!.bottom, "the last item inside them").toBeCloseTo(14, 1)
+      await resetScene()
+    }
+    loops.stop()
+    expect(loops.count(), "no ResizeObserver loop error").toBe(0)
+  }, 30_000)
+
+  it("BM12: switched to sizes read from the page at runtime and back: no flight from a guess, and no pile", async () => {
+    const sheet = document.createElement("style")
+    sheet.textContent = ["a", "b", "c"].map((value) => `[data-value="${value}"] { height: ${HEIGHTS[value]}px; box-sizing: border-box }`).join("\n")
+    document.head.append(sheet)
+    const one: ReorderBatchSizing<string> = { itemSize: { width: 200, height: 50 } }
+    const each: ReorderBatchSizing<string> = { itemSize: (value) => ({ width: 200, height: HEIGHTS[value]! }) }
+    const read: ReorderBatchSizing<string> = {}
+    const [sizing, setSizing] = createSignal<ReorderBatchSizing<string>>(one)
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <Reorder.BatchGroup
+          values={["a", "b", "c"]}
+          onReorder={() => {}}
+          {...sizing()}
+          gap={10}
+          transition={{ type: "tween", duration: 1 }}
+          style={{ position: "absolute", left: "40px", top: "40px", margin: "0", padding: "0", width: "200px" }}
+        >
+          <For each={["a", "b", "c"]}>{(value) => <Reorder.BatchItem value={value} data-value={value}>{value}</Reorder.BatchItem>}</For>
+        </Reorder.BatchGroup>
+      </WardicProvider>
+    ))
+    await wait(100)
+    const tops = (): ReadonlyArray<number> => ["a", "b", "c"].map((value) => boxOf(document.querySelector(`[data-value="${value}"]`)!).top)
+    const atRest = [40, 90, 170]
+    const switchTo = async (next: ReorderBatchSizing<string>): Promise<void> => {
+      setSizing(() => next)
+      await frames(4)
+    }
+    await switchTo(read)
+    expect(tops(), "from one size: read, at once").toEqual(atRest)
+    await switchTo(each)
+    await wait(1100)
+    expect(tops(), "a function's").toEqual(atRest)
+    await switchTo(read)
+    expect(tops(), "from a function's: read, at once").toEqual(atRest)
+    await switchTo(each)
+    await wait(1100)
+    await switchTo(read)
+    expect(tops(), "read again: no pile").toEqual(atRest)
+    sheet.remove()
+  }, 30_000)
+
+  it("BM13: hidden under an ancestor and shown again: no flight from a pile, each item's last size kept", async () => {
+    const [shown, setShown] = createSignal(true)
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <div style={{ display: Bool.match(shown(), { onTrue: () => "block", onFalse: () => "none" }) }}>
+          <Reorder.BatchGroup values={["a", "b", "c"]} onReorder={() => {}} gap={10} transition={{ type: "tween", duration: 1 }} style={{ position: "absolute", left: "40px", top: "40px", margin: "0", padding: "0", width: "200px" }}>
+            <For each={["a", "b", "c"]}>
+              {(value) => (
+                <Reorder.BatchItem value={value} data-value={value} style={{ height: `${HEIGHTS[value]}px` }}>
+                  {value}
+                </Reorder.BatchItem>
+              )}
+            </For>
+          </Reorder.BatchGroup>
+        </div>
+      </WardicProvider>
+    ))
+    await wait(100)
+    const tops = (): ReadonlyArray<number> => ["a", "b", "c"].map((value) => boxOf(document.querySelector(`[data-value="${value}"]`)!).top)
+    expect(tops()).toEqual([40, 90, 170])
+    setShown(false)
+    await frames(4)
+    setShown(true)
+    await frames(4)
+    expect(tops(), "shown, where they were").toEqual([40, 90, 170])
+  }, 30_000)
+
+  it("BM14: a column emptied keeps its width the app's, a size container; filled again, its items take it", async () => {
+    const s = await mountBatchReorder({ layout: "y", readSizeOf: SIZE_OF.y })
+    s.setOrder([])
+    await wait(100)
+    expect([s.group().style.width, s.group().style.containerType], "emptied: the app's width, a size container").toEqual(["200px", "inline-size"])
+    s.setOrder(["a", "b"])
+    // New items, read as they come: those after one make room for it on the group's transition.
+    await wait(800)
+    expect(boxesOf(s, ["a", "b"]), "filled again").toEqual([{ left: 40, top: 40, width: 200, height: 40 }, { left: 40, top: 90, width: 200, height: 70 }])
+  }, 30_000)
 })
 
