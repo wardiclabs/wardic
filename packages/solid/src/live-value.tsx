@@ -33,7 +33,7 @@ import { type Accessor, createComputed, createMemo, on, onCleanup, untrack } fro
 import { eachFrameOf } from "./animation-frame.ts"
 import { fromAtom } from "./bridge.tsx"
 import type { FollowAccessor, FollowValueOptions, LiveSource, SpringAccessor, WillChange } from "./live-style.ts"
-import { atomOf, carry, followAccessorOf, followOptionsOf, numberOf, readLive, serverFollowOf, serverRegistryOf, unitOf, willChangeOf, withUnit } from "./live-style.ts"
+import { atomOf, carry, followAccessorOf, followOptionsOf, numberOf, rangesOf, readLive, serverFollowOf, serverRegistryOf, unitOf, willChangeOf, withUnit } from "./live-style.ts"
 import * as OwnerScope from "./owner-scope.ts"
 import { useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
@@ -59,6 +59,7 @@ const atomAccessorOf = <A,>(atom: Atom.Atom<A>): Accessor<A> => {
  * two stops blends their outputs, numbers, units and colours alike. `input` is as long as `output`,
  * ascending or descending; outside it the ends hold, unless `clamp: false`. `ease` eases each stretch,
  * one for all or one each, and a `mixer`, `(from, to) => (t) => value`, blends outputs of any type. The function form needs no `WardicProvider` when its source is a signal.
+ * Through ranges from a `createScroll` value, the browser draws it with the scroll where it can.
  * Motion's `useTransform`.
  *
  * @example
@@ -82,8 +83,17 @@ export function createTransform(
   output?: ReadonlyArray<unknown>,
   options?: LiveValue.TransformOptions<unknown>,
 ): Accessor<unknown> {
+  if (Predicate.isFunction(fnOrInput)) {
+    const read = accessorOf(source)
+    return createMemo(() => fnOrInput(read()))
+  }
+  // On an Atom, its own or the one it carries: derived on it by core, so it's set where its source is,
+  // and one from a scroll is described for a Timeline value (#240).
+  if (!isServer) {
+    const atom = atomOf(source)
+    if (Predicate.isNotUndefined(atom)) return liveOf(useWardicRuntime(), rangesOf(atom, fnOrInput as ReadonlyArray<number>, output as ReadonlyArray<unknown>, options))
+  }
   const read = accessorOf(source)
-  if (Predicate.isFunction(fnOrInput)) return createMemo(() => fnOrInput(read()))
   const map = interpolatorOf(fnOrInput as ReadonlyArray<number>, output as ReadonlyArray<unknown>, options)
   return createMemo(() => map(read() as number))
 }

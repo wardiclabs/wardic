@@ -7,12 +7,10 @@
 import * as LiveValue from "@wardic/core/LiveValue"
 import * as ScrollSource from "@wardic/core/ScrollSource"
 import type * as ScrollOffset from "@wardic/dom/ScrollOffset"
-import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
-import * as Atom from "effect/reactivity/Atom"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Rec from "effect/Record"
 import * as Scope from "effect/Scope"
@@ -23,6 +21,8 @@ import type { Feature } from "../../feature.ts"
 import { scroll } from "../../features/scroll.ts"
 import { serviceOf } from "../../gesture-features.ts"
 import * as OwnerScope from "../../owner-scope.ts"
+import { followScroll, letGoScroll, scrollAtomsOf } from "../../scroll-values.ts"
+import { Timelines } from "../../timelines.ts"
 import { followAtom } from "./bridge.tsx"
 import { CLOSE_FAILED, SERVER_ZERO } from "./live-value.tsx"
 import { useBrought, useWardicRuntime } from "./provider.tsx"
@@ -63,7 +63,6 @@ export interface ScrollValues {
   readonly scrollYProgress: Accessor<number>
 }
 
-const SCROLL_KEYS = ["scrollX", "scrollY", "scrollXProgress", "scrollYProgress"] as const
 /** `createScroll`'s elements before the render has settled: none yet. */
 const NOT_YET = { container: Option.none(), target: Option.none() } as const
 const SERVER_SCROLL: ScrollValues = { scrollX: SERVER_ZERO, scrollY: SERVER_ZERO, scrollXProgress: SERVER_ZERO, scrollYProgress: SERVER_ZERO }
@@ -83,6 +82,10 @@ const elementOf = (source: ElementSource | undefined): Option.Option<Element | u
  * `container` or `target` given as an accessor of a ref reads 0s until the ref is there. 0s on a
  * server. Motion's `useScroll`.
  *
+ * Where the browser has native scroll timelines, an element's `opacity`, `filter`, `clipPath` or
+ * transform key given one of these, or a `createTransform` of one through ranges, is drawn by the
+ * browser with the scroll itself, so it doesn't trail a fast scroll.
+ *
  * @example
  * let box!: HTMLDivElement
  * const { scrollYProgress } = createScroll({ container: () => box })
@@ -91,15 +94,19 @@ const elementOf = (source: ElementSource | undefined): Option.Option<Element | u
  * @see https://wardic.dev/reference/solid/live-values/create-scroll
  */
 // #234. An accessor `container` or `target` is read in an effect, and a change of either follows the
-// new one. Each value carries one Atom for its life.
+// new one. Each value carries one Atom for its life, described as deriving as the scroll's value it's
+// set from (`LiveValue.derivesAs`, #240).
 export const createScroll = (options: ScrollOptions = {}): ScrollValues => {
   if (isServer) return SERVER_SCROLL
   const runtime = useWardicRuntime()
   const services = useBrought(SCROLL)
+  // Built now, before a `style` follows its values, so the element finds its Timeline values (#240).
+  const timelines = serviceOf(services(), Timelines)
   const registry = runtime.runSync(AtomRegistry.AtomRegistry)
   // Its own four Atoms, set from the scroll of the elements there now.
-  const outs = Rec.fromIterableWith(SCROLL_KEYS, (key) => [key, Atom.make(0)] as const)
-  Arr.forEach(SCROLL_KEYS, (key) => onCleanup(registry.mount(outs[key])))
+  const outs = scrollAtomsOf(registry, onCleanup)
+  // Whether they follow a scroll now: a ref gone lets it go.
+  let following = false
   // Its elements are read once the render has settled: a ref given as `() => box` is set during the
   // render, after this effect's first compute, and isn't a signal, so nothing would read it again.
   const [settled, setSettled] = createSignal(false)
@@ -113,8 +120,12 @@ export const createScroll = (options: ScrollOptions = {}): ScrollValues => {
         onFalse: () => NOT_YET,
       }),
     ({ container, target }) => {
-      // A ref not there yet: the values hold until it is.
-      if (Bool.or(Option.isNone(container), Option.isNone(target))) return undefined
+      // A ref not there yet, or gone: the values hold until it is.
+      if (Bool.or(Option.isNone(container), Option.isNone(target))) {
+        if (following) letGoScroll(outs, timelines)
+        following = false
+        return undefined
+      }
       const scope = OwnerScope.open(runtime)
       const values = runtime.runSync(
         LiveValue.scroll({
@@ -124,10 +135,10 @@ export const createScroll = (options: ScrollOptions = {}): ScrollValues => {
           ...UndefinedOr.match(options.axis, { onUndefined: () => ({}), onDefined: (axis) => ({ axis }) }),
         }).pipe(Effect.provideService(ScrollSource.ScrollSource, serviceOf(services(), ScrollSource.ScrollSource)), Scope.provide(scope)),
       )
-      // Each derived Atom is read at once: it tracks the scroll only once it's been read.
-      const stops = Arr.map(SCROLL_KEYS, (key) => registry.subscribe(values[key], (v) => registry.set(outs[key], v), { immediate: true }))
+      following = true
+      const stop = followScroll(registry, outs, values, timelines)
       return () => {
-        Arr.forEach(stops, (stop) => stop())
+        stop()
         OwnerScope.close(runtime, scope, CLOSE_FAILED)
       }
     },

@@ -44,6 +44,27 @@ A scroll value is a [live value](/guides/live-values), so every live value works
 - `createSpring(scrollYProgress)` smooths it, so the effect trails the scroll a little.
 - `createVelocity(scrollY)` is how fast it's scrolling, to skew or blur with the speed.
 
+## Drawn with the scroll
+
+Browsers scroll on a thread of their own, so the scroll's event can reach the page a frame after the scroll shows, and later still while the page is busy. Where the browser has native scroll timelines (Chrome and Edge 115+, Safari 26+, Firefox 159+), Wardic hands a scroll value to the browser instead, as a scroll-driven animation, so it moves with the scroll itself. There's nothing to turn on, and everywhere else Wardic draws the same value itself.
+
+```tsx
+const { scrollYProgress } = createScroll({ container: () => panel })
+
+// Drawn with the scroll: a value itself, or one createTransform of it through ranges.
+<w.div style={{ scaleX: scrollYProgress }} />
+<w.div style={{ opacity: createTransform(scrollYProgress, [0, 0.5], [0, 1]) }} />
+
+// Drawn by Wardic each frame, from the scroll's event: a function, a spring, a velocity.
+<w.div style={{ opacity: createTransform(scrollYProgress, (p) => 1 - p) }} />
+<w.div style={{ scaleX: createSpring(scrollYProgress) }} />
+```
+
+- **The values:** `scrollXProgress` and `scrollYProgress` with no `offset`, a `target`'s progress between two stops whose container edges are `start` or `end`, as Motion's are, and `scrollX` or `scrollY` through one `createTransform`.
+- **The keys:** `opacity`, `filter`, `clipPath`, a `transform` string, and a transform key (`scaleX`, `y`, `rotate`…) while it's the element's only one. With a second, or a layout animation, Wardic draws them all, and hands the key back once it's alone again.
+- **Anything else that sets the key takes it back,** from the frame it starts. An `animate` target or a gesture holds it while it sets the key; then the key returns to its scroll value, and the scroll draws it again. An `animate()` call keeps it where it leaves it, as it does any key.
+- **Nothing else changes:** the values still change in the scroll's event, Wardic still writes the key's inline style, `onUpdate` is still told, and `element.getAnimations()` lists the scroll-driven animation.
+
 ## Once it's in view
 
 To play an animation as an element scrolls into view, rather than follow the scroll, use `whileInView` with `viewport={{ once: true }}`: see [Gestures](/guides/gestures#in-view).

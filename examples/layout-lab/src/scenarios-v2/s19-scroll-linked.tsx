@@ -18,10 +18,14 @@
  *   **ticks**.
  * - **CSS reference** (#240): under the progress bar, a bar driven by CSS alone, a scroll-driven
  *   animation on the box's named `scroll-timeline`, which the browser can run off the main thread
- *   with the scroll itself. Busy blocks the page's main thread 50 ms out of every 100: the reference
- *   keeps up with a touch scroll, and the gap between the two bars is how far the main thread's
- *   copy of the scroll trails what's on screen. Not drawn where scroll-driven animations aren't
- *   supported. Not judged: the gap is read off screen captures (`.tmp/240/measure.ts`) or by eye.
+ *   with the scroll itself. Not drawn where scroll-driven animations aren't supported.
+ * - **gate bar** (#240): under the reference, `createTransform(scrollYProgress, (p) => p)`, which the
+ *   gate draws from the main thread's copy of the scroll: a function keeps a value off the timeline.
+ *   Where the browser has scroll timelines, the progress bar and the card are Timeline values, drawn
+ *   with the scroll as the reference is. Busy blocks the page's main thread 50 ms out of every 100: the
+ *   progress bar keeps up with a touch scroll on the reference, and the gate bar trails it by how far
+ *   the main thread's copy of the scroll trails what's on screen. Not judged: the gap is read off
+ *   screen captures (`scripts/scroll-gap.ts`) or by eye.
  *
  * The recorder reads each painted value just after its frame, and the Live value as the frame
  * starts (its rAF callback), and the card judges the run (`liveChecksOf` in `lab/live-board.ts`). A
@@ -41,7 +45,7 @@ import type { ScenarioContext, ScenarioDef } from "../scenarios/types.ts"
 /** The scenario id, also the View root's `data-scenario` value. */
 const ID = "scroll-linked"
 
-const STAGE_STYLE: JSX.CSSProperties = { "--stage-w": "320px", "--stage-h": "259px" }
+const STAGE_STYLE: JSX.CSSProperties = { "--stage-w": "320px", "--stage-h": "273px" }
 const COLUMN: JSX.CSSProperties = { display: "flex", "flex-direction": "column", gap: "6px", padding: "8px 10px" }
 const LABEL: JSX.CSSProperties = { "font-size": "10px", "line-height": "12px", opacity: 0.8 }
 const ACCENT = "var(--lab-accent, rgb(0, 102, 204))"
@@ -63,6 +67,8 @@ const SQUARE: JSX.CSSProperties = { width: "36px", height: "36px", background: A
 /** The CSS reference's colour, unlike the accent so a capture tells the bars apart. */
 const REFERENCE_COLOUR = "rgb(230, 120, 20)"
 const REFERENCE_BAR: JSX.CSSProperties = { ...BAR, background: REFERENCE_COLOUR, transform: "scaleX(0)" }
+/** The gate bar's colour (#240), unlike both. */
+const GATE_COLOUR = "rgb(140, 140, 160)"
 /**
  * The reference (#240): the box names its scroll timeline, the column brings the name into scope
  * for its sibling, and the bar's animation runs on it. `animation-timeline` comes after the
@@ -220,6 +226,8 @@ const View: ScenarioDef["View"] = (props) => {
 
   // The box's scroll, and the card's way through it (#234).
   const { scrollY, scrollYProgress } = createScroll({ container: () => box })
+  // The gate bar (#240): a function of the progress, so the gate draws it, never the timeline.
+  const gateScaleX = createTransform(scrollYProgress, (p: number) => p)
   const through = createScroll({ container: () => box, target: () => card, offset: ["start end", "end start"] }).scrollYProgress
   const revealOpacity = createTransform(through, [0, 0.5, 1], [0, 1, 0])
   const skewY = createTransform(createVelocity(scrollY), [-1500, 1500], [-20, 20])
@@ -284,9 +292,10 @@ const View: ScenarioDef["View"] = (props) => {
       <style>{REFERENCE_SHEET}</style>
       <div class="stage" style={STAGE_STYLE}>
         <div style={COLUMN} data-cell="column">
-          <span style={LABEL}>progress bar: scroll the box · under it, CSS's own</span>
+          <span style={LABEL}>progress bar: scroll the box · under it, CSS's own, then the gate's</span>
           <wardic.div ref={(el: HTMLElement) => (bar = el)} data-cell="bar" style={{ ...BAR, scaleX: scrollYProgress }} onUpdate={onUpdate} />
           <div data-cell="reference" style={REFERENCE_BAR} />
+          <wardic.div data-cell="gate" style={{ ...BAR, background: GATE_COLOUR, scaleX: gateScaleX }} />
           <div ref={box} style={SCROLLER} data-cell="scroller" onScroll={scrolled}>
             <div style={COLUMN_INSIDE}>
               <div ref={card} style={CARD}>
@@ -329,8 +338,9 @@ export const s19: ScenarioDef = {
     "Scroll the box: the bar fills with its progress and reports through onUpdate, the card inside fades in and out as it " +
     "passes, and the square leans with the scroll's speed and stands back up. Sample spinner records the square turning on time. " +
     "Scroll partway, then Add rows: the box's content grows with its scroll still, and the bar follows its new progress. " +
-    "The orange bar under the progress bar is CSS's own scroll-driven animation, run with the scroll itself: fling the box with " +
-    "Busy on (the main thread blocked 50 ms out of every 100) and watch the gap between the two.",
+    "The orange bar under the progress bar is CSS's own scroll-driven animation, run with the scroll itself, and the grey one " +
+    "under it the gate's, a function of the progress: fling the box with Busy on (the main thread blocked 50 ms out of every " +
+    "100), and the progress bar stays on the orange one while the grey one trails it.",
   prediction: "safe",
   rationale:
     "On Solid 2 createScroll reads its container and target once the render has settled, and Add rows lands at " +
@@ -339,8 +349,9 @@ export const s19: ScenarioDef = {
     "derived from one paints in the frame of the scroll; the card's progress runs through Motion's offsets. createVelocity reads " +
     "the scroll's change each frame and 0 once it stops; createTime adds each frame's time; onUpdate is told once a frame the " +
     "bar changed, after the gate's commits, with what it painted. A change of the content's size is read by observers on it " +
-    "(ADR-0043 Amendment (#239)), after its layout, so the bar shows it a frame later. The bar is set from the main thread's " +
-    "copy of the scroll, so a scroll the browser runs off the main thread (a touch fling) can be ahead of it on screen; the " +
-    "CSS reference shows by how much (#240).",
+    "(ADR-0043 Amendment (#239)), after its layout, so the bar shows it a frame later. Where the browser has scroll timelines, " +
+    "the bar and the card are Timeline values (ADR-0043 Amendment (#240)): the browser draws them with the scroll, as it does " +
+    "the CSS reference. The grey bar's function keeps it on the gate, set from the main thread's copy of the scroll, which a " +
+    "scroll the browser runs off the main thread (a touch fling) is ahead of.",
   View,
 }

@@ -42,6 +42,7 @@ import {
   type FollowValueOptions,
   type LiveSource,
   numberOf,
+  rangesOf,
   readLive,
   serverFollowOf,
   serverRegistryOf,
@@ -100,6 +101,7 @@ const liveOf = <A, R>(runtime: WardicRuntime, live: Effect.Effect<Atom.Atom<A>, 
  * two stops blends their outputs, numbers, units and colours alike. `input` is as long as `output`,
  * ascending or descending; outside it the ends hold, unless `clamp: false`. `ease` eases each stretch,
  * one for all or one each, and a `mixer`, `(from, to) => (t) => value`, blends outputs of any type. A signal read inside `fn` is tracked too: its change maps again.
+ * Through ranges from a `createScroll` value, the browser draws it with the scroll where it can.
  * Motion's `useTransform`.
  *
  * @example
@@ -123,6 +125,14 @@ export function createTransform(
   output?: ReadonlyArray<unknown>,
   options?: LiveValue.TransformOptions<unknown>,
 ): Accessor<unknown> {
+  // Through ranges on an Atom, its own or the one it carries: derived on it by core, so it's set where its
+  // source is, and one from a scroll is described for a Timeline value (#240).
+  if (!isServer) {
+    const atom = atomOf(source)
+    if (Predicate.isNotUndefined(atom)) {
+      if (Bool.not(Predicate.isFunction(fnOrInput))) return liveOf(useWardicRuntime(), rangesOf(atom, fnOrInput as ReadonlyArray<number>, output as ReadonlyArray<unknown>, options))
+    }
+  }
   const fn = Bool.match(Predicate.isFunction(fnOrInput), {
     onTrue: () => fnOrInput as (a: unknown) => unknown,
     onFalse: () => interpolatorOf(fnOrInput as ReadonlyArray<number>, output as ReadonlyArray<unknown>, options) as (a: unknown) => unknown,

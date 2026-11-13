@@ -4,7 +4,7 @@
  *
  * - **The apps:** each binding's plain Solid app, one Complete element (`wardic.div` under a
  *   `WardicProvider`), and the same inside `<AnimatePresence>`; one Slim element (`w.div`) alone, the
- *   Slim element's base, and with each Feature (#511). And a multi-route app (#548): a shell giving
+ *   Slim element's base, and with each Feature (#511); one whose values follow a scroll (#240). And a multi-route app (#548): a shell giving
  *   `domAnimation`, a plain page, a page that drags and one that lays out, each an entry as
  *   SolidStart's routes are, measured as what the plain page loads, so a Feature that reaches a page
  *   that never uses it fails the gate. An app the base can't build, its API new, is reported as new and not gated.
@@ -106,6 +106,23 @@ render(() => <WardicProvider env={DomLive} features={[${features.join(", ")}]}><
 }
 
 /**
+ * A scroll's app (#240): a Slim element whose `scaleX` is a box's scroll progress and whose `opacity` a
+ * `createTransform` of it through ranges, under a `WardicProvider` with no Features: what an app that
+ * reads a scroll pays, the `scroll` Feature (which `createScroll` brings) and its Timeline values with it.
+ */
+const scrollApp = (render: string, entry: string): string => `import { render } from "${render}"
+import { DomLive } from "@wardic/dom"
+import { createScroll, createTransform, w, WardicProvider } from "${entry}"
+const Page = () => {
+  let box!: HTMLDivElement
+  const { scrollYProgress } = createScroll({ container: () => box })
+  const opacity = createTransform(scrollYProgress, [0, 1], [0.2, 1])
+  return <><div ref={box} style={{ height: "100px", overflow: "auto" }}><div style={{ height: "1000px" }} /></div><w.div style={{ scaleX: scrollYProgress, opacity }}>hi</w.div></>
+}
+render(() => <WardicProvider env={DomLive}><Page /></WardicProvider>, document.body)
+`
+
+/**
  * A Batch's app (#665): `createBatch` over a grid of plain divs under a `WardicProvider` with no
  * Features: what an app that animates its collections as one pays, beside the Slim element's.
  */
@@ -179,6 +196,7 @@ const APPS: ReadonlyArray<App> = [
   { name: "s1-drag", v2: false, source: slim("solid-js/web", "@wardic/solid", ["drag"]) },
   { name: "s1-dom-animation", v2: false, source: slim("solid-js/web", "@wardic/solid", ["domAnimation"]) },
   { name: "s1-dom-max", v2: false, source: slim("solid-js/web", "@wardic/solid", ["domMax"]) },
+  { name: "s1-scroll", v2: false, source: scrollApp("solid-js/web", "@wardic/solid") },
   { name: "s1-batch", v2: false, source: batch("solid-js/web", "@wardic/solid") },
   { name: "s1-reorder-batch", v2: false, source: reorderBatch("solid-js/web", "@wardic/solid") },
   routes("solid-js/web", "@wardic/solid", "s1-routes"),
@@ -192,6 +210,7 @@ const APPS: ReadonlyArray<App> = [
   { name: "s2-drag", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["drag"]) },
   { name: "s2-dom-animation", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["domAnimation"]) },
   { name: "s2-dom-max", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["domMax"]) },
+  { name: "s2-scroll", v2: true, source: scrollApp("@solidjs/web", "@wardic/solid/unstable/v2") },
   { name: "s2-batch", v2: true, source: batch("@solidjs/web", "@wardic/solid/unstable/v2") },
   { name: "s2-reorder-batch", v2: true, source: reorderBatch("@solidjs/web", "@wardic/solid/unstable/v2") },
   routes("@solidjs/web", "@wardic/solid/unstable/v2", "s2-routes"),

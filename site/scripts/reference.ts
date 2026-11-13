@@ -58,7 +58,7 @@ const READY: Readonly<Record<(typeof PACKAGES)[number]["dir"], ReadonlyArray<str
     // The Environment's services.
     "DomAnnouncer", "DomClock", "DomDefaultTransition", "DomInput", "DomInterpolators", "DomKeyRules", "DomPositionalKeys", "DomProbe", "DomRenderer", "Report",
     // Values, styles and the server.
-    "Appear", "Color", "MeasuredPair", "OwnValues", "ScrollOffset", "Style", "Svg", "Variables",
+    "Appear", "Color", "MeasuredPair", "OwnValues", "ScrollOffset", "Style", "Svg", "TimelineValue", "Variables",
     // Input.
     "KeyboardPress",
     // Layout.

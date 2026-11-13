@@ -20,11 +20,13 @@
  * Solid-free: both bindings run it, each giving its own Solid as a {@link Reactivity} (#209).
  */
 import * as BaseValue from "@wardic/core/BaseValue"
+import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as LiveValue from "@wardic/core/LiveValue"
 import type * as Values from "@wardic/core/Values"
 import * as Style from "@wardic/dom/Style"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
+import type * as Effect from "effect/Effect"
 import { constVoid } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -146,6 +148,20 @@ export const atomOf = (value: unknown): Atom.Atom<unknown> | undefined => {
   return (value as { readonly [CARRIED]?: Atom.Atom<unknown> })[CARRIED]
 }
 
+/**
+ * `source` mapped through ranges by core (`LiveValue.transform`), for `createTransform` on an Atom: set
+ * where `source` is, and, when `source` derives from a scroll, described so an element runs it as a
+ * Timeline value (#240). Typed at `createTransform`'s overloads: numbers and strings through the
+ * registry, any type through a `mixer`.
+ */
+export const rangesOf = (
+  source: Atom.Atom<unknown>,
+  input: ReadonlyArray<number>,
+  output: ReadonlyArray<unknown>,
+  options: LiveValue.TransformOptions<unknown> | undefined,
+): Effect.Effect<Atom.Atom<unknown>, never, InterpolatorRegistry.InterpolatorRegistry> =>
+  LiveValue.transform(source as Atom.Atom<number>, input, output as ReadonlyArray<number | string>, options as LiveValue.TransformOptions | undefined)
+
 /** Whether `key` is a transform key, composed into `transform` (`x`, `scale`, `rotate`…). */
 export const isTransformKey = (key: string): boolean => Option.isSome(BaseValue.transformIdentity(key))
 
@@ -220,6 +236,8 @@ export interface LiveStyle {
   readonly valueOf: (key: string) => Option.Option<unknown>
   /** Whether a routed key's source is live, so a return to it follows it (decision 6). */
   readonly isLive: (key: string) => boolean
+  /** The Atom a routed key's source is or carries, which may describe a Timeline value (#240); `undefined` for none. */
+  readonly atomOf: (key: string) => Atom.Atom<unknown> | undefined
   /**
    * Its `willChange`'s turn-on, when its style gives it a `createWillChange` value (#443), as
    * `willChange` or `will-change`; `undefined` otherwise, at once for a style that routes nothing.
@@ -348,6 +366,9 @@ const Proto: Omit<LiveStyle, never> & ThisType<State> = {
   },
   isLive(key) {
     return Bool.and(Object.hasOwn(this.routed, key), isLive(this.routed[key]))
+  },
+  atomOf(key) {
+    return atomOf(this.routed[key])
   },
   willChange() {
     const routed = this.routed

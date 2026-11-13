@@ -463,6 +463,8 @@ export function runSpine(opts: RunSpineOptions): void {
   // Its section's projection system, the `layout` Feature's (#511): `undefined` without it. Read now,
   // which builds the Features given to its section at once: the first element to ask builds them.
   const layoutProjection = projectionIn(untrack(features.services))
+  // Every Feature its provider has built: where its spine finds its Timeline values (#240).
+  const builtFeatures = useFeatureRegistry().built
   // The provider's, once any section has built it: what its values register with.
   const builtProjection = useBuiltProjection()
   // Its Animation controls' change (#433), read with the Override stack: none without them.
@@ -923,6 +925,7 @@ export function runSpine(opts: RunSpineOptions): void {
         links,
         styleNow,
         live,
+        builtFeatures,
         presence: presenceRec,
         projected: Predicate.isNotUndefined(layoutHandle),
         dragAxis: dragCfg,

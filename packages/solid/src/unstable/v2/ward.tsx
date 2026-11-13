@@ -1519,6 +1519,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       links,
       styleNow,
       live,
+      // Every Feature its provider has built: where its spine finds its Timeline values (#240).
+      builtFeatures: featureRegistry.built,
       presence: presenceRecord,
       projected: Predicate.isNotUndefined(layout),
       dragAxis,
