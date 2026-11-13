@@ -38,6 +38,7 @@
 //   sizes before it.
 // - BD4: a column whose `width` is left out, an object's or a function's: each item the group's content box's
 //   width, padding and border inside it; the group widened, they follow.
+//   Its padding changed with its content box the same, read again: they keep to its content box.
 // - BD5: an item added later is sized and placed after the others; a grid's rows wrap again as it narrows.
 // - BD6: `itemSize` switched from one size to a function and back, its items with no style of their own and
 //   with their own: each item takes the sizes it's given each time, border-box while it takes the group's width.
@@ -57,7 +58,7 @@
 //   edges, its items inside them; no loop error.
 // - BM12: switched to sizes read from the page at runtime and back: no flight from a guess, and no pile.
 // - BM13: hidden under an ancestor and shown again: no flight from a pile.
-// - BM14: a column emptied keeps its width the app's, a size container; filled again, its items take it.
+// - BM14: a column emptied keeps its width the app's; filled again, its items take it.
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as ReorderController from "@wardic/dom/ReorderController"
 import * as Bool from "effect/Boolean"
@@ -674,6 +675,7 @@ describe("Reorder.BatchGroup of items of different sizes on Solid 2 (#714)", () 
     const sizings: ReadonlyArray<ReorderBatchSizing<string>> = [{ itemSize: { height: 50 } }, { itemSize: (value) => ({ height: HEIGHTS[value]! }) }]
     for (const sizing of sizings) {
       const [width, setWidth] = createSignal(300)
+      const [padding, setPadding] = createSignal(10)
       const { unmount } = mount(() => (
         <WardicProvider env={DomLive}>
           <Reorder.BatchGroup
@@ -681,7 +683,7 @@ describe("Reorder.BatchGroup of items of different sizes on Solid 2 (#714)", () 
             onReorder={() => {}}
             {...sizing}
             gap={10}
-            style={{ position: "absolute", left: "40px", top: "40px", margin: "0", padding: "10px", border: "2px solid", width: `${width()}px` }}
+            style={{ position: "absolute", left: "40px", top: "40px", margin: "0", padding: `${padding()}px`, border: "2px solid", width: `${width()}px` }}
           >
             <For each={["a", "b", "c"]}>
               {(value) => (
@@ -698,10 +700,17 @@ describe("Reorder.BatchGroup of items of different sizes on Solid 2 (#714)", () 
       const c = document.querySelector<HTMLElement>('[data-value="c"]')!
       // Inside the group's border and padding: at 52, as wide as its 300 px content box.
       expect([boxOf(a).left, boxOf(a).width, boxOf(c).width], "the group's content width").toEqual([52, 300, 300])
+      // Its padding read: its padding box less it, no size container, so a resize is a layout alone (#714).
+      expect([a.style.width, a.parentElement!.style.containerType], "read: no container").toEqual(["calc(100% - 20px)", ""])
       setWidth(360)
       flush()
       await wait(200)
       expect([boxOf(a).width, boxOf(c).width], "widened").toEqual([360, 360])
+      // Its padding changed, its content box the same: read again, each item still the content box's width.
+      setPadding(20)
+      flush()
+      await wait(200)
+      expect([boxOf(a).left, boxOf(a).width, boxOf(c).width, a.style.width], "its padding changed").toEqual([62, 360, 360, "calc(100% - 40px)"])
       unmount()
     }
   }, 30_000)
@@ -953,6 +962,8 @@ describe("Reorder.BatchGroup of items whose sizes are read from the page, on Sol
       expect([g.width, g.height], `${Bool.match(read, { onTrue: () => "read", onFalse: () => "one size" })}: its places and its edges`).toEqual([228, heights + 2 * 10 + 2 * 14])
       expect([items[0]!.left - g.left, items[0]!.top - g.top, items[0]!.width], "the first item inside them").toEqual([14, 14, 200])
       expect(g.bottom - items[2]!.bottom, "the last item inside them").toBeCloseTo(14, 1)
+      // Read: each item its padding box less its padding, no size container (#714).
+      if (read) expect([document.querySelector<HTMLElement>('[data-value="a"]')!.style.width, group.style.containerType], "no container once read").toEqual(["calc(100% - 24px)", ""])
       unmount()
     }
     loops.stop()
@@ -1034,12 +1045,12 @@ describe("Reorder.BatchGroup of items whose sizes are read from the page, on Sol
     unmount()
   }, 30_000)
 
-  it("BM14: a column emptied keeps its width the app's, a size container; filled again, its items take it", async () => {
+  it("BM14: a column emptied keeps its width the app's; filled again, its items take it", async () => {
     const s = await mountBatchReorder({ layout: "y", readSizeOf: SIZE_OF.y })
     s.setOrder([])
     flush()
     await wait(100)
-    expect([s.group().style.width, s.group().style.containerType], "emptied: the app's width, a size container").toEqual(["200px", "inline-size"])
+    expect(s.group().style.width, "emptied: the app's width").toBe("200px")
     s.setOrder(["a", "b"])
     flush()
     // New items, read as they come: those after one make room for it on the group's transition.
