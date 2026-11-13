@@ -24,7 +24,7 @@ A child that swaps for another needs to be told apart: `<Show keyed>`, or a `key
 
 | Prop | |
 | --- | --- |
-| `mode` | How a child enters while another leaves: `"sync"` (the default), at once, beside it; `"wait"`, once every leaver has gone; `"popLayout"`, at once, the leaver taken out of the flow, so the children after it move into its place; an SVG leaver isn't popped, and leaves where it is. |
+| `mode` | How a child enters while another leaves: `"sync"` (the default), at once, beside it; `"wait"`, once every leaver has gone; `"popLayout"`, at once, the leaver taken out of the flow, so the children after it move into its place; an `<svg>` root is popped too, beyond Motion's (under a rotated or skewed ancestor, off its place), while the elements inside an `<svg>` leave where they are. |
 | `initial` | `false`: the child present at first render starts at its `animate`, with no entrance. Later ones enter as usual. |
 | `custom` | What a leaving child's function `exit` is given, over its own `custom`, which can't change once it has left. |
 | `anchorX`, `anchorY` | Where `popLayout` pins a leaver: by its `"left"` (the default) or `"right"`, and its `"top"` (the default) or `"bottom"`. |
