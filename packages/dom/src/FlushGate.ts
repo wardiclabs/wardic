@@ -75,6 +75,7 @@ export const inert: Shape = Object.freeze({
   release: noop,
   valueOf: () => NO_VALUE,
   afterFlush: noop,
+  timeline: noop,
 })
 
 /** `inert` as a Layer, for a binding whose server render runs an Effect program. */

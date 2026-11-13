@@ -492,7 +492,7 @@ A **Live value** that animates on a transition toward its source's latest value,
 _Avoid_: follower (a **Shared layout** twin that isn't the **Lead**), spring value (one kind of it).
 
 **Timeline value**:
-A **Live value** derived from a container's scroll by ranges alone, which the DOM gives to a native scroll timeline, so the browser draws it with the scroll and the **Flush gate** doesn't. It runs there only while it's what its key shows: an entry of the **Override stack** that sets the key takes it back to the gate, and the key returns to the timeline when the entry lets go. Where the browser has no scroll timeline, the gate draws it as any Live value (#240).
+A **Live value** derived from a container's scroll by ranges alone, which the DOM gives to a native scroll timeline, so the browser draws it with the scroll, over the value the **Flush gate** goes on writing. It runs there only while it's what its key shows: an entry of the **Override stack** that sets the key takes it back to the gate, and the key returns to the timeline when the entry lets go. Where the browser has no scroll timeline, or the timeline would draw it otherwise than the gate, the gate draws it as any Live value (#240, ADR-0043 *Amendment (#240)*).
 _Avoid_: accelerated value (Motion's), handoff (the **Appear animation**'s), compositor value (a key the browser can't composite still runs on the main thread).
 
 **Base value**:
