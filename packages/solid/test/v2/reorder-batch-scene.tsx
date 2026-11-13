@@ -36,6 +36,8 @@ export interface BatchSceneOptions {
   readonly rtl?: boolean
   /** A grid with no `columns`, its width this, in px, read reactively (Q36). */
   readonly fromWidth?: Accessor<number>
+  /** Each item's own size, by its value, the group's `itemSize` function (#714): a grid's rows from its width. */
+  readonly sizeOf?: (value: string) => { readonly width: number; readonly height: number }
 }
 
 export interface BatchScene {
@@ -103,9 +105,14 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Batc
       values={order()}
       onReorder={onReorder}
       axis={layout as CoreReorder.Axis}
-      itemSize={{ width: size.w, height: size.h }}
+      {...UndefinedOr.match(o.sizeOf, {
+        onUndefined: () => ({
+          itemSize: { width: size.w, height: size.h },
+          ...Bool.match(Bool.and(layout === "xy", Predicate.isUndefined(o.fromWidth)), { onTrue: () => ({ columns: 3 }), onFalse: () => ({}) }),
+        }),
+        onDefined: (sizeOf) => ({ itemSize: sizeOf }),
+      })}
       gap={10}
-      {...Bool.match(Bool.and(layout === "xy", Predicate.isUndefined(o.fromWidth)), { onTrue: () => ({ columns: 3 }), onFalse: () => ({}) })}
       {...optional("direction", o.direction)}
       {...UndefinedOr.match(o.directionOf, { onUndefined: () => ({}), onDefined: (directionOf) => ({ get direction() { return directionOf() } }) })}
       {...optional("whileDrag", o.whileDrag)}

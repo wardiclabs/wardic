@@ -1,7 +1,7 @@
 ---
 title: Reorder
 description: Reorder.Group and Reorder.Item, a list put in order by dragging its items or from the keyboard, and Reorder.BatchGroup and Reorder.BatchItem for a long list as one Batch, with their props on both bindings.
-api: [Reorder, ReorderGroupProps, ReorderItemProps, ReorderGroupComponentProps, ReorderItemComponentProps, ReorderGroupOf, ReorderItemOf, GroupRefCallback, ReorderElementTag, ReorderItemLayout, ReorderBatchGroupProps, ReorderBatchItemProps, ReorderBatchGroup, ReorderBatchItemSize, ReorderBatchGap]
+api: [Reorder, ReorderGroupProps, ReorderItemProps, ReorderGroupComponentProps, ReorderItemComponentProps, ReorderGroupOf, ReorderItemOf, GroupRefCallback, ReorderElementTag, ReorderItemLayout, ReorderBatchGroupProps, ReorderBatchItemProps, ReorderBatchGroup, ReorderBatchItemSize, ReorderBatchColumnSize, ReorderBatchSizing, ReorderBatchGap]
 ---
 
 # Reorder
@@ -62,7 +62,7 @@ On Solid 2, an item made with [`reorderItem`](/reference/solid/reorder/reorder-i
 
 ## Reorder.BatchGroup and Reorder.BatchItem
 
-A long list of items of one size reorders as one [Batch](/guides/batches): `Reorder.BatchGroup` places each item at the place its index gives, never measuring it, so a list of thousands mounts and drags at a Batch's cost. It drags, steps from the keyboard, speaks and ends a reorder as `Reorder.Group` does, and the DOM follows the order.
+A long list reorders as one [Batch](/guides/batches): `Reorder.BatchGroup` places each item at the place its index gives, from its size and the sizes before it, never measuring it, so a list of thousands mounts and drags at a Batch's cost. Its items are one size, or each its own, a function's. It drags, steps from the keyboard, speaks and ends a reorder as `Reorder.Group` does, and the DOM follows the order.
 
 ```tsx
 <Reorder.BatchGroup values={items()} onReorder={setItems} itemSize={{ width: 240, height: 48 }} gap={8} whileDrag={{ scale: 1.03 }}>
@@ -74,9 +74,9 @@ A long list of items of one size reorders as one [Batch](/guides/batches): `Reor
 | --- | --- |
 | `values`, `onReorder`, `keyboard`, `announcements`, `instructions`, `as` | As `Reorder.Group`'s. Each value is its own: it's its item's key. |
 | `axis` | The list's shape: `"y"`, a column (the default), `"x"`, a row, or `"xy"`, a grid that wraps. |
-| `itemSize` | Every item's size, `{ width, height }` in px. |
+| `itemSize` | Every item's size, `{ width, height }` in px; or a function giving each item's, `(item, i) => ({ width, height })`, called for every item at each change of the list, and tracked: a size it reads that changes moves the items after it. In a column, `width` left out (`{ height: 48 }`, or a function's) makes each item as wide as the group's content box, its padding and border inside, and the group sets no width of its own: it's a CSS size container (`container-type: inline-size`), each such item `100cqi` wide. |
 | `gap` | The space between places, in px: one for both axes, or `{ x, y }`. |
-| `columns` | A grid's columns: how many items a row holds. Left out, as many as the group's width holds, read again as it's resized: give the group its width, say `width: 100%`. |
+| `columns` | A grid's columns, its items one size: how many a row holds. Left out, as many as the group's width holds, read again as it's resized: give the group its width, say `width: 100%`. With a function `itemSize`, a type error: each row holds the items that fit the group's width, the next row below the tallest of the one before, each item at its row's top, as CSS's `flex-wrap`. |
 | `direction` | `"rtl"` mirrors a row's and a grid's places, from the group's right edge. Left out, the group's element's own direction, so a page's `dir="rtl"` needs none; on a server, `"ltr"` unless given. |
 | `initial` | Where each item starts: values, a function of its item and index, or `false`. It starts at its place, but for the keys `initial` gives, and its entrance moves those to their identity: `initial={{ opacity: 0 }}` fades each item in. |
 | `transition` | How the items move to their places. |
@@ -85,7 +85,7 @@ A long list of items of one size reorders as one [Batch](/guides/batches): `Reor
 | `whileHover`, `whileTap` | Where an item goes while the pointer is over it, and while it's pressed: by a pointer, or by Enter or Space while the keyboard reorder is off (on, they lift it). |
 | `exit` | Where an item leaving under `<AnimatePresence>` goes, at its last place: values with an optional `transition`, or a function of its item, last index and `custom`. Put the `<AnimatePresence>` around the `<For>`. |
 
-The group is `position: relative`, sized to its places; each item is `position: absolute` at the start of the group's content box (its padding kept), sized from `itemSize`, placed by its transform. On a server each item renders at its place, so hydrating moves nothing; a grid with no `columns` is laid out there by CSS grid, as the server can't know its width, and placed by the group once it reads it. An item's own DOM events (`onClick`, say) work as on any element; the group tells no gesture events of its own. An item is a member of the group's Batch, not a Wardic element: it takes its `value`, `as` (`"li"` by default), and its element's own props, its `style` without a transform or `opacity` the Batch draws. Its events are as `Reorder.Group`'s: on Solid 1, `onReorderEnd`, `onHoldStart` and `onHoldEnd`; on Solid 2, a function as `groupRef` is handed the group, with its `next`, `each` and `when` of `reorderEnd`, `holdStart` and `holdEnd`, its `move` and its `axis`.
+The group is `position: relative`, sized to its places; each item is `position: absolute` at the start of the group's content box (its padding kept), sized from `itemSize`, placed by its transform. On a server each item renders at its place, so hydrating moves nothing; a grid with no `columns`, or of items each their own size, is laid out there by CSS (CSS grid, or `flex-wrap`), as the server can't know its width, and placed by the group once it reads it. A column whose items take its width has it by CSS, on a server too; as a size container, it's also what a container query inside its items measures, and its own stacking context. An item's own DOM events (`onClick`, say) work as on any element; the group tells no gesture events of its own. An item is a member of the group's Batch, not a Wardic element: it takes its `value`, `as` (`"li"` by default), and its element's own props, its `style` without a transform or `opacity` the Batch draws. Its events are as `Reorder.Group`'s: on Solid 1, `onReorderEnd`, `onHoldStart` and `onHoldEnd`; on Solid 2, a function as `groupRef` is handed the group, with its `next`, `each` and `when` of `reorderEnd`, `holdStart` and `holdEnd`, its `move` and its `axis`.
 
 ## Coming from Motion
 
@@ -99,5 +99,5 @@ Motion's `Reorder`, with its props. Wardic adds the keyboard reorder, which Moti
 - **`GroupRefCallback`:** (Solid 2) a function `groupRef` hands the component's group.
 - **`ReorderElementTag`:** a tag `as` takes.
 - **`ReorderItemLayout`:** an item's `layout`, `true` or `"position"`.
-- **`ReorderBatchGroupProps`**, **`ReorderBatchItemProps`:** `Reorder.BatchGroup`'s and `Reorder.BatchItem`'s props. **`ReorderBatchItemSize`:** `itemSize`. **`ReorderBatchGap`:** `gap`.
+- **`ReorderBatchGroupProps`**, **`ReorderBatchItemProps`:** `Reorder.BatchGroup`'s and `Reorder.BatchItem`'s props. **`ReorderBatchItemSize`:** an item's size, `itemSize`'s. **`ReorderBatchColumnSize`:** an item's size in a column, its `width` optional. **`ReorderBatchSizing`:** `axis`, `itemSize` and `columns` together, the ways they go: `columns` with one size, and a size with no `width` in a column. **`ReorderBatchGap`:** `gap`.
 - **`ReorderBatchGroup`:** (Solid 2) the group a `Reorder.BatchGroup`'s `groupRef` is handed.

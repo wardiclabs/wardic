@@ -85,7 +85,7 @@ import { MOTION_PROPS, type WardicMotionProps } from "./motion-props.ts"
 import { w } from "./w.tsx"
 import { BatchGroup, BatchItem } from "./batch-reorder-group.tsx"
 
-export type { ReorderBatchGap, ReorderBatchGroupProps, ReorderBatchItemProps, ReorderBatchItemSize } from "./batch-reorder-group.tsx"
+export type { ReorderBatchColumnSize, ReorderBatchGap, ReorderBatchGroupProps, ReorderBatchItemProps, ReorderBatchItemSize, ReorderBatchSizing } from "./batch-reorder-group.tsx"
 
 /**
  * A Reorder group's config: its `values` in order, and `onReorder`, given each new order to set them

@@ -139,7 +139,13 @@ export interface SceneOptions {
   readonly alsoRead?: Accessor<unknown>
   /** The group's `direction: rtl` (#712's Batch group tests). */
   readonly rtl?: boolean
+  /** Each item's own size, by its value (#714): over the layout's. */
+  readonly sizeOf?: (value: string) => { readonly width: number; readonly height: number }
 }
+
+/** An item's own size as style (#714), when the scene gives each its own. */
+const ownSizeOf = (o: SceneOptions, value: string): JSX.CSSProperties =>
+  UndefinedOr.match(o.sizeOf, { onUndefined: () => ({}), onDefined: (sizeOf) => ({ width: `${sizeOf(value).width}px`, height: `${sizeOf(value).height}px` }) })
 
 export interface Scene {
   readonly order: Accessor<ReadonlyArray<string>>
@@ -206,7 +212,7 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
     >
       <For each={order()}>
         {(value) => (
-          <Reorder.Item value={value} data-value={value} {...optional("as", o.itemAs)} {...optional("whileDrag", o.whileDrag)} style={{ ...itemCss(o), ...o.itemStyle?.() }}>
+          <Reorder.Item value={value} data-value={value} {...optional("as", o.itemAs)} {...optional("whileDrag", o.whileDrag)} style={{ ...itemCss(o), ...ownSizeOf(o, value), ...o.itemStyle?.() }}>
             {value}
           </Reorder.Item>
         )}
