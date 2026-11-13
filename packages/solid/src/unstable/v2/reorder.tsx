@@ -675,7 +675,12 @@ type ItemMotionProps = Omit<WardicMotionProps, "layout" | "layoutId" | "drag">
  */
 // #349, #398.
 export type ReorderItemOf<V, C = {}> =
-  | (ItemMotionProps & { readonly value: V; readonly layout?: ReorderItemLayout; readonly wardRef?: WardRefCallback | undefined })
+  | (ItemMotionProps & {
+    /** Its value in the group's `values`, of any type, not its element's `value` attribute. Read once. */
+    readonly value: V
+    readonly layout?: ReorderItemLayout
+    readonly wardRef?: WardRefCallback | undefined
+  })
   | (WardicBeside<C, ItemMotionProps> & {
     readonly wardRef: AnyReorderItem<V> & GivenWard<C>
     readonly value?: never
@@ -686,12 +691,12 @@ export type ReorderItemOf<V, C = {}> =
 
 /**
  * `Reorder.Item`'s props: its item ({@link ReorderItemOf}), `as`, the element it renders (`"li"` by
- * default, read once), and that element's own props.
+ * default, read once), and that element's own props, but its `value` attribute: `value` is the item's (#748).
  */
 export type ReorderItemComponentProps<V, Tag extends ReorderElementTag = "li", C = {}> =
   & ReorderItemOf<V, C>
   & { readonly as?: Tag }
-  & Omit<JSX.IntrinsicElements[Tag], "style">
+  & Omit<JSX.IntrinsicElements[Tag], "style" | "value">
   & { readonly style?: WardStyle | string | undefined }
 
 /**

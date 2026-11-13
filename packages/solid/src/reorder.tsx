@@ -554,16 +554,17 @@ export type ReorderGroupProps<V, Tag extends ReorderElementTag = "ul"> = {
 
 /**
  * `Reorder.Item`'s props: its `value`, `as`, its `layout`, and the props of the element it renders,
- * motion props included, but `layoutId` and `drag`, which the group sets.
+ * motion props included, but `layoutId` and `drag`, which the group sets, and its `value` attribute:
+ * `value` is the item's (#748).
  */
 export type ReorderItemProps<V, Tag extends ReorderElementTag = "li"> = {
-  /** Its value in the group's `values`. Read once. */
+  /** Its value in the group's `values`, of any type, not its element's `value` attribute. Read once. */
   readonly value: V
   /** The element it renders: `"li"` by default. Read once. */
   readonly as?: Tag
   /** `true`, its place and size animating (the default), or `"position"`, its place alone. */
   readonly layout?: ReorderItemLayout
-} & Omit<WardicProps<Tag>, "layout" | "layoutId" | "drag">
+} & Omit<WardicProps<Tag>, "layout" | "layoutId" | "drag" | "value">
 
 /**
  * The props a component body reads, as plain records: instantiating the public prop
