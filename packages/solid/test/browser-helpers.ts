@@ -199,3 +199,28 @@ export const over = async <A>(frames: number, read: () => A): Promise<ReadonlyAr
   }
   return out
 }
+
+/** "ResizeObserver loop" errors raised on the page from now on (#714): none, where a group's own size waits a tick. */
+export const recordLoopErrors = (): { readonly count: () => number; readonly stop: () => void } => {
+  let count = 0
+  const onError = (event: ErrorEvent): void => {
+    if (/ResizeObserver loop/.test(event.message)) count++
+  }
+  window.addEventListener("error", onError)
+  return { count: () => count, stop: () => window.removeEventListener("error", onError) }
+}
+
+/** Whether `els` stand one below the other, `gap` apart, and `group` as tall as them (#714): each mismatch named. */
+export const unstacked = (group: HTMLElement, els: ReadonlyArray<HTMLElement>, gap: number): ReadonlyArray<string> => {
+  const boxes = els.map((el) => el.getBoundingClientRect())
+  const off = boxes.flatMap((b, i) => {
+    if (i === 0) return []
+    const was = boxes[i - 1]!
+    if (Math.abs(b.top - (was.bottom + gap)) > 0.5) return [`${i}: ${b.top} after ${was.bottom}`]
+    return []
+  })
+  const last = boxes.at(-1)!
+  const g = group.getBoundingClientRect()
+  if (Math.abs(g.bottom - last.bottom) > 0.5) return [...off, `the group ends at ${g.bottom}, its last item at ${last.bottom}`]
+  return off
+}

@@ -24,6 +24,15 @@
 // - BS11: an item's own style gives way to the function's size, as on the client: the size places it.
 // - BT1: `columns` with a function `itemSize` is a type error, and so is a size with no `width` off a column;
 //   an item's value is of any type, its element's own `value` attribute aside.
+//
+// Items whose sizes are read from the page, `itemSize` left out (#714, ADR-0072 *Amendment (#714)*, decision 4):
+// the server can't read them, so the group lays its items out in flow by CSS, each at no place.
+// - BM1: a column: a flex column, its gap the row gap; the group a size container, each item `100cqi` wide,
+//   border-box, its height its own.
+// - BM2: a row: a flex row at its items' tops, as wide as they are; each item its own size.
+// - BM3: a grid: `flex-wrap` rows at their items' tops.
+// - BM4: `initial`'s keys but `x` and `y` on each item, in flow.
+// - BT2: `columns` with no `itemSize` is a type error.
 import * as DomBatch from "@wardic/dom/DomBatch"
 import { Reorder, type ReorderBatchSizing, type WardicBatchValues } from "@wardic/solid/unstable/v2"
 import * as Bool from "effect/Boolean"
@@ -257,3 +266,69 @@ describe("Reorder.BatchGroup of items of different sizes on a server, on Solid 2
     void typed
   })
 })
+
+/** A group whose items' sizes are read from the page: no `itemSize` (#714). */
+const measuredList = (scene: SizedScene) => () => (
+  <Reorder.BatchGroup
+    values={VALUES}
+    onReorder={() => {}}
+    axis={scene.axis}
+    gap={10}
+    {...UndefinedOr.match(scene.initial, { onUndefined: () => ({}), onDefined: (initial) => ({ initial }) })}
+  >
+    <For each={VALUES}>
+      {(value) => (
+        <Reorder.BatchItem value={value} data-value={value}>
+          {value}
+        </Reorder.BatchItem>
+      )}
+    </For>
+  </Reorder.BatchGroup>
+)
+
+describe("Reorder.BatchGroup of items whose sizes are read, on a server (#714)", () => {
+  it("BM1: a column in flow: a flex column, a size container; each item 100cqi wide, border-box, its height its own", () => {
+    const [group, ...items] = tagsOf(serve(measuredList({ axis: "y" })))
+    expect([group?.style.position, group?.style.display, group?.style["flex-direction"], group?.style["row-gap"], group?.style["container-type"]]).toEqual(["relative", "flex", "column", "10px", "inline-size"])
+    expect([group?.style.width, group?.style.height], "its size its items' and its container's").toEqual([undefined, undefined])
+    items.forEach((item) => {
+      expect([item.style.position, item.style.transform, item.style.width, item.style["box-sizing"], item.style.height, item.style["flex-shrink"]]).toEqual([undefined, undefined, "100cqi", "border-box", undefined, "0"])
+      expectDragDefaults(item, "pan-x")
+    })
+  })
+
+  it("BM2: a row in flow: a flex row at its items' tops, as wide as they are; each item its own size", () => {
+    const [group, ...items] = tagsOf(serve(measuredList({ axis: "x" })))
+    expect([group?.style.display, group?.style["flex-direction"], group?.style["align-items"], group?.style["column-gap"], group?.style.width, group?.style.height]).toEqual(["flex", "row", "flex-start", "10px", "max-content", undefined])
+    expect(group?.style["container-type"], "no size container: its items' widths their own").toBeUndefined()
+    items.forEach((item) => {
+      expect([item.style.position, item.style.transform, item.style.width, item.style.height, item.style["flex-shrink"]]).toEqual([undefined, undefined, undefined, undefined, "0"])
+    })
+  })
+
+  it("BM3: a grid in flow: flex-wrap rows at their items' tops", () => {
+    const [group, ...items] = tagsOf(serve(measuredList({ axis: "xy" })))
+    expect([group?.style.display, group?.style["flex-wrap"], group?.style["align-items"], group?.style["column-gap"], group?.style["row-gap"], group?.style.width, group?.style.height]).toEqual(["flex", "wrap", "flex-start", "10px", "10px", undefined, undefined])
+    items.forEach((item) => {
+      expect([item.style.position, item.style.transform, item.style.width, item.style.height]).toEqual([undefined, undefined, undefined, undefined])
+    })
+  })
+
+  it("BM4: initial's keys but x and y on each item, in flow", () => {
+    const [, ...items] = tagsOf(serve(measuredList({ axis: "y", initial: { opacity: 0, y: 20 } })))
+    items.forEach((item) => {
+      expect([item.style.transform, item.style.opacity]).toEqual([undefined, "0"])
+    })
+  })
+
+  it("BT2: columns with no itemSize is a type error", () => {
+    const typed = () => [
+      <Reorder.BatchGroup values={VALUES} onReorder={() => {}} />,
+      <Reorder.BatchGroup values={VALUES} onReorder={() => {}} axis="xy" />,
+      // @ts-expect-error rows break at the group's width: no `columns` with sizes read from the page (Q9)
+      <Reorder.BatchGroup values={VALUES} onReorder={() => {}} axis="xy" columns={3} />,
+    ]
+    void typed
+  })
+})
+

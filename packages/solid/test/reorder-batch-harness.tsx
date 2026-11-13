@@ -41,16 +41,31 @@ export interface BatchSceneOptions {
   readonly initial?: WardicBatchValues | ((item: string, i: number) => WardicBatchValues)
   /** Each item's own size, by its value, the group's `itemSize` function (#714): a grid's rows from its width. */
   readonly sizeOf?: (value: string) => { readonly width: number; readonly height: number }
+  /**
+   * Each item's own size, by its value, set by its own CSS and read by the group, its `itemSize` left out
+   * (#714): a column's items take the group's width, the layout's, a grid's rows from its width.
+   */
+  readonly readSizeOf?: (value: string) => { readonly width: number; readonly height: number }
 }
 
 /** The group's place on the page: `reorder-harness.tsx`'s. */
 const AT: JSX.CSSProperties = { position: "absolute", left: "40px", top: "40px", margin: "0", padding: "0" }
 
 /** An item's look: the Reorder scene's, its size the group's. */
-const lookOf = (o: BatchSceneOptions): JSX.CSSProperties => {
+const lookOf = (o: BatchSceneOptions, value: string): JSX.CSSProperties => {
   const { width: _width, height: _height, ...look } = itemCss({ layout: o.layout ?? "y" })
-  return look
+  return { ...look, ...readSizeStyleOf(o, value) }
 }
+
+/** An item's own size, its group reading it (#714): a column's height alone, its width the group's. */
+const readSizeStyleOf = (o: BatchSceneOptions, value: string): JSX.CSSProperties =>
+  UndefinedOr.match(o.readSizeOf, {
+    onUndefined: () => ({}),
+    onDefined: (sizeOf) => Bool.match((o.layout ?? "y") === "y", {
+      onTrue: () => ({ height: `${sizeOf(value).height}px` }),
+      onFalse: () => ({ width: `${sizeOf(value).width}px`, height: `${sizeOf(value).height}px` }),
+    }),
+  })
 
 /** Mount `values` (default the layout's count) as a `Reorder.BatchGroup` of `Reorder.BatchItem`s keyed by `<For>`. */
 export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Scene> => {
@@ -71,7 +86,7 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Scen
   const items = (): JSX.Element => (
     <For each={order()}>
       {(value) => (
-        <Reorder.BatchItem value={value} data-value={value} {...Bool.match(o.plain === true, { onTrue: () => ({}), onFalse: () => ({ style: lookOf(o) }) })}>
+        <Reorder.BatchItem value={value} data-value={value} {...Bool.match(o.plain === true, { onTrue: () => ({}), onFalse: () => ({ style: lookOf(o, value) }) })}>
           {value}
         </Reorder.BatchItem>
       )}
@@ -90,10 +105,14 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Scen
       onHoldEnd={(end: ReorderController.HoldEnd<string>) => holds.push(`end ${end.value} ${end.from}→${end.to} ${end.how}`)}
       axis={layout}
       {...UndefinedOr.match(o.sizeOf, {
-        onUndefined: () => ({
-          itemSize: { width: l.w, height: l.h },
-          ...Bool.match(Bool.and(layout === "xy", Predicate.isUndefined(o.fromWidth)), { onTrue: () => ({ columns: 3 }), onFalse: () => ({}) }),
-        }),
+        onUndefined: () =>
+          Bool.match(Predicate.isNotUndefined(o.readSizeOf), {
+            onTrue: () => ({}),
+            onFalse: () => ({
+              itemSize: { width: l.w, height: l.h },
+              ...Bool.match(Bool.and(layout === "xy", Predicate.isUndefined(o.fromWidth)), { onTrue: () => ({ columns: 3 }), onFalse: () => ({}) }),
+            }),
+          }),
         onDefined: (sizeOf) => ({ itemSize: sizeOf }),
       })}
       gap={10}
@@ -110,6 +129,8 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Scen
       style={{
         ...UndefinedOr.match(o.container, { onUndefined: () => AT, onDefined: () => ({ margin: "0", padding: "0" }) }),
         ...UndefinedOr.match(o.fromWidth, { onUndefined: () => ({}), onDefined: (width) => ({ width: `${width()}px` }) }),
+        // A column whose items take its width, read from the page: the layout's (#714).
+        ...Bool.match(Bool.and(Predicate.isNotUndefined(o.readSizeOf), layout === "y"), { onTrue: () => ({ width: `${l.w}px` }), onFalse: () => ({}) }),
       }}
     >
       {Bool.match(Predicate.isUndefined(o.exit), {

@@ -80,9 +80,18 @@ export type ReorderBatchSizing<V> =
     readonly itemSize: (item: V, i: number) => ReorderBatchColumnSize
     readonly columns?: undefined
   }
+  | {
+    readonly axis?: CoreReorder.Axis | undefined
+    /** Left out, each item's size is read from the page: its own content's, a column's items as wide as the group. */
+    readonly itemSize?: undefined
+    readonly columns?: undefined
+  }
 
-/** A group's `itemSize` as its places read it, whatever its shape: one size, or a function of each item. */
-export type BatchReorderItemSizes = ReorderBatchColumnSize | ((item: never, i: number) => ReorderBatchColumnSize)
+/**
+ * A group's `itemSize` as its places read it, whatever its shape: one size, a function of each item, or
+ * none, each item's read from the page (#714).
+ */
+export type BatchReorderItemSizes = ReorderBatchColumnSize | ((item: never, i: number) => ReorderBatchColumnSize) | undefined
 
 /** A point, or a length on each axis, in px. */
 export interface XY {
@@ -96,7 +105,10 @@ export type ReorderBatchGap = number | XY
 /** A group's direction: its places from its content box's left, or, right to left, from its right. */
 export type BatchReorderDirection = "ltr" | "rtl"
 
-/** What the group reads of its element once it's on the page (Q35, Q36): the direction it inherits, and its content box's width. */
+/**
+ * What the group reads of its element once it's on the page (Q35, Q36): the direction it inherits, its
+ * content box's width, and its edges.
+ */
 export interface BatchReorderRead {
   readonly direction: BatchReorderDirection
   /**
@@ -104,13 +116,22 @@ export interface BatchReorderRead {
    * its own (#714); `undefined` for any other.
    */
   readonly width: number | undefined
+  /**
+   * What its own `width` and `height` hold besides its content box, on each axis (#714): its padding and
+   * border when it's `border-box`, as a CSS reset makes it; none when it's `content-box`.
+   */
+  readonly edges: XY
 }
 
-/** Whether two reads of a group's element are alike: the same direction and width. */
+/** Whether two reads of a group's element are alike: the same direction, width and edges. */
 export const sameRead = (a: BatchReorderRead | undefined, b: BatchReorderRead | undefined): boolean =>
   UndefinedOr.match(a, {
     onUndefined: () => Predicate.isUndefined(b),
-    onDefined: (x) => UndefinedOr.match(b, { onUndefined: () => false, onDefined: (y) => Bool.and(x.direction === y.direction, x.width === y.width) }),
+    onDefined: (x) =>
+      UndefinedOr.match(b, {
+        onUndefined: () => false,
+        onDefined: (y) => Bool.every([x.direction === y.direction, x.width === y.width, x.edges.x === y.edges.x, x.edges.y === y.edges.y]),
+      }),
   })
 
 /**
@@ -124,12 +145,14 @@ export interface BatchReorderGeometry {
   readonly columns: number | undefined
   readonly direction: BatchReorderDirection
   readonly width: number | undefined
+  /** What its own size holds besides its content box (#714): none before it's read, a server's. */
+  readonly edges: XY
 }
 
 /** What a group's props give its geometry, as either binding reads them. */
 export interface BatchReorderProps {
   readonly axis?: CoreReorder.Axis | undefined
-  readonly itemSize: BatchReorderItemSizes
+  readonly itemSize?: BatchReorderItemSizes
   readonly gap?: ReorderBatchGap | undefined
   readonly columns?: number | undefined
   readonly direction?: BatchReorderDirection | undefined
@@ -162,7 +185,11 @@ export const geometryOf = (props: BatchReorderProps, read: BatchReorderRead | un
     onDefined: identity,
   }),
   width: UndefinedOr.match(read, { onUndefined: () => undefined, onDefined: (r) => r.width }),
+  edges: UndefinedOr.match(read, { onUndefined: () => NO_EDGES, onDefined: (r) => r.edges }),
 })
+
+/** No edges: a `content-box` group's, and a group's before its first read. */
+const NO_EDGES: XY = { x: 0, y: 0 }
 
 /**
  * A group's places, resolved from its geometry once a change: how many a row holds, the step from one to
@@ -184,7 +211,27 @@ export interface BatchReorderPlaces {
   readonly takesWidth: boolean
   /** Each item's place and size, its items each their own size (#714); `undefined` when they're one. */
   readonly each: ItemPlaces | undefined
+  /** Whether its items' sizes are read from the page (#714): never written on them. */
+  readonly sizesRead: boolean
+  /**
+   * Whether its items are laid out in flow by CSS, each at no place: a grid whose rows break at a width it
+   * hasn't read (Q37), or items whose sizes it hasn't read yet (#714, decision 4).
+   */
+  readonly inFlow: boolean
 }
+
+/**
+ * What a group has read of its items' sizes, their sizes left out of `itemSize` (#714): each one's, by its
+ * value, and whether its first came in. Until then its items are in flow.
+ */
+export interface SizesRead {
+  /** An item's border box, as last read; `undefined` until it's read. */
+  readonly sizeOf: (item: unknown) => ReorderBatchItemSize | undefined
+  readonly arrived: boolean
+}
+
+/** No sizes read: a server's, and a client's before its first. */
+export const NONE_READ: SizesRead = { sizeOf: () => undefined, arrived: false }
 
 /** Each item's place, from the start of the group's content box, and its size, in the list's order (#714). */
 export interface ItemPlaces {
@@ -242,6 +289,22 @@ export const isFromWidth = (geometry: BatchReorderGeometry): boolean => Bool.and
 /** Whether a group's items are laid out in flow by CSS: its rows from a width it hasn't read. */
 export const inGridFlow = (geometry: BatchReorderGeometry): boolean => Bool.and(isFromWidth(geometry), Predicate.isUndefined(geometry.width))
 
+/** Whether a group reads its items' sizes from the page: its `itemSize` left out (#714). */
+export const readsSizes = (geometry: BatchReorderGeometry): boolean => Predicate.isUndefined(geometry.itemSize)
+
+/**
+ * Whether a group's items are in flow, its first sizes `arrived` or not: a grid's width unread, or its items'
+ * sizes, read from the page (#714).
+ */
+export const itemsInFlow = (geometry: BatchReorderGeometry, arrived: boolean): boolean => {
+  // Per element at mount, by the hot path's rules: statements.
+  if (inGridFlow(geometry)) return true
+  return readsSizes(geometry) && !arrived
+}
+
+/** Whether `places` are of items each their own size given by a function (#714): those written on their elements. */
+export const writesSizes = (places: BatchReorderPlaces): boolean => Bool.and(Predicate.isNotUndefined(places.each), Bool.not(places.sizesRead))
+
 /** Each direction's way along a row: rightward, or leftward from the right edge. */
 const SIGN_X: Readonly<Record<BatchReorderDirection, number>> = { ltr: 1, rtl: -1 }
 
@@ -249,14 +312,15 @@ const SIGN_X: Readonly<Record<BatchReorderDirection, number>> = { ltr: 1, rtl: -
 type SizeOf = (item: unknown, i: number) => ReorderBatchColumnSize
 
 /**
- * `geometry`'s places for `values`: every item one size, or each its own, a function's (#714). An error
- * names a grid's `columns` that isn't a whole number.
+ * `geometry`'s places for `values`: every item one size, each its own, a function's, or each its own as
+ * `read` from the page (#714). An error names a grid's `columns` that isn't a whole number.
  */
-export const resolvePlaces = (geometry: BatchReorderGeometry, values: ReadonlyArray<unknown>): BatchReorderPlaces =>
-  Bool.match(Predicate.isFunction(geometry.itemSize), {
-    onTrue: () => resolveEach(geometry, values, geometry.itemSize as SizeOf),
-    onFalse: () => resolveOne(geometry, values.length, geometry.itemSize as ReorderBatchColumnSize),
-  })
+export const resolvePlaces = (geometry: BatchReorderGeometry, values: ReadonlyArray<unknown>, read: SizesRead = NONE_READ): BatchReorderPlaces => {
+  const itemSize = geometry.itemSize
+  if (Predicate.isUndefined(itemSize)) return resolveRead(geometry, values, read)
+  if (Predicate.isFunction(itemSize)) return resolveEach(geometry, values, itemSize as SizeOf)
+  return resolveOne(geometry, values.length, itemSize)
+}
 
 /** Places for `n` items of one size, a column's width the group's when it gives none (#714, Q10): never read, 0 here. */
 const resolveOne = (geometry: BatchReorderGeometry, n: number, size: ReorderBatchColumnSize): BatchReorderPlaces => {
@@ -278,6 +342,8 @@ const resolveOne = (geometry: BatchReorderGeometry, n: number, size: ReorderBatc
     appsWidth,
     takesWidth,
     each: undefined,
+    sizesRead: false,
+    inFlow: inGridFlow(geometry),
   }
 }
 
@@ -309,8 +375,61 @@ const resolveEach = (geometry: BatchReorderGeometry, values: ReadonlyArray<unkno
     appsWidth,
     takesWidth,
     each,
+    sizesRead: false,
+    inFlow: inGridFlow(geometry),
   }
 }
+
+/** A size not read yet: none, its place from the sizes before it. A column's, its width the group's. */
+const UNREAD: ReorderBatchColumnSize = { width: 0, height: 0 }
+const UNREAD_IN_COLUMN: ReorderBatchColumnSize = { width: undefined, height: 0 }
+
+/** Each item's size as read, a column's height alone: its width is the group's (Q6). */
+const readInColumn = (read: SizesRead): SizeOf => (item) => {
+  // Per item at a change: statements.
+  const size = read.sizeOf(item)
+  if (Predicate.isUndefined(size)) return UNREAD_IN_COLUMN
+  return { width: undefined, height: size.height }
+}
+
+/** Each item's size as read: its width and height its own (Q6). */
+const readOwn = (read: SizesRead): SizeOf => (item) => {
+  // Per item at a change: statements.
+  const size = read.sizeOf(item)
+  if (Predicate.isUndefined(size)) return UNREAD
+  return size
+}
+
+/** Each axis's reading of an item's size. Built once, at module load. */
+const readBy: (axis: CoreReorder.Axis) => (read: SizesRead) => SizeOf = Match.type<CoreReorder.Axis>().pipe(
+  Match.when("y", () => readInColumn),
+  Match.orElse(() => readOwn),
+)
+
+/**
+ * Places for `values`, each its own size as `read` from the page (#714): laid out as a function's sizes are.
+ * In flow, before its first sizes or a grid's width, every item at no place, where CSS has it.
+ */
+const resolveRead = (geometry: BatchReorderGeometry, values: ReadonlyArray<unknown>, read: SizesRead): BatchReorderPlaces => {
+  const places = resolveEach(geometry, values, readBy(geometry.axis)(read))
+  const inFlow = itemsInFlow(geometry, read.arrived)
+  // A column's items take its width, it a size container, whether it has any or not (Q6).
+  const takesWidth = geometry.axis === "y"
+  const appsWidth = Bool.or(isFromWidth(geometry), takesWidth)
+  const each = UndefinedOr.getOrThrow(places.each)
+  return {
+    ...places,
+    sizesRead: true,
+    inFlow,
+    takesWidth,
+    appsWidth,
+    width: Bool.match(appsWidth, { onTrue: () => readWidthOf(geometry), onFalse: () => each.width }),
+    each: Bool.match(inFlow, { onTrue: () => atNoPlace(each), onFalse: () => each }),
+  }
+}
+
+/** `each` with every item at no place: in flow, where CSS has it; the group's size its flow's. */
+const atNoPlace = (each: ItemPlaces): ItemPlaces => ({ ...each, xs: new Float64Array(each.xs.length), ys: new Float64Array(each.ys.length), width: 0, height: 0 })
 
 /** A layout of items each their own size: their places from their sizes, the gap and the group's content width. */
 type EachLayout = (widths: Float64Array, heights: Float64Array, gap: XY, width: number | undefined) => ItemPlaces
@@ -467,14 +586,15 @@ const SIZE_CONTAINER: Readonly<Record<string, string>> = { "container-type": "in
 export const groupStyleOf = (places: BatchReorderPlaces, n: number, geometry: BatchReorderGeometry, own: Style.Input): Style.Style => {
   const positioned = { ...ReorderController.GROUP_STYLE, position: "relative", direction: geometry.direction }
   const base: Readonly<Record<string, string>> = Bool.match(places.takesWidth, { onTrue: () => ({ ...positioned, ...SIZE_CONTAINER }), onFalse: () => positioned })
-  const sized: Readonly<Record<string, string>> = Bool.match(inGridFlow(geometry), {
+  const sized: Readonly<Record<string, string>> = Bool.match(places.inFlow, {
     onTrue: () => flowStyleOf(places, geometry, base),
     onFalse: () => {
       const extent = extentOf(places, n)
-      // Its width the app's (Q36; #714).
+      // Its width the app's (Q36; #714). Its own size holds its edges too, a `border-box` group's (#714).
+      const height = px(extent.height + geometry.edges.y)
       return Bool.match(places.appsWidth, {
-        onTrue: () => ({ ...base, height: px(extent.height) }),
-        onFalse: () => ({ ...base, width: px(extent.width), height: px(extent.height) }),
+        onTrue: () => ({ ...base, height }),
+        onFalse: () => ({ ...base, width: px(extent.width + geometry.edges.x), height }),
       })
     },
   })
@@ -486,9 +606,20 @@ const flowStyleOf = (places: BatchReorderPlaces, geometry: BatchReorderGeometry,
   const gap = gapOf(geometry)
   return Bool.match(Predicate.isUndefined(places.each), {
     onTrue: () => ({ ...base, display: "grid", "grid-template-columns": `repeat(auto-fill, ${px(places.itemSize.width)})`, "column-gap": px(gap.x), "row-gap": px(gap.y) }),
-    onFalse: () => ({ ...base, display: "flex", "flex-wrap": "wrap", "align-items": "flex-start", "column-gap": px(gap.x), "row-gap": px(gap.y) }),
+    onFalse: () => ({ ...base, ...eachFlowBy(geometry.axis)(gap) }),
   })
 }
+
+/**
+ * Each axis's flow for items each their own size (#714, decision 4), where their places would put them: a
+ * column, its items as wide as its content box (the size container's); a row at its items' tops, as wide as
+ * they are, so it's as wide as its places make it; rows that wrap. Built once, at module load.
+ */
+const eachFlowBy: (axis: CoreReorder.Axis) => (gap: XY) => Readonly<Record<string, string>> = Match.type<CoreReorder.Axis>().pipe(
+  Match.when("y", () => (gap: XY) => ({ display: "flex", "flex-direction": "column", "row-gap": px(gap.y) })),
+  Match.when("x", () => (gap: XY) => ({ display: "flex", "flex-direction": "row", "align-items": "flex-start", "column-gap": px(gap.x), width: "max-content" })),
+  Match.orElse(() => (gap: XY) => ({ display: "flex", "flex-wrap": "wrap", "align-items": "flex-start", "column-gap": px(gap.x), "row-gap": px(gap.y) })),
+)
 
 /** A Reorder item's drag axis for its group's: a grid's `xy` is a free drag. Built once, at module load. */
 const dragAxisFor: (axis: CoreReorder.Axis) => true | "x" | "y" = Match.type<CoreReorder.Axis>().pipe(
@@ -497,18 +628,28 @@ const dragAxisFor: (axis: CoreReorder.Axis) => true | "x" | "y" = Match.type<Cor
 )
 
 /**
- * An item's own style under its group's: a drag element's defaults; sized, its items one size; and, unless
- * its group lays it out in flow, absolute at its static position (no `top` or `left`): the start of the
- * group's content box. Items each their own size are sized each by {@link sizeStyleOf} (#714).
+ * An item's own style under its group's, `inFlow` or not: a drag element's defaults; sized, its items one
+ * size; a column's items read from the page as wide as the group (#714, Q6); and, unless its group lays it out
+ * in flow, absolute at its static position (no `top` or `left`): the start of the group's content box. Items
+ * each their own size, a function's, are sized each by {@link sizeStyleOf} (#714).
  */
-export const itemBaseOf = (geometry: BatchReorderGeometry): Readonly<Record<string, string>> => {
+export const itemBaseOf = (geometry: BatchReorderGeometry, inFlow: boolean): Readonly<Record<string, string>> => {
   const drag = Style.dragDefaults(dragAxisFor(geometry.axis))
-  const base: Readonly<Record<string, string>> = Bool.match(Predicate.isFunction(geometry.itemSize), {
-    onTrue: () => drag,
-    onFalse: () => ({ ...drag, ...sizeStyle((geometry.itemSize as ReorderBatchColumnSize).width, (geometry.itemSize as ReorderBatchColumnSize).height) }),
-  })
-  return Bool.match(inGridFlow(geometry), { onTrue: () => ({ ...base, ...IN_FLOW }), onFalse: () => ({ ...base, position: "absolute" }) })
+  const base = sizedBy(geometry, drag)
+  return Bool.match(inFlow, { onTrue: () => ({ ...base, ...IN_FLOW }), onFalse: () => ({ ...base, position: "absolute" }) })
 }
+
+/** `drag` with every item's size, its group's one size; the group's width, a column's read from the page; or none. */
+const sizedBy = (geometry: BatchReorderGeometry, drag: Readonly<Record<string, string>>): Readonly<Record<string, string>> => {
+  // Per element at mount, by the hot path's rules: statements.
+  const itemSize = geometry.itemSize
+  if (Predicate.isUndefined(itemSize)) return { ...drag, ...READ_SIZE_STYLE[geometry.axis] }
+  if (Predicate.isFunction(itemSize)) return drag
+  return { ...drag, ...sizeStyle(itemSize.width, itemSize.height) }
+}
+
+/** An item's own size as style, its size read from the page, by its group's axis: a column's the group's width (Q6). */
+const READ_SIZE_STYLE: Readonly<Record<CoreReorder.Axis, Readonly<Record<string, string>>>> = { y: TAKES_GROUP_WIDTH, x: {}, xy: {} }
 
 /** An item in flow's own: unshrunk, as wide as at its place, its row breaking where its place's does (#714). */
 const IN_FLOW: Readonly<Record<string, string>> = { "flex-shrink": "0" }
@@ -524,7 +665,7 @@ const sizeStyle = (width: number | undefined, height: number): Readonly<Record<s
 export const sizeStyleOf = (places: BatchReorderPlaces, i: number): Readonly<Record<string, string>> => {
   // Per element at mount, by the hot path's rules: statements.
   const each = places.each
-  if (Predicate.isUndefined(each)) return NO_STYLE
+  if (Predicate.isUndefined(each) || places.sizesRead) return NO_STYLE
   const width = each.widths[i]
   if (Number.isNaN(width)) return { ...TAKES_GROUP_WIDTH, height: px(each.heights[i]) }
   return { width: px(width), height: px(each.heights[i]) }
@@ -545,13 +686,24 @@ export const releaseGroupWidth = (el: HTMLElement, was: WrittenSize | undefined)
 }
 
 /**
+ * `el`'s own size as `was` written, taken back where its style is still that: its items' sizes read from the
+ * page now (#714). A width that was the group's stays, a column's read from the page being the group's too.
+ */
+export const unwriteSizeOn = (el: HTMLElement, was: WrittenSize | undefined): void => {
+  // Per item at a change: statements.
+  if (Predicate.isUndefined(was)) return
+  if (el.style.height === px(was.height)) el.style.removeProperty("height")
+  if (!Number.isNaN(was.width) && el.style.width === px(was.width)) el.style.removeProperty("width")
+}
+
+/**
  * Item `i`'s own size written on `el`, its items each their own size (#714), where it isn't already: what
  * `written` holds, by element, is what was last written.
  */
 export const writeSizeOn = (el: HTMLElement, places: BatchReorderPlaces, i: number, written: WeakMap<Element, WrittenSize>): void => {
   // Per item at a change: statements.
   const each = places.each
-  if (Predicate.isUndefined(each)) return
+  if (Predicate.isUndefined(each) || places.sizesRead) return
   const width = each.widths[i]
   const height = each.heights[i]
   const was = written.get(el)

@@ -81,3 +81,24 @@ export const R10 = (): JSX.Element => (
   </WardicProvider>
 )
 
+/** A list whose items' sizes are read from the page, each sized by its own CSS (#714): in flow on the server. */
+const readList = (axis: "x" | "y" | "xy", style: JSX.CSSProperties) => (
+  <Reorder.BatchGroup values={VALUES} onReorder={() => {}} axis={axis} gap={10} style={{ margin: "0", padding: "0", ...style }}>
+    <For each={VALUES}>
+      {(value) => (
+        <Reorder.BatchItem value={value} data-k={value} style={{ ...LOOK, ...Bool.match(axis === "y", { onTrue: () => ({}), onFalse: () => ({ width: `${WIDTHS[value]}px` }) }), height: `${HEIGHTS[value]}px` }}>
+          {value}
+        </Reorder.BatchItem>
+      )}
+    </For>
+  </Reorder.BatchGroup>
+)
+
+/** A column, padded 12 px, its items as wide as its 200 px content box, their heights read (#714). */
+export const R11 = (): JSX.Element => <WardicProvider env={DomLive}>{readList("y", { padding: "12px", width: "200px" })}</WardicProvider>
+
+/** A row, its items' sizes read (#714). */
+export const R12 = (): JSX.Element => <WardicProvider env={DomLive}>{readList("x", {})}</WardicProvider>
+
+/** A grid 280 px wide, its items' sizes read (#714): rows from `flex-wrap` on the server. */
+export const R13 = (): JSX.Element => <WardicProvider env={DomLive}>{readList("xy", { width: "280px" })}</WardicProvider>

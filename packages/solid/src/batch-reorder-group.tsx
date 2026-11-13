@@ -18,7 +18,7 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { $PROXY, type Accessor, createComponent, createContext, createEffect, createMemo, createRenderEffect, createSignal, type JSX, on, onCleanup, sharedConfig, splitProps, untrack, useContext } from "solid-js"
+import { $PROXY, type Accessor, batch, createComponent, createContext, createEffect, createMemo, createRenderEffect, createSignal, type JSX, on, onCleanup, sharedConfig, splitProps, untrack, useContext } from "solid-js"
 import { Dynamic, getNextElement, insert, setAttribute, spread } from "solid-js/web"
 import { batchHandoffHere, batchServerAppearHere } from "./batch-appear-here.tsx"
 import { configTransitionOf, type WardicBatchTransition } from "./batch.ts"
@@ -125,7 +125,7 @@ interface GroupLocal<V> {
   readonly onHoldStart?: ((start: ReorderController.HoldStart<V>) => void) | undefined
   readonly onHoldEnd?: ((end: ReorderController.HoldEnd<V>) => void) | undefined
   readonly axis?: CoreReorder.Axis | undefined
-  readonly itemSize: BatchReorderItemSizes
+  readonly itemSize?: BatchReorderItemSizes
   readonly gap?: ReorderBatchGap | undefined
   readonly columns?: number | undefined
   readonly direction?: "ltr" | "rtl" | undefined
@@ -228,12 +228,16 @@ const sharedAttributeOf = (name: string, value: () => string | undefined): Share
 const groupWritesOf = (binding: BatchReorderBinding<unknown>, keyboard: () => boolean, instructionsId: Accessor<string | undefined>): GroupWrites => {
   const record = createMemo(binding.itemStyle, undefined, { equals: sameStyle })
   const style: SharedStyle = { record, css: createMemo(() => cssTextOf(record())), items: new Set() }
+  // The style its items have now, kept here: Solid's `on` with `defer` hands its first change no previous
+  // input, which left every key a first change drops on the items (#714: a switch of its sizing).
+  let was = untrack(record)
   createRenderEffect(
     on(
       record,
-      (next, prev) => {
-        const was = UndefinedOr.match(prev, { onUndefined: () => NO_STYLE, onDefined: identity })
-        Iter.forEach(style.items, (el) => restyle(el, was, next))
+      (next) => {
+        const prev = was
+        was = next
+        Iter.forEach(style.items, (el) => restyle(el, prev, next))
       },
       { defer: true },
     ),
@@ -325,6 +329,10 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
   const values = (): ReadonlyArray<V> => plainOrder(local.values, $PROXY)
   // What the group read of its element: the direction it inherits and a grid's width (Q35, Q36).
   const [read, setRead] = createSignal<BatchReorderRead | undefined>(undefined, { equals: sameRead })
+  // Its items' sizes read from the page (#714): each delivery, the first, and the group's own size.
+  const [sizesVersion, setSizesVersion] = createSignal(0)
+  const [sizesPlaced, setSizesPlaced] = createSignal(false)
+  const [groupVersion, setGroupVersion] = createSignal(0)
   const binding = untrack(() =>
     bindBatchReorder<V>(
       {
@@ -356,6 +364,21 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
         keyboard: () => untrack(() => local.keyboard) !== false,
         announcements: () => Option.fromUndefinedOr(untrack(() => local.announcements)),
         brought: services,
+        sizes: {
+          version: sizesVersion,
+          placed: sizesPlaced,
+          groupVersion,
+          // Solid 1 runs the effects a write makes at once: in the observer's delivery, before the page paints.
+          arrived: (first) =>
+            batch(() => {
+              setSizesVersion((v) => v + 1)
+              if (first) {
+                setSizesPlaced(true)
+                setGroupVersion((v) => v + 1)
+              }
+            }),
+          resizeGroup: () => setGroupVersion((v) => v + 1),
+        },
       },
       { started: noop, landed: noop },
     ))
