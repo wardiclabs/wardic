@@ -509,6 +509,10 @@ _Avoid_: target (an animation's target values), element (the DOM's kind of Subje
 A **Subject** a scene holds for its owner: it joins its parent when it enters, and it leaves only once its exit has landed, so its exit plays in the scene. What happens to its resources when it leaves is its owner's choice. Its motion is set on it, as a **Wardic element**'s is: it's the scene's Wardic element, though it doesn't make its object. Its parent is the nearest Scene object above it, else the scene. An object that already has a parent, such as a node of a loaded model, stays where it is. Variants pass down nested Scene objects as they do down Wardic elements.
 _Avoid_: entity, presence child (the DOM's), node.
 
+**Presence child**:
+An element among an `<AnimatePresence>`'s children, whatever made it (a `<Show>`'s branch, a `<For>`'s item, a Batch member's element) and whatever its kind: HTML, SVG or MathML (#702). Text is never one. One that drops out of the children is a *leaver*: it stays on the page, in its place, until its exit and the exits inside it have landed.
+_Avoid_: presence item, exiting node.
+
 **Host loop**:
 The loop a scene's host runs, one pass a **Refresh frame**: it steps Wardic, then renders. A scene Environment's Refresh frames are the host loop's, wherever they come from (the display, an XR session, a game loop), so Wardic's writes land in the frame that draws them.
 _Avoid_: render loop (the renderer's call alone), animation loop, rAF.

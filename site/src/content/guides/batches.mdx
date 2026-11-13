@@ -92,4 +92,3 @@ A list the reader puts in order is a Batch too: [`Reorder.BatchGroup`](/guides/r
 - **Its keys are the transforms and `opacity`,** as numbers: `px` for a move, degrees for a turn, unitless for a scale. A colour, a size or any other style is a Wardic element's.
 - **Every member has the same keys,** the Batch's: the ones its first targets and starts give, joined by the keys of an `exit`, `whileHover` or `whileTap` given as values. A keyed Batch can take `keys` up front instead. A key a later `animate` gives is an error.
 - **A member has no variants, drag or layout of its own.** Make its element a Wardic element for variants or a drag, as above. Layout animations aren't a member's: its Wardic element can't have `layout` or `layoutId`.
-- **Members inside an `<svg>` leave at once** under `<AnimatePresence>`, for now.
