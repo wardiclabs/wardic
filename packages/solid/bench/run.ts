@@ -97,6 +97,14 @@
  * frames, from their first rAF callback to just after their paint) more than 0.75×. Run it at `--n 1000`
  * and `--n 5000`. The longest frame is reported, not gated.
  *
+ * Then rows of text (#714, ADR-0072 *Amendment (#714)*, decision 6): N rows of wrapping text in a column, a
+ * `Reorder.Group` in flow against a `Reorder.BatchGroup` of one size, of the app's sizes (a function's) and
+ * of sizes read from the page, the four paired per rep, their order rotated. Each round checks the rows
+ * stacked a gap apart and no "ResizeObserver loop" error. It fails when, against the `Reorder.Group`'s, the
+ * read sizes' mount costs more than 0.5×, a frame while dragging 0.75×, the column widened 0.5×, or a frame at
+ * rest 1.5× (the observer's cost in every frame drawn); or the app's sizes' frame while dragging more than
+ * 0.75×, or its mount more than 1.1× the one size's (G1–G3).
+ *
  * `--v2` (#209, ADR-0045) runs `--head` alone too: the Solid 2 binding's page (`page-v2.tsx`, the
  * same N `wardic.div`s, built with Solid 2's compile) against the Solid 1 binding's, paired per rep.
  * It reports each task and the first frame after the mount, where every element's Starting-style
@@ -114,7 +122,7 @@ import { solid2 } from "../vite.solid2.ts"
 import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
-import type { BatchRound, LayoutRound, LiveRound, ReorderRound, Round, Scene } from "./page.tsx"
+import type { BatchRound, LayoutRound, LiveRound, ReorderRound, Round, Scene, TextRound } from "./page.tsx"
 import { APP_TARGET, commitOf, depsOf, PACKAGES, REPO, sideResolver, sourcesInto } from "./sides.ts"
 
 const GATE = 1.05
@@ -158,6 +166,9 @@ type RetainedKind = (typeof RETAINED_KINDS)[number]
 /** `--features`' pages (#460 Q3): `ward` is `tapped`'s reference page. */
 const FEATURE_KINDS = ["keyframes", "auto", "transition-end", "ward", "tapped"] as const
 type FeatureKind = (typeof FEATURE_KINDS)[number]
+/** `--reorder-batch`'s rows of text (#714): `Reorder.Group`, and a Batch group of one size, of the app's sizes, of sizes read. */
+const TEXT_KINDS = ["reorder-text-group", "reorder-text-one", "reorder-text-given", "reorder-text-read"] as const
+type TextKind = (typeof TEXT_KINDS)[number]
 type Kind =
   | "wardic"
   | "plain"
@@ -171,6 +182,7 @@ type Kind =
   | "batch-paused"
   | "reorder-batch"
   | "reorder-group"
+  | TextKind
   | RetainedKind
   | FeatureKind
 /** The layout page's scenes, in `page.tsx`'s order (#385): the page isn't imported for its values. */
@@ -529,6 +541,52 @@ if (reorderBatchMode) {
     }
     console.log("")
   }
+  // Rows of text (#714): four sides, paired per rep, their order rotated.
+  const TEXT_NAMES: Readonly<Record<TextKind, string>> = { "reorder-text-group": "Reorder.Group", "reorder-text-one": "one size", "reorder-text-given": "the app's", "reorder-text-read": "read" }
+  const textPagesOf = Object.fromEntries(TEXT_KINDS.map((kind) => [kind, []])) as unknown as Record<TextKind, Array<ReadonlyArray<TextRound>>>
+  for (let r = 0; r < reps; r++) {
+    const turn = r % TEXT_KINDS.length
+    for (const kind of [...TEXT_KINDS.slice(turn), ...TEXT_KINDS.slice(0, turn)]) textPagesOf[kind].push((await runPage("head", kind)) as unknown as ReadonlyArray<TextRound>)
+    process.stderr.write(`text rep ${r + 1}/${reps}\r`)
+  }
+  const warmText = (page: ReadonlyArray<TextRound>, task: keyof TextRound): number => median(page.slice(1).map((round) => round[task]))
+  const ratiosOf = (side: TextKind, against: TextKind, task: keyof TextRound): ReadonlyArray<number> =>
+    textPagesOf[side].map((page, r) => warmText(page, task) / warmText(textPagesOf[against][r]!, task))
+  const TEXT_TASKS = ["mount", "frame", "longest", "rest", "resize"] as const
+  console.log(`rows of text (ms, median across reps; each against Reorder.Group's, paired per rep: median)`)
+  console.log(`  ${"side".padEnd(16)}${TEXT_TASKS.map((task) => task.padEnd(18)).join("")}`)
+  for (const kind of TEXT_KINDS) {
+    const cells = TEXT_TASKS.map((task) => {
+      const ms = median(textPagesOf[kind].map((page) => warmText(page, task))).toFixed(2)
+      return Bool.match(kind === "reorder-text-group", {
+        onTrue: () => ms.padEnd(18),
+        onFalse: () => `${ms} (${quantile(ratiosOf(kind, "reorder-text-group", task), 0.5).toFixed(2)}×)`.padEnd(18),
+      })
+    })
+    console.log(`  ${TEXT_NAMES[kind].padEnd(16)}${cells.join("")}`)
+  }
+  // The gates (ADR-0072 *Amendment (#714)*, decision 6): each side's task against another's, at most `most`.
+  const TEXT_GATES: ReadonlyArray<{ readonly side: TextKind; readonly task: keyof TextRound; readonly against: TextKind; readonly most: number }> = [
+    { side: "reorder-text-read", task: "mount", against: "reorder-text-group", most: 0.5 },
+    { side: "reorder-text-read", task: "frame", against: "reorder-text-group", most: 0.75 },
+    { side: "reorder-text-read", task: "resize", against: "reorder-text-group", most: 0.5 },
+    { side: "reorder-text-read", task: "rest", against: "reorder-text-group", most: 1.5 },
+    { side: "reorder-text-given", task: "mount", against: "reorder-text-one", most: 1.1 },
+    { side: "reorder-text-given", task: "frame", against: "reorder-text-group", most: 0.75 },
+  ]
+  console.log(`  gates (paired per rep: median [p25 – p75])`)
+  for (const gate of TEXT_GATES) {
+    const ratios = ratiosOf(gate.side, gate.against, gate.task)
+    const ratio = quantile(ratios, 0.5)
+    const passes = ratio <= gate.most
+    if (Bool.not(passes)) failed = true
+    const verdict = Bool.match(passes, { onTrue: () => `ok (≤ ${gate.most.toFixed(2)}×)`, onFalse: () => `FAIL (> ${gate.most.toFixed(2)}×)` })
+    console.log(
+      `  ${`${TEXT_NAMES[gate.side]} ${gate.task} / ${TEXT_NAMES[gate.against]}'s`.padEnd(40)}` +
+        `${`${ratio.toFixed(3)}× [${quantile(ratios, 0.25).toFixed(3)} – ${quantile(ratios, 0.75).toFixed(3)}]`.padEnd(34)}${verdict}`,
+    )
+  }
+  console.log("")
   await browser.close()
   process.exit(Bool.match(failed, { onTrue: () => 1, onFalse: () => 0 }))
 }

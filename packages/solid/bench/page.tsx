@@ -66,6 +66,14 @@
  * Per round: the mount to its first paint, then a drag the page drives, a pointer event at the start of
  * each frame, the item held moved five places in 30 moves, each move's frame timed to just after its
  * paint, then checked: the order has it five places on, and its element landed there.
+ *
+ * `--reorder-batch`'s rows of text (#714, ADR-0072 *Amendment (#714)*, decision 6): N rows of wrapping text
+ * in a column 240 px wide, a line to a few each. `?kind=reorder-text-group` is a `Reorder.Group` in flow;
+ * `reorder-text-one` a `Reorder.BatchGroup` of one size (40 px), `reorder-text-given` of the app's sizes, a
+ * function's, and `reorder-text-read` of sizes read from the page. Per round: the mount to its first paint,
+ * then a frame at rest, a drag of the fourth row five places on, and the column widened to 320 px, the
+ * widening's frame to its paint; checked, the rows stacked a gap apart, the group as tall as them, after the
+ * mount and the widening, the row held landed where the drag put it, and no "ResizeObserver loop" error.
  */
 import { DomLive } from "@wardic/dom"
 import {
@@ -73,6 +81,7 @@ import {
   createAnimate,
   createBatch,
   Reorder,
+  type ReorderBatchSizing,
   stagger,
   useAnimateLayout,
   wardic,
@@ -130,7 +139,10 @@ style.textContent =
   ".g{position:relative;height:1200px}.g .b{position:absolute;left:0;top:0}" +
   // The reorder pages' lists (#712): `Reorder.Group`'s laid out by CSS grid at the Batch group's places.
   ".rl{margin:0;padding:0;list-style:none}.ri{background:#888}" +
-  ".rg{display:grid;gap:4px;grid-template-columns:120px;grid-auto-rows:16px}.rg.grid{grid-template-columns:repeat(40,16px)}"
+  ".rg{display:grid;gap:4px;grid-template-columns:120px;grid-auto-rows:16px}.rg.grid{grid-template-columns:repeat(40,16px)}" +
+  // Its rows of text (#714): wrapping at the column's width, `Reorder.Group`'s a flex column at the same gap.
+  ".rt{width:240px}.rt .ri{font:12px/16px sans-serif;padding:4px;box-sizing:border-box;overflow:hidden}" +
+  ".rf{display:flex;flex-direction:column;gap:4px}"
 document.head.append(style)
 
 /** `text` when `cond` holds, else nothing. */
@@ -382,6 +394,49 @@ const ReorderGroupPage = () => (
   </WardicProvider>
 )
 
+// `--reorder-batch`'s rows of text (#714): a row's text, a line to a few at 240 px, by its value.
+const textOf = (value: number): string => "word ".repeat(2 + ((value * 7) % 23))
+/** Each Batch side's sizing: one size, the app's by a function, or none, read from the page. */
+const TEXT_SIZING: Readonly<Record<string, ReorderBatchSizing<number>>> = {
+  "reorder-text-one": { itemSize: { width: 240, height: 40 } },
+  "reorder-text-given": { itemSize: (value) => ({ width: 240, height: 24 + 16 * (value % 3) }) },
+  "reorder-text-read": {},
+}
+// The column, widened in a round; and the "ResizeObserver loop" errors the page raises, none expected.
+let textColumn: HTMLDivElement | undefined
+let loopErrors = 0
+window.addEventListener("error", (event) => {
+  if (/ResizeObserver loop/.test(event.message)) loopErrors++
+})
+const TextBatchPage = () => (
+  <WardicProvider env={DomLive}>
+    <div class="rt" ref={textColumn}>
+      <Show when={shown()}>
+        <Reorder.BatchGroup class="rl" values={order()} onReorder={reorderValues} {...TEXT_SIZING[kind]} gap={REORDER_GAP} transition={REORDER_SPRING}>
+          <For each={order()}>{(value) => <Reorder.BatchItem class="ri" value={value}>{textOf(value)}</Reorder.BatchItem>}</For>
+        </Reorder.BatchGroup>
+      </Show>
+    </div>
+  </WardicProvider>
+)
+const TextGroupPage = () => (
+  <WardicProvider env={DomLive}>
+    <div class="rt" ref={textColumn}>
+      <Show when={shown()}>
+        <Reorder.Group class="rl rf" values={order()} onReorder={reorderValues} axis="y">
+          <For each={order()}>
+            {(value) => (
+              <Reorder.Item class="ri" value={value} transition={REORDER_SPRING}>
+                {textOf(value)}
+              </Reorder.Item>
+            )}
+          </For>
+        </Reorder.Group>
+      </Show>
+    </div>
+  </WardicProvider>
+)
+
 // `?kind=layout` (#385): #383's tree, its scenes' four switches, and the hook its scenes call.
 const LISTS = Array.from({ length: 10 }, (_, i) => i)
 const ITEMS = Array.from({ length: 99 }, (_, i) => i)
@@ -457,6 +512,10 @@ const pages = {
   "batch-animate": AnimatePage,
   "reorder-batch": ReorderBatchPage,
   "reorder-group": ReorderGroupPage,
+  "reorder-text-group": TextGroupPage,
+  "reorder-text-one": TextBatchPage,
+  "reorder-text-given": TextBatchPage,
+  "reorder-text-read": TextBatchPage,
 } as const
 render(() => {
   const Page = pages[kind as keyof typeof pages]
@@ -736,6 +795,76 @@ const reorderRound = async (): Promise<ReorderRound> => {
   return { mount, frame: drag.reduce((sum, ms) => sum + ms, 0) / drag.length, longest: Math.max(...drag) }
 }
 
+/**
+ * One round of `--reorder-batch`'s rows of text (#714), in ms: the **mount** to its first paint, a **rest**
+ * frame (the mean of 30 drawn with nothing moving, from their first rAF callback to just after their paint),
+ * the drag's **frame** mean and **longest**, and the column widened, **resize**, its frame to its paint.
+ */
+export interface TextRound {
+  readonly mount: number
+  readonly frame: number
+  readonly longest: number
+  readonly rest: number
+  readonly resize: number
+}
+
+/** The mean of `ms`. */
+const meanOf = (ms: ReadonlyArray<number>): number => ms.reduce((sum, m) => sum + m, 0) / ms.length
+
+/** The row held: the fourth, near the top: rows of text are ~40 px, and the sixteenth drags into Auto-scroll's edge. */
+const TEXT_HELD = 3
+
+/** Every row on screen, the first 60, one below the other a gap apart, and the group as tall as them all: else an error naming `when`. */
+const checkStacked = (when: string): void => {
+  const rows = reorderItems()
+  const boxes = rows.slice(0, 60).map((el) => el.getBoundingClientRect())
+  boxes.forEach((box, i) => {
+    if (i === 0) return
+    const gap = box.top - boxes[i - 1]!.bottom
+    if (Math.abs(gap - REORDER_GAP) > 0.5) throw new Error(`bench:solid: ${when}: row ${i} is ${gap} px below row ${i - 1}, not ${REORDER_GAP}`)
+  })
+  const group = rows[0]!.parentElement!.getBoundingClientRect()
+  const last = rows.reduce((low, el) => Math.max(low, el.getBoundingClientRect().bottom), 0)
+  if (Math.abs(group.bottom - last) > 0.5) throw new Error(`bench:solid: ${when}: the group ends at ${group.bottom}, its rows at ${last}`)
+}
+
+/** No "ResizeObserver loop" error since `since`: else an error naming `when`. */
+const checkNoLoopError = (since: number, when: string): void => {
+  if (loopErrors > since) throw new Error(`bench:solid: ${when}: ${loopErrors - since} "ResizeObserver loop" error(s)`)
+}
+
+const textRound = async (): Promise<TextRound> => {
+  setOrder(items)
+  textColumn!.style.width = "240px"
+  await afterPaint()
+  const errors = loopErrors
+  const mount = await mountToPaint(() => setShown(true))
+  if (reorderItems().length !== n) throw new Error(`bench:solid: mounted ${reorderItems().length} of ${n}`)
+  await frames(30)
+  checkStacked("mounted")
+  const rest: Array<number> = []
+  for (let i = 0; i < 30; i++) rest.push(await nextFrame())
+  const rows = reorderItems()
+  const held = rows[TEXT_HELD]!
+  const from = held.getBoundingClientRect()
+  // Five rows on: the heights of the five after it, each a gap below the one before.
+  const dy = rows.slice(TEXT_HELD + 1, TEXT_HELD + 1 + PLACES).reduce((sum, el) => sum + el.getBoundingClientRect().height + REORDER_GAP, 0)
+  const drag = await dragFrames(held, from.left + from.width / 2, from.top + from.height / 2, 0, dy)
+  await frames(90)
+  if (order()[TEXT_HELD + PLACES] !== TEXT_HELD) throw new Error(`bench:solid: the row held is at ${order().indexOf(TEXT_HELD)}, not ${TEXT_HELD + PLACES}`)
+  const to = held.getBoundingClientRect()
+  if (Math.abs(to.top - from.top - dy) > 0.5) throw new Error(`bench:solid: the row held landed ${to.top - from.top} px on, not ${dy}`)
+  const resize = await mountToPaint(() => {
+    textColumn!.style.width = "320px"
+  })
+  await frames(90)
+  checkStacked("widened")
+  checkNoLoopError(errors, kind)
+  setShown(false)
+  await frames(6)
+  return { mount, frame: meanOf(drag), longest: Math.max(...drag), rest: meanOf(rest), resize }
+}
+
 /** One `--live` round's tasks, in ms: the mount and unmount, and the median set and frame. */
 export interface LiveRound {
   readonly mount: number
@@ -891,6 +1020,11 @@ const retained: RetainedPage = {
     await mountLayout()
     for (let i = 0; i < rounds; i++) out.push(await layoutRound())
     return out
+  }
+  if (kind.startsWith("reorder-text")) {
+    const textOut: Array<TextRound> = []
+    for (let i = 0; i < rounds; i++) textOut.push(await textRound())
+    return textOut as never
   }
   if (kind.startsWith("reorder")) {
     const reorderOut: Array<ReorderRound> = []

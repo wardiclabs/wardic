@@ -38,16 +38,36 @@ An item brings its own drag, layout and gestures, so a list works under any prov
 
 ## Thousands of items: Reorder.BatchGroup
 
-`<Reorder.BatchGroup>` and `<Reorder.BatchItem>` reorder a long list of items of one size as one [Batch](/guides/batches). The group gives each item the place its index gives, so no item is measured, as the list mounts or as an item crosses another: a list of thousands mounts and drags at a Batch's cost. Switch the demo to a grid to see one whose columns come from its width.
+`<Reorder.BatchGroup>` and `<Reorder.BatchItem>` reorder a long list as one [Batch](/guides/batches). The group gives each item the place its index gives, from its size and the sizes of the items before it, so nothing is read from the page as an item crosses another: a list of thousands mounts and drags at a Batch's cost. Switch the demo to a grid to see one whose columns come from its width, or to rows of text, each as tall as its text.
 
 <Demo sample="reorder-batch" />
 
 <CodeTabs sample="reorder-batch" />
 
-- **Its shape is a few numbers.** `itemSize` is every item's `{ width, height }` and `gap` the space between places. `axis` is `"y"`, a column (the default), `"x"`, a row, or `"xy"`, a grid, whose `columns` is how many items a row holds: left out, as many as the group's width holds, read again as it's resized.
+- **Its shape is a few numbers.** `axis` is `"y"`, a column (the default), `"x"`, a row, or `"xy"`, a grid, and `gap` is the space between places.
+- **Its items' sizes come one of three ways:**
+  - `itemSize={{ width, height }}`, every item one size. A grid's `columns` is how many items a row holds: left out, as many as the group's width holds, read again as it's resized.
+  - `itemSize` a function of an item and its index, giving each item its own size, as a clip track below does. It's called for every item at each change of the list, and tracked: a size it reads that changes moves the items after it.
+  - `itemSize` left out: each item's size is read from the page, its own content's, as the demo's rows of text are. Until the sizes are read, on a server too, the items are laid out in flow, and then each is placed where flow had it, so nothing moves. A size that changes later, from an image loading or text wrapping again, moves the items after it. Space them with `gap`: a margin counts in flow but not in a place.
+
+  In a column a size can leave out `width`, and each item is as wide as the group's content box. With sizes from a function or the page, a grid's rows break where the next item doesn't fit its width, each item at its row's top.
 - **It keeps what `Reorder.Group` gives:** `values` and `onReorder`, the keyboard reorder and its announcements, auto-scroll near its scroll container's edges, the events at a reorder's end, right to left, and a server render with every item at its place. The DOM follows the order, so Tab and a screen reader read the list as it's shown.
 - **The motion is the group's props.** `whileDrag`, `whileHover` and `whileTap` are values, or a function of an item and its index; `initial` is those, or `false`, its keys moving to their identity as an item enters (`initial: { opacity: 0 }` fades it in), and `appear` plays that entrance from a server-rendered page's first paint; `transition` is the items' moves to their places; and `exit`, for items leaving under an `<AnimatePresence>` around the `<For>`, is values, or a function of an item, its last index and the presence's `custom`. An item is a member of the group's Batch, not a Wardic element, and takes its `value`, `as` and its element's own props.
-- **What it gives up:** every item is the one size, and an item has no layout animation, variants or `layoutId` of its own. Its keys are a Batch's, the transforms and `opacity` ([a Batch's limits](/guides/batches#its-limits)). For items of different sizes, or items that need more, use `Reorder.Group`.
+- **What it gives up:** an item has no layout animation, variants or `layoutId` of its own. Its keys are a Batch's, the transforms and `opacity` ([a Batch's limits](/guides/batches#its-limits)). For items that need more, use `Reorder.Group`.
 - Motion's `Reorder` has no such mode: its tab is a `Reorder.Group` of 1,000 `Reorder.Item`s, each with its own drag and layout animation.
+
+A clip track gives each clip its own width, a function of the clip, so nothing is read from the page and a server places every clip:
+
+```tsx
+const [clips, setClips] = createSignal([
+  { name: "Intro", seconds: 4 },
+  { name: "Verse", seconds: 12 },
+  { name: "Chorus", seconds: 8 },
+])
+
+<Reorder.BatchGroup values={clips()} onReorder={setClips} axis="x" itemSize={(clip) => ({ width: clip.seconds * 40, height: 56 })} gap={4}>
+  <For each={clips()}>{(clip) => <Reorder.BatchItem value={clip}>{clip.name}</Reorder.BatchItem>}</For>
+</Reorder.BatchGroup>
+```
 
 Every prop is on [its reference](/reference/solid/reorder/reorder#reorderbatchgroup-and-reorderbatchitem).

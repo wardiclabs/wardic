@@ -157,19 +157,27 @@ const contentWidthOf = (el: Element): number => {
 }
 
 /**
- * What `el`'s own `width` and `height` hold besides its content box (#714): its padding and border on each
- * axis when it's `border-box`, as a CSS reset makes it; none when it's `content-box`.
+ * What `el` holds beyond its content box (#714): what its own `width` and `height` hold besides it, on each
+ * axis, its padding and border when it's `border-box`, as a CSS reset makes it, none when it's `content-box`;
+ * and its horizontal padding, what an absolutely placed item's `100%` holds besides it.
  */
-const edgesOf = (el: Element): XY => {
+const edgesAndPaddingOf = (el: Element): Pick<BatchReorderRead, "edges" | "padding"> => {
   const style = getComputedStyle(el)
-  return Bool.match(style.boxSizing === "border-box", {
-    onTrue: (): XY => ({
-      x: parseFloat(style.paddingLeft) + parseFloat(style.paddingRight) + parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth),
-      y: parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth),
+  const padding = parseFloat(style.paddingLeft) + parseFloat(style.paddingRight)
+  return {
+    padding,
+    edges: Bool.match(style.boxSizing === "border-box", {
+      onTrue: (): XY => ({
+        x: padding + parseFloat(style.borderLeftWidth) + parseFloat(style.borderRightWidth),
+        y: parseFloat(style.paddingTop) + parseFloat(style.paddingBottom) + parseFloat(style.borderTopWidth) + parseFloat(style.borderBottomWidth),
+      }),
+      onFalse: (): XY => ORIGIN,
     }),
-    onFalse: (): XY => ORIGIN,
-  })
+  }
 }
+
+/** The group's boxes its size is observed by (#714): a padding that changes moves one or the other. */
+const GROUP_BOXES: ReadonlyArray<ResizeObserverBoxOptions> = ["content-box", "border-box"]
 
 /** Whether a node is an HTML element: what a raise's `z-index` is written on. */
 const isHTMLElement = (node: unknown): node is HTMLElement => node instanceof HTMLElement
@@ -659,13 +667,13 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
   // The direction its element inherits, read the first time (Q35: as it mounts); its observer of its size;
   // and whether it's gone: a read a frame callback still had waiting does nothing then.
   let inherited: BatchReorderDirection | undefined
-  let resizes: ResizeObserver | undefined
+  let resizes: ReadonlyArray<ResizeObserver> = []
   let gone = false
   /**
    * What it reads of its element, told its binding: the direction its parent gives it (not its own, which
-   * its `direction` sets), the first time; and, for a grid whose rows break at it, its content width. A
-   * column's items that take its width have it by CSS (#714). The first time, its items go to the places that
-   * gives at once when those aren't where they are.
+   * its `direction` sets), the first time; for a grid whose rows break at it, its content width; and its edges
+   * and padding, what its own size and a column's items' width go by (#714). The first time, its items go to
+   * the places that gives at once when those aren't where they are.
    */
   const readElement = (el: Element): void => {
     if (gone) return
@@ -673,24 +681,36 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     const first = Predicate.isUndefined(inherited)
     const direction = UndefinedOr.match(inherited, { onUndefined: () => directionAbove(el), onDefined: identity })
     inherited = direction
-    const seen: BatchReorderRead = { direction, width: Bool.match(isFromWidth(env.untrack(geometryNow)), { onTrue: () => contentWidthOf(el), onFalse: () => undefined }), edges: edgesOf(el) }
+    const seen: BatchReorderRead = { direction, width: Bool.match(isFromWidth(env.untrack(geometryNow)), { onTrue: () => contentWidthOf(el), onFalse: () => undefined }), ...edgesAndPaddingOf(el) }
     if (first) atOnce = Bool.not(samePlaces(resolved, env.untrack(() => resolvePlaces(options.geometryOf(seen), options.values(), readSoFar))))
     options.onRead(seen)
   }
   /**
-   * Its element read again as it's resized: a grid's columns or rows from its width (Q36; #714). Read the frame
-   * after: a new column count changes the group's height, which inside the
-   * observer's own delivery is a notification it can't deliver (the page's "ResizeObserver loop" error).
+   * Its element read again as it's resized: a grid's columns or rows from its width (Q36; #714), its edges and
+   * padding. Its content box and its border box are each observed: a padding that changes moves one or the
+   * other, as it's `content-box` or `border-box` and its width its own or not. Read once, the frame after: a new
+   * column count changes the group's height, which inside the observer's own delivery is a notification it
+   * can't deliver (the page's "ResizeObserver loop" error).
    */
   const observeSize = (el: Element): void => {
-    UndefinedOr.map(resizes, (observer) => observer.disconnect())
+    Arr.forEach(resizes, (observer) => observer.disconnect())
     // The Environment's frames (ADR-0031), called detached as the flush gate's are: the web's is
     // `requestAnimationFrame` itself, which won't run with another object as its `this`.
     const { requestFrame } = runtime.runSync(RefreshFrameSource.RefreshFrameSource)
-    resizes = new ResizeObserver(() => {
-      requestFrame(() => readElement(el))
+    let readPending = false
+    const readNextFrame = (): void => {
+      if (readPending) return
+      readPending = true
+      requestFrame(() => {
+        readPending = false
+        readElement(el)
+      })
+    }
+    resizes = Arr.map(GROUP_BOXES, (box) => {
+      const observer = new ResizeObserver(readNextFrame)
+      observer.observe(el, { box })
+      return observer
     })
-    resizes.observe(el)
   }
 
   // --- Its items' own sizes (#714) -------------------------------------------------------------
@@ -909,7 +929,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     pressable,
     dispose: () => {
       gone = true
-      UndefinedOr.map(resizes, (observer) => observer.disconnect())
+      Arr.forEach(resizes, (observer) => observer.disconnect())
       UndefinedOr.map(sizes, (observer) => observer.disconnect())
       gestures.close()
       OwnerScope.close(runtime, scope, CLOSE_FAILED)

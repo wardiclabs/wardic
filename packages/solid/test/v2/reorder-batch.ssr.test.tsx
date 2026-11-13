@@ -27,8 +27,8 @@
 //
 // Items whose sizes are read from the page, `itemSize` left out (#714, ADR-0072 *Amendment (#714)*, decision 4):
 // the server can't read them, so the group lays its items out in flow by CSS, each at no place.
-// - BM1: a column: a flex column, its gap the row gap; the group a size container, each item `100cqi` wide,
-//   border-box, its height its own.
+// - BM1: a column: a flex column, its gap the row gap; each item `100%` wide in flow, its content box,
+//   border-box, its height its own; the group no size container.
 // - BM2: a row: a flex row at its items' tops, as wide as they are; each item its own size.
 // - BM3: a grid: `flex-wrap` rows at their items' tops.
 // - BM4: `initial`'s keys but `x` and `y` on each item, in flow.
@@ -287,12 +287,12 @@ const measuredList = (scene: SizedScene) => () => (
 )
 
 describe("Reorder.BatchGroup of items whose sizes are read, on a server (#714)", () => {
-  it("BM1: a column in flow: a flex column, a size container; each item 100cqi wide, border-box, its height its own", () => {
+  it("BM1: a column in flow: a flex column; each item 100% wide, its content box, border-box, its height its own", () => {
     const [group, ...items] = tagsOf(serve(measuredList({ axis: "y" })))
-    expect([group?.style.position, group?.style.display, group?.style["flex-direction"], group?.style["row-gap"], group?.style["container-type"]]).toEqual(["relative", "flex", "column", "10px", "inline-size"])
+    expect([group?.style.position, group?.style.display, group?.style["flex-direction"], group?.style["row-gap"], group?.style["container-type"]]).toEqual(["relative", "flex", "column", "10px", undefined])
     expect([group?.style.width, group?.style.height], "its size its items' and its container's").toEqual([undefined, undefined])
     items.forEach((item) => {
-      expect([item.style.position, item.style.transform, item.style.width, item.style["box-sizing"], item.style.height, item.style["flex-shrink"]]).toEqual([undefined, undefined, "100cqi", "border-box", undefined, "0"])
+      expect([item.style.position, item.style.transform, item.style.width, item.style["box-sizing"], item.style.height, item.style["flex-shrink"]]).toEqual([undefined, undefined, "100%", "border-box", undefined, "0"])
       expectDragDefaults(item, "pan-x")
     })
   })
