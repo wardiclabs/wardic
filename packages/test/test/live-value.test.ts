@@ -547,6 +547,44 @@ describe("LiveValue.scrollDerivationOf: how a value derives from a scroll, for a
       expect(LiveValue.scrollDerivationOf(sprung)).toEqual(Option.none())
       expect(LiveValue.scrollDerivationOf(yield* LiveValue.velocity(scrollYProgress))).toEqual(Option.none())
     })))
+
+  it.effect("TD4: a binding's own Atom described as a scroll value derives as it does, a transform made over it before that too, and again as it's pointed at another", () =>
+    withScroll(Effect.gen(function* () {
+      // A binding's value for its life, set from the scroll of elements that arrive after it's made.
+      const own = Atom.make(0)
+      const reveal = yield* LiveValue.transform(own, [0, 1], [0.2, 1])
+      expect(LiveValue.scrollDerivationOf(own), "nothing yet").toEqual(Option.none())
+      expect(LiveValue.scrollDerivationOf(reveal), "nothing yet").toEqual(Option.none())
+      const first = yield* LiveValue.scroll({ container })
+      expect(LiveValue.derivesAs(own, first.scrollYProgress)).toBe(own)
+      expect(LiveValue.scrollDerivationOf(own)).toEqual(Option.some({ scroll: { container }, read: "progress", axis: "y", transforms: [] }))
+      expect(LiveValue.scrollDerivationOf(reveal)).toEqual(Option.some({
+        scroll: { container },
+        read: "progress",
+        axis: "y",
+        transforms: [{ input: [0, 1], output: [0.2, 1], ease: Option.none(), clamp: true, mixed: false }],
+      }))
+      const other = { id: "other" }
+      const second = yield* LiveValue.scroll({ container: other })
+      // Data-last, as every operation is.
+      LiveValue.derivesAs(second.scrollXProgress)(own)
+      expect(Option.map(LiveValue.scrollDerivationOf(reveal), (d) => [d.scroll, d.axis])).toEqual(Option.some([{ container: other }, "x"]))
+      // Pointed at a value that derives from no scroll: none.
+      LiveValue.derivesAs(own, Atom.make(0))
+      expect(LiveValue.scrollDerivationOf(reveal)).toEqual(Option.none())
+    })))
+
+  it.effect("TD5: read again while nothing changed, a derivation is the same object; it's a new one once what it derives from changes", () =>
+    withScroll(Effect.gen(function* () {
+      const own = Atom.make(0)
+      const reveal = yield* LiveValue.transform(own, [0, 1], [0.2, 1])
+      const first = yield* LiveValue.scroll({ container })
+      LiveValue.derivesAs(own, first.scrollYProgress)
+      const read = Option.getOrThrow(LiveValue.scrollDerivationOf(reveal))
+      expect(Option.getOrThrow(LiveValue.scrollDerivationOf(reveal)), "the same while nothing changed").toBe(read)
+      LiveValue.derivesAs(own, (yield* LiveValue.scroll({ container })).scrollYProgress)
+      expect(Option.getOrThrow(LiveValue.scrollDerivationOf(reveal)), "a new scroll value: a new derivation").not.toBe(read)
+    })))
 })
 
 describe("LiveValue.velocity: a value's velocity per frame while it moves (#234)", () => {
