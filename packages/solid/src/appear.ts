@@ -810,6 +810,21 @@ export interface Handoff {
   readonly animation: Animation
 }
 
+/** A document's Appear animations, read for a Handoff: one read a task, for every Batch handing over in it (#706 Q3). */
+// Module state (#460, Q7): a cache of what one task read, keyed by the document it read, dropped at its end.
+let pageRead: { readonly doc: Document; readonly animations: ReadonlyMap<Element, Animation> } | undefined = undefined
+
+/** `doc`'s Appear animations by element: read once a task, `Appear.findAll`'s one `getAnimations()`. */
+export const pageAnimationsOf = (doc: Document): ReadonlyMap<Element, Animation> => {
+  if (Predicate.isNotUndefined(pageRead) && pageRead.doc === doc) return pageRead.animations
+  const animations = Appear.findAll(doc)
+  pageRead = { doc, animations }
+  queueMicrotask(() => {
+    pageRead = undefined
+  })
+  return animations
+}
+
 /** The element's Appear animation, if a server started one (decision 6). */
 export const handoffOf = (element: Element): Option.Option<Handoff> => Option.map(Appear.find(element), (animation) => ({ animation }))
 

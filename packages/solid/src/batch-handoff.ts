@@ -11,6 +11,7 @@ import * as Effect from "effect/Effect"
 import * as Iter from "effect/Iterable"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import { pageAnimationsOf } from "./appear.ts"
 import type { WardicRuntime } from "./runtime.ts"
 
 /** A Batch's members running their Appear animation, as its Handoff reads them. */
@@ -25,21 +26,6 @@ export interface HandoffMembers {
   readonly runtime: WardicRuntime
   /** Each member let go of its animation, once the step's starts are done: none waits for a step then. */
   readonly release: () => void
-}
-
-/** A document's Appear animations, read for a Handoff: one read a task, for every Batch handing over in it (Q3). */
-// Module state (#460, Q7): a cache of what one task read, keyed by the document it read, dropped at its end.
-let pageRead: { readonly doc: Document; readonly animations: ReadonlyMap<Element, Animation> } | undefined = undefined
-
-/** `doc`'s Appear animations by element: read once a task, `Appear.findAll`'s one `getAnimations()`. */
-const pageAnimationsOf = (doc: Document): ReadonlyMap<Element, Animation> => {
-  if (Predicate.isNotUndefined(pageRead) && pageRead.doc === doc) return pageRead.animations
-  const animations = Appear.findAll(doc)
-  pageRead = { doc, animations }
-  queueMicrotask(() => {
-    pageRead = undefined
-  })
-  return animations
 }
 
 /** A member's rule sampled from other transitions than the client's (ADR-0044 decision 6): noted, and taken over all the same. */
