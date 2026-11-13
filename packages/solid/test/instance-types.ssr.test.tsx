@@ -12,7 +12,11 @@
 //   Feature (`domMax`), with no `NeedsFeature` anywhere.
 // - IT5: the other forms of an instance's `w` take its Features' props alone: `w.create(tag)`,
 //   `w.create(Component)`, `w.create(string)` and `w.createWard(config)`, a value or an accessor.
-import { domAnimation, domMax, drag, focus, hover, inView, layout, pan, press, type W as PlainW, w, type WardicComponent, type WardicInstance } from "@wardic/solid"
+// - IT6: `WardConfigOf<F>` is what an instance's element takes: a wrapper typed with it takes its
+//   Features' props, rejects another's naming it, and hands them on to the instance's element.
+// - IT7: an instance with `layout`, given at once or loaded, has the three layout hooks, as the global
+//   ones are typed (Q6); one without it hasn't them.
+import { domAnimation, domMax, drag, focus, hover, inView, layout, pan, press, type W as PlainW, w, type WardConfig, type WardConfigOf, type WardicComponent, type WardicInstance, createInstantLayoutTransition, createResetProjection, useAnimateLayout } from "@wardic/solid"
 import type { JSX } from "solid-js"
 import { describe, expectTypeOf, it } from "vitest"
 import type { WardicVariantLabels } from "../src/config.ts"
@@ -312,5 +316,40 @@ describe("a Wardic instance's element props (#516)", () => {
       // @ts-expect-error nor has it layout, in an accessor's config
       shell.createWard(() => ({ layoutId: "card" })),
     )
+  })
+
+  it("IT6: WardConfigOf<F> is what an instance's element takes, for a wrapper's props", () => {
+    type HoverCard = WardConfigOf<[typeof hover]>
+    typed((): HoverCard => ({ whileHover: { scale: 1.1 }, animate: { opacity: 1 }, onHoverStart: noop }))
+    typed((): HoverCard => ({ layout: needs("layout"), drag: needs("drag") }))
+    typed(
+      (): HoverCard => ({
+        // @ts-expect-error hover alone has no drag
+        drag: "x",
+      }),
+    )
+    expectTypeOf<WardConfigOf<typeof domMax>>().toEqualTypeOf<WardConfig>()
+
+    typed(() => {
+      const Card = (props: WardConfigOf<[typeof hover]> & { readonly title: string }) => <hovers.article {...props}>{props.title}</hovers.article>
+      return <Card title="Lamp" whileHover={{ scale: 1.05 }} />
+    })
+  })
+
+  it("IT7: an instance with layout has the layout hooks, as the global ones are typed; one without hasn't", () => {
+    type Laid = WardicInstance<[typeof domAnimation, typeof layout]>
+    expectTypeOf<Laid["useAnimateLayout"]>().toEqualTypeOf<typeof useAnimateLayout>()
+    expectTypeOf<Laid["createInstantLayoutTransition"]>().toEqualTypeOf<typeof createInstantLayoutTransition>()
+    expectTypeOf<Laid["createResetProjection"]>().toEqualTypeOf<typeof createResetProjection>()
+    expectTypeOf<WardicInstance<[typeof hover, () => Promise<typeof layout>]>["useAnimateLayout"]>().toEqualTypeOf<typeof useAnimateLayout>()
+
+    expectTypeOf<WardicInstance<typeof domAnimation>>().not.toHaveProperty("useAnimateLayout")
+    expectTypeOf<WardicInstance<typeof domAnimation>>().not.toHaveProperty("createInstantLayoutTransition")
+    expectTypeOf<WardicInstance<typeof domAnimation>>().not.toHaveProperty("createResetProjection")
+    typed(() => {
+      const shell = null as unknown as WardicInstance<typeof domAnimation>
+      // @ts-expect-error domAnimation has no layout
+      return shell.useAnimateLayout
+    })
   })
 })
