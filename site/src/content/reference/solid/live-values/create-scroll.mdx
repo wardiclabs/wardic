@@ -22,7 +22,7 @@ const { scrollYProgress } = createScroll()
 | `scrollX`, `scrollY` | How far it's scrolled across and down, in pixels. |
 | `scrollXProgress`, `scrollYProgress` | The same from 0 to 1: through its range, or, with a `target` or `offset`, through theirs. |
 
-They're set in the scroll's own event, so a value derived from one paints in the frame that shows the scroll.
+They're set in the scroll's own event, so a value derived from one paints in the frame that shows the scroll. Where the browser has native scroll timelines, one given to an element's `opacity`, `filter`, `clipPath` or a transform key, or a `createTransform` of one through ranges, is drawn by the browser with the scroll itself: see [Drawn with the scroll](/guides/scroll#drawn-with-the-scroll).
 
 ## Options
 

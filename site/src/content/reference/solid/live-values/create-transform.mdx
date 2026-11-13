@@ -28,6 +28,8 @@ const double = createTransform(x, (x) => x * 2)
 | `ease` | Eases each stretch between stops: one easing for all, or a list, one each. |
 | `mixer` | `(from, to) => (t) => value`: blends two outputs in place of `animate`'s blends, so they can be any type. |
 
+Through ranges from a `createScroll` value, the browser can draw it with the scroll itself, where a function's value is Wardic's to draw each frame: see [Drawn with the scroll](/guides/scroll#drawn-with-the-scroll).
+
 ## Through a function
 
 `createTransform(source, fn)`: `fn` of the source's value. A signal read inside `fn` is tracked too, so its change maps again. On Solid 1, this form needs no `WardicProvider` when its source is a signal.
