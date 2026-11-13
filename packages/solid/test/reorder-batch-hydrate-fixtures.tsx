@@ -54,3 +54,35 @@ export const R6 = (): JSX.Element => <WardicProvider env={DomLive}>{list({ axis:
 
 /** A padded column, its items the group's alone. */
 export const R7 = (): JSX.Element => <WardicProvider env={DomLive}>{list({ axis: "y", padding: 12, plain: true })}</WardicProvider>
+
+/** Each item's own size (#714): by its value. */
+const WIDTHS: Readonly<Record<string, number>> = { a: 80, b: 120, c: 60, d: 100, e: 40 }
+const HEIGHTS: Readonly<Record<string, number>> = { a: 40, b: 70, c: 50, d: 90, e: 60 }
+
+/** A column of items each their own height, from a function (#714), padded 12 px. */
+export const R8 = (): JSX.Element => (
+  <WardicProvider env={DomLive}>
+    <Reorder.BatchGroup values={VALUES} onReorder={() => {}} itemSize={(value) => ({ width: 200, height: HEIGHTS[value]! })} gap={10} style={{ margin: "0", padding: "12px" }}>
+      <For each={VALUES}>{(value) => <Reorder.BatchItem value={value} data-k={value} style={LOOK}>{value}</Reorder.BatchItem>}</For>
+    </Reorder.BatchGroup>
+  </WardicProvider>
+)
+
+/** A grid of items each their own size in a 280 px group (#714): `flex-wrap` on the server, its places on the client. */
+export const R9 = (): JSX.Element => (
+  <WardicProvider env={DomLive}>
+    <Reorder.BatchGroup values={VALUES} onReorder={() => {}} axis="xy" itemSize={(value) => ({ width: WIDTHS[value]!, height: HEIGHTS[value]! })} gap={10} style={{ margin: "0", padding: "0", width: "280px" }}>
+      <For each={VALUES}>{(value) => <Reorder.BatchItem value={value} data-k={value} style={LOOK}>{value}</Reorder.BatchItem>}</For>
+    </Reorder.BatchGroup>
+  </WardicProvider>
+)
+
+/** A column, its content box 300 px and padded 12 px, whose items take its width (#714, Q10): by CSS, on the server too. */
+export const R10 = (): JSX.Element => (
+  <WardicProvider env={DomLive}>
+    <Reorder.BatchGroup values={VALUES} onReorder={() => {}} itemSize={{ height: 50 }} gap={10} style={{ margin: "0", padding: "12px", width: "300px" }}>
+      <For each={VALUES}>{(value) => <Reorder.BatchItem value={value} data-k={value} style={LOOK}>{value}</Reorder.BatchItem>}</For>
+    </Reorder.BatchGroup>
+  </WardicProvider>
+)
+

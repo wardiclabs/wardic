@@ -39,6 +39,8 @@ export interface BatchSceneOptions {
   readonly plain?: boolean
   /** Where each item starts (#706's Q20: a key but `x` and `y` moves to its identity as it enters). */
   readonly initial?: WardicBatchValues | ((item: string, i: number) => WardicBatchValues)
+  /** Each item's own size, by its value, the group's `itemSize` function (#714): a grid's rows from its width. */
+  readonly sizeOf?: (value: string) => { readonly width: number; readonly height: number }
 }
 
 /** The group's place on the page: `reorder-harness.tsx`'s. */
@@ -87,9 +89,14 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Scen
       onHoldStart={(start: ReorderController.HoldStart<string>) => holds.push(`start ${start.value} ${start.from}`)}
       onHoldEnd={(end: ReorderController.HoldEnd<string>) => holds.push(`end ${end.value} ${end.from}→${end.to} ${end.how}`)}
       axis={layout}
-      itemSize={{ width: l.w, height: l.h }}
+      {...UndefinedOr.match(o.sizeOf, {
+        onUndefined: () => ({
+          itemSize: { width: l.w, height: l.h },
+          ...Bool.match(Bool.and(layout === "xy", Predicate.isUndefined(o.fromWidth)), { onTrue: () => ({ columns: 3 }), onFalse: () => ({}) }),
+        }),
+        onDefined: (sizeOf) => ({ itemSize: sizeOf }),
+      })}
       gap={10}
-      {...Bool.match(Bool.and(layout === "xy", Predicate.isUndefined(o.fromWidth)), { onTrue: () => ({ columns: 3 }), onFalse: () => ({}) })}
       {...UndefinedOr.match(o.whileDrag, { onUndefined: () => ({}), onDefined: (whileDrag) => ({ whileDrag }) })}
       {...UndefinedOr.match(o.transition, { onUndefined: () => ({}), onDefined: (transition) => ({ transition }) })}
       {...UndefinedOr.match(o.initial, { onUndefined: () => ({}), onDefined: (initial) => ({ initial }) })}

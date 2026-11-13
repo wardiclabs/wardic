@@ -22,8 +22,8 @@ import { $PROXY, type Accessor, createComponent, createContext, createEffect, cr
 import { Dynamic, getNextElement, insert, setAttribute, spread } from "solid-js/web"
 import { batchHandoffHere, batchServerAppearHere } from "./batch-appear-here.tsx"
 import { configTransitionOf, type WardicBatchTransition } from "./batch.ts"
-import { type BatchReorderBinding, type BatchReorderExit, type BatchReorderGesture, type BatchReorderInitial, type BatchReorderItem, type BatchReorderItems, serverBatchReorder, type BatchReorderRead, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchItemSize, sameRead, tabStopOf } from "./batch-reorder.ts"
-import { cssTextOf, sameStyle } from "./batch-reorder-places.ts"
+import { type BatchReorderBinding, type BatchReorderExit, type BatchReorderGesture, type BatchReorderInitial, type BatchReorderItem, type BatchReorderItems, serverBatchReorder, type BatchReorderRead, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchSizing, sameRead, tabStopOf } from "./batch-reorder.ts"
+import { type BatchReorderItemSizes, cssTextOf, sameStyle } from "./batch-reorder-places.ts"
 import { usePresenceContext } from "./presence.tsx"
 import { plainOrder } from "./reorder-values.ts"
 import { useBrought, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
@@ -31,13 +31,14 @@ import type { ReorderElementTag } from "./reorder.tsx"
 import { isServer } from "./server.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 
-export type { ReorderBatchGap, ReorderBatchItemSize } from "./batch-reorder.ts"
+export type { ReorderBatchColumnSize, ReorderBatchGap, ReorderBatchItemSize, ReorderBatchSizing } from "./batch-reorder.ts"
 
 /**
  * `Reorder.BatchGroup`'s props: `Reorder.Group`'s (its `values`, `onReorder`, events and keyboard), its
- * places' geometry, its items' motion, and the props of the element it renders.
+ * places' geometry (its shape and its items' sizes, {@link ReorderBatchSizing}), its items' motion, and the
+ * props of the element it renders.
  */
-export type ReorderBatchGroupProps<V, Tag extends ReorderElementTag = "ul"> = {
+export type ReorderBatchGroupProps<V, Tag extends ReorderElementTag = "ul"> = ReorderBatchSizing<V> & {
   /** The list's values, in order, each its own: an item's key. Your app owns them. */
   readonly values: ReadonlyArray<V>
   /** Given each new order, as an item crosses another: set `values` from it. */
@@ -48,14 +49,8 @@ export type ReorderBatchGroupProps<V, Tag extends ReorderElementTag = "ul"> = {
   readonly onHoldStart?: ((start: ReorderController.HoldStart<V>) => void) | undefined
   /** Called once as an item in hand is let go, however; after `onReorderEnd` when it moved. */
   readonly onHoldEnd?: ((end: ReorderController.HoldEnd<V>) => void) | undefined
-  /** The list's shape: `"y"`, a column (the default), `"x"`, a row, or `"xy"`, a grid that wraps. */
-  readonly axis?: CoreReorder.Axis | undefined
-  /** Every item's size, in px: the group places them by it. */
-  readonly itemSize: ReorderBatchItemSize
   /** The space between places, in px: one for both axes, or `{ x, y }`. None by default. */
   readonly gap?: ReorderBatchGap | undefined
-  /** A grid's columns: how many items a row holds. Left out, as many as the group's width holds, read again as it's resized. */
-  readonly columns?: number | undefined
   /**
    * `"rtl"` mirrors a row's and a grid's places, from the group's right edge. Left out, the group's element's
    * computed direction, read as it mounts (a server render's `"ltr"`).
@@ -108,7 +103,7 @@ export type ReorderBatchGroupProps<V, Tag extends ReorderElementTag = "ul"> = {
  * of its group's Batch, not a Wardic element: its motion is the group's.
  */
 export type ReorderBatchItemProps<V, Tag extends ReorderElementTag = "li"> = {
-  /** Its value in the group's `values`. Read once. */
+  /** Its value in the group's `values`, of any type, not its element's `value` attribute. Read once. */
   readonly value: V
   /** The element it renders: `"li"` by default. Read once. */
   readonly as?: Tag
@@ -117,7 +112,7 @@ export type ReorderBatchItemProps<V, Tag extends ReorderElementTag = "li"> = {
   readonly tabIndex?: number | undefined
   /** Its own ids, kept before the keyboard reorder's instructions'. */
   readonly "aria-describedby"?: string | undefined
-} & Omit<JSX.IntrinsicElements[Tag], "style" | "tabIndex" | "aria-describedby">
+} & Omit<JSX.IntrinsicElements[Tag], "style" | "tabIndex" | "aria-describedby" | "value">
 
 /**
  * The props a component body reads, as plain records: instantiating the public prop types over every
@@ -130,7 +125,7 @@ interface GroupLocal<V> {
   readonly onHoldStart?: ((start: ReorderController.HoldStart<V>) => void) | undefined
   readonly onHoldEnd?: ((end: ReorderController.HoldEnd<V>) => void) | undefined
   readonly axis?: CoreReorder.Axis | undefined
-  readonly itemSize: ReorderBatchItemSize
+  readonly itemSize: BatchReorderItemSizes
   readonly gap?: ReorderBatchGap | undefined
   readonly columns?: number | undefined
   readonly direction?: "ltr" | "rtl" | undefined
@@ -279,13 +274,20 @@ const restyle = (el: HTMLElement, prev: Style.Style, next: Style.Style): void =>
 const BatchGroupContext = createContext<GroupForItems<unknown>>()
 
 /**
- * A long list put in order by dragging its items, or from the keyboard, as one Batch: every item one
- * size, at the place its index gives. Rendered as `as`, `"ul"` by default, sized to its places. Your app
- * owns `values`, and sets them from `onReorder`. Key its `Reorder.BatchItem`s with `<For>`.
+ * A long list put in order by dragging its items, or from the keyboard, as one Batch: each item at the
+ * place its index gives, from its size and the sizes before it, one for every item or each its own.
+ * Rendered as `as`, `"ul"` by default, sized to its places. Your app owns `values`, and sets them from
+ * `onReorder`. Key its `Reorder.BatchItem`s with `<For>`.
  *
  * @example
  * <Reorder.BatchGroup values={items()} onReorder={setItems} itemSize={{ width: 240, height: 48 }} gap={8}>
  *   <For each={items()}>{(item) => <Reorder.BatchItem value={item}>{item}</Reorder.BatchItem>}</For>
+ * </Reorder.BatchGroup>
+ * @example
+ * // A clip track: each clip as wide as it's long.
+ * const [clips, setClips] = createSignal([{ name: "Intro", seconds: 4 }, { name: "Verse", seconds: 12 }])
+ * <Reorder.BatchGroup values={clips()} onReorder={setClips} axis="x" itemSize={(clip) => ({ width: clip.seconds * 40, height: 56 })} gap={4}>
+ *   <For each={clips()}>{(clip) => <Reorder.BatchItem value={clip}>{clip.name}</Reorder.BatchItem>}</For>
  * </Reorder.BatchGroup>
  * @see https://wardic.dev/reference/solid/reorder/reorder
  */

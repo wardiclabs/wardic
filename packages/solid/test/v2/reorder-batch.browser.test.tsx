@@ -29,15 +29,33 @@
 // - BE2 (Q38): an item that leaves while it's dragged exits at its last place, let go, whileDrag off.
 // - BG6: `groupRef`'s group (Q25): its `next`, `when` and `each` of `holdStart`, `reorderEnd` and `holdEnd`,
 //   as `reorderGroup()`'s, its `axis`, and `move`, announced.
+//
+// Items of different sizes, a function's (#714, ADR-0072 *Amendment (#714)*), Solid 1's BD tests:
+// - BD1: each item at the place the browser's flexbox gives a `Reorder.Group`'s of the same sizes, its own
+//   size; the group sized as the flexbox's.
+// - BD2: a real mouse's drags reorder as the `Reorder.Group`'s do on the same paths.
+// - BD3: the function is tracked: a size changed moves the items after it; a new order places each from the
+//   sizes before it.
+// - BD4: a column whose `width` is left out, an object's or a function's: each item the group's content box's
+//   width, padding and border inside it; the group widened, they follow.
+// - BD5: an item added later is sized and placed after the others; a grid's rows wrap again as it narrows.
+// - BD6: `itemSize` switched from one size to a function and back, its items with no style of their own and
+//   with their own: each item takes the sizes it's given each time, border-box while it takes the group's width.
+// - BD7: right to left, a row of items each their own width: the places and the drags of an rtl `Reorder.Group`
+//   of the same sizes.
 import * as DomAnnouncer from "@wardic/dom/DomAnnouncer"
 import * as ReorderController from "@wardic/dom/ReorderController"
-import { createSignal, flush } from "solid-js"
+import * as Bool from "effect/Boolean"
+import { DomLive } from "@wardic/dom"
+import { Reorder, type ReorderBatchSizing, WardicProvider } from "@wardic/solid/unstable/v2"
+import { createSignal, flush, For } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { commands, page } from "vitest/browser"
 import "../browser-commands.ts"
+import { mount } from "./mount.tsx"
 import { raf } from "../browser-helpers.ts"
 import { type BatchScene, type BatchSceneOptions, mountBatchReorder, resetBatchScene } from "./reorder-batch-scene.tsx"
-import { add, centreOf, glide, grabOffsetOf, type Layout, mountReorder, mouse, offPointer, type Pt, sampleFrames, wait } from "./reorder-scene.tsx"
+import { add, centreOf, glide, grabOffsetOf, type Layout, mountReorder, mouse, offPointer, type Pt, sampleFrames, type SceneOptions, wait } from "./reorder-scene.tsx"
 
 afterEach(resetBatchScene)
 
@@ -95,7 +113,7 @@ interface Path {
 }
 
 /** `path` driven on a `Reorder.Group` with `layout`'s geometry, then on a `Reorder.BatchGroup` with it. */
-const both = async (layout: Layout, path: Path, options: BatchSceneOptions = {}, reference: { readonly rtl?: boolean } = {}) => {
+const both = async (layout: Layout, path: Path, options: BatchSceneOptions = {}, reference: Pick<SceneOptions, "rtl" | "sizeOf"> = {}) => {
   const run = async (s: Scene) => {
     const { to, grabOffset } = await drag(s, path.value, path.dx, path.dy, path.steps)
     const result = { reorders: joined(s.reorders), dom: domOrder(s.group()), off: offPointer(s.item(path.value), to, grabOffset) }
@@ -573,3 +591,196 @@ describe("Reorder.BatchGroup and Reorder.BatchItem on Solid 2", () => {
     await mouse.up(add(g, 0, 20))
   }, 30_000)
 })
+
+/** Each item's own size by layout (#714): Solid 1's. */
+const HEIGHTS: Readonly<Record<string, number>> = { a: 40, b: 70, c: 50, d: 90, e: 60, f: 30 }
+const WIDTHS: Readonly<Record<string, number>> = { a: 80, b: 120, c: 60, d: 100, e: 40, f: 90 }
+const SIZE_OF: Readonly<Record<Layout, (value: string) => { readonly width: number; readonly height: number }>> = {
+  y: (value) => ({ width: 200, height: HEIGHTS[value]! }),
+  x: (value) => ({ width: WIDTHS[value]!, height: HEIGHTS[value]! }),
+  // 280 px wide: a, b and c fill the first row to its edge, d, e and f the second.
+  xy: (value) => ({ width: WIDTHS[value]!, height: HEIGHTS[value]! }),
+}
+/** The grid's width: the reference's. */
+const GRID_WIDTH = (): number => 280
+
+/** Each value's box under `s`. */
+const boxesOf = (s: { readonly item: (value: string) => HTMLElement }, values: ReadonlyArray<string>) => values.map((value) => boxOf(s.item(value)))
+
+/** A grid's width for the Batch scene, else nothing. */
+const gridWidthOf = (layout: Layout): Pick<BatchSceneOptions, "fromWidth"> => Bool.match(layout === "xy", { onTrue: () => ({ fromWidth: GRID_WIDTH }), onFalse: () => ({}) })
+
+describe("Reorder.BatchGroup of items of different sizes on Solid 2 (#714)", () => {
+  it("BD1: each item at the place the browser's flexbox gives it, its own size; the group sized as the flexbox's", async () => {
+    for (const [layout, values] of [["y", "abcde"], ["x", "abcde"], ["xy", "abcdef"]] as const) {
+      const reference = await mountReorder({ layout, sizeOf: SIZE_OF[layout] })
+      const expected = { items: boxesOf(reference, [...values]), group: boxOf(reference.group()) }
+      await resetBatchScene()
+      const batch = await mountBatchReorder({ layout, sizeOf: SIZE_OF[layout], ...gridWidthOf(layout) })
+      expect(boxesOf(batch, [...values]), `${layout}: the items`).toEqual(expected.items)
+      expect(boxOf(batch.group()), `${layout}: the group`).toEqual(expected.group)
+      await resetBatchScene()
+    }
+  }, 30_000)
+
+  it("BD2: a real mouse's drags reorder as a Reorder.Group's of the same sizes on the same paths", async () => {
+    const paths: ReadonlyArray<readonly [Layout, Path]> = [
+      ["y", { value: "a", dx: 0, dy: 80, steps: 40 }],
+      ["x", { value: "e", dx: -260, dy: 0, steps: 50 }],
+      ["xy", { value: "a", dx: 150, dy: 90, steps: 50 }],
+    ]
+    for (const [layout, path] of paths) {
+      const { reference, batch } = await both(layout, path, { sizeOf: SIZE_OF[layout], ...gridWidthOf(layout) }, { sizeOf: SIZE_OF[layout] })
+      expect(reference.reorders.length, `${layout} ${path.value}: the path reorders`).toBeGreaterThan(0)
+      expect(batch.reorders, `${layout} ${path.value}: the orders`).toEqual(reference.reorders)
+      expect(batch.dom, `${layout} ${path.value}: the DOM`).toBe(reference.dom)
+      expect(batch.off, `${layout} ${path.value}: under the pointer`).toBeLessThan(1)
+    }
+  }, 120_000)
+
+  it("BD3: the function is tracked: a size changed moves the items after it; a new order places each from the sizes before it", async () => {
+    const [heights, setHeights] = createSignal<Readonly<Record<string, number>>>(HEIGHTS)
+    const s = await mountBatchReorder({ layout: "y", sizeOf: (value) => ({ width: 200, height: heights()[value]! }), transition: { type: "tween", duration: 0.1 } })
+    expect(boxesOf(s, ["a", "b", "c"]).map((b) => [b.top, b.height])).toEqual([[40, 40], [90, 70], [170, 50]])
+    setHeights({ ...HEIGHTS, b: 100 })
+    flush()
+    await wait(400)
+    expect(boxOf(s.item("b")).height, "b's own height").toBe(100)
+    expect(boxesOf(s, ["c", "d", "e"]).map((b) => b.top), "those after it moved").toEqual([200, 260, 360])
+    expect(boxOf(s.group()).height, "the group as tall as them all").toBe(40 + 100 + 50 + 90 + 60 + 4 * 10)
+    s.setOrder(["e", "d", "c", "b", "a"])
+    flush()
+    await wait(400)
+    expect(boxesOf(s, ["e", "d", "c", "b", "a"]).map((b) => [b.top, b.height]), "reversed, each its own size").toEqual([[40, 60], [110, 90], [210, 50], [270, 100], [380, 40]])
+  }, 30_000)
+
+  it("BD4: a column whose width is left out: each item the group's content width, border-box; widened, they follow", async () => {
+    const sizings: ReadonlyArray<ReorderBatchSizing<string>> = [{ itemSize: { height: 50 } }, { itemSize: (value) => ({ height: HEIGHTS[value]! }) }]
+    for (const sizing of sizings) {
+      const [width, setWidth] = createSignal(300)
+      const { unmount } = mount(() => (
+        <WardicProvider env={DomLive}>
+          <Reorder.BatchGroup
+            values={["a", "b", "c"]}
+            onReorder={() => {}}
+            {...sizing}
+            gap={10}
+            style={{ position: "absolute", left: "40px", top: "40px", margin: "0", padding: "10px", border: "2px solid", width: `${width()}px` }}
+          >
+            <For each={["a", "b", "c"]}>
+              {(value) => (
+                <Reorder.BatchItem value={value} data-value={value} style={{ padding: "8px", border: "1px solid" }}>
+                  {value}
+                </Reorder.BatchItem>
+              )}
+            </For>
+          </Reorder.BatchGroup>
+        </WardicProvider>
+      ))
+      await wait(100)
+      const a = document.querySelector<HTMLElement>('[data-value="a"]')!
+      const c = document.querySelector<HTMLElement>('[data-value="c"]')!
+      // Inside the group's border and padding: at 52, as wide as its 300 px content box.
+      expect([boxOf(a).left, boxOf(a).width, boxOf(c).width], "the group's content width").toEqual([52, 300, 300])
+      setWidth(360)
+      flush()
+      await wait(200)
+      expect([boxOf(a).width, boxOf(c).width], "widened").toEqual([360, 360])
+      unmount()
+    }
+  }, 30_000)
+
+  it("BD5: an item added later is sized and placed after the others; a grid's rows wrap again as it narrows", async () => {
+    const column = await mountBatchReorder({ layout: "y", sizeOf: SIZE_OF.y })
+    column.setOrder(["a", "b", "c", "d", "e", "f"])
+    flush()
+    await wait(100)
+    expect(boxOf(column.item("f")), "f after e, its own height").toEqual({ left: 40, top: 40 + 40 + 70 + 50 + 90 + 60 + 5 * 10, width: 200, height: 30 })
+    expect(boxOf(column.group()).height).toBe(40 + 70 + 50 + 90 + 60 + 30 + 5 * 10)
+    await resetBatchScene()
+    const [width, setWidth] = createSignal(280)
+    const grid = await mountBatchReorder({ layout: "xy", sizeOf: SIZE_OF.xy, fromWidth: width, transition: { type: "tween", duration: 0.1 } })
+    expect(boxOf(grid.item("c")), "c ends the first row").toEqual({ left: 40 + 220, top: 40, width: 60, height: 50 })
+    setWidth(279.6)
+    flush()
+    await wait(400)
+    expect(boxOf(grid.item("c")), "c starts the second row").toEqual({ left: 40, top: 40 + 80, width: 60, height: 50 })
+    expect(boxOf(grid.item("d")), "d after it").toEqual({ left: 40 + 70, top: 40 + 80, width: 100, height: 90 })
+  }, 30_000)
+
+  it("BD6: itemSize switched from one size to a function and back: each item takes the sizes it's given", async () => {
+    const one: ReorderBatchSizing<string> = { itemSize: { width: 200, height: 50 } }
+    const each: ReorderBatchSizing<string> = { itemSize: (value) => ({ width: 200, height: HEIGHTS[value]! }) }
+    const groupWidth: ReorderBatchSizing<string> = { itemSize: { height: 50 } }
+    const eachGroupWidth: ReorderBatchSizing<string> = { itemSize: (value) => ({ height: HEIGHTS[value]! }) }
+    const [sizing, setSizing] = createSignal<ReorderBatchSizing<string>>(one)
+    const { unmount } = mount(() => (
+      <WardicProvider env={DomLive}>
+        <Reorder.BatchGroup
+          values={["a", "b", "c"]}
+          onReorder={() => {}}
+          {...sizing()}
+          gap={10}
+          transition={{ type: "tween", duration: 0.05 }}
+          style={{ position: "absolute", left: "40px", top: "40px", margin: "0", padding: "0", width: "300px" }}
+        >
+          <For each={["a", "b", "c"]}>
+            {(value) => (
+              <Reorder.BatchItem value={value} data-value={value} {...Bool.match(value === "c", { onTrue: () => ({ style: { background: "teal" } }), onFalse: () => ({}) })}>
+                {value}
+              </Reorder.BatchItem>
+            )}
+          </For>
+        </Reorder.BatchGroup>
+      </WardicProvider>
+    ))
+    await wait(100)
+    const items = (): ReadonlyArray<string> => ["a", "b", "c"].map((value) => {
+      const b = boxOf(document.querySelector(`[data-value="${value}"]`)!)
+      return `${value} ${b.top} ${b.width}x${b.height}`
+    })
+    const sizings = (): ReadonlyArray<string> => ["a", "b", "c"].map((value) => getComputedStyle(document.querySelector(`[data-value="${value}"]`)!).boxSizing)
+    const switchTo = async (next: ReorderBatchSizing<string>): Promise<void> => {
+      setSizing(() => next)
+      flush()
+      await wait(300)
+    }
+    expect(items(), "one size").toEqual(["a 40 200x50", "b 100 200x50", "c 160 200x50"])
+    await switchTo(each)
+    expect(items(), "each its own").toEqual(["a 40 200x40", "b 90 200x70", "c 170 200x50"])
+    await switchTo(groupWidth)
+    expect(items(), "one height, the group's width").toEqual(["a 40 300x50", "b 100 300x50", "c 160 300x50"])
+    await switchTo(each)
+    expect(items(), "each its own again").toEqual(["a 40 200x40", "b 90 200x70", "c 170 200x50"])
+    await switchTo(eachGroupWidth)
+    expect(items(), "each its own height, the group's width").toEqual(["a 40 300x40", "b 90 300x70", "c 170 300x50"])
+    await switchTo(groupWidth)
+    expect(items(), "one height, the group's width again").toEqual(["a 40 300x50", "b 100 300x50", "c 160 300x50"])
+    expect(sizings(), "border-box, the group's width").toEqual(["border-box", "border-box", "border-box"])
+    await switchTo(one)
+    expect(items(), "one size again").toEqual(["a 40 200x50", "b 100 200x50", "c 160 200x50"])
+    expect(sizings(), "their own sizing back").toEqual(["content-box", "content-box", "content-box"])
+    unmount()
+  }, 30_000)
+
+  it("BD7: right to left, a row of items each their own width: an rtl Reorder.Group's places and drags", async () => {
+    const reference = await mountReorder({ layout: "x", rtl: true, sizeOf: SIZE_OF.x })
+    const expected = boxesOf(reference, ["a", "b", "c", "d", "e"])
+    await resetBatchScene()
+    const row = await mountBatchReorder({ layout: "x", direction: "rtl", sizeOf: SIZE_OF.x })
+    expect(boxesOf(row, ["a", "b", "c", "d", "e"]), "its places, from the right edge").toEqual(expected)
+    await resetBatchScene()
+    const paths: ReadonlyArray<Path> = [
+      { value: "a", dx: -150, dy: 0, steps: 50 },
+      { value: "b", dx: -120, dy: 0, steps: 40 },
+      { value: "e", dx: 260, dy: 0, steps: 60 },
+    ]
+    for (const path of paths) {
+      const { reference: r, batch } = await both("x", path, { direction: "rtl", sizeOf: SIZE_OF.x }, { rtl: true, sizeOf: SIZE_OF.x })
+      expect(r.reorders.length, `${path.value} by ${path.dx}: the path reorders`).toBeGreaterThan(0)
+      expect(batch.reorders, `${path.value} by ${path.dx}: the same orders`).toEqual(r.reorders)
+      expect(batch.off, `${path.value} by ${path.dx}: under the pointer`).toBeLessThan(1)
+    }
+  }, 120_000)
+})
+

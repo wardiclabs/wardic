@@ -8,9 +8,12 @@
 //   inside the padding, before and after; the grid's items at `initial`'s opacity until hydrated.
 // - HR3 (Q47): items with no style of their own, the group's alone, in a grid from its width and a padded
 //   column: every item where it is, before and after.
+// - HR4 (#714): items each their own size, a function's: a padded column, a grid of rows (`flex-wrap` on the
+//   server, its places once hydrated), and a padded column whose items take its width (`100cqi`): every item
+//   where it is, its own size, before and after.
 import { describe, expect, it } from "vitest"
 import { over } from "./browser-helpers.ts"
-import { R1, R2, R3, R4, R5, R6, R7 } from "./reorder-batch-hydrate-fixtures.tsx"
+import { R1, R10, R2, R3, R4, R5, R6, R7, R8, R9 } from "./reorder-batch-hydrate-fixtures.tsx"
 import { hydrateFixture } from "./hydrate-harness.ts"
 import "./browser-commands.ts"
 
@@ -89,4 +92,21 @@ describe("Reorder.BatchGroup from a server render to hydration on Solid 1 (#712)
       after.forEach((frame, f) => expect(frame, `${name}: hydrated, frame ${f}`).toEqual(expected[name]))
     }
   }, 60_000)
+
+  it("HR4: items each their own size: a padded column, a grid of rows, a column of the group's width: each where it is", async () => {
+    const expected: Record<string, ReadonlyArray<string>> = {
+      R8: ["a 12,12 200x40", "b 12,62 200x70", "c 12,142 200x50", "d 12,202 200x90", "e 12,302 200x60"],
+      // 280 px: a, b and c fill the first row to its edge; d and e start the second, below b's 70.
+      R9: ["a 0,0 80x40", "b 90,0 120x70", "c 220,0 60x50", "d 0,80 100x90", "e 110,80 40x60"],
+      // Inside the padding, its content box's width, before hydration as after.
+      R10: KS.map((k, i) => `${k} 12,${12 + i * 60} 300x50`),
+    }
+    for (const [name, code] of [["R8", R8], ["R9", R9], ["R10", R10]] as const) {
+      const { before, after, errors, threw } = await run(name, code)
+      expect([threw, errors], `${name}: nothing thrown or logged`).toEqual(["", []])
+      before.forEach((frame, f) => expect(frame, `${name}: before hydration, frame ${f}`).toEqual(expected[name]))
+      after.forEach((frame, f) => expect(frame, `${name}: hydrated, frame ${f}`).toEqual(expected[name]))
+    }
+  }, 60_000)
 })
+

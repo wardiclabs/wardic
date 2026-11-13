@@ -243,8 +243,10 @@ export {
   type ReorderItemDirectiveValue,
   type ReorderBatchGroupProps,
   type ReorderBatchItemProps,
+  type ReorderBatchColumnSize,
   type ReorderBatchGap,
   type ReorderBatchItemSize,
+  type ReorderBatchSizing,
   reorderItem,
 } from "./reorder.tsx"
 

@@ -77,7 +77,7 @@ import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
 import { eachOf, neverLands, NO_EVENTS, serverWhen, Waiters, whenOf } from "./waiters.ts"
 import { BatchGroup, BatchItem } from "./batch-reorder-group.tsx"
 
-export type { ReorderBatchGap, ReorderBatchGroup, ReorderBatchGroupProps, ReorderBatchItemProps, ReorderBatchItemSize } from "./batch-reorder-group.tsx"
+export type { ReorderBatchColumnSize, ReorderBatchGap, ReorderBatchGroup, ReorderBatchGroupProps, ReorderBatchItemProps, ReorderBatchItemSize, ReorderBatchSizing } from "./batch-reorder-group.tsx"
 
 /** A Reorder group's config, each key read as a value. */
 export interface ReorderGroupConfigValues<V> {

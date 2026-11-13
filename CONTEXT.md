@@ -287,8 +287,8 @@ The items a drag can reorder, and the rules that do it. Core's `Reorder.Group` (
 _Avoid_: sortable, list (the element), reorder context.
 
 **Batch Reorder group**:
-A **Reorder group** whose items are a keyed **Batch**'s members, each at the place its index gives: one item size, the gap between, and a grid's columns. Its items' boxes are computed, never measured, so a **Crossover** waits for no Measure pass, and its items are dragged and focused through the group (ADR-0072).
-_Avoid_: virtual list (every item is mounted), sortable, slot (a **Projection node**'s box; an item's position is its place).
+A **Reorder group** whose items are a keyed **Batch**'s members, each at the place its index gives: from its own size and the sizes of the items before it, the gap between, and, in a grid, where its rows break. The sizes are the app's, one for every item or one for each, or read from the items on the page (#714). Its items' boxes are computed from those sizes, never read at a **Crossover**, so a Crossover waits for no **Measure pass**, and its items are dragged and focused through the group (ADR-0072).
+_Avoid_: virtual list (every item is mounted), sortable, slot (a **Projection node**'s box; an item's position is its place), re-measure and Measurement (an item's size is read; a Measurement is the projection's `Bounds`).
 
 **Crossover**:
 The point at which a dragged item has moved far enough past a neighbour to take its place, which changes the order.

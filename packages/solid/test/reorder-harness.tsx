@@ -171,6 +171,8 @@ export interface SceneOptions {
   readonly dragElastic?: number
   /** Read with the values, so a change to it re-reads them, unchanged (#348). */
   readonly alsoRead?: Accessor<unknown>
+  /** Each item's own size, by its value (#714): over the layout's. */
+  readonly sizeOf?: (value: string) => { readonly width: number; readonly height: number }
 }
 
 export interface Scene {
@@ -227,6 +229,10 @@ export const itemCss = (o: SceneOptions): JSX.CSSProperties => {
   }
 }
 
+/** An item's own size as style (#714), when the scene gives each its own. */
+const ownSizeOf = (o: SceneOptions, value: string): JSX.CSSProperties =>
+  UndefinedOr.match(o.sizeOf, { onUndefined: () => ({}), onDefined: (sizeOf) => ({ width: `${sizeOf(value).width}px`, height: `${sizeOf(value).height}px` }) })
+
 /** `order`'s values, read with `o.alsoRead` when there is one. */
 const valuesOf = (order: Accessor<ReadonlyArray<string>>, o: SceneOptions): ReadonlyArray<string> => {
   o.alsoRead?.()
@@ -270,7 +276,7 @@ export const mountReorder = async (o: SceneOptions = {}): Promise<Scene> => {
             {...UndefinedOr.match(o.itemAs, { onUndefined: () => ({}), onDefined: (as) => ({ as }) })}
             {...UndefinedOr.match(o.whileDrag, { onUndefined: () => ({}), onDefined: (whileDrag) => ({ whileDrag }) })}
             {...UndefinedOr.match(o.dragElastic, { onUndefined: () => ({}), onDefined: (dragElastic) => ({ dragElastic }) })}
-            style={{ ...itemCss(o), ...o.itemStyle?.() }}
+            style={{ ...itemCss(o), ...ownSizeOf(o, value), ...o.itemStyle?.() }}
           >
             {Bool.match(o.text === true, { onTrue: () => `item ${value} text`, onFalse: () => value })}
           </Reorder.Item>

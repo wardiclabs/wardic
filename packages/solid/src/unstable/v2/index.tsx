@@ -266,11 +266,13 @@ export {
   type ReorderItemLayout,
   type ReorderItemOf,
   reorderItem,
+  type ReorderBatchColumnSize,
   type ReorderBatchGap,
   type ReorderBatchGroup,
   type ReorderBatchGroupProps,
   type ReorderBatchItemProps,
   type ReorderBatchItemSize,
+  type ReorderBatchSizing,
 } from "./reorder.tsx"
 
 /**

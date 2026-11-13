@@ -122,6 +122,22 @@ render(() => <WardicProvider env={DomLive}><Grid /></WardicProvider>, document.b
 `
 
 /**
+ * A Batch Reorder group's app (#714): `Reorder.BatchGroup` over 100 items of one size under a
+ * `WardicProvider` with no Features: what an app that reorders a long list as one Batch pays, its items'
+ * sizes one or each their own (the places' code is the same either way).
+ */
+const reorderBatch = (render: string, entry: string): string => `import { createSignal, For } from "solid-js"
+import { render } from "${render}"
+import { DomLive } from "@wardic/dom"
+import { Reorder, WardicProvider } from "${entry}"
+const List = () => {
+  const [items, setItems] = createSignal(Array.from({ length: 100 }, (_, i) => \`item \${i}\`))
+  return <Reorder.BatchGroup values={items()} onReorder={setItems} itemSize={{ width: 240, height: 48 }} gap={8}><For each={items()}>{(item) => <Reorder.BatchItem value={item}>{item}</Reorder.BatchItem>}</For></Reorder.BatchGroup>
+}
+render(() => <WardicProvider env={DomLive}><List /></WardicProvider>, document.body)
+`
+
+/**
  * A multi-route app (#548): a shell with a hover under a provider giving `domAnimation`, and three pages
  * loaded with `import()`: a plain one, one that drags (`LazyWardic features={[drag]}`) and one that
  * lays out (`features={[layout]}`). Measured, the plain page: what a page that never drags or lays out
@@ -164,6 +180,7 @@ const APPS: ReadonlyArray<App> = [
   { name: "s1-dom-animation", v2: false, source: slim("solid-js/web", "@wardic/solid", ["domAnimation"]) },
   { name: "s1-dom-max", v2: false, source: slim("solid-js/web", "@wardic/solid", ["domMax"]) },
   { name: "s1-batch", v2: false, source: batch("solid-js/web", "@wardic/solid") },
+  { name: "s1-reorder-batch", v2: false, source: reorderBatch("solid-js/web", "@wardic/solid") },
   routes("solid-js/web", "@wardic/solid", "s1-routes"),
   { name: "s2-plain", v2: true, source: plain("@solidjs/web") },
   { name: "s2-complete", v2: true, source: complete("@solidjs/web", "@wardic/solid/unstable/v2", false) },
@@ -176,6 +193,7 @@ const APPS: ReadonlyArray<App> = [
   { name: "s2-dom-animation", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["domAnimation"]) },
   { name: "s2-dom-max", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["domMax"]) },
   { name: "s2-batch", v2: true, source: batch("@solidjs/web", "@wardic/solid/unstable/v2") },
+  { name: "s2-reorder-batch", v2: true, source: reorderBatch("@solidjs/web", "@wardic/solid/unstable/v2") },
   routes("@solidjs/web", "@wardic/solid/unstable/v2", "s2-routes"),
 ]
 
