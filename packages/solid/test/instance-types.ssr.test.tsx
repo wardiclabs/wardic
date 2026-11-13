@@ -6,15 +6,32 @@
 //   props; a prop of a Feature it lacks is `NeedsFeature<"name">` (Q15), so the error names it. One
 //   Feature at a time, every prop of each.
 // - IT2: a preset's Features, a nested list's and a load's are the instance's (Q8).
-import { domAnimation, domMax, drag, focus, hover, inView, layout, pan, press, type WardicInstance } from "@wardic/solid"
-import { describe, it } from "vitest"
+// - IT3: an instance's element infers its keys as `wardic.*` does (#305): its `transition` takes the
+//   keys its targets and drag axis set, and another's is an error.
+// - IT4: the defaults are the props as they were: `WardicComponent<Tag>`, `W`, and an instance of every
+//   Feature (`domMax`), with no `NeedsFeature` anywhere.
+import { domAnimation, domMax, drag, focus, hover, inView, layout, pan, press, type W as PlainW, w, type WardicComponent, type WardicInstance } from "@wardic/solid"
+import type { JSX } from "solid-js"
+import { describe, expectTypeOf, it } from "vitest"
+import type { WardicVariantLabels } from "../src/config.ts"
+import type { WardicMotionProps, WardicProps } from "../src/element.tsx"
 import type { NeedsFeature } from "../src/feature.ts"
+import type { InferredMotion, TargetKey } from "../src/ward-keys.ts"
 
 /** An element, type-checked only: the function is never called. */
 const typed = (make: () => unknown): void => void make
 
 /** A value typed as Feature `N`'s brand: only a prop typed `NeedsFeature<N>` takes it. Never called. */
 declare const needs: <N extends string>(name: N) => NeedsFeature<N>
+
+/** `WardicComponent<Tag>` as it was before #516, word for word: what its default must still be. */
+type Before<Tag extends keyof JSX.IntrinsicElements> = <
+  K extends TargetKey = never,
+  N extends string = never,
+  LI extends WardicVariantLabels = never,
+  LA extends WardicVariantLabels = never,
+  D extends boolean | "x" | "y" = never,
+>(props: WardicProps<Tag, InferredMotion<WardicMotionProps, K, N, LI, LA, D>>) => JSX.Element
 
 /** The `w` of an instance of Features `F`. */
 type W<F> = WardicInstance<F>["w"]
@@ -29,6 +46,8 @@ declare const drags: W<[typeof drag]>
 declare const layouts: W<[typeof layout]>
 
 const noop = (): void => {}
+
+const FAST = { type: "tween", duration: 0.1 } as const
 
 describe("a Wardic instance's element props (#516)", () => {
   it("IT1: the base props whatever its Features, its Features' props, and NeedsFeature for the rest", () => {
@@ -199,5 +218,56 @@ describe("a Wardic instance's element props (#516)", () => {
 
     const all = null as unknown as W<() => Promise<typeof domMax>>
     typed(() => <all.div whileHover={{ scale: 1.1 }} drag layout onPan={noop} />)
+  })
+
+  it("IT3: an instance's element infers its keys as wardic.* does (#305)", () => {
+    typed(() => <hovers.div animate={{ x: 10 }} whileHover={{ scale: 1.1 }} transition={{ x: FAST, scale: FAST, default: FAST }} />)
+    typed(() => (
+      <hovers.div
+        animate={{ x: 10 }}
+        transition={{
+          // @ts-expect-error the element never animates rotate
+          rotate: FAST,
+        }}
+      />
+    ))
+    typed(() => <drags.div drag="y" animate={{ opacity: 1 }} transition={{ y: FAST, opacity: FAST }} />)
+    typed(() => (
+      <drags.div
+        drag="y"
+        transition={{
+          // @ts-expect-error a drag along y never moves x
+          x: FAST,
+        }}
+      />
+    ))
+    typed(() => (
+      <base.div
+        animate={{ opacity: 1 }}
+        transition={{
+          // @ts-expect-error the element never animates scale
+          scale: FAST,
+        }}
+      />
+    ))
+  })
+
+  it("IT4: the defaults are the props as they were, and an instance of every Feature has them too", () => {
+    expectTypeOf<WardicComponent<"div">>().toEqualTypeOf<Before<"div">>()
+    expectTypeOf<WardicComponent<"li", typeof domMax>>().toEqualTypeOf<Before<"li">>()
+    expectTypeOf<W<typeof domMax>>().toEqualTypeOf<PlainW>()
+    expectTypeOf<W<[typeof domAnimation, typeof pan, typeof drag, typeof layout]>>().toEqualTypeOf<PlainW>()
+
+    const all = null as unknown as W<typeof domMax>
+    typed(() => <w.div drag whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} whileFocus={{ opacity: 1 }} whileInView={{ opacity: 1 }} onPan={noop} layout />)
+    typed(() => <all.div drag whileHover={{ scale: 1.1 }} whileTap={{ scale: 0.9 }} whileFocus={{ opacity: 1 }} whileInView={{ opacity: 1 }} onPan={noop} layout />)
+    typed(() => (
+      // @ts-expect-error every Feature is there, so no prop is NeedsFeature
+      <w.div drag={needs("drag")} />
+    ))
+    typed(() => (
+      // @ts-expect-error nor on an instance of every Feature
+      <all.div layout={needs("layout")} />
+    ))
   })
 })
