@@ -25,6 +25,14 @@ Each element directly inside is a child of its own: a `<Show>`'s element, or eac
 
 A `key` on the element, as in Motion, lets one that comes back while it's still leaving pick up from where its leaver is, rather than enter again.
 
+## Inside an `<svg>`
+
+An `<AnimatePresence>` can sit inside an `<svg>`, with SVG elements for children: each point here grows in on its radius, and shrinks out before it goes.
+
+<Demo sample="presence-svg" />
+
+<CodeTabs sample="presence-svg" />
+
 ## Modes
 
 - **`"sync"`** (the default): the leaving and the entering children animate at once.
