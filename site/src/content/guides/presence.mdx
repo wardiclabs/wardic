@@ -37,7 +37,13 @@ An `<AnimatePresence>` can sit inside an `<svg>`, with SVG elements for children
 
 - **`"sync"`** (the default): the leaving and the entering children animate at once.
 - **`"wait"`**: the entering child waits until the leaving one has gone.
-- **`"popLayout"`**: a leaving child is taken out of the layout as it starts to leave, so the others move into its place as it goes, with `layout` on them. `anchorX` and `anchorY` say which edge it keeps while it's popped. An SVG element isn't popped, an icon's `<svg>` included: it leaves where it is, as in Motion. To pop an icon, wrap it in an HTML element, a `w.span` ([#744](https://github.com/wardiclabs/wardic/issues/744)).
+- **`"popLayout"`**: a leaving child is taken out of the layout as it starts to leave, so the others move into its place as it goes, with `layout` on them. `anchorX` and `anchorY` say which edge it keeps while it's popped. An icon's `<svg>` is popped too, where Motion pops only an HTML element; the SVG elements inside an `<svg>` leave where they are.
+
+Here a play button's icon swaps for a pause one. The leaving `<svg>` is popped, so it turns out over the new icon rather than beside it, and the button keeps its size. Motion's tab wraps each icon in an `m.span` to pop it.
+
+<Demo sample="presence-icon" />
+
+<CodeTabs sample="presence-icon" />
 
 ## Its other props
 
