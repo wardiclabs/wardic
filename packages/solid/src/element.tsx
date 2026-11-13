@@ -43,8 +43,10 @@ import { assign, Dynamic, getNextElement, insert, spread, SVGElements, use } fro
 import { isServer } from "./server.ts"
 import { GESTURE_KEYS } from "./gesture-callbacks.ts"
 import { renderServerElement, serverAppearOfWard, createWardWith, type SpineInternals, type WardStyle, type WardUserProps } from "./create-ward.tsx"
-import type { WardConfig, WardicVariantLabels } from "./config.ts"
-import type { InferredMotion, TargetKey } from "./ward-keys.ts"
+import type { WardBaseConfig, WardConfig, WardFeatureConfigs, WardicVariantLabels } from "./config.ts"
+import type { AbsentGroupsOf, FeatureNames, GroupsOf, NamesEvery } from "./feature.ts"
+import type { ALL } from "./features/all.ts"
+import type { InferredMotion, InferredMotionOf, TargetKey } from "./ward-keys.ts"
 import { changesContext } from "./variant-tree.ts"
 import { MOTION_PROPS, motionToConfig, type WardicMotionProps } from "./motion-props.ts"
 import { droppedKeysOf, markWardic, routingTagOf, type WardicCreateOptions } from "./wardic-component.ts"
@@ -70,13 +72,38 @@ export type WardicProps<Tag extends keyof JSX.IntrinsicElements, M = WardicMotio
  * ({@link InferredMotion}). A name an entry gives that the element doesn't animate is an error, and
  * completion inside a `transition` offers the keys it drives.
  */
-export type WardicComponent<Tag extends keyof JSX.IntrinsicElements> = <
+//
+// `F` (#516): a Wardic instance's Features. Its default, every one, gives the props as they were; a
+// list without some gives their props as `NeedsFeature` ({@link WardicComponentWith}).
+export type WardicComponent<Tag extends keyof JSX.IntrinsicElements, F = EveryFeature> =
+  NamesEvery<WardFeatureConfigs, FeatureNames<F>> extends true
+    ? <
+        K extends TargetKey = never,
+        N extends string = never,
+        LI extends WardicVariantLabels = never,
+        LA extends WardicVariantLabels = never,
+        D extends boolean | "x" | "y" = never,
+      >(props: WardicProps<Tag, InferredMotion<WardicMotionProps, K, N, LI, LA, D>>) => JSX.Element
+    : WardicComponentWith<Tag, FeatureNames<F>>
+
+/** Every Feature: what a {@link WardicComponent} has unless it's a Wardic instance's. */
+export type EveryFeature = typeof ALL
+
+/**
+ * A Wardic instance's `w.<tag>` (#516), its Features named `FN`: the base motion props and theirs,
+ * keys inferred, and every other Feature's prop `NeedsFeature<"name">`, an error naming the Feature.
+ * By names, so an error prints them, not each Feature's service.
+ */
+export type WardicComponentWith<Tag extends keyof JSX.IntrinsicElements, FN extends string> = <
   K extends TargetKey = never,
   N extends string = never,
   LI extends WardicVariantLabels = never,
   LA extends WardicVariantLabels = never,
   D extends boolean | "x" | "y" = never,
->(props: WardicProps<Tag, InferredMotion<WardicMotionProps, K, N, LI, LA, D>>) => JSX.Element
+>(props: WardicProps<Tag, InferredMotionOf<WardConfigWith<FN>, K, N, LI, LA, D> & AbsentGroupsOf<WardFeatureConfigs, FN>>) => JSX.Element
+
+/** A Wardic instance's motion props, its Features named `FN` (#516): the base group and each of theirs. */
+export type WardConfigWith<FN extends string> = WardBaseConfig & GroupsOf<WardFeatureConfigs, FN>
 
 /**
  * The shape `wardic.create(Component)` requires of a wrapped component: it must

@@ -10,7 +10,7 @@ import { PanGesture } from "./keys.ts"
 import { gestureLayer, withInput } from "./input.ts"
 
 /** Pan gestures: the pan callbacks. */
-export const pan: Feature<PanGesture, PanGesture["Service"]> = {
+export const pan: Feature<PanGesture, PanGesture["Service"], "pan"> = {
   name: "pan",
   key: PanGesture,
   layer: /*#__PURE__*/ gestureLayer(PanGesture, (source) => ({ watch: withInput(source, DragRecognizer.watchPan) })),

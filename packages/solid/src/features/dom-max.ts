@@ -4,8 +4,7 @@
  *
  * @module
  */
-import type { Feature } from "../feature.ts"
 import { ALL } from "./all.ts"
 
 /** Motion's `domMax`: every Feature, `pan`, `drag`, `layout` and `colors` beside `domAnimation`'s, as a Complete element has. */
-export const domMax: ReadonlyArray<Feature> = ALL
+export const domMax: typeof ALL = ALL

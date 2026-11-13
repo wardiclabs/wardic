@@ -18,7 +18,7 @@ import type { Accessor, JSX } from "solid-js"
 import type { WardConfig, WardicVariantLabels } from "./config.ts"
 import { createWardWith, type SpineInternals, type Ward } from "./create-ward.tsx"
 import { runDirective } from "./directive.tsx"
-import { type Create, createOf, formOf, type WardicComponent } from "./element.tsx"
+import { type Create, createOf, type EveryFeature, formOf, type WardicComponent } from "./element.tsx"
 import type { InferredMotion, TargetKey } from "./ward-keys.ts"
 
 /** What a Slim element tells the spine: it brings no Feature of its own. */
@@ -38,12 +38,15 @@ function createSlimWard<
   return createWardWith(config as WardConfig | Accessor<WardConfig>, SLIM)
 }
 
-/** The typed `w` proxy: called, it's the `use:w` directive; `w.create`, `w.createWard` and `w.<tag>` are its forms. */
-export type W = ((el: HTMLElement, value: Accessor<WardConfig>) => void) & {
+/**
+ * The typed `w` proxy: called, it's the `use:w` directive; `w.create`, `w.createWard` and `w.<tag>` are
+ * its forms. `F` (#516): a Wardic instance's Features, every one unless it's an instance's.
+ */
+export type W<F = EveryFeature> = ((el: HTMLElement, value: Accessor<WardConfig>) => void) & {
   readonly create: Create
   readonly createWard: typeof createSlimWard
 } & {
-  readonly [Tag in keyof JSX.IntrinsicElements]: WardicComponent<Tag>
+  readonly [Tag in keyof JSX.IntrinsicElements]: WardicComponent<Tag, F>
 }
 
 /**

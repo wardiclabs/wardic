@@ -15,7 +15,7 @@ import { DragGesture } from "./keys.ts"
 import { gestureLayer } from "./input.ts"
 
 /** Drag gestures: `drag`, `dragControls`, the drag callbacks, and what a `Reorder` item drags with. */
-export const drag: Feature<DragGesture, DragGesture["Service"]> = {
+export const drag: Feature<DragGesture, DragGesture["Service"], "drag"> = {
   name: "drag",
   key: DragGesture,
   layer: /*#__PURE__*/ gestureLayer(DragGesture, (source) => ({

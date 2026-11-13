@@ -336,18 +336,29 @@ type InferredProp = "initial" | "animate" | "exit" | "whileHover" | "whileTap" |
  */
 export type InferredMotion<M, K extends TargetKey, N extends string, LI extends WardicVariantLabels, LA extends WardicVariantLabels, D extends boolean | "x" | "y", X extends string = never> =
   & Omit<M, InferredProp>
-  & {
-    readonly initial?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | LI | false
-    readonly animate?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | LA | WardicAnimationControls
-    readonly exit?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
-    readonly whileHover?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
-    readonly whileTap?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
-    readonly whileDrag?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
-    readonly whileFocus?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
-    readonly whileInView?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
-    readonly variants?: { readonly [V in N]: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantResolver }
-    readonly drag?: D
-    readonly transition?: true extends NoInfer<JoinedBy<N, LI, LA> | ([InferredKey<K, D, X>] extends [never] ? true : false)>
-      ? WardicTransition
-      : WardicTransitionWith<NoInfer<WardicValueEntries<InferredKey<K, D, X>> & { readonly layout?: WardicValueTransition }>>
-  }
+  & InferredParts<K, N, LI, LA, D, X>
+
+/**
+ * {@link InferredMotion} for a **Wardic instance**'s motion props `M` (#516): only the props `M` has are
+ * typed again, so a gesture's target or `drag`, which its Features may lack, isn't added back.
+ */
+export type InferredMotionOf<M, K extends TargetKey, N extends string, LI extends WardicVariantLabels, LA extends WardicVariantLabels, D extends boolean | "x" | "y", X extends string = never> =
+  & Omit<M, InferredProp>
+  & Pick<InferredParts<K, N, LI, LA, D, X>, InferredProp & keyof M>
+
+/** The props {@link InferredMotion} types again, from the keys inferred. */
+type InferredParts<K extends TargetKey, N extends string, LI extends WardicVariantLabels, LA extends WardicVariantLabels, D extends boolean | "x" | "y", X extends string> = {
+  readonly initial?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | LI | false
+  readonly animate?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | LA | WardicAnimationControls
+  readonly exit?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
+  readonly whileHover?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
+  readonly whileTap?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
+  readonly whileDrag?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
+  readonly whileFocus?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
+  readonly whileInView?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
+  readonly variants?: { readonly [V in N]: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantResolver }
+  readonly drag?: D
+  readonly transition?: true extends NoInfer<JoinedBy<N, LI, LA> | ([InferredKey<K, D, X>] extends [never] ? true : false)>
+    ? WardicTransition
+    : WardicTransitionWith<NoInfer<WardicValueEntries<InferredKey<K, D, X>> & { readonly layout?: WardicValueTransition }>>
+}

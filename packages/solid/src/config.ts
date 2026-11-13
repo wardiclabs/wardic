@@ -847,3 +847,18 @@ export interface WardConfig
     WardPanConfig,
     WardDragConfig,
     WardLayoutConfig {}
+
+/**
+ * Each Feature's motion props, by its name (#516, ADR-0067 *Amendment (#516)*): what a **Wardic
+ * instance**'s elements take for the Features it has, beside {@link WardBaseConfig}. `colors` and
+ * `scroll` add none. Solid 1's; Solid 2's are these without Solid 1's callbacks.
+ */
+export interface WardFeatureConfigs {
+  readonly hover: WardHoverConfig
+  readonly press: WardPressConfig
+  readonly focus: WardFocusConfig
+  readonly inView: WardInViewConfig
+  readonly pan: WardPanConfig
+  readonly drag: WardDragConfig
+  readonly layout: WardLayoutConfig
+}

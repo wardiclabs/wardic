@@ -5,11 +5,11 @@
  *
  * @module
  */
-import type { Feature } from "../feature.ts"
 import { focus } from "./focus.ts"
 import { hover } from "./hover.ts"
 import { inView } from "./in-view.ts"
 import { press } from "./press.ts"
 
 /** Motion's `domAnimation`: the gestures an element animates on without dragging, `hover`, `press`, `focus` and `inView`. */
-export const domAnimation: ReadonlyArray<Feature> = [hover, press, focus, inView]
+// A tuple, so a Wardic instance's types keep each Feature's name (#516).
+export const domAnimation: readonly [typeof hover, typeof press, typeof focus, typeof inView] = [hover, press, focus, inView]

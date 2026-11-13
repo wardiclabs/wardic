@@ -34,10 +34,10 @@ import type { ProviderRuntime, ProviderServices, WardicServices } from "./runtim
  * and that Layer, built on the provider's runtime: its Environment, its flush gate and its projection
  * options. `server` is what a server render, which builds no runtime, does with it: the
  * `colors` Feature registers its colour spaces there too, as the render reads colours; the rest do
- * nothing.
+ * nothing. `N` is its name as a type (#516), by which each binding finds the props it adds.
  */
-export interface Feature<I = any, S = any> {
-  readonly name: string
+export interface Feature<I = any, S = any, N extends string = string> {
+  readonly name: N
   readonly key: Context.Key<I, S>
   readonly layer: Layer.Layer<I, never, ProviderServices>
   readonly server?: (() => void) | undefined
@@ -45,6 +45,41 @@ export interface Feature<I = any, S = any> {
 
 /** Features as an app gives them: one, or a list, a preset's nested in it (`[domAnimation, layout]`). */
 export type Features = Feature | ReadonlyArray<Features>
+
+/**
+ * The names of the Features in `F` (#516): a Feature's own, every one's in a list, nested lists
+ * flattened, and what a load resolves to. What a Wardic instance's types find their props by.
+ */
+// Unconstrained: `F extends Features` would send it down `Features`' own recursion (TS2589).
+export type FeatureNames<F> = F extends ReadonlyArray<infer E>
+  ? FeatureNames<E>
+  : F extends () => PromiseLike<infer L>
+    ? FeatureNames<L>
+    : F extends { readonly name: infer N extends string }
+      ? N
+      : never
+
+/**
+ * What a prop of a Feature a Wardic instance doesn't have takes (#516, Q15): nothing, so giving it
+ * is an error naming the Feature, `Type 'boolean' is not assignable to type 'NeedsFeature<"drag">'`.
+ */
+export interface NeedsFeature<N extends string> {
+  readonly "needs the Feature": N
+}
+
+/** A union's members, intersected. */
+type UnionToIntersection<U> = (U extends unknown ? (u: U) => void : never) extends (i: infer I) => void ? I : never
+
+/** The props `Groups` gives the Features named `N`, a binding's map from a Feature's name to its props (#516). */
+export type GroupsOf<Groups, N extends string> = UnionToIntersection<Groups[N & keyof Groups]>
+
+/** Every prop of the Features `Groups` has and `N` doesn't name, each {@link NeedsFeature} its own. */
+export type AbsentGroupsOf<Groups, N extends string> = UnionToIntersection<
+  Exclude<keyof Groups, N> extends infer A ? (A extends keyof Groups & string ? { readonly [P in keyof Groups[A]]?: NeedsFeature<A> } : never) : never
+>
+
+/** Whether `N` names every Feature in `Groups`: an instance whose props are the binding's plain ones. */
+export type NamesEvery<Groups, N extends string> = [Exclude<keyof Groups, N>] extends [never] ? true : false
 
 /** Features loaded lazily: `() => import("./features.ts").then((m) => m.domMax)`. */
 export type FeatureLoad = () => Promise<Features>

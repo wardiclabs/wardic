@@ -10,7 +10,7 @@ import { HoverGesture } from "./keys.ts"
 import { gestureLayer, withInput } from "./input.ts"
 
 /** Hover gestures: `whileHover` and the hover callbacks. */
-export const hover: Feature<HoverGesture, HoverGesture["Service"]> = {
+export const hover: Feature<HoverGesture, HoverGesture["Service"], "hover"> = {
   name: "hover",
   key: HoverGesture,
   layer: /*#__PURE__*/ gestureLayer(HoverGesture, (source) => ({ watch: withInput(source, Recognizer.watchHover) })),

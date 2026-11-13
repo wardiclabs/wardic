@@ -10,7 +10,7 @@ import { watchPressOn } from "../press.ts"
 import { gestureLayer, withInput } from "./input.ts"
 
 /** Press gestures, a pointer's and the keyboard's: `whileTap` and the tap callbacks. */
-export const press: Feature<PressGesture, PressGesture["Service"]> = {
+export const press: Feature<PressGesture, PressGesture["Service"], "press"> = {
   name: "press",
   key: PressGesture,
   layer: /*#__PURE__*/ gestureLayer(PressGesture, (source) => ({ watch: withInput(source, watchPressOn) })),

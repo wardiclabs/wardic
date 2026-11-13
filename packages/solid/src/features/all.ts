@@ -5,7 +5,6 @@
  *
  * @module
  */
-import type { Feature } from "../feature.ts"
 import { colors } from "./colors.ts"
 import { drag } from "./drag.ts"
 import { focus } from "./focus.ts"
@@ -15,4 +14,14 @@ import { layout } from "./layout.ts"
 import { pan } from "./pan.ts"
 import { press } from "./press.ts"
 
-export const ALL: ReadonlyArray<Feature> = [colors, layout, hover, press, focus, inView, pan, drag]
+// A tuple, so a Wardic instance's types keep each Feature's name (#516).
+export const ALL: readonly [typeof colors, typeof layout, typeof hover, typeof press, typeof focus, typeof inView, typeof pan, typeof drag] = [
+  colors,
+  layout,
+  hover,
+  press,
+  focus,
+  inView,
+  pan,
+  drag,
+]
