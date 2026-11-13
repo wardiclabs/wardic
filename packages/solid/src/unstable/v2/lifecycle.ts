@@ -35,6 +35,7 @@ import type * as DragRecognizer from "@wardic/core/DragRecognizer"
 import type * as Recognizer from "@wardic/core/Recognizer"
 import { type Accessor, createMemo, createSignal, type Owner, runWithOwner } from "solid-js"
 import type { WardicAnimationDefinition, WardicValues } from "../../config.ts"
+import type { NeedsFeature } from "../../feature.ts"
 import { dragInfoOf, pointInfoOf, pointOfSample, pressInfoOf, type WardicDragInfo, type WardicPoint, type WardicPointInfo, type WardicPressInfo } from "../../gesture-info.ts"
 import { type AnimationHooks, definitionOf, type Resolution } from "../../spine.ts"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
@@ -181,6 +182,40 @@ class Failure {
 
 /** What `next(name)` waits for. */
 export type WardEvent = keyof WardEvents
+
+/** The Feature each of a ward's events needs (#516, Q19): `settled` needs none. */
+interface EventFeature {
+  readonly hoverStart: "hover"
+  readonly hover: "hover"
+  readonly hoverEnd: "hover"
+  readonly pressStart: "press"
+  readonly tap: "press"
+  readonly tapCancel: "press"
+  readonly dragStart: "drag"
+  readonly directionLock: "drag"
+  readonly drag: "drag"
+  readonly dragEnd: "drag"
+  readonly dragTransitionEnd: "drag"
+  readonly panSessionStart: "pan"
+  readonly panStart: "pan"
+  readonly pan: "pan"
+  readonly panEnd: "pan"
+  readonly viewportEnter: "inView"
+  readonly viewportLeave: "inView"
+  readonly layoutStart: "layout"
+  readonly layoutComplete: "layout"
+}
+
+/** Types only: an event {@link WardEvents} gains and {@link EventFeature} misses, `settled` aside, fails here. */
+type UnmappedEvent = Exclude<WardEvent, keyof EventFeature | "settled">
+const everyEventMapped: [UnmappedEvent] extends [never] ? true : UnmappedEvent = true
+void everyEventMapped
+
+/**
+ * What event `E` meets on a ward whose Features are named `FN` (#516): nothing more when it's
+ * `settled` or one of theirs; else `NeedsFeature<"name">`, so naming it is an error naming the Feature.
+ */
+export type EventNeeds<E extends WardEvent, FN extends string> = E extends keyof EventFeature ? (EventFeature[E] extends FN ? unknown : NeedsFeature<EventFeature[E]>) : unknown
 
 /** The `AbortError`'s message for a `next` the ward's disposal cut off. */
 const GONE = "The ward was disposed before its next event."

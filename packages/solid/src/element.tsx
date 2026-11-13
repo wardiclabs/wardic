@@ -44,8 +44,7 @@ import { isServer } from "./server.ts"
 import { GESTURE_KEYS } from "./gesture-callbacks.ts"
 import { renderServerElement, serverAppearOfWard, createWardWith, type SpineInternals, type WardStyle, type WardUserProps } from "./create-ward.tsx"
 import type { WardBaseConfig, WardConfig, WardFeatureConfigs, WardicVariantLabels } from "./config.ts"
-import type { AbsentGroupsOf, FeatureNames, GroupsOf, NamesEvery } from "./feature.ts"
-import type { ALL } from "./features/all.ts"
+import type { AbsentGroupsOf, EveryFeature, GroupsOf, NamesEvery, PropNames } from "./feature.ts"
 import type { InferredMotion, InferredMotionOf, TargetKey } from "./ward-keys.ts"
 import { changesContext } from "./variant-tree.ts"
 import { MOTION_PROPS, motionToConfig, type WardicMotionProps } from "./motion-props.ts"
@@ -54,6 +53,7 @@ import { useWardicConfig } from "./wardic-config.tsx"
 import { isValidPropOf } from "./wardic-config-value.ts"
 
 export { MOTION_PROPS, motionToConfig, type WardicMotionProps } from "./motion-props.ts"
+export type { EveryFeature, PropNames } from "./feature.ts"
 
 /**
  * Props for a `wardic.<tag>` element: the tag's intrinsic props + motion props `M`, with a `style`
@@ -76,15 +76,6 @@ export type WardicProps<Tag extends keyof JSX.IntrinsicElements, M = WardicMotio
 // `F` (#516): a Wardic instance's Features. Its default, every one, gives the props as they were; a
 // list without some gives their props as `NeedsFeature` ({@link WardicComponentWith}).
 export type WardicComponent<Tag extends keyof JSX.IntrinsicElements, F = EveryFeature> = WardicComponentWith<Tag, PropNames<F>>
-
-/** Every Feature: what a {@link WardicComponent} has unless it's a Wardic instance's. */
-export type EveryFeature = typeof ALL
-
-/**
- * The names of Features `F` that add props (#516). The types below take these, not `F`: every list
- * with each of them is one type, and an error prints names, not each Feature's service.
- */
-export type PropNames<F> = Extract<FeatureNames<F>, keyof WardFeatureConfigs>
 
 /**
  * A `wardic.<tag>`/`w.<tag>` component whose Features are named `FN` (#516). With every one, the props

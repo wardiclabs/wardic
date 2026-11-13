@@ -33,8 +33,10 @@ import { MOTION_PROPS_V2 as MOTION_PROPS, type WardicMotionPropsV2 as WardicMoti
 import { changesContext, isVariantChild } from "../../variant-tree.ts"
 import { type AnyWard, GESTURE_KEYS, shareOf, type Ward, WARD, type WardConfig, type WardConfigValues, wardConfigView, type WardInternals, type WardRead, type WardShare, type WardStyle, wardWith } from "./ward.tsx"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
-import type { WardicVariantLabels } from "../../config.ts"
-import type { DrivenKey, InferredMotion, TargetKey } from "../../ward-keys.ts"
+import type { WardBaseConfig, WardFeatureConfigs, WardicVariantLabels } from "../../config.ts"
+import type { AbsentGroupsOf, EveryFeature, GroupsOf, NamesEvery, PropNames } from "../../feature.ts"
+import type { SolidOneCallback } from "../../motion-props.ts"
+import type { DrivenKey, InferredMotion, InferredMotionOf, TargetKey } from "../../ward-keys.ts"
 import { useVariantContext } from "./variant-node.ts"
 import { droppedKeysOf, markWardic, routingTagOf, type WardicCreateOptions } from "../../wardic-component.ts"
 import { isValidPropOf } from "../../wardic-config-value.ts"
@@ -100,26 +102,64 @@ export type WardicMotion<C = {}, P = WardicMotionProps> = { readonly wardRef?: W
  * A `wardic.<tag>` component: generic over the config `C` of a ward given to its `wardRef`, `{}` with
  * none, and over the keys its targets set, so its `transition` takes entries for those
  * keys and the given ward's, `default` and `layout`, and a target's own takes them and `default`
- * ({@link InferredMotion}).
+ * ({@link InferredMotion}). `F` (#516): a Wardic instance's Features. Its default, every one, gives the
+ * props as they were; a list without some gives their props as `NeedsFeature`.
  */
-export type WardicComponent<Tag extends keyof JSX.IntrinsicElements> = <
-  C = {},
-  K extends TargetKey = never,
-  N extends string = never,
-  LI extends WardicVariantLabels = never,
-  LA extends WardicVariantLabels = never,
-  D extends boolean | "x" | "y" = never,
->(props: WardicProps<Tag, C, InferredMotion<WardicMotionProps, K, N, LI, LA, D, DrivenKey<C>>>) => JSX.Element
+export type WardicComponent<Tag extends keyof JSX.IntrinsicElements, F = EveryFeature> = WardicComponentWith<Tag, PropNames<F>>
+
+/**
+ * Each Feature's motion props on Solid 2, by its name (#516): Solid 1's without its callbacks, which a
+ * ward's events tell (`next(name)`), so `pan` adds none.
+ */
+export type FeatureProps = { readonly [N in keyof WardFeatureConfigs]: Omit<WardFeatureConfigs[N], SolidOneCallback> }
+
+/** A Wardic instance's motion props on Solid 2, its Features named `FN` (#516): the base group and theirs. */
+export type PresentWith<FN extends string> = Omit<WardBaseConfig, SolidOneCallback> & GroupsOf<FeatureProps, FN>
+
+/** {@link PresentWith}, and every other Feature's prop `NeedsFeature<"name">` (#516). With every Feature, the props as they were. */
+export type MotionPropsWith<FN extends string> = NamesEvery<FeatureProps, FN> extends true ? WardicMotionProps : PresentWith<FN> & AbsentGroupsOf<FeatureProps, FN>
+
+/** A {@link WardicComponent} whose Features are named `FN` (#516). */
+export type WardicComponentWith<Tag extends keyof JSX.IntrinsicElements, FN extends string> =
+  NamesEvery<FeatureProps, FN> extends true
+    ? <
+        C = {},
+        K extends TargetKey = never,
+        N extends string = never,
+        LI extends WardicVariantLabels = never,
+        LA extends WardicVariantLabels = never,
+        D extends boolean | "x" | "y" = never,
+      >(props: WardicProps<Tag, C, InferredMotion<WardicMotionProps, K, N, LI, LA, D, DrivenKey<C>>>) => JSX.Element
+    : <
+        C = {},
+        K extends TargetKey = never,
+        N extends string = never,
+        LI extends WardicVariantLabels = never,
+        LA extends WardicVariantLabels = never,
+        D extends boolean | "x" | "y" = never,
+      >(props: WardicProps<Tag, C, InferredMotionOf<PresentWith<FN>, K, N, LI, LA, D, DrivenKey<C>> & AbsentGroupsOf<FeatureProps, FN>>) => JSX.Element
 
 /** `wardic.create(Component)`'s component: the component's props and its motion, generic as {@link WardicComponent}. */
-export type WardicWrapped<P> = <
-  C = {},
-  K extends TargetKey = never,
-  N extends string = never,
-  LI extends WardicVariantLabels = never,
-  LA extends WardicVariantLabels = never,
-  D extends boolean | "x" | "y" = never,
->(props: P & { readonly style?: WardStyle | string | undefined } & WardicMotion<C, InferredMotion<WardicMotionProps, K, N, LI, LA, D, DrivenKey<C>>>) => JSX.Element
+export type WardicWrapped<P, FN extends string = PropNames<EveryFeature>> =
+  NamesEvery<FeatureProps, FN> extends true
+    ? <
+        C = {},
+        K extends TargetKey = never,
+        N extends string = never,
+        LI extends WardicVariantLabels = never,
+        LA extends WardicVariantLabels = never,
+        D extends boolean | "x" | "y" = never,
+      >(props: P & { readonly style?: WardStyle | string | undefined } & WardicMotion<C, InferredMotion<WardicMotionProps, K, N, LI, LA, D, DrivenKey<C>>>) => JSX.Element
+    : <
+        C = {},
+        K extends TargetKey = never,
+        N extends string = never,
+        LI extends WardicVariantLabels = never,
+        LA extends WardicVariantLabels = never,
+        D extends boolean | "x" | "y" = never,
+      >(
+        props: P & { readonly style?: WardStyle | string | undefined } & WardicMotion<C, InferredMotionOf<PresentWith<FN>, K, N, LI, LA, D, DrivenKey<C>> & AbsentGroupsOf<FeatureProps, FN>>,
+      ) => JSX.Element
 
 /** A component's `wardRef`, read as its props hold it. */
 interface WardRefIn {
@@ -318,11 +358,14 @@ export const createWith = (arg: string | Component<Record<string, unknown>>, opt
   return markWardic(made, arg)
 }
 
-/** The `create` of a form: {@link createWith}'s overloads. */
-export interface Create {
-  <Tag extends keyof JSX.IntrinsicElements>(tag: Tag, options?: WardicCreateOptions): WardicComponent<Tag>
-  <C extends Exclude<ValidComponent, string>>(component: C, options?: WardicCreateOptions): WardicWrapped<ComponentProps<C>>
-  (tag: string, options?: WardicCreateOptions): WardicComponent<keyof JSX.IntrinsicElements>
+/** The `create` of a form: {@link createWith}'s overloads. `F` (#516): a Wardic instance's Features. */
+export type Create<F = EveryFeature> = CreateWith<PropNames<F>>
+
+/** {@link Create} for the Features named `FN` (#516). */
+export interface CreateWith<FN extends string> {
+  <Tag extends keyof JSX.IntrinsicElements>(tag: Tag, options?: WardicCreateOptions): WardicComponentWith<Tag, FN>
+  <C extends Exclude<ValidComponent, string>>(component: C, options?: WardicCreateOptions): WardicWrapped<ComponentProps<C>, FN>
+  (tag: string, options?: WardicCreateOptions): WardicComponentWith<keyof JSX.IntrinsicElements, FN>
 }
 
 /** A form's `create`, its elements of `kind`. */
