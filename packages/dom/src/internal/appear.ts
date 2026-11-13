@@ -1093,20 +1093,32 @@ export const find = (element: Element): Option.Option<Animation> =>
   })
 
 /**
- * A document's Appear animations by element, running or finished and filling: one `getAnimations()` for
- * the page, for a Handoff of many elements at once, a Batch's members (#706). Each element's first: a
- * member's Batch rule, or the one `find` gets.
+ * A page's Appear animations by element, running or finished and filling: one `getAnimations()` for every
+ * element on it, for a Handoff of many elements at once. Each element's first: a member's Batch rule, or
+ * the one `find` gets. The page is a document, or a shadow root: a document's read doesn't reach into its
+ * shadow trees, so an element there is in its own root's (`element.getRootNode()`).
  */
-// #706, Q3: measured at a Batch's 1,000 members in one list, Chromium's `Element.getAnimations()` cost
-// about a whole document's each (5.6 s for every member; the document's, 5.6 ms); Firefox's, alike either way.
-export const findAll = (doc: Document): ReadonlyMap<Element, Animation> => {
+// #706 Q3, #724: Chromium's `Element.getAnimations()` costs about a whole document's read each (1,000 Appear
+// elements in one parent: 5.4 s for all of them, the document's 15 ms). Firefox's and WebKit's are cheaper
+// than their document's (6.8 against 8.4 ms, 12 against 16), so they pay a little more for one read.
+export const findAll = (root: Document | ShadowRoot): ReadonlyMap<Element, Animation> => {
   const byElement = new Map<Element, Animation>()
-  if (Bool.not(Predicate.hasProperty(doc, "getAnimations"))) return byElement
+  if (Bool.not(Predicate.hasProperty(root, "getAnimations"))) return byElement
   // Once a Handoff, over the page's animations: the first per element, as `find`'s.
-  Arr.forEach(Arr.filter(doc.getAnimations(), isAppearAnimation), (animation) =>
+  Arr.forEach(Arr.filter(root.getAnimations(), isAppearAnimation), (animation) =>
     Option.map(Option.filter(targetOf(animation), (target) => Bool.not(byElement.has(target))), (target) => byElement.set(target, animation)))
   return byElement
 }
+
+/**
+ * The element's own Appear animation in a page's read (`findAll`'s): the one `find` gets, with no read of
+ * its own. A Batch's rule on a member's element isn't one.
+ */
+// #724: the element Handoff's lookup, every element hydrating in a pass from one read of its page. An
+// element runs one Appear animation at most, its inline slot's (a member's Batch rule vetoes its own, #706),
+// so `findAll`'s first is the one `find` would get.
+export const findIn = (animations: ReadonlyMap<Element, Animation>, element: Element): Option.Option<Animation> =>
+  Option.filter(Option.fromUndefinedOr(animations.get(element)), isElementAppearAnimation)
 
 /** Whether `animation` is `spec`'s: the rule the server sampled from the same spec. */
 export const matches = (animation: Animation, spec: Pick<Spec, "key" | "tag" | "infinite" | "projected">): boolean =>

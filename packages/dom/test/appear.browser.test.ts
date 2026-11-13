@@ -25,6 +25,9 @@
 //   Batch rule, an element's the one `find` gets, and not an app's own animation.
 // - HA12 (#706): `find` passes over a Batch's rule: a Wardic element on a member's element takes none of
 //   its Batch's animation for its own, which its Batch takes over.
+// - HA13 (#724): `findIn` looks an element's own Appear animation up in a page's read (`findAll`'s): the
+//   one `find` gets, and none for a Batch's rule or an app's own animation.
+// - HA14 (#724): `findAll` reads a shadow root's Appear animations, which the document's read misses.
 import * as Batch from "@wardic/core/Batch"
 import * as Machine from "@wardic/core/Machine"
 import type * as Frame from "@wardic/core/Frame"
@@ -342,6 +345,37 @@ const batchAppear = (key: string): ReadonlyArray<HTMLElement> => {
   return elements
 }
 
+/**
+ * One render's sheet, as a page has, the Batch's slot and an element's: the Batch's members, an element on
+ * its own slot, and one running an app's own animation, all playing.
+ */
+const onePage = async (key: string) => {
+  const rule = Result.getOrThrow(Appear.batchKeyframes({ key, keys: BATCH_KEYS, transition: SPRING, starts: STARTS, targets: TARGETS }))
+  const sheet = Appear.sheet()
+  const batch = sheet.batch(rule)
+  const slot = sheet.slot()
+  expect(Result.isSuccess(slot.define({ spec: { key: `${key} element`, tag: "div", machine: () => rise() }, delay: 0 }))).toBe(true)
+  const style = document.createElement("style")
+  style.textContent = `${sheet.css()}@keyframes spin{to{transform:rotate(1turn)}}`
+  document.head.append(style)
+  const members = TARGETS.map((_, m) => {
+    const member = document.createElement("div")
+    for (const [property, value] of Object.entries(batch.styleOf(m, DELAYS[m] as number) as Readonly<Record<string, string>>)) member.style.setProperty(property, value)
+    return member
+  })
+  const element = document.createElement("div")
+  element.style.animation = slot.animation
+  const own = document.createElement("div")
+  own.style.animation = "spin 1s linear infinite"
+  document.body.append(...members, element, own)
+  cleanups.push(() => {
+    for (const node of [...members, element, own]) node.remove()
+    style.remove()
+  })
+  await raf()
+  return { members, element, own }
+}
+
 /** What a member draws now: its translateX and opacity. */
 const drawnX = (element: Element) => {
   const computed = getComputedStyle(element)
@@ -426,30 +460,7 @@ describe("a Batch's members in a browser (#706)", () => {
   })
 
   it("HA11: findAll reads the document's Appear animations in one call, by element", async () => {
-    // One render's sheet, as a page has: the Batch's slot and an element's.
-    const rule = Result.getOrThrow(Appear.batchKeyframes({ key: "HA11", keys: BATCH_KEYS, transition: SPRING, starts: STARTS, targets: TARGETS }))
-    const sheet = Appear.sheet()
-    const batch = sheet.batch(rule)
-    const slot = sheet.slot()
-    expect(Result.isSuccess(slot.define({ spec: { key: "HA11 element", tag: "div", machine: () => rise() }, delay: 0 }))).toBe(true)
-    const style = document.createElement("style")
-    style.textContent = `${sheet.css()}@keyframes spin{to{transform:rotate(1turn)}}`
-    document.head.append(style)
-    const members = TARGETS.map((_, m) => {
-      const member = document.createElement("div")
-      for (const [property, value] of Object.entries(batch.styleOf(m, DELAYS[m] as number) as Readonly<Record<string, string>>)) member.style.setProperty(property, value)
-      return member
-    })
-    const element = document.createElement("div")
-    element.style.animation = slot.animation
-    const own = document.createElement("div")
-    own.style.animation = "spin 1s linear infinite"
-    document.body.append(...members, element, own)
-    cleanups.push(() => {
-      for (const node of [...members, element, own]) node.remove()
-      style.remove()
-    })
-    await raf()
+    const { members, element, own } = await onePage("HA11")
     const all = Appear.findAll(document)
     for (const node of members) expect(Appear.matchesBatch(all.get(node) as Animation, "HA11"), "each member's Batch rule").toBe(true)
     expect(all.get(element), "the one find gets").toBe(found(element))
@@ -475,5 +486,40 @@ describe("a Batch's members in a browser (#706)", () => {
     expect(Appear.pending(member), "its slot named").toBe(true)
     expect(Appear.matchesBatch(Appear.findAll(document).get(member) as Animation, "HA12"), "its Batch's rule, running").toBe(true)
     expect(Option.isNone(Appear.find(member)), "no element's Appear animation").toBe(true)
+  })
+
+  it("HA13: findIn looks an element's own Appear animation up in a page's read: the one find gets, none for a Batch's rule (#724)", async () => {
+    const { members, element, own } = await onePage("HA13")
+    const all = Appear.findAll(document)
+    expect(Option.getOrThrow(Appear.findIn(all, element)), "the one find gets").toBe(found(element))
+    for (const member of members) expect(Option.isNone(Appear.findIn(all, member)), "a Batch's rule isn't an element's").toBe(true)
+    expect(Option.isNone(Appear.findIn(all, own)), "nor an app's own animation").toBe(true)
+  })
+
+  it("HA14: findAll reads a shadow root's Appear animations, which the document's read doesn't reach (#724)", async () => {
+    const sheet = Appear.sheet()
+    const slot = sheet.slot()
+    expect(Result.isSuccess(slot.define({ spec: { key: "HA14", tag: "div", machine: () => rise() }, delay: 0 }))).toBe(true)
+    // The slot's custom property is the document's (a shadow tree inherits it; its own `:root` matches
+    // nothing), and the rule the tree's: an animation's name is looked up in the element's own tree.
+    const css = sheet.css()
+    const style = document.createElement("style")
+    style.textContent = css
+    document.head.append(style)
+    const host = document.createElement("div")
+    const shadow = host.attachShadow({ mode: "open" })
+    const inner = document.createElement("style")
+    inner.textContent = css
+    const element = document.createElement("div")
+    element.style.animation = slot.animation
+    shadow.append(inner, element)
+    document.body.append(host)
+    cleanups.push(() => {
+      host.remove()
+      style.remove()
+    })
+    await raf()
+    expect(Appear.findAll(document).has(element), "the document's read misses it").toBe(false)
+    expect(Appear.findAll(shadow).get(element), "its root's read finds it").toBe(found(element))
   })
 })

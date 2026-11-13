@@ -17,12 +17,15 @@
 //   whose own style sets an animation plays none, and moves from its start at hydration.
 // - BH8 (Q21): a Batch without `appear` leaves a Wardic element on its member's element its own Appear
 //   animation, which goes on through hydration, and moves its member from its start.
+// - BH9 (#724): hydrated in a shadow root that holds its rules, BH1's member and Wardic element are each
+//   taken over from a read of that root: the element's at mount, the Batch's at its first step.
 import * as Batch from "@wardic/core/Batch"
 import * as Bool from "effect/Boolean"
 import * as Rec from "effect/Record"
 import type { JSX } from "solid-js"
 import { commands } from "vitest/browser"
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
+import { countReads } from "./appear-reads.ts"
 import { cleanups, followsMachine, type Run, runServerRendered, TOL } from "./appear-hydrate-harness.ts"
 import { B1, B2, B2_STAGGER, B2_TARGETS, B2_TWEEN, B3, B3_TWEEN, B4, B4_TWEEN, B5 } from "./batch-appear-fixtures.tsx"
 import "./browser-commands.ts"
@@ -79,20 +82,25 @@ const handedOff = (r: Run, k: string): boolean => {
   return after.slice(released).every((frame) => frame.drawn[k]?.css === false)
 }
 
+/** B1's member and Wardic element, frame for frame, within the tolerances: how many frames had both. */
+const comparedAlike = (r: Run): number => {
+  let compared = 0
+  for (const frame of r.frames) {
+    const member = frame.drawn.member
+    const element = frame.drawn.element
+    if (member === undefined || element === undefined) continue
+    const where = `at ${frame.at.toFixed(1)} (${Bool.match(frame.hydrated, { onTrue: () => "hydrated", onFalse: () => "before hydration" })})`
+    expect(Math.abs(member.y - element.y), `${where}: y ${member.y} vs ${element.y}`).toBeLessThanOrEqual(TOL.px)
+    expect(Math.abs(member.opacity - element.opacity), `${where}: opacity ${member.opacity} vs ${element.opacity}`).toBeLessThanOrEqual(TOL.opacity)
+    compared++
+  }
+  return compared
+}
+
 describe("a Batch's members' Appear animations, server render to hydration (#706)", () => {
   it("BH1: a member and a Wardic element on one spec rise in alike, frame for frame, through the Handoff", async () => {
     const r = await run("B1", B1, { hydrateAfter: 150, forMs: 1200 })
-    let compared = 0
-    for (const frame of r.frames) {
-      const member = frame.drawn.member
-      const element = frame.drawn.element
-      if (member === undefined || element === undefined) continue
-      const where = `at ${frame.at.toFixed(1)} (${["before hydration", "hydrated"][Number(frame.hydrated)]})`
-      expect(Math.abs(member.y - element.y), `${where}: y ${member.y} vs ${element.y}`).toBeLessThanOrEqual(TOL.px)
-      expect(Math.abs(member.opacity - element.opacity), `${where}: opacity ${member.opacity} vs ${element.opacity}`).toBeLessThanOrEqual(TOL.opacity)
-      compared++
-    }
-    expect(compared).toBeGreaterThan(40)
+    expect(comparedAlike(r), "frames compared").toBeGreaterThan(40)
     expect(r.frames.some((frame) => !frame.hydrated && (frame.drawn.member?.y ?? 40) < 39), "moving before hydration").toBe(true)
     expect(handedOff(r, "member")).toBe(true)
   }, 30_000)
@@ -187,5 +195,15 @@ describe("a Batch's members' Appear animations, server render to hydration (#706
     for (const frame of before) expect(frame.drawn.w?.opacity, "w's opacity before hydration").toBe(0)
     expect(after[1]?.drawn.w?.opacity, "w's opacity as hydration starts it").toBeLessThan(0.15)
     expect(after[after.length - 1]?.drawn.w?.opacity).toBe(1)
+  }, 30_000)
+
+  it("BH9: hydrated in a shadow root, the member and the Wardic element are each taken over from their root's read (#724)", async () => {
+    const counting = countReads()
+    const r = await run("B1", B1, { hydrateAfter: 150, forMs: 1200, shadow: true }).finally(counting.stop)
+    // The element's at its mount, the Batch's at its change's first step, a frame later: each its task's.
+    expect(counting.reads, "two reads, of its shadow root").toEqual({ element: 0, document: 0, shadowRoot: 2 })
+    expect(comparedAlike(r), "frames compared").toBeGreaterThan(40)
+    expect(handedOff(r, "member")).toBe(true)
+    expect(handedOff(r, "element")).toBe(true)
   }, 30_000)
 })

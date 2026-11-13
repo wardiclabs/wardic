@@ -810,8 +810,62 @@ export interface Handoff {
   readonly animation: Animation
 }
 
-/** The element's Appear animation, if a server started one (decision 6). */
-export const handoffOf = (element: Element): Option.Option<Handoff> => Option.map(Appear.find(element), (animation) => ({ animation }))
+/** Whether `node` is a shadow root: a fragment with a host. */
+const isShadowRoot = (node: Node): node is ShadowRoot =>
+  Bool.and(node.nodeType === Node.DOCUMENT_FRAGMENT_NODE, Predicate.isNotUndefined((node as Partial<ShadowRoot>).host))
+
+/** What `Appear.findAll` reads: a document, or a shadow root, whose animations a document's read doesn't reach. */
+type Root = Document | ShadowRoot
+
+/** A root's Appear animations by element, as `Appear.findAll` reads them. */
+type RootRead = ReadonlyMap<Element, Animation>
+
+/**
+ * The root `element` is in, as `Appear.findAll` reads it: the shadow root it's in, or its document (#724).
+ * A detached element, its root its own tree, reads its document, where it runs no animation.
+ */
+const rootOf = (element: Element): Root =>
+  Option.getOrElse(Option.liftPredicate(element.getRootNode(), isShadowRoot), () => element.ownerDocument)
+
+// Module state (#460, Q7): a cache of the reads one synchronous run took, keyed by the root each read,
+// dropped at the next microtask checkpoint.
+let readsByRoot: Map<Root, RootRead> | undefined = undefined
+
+/** The reads taken since the last microtask checkpoint, by root: the next checkpoint drops them. */
+const readsNow = (): Map<Root, RootRead> => {
+  if (Predicate.isNotUndefined(readsByRoot)) return readsByRoot
+  const reads = new Map<Root, RootRead>()
+  readsByRoot = reads
+  queueMicrotask(() => {
+    readsByRoot = undefined
+  })
+  return reads
+}
+
+/**
+ * The Appear animations on `element`'s page, its document or its shadow root: one `getAnimations()`
+ * (`Appear.findAll`), kept until the next microtask checkpoint, for every Handoff until then (#706 Q3,
+ * #724). A hydration pass makes all its lookups before one, so it reads once: each element's at mount, and
+ * a Batch's at its change's first step.
+ */
+export const pageAnimationsOf = (element: Element): RootRead => {
+  const root = rootOf(element)
+  const reads = readsNow()
+  const read = reads.get(root)
+  if (Predicate.isNotUndefined(read)) return read
+  const animations = Appear.findAll(root)
+  reads.set(root, animations)
+  return animations
+}
+
+const toHandoff = (animation: Animation): Handoff => ({ animation })
+
+/**
+ * The element's Appear animation, if a server started one (decision 6). Only an element whose inline style
+ * names its slot looks, in its page's read (#724): a page with none reads nothing.
+ */
+export const handoffOf = (element: Element & ElementCSSInlineStyle): Option.Option<Handoff> =>
+  Option.map(Option.flatMap(Option.liftPredicate(element, Appear.pending), (el) => Appear.findIn(pageAnimationsOf(el), el)), toHandoff)
 
 /**
  * How far into its own run the client's first legs start, in seconds, read at their first tick:

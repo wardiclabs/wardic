@@ -35,6 +35,14 @@
 // - AH15 (#468): under `skipAnimations`, a card and a staggered list are drawn landed from first
 //   paint, before and after hydration, with no frame between; the card's mount is told start and
 //   complete once hydrated.
+// - AH16 (#724): a list hydrating reads its page's animations once, one `getAnimations()` on the
+//   document, and no element reads its own; each item is taken over from that read.
+// - AH17 (#724): elements the server gave no Appear animation (`appear={false}`) read nothing as they
+//   hydrate.
+// - AH18 (#724): each hydration pass reads its page once: the shell's, and a late chunk's that lands
+//   after it, in its own task.
+// - AH19 (#724): hydrated in a shadow root that holds its rules, the card is taken over from one read of
+//   that root, which a document's read doesn't reach.
 import * as Easing from "@wardic/core/Easing"
 import * as Frame from "@wardic/core/Frame"
 import * as Machine from "@wardic/core/Machine"
@@ -52,7 +60,8 @@ import { type JSX, sharedConfig } from "solid-js"
 import { hydrate } from "solid-js/web"
 import { commands } from "vitest/browser"
 import { afterEach, beforeAll, describe, expect, it } from "vitest"
-import { A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, setAppearEnv } from "./appear-fixtures.tsx"
+import { countReads, uncounted } from "./appear-reads.ts"
+import { A1, A2, A3, A4, A5, A6, A7, A8, A9, A10, A11, R1, R2, setAppearEnv } from "./appear-fixtures.tsx"
 import "./browser-commands.ts"
 import { cleanups, type Drawn, drawnOf, followsMachine, machineAt, type Recorded, type Run, runServerRendered } from "./appear-hydrate-harness.ts"
 
@@ -82,6 +91,28 @@ const runScripts = (root: ParentNode): void => {
     script.textContent = old.textContent
     old.replaceWith(script)
   }
+}
+
+/**
+ * Land a write's `nodes` at the end of the body and run their own scripts, each once, as the parser would:
+ * none of the page's others, which a chunk landing after hydration would run again (#724). Returns what
+ * it put on the page.
+ */
+const landNodes = (nodes: ReadonlyArray<Element>): ReadonlyArray<Element> => {
+  const placed: Array<Element> = []
+  for (const node of nodes) {
+    document.body.append(node)
+    if (node.tagName !== "SCRIPT") {
+      runScripts(node)
+      placed.push(node)
+      continue
+    }
+    const script = document.createElement("script")
+    script.textContent = node.textContent
+    node.replaceWith(script)
+    placed.push(script)
+  }
+  return placed
 }
 
 /**
@@ -125,11 +156,7 @@ const runStreamed = async (
     for (const write of later) {
       const box = document.createElement("div")
       box.innerHTML = write
-      for (const node of [...box.children]) {
-        document.body.append(node)
-        landed.push(node)
-      }
-      runScripts(document.body)
+      landed.push(...landNodes([...box.children]))
     }
   }, options.chunkAfter)
   cleanups.push(() => clearTimeout(chunk))
@@ -147,13 +174,16 @@ const runStreamed = async (
     const frame = (now: number): void => {
       setTimeout(() => {
         const drawn: Record<string, Drawn> = {}
-        for (const el of host.querySelectorAll("[data-k]")) {
-          const k = (el as HTMLElement).dataset.k!
-          Option.map(Appear.find(el), (animation) => {
-            if (startOf[k] === undefined && typeof animation.startTime === "number") startOf[k] = animation.startTime
-          })
-          drawn[k] = drawnOf(el)
-        }
+        // The harness's own reads, uncounted (#724).
+        uncounted(() => {
+          for (const el of host.querySelectorAll("[data-k]")) {
+            const k = (el as HTMLElement).dataset.k!
+            Option.map(Appear.find(el), (animation) => {
+              if (startOf[k] === undefined && typeof animation.startTime === "number") startOf[k] = animation.startTime
+            })
+            drawn[k] = drawnOf(el)
+          }
+        })
         frames.push({ at: now, hydrated, drawn })
       }, 0)
       if (performance.now() - begun < options.forMs) requestAnimationFrame(frame)
@@ -407,5 +437,48 @@ describe("Appear animations, server render to hydration (#48, ADR-0044)", () => 
     ;(globalThis as { __a8add?: () => void }).__a8add!()
     await new Promise((resolve) => setTimeout(resolve, 100))
     expect([...list.children].map((el) => (el as HTMLElement).dataset.k)).toEqual(["s0", "s1", "s2", "s3"])
+  })
+
+  it("AH16: a list hydrating reads its page's animations once, and no element its own (#724)", async () => {
+    const counting = countReads()
+    const r = await run("A2", A2, { hydrateAfter: 200, forMs: 1100 }).finally(counting.stop)
+    expect(counting.reads, "one read of the page, at the Handoff").toEqual({ element: 0, document: 1, shadowRoot: 0 })
+    // Each taken over from that one read: on its machine through the Handoff, its CSS animation gone.
+    ;["i0", "i1", "i2"].forEach((k, i) => {
+      const machine = tween({ opacity: 0, x: -30 }, { opacity: 1, x: 0 }, { ease: Easing.easeOut, duration: 0.5, delay: 0.12 * i })
+      expect(followsMachine(r, k, (s) => {
+        const v = machineAt(machine, s)
+        return { opacity: v.opacity as number, x: v.x as number }
+      }), k).toBeGreaterThan(20)
+      expect(r.frames.at(-1)!.drawn[k]!.css, `${k}'s CSS animation is gone`).toBe(false)
+    })
+  })
+
+  it("AH17: elements the server gave no Appear animation read nothing as they hydrate (#724)", async () => {
+    const counting = countReads()
+    // Recorded well past i1's landing, 0.62 s after hydration (its 0.12 s stagger, then 0.5 s): a window
+    // ending 0.58 s after it caught i1 a hair short of 1 on a slow runner.
+    const r = await run("R1", R1, { hydrateAfter: 120, forMs: 1300, played: false }).finally(counting.stop)
+    expect(counting.reads, "no read").toEqual({ element: 0, document: 0, shadowRoot: 0 })
+    // Each animated from hydration, as `appear={false}` has it, and landed.
+    const last = r.frames.at(-1)!.drawn
+    for (const k of ["card", "i0", "i1"]) expect(last[k]!.opacity, k).toBeCloseTo(1, 2)
+  })
+
+  it("AH18: each hydration pass reads its page once: the shell's, then a late chunk's (#724)", async () => {
+    const counting = countReads()
+    const r = await runStreamed("R2", R2, { chunkAfter: 450, hydrateAfter: 120, forMs: 1300 }).finally(counting.stop)
+    expect(counting.reads, "the shell's read, and the chunk's").toEqual({ element: 0, document: 2, shadowRoot: 0 })
+    // Each taken over from its pass's read: its CSS animation gone.
+    const last = r.frames.at(-1)!.drawn
+    for (const k of ["card", "s0", "s1", "s2"]) expect(last[k]!.css, `${k}'s CSS animation is gone`).toBe(false)
+  })
+
+  it("AH19: hydrated in a shadow root, the card is taken over from its root's read (#724)", async () => {
+    const counting = countReads()
+    const r = await run("A1", A1, { hydrateAfter: 180, forMs: 1600, shadow: true }).finally(counting.stop)
+    expect(counting.reads, "one read, of its shadow root").toEqual({ element: 0, document: 0, shadowRoot: 1 })
+    expect(followsMachine(r, "card", card), "frames after hydration").toBeGreaterThan(30)
+    expect(r.frames.at(-1)!.drawn.card!.css, "the CSS animation is gone").toBe(false)
   })
 })
