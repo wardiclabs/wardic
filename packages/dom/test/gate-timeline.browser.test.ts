@@ -6,9 +6,10 @@
 // - GT1: set, it starts at the next flush, with no write needed, and the key is still written inline.
 // - GT2: cleared, it's cancelled at the next flush, not before, and that flush's commit draws the key.
 // - GT3: on a transform key, another transform key off its identity cancels it at that flush, the
-//   transform drawn whole inline; back at its identity, it starts again.
+//   transform drawn whole inline; back at its identity, it starts again; a Transform template cancels it.
 // - GT4: an element the projection draws runs none: its Crossfade's opacity is the projection's.
-// - GT5: unregistered, or replaced by another for the key, it's cancelled; a released key's too.
+// - GT5: replaced by another for the key, its key released, its element registered again under its id,
+//   unregistered, or the gate disposed: it's cancelled.
 import * as LiveValue from "@wardic/core/LiveValue"
 import * as Projection from "@wardic/core/Projection"
 import * as Effect from "effect/Effect"
@@ -21,6 +22,7 @@ import * as Scope from "effect/Scope"
 import { afterEach, beforeEach, describe, expect, it } from "vitest"
 import { DomLive } from "@wardic/dom"
 import * as DomInterpolators from "../src/DomInterpolators.ts"
+import * as DomRenderer from "../src/DomRenderer.ts"
 import * as DomScrollSource from "../src/DomScrollSource.ts"
 import * as TimelineValue from "../src/TimelineValue.ts"
 import { fireFrame, NO_BATCH, resetFrames, withFrames } from "./gate-harness.ts"
@@ -111,6 +113,10 @@ describe("the gate and a key's Timeline value (#240)", () => {
     gate.write("el", { x: 0 })
     fireFrame()
     expect(el.getAnimations()).toHaveLength(1)
+    // A Transform template draws `transform` from the keys: the template's, not the animation's.
+    gate.write("el", { [DomRenderer.TEMPLATE_KEY]: (_values: unknown, generated: string) => `${generated} rotate(5deg)` })
+    fireFrame()
+    expect(el.getAnimations(), "a Transform template").toHaveLength(0)
   })
 
   it("GT4: an element the projection draws runs none", () => {
@@ -139,6 +145,18 @@ describe("the gate and a key's Timeline value (#240)", () => {
     expect(el.getAnimations()).toHaveLength(1)
     const unregister = gate.register("el", { target: el })
     expect(el.getAnimations(), "re-registered under the id: the old entry's cancelled").toHaveLength(0)
+    gate.timeline("el", "opacity", timelineOf("opacity"))
+    gate.write("el", { opacity: 0.3 })
+    fireFrame()
+    expect(el.getAnimations()).toHaveLength(1)
     unregister()
+    expect(el.getAnimations(), "unregistered: at once").toHaveLength(0)
+    gate.register("el", { target: el })
+    gate.timeline("el", "opacity", timelineOf("opacity"))
+    gate.write("el", { opacity: 0.3 })
+    fireFrame()
+    expect(el.getAnimations()).toHaveLength(1)
+    gate.dispose()
+    expect(el.getAnimations(), "the gate disposed: at once").toHaveLength(0)
   })
 })

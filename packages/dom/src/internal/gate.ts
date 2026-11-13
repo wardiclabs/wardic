@@ -60,9 +60,6 @@ import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import type * as Fiber from "effect/Fiber"
-import * as Arr from "effect/Array"
-import { constUndefined, constVoid, identity } from "effect/Function"
-import * as Iter from "effect/Iterable"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as Scope from "effect/Scope"
@@ -148,6 +145,11 @@ const inlineValueOf = (target: unknown, key: string): string => {
   const style = (target as { readonly style?: CSSStyleDeclaration }).style
   if (Predicate.isUndefined(style)) return ""
   return style.getPropertyValue(dashCase(key))
+}
+
+/** Each of `values` cancelled (#240). Per flush: a plain loop. */
+const cancelEach = (values: Iterable<TimelineValue>): void => {
+  for (const value of values) value.cancel()
 }
 
 /** A Flush gate: what a binding registers its elements with and writes their values into, one per provider. */
@@ -349,7 +351,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     for (const [entry, ended] of endings) {
       if (Predicate.isUndefined(entry.patch)) continue
       endings.delete(entry)
-      for (let i = 0; i < ended.length; i++) ended[i].cancel()
+      cancelEach(ended)
     }
     for (const [entry, byKey] of timelines) {
       if (Predicate.isUndefined(entry.patch)) continue
@@ -359,10 +361,12 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
 
   /** Every Timeline value of `entry`, cancelled at once: its element is gone, or the gate is. */
   const cancelTimelines = (entry: Entry): void => {
-    UndefinedOr.match(endings.get(entry), { onUndefined: constVoid, onDefined: (ended) => Arr.forEach(ended, (value) => value.cancel()) })
+    const ended = endings.get(entry)
     endings.delete(entry)
-    UndefinedOr.match(timelines.get(entry), { onUndefined: constVoid, onDefined: (byKey) => Iter.forEach(byKey.values(), (value) => value.cancel()) })
+    if (Predicate.isNotUndefined(ended)) cancelEach(ended)
+    const byKey = timelines.get(entry)
     timelines.delete(entry)
+    if (Predicate.isNotUndefined(byKey)) cancelEach(byKey.values())
   }
 
   /** Commit a prepared entry's patch onto its element. */
@@ -521,7 +525,8 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
       patch: undefined,
     }
     // An entry the id had: its Timeline values end with it (#240).
-    UndefinedOr.match(accumulator.get(id), { onUndefined: constVoid, onDefined: cancelTimelines })
+    const replaced = accumulator.get(id)
+    if (Predicate.isNotUndefined(replaced)) cancelTimelines(replaced)
     accumulator.set(id, entry)
     if (Predicate.isNotUndefined(sink.beforeFirstCommit)) firstCommits.add(id)
     return () => {
@@ -608,30 +613,30 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     commitAll(entries, held)
   }
 
+  // Per key per Retarget, as the Override stack takes a key and lets it go: statements (the hot path).
   const timeline: FlushGate["timeline"] = (id, key, value) => {
     const entry = accumulator.get(id)
     if (Predicate.isUndefined(entry)) return
-    const byKey = timelines.get(entry)
-    const known = UndefinedOr.match(byKey, { onUndefined: constUndefined, onDefined: (held) => held.get(key) })
+    let byKey = timelines.get(entry)
+    let known: TimelineValue | undefined
+    if (Predicate.isNotUndefined(byKey)) known = byKey.get(key)
     if (known === value) return
     // The one it had is cancelled at the next flush, with the commit that draws the key without it.
-    UndefinedOr.match(known, {
-      onUndefined: constVoid,
-      onDefined: (ended) => {
-        endings.set(entry, UndefinedOr.match(endings.get(entry), { onUndefined: () => [ended], onDefined: (ending) => [...ending, ended] }))
-        UndefinedOr.match(byKey, { onUndefined: constVoid, onDefined: (held) => void held.delete(key) })
-      },
-    })
-    UndefinedOr.match(value, {
-      onUndefined: constVoid,
-      onDefined: (given) => {
-        const held = UndefinedOr.match(byKey, { onUndefined: () => new Map<string, TimelineValue>(), onDefined: identity })
-        held.set(key, given)
-        timelines.set(entry, held)
-      },
-    })
+    if (Predicate.isNotUndefined(known)) {
+      const ending = endings.get(entry)
+      if (Predicate.isNotUndefined(ending)) ending.push(known)
+      if (Predicate.isUndefined(ending)) endings.set(entry, [known])
+      if (Predicate.isNotUndefined(byKey)) byKey.delete(key)
+    }
+    if (Predicate.isNotUndefined(value)) {
+      if (Predicate.isUndefined(byKey)) {
+        byKey = new Map()
+        timelines.set(entry, byKey)
+      }
+      byKey.set(key, value)
+    }
     // An element left with none leaves the map, so the flush skips it.
-    UndefinedOr.match(timelines.get(entry), { onUndefined: constVoid, onDefined: (held) => void (held.size === 0 && timelines.delete(entry)) })
+    if (Predicate.isNotUndefined(byKey) && byKey.size === 0) timelines.delete(entry)
     entry.dirty = true
     scheduleFlush()
   }
