@@ -835,6 +835,23 @@ a {
   cursor: pointer;
 }
 
+/* The icon swap sample (#744): a round play button, its icon popped as it swaps. Its size is its icon's
+   and its padding, so an icon left in the flow beside the new one would widen it. */
+.sample-icon-button {
+  position: relative;
+  display: inline-flex;
+  padding: 13px;
+  line-height: 0;
+}
+
+.sample-icon-button svg {
+  fill: currentColor;
+}
+
+.sample-icon {
+  display: block;
+}
+
 /* The SVG presence sample (#702): points on a plot, each an SVG circle, in the aurora's four colours. */
 .sample-actions {
   display: flex;

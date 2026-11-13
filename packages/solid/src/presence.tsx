@@ -81,9 +81,9 @@ export interface AnimatePresenceProps {
    * (`position: absolute`, its size kept), so the children after it take their places, a `layout`
    * one animating there; `"wait"`, once every leaver has animated out and been removed. A
    * waiting child is built at once, as Solid builds it, so its own code (`onMount` included) runs
-   * then, off the page; its Wardic elements start once it's on the page. An SVG leaver, an `<svg>`
-   * root included, isn't popped, as Motion's: it exits where it is (#702). Wrapped in an HTML element,
-   * it pops with it.
+   * then, off the page; its Wardic elements start once it's on the page. An `<svg>` root is popped too
+   * (#744), beyond Motion's, though a rotated or skewed ancestor puts it off its place; the SVG
+   * elements inside an `<svg>` exit where they are (#702).
    */
   readonly mode?: PresenceMode | undefined
   /**

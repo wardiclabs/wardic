@@ -32,7 +32,7 @@ import * as Values from "@wardic/core/Values"
 import * as Machine from "@wardic/core/Machine"
 import * as Microtask from "@wardic/core/Microtask"
 import * as Velocity from "@wardic/core/Velocity"
-import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
+import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import * as MeasuredPair from "@wardic/dom/MeasuredPair"
 import * as Report from "@wardic/dom/Report"
@@ -256,8 +256,18 @@ const transitionOfName = (exit: PresenceExit, name: string | undefined): WardicT
  */
 const isPresenceChild = (node: unknown): node is Element => node instanceof Element
 
-/** Whether an element is an HTML one, which alone has the CSS box `popLayout` pins (#702, Motion's). */
+/** Whether an element is an HTML one, which `popLayout` measures by its offsets (#277, Motion's). */
 const isHTMLElement = (node: unknown): node is HTMLElement => node instanceof HTMLElement
+
+/**
+ * Whether an element is an outermost `<svg>` (#744): the one SVG element with a CSS box in the HTML
+ * flow, which `popLayout` pops too, beyond Motion's. The elements inside an `<svg>`, an inner `<svg>`
+ * included, have no flow to leave.
+ */
+const isSvgRoot = (node: Element): node is SVGSVGElement => {
+  if (node instanceof SVGSVGElement) return Predicate.isNull(node.ownerSVGElement)
+  return false
+}
 
 /**
  * An element as dom's projection and Measured pairs take it (#702): typed for HTML elements, they read
@@ -288,11 +298,12 @@ const placedOf = (el: Element): Placed => ({
  * measures it: its size (`getComputedStyle`, so its own `box-sizing` reads it back), and its margin
  * box's offset from its containing block's padding edge on the two edges its anchors name (#442):
  * the top or the bottom, and its inline start or end (Motion's `anchorX` `"left"` or `"right"`, which
- * a right-to-left one flips). The offsets are whole pixels, the DOM's `offsetTop`.
+ * a right-to-left one flips). An HTML one's offsets are whole pixels, the DOM's `offsetTop`; an
+ * `<svg>` root's are fractional, from rects (#744).
  */
 interface PopBox {
-  /** The HTML element it pins: no SVG element is popped (#702). */
-  readonly el: HTMLElement
+  /** The element it pins: an HTML one, or an outermost `<svg>` (#744). No other SVG element is popped (#702). */
+  readonly el: HTMLElement | SVGSVGElement
   readonly width: number
   readonly height: number
   readonly y: "top" | "bottom"
@@ -305,6 +316,17 @@ interface PopBox {
 export interface PopAnchors {
   readonly x: "left" | "right"
   readonly y: "top" | "bottom"
+}
+
+/**
+ * A leaver's border box's gap from its containing block's padding edge on each side, in the block's
+ * own pixels (#744): what an HTML one reads from its offsets, and an `<svg>` root from rects.
+ */
+interface EdgeGaps {
+  readonly left: number
+  readonly top: number
+  readonly right: number
+  readonly bottom: number
 }
 
 /** The size of the padding box `el`'s offsets are from: its offset parent's, or the viewport's. */
@@ -322,38 +344,107 @@ const pxOf = (value: string): number => {
 }
 
 /**
- * Where `el` is now, to pop it (#277): `undefined` for one that isn't popped, as Motion's: an SVG element,
- * the `<svg>` root too, which runs its exit in place (#702), and an HTML one with no size of its own.
+ * Where `el` is now, to pop it (#277): `undefined` for one that isn't popped: an SVG element inside an
+ * `<svg>`, which runs its exit in place (#702), as Motion's, and one with no size of its own. An outermost
+ * `<svg>` is popped (#744), beyond Motion's.
  */
 const popBoxOf = (el: Element, anchors: PopAnchors): PopBox | undefined => {
-  if (isHTMLElement(el)) return htmlPopBoxOf(el, anchors)
+  if (isHTMLElement(el)) return pinBoxOf(el, anchors, htmlGapsOf)
+  if (isSvgRoot(el)) return pinBoxOf(el, anchors, svgGapsOf)
   return undefined
 }
 
 /**
- * Where an HTML `el` is now, to pop it: `undefined` for one with no size of its own (an inline element,
- * or an empty one) or not on the page.
+ * Where `el` is now, to pop it, from its gaps as its kind reads them (`gapsOf`): `undefined` for one
+ * with no size of its own (an inline element, or an empty one), or whose gaps can't be read.
  */
-const htmlPopBoxOf = (el: HTMLElement, anchors: PopAnchors): PopBox | undefined => {
+const pinBoxOf = <E extends HTMLElement | SVGSVGElement>(el: E, anchors: PopAnchors, gapsOf: (el: E) => EdgeGaps | undefined): PopBox | undefined => {
   const style = getComputedStyle(el)
   const width = Number.parseFloat(style.width)
   const height = Number.parseFloat(style.height)
   if (Bool.not(Bool.and(width > 0, height > 0))) return undefined
-  const container = containerOf(el)
-  // Positioned by its margin box, as its offsets are its border box's. Each edge's distance from the
-  // container's same edge; `anchorX` names the inline start (`"left"`) or end, which a right-to-left
-  // one flips, as Motion's.
-  const x = Bool.match((anchors.x === "right") !== (style.direction === "rtl"), { onTrue: (): PopBox["x"] => "right", onFalse: (): PopBox["x"] => "left" })
-  const xAt = Bool.match(x === "right", {
-    onTrue: () => container.width - el.offsetLeft - el.offsetWidth - pxOf(style.marginRight),
-    onFalse: () => el.offsetLeft - pxOf(style.marginLeft),
+  return UndefinedOr.map(gapsOf(el), (gaps) => {
+    // Positioned by its margin box, as its gaps are its border box's. `anchorX` names the inline start
+    // (`"left"`) or end, which a right-to-left one flips, as Motion's.
+    const x = Bool.match((anchors.x === "right") !== (style.direction === "rtl"), { onTrue: (): PopBox["x"] => "right", onFalse: (): PopBox["x"] => "left" })
+    const xAt = Bool.match(x === "right", {
+      onTrue: () => gaps.right - pxOf(style.marginRight),
+      onFalse: () => gaps.left - pxOf(style.marginLeft),
+    })
+    const yAt = Bool.match(anchors.y === "bottom", {
+      onTrue: () => gaps.bottom - pxOf(style.marginBottom),
+      onFalse: () => gaps.top - pxOf(style.marginTop),
+    })
+    return { el, width, height, y: anchors.y, yAt, x, xAt }
   })
-  const yAt = Bool.match(anchors.y === "bottom", {
-    onTrue: () => container.height - el.offsetTop - el.offsetHeight - pxOf(style.marginBottom),
-    onFalse: () => el.offsetTop - pxOf(style.marginTop),
-  })
-  return { el, width, height, y: anchors.y, yAt, x, xAt }
 }
+
+/** An HTML element's gaps (#277), from its offsets: whole pixels, against its offset parent's padding box or the viewport. */
+const htmlGapsOf = (el: HTMLElement): EdgeGaps => {
+  const container = containerOf(el)
+  return {
+    left: el.offsetLeft,
+    top: el.offsetTop,
+    right: container.width - el.offsetLeft - el.offsetWidth,
+    bottom: container.height - el.offsetTop - el.offsetHeight,
+  }
+}
+
+/**
+ * A filler's style (#744): absolutely positioned and filling its containing block's padding box, over
+ * any rule of the page's (`all: initial`, each `important`).
+ */
+const FILLER_STYLE = "all: initial !important; display: block !important; position: absolute !important; inset: 0 !important"
+
+/** A containing block's padding box (#744): its rect as drawn, scrolled and transformed, and its own size. */
+interface PaddingBox {
+  readonly rect: DOMRect
+  readonly width: number
+  readonly height: number
+}
+
+/**
+ * The padding box of the containing block an absolutely positioned `el` has (#744): the browser's own,
+ * which a filler put right after `el`, absolutely positioned with `inset: 0`, fills. It's read and
+ * removed at once. `undefined` for an `el` with no parent.
+ */
+const paddingBoxOf = (el: Element): PaddingBox | undefined => {
+  const parent = el.parentNode
+  if (Predicate.isNull(parent)) return undefined
+  const filler = document.createElement("wardic-filler")
+  filler.style.cssText = FILLER_STYLE
+  parent.insertBefore(filler, el.nextSibling)
+  try {
+    const style = getComputedStyle(filler)
+    return { rect: filler.getBoundingClientRect(), width: Number.parseFloat(style.width), height: Number.parseFloat(style.height) }
+  } finally {
+    filler.remove()
+  }
+}
+
+/** How much a drawn length is of its own (#744): `drawn` over `own`, `1` for a box with no size. */
+const scaleOf = (drawn: number, own: number): number => Bool.match(own > 0, { onTrue: () => drawn / own, onFalse: () => 1 })
+
+/**
+ * An outermost `<svg>`'s gaps (#744, ADR-0048 *Amendment (#744)*), from rects, as it has no `offsetTop`,
+ * `offsetLeft` or `offsetParent`: its box, read without its own inline `transform` (Wardic's), less its
+ * containing block's padding box (`paddingBoxOf`), divided by that block's scale on each axis (a layout
+ * animation's on it). Fractional. A rotated or skewed ancestor puts them off, as rects undo only
+ * translation and scale, and so does a transform of its own from the page's CSS (a `rotate`, or a
+ * stylesheet's `transform`). `undefined` for one with no parent.
+ */
+const svgGapsOf = (el: SVGSVGElement): EdgeGaps | undefined =>
+  UndefinedOr.map(paddingBoxOf(el), (block) => {
+    const own = ProjectionSystem.measureLayoutBox(castForDom(el))
+    const sx = scaleOf(block.rect.width, block.width)
+    const sy = scaleOf(block.rect.height, block.height)
+    return {
+      left: (own.left - block.rect.left) / sx,
+      top: (own.top - block.rect.top) / sy,
+      right: (block.rect.right - own.right) / sx,
+      bottom: (block.rect.bottom - own.bottom) / sy,
+    }
+  })
 
 /** Pin a leaver where `box` measured it, out of the flow, over any style of its own. */
 const pin = (box: PopBox): void => {
