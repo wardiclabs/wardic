@@ -456,9 +456,11 @@ describe("Appear animations, server render to hydration (#48, ADR-0044)", () => 
 
   it("AH17: elements the server gave no Appear animation read nothing as they hydrate (#724)", async () => {
     const counting = countReads()
-    const r = await run("R1", R1, { hydrateAfter: 120, forMs: 700, played: false }).finally(counting.stop)
+    // Recorded well past i1's landing, 0.62 s after hydration (its 0.12 s stagger, then 0.5 s): a window
+    // ending 0.58 s after it caught i1 a hair short of 1 on a slow runner.
+    const r = await run("R1", R1, { hydrateAfter: 120, forMs: 1300, played: false }).finally(counting.stop)
     expect(counting.reads, "no read").toEqual({ element: 0, document: 0, shadowRoot: 0 })
-    // Each animated from hydration, as `appear={false}` has it.
+    // Each animated from hydration, as `appear={false}` has it, and landed.
     const last = r.frames.at(-1)!.drawn
     for (const k of ["card", "i0", "i1"]) expect(last[k]!.opacity, k).toBeCloseTo(1, 2)
   })
