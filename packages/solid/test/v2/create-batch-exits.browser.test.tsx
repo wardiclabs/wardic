@@ -10,6 +10,9 @@
 // - CVE3: `initial={false}` starts the first render's members at their targets; `mode="wait"` holds an
 //   entering member, unmoved, until the leaver's exit lands; `popLayout` pops the leaver out of the flow;
 //   `exit` as a function hears the presence's `custom`.
+// - CVE4: members on SVG `<rect>`s (#702, ADR-0048 *Amendment (#702)*): two leave, each staying for its
+//   exit, staggered by its rank, and going as it lands; `mode="wait"` holds an entering one off the page,
+//   unmoved, until the leaver's exit lands.
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
@@ -196,5 +199,75 @@ describe("a keyed Batch's exits under AnimatePresence on Solid 2 (#665)", () => 
     for (let f = 0; f < 3; f++) await raf()
     expect(xOf(b)).toBeLessThan(40)
     expect(heard).toEqual([["b", 1, -50]])
+  })
+  it("CVE4: SVG members: two rects leave, staggered, each going as it lands; mode=wait holds an entering one, unmoved", async () => {
+    const mountRects = (start: ReadonlyArray<string>, mode: PresenceMode = "sync") => {
+      const [items, setItems] = createSignal<ReadonlyArray<string>>(start)
+      const rects = new Map<string, SVGRectElement>()
+      const Scene = (): JSX.Element => {
+        const list = createBatch({
+          each: items,
+          key: (id) => id,
+          initial: { opacity: 0 },
+          animate: () => ({ opacity: 1 }),
+          exit: { opacity: 0, transition: { type: "tween", duration: 0.3, delay: stagger(0.1) } },
+          transition: TWEEN,
+        })
+        return (
+          <svg width="200" height="50">
+            <AnimatePresence mode={mode}>
+              <For each={items()}>
+                {(id, i) => <rect width="40" height="40" x={i() * 50} {...list.member<SVGRectElement>(id, { ref: (el) => rects.set(id, el) })} />}
+              </For>
+            </AnimatePresence>
+          </svg>
+        )
+      }
+      const { unmount } = mount(() => (
+        <WardicProvider env={DomLive}>
+          <Scene />
+        </WardicProvider>
+      ))
+      return { setItems, rects, unmount }
+    }
+    const settle = async (n: number): Promise<void> => {
+      for (let f = 0; f < n; f++) await raf()
+    }
+
+    const leaving = mountRects(["a", "b", "c"])
+    await settle(30)
+    const b = leaving.rects.get("b") as SVGRectElement
+    const c = leaving.rects.get("c") as SVGRectElement
+    expect(b).toBeInstanceOf(SVGRectElement)
+    leaving.setItems(["a"])
+    await raf()
+    expect([b.isConnected, c.isConnected], "both stay for their exits").toEqual([true, true])
+    let staggered = false
+    let bWentFirst = false
+    for (let f = 0; f < 60; f++) {
+      await raf()
+      if (Bool.and(b.isConnected, opacityOf(c) - opacityOf(b) > 0.1)) staggered = true
+      if (Bool.and(Bool.not(b.isConnected), c.isConnected)) bWentFirst = true
+    }
+    expect(staggered, "c's exit starts a rank after b's").toBe(true)
+    expect(bWentFirst, "b goes as its own exit lands, before c").toBe(true)
+    expect([b.isConnected, c.isConnected]).toEqual([false, false])
+    leaving.unmount()
+
+    const waiting = mountRects(["a"], "wait")
+    await settle(30)
+    const a = waiting.rects.get("a") as SVGRectElement
+    waiting.setItems(["b"])
+    await settle(3)
+    expect(a.isConnected, "a exits").toBe(true)
+    expect(Bool.and(waiting.rects.has("b"), (waiting.rects.get("b") as SVGRectElement).isConnected), "b waits off the page").toBe(false)
+    for (let f = 0; f < 60; f++) {
+      await raf()
+      if (Bool.and(waiting.rects.has("b"), (waiting.rects.get("b") as SVGRectElement).isConnected)) break
+    }
+    const held = waiting.rects.get("b") as SVGRectElement
+    expect(held.isConnected, "b goes on once a has gone").toBe(true)
+    expect(a.isConnected).toBe(false)
+    expect(opacityOf(held), "b starts its entrance on the page, not while held").toBeLessThan(0.5)
   })
 })

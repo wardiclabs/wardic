@@ -72,7 +72,7 @@ const LONE: PresenceTree = { joins: false, provides: false, twin: false }
 const treeOf = (rec: PresenceRecord): PresenceTree => UndefinedOr.match(rec.tree, { onUndefined: () => LONE, onDefined: identity })
 
 /** No elements: a leaving child with none inside it exiting. */
-const NO_PARTS: ReadonlyArray<HTMLElement> = []
+const NO_PARTS: ReadonlyArray<Element> = []
 
 /** No records: nothing registered inside a leaving child. */
 const NO_RECORDS: ReadonlyArray<PresenceRecord | undefined> = []
@@ -154,7 +154,7 @@ const measuredInto =
  */
 const exitRunOf = (
   leg: Leg,
-  el: HTMLElement,
+  el: Element,
   commitFrame: FrameLoop.Sink<Frame.Frame<Values.Values>>,
   velocities: Record<string, number>,
 ): Effect.Effect<unknown, never, WardicServices> => {
@@ -209,7 +209,7 @@ const NO_DELAY: DelayOf = () => 0
 
 /** An element's exit made ready to run (#297's PR 2): its node, where it starts, what each frame commits, and its velocities. */
 interface PreparedExit {
-  readonly el: HTMLElement
+  readonly el: Element
   readonly from: Values.Values
   /** Its Keyframes of more than two stops (#429), `from` at their first. */
   readonly stops: StopsByKey | undefined
@@ -222,10 +222,10 @@ interface PreparedExit {
  * end-of-task batch, but a key with Keyframes of more than two stops (`stops`, #460). `undefined` with
  * none, nearly every exit.
  */
-const exitMeasuredOf = (element: HTMLElement, from: Values.Values, to: Values.Values, stops: StopsByKey | undefined): MeasuredPairs | undefined => {
+const exitMeasuredOf = (element: Element, from: Values.Values, to: Values.Values, stops: StopsByKey | undefined): MeasuredPairs | undefined => {
   const pairs = Rec.filter(to, (target, key) => Bool.and(Bool.and(Object.hasOwn(from, key), Bool.not(hasManyStops(stops, key))), keepsMeasured(key, from[key], target)))
   if (Rec.isEmptyRecord(pairs)) return undefined
-  return MeasuredPair.measure(element, Rec.map(pairs, (target, key) => ({ from: UndefinedOr.getOrThrow(from[key]), to: target })), from)
+  return MeasuredPair.measure(asDom(element), Rec.map(pairs, (target, key) => ({ from: UndefinedOr.getOrThrow(from[key]), to: target })), from)
 }
 
 /** Whether a start and a target make a Measured pair (#430). */
@@ -250,21 +250,27 @@ const transitionOfName = (exit: PresenceExit, name: string | undefined): WardicT
   })
 }
 
-/** Whether a resolved child is an element. Only called on the client, where `HTMLElement` exists. */
+/**
+ * Whether a resolved child is a presence child (#702): any element, HTML, SVG or MathML; text never.
+ * Only called on the client, where `Element` exists.
+ */
+const isElement = (node: unknown): node is Element => node instanceof Element
+
+/** Whether an element is an HTML one, which alone has the CSS box `popLayout` pins (#702, Motion's). */
 const isHTMLElement = (node: unknown): node is HTMLElement => node instanceof HTMLElement
 
 /** The elements of what a binding's `children()` resolved: one node, a flat array, or none. */
-const elementsOf = (resolved: unknown): ReadonlyArray<HTMLElement> => Arr.filter(Arr.ensure(resolved), isHTMLElement)
+const elementsOf = (resolved: unknown): ReadonlyArray<Element> => Arr.filter(Arr.ensure(resolved), isElement)
 
 /** A child present at the last change: its element, and where it was then, to put it back as it leaves. */
 interface Placed {
-  readonly el: HTMLElement
+  readonly el: Element
   readonly parent: ParentNode | undefined
   readonly next: ChildNode | undefined
 }
 
 /** Where `el` is now. */
-const placedOf = (el: HTMLElement): Placed => ({
+const placedOf = (el: Element): Placed => ({
   el,
   parent: Option.getOrUndefined(Option.fromNullOr(el.parentNode)),
   next: Option.getOrUndefined(Option.fromNullOr(el.nextSibling)),
@@ -278,6 +284,8 @@ const placedOf = (el: HTMLElement): Placed => ({
  * a right-to-left one flips). The offsets are whole pixels, the DOM's `offsetTop`.
  */
 interface PopBox {
+  /** The HTML element it pins: no SVG element is popped (#702). */
+  readonly el: HTMLElement
   readonly width: number
   readonly height: number
   readonly y: "top" | "bottom"
@@ -307,10 +315,19 @@ const pxOf = (value: string): number => {
 }
 
 /**
- * Where `el` is now, to pop it (#277): `undefined` for one with no size of its own (an inline element,
- * or an empty one) or not on the page, which isn't popped, as Motion's.
+ * Where `el` is now, to pop it (#277): `undefined` for one that isn't popped, as Motion's: an SVG element,
+ * the `<svg>` root too, which runs its exit in place (#702), and an HTML one with no size of its own.
  */
-const popBoxOf = (el: HTMLElement, anchors: PopAnchors): PopBox | undefined => {
+const popBoxOf = (el: Element, anchors: PopAnchors): PopBox | undefined => {
+  if (isHTMLElement(el)) return htmlPopBoxOf(el, anchors)
+  return undefined
+}
+
+/**
+ * Where an HTML `el` is now, to pop it: `undefined` for one with no size of its own (an inline element,
+ * or an empty one) or not on the page.
+ */
+const htmlPopBoxOf = (el: HTMLElement, anchors: PopAnchors): PopBox | undefined => {
   const style = getComputedStyle(el)
   const width = Number.parseFloat(style.width)
   const height = Number.parseFloat(style.height)
@@ -328,12 +345,12 @@ const popBoxOf = (el: HTMLElement, anchors: PopAnchors): PopBox | undefined => {
     onTrue: () => container.height - el.offsetTop - el.offsetHeight - pxOf(style.marginBottom),
     onFalse: () => el.offsetTop - pxOf(style.marginTop),
   })
-  return { width, height, y: anchors.y, yAt, x, xAt }
+  return { el, width, height, y: anchors.y, yAt, x, xAt }
 }
 
 /** Pin a leaver where `box` measured it, out of the flow, over any style of its own. */
-const pin = (el: HTMLElement, box: PopBox): void => {
-  const style = el.style
+const pin = (box: PopBox): void => {
+  const style = box.el.style
   style.setProperty("position", "absolute", "important")
   style.setProperty("width", `${box.width}px`, "important")
   style.setProperty("height", `${box.height}px`, "important")
@@ -348,8 +365,8 @@ const pin = (el: HTMLElement, box: PopBox): void => {
  * A popped leaver moved by `by` in the page from where `box` pinned it (ADR-0048 *Amendment (#480)*):
  * each pinned edge by its axis's move, a right or bottom one against it.
  */
-const movePin = (el: HTMLElement, box: PopBox, by: { readonly x: number; readonly y: number }): void => {
-  const style = el.style
+const movePin = (box: PopBox, by: { readonly x: number; readonly y: number }): void => {
+  const style = box.el.style
   style.setProperty(box.y, `${box.yAt + EDGE_BY[box.y] * by.y}px`, "important")
   style.setProperty(box.x, `${box.xAt + EDGE_BY[box.x] * by.x}px`, "important")
 }
@@ -374,7 +391,7 @@ const parentElementOf = (placed: ReadonlyArray<Placed>): Element | undefined =>
  * be after a leaver put back after another child: `[a, b, c, d]`, b and d leaving, then `[c, a]`, is
  * `[c, a, d, b]`, where "after the child it followed" would be `[c, d, a, b]`.
  */
-const orderOf = (before: ReadonlyArray<HTMLElement>, now: ReadonlyArray<HTMLElement>): ReadonlyArray<HTMLElement> => {
+const orderOf = (before: ReadonlyArray<Element>, now: ReadonlyArray<Element>): ReadonlyArray<Element> => {
   const at = new Map(Arr.map(now, (el, i) => [el, i] as const))
   return Arr.reduce(before, { order: [...now], next: 0, back: 0 }, (acc, el) =>
     UndefinedOr.match(at.get(el), {
@@ -393,7 +410,7 @@ const orderOf = (before: ReadonlyArray<HTMLElement>, now: ReadonlyArray<HTMLElem
  * place, never against a leaver that isn't yet, as the nearest neighbour on the page might be (#561's
  * P19).
  */
-const backPlaceOf = (placed: Placed, cursor: HTMLElement | undefined, anchor: ChildNode | undefined): Placed =>
+const backPlaceOf = (placed: Placed, cursor: Element | undefined, anchor: ChildNode | undefined): Placed =>
   UndefinedOr.match(cursor, {
     onDefined: (at) => ({ ...placedOf(at), el: placed.el }),
     onUndefined: () =>
@@ -409,7 +426,7 @@ const backPlaceOf = (placed: Placed, cursor: HTMLElement | undefined, anchor: Ch
  * `cursor`, text between them left be; with none, the anchor itself, the first of the order on the
  * page; with neither, on the page.
  */
-const isInPlace = (el: HTMLElement, cursor: HTMLElement | undefined, anchor: ChildNode | undefined): boolean =>
+const isInPlace = (el: Element, cursor: Element | undefined, anchor: ChildNode | undefined): boolean =>
   UndefinedOr.match(cursor, {
     onDefined: (at) => at.nextElementSibling === el,
     onUndefined: () =>
@@ -550,11 +567,22 @@ export const exitCompleteEvents = (runtime: WardicRuntime, onExitComplete: () =>
   },
 })
 
-/** What a presence asks of the projection system. */
-type PresenceProjection = Pick<
-  ProjectionSystem.Shape,
-  "notify" | "handleLeave" | "handBackWithin" | "keepLeaving" | "awaitsTwin" | "keepSeen" | "registerValues" | "rootBoxOf" | "dropLeaver"
->
+/**
+ * An element as dom's projection and Measured pairs take it (#702): typed for HTML elements, they read
+ * only what an SVG element has too (lookups by element, `contains`, its box and its inline style), so an
+ * SVG presence child goes through as one, as the bindings' SVG Wardic elements already do.
+ */
+const asDom = (el: Element): HTMLElement => el as HTMLElement
+
+/** A projection method that takes an HTML element first, taking any element. */
+type OnElement<F> = F extends (...args: infer P) => infer A ? P extends [HTMLElement, ...infer R] ? (el: Element, ...rest: R) => A : F : F
+
+/** What a presence asks of the projection system, of any presence child (#702). */
+type PresenceProjection = {
+  readonly [K in "notify" | "handleLeave" | "handBackWithin" | "keepLeaving" | "awaitsTwin" | "keepSeen" | "registerValues" | "rootBoxOf" | "dropLeaver"]: OnElement<
+    ProjectionSystem.Shape[K]
+  >
+}
 
 /**
  * The projection system as a presence asks it (#511): the provider's once its `layout` Feature is
@@ -567,14 +595,14 @@ const presenceProjectionOf = (projection: () => ProjectionSystem.Shape | undefin
   const call = <A>(use: (system: ProjectionSystem.Shape) => A, none: () => A): A => UndefinedOr.match(projection(), { onUndefined: none, onDefined: use })
   return {
     notify: () => call((system) => system.notify(), constVoid),
-    handleLeave: (el, onDone) => call((system) => system.handleLeave(el, onDone), constFalse),
-    handBackWithin: (el, onDone) => call((system) => system.handBackWithin(el, onDone), Option.none),
-    keepLeaving: (el, taken) => call((system) => system.keepLeaving(el, taken), () => constVoid),
-    awaitsTwin: (el) => call((system) => system.awaitsTwin(el), constFalse),
-    keepSeen: (el, move) => call((system) => system.keepSeen(el, move), constVoid),
+    handleLeave: (el, onDone) => call((system) => system.handleLeave(asDom(el), onDone), constFalse),
+    handBackWithin: (el, onDone) => call((system) => system.handBackWithin(asDom(el), onDone), Option.none),
+    keepLeaving: (el, taken) => call((system) => system.keepLeaving(asDom(el), taken), () => constVoid),
+    awaitsTwin: (el) => call((system) => system.awaitsTwin(asDom(el)), constFalse),
+    keepSeen: (el, move) => call((system) => system.keepSeen(asDom(el), move), constVoid),
     registerValues: (el, read) => call((system) => system.registerValues(el, read), () => constVoid),
-    rootBoxOf: (el) => call((system) => system.rootBoxOf(el), Option.none),
-    dropLeaver: (el) => call((system) => system.dropLeaver(el), Option.none),
+    rootBoxOf: (el) => call((system) => system.rootBoxOf(asDom(el)), Option.none),
+    dropLeaver: (el) => call((system) => system.dropLeaver(asDom(el)), Option.none),
   }
 }
 
@@ -595,50 +623,50 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   // The registry of live child records, keyed by their DOM element. Filled by
   // register() (called from the child's spine on mount), drained as children
   // leave (after their exit settles).
-  const registry = new Map<HTMLElement, PresenceRecord>()
+  const registry = new Map<Element, PresenceRecord>()
 
   // In-flight exit fibers keyed by the leaving node, so a re-entry (or this
   // component's own teardown) can interrupt them. A Map, not Effect's `FiberMap` (#618): an exit's
   // entry goes from inside its own `ensuring`, before its fiber has ended, and is checked right after;
   // `FiberMap.remove` interrupts the fiber it removes, and its own removal waits for the fiber's end.
-  const exiting = new Map<HTMLElement, Fiber.Fiber<void, never>>()
+  const exiting = new Map<Element, Fiber.Fiber<void, never>>()
 
   // A leaving child's parts still running (ADR-0010 *Amendment (#181)*): its exit, and the handovers
   // of the twins it handed back. It goes when the count reaches 0. Every retained child that runs its
   // own exit is here; a twin presence left to the projection isn't.
-  const pending = new Map<HTMLElement, number>()
+  const pending = new Map<Element, number>()
   // The handed-back twins of a leaving child, by it: the call that drops them, for an interrupted exit.
-  const handovers = new Map<HTMLElement, () => void>()
+  const handovers = new Map<Element, () => void>()
   // What lets go of the twins each leaving child keeps for a late take-over (#402): called as it goes.
-  const lates = new Map<HTMLElement, () => void>()
+  const lates = new Map<Element, () => void>()
   // The unregistration of each exit's values with the projection.
-  const exitValues = new Map<HTMLElement, () => void>()
+  const exitValues = new Map<Element, () => void>()
   // The Wardic elements exiting inside each leaving child (#290), dropped with it.
-  const exitParts = new Map<HTMLElement, ReadonlyArray<HTMLElement>>()
+  const exitParts = new Map<Element, ReadonlyArray<Element>>()
 
   // `initial={false}` (#134): the children set up with this first render start at their
   // `animate`; one that enters after it animates in.
   let firstRender = true
 
   // The children exiting now, each told once at its end (#257): completed, or interrupted.
-  const leaving = new Set<HTMLElement>()
+  const leaving = new Set<Element>()
   // Each retained child's place when it left (#277): a framework that clears its nodes wholesale (a
   // list emptied clears its parent) takes it out mid-exit, and it goes back there.
-  const places = new Map<HTMLElement, Placed>()
+  const places = new Map<Element, Placed>()
   const events = options.events
 
   // The presence hooks registered (#277's PR 5b), each told at its child's leave.
   const watches = new Set<PresenceWatch>()
   // The hooks each leaving child told it left, while its exit runs: told if it's cut short (#665, Q46).
-  const toldHooks = new Map<HTMLElement, ReadonlyArray<PresenceWatch>>()
+  const toldHooks = new Map<Element, ReadonlyArray<PresenceWatch>>()
 
   // The children `mode="wait"` holds off the page now (#277), and the start of each ward inside one,
   // by its element, called once the child is on the page.
-  let held: ReadonlyArray<HTMLElement> = []
-  const starts = new Map<HTMLElement, () => void>()
+  let held: ReadonlyArray<Element> = []
+  const starts = new Map<Element, () => void>()
   // `popLayout`'s leavers (#277), each where it was measured before the change: popped as it leaves,
   // and kept until it's gone. Whether this change popped one, so the projection is told.
-  const pops = new Map<HTMLElement, PopBox>()
+  const pops = new Map<Element, PopBox>()
   let popped = false
   // Whether this change moved a leaver from an earlier one to its place (#675), so the projection is
   // told: a twin leaver crossfading in the flow is drawn on its Lead from where it now is.
@@ -648,25 +676,25 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   // child's key is known before what goes on the page is decided.
   const made = new WeakMap<Element, Made>()
   // The latest child exiting under each key: a child back under it takes over from that one.
-  const keyedLeavers = new Map<string | number, HTMLElement>()
+  const keyedLeavers = new Map<string | number, Element>()
   // What each element exiting has drawn, kept by its exit's frames.
-  const draws = new Map<HTMLElement, Drawn>()
+  const draws = new Map<Element, Drawn>()
   // The children entering now that take over from a leaver, each with that leaver: taken over at
   // the first of their wards' mounts, or the presence's next look, whichever comes first.
-  const takeovers = new Map<HTMLElement, HTMLElement>()
+  const takeovers = new Map<Element, Element>()
   // Where each Wardic element in a child that took over starts: read once, at its mount.
   const seeds = new WeakMap<Element, Drawn>()
   // The keyed leavers crossfading as twins (ADR-0010), the projection's: one taken over ends its
   // leaving Follower at once (Q8: D).
-  const crossfades = new Set<HTMLElement>()
+  const crossfades = new Set<Element>()
   // Where each leaver taken over painted, it and the Wardic elements inside it, in the Root frame:
   // read as the take-over is found, before the change moves anything.
-  const leaverBoxes = new Map<HTMLElement, ReadonlyMap<Element, Box.Box>>()
+  const leaverBoxes = new Map<Element, ReadonlyMap<Element, Box.Box>>()
   // Whether any keyed element was made: until then, no change looks for a take-over.
   let keyed = false
 
   /** A child's exit starts: told, and `exiting` turns on with the first. */
-  const leaveStarts = (el: HTMLElement): void => {
+  const leaveStarts = (el: Element): void => {
     leaving.add(el)
     if (Predicate.isUndefined(events)) return
     if (leaving.size === 1) events.exiting(true)
@@ -677,7 +705,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    * A child's exit ended: with the last, `exiting` turns off, a completion is told, and the children
    * `mode="wait"` held go on the page (#277), as Motion renders them after its `onExitComplete`.
    */
-  const leaveEnds = (el: HTMLElement, completed: boolean): void => {
+  const leaveEnds = (el: Element, completed: boolean): void => {
     if (Bool.not(leaving.delete(el))) return
     if (leaving.size > 0) return
     UndefinedOr.map(events, (told) => {
@@ -702,7 +730,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   }
 
   /** Whether `el` is inside a child held off the page (#277). */
-  const isHeld = (el: HTMLElement): boolean => Arr.some(held, (child) => child.contains(el))
+  const isHeld = (el: Element): boolean => Arr.some(held, (child) => child.contains(el))
 
   const ctx: PresenceContextValue = {
     register: (rec) => {
@@ -736,14 +764,14 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   }
 
   // Commit a projected value-map onto a retained node via the Renderer.
-  const commitValues = (el: HTMLElement, values: Values.Values): void => {
+  const commitValues = (el: Element, values: Values.Values): void => {
     const patch: Renderer.Patch = project(values)
     commit(el, patch)
   }
 
   // Remove a retained node from the DOM + drop its registration + clear its
   // in-flight fiber bookkeeping. Idempotent. `completed`: its exit ended on its own (#257).
-  const finishExit = (el: HTMLElement, completed = true): void => {
+  const finishExit = (el: Element, completed = true): void => {
     exiting.delete(el)
     toldHooks.delete(el)
     registry.delete(el)
@@ -781,7 +809,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
 
   // One of a leaving child's parts ended (#181): it goes with the last. A child already removed
   // (an interrupted exit's fiber ending after) is ignored.
-  const partDone = (el: HTMLElement): void => {
+  const partDone = (el: Element): void => {
     const left = pending.get(el)
     if (Predicate.isUndefined(left)) return
     if (left > 1) {
@@ -793,7 +821,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
 
   // Interrupt an in-flight exit for `el` (re-entry / teardown) and remove the
   // retained node, the twins it handed back dropped with it. Idempotent.
-  const interruptExit = (el: HTMLElement): void => {
+  const interruptExit = (el: Element): void => {
     // Told first, as interrupted: the exit's fiber, interrupted below, ends at once through
     // `partDone`, which would tell it completed (#257).
     leaveEnds(el, false)
@@ -819,7 +847,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   // A leaving child that isn't a twin (ADR-0010 *Amendment (#181)*): it hands back the twins inside
   // it, then runs its own exit and the exits inside it, and goes once all have ended. A plain child
   // (not a Wardic element, no `rec`) runs only those inside it (#392), as Motion's presence child does.
-  const leave = (el: HTMLElement, rec: PresenceRecord | undefined, custom: unknown, inside: ReadonlyArray<PresenceWatch>, holds: number): void => {
+  const leave = (el: Element, rec: PresenceRecord | undefined, custom: unknown, inside: ReadonlyArray<PresenceWatch>, holds: number): void => {
     // A keyed one is what a child back under its key takes over from (#286), the latest the one.
     UndefinedOr.map(keyOf(el), (key) => keyedLeavers.set(key, el))
     const drop = projection.handBackWithin(el, () => partDone(el))
@@ -839,7 +867,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   // A twin in a leaving child taken over late (ADR-0010 *Amendment (#402)*): one more of its parts,
   // ended with that handover, and dropped with its others by an interrupted exit. Its own exit runs on:
   // the handover draws the twin over it.
-  const takenLate = (el: HTMLElement, drop: () => void): (() => void) => {
+  const takenLate = (el: Element, drop: () => void): (() => void) => {
     const left = pending.get(el)
     if (Predicate.isUndefined(left)) {
       drop()
@@ -859,15 +887,15 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    * The Wardic elements inside a leaving child (#290), in document order, each running its own exit
    * with the child's: every registered one but a twin, whose crossfade replaces its exit (#181).
    */
-  const partsOf = (el: HTMLElement): ReadonlyArray<PresenceRecord> => Arr.filter(registeredWithin(el), isPart)
+  const partsOf = (el: Element): ReadonlyArray<PresenceRecord> => Arr.filter(registeredWithin(el), isPart)
 
   /**
    * The records of the elements inside `el`, in document order, `undefined` for one not registered:
    * found by walking its own elements (#392), as many steps as it has, not as the presence has records.
    */
-  const registeredWithin = (el: HTMLElement): ReadonlyArray<PresenceRecord | undefined> => {
+  const registeredWithin = (el: Element): ReadonlyArray<PresenceRecord | undefined> => {
     if (registry.size === 0) return NO_RECORDS
-    return Arr.map(Arr.fromIterable(el.getElementsByTagName("*")), (inner) => registry.get(inner as HTMLElement))
+    return Arr.map(Arr.fromIterable(el.getElementsByTagName("*")), (inner) => registry.get(inner))
   }
 
   /** A registered element but a twin. */
@@ -880,14 +908,14 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    * Whether a leaving child stays to exit (#392): a Wardic element, or a plain one with something
    * inside it to wait for, a Wardic element (an exit to run, a twin to hand back) or a hook's hold.
    */
-  const retains = (el: HTMLElement): boolean => {
+  const retains = (el: Element): boolean => {
     if (registry.has(el)) return true
     if (holdsIn(el)) return true
     return registersWithin(el)
   }
 
   /** Whether a Wardic element made under this presence is inside `el`. */
-  const registersWithin = (el: HTMLElement): boolean => Arr.some(registeredWithin(el), Predicate.isNotUndefined)
+  const registersWithin = (el: Element): boolean => Arr.some(registeredWithin(el), Predicate.isNotUndefined)
 
   /**
    * A leaving child's exit, and the exits inside it (#290), as Motion's `animateVariant` runs them:
@@ -896,7 +924,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    * A plain child (no `rec`) has no exit of its own: the elements inside it are the roots (#392).
    * The child goes once all of them, and the handovers of the twins it handed back, have ended.
    */
-  const driveExit = (el: HTMLElement, rec: PresenceRecord | undefined, custom: unknown): void => {
+  const driveExit = (el: Element, rec: PresenceRecord | undefined, custom: unknown): void => {
     const parts = partsOf(el)
     exitParts.set(el, Arr.map(parts, (part) => part.element))
     const own = UndefinedOr.match(rec, { onUndefined: () => NO_OWN, onDefined: Arr.of })
@@ -1087,7 +1115,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   // The children present at the last change, and where each was, to retain one as it leaves.
   let previous: ReadonlyArray<Placed> = []
   // The children as the last change left them (#486): those on the page, the leavers among them.
-  let rendered: ReadonlyArray<HTMLElement> = []
+  let rendered: ReadonlyArray<Element> = []
 
   // Teardown: interrupt every in-flight exit + remove retained nodes, the twins they handed back
   // dropped with them (no leaks). Every child running its own exit is in `pending`.
@@ -1107,21 +1135,21 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   }
 
   /** Whether a hook inside `el` holds it as it leaves (#277's PR 5b). */
-  const holdsIn = (el: HTMLElement): boolean => Arr.some(watchesIn(el), (watch) => watch.holds)
+  const holdsIn = (el: Element): boolean => Arr.some(watchesIn(el), (watch) => watch.holds)
 
   /** A record whose element is off the page, dropped; a leaver's is put back first, so it stays. */
-  const dropDetached = (el: HTMLElement): void => {
+  const dropDetached = (el: Element): void => {
     if (el.isConnected) return
     registry.delete(el)
   }
 
   /** Pop a leaver `popLayout` measured. */
-  const popOut = (el: HTMLElement): void => {
+  const popOut = (el: Element): void => {
     const box = pops.get(el)
     if (Predicate.isUndefined(box)) return
-    pin(el, box)
+    pin(box)
     // Where it was seen, through the page's scroll at this change: a router's to the top (#480).
-    projection.keepSeen(el, (by) => movePin(el, box, by))
+    projection.keepSeen(box.el, (by) => movePin(box, by))
     popped = true
   }
 
@@ -1157,9 +1185,9 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    * between them. So each change places them all again, as Motion's presence renders every exiting child
    * at its place.
    */
-  const placeLeavers = (order: ReadonlyArray<HTMLElement>, kept: ReadonlySet<HTMLElement>, gone: ReadonlyMap<HTMLElement, Placed>): void => {
+  const placeLeavers = (order: ReadonlyArray<Element>, kept: ReadonlySet<Element>, gone: ReadonlyMap<Element, Placed>): void => {
     const anchor = anchorOf(order, gone)
-    Arr.reduce<HTMLElement, HTMLElement | undefined>(order, undefined, (cursor, el) => {
+    Arr.reduce<Element, Element | undefined>(order, undefined, (cursor, el) => {
       UndefinedOr.match(gone.get(el), {
         onDefined: (placed) => left(placed, backPlaceOf(placed, cursor, anchor)),
         onUndefined: () => {
@@ -1177,15 +1205,15 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    * the page. Solid empties a list beside a sibling around its leavers, its own nodes gone, and that's
    * the sibling. With neither, `undefined`: nothing of theirs is left, as when Solid clears the parent.
    */
-  const anchorOf = (order: ReadonlyArray<HTMLElement>, gone: ReadonlyMap<HTMLElement, Placed>): ChildNode | undefined =>
+  const anchorOf = (order: ReadonlyArray<Element>, gone: ReadonlyMap<Element, Placed>): ChildNode | undefined =>
     Option.getOrUndefined(Option.orElse(Arr.findFirst(order, isOnPage), () => Arr.findFirst(Arr.map(order, (el) => lastNextOf(el, gone)), isOnPage)))
 
   /** The node after a child at its last place: as the last change left it, or, an earlier leaver, as it left. */
-  const lastNextOf = (el: HTMLElement, gone: ReadonlyMap<HTMLElement, Placed>): ChildNode | undefined =>
+  const lastNextOf = (el: Element, gone: ReadonlyMap<Element, Placed>): ChildNode | undefined =>
     UndefinedOr.map(UndefinedOr.match(gone.get(el), { onDefined: identity, onUndefined: () => places.get(el) }), (placed) => placed.next)
 
   /** A leaver from an earlier change, still retained, moved to its place in the walk (#675) unless it's there already. */
-  const moveBack = (el: HTMLElement, cursor: HTMLElement | undefined, anchor: ChildNode | undefined): void => {
+  const moveBack = (el: Element, cursor: Element | undefined, anchor: ChildNode | undefined): void => {
     if (isInPlace(el, cursor, anchor)) return
     UndefinedOr.map(places.get(el), (placed) => {
       const back = backPlaceOf(placed, cursor, anchor)
@@ -1235,7 +1263,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   }
 
   /** A leave decided at the task's end (#482): kept as `exiting`, so a re-entry or the teardown interrupts it. */
-  const decideAtTaskEnd = (el: HTMLElement, decide: () => void): void => {
+  const decideAtTaskEnd = (el: Element, decide: () => void): void => {
     const fiber = runtime.runFork(
       Microtask.next.pipe(
         Effect.andThen(
@@ -1250,7 +1278,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   }
 
   /** What a retained leaver does: crossfade onto its twin, or run its exit, or hand back the twins inside it. */
-  const decideLeave = (el: HTMLElement, rec: PresenceRecord | undefined, inside: ReadonlyArray<PresenceWatch>, holds: number): void => {
+  const decideLeave = (el: Element, rec: PresenceRecord | undefined, inside: ReadonlyArray<PresenceWatch>, holds: number): void => {
     // A plain child (#392): retained, as Motion's presence child, until the exits inside it, the
     // handovers of its twins and the hooks holding it (#277's PR 5b) have all ended.
     if (Predicate.isUndefined(rec)) {
@@ -1295,7 +1323,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   }
 
   /** The presence hooks inside `el` (#277's PR 5b): those whose element it holds, in the order they were added. */
-  const watchesIn = (el: HTMLElement): ReadonlyArray<PresenceWatch> => {
+  const watchesIn = (el: Element): ReadonlyArray<PresenceWatch> => {
     if (Predicate.isUndefined(watchesWithin)) {
       const index = new Map<Element, Array<PresenceWatch>>()
       Iter.forEach(watches, (watch) => UndefinedOr.map(watch.element(), (at) => indexUp(index, at, watch)))
@@ -1309,7 +1337,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    * `counted`, each that holds it is one of its parts, ended by its release (once). A callback that
    * throws is reported, and lets the child go.
    */
-  const tellLeave = (el: HTMLElement, inside: ReadonlyArray<PresenceWatch>, counted: boolean): void => {
+  const tellLeave = (el: Element, inside: ReadonlyArray<PresenceWatch>, counted: boolean): void => {
     const custom = customNow()
     if (Bool.and(counted, inside.length > 0)) toldHooks.set(el, inside)
     Arr.forEach(inside, (watch) => {
@@ -1338,7 +1366,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   /** A hook whose element left the page some other way, dropped (#277's PR 5b): not one a held child holds. */
   const dropDetachedWatch = (watch: PresenceWatch): void => {
     UndefinedOr.map(watch.element(), (at) => {
-      if (Bool.or(at.isConnected, isHeld(at as HTMLElement))) return
+      if (Bool.or(at.isConnected, isHeld(at))) return
       watches.delete(watch)
       watch.gone()
     })
@@ -1363,7 +1391,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
     })
 
   /** The Wardic elements made under this presence inside `el`, in document order, but the twins (#181). */
-  const madeWithin = (el: HTMLElement): ReadonlyArray<Element> =>
+  const madeWithin = (el: Element): ReadonlyArray<Element> =>
     Arr.filter(Arr.fromIterable(el.querySelectorAll("*")), (inner) =>
       UndefinedOr.match(made.get(inner), { onUndefined: constFalse, onDefined: (m) => Bool.not(m.twin) }))
 
@@ -1394,7 +1422,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   }
 
   /** Where a leaver and the Wardic elements inside it paint now, in the Root frame: each one on the page. */
-  const boxesOf = (leaver: HTMLElement): ReadonlyMap<Element, Box.Box> => {
+  const boxesOf = (leaver: Element): ReadonlyMap<Element, Box.Box> => {
     const boxes = new Map<Element, Box.Box>()
     Arr.forEach([leaver, ...Arr.map(partsOf(leaver), (part) => part.element)], (el) =>
       Option.map(projection.rootBoxOf(el), (box) => boxes.set(el, box)))
@@ -1410,7 +1438,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
   }
 
   // Children taken over in the change they left in: they never start an exit.
-  const takenOver = new WeakSet<HTMLElement>()
+  const takenOver = new WeakSet<Element>()
 
   /**
    * `el` takes over from `leaver`: each Wardic element in it starts where the one it pairs with in
@@ -1419,7 +1447,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    * one's exit ends, uncompleted, as an interrupted one's does (Motion tells no completion for a key
    * back); one leaving in this change never starts its exit, nor are its hooks told it left.
    */
-  const takeOver = (el: HTMLElement, leaver: HTMLElement): void => {
+  const takeOver = (el: Element, leaver: Element): void => {
     const from = registry.get(leaver)
     // Gone since (its exit ended): the child enters as any other.
     if (Predicate.isUndefined(from)) return
@@ -1522,7 +1550,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    * the last change is leaving now and stays to exit (a Wardic element, or a plain one with something
    * inside it to wait for, #392).
    */
-  const waits = (kept: ReadonlySet<HTMLElement>): boolean =>
+  const waits = (kept: ReadonlySet<Element>): boolean =>
     Bool.or(
       leaving.size > 0,
       Arr.some(previous, (placed) => {
