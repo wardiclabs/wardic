@@ -1912,7 +1912,7 @@ export const bindBatch = (env: BatchEnv, config: BatchConfig | KeyedBatchConfig<
     const i = memberOf[slot]
     const presence = presenceOf[i]
     const el = elementOf[i]
-    if (Predicate.isUndefined(presence) || !(el instanceof HTMLElement)) return false
+    if (Predicate.isUndefined(presence) || Predicate.isUndefined(el)) return false
     unhold(i)
     const entry = entries[i]
     const cancel = presenceHold(presence, el, () => {

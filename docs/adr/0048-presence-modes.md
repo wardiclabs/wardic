@@ -843,3 +843,28 @@ Text nodes between the children (the `nextElementSibling` check) aren't pinned: 
 - **The hooks are indexed by the elements they're inside,** built once a change as a leaver's hooks are first asked for, and again once a hook is added. The scan of every hook for each leaver it replaces cost a change 11.9 ms with 1,000 Batch members under one presence, half of them leaving, 34.5 ms at 2,000 and 122.9 ms at 4,000, against 1.1, 1.7 and 2.8 ms with no presence. Indexed: 3.5, 5.1 and 9.1 ms.
 
 - Rejected: a keyed watch, so the presence's take-over finds a member mid-exit, which needs a key the presence can hold (a string or a number) and its take-over to run before the Batch's change.
+
+## Amendment (#702, 2026-11-13): every element is a presence child, and no SVG element is popped
+
+`<AnimatePresence>` counted only `HTMLElement` children (`elementsOf`). A Wardic SVG element right under it (`wardic.circle`), or a keyed Batch member drawn on one (`<rect {...list.member(id)} />`, ADR-0070 decision 13, Q49), was never a child: Solid removed it at once, with no exit. Its record registered all along, and an SVG element inside an HTML leaver was already among that leaver's parts (`registeredWithin` reads every element). Grilled 2026-11-13 (#702, Q1–Q6).
+
+**Motion:** its `AnimatePresence` keeps keyed React children whatever they draw, so an SVG child runs its exit. Its `PopChildMeasure` (14.9) measures only an HTML element (`isHTMLElement`: `"offsetHeight" in el && !("ownerSVGElement" in el)`), so no SVG element is popped, the outer `<svg>` included: it runs its exit in place.
+
+**Decisions:**
+1. **Every element is a presence child** (Q1: A; CONTEXT.md's **Presence child**, Q4): HTML, SVG and MathML. Text and comments still aren't. Everything the controller does to a child but the pop already works on any `Element` (putting a leaver back, its place, the `wait` hold, the parts inside it, the hooks), and its types say `Element` now.
+   - Rejected: B, `HTMLElement | SVGElement`.
+2. **No SVG element is popped** (Q2: A, Motion's). Under `mode="popLayout"`, an SVG leaver, the `<svg>` root included, runs its exit where it is, as in `sync`, keeping its input, as a leaver with no size of its own does (*Pop layout*). An icon swap pops if its icon is wrapped in an HTML element.
+   - Rejected: B, popping the `<svg>` root, which has a CSS box in the HTML flow. It has no `offsetTop`, `offsetLeft` or `offsetParent`, which `popBoxOf` and #480's correction are built on, so it needs a second measuring path, its containing block found by hand. Filed as #744 (Q5).
+3. **Batch members in the same change** (Q3): the Batch's `mode="wait"` hold (`heldBack`) takes any element too. It amends ADR-0070's Q49.
+4. **Defaults stated, not asked** (Q6):
+   - **As an HTML child, but for the pop:** an SVG leaver goes back in Motion's order (#486, #675) and keeps its place; `mode="wait"` holds an entering SVG child or Batch member off the page; a plain `<g>` with a Wardic element inside waits for that element's exit (#392); the hooks work inside one.
+   - **The projection is told** as an SVG child enters or an SVG leaver is removed, as for an HTML one (`presenceAffectsLayout`). An inner SVG element moves no box, so the pass animates nothing; an `<svg>` root's removal lets a `layout` sibling slide into its space.
+   - **No bench run:** the per-frame path is untouched. The size gate (ADR-0067) runs as usual.
+
+**Built** (`@wardic/solid`'s `presence-controller.ts`, both bindings):
+- **`elementsOf`** keeps every `Element` (`isPresenceChild`), and the controller's maps, its `Placed`, `PresenceRecord.element` and the hold's element are `Element`s.
+- **`popBoxOf`** measures only an HTML element (`htmlPopBoxOf`, as before), and a `PopBox` carries the `HTMLElement` it pins, so `pin` and `movePin` take the box.
+- **The dom boundary:** dom's projection methods and `MeasuredPair.measure` are typed for HTML elements but read only what an SVG element has too (lookups by element, `contains`, its box and its inline style). The controller hands them its children through `castForDom`, its projection view (`PresenceProjection`) taking any element, as the bindings already hand them their SVG Wardic elements. Widening dom's own types would reach its maps and twin search, which nothing here needs.
+- **The Batch's `heldBack`** holds any member element under `mode="wait"`: it checked `instanceof HTMLElement`.
+- **Pinned by** `packages/solid/test/presence-svg.browser.test.tsx` PS1–PS8 and `v2/presence-svg.browser.test.tsx` PSV1–PSV8: a circle's exit on `opacity`, and on `r` in each mode (`sync`, `wait` with `opacity` on the same frames, `popLayout` in place); a plain `<g>`; an SVG element inside an HTML leaver, which already exited; an `<svg>` root under `popLayout`, left in the flow; a `layout` sibling sliding into a removed `<svg>` root's space. And `create-batch-exits.browser.test.tsx` CE6 and `v2/…` CVE4: two `<rect>` members leaving, staggered, each going as it lands, and `wait` holding an entering one, unmoved. Against the old source, all fail but PS5 and PSV7.
+- **Mutation-checked** (`.tmp/702/mutate.py`, run alone): 5 single-point mutations, all caught: a pop for every element, the children HTML only, `<svg>` roots left out, no removal notice for an SVG leaver, and the Batch's hold HTML only.

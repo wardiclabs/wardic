@@ -13,7 +13,7 @@ An element that Solid removes is gone at once. Inside `<AnimatePresence>`, one w
 
 ## What counts as a child
 
-Each DOM node directly inside is a child of its own: a `<Show>`'s element, or each of a `<For>`'s. For one element that swaps for another, a `<Show keyed>` makes each value a new child, so the last one leaves as the next one enters:
+Each element directly inside is a child of its own: a `<Show>`'s element, or each of a `<For>`'s, an SVG one as much as an HTML one. For one element that swaps for another, a `<Show keyed>` makes each value a new child, so the last one leaves as the next one enters:
 
 ```tsx
 <AnimatePresence mode="wait">
@@ -25,11 +25,19 @@ Each DOM node directly inside is a child of its own: a `<Show>`'s element, or ea
 
 A `key` on the element, as in Motion, lets one that comes back while it's still leaving pick up from where its leaver is, rather than enter again.
 
+## Inside an `<svg>`
+
+An `<AnimatePresence>` can sit inside an `<svg>`, with SVG elements for children: each point here grows in on its radius, and shrinks out before it goes.
+
+<Demo sample="presence-svg" />
+
+<CodeTabs sample="presence-svg" />
+
 ## Modes
 
 - **`"sync"`** (the default): the leaving and the entering children animate at once.
 - **`"wait"`**: the entering child waits until the leaving one has gone.
-- **`"popLayout"`**: a leaving child is taken out of the layout as it starts to leave, so the others move into its place as it goes, with `layout` on them. `anchorX` and `anchorY` say which edge it keeps while it's popped.
+- **`"popLayout"`**: a leaving child is taken out of the layout as it starts to leave, so the others move into its place as it goes, with `layout` on them. `anchorX` and `anchorY` say which edge it keeps while it's popped. An SVG element isn't popped, an icon's `<svg>` included: it leaves where it is, as in Motion. To pop an icon, wrap it in an HTML element, a `w.span` ([#744](https://github.com/wardiclabs/wardic/issues/744)).
 
 ## Its other props
 

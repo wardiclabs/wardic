@@ -19,7 +19,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
  */
 export interface PresenceRecord {
   /** The child's root DOM element (the same `el` the spine wires). */
-  readonly element: HTMLElement
+  readonly element: Element
   /** The latest emitted value-map, updated by the spine each frame. */
   readonly snapshot: { current: Values.Values }
   /**
@@ -121,7 +121,7 @@ export interface PresenceContextValue {
    * when it isn't, and it starts now. Else `start` is called once the child is on the page, and the
    * call returned cancels that (the element gone first). Optional: left out, never.
    */
-  readonly hold?: (el: HTMLElement, start: () => void) => (() => void) | undefined
+  readonly hold?: (el: Element, start: () => void) => (() => void) | undefined
   /**
    * A presence hook's registration: `usePresence`'s and `useIsPresent`'s.
    * Optional: left out, nothing is watched.
@@ -192,5 +192,5 @@ export const presenceBlocksInitial = (presence: PresenceContextValue | undefined
  * Whether `el` waits for its child to go on the page ({@link PresenceContextValue.hold}): the call
  * that cancels `start`, or `undefined` when it starts now.
  */
-export const presenceHold = (presence: PresenceContextValue | undefined, el: HTMLElement, start: () => void): (() => void) | undefined =>
+export const presenceHold = (presence: PresenceContextValue | undefined, el: Element, start: () => void): (() => void) | undefined =>
   UndefinedOr.map(presence, (p) => UndefinedOr.map(p.hold, (hold) => hold(el, start)))
