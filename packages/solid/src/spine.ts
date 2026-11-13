@@ -38,6 +38,7 @@ import * as Variables from "@wardic/dom/Variables"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
+import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Equivalence from "effect/Equivalence"
 import * as Exit from "effect/Exit"
@@ -69,6 +70,7 @@ import type { Accessor, Reactivity } from "./reactivity.ts"
 import { delayedBy, type Follows, hasManyStops, keyframesFrom, type Leg, legsOf, mapMachine, type MeasuredPairs, startingAt, type StopsByKey, transitionForKey, type Velocities, withPathAxes } from "./retarget-legs.ts"
 import { type MemberHold, memberHoldsNow } from "./member-hold.ts"
 import type { WardicRuntime, WardicServices } from "./runtime.ts"
+import { type TimelineKeys, Timelines } from "./timelines.ts"
 import {
   changesContext,
   hasOwnVariants,
@@ -1905,6 +1907,11 @@ export interface ElementSpineOptions {
   readonly styleNow: (() => object | string | undefined) | undefined
   /** Its routed `style` keys (#130, ADR-0043). */
   readonly live: LiveStyle | undefined
+  /**
+   * Every Feature its provider has built so far, whichever section asked: where its Timeline values
+   * are found (#240), once a `createScroll` has brought the `scroll` Feature. Omitted, it has none.
+   */
+  readonly builtFeatures?: (() => Context.Context<never>) | undefined
   /** Its presence record, under an `<AnimatePresence>`. */
   readonly presence: PresenceRecord | undefined
   /**
@@ -1926,6 +1933,11 @@ export interface ElementSpineOptions {
    * provides nothing.
    */
   readonly byName?: NameOrchestration | undefined
+}
+
+/** Tell `timelineKeys` that each of `values`' keys is taken from its Live value (#240). */
+const takeEach = (timelineKeys: TimelineKeys, values: Values.Values): void => {
+  Arr.forEach(Rec.keys(values), (key) => timelineKeys.taken(key))
 }
 
 /** What the follower reads of the element's Override stack and drag, untracked. */
@@ -2007,6 +2019,24 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   // A routed key a return handed back: written by the follower from now on (#130). Set by
   // `follow`; a return settles a tick after it runs at the earliest.
   let handBack: (key: string) => void = constVoid
+
+  // Its Timeline values (#240, ADR-0043 *Amendment (#240)*): the `scroll` Feature's, made at the first
+  // write of a Live value once the provider has built it, and told of every key the follower writes
+  // and every key anything else takes. `featuresSeen` is the built Features last looked in.
+  let timelineKeys: TimelineKeys | undefined
+  let featuresSeen: Context.Context<never> | undefined
+  /** Its Timeline values, made once they're there. Per write of a Live value: statements. */
+  const timelineKeysNow = (routes: LiveStyle): TimelineKeys | undefined => {
+    if (Predicate.isNotUndefined(timelineKeys)) return timelineKeys
+    if (Predicate.isUndefined(options.builtFeatures)) return undefined
+    const services = options.builtFeatures()
+    if (services === featuresSeen) return undefined
+    featuresSeen = services
+    const timelines = Context.getOrUndefined(services as Context.Context<Timelines>, Timelines)
+    if (Predicate.isUndefined(timelines)) return undefined
+    timelineKeys = timelines.keysOf({ runtime, gate, id, element, live: routes })
+    return timelineKeys
+  }
 
   // The keys a Retarget drove, each with its last target value (its shape), and the
   // ones returning to their Base value until that return settles (ADR-0022). Both are
@@ -2467,6 +2497,9 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   const retarget = (given: Resolution): void => {
     // A Controls change (#433): the element is in it from the Retarget it makes it run, held or not.
     if (given.change !== joined) joinChange(given.change)
+    // A key an entry sets isn't its Live value's from this Retarget on, held or not: its Timeline value
+    // stops (#240), and the gate draws the key in the flush that writes the entry's first value.
+    if (Predicate.isNotUndefined(timelineKeys)) takeEach(timelineKeys, given.resolved)
 
     // `when` start-gate (ADR-0007): when canStart() is false, the keys whose target changed freeze
     // where they are (#325: the rest run on), and the element waits; the binding retargets once
@@ -2517,6 +2550,11 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       driven.set(key, resolved[key])
     })
     if (held) Arr.forEach(dragMoves(), (key) => driven.delete(key))
+    // A key the drag holds isn't its Live value's now: its Timeline value stops (#240).
+    if (held) {
+      const keys = timelineKeys
+      if (Predicate.isNotUndefined(keys)) Arr.forEach(dragMoves(), (key) => keys.taken(key))
+    }
     returning = new Map()
     // Over the Map itself: copying it into an array first costs ~20 times the walk, per element
     // per Retarget (#69's PR 4). Deleting the entry being visited is safe in a Map's iteration.
@@ -2978,22 +3016,35 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         gate.write(id, values)
         recordFrame(values)
       }
+      // The element shows `key`'s Live value now: its Timeline value runs, when it has one (#240).
+      const shown = (key: string): void => {
+        const keys = timelineKeysNow(routes)
+        if (Predicate.isNotUndefined(keys)) keys.shown(key)
+      }
       handBack = (key) => {
         Option.match(Option.filter(routes.valueOf(key), isValue), {
           onNone: constVoid,
-          onSome: (value) => put({ [key]: value }),
+          onSome: (value) => {
+            put({ [key]: value })
+            shown(key)
+          },
         })
       }
       // Every routed key nothing owns, with, before anything's committed, the values the Override
       // stack's keys start from, so a held start (a `when` gate) keeps showing them.
       const first = Rec.filter(routes.values(), (_, key) => Bool.not(owned(key)))
-      if (hasKeys(first)) put({ ...Values.pick(snapshot.values, now.resolved()), ...first })
+      if (hasKeys(first)) {
+        put({ ...Values.pick(snapshot.values, now.resolved()), ...first })
+        Arr.forEach(Rec.keys(first), shown)
+      }
       return {
         change: (key, value) => {
           if (Bool.or(owned(key), Bool.not(isValue(value)))) return
           put({ [key]: value as number | string })
+          shown(key)
         },
         removed: (key) => {
+          if (Predicate.isNotUndefined(timelineKeys)) timelineKeys.taken(key)
           if (owned(key)) return
           delete snapshot.values[key]
           delete snapshot.velocities[key]
@@ -3013,6 +3064,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // Unmounted, it lands in no Controls change (#433).
     leaveChange()
     if (Predicate.isNotUndefined(live)) live.stop()
+    if (Predicate.isNotUndefined(timelineKeys)) timelineKeys.dispose()
     // The legs end normally first, so closing the Scope has nothing left to interrupt. A Transition
     // end waiting or due writes nothing (#508).
     if (Predicate.isNotUndefined(waiting)) waiting.dispose()
@@ -3068,6 +3120,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     Arr.forEach(Rec.keys(to), (key) => {
       takenNow.set(key, before[key])
       returning.delete(key)
+      // Its Timeline value stops while the animation draws the key (#240).
+      if (Predicate.isNotUndefined(timelineKeys)) timelineKeys.taken(key)
       const owner = owners.get(key)
       if (Predicate.isNotUndefined(owner)) giveUp(key, owner)
       if (!Object.hasOwn(initialValues, key)) ownValue(key)
