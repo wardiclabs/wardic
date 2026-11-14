@@ -504,7 +504,7 @@ export interface ElementPart<T> {
 }
 
 /** Whether `value` is a Batch's key's first stop through an element: a number, or `null` for where it is. */
-const isFirstStop: Predicate.Predicate<unknown> = Predicate.or(Predicate.isNumber, Predicate.isNull)
+const isFirstStop: Predicate.Predicate<unknown> = /*#__PURE__*/ Predicate.or(Predicate.isNumber, Predicate.isNull)
 
 /** Whether `value` is a Batch's key's two stops through an element: a first stop, and a number. */
 const isElementStops = (value: unknown): value is readonly [number | null, number] => {
@@ -563,7 +563,7 @@ export const isMemberElement = (element: Element): boolean => MEMBER_ELEMENTS.ha
 export const memberEntryOf = (element: Element): BatchMemberEntry | undefined => MEMBER_ELEMENTS.get(element)
 
 /** Whether a sequence's subject is a Batch member's entry. */
-export const isMemberEntry: Predicate.Refinement<unknown, BatchMemberEntry> = Predicate.and(Predicate.hasProperty("binding"), Predicate.hasProperty("member")) as Predicate.Refinement<unknown, BatchMemberEntry>
+export const isMemberEntry: Predicate.Refinement<unknown, BatchMemberEntry> = /*#__PURE__*/ Predicate.and(/*#__PURE__*/ Predicate.hasProperty("binding"), /*#__PURE__*/ Predicate.hasProperty("member")) as Predicate.Refinement<unknown, BatchMemberEntry>
 
 // --- A sequence's Segments of Batches (#665, Q36–Q40) ---------------------------------------------
 
@@ -703,7 +703,7 @@ const keysOf = (config: BatchConfig): ReadonlyArray<string> =>
 const INSTANT: Batch.Transition = { type: "tween", duration: 0 }
 
 /** A key's index, -1 for a key the Batch hasn't. Built once. */
-const keyIndexOr: (k: number | undefined) => number = UndefinedOr.match({ onUndefined: (): number => -1, onDefined: (k: number): number => k })
+const keyIndexOr: (k: number | undefined) => number = /*#__PURE__*/ UndefinedOr.match({ onUndefined: (): number => -1, onDefined: (k: number): number => k })
 
 /** A Batch Reorder group's item in hand's change (#712): its `x` and `y` where it's held, at once. */
 const IN_HAND: Batch.RetargetOptions = { transition: { x: INSTANT, y: INSTANT } }

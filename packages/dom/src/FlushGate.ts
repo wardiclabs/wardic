@@ -60,7 +60,7 @@ export const layer = (options: Options): Layer.Layer<FlushGate, never, Services>
 const noop = (): void => {}
 
 /** What `inert`'s `valueOf` gives: an Atom that stays `undefined`, since nothing is committed on a server. */
-const NO_VALUE: Atom.Atom<unknown> = Atom.make<unknown>(undefined)
+const NO_VALUE: Atom.Atom<unknown> = /*#__PURE__*/ Atom.make<unknown>(undefined)
 
 /**
  * The gate a server render gets: it flushes nothing, so `register` returns an unregister that does
@@ -68,7 +68,7 @@ const NO_VALUE: Atom.Atom<unknown> = Atom.make<unknown>(undefined)
  * at setup and uses it after mount keeps working on a server.
  */
 // ADR-0021, decision 9.
-export const inert: Shape = Object.freeze({
+export const inert: Shape = /*#__PURE__*/ Object.freeze({
   register: () => noop,
   write: noop,
   flushPass: noop,
@@ -79,4 +79,4 @@ export const inert: Shape = Object.freeze({
 })
 
 /** `inert` as a Layer, for a binding whose server render runs an Effect program. */
-export const layerInert: Layer.Layer<FlushGate> = Layer.succeed(FlushGate, inert)
+export const layerInert: Layer.Layer<FlushGate> = /*#__PURE__*/ Layer.succeed(FlushGate, inert)

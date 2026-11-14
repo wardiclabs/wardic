@@ -44,10 +44,10 @@ export const dragDefaultStyle: (axis: boolean | "x" | "y") => DragDefaultStyle =
  * row vertical panning, and a grid none.
  */
 // A **Reorder group**.
-export const reorderTouchAction: (axis: "x" | "y" | "xy") => string = Match.type<"x" | "y" | "xy">().pipe(
-  Match.when("y", () => "pan-x"),
-  Match.when("x", () => "pan-y"),
-  Match.orElse(() => "none"),
+export const reorderTouchAction: (axis: "x" | "y" | "xy") => string = /*#__PURE__*/ Match.type<"x" | "y" | "xy">().pipe(
+  /*#__PURE__*/ Match.when("y", () => "pan-x"),
+  /*#__PURE__*/ Match.when("x", () => "pan-y"),
+  /*#__PURE__*/ Match.orElse(() => "none"),
 )
 
 /** The attribute every drag element gets: no native drag of the element or its content. */

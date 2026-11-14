@@ -57,11 +57,11 @@ export const applyTo: {
     stream: Stream.Stream<Frame.Frame<Record<string, unknown>>, E, R>,
   ) => Effect.Effect<void, E, R | Renderer>
   <T, E, R>(stream: Stream.Stream<Frame.Frame<Record<string, unknown>>, E, R>, target: T): Effect.Effect<void, E, R | Renderer>
-} = dual(
+} = /*#__PURE__*/ dual(
   // The target is any value: told apart by the stream (#460).
   Stream.isStream,
   // Not `Effect.fn`, which always captures a call-site stack (ADR-0040, decision 2).
-  Effect.fnUntraced(
+  /*#__PURE__*/ Effect.fnUntraced(
     function* <T, E, R>(stream: Stream.Stream<Frame.Frame<Record<string, unknown>>, E, R>, target: T): Effect.fn.Return<void, E, R | Renderer> {
       yield* Effect.annotateCurrentSpan({ target: typeof target })
       const renderer = yield* Renderer

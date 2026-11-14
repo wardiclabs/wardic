@@ -211,3 +211,11 @@ ADR-0067's *Amendment (#516)* types a Solid **Wardic instance** (`createWardic(f
 1. **`Wardic.make`'s handle is typed the same way** (#516 Q11). Its `w.*` take its Features' props, through Foldkit's own map from a Feature's name to its props, since Foldkit's callbacks are Messages (decision 23). The lift (#672) and the binding's slices build it typed from the start.
 2. **Without `features`, a handle has none** (#516 Q12 A): `Wardic.make({ env })` gives the base props alone. The *Not decided* above worried that gesture and layout props would do nothing. With the types, `<w.div drag>` is a compile error naming `drag`.
    - Rejected: `domMax` by default, every Feature shipped unless chosen; `features` required, `[]` written by every app without one.
+
+## Note (#746, 2026-11-14): spans by default, and ports before the lift
+
+ADR-0067's *Amendment (#746)* cuts the Slim element's apps.
+
+1. **The handle gives `WardicSpans` by default.** A Solid app merges it to see Wardic's spans (that Amendment's decision 8). Foldkit opens a span for every Command (`Effect.withSpan` in its runtime), so a Foldkit app ships Effect's tracer anyway, and Wardic's animations show in its traces beside its Commands.
+2. **The spine's and the gate's seams land before the lift** (its decision 10), each a port in core resolved once into `WardicServices`, as decision 7's are. Unlike decision 7's, each is optional: a `Context.Reference` whose default is none, filled by the Layer its Feature or component brings, not by `DomLive`. Each PR adds its port to [`lift-672-move-plan.md`](../research/lift-672-move-plan.md). The lift moves them unchanged.
+3. **What the cuts save in a Foldkit app.** Foldkit ships Effect's `Stream`, `Match` and tracer itself, so only the fiber helpers' cut (`FiberHandle`, `FiberSet`, which it doesn't use) and Wardic's own cuts reach its apps.
