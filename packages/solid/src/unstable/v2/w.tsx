@@ -15,24 +15,30 @@
  * @module
  */
 import type { JSX } from "@solidjs/web"
-import * as Predicate from "effect/Predicate"
 import type { AbsentGroupsOf, EveryFeature, NamesEvery, PropFeatureNames } from "../../feature.ts"
 import type { WardCheckedConfig } from "../../ward-keys.ts"
 import type { PerKeyApart } from "./config-view.ts"
 import { createOf, type CreateFor, type FeatureProps, formOf, type OwnPropsFor, type WardicComponentFor } from "./element.tsx"
-import { internalsOf, SLIM, type Ward, type WardCallbackKey, type WardChecked, type WardConfig, type WardFor, wardWith, type WardOptions, type WardStyle } from "./ward.tsx"
+import { internalsOf, SLIM, type Ward, type WardCallbackKey, type WardChecked, type WardConfig, type WardFor, type WardInternals, wardWith, type WardOptions, type WardStyle } from "./ward.tsx"
 
 /** `w.ward(config, options)`: `ward()`'s ward, on a Slim element. */
-function slimWard<const C extends WardConfig>(config: WardChecked<C>, options?: WardOptions): Ward<C>
-function slimWard(): Ward<{}>
-function slimWard(config: undefined, options: WardOptions): Ward<{}>
-function slimWard(config?: WardConfig, options?: WardOptions): Ward {
-  if (Predicate.isUndefined(config)) return wardWith(NO_CONFIG, internalsOf(options, SLIM))
-  return wardWith(config, internalsOf(options, SLIM))
+interface SlimWard {
+  <const C extends WardConfig>(config: WardChecked<C>, options?: WardOptions): Ward<C>
+  (): Ward<{}>
+  (config: undefined, options: WardOptions): Ward<{}>
 }
 
 /** No config: a ward that only listens (#398), `w.ward()`. */
 const NO_CONFIG: WardConfig = {}
+
+/** A ward on an element of `kind`, as `w.ward` makes one. */
+const wardOf =
+  (kind: WardInternals) =>
+  (config: WardConfig = NO_CONFIG, options?: WardOptions): Ward =>
+    wardWith(config, internalsOf(options, kind))
+
+/** Every form of a `w` whose elements are of `kind` (#516): the Slim element's `w`, and a Wardic instance's. */
+export const wOf = (kind: WardInternals): W => formOf<W>(createOf(kind), { ward: wardOf(kind) })
 
 /**
  * The type of `w`: `w.create`, `w.ward`, and `w.<tag>`, a Slim element's component for that element (one
@@ -49,8 +55,8 @@ type WFor<FN extends string> = { readonly create: CreateFor<FN>; readonly ward: 
   readonly [Tag in keyof JSX.IntrinsicElements]: WardicComponentFor<Tag, FN>
 }
 
-/** `w.ward` for the Features named `FN` (#516): `slimWard` with every one; else a Wardic instance's. */
-type MakeWardFor<FN extends string> = NamesEvery<FeatureProps, FN> extends true ? typeof slimWard : MakeInstanceWard<FN>
+/** `w.ward` for the Features named `FN` (#516): the Slim element's with every one; else a Wardic instance's. */
+type MakeWardFor<FN extends string> = NamesEvery<FeatureProps, FN> extends true ? SlimWard : MakeInstanceWard<FN>
 
 /**
  * A Wardic instance's `w.ward` (#516), its Features named `FN`: its config takes their props alone, every
@@ -76,4 +82,4 @@ type InstanceValues<FN extends string> = OwnPropsFor<FN> & AbsentGroupsOf<Featur
  * @see https://wardic.dev/reference/solid/elements/w
  */
 // Every form of the Slim element, as `wardic`'s and `ward()` are of the Complete one (ADR-0067).
-export const w: W = formOf<W>(createOf(SLIM), { ward: slimWard })
+export const w: W = wOf(SLIM)

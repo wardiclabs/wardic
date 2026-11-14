@@ -946,7 +946,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const runtime = useWardicRuntime()
   // Its Features (#511, ADR-0067), a Complete element's every one: what they register, a server
   // render's elements read too (the `colors` Feature's spaces).
-  const features = useElementFeatures(internal.brings, internal.complete === true, internal.instance)
+  const features = useElementFeatures(internal)
   // A server render takes the lean path: the Starting style only, no spine (ADR-0021).
   if (isServer) return serverWard(config, internal)
   const gate = useWardicGate()

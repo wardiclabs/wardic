@@ -6,23 +6,19 @@
  *
  * @module
  */
-import * as Predicate from "effect/Predicate"
-import { type InstanceFeaturesProp, instanceFeaturesOf } from "../../feature.ts"
-import { createOf, formOf } from "./element.tsx"
-import { createInstantLayoutTransition, createResetProjection, useAnimateLayout, useInstanceUse } from "./provider.tsx"
-import { internalsOf, type Ward, type WardConfig, type WardInternals, wardWith, type WardOptions } from "./ward.tsx"
-import type { W } from "./w.tsx"
+import { type InstanceFeaturesProp } from "../../feature.ts"
+import { instanceFeaturesOf } from "../../instance-features.ts"
+import { createInstantLayoutTransition, createResetProjection, useAnimateLayout, useInstanceBrought } from "./provider.tsx"
+import { wOf } from "./w.tsx"
 import type { WardicInstance } from "./wardic-instance.ts"
-
-/** No config: a ward that only listens (#398). */
-const NO_CONFIG: WardConfig = {}
 
 /**
  * Makes a Wardic instance: a `w` whose elements bring `features` wherever they render and take their
  * props alone, so a prop of a Feature the list lacks is a type error that names it, as listening for
  * its event on a ward is. Give each Feature at once, or a load (`() => import(…)`), which starts the
- * first time one of its elements mounts. With `layout`, it returns the layout hooks too, which bring
- * it. Call it once, in a module of its own.
+ * first time one of its elements or wards is made, or a hook is called, on the client. With `layout`,
+ * it returns the layout hooks too, which bring it. Call it once, in a module of its own. Motion has no
+ * counterpart; its nearest is `m` under `LazyMotion`, whose Features its types don't follow.
  *
  * @example
  * // src/lib/wardic.ts
@@ -33,24 +29,18 @@ const NO_CONFIG: WardConfig = {}
 // layout hooks), 7 (loads), 8 (`strict` allows them), 10 (the events, Q19).
 export function createWardic<const F extends InstanceFeaturesProp>(features: F): WardicInstance<F> {
   const instance = instanceFeaturesOf(features)
-  const kind: WardInternals = { instance }
-  const ward = (config?: WardConfig, options?: WardOptions): Ward => {
-    if (Predicate.isUndefined(config)) return wardWith(NO_CONFIG, internalsOf(options, kind))
-    return wardWith(config, internalsOf(options, kind))
-  }
+  /** `hook`, its instance's Features brought first. */
+  const bringing =
+    <A,>(hook: () => A) =>
+    (): A => {
+      useInstanceBrought(instance)
+      return hook()
+    }
+  // The layout hooks are there at runtime whatever its Features: its type shows them only with `layout`.
   return {
-    w: formOf<W>(createOf(kind), { ward }),
-    useAnimateLayout: () => {
-      useInstanceUse(instance)
-      return useAnimateLayout()
-    },
-    createInstantLayoutTransition: () => {
-      useInstanceUse(instance)
-      return createInstantLayoutTransition()
-    },
-    createResetProjection: () => {
-      useInstanceUse(instance)
-      return createResetProjection()
-    },
+    w: wOf({ instance }),
+    useAnimateLayout: bringing(useAnimateLayout),
+    createInstantLayoutTransition: bringing(createInstantLayoutTransition),
+    createResetProjection: bringing(createResetProjection),
   } as unknown as WardicInstance<F>
 }

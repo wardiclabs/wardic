@@ -20,7 +20,7 @@ import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
 import * as Scope from "effect/Scope"
 import * as Bool from "effect/Boolean"
-import { constUndefined, identity } from "effect/Function"
+import { constFalse, constUndefined, identity } from "effect/Function"
 import * as Latch from "effect/Latch"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -34,7 +34,7 @@ import type * as FlushGate from "@wardic/dom/FlushGate"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { explainerOf, type ServerAppear, serverAppear } from "./appear.ts"
 import * as Context from "effect/Context"
-import { type Feature, type FeatureRegistry, type FeatureSection, type FeaturesProp, type InstanceFeatures, joinSections, type Own, ROOT, strictMessage } from "./feature.ts"
+import { type Feature, type FeatureRegistry, type FeatureSection, type FeaturesProp, type ElementFeatures, type InstanceFeatures, joinSections, type Own, ROOT, strictMessage } from "./feature.ts"
 import { FeatureSectionProvider, sectionUnder, useLazySection } from "./feature-section.ts"
 import * as OwnerScope from "./owner-scope.ts"
 import {
@@ -232,7 +232,9 @@ export function LazyWardic(props: {
  * one (`brings`), built at once. A Complete element under a `strict` section is an error in
  * development. Internal.
  */
-export function useElementFeatures(brings: ReadonlyArray<Feature> | undefined, complete: boolean, instance?: InstanceFeatures | undefined): FeatureSection {
+export function useElementFeatures(internal: ElementFeatures): FeatureSection {
+  const { brings, instance } = internal
+  const complete = internal.complete === true
   const section = useFeatureSection()
   if (DEV && complete && section.strict) throw new Error(strictMessage("wardic.*, wardic.create, createWard, use:wardic", "w.*, w.create, w.createWard, use:w"))
   // A Wardic instance's element (#516): its instance's Features, given at once or loaded, beside its section's.
@@ -241,19 +243,13 @@ export function useElementFeatures(brings: ReadonlyArray<Feature> | undefined, c
   const registry = useFeatureRegistry()
   // A Complete element has every Feature, whatever its section has: one section per provider.
   if (complete) return registry.section(brings)
-  return joined(section, registry.build(brings))
+  const own = registry.build(brings)
+  return joinSections(section, { services: () => own, pending: constFalse })
 }
 
-/** `section`, with `own`'s services beside its own. */
-const joined = (section: FeatureSection, own: Context.Context<never>): FeatureSection => ({
-  services: () => Context.merge(section.services(), own),
-  pending: section.pending,
-  strict: section.strict,
-})
-
 /**
- * A Wardic instance's Features in this provider (#516), one per instance (`FeatureRegistry.instance`):
- * what's given built on first need, each load started on its first use on the client. Internal.
+ * A Wardic instance's Features in this provider (#516), one per instance (`InstanceFeatures.own`): what's
+ * given built on first need, each load started the first time it's asked for, on the client. Internal.
  */
 export function useInstanceFeatures(instance: InstanceFeatures): Own {
   return fromContext(useContext(WardicContext), "createWardic", (value) =>
@@ -268,10 +264,11 @@ export function useInstanceFeatures(instance: InstanceFeatures): Own {
 }
 
 /**
- * A Wardic instance's hook used (#516, Q13): in a provider, its Features are built and its loads start,
- * as at its first element's mount, so its layout hooks bring `layout`. Outside one, nothing. Internal.
+ * A Wardic instance's Features brought by one of its hooks (#516, Q13): in a provider, what's given is
+ * built and its loads start, as at its first element's mount, so its layout hooks bring `layout`.
+ * Outside one, nothing. Internal.
  */
-export function useInstanceUse(instance: InstanceFeatures): void {
+export function useInstanceBrought(instance: InstanceFeatures): void {
   if (Predicate.isUndefined(useContext(WardicContext))) return
   const own = useInstanceFeatures(instance)
   untrack(() => own.services())

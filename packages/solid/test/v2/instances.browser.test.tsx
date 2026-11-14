@@ -7,8 +7,10 @@
 // - INV7: `strict` allows an instance's elements, an instance of `domMax`'s too; a `wardic.*` still throws.
 // - INV4: a load in its list starts at its first element's mount, not as it's made, once for two elements
 //   under two providers; nothing is said while it's on its way, and its Feature takes effect as it
-//   arrives: a drag before then does nothing, one after drags.
-// - INV5: a failed load is reported once in a provider, for two elements, naming `createWardic`.
+//   arrives, in each provider: a drag before then does nothing, one after drags. An element gone before
+//   it arrives, or a provider, changes nothing: the next element drags, and nothing loads again.
+// - INV5: a failed load is reported once in a provider, for two elements, naming `createWardic`; the next
+//   provider to ask loads again.
 // - INV6: its layout hooks bring `layout` and count as a use: given at once, the hook alone builds it in its
 //   provider; as a load, the hook starts it.
 import type { JSX } from "@solidjs/web"
@@ -17,10 +19,11 @@ import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { createWardic, domMax, drag, hover, layout, LazyWardic, press, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
 import * as Context from "effect/Context"
 import * as Option from "effect/Option"
-import { Errored, flush } from "solid-js"
+import { createSignal, Errored, flush, Show } from "solid-js"
 import { describe, expect, it, vi } from "vitest"
 import { opacityOf, until } from "../browser-helpers.ts"
 import type { FeatureRegistry } from "../../src/feature.ts"
+import { DragGesture } from "../../src/features/keys.ts"
 import { useFeatureRegistry } from "../../src/unstable/v2/provider.tsx"
 import { mount } from "./mount.tsx"
 import { pushedPointer } from "../pushed-pointer.ts"
@@ -144,6 +147,7 @@ describe("A Wardic instance (#516), Solid 2", () => {
 
   it("INV4: a load starts at the first element's mount, once for two providers; its Feature takes effect as it arrives", async () => {
     const pointer = pushedPointer()
+    const other = pushedPointer()
     let calls = 0
     let arrive!: () => void
     const load = (): Promise<typeof drag> => {
@@ -155,14 +159,15 @@ describe("A Wardic instance (#516), Solid 2", () => {
     const { w } = createWardic([load])
     expect(calls, "nothing loads as the instance is made").toBe(0)
     let el!: HTMLElement
+    let second!: HTMLElement
     const lines = await logged(async () => {
       mount(() => (
         <>
           <WardicProvider env={pointer.env}>
             <w.div ref={(n: HTMLElement) => (el = n)} style={BOX} drag="x" dragMomentum={false} />
           </WardicProvider>
-          <WardicProvider env={DomLive}>
-            <w.div style={BOX} drag="x" />
+          <WardicProvider env={other.env}>
+            <w.div ref={(n: HTMLElement) => (second = n)} style={BOX} drag="x" dragMomentum={false} />
           </WardicProvider>
         </>
       ))
@@ -171,10 +176,10 @@ describe("A Wardic instance (#516), Solid 2", () => {
     expect(calls, "one load, at the first mount").toBe(1)
     expect(lines.filter((l) => l.includes(word("drag"))), "nothing said while it's on its way").toEqual([])
     const x0 = el.getBoundingClientRect().left
-    const fling = (): void => {
-      pointer.push("down", 0)
-      for (let k = 1; k <= 5; k++) pointer.push("move", 20 * k)
-      pointer.push("up", 100)
+    const fling = (by: typeof pointer = pointer): void => {
+      by.push("down", 0)
+      for (let k = 1; k <= 5; k++) by.push("move", 20 * k)
+      by.push("up", 100)
     }
     fling()
     await wait(100)
@@ -184,11 +189,74 @@ describe("A Wardic instance (#516), Solid 2", () => {
     fling()
     await until(() => el.getBoundingClientRect().left - x0 > 90, 2000)
     expect(el.getBoundingClientRect().left - x0, "dragged once it's here").toBeGreaterThan(90)
+    const x1 = second.getBoundingClientRect().left
+    fling(other)
+    await until(() => second.getBoundingClientRect().left - x1 > 90, 2000)
+    expect(second.getBoundingClientRect().left - x1, "the other provider's element drags too").toBeGreaterThan(90)
     expect(calls, "still one load").toBe(1)
   })
 
+  it("INV4b: an element gone before its load arrives, or its provider, changes nothing: the next element drags, nothing loads again", async () => {
+    let calls = 0
+    let arrive!: () => void
+    const load = (): Promise<typeof drag> => {
+      calls += 1
+      return new Promise((resolve) => {
+        arrive = () => resolve(drag)
+      })
+    }
+    const { w } = createWardic([load])
+    const [shown, setShown] = createSignal(true)
+    let goneRegistry!: FeatureRegistry
+    const Probe = (): JSX.Element => {
+      goneRegistry = useFeatureRegistry()
+      return undefined
+    }
+    const gone = mount(() => (
+      <WardicProvider env={DomLive}>
+        <Probe />
+        <Show when={shown()}>
+          <w.div style={BOX} drag="x" />
+        </Show>
+      </WardicProvider>
+    ))
+    await settle()
+    setShown(false)
+    flush()
+    await settle()
+    gone.unmount()
+    const lines = await logged(async () => {
+      arrive()
+      await wait(50)
+    })
+    expect(lines, "a load arriving after its provider ended says nothing").toEqual([])
+    const goneBuilt = goneRegistry.built() as Context.Context<DragGesture>
+    expect(Option.isNone(Context.getOption(goneBuilt, DragGesture)), "nor builds it into that provider").toBe(true)
+    const pointer = pushedPointer()
+    let el!: HTMLElement
+    mount(() => (
+      <WardicProvider env={pointer.env}>
+        <w.div ref={(n: HTMLElement) => (el = n)} style={BOX} drag="x" dragMomentum={false} />
+      </WardicProvider>
+    ))
+    await settle()
+    const x0 = el.getBoundingClientRect().left
+    pointer.push("down", 0)
+    for (let k = 1; k <= 5; k++) pointer.push("move", 20 * k)
+    pointer.push("up", 100)
+    await until(() => el.getBoundingClientRect().left - x0 > 90, 2000)
+    expect(el.getBoundingClientRect().left - x0, "a new provider's element drags at once").toBeGreaterThan(90)
+    expect(calls, "one load").toBe(1)
+  })
+
   it("INV5: a failed load is reported once in a provider, for two elements", async () => {
-    const { w } = createWardic([(): Promise<typeof drag> => Promise.reject(new Error("no such chunk"))])
+    let calls = 0
+    const { w } = createWardic([
+      (): Promise<typeof drag> => {
+        calls += 1
+        return Promise.reject(new Error("no such chunk"))
+      },
+    ])
     const lines = await logged(async () => {
       mount(() => (
         <WardicProvider env={DomLive}>
@@ -201,6 +269,16 @@ describe("A Wardic instance (#516), Solid 2", () => {
     })
     expect(lines.filter((l) => l.includes("wardic.createWardic: a lazy load of Features failed")), "once, for two elements").toHaveLength(1)
     expect(lines.some((l) => l.includes("no such chunk")), "its cause").toBe(true)
+    await logged(async () => {
+      mount(() => (
+        <WardicProvider env={DomLive}>
+          <w.div style={BOX} drag="x" />
+        </WardicProvider>
+      ))
+      await settle()
+      await wait(50)
+    })
+    expect(calls, "the next provider loads again").toBe(2)
   })
 
   it("INV6: its layout hooks bring layout and count as a use", async () => {

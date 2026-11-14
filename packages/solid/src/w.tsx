@@ -20,7 +20,7 @@ import { createWardWith, type SpineInternals, type Ward } from "./create-ward.ts
 import { runDirective } from "./directive.tsx"
 import { createOf, type CreateFor, formOf, type InferredPropsFor, type WardicComponentFor } from "./element.tsx"
 import type { EveryFeature, PropFeatureNames } from "./feature.ts"
-import type { InferredMotion, TargetKey } from "./ward-keys.ts"
+import type { TargetKey } from "./ward-keys.ts"
 
 /** What a Slim element tells the spine: it brings no Feature of its own. */
 const SLIM: SpineInternals = {}
@@ -36,19 +36,14 @@ type CreateWardFor<FN extends string> = <
   config: InferredPropsFor<FN, K, N, LI, LA, D> | Accessor<InferredPropsFor<FN, K, N, LI, LA, D>>,
 ) => Ward
 
-/** The `use:w` directive. An arrow function, as `use:wardic`'s is. */
-const wDirective = (el: HTMLElement, value: Accessor<WardConfig>): void => runDirective(el, value, SLIM)
-
-/** `w.createWard(config)`: `createWard`'s Ward on a Slim element. */
-function createSlimWard<
-  K extends TargetKey = never,
-  N extends string = never,
-  LI extends WardicVariantLabels = never,
-  LA extends WardicVariantLabels = never,
-  D extends boolean | "x" | "y" = never,
->(config: InferredMotion<WardConfig, K, N, LI, LA, D> | Accessor<InferredMotion<WardConfig, K, N, LI, LA, D>>): Ward {
-  return createWardWith(config as WardConfig | Accessor<WardConfig>, SLIM)
-}
+/**
+ * Every form of a `w` whose elements are of `kind` (#516): the Slim element's `w`, and a Wardic
+ * instance's. Its directive is an arrow function, as `use:wardic`'s is.
+ */
+export const wOf = (kind: SpineInternals): W =>
+  formOf<W>((el: HTMLElement, value: Accessor<WardConfig>): void => runDirective(el, value, kind), createOf(kind), {
+    createWard: (config: WardConfig | Accessor<WardConfig>): Ward => createWardWith(config, kind),
+  })
 
 /**
  * The type of `w`: called, it's the `use:w` directive; `w.create`, `w.createWard` and `w.<tag>` are its
@@ -78,4 +73,4 @@ type WFor<FN extends string> = ((el: HTMLElement, value: Accessor<WardConfig>) =
  * @see https://wardic.dev/reference/solid/elements/w
  */
 // Every form of the Slim element, as `wardic`'s are of the Complete one (ADR-0067).
-export const w: W = formOf<W>(wDirective, createOf(SLIM), { createWard: createSlimWard })
+export const w: W = wOf(SLIM)

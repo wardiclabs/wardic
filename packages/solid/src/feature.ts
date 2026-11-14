@@ -149,62 +149,23 @@ export type InstanceFeaturesProp = Feature | FeatureLoad | ReadonlyArray<Instanc
 
 /**
  * A Wardic instance's Features (#516): what its elements and hooks join their section's with, one per
- * provider. Its code is `createWardic`'s module's alone (`instanceFeaturesOf`), so an app with no
- * instance ships none of it: the spine only calls `own`.
+ * provider. Its code is `instance-features.ts`'s, which only `createWardic` imports, so an app with no
+ * Wardic instance ships none of it: the spine only calls `own`.
  */
 export interface InstanceFeatures {
   /**
    * Its Features in `registry`'s provider, one per provider: those given at once, built on first need,
-   * and each load, started now on the client and built as it arrives, until the provider ends. A server
-   * render builds what's given and loads nothing.
+   * and each load, started on the client the first time it's asked for and built as it arrives, until
+   * the provider ends. A server render builds what's given and loads nothing.
    */
   readonly own: (registry: FeatureRegistry, host: InstanceHost) => Own
 }
 
-/**
- * `prop`'s Features (#516): those given at once, flattened, and its loads, each started once, the first
- * time any provider asks, so one module's instance loads each once.
- */
-export const instanceFeaturesOf = (prop: InstanceFeaturesProp): InstanceFeatures => {
-  const given = Arr.dedupeWith(givenIn(prop), (a, b) => a === b)
-  const loads = Arr.map(loadsIn(prop), once)
-  const owns = new WeakMap<FeatureRegistry, Own>()
-  return {
-    own: (registry, host) =>
-      UndefinedOr.match(owns.get(registry), {
-        onDefined: identity,
-        onUndefined: () => {
-          const own = instanceOwn(registry.build, given, loads, { reactivity: host.reactivity, server: host.server, onCleanup: registry.onEnd }, host.report)
-          owns.set(registry, own)
-          return own
-        },
-      }),
-  }
-}
-
-const givenIn = (prop: InstanceFeaturesProp): ReadonlyArray<Feature> => {
-  if (Predicate.isFunction(prop)) return []
-  if (isFeature(prop as Features)) return [prop as Feature]
-  return Arr.flatMap(prop as ReadonlyArray<InstanceFeaturesProp>, givenIn)
-}
-
-const loadsIn = (prop: InstanceFeaturesProp): ReadonlyArray<FeatureLoad> => {
-  if (Predicate.isFunction(prop)) return [prop as FeatureLoad]
-  if (isFeature(prop as Features)) return []
-  return Arr.flatMap(prop as ReadonlyArray<InstanceFeaturesProp>, loadsIn)
-}
-
-/** `load`, started at its first call, the promise kept for every call after. */
-const once = (load: FeatureLoad): FeatureLoad => {
-  let started: Promise<Features> | undefined
-  return () =>
-    UndefinedOr.match(started, {
-      onDefined: identity,
-      onUndefined: () => {
-        started = load()
-        return started
-      },
-    })
+/** What an element's Features come from (#511, #516): those it brings, a Complete element's every one, or a Wardic instance's. */
+export interface ElementFeatures {
+  readonly brings?: ReadonlyArray<Feature> | undefined
+  readonly complete?: boolean | undefined
+  readonly instance?: InstanceFeatures | undefined
 }
 
 /** No Features. */
@@ -256,21 +217,21 @@ export const makeSection = (
   return { ...joinSections(parent, own), strict: strict || parent.strict }
 }
 
-/**
- * `parent`'s services and `own`'s, joined again only when either changes, and whether either's load is
- * on its way. `parent`'s `strict`.
- */
-export const joinSections = (parent: FeatureSection, own: Own): FeatureSection => {
-  let last: { readonly parent: Context.Context<never>; readonly own: Context.Context<never>; readonly joined: Context.Context<never> } | undefined
+/** `parent`'s Features and `own`'s, as a section: `parent`'s `strict`. */
+export const joinSections = (parent: FeatureSection, own: Own): FeatureSection => ({ ...joinOwns(parent, own), strict: parent.strict })
+
+/** `a`'s services and `b`'s, joined again only when either changes, and whether either's load is on its way. */
+export const joinOwns = (a: Own, b: Own): Own => {
+  let last: { readonly a: Context.Context<never>; readonly b: Context.Context<never>; readonly joined: Context.Context<never> } | undefined
   const services = (): Context.Context<never> => {
-    const above = parent.services()
-    const mine = own.services()
-    if (Predicate.isNotUndefined(last) && last.parent === above && last.own === mine) return last.joined
-    const joined = Context.merge(above, mine)
-    last = { parent: above, own: mine, joined }
+    const first = a.services()
+    const second = b.services()
+    if (Predicate.isNotUndefined(last) && last.a === first && last.b === second) return last.joined
+    const joined = Context.merge(first, second)
+    last = { a: first, b: second, joined }
     return joined
   }
-  return { services, pending: () => own.pending() || parent.pending(), strict: parent.strict }
+  return { services, pending: () => b.pending() || a.pending() }
 }
 
 /** A section's own Features: their services and whether they're on their way. */
@@ -281,7 +242,7 @@ export interface Own {
 
 const NO_OWN: Own = { services: () => NONE, pending: constFalse }
 
-const ownOf = (build: Build, prop: FeaturesProp | undefined, report: (cause: Cause.Cause<unknown>) => void, host: SectionHost): Own => {
+export const ownOf = (build: Build, prop: FeaturesProp | undefined, report: (cause: Cause.Cause<unknown>) => void, host: SectionHost): Own => {
   if (Predicate.isUndefined(prop)) return NO_OWN
   if (isLoad(prop)) return loaded(build, prop, report, host)
   const features = flatten(prop)
@@ -301,7 +262,7 @@ const ownOf = (build: Build, prop: FeaturesProp | undefined, report: (cause: Cau
 }
 
 /** What builds Features: a registry's `build`. */
-type Build = (features: ReadonlyArray<Feature>) => Context.Context<never>
+export type Build = (features: ReadonlyArray<Feature>) => Context.Context<never>
 
 /** Features loaded lazily: none until they arrive, which a trigger tells; on the client only. */
 const loaded = (build: Build, load: FeatureLoad, report: (cause: Cause.Cause<unknown>) => void, host: SectionHost): Own => {
@@ -361,10 +322,11 @@ export interface FeatureRegistry {
   readonly dispose: () => Promise<void>
 }
 
-/** What a Wardic instance's Features take from the binding asking for them (#516): its reactivity, its side, and what reports a failed load. */
-export interface InstanceHost {
-  readonly reactivity: Reactivity
-  readonly server: boolean
+/**
+ * What a Wardic instance's Features take from the binding asking for them (#516): a section's host but
+ * its cleanup, which is its provider's (`FeatureRegistry.onEnd`), and what reports a failed load.
+ */
+export interface InstanceHost extends Omit<SectionHost, "onCleanup"> {
   readonly report: (cause: Cause.Cause<unknown>) => void
 }
 
@@ -396,26 +358,6 @@ const sectionsAndWarnings = (build: Build, warn: (message: string) => void) => {
       warned.add(feature)
       warn(message)
     },
-  }
-}
-
-/**
- * A Wardic instance's Features in one provider (#516): those given at once, and each load's, joined again
- * only when one changes; on its way while any load is.
- */
-const instanceOwn = (build: Build, given: ReadonlyArray<Feature>, loads: ReadonlyArray<FeatureLoad>, host: SectionHost, report: (cause: Cause.Cause<unknown>) => void): Own => {
-  const owns = Arr.prepend(Arr.map(loads, (load) => ownOf(build, load, report, host)), ownOf(build, given, report, host))
-  let last: { readonly parts: ReadonlyArray<Context.Context<never>>; readonly joined: Context.Context<never> } | undefined
-  return {
-    services: () => {
-      const parts = Arr.map(owns, (own) => own.services())
-      const before = last
-      if (Predicate.isNotUndefined(before) && Arr.every(parts, (part, i) => part === before.parts[i])) return before.joined
-      const joined = Arr.reduce(parts, NONE, (all, part) => Context.merge(all, part))
-      last = { parts, joined }
-      return joined
-    },
-    pending: () => Arr.some(owns, (own) => own.pending()),
   }
 }
 
