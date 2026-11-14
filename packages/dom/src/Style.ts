@@ -12,8 +12,8 @@
  */
 // `@wardic/dom/Style` (#132, ADR-0041): the **Starting style**, the merges of an app's style with
 // Wardic's, and a drag element's defaults (ADR-0019, ADR-0021, ADR-0034).
+// Its starting values (`toValues`, `resolveInitial`, the Keyframes' stops) are core's `unstable/Stops` since #672.
 export {
-  startingStyle as starting,
   resolveInitial,
   type InitialConfig,
   keyframesOf,
@@ -23,6 +23,9 @@ export {
   type Stops,
   toValues,
   valuesAt,
+} from "@wardic/core/unstable/Stops"
+export {
+  startingStyle as starting,
   type StyleInput as Input,
   type StyleRecord as Style,
   over,
