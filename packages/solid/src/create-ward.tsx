@@ -85,7 +85,7 @@ import { type PresenceSeed, presenceSeedOf } from "./presence-record.ts"
 import type { PresenceRecord } from "./presence-record.ts"
 import { createWhenWanted, NEVER_STARTED, type Started, stateOf, type Wants } from "./sensors.tsx"
 import { type GestureCallbacks, gestureCallbacksOf, inViewOptionsOf, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "./gesture-callbacks.ts"
-import { type Feature, type FeatureRegistry, type FeatureSection, LAYOUT_PROPS, missingMessage, unreadColorIn } from "./feature.ts"
+import { type Feature, type FeatureRegistry, type FeatureSection, type InstanceFeatures, LAYOUT_PROPS, missingMessage, unreadColorIn } from "./feature.ts"
 import { runWatch, useBuiltProjection, useElementFeatures, useFeatureRegistry, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicReducedMotion, useWardicRenderer, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { transformPagePointOf } from "./wardic-config-value.ts"
@@ -278,6 +278,8 @@ export interface SpineInternals {
   readonly gestureless?: boolean | undefined
   readonly brings?: ReadonlyArray<Feature> | undefined
   readonly complete?: boolean | undefined
+  /** A Wardic instance's Features (#516): its element brings them, given at once or loaded, beside its section's. */
+  readonly instance?: InstanceFeatures | undefined
   /**
    * Whether the element's drag defaults go on it at mount too, for a `wardic.create(Component)`
    * wrap: its component may not pass the spread's `style` and `draggable` on (#253).
@@ -459,7 +461,7 @@ const layoutNodeOf = (atMount: ProjectionSystem.NodeHandle | undefined, later: L
 export function runSpine(opts: RunSpineOptions): void {
   const { bindGestures, byName, canStart, cfg, controls, defaultsInProps, el, entersFresh, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, restartStyle, runtime, styleOf, tag } = opts
   // Its Features (#511, ADR-0067): its section's, and those it brings.
-  const features = UndefinedOr.match(opts.features, { onDefined: identity, onUndefined: () => useElementFeatures(internal.brings, internal.complete === true) })
+  const features = UndefinedOr.match(opts.features, { onDefined: identity, onUndefined: () => useElementFeatures(internal) })
   // Its section's projection system, the `layout` Feature's (#511): `undefined` without it. Read now,
   // which builds the Features given to its section at once: the first element to ask builds them.
   const layoutProjection = projectionIn(untrack(features.services))
@@ -1017,7 +1019,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   const runtime = useWardicRuntime()
   // Its Features (#511, ADR-0067), a Complete element's every one: what they register, a server
   // render's elements read too (the `colors` Feature's spaces).
-  const features = useElementFeatures(internal.brings, internal.complete === true)
+  const features = useElementFeatures(internal)
   // A server render takes the lean path: the Starting style only, no spine (ADR-0021).
   if (isServer) return serverWard(config, internal)
   const gate = useWardicGate()

@@ -23,7 +23,7 @@
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Fiber from "effect/Fiber"
-import { constUndefined, identity } from "effect/Function"
+import { constFalse, constUndefined, identity } from "effect/Function"
 import * as Latch from "effect/Latch"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -34,10 +34,10 @@ import type * as Renderer from "@wardic/core/Renderer"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { type HeadTag, isServer, type JSX, useHead } from "@solidjs/web"
-import { createContext, DEV, flush, isHydrating, onCleanup, onSettled, runWithOwner, untrack, useContext } from "solid-js"
+import { createContext, DEV, flush, getOwner, isHydrating, onCleanup, onSettled, runWithOwner, untrack, useContext } from "solid-js"
 import * as Context from "effect/Context"
 import * as Report from "@wardic/dom/Report"
-import { type Feature, type FeatureRegistry, type FeatureSection, type FeaturesProp, ROOT, strictMessage } from "../../feature.ts"
+import { type Feature, type FeatureRegistry, type FeatureSection, type FeaturesProp, type ElementFeatures, type InstanceFeatures, joinSections, type Own, ROOT, strictMessage } from "../../feature.ts"
 import { FeatureSectionContext, sectionUnder, useLazySection } from "./feature-section.ts"
 import { explainerOf, type ServerAppear, serverAppear } from "../../appear.ts"
 import {
@@ -56,7 +56,7 @@ import {
   type WardicServices,
   whenIdle,
 } from "../../runtime.ts"
-import { onSettledClientOnly } from "./solid-reactivity.ts"
+import { onSettledClientOnly, reactivityIn } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { skipAnimationsOf } from "../../wardic-config-value.ts"
 import { instantLayoutOf, type InstantTransition, instantTransitionOf, resetOf } from "../../instant.ts"
@@ -226,15 +226,46 @@ export function LazyWardic(props: {
  * one (`brings`), built at once. A Complete element under a `strict` section is an error in
  * development. Internal.
  */
-export function useElementFeatures(brings: ReadonlyArray<Feature> | undefined, complete: boolean): FeatureSection {
+export function useElementFeatures(internal: ElementFeatures): FeatureSection {
+  const { brings, instance } = internal
+  const complete = internal.complete === true
   const section = useFeatureSection()
   if (DEV && complete && section.strict) throw new Error(strictMessage("wardic.*, wardic.create, ward()", "w.*, w.create, w.ward()"))
+  // A Wardic instance's element (#516): its instance's Features, given at once or loaded, beside its section's.
+  if (Predicate.isNotUndefined(instance)) return joinSections(section, useInstanceFeatures(instance))
   if (Predicate.isUndefined(brings)) return section
   const registry = useFeatureRegistry()
   // A Complete element has every Feature, whatever its section has: one section per provider.
   if (complete) return registry.section(brings)
   const own = registry.build(brings)
-  return { services: () => Context.merge(section.services(), own), pending: section.pending, strict: section.strict }
+  return joinSections(section, { services: () => own, pending: constFalse })
+}
+
+/**
+ * A Wardic instance's Features in this provider (#516), one per instance (`InstanceFeatures.own`): what's
+ * given built on first need, each load started the first time it's asked for, on the client. Internal.
+ */
+export function useInstanceFeatures(instance: InstanceFeatures): Own {
+  return fromContext(contextValue(), "createWardic", (value) =>
+    instance.own(value.features, {
+      reactivity: reactivityIn(getOwner()),
+      server: isServer,
+      report: (cause) => {
+        value.runtime.runFork(Report.failure("wardic.createWardic: a lazy load of Features failed", cause))
+      },
+    }),
+  )
+}
+
+/**
+ * A Wardic instance's Features brought by one of its hooks (#516, Q13): in a provider, what's given is
+ * built and its loads start, as at its first element's mount, so its layout hooks bring `layout`.
+ * Outside one, nothing. Internal.
+ */
+export function useInstanceBrought(instance: InstanceFeatures): void {
+  if (Predicate.isUndefined(contextValue())) return
+  const own = useInstanceFeatures(instance)
+  untrack(() => own.services())
 }
 
 /** The provider's Features (#511). Internal. */

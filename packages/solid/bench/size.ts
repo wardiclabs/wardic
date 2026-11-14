@@ -4,7 +4,7 @@
  *
  * - **The apps:** each binding's plain Solid app, one Complete element (`wardic.div` under a
  *   `WardicProvider`), and the same inside `<AnimatePresence>`; one Slim element (`w.div`) alone, the
- *   Slim element's base, and with each Feature (#511); one whose values follow a scroll (#240). And a multi-route app (#548): a shell giving
+ *   Slim element's base, and with each Feature (#511); a Wardic instance's of `domAnimation` (#516); one whose values follow a scroll (#240). And a multi-route app (#548): a shell giving
  *   `domAnimation`, a plain page, a page that drags and one that lays out, each an entry as
  *   SolidStart's routes are, measured as what the plain page loads, so a Feature that reaches a page
  *   that never uses it fails the gate. An app the base can't build, its API new, is reported as new and not gated.
@@ -106,6 +106,21 @@ render(() => <WardicProvider env={DomLive} features={[${features.join(", ")}]}><
 }
 
 /**
+ * A Wardic instance's app (#516): a `w.div` from `createWardic(features)`, under a `WardicProvider`
+ * given none: what an app pays for its Features chosen on an instance, beside the same Features on its
+ * provider (`slim`).
+ */
+const instance = (render: string, entry: string, features: ReadonlyArray<string>): string => {
+  const imports = ["createWardic", "WardicProvider", ...features].join(", ")
+  return `import { render } from "${render}"
+import { DomLive } from "@wardic/dom"
+import { ${imports} } from "${entry}"
+const { w } = createWardic([${features.join(", ")}])
+render(() => <WardicProvider env={DomLive}><w.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>hi</w.div></WardicProvider>, document.body)
+`
+}
+
+/**
  * A scroll's app (#240): a Slim element whose `scaleX` is a box's scroll progress and whose `opacity` a
  * `createTransform` of it through ranges, under a `WardicProvider` with no Features: what an app that
  * reads a scroll pays, the `scroll` Feature (which `createScroll` brings) and its Timeline values with it.
@@ -196,6 +211,7 @@ const APPS: ReadonlyArray<App> = [
   { name: "s1-drag", v2: false, source: slim("solid-js/web", "@wardic/solid", ["drag"]) },
   { name: "s1-dom-animation", v2: false, source: slim("solid-js/web", "@wardic/solid", ["domAnimation"]) },
   { name: "s1-dom-max", v2: false, source: slim("solid-js/web", "@wardic/solid", ["domMax"]) },
+  { name: "s1-instance", v2: false, source: instance("solid-js/web", "@wardic/solid", ["domAnimation"]) },
   { name: "s1-scroll", v2: false, source: scrollApp("solid-js/web", "@wardic/solid") },
   { name: "s1-batch", v2: false, source: batch("solid-js/web", "@wardic/solid") },
   { name: "s1-reorder-batch", v2: false, source: reorderBatch("solid-js/web", "@wardic/solid") },
@@ -210,6 +226,7 @@ const APPS: ReadonlyArray<App> = [
   { name: "s2-drag", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["drag"]) },
   { name: "s2-dom-animation", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["domAnimation"]) },
   { name: "s2-dom-max", v2: true, source: slim("@solidjs/web", "@wardic/solid/unstable/v2", ["domMax"]) },
+  { name: "s2-instance", v2: true, source: instance("@solidjs/web", "@wardic/solid/unstable/v2", ["domAnimation"]) },
   { name: "s2-scroll", v2: true, source: scrollApp("@solidjs/web", "@wardic/solid/unstable/v2") },
   { name: "s2-batch", v2: true, source: batch("@solidjs/web", "@wardic/solid/unstable/v2") },
   { name: "s2-reorder-batch", v2: true, source: reorderBatch("@solidjs/web", "@wardic/solid/unstable/v2") },
