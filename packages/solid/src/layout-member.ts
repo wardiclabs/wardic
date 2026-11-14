@@ -227,10 +227,6 @@ export const layoutModeOf = (layout: WardConfig["layout"], layoutId: string | un
 /** Whether a `layout` prop names a Layout mode (a string), not `true` / `false`. */
 const isModeName = (layout: WardConfig["layout"]): layout is Exclude<WardConfig["layout"], boolean | undefined> => Predicate.isString(layout)
 
-/** Whether a config makes its element a projection node: `layout` (or a mode), a `layoutId`, `layoutScroll` or `layoutRoot`. */
-export const wantsLayoutNode = (c: WardConfig): boolean =>
-  c.layout === true || Predicate.isString(c.layout) || Predicate.isNotUndefined(c.layoutId) || c.layoutScroll === true || c.layoutRoot === true
-
 /** What {@link layoutOptionsOf} reads of a ward. */
 export interface WardLayout {
   readonly id: string
