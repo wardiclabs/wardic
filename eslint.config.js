@@ -40,7 +40,8 @@ const ROOT = [
 
 /**
  * Rule 5: code in the repo imports core's subpaths, and dom's (#132, ADR-0041): dom's root keeps
- * `DomLive`, `CheckFrames` (#586) and `VERSION` for an app, and its namespaces are for users.
+ * `DomLive`, `CheckFrames` (#586), `FrameLoopMetrics` (#518), `WardicSpans` (#746) and `VERSION` for an
+ * app, and its namespaces are for users.
  */
 const SUBPATHS = [
   restrictShape(
@@ -48,8 +49,8 @@ const SUBPATHS = [
     'Import the module\'s subpath: import * as X from "@wardic/core/X"; the root\'s namespaces are for users',
   ),
   restrictShape(
-    "ImportDeclaration[source.value='@wardic/dom'] > ImportSpecifier[imported.name!=/^(DomLive|CheckFrames|VERSION)$/]",
-    'Import dom\'s module by its subpath: import * as X from "@wardic/dom/X"; its root keeps DomLive, CheckFrames and VERSION (ADR-0041)',
+    "ImportDeclaration[source.value='@wardic/dom'] > ImportSpecifier[imported.name!=/^(DomLive|CheckFrames|FrameLoopMetrics|WardicSpans|VERSION)$/]",
+    'Import dom\'s module by its subpath: import * as X from "@wardic/dom/X"; its root keeps DomLive, CheckFrames, FrameLoopMetrics, WardicSpans and VERSION (ADR-0041)',
   ),
   restrictShape(
     "ImportDeclaration[source.value='@wardic/dom'] > ImportNamespaceSpecifier",

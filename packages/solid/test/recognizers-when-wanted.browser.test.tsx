@@ -13,7 +13,7 @@ import * as Bool from "effect/Boolean"
 import * as Layer from "effect/Layer"
 import * as Tracer from "effect/Tracer"
 import { afterEach, describe, expect, it } from "vitest"
-import { DomLive } from "@wardic/dom"
+import { DomLive, WardicSpans } from "@wardic/dom"
 import { createSignal } from "solid-js"
 import { createWard, type WardConfig, type WardicEnv, WardicProvider } from "@wardic/solid"
 import { raf, until } from "./browser-helpers.ts"
@@ -30,7 +30,8 @@ const recording = () => {
     },
   })
   const count = (name: string): number => names.filter((n) => n === name).length
-  return { env: Layer.mergeAll(DomLive, Layer.succeed(Tracer.Tracer, tracer)), count }
+  // Wardic's spans, the app's to give (#746): what counts each recognizer's start.
+  return { env: Layer.mergeAll(DomLive, Layer.succeed(Tracer.Tracer, tracer), WardicSpans), count }
 }
 
 const opacityOf = (el: HTMLElement | undefined): number => Number(el!.style.opacity)

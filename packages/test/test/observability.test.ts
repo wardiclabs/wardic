@@ -10,6 +10,7 @@ import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as Stream from "effect/Stream"
 import * as Tracer from "effect/Tracer"
+import * as Spans from "@wardic/core/Spans"
 
 interface Captured {
   readonly message: unknown
@@ -71,6 +72,8 @@ it.effect("animate's Stream is one span, wardic.animate, where it nested a wardi
     yield* Stream.runDrain(Machine.toStream(Machine.animate(0, 100, { duration: 1, repeat: 1 }))).pipe(
       Effect.provide(TestClock.layer([0.5, 0.5, 0.5, 0.5])),
       Effect.provideService(Tracer.Tracer, tracer),
+      // Wardic's spans, the app's to give (#746).
+      Effect.provide(Spans.layer),
     )
     expect(spans.map((span) => span.name)).toEqual(["wardic.animate"])
     expect(Object.fromEntries(spans[0]!.attributes)).toEqual({ from: 0, to: 100, repeat: 1, repeatDelay: 0, repeatType: "loop", reverse: false })

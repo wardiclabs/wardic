@@ -9,7 +9,7 @@
 // - GE4: `whileHover` set after mount starts hover once; unset and set again, it isn't started twice.
 // - GE5: a ward moved to another element leaves its gesture behind: the hover state and the first
 //   element's recognizer go with it.
-import { DomLive } from "@wardic/dom"
+import { DomLive, WardicSpans } from "@wardic/dom"
 import { type Ward, ward, wardic, type WardConfig, type WardicEnv, WardicProvider } from "@wardic/solid/unstable/v2"
 import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
@@ -32,7 +32,8 @@ const recording = () => {
       return new Tracer.NativeSpan(options)
     },
   })
-  return { env: Layer.mergeAll(DomLive, Layer.succeed(Tracer.Tracer, tracer)) as WardicEnv, count: (name: string) => names.filter((n) => n === name).length }
+  // Wardic's spans, the app's to give (#746): what counts each recognizer's start.
+  return { env: Layer.mergeAll(DomLive, Layer.succeed(Tracer.Tracer, tracer), WardicSpans) as WardicEnv, count: (name: string) => names.filter((n) => n === name).length }
 }
 
 /** Dispatch `event` on `el` each frame until `done()`, then check it was reached. */

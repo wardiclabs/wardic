@@ -701,7 +701,8 @@ export const clampDt: {
 
 /**
  * `self` under the span `name`, with `options.attributes`, in place of its own: its runs' traces and
- * logs carry that name.
+ * logs carry that name, in the spans its runs open when the app gives `Spans.layer` (`WardicSpans`)
+ * and a tracer reads them.
  *
  * @example
  * const bounce = Machine.spring(1).pipe(Machine.withSpan("app.bounce", { attributes: { card: id } }))
