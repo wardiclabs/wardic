@@ -158,7 +158,7 @@ import {
   useElementFeatures,
   useFeatureRegistry,
 } from "./provider.tsx"
-import { type EveryFeature, type Feature, type FeatureRegistry, type FeatureSection, LAYOUT_PROPS, missingMessage, type NamesEvery, type PropFeatureNames, unreadColorIn } from "../../feature.ts"
+import { type EveryFeature, type Feature, type FeatureRegistry, type FeatureSection, type InstanceFeatures, LAYOUT_PROPS, missingMessage, type NamesEvery, type PropFeatureNames, unreadColorIn } from "../../feature.ts"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, CLIENT_ONLY_SYNC, CLIENT_ONLY_SYNC_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { pointMapOptionOf, transformPagePointOf } from "../../wardic-config-value.ts"
@@ -645,6 +645,8 @@ export interface WardInternals {
   readonly share?: WardShare | undefined
   /** The Features it brings beside its section's (#511): a Complete element's every one. None for a Slim element. */
   readonly brings?: ReadonlyArray<Feature> | undefined
+  /** A Wardic instance's Features (#516): its element brings them, given at once or loaded, beside its section's. */
+  readonly instance?: InstanceFeatures | undefined
   /** Whether it's a **Complete element** (#511): an error in development under a `strict` section. */
   readonly complete?: boolean | undefined
 }

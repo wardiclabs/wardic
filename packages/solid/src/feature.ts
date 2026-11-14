@@ -141,6 +141,52 @@ const isFeature = (value: Features): value is Feature => Predicate.hasProperty(v
 /** Whether a `features` prop loads lazily: a function, where Features are values. */
 export const isLoad = (prop: FeaturesProp): prop is FeatureLoad => Predicate.isFunction(prop)
 
+/**
+ * What a Wardic instance is made with (#516, Q8): Features, loads of them, or lists of either, nested
+ * (`[domAnimation, () => import("./drag-feature.ts").then((m) => m.drag)]`).
+ */
+export type InstanceFeaturesProp = Feature | FeatureLoad | ReadonlyArray<InstanceFeaturesProp>
+
+/**
+ * A Wardic instance's Features (#516): those it was given at once, flattened, and its loads, each
+ * started once, the first time any provider asks for it, so one module's instance loads each once.
+ */
+export interface InstanceFeatures {
+  readonly given: ReadonlyArray<Feature>
+  readonly loads: ReadonlyArray<FeatureLoad>
+}
+
+/** `prop` split into the Features given at once and the loads, each load started once (#516). */
+export const instanceFeaturesOf = (prop: InstanceFeaturesProp): InstanceFeatures => ({
+  given: Arr.dedupeWith(givenIn(prop), (a, b) => a === b),
+  loads: Arr.map(loadsIn(prop), once),
+})
+
+const givenIn = (prop: InstanceFeaturesProp): ReadonlyArray<Feature> => {
+  if (Predicate.isFunction(prop)) return []
+  if (isFeature(prop as Features)) return [prop as Feature]
+  return Arr.flatMap(prop as ReadonlyArray<InstanceFeaturesProp>, givenIn)
+}
+
+const loadsIn = (prop: InstanceFeaturesProp): ReadonlyArray<FeatureLoad> => {
+  if (Predicate.isFunction(prop)) return [prop as FeatureLoad]
+  if (isFeature(prop as Features)) return []
+  return Arr.flatMap(prop as ReadonlyArray<InstanceFeaturesProp>, loadsIn)
+}
+
+/** `load`, started at its first call, the promise kept for every call after. */
+const once = (load: FeatureLoad): FeatureLoad => {
+  let started: Promise<Features> | undefined
+  return () =>
+    UndefinedOr.match(started, {
+      onDefined: identity,
+      onUndefined: () => {
+        started = load()
+        return started
+      },
+    })
+}
+
 /** No Features. */
 export const NONE: Context.Context<never> = Context.empty()
 

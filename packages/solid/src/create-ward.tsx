@@ -85,7 +85,7 @@ import { type PresenceSeed, presenceSeedOf } from "./presence-record.ts"
 import type { PresenceRecord } from "./presence-record.ts"
 import { createWhenWanted, NEVER_STARTED, type Started, stateOf, type Wants } from "./sensors.tsx"
 import { type GestureCallbacks, gestureCallbacksOf, inViewOptionsOf, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "./gesture-callbacks.ts"
-import { type Feature, type FeatureRegistry, type FeatureSection, LAYOUT_PROPS, missingMessage, unreadColorIn } from "./feature.ts"
+import { type Feature, type FeatureRegistry, type FeatureSection, type InstanceFeatures, LAYOUT_PROPS, missingMessage, unreadColorIn } from "./feature.ts"
 import { runWatch, useBuiltProjection, useElementFeatures, useFeatureRegistry, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicReducedMotion, useWardicRenderer, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { transformPagePointOf } from "./wardic-config-value.ts"
@@ -278,6 +278,8 @@ export interface SpineInternals {
   readonly gestureless?: boolean | undefined
   readonly brings?: ReadonlyArray<Feature> | undefined
   readonly complete?: boolean | undefined
+  /** A Wardic instance's Features (#516): its element brings them, given at once or loaded, beside its section's. */
+  readonly instance?: InstanceFeatures | undefined
   /**
    * Whether the element's drag defaults go on it at mount too, for a `wardic.create(Component)`
    * wrap: its component may not pass the spread's `style` and `draggable` on (#253).

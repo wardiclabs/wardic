@@ -18,9 +18,12 @@
 // - ITV8: an instance's ward's `next`, `each` and `when` take `settled` and its Features' events; another
 //   Feature's event is an error (Q19): `w.ward()`'s, and the one its element hands to `wardRef`. It's a
 //   `Ward<C, F>`, `F` its Features. A plain ward's take every event, as they did.
+// - ITV9: `createWardic`'s instance is typed from its list literal: a preset, a nested list, one
+//   Feature, and a load, its Features from what it resolves to.
 import type { JSX } from "@solidjs/web"
 import {
   createInstantLayoutTransition,
+  createWardic,
   createResetProjection,
   domAnimation,
   domMax,
@@ -396,5 +399,35 @@ describe("a Wardic instance's types on Solid 2 (#516)", () => {
 
     typed((): Ward<{}, typeof domAnimation> => shell.ward())
     expectTypeOf<Ward<{}, typeof domMax>>().toEqualTypeOf<Ward<{}>>()
+  })
+
+  it("ITV9: createWardic's instance is typed from its list literal, loads included", () => {
+    typed(() => {
+      const { w: page } = createWardic([domAnimation, layout])
+      return <page.li layout whileHover={{ scale: 1.1 }} />
+    })
+    typed(() => {
+      const { w: page } = createWardic([domAnimation, layout])
+      // @ts-expect-error neither domAnimation nor layout has drag
+      return <page.li drag />
+    })
+    typed(() => {
+      const { w: hovers } = createWardic(hover)
+      // @ts-expect-error hover alone has no press
+      return <hovers.div whileTap={{ scale: 0.9 }} />
+    })
+    typed(() => {
+      const { w: later } = createWardic([domAnimation, () => Promise.resolve(drag)])
+      return <later.div drag="x" whileHover={{ scale: 1.1 }} />
+    })
+    typed(() => {
+      const { w: all } = createWardic(() => Promise.resolve(domMax))
+      return <all.div drag layout />
+    })
+    typed(() => createWardic([layout]).useAnimateLayout)
+    typed(() =>
+      // @ts-expect-error domAnimation has no layout, so no layout hooks
+      createWardic(domAnimation).useAnimateLayout,
+    )
   })
 })

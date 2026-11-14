@@ -131,6 +131,7 @@ export {
 export { type W, w } from "./w.tsx"
 // #516: what `createWardic(features)` returns, its `w` and its ward typed to its Features.
 export type { WardConfigOf, WardicInstance } from "./wardic-instance.ts"
+export { createWardic } from "./create-wardic.tsx"
 export type { WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
 // #443 (Motion's): `wardic.create`'s options; whether a component is a Wardic element's and what it
 // wraps; whether a prop is a motion prop, Solid 2's own list.
