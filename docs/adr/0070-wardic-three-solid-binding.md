@@ -217,4 +217,4 @@ Decision 12's "still none: drag, focus" holds for a plain Batch. A `Reorder.Batc
 
 ## Note (#746, 2026-11-14): a Batch member's hold reached every app
 
-*Amendment (#665)*'s "Only members pay" (PR 4: "an app with no Batch ships none of the hold") stopped holding at #704: the spine's `holdNow` closure, and `batch.ts` through `layout-member.ts`'s `markLayoutElement`, reached every app, 0.5 KB gzipped (ADR-0067, *Amendment (#746)*). #746's `layout` seam takes `markLayoutElement` out of the base, and its port for a member's residue the rest of the spine's.
+*Amendment (#665)*'s "Only members pay" (PR 4: "an app with no Batch ships none of the hold") stopped holding at #704: the spine's `holdNow` closure, and `batch.ts` through `layout-member.ts`'s `markLayoutElement`, reached every app, 0.5 KB gzipped (ADR-0067, *Amendment (#746)*). #746's `layout` seam takes `markLayoutElement` out of the base (its PR 3), and its PR 7 the rest of the spine's: what the hold works the spine with is built by `member-hold.ts`, over what the spine hands over, so the base keeps the one module slot a Retarget reads and a draggable element's drag hook.
