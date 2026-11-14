@@ -9,7 +9,7 @@
 import * as Predicate from "effect/Predicate"
 import { type InstanceFeaturesProp, instanceFeaturesOf } from "../../feature.ts"
 import { createOf, formOf } from "./element.tsx"
-import { createInstantLayoutTransition, createResetProjection, useAnimateLayout } from "./provider.tsx"
+import { createInstantLayoutTransition, createResetProjection, useAnimateLayout, useInstanceUse } from "./provider.tsx"
 import { internalsOf, type Ward, type WardConfig, type WardInternals, wardWith, type WardOptions } from "./ward.tsx"
 import type { W } from "./w.tsx"
 import type { WardicInstance } from "./wardic-instance.ts"
@@ -32,15 +32,25 @@ const NO_CONFIG: WardConfig = {}
 // #516: decisions 1 (beside the sections), 2 (its elements bring their Features), 4 (every form), 5 (the
 // layout hooks), 7 (loads), 8 (`strict` allows them), 10 (the events, Q19).
 export function createWardic<const F extends InstanceFeaturesProp>(features: F): WardicInstance<F> {
-  const kind: WardInternals = { instance: instanceFeaturesOf(features) }
+  const instance = instanceFeaturesOf(features)
+  const kind: WardInternals = { instance }
   const ward = (config?: WardConfig, options?: WardOptions): Ward => {
     if (Predicate.isUndefined(config)) return wardWith(NO_CONFIG, internalsOf(options, kind))
     return wardWith(config, internalsOf(options, kind))
   }
   return {
     w: formOf<W>(createOf(kind), { ward }),
-    useAnimateLayout: () => useAnimateLayout(),
-    createInstantLayoutTransition: () => createInstantLayoutTransition(),
-    createResetProjection: () => createResetProjection(),
+    useAnimateLayout: () => {
+      useInstanceUse(instance)
+      return useAnimateLayout()
+    },
+    createInstantLayoutTransition: () => {
+      useInstanceUse(instance)
+      return createInstantLayoutTransition()
+    },
+    createResetProjection: () => {
+      useInstanceUse(instance)
+      return createResetProjection()
+    },
   } as unknown as WardicInstance<F>
 }

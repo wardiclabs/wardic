@@ -11,7 +11,7 @@ import { createWardWith, type SpineInternals, type Ward } from "./create-ward.ts
 import { runDirective } from "./directive.tsx"
 import { createOf, formOf } from "./element.tsx"
 import { type InstanceFeaturesProp, instanceFeaturesOf } from "./feature.ts"
-import { createInstantLayoutTransition, createResetProjection, useAnimateLayout } from "./provider.tsx"
+import { createInstantLayoutTransition, createResetProjection, useAnimateLayout, useInstanceUse } from "./provider.tsx"
 import type { W } from "./w.tsx"
 import type { WardicInstance } from "./wardic-instance.ts"
 
@@ -29,13 +29,23 @@ import type { WardicInstance } from "./wardic-instance.ts"
 // #516: decisions 1 (beside the sections), 2 (its elements bring their Features), 4 (every form), 5 (the
 // layout hooks), 7 (loads), 8 (`strict` allows them).
 export function createWardic<const F extends InstanceFeaturesProp>(features: F): WardicInstance<F> {
-  const kind: SpineInternals = { instance: instanceFeaturesOf(features) }
+  const instance = instanceFeaturesOf(features)
+  const kind: SpineInternals = { instance }
   const directive = (el: HTMLElement, value: Accessor<WardConfig>): void => runDirective(el, value, kind)
   const createWard = (config: WardConfig | Accessor<WardConfig>): Ward => createWardWith(config, kind)
   return {
     w: formOf<W>(directive, createOf(kind), { createWard }),
-    useAnimateLayout: () => useAnimateLayout(),
-    createInstantLayoutTransition: () => createInstantLayoutTransition(),
-    createResetProjection: () => createResetProjection(),
+    useAnimateLayout: () => {
+      useInstanceUse(instance)
+      return useAnimateLayout()
+    },
+    createInstantLayoutTransition: () => {
+      useInstanceUse(instance)
+      return createInstantLayoutTransition()
+    },
+    createResetProjection: () => {
+      useInstanceUse(instance)
+      return createResetProjection()
+    },
   } as unknown as WardicInstance<F>
 }

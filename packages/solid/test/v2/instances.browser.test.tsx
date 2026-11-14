@@ -9,12 +9,19 @@
 //   under two providers; nothing is said while it's on its way, and its Feature takes effect as it
 //   arrives: a drag before then does nothing, one after drags.
 // - INV5: a failed load is reported once in a provider, for two elements, naming `createWardic`.
+// - INV6: its layout hooks bring `layout` and count as a use: given at once, the hook alone builds it in its
+//   provider; as a load, the hook starts it.
 import type { JSX } from "@solidjs/web"
 import { DomLive } from "@wardic/dom"
-import { createWardic, domMax, drag, hover, LazyWardic, press, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
+import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
+import { createWardic, domMax, drag, hover, layout, LazyWardic, press, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
+import * as Context from "effect/Context"
+import * as Option from "effect/Option"
 import { Errored, flush } from "solid-js"
 import { describe, expect, it, vi } from "vitest"
 import { opacityOf, until } from "../browser-helpers.ts"
+import type { FeatureRegistry } from "../../src/feature.ts"
+import { useFeatureRegistry } from "../../src/unstable/v2/provider.tsx"
 import { mount } from "./mount.tsx"
 import { pushedPointer } from "../pushed-pointer.ts"
 import { settle, wait } from "./reorder-scene.tsx"
@@ -194,5 +201,42 @@ describe("A Wardic instance (#516), Solid 2", () => {
     })
     expect(lines.filter((l) => l.includes("wardic.createWardic: a lazy load of Features failed")), "once, for two elements").toHaveLength(1)
     expect(lines.some((l) => l.includes("no such chunk")), "its cause").toBe(true)
+  })
+
+  it("INV6: its layout hooks bring layout and count as a use", async () => {
+    const given = createWardic([layout])
+    let registry!: FeatureRegistry
+    const Hooked = (): JSX.Element => {
+      given.useAnimateLayout()
+      registry = useFeatureRegistry()
+      return undefined
+    }
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Hooked />
+      </WardicProvider>
+    ))
+    const built = registry.built() as Context.Context<ProjectionSystem.ProjectionSystem>
+    expect(Option.isSome(Context.getOption(built, ProjectionSystem.ProjectionSystem)), "layout built by the hook alone").toBe(true)
+
+    let calls = 0
+    const later = createWardic([
+      (): Promise<typeof layout> => {
+        calls += 1
+        return new Promise(() => {})
+      },
+    ])
+    const Resets = (): JSX.Element => {
+      later.createResetProjection()
+      return undefined
+    }
+    expect(calls, "nothing loads as the instance is made").toBe(0)
+    mount(() => (
+      <WardicProvider env={DomLive}>
+        <Resets />
+      </WardicProvider>
+    ))
+    await settle()
+    expect(calls, "the hook started its load").toBe(1)
   })
 })

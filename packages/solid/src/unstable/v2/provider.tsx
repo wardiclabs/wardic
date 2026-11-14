@@ -261,6 +261,16 @@ export function useInstanceFeatures(instance: InstanceFeatures): Own {
   )
 }
 
+/**
+ * A Wardic instance's hook used (#516, Q13): in a provider, its Features are built and its loads start,
+ * as at its first element's mount, so its layout hooks bring `layout`. Outside one, nothing. Internal.
+ */
+export function useInstanceUse(instance: InstanceFeatures): void {
+  if (Predicate.isUndefined(contextValue())) return
+  const own = useInstanceFeatures(instance)
+  untrack(() => own.services())
+}
+
 /** The provider's Features (#511). Internal. */
 export function useFeatureRegistry(): FeatureRegistry {
   return fromContext(contextValue(), "useFeatureRegistry", (value) => value.features)
