@@ -21,8 +21,9 @@ import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Bool from "effect/Boolean"
 import { createContext, createEffect, createMemo, type JSX, on, onCleanup, untrack, useContext } from "solid-js"
 import { layoutGroupIdOf, type LayoutGroupInherit } from "./layout-group.ts"
-import { registrationOf, type CreateProjectionNodeOptions } from "./layout-member.ts"
-import { useWardicProjection } from "./layout-projection.tsx"
+import type { ProjectionNodes } from "./features/keys.ts"
+import type { CreateProjectionNodeOptions } from "./layout-member.ts"
+import { useProjectionNodes, useWardicProjection } from "./layout-projection.tsx"
 import { isServer } from "./server.ts"
 
 export type { CreateProjectionNodeOptions } from "./layout-member.ts"
@@ -44,14 +45,14 @@ export type { CreateProjectionNodeOptions } from "./layout-member.ts"
 // lead/follow stack, and seeds its first measure from a twin disposed in the same task (a Switch), in
 // either swap order (ADR-0010 *Amendment (#13)*), so there's no registry here. It brings `layout`
 // (#511), whatever its section has: a Slim element's own layout node is its section's.
-export const createProjectionNode = (opts: CreateProjectionNodeOptions): ProjectionSystem.NodeHandle => projectionNodeOf(useWardicProjection(), opts)
+export const createProjectionNode = (opts: CreateProjectionNodeOptions): ProjectionSystem.NodeHandle => projectionNodeOf(useWardicProjection(), useProjectionNodes(), opts)
 
 /**
  * {@link createProjectionNode} on `projection`: an element's, its section's `layout` Feature's (#511), where
- * `createProjectionNode` brings it. Internal.
+ * `createProjectionNode` brings it, registered through the Feature's `nodes` (#746). Internal.
  */
-export const projectionNodeOf = (projection: ProjectionSystem.Shape, opts: CreateProjectionNodeOptions): ProjectionSystem.NodeHandle => {
-  const handle = projection.register(registrationOf(opts))
+export const projectionNodeOf = (projection: ProjectionSystem.Shape, nodes: ProjectionNodes["Service"], opts: CreateProjectionNodeOptions): ProjectionSystem.NodeHandle => {
+  const handle = projection.register(nodes.registrationOf(opts))
   onCleanup(handle.dispose)
   // Compared before it measures, as Motion's `prevProps.layoutDependency !== layoutDependency`: an
   // effect re-runs at any change of what it read, and the config is read again at any prop's (#618).

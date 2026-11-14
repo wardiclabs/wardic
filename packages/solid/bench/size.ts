@@ -50,9 +50,10 @@ const GATE = 1.01
  * #746 found `main` past both, at 100.0 and 121.5, with nothing in CI running this (#654), Solid 2's 1.4 KB
  * of it its rc.21 compiler's (ADR-0067, *Amendment (#746)*). Each of its PRs sets them to its own result
  * with the same room: 100.2 and 121.6 once its pure marks dropped the dead code, 99.1 and 120.5 with
- * development's diagnostics and errors left out of a production build.
+ * development's diagnostics and errors left out of a production build, 98.0 and 119.3 with a layout node's
+ * code the `layout` Feature's.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 99.1, "s2-slim": 120.5 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 98.0, "s2-slim": 119.3 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 

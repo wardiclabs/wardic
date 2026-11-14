@@ -6,7 +6,8 @@
  */
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import type * as Context from "effect/Context"
-import { layoutBrought, type LayoutServices, projectionBrought } from "./features/layout.ts"
+import type { ProjectionNodes } from "./features/keys.ts"
+import { layoutBrought, type LayoutServices, projectionBrought, projectionNodesBrought } from "./features/layout.ts"
 import { fromWardicContext } from "./provider.tsx"
 
 /**
@@ -17,6 +18,14 @@ import { fromWardicContext } from "./provider.tsx"
  */
 export function useWardicProjection(): ProjectionSystem.Shape {
   return fromWardicContext("useWardicProjection", projectionBrought)
+}
+
+/**
+ * The `layout` Feature's element code beside {@link useWardicProjection}'s system (#746): what
+ * `createProjectionNode` registers its node through, after `useWardicProjection`. Internal.
+ */
+export function useProjectionNodes(): ProjectionNodes["Service"] {
+  return fromWardicContext("useWardicProjection", projectionNodesBrought)
 }
 
 /**

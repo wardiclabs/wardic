@@ -35,6 +35,7 @@ import * as Result from "effect/Result"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { ServerAppear } from "./appear.ts"
 import { clientRegistry, type FeatureRegistry, type FeatureSection, serverRegistry } from "./feature.ts"
+import { ProjectionNodes } from "./features/keys.ts"
 import { type InstantAnimations, makeInstantAnimations, NO_INSTANT } from "./instant.ts"
 import { settingOf as configSettingOf, type WardicConfigValue } from "./wardic-config-value.ts"
 
@@ -364,6 +365,14 @@ export const fromContext = <A>(value: WardicContextValue | undefined, name: stri
 /** The projection system among `services`, the `layout` Feature's (#511), or `undefined` when they hold none. */
 export const projectionIn = (services: Context.Context<never>): ProjectionSystem.Shape | undefined =>
   Option.getOrUndefined(Context.getOption(services as Context.Context<ProjectionSystem.ProjectionSystem>, ProjectionSystem.ProjectionSystem))
+
+/**
+ * The `layout` Feature's element code in `services` (#746): what makes a Wardic element's node on its
+ * projection system. Read where an element makes its node, from Features {@link projectionIn} found
+ * `layout` in, which give both.
+ */
+export const projectionNodesIn = (services: Context.Context<never>): ProjectionNodes["Service"] =>
+  Context.get(services as Context.Context<ProjectionNodes>, ProjectionNodes)
 
 /**
  * `useAnimateLayout()`'s function: `animateLayout(fn, options?)` runs `fn` at once, animates the

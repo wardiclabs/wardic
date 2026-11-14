@@ -16,7 +16,9 @@ import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { Feature } from "../feature.ts"
-import { ProjectionOptions, projectionIn, type WardicContextValue } from "../runtime.ts"
+import { layoutOptionsOf, registrationOf } from "../layout-member.ts"
+import { ProjectionOptions, projectionIn, projectionNodesIn, type WardicContextValue } from "../runtime.ts"
+import { ProjectionNodes } from "./keys.ts"
 
 /**
  * Layout animations: a provider's projection system, built once for the provider, over its
@@ -26,9 +28,13 @@ import { ProjectionOptions, projectionIn, type WardicContextValue } from "../run
 export const layout: Feature<ProjectionSystem.ProjectionSystem, ProjectionSystem.Shape, "layout"> = {
   name: "layout",
   key: ProjectionSystem.ProjectionSystem,
-  // The engine, and what its Reorder controllers hear each Measure pass by, beside it (#618).
-  layer: /*#__PURE__*/ Layer.effectContext(
-    /*#__PURE__*/ Effect.flatMap(FlushGate.FlushGate, (gate) => Effect.flatMap(ProjectionOptions, (options) => DomProjectionSystem.make(gate, options))),
+  // The engine, and what its Reorder controllers hear each Measure pass by, beside it (#618); and the
+  // code that makes a Wardic element's node on it, here so the base ships none (#746).
+  layer: /*#__PURE__*/ Layer.merge(
+    /*#__PURE__*/ Layer.effectContext(
+      /*#__PURE__*/ Effect.flatMap(FlushGate.FlushGate, (gate) => Effect.flatMap(ProjectionOptions, (options) => DomProjectionSystem.make(gate, options))),
+    ),
+    /*#__PURE__*/ Layer.succeed(ProjectionNodes, { optionsOf: layoutOptionsOf, registrationOf }),
   ),
 }
 
@@ -46,6 +52,12 @@ const BRINGS: ReadonlyArray<Feature> = [layout]
  */
 export const projectionBrought = (value: WardicContextValue): ProjectionSystem.Shape =>
   UndefinedOr.getOrThrowWith(projectionIn(value.features.build(BRINGS)), () => new Error("useWardicProjection: there is no projection system during a server render (ADR-0021)"))
+
+/**
+ * The `layout` Feature's element code (#746), brought as {@link projectionBrought} brings the projection
+ * system, whose call comes first and gives a server render's error: what `createProjectionNode` registers through.
+ */
+export const projectionNodesBrought = (value: WardicContextValue): ProjectionNodes["Service"] => projectionNodesIn(value.features.build(BRINGS))
 
 /** {@link projectionBrought}'s services, all of them: what a Reorder controller is built with (#618). */
 export const layoutBrought = (value: WardicContextValue): Context.Context<LayoutServices> => {

@@ -93,12 +93,11 @@ import * as OwnerScope from "../../owner-scope.ts"
 
 import { GESTURE_WORDS, serviceIn } from "../../gesture-features.ts"
 import { inViewOptionsOf } from "../../gesture-callbacks.ts"
-import { projectionIn, type WardicRuntime, type WardicServices } from "../../runtime.ts"
+import { projectionIn, projectionNodesIn, type WardicRuntime, type WardicServices } from "../../runtime.ts"
 import type { WardCheckedConfig, WardKey, WardValueOf } from "../../ward-keys.ts"
 import { createElementStyle } from "../../element-style.ts"
 import { createLiveStyle, type LiveSource, readLive, serverRegistryOf, split } from "../../live-style.ts"
 import { dragTransitionOf } from "../../drag-transition.ts"
-import { layoutOptionsOf, registrationOf } from "../../layout-member.ts"
 import { useLayoutGroupId } from "./layout.tsx"
 import { registerAnimatable } from "../../imperative.ts"
 import { type ControlsChange, controlledConfigOf, controlledElement, isAnimationControls, subscribe, uncontrolledOf, type WardicAnimationControls } from "../../animation-controls.ts"
@@ -1420,13 +1419,16 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     let arriveLayout: ((projection: ProjectionSystem.Shape) => void) | undefined
     if (wantsNode) {
       // `takenNow`: where a child that takes over from a leaver starts, at its mount only (#286).
+      // Made by the `layout` Feature's code (#746), read from its section's Features, which have `layout`
+      // once they have `projection`.
       const layoutNodeOn = (projection: ProjectionSystem.Shape, takenNow: PresenceSeed | undefined): void => {
+        const nodes = projectionNodesIn(untrack(features.services))
         const started = (): void => lifecycle.layoutStarted()
         const completed = (): void => lifecycle.layoutCompleted()
         const released = (): void => lifecycle.released()
         const handle = projection.register(
-          registrationOf({
-            ...layoutOptionsOf({
+          nodes.registrationOf({
+            ...nodes.optionsOf({
               id,
               element: el,
               config: configNow,
