@@ -1,15 +1,11 @@
 ---
 title: Shipping less
-description: Features, the code an element has only when a page asks for it, and LazyWardic, which loads them for a section.
+description: Features, the code an element has only when a page asks for it; createWardic, which chooses them for a module, and LazyWardic, for a section.
 ---
 
 # Shipping less
 
 A `w.*` element animates its values with nothing else: `initial`, `animate`, `exit`, variants and transitions. Each thing it does beyond that, a gesture, layout or a colour space, is a **Feature**: code a page ships only if it asks for it.
-
-<Demo sample="shipping" />
-
-<CodeTabs sample="shipping" />
 
 ## The Features
 
@@ -25,32 +21,66 @@ A `w.*` element animates its values with nothing else: `initial`, `animate`, `ex
 | `colors` | `oklch()`, `oklab()`, `lab()`, `lch()`, `hwb()` and `color()`. Hex, `rgb()`, `hsl()` and colour names need nothing. |
 | `scroll` | a container's scroll, for `createScroll`, which brings it itself |
 
-On Solid 2, the gesture Features bring the ward's events too, such as `"hover"` and `"tap"`. Motion's two sets are here under the same names: `domAnimation` is `hover`, `press`, `focus` and `inView`, and `domMax` is every Feature an element's props use, all but `scroll`. Each is a list, so `features={[domAnimation, layout]}` works.
+On Solid 2, the gesture Features bring the ward's events too, such as `"hover"` and `"tap"`. Motion's two sets are here under the same names: `domAnimation` is `hover`, `press`, `focus` and `inView`, and `domMax` is every Feature an element's props use, all but `scroll`. Each is a list, so `[domAnimation, layout]` works wherever Features go.
 
-## Where they go
+## A Wardic instance
 
-- **`<WardicProvider features>`** gives them to the whole app: usually `domAnimation`.
-- **`<LazyWardic features>`** gives them to a section. Its elements have the provider's Features and the section's, and a sibling section's Features stay its own. A page that drags wraps what drags in `<LazyWardic features={[drag]}>`, so `drag` ships with that page's code, and pages that don't drag never load it.
-- **Components and hooks that need a Feature bring it:** `Reorder.Item` brings `drag`, `layout` and the gestures, `Reorder.Group` brings `layout`, and `createScroll` brings `scroll`. `LayoutGroup` brings `layout` for its own `layoutDependency` only: a layout element under it still needs `layout` from its section.
-
-## Loaded when it's wanted
-
-`features` can be a function that loads them, as in the demo:
+Choose an app's Features once, in a module of its own, and import its `w` wherever you'd import the binding's:
 
 ```tsx
-// drag-feature.ts holds `export { drag } from "@wardic/solid/unstable/v2"`, so the import is a chunk of its own.
-<LazyWardic features={() => import("./drag-feature.ts").then((m) => m.drag)}>…</LazyWardic>
+// src/lib/wardic.ts
+import { createWardic, domAnimation } from "@wardic/solid"
+
+export const { w } = createWardic(domAnimation)
 ```
 
-It loads as the section renders, in the browser only. So a section rendered on a press loads on the press, one rendered as it scrolls into view loads then, and one rendered once the page has mounted loads after the first paint. While it loads:
+`createWardic` makes a [Wardic instance](/reference/solid/elements/wardic-instance): a `w` whose elements bring those Features wherever they render, and take their props alone. On this one, `<w.div drag />` is a type error, `Type 'boolean' is not assignable to type 'NeedsFeature<"drag">'`, where the binding's `w` would take the prop and do nothing.
+
+A page that drags or lays out makes an instance of its own:
+
+```tsx
+// src/lib/wardic-drag.ts: for the pages that drag
+import { createWardic, domAnimation, drag } from "@wardic/solid"
+
+export const { w } = createWardic([domAnimation, drag])
+```
+
+The module that makes an instance ships its Features to every page that imports it, so give a page's Features a module only its pages import: the pages that don't drag never load `drag`. An instance with `layout` returns the layout hooks too, `useAnimateLayout`, `createInstantLayoutTransition` and `createResetProjection`, which bring it.
+
+## Loaded later
+
+An entry in the list can be a load:
+
+```tsx
+// drag-feature.ts holds `export { drag } from "@wardic/solid"`, so the import is a chunk of its own.
+export const { w } = createWardic([domAnimation, () => import("./drag-feature.ts").then((m) => m.drag)])
+```
+
+It starts in the browser the first time one of the instance's elements or wards is made, or one of its hooks is called, and once for the instance, however many pages use it. While it loads:
 
 - Values animate at once, and each Feature takes effect as it arrives. A drag tried before `drag` has arrived does nothing, and isn't replayed.
 - An element with a layout prop starts laying out when `layout` arrives: it animates its next layout change.
 - The server loads nothing: it renders each element at its starting style, as it always does.
 
+## For a section
+
+An instance's Features are named where its module is written. A section gives Features in the three cases that can't be: `<WardicProvider features>` to everything under it, and `<LazyWardic features>` to a part of the tree. The binding's own `w`, imported from `@wardic/solid`, has those of its section, its provider's and every `LazyWardic`'s between them; it takes every prop, and a prop whose Feature isn't there does nothing. An instance's elements have them too, beside their own.
+
+- **A subtree you don't make:** a component library's elements are its own `w.*`, or the binding's; a `LazyWardic` around them gives them what they use.
+- **Features handed over at runtime:** in the [storefront](https://solid2.wardic.dev), moving a piece from Saved for later flies its photo into the cart, with the `layout` of the page it came from. The page hands it over, `arrive(piece, layout)`, and the cart's fly-in is a `LazyWardic` given it: the shell, on every page, never imports `layout` itself.
+- **A load at each render:** a `LazyWardic` whose `features` is a function loads as it renders, every time it renders. Rendered on a press, it loads on that press, as below; an instance's load runs once.
+
+<Demo sample="shipping" />
+
+<CodeTabs sample="shipping" />
+
+**Components and hooks that need a Feature bring it:** `Reorder.Item` brings `drag`, `layout` and the gestures, `Reorder.Group` brings `layout`, and `createScroll` brings `scroll`. `LayoutGroup` brings `layout` for its own `layoutDependency` only: a layout element under it still needs `layout` from its instance or its section.
+
 ## A Feature left out
 
-A prop whose Feature isn't there does nothing: `whileHover` without `hover` doesn't play, `drag` without `drag` doesn't drag, and an `oklch()` colour without `colors` isn't read as a colour. In development, Wardic warns once for each Feature, naming it and where to add it.
+On an instance's element, a prop of a Feature the instance hasn't got is a type error that names the Feature, and so, on Solid 2, is listening for its event on the instance's ward.
+
+On the binding's `w`, the prop does nothing: `whileHover` without `hover` doesn't play, `drag` without `drag` doesn't drag, and an `oklch()` colour without `colors` isn't read as a colour. In development, Wardic warns once for each Feature, naming it and where to add it.
 
 ## Every Feature at once
 

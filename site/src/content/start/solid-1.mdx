@@ -1,6 +1,6 @@
 ---
 title: Start on Solid 1
-description: Install Wardic in a Solid 1 app, add the provider, and animate your first element.
+description: Install Wardic in a Solid 1 app, add the provider, choose its Features, and animate your first element.
 ---
 
 # Start on Solid 1
@@ -15,16 +15,16 @@ Wardic's root entry, `@wardic/solid`, is its binding for Solid 1 (`1.9`), and it
 
 ## The provider
 
-Every Wardic element sits under one `WardicProvider`. It takes the environment Wardic runs in, `DomLive` in a browser, and the **Features** its elements have: `domAnimation` is hover, press, focus and in-view.
+Every Wardic element sits under one `WardicProvider`. It takes the environment Wardic runs in: `DomLive` in a browser.
 
 ```tsx
 import { DomLive } from "@wardic/dom"
-import { domAnimation, WardicProvider } from "@wardic/solid"
+import { WardicProvider } from "@wardic/solid"
 import { render } from "solid-js/web"
 
 render(
   () => (
-    <WardicProvider env={DomLive} features={[domAnimation]}>
+    <WardicProvider env={DomLive}>
       <App />
     </WardicProvider>
   ),
@@ -38,14 +38,14 @@ In SolidStart, put it in `app.tsx`, around the router's root, so every page shar
 import { Router } from "@solidjs/router"
 import { FileRoutes } from "@solidjs/start/router"
 import { DomLive } from "@wardic/dom"
-import { domAnimation, WardicProvider } from "@wardic/solid"
+import { WardicProvider } from "@wardic/solid"
 import { Suspense } from "solid-js"
 
 export default function App() {
   return (
     <Router
       root={(props) => (
-        <WardicProvider env={DomLive} features={[domAnimation]}>
+        <WardicProvider env={DomLive}>
           <Suspense>{props.children}</Suspense>
         </WardicProvider>
       )}
@@ -55,6 +55,19 @@ export default function App() {
   )
 }
 ```
+
+## Your app's Features
+
+What an element does beyond animating its values, a gesture, layout or a colour space, is a [Feature](/guides/features), code a page ships only if it asks for it. Choose your app's once, in a module of their own: `domAnimation` is hover, press, focus and in-view.
+
+```tsx
+// src/lib/wardic.ts
+import { createWardic, domAnimation } from "@wardic/solid"
+
+export const { w } = createWardic(domAnimation)
+```
+
+Import `w` from it, not from `@wardic/solid`. Its elements take those Features' props, and a prop of another is a type error that names it. These guides import it as `~/lib/wardic.ts`, SolidStart's alias for `src`; in a plain Vite app, import it by its path.
 
 ## Your first element
 
@@ -66,8 +79,8 @@ A `w.*` element takes Motion's props: it animates from `initial` to `animate`, a
 
 The same motion can go on an element of your own, with a ward: `w.createWard(config)` spread onto it, or the `use:w` directive.
 
-```tsx
-import { w } from "@wardic/solid"
+```tsx solid1
+import { w } from "~/lib/wardic.ts"
 
 export function Card() {
   const card = w.createWard({ initial: { opacity: 0 }, animate: { opacity: 1 } })
@@ -77,19 +90,16 @@ export function Card() {
 
 ## Only what a page uses
 
-A page that drags or lays out brings `drag` or `layout` itself, through `LazyWardic`, so the pages that don't never load them:
+A page that drags or lays out makes an instance of its own, in a module only its pages import, so the pages that don't never load `drag` or `layout`:
 
 ```tsx
-import { drag, LazyWardic, w } from "@wardic/solid"
+// src/lib/wardic-drag.ts
+import { createWardic, domAnimation, drag } from "@wardic/solid"
 
-export function Board() {
-  return (
-    <LazyWardic features={[drag]}>
-      <w.div drag />
-    </LazyWardic>
-  )
-}
+export const { w } = createWardic([domAnimation, drag])
 ```
+
+[Shipping less](/guides/features) has the rest: loading a Feature later, and the sections a `LazyWardic` makes.
 
 ## Rendered on the server
 

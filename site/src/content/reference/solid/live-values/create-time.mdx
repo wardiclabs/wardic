@@ -9,7 +9,8 @@ api: [createTime]
 The milliseconds since it was made, wall time, set every frame: for something that turns, pulses or drifts forever.
 
 ```tsx
-import { createTime, createTransform, w } from "@wardic/solid/unstable/v2" // or "@wardic/solid"
+import { createTime, createTransform } from "@wardic/solid/unstable/v2" // or "@wardic/solid"
+import { w } from "~/lib/wardic.ts"
 
 const rotate = createTransform(createTime(), (ms) => (ms / 1000) * 90) // 90° a second
 <w.div style={{ rotate }} />

@@ -1,12 +1,14 @@
 ---
 title: LazyWardic
-description: Gives the w.* elements in its section more Features, at once or loaded when the section renders. Motion's LazyMotion.
+description: Gives the w.* elements in its section more Features, at once or loaded each time the section renders. Motion's LazyMotion.
 api: [LazyWardic]
 ---
 
 # LazyWardic
 
-Gives the `w.*` elements in its section more [Features](/reference/solid/provider/features), beside their provider's. Motion's `LazyMotion`.
+Gives the `w.*` elements in its section more [Features](/reference/solid/provider/features), beside their provider's and their [Wardic instance](/reference/solid/elements/wardic-instance)'s. Motion's `LazyMotion`.
+
+An app's Features are usually its instances'. A section is for the Features an instance can't name: a third-party component's plain `w.*`, a Feature handed over at runtime, or a load that runs again each time the section renders.
 
 ```tsx
 import { drag, LazyWardic, w } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
@@ -16,7 +18,7 @@ import { drag, LazyWardic, w } from "@wardic/solid" // or "@wardic/solid/unstabl
   <w.div drag />
 </LazyWardic>
 
-// Loaded as the section renders: a module of its own that exports `drag`.
+// Loaded each time the section renders: a module of its own that exports `drag`.
 <LazyWardic features={() => import("./drag-feature").then((m) => m.drag)}>
   <w.div drag />
 </LazyWardic>

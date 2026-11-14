@@ -13,7 +13,10 @@ A drag moves its element in its own pixels. Inside a parent that's scaled or rot
 Maps each point through the inverse of a parent's CSS transform, rotated, scaled or skewed, so the element stays under the pointer at any zoom. The transform is read at each point, so a parent that animates is followed.
 
 ```tsx
-import { correctParentTransform, WardicConfig, w } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { correctParentTransform, createWardic, domAnimation, drag, WardicConfig } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+// This page drags: its own Wardic instance has `drag` beside `domAnimation`.
+const { w } = createWardic([domAnimation, drag])
 
 let plan!: HTMLDivElement
 <div ref={plan} style={{ transform: `scale(${zoom()})` }}>

@@ -17,10 +17,10 @@ Beyond Motion's API, 1.0 brings `createBatch`: hundreds or thousands of like ele
 
 ## 1.1: size and speed
 
-Faster, and smaller only where it costs no speed. The size work 1.0 left (#518) landed before it: the Slim element's app went from 104 to 97 KB gzipped on Solid 1, and from 132 to 117 on Solid 2, and `bun run size`'s budgets hold it there. What's next:
+Faster, and smaller only where it costs no speed. The size work 1.0 left (#518) landed before it: the Slim element's app went from 104 to 97 KB gzipped on Solid 1, and from 132 to 117 on Solid 2, and `bun run size`'s budgets hold it there. What it brings:
 
 - **Scroll on the compositor:** scroll-linked values handed to the browser's own scroll-driven animations (`ScrollTimeline`), as Motion hands some, so they don't trail the scroll by a frame.
-- **Typed Feature instances:** given an app's Features, one call returns the elements and hooks they allow, so the type checker knows what each element can do.
+- **Wardic instances:** `createWardic(features)` returns the elements and hooks those Features allow, so the type checker knows what each element can do, and an element of another Feature's is an error that names it.
 
 [The 1.1 milestone](https://github.com/wardiclabs/wardic/milestone/2): [#240](https://github.com/wardiclabs/wardic/issues/240), [#516](https://github.com/wardiclabs/wardic/issues/516)
 

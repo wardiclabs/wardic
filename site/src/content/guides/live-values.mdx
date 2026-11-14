@@ -43,7 +43,10 @@ A value you give is never written to: it's what the element follows. What Wardic
 - **On Solid 1,** `card.value("x")`, from `const card = w.createWard({ drag: "x" })` spread onto the element.
 
 ```tsx
-import { createTransform, w } from "@wardic/solid/unstable/v2"
+import { createTransform, createWardic, domAnimation, drag } from "@wardic/solid/unstable/v2"
+
+// This page drags: its own Wardic instance has `drag` beside `domAnimation`.
+const { w } = createWardic([domAnimation, drag])
 
 const card = w.ward({ drag: "x" })
 const opacity = createTransform(card.read("x"), [-150, 0, 150], [0, 1, 0])

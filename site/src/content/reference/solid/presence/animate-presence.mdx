@@ -9,7 +9,8 @@ api: [AnimatePresence, AnimatePresenceProps, PresenceMode]
 Wraps children that come and go, a `<Show>`'s or a `<For>`'s, and keeps each one that leaves on the page until its `exit` has played: its Wardic elements' exits, inner ones included. See [Exit animations](/guides/presence).
 
 ```tsx
-import { AnimatePresence, w } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { AnimatePresence } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 
 <AnimatePresence>
   <Show when={open()}>

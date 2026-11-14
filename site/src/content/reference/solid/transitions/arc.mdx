@@ -9,7 +9,8 @@ api: [arc, WardicPath, WardicArcOptions]
 A curved path for a transition: `x` and `y` travel along a curve between where they start and their target, on `x`'s transition, in place of two straight lines. See [Along a curve](/guides/transitions#along-a-curve).
 
 ```tsx
-import { arc, w } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { arc } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 
 const path = arc({ strength: 0.4, rotate: true })
 <w.div animate={{ x: 200, y: 80 }} transition={{ path, duration: 0.6 }} />

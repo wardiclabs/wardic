@@ -9,7 +9,8 @@ api: [createVelocity]
 How fast a value is changing, in its units a second: 0 to begin with, then each frame while the source moves, and 0 once it stops.
 
 ```tsx
-import { createScroll, createTransform, createVelocity, w } from "@wardic/solid/unstable/v2" // or "@wardic/solid"
+import { createScroll, createTransform, createVelocity } from "@wardic/solid/unstable/v2" // or "@wardic/solid"
+import { w } from "~/lib/wardic.ts"
 
 const { scrollY } = createScroll()
 const skewY = createTransform(createVelocity(scrollY), [-1000, 1000], [-8, 8])

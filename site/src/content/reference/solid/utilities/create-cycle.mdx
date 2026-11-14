@@ -9,7 +9,8 @@ api: [createCycle, Cycle]
 One of a list of values at a time: the first to begin with, and `cycle()` steps to the next, the first after the last.
 
 ```tsx
-import { createCycle, w } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { createCycle } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 
 const [x, cycleX] = createCycle(0, 50, 100)
 <w.div animate={{ x: x() }} onClick={() => cycleX()} />

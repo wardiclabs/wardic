@@ -1,6 +1,6 @@
 ---
 title: w
-description: The Slim element, w.div and every other tag, which has the Features its section gives; w.create for your own components.
+description: The Slim element, w.div and every other tag, which has the Features its Wardic instance or its section gives; w.create for your own components.
 api: [w, W, WardicCreateOptions]
 ---
 
@@ -15,7 +15,7 @@ import { w } from "@wardic/solid/unstable/v2" // Solid 2
 <w.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} whileHover={{ scale: 1.05 }} />
 ```
 
-It animates values with nothing else: `initial`, `animate`, `exit`, variants and transitions. Gestures, drag, layout and the wider colour spaces are [Features](/guides/features): it has those its `WardicProvider` and any `LazyWardic` above it give, and a prop whose Feature isn't there does nothing, with a warning in development. A `strict` section allows it, where it throws for [`wardic`](/reference/solid/elements/wardic).
+It animates values with nothing else: `initial`, `animate`, `exit`, variants and transitions. Gestures, drag, layout and the wider colour spaces are [Features](/guides/features). An app usually takes its `w` from a [Wardic instance](/reference/solid/elements/wardic-instance), `createWardic(features)`, whose elements bring those Features and take their props alone. The binding's own `w`, imported from `@wardic/solid`, has those its `WardicProvider` and any `LazyWardic` above it give, and a prop whose Feature isn't there does nothing, with a warning in development. A `strict` section allows either, where it throws for [`wardic`](/reference/solid/elements/wardic).
 
 ## Its forms
 
@@ -45,7 +45,7 @@ Its options, `WardicCreateOptions`:
 
 ## Coming from Motion
 
-`w.div` is Motion's `m.div` under `LazyMotion`, and `w.create` its `motion.create`. Motion's Features load for the whole page; Wardic's apply to the section that gives them.
+`w.div` is Motion's `m.div` under `LazyMotion`, and `w.create` its `motion.create`. Motion's Features load for the whole page; Wardic's are its Wardic instance's, or the section's that gives them.
 
 ## Types
 

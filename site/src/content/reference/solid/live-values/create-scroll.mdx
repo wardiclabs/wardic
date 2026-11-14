@@ -9,7 +9,8 @@ api: [createScroll, ScrollOptions, ScrollValues, ElementSource]
 A scroll as values that change as it scrolls: how far it's scrolled, and how far through. Given to an element's `style`, they move it with the scroll itself. See [Scroll](/guides/scroll).
 
 ```tsx
-import { createScroll, w } from "@wardic/solid/unstable/v2" // or "@wardic/solid"
+import { createScroll } from "@wardic/solid/unstable/v2" // or "@wardic/solid"
+import { w } from "~/lib/wardic.ts"
 
 const { scrollYProgress } = createScroll()
 <w.div class="progress" style={{ scaleX: scrollYProgress }} />

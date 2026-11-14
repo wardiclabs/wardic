@@ -362,3 +362,15 @@ TS 7's default parallel check read +14% on Solid 2: adding the prototype's four 
   - `s1-instance`, an instance of `domAnimation`: 107.5 KB against `s1-dom-animation`'s 107.0, the same Features on a provider;
   - `s2-instance`: 129.1 KB against 128.3;
   - the difference is `createWardic`, its list's split, and the three layout hooks it returns, which an instance always has at runtime: its types show them only with `layout`.
+
+**Built (PR 3, the docs and the storefront).**
+- **The storefront's Solid apps:**
+  - The provider gives no Features; every element is a Wardic instance's: the shop's `lib/wardic.ts` (`domAnimation`), and a page group's (`wardic-layout.ts`, `wardic-drag.ts`, `wardic-drag-layout.ts`, Solid 2's `wardic-pan.ts`).
+  - Two sections remain, for the cases an instance can't name. The cart's fly-in (`components/CartFlight.tsx`) takes the `layout` the page that moved a piece hands over. Rearrange's `LazyWardic` loads `drag` at each press, so the card can time it, which an instance's load, once per module, can't (asked at the build: keep `LazyWardic`, reversing Q16's "the Rearrange card a lazy entry").
+  - The JavaScript each measured route loads on a fresh visit is within 0.3 KB gzipped of before on both apps, and the smokes pass (Solid 1 59/59, Solid 2 61/61, Next 59/59).
+- **The docs:**
+  - The start pages make `src/lib/wardic.ts`; *Shipping less* leads with instances, then loads, then sections; the layout and drag guides, the Motion and Why pages, the landing page and the Features, `w`, `WardicProvider` and `LazyWardic` references follow.
+  - Every sample imports `w` from `~/lib/wardic.ts` (asked at the build): the site's own instance on Solid 2, and a typecheck-only module for Solid 1's. A sample that drags or lays out makes its own instance in place of a `LazyWardic`; the shipping sample keeps its section, as Rearrange does. The guides' and references' snippets do the same, one that drags making its own instance; the instance's types caught each one that drags.
+  - The examples check, the samples' typecheck and the testing samples' jsdom runs resolve `~/lib/wardic.ts` alike (`site/test/wardic-instance.ts`). A snippet whose only import is the reader's instance names its binding on its fence, ```` ```tsx solid1 ````.
+  - The site's own provider gives no Features either; its sidebar marker is a layout instance's.
+- **Found converting the site:** a Wardic instance's ward wasn't a `Ward`. The site's logo keeps its stars' wards in an `Array<Ward>`, and the instance's `next`, `each` and `when` took fewer events than a plain ward's. They're now methods, one signature for every ward (`name: E & EventNeeds<E, FN>`, `unknown` for an event its Features have), which TS compares both ways: an app's `(card: Ward) => …` takes an instance's ward, and the instance's own still names the Feature it lacks.
