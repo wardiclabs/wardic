@@ -374,3 +374,50 @@ TS 7's default parallel check read +14% on Solid 2: adding the prototype's four 
   - The examples check, the samples' typecheck and the testing samples' jsdom runs resolve `~/lib/wardic.ts` alike (`site/test/wardic-instance.ts`). A snippet whose only import is the reader's instance names its binding on its fence, ```` ```tsx solid1 ````.
   - The site's own provider gives no Features either; its sidebar marker is a layout instance's.
 - **Found converting the site:** a Wardic instance's ward wasn't a `Ward`. The site's logo keeps its stars' wards in an `Array<Ward>`, and the instance's `next`, `each` and `when` took fewer events than a plain ward's. They're now methods, one signature for every ward (`name: E & EventNeeds<E, FN>`, `unknown` for an event its Features have), which TS compares both ways: an app's `(card: Ward) => …` takes an instance's ward, and the instance's own still names the Feature it lacks.
+
+## Amendment (#746, 2026-11-14): the Slim element's apps cut back, and spans an app's to give
+
+**Found.** `bun run size` failed on `main`: `s1-slim` read 100.0 KB gzipped against its 97.9 budget, `s2-slim` 121.5 against 117.9. Every PR since the budgets were set (`6159db23`, #518) had passed its own +1% gate, and nothing ran the size check in CI (#654). Measured against `6159db23`:
+
+- **Wardic's own growth is the same on both bindings,** +6.5 KB minified, about 2.6 gzipped. By PR, in gzipped KB on Solid 1:
+
+  | PR | Added | What |
+  |---|---|---|
+  | #704 (#665) | 0.52 | A Batch member's hand-back. The spine's `holdNow` and `batch.ts` reached every app, against ADR-0070's "an app with no Batch ships none of the hold". |
+  | #688 (#680) | 0.44 | The Late step. |
+  | #753, #754 (#240) | 0.54 | Timeline values. |
+  | #728 | 0.27 | Effect 4.1.4. |
+  | #664 (#663) | 0.26 | Recorded above. |
+  | #657 (#656) | 0.21 | No new code: the modules' order moved, and gzip compresses it worse. |
+  | #742 (#724) | 0.20 | Recorded in ADR-0044. |
+  | #758 (#516) | 0.09 | Recorded above. |
+  | #750 (#714) | 0.04 | `Machine.nextFrame`'s top-level calls, unmarked, against ADR-0072's "every other app as it was". |
+
+- **Solid 2's 1.4 KB more is its compiler.** Built with its own tooling, `6159db23`'s `s2-slim` reads 117.3, as recorded. Today's tooling reads it at 118.7. `vite.solid2.ts` hasn't changed, and Solid 1's app reads the same either way, so the difference is Solid 2's compiler, rc.21 since #728: 2.9 KB minified of `@solidjs/*` in every Solid 2 app.
+- **What `s1-slim` is made of** (273.1 KB minified): Effect 97.3, `@wardic/solid` 78.8 (`spine.ts` 27.3), core 36.5, dom 28.6, `solid-js` 17.5, culori 13.5. Effect's runtime, `ManagedRuntime` and the atoms (ADR-0043) are a floor of about 77 KB minified, 26 gzipped.
+- **#518's finding on spans no longer holds.** On Effect 4.1.4 the runtime reads the tracer by its key and no longer keeps `Tracer` and `Hex`. Only opening a span does: `makeSpan` falls back to `Tracer.nativeTracer`, whose spans take their ids from `Hex`. So Wardic's spans bring 1.9 KB gzipped to every app, traced or not.
+- **Every cut decided below, stubbed together:** `s1-slim` 100.0 → 89.5, `s2-slim` 121.5 → 111.9. The stubs are upper bounds: a port keeps some code, and a seam adds its own. About 91–92 and 113–114 is the expectation.
+
+**Grilled 2026-11-14 (#746; Q1–Q21, issuecomment-6872254573).**
+
+1. **Size is what an app ships, gzipped** (Q1). The packages' install size is out of scope.
+2. **Every cut that costs no speed and no behaviour** (Q2 B, Q4). Each PR passes `bench:core` and `bench:solid` within their gates and changes nothing an app sees; a cut that costs either is dropped. One exception, decision 8. The budgets ratchet to each PR's result with 0.5 KB of room, as #518's did.
+   - Rejected: cutting just under the budgets, which leaves the leaks; raising the budgets to `main`'s sizes.
+3. **`s2-slim`'s budget takes in Solid 2's compiler** (Q3 A): its 1.4 KB is recorded here, as #663's 0.1 was, and Wardic's cuts are judged against Wardic's bytes.
+   - Rejected: absorbing another package's growth with Wardic's cuts while Solid 2 is a release candidate.
+4. **The target is the Slim element's base apps** (Q5). Every other app holds the +1% gate, and is never the reason to take or drop a cut.
+5. **1.1 waits for the whole effort** (Q7 B), and `bun run size` runs in CI as its last PR (Q6, #654).
+6. **The dev diagnostics are development's alone** (Q8): the `wardic.hydration` Debug log (`checkHandoff`, which alone brings `keyOf`, `textOf`, `hash53` and `Appear.matches`), the `wardic.style` warning and the `wardic.base` Debug log, about 1.0 KB gzipped. The guard sits on the binding's side: `checkHandoff` moves to core with the lift (#672, ADR-0071), and core has no dev flag. Core's `wardic.interpolator` warning stays.
+7. **The errors an app can hit throw one line in production** (Q9), and today's full text in development: `WAITING_ENV`, `wardic.create`'s ref forwarding, a Batch member given `layout`.
+8. **Wardic's spans are an app's to give** (Q10 A, decision 2's exception): `WardicSpans` from `@wardic/dom`, core's `Spans.layer` (Q19 A), merged beside `FrameLoopMetrics`, as *Amendment (#518)* made the metrics. With a tracer installed and no `WardicSpans`, Wardic warns in development. `@wardic/foldkit`'s handle gives it by default: Foldkit opens a span for every Command, so its apps ship Effect's tracer anyway (ADR-0071's *Note (#746)*).
+   - Rejected: spans as they are (decision 2, its largest cut left); loading the span code once a tracer is found, which misses the first animations and reads the tracer through Effect's internal key.
+9. **The seams *Amendment (#518)* skipped are taken** (Q11), measured again: #518 stubbed `layoutOptionsOf` alone and never counted `registrationOf`. `layout`'s node options and registration (0.9 KB gzipped), the mount's gesture start (1.3 on Solid 1, 0.5 on Solid 2) and its drag block (0.4) move behind their Features.
+10. **The seams inside the spine and the gate come before the lift** (Q16 A), each a port in core in ADR-0071's decision 7 form, so the lift moves them unchanged: the Imperative track, the `while*` layers, the presence seed, a Batch member's residue (ADR-0070's promise), the Timeline hooks and the gate's book of them (about 2.0 KB gzipped together). A port is a `Context.Reference` in core whose default is none, filled by the Layer its Feature or component brings (decision 12), and resolved once into `WardicServices`. A module that registered itself on import would break `sideEffects: false`.
+11. **Wardic's own plumbing replaces Effect's streams and fiber helpers on the base path** (Q13): the frame loop takes the Clock's ticks through hearings (*Amendment (#518)*), and `FiberHandle` and `FiberSet` become a field and a set with the same lifetimes. `Clock.ticks` and `SharedSource` stay Streams for their callers, and dom's runner keeps a host's scheduler (#208), which Foldkit's needs.
+12. **`/*#__PURE__*/` where a measure shows dead code kept** (Q15), as `effect-first.md` has it. Marking all 530 module-scope calls saved what the measured sites did.
+13. **Fourteen PRs, one at a time off `main`** (Q17): this record, the marks and the Batch leak; the messages; `layout`; the gesture start; the drag block; `WardicSpans`; the fibers; the streams; the five ports, each added to the lift's move plan; `bun run size` in CI. The first sets the budgets to `main`'s sizes with 0.5 KB of room, and each PR lowers them to its own. The thirteenth measures every app again for the docs' sizes (Q21).
+
+**Not cut.**
+- **`Match`** (Q14): 0.3 KB on Solid 1, nothing in a Foldkit app, which ships it, against a change to the Effect-first rules for every package.
+- **The Announcer** (Q12): `DomLive`'s type gives it, so moving it behind `Reorder` breaks an app that reads it. A cut for 2.0 (0.3 KB).
+- **The Appear Handoff** (decision 6 takes most of it), the Live values' follow (any Atom is a Live value), variants and `transitionEnd` (a Slim element's own props), `use:w` (the directive's API), a Wardic instance's join (0.03 KB).
