@@ -93,7 +93,7 @@ import * as OwnerScope from "../../owner-scope.ts"
 
 import { GESTURE_WORDS, serviceIn } from "../../gesture-features.ts"
 import { inViewOptionsOf } from "../../gesture-callbacks.ts"
-import { projectionIn, type WardicServices } from "../../runtime.ts"
+import { projectionIn, type WardicRuntime, type WardicServices } from "../../runtime.ts"
 import type { WardCheckedConfig, WardKey, WardValueOf } from "../../ward-keys.ts"
 import { createElementStyle } from "../../element-style.ts"
 import { createLiveStyle, type LiveSource, readLive, serverRegistryOf, split } from "../../live-style.ts"
@@ -137,6 +137,8 @@ import {
   sameResolution,
   serverStartingStyle,
   snapshotOf,
+  SPINE_DIAGNOSTICS,
+  type SpineDiagnostics,
   startLinksOf,
   startOf,
   warnDroppedTransform,
@@ -739,6 +741,21 @@ const isElement = (value: unknown): value is HTMLElement => Predicate.hasPropert
 const contextOf = (value: WardicVariantContextValue | undefined): WardicVariantContextValue | null => Option.getOrNull(Option.fromUndefinedOr(value))
 
 /**
+ * Development's diagnostics for the spine (#746, ADR-0067 *Amendment (#746)*, decision 6): given under
+ * Solid's `DEV` alone, so a production build ships none of their code.
+ */
+const devSpineDiagnostics = (): SpineDiagnostics | undefined => {
+  if (DEV) return SPINE_DIAGNOSTICS
+  return undefined
+}
+
+/** In development alone (#746), what warns once that a `transform` string gave way to `style`'s transform keys. */
+const droppedTransformWarning = (runtime: WardicRuntime, id: string): (() => void) | undefined => {
+  if (DEV) return () => warnDroppedTransform(runtime, id)
+  return undefined
+}
+
+/**
  * Says, once per provider, that a colour of the element's needs the `colors` Feature (#511, ADR-0067
  * decision 7): a value naming a wide-gamut space, while the page reads none, outside a lazy load.
  * Development only (its caller's `DEV`).
@@ -1012,7 +1029,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const dragDefaults = dragDefaultsOf(initialConfig, internal)
 
   // Its routed `style` keys (#130, ADR-0043), and its `style`, switched by the gate's hooks.
-  const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: () => warnDroppedTransform(runtime, id), reactivity })
+  const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: droppedTransformWarning(runtime, id), reactivity })
   const projectStarting = Bool.match(hydrating, { onTrue: () => DomRenderer.project, onFalse: () => project })
   // The element's style (#264): the config's, with the latest `.with()` style over it, key by key.
   // `.with()` runs in the spread's computation, an owned scope: it tells `read(key)` through a
@@ -1540,6 +1557,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       drag: dragTrack,
       handoff,
       animation: lifecycle,
+      diagnostics: devSpineDiagnostics(),
     }
     // A `drag` on its way as it mounted (#551): its track starts as the Feature arrives (`startDrag`),
     // and the spine reads it at each Retarget from then on. Only then is `drag` a getter, so an

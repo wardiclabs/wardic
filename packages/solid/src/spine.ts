@@ -1933,6 +1933,21 @@ export interface ElementSpineOptions {
    * provides nothing.
    */
   readonly byName?: NameOrchestration | undefined
+  /**
+   * Development's diagnostics (#746, ADR-0067 *Amendment (#746)*, decision 6): each binding gives
+   * {@link SPINE_DIAGNOSTICS} under its Solid's `DEV` alone, so a production build ships none of their
+   * code. The spine names no flag, as core, where the lift takes it (#672), has none. Omitted, nothing
+   * is noted.
+   */
+  readonly diagnostics?: SpineDiagnostics | undefined
+}
+
+/** What notes, in development, what an app may want to know but that changes nothing it draws (#746). */
+export interface SpineDiagnostics {
+  /** Note, once, a Handoff whose Appear animation the server sampled from another mount animation than the client's. */
+  readonly checkHandoff: (runtime: WardicRuntime, id: string, handoff: Handoff, mount: MountAnimation) => void
+  /** The log of a Retarget that started a key from its Base value, or returned one: run by the Retarget at its first leg. */
+  readonly baseLog: (id: string, started: Record<string, string>, returns: ReadonlyArray<readonly [string, BaseValue.BaseSource]>) => Effect.Effect<void>
 }
 
 /** Tell `timelineKeys` that each of `values`' keys is taken from its Live value (#240). */
@@ -2003,7 +2018,7 @@ export interface ElementSpine {
  * fiber Scope interrupts what's left when the provider ends.
  */
 export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => {
-  const { animation, byName, canStart, config, defaultTransition, element, extraDelay, gate, id, links, live, onFrame, parent, positionalKeys, presence, runtime, snapshot, start, styleNow, tag } = options
+  const { animation, byName, canStart, config, defaultTransition, diagnostics, element, extraDelay, gate, id, links, live, onFrame, parent, positionalKeys, presence, runtime, snapshot, start, styleNow, tag } = options
   const { initialLink, initialValues, startedLink } = start
   const { linksFor, ownValue, startLinkOf } = links
   let handoff = options.handoff
@@ -2088,14 +2103,6 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       if (Predicate.isNotUndefined(presence)) delete presence.snapshot.current[key]
     })
   }
-
-  // Cold path: once per Retarget that started a key from its Base value or returned one,
-  // run at the head of that Retarget's first leg (no fiber of its own: forking one per
-  // element cost 10-20 µs each at a 1000-element mount).
-  const baseLog = (started: Record<string, string>, returns: ReadonlyArray<readonly [string, BaseValue.BaseSource]>): Effect.Effect<void> =>
-    Effect.logDebug("wardic.base: a key with no value started from, or returned to, its Base value (ADR-0022)").pipe(
-      Effect.annotateLogs({ id, started, returned: Object.fromEntries(returns) }),
-    )
 
   // Each key's leg (#325, Motion's per-key rule): the running leg that draws it, or the last one that
   // did, landed. A Retarget leaves a key its running leg when it resolves it to the same target, starts
@@ -2787,7 +2794,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // Each leg: the base-value log at the head of the first, and, once the leg's run
     // settles, a count toward this landing, so the per-frame handlers stay as they were.
     let pendingLog: Effect.Effect<void> | undefined
-    if (returns.length > 0 || !Rec.isEmptyRecord(started)) pendingLog = baseLog(started, returns)
+    if (Predicate.isNotUndefined(diagnostics) && (returns.length > 0 || !Rec.isEmptyRecord(started))) pendingLog = diagnostics.baseLog(id, started, returns)
     // A list's names told settled one by one (#297, Solid 1's callbacks): each as the legs of the keys
     // it drives settle. Made only for a list with a binding that's told so.
     let names: NameSettles | undefined
@@ -2854,7 +2861,9 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     if (Predicate.isNotUndefined(handoff)) {
       const taken = handoff
       handoff = undefined
-      checkHandoff(runtime, id, taken, { tag, from, to: fresh, transition: baseTransition, reduced: reduce, layout: isLayoutNode(c), stops: manyStops, ...skippedField(skipped), ...templateField(c.transformTemplate) })
+      if (Predicate.isNotUndefined(diagnostics)) {
+        diagnostics.checkHandoff(runtime, id, taken, { tag, from, to: fresh, transition: baseTransition, reduced: reduce, layout: isLayoutNode(c), stops: manyStops, ...skippedField(skipped), ...templateField(c.transformTemplate) })
+      }
       const at = startAtOf(taken, baseTransition, delayOf(transition))
       retargetLegs = Arr.map(retargetLegs, (one) => startingAt(one, at))
     }
@@ -3269,6 +3278,22 @@ const checkHandoff = (runtime: WardicRuntime, id: string, handoff: Handoff, moun
     ),
   )
 }
+
+/**
+ * A Retarget's note of the keys it started from their Base value, or returned to it (ADR-0022): run at
+ * the head of its first leg, cold path (no fiber of its own: forking one per element cost 10-20 µs each
+ * at a 1000-element mount).
+ */
+const baseLog = (id: string, started: Record<string, string>, returns: ReadonlyArray<readonly [string, BaseValue.BaseSource]>): Effect.Effect<void> =>
+  Effect.logDebug("wardic.base: a key with no value started from, or returned to, its Base value (ADR-0022)").pipe(
+    Effect.annotateLogs({ id, started, returned: Object.fromEntries(returns) }),
+  )
+
+/**
+ * Development's diagnostics (#746): what a binding gives the spine under its Solid's `DEV`. Referenced
+ * nowhere else, so a production build, whose binding never gives it, drops it and what it calls.
+ */
+export const SPINE_DIAGNOSTICS: SpineDiagnostics = { checkHandoff, baseLog }
 
 /** The keys a Retarget returns to a Live value that's a number: each one's return follows it (#130). */
 const followingOf = (routes: LiveStyle, rest: Values.Values, returning: ReadonlyMap<string, BaseValue.BaseSource>): ReadonlyArray<string> =>
