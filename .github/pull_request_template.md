@@ -6,7 +6,7 @@
 
 ## Measured
 
-<!-- For a change to a package's `src`: `bun run size --base main`. On the per-frame or mount path: `bun run bench:core --base main` / `bun run bench:solid --base main`, on a quiet machine. Leave out what doesn't apply. -->
+<!-- For a change to a package's `src`: `bun run size --base main` (CI runs it too). On the per-frame or mount path: `bun run bench:core --base main` / `bun run bench:solid --base main`, on a quiet machine. Leave out what doesn't apply. -->
 
 ## What ran
 
