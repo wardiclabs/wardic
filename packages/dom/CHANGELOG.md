@@ -1,5 +1,22 @@
 # @wardic/dom
 
+## 1.1.0
+
+### Minor Changes
+
+- ab745db: `@wardic/dom/Appear`'s `findIn` looks an element's own Appear animation up in a page's read (`findAll`'s), as `find` gets it, with no read of its own: elements hydrating together share one read. `findAll` reads a shadow root's Appear animations too, which a document's read doesn't reach.
+- ff7e153: `@wardic/dom/TimelineValue` runs a scroll-derived Live value on the browser's own scroll timeline, so it moves with a scroll the browser runs off the main thread instead of a frame or more behind it. `TimelineValue.make` takes core's `LiveValue.scrollDerivationOf` and an element's key, and gives `None` wherever a timeline wouldn't draw exactly what the gate draws. The Flush gate's new `timeline(id, key, value)` runs it while the key shows its Live value: it goes on writing the key inline, starts the animation over it at the flush that commits the element, and cancels it at the flush that hands the key to anything else, so no frame shows neither. While one runs, the element's `getAnimations()` lists its scroll-driven animation, over the inline value the gate still writes.
+
+### Patch Changes
+
+- e0bec2c: An app ships less code it never calls. A bundler kept a few of Wardic's module-level helpers and Layers in every app, whether it used them or not, among them `Renderer.applyTo`, `DefaultTransition.layerOneSpring` and `FlushGate.layerInert`; they're now marked so it drops them. A Slim element's app is 0.3 KB gzipped smaller on Solid 1 and 0.4 on Solid 2, and every app is a little smaller.
+- Updated dependencies [fc5918f]
+- Updated dependencies [af4239d]
+- Updated dependencies [f0a53ea]
+- Updated dependencies [ff7e153]
+- Updated dependencies [e0bec2c]
+  - @wardic/core@1.1.0
+
 ## 1.0.1
 
 ### Patch Changes
