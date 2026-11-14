@@ -19,6 +19,10 @@
 // - An error it only logs (#337): one thrown in a memo's comparison, an effect or a handler, which
 //   Solid catches and hands to `console.error` without a code. A ward whose target memo threw there
 //   stayed at `initial`, and the test passed by every other measure.
+//
+// What it prints is what the gate fails on: a heuristic's report, and a code the test allows, are
+// heard (the channel's events, and `allowed`'s check) but not printed, so CI's log holds only what a
+// reader should act on. Solid's attribution engine still has every heuristic (`costs()`, `feedback()`).
 import { OBSERVE } from "solid-js"
 import { attribution } from "solid-js/attribution"
 import { afterEach, beforeEach, expect } from "vitest"
@@ -41,22 +45,40 @@ OBSERVE.diagnostics.subscribe((event) => {
   keep(event.code, event.message.split("\n")[0] ?? event.message)
 })
 
+/** A console call's first line. */
+const firstLineOf = (args: ReadonlyArray<unknown>): string => {
+  const message = String(args[0])
+  return message.split("\n")[0] ?? message
+}
+
 /** The console: a code's own report (not its repair guide's), or a hydration key miss. */
 const capture = (args: ReadonlyArray<unknown>): void => {
-  const message = String(args[0])
-  const line = message.split("\n")[0] ?? message
-  if (reports(line) || message.includes("Hydration key miss")) keep(codeOf(line), line)
+  const line = firstLineOf(args)
+  if (reports(line) || String(args[0]).includes("Hydration key miss")) keep(codeOf(line), line)
 }
+
+/**
+ * Whether a console call is a code the gate leaves be, its report or one of the lines after it: a
+ * heuristic's, or one the test makes on purpose (`allowDiagnostic`). Not printed.
+ */
+const quiet = (args: ReadonlyArray<unknown>): boolean => {
+  const code = codeOf(firstLineOf(args))
+  if (code === undefined) return false
+  return !gated(code) || allowed.has(code)
+}
+
 const warn = console.warn.bind(console)
 const error = console.error.bind(console)
 console.warn = (...args: Array<unknown>): void => {
   capture(args)
+  if (quiet(args)) return
   warn(...args)
 }
 console.error = (...args: Array<unknown>): void => {
   capture(args)
   const thrown = args.find((arg) => arg instanceof Error)
   if (thrown instanceof Error) keep(undefined, `${thrown.name}: ${thrown.message}`)
+  if (quiet(args)) return
   error(...args)
 }
 
