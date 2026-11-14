@@ -49,9 +49,10 @@ const GATE = 1.01
  * frame), whose second loop, chosen per run, is what keeps every engine's default path as it was.
  * #746 found `main` past both, at 100.0 and 121.5, with nothing in CI running this (#654), Solid 2's 1.4 KB
  * of it its rc.21 compiler's (ADR-0067, *Amendment (#746)*). Each of its PRs sets them to its own result
- * with the same room: 100.2 and 121.6 once its pure marks dropped the dead code.
+ * with the same room: 100.2 and 121.6 once its pure marks dropped the dead code, 99.1 and 120.5 with
+ * development's diagnostics and errors left out of a production build.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 100.2, "s2-slim": 121.6 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 99.1, "s2-slim": 120.5 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 

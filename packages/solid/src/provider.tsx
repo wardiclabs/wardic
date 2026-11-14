@@ -54,6 +54,7 @@ import {
   type WardicServices,
   whenIdle,
 } from "./runtime.ts"
+import { WAITING_ENV_FIX, WAITING_ENV_LINE } from "./messages.ts"
 import { isHydrating, isServer } from "./server.ts"
 import { reactivity } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
@@ -67,6 +68,17 @@ import type { WardicScaleCorrector } from "./config.ts"
  * (and clearly reject) reads made outside a `WardicProvider`.
  */
 const WardicContext = createContext<WardicContextValue | undefined>(undefined)
+
+/**
+ * What a client provider fails with when its `env` waits as it builds (#746, ADR-0067 *Amendment
+ * (#746)*, decision 7): the fix in development, under Solid's `DEV`, and one line in a production
+ * build. A server render always gives the fix: Solid 1's server build has no `DEV`, and a client build
+ * drops the server's branch.
+ */
+const waitingEnvMessage = (): string => {
+  if (DEV) return WAITING_ENV_FIX
+  return WAITING_ENV_LINE
+}
 
 /**
  * Puts Wardic in your app: every Wardic element sits under one. Give it the Environment, `DomLive` in
@@ -135,7 +147,7 @@ export function WardicProvider(props: {
       onFalse: () => serverAppear(Option.getOrElse(Option.fromUndefinedOr(props.reducedMotion), () => "user" as const), explainerOf(props.appear), props.nonce),
     })
     if (Predicate.isNotUndefined(appear)) useAssets(() => appearStyle(appear))
-    const value = serverContext(props.env, appear, () => untrack(() => props.reducedMotion))
+    const value = serverContext(props.env, WAITING_ENV_FIX, appear, () => untrack(() => props.reducedMotion))
     onCleanup(() => void value.features.dispose())
     sections.set(value, sectionOf(value, ROOT, props))
     return <WardicContext.Provider value={value}>{props.children}</WardicContext.Provider>
@@ -152,6 +164,7 @@ export function WardicProvider(props: {
   // then the gate (#132); dispose() returns a Promise, fire-and-forget on unmount.
   const value = clientContext(
     props.env,
+    waitingEnvMessage(),
     batch,
     () => untrack(() => props.reducedMotion),
     // Tracked, for `createReducedMotionConfig` (#584).

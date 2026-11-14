@@ -38,7 +38,8 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { $PROXY, type Accessor, children, type Component, createComponent, createEffect, createRenderEffect, type JSX, sharedConfig, splitProps, untrack } from "solid-js"
+import { $PROXY, type Accessor, children, type Component, createComponent, createEffect, createRenderEffect, DEV, type JSX, sharedConfig, splitProps, untrack } from "solid-js"
+import { unforwardedRefFix, unforwardedRefLine } from "./messages.ts"
 import { assign, Dynamic, getNextElement, insert, spread, SVGElements, use } from "solid-js/web"
 import { isServer } from "./server.ts"
 import { GESTURE_KEYS } from "./gesture-callbacks.ts"
@@ -326,6 +327,16 @@ interface Forwarding {
 const ownElement = (element: () => JSX.Element): JSX.Element => element()
 
 /**
+ * The error for a wrapped component that renders an element but forwards its ref to none (#746,
+ * ADR-0067 *Amendment (#746)*, decision 7): the fix in development, under Solid's `DEV`, and one line
+ * in a production build. `label` names the wrap.
+ */
+const unforwardedRefMessage = (label: string): string => {
+  if (DEV) return unforwardedRefFix(label)
+  return unforwardedRefLine(label)
+}
+
+/**
  * The user's ref, and, for a wrapped component, the check that it forwards the Ward's (ADR-0008,
  * narrowed by #414): one that renders an element and forwards its ref to none of what it renders
  * leaves the gate no element to commit to, a clear error. One that renders nothing yet (a component
@@ -344,12 +355,7 @@ const forwardingOf = (component: Rendered, userRef: ((el: HTMLElement) => void) 
       const elements = Arr.filter(rendered.toArray(), isElement)
       if (Arr.isArrayEmpty(elements)) return
       if (Arr.some(elements, (inside) => Predicate.isNotUndefined(reached) && inside.contains(reached))) return
-      const name = component.name || "anonymous component"
-      throw new Error(
-        `wardic.create(${name}): the wrapped component rendered an element but did not forward its ref to it. ` +
-          "The component must forward props.ref to a single root DOM element " +
-          "(e.g. <div ref={props.ref}>...</div>). Element-only motion is wired through the ref.",
-      )
+      throw new Error(unforwardedRefMessage(`wardic.create(${component.name || "anonymous component"})`))
     })
     return rendered as unknown as JSX.Element
   }
