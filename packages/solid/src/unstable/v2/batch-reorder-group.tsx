@@ -317,6 +317,8 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
             }),
           resizeGroup: () => flush(() => setGroupVersion((v) => v + 1)),
         },
+        // Client-only, so transparent to hydration ids as every computation of the binding's is (#618).
+        memo: (compute, equals) => createMemo(compute, { ...CLIENT_ONLY, equals }),
       },
       { started: noop, landed: noop },
     ))

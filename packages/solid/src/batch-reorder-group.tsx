@@ -379,6 +379,7 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
             }),
           resizeGroup: () => setGroupVersion((v) => v + 1),
         },
+        memo: (compute, equals) => createMemo(compute, undefined, { equals }),
       },
       { started: noop, landed: noop },
     ))

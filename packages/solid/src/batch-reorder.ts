@@ -74,6 +74,7 @@ import {
   releaseGroupWidth,
   resolvePlaces,
   samePlaces,
+  sameStyle,
   sizeStyleOf,
   widthAt,
   unwriteSizeOn,
@@ -215,6 +216,11 @@ export interface BatchReorderOptions<V> {
   readonly brought: () => Context.Context<never>
   /** Its items' sizes read from the page (#714): signals of the binding's own. */
   readonly sizes: BatchReorderSizeSignals
+  /**
+   * Its binding's Solid's `createMemo`, made under the group, its value kept while `equals` holds: what every
+   * item reads of the group (their base style), worked out once, not once an item.
+   */
+  readonly memo: <A>(compute: () => A, equals: Equivalence.Equivalence<A>) => () => A
 }
 
 /**
@@ -849,11 +855,15 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     }
   }
 
-  /** An item's own style under its group's now, in flow or not: read in the binding's tracking. */
-  const itemBaseNow = (): Readonly<Record<string, string>> => {
+  /**
+   * An item's own style under its group's now, in flow or not: the same for every item, so worked out once, in
+   * a memo each item's style reads. What the group reads of its element (its first read, a resize) re-runs that
+   * memo, and the items only when it changes: not every item for the same answer (Solid 2's HUGE_FAN_OUT).
+   */
+  const itemBase = options.memo((): Readonly<Record<string, string>> => {
     const geometry = geometryNow()
     return itemBaseOf(geometry, itemsInFlow(geometry, options.sizes.placed()))
-  }
+  }, sameStyle)
 
   /** Member `i`'s keyboard lift: its `whileDrag` on, or off at its drop, then let down. */
   const onLift = (i: number, lifted: boolean): void => {
@@ -897,7 +907,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       // Once it's on the page: the direction it inherits and its width, before the first paint.
       queueMicrotask(() => readElement(el))
     },
-    itemStyle: () => batch.styleOf(itemBaseNow()),
+    itemStyle: () => batch.styleOf(itemBase()),
     item: (value, presence) => {
       const member = batch.memberFor(value, presence)
       const driver = controller.item(value, () => Option.fromUndefinedOr(batch.elementOf(member)), (lifted) => onLift(member, lifted))
@@ -905,7 +915,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       const unregister = driver.register(handleOf(member))
       return {
         ref: refOf(member, value),
-        style: (own) => batch.styleOf(Style.over(own, itemBaseNow())),
+        style: (own) => batch.styleOf(Style.over(own, itemBase())),
         dispose: () => {
           // Under `<AnimatePresence>` its element stays while it exits (Q38), at its last place: let go if it was
           // in hand, `whileDrag` off, let down, and neither focused nor pressed meanwhile.
