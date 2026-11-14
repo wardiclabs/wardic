@@ -217,5 +217,5 @@ ADR-0067's *Amendment (#516)* types a Solid **Wardic instance** (`createWardic(f
 ADR-0067's *Amendment (#746)* cuts the Slim element's apps.
 
 1. **The handle gives `WardicSpans` by default.** A Solid app merges it to see Wardic's spans (that Amendment's decision 8). Foldkit opens a span for every Command (`Effect.withSpan` in its runtime), so a Foldkit app ships Effect's tracer anyway, and Wardic's animations show in its traces beside its Commands.
-2. **The spine's and the gate's seams land before the lift** (its decision 10), each a port in this ADR's decision 7 form, and each PR adds its port to [`lift-672-move-plan.md`](../research/lift-672-move-plan.md). The lift moves them unchanged.
+2. **The spine's and the gate's seams land before the lift** (its decision 10), each a port in core resolved once into `WardicServices`, as decision 7's are. Unlike decision 7's, each is optional: a `Context.Reference` whose default is none, filled by the Layer its Feature or component brings, not by `DomLive`. Each PR adds its port to [`lift-672-move-plan.md`](../research/lift-672-move-plan.md). The lift moves them unchanged.
 3. **What the cuts save in a Foldkit app.** Foldkit ships Effect's `Stream`, `Match` and tracer itself, so only the fiber helpers' cut (`FiberHandle`, `FiberSet`, which it doesn't use) and Wardic's own cuts reach its apps.

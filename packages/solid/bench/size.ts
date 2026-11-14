@@ -47,10 +47,9 @@ const GATE = 1.01
  * metrics an app's to give, 99.0 and 119.1 with Wardic's own fan-out, 97.4 and 117.3 with the `scroll` Feature.
  * Solid 2's raised 0.1 KB for #663 (a spring leg's velocities read when asked for: a third fewer bytes a
  * frame), whose second loop, chosen per run, is what keeps every engine's default path as it was.
- * #746 found `main` past both, at 100.0 and 121.5, with nothing in CI running this (#654). Its first PR
- * sets them to those sizes with the same room, Solid 2's taking in the 1.4 KB its rc.21 compiler adds
- * (ADR-0067, *Amendment (#746)*), and each of its PRs lowers them to its own result: 100.2 and 121.6 with
- * the dead code its pure marks drop.
+ * #746 found `main` past both, at 100.0 and 121.5, with nothing in CI running this (#654), Solid 2's 1.4 KB
+ * of it its rc.21 compiler's (ADR-0067, *Amendment (#746)*). Each of its PRs sets them to its own result
+ * with the same room: 100.2 and 121.6 once its pure marks dropped the dead code.
  */
 const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 100.2, "s2-slim": 121.6 }
 

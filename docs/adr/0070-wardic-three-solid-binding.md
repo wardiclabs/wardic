@@ -214,3 +214,7 @@ ADR-0068 decision 13 named the scene's Solid 2 pieces: `<WardicScene>`, `<SceneO
 Decision 12's "still none: drag, focus" holds for a plain Batch. A `Reorder.BatchGroup`'s members (ADR-0072) are dragged and focused through the group: it hears a member's press through the delegated feed over its members, runs core's drag recognizer for that one member, and makes each member a tab stop for the keyboard reorder, whose Space and Enter lift it rather than press it. `inView` and variants stay out.
 
 - **The Override stack gains the item in hand** (PR 2, Q26, Q27): `animate` < `whileHover` < `whileTap` < `whileDrag`, `whileDrag`'s **Gesture layer** on through a drag or a keyboard lift. A function `whileDrag`'s keys join the Batch's from the list's first item, as `animate`'s do. While it's dragged, its `x` and `y` are held where the pointer has it, over every Gesture layer, each sample's a 0 s change of one member; let go, they turn toward the stack's from where they were held, at the release's speed. A grab while it flies back stops it there, as a `Reorder.Item`'s release.
+
+## Note (#746, 2026-11-14): a Batch member's hold reached every app
+
+*Amendment (#665)*'s "Only members pay" (PR 4: "an app with no Batch ships none of the hold") stopped holding at #704: the spine's `holdNow` closure, and `batch.ts` through `layout-member.ts`'s `markLayoutElement`, reached every app, 0.5 KB gzipped (ADR-0067, *Amendment (#746)*). #746's `layout` seam takes `markLayoutElement` out of the base, and its port for a member's residue the rest of the spine's.
