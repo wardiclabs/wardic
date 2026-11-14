@@ -9,6 +9,7 @@
 // - IN4: a load in its list starts at its first element's mount, not as it's made, once for two elements
 //   under two providers; nothing is said while it's on its way, and its Feature takes effect as it
 //   arrives: a drag before then does nothing, one after drags.
+// - IN5: a failed load is reported once in a provider, for two elements, naming `createWardic`.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { createWardic, domMax, drag, hover, LazyWardic, press, wardic, WardicProvider } from "@wardic/solid"
@@ -181,5 +182,21 @@ describe("A Wardic instance (#516), Solid 1", () => {
     await until(() => el.getBoundingClientRect().left - x0 > 90, 2000)
     expect(el.getBoundingClientRect().left - x0, "dragged once it's here").toBeGreaterThan(90)
     expect(calls, "still one load").toBe(1)
+  })
+
+  it("IN5: a failed load is reported once in a provider, for two elements", async () => {
+    const { w } = createWardic([(): Promise<typeof drag> => Promise.reject(new Error("no such chunk"))])
+    const lines = await logged(async () => {
+      render(() => (
+        <WardicProvider env={DomLive}>
+          <w.div style={BOX} drag="x" />
+          <w.div style={BOX} drag="y" />
+        </WardicProvider>
+      ))
+      await settle()
+      await wait(50)
+    })
+    expect(lines.filter((l) => l.includes("wardic.createWardic: a lazy load of Features failed")), "once, for two elements").toHaveLength(1)
+    expect(lines.some((l) => l.includes("no such chunk")), "its cause").toBe(true)
   })
 })
