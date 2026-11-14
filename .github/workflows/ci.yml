@@ -77,3 +77,30 @@ jobs:
 
       - name: Build
         run: bun run build
+
+  # What an app ships for Wardic (#654, ADR-0067): `bun run size` builds each app as it ships, head
+  # against base, and fails one whose gzip grows more than 1% over the base's, or a Slim element's app
+  # past its budget. A job of its own, so a size failure doesn't hide a test failure. A PR is measured
+  # against its base branch; a push to `main` against the push before, as two PRs each under a budget
+  # can merge past it together.
+  size:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # The base side is built from its commit (`git archive`).
+          fetch-depth: 0
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # A base whose `bun.lock` differs installs its own dependencies first (`depsOf`, `sides.ts`).
+      - name: Size
+        run: bun run size --base "$BASE"
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && format('origin/{0}', github.base_ref) || github.event.before }}

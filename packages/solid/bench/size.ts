@@ -19,7 +19,8 @@
  *   base apps when they pass their budgets (`BUDGETS`). Sizes are deterministic, so no reps and no
  *   quiet host: it runs in seconds. Exits 1 when an app fails.
  *
- * Run it for any change to a package's `src` (`docs/agents/effect-first.md`'s *Checks*).
+ * Run it for any change to a package's `src` (`docs/agents/effect-first.md`'s *Checks*). CI runs it
+ * too (#654, `ci.yml`'s `size` job): a PR against its base branch, a push to `main` against the push before.
  */
 import { execSync } from "node:child_process"
 import { existsSync, mkdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
