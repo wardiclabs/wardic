@@ -2,7 +2,7 @@
  * Every Feature's key (#548, ADR-0067 *Amendment (#548)*): the services an element's code looks up,
  * apart from the Features themselves, whose Layers bring a gesture's or the colour spaces' code. Every
  * page's elements import these; only a page whose section has a Feature imports its module. The
- * `layout` Feature's key is dom's `ProjectionSystem`.
+ * `layout` Feature's key is dom's `ProjectionSystem`, beside {@link ProjectionNodes}, its element code's.
  *
  * @module
  */
@@ -10,12 +10,14 @@ import type * as DragRecognizer from "@wardic/core/DragRecognizer"
 import type * as InputFeed from "@wardic/core/InputFeed"
 import type * as Probe from "@wardic/core/Probe"
 import type * as Recognizer from "@wardic/core/Recognizer"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Context from "effect/Context"
 import type * as Effect from "effect/Effect"
 import type { LazyArg } from "effect/Function"
 import type * as Scope from "effect/Scope"
 import type { trackConstraintsOf } from "../drag-constraints.ts"
 import type { DragTrack, DragTrackOptions } from "../drag-track.ts"
+import type { CreateProjectionNodeOptions, WardLayout } from "../layout-member.ts"
 import type { WardicServices } from "../runtime.ts"
 
 /** The `hover` Feature's service: an element's hover watched, over the gestures' input. */
@@ -87,3 +89,18 @@ export class DragGesture extends /*#__PURE__*/ Context.Service<
 
 /** The `colors` Feature's service: that the page reads every CSS colour space. */
 export class Colors extends /*#__PURE__*/ Context.Service<Colors, true>()("@wardic/solid/Colors") {}
+
+/**
+ * The `layout` Feature's element code (#746, ADR-0067 *Amendment (#746)*, decision 9), beside the
+ * projection system it builds: what makes a Wardic element's **Projection node**, its options from its
+ * config and its registration, so an app without `layout` ships neither.
+ */
+export class ProjectionNodes extends /*#__PURE__*/ Context.Service<
+  ProjectionNodes,
+  {
+    /** A ward's node options, from its config (`layout-member.ts`'s `layoutOptionsOf`). */
+    readonly optionsOf: (ward: WardLayout) => CreateProjectionNodeOptions
+    /** What its node registers with the projection system (`layout-member.ts`'s `registrationOf`). */
+    readonly registrationOf: (opts: CreateProjectionNodeOptions) => ProjectionSystem.RegisterNodeOptions
+  }
+>()("@wardic/solid/ProjectionNodes") {}

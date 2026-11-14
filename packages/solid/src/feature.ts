@@ -26,7 +26,7 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as OwnerScope from "./owner-scope.ts"
-import type { WardFeatureConfigs } from "./config.ts"
+import type { WardConfig, WardFeatureConfigs } from "./config.ts"
 import type { ALL } from "./features/all.ts"
 import type { Reactivity } from "./reactivity.ts"
 import type { ProviderRuntime, ProviderServices, WardicServices } from "./runtime.ts"
@@ -476,6 +476,10 @@ export const strictMessage = (complete: string, slim: string): string =>
 
 /** What development's word on a missing `layout` Feature names (#511): the props that need it. */
 export const LAYOUT_PROPS = "A layout prop (`layout`, `layoutId`, `layoutScroll` or `layoutRoot`)"
+
+/** Whether a config makes its element a projection node: `layout` (or a mode), a `layoutId`, `layoutScroll` or `layoutRoot`. */
+export const wantsLayoutNode = (c: WardConfig): boolean =>
+  c.layout === true || Predicate.isString(c.layout) || Predicate.isNotUndefined(c.layoutId) || c.layoutScroll === true || c.layoutRoot === true
 
 /**
  * Development's word on a missing Feature (#511, ADR-0067 decision 7): what needed it, its import from

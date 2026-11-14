@@ -72,7 +72,6 @@ import { createVariantNode } from "./variant-node.ts"
 import { type GestureStates, type NameOrchestration, type ServerVariantNode, serverVariantNode, startingValuesOf, startsQuiet } from "./variant-tree.ts"
 import { registerAnimatable } from "./imperative.ts"
 import { projectionNodeOf, useLayoutGroupId } from "./layout.tsx"
-import { layoutOptionsOf, wantsLayoutNode } from "./layout-member.ts"
 
 
 
@@ -85,11 +84,11 @@ import { type PresenceSeed, presenceSeedOf } from "./presence-record.ts"
 import type { PresenceRecord } from "./presence-record.ts"
 import { createWhenWanted, NEVER_STARTED, type Started, stateOf, type Wants } from "./sensors.tsx"
 import { type GestureCallbacks, gestureCallbacksOf, inViewOptionsOf, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "./gesture-callbacks.ts"
-import { type Feature, type FeatureRegistry, type FeatureSection, type InstanceFeatures, LAYOUT_PROPS, missingMessage, unreadColorIn } from "./feature.ts"
+import { type Feature, type FeatureRegistry, type FeatureSection, type InstanceFeatures, LAYOUT_PROPS, missingMessage, unreadColorIn, wantsLayoutNode } from "./feature.ts"
 import { runWatch, useBuiltProjection, useElementFeatures, useFeatureRegistry, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicReducedMotion, useWardicRenderer, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { transformPagePointOf } from "./wardic-config-value.ts"
-import { projectionIn, type WardicRuntime } from "./runtime.ts"
+import { projectionIn, projectionNodesIn, type WardicRuntime } from "./runtime.ts"
 import { isHydrating, isServer } from "./server.ts"
 import { reactivity } from "./solid-reactivity.ts"
 import {
@@ -673,9 +672,11 @@ export function runSpine(opts: RunSpineOptions): void {
         }
         const onLayoutHandle = internal.onLayoutHandle
         // Its node on `projection`, handed to a `<Reorder>` item's group; `takenNow`, where a child that
-        // takes over from a leaver starts, at its mount only (#286).
+        // takes over from a leaver starts, at its mount only (#286). Made by the `layout` Feature's code
+        // (#746), read from its section's Features, which have `layout` once they have `projection`.
         const layoutNodeOn = (projection: ProjectionSystem.Shape, takenNow: PresenceSeed | undefined): ProjectionSystem.NodeHandle => {
-          const handle = projectionNodeOf(projection, layoutOptionsOf({ ...ward, taken: takenNow }))
+          const nodes = projectionNodesIn(untrack(features.services))
+          const handle = projectionNodeOf(projection, nodes, nodes.optionsOf({ ...ward, taken: takenNow }))
           if (Predicate.isNotUndefined(onLayoutHandle)) onLayoutHandle(handle)
           return handle
         }
