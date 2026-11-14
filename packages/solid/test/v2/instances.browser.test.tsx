@@ -1,6 +1,7 @@
 // A Wardic instance at runtime on Solid 2 (#516, ADR-0067 *Amendment (#516)*): `createWardic(features)`'s
 // elements and wards bring its Features wherever they render.
 // - INV1: an instance of `hover`: its `w.div` hovers under a provider given no Features.
+// - INV3: every form of its `w` brings them: `w.create(tag)`, `w.create(Component)` and `w.ward()`.
 import type { JSX } from "@solidjs/web"
 import { DomLive } from "@wardic/dom"
 import { createWardic, hover, WardicProvider } from "@wardic/solid/unstable/v2"
@@ -34,5 +35,30 @@ describe("A Wardic instance (#516), Solid 2", () => {
     await hoverUntil(el, () => opacityOf(el) > 0.5, 2000)
     await until(() => opacityOf(el) === 1, 2000)
     expect(opacityOf(el)).toBe(1)
+  })
+
+  it("INV3: every form brings them: w.create(tag), w.create(Component) and w.ward()", async () => {
+    const { w } = createWardic([hover])
+    const HOVERS = { initial: { opacity: 0.2 }, animate: { opacity: 0.2 }, whileHover: { opacity: 1 }, transition: TWEEN } as const
+    const Span = w.create("span")
+    const Section = w.create((props: { readonly ref?: JSX.Ref<HTMLElement> }) => <section {...props} />)
+    const els: Array<HTMLElement> = []
+    const Spread = (): JSX.Element => {
+      const card = w.ward(HOVERS)
+      return <div data-spread {...card.with({ style: BOX })} />
+    }
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive}>
+        <Span ref={(n: HTMLElement) => els.push(n)} style={BOX} {...HOVERS} />
+        <Section ref={(n: HTMLElement) => els.push(n)} style={BOX} {...HOVERS} />
+        <Spread />
+      </WardicProvider>
+    ))
+    await settle()
+    els.push(host.querySelector<HTMLElement>("[data-spread]")!)
+    expect(els).toHaveLength(3)
+    for (const el of els) await hoverUntil(el, () => opacityOf(el) > 0.5, 2000)
+    await until(() => els.every((el) => opacityOf(el) === 1), 2000)
+    expect(els.map(opacityOf)).toEqual([1, 1, 1])
   })
 })

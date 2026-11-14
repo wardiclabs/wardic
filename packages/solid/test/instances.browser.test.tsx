@@ -1,6 +1,8 @@
 // A Wardic instance at runtime (#516, ADR-0067 *Amendment (#516)*), on the Solid 1 binding:
 // `createWardic(features)`'s elements bring its Features wherever they render.
 // - IN1: an instance of `hover`: its `w.div` hovers under a provider given no Features.
+// - IN3: every form of its `w` brings them: `w.create(tag)`, `w.create(Component)`, `w.createWard` and
+//   `use:w`.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { createWardic, hover, WardicProvider } from "@wardic/solid"
@@ -39,5 +41,30 @@ describe("A Wardic instance (#516), Solid 1", () => {
     await hoverUntil(el, () => opacityOf(el) > 0.5, 2000)
     await until(() => opacityOf(el) === 1, 2000)
     expect(opacityOf(el)).toBe(1)
+  })
+
+  it("IN3: every form brings them: w.create(tag), w.create(Component), w.createWard and use:w", async () => {
+    const { w } = createWardic([hover])
+    const HOVERS = { initial: { opacity: 0.2 }, animate: { opacity: 0.2 }, whileHover: { opacity: 1 }, transition: TWEEN } as const
+    const Span = w.create("span")
+    const Section = w.create((props: { readonly ref?: (el: HTMLElement) => void; readonly style?: JSX.CSSProperties }) => <section {...props} />)
+    const els: Array<HTMLElement> = []
+    const Spread = (): JSX.Element => {
+      const ward = w.createWard(HOVERS)
+      return <div {...ward({ ref: (n: HTMLElement) => els.push(n), style: BOX })} />
+    }
+    render(() => (
+      <WardicProvider env={DomLive}>
+        <Span ref={(n: HTMLElement) => els.push(n)} style={BOX} {...HOVERS} />
+        <Section ref={(n: HTMLElement) => els.push(n)} style={BOX} {...HOVERS} />
+        <Spread />
+        <div ref={(n: HTMLElement) => els.push(n)} style={{ ...BOX, opacity: 0.2 }} use:w={HOVERS} />
+      </WardicProvider>
+    ))
+    await settle()
+    expect(els).toHaveLength(4)
+    for (const el of els) await hoverUntil(el, () => opacityOf(el) > 0.5, 2000)
+    await until(() => els.every((el) => opacityOf(el) === 1), 2000)
+    expect(els.map(opacityOf)).toEqual([1, 1, 1, 1])
   })
 })
