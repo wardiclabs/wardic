@@ -19,7 +19,7 @@ import type * as Scope from "effect/Scope"
 import * as FlushGate from "./FlushGate.ts"
 import { PassEnds } from "./internal/pass-ends.ts"
 import * as internal from "./internal/projection.ts"
-import { makeRunner } from "./internal/runner.ts"
+import * as WardicServices from "@wardic/core/unstable/WardicServices"
 import { ProjectionSystem, type Options, type Services, type Shape, type Sink } from "./ProjectionSystem.ts"
 
 /**
@@ -30,11 +30,11 @@ import { ProjectionSystem, type Options, type Services, type Shape, type Sink } 
 // The context holds the internal `PassEnds` too (internal/pass-ends.ts, #618), the engine's own, so a
 // ProjectionSystem a binding wraps or replaces in its context still has its Reorder controller hear
 // each Measure pass. Its runner forks on Effect's default scheduler, whatever call built the Layer
-// (`internal/runner.ts`).
+// (core's `unstable/WardicServices`).
 export const make: (sink: Sink, options?: Options) => Effect.Effect<Context.Context<ProjectionSystem | PassEnds>, never, Services | Scope.Scope> =
   /*#__PURE__*/ Effect.fnUntraced(function* (sink: Sink, options: Options = {}) {
     // Typed without `dispose` and `onPassEnd`: the Scope ends it, and `PassEnds` hands the other out.
-    const system = internal.makeProjectionSystem(yield* makeRunner<Services>(), sink, options)
+    const system = internal.makeProjectionSystem(yield* WardicServices.makeRunner<Services>(), sink, options)
     yield* Effect.addFinalizer(() => Effect.sync(system.dispose))
     return Context.make(ProjectionSystem, system as Shape).pipe(Context.add(PassEnds, { onPassEnd: system.onPassEnd }))
   })

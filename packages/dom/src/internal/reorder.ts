@@ -58,7 +58,7 @@ import { documentOf, prepareAnnouncer } from "./announcer.ts"
 import { type AutoScroller, makeAutoScroller } from "./auto-scroll.ts"
 import * as Report from "@wardic/core/unstable/Report"
 import { type Rect, revealLayoutOf, revealRectOf } from "./reveal.ts"
-import type { Runner } from "./runner.ts"
+import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /**
  * The group element's style: no scroll anchoring, so the browser doesn't shift the
@@ -75,7 +75,7 @@ export const REORDER_GROUP_STYLE = Object.freeze({ "overflow-anchor": "none" } a
  */
 export interface ReorderControllerWiring {
   /** The runner the controller logs through and waits in. */
-  readonly runtime: Runner<never>
+  readonly runtime: WardicServices.Runner<never>
   /** The app changed `values`: have the items laid out in it, a Measure pass, or nothing for items the binding places itself. */
   readonly layOut: () => void
   /** Speak an **Announcement**: the Environment's `Announcer`. Left out, nothing is announced. */

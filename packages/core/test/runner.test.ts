@@ -1,5 +1,5 @@
-// A Layer-built service's runner (#132, ADR-0041; `internal/runner.ts`), as `FlushGate.make` and
-// `DomProjectionSystem.make` use it.
+// A Layer-built service's runner (#132, ADR-0041; core's `unstable/WardicServices` since #672, dom's
+// `internal/runner.ts` before), as the Flush gate's and the projection system's `make` use it.
 //
 // - RN1: built inside a `ManagedRuntime.runSync` (a binding's first read), a fork resumes from a
 //   yield on Effect's default scheduler, a macrotask, not on that `runSync`'s sync scheduler, a
@@ -21,13 +21,13 @@ import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Scheduler from "effect/Scheduler"
 import * as Scope from "effect/Scope"
 import { describe, expect, it } from "vitest"
-import { makeRunner, type Runner } from "../src/internal/runner.ts"
+import * as WardicServices from "@wardic/core/unstable/WardicServices"
 
-class Probe extends Context.Service<Probe, Runner<never>>()("test/runner") {}
-const runtimeOf = () => ManagedRuntime.make(Layer.effect(Probe)(makeRunner<never>()))
+class Probe extends Context.Service<Probe, WardicServices.Runner<never>>()("test/runner") {}
+const runtimeOf = () => ManagedRuntime.make(Layer.effect(Probe)(WardicServices.makeRunner<never>()))
 /** The runner's Layer built under `scheduler`, provided as a host provides its own. */
 const runtimeUnder = (scheduler: Scheduler.Scheduler) =>
-  ManagedRuntime.make(Layer.effect(Probe)(makeRunner<never>()).pipe(Layer.provide(Layer.succeed(Scheduler.Scheduler, scheduler))))
+  ManagedRuntime.make(Layer.effect(Probe)(WardicServices.makeRunner<never>()).pipe(Layer.provide(Layer.succeed(Scheduler.Scheduler, scheduler))))
 /** A `MixedScheduler` of `mode` that dispatches on a microtask and counts its dispatches, as Foldkit's does. */
 const recording = (mode: "sync" | "async") => {
   const counted = { dispatches: 0 }
@@ -113,7 +113,7 @@ describe("a Layer-built service's runner (#132)", () => {
     // A service as the dom's are built: its fiber kept in the runner's Scope, its cleanup a finalizer added after.
     const service = Layer.effectDiscard(
       Effect.gen(function* () {
-        const runner = yield* makeRunner<never>()
+        const runner = yield* WardicServices.makeRunner<never>()
         const fibers = runner.runSync(FiberSet.make<void>().pipe(Scope.provide(runner.scope)))
         kept = runner.runSync(FiberSet.run(fibers, Effect.never.pipe(Effect.onInterrupt(() => Effect.sync(() => void ran.push("fiber"))))))
         yield* Effect.addFinalizer(() => Effect.sync(() => void ran.push("cleanup")))

@@ -29,7 +29,7 @@ import { constVoid } from "effect/Function"
 import type * as Scope from "effect/Scope"
 import { PassEnds } from "./internal/pass-ends.ts"
 import * as internal from "./internal/reorder.ts"
-import { makeRunner } from "./internal/runner.ts"
+import * as WardicServices from "@wardic/core/unstable/WardicServices"
 import * as ProjectionSystem from "./ProjectionSystem.ts"
 
 export {
@@ -66,7 +66,7 @@ export const make: <V>(options: Options<V>) => Effect.Effect<ReorderController<V
     const passEnds = yield* PassEnds
     const announcer = yield* Announcer.Announcer
     const controller = internal.makeReorderController(
-      { runtime: yield* makeRunner<never>(), layOut: () => projection.notify(), announce: announcer.announce, onLaidOut: passEnds.onPassEnd },
+      { runtime: yield* WardicServices.makeRunner<never>(), layOut: () => projection.notify(), announce: announcer.announce, onLaidOut: passEnds.onPassEnd },
       options,
     )
     yield* Effect.addFinalizer(() => Effect.sync(controller.dispose))
@@ -97,7 +97,7 @@ export const makePlaced: <V>(options: Options<V>) => Effect.Effect<Placed<V>, ne
     let laidOut: () => void = constVoid
     const controller = internal.makeReorderController(
       {
-        runtime: yield* makeRunner<never>(),
+        runtime: yield* WardicServices.makeRunner<never>(),
         // The binding places its items on a change of `values` itself.
         layOut: constVoid,
         announce: announcer.announce,
