@@ -1,5 +1,20 @@
 # @wardic/core
 
+## 1.1.0
+
+### Minor Changes
+
+- f0a53ea: `LiveValue.derivesAs(atom, source)` describes an Atom a binding keeps and sets from `source` as deriving from a container's scroll as `source` does, so a Timeline value finds it, and a `transform` made over it before then derives through it too. `scrollDerivationOf` now reads a value's derivation when it's asked for: a `transform` made before its source was described, or a source pointed somewhere new, is described as its source is now.
+- ff7e153: `LiveValue.scrollDerivationOf(atom)` describes how a Live value derives from a container's scroll: the scroll's options, whether it reads how far the container is scrolled or its progress, on which axis, and each `transform` it went through, with its ranges as given. `scroll`'s four values carry one, and so does each `transform` over them; a `spring` or a `velocity` of one doesn't. An Environment reads it to run the value on a native scroll timeline, a Timeline value, where it can.
+- 6f8df81: Wardic's spans are now an app's to give: merge `WardicSpans`, from `@wardic/dom`, beside `DomLive` with a tracer installed (the devtools', an OpenTelemetry exporter's) to see each animation, burst of frames, gesture, layout pass and exit in its span. Without it, Wardic opens no spans, and an app ships none of Effect's span code: every app is about 1.8 KB gzipped smaller. With a tracer installed and no `WardicSpans`, each `WardicProvider` warns once in development. Core adds the `Spans` module: `Spans.layer`, which `WardicSpans` is; `Spans.withSpan`, for a binding's own spans; and `Spans.missing`, whether a tracer reads spans nothing gives.
+
+### Patch Changes
+
+- fc5918f: A Batch's step writes only the members it moves, and those whose values a change outside a step set (one entering, a new Subject, a start from a given value, a play, seek, stop or cancel). A member waiting out a stagger's delay, or held by a paused Playhead, is no longer written each frame: on the DOM, a frame of 1,000 staggered members costs about a third less, and a paused one about three quarters less.
+- af4239d: An internal `Machine.nextFrame`, for the bindings: it succeeds at the Frame loop's next tick, once. `@wardic/solid` writes a Batch Reorder group's own size with it.
+- 647dc1d: The Frame loop and the DOM's services hold their fibers themselves: a Slim element's app, and an app with only the hover, press, focus or in-view gestures, ships none of Effect's `FiberHandle` and `FiberSet`, 0.7 KB gzipped smaller on Solid 1 and 0.8 on Solid 2. An app whose layout, drag or Live values (a follow value, `createVelocity`, `createTime`, `createAnimationFrame`) use them still ships them.
+- e0bec2c: An app ships less code it never calls. A bundler kept a few of Wardic's module-level helpers and Layers in every app, whether it used them or not, among them `Renderer.applyTo`, `DefaultTransition.layerOneSpring` and `FlushGate.layerInert`; they're now marked so it drops them. A Slim element's app is 0.3 KB gzipped smaller on Solid 1 and 0.4 on Solid 2, and every app is a little smaller.
+
 ## 1.0.1
 
 ### Patch Changes
