@@ -17,7 +17,7 @@
 // - ITV7: an instance with `layout`, given at once or loaded, has the three layout hooks (Q6).
 // - ITV8: an instance's ward's `next`, `each` and `when` take `settled` and its Features' events; another
 //   Feature's event is an error (Q19): `w.ward()`'s, and the one its element hands to `wardRef`. It's a
-//   `Ward<C, F>`, `F` its Features. A plain ward's take every event, as they did.
+//   `Ward<C, F>`, `F` its Features, and still a `Ward`. A plain ward's take every event, as they did.
 // - ITV9: `createWardic`'s instance is typed from its list literal: a preset, a nested list, one
 //   Feature, and a load, its Features from what it resolves to.
 import type { JSX } from "@solidjs/web"
@@ -399,6 +399,13 @@ describe("a Wardic instance's types on Solid 2 (#516)", () => {
 
     typed((): Ward<{}, typeof domAnimation> => shell.ward())
     expectTypeOf<Ward<{}, typeof domMax>>().toEqualTypeOf<Ward<{}>>()
+
+    // Still a Ward, for an app's `Array<Ward>` or `(card: Ward) => …`: from w.ward(), and from wardRef.
+    typed(() => {
+      const wards: Array<Ward> = []
+      wards.push(shell.ward({ whileHover: { scale: 1.1 } }))
+      return <shell.div wardRef={(card) => wards.push(card)} />
+    })
   })
 
   it("ITV9: createWardic's instance is typed from its list literal, loads included", () => {
