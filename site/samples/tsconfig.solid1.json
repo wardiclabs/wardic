@@ -18,7 +18,8 @@
       "solid-js": ["../../packages/solid/node_modules/solid-js/types/index.d.ts"],
       "solid-js/web": ["../../packages/solid/node_modules/solid-js/web/types/index.d.ts"],
       "solid-js/store": ["../../packages/solid/node_modules/solid-js/store/types/index.d.ts"],
-      "solid-js/jsx-runtime": ["../../packages/solid/node_modules/solid-js/types/jsx.d.ts"]
+      "solid-js/jsx-runtime": ["../../packages/solid/node_modules/solid-js/types/jsx.d.ts"],
+      "~/lib/wardic.ts": ["./solid1-wardic.ts"]
     }
   },
   "include": ["*/solid1.tsx"]

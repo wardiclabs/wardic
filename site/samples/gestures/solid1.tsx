@@ -1,4 +1,4 @@
-import { w } from "@wardic/solid"
+import { w } from "~/lib/wardic.ts"
 import { createSignal } from "solid-js"
 
 /** A button that answers hover, press and keyboard focus, and counts its taps. */

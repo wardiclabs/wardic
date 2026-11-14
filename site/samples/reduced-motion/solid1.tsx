@@ -1,4 +1,5 @@
-import { createReducedMotion, w, WardicConfig } from "@wardic/solid"
+import { createReducedMotion, WardicConfig } from "@wardic/solid"
+import { w } from "~/lib/wardic.ts"
 import { createSignal, For } from "solid-js"
 
 const SETTINGS = ["user", "always", "never"] as const

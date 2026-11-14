@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, screen } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { domAnimation, w, WardicConfig, WardicProvider } from "@wardic/solid"
+import { WardicConfig, WardicProvider } from "@wardic/solid"
+import { w } from "~/lib/wardic.ts"
 import type { JSX } from "solid-js"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 
@@ -21,7 +22,7 @@ function Notice(props: { readonly onUndo?: () => void }) {
 
 /** The provider, as the app has it. */
 const withWardic = (ui: () => JSX.Element) => () => (
-  <WardicProvider env={DomLive} features={[domAnimation]}>
+  <WardicProvider env={DomLive}>
     {ui()}
   </WardicProvider>
 )
