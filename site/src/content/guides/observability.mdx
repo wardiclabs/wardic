@@ -18,13 +18,16 @@ A provider builds its `env` at once, as its first element renders, so each Layer
 Effect's defaults are production's: Wardic's Debug logs are dropped, and its warnings and errors print to the console. With the level at `"Debug"`, you see:
 
 - each animation as it starts, such as `wardic.springValues: start`, with the keys it moves;
-- the layout system's nodes, as they're registered and disposed, and presence's exits as they're decided.
+- the layout system's nodes, as they're registered and disposed, and presence's exits as they're decided;
+- in development only, a key that started from, or returned to, its base value (`wardic.base`), and a hydrated element whose Appear animation the server sampled from another animation than the client's (one of the `wardic.hydration` notes).
 
 Its warnings point at a mistake, for example:
 
-- `wardic.style`: a `transform` string is dropped while `style` sets a transform key, such as `x` or `scale`.
 - `wardic.interpolator`: a pair of values that can't be blended, such as `10px` and `50%`, switches at the first frame.
+- In development only, `wardic.style`: a `transform` string is dropped while `style` sets a transform key, such as `x` or `scale`.
 - In development only, a prop whose [Feature](/guides/features) no provider or `LazyWardic` above it gives.
+
+A production build leaves development's notes out. Two errors an app can hit, an `env` that waits as it builds and a `wardic.create` component that doesn't forward its ref, say one line there and the whole fix in development.
 
 ## Failures
 

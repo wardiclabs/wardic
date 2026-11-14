@@ -123,6 +123,8 @@ import {
   sameResolution,
   serverStartingStyle,
   snapshotOf,
+  SPINE_DIAGNOSTICS,
+  type SpineDiagnostics,
   startLinksOf,
   type Start,
   startOf,
@@ -935,6 +937,7 @@ export function runSpine(opts: RunSpineOptions): void {
         handoff,
         // Motion's onAnimationStart / onAnimationComplete (#257).
         animation: animationCallbacks(runtime, id),
+        diagnostics: devSpineDiagnostics(),
       }
       // A track that starts once `drag` arrives (#551) is read at each Retarget from then on: only
       // then is `drag` a getter, so an element that has it at mount, or never wants it, pays nothing.
@@ -980,6 +983,21 @@ export function runSpine(opts: RunSpineOptions): void {
       spine.follow({ resolved: () => untrack(target).resolved, dragging: () => untrack(dragging) })
     }),
   )
+}
+
+/**
+ * Development's diagnostics for the spine (#746, ADR-0067 *Amendment (#746)*, decision 6): given under
+ * Solid's `DEV` alone, so a production build ships none of their code.
+ */
+const devSpineDiagnostics = (): SpineDiagnostics | undefined => {
+  if (DEV) return SPINE_DIAGNOSTICS
+  return undefined
+}
+
+/** In development alone (#746), what warns once that a `transform` string gave way to `style`'s transform keys. */
+const droppedTransformWarning = (runtime: WardicRuntime, id: string): (() => void) | undefined => {
+  if (DEV) return () => warnDroppedTransform(runtime, id)
+  return undefined
 }
 
 /**
@@ -1066,7 +1084,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
 
   // Its routed `style` keys (#130, ADR-0043): its Live values and transform keys, which the gate
   // writes from mount, and the Starting style carries until then, under `initial`'s.
-  const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: () => warnDroppedTransform(runtime, id), reactivity })
+  const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: droppedTransformWarning(runtime, id), reactivity })
   const projectStarting = Bool.match(hydrating, { onTrue: () => DomRenderer.project, onFalse: () => project })
   const startingWith = (routed: Values.Values): Renderer.Patch =>
     Svg.splitPatchForTag(internal.tag, projectStarting(drawnAtRest({ ...routed, ...initialValues }, layoutNode, initialConfig.transformTemplate))).style

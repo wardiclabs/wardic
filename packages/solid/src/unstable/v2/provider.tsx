@@ -56,6 +56,7 @@ import {
   type WardicServices,
   whenIdle,
 } from "../../runtime.ts"
+import { WAITING_ENV_FIX, WAITING_ENV_LINE } from "../../messages.ts"
 import { onSettledClientOnly, reactivityIn } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { skipAnimationsOf } from "../../wardic-config-value.ts"
@@ -78,14 +79,26 @@ const WardicContext = createContext<WardicContextValue | null>(null)
 const contextValue = (): WardicContextValue | undefined => Option.getOrUndefined(Option.fromNullishOr(useContext(WardicContext)))
 
 /**
+ * What a client provider fails with when its `env` waits as it builds (#746, ADR-0067 *Amendment
+ * (#746)*, decision 7): the fix in development, under Solid's `DEV`, and one line in a production
+ * build. A server render always gives the fix: Solid 1's server build has no `DEV`, and a client build
+ * drops the server's branch.
+ */
+const waitingEnvMessage = (): string => {
+  if (DEV) return WAITING_ENV_FIX
+  return WAITING_ENV_LINE
+}
+
+/**
  * A provider's context: a server render's, inert, or the client's. Decided by a plain `if`: a client
  * build folds `isServer` and drops the server render's code, where `Bool.match` kept it (#518: 8.4 KB
  * gzipped in every Solid 2 app). `env` and `appear` are read once, as the provider's docs say.
  */
 const contextOf = (given: Parameters<typeof WardicProvider>[0]): WardicContextValue => {
-  if (isServer) return serverContext(given.env, serverAppearOf(given.appear, given.reducedMotion, given.nonce), () => untrack(() => given.reducedMotion))
+  if (isServer) return serverContext(given.env, WAITING_ENV_FIX, serverAppearOf(given.appear, given.reducedMotion, given.nonce), () => untrack(() => given.reducedMotion))
   return clientContext(
     given.env,
+    waitingEnvMessage(),
     applyAndFlush,
     () => untrack(() => given.reducedMotion),
     // The provider's setting, tracked too: `createReducedMotionConfig` reads it where it tracks (#584).

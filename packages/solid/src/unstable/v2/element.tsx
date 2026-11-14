@@ -28,7 +28,8 @@ import * as Predicate from "effect/Predicate"
 import { identity } from "effect/Function"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type ComponentProps, dynamic, isServer, type JSX, type ValidComponent } from "@solidjs/web"
-import { $PROXY, children, type Component, createEffect, createMemo, createRoot, omit, runWithOwner, untrack } from "solid-js"
+import { $PROXY, children, type Component, createEffect, createMemo, createRoot, DEV, omit, runWithOwner, untrack } from "solid-js"
+import { unforwardedRefFix, unforwardedRefLine } from "../../messages.ts"
 import { MOTION_PROPS_V2 as MOTION_PROPS, type WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
 import { changesContext, isVariantChild } from "../../variant-tree.ts"
 import { type AnyWard, GESTURE_KEYS, shareOf, type Ward, WARD, type WardConfig, type WardFor, type WardConfigValues, wardConfigView, type WardInternals, type WardRead, type WardShare, type WardStyle, wardWith } from "./ward.tsx"
@@ -472,6 +473,16 @@ const tagComponent = (tag: string, routing: string | undefined, forward: boolean
   }
 }
 
+/**
+ * The error for a wrapped component that renders an element but forwards its ref to none (#746,
+ * ADR-0067 *Amendment (#746)*, decision 7): the fix in development, under Solid's `DEV`, and one line
+ * in a production build. `label` names the wrap.
+ */
+const unforwardedRefMessage = (label: string): string => {
+  if (DEV) return unforwardedRefFix(label)
+  return unforwardedRefLine(label)
+}
+
 /** `wardic.create(Component)`: the ward on the element the component forwards its `ref` to (ADR-0008). */
 const wrapComponent = (Wrapped: Component<Record<string, unknown>>, routing: string | undefined, forward: boolean, kind: WardInternals): Component<Record<string, unknown>> => {
   // The component it wraps never changes, so a static `dynamic()` makes no memos over it (#525). A
@@ -499,11 +510,7 @@ const wrapComponent = (Wrapped: Component<Record<string, unknown>>, routing: str
         (elements) => {
           if (Arr.isArrayEmpty(elements)) return
           if (Arr.some(elements, (inside) => Predicate.isNotUndefined(reached) && inside.contains(reached))) return
-          throw new Error(
-            `${name}: the wrapped component rendered an element but did not forward its ref to it. ` +
-              "The component must forward props.ref to a single root DOM element " +
-              "(e.g. <div ref={props.ref}>...</div>). Element-only motion is wired through the ref.",
-          )
+          throw new Error(unforwardedRefMessage(name))
         },
         CLIENT_ONLY,
       )
