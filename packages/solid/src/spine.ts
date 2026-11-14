@@ -2488,6 +2488,53 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     return !tookRelease
   }
 
+  // --- Imperative animations (#433) -------------------------------------------
+  // What an Imperative animation takes from the spine (#746, ADR-0067 *Amendment (#746)*, decision 10):
+  // made at the first, its code `imperative.ts`'s, so an app that never animates imperatively ships none.
+  let imperativeHost: ImperativeHost | undefined
+  const imperative = (): ImperativeHost => {
+    if (Predicate.isUndefined(imperativeHost)) {
+      // Live reads are functions, not getters: V8 keeps a getter in its object's map, so with three of
+      // its own each host had a map of its own, 1.9 KB a host against 0.5.
+      imperativeHost = {
+        lastResolution: () => lastResolution,
+        snapshot,
+        owners,
+        taking: () => {
+          readAt = snapshot.now()
+          if (taken === NONE_TAKEN) taken = new Map()
+          return taken
+        },
+        returning: () => returning,
+        timelineKeys: () => timelineKeys,
+        giveUp,
+        initialValues,
+        ownValue,
+        startKey,
+        keepTheRest,
+        reducedMotion: options.reducedMotion,
+        skipAnimations,
+        element,
+        positionalKeys,
+        defaultTransition,
+        readVelocity,
+        gate,
+        forget,
+        endLeg,
+        live,
+        own,
+        legProgram,
+        legEnded,
+        turnBack,
+        id,
+        recordFrame,
+        runtime,
+        elementRules,
+      }
+    }
+    return imperativeHost
+  }
+
   // --- A Batch member's element (#665's PR 4, ADR-0069 decision 17, Q52–Q54) -----------------------
 
   // Its hold on what it takes from its Batch: made as its element is first found a member's, at a
@@ -3142,53 +3189,6 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       driven.set(key, values[key])
     })
     queueMicrotask(() => gate.flushPass(() => gate.write(id, values)))
-  }
-
-  // --- Imperative animations (#433) -------------------------------------------
-  // What an Imperative animation takes from the spine (#746, ADR-0067 *Amendment (#746)*, decision 10):
-  // made at the first, its code `imperative.ts`'s, so an app that never animates imperatively ships none.
-  let imperativeHost: ImperativeHost | undefined
-  const imperative = (): ImperativeHost => {
-    if (Predicate.isUndefined(imperativeHost)) {
-      // Live reads are functions, not getters: V8 keeps a getter in its object's map, so with three of
-      // its own each host had a map of its own, 1.9 KB a host against 0.5.
-      imperativeHost = {
-        lastResolution: () => lastResolution,
-        snapshot,
-        owners,
-        taking: () => {
-          readAt = snapshot.now()
-          if (taken === NONE_TAKEN) taken = new Map()
-          return taken
-        },
-        returning: () => returning,
-        timelineKeys: () => timelineKeys,
-        giveUp,
-        initialValues,
-        ownValue,
-        startKey,
-        keepTheRest,
-        reducedMotion: options.reducedMotion,
-        skipAnimations,
-        element,
-        positionalKeys,
-        defaultTransition,
-        readVelocity,
-        gate,
-        forget,
-        endLeg,
-        live,
-        own,
-        legProgram,
-        legEnded,
-        turnBack,
-        id,
-        recordFrame,
-        runtime,
-        elementRules,
-      }
-    }
-    return imperativeHost
   }
 
   // **Animation controls**' `stop` (#433): every running leg ends where it is, its keys given up, so
