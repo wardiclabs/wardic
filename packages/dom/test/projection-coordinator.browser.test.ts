@@ -18,6 +18,7 @@ import { describe, expect, it } from "@effect/vitest"
 import * as Clock from "@wardic/core/Clock"
 import type * as Frame from "@wardic/core/Frame"
 import * as FrameLoop from "@wardic/core/FrameLoop"
+import * as Spans from "@wardic/core/Spans"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Machine from "@wardic/core/Machine"
 import * as Cause from "effect/Cause"
@@ -165,6 +166,8 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
     Layer.mergeAll(
       env,
       Layer.succeed(Tracer.Tracer, Tracer.make({ span: (options) => new RecordingSpan(options) })),
+      // Wardic's spans, the app's to give (#746).
+      Spans.layer,
       Logger.layer([
         Logger.map(Logger.formatStructured, (s) => {
           logs.push({ level: s.level, message: String(s.message), cause: s.cause })

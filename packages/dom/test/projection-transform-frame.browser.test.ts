@@ -19,6 +19,7 @@ import type * as Exit from "effect/Exit"
 import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Tracer from "effect/Tracer"
+import * as Spans from "@wardic/core/Spans"
 import { afterEach, beforeEach, vi } from "vitest"
 import { DomLive } from "@wardic/dom"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
@@ -101,7 +102,8 @@ const makeEngine = (sink: ReturnType<typeof makeSink>["sink"]) => {
     span: (options) =>
       Bool.match(options.name === "wardic.projection.measure", { onTrue: () => new MeasureSpan(options), onFalse: () => new Tracer.NativeSpan(options) }),
   })
-  const runtime = ManagedRuntime.make(Layer.merge(DomLive, Layer.succeed(Tracer.Tracer, tracer)))
+  // The projection's spans, the app's to give (#746): what the pass's attributes are read from.
+  const runtime = ManagedRuntime.make(Layer.mergeAll(DomLive, Layer.succeed(Tracer.Tracer, tracer), Spans.layer))
   const system = internalProjection.makeProjectionSystem(runtime, sink)
   return {
     system,

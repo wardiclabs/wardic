@@ -74,14 +74,14 @@ import * as Predicate from "effect/Predicate"
 import * as References from "effect/References"
 import type * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
-import * as Tracer from "effect/Tracer"
+import type * as Tracer from "effect/Tracer"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as Clock from "../Clock.ts"
 import type * as Frame from "../Frame.ts"
 import * as Supersede from "../Supersede.ts"
 import type * as FrameLoop from "../FrameLoop.ts"
 import type * as Machine from "../Machine.ts"
-import { isTraced, traced } from "./tracing.ts"
+import { none, SpansGiven, traced } from "./tracing.ts"
 
 // @wardic/core compiles against ES2022 alone, which does not declare `performance` (see
 // refresh-frame-clock.ts). It is a host global in every Environment Wardic targets.
@@ -610,9 +610,10 @@ export const make = Effect.fnUntraced(
           const logged = !LogLevel.isGreaterThan(fiber.getRef(References.MinimumLogLevel), "Debug")
           // The metrics from the first run whose fiber has them (#518); none is read once they're in.
           if (Predicate.isUndefined(metrics)) metrics = fiber.getRef(MetricsGiven)
-          if (!isTraced(fiber)) return added(lane, late, machine, sink, options, undefined, logged)
-          return Effect.useSpan(machine.span.name, { attributes: machine.span.attributes }, (span) =>
-            Effect.provideService(added(lane, late, machine, sink, options, span, logged), Tracer.ParentSpan, span))
+          // Its span, the app's to give (#746): none without `Spans.layer`, and no closure for it.
+          const spans = fiber.getRef(SpansGiven)
+          if (spans === none) return added(lane, late, machine, sink, options, undefined, logged)
+          return spans.run(fiber, machine.span.name, machine.span.attributes, (span) => added(lane, late, machine, sink, options, span, logged))
         })) as Run
 
     /**

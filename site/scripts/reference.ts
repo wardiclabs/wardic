@@ -52,7 +52,7 @@ const READY: Readonly<Record<(typeof PACKAGES)[number]["dir"], ReadonlyArray<str
     // Input and gestures.
     "AutoScroll", "Drag", "DragActivity", "DragRecognizer", "InputFeed", "InputSource", "PressClaims", "Recognizer", "Reorder",
     // Layout and the Environment.
-    "Announcer", "Box", "Clock", "Frame", "FrameLoop", "Microtask", "Point", "Probe", "Projection", "RefreshFrameSource", "Renderer", "SharedSource",
+    "Announcer", "Box", "Clock", "Frame", "FrameLoop", "Microtask", "Point", "Probe", "Projection", "RefreshFrameSource", "Renderer", "SharedSource", "Spans",
   ],
   dom: [
     // The Environment's services.

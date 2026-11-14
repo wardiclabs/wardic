@@ -71,6 +71,7 @@ import type * as Arc from "@wardic/core/Arc"
 import type * as Point from "@wardic/core/Point"
 import * as Probe from "@wardic/core/Probe"
 import * as Projection from "@wardic/core/Projection"
+import * as Spans from "@wardic/core/Spans"
 import * as Renderer from "@wardic/core/Renderer"
 import * as Spring from "@wardic/core/Spring"
 import * as Machine from "@wardic/core/Machine"
@@ -1926,8 +1927,8 @@ export const makeProjectionSystem = (
           Effect.map(expire),
           Effect.flatMap((outcome) => Effect.annotateCurrentSpan(outcome)),
           Effect.tapCause((cause) => reportFailure(`wardic.projection: ${span} failed`, cause)),
-          // No call-site stack (ADR-0040, decision 2): pipeable, it's the third argument.
-          Effect.withSpan(span, { attributes }, { captureStackTrace: false }),
+          // The app's to give, with no call-site stack (#746; ADR-0040, decision 2).
+          Spans.withSpan(span, { attributes }),
         ),
       ),
     )
@@ -4349,7 +4350,7 @@ export const makeProjectionSystem = (
       blocked,
       refresh: refreshed,
     })
-  }).pipe(Effect.withSpan("wardic.projection.measure", undefined, { captureStackTrace: false }))
+  }).pipe(Spans.withSpan("wardic.projection.measure"))
 
   /**
    * Whether a trigger now comes after its frame's tick and before its paint, known from where it runs
@@ -4527,7 +4528,7 @@ export const makeProjectionSystem = (
     // A trigger from its flush is the end-of-task pass's, which the call queues.
     triggeredDuringPass = false
     return Effect.annotateCurrentSpan({ nodes: nodes.size, active: active.size })
-  }).pipe(Effect.withSpan("wardic.projection.declared", undefined, { captureStackTrace: false }))
+  }).pipe(Spans.withSpan("wardic.projection.declared"))
 
   /**
    * The Measurements a task's first **Declared layout change** takes (#4): a Measure pass already due
@@ -5631,13 +5632,13 @@ export const makeProjectionSystem = (
    */
   const handleLeave: ProjectionSystem["handleLeave"] = (el, onDone) =>
     runtime.runSync(
-      Effect.sync(() => doHandleLeave(el, onDone)).pipe(Effect.withSpan("wardic.projection.handleLeave", undefined, { captureStackTrace: false })),
+      Effect.sync(() => doHandleLeave(el, onDone)).pipe(Spans.withSpan("wardic.projection.handleLeave")),
     )
 
   const handBackWithin: ProjectionSystem["handBackWithin"] = (el, onDone) =>
     runtime.runSync(
       Effect.sync(() => Option.fromUndefinedOr(doHandBackWithin(el, onDone))).pipe(
-        Effect.withSpan("wardic.projection.handBackWithin", undefined, { captureStackTrace: false }),
+        Spans.withSpan("wardic.projection.handBackWithin"),
       ),
     )
 
@@ -5683,7 +5684,7 @@ export const makeProjectionSystem = (
           finishLeaver(node)
           return Option.some(fade)
         })
-      ).pipe(Effect.withSpan("wardic.projection.dropLeaver", undefined, { captureStackTrace: false })),
+      ).pipe(Spans.withSpan("wardic.projection.dropLeaver")),
     )
 
   /** Whether a page box takes space in the flow (#261): read the first time it's asked, then kept. */

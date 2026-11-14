@@ -14,7 +14,7 @@ import * as Scheduler from "effect/Scheduler"
 import * as Tracer from "effect/Tracer"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { vi } from "vitest"
-import { DomLive } from "@wardic/dom"
+import { DomLive, WardicSpans } from "@wardic/dom"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as internalProjection from "../src/internal/projection.ts"
 
@@ -143,6 +143,8 @@ export const makeEngine = (sink: ReturnType<typeof makeSink>["sink"], options?: 
     Layer.mergeAll(
       env,
       Layer.succeed(Tracer.Tracer, tracer),
+      // Wardic's spans, the app's to give (#746).
+      WardicSpans,
       Logger.layer([logger]),
       Layer.succeed(References.MinimumLogLevel, "Debug"),
     ),

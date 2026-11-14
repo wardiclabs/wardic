@@ -129,7 +129,7 @@ What a provider's Environment owns lives in its runtime, not in a module (#460, 
 
 ## Spans
 
-Core opens a span only where something reads it: `internal/tracing.ts`'s `traced`, `tracedScoped` and `tracedStream`, which open it when a tracer other than Effect's default `nativeTracer` is installed and tracing is on (ADR-0040, *Amendment (#460)*), never with a call-site stack. A new span in core goes through them. A Stream's is decided once, when it runs, and the pull it hands on is the Stream's own: a wrapper there, a `Stream.unwrap` among them, runs on every pull.
+Wardic's spans are the app's to give (ADR-0067, *Amendment (#746)*): each opens through what the app gives, `Spans.layer` (dom's `WardicSpans`), read from its fiber, and without it none opens and no module an app imports names Effect's `Tracer`. Given, each opens only where something reads it: a tracer other than Effect's default `nativeTracer` installed, tracing on (ADR-0040, *Amendment (#460)*), never with a call-site stack. In core, a span goes through `internal/tracing.ts`'s `traced`, `tracedScoped` and `tracedStream`; in dom or a binding, through `Spans.withSpan`. Only `internal/tracing.ts` calls Effect's own `withSpan`, `withSpanScoped`, `useSpan` and `Stream.withSpan` (lint's `SPANS`). A Stream's is decided once, when it runs, and the pull it hands on is the Stream's own: a wrapper there, a `Stream.unwrap` among them, runs on every pull.
 
 ## Vanilla to Effect
 
@@ -146,8 +146,8 @@ Core opens a span only where something reads it: `internal/tracing.ts`'s `traced
 | a loop over Effects | `Effect.forEach`, `Effect.all` |
 | `switch`, or `if … else` on a union | `Match.type<T>().pipe(Match.discriminator("type")("down", …), Match.exhaustive)`, `Match.value(x).pipe(…)` |
 | `let x: T \| undefined` in a callback | `MutableRef.make(Option.none<T>())` |
-| `Effect.fn(name)(…)`, a function that only returns `Effect.gen(…)` | `Effect.fnUntraced(function* (…) { … })`, and with a span, `Effect.fnUntraced(body, Effect.withSpan(name, options, { captureStackTrace: false }))`: the span its pipeable (#460, Q6). `Effect.gen` builds its generator closure on every call; `fnUntraced` once. A gen passed as a value (`Stream.unwrap`, `runSync`, `Layer.effect`) stays one |
-| `effect.pipe(Effect.withSpan(name))` | `effect.pipe(Effect.withSpan(name, options, { captureStackTrace: false }))`, the stack option as the pipeable form's third argument; data-first, `Effect.withSpan(effect, name, { captureStackTrace: false })`; `Stream.withSpan(name, { captureStackTrace: false })`. No span captures a call-site stack, and `Effect.fn` always does (ADR-0040, decision 2; lint's `SPANS`) |
+| `Effect.fn(name)(…)`, a function that only returns `Effect.gen(…)` | `Effect.fnUntraced(function* (…) { … })`, and with a span, `Effect.fnUntraced(body, (self) => traced(self, name, options))` in core, `Effect.fnUntraced(body, Spans.withSpan(name, options))` elsewhere: the span its pipeable (#460, Q6; #746). `Effect.gen` builds its generator closure on every call; `fnUntraced` once. A gen passed as a value (`Stream.unwrap`, `runSync`, `Layer.effect`) stays one |
+| `effect.pipe(Effect.withSpan(name))` | `effect.pipe(Spans.withSpan(name, options))`, or core's `traced(effect, name, options)`, `tracedScoped` and `tracedStream`: the app's to give, with no call-site stack (#746). Effect's own `withSpan` opens under any tracer and brings `Tracer` into every app; only `internal/tracing.ts`, behind `Spans.layer`, calls it, with `captureStackTrace: false`. `Effect.fn` always captures a stack (ADR-0040, decision 2; lint's `SPANS`) |
 
 ## Import aliases
 

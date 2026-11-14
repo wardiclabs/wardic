@@ -57,6 +57,7 @@ import {
   whenIdle,
 } from "../../runtime.ts"
 import { WAITING_ENV_FIX, WAITING_ENV_LINE } from "../../messages.ts"
+import { warnWithoutSpans } from "../../spans-check.ts"
 import { onSettledClientOnly, reactivityIn } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { skipAnimationsOf } from "../../wardic-config-value.ts"
@@ -121,7 +122,10 @@ const contextOf = (given: Parameters<typeof WardicProvider>[0]): WardicContextVa
 // unmount, inert during a server render (ADR-0021). reducedMotion is read as each animation starts
 // (ADR-0029), a WardicConfig's over it (#434); appear (ADR-0044, #585) on the server once.
 export function WardicProvider(props: {
-  /** The Environment Wardic runs in: `DomLive` in a browser, from `@wardic/dom`. Read once, and built at once: a Layer that waits as it builds fails it. */
+  /**
+   * The Environment Wardic runs in: `DomLive` in a browser, from `@wardic/dom`, with Effect's own Layers merged beside it, and
+   * `WardicSpans` for Wardic's spans. Read once, and built at once: a Layer that waits as it builds fails it.
+   */
   readonly env: WardicEnv
   /**
    * How animations honour the visitor's reduced-motion setting: `"user"` follows it (the default),
@@ -175,7 +179,15 @@ export function WardicProvider(props: {
   // element mounted after pays none of it. One mounted before then builds it itself, as before. Asked
   // for here, with no computation of the provider's own (an `onSettled`'s would shift a hydration's
   // owners from the server's), and on the client alone.
-  if (!isServer) onCleanup(whenIdle(() => prepareIdle(value, section)))
+  if (!isServer) {
+    onCleanup(
+      whenIdle(() => {
+        prepareIdle(value, section)
+        // A tracer that reads no Wardic span, development's word (#746).
+        if (DEV) warnWithoutSpans(value.runtime)
+      }),
+    )
+  }
   return <WardicContext value={value}>{props.children}</WardicContext>
 }
 

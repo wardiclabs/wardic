@@ -13,6 +13,7 @@ import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
+import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import * as Metric from "effect/Metric"
 import * as Option from "effect/Option"
@@ -22,6 +23,7 @@ import { MixedScheduler } from "effect/Scheduler"
 import * as Scope from "effect/Scope"
 import * as Stream from "effect/Stream"
 import * as Tracer from "effect/Tracer"
+import * as Spans from "../src/Spans.ts"
 
 // The Frame loop (ADR-0027) against a hand-driven Refresh frame source and core's real Clock.
 // Every fiber runs on Effect's browser fallback scheduler (`setTimeout(0)`) with its dispatches
@@ -66,11 +68,14 @@ const makeTracer = () => {
   return { spans, tracer }
 }
 
+/** Wardic's spans (#746): `Spans.layer` unless `given` is `false`, then nothing. */
+const spansOf = (given: boolean | undefined): Layer.Layer<never> => Bool.match(given === false, { onTrue: () => Layer.empty, onFalse: () => Spans.layer })
+
 /**
  * The Clock and the Frame loop over a fresh frame source, on a counting `setTimeout(0)` scheduler. With
  * `metrics`, each run is given `FrameLoop.layerMetrics`, as an app gives it beside its Environment (#518).
  */
-const makeHarness = async (options?: { readonly clock?: ClockShape; readonly metrics?: boolean }) => {
+const makeHarness = async (options?: { readonly clock?: ClockShape; readonly metrics?: boolean; readonly spans?: boolean }) => {
   const frames = makeFrames()
   let dispatches = 0
   const scheduler = new MixedScheduler("async", (task) => {
@@ -92,13 +97,15 @@ const makeHarness = async (options?: { readonly clock?: ClockShape; readonly met
     internal.make().pipe(
       Effect.provideService(Clock.Clock, clock),
       Effect.provideService(Tracer.Tracer, tracer),
+      // Wardic's spans, the app's to give (#746): given unless a test asks for none.
+      Effect.provide(spansOf(options?.spans)),
       Scope.provide(scope),
     ),
     { scheduler },
   )
   /** Run `effect` in a fresh fiber, inline, on the counting scheduler and the recording tracer. */
   const fork = <A, E>(effect: Effect.Effect<A, E>): Fiber.Fiber<A, E> => {
-    const traced = effect.pipe(Effect.provideService(Tracer.Tracer, tracer))
+    const traced = effect.pipe(Effect.provideService(Tracer.Tracer, tracer), Effect.provide(spansOf(options?.spans)))
     if (options?.metrics === true) return Effect.runFork(traced.pipe(Effect.provide(FrameLoop.layerMetrics)), { scheduler })
     return Effect.runFork(traced, { scheduler })
   }
@@ -507,6 +514,17 @@ describe("the Frame loop: failure isolation (ADR-0027, decision 7)", () => {
 })
 
 describe("the Frame loop: spans and metrics (ADR-0027, decisions 3 and 6)", () => {
+  it("SP3 (#746): with a tracer but no Spans.layer, a run and its burst open no span", async () => {
+    const h = await makeHarness({ spans: false })
+    const settles = h.start(counting(2, "test.settles"))
+    await endOfTask()
+    h.frames.fire(1000)
+    h.frames.fire(1016)
+    await endOfTask()
+    expect(settles.fiber.pollUnsafe()).toBeDefined()
+    expect(h.spans.map((span) => span.name)).toEqual([])
+  })
+
   it("one span per run, named after its machine and ended at its settle or interruption; one root span per burst", async () => {
     const h = await makeHarness()
     const settles = h.start(counting(2, "test.settles"))

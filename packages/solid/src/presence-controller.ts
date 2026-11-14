@@ -24,6 +24,7 @@
 import type * as Box from "@wardic/core/Box"
 import type * as DefaultTransition from "@wardic/core/DefaultTransition"
 import * as Frame from "@wardic/core/Frame"
+import * as Spans from "@wardic/core/Spans"
 import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
@@ -1055,12 +1056,8 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       Effect.all(Arr.map(roots, (root) => runOf(root, NO_DELAY)), { concurrency: "unbounded", discard: true }).pipe(
         Effect.tapCause((cause) => Report.failure("wardic.presence: an exit failed", cause)),
         Effect.ensuring(Effect.sync(() => partDone(el))),
-        Effect.withSpan(
-          "wardic.presence.exit",
-          { attributes: { parts: parts.length + own.length } },
-          // No call-site stack (ADR-0040, decision 2): pipeable, it's the third argument.
-          { captureStackTrace: false },
-        ),
+        // The app's to give, with no call-site stack (#746; ADR-0040, decision 2).
+        Spans.withSpan("wardic.presence.exit", { attributes: { parts: parts.length + own.length } }),
       ),
     )
     exiting.set(el, fiber)

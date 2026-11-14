@@ -51,9 +51,9 @@ const GATE = 1.01
  * of it its rc.21 compiler's (ADR-0067, *Amendment (#746)*). Each of its PRs sets them to its own result
  * with the same room: 100.2 and 121.6 once its pure marks dropped the dead code, 99.1 and 120.5 with
  * development's diagnostics and errors left out of a production build, 98.0 and 119.3 with a layout node's
- * code the `layout` Feature's.
+ * code the `layout` Feature's, 96.1 and 117.5 with Wardic's spans an app's to give.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 98.0, "s2-slim": 119.3 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 96.1, "s2-slim": 117.5 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 
