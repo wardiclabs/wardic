@@ -61,7 +61,10 @@ const stopOf = (stops: ReadonlyArray<unknown>, at: StopAt): unknown =>
 const isStops = (value: unknown): value is Stops => {
   if (Bool.not(Arr.isArray(value))) return false
   const stops = value as ReadonlyArray<unknown>
-  return Bool.and(Arr.every(stops, isStop), Arr.some(stops, Predicate.isNotNull))
+  // #672: core's lint (`BOOL_OPERANDS`), met before the move: `Bool.and` read the `some` for an array
+  // its `every` had already ruled out.
+  if (Bool.not(Arr.every(stops, isStop))) return false
+  return Arr.some(stops, Predicate.isNotNull)
 }
 
 /**
