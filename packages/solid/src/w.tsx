@@ -15,36 +15,26 @@
  * @module
  */
 import type { Accessor, JSX } from "solid-js"
-import type { WardConfig, WardFeatureConfigs, WardicVariantLabels } from "./config.ts"
+import type { WardConfig, WardicVariantLabels } from "./config.ts"
 import { createWardWith, type SpineInternals, type Ward } from "./create-ward.tsx"
 import { runDirective } from "./directive.tsx"
-import { createOf, type CreateWith, type EveryFeature, formOf, type PropNames, type WardConfigWith, type WardicComponentWith } from "./element.tsx"
-import type { AbsentGroupsOf, NamesEvery } from "./feature.ts"
-import type { InferredMotion, InferredMotionOf, TargetKey } from "./ward-keys.ts"
+import { createOf, type CreateFor, formOf, type InferredPropsFor, type WardicComponentFor } from "./element.tsx"
+import type { EveryFeature, PropFeatureNames } from "./feature.ts"
+import type { InferredMotion, TargetKey } from "./ward-keys.ts"
 
 /** What a Slim element tells the spine: it brings no Feature of its own. */
 const SLIM: SpineInternals = {}
 
-/**
- * A Wardic instance's `w.createWard` (#516), its Features named `FN`: `createSlimWard`, its config typed
- * to their props alone, every other Feature's `NeedsFeature<"name">`. With every one, `createSlimWard`.
- */
-type CreateWardWith<FN extends string> =
-  NamesEvery<WardFeatureConfigs, FN> extends true
-    ? typeof createSlimWard
-    : <
-        K extends TargetKey = never,
-        N extends string = never,
-        LI extends WardicVariantLabels = never,
-        LA extends WardicVariantLabels = never,
-        D extends boolean | "x" | "y" = never,
-      >(
-        config: InstanceConfig<FN, K, N, LI, LA, D> | Accessor<InstanceConfig<FN, K, N, LI, LA, D>>,
-      ) => Ward
-
-/** A Wardic instance's ward config, its Features named `FN`, keys inferred (#305). */
-type InstanceConfig<FN extends string, K extends TargetKey, N extends string, LI extends WardicVariantLabels, LA extends WardicVariantLabels, D extends boolean | "x" | "y"> =
-  InferredMotionOf<WardConfigWith<FN>, K, N, LI, LA, D> & AbsentGroupsOf<WardFeatureConfigs, FN>
+/** A Wardic instance's `w.createWard` (#516), its Features named `FN`: its config typed to their props alone. */
+type CreateWardFor<FN extends string> = <
+  K extends TargetKey = never,
+  N extends string = never,
+  LI extends WardicVariantLabels = never,
+  LA extends WardicVariantLabels = never,
+  D extends boolean | "x" | "y" = never,
+>(
+  config: InferredPropsFor<FN, K, N, LI, LA, D> | Accessor<InferredPropsFor<FN, K, N, LI, LA, D>>,
+) => Ward
 
 /** The `use:w` directive. An arrow function, as `use:wardic`'s is. */
 const wDirective = (el: HTMLElement, value: Accessor<WardConfig>): void => runDirective(el, value, SLIM)
@@ -61,18 +51,21 @@ function createSlimWard<
 }
 
 /**
- * The typed `w` proxy: called, it's the `use:w` directive; `w.create`, `w.createWard` and `w.<tag>` are
- * its forms. `F` (#516): a Wardic instance's Features, every one unless it's an instance's. `use:w` is
- * typed by Solid's global `JSX.Directives`, by its name, so it takes every prop whatever `F` is.
+ * The type of `w`: called, it's the `use:w` directive; `w.create`, `w.createWard` and `w.<tag>` are its
+ * forms. `W<F>` is a Wardic instance's `w`, whose elements take only Features `F`'s props; its `use:w`
+ * takes every prop all the same, as Solid types a directive by its name.
+ *
+ * @see https://wardic.dev/reference/solid/elements/wardic-instance
  */
-export type W<F = EveryFeature> = WWith<PropNames<F>>
+// `F`: #516, ADR-0067 *Amendment (#516)*; `use:w`, its decision 4.
+export type W<F = EveryFeature> = WFor<PropFeatureNames<F>>
 
 /** {@link W} for the Features named `FN` (#516). */
-type WWith<FN extends string> = ((el: HTMLElement, value: Accessor<WardConfig>) => void) & {
-  readonly create: CreateWith<FN>
-  readonly createWard: CreateWardWith<FN>
+type WFor<FN extends string> = ((el: HTMLElement, value: Accessor<WardConfig>) => void) & {
+  readonly create: CreateFor<FN>
+  readonly createWard: CreateWardFor<FN>
 } & {
-  readonly [Tag in keyof JSX.IntrinsicElements]: WardicComponentWith<Tag, FN>
+  readonly [Tag in keyof JSX.IntrinsicElements]: WardicComponentFor<Tag, FN>
 }
 
 /**

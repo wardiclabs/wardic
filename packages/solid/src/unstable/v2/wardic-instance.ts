@@ -1,48 +1,50 @@
 /**
  * A **Wardic instance**'s types on Solid 2 (#516, ADR-0067 *Amendment (#516)*): what
- * `createWardic(features)` returns, its `w` and its ward typed to those Features.
+ * `createWardic(features)` returns, its `w` and its wards typed to those Features.
  *
  * @module
  */
-import type { NamesEvery, PropNames } from "../../feature.ts"
+import type { LayoutHooksFor, NamesEvery, PropFeatureNames } from "../../feature.ts"
 import type { WardicMotionPropsV2 } from "../../motion-props.ts"
-import type { FeatureProps, PresentWith } from "./element.tsx"
+import type { FeatureProps, OwnPropsFor } from "./element.tsx"
 import type { createInstantLayoutTransition, createResetProjection, useAnimateLayout } from "./provider.tsx"
 import type { W } from "./w.tsx"
 
 /**
- * What `createWardic(features)` returns for Features `F`: a `w` whose elements bring them, wherever
- * they render, and take their props alone; its `w.ward()`'s ward hears `settled` and their events
- * alone. A prop or an event of a Feature `F` lacks is typed `NeedsFeature<"name">`, so giving it is an
- * error naming the Feature. With `layout`, given at once or loaded, the layout hooks too, which bring
- * it (ADR-0067 *Amendment (#516)*, decision 5).
- *
- * Its `w.li` takes `layout` and `whileHover` below; `<w.li drag />` would be a type error naming `drag`.
+ * What `createWardic(features)` returns for Features `F`: a `w` whose elements bring them wherever they
+ * render, and take their props alone; a ward from its `w.ward()`, or one its element hands to
+ * `wardRef`, hears `settled` and their events alone. A prop or an event of a Feature `F` lacks is
+ * typed `NeedsFeature<"name">`, so giving it is a type error that names the Feature. With `layout`,
+ * given at once or loaded, it has the layout hooks too. Its `w.li` below takes `layout` and
+ * `whileHover`; `<w.li drag />` would be an error naming `drag`.
  *
  * @example
  * export const { w } = createWardic([domAnimation, layout])
  *
  * <w.li layout whileHover={{ scale: 1.05 }} />
+ * @see https://wardic.dev/reference/solid/elements/wardic-instance
  */
-export type WardicInstance<F> = { readonly w: W<F> } & LayoutHooksWith<PropNames<F>>
+// ADR-0067 *Amendment (#516)*: decisions 2 (elements bring their Features), 5 (the layout hooks bring
+// `layout`), 7 (loads), 10 (NeedsFeature, and the events, Q19).
+export type WardicInstance<F> = { readonly w: W<F> } & LayoutHooksFor<PropFeatureNames<F>, LayoutHooks>
 
-/** The layout hooks an instance has when its Features named `FN` include `layout`; nothing else. */
-type LayoutHooksWith<FN extends string> = "layout" extends FN
-  ? {
-      readonly useAnimateLayout: typeof useAnimateLayout
-      readonly createInstantLayoutTransition: typeof createInstantLayoutTransition
-      readonly createResetProjection: typeof createResetProjection
-    }
-  : unknown
+/** The layout hooks a Wardic instance with `layout` has, typed as the binding's own. */
+interface LayoutHooks {
+  readonly useAnimateLayout: typeof useAnimateLayout
+  readonly createInstantLayoutTransition: typeof createInstantLayoutTransition
+  readonly createResetProjection: typeof createResetProjection
+}
 
 /**
- * The motion props of a Wardic instance with Features `F` (#516): the base props and its Features', for
- * a component that hands them on, to the instance's elements or to any with more Features. Another
- * Feature's prop isn't one of them: unlike the instance's own elements, its error doesn't name the
- * Feature, since props typed `NeedsFeature` would fit no element that has it. With every Feature, it's
- * `WardicMotionProps`.
+ * The motion props of a Wardic instance with Features `F`: the base props and its Features', for a
+ * component that hands them on, to the instance's elements or to any with more Features. Another
+ * Feature's prop isn't one of them, so giving it is a type error, though not one that names the
+ * Feature. With every Feature, it's `WardicMotionProps`.
  *
  * @example
  * const Card = (props: WardConfigOf<typeof domAnimation> & { title: string }) => <w.article {...props}>{props.title}</w.article>
+ * @see https://wardic.dev/reference/solid/elements/wardic-instance
  */
-export type WardConfigOf<F> = NamesEvery<FeatureProps, PropNames<F>> extends true ? WardicMotionPropsV2 : PresentWith<PropNames<F>>
+// #516. No `NeedsFeature` here: no element that has a Feature takes its brand, so a wrapper's props
+// with them would fit none with more Features than `F`.
+export type WardConfigOf<F> = NamesEvery<FeatureProps, PropFeatureNames<F>> extends true ? WardicMotionPropsV2 : OwnPropsFor<PropFeatureNames<F>>

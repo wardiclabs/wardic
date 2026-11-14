@@ -17,7 +17,7 @@
 //   and to a plain `w.*`. It has no `NeedsFeature`, which nothing else's props would take.
 // - IT7: an instance with `layout`, given at once or loaded, has the three layout hooks, as the global
 //   ones are typed (Q6); one without it hasn't them.
-import { domAnimation, domMax, drag, focus, hover, inView, layout, pan, press, type W as PlainW, w, type WardConfig, type WardConfigOf, type WardicComponent, type WardicInstance, createInstantLayoutTransition, createResetProjection, useAnimateLayout } from "@wardic/solid"
+import { domAnimation, domMax, drag, type Feature, focus, hover, inView, layout, pan, press, type W as PlainW, w, type WardConfig, type WardConfigOf, type WardicComponent, type WardicInstance, createInstantLayoutTransition, createResetProjection, useAnimateLayout } from "@wardic/solid"
 import type { JSX } from "solid-js"
 import { describe, expectTypeOf, it } from "vitest"
 import type { WardicVariantLabels } from "../src/config.ts"
@@ -225,6 +225,14 @@ describe("a Wardic instance's element props (#516)", () => {
 
     const all = null as unknown as W<() => Promise<typeof domMax>>
     typed(() => <all.div whileHover={{ scale: 1.1 }} drag layout onPan={noop} />)
+
+    // A Feature typed without its name adds no props of its own, and takes none from the rest.
+    const unnamed = null as unknown as W<[typeof hover, Feature]>
+    typed(() => <unnamed.div whileHover={{ scale: 1.1 }} />)
+    typed(() => (
+      // @ts-expect-error neither has drag
+      <unnamed.div drag />
+    ))
   })
 
   it("IT3: an instance's element infers its keys as wardic.* does (#305)", () => {

@@ -36,8 +36,9 @@ import type { ProviderRuntime, ProviderServices, WardicServices } from "./runtim
  * and that Layer, built on the provider's runtime: its Environment, its flush gate and its projection
  * options. `server` is what a server render, which builds no runtime, does with it: the
  * `colors` Feature registers its colour spaces there too, as the render reads colours; the rest do
- * nothing. `N` is its name as a type (#516), by which each binding finds the props it adds.
+ * nothing. `N` is its name as a type, by which each binding finds the props it adds.
  */
+// `N`: #516, ADR-0067 *Amendment (#516)*, decision 3. A Feature typed without it adds no props.
 export interface Feature<I = any, S = any, N extends string = string> {
   readonly name: N
   readonly key: Context.Key<I, S>
@@ -50,7 +51,9 @@ export type Features = Feature | ReadonlyArray<Features>
 
 /**
  * The names of the Features in `F` (#516): a Feature's own, every one's in a list, nested lists
- * flattened, and what a load resolves to. What a Wardic instance's types find their props by.
+ * flattened, and what a load resolves to. What a Wardic instance's types find their props by. A
+ * Feature typed without its name (`Feature`, whose `N` is `string`) names none: as a member of a
+ * union, `string` would swallow every other name.
  */
 // Unconstrained: `F extends Features` would send it down `Features`' own recursion (TS2589).
 export type FeatureNames<F> = F extends ReadonlyArray<infer E>
@@ -58,13 +61,16 @@ export type FeatureNames<F> = F extends ReadonlyArray<infer E>
   : F extends () => PromiseLike<infer L>
     ? FeatureNames<L>
     : F extends { readonly name: infer N extends string }
-      ? N
+      ? string extends N
+        ? never
+        : N
       : never
 
 /**
- * What a prop of a Feature a Wardic instance doesn't have takes (#516, Q15): nothing, so giving it
- * is an error naming the Feature, `Type 'boolean' is not assignable to type 'NeedsFeature<"drag">'`.
+ * What a prop of a Feature a Wardic instance doesn't have takes: nothing, so giving it is an error
+ * naming the Feature, `Type 'boolean' is not assignable to type 'NeedsFeature<"drag">'`.
  */
+// #516, Q15.
 export interface NeedsFeature<N extends string> {
   readonly "needs the Feature": N
 }
@@ -84,14 +90,20 @@ export type AbsentGroupsOf<Groups, N extends string> = UnionToIntersection<
 export type EveryFeature = typeof ALL
 
 /**
- * The names of Features `F` that add props (#516), on either binding. A Wardic instance's types take
- * these, not `F`: every list with each of them is one type, and an error prints names, not each
- * Feature's service.
+ * The names of those of Features `F` that add props (#516), on either binding. A Wardic instance's
+ * types take these, not `F`: every list with each of them is one type, and an error prints names, not
+ * each Feature's service.
  */
-export type PropNames<F> = Extract<FeatureNames<F>, keyof WardFeatureConfigs>
+export type PropFeatureNames<F> = Extract<FeatureNames<F>, keyof WardFeatureConfigs>
 
-/** Whether `N` names every Feature in `Groups`: an instance whose props are the binding's plain ones. */
+/** The names of every Feature that adds props (#516): what an element has unless it's a Wardic instance's. */
+export type EveryFeatureName = PropFeatureNames<EveryFeature>
+
+/** Whether `N` names every Feature in `Groups`: a Wardic instance whose props are the binding's plain ones. */
 export type NamesEvery<Groups, N extends string> = [Exclude<keyof Groups, N>] extends [never] ? true : false
+
+/** A Wardic instance's layout hooks, `Hooks`, when its Features named `N` include `layout`; else nothing (#516, Q6). */
+export type LayoutHooksFor<N extends string, Hooks> = "layout" extends N ? Hooks : unknown
 
 /** Features loaded lazily: `() => import("./features.ts").then((m) => m.domMax)`. */
 export type FeatureLoad = () => Promise<Features>

@@ -16,7 +16,8 @@
 //   and to a plain `w.*`.
 // - ITV7: an instance with `layout`, given at once or loaded, has the three layout hooks (Q6).
 // - ITV8: an instance's ward's `next`, `each` and `when` take `settled` and its Features' events; another
-//   Feature's event is an error (Q19). A plain ward's take every event, as they did.
+//   Feature's event is an error (Q19): `w.ward()`'s, and the one its element hands to `wardRef`. It's a
+//   `Ward<C, F>`, `F` its Features. A plain ward's take every event, as they did.
 import type { JSX } from "@solidjs/web"
 import {
   createInstantLayoutTransition,
@@ -24,6 +25,7 @@ import {
   domAnimation,
   domMax,
   drag,
+  type Feature,
   focus,
   hover,
   inView,
@@ -33,6 +35,7 @@ import {
   useAnimateLayout,
   type W as PlainW,
   w,
+  type Ward,
   ward,
   type WardConfigOf,
   type WardicComponent,
@@ -215,6 +218,14 @@ describe("a Wardic instance's types on Solid 2 (#516)", () => {
     ))
     const all = null as unknown as W<() => Promise<typeof domMax>>
     typed(() => <all.div whileHover={{ scale: 1.1 }} drag layout />)
+
+    // A Feature typed without its name adds no props of its own, and takes none from the rest.
+    const unnamed = null as unknown as W<[typeof hover, Feature]>
+    typed(() => <unnamed.div whileHover={{ scale: 1.1 }} />)
+    typed(() => (
+      // @ts-expect-error neither has drag
+      <unnamed.div drag />
+    ))
   })
 
   it("ITV3: an instance's element infers its keys as wardic.* does (#305)", () => {
@@ -238,6 +249,23 @@ describe("a Wardic instance's types on Solid 2 (#516)", () => {
         }}
       />
     ))
+    // A ward given to the element: the keys it animates are the element's too (#398).
+    typed(() => {
+      const card = hovers.ward({ animate: { x: 10 } })
+      return <hovers.div wardRef={card} whileHover={{ scale: 1.1 }} transition={{ x: FAST, scale: FAST }} />
+    })
+    typed(() => {
+      const card = hovers.ward({ animate: { x: 10 } })
+      return (
+        <hovers.div
+          wardRef={card}
+          transition={{
+            // @ts-expect-error neither the ward nor the element animates rotate
+            rotate: FAST,
+          }}
+        />
+      )
+    })
   })
 
   it("ITV4: the defaults are the props as they were, and an instance of every Feature has them too", () => {
@@ -358,5 +386,15 @@ describe("a Wardic instance's types on Solid 2 (#516)", () => {
       const card = ward({ animate: { opacity: 1 } })
       return [card.next("dragEnd"), card.when("panStart"), card.each("layoutComplete"), w.ward().next("tap")]
     })
+
+    typed(() => <shell.div wardRef={(card) => void card.next("hoverEnd")} />)
+    typed(() => (
+      // @ts-expect-error the ward its element hands out hears no drag either
+      <shell.div wardRef={(card) => void card.next("dragEnd")} />
+    ))
+    typed(() => <w.div wardRef={(card) => void card.next("dragEnd")} />)
+
+    typed((): Ward<{}, typeof domAnimation> => shell.ward())
+    expectTypeOf<Ward<{}, typeof domMax>>().toEqualTypeOf<Ward<{}>>()
   })
 })

@@ -158,7 +158,7 @@ import {
   useElementFeatures,
   useFeatureRegistry,
 } from "./provider.tsx"
-import { type EveryFeature, type Feature, type FeatureRegistry, type FeatureSection, LAYOUT_PROPS, missingMessage, type NamesEvery, type PropNames, unreadColorIn } from "../../feature.ts"
+import { type EveryFeature, type Feature, type FeatureRegistry, type FeatureSection, LAYOUT_PROPS, missingMessage, type NamesEvery, type PropFeatureNames, unreadColorIn } from "../../feature.ts"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, CLIENT_ONLY_SYNC, CLIENT_ONLY_SYNC_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { pointMapOptionOf, transformPagePointOf } from "../../wardic-config-value.ts"
@@ -468,10 +468,16 @@ type Listen<FN extends string, H extends Heard> =
 /**
  * One element's motion binding: a ref carrying its props (see the module). Spread it, give it to
  * `ref` (alone, or in an array with your own), or give it to a Wardic component's `wardRef`.
+ * `Ward<C, F>` is a Wardic instance's ward, with Features `F`: it hears `settled` and their events alone.
  */
-// `FN` (#516, Q19): the names of a Wardic instance's Features that add props; every one's by default.
-// Its `next`, `each` and `when` take `settled` and their events alone ({@link Listen}).
-export interface Ward<C extends WardConfig = WardConfig, FN extends string = PropNames<EveryFeature>> extends WardProps, AnyWard {
+// `F` (#516, Q19): its default, every Feature, gives the ward as it was ({@link WardFor}).
+export type Ward<C extends WardConfig = WardConfig, F = EveryFeature> = WardFor<C, PropFeatureNames<F>>
+
+/**
+ * A {@link Ward} whose Features are named `FN` (#516): its `next`, `each` and `when` take `settled` and
+ * their events alone ({@link Listen}).
+ */
+export interface WardFor<C extends WardConfig, FN extends string> extends WardProps, AnyWard {
   /** Mounts the ward on `element`: Solid calls it as a ref. */
   (element: HTMLElement): void
   /**
