@@ -58,4 +58,4 @@ export const ONE_TWEEN: KeyframesTransition = { type: "tween" }
  * program.pipe(Effect.provide(DefaultTransition.layerOneSpring))
  */
 // #429.
-export const layerOneSpring: Layer.Layer<DefaultTransition> = Layer.succeed(DefaultTransition, { transitionFor: () => ONE_SPRING, keyframes: ONE_TWEEN })
+export const layerOneSpring: Layer.Layer<DefaultTransition> = /*#__PURE__*/ Layer.succeed(DefaultTransition, { transitionFor: () => ONE_SPRING, keyframes: ONE_TWEEN })

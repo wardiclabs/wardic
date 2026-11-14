@@ -131,10 +131,10 @@ export const checked = <A>(check: Check<A>, value: unknown, name?: string): A =>
   throw new OptionError({ message: under(`["${name}"]`, failure) })
 }
 
-const NO_STEPS = expected("a count of 1 or more")
+const NO_STEPS = /*#__PURE__*/ expected("a count of 1 or more")
 
 /** A count of steps: a finite number, 1 or more. */
-export const stepCount: Check<number> = refine(finite, (n) => n >= 1 || NO_STEPS)
+export const stepCount: Check<number> = /*#__PURE__*/ refine(finite, (n) => n >= 1 || NO_STEPS)
 
 /** A finite number above 0. */
 export const positive: Check<number> = refine(finite, (n) => n > 0 || NOT_POSITIVE)

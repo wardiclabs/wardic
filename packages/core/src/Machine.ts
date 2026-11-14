@@ -1686,6 +1686,6 @@ const keepNothing = (): undefined => undefined
 // #714: for a binding's write that must wait a frame on the Frame loop, as a Batch Reorder group's own size
 // does. Here, not beside `LiveValue.eachFrame`: every app that animates has `Machine`, where importing
 // `LiveValue` cost a Batch Reorder app 3.6 KB gzipped (ADR-0072, *Amendment (#714)*, decision 5).
-export const nextFrame: Effect.Effect<void, never, FrameLoop.FrameLoop> = Effect.asVoid(
-  run(make({ settles: true, span: { name: "wardic.nextFrame", attributes: {} }, start: () => () => SETTLED_AT_ONCE }), keepNothing),
+export const nextFrame: Effect.Effect<void, never, FrameLoop.FrameLoop> = /*#__PURE__*/ Effect.asVoid(
+  /*#__PURE__*/ run(/*#__PURE__*/ make({ settles: true, span: { name: "wardic.nextFrame", attributes: {} }, start: () => () => SETTLED_AT_ONCE }), keepNothing),
 )

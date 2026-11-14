@@ -421,3 +421,8 @@ TS 7's default parallel check read +14% on Solid 2: adding the prototype's four 
 - **`Match`** (Q14): 0.3 KB on Solid 1, nothing in a Foldkit app, which ships it, against a change to the Effect-first rules for every package.
 - **The Announcer** (Q12): `DomLive`'s type gives it, so moving it behind `Reorder` breaks an app that reads it. A cut for 2.0 (0.3 KB).
 - **The Appear Handoff** (decision 6 takes most of it), the Live values' follow (any Atom is a Live value), variants and `transitionEnd` (a Slim element's own props), `use:w` (the directive's API), a Wardic instance's join (0.03 KB).
+
+**Built (PR 1, the marks).**
+- **Pure marks at the sites a measure found,** by marking every module-scope call in a copy, building the Slim apps from both, and diffing the source lines each keeps: `Renderer.applyTo` (kept with its Stream, log and span code), `Machine.nextFrame` (#750's), `DefaultTransition.layerOneSpring`, `options.ts`'s `stepCount`, the FlushGate's `inert` and `layerInert`, `reorderTouchAction`, and three of `batch.ts`'s predicates. Marking all 530 calls saved the same.
+- **`markLayoutElement` stays in `batch.ts` (measured at the build).** With the marks, the only `batch.ts` code a Slim app keeps is `markLayoutElement` and what it calls, which `layout-member.ts`'s registration reaches. Moved to a module of its own, it saved nothing (16–22 bytes worse, gzip's order). PR 3's `layout` seam takes the registration, and it, out of the base.
+- **Measured** (`bun run size` against `main`): every app 0.2–0.4% smaller; `s1-slim` 100.0 → 99.7 KB gzipped, `s2-slim` 121.5 → 121.1. Budgets 100.2 and 121.6.
