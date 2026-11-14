@@ -18,7 +18,7 @@ Read at `15f723d` (2026-11-09). Line counts are today's.
 | `variant-tree.ts` | 638 | core |
 | `presence-record.ts` | 189 | core |
 | `live-style.ts` | 450 | core |
-| `imperative.ts` | 793 | core |
+| `imperative.ts` | 793 | core; since #746 it holds the Imperative track, over the spine's `ImperativeHost` |
 | `reactivity.ts` (the port) | 29 | core |
 | `presence-controller.ts` | 1,494 | dom |
 | `drag-track.ts` | 937 | dom |

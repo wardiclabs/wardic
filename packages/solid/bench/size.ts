@@ -52,9 +52,10 @@ const GATE = 1.01
  * with the same room: 100.2 and 121.6 once its pure marks dropped the dead code, 99.1 and 120.5 with
  * development's diagnostics and errors left out of a production build, 98.0 and 119.3 with a layout node's
  * code the `layout` Feature's, 96.1 and 117.5 with Wardic's spans an app's to give, 95.4 and 116.7 with
- * the Frame loop's burst and dom's runner holding their fibers themselves.
+ * the Frame loop's burst and dom's runner holding their fibers themselves, 94.6 and 116.0 with the Imperative
+ * track `imperative.ts`'s.
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.4, "s2-slim": 116.7 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 94.6, "s2-slim": 116.0 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 

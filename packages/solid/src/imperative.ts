@@ -5,7 +5,7 @@
  *
  * - **A Wardic element** animates through its own spine, registered here while it's mounted: the
  *   call takes the keys it animates, which stay where it leaves them until the element's own target
- *   for them changes (the spine's `animate`, Motion's latest-wins).
+ *   for them changes (Motion's latest-wins).
  * - **A plain element** animates through a spine of its own (#433's Q4), with no config, presence or
  *   layout node: it starts from the element's Own value (ADR-0022) and keeps its values for the next
  *   call, velocity included. It's in the gate only while it animates, so the gate keeps nothing of an
@@ -21,12 +21,15 @@
  * @module
  */
 import type * as DefaultTransition from "@wardic/core/DefaultTransition"
+import type * as Frame from "@wardic/core/Frame"
+import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Machine from "@wardic/core/Machine"
 import * as Playback from "@wardic/core/Playback"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Values from "@wardic/core/Values"
 import * as Sequence from "@wardic/core/Sequence"
 import type * as FlushGate from "@wardic/dom/FlushGate"
+import * as MeasuredPair from "@wardic/dom/MeasuredPair"
 import * as Report from "@wardic/dom/Report"
 import {
   type BatchBinding,
@@ -53,13 +56,34 @@ import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicKeyframes, WardicTargetValues, WardicTransition, WardicVariant } from "./config.ts"
-import { filledStops, runOf } from "./retarget-legs.ts"
-import type { WardicRuntime } from "./runtime.ts"
-import { type ElementSpine, emptySnapshotOf, type ImperativeTrack, makeElementSpine, makeReuse, type Snapshot, startLinksOf } from "./spine.ts"
-import { NO_VARIANT_STATE, resolveTarget } from "./variant-target.ts"
+import { filledStops, keyframesFrom, type Leg, legsOf, mapMachine, type MeasuredPairs, runOf, type StopsByKey } from "./retarget-legs.ts"
+import type { WardicRuntime, WardicServices } from "./runtime.ts"
+import {
+  type ElementSpine,
+  emptySnapshotOf,
+  holdsVariable,
+  type ImperativeHooks,
+  type ImperativeHost,
+  type ImperativeTrack,
+  type Landing,
+  makeElementSpine,
+  makeReuse,
+  measuredOf,
+  NO_RUNNING,
+  NO_VALUES,
+  restsOf,
+  type Resolution,
+  type Running,
+  runningOf,
+  type Snapshot,
+  startLinksOf,
+  turnWillChangeOn,
+} from "./spine.ts"
+import { NO_VARIANT_STATE, resolveTarget, type Target } from "./variant-target.ts"
+import { NO_GESTURE_NAMES, NO_GESTURE_STATES } from "./variant-tree.ts"
 
-/** What an Imperative animation animates an element through: its spine's `animate`. */
-type Animatable = Pick<ElementSpine, "animate">
+/** What an Imperative animation animates an element through: what its spine hands over (`imperative`). */
+type Animatable = Pick<ElementSpine, "imperative">
 
 /** Each mounted Wardic element's spine (Motion's `visualElementStore`). */
 // Module state (#460, Q7): each Wardic element's animatable, held weakly by the element.
@@ -163,6 +187,140 @@ const skippedIn = (env: AnimateEnv, transition: WardicTransition | undefined): W
 }
 
 /**
+ * The resolution an **Imperative animation**'s legs run under (#433): none of the Override stack's,
+ * so a Retarget that takes a key back never carries one as its own Keyframes or names.
+ */
+const IMPERATIVE: Resolution = {
+  resolved: {},
+  base: {},
+  dragging: false,
+  variant: undefined,
+  active: { inView: false, focused: false, hovered: false, pressed: false, dragged: false, dragging: false },
+  transition: undefined,
+  layers: [],
+  names: NO_GESTURE_NAMES,
+  layersOn: NO_GESTURE_STATES,
+  ends: undefined,
+  keyframes: undefined,
+  change: undefined,
+}
+
+/**
+ * An **Imperative animation** of an element (#433), through its spine's `host`: it takes `target`'s
+ * keys from whatever runs them, each noted with the target the Override stack has for it now, so a
+ * Retarget leaves it where the animation leaves it until that target changes (Motion's latest-wins).
+ * Its legs start where the keys are drawn, with their velocity, on `given` (a key with none of its own
+ * on its Default transition), reduced motion as the provider says, and run through `head` once
+ * {@link ImperativeTrack.run} is called.
+ */
+// #746 (ADR-0067, *Amendment (#746)*, decision 10): here, not in the spine, so an app that never animates
+// imperatively ships none of it; the spine hands over what it takes (`ImperativeHost`).
+const imperativeTrackOf = (host: ImperativeHost, target: Target, given: WardicTransition | undefined, head: Playback.Playhead, hooks: ImperativeHooks): ImperativeTrack => {
+  const { snapshot, owners, giveUp, initialValues, ownValue, startKey, keepTheRest, element, positionalKeys, defaultTransition, readVelocity, gate, forget, endLeg, live, own, legProgram, legEnded, turnBack, id, recordFrame, runtime, elementRules } = host
+  /** A leg of an Imperative animation, forked as a Retarget's are; it lands on its track. */
+  // Data-first: a pipe's curried forms are two closures more for every leg (#618, H1).
+  const runImperative = (running: Running, program: Effect.Effect<unknown, never, WardicServices>): void => {
+    running.fiber = runtime.runFork(Effect.asVoid(Effect.onExit(program, legEnded(running))))
+  }
+  const to = target.values
+  const before = UndefinedOr.match(host.lastResolution(), { onUndefined: () => NO_VALUES, onDefined: (last) => last.resolved })
+  const started: Record<string, string> = {}
+  let measuring: Array<string> | undefined
+  // Each key taken from whatever runs it, noted with its target now, and started where it's drawn.
+  // Its velocity read now (#464), as its legs are built.
+  const takenNow = host.taking()
+  // Where a Path's axis this target leaves out rests (#574), before its keys are taken below.
+  const rests = restsOf(owners, to)
+  Arr.forEach(Rec.keys(to), (key) => {
+    takenNow.set(key, before[key])
+    host.returning().delete(key)
+    // Its Timeline value stops while the animation draws the key (#240).
+    const timelineKeys = host.timelineKeys()
+    if (Predicate.isNotUndefined(timelineKeys)) timelineKeys.taken(key)
+    const owner = owners.get(key)
+    if (Predicate.isNotUndefined(owner)) giveUp(key, owner)
+    if (!Object.hasOwn(initialValues, key)) ownValue(key)
+    const like = UndefinedOr.getOrThrow(to[key])
+    startKey(key, like, started)
+    if (MeasuredPair.needs(key, UndefinedOr.getOrThrow(snapshot.values[key]), like)) {
+      if (Predicate.isUndefined(measuring)) measuring = []
+      measuring.push(key)
+    }
+  })
+  keepTheRest()
+  let from: Values.Values = Rec.map(to, (_, key) => UndefinedOr.getOrThrow(snapshot.values[key]))
+  let stops: StopsByKey | undefined
+  if (Predicate.isNotUndefined(target.keyframes)) {
+    const begun = keyframesFrom(from, to, target.keyframes)
+    from = begun.from
+    stops = begun.stops
+  }
+  const reduce = host.reducedMotion()
+  const skipped = host.skipAnimations()
+  let measured: MeasuredPairs | undefined
+  if (Bool.and(Bool.not(Bool.or(reduce, skipped)), Predicate.isNotUndefined(measuring))) measured = measuredOf(element, UndefinedOr.getOrThrow(measuring), from, to, snapshot.values, stops)
+  // Built once: a seek or a replay runs the same legs, from the same start, with the same velocities.
+  const built = legsOf(from, to, given, reduce, skipped, positionalKeys, defaultTransition, readVelocity, undefined, stops, measured, snapshot.values, rests)
+  const variables = holdsVariable(from, to, stops)
+  const legs = Arr.map(built, (leg) => mapMachine(leg, Playback.drive(head)))
+  let runnings: ReadonlyArray<Running> = NO_RUNNING
+  let left = 0
+  const landing: Landing = {
+    report: constVoid,
+    settled: () => {
+      left--
+      if (left === 0) gate.afterFlush(hooks.settled)
+    },
+    failed: hooks.failed,
+  }
+  // Its legs ended where they are: the keys they draw are drawn by none.
+  const end = (): void =>
+    Arr.forEach(runnings, (running) => {
+      forget(running)
+      if (Bool.not(running.done)) endLeg(running)
+    })
+  const run = (): void => {
+    end()
+    left = legs.length
+    turnWillChangeOn(live, legs)
+    runnings = Arr.map(legs, (leg) => {
+      const running = runningOf(leg.to, IMPERATIVE, landing, leg._tag)
+      own(running)
+      runImperative(running, legProgram(leg, running, variables))
+      return running
+    })
+    // A target with no key lands at once.
+    if (left === 0) gate.afterFlush(hooks.settled)
+  }
+  const cancel = (): void => {
+    end()
+    turnBack()
+    snapshot.values = { ...snapshot.values, ...from }
+    snapshot.velocities = { ...snapshot.velocities, ...Rec.map(from, () => 0) }
+    // Put back at once: at rest, newer than the legs that let them go (#464).
+    const now = snapshot.now()
+    Arr.forEach(Rec.keys(from), (key) => {
+      snapshot.drawnAt[key] = now
+    })
+    gate.write(id, from)
+    recordFrame(from)
+  }
+  // Each leg's machine, run from its start to rest, apart from the Playhead, which it would move: a
+  // blend's built with the element's Key rules.
+  const duration = (): number =>
+    Arr.reduce(built, 0, (longest, leg) => Math.max(longest, Machine.durationOf(machineOf(leg))))
+  const machineOf = (leg: Leg): Machine.Machine<Frame.Frame<unknown>> => {
+    if (leg._tag === "Blend") return runtime.runSync(Effect.suspend(leg.machine).pipe(InterpolatorRegistry.withKeyRules(elementRules)))
+    return leg.machine() as Machine.Machine<Frame.Frame<unknown>>
+  }
+  const stop = (): void => {
+    end()
+    turnBack()
+  }
+  return { run, stop, cancel, duration }
+}
+
+/**
  * An element's animation of `target`: through its spine when it's a Wardic element's, else through its
  * plain spine, in the gate while any of its animations runs.
  */
@@ -171,7 +329,7 @@ const trackOf = (env: AnimateEnv, element: Element, target: WardicVariant, given
   const own = wardicElements.get(element)
   const hooks = { settled, failed: constVoid }
   const transition = skippedIn(env, given)
-  if (Predicate.isNotUndefined(own)) return own.animate(resolved, transition, head, hooks)
+  if (Predicate.isNotUndefined(own)) return imperativeTrackOf(own.imperative(), resolved, transition, head, hooks)
   const plain = plainOf(env, element)
   // In the gate while it runs; out once its last animation is done, after the flush of its last frame.
   let live = false
@@ -193,7 +351,7 @@ const trackOf = (env: AnimateEnv, element: Element, target: WardicVariant, given
       if (plain.running === 0) plain.unregister()
     })
   }
-  const track = plain.spine.animate(resolved, transition, head, {
+  const track = imperativeTrackOf(plain.spine.imperative(), resolved, transition, head, {
     settled: () => {
       leave()
       settled()
