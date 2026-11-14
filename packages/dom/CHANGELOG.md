@@ -1,5 +1,26 @@
 # @wardic/dom
 
+## 1.1.0
+
+### Minor Changes
+
+- ab745db: `@wardic/dom/Appear`'s `findIn` looks an element's own Appear animation up in a page's read (`findAll`'s), as `find` gets it, with no read of its own: elements hydrating together share one read. `findAll` reads a shadow root's Appear animations too, which a document's read doesn't reach.
+- 6f8df81: Wardic's spans are now an app's to give: merge `WardicSpans`, from `@wardic/dom`, beside `DomLive` with a tracer installed (the devtools', an OpenTelemetry exporter's) to see each animation, burst of frames, gesture, layout pass and exit in its span. Without it, Wardic opens no spans, and an app ships none of Effect's span code: every app is about 1.8 KB gzipped smaller. With a tracer installed and no `WardicSpans`, each `WardicProvider` warns once in development. Core adds the `Spans` module: `Spans.layer`, which `WardicSpans` is; `Spans.withSpan`, for a binding's own spans; and `Spans.missing`, whether a tracer reads spans nothing gives.
+- ff7e153: `@wardic/dom/TimelineValue` runs a scroll-derived Live value on the browser's own scroll timeline, so it moves with a scroll the browser runs off the main thread instead of a frame or more behind it. `TimelineValue.make` takes core's `LiveValue.scrollDerivationOf` and an element's key, and gives `None` wherever a timeline wouldn't draw exactly what the gate draws. The Flush gate's new `timeline(id, key, value)` runs it while the key shows its Live value: it goes on writing the key inline, starts the animation over it at the flush that commits the element, and cancels it at the flush that hands the key to anything else, so no frame shows neither. While one runs, the element's `getAnimations()` lists its scroll-driven animation, over the inline value the gate still writes.
+
+### Patch Changes
+
+- 647dc1d: The Frame loop and the DOM's services hold their fibers themselves: a Slim element's app, and an app with only the hover, press, focus or in-view gestures, ships none of Effect's `FiberHandle` and `FiberSet`, 0.7 KB gzipped smaller on Solid 1 and 0.8 on Solid 2. An app whose layout, drag or Live values (a follow value, `createVelocity`, `createTime`, `createAnimationFrame`) use them still ships them.
+- e0bec2c: An app ships less code it never calls. A bundler kept a few of Wardic's module-level helpers and Layers in every app, whether it used them or not, among them `Renderer.applyTo`, `DefaultTransition.layerOneSpring` and `FlushGate.layerInert`; they're now marked so it drops them. A Slim element's app is 0.3 KB gzipped smaller on Solid 1 and 0.4 on Solid 2, and every app is a little smaller.
+- Updated dependencies [fc5918f]
+- Updated dependencies [af4239d]
+- Updated dependencies [647dc1d]
+- Updated dependencies [f0a53ea]
+- Updated dependencies [ff7e153]
+- Updated dependencies [e0bec2c]
+- Updated dependencies [6f8df81]
+  - @wardic/core@1.1.0
+
 ## 1.0.1
 
 ### Patch Changes
