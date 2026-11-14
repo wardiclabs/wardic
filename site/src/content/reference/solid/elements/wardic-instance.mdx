@@ -1,6 +1,6 @@
 ---
 title: Wardic instances
-description: The types of a Wardic instance, a w whose elements take only its Features' props, and WardConfigOf for a component that hands them on.
+description: createWardic, a w whose elements bring a list of Features and take only their props; WardicInstance, and WardConfigOf for a component that hands them on.
 api: [createWardic, WardicInstance, WardConfigOf]
 ---
 
@@ -16,6 +16,22 @@ export const { w } = createWardic([domAnimation, layout])
 ```
 
 With that instance, `<w.li drag />` fails to compile: `Type 'boolean' is not assignable to type 'NeedsFeature<"drag">'`.
+
+## createWardic
+
+`createWardic(features)` makes one. Call it once, in a module of its own, and import its `w` where you'd import the binding's.
+
+| It takes | What happens |
+| --- | --- |
+| A Feature, a preset or a list of them, nested | Each is given at once: built in a provider the first time one of the instance's elements needs it. |
+| A load, `() => import("./drag-feature").then((m) => m.drag)` | It starts the first time one of the instance's elements mounts, or one of its hooks is called, on the client, once whichever provider asks. Its Features take effect as they arrive; nothing before is replayed. A server render loads nothing. |
+
+The instance's elements also have the Features their `WardicProvider` and any `LazyWardic` above them give, and render under a `strict` one. The module that calls `createWardic` ships the Features it's given at once to every page that imports it, so a page that drags can have an instance of its own.
+
+```tsx
+// src/lib/wardic-room.ts: hover at once, drag when the room first renders
+export const { w } = createWardic([domAnimation, () => import("./drag-feature").then((m) => m.drag)])
+```
 
 ## WardicInstance
 
