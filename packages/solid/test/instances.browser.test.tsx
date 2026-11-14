@@ -6,13 +6,17 @@
 // - IN3: every form of its `w` brings them: `w.create(tag)`, `w.create(Component)`, `w.createWard` and
 //   `use:w`.
 // - IN7: `strict` allows an instance's elements, an instance of `domMax`'s too; a `wardic.*` still throws.
+// - IN4: a load in its list starts at its first element's mount, not as it's made, once for two elements
+//   under two providers; nothing is said while it's on its way, and its Feature takes effect as it
+//   arrives: a drag before then does nothing, one after drags.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { createWardic, domMax, hover, LazyWardic, press, wardic, WardicProvider } from "@wardic/solid"
+import { createWardic, domMax, drag, hover, LazyWardic, press, wardic, WardicProvider } from "@wardic/solid"
 import type { JSX } from "solid-js"
-import { afterEach, describe, expect, it } from "vitest"
+import { afterEach, describe, expect, it, vi } from "vitest"
 import { opacityOf, until } from "./browser-helpers.ts"
-import { resetScene, settle } from "./reorder-harness.tsx"
+import { pushedPointer } from "./pushed-pointer.ts"
+import { resetScene, settle, wait } from "./reorder-harness.tsx"
 
 afterEach(async () => {
   await resetScene()
@@ -26,6 +30,24 @@ const TWEEN = { type: "tween", duration: 0.2 } as const
 const entering = (el: HTMLElement, done: () => boolean) => (): boolean => {
   el.dispatchEvent(new PointerEvent("pointerenter", { pointerId: 1, bubbles: true }))
   return done()
+}
+
+const word = (feature: string): string => `needs the \`${feature}\` Feature`
+
+/** Every line logged while `run` runs. */
+const logged = async (run: () => Promise<void>): Promise<ReadonlyArray<string>> => {
+  const lines: Array<string> = []
+  const spies = (["log", "info", "warn", "error", "debug"] as const).map((m) =>
+    vi.spyOn(console, m).mockImplementation((...args: Array<unknown>) => {
+      lines.push(args.map(String).join(" "))
+    }),
+  )
+  try {
+    await run()
+  } finally {
+    for (const spy of spies) spy.mockRestore()
+  }
+  return lines
 }
 
 /** Presses `el` with the primary pointer, then reads `done`: again and again, as the recognizer attaches asynchronously. */
@@ -114,5 +136,50 @@ describe("A Wardic instance (#516), Solid 1", () => {
         </WardicProvider>
       )),
     ).toThrow(/strict WardicProvider or LazyWardic/)
+  })
+
+  it("IN4: a load starts at the first element's mount, once for two providers; its Feature takes effect as it arrives", async () => {
+    const pointer = pushedPointer()
+    let calls = 0
+    let arrive!: () => void
+    const load = (): Promise<typeof drag> => {
+      calls += 1
+      return new Promise((resolve) => {
+        arrive = () => resolve(drag)
+      })
+    }
+    const { w } = createWardic([load])
+    expect(calls, "nothing loads as the instance is made").toBe(0)
+    let el!: HTMLElement
+    const lines = await logged(async () => {
+      render(() => (
+        <>
+          <WardicProvider env={pointer.env}>
+            <w.div ref={(n: HTMLElement) => (el = n)} style={BOX} drag="x" dragMomentum={false} />
+          </WardicProvider>
+          <WardicProvider env={DomLive}>
+            <w.div style={BOX} drag="x" />
+          </WardicProvider>
+        </>
+      ))
+      await settle()
+    })
+    expect(calls, "one load, at the first mount").toBe(1)
+    expect(lines.filter((l) => l.includes(word("drag"))), "nothing said while it's on its way").toEqual([])
+    const x0 = el.getBoundingClientRect().left
+    const fling = (): void => {
+      pointer.push("down", 0)
+      for (let k = 1; k <= 5; k++) pointer.push("move", 20 * k)
+      pointer.push("up", 100)
+    }
+    fling()
+    await wait(100)
+    expect(el.getBoundingClientRect().left - x0, "a drag before it arrives does nothing").toBe(0)
+    arrive()
+    await wait(50)
+    fling()
+    await until(() => el.getBoundingClientRect().left - x0 > 90, 2000)
+    expect(el.getBoundingClientRect().left - x0, "dragged once it's here").toBeGreaterThan(90)
+    expect(calls, "still one load").toBe(1)
   })
 })

@@ -34,7 +34,7 @@ import type * as FlushGate from "@wardic/dom/FlushGate"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { explainerOf, type ServerAppear, serverAppear } from "./appear.ts"
 import * as Context from "effect/Context"
-import { type Feature, type FeatureRegistry, type FeatureSection, type FeaturesProp, type InstanceFeatures, ROOT, strictMessage } from "./feature.ts"
+import { type Feature, type FeatureRegistry, type FeatureSection, type FeaturesProp, type InstanceFeatures, joinSections, type Own, ROOT, strictMessage } from "./feature.ts"
 import { FeatureSectionProvider, sectionUnder, useLazySection } from "./feature-section.ts"
 import * as OwnerScope from "./owner-scope.ts"
 import {
@@ -55,6 +55,7 @@ import {
   whenIdle,
 } from "./runtime.ts"
 import { isHydrating, isServer } from "./server.ts"
+import { reactivity } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { skipAnimationsOf } from "./wardic-config-value.ts"
 import { instantLayoutOf, type InstantTransition, instantTransitionOf, resetOf } from "./instant.ts"
@@ -234,8 +235,8 @@ export function LazyWardic(props: {
 export function useElementFeatures(brings: ReadonlyArray<Feature> | undefined, complete: boolean, instance?: InstanceFeatures | undefined): FeatureSection {
   const section = useFeatureSection()
   if (DEV && complete && section.strict) throw new Error(strictMessage("wardic.*, wardic.create, createWard, use:wardic", "w.*, w.create, w.createWard, use:w"))
-  // A Wardic instance's element (#516): its instance's Features, beside its section's.
-  if (Predicate.isNotUndefined(instance)) return joined(section, useFeatureRegistry().build(instance.given))
+  // A Wardic instance's element (#516): its instance's Features, given at once or loaded, beside its section's.
+  if (Predicate.isNotUndefined(instance)) return joinSections(section, useInstanceFeatures(instance))
   if (Predicate.isUndefined(brings)) return section
   const registry = useFeatureRegistry()
   // A Complete element has every Feature, whatever its section has: one section per provider.
@@ -249,6 +250,22 @@ const joined = (section: FeatureSection, own: Context.Context<never>): FeatureSe
   pending: section.pending,
   strict: section.strict,
 })
+
+/**
+ * A Wardic instance's Features in this provider (#516), one per instance (`FeatureRegistry.instance`):
+ * what's given built on first need, each load started on its first use on the client. Internal.
+ */
+export function useInstanceFeatures(instance: InstanceFeatures): Own {
+  return fromContext(useContext(WardicContext), "createWardic", (value) =>
+    value.features.instance(instance, {
+      reactivity: reactivity,
+      server: isServer,
+      report: (cause) => {
+        value.runtime.runFork(Report.failure("wardic.createWardic: a lazy load of Features failed", cause))
+      },
+    }),
+  )
+}
 
 /** The provider's Features (#511). Internal. */
 export function useFeatureRegistry(): FeatureRegistry {
