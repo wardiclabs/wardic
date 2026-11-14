@@ -121,7 +121,7 @@ const restrictSpan = (selector, message) => ({ selector, message: `${message} (A
  * its options. TypeScript rejects it anywhere else. `Effect.fn` always captures one, at its
  * definition and at every call, with no option to stop it.
  */
-const SPANS = [
+const STACKS = [
   restrictSpan(
     "CallExpression[callee.object.name='Effect'][callee.property.name='fn']",
     "Effect.fn captures a call-site stack at its definition and at every call: use Effect.fnUntraced with Effect.withSpan as its pipeable (#460)",
@@ -130,6 +130,21 @@ const SPANS = [
     "CallExpression[callee.object.name=/^(Effect|Stream)$/][callee.property.name=/^(withSpan|withSpanScoped)$/]:not(:has(Property[key.name='captureStackTrace']))",
     "A Wardic span captures no call-site stack: pass captureStackTrace: false (pipeable Effect.withSpan: its third argument; Effect.withSpanScoped: its options)",
   ),
+]
+
+/**
+ * And every Wardic span is the app's to give (#746, ADR-0067 *Amendment (#746)*, decision 8): one opened
+ * with Effect's own `withSpan` opens under any tracer, and brings Effect's `Tracer` into every app that
+ * imports it. Through `Spans.withSpan`, or core's `traced`, `tracedScoped` and `tracedStream`; only
+ * `internal/tracing.ts`, which `Spans.layer` gives, opens them itself.
+ */
+const SPANS = [
+  ...STACKS,
+  {
+    selector: "CallExpression[callee.object.name=/^(Effect|Stream)$/][callee.property.name=/^(withSpan|withSpanScoped|useSpan)$/]",
+    message:
+      "Open a Wardic span through Spans.withSpan (or core's traced), so an app without WardicSpans opens none and ships no span code (ADR-0067, Amendment (#746)).",
+  },
 ]
 
 /**
@@ -363,5 +378,12 @@ export default defineConfig([
     files: ["packages/solid/src/unstable/v2/**/*.{ts,tsx}", "packages/solid/test/v2/**/*.{ts,tsx}"],
     ...solidV2Strict,
     languageOptions: { ...solidV2Strict.languageOptions, parser: tseslint.parser },
+  },
+  {
+    // The one module that opens Wardic's spans itself: what `Spans.layer` gives (#746).
+    files: ["packages/core/src/internal/tracing.ts"],
+    rules: {
+      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...LOOPS, ...ALIASES, ...STACKS, ...BOOL_OPERANDS, ...EVENT_NAMES],
+    },
   },
 ])
