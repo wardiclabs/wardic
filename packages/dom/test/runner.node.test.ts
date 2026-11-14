@@ -65,6 +65,16 @@ describe("a Layer-built service's runner (#132)", () => {
     expect(exit !== undefined && Exit.hasInterrupts(exit), "interrupted with the Scope").toBe(true)
   })
 
+  it("RN6: a fork after the Scope closed is interrupted at once (#746: the runner's own set, as FiberSet did)", async () => {
+    const runtime = runtimeOf()
+    const runner = runtime.runSync(Probe)
+    await runtime.dispose()
+    const fiber = runner.runFork(Effect.never)
+    await macrotask()
+    const exit = fiber.pollUnsafe()
+    expect(exit !== undefined && Exit.hasInterrupts(exit), "interrupted, not left running").toBe(true)
+  })
+
   it("RN3: built under a host's async scheduler, a fork resumes from a yield on that scheduler (#208)", async () => {
     const host = recording("async")
     const runtime = runtimeUnder(host.scheduler)

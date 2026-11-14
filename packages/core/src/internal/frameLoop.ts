@@ -11,7 +11,7 @@
  *   given a token (`run(machine, sink, { supersede })`, #200) joins it, and `Supersede.end` takes
  *   it off at once too, completing its fiber with `Superseded`: no interrupt, and no interrupt
  *   cause for every finalizer to combine (ADR-0027, *Amendment (#200)*).
- * - **A burst** is the loop's one `Clock.ticks` subscription, held in a `FiberHandle` and forked
+ * - **A burst** is the loop's one `Clock.ticks` subscription, held in a field of the loop's (#746) and forked
  *   under the Layer's build context (never a caller's scheduler or span, the Clock's own rule,
  *   ADR-0017). The first run starts it; it ends itself at the first tick with nothing left, so
  *   a Retarget (a removal, then an add, in one call) keeps it, and the Clock goes idle at its
@@ -64,8 +64,7 @@ import * as Data from "effect/Data"
 import * as Deferred from "effect/Deferred"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
-import type * as Fiber from "effect/Fiber"
-import * as FiberHandle from "effect/FiberHandle"
+import * as Fiber from "effect/Fiber"
 import { constUndefined, identity } from "effect/Function"
 import * as LogLevel from "effect/LogLevel"
 import type * as Metric from "effect/Metric"
@@ -280,9 +279,12 @@ const joinSupersede = (token: Supersede.Supersede, run: Supersede.Run): void => 
   runs.push(run)
 }
 
+/** A burst's fork: started at once, inline, as `FiberHandle.run` started it (#746). */
+const START_NOW = { startImmediately: true } as const
+
 /**
  * Build the Frame loop over the Environment's `Clock`. Needs a `Scope` (the burst's
- * `FiberHandle` lives in it), so the `FrameLoop` module wraps it as its `layer`. Its span
+ * fiber ends with it), so the `FrameLoop` module wraps it as its `layer`. Its span
  * captures no call-site stack (ADR-0040, decision 2), so not `Effect.fn`, which always does:
  * `Effect.fnUntraced`, the span its pipeable (#460, Q6).
  */
@@ -291,7 +293,29 @@ export const make = Effect.fnUntraced(
     const clock = yield* Clock.Clock
     // The burst runs here, under the Layer's build context, never in a caller's.
     const buildContext = yield* Effect.context<Clock.Clock | Scope.Scope>()
-    const burst = yield* FiberHandle.make<void>()
+    // The burst's fiber (#746: what a `FiberHandle` held, in a field, so an app ships no FiberHandle): a
+    // new burst's replaces it, interrupting it, and the loop's Scope interrupts it and lets it go. Once
+    // that Scope has closed, the loop takes no run (`entered`), as the handle's closed state had it.
+    let held: Fiber.Fiber<void> | undefined
+    let closed = false
+    yield* Effect.addFinalizer(() =>
+      Effect.suspend(() => {
+        closed = true
+        const last = held
+        held = undefined
+        return UndefinedOr.match(last, { onUndefined: () => Effect.void, onDefined: Fiber.interrupt })
+      }),
+    )
+    /** Hold `fiber`, the burst just forked: the one before it, still ending its runs, is interrupted. */
+    const hold = (fiber: Fiber.Fiber<void>): void => {
+      const previous = held
+      // Held before the interruption, which may re-enter through a finalizer, as FiberHandle does.
+      held = fiber
+      if (Predicate.isNotUndefined(previous)) previous.interruptUnsafe()
+      fiber.addObserver(() => {
+        if (held === fiber) held = undefined
+      })
+    }
     const entries: Array<Entry> = []
     // The runs `runLast` added, stepped after `entries` in each tick.
     const lastEntries: Array<Entry> = []
@@ -300,8 +324,8 @@ export const make = Effect.fnUntraced(
     // removes.
     let hooks: ReadonlyArray<Hook> = []
     // Whether a burst holds the loop's subscription. A run's continuation runs inline while the
-    // ending burst is still in `burst`, so the loop tracks its burst itself rather than asking the
-    // handle (#81).
+    // ending burst is still `held`, so the loop tracks its burst here rather than asking whether one
+    // is held (#81).
     let bursting = false
     // The Late window (ADR-0027 *Amendment (#680)*): open from a tick's first step until the microtask
     // queued at its end has run. `windowQueued` keeps one microtask per window, however many ticks open
@@ -529,11 +553,7 @@ export const make = Effect.fnUntraced(
     }
 
     /** The burst's fiber, if one holds the subscription. */
-    const burstFiber = (): Fiber.Fiber<void, unknown> | undefined => {
-      const state = burst.state
-      if (state._tag === "Closed") return undefined
-      return state.fiber
-    }
+    const burstFiber = (): Fiber.Fiber<void, unknown> | undefined => held
 
     const afterTick = (hook: (dt: number) => undefined): Effect.Effect<void, never, Scope.Scope> => {
       const added: Hook = { hook }
@@ -585,14 +605,17 @@ export const make = Effect.fnUntraced(
 
     /**
      * Start a burst unless one holds the subscription, inline: no scheduler hop before the
-     * subscription. While a burst ends its runs, the new one replaces it in `burst` (#81).
+     * subscription. While a burst ends its runs, the new one replaces it as the one `held` (#81). A
+     * closed loop never gets here: it takes no run (`entered`).
      */
     const startBurst: Effect.Effect<unknown> = Effect.suspend(() =>
       Bool.match(bursting, {
         onTrue: () => Effect.void,
         onFalse: () => {
           bursting = true
-          return FiberHandle.run(burst, ticking)
+          // Detached and started at once, as `FiberHandle.run` forks: no scheduler hop before the
+          // subscription, and no caller's fiber its parent.
+          return Effect.map(Effect.forkDetach(ticking, START_NOW), hold)
         },
       }),
     )
@@ -660,7 +683,7 @@ export const make = Effect.fnUntraced(
       span: Tracer.Span | undefined,
     ): Effect.Effect<Entry> => {
       // A closed Environment takes no runs: nothing would tick them.
-      if (burst.state._tag === "Closed") return Effect.interrupt
+      if (closed) return Effect.interrupt
       let checkedSink: FrameLoop.Sink<F> = sink
       if (check) checkedSink = checked(sink)
       const entry: Entry = {
