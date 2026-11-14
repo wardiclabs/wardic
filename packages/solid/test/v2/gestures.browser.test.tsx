@@ -10,7 +10,7 @@
 // - GE5: a ward moved to another element leaves its gesture behind: the hover state and the first
 //   element's recognizer go with it.
 import { DomLive } from "@wardic/dom"
-import { ward, wardic, type WardConfig, type WardicEnv, WardicProvider } from "@wardic/solid/unstable/v2"
+import { type Ward, ward, wardic, type WardConfig, type WardicEnv, WardicProvider } from "@wardic/solid/unstable/v2"
 import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as Layer from "effect/Layer"
@@ -44,16 +44,33 @@ const takes = async (el: Element, event: () => Event, done: () => boolean, what:
   expect(done(), what).toBe(true)
 }
 
+/**
+ * Dispatch `event` on `el` each frame until `started` resolves: the recognizer may attach its listener
+ * after the first events. Not once it has: a down again while a press is held is a lost release
+ * (ADR-0019), which ends the press and starts another in one dispatch, so the ward's target re-ran for
+ * the same result on every frame the press was still animating (Solid 2's WASTED_RECOMPUTE, on a slow runner).
+ */
+const startedBy = async (el: Element, event: () => Event, started: Promise<unknown>, what: string): Promise<void> => {
+  let resolved = false
+  void started.then(() => (resolved = true))
+  await until(() => {
+    if (!resolved) el.dispatchEvent(event())
+    return resolved
+  })
+  expect(resolved, what).toBe(true)
+}
+
 /** One element with a kept ward on `config`, in a provider over `env`. */
 const box = (env: WardicEnv, config: WardConfig) => {
   let el!: HTMLElement
+  let card!: Ward
   const [shown, setShown] = createSignal(true)
   const Box = () => {
-    const card = ward(config)
+    card = ward(config)
     return <div {...card} ref={[card, (n: HTMLElement) => (el = n)]} style={{ width: "40px", height: "40px" }} />
   }
   mount(() => <WardicProvider env={env}>{Bool.match(shown(), { onTrue: () => <Box />, onFalse: () => null })}</WardicProvider>)
-  return { el: () => el, hide: () => (setShown(false), flush()) }
+  return { el: () => el, ward: () => card, hide: () => (setShown(false), flush()) }
 }
 
 describe("a ward's gestures on Solid 2", () => {
@@ -76,7 +93,9 @@ describe("a ward's gestures on Solid 2", () => {
   it("GE2: whileTap through a kept ward: a press animates to it, its release returns", async () => {
     const b = box(DomLive, { initial: { opacity: 0.2 }, animate: { opacity: 0.2 }, whileTap: { opacity: 1 } })
     await until(() => Math.abs(opacityOf(b.el()) - 0.2) < 0.01)
-    await takes(b.el(), () => new PointerEvent("pointerdown", { ...mouse, button: 0, buttons: 1 }), () => opacityOf(b.el()) > 0.3, "press takes")
+    await startedBy(b.el(), () => new PointerEvent("pointerdown", { ...mouse, button: 0, buttons: 1 }), b.ward().next("pressStart"), "press takes")
+    await until(() => opacityOf(b.el()) > 0.3)
+    expect(opacityOf(b.el()), "toward whileTap").toBeGreaterThan(0.3)
     b.el().dispatchEvent(new PointerEvent("pointerup", { ...mouse, button: 0, buttons: 0 }))
     await until(() => Math.abs(opacityOf(b.el()) - 0.2) < 0.001)
     expect(opacityOf(b.el())).toBeCloseTo(0.2, 2)
