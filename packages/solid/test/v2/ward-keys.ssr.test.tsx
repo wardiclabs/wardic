@@ -12,7 +12,9 @@
 // - WK7: a list of names (#297) adds no key of its own: an array's members never complete; nor does a
 //   config without `drag` add `x` (it did: `never` took the first drag axis).
 // - WK8 (#428): a target's Transition end's keys are keys a ward reads; `transitionEnd` itself isn't one.
-import { type AnimatedKey, ward, type WardChecked, type WardConfig } from "@wardic/solid/unstable/v2"
+// - WK9 (#756): a config key no ward takes is an error, beside one it takes too, in `ward()` and
+//   `w.ward()`: `const C` kept it in `C`, so nothing checked it once another key matched.
+import { type AnimatedKey, w, ward, type WardChecked, type WardConfig } from "@wardic/solid/unstable/v2"
 import type { Atom } from "effect/reactivity"
 import type { Accessor } from "solid-js"
 import { describe, expect, expectTypeOf, it } from "vitest"
@@ -27,6 +29,9 @@ const wardOn = <const C extends WardConfig>(config: WardChecked<C>) => {
   })
   return made
 }
+
+/** A ward, type-checked only: the function is never called. */
+const typed = (make: () => unknown): void => void make
 
 describe("a ward's keys, typed from its config (#209)", () => {
   it("WK1: the keys a config animates, from every layer, and its drag axis's", () => {
@@ -104,5 +109,29 @@ describe("a ward's keys, typed from its config (#209)", () => {
   it("WK8: a Transition end's keys are keys a ward reads; transitionEnd itself isn't one", () => {
     const config = { animate: { opacity: 0, transitionEnd: { display: "none" } }, whileHover: { scale: 1.1, transitionEnd: { cursor: "grab" } } } as const
     expectTypeOf<AnimatedKey<typeof config>>().toEqualTypeOf<"opacity" | "scale" | "display" | "cursor">()
+  })
+
+  it("WK9: a config key no ward takes is an error, beside one it takes too (#756)", () => {
+    typed(() =>
+      ward({
+        animate: { opacity: 1 },
+        // @ts-expect-error not a key a ward takes
+        foo: 1,
+      }),
+    )
+    typed(() =>
+      w.ward({
+        animate: { opacity: 1 },
+        // @ts-expect-error a misspelt whileHover
+        whilHover: { scale: 1.1 },
+      }),
+    )
+    typed(() =>
+      ward({
+        // @ts-expect-error alone, as before
+        foo: 1,
+      }),
+    )
+    typed(() => ward({ animate: { opacity: 1 }, whileHover: { scale: 1.1 }, style: { opacity: 0.5 } }))
   })
 })

@@ -297,6 +297,8 @@ export {
  * `w.createWard` and `use:w`, each as its `wardic` form but with only the Features chosen above it.
  */
 export { type W, w } from "./w.tsx"
+// #516: what `createWardic(features)` returns, its `w` typed to its Features.
+export type { WardConfigOf, WardicInstance } from "./wardic-instance.ts"
 // #443 (Motion's): `wardic.create`'s options; whether a component is a Wardic element's and what it
 // wraps; whether a prop is a motion prop.
 export { isWardicComponent, unwrapWardicComponent, type WardicCreateOptions } from "./wardic-component.ts"

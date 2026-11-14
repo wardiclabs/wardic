@@ -10,7 +10,7 @@ import { FocusGesture } from "./keys.ts"
 import { gestureLayer, withInput } from "./input.ts"
 
 /** Focus gestures: `whileFocus`. */
-export const focus: Feature<FocusGesture, FocusGesture["Service"]> = {
+export const focus: Feature<FocusGesture, FocusGesture["Service"], "focus"> = {
   name: "focus",
   key: FocusGesture,
   layer: /*#__PURE__*/ gestureLayer(FocusGesture, (source) => ({ watch: withInput(source, Recognizer.watchFocus) })),

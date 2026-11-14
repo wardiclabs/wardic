@@ -83,7 +83,7 @@ import {
   type Signal,
   untrack,
 } from "solid-js"
-import type { WardConfig as SharedWardConfig, WardicValues } from "../../config.ts"
+import type { WardConfig as SharedWardConfig, WardFeatureConfigs, WardicValues } from "../../config.ts"
 import { MOTION_PROPS_V2, type SolidOneCallback } from "../../motion-props.ts"
 import * as OwnerScope from "../../owner-scope.ts"
 
@@ -158,12 +158,12 @@ import {
   useElementFeatures,
   useFeatureRegistry,
 } from "./provider.tsx"
-import { type Feature, type FeatureRegistry, type FeatureSection, LAYOUT_PROPS, missingMessage, unreadColorIn } from "../../feature.ts"
+import { type EveryFeature, type Feature, type FeatureRegistry, type FeatureSection, LAYOUT_PROPS, missingMessage, type NamesEvery, type PropFeatureNames, unreadColorIn } from "../../feature.ts"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, CLIENT_ONLY_SYNC, CLIENT_ONLY_SYNC_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { pointMapOptionOf, transformPagePointOf } from "../../wardic-config-value.ts"
 import { configView, type Fixed, type PerKey, type PerKeyApart } from "./config-view.ts"
-import { Lifecycle, type WardEvent, type WardEvents, type WardPressInfo, type WardSettled } from "./lifecycle.ts"
+import { type EventNeeds, Lifecycle, type WardEvent, type WardEvents, type WardPressInfo, type WardSettled } from "./lifecycle.ts"
 import { neverLands, NO_EVENTS, serverWhen } from "./waiters.ts"
 import { usePresenceContext } from "./presence.tsx"
 import { createVariantNode, useVariantContext, type VariantNode, WardicVariantContext } from "./variant-node.ts"
@@ -193,7 +193,7 @@ export interface WardConfigValues extends Omit<SharedWardConfig, SolidOneCallbac
  * `dragConstraints`' function is its container's accessor (#273), read at each measure; a
  * `transformTemplate` is called by the renderer (#443).
  */
-type WardCallbackKey = "onUpdate" | "dragConstraints" | "onMeasureDragConstraints" | "transformTemplate" | "onBeforeLayoutMeasure" | "onLayoutMeasure"
+export type WardCallbackKey = "onUpdate" | "dragConstraints" | "onMeasureDragConstraints" | "transformTemplate" | "onBeforeLayoutMeasure" | "onLayoutMeasure"
 
 /**
  * A ward's config: each key a value, or an accessor of it, read per key. A getter,
@@ -451,11 +451,33 @@ export interface WardOptions {
   readonly parent?: AnyWard | undefined
 }
 
+/** What a ward's events come as: `next`'s promise, `each`'s iterable, `when`'s accessor. */
+type Heard = "Promise" | "AsyncIterable" | "Accessor"
+
+/** {@link Heard} of event `E`'s value. */
+type HeardAs<H extends Heard, E extends WardEvent> = H extends "Promise" ? Promise<WardEvents[E]> : H extends "AsyncIterable" ? AsyncIterable<WardEvents[E]> : Accessor<WardEvents[E]>
+
+/**
+ * A ward's `next`, `each` or `when`, its Features named `FN` (#516, Q19): every event with every
+ * Feature, as they were; a Wardic instance's takes `settled` and its Features' events, and another's
+ * meets `NeedsFeature<"name">`, an error naming the Feature.
+ */
+type Listen<FN extends string, H extends Heard> =
+  NamesEvery<WardFeatureConfigs, FN> extends true ? <E extends WardEvent>(name: E) => HeardAs<H, E> : <E extends WardEvent>(name: E & EventNeeds<E, FN>) => HeardAs<H, E>
+
 /**
  * One element's motion binding: a ref carrying its props (see the module). Spread it, give it to
  * `ref` (alone, or in an array with your own), or give it to a Wardic component's `wardRef`.
+ * `Ward<C, F>` is a Wardic instance's ward, with Features `F`: it hears `settled` and their events alone.
  */
-export interface Ward<C extends WardConfig = WardConfig> extends WardProps, AnyWard {
+// `F` (#516, Q19): its default, every Feature, gives the ward as it was ({@link WardFor}).
+export type Ward<C extends WardConfig = WardConfig, F = EveryFeature> = WardFor<C, PropFeatureNames<F>>
+
+/**
+ * A {@link Ward} whose Features are named `FN` (#516): its `next`, `each` and `when` take `settled` and
+ * their events alone ({@link Listen}).
+ */
+export interface WardFor<C extends WardConfig, FN extends string> extends WardProps, AnyWard {
   /** Mounts the ward on `element`: Solid calls it as a ref. */
   (element: HTMLElement): void
   /**
@@ -521,7 +543,7 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps, AnyW
    * A gesture's event starts its recognizer, if its `while*` hasn't. Rejected with a
    * `DOMException` named `"AbortError"` once the ward is disposed.
    */
-  readonly next: <E extends WardEvent>(name: E) => Promise<WardEvents[E]>
+  readonly next: Listen<FN, "Promise">
   /**
    * Every `name` from the call on, as an async iterable, for a `for await`: each step waits as
    * `next(name)` does, so one that comes while its body runs is missed; the loop ends once the ward is
@@ -529,7 +551,7 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps, AnyW
    * `each` misses one between its steps, and on a page rendered on the server it needs
    * `ssrSource: "client"` and a `<Loading>`.
    */
-  readonly each: <E extends WardEvent>(name: E) => AsyncIterable<WardEvents[E]>
+  readonly each: Listen<FN, "AsyncIterable">
   /**
    * Every `name`, as a memo for an effect: pending until the first, so the effect runs at each
    * one and never before, typed as the event, on any page (no `ssrSource`, no `<Loading>`). It hears
@@ -546,7 +568,7 @@ export interface Ward<C extends WardConfig = WardConfig> extends WardProps, AnyW
    * })
    * ```
    */
-  readonly when: <E extends WardEvent>(name: E) => Accessor<WardEvents[E]>
+  readonly when: Listen<FN, "Accessor">
   /**
    * The ward's props with the element's own (the Solid 1 ward's `ward({ ref, style })`): its
    * `ref` called beside the ward's, and its `style` over the config's, key by key. For a style made

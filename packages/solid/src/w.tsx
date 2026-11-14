@@ -18,11 +18,23 @@ import type { Accessor, JSX } from "solid-js"
 import type { WardConfig, WardicVariantLabels } from "./config.ts"
 import { createWardWith, type SpineInternals, type Ward } from "./create-ward.tsx"
 import { runDirective } from "./directive.tsx"
-import { type Create, createOf, formOf, type WardicComponent } from "./element.tsx"
+import { createOf, type CreateFor, formOf, type InferredPropsFor, type WardicComponentFor } from "./element.tsx"
+import type { EveryFeature, PropFeatureNames } from "./feature.ts"
 import type { InferredMotion, TargetKey } from "./ward-keys.ts"
 
 /** What a Slim element tells the spine: it brings no Feature of its own. */
 const SLIM: SpineInternals = {}
+
+/** A Wardic instance's `w.createWard` (#516), its Features named `FN`: its config typed to their props alone. */
+type CreateWardFor<FN extends string> = <
+  K extends TargetKey = never,
+  N extends string = never,
+  LI extends WardicVariantLabels = never,
+  LA extends WardicVariantLabels = never,
+  D extends boolean | "x" | "y" = never,
+>(
+  config: InferredPropsFor<FN, K, N, LI, LA, D> | Accessor<InferredPropsFor<FN, K, N, LI, LA, D>>,
+) => Ward
 
 /** The `use:w` directive. An arrow function, as `use:wardic`'s is. */
 const wDirective = (el: HTMLElement, value: Accessor<WardConfig>): void => runDirective(el, value, SLIM)
@@ -38,12 +50,22 @@ function createSlimWard<
   return createWardWith(config as WardConfig | Accessor<WardConfig>, SLIM)
 }
 
-/** The typed `w` proxy: called, it's the `use:w` directive; `w.create`, `w.createWard` and `w.<tag>` are its forms. */
-export type W = ((el: HTMLElement, value: Accessor<WardConfig>) => void) & {
-  readonly create: Create
-  readonly createWard: typeof createSlimWard
+/**
+ * The type of `w`: called, it's the `use:w` directive; `w.create`, `w.createWard` and `w.<tag>` are its
+ * forms. `W<F>` is a Wardic instance's `w`, whose elements take only Features `F`'s props; its `use:w`
+ * takes every prop all the same, as Solid types a directive by its name.
+ *
+ * @see https://wardic.dev/reference/solid/elements/wardic-instance
+ */
+// `F`: #516, ADR-0067 *Amendment (#516)*; `use:w`, its decision 4.
+export type W<F = EveryFeature> = WFor<PropFeatureNames<F>>
+
+/** {@link W} for the Features named `FN` (#516). */
+type WFor<FN extends string> = ((el: HTMLElement, value: Accessor<WardConfig>) => void) & {
+  readonly create: CreateFor<FN>
+  readonly createWard: CreateWardFor<FN>
 } & {
-  readonly [Tag in keyof JSX.IntrinsicElements]: WardicComponent<Tag>
+  readonly [Tag in keyof JSX.IntrinsicElements]: WardicComponentFor<Tag, FN>
 }
 
 /**

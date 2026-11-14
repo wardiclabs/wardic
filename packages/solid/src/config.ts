@@ -431,13 +431,8 @@ export type WardicLayoutBox = Box.Box
  */
 export type WardicTransformTemplate = DomRenderer.TransformTemplate
 
-/**
- * The motion props a Wardic element takes, and the config a ward is made with: what it animates,
- * when, how, and what it tells you. Motion's props, by Motion's names.
- *
- * @see https://wardic.dev/reference/solid/elements/props
- */
-export interface WardConfig {
+/** The motion props every element takes, whatever its Features: {@link WardConfig}'s base group (#516). */
+export interface WardBaseConfig {
   /**
    * Where the element starts: values, a `variants` name, or `false` to start at `animate`, so nothing
    * animates as it mounts. On a server-rendered page, the element arrives in the HTML at `initial`.
@@ -491,6 +486,70 @@ export interface WardConfig {
   // ancestor with variants (CONTEXT.md).
   readonly inherit?: boolean
   /**
+   * How the element moves to a target: a spring (`stiffness`, `damping`, `mass`, or `duration` and
+   * `bounce`), a tween (`duration`, `ease`), keyframes' `times`, or `inertia`, with `delay`, `repeat`
+   * and, for variants, `staggerChildren` and `when`. A value's own (`opacity: {…}`) or `layout`'s apply
+   * to it alone. Without one, each value gets Motion's default.
+   *
+   * @example <w.div transition={{ type: "spring", stiffness: 300, damping: 20 }} />
+   * @see https://wardic.dev/guides/transitions
+   */
+  // Per-value entries: ADR-0049. Default transitions: ADR-0051.
+  readonly transition?: WardicTransition
+  /**
+   * Where the element animates as it leaves an `<AnimatePresence>`: values or a `variants` name. The
+   * element stays on the page until it has played.
+   *
+   * @example <w.div exit={{ opacity: 0, scale: 0.9 }} />
+   */
+  // ADR-0007: the child doesn't drive it (it's disposed); its spine publishes the exit into the
+  // presence registration, and the presence runs it on the retained node. A dynamic variant resolves
+  // as it leaves (#277); its own transition, else the element's.
+  readonly exit?: WardicVariant | WardicVariantLabels
+  /**
+   * Called when an animation of the element starts, with what it animates to: the variant name, or
+   * the values. Not for a layout animation, which has its own. Solid 1's.
+   */
+  // #257: at each Retarget that starts one (animate, its variant, a gesture layer turning on or off).
+  // Not for a same-target change, a drag's momentum or return. Read at that Retarget.
+  readonly onAnimationStart?: (definition: WardicAnimationDefinition) => void
+  /**
+   * Called when that animation lands, with the same definition, once every value it moves has
+   * settled. Not for one interrupted by a new target. Solid 1; on Solid 2, the element's ward gives
+   * `next("settled")`.
+   */
+  // #257. Read at the Retarget that started it.
+  readonly onAnimationComplete?: (definition: WardicAnimationDefinition) => void
+  /**
+   * Called once a frame in which the element's values changed, with every value it holds (`x` as a
+   * number). The object is reused: read it during the call, or copy it. For one value, `ward.read(key)`
+   * on Solid 2, or `ward.value(key)` on Solid 1, costs less.
+   */
+  // #233. After that frame's commits, before it's drawn. Whether it reports is read once at mount; the
+  // function at each call. A signal it sets paints in the next frame.
+  readonly onUpdate?: (latest: Readonly<Record<string, number | string>>) => void
+  /**
+   * Builds the element's whole `transform` from its values and the one Wardic would draw, wherever
+   * it's drawn: at rest, animating, on the server and during a layout animation.
+   *
+   * @example <w.div transformTemplate={(_, generated) => `translate(-50%, -50%) ${generated}`} />
+   */
+  // #443, a Transform template. See WardicTransformTemplate for what it's handed. Whether it has one is
+  // read at mount; the function each frame.
+  readonly transformTemplate?: WardicTransformTemplate
+  /**
+   * `false`: on a server-rendered page, this element's entrance waits for the JavaScript instead of
+   * playing from the first paint. The provider's `appear` sets it for every element.
+   *
+   * @see https://wardic.dev/guides/server-rendering
+   */
+  // #48, ADR-0044. Read on the server, once.
+  readonly appear?: boolean
+}
+
+/** The motion props the `hover` Feature reads: {@link WardConfig}'s `hover` group (#516). */
+export interface WardHoverConfig {
+  /**
    * Where the element animates while the pointer is over it, and back when it leaves: values or a
    * `variants` name, which children with `variants` follow too. Needs the `hover` Feature.
    *
@@ -499,6 +558,18 @@ export interface WardConfig {
   // Priority: under whileTap and whileDrag, over whileFocus and whileInView. Names reach Variant
   // children (#291).
   readonly whileHover?: WardicVariant | WardicVariantLabels
+  // Motion's gesture callbacks (#273, ADR-0047): `(event, info)`, the DOM's PointerEvent first, called
+  // at the event, `info.point` in the viewport (not Motion's page). A hover's or a tap's starts its
+  // recognizer, as a while* does, set at mount or later. Solid 1's: Solid 2 hears the same through
+  // next(name). One that throws is reported, and the gesture goes on.
+  /** Called when the pointer comes over the element (a touch never hovers). Solid 1; Solid 2's ward gives `"hoverStart"`. */
+  readonly onHoverStart?: (event: PointerEvent, info: WardicPointInfo) => void
+  /** Called when the pointer leaves the element. Solid 1; Solid 2's ward gives `"hoverEnd"`. */
+  readonly onHoverEnd?: (event: PointerEvent, info: WardicPointInfo) => void
+}
+
+/** The motion props the `press` Feature reads: {@link WardConfig}'s `press` group (#516). */
+export interface WardPressConfig {
   /**
    * Where the element animates while it's pressed, by a pointer or by Enter or Space while it has
    * focus. Needs the `press` Feature.
@@ -515,6 +586,33 @@ export interface WardConfig {
   // element with a press claims; drags hold their own Drag claim.
   readonly propagate?: WardicPropagate
   /**
+   * Called when a press begins on the element: a pointer going down, or Enter or Space while it has
+   * focus (`info.input` says which). Solid 1; Solid 2's ward gives `"pressStart"`.
+   */
+  // Keyboard presses: #427.
+  readonly onTapStart?: (event: WardicPressEvent, info: WardicPressInfo) => void
+  /** Called when that press ends on the element: a release on it, or its key coming up. Solid 1; Solid 2's ward gives `"tap"`. */
+  readonly onTap?: (event: WardicPressEvent, info: WardicPressInfo) => void
+  /**
+   * Called when that press ends anywhere else, or is cancelled. A press a drag took over is neither a
+   * tap nor a cancel. Solid 1; Solid 2's ward gives `"tapCancel"`.
+   */
+  readonly onTapCancel?: (event: WardicPressEvent, info: WardicPressInfo) => void
+}
+
+/** The motion props the `focus` Feature reads: {@link WardConfig}'s `focus` group (#516). */
+export interface WardFocusConfig {
+  /**
+   * Where the element animates while it has the keyboard's focus (as `:focus-visible` shows it, not
+   * a click's). Needs the `focus` Feature.
+   */
+  // #273. Under the pointer gestures, over whileInView.
+  readonly whileFocus?: WardicVariant | WardicVariantLabels
+}
+
+/** The motion props the `inView` Feature reads: {@link WardConfig}'s `inView` group (#516). */
+export interface WardInViewConfig {
+  /**
    * Where the element animates while it's in view, as `viewport` defines it. Needs the `inView`
    * Feature.
    *
@@ -523,18 +621,39 @@ export interface WardConfig {
   // #273, ADR-0047. Under whileFocus and the pointer gestures.
   readonly whileInView?: WardicVariant | WardicVariantLabels
   /**
-   * Where the element animates while it has the keyboard's focus (as `:focus-visible` shows it, not
-   * a click's). Needs the `focus` Feature.
-   */
-  // #273. Under the pointer gestures, over whileInView.
-  readonly whileFocus?: WardicVariant | WardicVariantLabels
-  /**
    * What "in view" means for `whileInView` and the viewport callbacks: `root`, a scrolling container
    * (the window if none); `margin`, grown around it, as CSS `rootMargin`; `amount` of the element that
    * must show, `"some"`, `"all"` or 0 to 1; and `once`, to stay in view after the first entry.
    */
   // #273. Read when the recognizer starts.
   readonly viewport?: WardicViewport
+  /** Called when the element comes into view, as `viewport` defines it, with the browser's `IntersectionObserverEntry`. Solid 1; Solid 2's ward gives `"viewportEnter"`. */
+  readonly onViewportEnter?: (entry: IntersectionObserverEntry) => void
+  /** Called when the element leaves the view. With `viewport.once`, never after the first entry. Solid 1; Solid 2's ward gives `"viewportLeave"`. */
+  readonly onViewportLeave?: (entry: IntersectionObserverEntry) => void
+}
+
+/** The motion props the `pan` Feature reads: {@link WardConfig}'s `pan` group (#516). */
+export interface WardPanConfig {
+  /**
+   * Called when a pointer goes down on the element, ready to pan. A pan moves nothing itself: read
+   * its offset and velocity in `onPan`. On a touch screen, give the element a `touch-action`, such as
+   * `pan-y` for a sideways pan, or the page's scroll takes the gesture. Solid 1; Solid 2's ward gives
+   * `"panSessionStart"`.
+   */
+  // Once started, a pan counts as a drag for the element's press and hover: a press it took over is
+  // neither a tap nor a cancel (ADR-0047).
+  readonly onPanSessionStart?: (event: PointerEvent, info: WardicPointInfo) => void
+  /** Called when a pan starts, past its threshold. Solid 1; Solid 2's ward gives `"panStart"`. */
+  readonly onPanStart?: (event: PointerEvent, info: WardicDragInfo) => void
+  /** Called as the pan moves: at its start, and each move after. Solid 1; Solid 2's ward gives `"pan"`. */
+  readonly onPan?: (event: PointerEvent, info: WardicDragInfo) => void
+  /** Called when a pan that started ends, or is cancelled. Solid 1; Solid 2's ward gives `"panEnd"`. */
+  readonly onPanEnd?: (event: PointerEvent, info: WardicDragInfo) => void
+}
+
+/** The motion props the `drag` Feature reads: {@link WardConfig}'s `drag` group (#516). */
+export interface WardDragConfig {
   /**
    * Makes the element draggable: `true` on both axes, `"x"` or `"y"` on one. On release it carries on
    * at the speed it was let go, a Fling, and slows to a stop. Needs the `drag` Feature.
@@ -615,27 +734,20 @@ export interface WardConfig {
    */
   // #431. Read once at mount.
   readonly dragListener?: boolean
-  /**
-   * How the element moves to a target: a spring (`stiffness`, `damping`, `mass`, or `duration` and
-   * `bounce`), a tween (`duration`, `ease`), keyframes' `times`, or `inertia`, with `delay`, `repeat`
-   * and, for variants, `staggerChildren` and `when`. A value's own (`opacity: {…}`) or `layout`'s apply
-   * to it alone. Without one, each value gets Motion's default.
-   *
-   * @example <w.div transition={{ type: "spring", stiffness: 300, damping: 20 }} />
-   * @see https://wardic.dev/guides/transitions
-   */
-  // Per-value entries: ADR-0049. Default transitions: ADR-0051.
-  readonly transition?: WardicTransition
-  /**
-   * Where the element animates as it leaves an `<AnimatePresence>`: values or a `variants` name. The
-   * element stays on the page until it has played.
-   *
-   * @example <w.div exit={{ opacity: 0, scale: 0.9 }} />
-   */
-  // ADR-0007: the child doesn't drive it (it's disposed); its spine publishes the exit into the
-  // presence registration, and the presence runs it on the retained node. A dynamic variant resolves
-  // as it leaves (#277); its own transition, else the element's.
-  readonly exit?: WardicVariant | WardicVariantLabels
+  /** Called when a drag of the element starts. Solid 1; Solid 2's ward gives `"dragStart"`. */
+  readonly onDragStart?: (event: PointerEvent, info: WardicDragInfo) => void
+  /** Called as the drag moves: at its start, and each move after. Solid 1; Solid 2's ward gives `"drag"`. */
+  readonly onDrag?: (event: PointerEvent, info: WardicDragInfo) => void
+  /** Called when the drag is let go. Solid 1; Solid 2's ward gives `"dragEnd"`. */
+  readonly onDragEnd?: (event: PointerEvent, info: WardicDragInfo) => void
+  /** Called when the element comes to rest after it's let go. Not when a new grab stops it. Solid 1; Solid 2's ward gives `"dragTransitionEnd"`. */
+  readonly onDragTransitionEnd?: () => void
+  /** With `dragDirectionLock`: called with the axis a drag locked to, before `onDragStart`. Solid 1; Solid 2's ward gives `"directionLock"`. */
+  readonly onDirectionLock?: (axis: "x" | "y") => void
+}
+
+/** The motion props the `layout` Feature reads: {@link WardConfig}'s `layout` group (#516). */
+export interface WardLayoutConfig {
   /**
    * Animates the element's layout: when its size or place on the page changes, by its own layout or
    * its siblings', it moves there smoothly instead of jumping. `"position"` or `"size"` animates only
@@ -696,70 +808,6 @@ export interface WardConfig {
   // #442, ADR-0010. Read as each handover begins; only the twin that becomes the Lead reads it.
   readonly layoutCrossfade?: boolean
   /**
-   * Called when an animation of the element starts, with what it animates to: the variant name, or
-   * the values. Not for a layout animation, which has its own. Solid 1's.
-   */
-  // #257: at each Retarget that starts one (animate, its variant, a gesture layer turning on or off).
-  // Not for a same-target change, a drag's momentum or return. Read at that Retarget.
-  readonly onAnimationStart?: (definition: WardicAnimationDefinition) => void
-  /**
-   * Called when that animation lands, with the same definition, once every value it moves has
-   * settled. Not for one interrupted by a new target. Solid 1; on Solid 2, the element's ward gives
-   * `next("settled")`.
-   */
-  // #257. Read at the Retarget that started it.
-  readonly onAnimationComplete?: (definition: WardicAnimationDefinition) => void
-  // Motion's gesture callbacks (#273, ADR-0047): `(event, info)`, the DOM's PointerEvent first, called
-  // at the event, `info.point` in the viewport (not Motion's page). A hover's or a tap's starts its
-  // recognizer, as a while* does, set at mount or later. Solid 1's: Solid 2 hears the same through
-  // next(name). One that throws is reported, and the gesture goes on.
-  /** Called when the pointer comes over the element (a touch never hovers). Solid 1; Solid 2's ward gives `"hoverStart"`. */
-  readonly onHoverStart?: (event: PointerEvent, info: WardicPointInfo) => void
-  /** Called when the pointer leaves the element. Solid 1; Solid 2's ward gives `"hoverEnd"`. */
-  readonly onHoverEnd?: (event: PointerEvent, info: WardicPointInfo) => void
-  /**
-   * Called when a press begins on the element: a pointer going down, or Enter or Space while it has
-   * focus (`info.input` says which). Solid 1; Solid 2's ward gives `"pressStart"`.
-   */
-  // Keyboard presses: #427.
-  readonly onTapStart?: (event: WardicPressEvent, info: WardicPressInfo) => void
-  /** Called when that press ends on the element: a release on it, or its key coming up. Solid 1; Solid 2's ward gives `"tap"`. */
-  readonly onTap?: (event: WardicPressEvent, info: WardicPressInfo) => void
-  /**
-   * Called when that press ends anywhere else, or is cancelled. A press a drag took over is neither a
-   * tap nor a cancel. Solid 1; Solid 2's ward gives `"tapCancel"`.
-   */
-  readonly onTapCancel?: (event: WardicPressEvent, info: WardicPressInfo) => void
-  /** Called when a drag of the element starts. Solid 1; Solid 2's ward gives `"dragStart"`. */
-  readonly onDragStart?: (event: PointerEvent, info: WardicDragInfo) => void
-  /** Called as the drag moves: at its start, and each move after. Solid 1; Solid 2's ward gives `"drag"`. */
-  readonly onDrag?: (event: PointerEvent, info: WardicDragInfo) => void
-  /** Called when the drag is let go. Solid 1; Solid 2's ward gives `"dragEnd"`. */
-  readonly onDragEnd?: (event: PointerEvent, info: WardicDragInfo) => void
-  /** Called when the element comes to rest after it's let go. Not when a new grab stops it. Solid 1; Solid 2's ward gives `"dragTransitionEnd"`. */
-  readonly onDragTransitionEnd?: () => void
-  /** With `dragDirectionLock`: called with the axis a drag locked to, before `onDragStart`. Solid 1; Solid 2's ward gives `"directionLock"`. */
-  readonly onDirectionLock?: (axis: "x" | "y") => void
-  /** Called when the element comes into view, as `viewport` defines it, with the browser's `IntersectionObserverEntry`. Solid 1; Solid 2's ward gives `"viewportEnter"`. */
-  readonly onViewportEnter?: (entry: IntersectionObserverEntry) => void
-  /** Called when the element leaves the view. With `viewport.once`, never after the first entry. Solid 1; Solid 2's ward gives `"viewportLeave"`. */
-  readonly onViewportLeave?: (entry: IntersectionObserverEntry) => void
-  /**
-   * Called when a pointer goes down on the element, ready to pan. A pan moves nothing itself: read
-   * its offset and velocity in `onPan`. On a touch screen, give the element a `touch-action`, such as
-   * `pan-y` for a sideways pan, or the page's scroll takes the gesture. Solid 1; Solid 2's ward gives
-   * `"panSessionStart"`.
-   */
-  // Once started, a pan counts as a drag for the element's press and hover: a press it took over is
-  // neither a tap nor a cancel (ADR-0047).
-  readonly onPanSessionStart?: (event: PointerEvent, info: WardicPointInfo) => void
-  /** Called when a pan starts, past its threshold. Solid 1; Solid 2's ward gives `"panStart"`. */
-  readonly onPanStart?: (event: PointerEvent, info: WardicDragInfo) => void
-  /** Called as the pan moves: at its start, and each move after. Solid 1; Solid 2's ward gives `"pan"`. */
-  readonly onPan?: (event: PointerEvent, info: WardicDragInfo) => void
-  /** Called when a pan that started ends, or is cancelled. Solid 1; Solid 2's ward gives `"panEnd"`. */
-  readonly onPanEnd?: (event: PointerEvent, info: WardicDragInfo) => void
-  /**
    * Called when a layout animation of the element starts moving. Not when there's nothing to move.
    * Solid 1; Solid 2's ward gives `"layoutStart"`.
    */
@@ -773,23 +821,6 @@ export interface WardConfig {
    */
   // #191, ADR-0039.
   readonly onLayoutAnimationComplete?: () => void
-  /**
-   * Called once a frame in which the element's values changed, with every value it holds (`x` as a
-   * number). The object is reused: read it during the call, or copy it. For one value, `ward.read(key)`
-   * on Solid 2, or `ward.value(key)` on Solid 1, costs less.
-   */
-  // #233. After that frame's commits, before it's drawn. Whether it reports is read once at mount; the
-  // function at each call. A signal it sets paints in the next frame.
-  readonly onUpdate?: (latest: Readonly<Record<string, number | string>>) => void
-  /**
-   * Builds the element's whole `transform` from its values and the one Wardic would draw, wherever
-   * it's drawn: at rest, animating, on the server and during a layout animation.
-   *
-   * @example <w.div transformTemplate={(_, generated) => `translate(-50%, -50%) ${generated}`} />
-   */
-  // #443, a Transform template. See WardicTransformTemplate for what it's handed. Whether it has one is
-  // read at mount; the function each frame.
-  readonly transformTemplate?: WardicTransformTemplate
   /** Called as each layout measure of this layout element begins, before it's measured. */
   // #443. Resize-blocked and instant measures included. A throw is reported, and the measure goes on.
   readonly onBeforeLayoutMeasure?: () => void
@@ -799,12 +830,35 @@ export interface WardConfig {
    */
   // #443: after the read, before any animation starts. A throw is reported.
   readonly onLayoutMeasure?: (box: WardicLayoutBox, prev: WardicLayoutBox | undefined) => void
-  /**
-   * `false`: on a server-rendered page, this element's entrance waits for the JavaScript instead of
-   * playing from the first paint. The provider's `appear` sets it for every element.
-   *
-   * @see https://wardic.dev/guides/server-rendering
-   */
-  // #48, ADR-0044. Read on the server, once.
-  readonly appear?: boolean
+}
+
+/**
+ * The motion props a Wardic element takes, and the config a ward is made with: what it animates,
+ * when, how, and what it tells you. Motion's props, by Motion's names.
+ *
+ * @see https://wardic.dev/reference/solid/elements/props
+ */
+export interface WardConfig
+  extends WardBaseConfig,
+    WardHoverConfig,
+    WardPressConfig,
+    WardFocusConfig,
+    WardInViewConfig,
+    WardPanConfig,
+    WardDragConfig,
+    WardLayoutConfig {}
+
+/**
+ * Each Feature's motion props, by its name (#516, ADR-0067 *Amendment (#516)*): what a **Wardic
+ * instance**'s elements take for the Features it has, beside {@link WardBaseConfig}. `colors` and
+ * `scroll` add none. Solid 1's; Solid 2's are these without Solid 1's callbacks.
+ */
+export interface WardFeatureConfigs {
+  readonly hover: WardHoverConfig
+  readonly press: WardPressConfig
+  readonly focus: WardFocusConfig
+  readonly inView: WardInViewConfig
+  readonly pan: WardPanConfig
+  readonly drag: WardDragConfig
+  readonly layout: WardLayoutConfig
 }

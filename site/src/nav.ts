@@ -89,6 +89,7 @@ export const NAV: ReadonlyArray<NavSection> = [
           { path: "/reference/solid/elements/wardic", title: "wardic" },
           { path: "/reference/solid/elements/ward", title: "Wards" },
           { path: "/reference/solid/elements/ward-events", title: "Ward events" },
+          { path: "/reference/solid/elements/wardic-instance", title: "Wardic instances" },
           { path: "/reference/solid/elements/props", title: "Motion props" },
         ],
       },

@@ -10,7 +10,7 @@ import type { Feature } from "../feature.ts"
 import { InViewGesture } from "./keys.ts"
 
 /** In-view gestures: `whileInView` and the viewport callbacks. It reads no input: the Probe's intersections. */
-export const inView: Feature<InViewGesture, InViewGesture["Service"]> = {
+export const inView: Feature<InViewGesture, InViewGesture["Service"], "inView"> = {
   name: "inView",
   key: InViewGesture,
   layer: /*#__PURE__*/ Layer.succeed(InViewGesture)({ watch: Recognizer.watchInView }),

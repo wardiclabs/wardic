@@ -23,7 +23,7 @@ import { ProjectionOptions, projectionIn, type WardicContextValue } from "../run
  * flush gate and with its reduced motion and scale correctors. Every section with it shares it, as the
  * projection tree is the page's: a `layoutId` pair in two sections still crossfades.
  */
-export const layout: Feature<ProjectionSystem.ProjectionSystem, ProjectionSystem.Shape> = {
+export const layout: Feature<ProjectionSystem.ProjectionSystem, ProjectionSystem.Shape, "layout"> = {
   name: "layout",
   key: ProjectionSystem.ProjectionSystem,
   // The engine, and what its Reorder controllers hear each Measure pass by, beside it (#618).

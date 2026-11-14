@@ -21,7 +21,7 @@ import { makeTimelines } from "./timeline-keys.ts"
  */
 // #240 (ADR-0043 *Amendment (#240)*, decision 4): the `Timelines` service, which an element's spine finds
 // among the provider's built Features.
-export const scroll: Feature<ScrollSource.ScrollSource> = {
+export const scroll: Feature<ScrollSource.ScrollSource, ScrollSource.ScrollSource["Service"], "scroll"> = {
   name: "scroll",
   key: ScrollSource.ScrollSource,
   layer: /*#__PURE__*/ Layer.merge(

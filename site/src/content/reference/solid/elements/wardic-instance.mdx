@@ -1,0 +1,39 @@
+---
+title: Wardic instances
+description: The types of a Wardic instance, a w whose elements take only its Features' props, and WardConfigOf for a component that hands them on.
+api: [WardicInstance, WardConfigOf]
+---
+
+# Wardic instances
+
+A Wardic instance is a `w` made for a fixed list of [Features](/guides/features). Its elements bring those Features wherever they render, and take their props alone: a prop of a Feature the list lacks is a type error that names the Feature.
+
+```tsx
+// src/lib/wardic.ts
+export const { w } = createWardic([domAnimation, layout])
+
+<w.li layout whileHover={{ scale: 1.05 }} />
+```
+
+With that instance, `<w.li drag />` fails to compile: `Type 'boolean' is not assignable to type 'NeedsFeature<"drag">'`.
+
+## WardicInstance
+
+`WardicInstance<F>` is what `createWardic(features)` returns for Features `F`. A preset counts as its Features, a nested list as its own, and a load (`() => import(…)`) as what it resolves to.
+
+| Member | What it is |
+| --- | --- |
+| `w` | Every form of [`w`](/reference/solid/elements/w), typed to `F`: `w.<tag>`, `w.create`, and `w.createWard` on Solid 1 or `w.ward` on Solid 2. Solid 1's `use:w` takes every prop: Solid types a directive by its name, whatever instance it comes from. |
+| `useAnimateLayout`, `createInstantLayoutTransition`, `createResetProjection` | Only when `F` has `layout`, given at once or loaded: the [layout hooks](/reference/solid/layout/use-animate-layout), typed as the ones the binding exports. |
+
+On Solid 2, a ward from the instance's `w.ward()`, or the one its element hands to `wardRef`, is a `Ward<C, F>`: it hears `settled` and its Features' [events](/reference/solid/elements/ward-events) alone. On an instance without `drag`, `card.next("dragEnd")` is a type error that names `drag`.
+
+## WardConfigOf
+
+`WardConfigOf<F>` is the motion props of an instance with Features `F`: the base props and its Features'. A component that hands its motion props on takes them, and can pass them to the instance's elements or to any with more Features, a plain `w.*` included.
+
+```tsx
+const Card = (props: WardConfigOf<typeof domAnimation> & { title: string }) => <w.article {...props}>{props.title}</w.article>
+```
+
+A prop of another Feature isn't one of them, so `<Card drag />` is a type error, though not one that names `drag`. With every Feature, `WardConfigOf<typeof domMax>` is the whole of the [motion props](/reference/solid/elements/props).

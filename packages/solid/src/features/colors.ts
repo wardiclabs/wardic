@@ -21,7 +21,7 @@ import { Colors } from "./keys.ts"
  * them, every element on the page reads them; a pair another provider resolved before stays as it
  * was resolved there.
  */
-export const colors: Feature<Colors, true> = {
+export const colors: Feature<Colors, true, "colors"> = {
   name: "colors",
   key: Colors,
   // The provider's registry forgets the pairs it resolved before: one with a wide-gamut colour read as
