@@ -9,6 +9,7 @@ import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Stream from "effect/Stream"
 import * as Tracer from "effect/Tracer"
+import * as Spans from "@wardic/core/Spans"
 
 /**
  * The `Machine` module's combinators (ADR-0028, decisions 5 to 7), each through both drivers:
@@ -46,6 +47,8 @@ const onTheStream = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>
     const fiber = yield* Stream.runCollect(Machine.toStream(machine).pipe(Stream.take(dts.length))).pipe(
       Effect.provide(Layer.merge(clock.layer, InterpolatorRegistry.layer)),
       Effect.provideService(Tracer.Tracer, tracer),
+      // Wardic's spans, the app's to give (#746).
+      Effect.provide(Spans.layer),
       Effect.forkChild({ startImmediately: true }),
     )
     for (const dt of dts) yield* clock.advance(dt)
@@ -65,6 +68,8 @@ const onTheLoop = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, 
           return undefined
         }),
         Effect.provideService(Tracer.Tracer, tracer),
+        // Wardic's spans, the app's to give (#746).
+        Effect.provide(Spans.layer),
         Effect.forkChild({ startImmediately: true }),
       )
       for (const dt of dts) yield* clock.advance(dt)

@@ -9,6 +9,7 @@ import * as Fiber from "effect/Fiber"
 import * as Layer from "effect/Layer"
 import * as Stream from "effect/Stream"
 import * as Tracer from "effect/Tracer"
+import * as Spans from "@wardic/core/Spans"
 
 /**
  * The `ReducedMotion` module (ADR-0029): the policy a binding applies when a run starts, and the
@@ -57,6 +58,8 @@ const onTheLoop = <F extends Frame.Frame<unknown>>(machine: Machine.Machine<F>, 
           return undefined
         }),
         Effect.provideService(Tracer.Tracer, tracer),
+        // Wardic's spans, the app's to give (#746).
+        Effect.provide(Spans.layer),
         Effect.forkChild({ startImmediately: true }),
       )
       for (const dt of dts) yield* clock.advance(dt)

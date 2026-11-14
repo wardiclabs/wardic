@@ -3,8 +3,8 @@
  * binding authors, Wardic's own and any other, and it's Effect-typed.
  *
  * - **An app** imports {@link DomLive}, the composed Environment it hands its binding,
- *   {@link CheckFrames}, to check its Frames in development, and {@link FrameLoopMetrics}, to record the
- *   Frame loop's metrics.
+ *   {@link CheckFrames}, to check its Frames in development, {@link FrameLoopMetrics}, to record the
+ *   Frame loop's metrics, and {@link WardicSpans}, to open Wardic's spans.
  * - **A binding** imports each module by its subpath, as a namespace
  *   (`import * as FlushGate from "@wardic/dom/FlushGate"`), and the root re-exports each one:
  *   - the DOM's implementations of core's services, each with its `layer` (Effect's platform
@@ -84,6 +84,15 @@ export { CheckFrames } from "@wardic/core/FrameLoop"
  */
 // #518, ADR-0067 *Amendment (#518)*, decision 2: opt-in, re-exported here for an app, as `CheckFrames` is.
 export { layerMetrics as FrameLoopMetrics } from "@wardic/core/FrameLoop"
+
+/**
+ * Core's spans (`Spans.layer`), here for an app. Merged beside {@link DomLive} with a tracer installed
+ * (the devtools', an OpenTelemetry exporter's), each animation, burst of frames, gesture and layout
+ * pass opens its span. Without it, Wardic opens none, and an app ships none of their code: see
+ * https://wardic.dev/guides/observability.
+ */
+// #746, ADR-0067 *Amendment (#746)*, decision 8: opt-in, as `FrameLoopMetrics` is.
+export { layer as WardicSpans } from "@wardic/core/Spans"
 
 /**
  * The browser Environment, composed: the DOM's services, core's interpolators with the DOM's Key

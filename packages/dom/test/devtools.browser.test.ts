@@ -6,12 +6,12 @@ import * as Layer from "effect/Layer"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import { Socket } from "effect/socket"
 import { describe, expect, it } from "vitest"
-import { DomLive } from "@wardic/dom"
+import { DomLive, WardicSpans } from "@wardic/dom"
 
 /**
  * Effect's devtools on Wardic's Environment (ADR-0030, decision 6; #113): `DevTools.layer` merged
- * beside `DomLive`, as an app merges it into `env`, sees the Frame loop's spans, and its metrics with
- * `FrameLoop.layerMetrics` merged too (#518). The real devtools client runs here, over a fake WebSocket
+ * beside `DomLive`, as an app merges it into `env`, sees the Frame loop's spans with `WardicSpans` merged
+ * too (#746), and its metrics with `FrameLoop.layerMetrics` (#518). The real devtools client runs here, over a fake WebSocket
  * standing in for the devtools process.
  *
  * Decision 6 inferred the metrics reach it: the loop updates them against its build context, the
@@ -56,7 +56,7 @@ describe("Effect's devtools, merged beside DomLive", () => {
   it("see the burst's span, each run's span, and the Frame loop's gauge, counters and histogram", async () => {
     const devtools = fakeDevTools()
     const runtime = ManagedRuntime.make(
-      Layer.mergeAll(DomLive, FrameLoop.layerMetrics, DevTools.layerWebSocket("ws://devtools.test").pipe(Layer.provide(devtools.layer))),
+      Layer.mergeAll(DomLive, FrameLoop.layerMetrics, WardicSpans, DevTools.layerWebSocket("ws://devtools.test").pipe(Layer.provide(devtools.layer))),
     )
     const failing = Machine.make({
       settles: true,
