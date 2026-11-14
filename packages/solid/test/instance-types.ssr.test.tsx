@@ -17,7 +17,9 @@
 //   and to a plain `w.*`. It has no `NeedsFeature`, which nothing else's props would take.
 // - IT7: an instance with `layout`, given at once or loaded, has the three layout hooks, as the global
 //   ones are typed (Q6); one without it hasn't them.
-import { domAnimation, domMax, drag, type Feature, focus, hover, inView, layout, pan, press, type W as PlainW, w, type WardConfig, type WardConfigOf, type WardicComponent, type WardicInstance, createInstantLayoutTransition, createResetProjection, useAnimateLayout } from "@wardic/solid"
+// - IT8: `createWardic`'s instance is typed from its list literal: a preset, a nested list, one
+//   Feature, and a load, its Features from what it resolves to.
+import { createWardic, domAnimation, domMax, drag, type Feature, focus, hover, inView, layout, pan, press, type W as PlainW, w, type WardConfig, type WardConfigOf, type WardicComponent, type WardicInstance, createInstantLayoutTransition, createResetProjection, useAnimateLayout } from "@wardic/solid"
 import type { JSX } from "solid-js"
 import { describe, expectTypeOf, it } from "vitest"
 import type { WardicVariantLabels } from "../src/config.ts"
@@ -365,5 +367,35 @@ describe("a Wardic instance's element props (#516)", () => {
       // @ts-expect-error domAnimation has no layout
       return shell.useAnimateLayout
     })
+  })
+
+  it("IT8: createWardic's instance is typed from its list literal, loads included", () => {
+    typed(() => {
+      const { w: page } = createWardic([domAnimation, layout])
+      return <page.li layout whileHover={{ scale: 1.1 }} />
+    })
+    typed(() => {
+      const { w: page } = createWardic([domAnimation, layout])
+      // @ts-expect-error neither domAnimation nor layout has drag
+      return <page.li drag />
+    })
+    typed(() => {
+      const { w: hovers } = createWardic(hover)
+      // @ts-expect-error hover alone has no press
+      return <hovers.div whileTap={{ scale: 0.9 }} />
+    })
+    typed(() => {
+      const { w: later } = createWardic([domAnimation, () => Promise.resolve(drag)])
+      return <later.div drag="x" whileHover={{ scale: 1.1 }} />
+    })
+    typed(() => {
+      const { w: all } = createWardic(() => Promise.resolve(domMax))
+      return <all.div drag layout />
+    })
+    typed(() => createWardic([layout]).useAnimateLayout)
+    typed(() =>
+      // @ts-expect-error domAnimation has no layout, so no layout hooks
+      createWardic(domAnimation).useAnimateLayout,
+    )
   })
 })
