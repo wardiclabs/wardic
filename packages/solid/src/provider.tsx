@@ -55,6 +55,7 @@ import {
   whenIdle,
 } from "./runtime.ts"
 import { WAITING_ENV_FIX, WAITING_ENV_LINE } from "./messages.ts"
+import { warnWithoutSpans } from "./spans-check.ts"
 import { isHydrating, isServer } from "./server.ts"
 import { reactivity } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
@@ -101,7 +102,10 @@ const waitingEnvMessage = (): string => {
 // this provider's alone, one keyed borderRadius/boxShadow replacing the built-in; ignored on a server.
 // features/strict: #511, ADR-0067, read once.
 export function WardicProvider(props: {
-  /** The Environment Wardic runs in: `DomLive` in a browser, from `@wardic/dom`. Read once, and built at once: a Layer that waits as it builds fails it. */
+  /**
+   * The Environment Wardic runs in: `DomLive` in a browser, from `@wardic/dom`, with Effect's own Layers merged beside it, and
+   * `WardicSpans` for Wardic's spans. Read once, and built at once: a Layer that waits as it builds fails it.
+   */
   readonly env: WardicEnv
   /**
    * How animations honour the visitor's reduced-motion setting: `"user"` follows it (the default),
@@ -178,7 +182,13 @@ export function WardicProvider(props: {
   // Built at the browser's idle time, after this render (#535): what a first element would build, so an
   // element mounted after pays none of it. One mounted before then builds it itself, as before. Asked
   // for here, with no computation of the provider's own, so a hydration's owners are the server's.
-  onCleanup(whenIdle(() => prepareIdle(value, section)))
+  onCleanup(
+    whenIdle(() => {
+      prepareIdle(value, section)
+      // A tracer that reads no Wardic span, development's word (#746).
+      if (DEV) warnWithoutSpans(value.runtime)
+    }),
+  )
   return <WardicContext.Provider value={value}>{props.children}</WardicContext.Provider>
 }
 
