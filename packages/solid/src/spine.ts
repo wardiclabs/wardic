@@ -1681,7 +1681,7 @@ const numbersVelocityOf = (snapshot: Snapshot, running: Running, key: string): n
  * it), whichever drew it last; 0 once nothing has moved it for `MAX_VELOCITY_DELTA`. Read only for a
  * key a spring or a follow starts, or one a leg lets go: guards, nothing made.
  */
-const velocityAt = (snapshot: Snapshot, owner: Running | undefined, key: string, now: number): number => {
+export const velocityAt = (snapshot: Snapshot, owner: Running | undefined, key: string, now: number): number => {
   const at = snapshot.drawnAt[key]
   // Guards, not `Bool.and`, which reads both sides: a leg that hasn't drawn yet stands for nothing.
   if (Predicate.isNotUndefined(owner)) {
@@ -1962,11 +1962,12 @@ export interface ImperativeTrack {
 }
 
 /**
- * What an **Imperative animation** takes from an element's spine (#746, ADR-0067 *Amendment (#746)*):
- * its state and its leg machinery, read live, for `imperative.ts`, which builds the animation's track,
- * so an app that never animates imperatively ships none of it. Made at the first call, once a spine.
+ * What an element's spine hands over (#746, ADR-0067 *Amendment (#746)*): its state and its leg
+ * machinery, read live, for the two that work on it from outside, `imperative.ts`, which builds an
+ * **Imperative animation**'s track, and `member-hold.ts`, a Batch member's hold. An app with neither
+ * ships neither's code. Made at the first call, once a spine.
  */
-export interface ImperativeHost {
+export interface SpineHost {
   /** The resolution of the last Retarget, whose targets a taken key is noted with. */
   readonly lastResolution: () => Resolution | undefined
   /** The element's values, velocities and owners. */
@@ -1977,6 +1978,8 @@ export interface ImperativeHost {
   readonly taking: () => Map<string, number | string | undefined>
   /** The keys a Retarget returns, which a take stops returning. */
   readonly returning: () => Map<string, BaseValue.BaseSource>
+  /** The keys a Retarget drove, each with its last target value. */
+  readonly driven: Map<string, number | string>
   /** Its Timeline values, told of each key a take draws (#240). */
   readonly timelineKeys: () => TimelineKeys | undefined
   /** Take `key` from `running`. */
@@ -2037,10 +2040,10 @@ export interface ElementSpine {
    */
   readonly seed: (from: PresenceSeed) => void
   /**
-   * What an **Imperative animation** of the element (#433) takes from its spine (#746): made at the
-   * first call, once; `imperative.ts` builds the animation's track over it.
+   * What the spine hands over (#746): to an **Imperative animation** of the element (#433), whose track
+   * `imperative.ts` builds over it, and to a Batch member's hold (#665). Made at the first call, once.
    */
-  readonly imperative: () => ImperativeHost
+  readonly host: () => SpineHost
   /** End every running leg where it is (#433, **Animation controls**' `stop`): its keys stay there, until the next Retarget. */
   readonly stop: () => void
 }
@@ -2488,6 +2491,54 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     return !tookRelease
   }
 
+  // --- What the spine hands over (#746) ----------------------------------------
+  // To an Imperative animation (`imperative.ts`, #433) and a Batch member's hold (`member-hold.ts`, #665):
+  // made at the first that asks, so an app with neither ships neither's code (ADR-0067 *Amendment (#746)*).
+  let handedOver: SpineHost | undefined
+  const host = (): SpineHost => {
+    if (Predicate.isUndefined(handedOver)) {
+      // Live reads are functions, not getters: V8 keeps a getter in its object's map, so with three of
+      // its own each host had a map of its own, 1.9 KB a host against 0.5.
+      handedOver = {
+        lastResolution: () => lastResolution,
+        snapshot,
+        owners,
+        taking: () => {
+          readAt = snapshot.now()
+          if (taken === NONE_TAKEN) taken = new Map()
+          return taken
+        },
+        returning: () => returning,
+        driven,
+        timelineKeys: () => timelineKeys,
+        giveUp,
+        initialValues,
+        ownValue,
+        startKey,
+        keepTheRest,
+        reducedMotion: options.reducedMotion,
+        skipAnimations,
+        element,
+        positionalKeys,
+        defaultTransition,
+        readVelocity,
+        gate,
+        forget,
+        endLeg,
+        live,
+        own,
+        legProgram,
+        legEnded,
+        turnBack,
+        id,
+        recordFrame,
+        runtime,
+        elementRules,
+      }
+    }
+    return handedOver
+  }
+
   // --- A Batch member's element (#665's PR 4, ADR-0069 decision 17, Q52–Q54) -----------------------
 
   // Its hold on what it takes from its Batch: made as its element is first found a member's, at a
@@ -2499,35 +2550,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     const holds = memberHoldsNow()
     if (Predicate.isUndefined(holds)) return undefined
     if (!holds.isMember(element)) return undefined
-    memberHold = holds.make({
-      element,
-      gate,
-      id,
-      snapshot,
-      // Per held group at a leg's end or a Batch change (#665): statements.
-      running: (which) => {
-        let runs = false
-        Iter.forEach(owners, ([key, running]) => {
-          if (Predicate.isUndefined(running)) return
-          if (running.done) return
-          if (which(key)) runs = true
-        })
-        return runs
-      },
-      // Setting a visited key is safe in a Map's iteration.
-      giveUp: (which) => {
-        Iter.forEach(owners, ([key, running]) => {
-          if (Predicate.isUndefined(running)) return
-          if (which(key)) giveUp(key, running)
-        })
-        keepTheRest()
-      },
-      velocityOf: (key, now) => velocityAt(snapshot, owners.get(key), key, now),
-      forget: (key) => {
-        driven.delete(key)
-        returning.delete(key)
-      },
-    })
+    memberHold = holds.make(host())
     return memberHold
   }
   // A draggable element's drag tells it as it holds `x`/`y` and hands them back: a member's hold hears.
@@ -3144,53 +3167,6 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     queueMicrotask(() => gate.flushPass(() => gate.write(id, values)))
   }
 
-  // --- Imperative animations (#433) -------------------------------------------
-  // What an Imperative animation takes from the spine (#746, ADR-0067 *Amendment (#746)*, decision 10):
-  // made at the first, its code `imperative.ts`'s, so an app that never animates imperatively ships none.
-  let imperativeHost: ImperativeHost | undefined
-  const imperative = (): ImperativeHost => {
-    if (Predicate.isUndefined(imperativeHost)) {
-      // Live reads are functions, not getters: V8 keeps a getter in its object's map, so with three of
-      // its own each host had a map of its own, 1.9 KB a host against 0.5.
-      imperativeHost = {
-        lastResolution: () => lastResolution,
-        snapshot,
-        owners,
-        taking: () => {
-          readAt = snapshot.now()
-          if (taken === NONE_TAKEN) taken = new Map()
-          return taken
-        },
-        returning: () => returning,
-        timelineKeys: () => timelineKeys,
-        giveUp,
-        initialValues,
-        ownValue,
-        startKey,
-        keepTheRest,
-        reducedMotion: options.reducedMotion,
-        skipAnimations,
-        element,
-        positionalKeys,
-        defaultTransition,
-        readVelocity,
-        gate,
-        forget,
-        endLeg,
-        live,
-        own,
-        legProgram,
-        legEnded,
-        turnBack,
-        id,
-        recordFrame,
-        runtime,
-        elementRules,
-      }
-    }
-    return imperativeHost
-  }
-
   // **Animation controls**' `stop` (#433): every running leg ends where it is, its keys given up, so
   // the next Retarget starts them from where they're drawn.
   const stop = (): void => {
@@ -3202,7 +3178,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     turnBack()
   }
 
-  return { retarget, follow, dispose, seed, imperative, stop }
+  return { retarget, follow, dispose, seed, host, stop }
 }
 
 

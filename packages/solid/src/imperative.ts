@@ -63,7 +63,6 @@ import {
   emptySnapshotOf,
   holdsVariable,
   type ImperativeHooks,
-  type ImperativeHost,
   type ImperativeTrack,
   type Landing,
   makeElementSpine,
@@ -76,14 +75,15 @@ import {
   type Running,
   runningOf,
   type Snapshot,
+  type SpineHost,
   startLinksOf,
   turnWillChangeOn,
 } from "./spine.ts"
 import { NO_VARIANT_STATE, resolveTarget, type Target } from "./variant-target.ts"
 import { NO_GESTURE_NAMES, NO_GESTURE_STATES } from "./variant-tree.ts"
 
-/** What an Imperative animation animates an element through: what its spine hands over (`imperative`). */
-type Animatable = Pick<ElementSpine, "imperative">
+/** What an Imperative animation animates an element through: what its spine hands over (`host`). */
+type Animatable = Pick<ElementSpine, "host">
 
 /** Each mounted Wardic element's spine (Motion's `visualElementStore`). */
 // Module state (#460, Q7): each Wardic element's animatable, held weakly by the element.
@@ -214,8 +214,8 @@ const IMPERATIVE: Resolution = {
  * {@link ImperativeTrack.run} is called.
  */
 // #746 (ADR-0067, *Amendment (#746)*, decision 10): here, not in the spine, so an app that never animates
-// imperatively ships none of it; the spine hands over what it takes (`ImperativeHost`).
-const imperativeTrackOf = (host: ImperativeHost, target: Target, given: WardicTransition | undefined, head: Playback.Playhead, hooks: ImperativeHooks): ImperativeTrack => {
+// imperatively ships none of it; the spine hands over what it takes (`SpineHost`).
+const imperativeTrackOf = (host: SpineHost, target: Target, given: WardicTransition | undefined, head: Playback.Playhead, hooks: ImperativeHooks): ImperativeTrack => {
   const { snapshot, owners, giveUp, initialValues, ownValue, startKey, keepTheRest, element, positionalKeys, defaultTransition, readVelocity, gate, forget, endLeg, live, own, legProgram, legEnded, turnBack, id, recordFrame, runtime, elementRules } = host
   /** A leg of an Imperative animation, forked as a Retarget's are; it lands on its track. */
   // Data-first: a pipe's curried forms are two closures more for every leg (#618, H1).
@@ -329,7 +329,7 @@ const trackOf = (env: AnimateEnv, element: Element, target: WardicVariant, given
   const own = wardicElements.get(element)
   const hooks = { settled, failed: constVoid }
   const transition = skippedIn(env, given)
-  if (Predicate.isNotUndefined(own)) return imperativeTrackOf(own.imperative(), resolved, transition, head, hooks)
+  if (Predicate.isNotUndefined(own)) return imperativeTrackOf(own.host(), resolved, transition, head, hooks)
   const plain = plainOf(env, element)
   // In the gate while it runs; out once its last animation is done, after the flush of its last frame.
   let live = false
@@ -351,7 +351,7 @@ const trackOf = (env: AnimateEnv, element: Element, target: WardicVariant, given
       if (plain.running === 0) plain.unregister()
     })
   }
-  const track = imperativeTrackOf(plain.spine.imperative(), resolved, transition, head, {
+  const track = imperativeTrackOf(plain.spine.host(), resolved, transition, head, {
     settled: () => {
       leave()
       settled()

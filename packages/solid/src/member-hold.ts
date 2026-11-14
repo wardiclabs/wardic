@@ -9,30 +9,49 @@
 // Batch has been made, and a WeakMap after; this module's code is reached through `provideMemberHolds`,
 // which only `createBatch` calls.
 import * as BaseValue from "@wardic/core/BaseValue"
-import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Arr from "effect/Array"
 import { constFalse } from "effect/Function"
 import * as Iter from "effect/Iterable"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import { type BatchGroup, batchGroupOf, type BatchHandover, type BatchHolder, type BatchMemberEntry, isMemberElement, memberEntryOf } from "./batch.ts"
-import type { Snapshot } from "./spine.ts"
+import { type SpineHost, velocityAt } from "./spine.ts"
 
-/** What a Batch member's element's spine gives its {@link MemberHold}. */
-export interface MemberHoldParts {
-  readonly element: Element
-  readonly gate: FlushGate.Shape
-  /** The element's gate id. */
-  readonly id: string
-  readonly snapshot: Snapshot
-  /** Whether a leg still runs on a key `which` picks. */
-  readonly running: (which: (key: string) => boolean) => boolean
-  /** The keys `which` picks given up by the legs drawing them, each leg drawing the rest from then on. */
-  readonly giveUp: (which: (key: string) => boolean) => void
-  /** `key`'s speed at `now`, per second. */
-  readonly velocityOf: (key: string, now: number) => number
-  /** `key` the spine's no more: out of the keys it drove and those it returns. */
-  readonly forget: (key: string) => void
+/** What a Batch member's hold reads of what its element's spine hands over (#746). */
+type HoldHost = Pick<SpineHost, "element" | "gate" | "id" | "snapshot" | "owners" | "giveUp" | "keepTheRest" | "driven" | "returning">
+
+// What a hold works its spine with (#746): here, not in the spine, so an app with no Batch ships none
+// of it (ADR-0070's *Note (#746)*). Functions over the host, not closures: a hold makes none of its own.
+
+/** Whether a leg still runs on a key `which` picks. */
+// Per held group at a leg's end or a Batch change (#665): statements.
+const anyRunning = (host: HoldHost, which: (key: string) => boolean): boolean => {
+  let runs = false
+  Iter.forEach(host.owners, ([key, running]) => {
+    if (Predicate.isUndefined(running)) return
+    if (running.done) return
+    if (which(key)) runs = true
+  })
+  return runs
+}
+
+/** The keys `which` picks given up by the legs drawing them, each leg drawing the rest from then on. */
+// Setting a visited key is safe in a Map's iteration.
+const giveUpKeys = (host: HoldHost, which: (key: string) => boolean): void => {
+  Iter.forEach(host.owners, ([key, running]) => {
+    if (Predicate.isUndefined(running)) return
+    if (which(key)) host.giveUp(key, running)
+  })
+  host.keepTheRest()
+}
+
+/** `key`'s speed at `now`, per second. */
+const velocityOf = (host: HoldHost, key: string, now: number): number => velocityAt(host.snapshot, host.owners.get(key), key, now)
+
+/** `key` the spine's no more: out of the keys it drove and those it returns. */
+const forgetKey = (host: HoldHost, key: string): void => {
+  host.driven.delete(key)
+  host.returning().delete(key)
 }
 
 /**
@@ -58,7 +77,7 @@ export interface MemberHold {
 /** How a spine finds its element a Batch member's, and makes its hold. */
 export interface MemberHolds {
   readonly isMember: (element: Element) => boolean
-  readonly make: (parts: MemberHoldParts) => MemberHold
+  readonly make: (host: HoldHost) => MemberHold
 }
 
 // Module state (#460, Q7): set once a Batch is made, so a spine can make a hold; none until then.
@@ -74,8 +93,8 @@ export const provideMemberHolds = (): void => {
 }
 
 /** A Batch member's element's {@link MemberHold}. */
-const makeMemberHold = (parts: MemberHoldParts): MemberHold => {
-  const { element, gate, id, snapshot } = parts
+const makeMemberHold = (host: HoldHost): MemberHold => {
+  const { element, gate, id, snapshot } = host
   // The groups it holds now, each with the Batch's keys in it; the member it took them from; and whether
   // a drag holds `x`/`y`, from its first read or write to its hand-back.
   const held = new Map<BatchGroup, ReadonlyArray<string>>()
@@ -92,7 +111,7 @@ const makeMemberHold = (parts: MemberHoldParts): MemberHold => {
   // Per held transform at a leg's end or a Batch change (#665): statements.
   const holdsUndrawn = (batchKeys: ReadonlyArray<string>): boolean => {
     const undrawn = undrawnBy(batchKeys)
-    if (parts.running(undrawn)) return true
+    if (anyRunning(host, undrawn)) return true
     return Arr.some(Rec.keys(snapshot.values), (key) => {
       if (!undrawn(key)) return false
       return snapshot.values[key] !== BaseValue.TRANSFORM_IDENTITY[key]
@@ -115,16 +134,16 @@ const makeMemberHold = (parts: MemberHoldParts): MemberHold => {
     const velocities: Record<string, number> = {}
     Arr.forEach(batchKeys, (key) => {
       values[key] = snapshot.values[key] as number
-      velocities[key] = parts.velocityOf(key, now)
+      velocities[key] = velocityOf(host, key, now)
     })
     const inGroup = (key: string): boolean => batchGroupOf(key) === group
-    parts.giveUp(inGroup)
+    giveUpKeys(host, inGroup)
     const keys = Arr.filter(Rec.keys(snapshot.values), inGroup)
     // Left as drawn as it drops out: the Batch's writer draws it from its next step. A group's name is its property's.
     gate.release(id, keys, undefined, [group])
     Arr.forEach(keys, (key) => {
       delete snapshot.values[key]
-      parts.forget(key)
+      forgetKey(host, key)
     })
     return { values, velocities }
   }
@@ -180,7 +199,7 @@ const makeMemberHold = (parts: MemberHoldParts): MemberHold => {
 
   /** Whether `group` stays its own at a leg's end: a leg runs on it, or it's the transform it keeps (Q54). */
   const stays = (group: BatchGroup, batchKeys: ReadonlyArray<string>): boolean => {
-    if (parts.running((key) => batchGroupOf(key) === group)) return true
+    if (anyRunning(host, (key) => batchGroupOf(key) === group)) return true
     if (group !== "transform") return false
     return keepsTransform(batchKeys)
   }

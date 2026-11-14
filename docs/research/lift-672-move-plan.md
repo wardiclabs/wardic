@@ -18,7 +18,7 @@ Read at `15f723d` (2026-11-09). Line counts are today's.
 | `variant-tree.ts` | 638 | core |
 | `presence-record.ts` | 189 | core |
 | `live-style.ts` | 450 | core |
-| `imperative.ts` | 793 | core; since #746 it holds the Imperative track, over the spine's `ImperativeHost` |
+| `imperative.ts` | 793 | core; since #746 it holds the Imperative track, over the spine's `SpineHost` |
 | `reactivity.ts` (the port) | 29 | core |
 | `presence-controller.ts` | 1,494 | dom |
 | `drag-track.ts` | 937 | dom |
@@ -157,6 +157,7 @@ After this PR, `spine.ts` imports nothing from `@wardic/dom` except `FlushGate`'
 
 - Final module names under `unstable/` (`Spine`, `FlushGate`, `Report`, `Stops` for the pure half of `Style`, `AppearHandoff`, `AppearSampler`, and so on).
 - Where the Solid tests that import a moved module directly should live once the move is done. During the move they stay in solid.
+- Where `member-hold.ts` and `batch.ts` go: #665 gave a Batch member's hold its module after this plan was read. The spine reaches the hold through `member-hold.ts`'s module slot, which only `createBatch` fills, and since #746's PR 7 the hold builds what it works the spine with over the spine's `SpineHost`, reading its `velocityAt`. With the spine in core, that slot becomes a port, filled where `createBatch` is.
 
 ## Not checked
 
