@@ -15,8 +15,7 @@
 import * as Bool from "effect/Boolean"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import type * as Fiber from "effect/Fiber"
-import * as FiberSet from "effect/FiberSet"
+import * as Fiber from "effect/Fiber"
 import * as Scheduler from "effect/Scheduler"
 import * as Scope from "effect/Scope"
 
@@ -33,8 +32,9 @@ export interface Runner<R> {
 }
 
 /**
- * A runner over the current context, without a sync scheduler, forking into a `FiberSet` in the
- * current Scope. It forks with that context itself (`Effect.runForkWith`), not through
+ * A runner over the current context, without a sync scheduler, holding its forks in a set of its own
+ * until the current Scope closes and interrupts them (#746: what a `FiberSet` held, so an app ships no
+ * FiberSet); a fork after that is interrupted at once. It forks with that context itself (`Effect.runForkWith`), not through
  * `FiberSet.runtime`, which reads the context again in the current fiber, where the building call's
  * scheduler still is: `Effect.provideContext` merges into a fiber's context, it doesn't replace it.
  */
@@ -43,11 +43,25 @@ export interface Runner<R> {
 export const makeRunner = <R>(): Effect.Effect<Runner<R>, never, R | Scope.Scope> =>
   Effect.gen(function* () {
     const context = withoutSyncScheduler(yield* Effect.context<R | Scope.Scope>())
-    const fibers = yield* FiberSet.make()
+    const fibers = new Set<Fiber.Fiber<unknown, unknown>>()
+    let closed = false
+    yield* Effect.addFinalizer(() =>
+      Effect.suspend(() => {
+        closed = true
+        return Fiber.interruptAll(fibers)
+      }),
+    )
     const fork = Effect.runForkWith(context)
     const runFork = <A, E>(effect: Effect.Effect<A, E, R>): Fiber.Fiber<A, E> => {
       const fiber = fork(effect)
-      FiberSet.addUnsafe(fibers, fiber)
+      if (closed) {
+        fiber.interruptUnsafe()
+        return fiber
+      }
+      fibers.add(fiber)
+      fiber.addObserver(() => {
+        if (!closed) fibers.delete(fiber)
+      })
       return fiber
     }
     return { runSync: Effect.runSyncWith(context), runFork, scope: Context.get(context, Scope.Scope) }
