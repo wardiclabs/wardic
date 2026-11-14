@@ -461,7 +461,7 @@ const layoutNodeOf = (atMount: ProjectionSystem.NodeHandle | undefined, later: L
 export function runSpine(opts: RunSpineOptions): void {
   const { bindGestures, byName, canStart, cfg, controls, defaultsInProps, el, entersFresh, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, restartStyle, runtime, styleOf, tag } = opts
   // Its Features (#511, ADR-0067): its section's, and those it brings.
-  const features = UndefinedOr.match(opts.features, { onDefined: identity, onUndefined: () => useElementFeatures(internal.brings, internal.complete === true) })
+  const features = UndefinedOr.match(opts.features, { onDefined: identity, onUndefined: () => useElementFeatures(internal.brings, internal.complete === true, internal.instance) })
   // Its section's projection system, the `layout` Feature's (#511): `undefined` without it. Read now,
   // which builds the Features given to its section at once: the first element to ask builds them.
   const layoutProjection = projectionIn(untrack(features.services))
@@ -1019,7 +1019,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   const runtime = useWardicRuntime()
   // Its Features (#511, ADR-0067), a Complete element's every one: what they register, a server
   // render's elements read too (the `colors` Feature's spaces).
-  const features = useElementFeatures(internal.brings, internal.complete === true)
+  const features = useElementFeatures(internal.brings, internal.complete === true, internal.instance)
   // A server render takes the lean path: the Starting style only, no spine (ADR-0021).
   if (isServer) return serverWard(config, internal)
   const gate = useWardicGate()

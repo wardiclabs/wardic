@@ -34,7 +34,7 @@ import type * as FlushGate from "@wardic/dom/FlushGate"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import { explainerOf, type ServerAppear, serverAppear } from "./appear.ts"
 import * as Context from "effect/Context"
-import { type Feature, type FeatureRegistry, type FeatureSection, type FeaturesProp, ROOT, strictMessage } from "./feature.ts"
+import { type Feature, type FeatureRegistry, type FeatureSection, type FeaturesProp, type InstanceFeatures, ROOT, strictMessage } from "./feature.ts"
 import { FeatureSectionProvider, sectionUnder, useLazySection } from "./feature-section.ts"
 import * as OwnerScope from "./owner-scope.ts"
 import {
@@ -231,16 +231,24 @@ export function LazyWardic(props: {
  * one (`brings`), built at once. A Complete element under a `strict` section is an error in
  * development. Internal.
  */
-export function useElementFeatures(brings: ReadonlyArray<Feature> | undefined, complete: boolean): FeatureSection {
+export function useElementFeatures(brings: ReadonlyArray<Feature> | undefined, complete: boolean, instance?: InstanceFeatures | undefined): FeatureSection {
   const section = useFeatureSection()
   if (DEV && complete && section.strict) throw new Error(strictMessage("wardic.*, wardic.create, createWard, use:wardic", "w.*, w.create, w.createWard, use:w"))
+  // A Wardic instance's element (#516): its instance's Features, beside its section's.
+  if (Predicate.isNotUndefined(instance)) return joined(section, useFeatureRegistry().build(instance.given))
   if (Predicate.isUndefined(brings)) return section
   const registry = useFeatureRegistry()
   // A Complete element has every Feature, whatever its section has: one section per provider.
   if (complete) return registry.section(brings)
-  const own = registry.build(brings)
-  return { services: () => Context.merge(section.services(), own), pending: section.pending, strict: section.strict }
+  return joined(section, registry.build(brings))
 }
+
+/** `section`, with `own`'s services beside its own. */
+const joined = (section: FeatureSection, own: Context.Context<never>): FeatureSection => ({
+  services: () => Context.merge(section.services(), own),
+  pending: section.pending,
+  strict: section.strict,
+})
 
 /** The provider's Features (#511). Internal. */
 export function useFeatureRegistry(): FeatureRegistry {
