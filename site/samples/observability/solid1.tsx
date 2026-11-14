@@ -1,4 +1,4 @@
-import { CheckFrames, DomLive, FrameLoopMetrics } from "@wardic/dom"
+import { CheckFrames, DomLive, FrameLoopMetrics, WardicSpans } from "@wardic/dom"
 import { WardicProvider } from "@wardic/solid"
 import { DevTools } from "effect/devtools"
 import * as Effect from "effect/Effect"
@@ -26,6 +26,8 @@ const devEnv = async () =>
     ErrorReporter.layer([reporter]),
     // Every animation's span, and the Frame loop's metrics, to the Effect devtools, connected while the page is open.
     Layer.succeedContext(await Effect.runPromise(Layer.buildWithScope(DevTools.layer(), Scope.makeUnsafe()))),
+    // Wardic opens its spans: without it, it opens none.
+    WardicSpans,
     // The Frame loop records its metrics: without it, it records none.
     FrameLoopMetrics,
     // A frame with a NaN or an Infinity in it fails its animation, naming the key.
