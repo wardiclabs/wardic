@@ -409,7 +409,8 @@ const instanceOwn = (build: Build, given: ReadonlyArray<Feature>, loads: Readonl
   return {
     services: () => {
       const parts = Arr.map(owns, (own) => own.services())
-      if (Predicate.isNotUndefined(last) && Arr.every(parts, (part, i) => part === last!.parts[i])) return last.joined
+      const before = last
+      if (Predicate.isNotUndefined(before) && Arr.every(parts, (part, i) => part === before.parts[i])) return before.joined
       const joined = Arr.reduce(parts, NONE, (all, part) => Context.merge(all, part))
       last = { parts, joined }
       return joined
