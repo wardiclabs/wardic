@@ -331,3 +331,18 @@ So decision 4's target, about 105 KB on Solid 1, was met. `main` was a few bytes
 | Instance-typed `w` on every element | −0.7% (Solid 1), +0.7% (Solid 2) | +0.7% | +0.2–0.6% |
 
 TS 7's default parallel check read +14% on Solid 2: adding the prototype's four files with `main`'s types gave +11.9% alone, as TS 7 splits files across its checkers. Over that control the types add 1.8–2.6%. A `Pick` of `WardConfig` by key measured the same as the groups' intersection, and `NeedsFeature` the same as leaving the props out.
+
+**Built (PR 1, the types; #756's fix with them).**
+- **`WardConfig` in groups:** its base props and one interface per Feature that adds props. `WardConfig` extends them all, so it holds the same 58 props, and a map from each Feature's name to its group gives a Wardic instance's props. On Solid 2, each group is Solid 1's without Solid 1's callbacks, so `pan` adds no props there.
+- **Public types:** every one takes a Wardic instance's Features `F` and defaults to every Feature, which gives the type as it was:
+  - **On both bindings:** `WardicInstance<F>`, `WardConfigOf<F>`, `WardicComponent<Tag, F>` and `W<F>`.
+  - **On Solid 2:** `Ward<C, F>` and `WardicWrapped<P, F>` too.
+  - **Inside the binding:** each reduces `F` to the names of its Features that add props, so any list with all of them is one type, and an error prints names, not each Feature's service.
+  - **An unnamed Feature:** one typed without its name (`Feature`) names none. In a union, its `string` would swallow the rest.
+- **Solid 2's wards:** the ward an instance's element hands to a `wardRef` callback narrows as one from its `w.ward()` does (Q19).
+- **`WardConfigOf<F>` has no `NeedsFeature` props, a refinement of decision 10.** It's the instance's own props: the base and `F`'s groups. With the brands, a wrapper's props typed with it couldn't be spread on a plain `w.*`, or on an instance with more Features, since no element that has a Feature takes its brand. A prop of a Feature `F` lacks is still a type error on a wrapper, but its message names no Feature.
+- **#756:** a config key that no ward takes meets `NotAWardKey<"name">`. A config with a computed key has a string index and isn't checked.
+- **Measured:** apps with no instance, the storefront's two, against `main`. `tsc --noEmit --extendedDiagnostics`, median of 5:
+  - check time −0.2% to +1.2% (TS 6, and TS 7 single-threaded);
+  - types +0.4–1.0%, instantiations +0.25%;
+  - `bun run size` +0.0% on every app.

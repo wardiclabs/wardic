@@ -26,7 +26,7 @@ With that instance, `<w.li drag />` fails to compile: `Type 'boolean' is not ass
 | `w` | Every form of [`w`](/reference/solid/elements/w), typed to `F`: `w.<tag>`, `w.create`, and `w.createWard` on Solid 1 or `w.ward` on Solid 2. Solid 1's `use:w` takes every prop: Solid types a directive by its name, whatever instance it comes from. |
 | `useAnimateLayout`, `createInstantLayoutTransition`, `createResetProjection` | Only when `F` has `layout`, given at once or loaded: the [layout hooks](/reference/solid/layout/use-animate-layout), typed as the ones the binding exports. |
 
-On Solid 2, a ward from the instance's `w.ward()` hears `settled` and its Features' [events](/reference/solid/elements/ward-events) alone: on an instance without `drag`, `card.next("dragEnd")` is a type error that names `drag`.
+On Solid 2, a ward from the instance's `w.ward()`, or the one its element hands to `wardRef`, is a `Ward<C, F>`: it hears `settled` and its Features' [events](/reference/solid/elements/ward-events) alone. On an instance without `drag`, `card.next("dragEnd")` is a type error that names `drag`.
 
 ## WardConfigOf
 
