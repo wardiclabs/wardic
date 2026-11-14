@@ -2,7 +2,8 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, layout, LazyWardic, w } from "@wardic/solid"
+import { AnimatePresence } from "@wardic/solid"
+import { w } from "~/lib/wardic-layout.ts"
 import { createSignal, For, onCleanup, onMount, Show } from "solid-js"
 
 const SHELF = PRODUCTS.filter((product) => ["moon-vase", "celadon-bowl", "cut-carafe"].includes(product.id))
@@ -24,16 +25,7 @@ const pairing = {
   exit: { opacity: 0, x: -16, transition: { type: "tween", duration: 0.16 } },
 } as const
 
-/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
 export default function QuickView() {
-  return (
-    <LazyWardic features={[layout]}>
-      <QuickViewDemo />
-    </LazyWardic>
-  )
-}
-
-function QuickViewDemo() {
   const [open, setOpen] = createSignal<Product>()
   const close = () => setOpen(undefined)
 

@@ -1,7 +1,8 @@
 // @vitest-environment jsdom
 import { type JSX, render } from "@solidjs/web"
 import { DomLive } from "@wardic/dom"
-import { domAnimation, w, WardicConfig, WardicProvider } from "@wardic/solid/unstable/v2"
+import { WardicConfig, WardicProvider } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 import { createEffect } from "solid-js"
 import { afterEach, beforeEach, expect, it, onTestFinished, vi } from "vitest"
 
@@ -27,7 +28,7 @@ const show = (ui: () => JSX.Element) => {
   const host = document.body.appendChild(document.createElement("div"))
   const dispose = render(
     () => (
-      <WardicProvider env={DomLive} features={[domAnimation]}>
+      <WardicProvider env={DomLive}>
         {ui()}
       </WardicProvider>
     ),

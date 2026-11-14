@@ -8,11 +8,14 @@ npm install @wardic/solid @wardic/dom effect
 
 ```tsx
 import { DomLive } from "@wardic/dom"
-import { domAnimation, w, WardicProvider } from "@wardic/solid"
+import { createWardic, domAnimation, WardicProvider } from "@wardic/solid"
+
+// Your app's Wardic instance, in a module of its own: hover, press, focus and in-view.
+const { w } = createWardic(domAnimation)
 
 export function App() {
   return (
-    <WardicProvider env={DomLive} features={[domAnimation]}>
+    <WardicProvider env={DomLive}>
       <w.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} whileHover={{ scale: 1.05 }} />
     </WardicProvider>
   )

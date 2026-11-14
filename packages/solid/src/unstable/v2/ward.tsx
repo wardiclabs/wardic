@@ -83,7 +83,7 @@ import {
   type Signal,
   untrack,
 } from "solid-js"
-import type { WardConfig as SharedWardConfig, WardFeatureConfigs, WardicValues } from "../../config.ts"
+import type { WardConfig as SharedWardConfig, WardicValues } from "../../config.ts"
 import { MOTION_PROPS_V2, type SolidOneCallback } from "../../motion-props.ts"
 import * as OwnerScope from "../../owner-scope.ts"
 
@@ -158,7 +158,7 @@ import {
   useElementFeatures,
   useFeatureRegistry,
 } from "./provider.tsx"
-import { type EveryFeature, type Feature, type FeatureRegistry, type FeatureSection, type InstanceFeatures, LAYOUT_PROPS, missingMessage, type NamesEvery, type PropFeatureNames, unreadColorIn } from "../../feature.ts"
+import { type EveryFeature, type Feature, type FeatureRegistry, type FeatureSection, type InstanceFeatures, LAYOUT_PROPS, missingMessage, type PropFeatureNames, unreadColorIn } from "../../feature.ts"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, CLIENT_ONLY_SYNC, CLIENT_ONLY_SYNC_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { pointMapOptionOf, transformPagePointOf } from "../../wardic-config-value.ts"
@@ -451,20 +451,6 @@ export interface WardOptions {
   readonly parent?: AnyWard | undefined
 }
 
-/** What a ward's events come as: `next`'s promise, `each`'s iterable, `when`'s accessor. */
-type Heard = "Promise" | "AsyncIterable" | "Accessor"
-
-/** {@link Heard} of event `E`'s value. */
-type HeardAs<H extends Heard, E extends WardEvent> = H extends "Promise" ? Promise<WardEvents[E]> : H extends "AsyncIterable" ? AsyncIterable<WardEvents[E]> : Accessor<WardEvents[E]>
-
-/**
- * A ward's `next`, `each` or `when`, its Features named `FN` (#516, Q19): every event with every
- * Feature, as they were; a Wardic instance's takes `settled` and its Features' events, and another's
- * meets `NeedsFeature<"name">`, an error naming the Feature.
- */
-type Listen<FN extends string, H extends Heard> =
-  NamesEvery<WardFeatureConfigs, FN> extends true ? <E extends WardEvent>(name: E) => HeardAs<H, E> : <E extends WardEvent>(name: E & EventNeeds<E, FN>) => HeardAs<H, E>
-
 /**
  * One element's motion binding: a ref carrying its props (see the module). Spread it, give it to
  * `ref` (alone, or in an array with your own), or give it to a Wardic component's `wardRef`.
@@ -475,8 +461,11 @@ export type Ward<C extends WardConfig = WardConfig, F = EveryFeature> = WardFor<
 
 /**
  * A {@link Ward} whose Features are named `FN` (#516): its `next`, `each` and `when` take `settled` and
- * their events alone ({@link Listen}).
+ * their events alone, another Feature's event meeting `NeedsFeature<"name">` ({@link EventNeeds}).
  */
+// They're methods, not function-typed properties: TS compares a method's parameters both ways, so a
+// Wardic instance's ward, which hears fewer events, is still a `Ward` (an `Array<Ward>`, a helper's
+// `(card: Ward) => …`). With every Feature, `EventNeeds` is `unknown`, and each takes every event.
 export interface WardFor<C extends WardConfig, FN extends string> extends WardProps, AnyWard {
   /** Mounts the ward on `element`: Solid calls it as a ref. */
   (element: HTMLElement): void
@@ -543,7 +532,7 @@ export interface WardFor<C extends WardConfig, FN extends string> extends WardPr
    * A gesture's event starts its recognizer, if its `while*` hasn't. Rejected with a
    * `DOMException` named `"AbortError"` once the ward is disposed.
    */
-  readonly next: Listen<FN, "Promise">
+  next<E extends WardEvent>(name: E & EventNeeds<E, FN>): Promise<WardEvents[E]>
   /**
    * Every `name` from the call on, as an async iterable, for a `for await`: each step waits as
    * `next(name)` does, so one that comes while its body runs is missed; the loop ends once the ward is
@@ -551,7 +540,7 @@ export interface WardFor<C extends WardConfig, FN extends string> extends WardPr
    * `each` misses one between its steps, and on a page rendered on the server it needs
    * `ssrSource: "client"` and a `<Loading>`.
    */
-  readonly each: Listen<FN, "AsyncIterable">
+  each<E extends WardEvent>(name: E & EventNeeds<E, FN>): AsyncIterable<WardEvents[E]>
   /**
    * Every `name`, as a memo for an effect: pending until the first, so the effect runs at each
    * one and never before, typed as the event, on any page (no `ssrSource`, no `<Loading>`). It hears
@@ -568,7 +557,7 @@ export interface WardFor<C extends WardConfig, FN extends string> extends WardPr
    * })
    * ```
    */
-  readonly when: Listen<FN, "Accessor">
+  when<E extends WardEvent>(name: E & EventNeeds<E, FN>): Accessor<WardEvents[E]>
   /**
    * The ward's props with the element's own (the Solid 1 ward's `ward({ ref, style })`): its
    * `ref` called beside the ward's, and its `style` over the config's, key by key. For a style made

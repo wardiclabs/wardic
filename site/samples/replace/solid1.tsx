@@ -1,7 +1,7 @@
 import * as DefaultTransition from "@wardic/core/DefaultTransition"
 import { DomLive } from "@wardic/dom"
 import * as DomDefaultTransition from "@wardic/dom/DomDefaultTransition"
-import { domAnimation, WardicProvider } from "@wardic/solid"
+import { WardicProvider } from "@wardic/solid"
 import * as Layer from "effect/Layer"
 import type { JSX } from "solid-js"
 
@@ -22,7 +22,7 @@ export const env = Layer.mergeAll(DomLive, layerOneSpring)
 
 export default function App(props: { readonly children: JSX.Element }) {
   return (
-    <WardicProvider env={env} features={[domAnimation]}>
+    <WardicProvider env={env}>
       {props.children}
     </WardicProvider>
   )

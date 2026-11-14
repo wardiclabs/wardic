@@ -21,12 +21,15 @@ npm install @wardic/solid @wardic/dom effect
 
 ```tsx
 import { DomLive } from "@wardic/dom"
-import { domAnimation, w, WardicProvider } from "@wardic/solid"
+import { createWardic, domAnimation, WardicProvider } from "@wardic/solid"
 import { render } from "solid-js/web"
+
+// Your app's Wardic instance, in a module of its own (src/lib/wardic.ts): hover, press, focus and in-view.
+const { w } = createWardic(domAnimation)
 
 function App() {
   return (
-    <WardicProvider env={DomLive} features={[domAnimation]}>
+    <WardicProvider env={DomLive}>
       <w.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} whileHover={{ scale: 1.05 }}>
         Hello
       </w.div>
@@ -37,13 +40,13 @@ function App() {
 render(() => <App />, document.getElementById("app")!)
 ```
 
-The provider gives its elements **Features**: `domAnimation` is hover, press, focus and in-view. A page that drags or lays out brings `drag` or `layout` itself, through `<LazyWardic features={[drag]}>`, or loads it when it's wanted, so each page ships only the animation code it uses.
+An element's gestures, layout and the rest are **Features**, chosen on a Wardic instance: `domAnimation` is hover, press, focus and in-view. Its elements take those Features' props alone, so a prop of another is a type error that names it. A page that drags or lays out makes an instance of its own, `createWardic([domAnimation, drag])`, or loads a Feature when it's wanted, so each page ships only the animation code it uses.
 
 **On Solid 2,** import from `@wardic/solid/unstable/v2`: the same elements and animation props, built on Solid 2's reactivity, with Motion's callback props (`onTap`…) as a ward's events. It stays outside semver until Solid 2 itself is stable.
 
 ## Coming from Motion
 
-Most of Motion for React's API keeps its name: `<motion.div>` is `<w.div>`, with the Features its provider gives, and `AnimatePresence`, `LayoutGroup`, `Reorder`, `stagger` and `domAnimation` / `domMax` are as they are. Motion's hooks become Solid's `create*` primitives: `useAnimate` is `createAnimate`, `useScroll` is `createScroll`, `useSpring` is `createSpring`, `useTransform` is `createTransform`, `useInView` is `createInView`. `MotionConfig` is `WardicConfig`, and `LazyMotion` is the provider's `features` with `LazyWardic` below it. [The docs](https://wardic.dev) map every API, and say where Wardic differs.
+Most of Motion for React's API keeps its name: `<motion.div>` is `<w.div>`, with the Features its Wardic instance gives, and `AnimatePresence`, `LayoutGroup`, `Reorder`, `stagger` and `domAnimation` / `domMax` are as they are. Motion's hooks become Solid's `create*` primitives: `useAnimate` is `createAnimate`, `useScroll` is `createScroll`, `useSpring` is `createSpring`, `useTransform` is `createTransform`, `useInView` is `createInView`. `MotionConfig` is `WardicConfig`, and `m` under `LazyMotion` is a Wardic instance's `w` (`createWardic`), or `LazyWardic` for a section. [The docs](https://wardic.dev) map every API, and say where Wardic differs.
 
 ## See it
 

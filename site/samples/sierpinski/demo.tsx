@@ -2,7 +2,7 @@
  * The Sierpiński page's demo (#665's PR 7, Q24): the sample, one Batch, beside the same triangle with a
  * Wardic element per leaf, to compare their frames. Not a code tab: the tabs show the bindings' files.
  */
-import { w } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 import { createSignal, For, onSettled, Show } from "solid-js"
 import { framesPerSecond } from "../frames.ts"
 import Sierpinski, { SPRING } from "./solid2.tsx"

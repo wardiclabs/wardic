@@ -9,7 +9,7 @@ import { BACK } from "@wardic/example-storefront-shared/micro"
 import { codeParts } from "@wardic/example-storefront-shared/format"
 import { type Component, createSignal, For, Show, Suspense } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import { w } from "@wardic/solid"
+import { w } from "~/lib/wardic.ts"
 import type { Highlighted } from "~/lib/server.ts"
 import { highlighted } from "~/lib/store.ts"
 

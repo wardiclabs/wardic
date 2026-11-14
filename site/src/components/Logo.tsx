@@ -13,7 +13,8 @@
  * does. Its geometry is the mark's small cut (logo-paths.ts). The page has one Logo, so its ids are
  * fixed.
  */
-import { w, type Ward, type WardicVariants } from "@wardic/solid/unstable/v2"
+import { type Ward, type WardicVariants } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 import { For, onSettled } from "solid-js"
 import { LINES, RING, STARS, WORDMARK } from "~/components/logo-paths.ts"
 

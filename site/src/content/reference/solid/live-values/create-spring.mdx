@@ -9,7 +9,8 @@ api: [createSpring, SpringAccessor]
 A value that follows another on a spring: from each change of its source, it springs there, a change mid-way keeping its speed. See [Live values](/guides/live-values).
 
 ```tsx
-import { createSpring, w } from "@wardic/solid/unstable/v2" // or "@wardic/solid"
+import { createSpring } from "@wardic/solid/unstable/v2" // or "@wardic/solid"
+import { w } from "~/lib/wardic.ts"
 
 const [x, setX] = createSignal(0)
 const followX = createSpring(x, { stiffness: 300, damping: 30 })

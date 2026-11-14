@@ -1,4 +1,5 @@
-import { AnimatePresence, w } from "@wardic/solid"
+import { AnimatePresence } from "@wardic/solid"
+import { w } from "~/lib/wardic.ts"
 import { createSignal, Show } from "solid-js"
 
 /** Each icon turns in a quarter turn from half its size, and turns out the same way on. */

@@ -1,4 +1,4 @@
-import { w } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 
 /** A card that rises into place as it mounts, and lifts under the pointer. */
 export default function Enter() {

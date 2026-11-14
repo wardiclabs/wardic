@@ -1,9 +1,9 @@
 /** The shop's frame (#296): its header, with the visitor's switches and the store's, and its footer. */
 import { A, createAsync, useAction } from "@solidjs/router"
 import { COG, ICON, turnOf } from "@wardic/example-storefront-shared/micro"
-import { AnimatePresence, arc, LazyWardic, w } from "@wardic/solid"
-import { createSignal, For, type JSX, Show, Suspense } from "solid-js"
-import { type Arrival, arrivalId, arrivals, flightLayout, landed } from "~/lib/arrivals.ts"
+import { CartFlight } from "~/components/CartFlight.tsx"
+import { w } from "~/lib/wardic.ts"
+import { createSignal, type JSX, Show, Suspense } from "solid-js"
 import { type Theme, usePreferences } from "~/lib/preferences.tsx"
 import { cart, saveSettings, settings } from "~/lib/store.ts"
 
@@ -81,41 +81,9 @@ function CartButton() {
           )}
         </Show>
       </Suspense>
-      {/* The fly-in's section, with the `layout` of the page that moved the first piece (#526). */}
-      <Show when={flightLayout()}>
-        {(layout) => (
-          <LazyWardic features={layout()}>
-            <AnimatePresence>
-              <For each={arrivals()}>{(piece) => <CartArrival piece={piece} />}</For>
-            </AnimatePresence>
-          </LazyWardic>
-        )}
-      </Show>
+      {/* The fly-in, with the `layout` of the page that moved the first piece (#526). */}
+      <CartFlight />
     </IconLink>
-  )
-}
-
-// The flight into the cart bows along an arc (#438), one value for every flight, as its side is kept.
-const TOSS = arc()
-
-/**
- * A piece moved to the cart from Saved for later: its photo's twin, sharing its row photo's
- * `layoutId`, so Wardic flies it here from the row it left. Landed, it shrinks into the icon. One photo
- * flies, not the row's and this one crossfading (`layoutCrossfade={false}`, #442): the row's is
- * hidden as this one takes over.
- */
-function CartArrival(props: { readonly piece: Arrival }) {
-  return (
-    <w.img
-      class="cart-arrival"
-      layoutId={arrivalId(props.piece.id)}
-      layoutCrossfade={false}
-      src={props.piece.src}
-      alt=""
-      transition={{ layout: { type: "tween", duration: 0.6, ease: [0.45, 0, 0.55, 1], path: TOSS } }}
-      exit={{ scale: 0.3, opacity: 0, transition: { type: "tween", duration: 0.25 } }}
-      onLayoutAnimationComplete={() => landed(props.piece.id)}
-    />
   )
 }
 

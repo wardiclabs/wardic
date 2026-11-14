@@ -7,7 +7,8 @@
  * and while one is on its way the last hits stay, marked busy.
  */
 import { Dialog } from "@kobalte/core/dialog"
-import { AnimatePresence, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 import { createMemo, createSignal, For, isPending, Loading, onFlush, onSettled, Show } from "solid-js"
 
 const Shade = w.create(Dialog.Overlay)

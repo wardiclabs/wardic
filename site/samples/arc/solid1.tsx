@@ -1,4 +1,5 @@
-import { arc, w } from "@wardic/solid"
+import { arc } from "@wardic/solid"
+import { w } from "~/lib/wardic.ts"
 import { createSignal } from "solid-js"
 
 /** A ball tossed across along a curve, and back. */

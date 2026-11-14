@@ -1,6 +1,7 @@
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import { type Collection, LOOKBOOK } from "@wardic/example-storefront-shared/stories"
-import { createScroll, createTransform, w } from "@wardic/solid"
+import { createScroll, createTransform } from "@wardic/solid"
+import { w } from "~/lib/wardic.ts"
 import { For } from "solid-js"
 import { useReducedMotion } from "~/lib/preferences.tsx"
 

@@ -9,7 +9,10 @@ api: [createDragControls, WardicDragControls, WardicDragControlsOptions]
 Makes drag controls, which start an element's drag from somewhere else, such as a handle or a track. Give them to each element they drive as `dragControls`, then call `start` from a pointer's `pointerdown`.
 
 ```tsx
-import { createDragControls, w } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { createDragControls, createWardic, domAnimation, drag } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+
+// This page drags: its own Wardic instance has `drag` beside `domAnimation`.
+const { w } = createWardic([domAnimation, drag])
 
 const controls = createDragControls()
 <div class="handle" onPointerDown={(event) => controls.start(event)} style={{ "touch-action": "none" }} />

@@ -1,4 +1,5 @@
-import { createScroll, w } from "@wardic/solid"
+import { createScroll } from "@wardic/solid"
+import { w } from "~/lib/wardic.ts"
 import { For } from "solid-js"
 
 const LINES = [

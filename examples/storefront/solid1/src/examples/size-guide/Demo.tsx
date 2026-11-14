@@ -1,6 +1,7 @@
 import { Dialog } from "@kobalte/core/dialog"
 import { createAsync } from "@solidjs/router"
-import { AnimatePresence, w } from "@wardic/solid"
+import { AnimatePresence } from "@wardic/solid"
+import { w } from "~/lib/wardic.ts"
 import { createSignal, For, Show, Suspense } from "solid-js"
 import { products } from "~/lib/store.ts"
 

@@ -9,7 +9,8 @@ api: [stagger, WardicStagger, WardicStaggerOptions]
 Delays each child by its place: `stagger(duration, options?)` gives each child a delay of `startDelay`, plus `duration` seconds for each step from `from`.
 
 ```tsx
-import { stagger, w } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { stagger } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 
 <w.ul animate="shown" variants={list} transition={{ delayChildren: stagger(0.05, { from: "center" }) }}>
   <For each={items()}>{(item) => <w.li variants={row}>{item}</w.li>}</For>

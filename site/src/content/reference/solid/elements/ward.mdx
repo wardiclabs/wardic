@@ -8,15 +8,15 @@ api: [createWard, ward, Ward, WardProps, WardStyle, WardUserProps, WardValue, Wa
 
 A ward is one element's motion: made from a config of [motion props](/reference/solid/elements/props), and put on an element of your own instead of a `w.*` one. It renders on the server as a `w.*` element does.
 
-| | Slim (its section's [Features](/guides/features)) | Complete (every Feature) |
+| | Slim (its Wardic instance's or its section's [Features](/guides/features)) | Complete (every Feature) |
 | --- | --- | --- |
 | Solid 1 | `w.createWard(config)`, `use:w` | `createWard(config)`, `use:wardic` |
 | Solid 2 | `w.ward(config, options?)` | `ward(config, options?)` |
 
 ## Solid 1: createWard
 
-```tsx
-import { w } from "@wardic/solid"
+```tsx solid1
+import { w } from "~/lib/wardic.ts"
 
 function Card() {
   const card = w.createWard({ initial: { opacity: 0 }, animate: { opacity: 1 } })
@@ -35,8 +35,8 @@ function Card() {
 
 ## Solid 2: ward()
 
-```tsx
-import { w } from "@wardic/solid/unstable/v2"
+```tsx solid2
+import { w } from "~/lib/wardic.ts"
 
 function Card() {
   const card = w.ward({ initial: { opacity: 0 }, animate: { opacity: 1 } })

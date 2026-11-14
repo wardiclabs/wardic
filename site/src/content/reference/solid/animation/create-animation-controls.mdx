@@ -9,7 +9,8 @@ api: [createAnimationControls, WardicAnimationControls, WardicControlsDefinition
 Makes animation controls, which animate elements by their variants or targets from code. Give them to each element as `animate={controls}`, then call `start`, `set` or `stop`.
 
 ```tsx
-import { createAnimationControls, w } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { createAnimationControls } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 
 const controls = createAnimationControls()
 <w.ul initial="hidden" animate={controls} variants={list}>…</w.ul>

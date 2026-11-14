@@ -1,4 +1,5 @@
-import { createSpring, w } from "@wardic/solid"
+import { createSpring } from "@wardic/solid"
+import { w } from "~/lib/wardic.ts"
 import { createSignal } from "solid-js"
 
 /** A dot that follows the pointer: the pointer sets two signals, and two springs follow them. */

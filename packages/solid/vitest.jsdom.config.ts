@@ -3,6 +3,7 @@ import type { Plugin } from "vite"
 import solidPlugin from "vite-plugin-solid"
 import { defineConfig } from "vitest/config"
 import { wardicSource } from "../../scripts/wardic-source.ts"
+import { INSTANCE_IMPORT, instanceModule } from "../../site/test/wardic-instance.ts"
 
 /** Where Solid 1 resolves from: this package (the site's own `solid-js` is Solid 2). */
 const FROM = join(import.meta.dirname, "package.json")
@@ -23,7 +24,12 @@ const solid1: Plugin = {
 export default defineConfig({
   root: import.meta.dirname,
   plugins: [wardicSource(), solid1, solidPlugin()],
-  resolve: { conditions: ["browser", "development"], dedupe: ["solid-js", "effect"] },
+  resolve: {
+    conditions: ["browser", "development"],
+    dedupe: ["solid-js", "effect"],
+    // The sample's Wardic instance (#516), as an app's `~/lib/wardic.ts` is.
+    alias: { [INSTANCE_IMPORT]: instanceModule.solid1 },
+  },
   test: {
     name: "docs-jsdom",
     dir: join(import.meta.dirname, "../../site/samples/testing"),

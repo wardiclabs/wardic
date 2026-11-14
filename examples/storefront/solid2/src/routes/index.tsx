@@ -1,7 +1,7 @@
 /** The showcase's gallery (#296 Q3): each area, with its examples. */
 import { AREAS, examplesIn, routeOf } from "@wardic/example-storefront-shared/examples"
 import { CARD, TAG } from "@wardic/example-storefront-shared/micro"
-import { w } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 import { For, Show } from "solid-js"
 
 export default function Home() {

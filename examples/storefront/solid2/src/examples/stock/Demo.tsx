@@ -1,7 +1,7 @@
 import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { w } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 import { createMemo, createSignal, For, isPending, Loading } from "solid-js"
 import { stock } from "~/lib/store.ts"
 

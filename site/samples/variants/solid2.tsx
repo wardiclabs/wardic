@@ -1,4 +1,5 @@
-import { stagger, w } from "@wardic/solid/unstable/v2"
+import { stagger } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 import { createSignal, For } from "solid-js"
 
 const ITEMS = ["Vases", "Bowls", "Plates", "Jugs"]

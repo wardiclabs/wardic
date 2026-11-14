@@ -1,5 +1,5 @@
 import { CheckFrames, DomLive, FrameLoopMetrics } from "@wardic/dom"
-import { domAnimation, WardicProvider } from "@wardic/solid"
+import { WardicProvider } from "@wardic/solid"
 import { DevTools } from "effect/devtools"
 import * as Effect from "effect/Effect"
 import * as ErrorReporter from "effect/ErrorReporter"
@@ -37,7 +37,7 @@ const env = import.meta.env.DEV ? await devEnv() : DomLive
 
 export default function App(props: { readonly children: JSX.Element }) {
   return (
-    <WardicProvider env={env} features={[domAnimation]}>
+    <WardicProvider env={env}>
       {props.children}
     </WardicProvider>
   )

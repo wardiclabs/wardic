@@ -10,7 +10,7 @@
 import { useParams } from "@solidjs/router"
 import type { HeadTag } from "@solidjs/web"
 import { dynamic, useHead } from "@solidjs/web"
-import { w } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 import type { Component } from "solid-js"
 import { createMemo, Errored, For, lazy, Show } from "solid-js"
 import DESCRIPTIONS from "virtual:page-descriptions"

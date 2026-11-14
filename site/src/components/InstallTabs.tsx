@@ -5,7 +5,7 @@
  * packages, peers included: Yarn doesn't install a missing peer, as npm, pnpm and Bun do.
  */
 import { Tabs } from "@kobalte/core/tabs"
-import { w } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 import { createSignal, For, onCleanup, onSettled } from "solid-js"
 
 /** The package managers, in the tabs' order, and the command each adds packages with. */

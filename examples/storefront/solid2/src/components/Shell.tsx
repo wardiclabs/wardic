@@ -3,9 +3,10 @@ import { revalidate } from "@solidjs/router"
 import type { JSX } from "@solidjs/web"
 import type { Settings } from "@wardic/example-storefront-shared/server"
 import { COG, ICON, turnOf } from "@wardic/example-storefront-shared/micro"
-import { AnimatePresence, arc, LazyWardic, w } from "@wardic/solid/unstable/v2"
-import { action, createEffect, createMemo, createSignal, For, Loading, Show } from "solid-js"
-import { type Arrival, arrivalId, ArrivalsProvider, useArrivals } from "~/lib/arrivals.tsx"
+import { CartFlight } from "~/components/CartFlight.tsx"
+import { w } from "~/lib/wardic.ts"
+import { action, createMemo, createSignal, Loading, Show } from "solid-js"
+import { ArrivalsProvider } from "~/lib/arrivals.tsx"
 import { type Theme, usePreferences } from "~/lib/preferences.tsx"
 import { cart, settings } from "~/lib/store.ts"
 import { setSettings } from "~/server/store.ts"
@@ -80,7 +81,6 @@ function SettingsForm() {
 
 /** The cart's count, which pops each time it changes: a new count is a new element, growing in. */
 function CartButton() {
-  const { arrivals, flightLayout } = useArrivals()
   const current = createMemo(() => cart())
   const count = () => current().lines.reduce((sum, line) => sum + line.quantity, 0)
   return (
@@ -97,44 +97,9 @@ function CartButton() {
           )}
         </Show>
       </Loading>
-      {/* The fly-in's section, with the `layout` of the page that moved the first piece (#526). */}
-      <Show when={flightLayout()}>
-        {(layout) => (
-          <LazyWardic features={layout()}>
-            <AnimatePresence>
-              <For each={arrivals()}>{(piece) => <CartArrival piece={piece} />}</For>
-            </AnimatePresence>
-          </LazyWardic>
-        )}
-      </Show>
+      {/* The fly-in, with the `layout` of the page that moved the first piece (#526). */}
+      <CartFlight />
     </w.a>
-  )
-}
-
-// The flight into the cart bows along an arc (#438), one value for every flight, as its side is kept.
-const TOSS = arc()
-
-/**
- * A piece moved to the cart from Saved for later: its photo's twin, sharing its row photo's
- * `layoutId`, so Wardic flies it here from the row it left. Landed, it shrinks into the icon. One photo
- * flies, not the row's and this one crossfading (`layoutCrossfade={false}`, #442): the row's is
- * hidden as this one takes over.
- */
-function CartArrival(props: { readonly piece: Arrival }) {
-  const { landed } = useArrivals()
-  // Its ward holds what it hears, its layout (#398): its landing lets it go.
-  const flight = w.ward({ layoutId: arrivalId(props.piece.id) })
-  createEffect(flight.when("layoutComplete"), () => landed(props.piece.id))
-  return (
-    <w.img
-      class="cart-arrival"
-      wardRef={flight}
-      layoutCrossfade={false}
-      src={props.piece.src}
-      alt=""
-      transition={{ layout: { type: "tween", duration: 0.6, ease: [0.45, 0, 0.55, 1], path: TOSS } }}
-      exit={{ scale: 0.3, opacity: 0, transition: { type: "tween", duration: 0.25 } }}
-    />
   )
 }
 

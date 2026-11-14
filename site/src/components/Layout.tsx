@@ -8,7 +8,8 @@
  */
 import { Dialog } from "@kobalte/core/dialog"
 import { useLocation } from "@solidjs/router"
-import { AnimatePresence, w, type WardicVariants } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, type WardicVariants } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic-layout.ts"
 import type { JSX } from "@solidjs/web"
 import { createSignal, For, onFlush, Show } from "solid-js"
 import { Logo } from "~/components/Logo.tsx"

@@ -2,7 +2,8 @@ import { createAsync } from "@solidjs/router"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, layout, LazyWardic, w } from "@wardic/solid"
+import { AnimatePresence } from "@wardic/solid"
+import { w } from "~/lib/wardic-layout.ts"
 import { createSignal, For, onCleanup, onMount, Show, Suspense } from "solid-js"
 import { products } from "~/lib/store.ts"
 
@@ -13,16 +14,7 @@ const content = {
   exit: { opacity: 0, transition: { type: "tween", duration: 0.1 } },
 } as const
 
-/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
 export default function ProductDetail() {
-  return (
-    <LazyWardic features={[layout]}>
-      <ProductDetailDemo />
-    </LazyWardic>
-  )
-}
-
-function ProductDetailDemo() {
   const all = createAsync(() => products())
   const [open, setOpen] = createSignal<Product>()
   const close = () => setOpen(undefined)

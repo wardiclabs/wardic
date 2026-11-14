@@ -9,7 +9,10 @@ api: [WardEvents, WardEvent, WardSettled, WardGestures, WardElement, WardPoint, 
 On Solid 2, a ward tells what happens to its element as events, where Solid 1 takes Motion's callback props (`onTap`, `onDragEnd`…). Hear them from any ward: one you made, or one a Wardic element hands to its `wardRef` callback.
 
 ```tsx
-import { w } from "@wardic/solid/unstable/v2"
+import { createWardic, domAnimation, drag } from "@wardic/solid/unstable/v2"
+
+// This page drags: its own Wardic instance has `drag` beside `domAnimation`.
+const { w } = createWardic([domAnimation, drag])
 
 const card = w.ward()
 

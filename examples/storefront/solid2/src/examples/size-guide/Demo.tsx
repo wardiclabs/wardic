@@ -1,5 +1,6 @@
 import { Dialog } from "@kobalte/core/dialog"
-import { AnimatePresence, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 import { createMemo, createSignal, For, Loading, Show } from "solid-js"
 import { products } from "~/lib/store.ts"
 

@@ -1,6 +1,6 @@
 ---
 title: Start on Solid 2
-description: Install Wardic in a Solid 2 app, add the provider, and animate your first element.
+description: Install Wardic in a Solid 2 app, add the provider, choose its Features, and animate your first element.
 ---
 
 # Start on Solid 2
@@ -13,27 +13,40 @@ Wardic's binding for Solid 2 is `@wardic/solid/unstable/v2`: the same elements a
 
 ## The provider
 
-Every Wardic element sits under one `WardicProvider`. It takes the environment Wardic runs in, `DomLive` in a browser, and the **Features** its elements have: `domAnimation` is hover, press, focus and in-view.
+Every Wardic element sits under one `WardicProvider`. It takes the environment Wardic runs in: `DomLive` in a browser.
 
 ```tsx
 import { DomLive } from "@wardic/dom"
-import { domAnimation, WardicProvider } from "@wardic/solid/unstable/v2"
+import { WardicProvider } from "@wardic/solid/unstable/v2"
 
 export default function App() {
   return (
-    <WardicProvider env={DomLive} features={[domAnimation]}>
+    <WardicProvider env={DomLive}>
       <Page />
     </WardicProvider>
   )
 }
 ```
 
+## Your app's Features
+
+What an element does beyond animating its values, a gesture, layout or a colour space, is a [Feature](/guides/features), code a page ships only if it asks for it. Choose your app's once, in a module of their own: `domAnimation` is hover, press, focus and in-view.
+
+```tsx
+// src/lib/wardic.ts
+import { createWardic, domAnimation } from "@wardic/solid/unstable/v2"
+
+export const { w } = createWardic(domAnimation)
+```
+
+Import `w` from it, not from the binding. Its elements take those Features' props, and its wards hear their events: a prop or an event of another is a type error that names it. These guides import it as `~/lib/wardic.ts`, SolidStart's alias for `src`; in a plain Vite app, import it by its path.
+
 ## Your first element
 
 A `w.*` element animates from `initial` to `animate`, and back as its state changes:
 
 ```tsx
-import { w } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 
 export function Card() {
   return <w.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} whileHover={{ scale: 1.03 }} />
@@ -42,16 +55,13 @@ export function Card() {
 
 ## Only what a page uses
 
-A page that drags or lays out brings `drag` or `layout` itself, through `LazyWardic`, so the pages that don't never load them:
+A page that drags or lays out makes an instance of its own, in a module only its pages import, so the pages that don't never load `drag` or `layout`:
 
 ```tsx
-import { drag, LazyWardic, w } from "@wardic/solid/unstable/v2"
+// src/lib/wardic-drag.ts
+import { createWardic, domAnimation, drag } from "@wardic/solid/unstable/v2"
 
-export function Board() {
-  return (
-    <LazyWardic features={[drag]}>
-      <w.div drag />
-    </LazyWardic>
-  )
-}
+export const { w } = createWardic([domAnimation, drag])
 ```
+
+[Shipping less](/guides/features) has the rest: loading a Feature later, and the sections a `LazyWardic` makes.

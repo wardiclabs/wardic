@@ -7,7 +7,7 @@
  * The samples shown only as code, such as a test or an app's setup, aren't demos and aren't built.
  */
 import { dynamic } from "@solidjs/web"
-import { w } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 import type { Component } from "solid-js"
 import { createEffect, createMemo, createSignal, Errored, For, Loading, Show } from "solid-js"
 import { demoFileOf } from "~/components/demo-file.ts"

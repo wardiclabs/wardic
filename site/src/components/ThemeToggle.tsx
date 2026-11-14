@@ -4,7 +4,7 @@
  * server can't know the choice: `THEME_SCRIPT` sets it before the first paint, and the button reads it
  * once the page has hydrated.
  */
-import { w } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 import { createSignal, Match, onSettled, Switch } from "solid-js"
 
 type Theme = "system" | "light" | "dark"

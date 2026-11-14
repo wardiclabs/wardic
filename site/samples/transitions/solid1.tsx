@@ -1,4 +1,4 @@
-import { w } from "@wardic/solid"
+import { w } from "~/lib/wardic.ts"
 import { createSignal } from "solid-js"
 
 /** One toggle, three ways to get there: a spring, a tween, and keyframes. */

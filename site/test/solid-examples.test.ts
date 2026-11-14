@@ -3,8 +3,10 @@
 // `unstable/v2` (EX6), and each tsx fence on the site's own pages (EX7), compiled under its binding's JSX
 // setup, so an example that names an API wrongly or gives it the wrong props fails here.
 //
-// A site fence that imports one binding is that binding's; one that imports both, or neither, is
-// compiled under each, with the other's import left out. An example is a snippet, not a module, so it's
+// A site fence that names its binding (```tsx solid1, ```tsx solid2) or imports one binding is that
+// binding's; one that does neither, or imports both, is compiled under each, with the other's import
+// left out. A fence names its binding where nothing it imports does: its `w` the reader's Wardic
+// instance's, `~/lib/wardic.ts` (#516). An example is a snippet, not a module, so it's
 // read leniently:
 // - a line that starts with JSX, at its start, begins markup of its own, as the markup after a
 //   component's code is in the docs, and `…` stands for code left out;
@@ -17,6 +19,7 @@ import { readdirSync, readFileSync } from "node:fs"
 import { join, relative } from "node:path"
 import ts from "typescript"
 import { describe, expect, it } from "vitest"
+import { INSTANCE_IMPORT, instanceModule } from "./wardic-instance.ts"
 
 const REPO = join(import.meta.dirname, "../..")
 const SITE = join(REPO, "site")
@@ -48,8 +51,9 @@ const filesUnder = (dir: string, keep: (path: string) => boolean): ReadonlyArray
 /** Whether `code` imports from `binding`'s entry. */
 const imports = (code: string, binding: Binding): boolean => code.includes(`from "${ENTRY[binding]}"`)
 
-/** A site fence's bindings: the one it imports, else both. */
-const bindingsOf = (code: string): ReadonlyArray<Binding> => {
+/** A site fence's bindings: the one it names, else the one it imports, else both. */
+const bindingsOf = (code: string, named: string | undefined): ReadonlyArray<Binding> => {
+  if (named === "solid1" || named === "solid2") return [named]
   if (imports(code, "solid1") && !imports(code, "solid2")) return ["solid1"]
   if (imports(code, "solid2") && !imports(code, "solid1")) return ["solid2"]
   return ["solid1", "solid2"]
@@ -60,9 +64,9 @@ const siteExamples = (): ReadonlyArray<Example> =>
   filesUnder(join(SITE, "src/content"), (path) => path.endsWith(".mdx") && !path.includes("/reference/core/") && !path.includes("/reference/dom/")).flatMap(
     (page) => {
       const text = readFileSync(page, "utf8")
-      return [...text.matchAll(/```tsx\n([\s\S]*?)```/g)]
-        .filter((fence) => !fence[1]!.includes(`from "@solidjs/start`))
-        .map((fence) => ({ where: `${relative(REPO, page)}:${text.slice(0, fence.index).split("\n").length}`, code: fence[1]!, bindings: bindingsOf(fence[1]!) }))
+      return [...text.matchAll(/```tsx(?: (solid1|solid2))?\n([\s\S]*?)```/g)]
+        .filter((fence) => !fence[2]!.includes(`from "@solidjs/start`))
+        .map((fence) => ({ where: `${relative(REPO, page)}:${text.slice(0, fence.index).split("\n").length}`, code: fence[2]!, bindings: bindingsOf(fence[2]!, fence[1]) }))
     },
   )
 
@@ -113,12 +117,17 @@ const SOLID1 = join(REPO, "packages/solid/node_modules/solid-js")
 
 /** The options an example compiles with: its binding's JSX and its Solid, as the samples' tsconfigs give them. */
 const optionsOf = (binding: Binding): ts.CompilerOptions => {
-  const solid: ts.MapLike<Array<string>> = { "solid-js": [join(SITE, "node_modules/solid-js/types/index.d.ts")] }
-  const solid1: ts.MapLike<Array<string>> = {
+  // An example's `~/lib/wardic.ts` is the reader's Wardic instance (#516), as the samples' is.
+  const solid2Paths: ts.MapLike<Array<string>> = {
+    "solid-js": [join(SITE, "node_modules/solid-js/types/index.d.ts")],
+    [INSTANCE_IMPORT]: [instanceModule.solid2],
+  }
+  const solid1Paths: ts.MapLike<Array<string>> = {
     "solid-js": [join(SOLID1, "types/index.d.ts")],
     "solid-js/web": [join(SOLID1, "web/types/index.d.ts")],
     "solid-js/store": [join(SOLID1, "store/types/index.d.ts")],
     "solid-js/jsx-runtime": [join(SOLID1, "types/jsx.d.ts")],
+    [INSTANCE_IMPORT]: [instanceModule.solid1],
   }
   return {
     jsx: ts.JsxEmit.Preserve,
@@ -134,7 +143,7 @@ const optionsOf = (binding: Binding): ts.CompilerOptions => {
     skipLibCheck: true,
     lib: ["lib.esnext.d.ts", "lib.dom.d.ts", "lib.dom.iterable.d.ts"],
     types: [],
-    paths: { solid1, solid2: solid }[binding],
+    paths: { solid1: solid1Paths, solid2: solid2Paths }[binding],
   }
 }
 

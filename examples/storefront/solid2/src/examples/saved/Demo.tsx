@@ -3,7 +3,8 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, layout, LazyWardic, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, layout } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic-layout.ts"
 import { action, createMemo, createOptimisticStore, createSignal, For, onFlush, Show } from "solid-js"
 import { arrivalId, useArrivals } from "~/lib/arrivals.tsx"
 import { useReducedMotion } from "~/lib/preferences.tsx"
@@ -12,16 +13,7 @@ import { addToCart } from "~/server/store.ts"
 
 const SAVED = PRODUCTS.filter((product) => ["bottle-vase", "tulip-bowl", "painted-jug", "cut-carafe"].includes(product.id))
 
-/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
 export default function SavedForLater() {
-  return (
-    <LazyWardic features={[layout]}>
-      <SavedForLaterDemo />
-    </LazyWardic>
-  )
-}
-
-function SavedForLaterDemo() {
   // The pieces still saved: what the list settles on once a move has landed.
   const [kept, setKept] = createSignal<ReadonlyArray<Product>>(SAVED)
   // What it shows: those, less any on their way to the cart. A move takes its row out at once, an

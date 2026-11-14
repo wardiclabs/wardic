@@ -10,7 +10,7 @@ Wardic gives [Solid](https://www.solidjs.com) the API of [Motion](https://motion
 On a server-rendered page, mount animations play before the JavaScript has loaded, and the client takes them over mid-flight. And each page ships only the animation code it uses.
 
 - **Fast where motion happens:** retargets, unmounts and each running frame in about half of Motion's time or less.
-- **Motion's API, the Solid way:** a `w.div` takes what a `motion.div` takes, with the Features its provider gives.
+- **Motion's API, the Solid way:** a `w.div` takes what a `motion.div` takes, with the Features its Wardic instance gives.
 - **Built on Effect:** replace parts of its engine, with [Environments beyond the DOM](/roadmap#15-beyond-the-dom) planned.
 
 [Why Wardic](/why) has the numbers, and what it costs.
@@ -19,11 +19,14 @@ On a server-rendered page, mount animations play before the JavaScript has loade
 
 ```tsx
 import { DomLive } from "@wardic/dom"
-import { domAnimation, w, WardicProvider } from "@wardic/solid"
+import { createWardic, domAnimation, WardicProvider } from "@wardic/solid"
+
+// An app's Wardic instance, in a module of its own (src/lib/wardic.ts): hover, press, focus and in-view.
+const { w } = createWardic(domAnimation)
 
 export function App() {
   return (
-    <WardicProvider env={DomLive} features={[domAnimation]}>
+    <WardicProvider env={DomLive}>
       <w.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} whileHover={{ scale: 1.05 }}>
         Hello
       </w.div>

@@ -1,7 +1,7 @@
 import { useLocation } from "@solidjs/router"
 import { type Hydration, hydrationOf } from "@wardic/example-storefront-shared/hydration"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
-import { w } from "@wardic/solid"
+import { w } from "~/lib/wardic.ts"
 import { createSignal, onMount, Show } from "solid-js"
 
 // The banner names a variant; its photo and lines follow, one after another. Nothing here asks for

@@ -1,18 +1,18 @@
 ---
 title: WardicProvider
-description: Puts Wardic in your app. Every Wardic element sits under one, given the Environment and the Features its elements use.
+description: Puts Wardic in your app. Every Wardic element sits under one, given the Environment Wardic runs in.
 api: [WardicProvider, WardicEnv, WardicScaleCorrector]
 ---
 
 # WardicProvider
 
-Puts Wardic in your app: every Wardic element, ward and hook sits under one. Give it the Environment Wardic runs in, `DomLive` in a browser, and the [Features](/reference/solid/provider/features) your elements use.
+Puts Wardic in your app: every Wardic element, ward and hook sits under one. Give it the Environment Wardic runs in, `DomLive` in a browser. Your elements' [Features](/reference/solid/provider/features) are your [Wardic instance](/reference/solid/elements/wardic-instance)'s; `features` here gives some to everything under it, for the binding's own `w`.
 
 ```tsx
 import { DomLive } from "@wardic/dom"
-import { domAnimation, WardicProvider } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
+import { WardicProvider } from "@wardic/solid" // or "@wardic/solid/unstable/v2"
 
-<WardicProvider env={DomLive} features={[domAnimation]}>
+<WardicProvider env={DomLive}>
   <App />
 </WardicProvider>
 ```
@@ -24,7 +24,7 @@ It builds nothing until the first element under it needs it. During a server ren
 | Prop | |
 | --- | --- |
 | `env` | The Environment: `DomLive` in a browser. Merge Effect's own Layers beside it for [logs and traces](/guides/observability). Read once, and built at once: a Layer that waits as it builds, such as `DevTools.layer()`, goes in built. |
-| `features` | The Features every `w.*` element under it has: at once, `[domAnimation]`, or loaded with a function. Read once. |
+| `features` | Features every `w.*` element under it has, beside its Wardic instance's: at once, `[domAnimation]`, or loaded with a function. Read once. |
 | `strict` | In development, a `wardic.*` element under it throws. Read once. |
 | `reducedMotion` | `"user"` (the default) follows the visitor's setting, `"always"` reduces motion, `"never"` doesn't. See [Reduced motion](/guides/reduced-motion). |
 | `appear` | `false`: on a server-rendered page, entrances wait for the JavaScript. `"explain"` logs why each one that can't play waits. See [Server rendering](/guides/server-rendering). |
@@ -35,7 +35,7 @@ The same props on both bindings. A [`WardicConfig`](/reference/solid/provider/wa
 
 ## Coming from Motion
 
-Motion needs no provider. Wardic's holds its runtime, and takes the Features that `LazyMotion` would; `MotionConfig`'s settings are [`WardicConfig`](/reference/solid/provider/wardic-config)'s.
+Motion needs no provider. Wardic's holds its runtime, and can take the Features that `LazyMotion` would; `MotionConfig`'s settings are [`WardicConfig`](/reference/solid/provider/wardic-config)'s.
 
 ## Types
 

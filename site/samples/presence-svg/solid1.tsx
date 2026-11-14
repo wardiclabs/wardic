@@ -1,4 +1,5 @@
-import { AnimatePresence, w } from "@wardic/solid"
+import { AnimatePresence } from "@wardic/solid"
+import { w } from "~/lib/wardic.ts"
 import { createSignal, For } from "solid-js"
 
 /** Where point `id` sits on the 320 × 160 plot, spread evenly from its number, and which of four colours it takes. */
