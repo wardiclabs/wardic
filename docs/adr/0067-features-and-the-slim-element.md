@@ -349,13 +349,14 @@ TS 7's default parallel check read +14% on Solid 2: adding the prototype's four 
 
 **Built (PR 2, `createWardic`).**
 - **`createWardic(features)`**, in a module of its own on each binding that names no Feature. Its list holds Features, loads and nested lists, and `const F` types its instance from the literal. Its `w`'s every form passes `{ instance }` to the spine.
-- **Its Features in a provider:** one set per instance per provider, made by code the instance carries (`InstanceFeatures.own`, from `instanceFeaturesOf`), so an app without an instance ships none of it.
+- **Its Features in a provider:** one set per instance per provider, made by code the instance carries (`InstanceFeatures.own`). That code is in `instance-features.ts`, which only `createWardic` imports, so a page that never uses an instance ships none of it, whichever page does (*Amendment (#548)*).
   - **Given at once:** built on first need.
-  - **Each load:** a lazy part as a `LazyWardic`'s is. It's wrapped to start once per instance, whichever provider asks first, and starts at the first element's mount or hook call on the client.
+  - **Each load:** a lazy part as a `LazyWardic`'s is. It's wrapped to start once per instance, whichever provider asks first. It starts on the client when the first of the instance's elements or wards is made, or a hook is called: a ward counts as made at its setup, spread or not. A failed load is forgotten, so the next provider to ask loads again, as a new `LazyWardic` does (asked at the review, not at the grill).
   - **Ended with the provider** (the registry's `onEnd`), so a load that arrives after its provider has gone is dropped.
-  - **The element** joins them with its section's (`joinSections`, which `makeSection` now uses too), so a section's Features still count at runtime.
+  - **The element** joins them with its section's (`joinSections`, over `joinOwns`, which `makeSection` and the instance's own join share), so a section's Features still count at runtime.
 - **The layout hooks** ask for the same Features before they return the binding's own: given at once, the hook alone builds `layout` in its provider; as a load, it starts the load.
 - **Not changed:** `strict` throws only for a Complete element, so an instance's elements render under it, a `domMax` instance's too. A failed load is reported once per provider.
+- **Lifetimes, tested:** an element gone before its load arrives, or its provider, changes nothing; a load arriving after its provider ended builds nothing there (otherwise the provider's disposed runtime rejects); the next element drags at once, and nothing loads again.
 - **Measured** (`bun run size` against PR 1):
   - every app without an instance: +0.1% gzipped (+0.4 KB minified, the spine's instance branch);
   - `s1-instance`, an instance of `domAnimation`: 107.5 KB against `s1-dom-animation`'s 107.0, the same Features on a provider;
