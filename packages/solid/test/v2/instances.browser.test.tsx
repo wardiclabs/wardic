@@ -4,9 +4,11 @@
 // - INV2: joined with its section's: under a `LazyWardic` giving `press`, an instance of `hover`'s element
 //   taps too, a prop its types don't take, given untyped.
 // - INV3: every form of its `w` brings them: `w.create(tag)`, `w.create(Component)` and `w.ward()`.
+// - INV7: `strict` allows an instance's elements, an instance of `domMax`'s too; a `wardic.*` still throws.
 import type { JSX } from "@solidjs/web"
 import { DomLive } from "@wardic/dom"
-import { createWardic, hover, LazyWardic, press, WardicProvider } from "@wardic/solid/unstable/v2"
+import { createWardic, domMax, hover, LazyWardic, press, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
+import { Errored, flush } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { opacityOf, until } from "../browser-helpers.ts"
 import { mount } from "./mount.tsx"
@@ -87,5 +89,26 @@ describe("A Wardic instance (#516), Solid 2", () => {
     await until(pressing(el, () => opacityOf(el) > 0.5), 2000)
     await until(() => opacityOf(el) === 1, 2000)
     expect(opacityOf(el)).toBe(1)
+  })
+
+  it("INV7: strict allows an instance's elements, an instance of domMax's too; a wardic.* still throws", async () => {
+    const { w } = createWardic(domMax)
+    let el!: HTMLElement
+    mount(() => (
+      <WardicProvider env={DomLive} strict>
+        <w.div ref={(n: HTMLElement) => (el = n)} style={BOX} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={TWEEN} />
+      </WardicProvider>
+    ))
+    await until(() => opacityOf(el) === 1, 2000)
+    expect(opacityOf(el)).toBe(1)
+    const { host } = mount(() => (
+      <WardicProvider env={DomLive} strict>
+        <Errored fallback={(error) => <p data-error>{String(error())}</p>}>
+          <wardic.div />
+        </Errored>
+      </WardicProvider>
+    ))
+    flush()
+    expect(host.querySelector("[data-error]")?.textContent).toMatch(/strict WardicProvider or LazyWardic/)
   })
 })

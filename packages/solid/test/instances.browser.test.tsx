@@ -5,9 +5,10 @@
 //   taps too, a prop its types don't take, given untyped.
 // - IN3: every form of its `w` brings them: `w.create(tag)`, `w.create(Component)`, `w.createWard` and
 //   `use:w`.
+// - IN7: `strict` allows an instance's elements, an instance of `domMax`'s too; a `wardic.*` still throws.
 import { cleanup, render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { createWardic, hover, LazyWardic, press, WardicProvider } from "@wardic/solid"
+import { createWardic, domMax, hover, LazyWardic, press, wardic, WardicProvider } from "@wardic/solid"
 import type { JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { opacityOf, until } from "./browser-helpers.ts"
@@ -93,5 +94,25 @@ describe("A Wardic instance (#516), Solid 1", () => {
     await until(pressing(el, () => opacityOf(el) > 0.5), 2000)
     await until(() => opacityOf(el) === 1, 2000)
     expect(opacityOf(el)).toBe(1)
+  })
+
+  it("IN7: strict allows an instance's elements, an instance of domMax's too; a wardic.* still throws", async () => {
+    const { w } = createWardic(domMax)
+    let el!: HTMLElement
+    render(() => (
+      <WardicProvider env={DomLive} strict>
+        <w.div ref={(n: HTMLElement) => (el = n)} style={BOX} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={TWEEN} />
+      </WardicProvider>
+    ))
+    await until(() => opacityOf(el) === 1, 2000)
+    expect(opacityOf(el)).toBe(1)
+    cleanup()
+    expect(() =>
+      render(() => (
+        <WardicProvider env={DomLive} strict>
+          <wardic.div />
+        </WardicProvider>
+      )),
+    ).toThrow(/strict WardicProvider or LazyWardic/)
   })
 })
