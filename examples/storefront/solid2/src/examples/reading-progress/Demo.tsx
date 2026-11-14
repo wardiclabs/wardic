@@ -1,5 +1,6 @@
 import { LAGOON_ARTICLE } from "@wardic/example-storefront-shared/stories"
-import { createScroll, createTransform, w } from "@wardic/solid/unstable/v2"
+import { createScroll, createTransform } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 import { For } from "solid-js"
 
 export default function ReadingProgress() {

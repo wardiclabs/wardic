@@ -1,8 +1,8 @@
 /** The shop's frame (#296): its header, with the visitor's switches and the store's, and its footer. */
 import { A, createAsync, useAction } from "@solidjs/router"
 import { COG, ICON, turnOf } from "@wardic/example-storefront-shared/micro"
-import { w } from "@wardic/solid"
 import { CartFlight } from "~/components/CartFlight.tsx"
+import { w } from "~/lib/wardic.ts"
 import { createSignal, type JSX, Show, Suspense } from "solid-js"
 import { type Theme, usePreferences } from "~/lib/preferences.tsx"
 import { cart, saveSettings, settings } from "~/lib/store.ts"

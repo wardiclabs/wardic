@@ -1,7 +1,8 @@
 /**
  * The cart's fly-in (#526): a piece moved to the cart from Saved for later flies here, with the `layout`
- * of the page that moved it, handed over at runtime (`arrive(piece, layout)`), which the fly-in's
- * section gives its elements.
+ * of the page that moved it, handed over at runtime (`arrive(piece, layout)`). So its Features are a
+ * section's, not a Wardic instance's (#516): the shell never imports `layout`, the page that moves a
+ * piece does, and its elements are the binding's own `w`, which has the Features its section gives.
  */
 import { AnimatePresence, arc, LazyWardic, w } from "@wardic/solid"
 import { For, Show } from "solid-js"

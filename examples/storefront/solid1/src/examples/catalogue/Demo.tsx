@@ -8,7 +8,8 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, arc, layout, LazyWardic, w } from "@wardic/solid"
+import { AnimatePresence, arc } from "@wardic/solid"
+import { w } from "~/lib/wardic-layout.ts"
 import { createSignal, For, type JSX, Match, onCleanup, Show, Switch } from "solid-js"
 import { addToCart } from "~/lib/store.ts"
 
@@ -38,16 +39,7 @@ const slide = {
  * nodes, so the page that was there leaves on its own; `popLayout` takes it out of the flow where it
  * was, so the next one is in place at once and a shared `layoutId` flies between them.
  */
-/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
 export default function Catalogue(props: { readonly children?: JSX.Element }) {
-  return (
-    <LazyWardic features={[layout]}>
-      <CatalogueDemo {...props} />
-    </LazyWardic>
-  )
-}
-
-function CatalogueDemo(props: { readonly children?: JSX.Element }) {
   return (
     <div class="catalogue">
       <AnimatePresence mode="popLayout">{props.children}</AnimatePresence>

@@ -2,7 +2,8 @@ import { Select } from "@kobalte/core/select"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, layout, LazyWardic, useAnimateLayout, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence } from "@wardic/solid/unstable/v2"
+import { useAnimateLayout, w } from "~/lib/wardic-layout.ts"
 import { createMemo, createSignal, For, Loading, Show } from "solid-js"
 import { products } from "~/lib/store.ts"
 
@@ -27,16 +28,7 @@ function sortedBy(pieces: ReadonlyArray<Product>, order: string): ReadonlyArray<
   return pieces
 }
 
-/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
 export default function SortBy() {
-  return (
-    <LazyWardic features={[layout]}>
-      <SortByDemo />
-    </LazyWardic>
-  )
-}
-
-function SortByDemo() {
   const pieces = createMemo(() => products())
   const [order, setOrder] = createSignal("Featured")
   const [open, setOpen] = createSignal(false)

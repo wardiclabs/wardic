@@ -3,7 +3,8 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, layout, LazyWardic, w } from "@wardic/solid"
+import { AnimatePresence, layout } from "@wardic/solid"
+import { w } from "~/lib/wardic-layout.ts"
 import { batch, createSignal, For, Show } from "solid-js"
 import { arrivalId, arrive, recall } from "~/lib/arrivals.ts"
 import { useReducedMotion } from "~/lib/preferences.tsx"
@@ -11,16 +12,7 @@ import { addToCart } from "~/lib/store.ts"
 
 const SAVED = PRODUCTS.filter((product) => ["bottle-vase", "tulip-bowl", "painted-jug", "cut-carafe"].includes(product.id))
 
-/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
 export default function SavedForLater() {
-  return (
-    <LazyWardic features={[layout]}>
-      <SavedForLaterDemo />
-    </LazyWardic>
-  )
-}
-
-function SavedForLaterDemo() {
   const add = useAction(addToCart)
   const [saved, setSaved] = createSignal<ReadonlyArray<Product>>(SAVED)
   const [failure, setFailure] = createSignal<string>()

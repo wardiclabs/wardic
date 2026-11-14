@@ -1,7 +1,8 @@
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { CartLine, Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, layout, LazyWardic, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic-layout.ts"
 import { revalidate } from "@solidjs/router"
 import { action, createMemo, createOptimisticStore, createSignal, For, Loading, onSettled, refresh, Show } from "solid-js"
 import { cart, products } from "~/lib/store.ts"
@@ -14,22 +15,13 @@ const drawer = { initial: { x: 460 }, animate: { x: 0 }, exit: { x: 460 }, trans
 const line = { initial: { opacity: 0, x: 32 }, animate: { opacity: 1, x: 0 }, exit: { opacity: 0, x: 32 } } as const
 const fade = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 } } as const
 
-/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
-export default function CartDrawer() {
-  return (
-    <LazyWardic features={[layout]}>
-      <CartDrawerDemo />
-    </LazyWardic>
-  )
-}
-
 /** A cart line as the drawer's draft writes it: its quantity changed in place. */
 type DraftLine = { -readonly [K in keyof CartLine]: CartLine[K] }
 
 /** The most of one piece a line holds. */
 const MAX_QUANTITY = 99
 
-function CartDrawerDemo() {
+export default function CartDrawer() {
   const [open, setOpen] = createSignal(false)
   const [problem, setProblem] = createSignal<string>()
   const all = createMemo(() => products())

@@ -1,7 +1,8 @@
 import { formatDay, formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import type { Order, Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, layout, LazyWardic, useAnimateLayout, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence } from "@wardic/solid/unstable/v2"
+import { useAnimateLayout, w } from "~/lib/wardic-layout.ts"
 import { createMemo, createSignal, For, Loading, Show } from "solid-js"
 import { orders, products } from "~/lib/store.ts"
 
@@ -23,16 +24,7 @@ function sortedBy(orders: ReadonlyArray<Order>, sort: Sort): ReadonlyArray<Order
   return orders
 }
 
-/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
 export default function OrderHistory() {
-  return (
-    <LazyWardic features={[layout]}>
-      <OrderHistoryDemo />
-    </LazyWardic>
-  )
-}
-
-function OrderHistoryDemo() {
   const history = createMemo(() => orders())
   const all = createMemo(() => products())
   const [open, setOpen] = createSignal<string>()

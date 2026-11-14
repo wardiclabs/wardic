@@ -3,7 +3,8 @@ import { PRODUCTS } from "@wardic/example-storefront-shared/catalog"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, layout, LazyWardic, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic-layout.ts"
 import { action, createSignal, For, onSettled } from "solid-js"
 import { cart } from "~/lib/store.ts"
 import { addToCart } from "~/server/store.ts"
@@ -31,16 +32,7 @@ const SHELF = PRODUCTS.filter((product) => ["moon-vase", "celadon-bowl", "poppy-
 const STAYS_MS = 4000
 const AT_MOST = 3
 
-/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
 export default function Toasts() {
-  return (
-    <LazyWardic features={[layout]}>
-      <ToastsDemo />
-    </LazyWardic>
-  )
-}
-
-function ToastsDemo() {
   const [toasts, setToasts] = createSignal<ReadonlyArray<Toast>>([])
   let nextId = 0
   const timers = new Set<ReturnType<typeof setTimeout>>()

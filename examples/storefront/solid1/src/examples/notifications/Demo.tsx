@@ -1,6 +1,7 @@
 import { createAsyncStore, useAction } from "@solidjs/router"
 import type { Notice } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, drag, layout, LazyWardic, w, type WardicDragInfo } from "@wardic/solid"
+import { AnimatePresence, type WardicDragInfo } from "@wardic/solid"
+import { w } from "~/lib/wardic-drag-layout.ts"
 import { createSignal, For, onCleanup, Show, Suspense } from "solid-js"
 import { dismissNotice, notices, restoreNotices } from "~/lib/store.ts"
 
@@ -20,16 +21,7 @@ const FLING_VELOCITY = 600
 /** How long "Undo" is offered, once the card has flown off. */
 const UNDO_MS = 4000
 
-/** The demo, with this page's `drag` and `layout` beside the shell's Features (#526): a page without them ships neither. */
 export default function Notifications() {
-  return (
-    <LazyWardic features={[drag, layout]}>
-      <NotificationsDemo />
-    </LazyWardic>
-  )
-}
-
-function NotificationsDemo() {
   // A store, reconciled by id: a notice read again is the same row, so only the one that went leaves.
   const list = createAsyncStore(() => notices(), { reconcile: { key: "id" } })
   const restore = useAction(restoreNotices)

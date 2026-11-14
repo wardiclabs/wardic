@@ -1,5 +1,6 @@
 import { photoOf } from "@wardic/example-storefront-shared/images"
-import { createSpring, createTransform, LazyWardic, pan, w, type WardPointInfo } from "@wardic/solid/unstable/v2"
+import { createSpring, createTransform, type WardPointInfo } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic-pan.ts"
 import { createEffect, createSignal, untrack } from "solid-js"
 import { useReducedMotion } from "~/lib/preferences.tsx"
 
@@ -13,16 +14,7 @@ const lens = {
   looking: { opacity: 1, scale: 1, transition: { type: "spring", stiffness: 400, damping: 28 } },
 } as const
 
-/** The demo, with this page's `pan` beside the shell's Features (#526): a finger's moves, which the shell has no use for. */
 export default function Magnifier() {
-  return (
-    <LazyWardic features={[pan]}>
-      <MagnifierDemo />
-    </LazyWardic>
-  )
-}
-
-function MagnifierDemo() {
   const photo = photoOf("lagoon-vase")
   const reduced = useReducedMotion()
   // Where the pointer is over the photo, from its corner, and how wide the photo is drawn.

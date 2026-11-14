@@ -7,7 +7,7 @@ import { dynamic } from "@solidjs/web"
 import { AREAS, exampleById } from "@wardic/example-storefront-shared/examples"
 import { codeParts } from "@wardic/example-storefront-shared/format"
 import { BACK } from "@wardic/example-storefront-shared/micro"
-import { w } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic.ts"
 import { type Component, createSignal, For, Loading, Show } from "solid-js"
 import { codeFiles } from "~/server/code.tsx"
 

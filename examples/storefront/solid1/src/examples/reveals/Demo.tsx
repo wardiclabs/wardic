@@ -1,6 +1,6 @@
 import { photoOf } from "@wardic/example-storefront-shared/images"
 import { STUDIO_CHAPTERS } from "@wardic/example-storefront-shared/stories"
-import { w } from "@wardic/solid"
+import { w } from "~/lib/wardic.ts"
 import { For } from "solid-js"
 
 // Each chapter names a variant as it comes into view; its photo and words follow, one after another.

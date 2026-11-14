@@ -2,7 +2,7 @@
 import { A } from "@solidjs/router"
 import { AREAS, examplesIn, routeOf } from "@wardic/example-storefront-shared/examples"
 import { CARD, TAG } from "@wardic/example-storefront-shared/micro"
-import { w } from "@wardic/solid"
+import { w } from "~/lib/wardic.ts"
 import { For, Show } from "solid-js"
 
 /** A gallery card: the router's link through `w.create`, so it lifts, glows and gives (#365). */

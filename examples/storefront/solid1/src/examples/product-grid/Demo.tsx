@@ -2,7 +2,7 @@ import { createAsync } from "@solidjs/router"
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import type { Product } from "@wardic/example-storefront-shared/server"
-import { w } from "@wardic/solid"
+import { w } from "~/lib/wardic.ts"
 import { createSignal, For, Suspense } from "solid-js"
 import { products } from "~/lib/store.ts"
 

@@ -1,7 +1,8 @@
 import { formatPrice } from "@wardic/example-storefront-shared/format"
 import { photoOf, srcsetOf } from "@wardic/example-storefront-shared/images"
 import { CATEGORIES, type Product } from "@wardic/example-storefront-shared/server"
-import { AnimatePresence, layout, LazyWardic, w } from "@wardic/solid/unstable/v2"
+import { AnimatePresence } from "@wardic/solid/unstable/v2"
+import { w } from "~/lib/wardic-layout.ts"
 import { createMemo, createSignal, For, Loading } from "solid-js"
 import { products } from "~/lib/store.ts"
 
@@ -17,16 +18,7 @@ const item = {
   exit: { opacity: 0, scale: 0.9 },
 } as const
 
-/** The demo, with this page's `layout` beside the shell's Features (#526): a page that doesn't lay out ships none. */
 export default function Browse() {
-  return (
-    <LazyWardic features={[layout]}>
-      <BrowseDemo />
-    </LazyWardic>
-  )
-}
-
-function BrowseDemo() {
   const all = createMemo(() => products())
   const [filter, setFilter] = createSignal<Filter>("All")
   const [view, setView] = createSignal<View>("grid")
