@@ -148,19 +148,39 @@ export const isLoad = (prop: FeaturesProp): prop is FeatureLoad => Predicate.isF
 export type InstanceFeaturesProp = Feature | FeatureLoad | ReadonlyArray<InstanceFeaturesProp>
 
 /**
- * A Wardic instance's Features (#516): those it was given at once, flattened, and its loads, each
- * started once, the first time any provider asks for it, so one module's instance loads each once.
+ * A Wardic instance's Features (#516): what its elements and hooks join their section's with, one per
+ * provider. Its code is `createWardic`'s module's alone (`instanceFeaturesOf`), so an app with no
+ * instance ships none of it: the spine only calls `own`.
  */
 export interface InstanceFeatures {
-  readonly given: ReadonlyArray<Feature>
-  readonly loads: ReadonlyArray<FeatureLoad>
+  /**
+   * Its Features in `registry`'s provider, one per provider: those given at once, built on first need,
+   * and each load, started now on the client and built as it arrives, until the provider ends. A server
+   * render builds what's given and loads nothing.
+   */
+  readonly own: (registry: FeatureRegistry, host: InstanceHost) => Own
 }
 
-/** `prop` split into the Features given at once and the loads, each load started once (#516). */
-export const instanceFeaturesOf = (prop: InstanceFeaturesProp): InstanceFeatures => ({
-  given: Arr.dedupeWith(givenIn(prop), (a, b) => a === b),
-  loads: Arr.map(loadsIn(prop), once),
-})
+/**
+ * `prop`'s Features (#516): those given at once, flattened, and its loads, each started once, the first
+ * time any provider asks, so one module's instance loads each once.
+ */
+export const instanceFeaturesOf = (prop: InstanceFeaturesProp): InstanceFeatures => {
+  const given = Arr.dedupeWith(givenIn(prop), (a, b) => a === b)
+  const loads = Arr.map(loadsIn(prop), once)
+  const owns = new WeakMap<FeatureRegistry, Own>()
+  return {
+    own: (registry, host) =>
+      UndefinedOr.match(owns.get(registry), {
+        onDefined: identity,
+        onUndefined: () => {
+          const own = instanceOwn(registry.build, given, loads, { reactivity: host.reactivity, server: host.server, onCleanup: registry.onEnd }, host.report)
+          owns.set(registry, own)
+          return own
+        },
+      }),
+  }
+}
 
 const givenIn = (prop: InstanceFeaturesProp): ReadonlyArray<Feature> => {
   if (Predicate.isFunction(prop)) return []
@@ -335,12 +355,8 @@ export interface FeatureRegistry {
   readonly built: () => Context.Context<never>
   /** Logs `message` at Warning the first time `feature` is named: development's word on a missing Feature. */
   readonly warnOnce: (feature: string, message: string) => void
-  /**
-   * A Wardic instance's Features in this provider (#516), one per instance: those given at once, built
-   * on first need, and each load, started now on the client and built as it arrives, until the
-   * provider ends. A server render builds what's given and loads nothing.
-   */
-  readonly instance: (instance: InstanceFeatures, host: InstanceHost) => Own
+  /** Runs `end` as the provider ends, before its Features: what a Wardic instance's loads stop by (#516). */
+  readonly onEnd: (end: () => void) => void
   /** Ends every Feature built, the provider's runtime after (a Feature's Layer may stand on it). */
   readonly dispose: () => Promise<void>
 }
@@ -353,25 +369,18 @@ export interface InstanceHost {
 }
 
 /**
- * A registry's sections of exactly a list, one per list; its Wardic instances' Features, one per
- * instance, which `endInstances` stops taking loads into; and its warnings, one per Feature.
+ * A registry's sections of exactly a list, one per list; what runs as it ends (`onEnd`, run by `end`);
+ * and its warnings, one per Feature.
  */
 const sectionsAndWarnings = (build: Build, warn: (message: string) => void) => {
   const sections = new WeakMap<ReadonlyArray<Feature>, FeatureSection>()
-  const instances = new WeakMap<InstanceFeatures, Own>()
   const ends: Array<() => void> = []
   const warned = new Set<string>()
   return {
-    instance: (instance: InstanceFeatures, host: InstanceHost): Own =>
-      UndefinedOr.match(instances.get(instance), {
-        onDefined: identity,
-        onUndefined: () => {
-          const own = instanceOwn(build, instance, { reactivity: host.reactivity, server: host.server, onCleanup: (end) => ends.push(end) }, host.report)
-          instances.set(instance, own)
-          return own
-        },
-      }),
-    endInstances: (): void => Arr.forEach(ends.splice(0), (end) => end()),
+    onEnd: (end: () => void): void => {
+      ends.push(end)
+    },
+    end: (): void => Arr.forEach(ends.splice(0), (end) => end()),
     section: (features: ReadonlyArray<Feature>): FeatureSection =>
       UndefinedOr.match(sections.get(features), {
         onDefined: identity,
@@ -394,8 +403,8 @@ const sectionsAndWarnings = (build: Build, warn: (message: string) => void) => {
  * A Wardic instance's Features in one provider (#516): those given at once, and each load's, joined again
  * only when one changes; on its way while any load is.
  */
-const instanceOwn = (build: Build, instance: InstanceFeatures, host: SectionHost, report: (cause: Cause.Cause<unknown>) => void): Own => {
-  const owns = Arr.prepend(Arr.map(instance.loads, (load) => ownOf(build, load, report, host)), ownOf(build, instance.given, report, host))
+const instanceOwn = (build: Build, given: ReadonlyArray<Feature>, loads: ReadonlyArray<FeatureLoad>, host: SectionHost, report: (cause: Cause.Cause<unknown>) => void): Own => {
+  const owns = Arr.prepend(Arr.map(loads, (load) => ownOf(build, load, report, host)), ownOf(build, given, report, host))
   let last: { readonly parts: ReadonlyArray<Context.Context<never>>; readonly joined: Context.Context<never> } | undefined
   return {
     services: () => {
@@ -441,7 +450,7 @@ export const clientRegistry = (runtime: ProviderRuntime): FeatureRegistry => {
         return services
       },
     })
-  const { endInstances, ...rest } = sectionsAndWarnings(build, (message) => {
+  const { end, ...rest } = sectionsAndWarnings(build, (message) => {
     runtime.runFork(Effect.logWarning(message))
   })
   return {
@@ -449,7 +458,7 @@ export const clientRegistry = (runtime: ProviderRuntime): FeatureRegistry => {
     built: () => all,
     ...rest,
     dispose: () => {
-      endInstances()
+      end()
       return disposeReported(runtime)
     },
   }
@@ -485,13 +494,13 @@ export const serverRegistry = (runtime: ManagedRuntime.ManagedRuntime<WardicServ
     return NONE
   }
   // A server render says nothing: the client, rendering the same, does.
-  const { endInstances, ...rest } = sectionsAndWarnings(build, constVoid)
+  const { end, ...rest } = sectionsAndWarnings(build, constVoid)
   return {
     build,
     built: () => NONE,
     ...rest,
     dispose: () => {
-      endInstances()
+      end()
       return runtime.dispose()
     },
   }

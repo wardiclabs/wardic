@@ -251,7 +251,7 @@ const joined = (section: FeatureSection, own: Context.Context<never>): FeatureSe
  */
 export function useInstanceFeatures(instance: InstanceFeatures): Own {
   return fromContext(contextValue(), "createWardic", (value) =>
-    value.features.instance(instance, {
+    instance.own(value.features, {
       reactivity: reactivityIn(getOwner()),
       server: isServer,
       report: (cause) => {
