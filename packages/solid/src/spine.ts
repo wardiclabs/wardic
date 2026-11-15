@@ -26,10 +26,10 @@ import type * as Renderer from "@wardic/core/Renderer"
 import * as Supersede from "@wardic/core/Supersede"
 import * as Values from "@wardic/core/Values"
 import * as Report from "@wardic/core/unstable/Report"
+import type * as CoreMeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
 import type * as OwnValues from "@wardic/core/unstable/OwnValues"
 import type * as Stops from "@wardic/core/unstable/Stops"
 import type * as FlushGate from "@wardic/dom/FlushGate"
-import * as MeasuredPair from "@wardic/dom/MeasuredPair"
 import * as Variables from "@wardic/dom/Variables"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
@@ -1172,9 +1172,9 @@ const sameStops = (a: Stops.Stops, b: Stops.Stops): boolean => Bool.or(a === b, 
  * Whether a start that can't take its target's shape stays as it is (#430): it makes a Measured pair
  * with it, so its leg measures both ends rather than starting at the target.
  */
-const keepsStart = (key: string, start: number | string | undefined, target: number | string): boolean => {
+const keepsStart = (pairs: CoreMeasuredPairs.Shape, key: string, start: number | string | undefined, target: number | string): boolean => {
   if (Predicate.isUndefined(start)) return false
-  return MeasuredPair.needs(key, start, target)
+  return pairs.needs(key, start, target)
 }
 
 /** The keys that may be Measured pairs (#430): those found, and each Keyframes key, its start now its first stop. */
@@ -1186,17 +1186,17 @@ const measuringOf = (found: ReadonlyArray<string> | undefined, keyframes: Keyfra
  * end-of-task batch with the values the element draws now, but a key with Keyframes of more than two
  * stops (`many`, #460). `undefined` with none.
  */
-export const measuredOf = (element: HTMLElement, keys: ReadonlyArray<string>, from: Values.Values, to: Values.Values, values: Values.Values, many: StopsByKey | undefined): MeasuredPairs | undefined => {
+export const measuredOf = (measured: CoreMeasuredPairs.Shape, element: HTMLElement, keys: ReadonlyArray<string>, from: Values.Values, to: Values.Values, values: Values.Values, many: StopsByKey | undefined): MeasuredPairs | undefined => {
   const pairs: Record<string, { readonly from: number | string; readonly to: number | string }> = {}
   Arr.forEach(keys, (key) => {
     if (hasManyStops(many, key)) return
     const start = from[key]
     const target = to[key]
     if (Bool.or(Predicate.isUndefined(start), Predicate.isUndefined(target))) return
-    if (MeasuredPair.needs(key, start as number | string, target as number | string)) pairs[key] = { from: start as number | string, to: target as number | string }
+    if (measured.needs(key, start as number | string, target as number | string)) pairs[key] = { from: start as number | string, to: target as number | string }
   })
   if (Rec.isEmptyRecord(pairs)) return undefined
-  return MeasuredPair.measure(element, pairs, values)
+  return measured.measure(element, pairs, values)
 }
 
 /** A key's Keyframes in `keyframes` (#429): per key, per Retarget, so a guard, nothing made. */
@@ -1913,6 +1913,8 @@ export interface ElementSpineOptions {
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
   /** The Environment's reads of its Subjects' own values (#672), read once by its provider. */
   readonly ownValues: OwnValues.Shape
+  /** The Environment's Measured pairs (#430, #672), read once by its provider. */
+  readonly measuredPairs: CoreMeasuredPairs.Shape
   readonly start: Start
   readonly snapshot: Snapshot
   readonly reuse: (transition: WardicTransition) => WardicTransition
@@ -2057,6 +2059,8 @@ export interface SpineHost {
   readonly runtime: WardicServices.Runner<WardicServices.WardicServices>
   /** Its Variable values' Key rule (#55): a blend's are built with it. */
   readonly elementRules: ReadonlyArray<InterpolatorRegistry.KeyRule>
+  /** The Environment's Measured pairs (#430, #672). */
+  readonly measuredPairs: CoreMeasuredPairs.Shape
 }
 
 /** A mounted element's spine. */
@@ -2092,7 +2096,7 @@ export interface ElementSpine {
  * fiber Scope interrupts what's left when the provider ends.
  */
 export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => {
-  const { animation, byName, canStart, config, defaultTransition, diagnostics, element, extraDelay, gate, id, links, live, onFrame, ownValues, parent, positionalKeys, presence, runtime, snapshot, start, styleNow, tag } = options
+  const { animation, byName, canStart, config, defaultTransition, diagnostics, element, extraDelay, gate, id, links, live, measuredPairs, onFrame, ownValues, parent, positionalKeys, presence, runtime, snapshot, start, styleNow, tag } = options
   const { initialLink, initialValues, startedLink } = start
   const { linksFor, ownValue, startLinkOf } = links
   let handoff = options.handoff
@@ -2336,7 +2340,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // A start of another type than its target's, on a positional key, stays as it is: a Measured
     // pair (#430), measured at the end of the task.
     if (Option.isSome(coerced)) return
-    if (keepsStart(key, snapshot.values[key], like)) return
+    if (keepsStart(measuredPairs, key, snapshot.values[key], like)) return
     const link = startLinkOf(key, like)
     if (Option.isSome(link) && isSameKind(link.value.value, like)) {
       snapshot.values[key] = link.value.value
@@ -2568,6 +2572,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         recordFrame,
         runtime,
         elementRules,
+        measuredPairs,
       }
     }
     return handedOver
@@ -2819,7 +2824,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       startKey(key, like, started)
       // A Measured pair (#430): its two ends of different types, found in this pass, so a Retarget
       // with none builds nothing for them.
-      if (MeasuredPair.needs(key, UndefinedOr.getOrThrow(snapshot.values[key]), like)) {
+      if (measuredPairs.needs(key, UndefinedOr.getOrThrow(snapshot.values[key]), like)) {
         if (Predicate.isUndefined(measuring)) measuring = []
         measuring.push(key)
       }
@@ -2932,7 +2937,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // animation is skipped (#468): the keys found above, and those Keyframes of two stops start from their first.
     let measured: MeasuredPairs | undefined
     if (!reduce && !skipped && (Predicate.isNotUndefined(measuring) || Predicate.isNotUndefined(keyframesNow))) {
-      measured = measuredOf(element, measuringOf(measuring, keyframesNow), from, fresh, snapshot.values, manyStops)
+      measured = measuredOf(measuredPairs, element, measuringOf(measuring, keyframesNow), from, fresh, snapshot.values, manyStops)
     }
     let told: ToldNames | undefined
     if (!silent) told = namesToldOf(animation, resolution, lastResolution)

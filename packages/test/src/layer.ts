@@ -11,6 +11,7 @@ import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import type * as Renderer from "@wardic/core/Renderer"
 import type * as ScrollSource from "@wardic/core/ScrollSource"
+import type * as MeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
 import type * as OwnValues from "@wardic/core/unstable/OwnValues"
 import { constUndefined, constVoid } from "effect/Function"
 import * as Layer from "effect/Layer"
@@ -56,6 +57,7 @@ export const testLayer = (
   | Announcer.Announcer
   | AtomRegistry.AtomRegistry
   | OwnValues.OwnValues
+  | MeasuredPairs.MeasuredPairs
 > =>
   FrameLoop.layer.pipe(
     Layer.provideMerge(
@@ -73,7 +75,7 @@ export const testLayer = (
         // No assistive technology to reach headless (ADR-0037).
         Announcer.layerSilent,
         AtomRegistry.layer,
-        // The headless Environment's own values (#672): no units, no text form.
+        // The headless Environment's own values and Measured pairs (#672): no units, no text form.
         TestValues.layer,
         Layer.sync(DragActivity.DragActivity, DragActivity.make),
         Layer.sync(PressClaims.PressClaims, PressClaims.make),

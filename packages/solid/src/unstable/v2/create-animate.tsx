@@ -19,8 +19,8 @@ import {
   type WardicAnimationScope,
   type WardicPlaybackControls,
 } from "../../imperative.ts"
-import { useWardicDefaultTransition, useWardicGate, useWardicOwnValues, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
-import { ownValuesOr } from "../../element-setup.ts"
+import { useWardicDefaultTransition, useWardicGate, useWardicMeasuredPairs, useWardicOwnValues, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
+import { measuredPairsOr, ownValuesOr } from "../../element-setup.ts"
 import { flightsOf } from "./flights.ts"
 
 /** A scope's landing: the animation that landed last, as `scope.settled()` gives it. */
@@ -81,6 +81,7 @@ export function createAnimate<T extends Element = HTMLElement>(): readonly [Ward
     positionalKeys: useWardicPositionalKeys(),
     defaultTransition: useWardicDefaultTransition(),
     ownValues: ownValuesOr(useWardicOwnValues()),
+    measuredPairs: measuredPairsOr(useWardicMeasuredPairs()),
   }
   onCleanup(made.stopAll)
   return [scope, scopedAnimate(env, () => scope.current, made.watch)] as const

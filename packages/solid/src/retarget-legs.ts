@@ -13,7 +13,7 @@
  *   one `springBlend` leg on the same spring (ADR-0024, D5). It takes two stops: Keyframes of more
  *   are Motion's error, and land on their last stop.
  * - **Keyframes of two stops** run as a target does, from their first stop ({@link keyframesFrom}).
- * - **A Measured pair** (#430, `@wardic/dom/MeasuredPair`) runs in a leg of its own, between its ends
+ * - **A Measured pair** (#430, its Environment's `MeasuredPairs`) runs in a leg of its own, between its ends
  *   in px, measured at the end of the task, and lands on its target as given.
  * - **Reduced motion** (ADR-0029): when it applies, the positional keys snap in a leg of their own,
  *   after the delay their transition gives, to where their leg would have ended.
@@ -34,7 +34,7 @@ import * as Machine from "@wardic/core/Machine"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as Spring from "@wardic/core/Spring"
 import * as Values from "@wardic/core/Values"
-import * as MeasuredPair from "@wardic/dom/MeasuredPair"
+import type * as CoreMeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
 import type * as Style from "@wardic/dom/Style"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
@@ -640,7 +640,7 @@ export const legsOf = (
 const NO_LEGS: ReadonlyArray<Leg> = []
 
 /** Each key's Measured pair (#430), by its key. */
-export type MeasuredPairs = Readonly<Record<string, MeasuredPair.Requested>>
+export type MeasuredPairs = Readonly<Record<string, CoreMeasuredPairs.Requested>>
 
 /** Whether any key of `values` is a Measured pair (#430): per Retarget, so nothing made. */
 const anyMeasured = (values: Values.Values, measured: MeasuredPairs | undefined): boolean => {
@@ -674,9 +674,12 @@ const measuredMachine = (pairs: MeasuredPairs, to: Values.Values, transition: Ru
     },
   })
 
+/** A pair's ends in px, as its Environment measured them (#672): its own read. Built once (#460). */
+const measuredOf = (pair: CoreMeasuredPairs.Requested): Option.Option<CoreMeasuredPairs.Measured> => pair.measured()
+
 /** {@link measuredMachine}'s step, its pairs measured, or a switch when its batch couldn't read one. Per frame: one Frame a step. */
 const measuredStep = (pairs: MeasuredPairs, to: Values.Values, transition: Run): ((dt: number) => Frame.Frame<Values.Values>) => {
-  const all = Option.all(Rec.map(pairs, MeasuredPair.measured))
+  const all = Option.all(Rec.map(pairs, measuredOf))
   if (Option.isNone(all)) return () => ({ value: to, done: true })
   const fromPx = Rec.map(all.value, (pair) => pair.fromPx)
   const toPx = Rec.map(all.value, (pair) => pair.toPx)

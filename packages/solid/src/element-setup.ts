@@ -13,6 +13,7 @@ import * as BaseValue from "@wardic/core/BaseValue"
 import * as Projection from "@wardic/core/Projection"
 import type * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
+import type * as MeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
 import type * as CoreOwnValues from "@wardic/core/unstable/OwnValues"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 import type * as Reactivity from "@wardic/core/unstable/Reactivity"
@@ -193,5 +194,11 @@ export const SPINE_DIAGNOSTICS: SpineDiagnostics = { checkHandoff, baseLog }
 /** Its Environment's own values, else the DOM's. */
 export const ownValuesOr = (given: CoreOwnValues.Shape | undefined): CoreOwnValues.Shape => {
   if (Predicate.isUndefined(given)) return DomValues.ownValues
+  return given
+}
+
+/** Its Environment's Measured pairs, else the DOM's. */
+export const measuredPairsOr = (given: MeasuredPairs.Shape | undefined): MeasuredPairs.Shape => {
+  if (Predicate.isUndefined(given)) return DomValues.measuredPairs
   return given
 }

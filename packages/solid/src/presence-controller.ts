@@ -35,7 +35,7 @@ import * as Microtask from "@wardic/core/Microtask"
 import * as Velocity from "@wardic/core/Velocity"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
-import * as MeasuredPair from "@wardic/dom/MeasuredPair"
+import * as DomValues from "@wardic/dom/unstable/DomValues"
 import * as Report from "@wardic/dom/Report"
 import * as Variables from "@wardic/dom/Variables"
 import * as Arr from "effect/Array"
@@ -226,13 +226,13 @@ interface PreparedExit {
 const exitMeasuredOf = (element: Element, from: Values.Values, to: Values.Values, stops: StopsByKey | undefined): MeasuredPairs | undefined => {
   const pairs = Rec.filter(to, (target, key) => Bool.and(Bool.and(Object.hasOwn(from, key), Bool.not(hasManyStops(stops, key))), keepsMeasured(key, from[key], target)))
   if (Rec.isEmptyRecord(pairs)) return undefined
-  return MeasuredPair.measure(castForDom(element), Rec.map(pairs, (target, key) => ({ from: UndefinedOr.getOrThrow(from[key]), to: target })), from)
+  return DomValues.measuredPairs.measure(castForDom(element), Rec.map(pairs, (target, key) => ({ from: UndefinedOr.getOrThrow(from[key]), to: target })), from)
 }
 
 /** Whether a start and a target make a Measured pair (#430). */
 const keepsMeasured = (key: string, start: number | string | undefined, target: number | string): boolean => {
   if (Predicate.isUndefined(start)) return false
-  return MeasuredPair.needs(key, start, target)
+  return DomValues.measuredPairs.needs(key, start, target)
 }
 
 /** An exit's name when it's one name, for its delay; `undefined` for a list or a values map. */

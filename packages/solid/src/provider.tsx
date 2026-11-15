@@ -14,6 +14,7 @@
 import type * as DefaultTransition from "@wardic/core/DefaultTransition"
 import type * as InputFeed from "@wardic/core/InputFeed"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
+import type * as MeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
 import type * as OwnValues from "@wardic/core/unstable/OwnValues"
 import type * as Renderer from "@wardic/core/Renderer"
 import type * as Cause from "effect/Cause"
@@ -375,6 +376,11 @@ export function useWardicPositionalKeys(): ReducedMotion.PositionalKeys["Service
 /** The Environment's reads of its Subjects' own values (#672): what each element's spine and Live style read a value with; `undefined` when it gives none (`element-setup.ts`' fallback). Internal. */
 export function useWardicOwnValues(): OwnValues.Shape | undefined {
   return fromContext(useContext(WardicContext), "useWardicOwnValues", (value) => value.ownValues)
+}
+
+/** The Environment's Measured pairs (#430, #672): what each element's spine measures a key whose ends don't blend with; `undefined` when it gives none. Internal. */
+export function useWardicMeasuredPairs(): MeasuredPairs.Shape | undefined {
+  return fromContext(useContext(WardicContext), "useWardicMeasuredPairs", (value) => value.measuredPairs)
 }
 
 /**

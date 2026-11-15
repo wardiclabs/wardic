@@ -12,6 +12,7 @@ import * as Probe from "@wardic/core/Probe"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import * as Renderer from "@wardic/core/Renderer"
+import * as MeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
 import * as OwnValues from "@wardic/core/unstable/OwnValues"
 import type * as CoreWardicServices from "@wardic/core/unstable/WardicServices"
 import * as FlushGate from "@wardic/dom/FlushGate"
@@ -126,6 +127,8 @@ export interface WardicContextValue {
    * code then reads the DOM's (PR2-Q4).
    */
   readonly ownValues: OwnValues.Shape | undefined
+  /** The Environment's Measured pairs (#430, #672), read once: `undefined` when it gives none, as `ownValues`. */
+  readonly measuredPairs: MeasuredPairs.Shape | undefined
   /**
    * The Environment's Renderer (ADR-0003), read once: what each element and presence projects its
    * values with and commits them through.
@@ -158,6 +161,7 @@ interface Built {
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
   readonly ownValues: OwnValues.Shape | undefined
+  readonly measuredPairs: MeasuredPairs.Shape | undefined
   readonly renderer: Renderer.Renderer["Service"]
 }
 
@@ -206,9 +210,10 @@ export const clientContext = (
     // The Environment's reads of its Subjects' own values (#672), read once too: an Environment that
     // isn't the DOM gives them; `DomLive` doesn't (PR2-Q4), and an element falls back.
     const ownValues = Option.getOrUndefined(runtime.runSync(Effect.serviceOption(OwnValues.OwnValues)))
+    const measuredPairs = Option.getOrUndefined(runtime.runSync(Effect.serviceOption(MeasuredPairs.MeasuredPairs)))
     // The Renderer every element projects and commits through (ADR-0003), read once too.
     const renderer = runtime.runSync(Renderer.Renderer)
-    built = { gate, reducedMotion: applies, reducedMotionUnder: under, positionalKeys, defaultTransition, ownValues, renderer }
+    built = { gate, reducedMotion: applies, reducedMotionUnder: under, positionalKeys, defaultTransition, ownValues, measuredPairs, renderer }
     return built
   }
   // What the `layout` Feature builds its projection system with (#511): reduced motion read as each
@@ -250,6 +255,9 @@ export const clientContext = (
     },
     get ownValues() {
       return build().ownValues
+    },
+    get measuredPairs() {
+      return build().measuredPairs
     },
     get renderer() {
       return build().renderer
@@ -305,6 +313,7 @@ export const serverContext = (env: WardicEnv, waiting: string, appear: ServerApp
     defaultTransition: SERVER_DEFAULT_TRANSITION,
     // None: a server's elements fall back to the DOM's (#672, PR2-Q4).
     ownValues: undefined,
+    measuredPairs: undefined,
     appear,
     instant: NO_INSTANT,
   }

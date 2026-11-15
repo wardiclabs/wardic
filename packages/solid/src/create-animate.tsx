@@ -6,8 +6,8 @@
  */
 import { onCleanup } from "solid-js"
 import { type AnimateEnv, scopedAnimate, scopeOf, serverAnimate, type WardicAnimate, type WardicAnimationScope } from "./imperative.ts"
-import { useWardicDefaultTransition, useWardicGate, useWardicOwnValues, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
-import { ownValuesOr } from "./element-setup.ts"
+import { useWardicDefaultTransition, useWardicGate, useWardicMeasuredPairs, useWardicOwnValues, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
+import { measuredPairsOr, ownValuesOr } from "./element-setup.ts"
 import { isServer } from "./server.ts"
 
 /**
@@ -37,6 +37,7 @@ export function createAnimate<T extends Element = HTMLElement>(): readonly [Ward
     positionalKeys: useWardicPositionalKeys(),
     defaultTransition: useWardicDefaultTransition(),
     ownValues: ownValuesOr(useWardicOwnValues()),
+    measuredPairs: measuredPairsOr(useWardicMeasuredPairs()),
   }
   onCleanup(made.stopAll)
   return [made.scope, scopedAnimate(env, () => made.scope.current, made.watch)] as const

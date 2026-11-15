@@ -1,11 +1,12 @@
 /**
  * The headless Environment's reads of its Subjects' values, as core's ports take them: a raw value as
  * it is when it already has the target's type, a key's value in an object style, and an object style
- * as its record. A headless Subject has no units and no text form to read.
+ * as its record; and no Measured pair, since a headless Subject has no units and no text form to read.
  *
  * @module
  */
 // #672 (PR2-Q2): `testLayer`'s implementation of core's ports.
+import * as MeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
 import * as OwnValues from "@wardic/core/unstable/OwnValues"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
@@ -34,5 +35,17 @@ export const ownValues: OwnValues.Shape = {
   },
 }
 
+/** No pair asked: what a measure that needs none returns. */
+const NO_PAIRS: Readonly<Record<string, MeasuredPairs.Requested>> = {}
+
+/** The headless Measured pairs: none needed, so none measured. */
+export const measuredPairs: MeasuredPairs.Shape = {
+  needs: () => false,
+  measure: () => NO_PAIRS,
+}
+
 /** The headless ports, as `testLayer` gives them. */
-export const layer: Layer.Layer<OwnValues.OwnValues> = Layer.succeed(OwnValues.OwnValues)(ownValues)
+export const layer: Layer.Layer<OwnValues.OwnValues | MeasuredPairs.MeasuredPairs> = Layer.mergeAll(
+  Layer.succeed(OwnValues.OwnValues)(ownValues),
+  Layer.succeed(MeasuredPairs.MeasuredPairs)(measuredPairs),
+)
