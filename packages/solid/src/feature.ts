@@ -366,7 +366,7 @@ const sectionsAndWarnings = (build: Build, warn: (message: string) => void) => {
  * (ADR-0029), and the app's scale correctors (#443). The `layout` Feature's Layer reads it from the
  * provider's runtime, as the projection system is no longer built with it.
  */
-export class ProjectionOptions extends /*#__PURE__*/ Context.Service<ProjectionOptions, ProjectionSystem.Options>()("@wardic/solid/ProjectionOptions") {}
+export class ProjectionOptions extends /*#__PURE__*/ Context.Service<ProjectionOptions, ProjectionSystem.Options>()("@wardic/dom/unstable/ProjectionOptions") {}
 
 /** What a provider's runtime holds: its Environment, and its flush gate and projection options over it. */
 // #672: out of solid's runtime.ts, with the Features that build on it.

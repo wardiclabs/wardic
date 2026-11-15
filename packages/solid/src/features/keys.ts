@@ -25,7 +25,7 @@ import type { WardicServices } from "../runtime.ts"
 export class HoverGesture extends /*#__PURE__*/ Context.Service<
   HoverGesture,
   { readonly watch: (target: unknown, handlers: Recognizer.HoverHandlers) => Effect.Effect<void, never, Scope.Scope> }
->()("@wardic/solid/HoverGesture") {}
+>()("@wardic/dom/unstable/HoverGesture") {}
 
 /** The `press` Feature's service: an element's presses watched (`press.ts`), over the gestures' input. */
 export class PressGesture extends /*#__PURE__*/ Context.Service<
@@ -38,13 +38,13 @@ export class PressGesture extends /*#__PURE__*/ Context.Service<
       propagates?: LazyArg<boolean>,
     ) => Effect.Effect<void, never, Scope.Scope>
   }
->()("@wardic/solid/PressGesture") {}
+>()("@wardic/dom/unstable/PressGesture") {}
 
 /** The `focus` Feature's service: an element's focus watched, over the gestures' input. */
 export class FocusGesture extends /*#__PURE__*/ Context.Service<
   FocusGesture,
   { readonly watch: (target: unknown, options: Recognizer.FocusOptions, handlers: InputFeed.Handlers<boolean>) => Effect.Effect<void, never, Scope.Scope> }
->()("@wardic/solid/FocusGesture") {}
+>()("@wardic/dom/unstable/FocusGesture") {}
 
 /** The `inView` Feature's service: an element's intersections watched, over the Environment's Probe. */
 export class InViewGesture extends /*#__PURE__*/ Context.Service<
@@ -56,7 +56,7 @@ export class InViewGesture extends /*#__PURE__*/ Context.Service<
       handlers: InputFeed.Handlers<Recognizer.ViewEdge>,
     ) => Effect.Effect<void, never, Scope.Scope | Probe.Probe>
   }
->()("@wardic/solid/InViewGesture") {}
+>()("@wardic/dom/unstable/InViewGesture") {}
 
 /** The `pan` Feature's service: an element's pans watched, over the gestures' input. */
 export class PanGesture extends /*#__PURE__*/ Context.Service<
@@ -68,7 +68,7 @@ export class PanGesture extends /*#__PURE__*/ Context.Service<
       options?: DragRecognizer.PanOptions,
     ) => Effect.Effect<void, never, Scope.Scope>
   }
->()("@wardic/solid/PanGesture") {}
+>()("@wardic/dom/unstable/PanGesture") {}
 
 /** What an element hands the drag Feature: the track's options, its watches and responses run on its provider. */
 export interface DragRun extends Omit<DragTrackOptions, "watch" | "fork"> {
@@ -86,10 +86,10 @@ export class DragGesture extends /*#__PURE__*/ Context.Service<
     readonly drive: (run: DragRun) => DragTrack
     readonly constraintsOf: typeof trackConstraintsOf
   }
->()("@wardic/solid/DragGesture") {}
+>()("@wardic/dom/unstable/DragGesture") {}
 
 /** The `colors` Feature's service: that the page reads every CSS colour space. */
-export class Colors extends /*#__PURE__*/ Context.Service<Colors, true>()("@wardic/solid/Colors") {}
+export class Colors extends /*#__PURE__*/ Context.Service<Colors, true>()("@wardic/dom/unstable/Colors") {}
 
 /**
  * The `layout` Feature's element code (#746, ADR-0067 *Amendment (#746)*, decision 9), beside the
@@ -104,7 +104,7 @@ export class ProjectionNodes extends /*#__PURE__*/ Context.Service<
     /** What its node registers with the projection system (`layout-member.ts`'s `registrationOf`). */
     readonly registrationOf: (opts: CreateProjectionNodeOptions) => ProjectionSystem.RegisterNodeOptions
   }
->()("@wardic/solid/ProjectionNodes") {}
+>()("@wardic/dom/unstable/ProjectionNodes") {}
 
 // #672: the readers of a section's layout services, out of solid's runtime.ts, with the keys they read.
 /** The projection system among `services`, the `layout` Feature's (#511), or `undefined` when they hold none. */
