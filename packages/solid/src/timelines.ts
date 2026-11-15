@@ -6,7 +6,7 @@
  *
  * @module
  */
-import type * as FlushGate from "@wardic/dom/FlushGate"
+import type * as FlushGate from "@wardic/core/unstable/FlushGate"
 import * as Context from "effect/Context"
 import type * as Atom from "effect/reactivity/Atom"
 import type * as Subject from "@wardic/core/unstable/Subject"
