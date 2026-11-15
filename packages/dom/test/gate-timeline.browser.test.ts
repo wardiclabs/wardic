@@ -26,7 +26,7 @@ import * as DomRenderer from "../src/DomRenderer.ts"
 import * as DomScrollSource from "../src/DomScrollSource.ts"
 import * as TimelineValue from "../src/TimelineValue.ts"
 import { fireFrame, NO_BATCH, resetFrames, withFrames } from "./gate-harness.ts"
-import * as internalGate from "../src/internal/gate.ts"
+import * as CoreFlushGate from "@wardic/core/unstable/FlushGate"
 import { DOM_GATE } from "../src/internal/gate-environment.ts"
 
 /** The scroll Feature's services, on a runtime of their own. */
@@ -38,7 +38,7 @@ const IDENTITY: Projection.Delta = {
 }
 
 let gateRuntime: ManagedRuntime.ManagedRuntime<unknown, unknown>
-let gate: internalGate.FlushGate
+let gate: CoreFlushGate.FlushGate
 let scope: Scope.Closeable
 let host: HTMLElement
 let el: HTMLElement
@@ -47,7 +47,7 @@ let box: HTMLElement
 beforeEach(() => {
   resetFrames()
   gateRuntime = ManagedRuntime.make(withFrames(DomLive)) as ManagedRuntime.ManagedRuntime<unknown, unknown>
-  gate = internalGate.makeFlushGate(gateRuntime as never, NO_BATCH, DOM_GATE)
+  gate = CoreFlushGate.makeFlushGate(gateRuntime as never, NO_BATCH, DOM_GATE)
   scope = Effect.runSync(Scope.make())
   host = document.createElement("div")
   host.innerHTML = `<div data-el style="width: 100px; height: 10px"></div>

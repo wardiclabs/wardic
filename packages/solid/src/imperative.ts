@@ -60,7 +60,7 @@ import type * as CoreMeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
 import type * as OwnValues from "@wardic/core/unstable/OwnValues"
 import type * as VariableValues from "@wardic/core/unstable/VariableValues"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
-import { type ElementSpine, emptySnapshotOf, holdsVariable, type ImperativeHooks, type ImperativeTrack, type Landing, makeElementSpine, makeReuse, measuredOf, NO_RUNNING, NO_VALUES, restsOf, type Resolution, type Running, runningOf, type Snapshot, type SpineHost, turnWillChangeOn } from "./spine.ts"
+import { type ElementSpine, emptySnapshotOf, holdsVariable, type ImperativeHooks, type ImperativeTrack, type Landing, makeElementSpine, makeReuse, measuredOf, NO_RUNNING, NO_VALUES, restsOf, type Resolution, type Running, runningOf, type Snapshot, type SpineHost, tellStarted } from "./spine.ts"
 import { startLinksOf } from "./element-setup.ts"
 import { NO_VARIANT_STATE, resolveTarget, type Target } from "./variant-target.ts"
 import { NO_GESTURE_NAMES, NO_GESTURE_STATES } from "./variant-tree.ts"
@@ -274,7 +274,7 @@ const imperativeTrackOf = (host: SpineHost, target: Target, given: WardicTransit
   const run = (): void => {
     end()
     left = legs.length
-    turnWillChangeOn(live, legs)
+    tellStarted(live, legs)
     runnings = Arr.map(legs, (leg) => {
       const running = runningOf(leg.to, IMPERATIVE, landing, leg._tag)
       own(running)

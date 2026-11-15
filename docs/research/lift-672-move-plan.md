@@ -36,7 +36,7 @@ Read at `3538869` (1.1.0, 2026-11-14). Line counts are that commit's, of the fil
 | `retarget-legs.ts` | 1,049 | 3 |
 | `animation-controls.ts` | 206 | 4 |
 | `variant-tree.ts` | 638 | 4 |
-| `appear.ts`'s handoff half → `AppearHandoff` | ~450 | 4 |
+| `appear.ts`'s handoff part → `AppearHandoff` (PR4-Q3: what the spine reads of it) | ~80 | 4 |
 | dom's `internal/gate.ts` → `FlushGate` | 706 | 4 |
 | `spine.ts` | 3,540 | 4 |
 
@@ -48,9 +48,9 @@ Read at `3538869` (1.1.0, 2026-11-14). Line counts are that commit's, of the fil
 |---|---|---|
 | `config.ts`'s DOM half → `WardConfig` (Q24) | ~590 of 864 | 1 |
 | `gesture-info.ts`, `drag-controls.ts`, `drag-constraints.ts` | 81, 94, 103 | 1 |
-| `element-setup.ts` → `ElementSetup`, `drag-defaults.ts` → `DragDefaults` (PR2-Q3), out of `spine.ts` in PR 2 | 159, 55 | 5 |
+| `element-setup.ts` → `ElementSetup`, `drag-defaults.ts` → `DragDefaults` (PR2-Q3), out of `spine.ts` in PR 2, with the spine's DOM-only helpers since PR 4 (PR4-Q2) | 159, 55 | 5 |
 | `live-style.ts` → `LiveStyle` (PR3-Q1: the DOM's `style` prop) | 471 | 3 |
-| `appear.ts`'s server sampler → `AppearSampler`, with `server-interpolators.ts` | ~430, 33 | 4 |
+| the rest of `appear.ts`, its server sampler and the DOM's Handoff reads, with `server-interpolators.ts` (PR4-Q3: with its importers; its module or modules named then) | ~750, 33 | 5 |
 | `batch.ts` → `BatchMembers` (core has `Batch`), `batch-handoff.ts` → `BatchHandoff` | 3,078, 73 | 5 |
 | the filler half of `member-hold.ts` (Q14) | ~210 | 5 |
 | `imperative.ts` (Q13: the DOM's `animate`, its Subjects elements and selectors) | 1,052 | 5 |
@@ -124,8 +124,8 @@ With dom in a program, every app's, each type is exactly what it was; core's own
 1. **Foundations** (built, below).
 2. **Ports in place,** while the spine is still in solid: the three ports, the structural interfaces, `member-hold`'s slot into the spine, the bindings-only helpers out of it (built, below). The only PR with runtime changes.
 3. **The leaves:** core's lint, its lib and #609 met in place first (Q16), then `presence-record`, `variant-target`, `wardic-config-value`, `frame-time` and `retarget-legs` to core, and `live-style` to dom (PR3-Q1) (built, below).
-4. **The spine and what imports it:** `animation-controls`, `variant-tree`, `appear`'s split, the gate, the spine; the moved files' comments rewritten without DOM names (#609).
-5. **The Batch, `animate` and presence, to dom:** `BatchMembers`, `BatchHandoff`, the hold's filler, `imperative`, `presence-controller`.
+4. **The spine and what imports it:** `animation-controls`, `variant-tree`, the part of `appear` the spine reads, the gate, the Timelines' key, the spine; the moved files' comments rewritten without DOM names (#609) (built, below).
+5. **The Batch, `animate` and presence, to dom:** `BatchMembers`, `BatchHandoff`, the hold's filler, `imperative`, `presence-controller`, the rest of `appear` (PR4-Q3).
 6. **The Features, to dom:** Q9's `PropFeature` and Q10's registry in place first, then `feature`, `gesture-features`, `features/*`, `press`, `owner-scope`, `instant`, the drag track, `layout-member`, `layout-group`, `ProjectionOptions`; **Feature**'s glossary wording; solid's re-exports with no importer left.
 
 **Every commit** passes typecheck, lint, `test`, `test:browser` and `size`. **Every PR** also runs `bench:solid` (paired base and head, after `wardic-quiet`), `bench:core` and `pack:check`; a bench that fails is bisected by commit, PR 2's by each port's commit (Q3).
@@ -199,10 +199,26 @@ Eleven commits after its docs commit, each through every per-commit gate. Five i
 
 **Why `live-style` is dom's** (PR3-Q1, refining decision 4): it is the DOM's `style` prop, Live values routed through it (ADR-0043), its CSS text, the dropped `transform` string, Motion's will-change (`ACCELERATED` names CSS properties). A scene has no `style`.
 
+## Built in PR 4
+
+Seventeen commits after its docs commit, each through every per-commit gate. Eleven in place, then six moves:
+
+1. **The spine's DOM-only helpers to `element-setup`** (PR4-Q2, PR2-Q3's rule): `draggingWithWillChange` and `claimForDrag`, through the spine's drag hook (`tellDrag`, exported); `warnDroppedTransform` (a CSS `transform` string); `flagStartingStyle` (a hydration's server patch against the DOM's); the server's Appear entry, `appearEntryOf` with `ServerAppearOf` and `serverTargetOf` (its inline `animation`). The bindings' other helpers read neither the DOM nor Solid, and went to core with the spine.
+2. **`LiveRoutes.started(legs)`** (PR4-Q1) in place of `willChange` and `turnsWillChangeOn`: the spine (`tellStarted`) and an Imperative animation tell an element's Live routes the legs each Retarget starts, and dom's `LiveStyle` decides its will-change, as the spine did. Core names no will-change.
+3. **The variant context's `appearGroup` is `unknown`** (PR4-Q4): only the server's Appear entry writes it, and reads it back as the sampler's `AppearGroup` in one place (`appearGroupOf`).
+4. **`ControlledSnapshot`:** Animation controls name what they read of a Snapshot (its values, `velocitiesNow`), which the spine's meets. The spine, the variant tree and the controls were a cycle no move could cross.
+5. **`appear-handoff.ts`** (PR4-Q3): what the spine reads of `appear.ts`, cut out as it was: `MountAnimation`, `skippedField`, `Handoff`, `startAtOf`, with `repeatsForever`, `ownDelayOf` and `heldInRule`.
+6. **The gate names its `Shape` and `Sink`,** which dom's `FlushGate` takes from it.
+7. **Core's `Subject`, not the DOM's types,** in the spine's options, its host, its drag hooks and its hold's `isMember`, the Timelines' key's options, and `measuredOf`. The spine takes presence's protocol from core: it holds a record, which no member takes an element of, so a DOM binding's record over `Element` is one, with no cast (PR 3's open item); `madeWith` and `presenceRecordOf` are generic over their Subject. A mount animation's template is core Config's. `queueMicrotask` is declared where the spine and the controls call it, as core's `Microtask` declares it. Where the DOM needs its element back: the Batch's member map is keyed by Subject, a lookup by identity, and the scroll Feature's Timeline value reads its Subject as the element it follows, once.
+8. **The Timelines' key's id** is `"@wardic/core/unstable/Timelines"`, as core's ports' ids name their modules.
+9. **Core's lint, met in place:** five places in the spine (`BOOL_OPERANDS`), statement ifs. The others passed as they were.
+10. **#609:** the spine's, the gate's, the variant tree's and the Appear handoff's comments, `heldInRule` renamed `heldInAppear`, and the doc links that named solid's symbols; the host's `turnBack` doc, which said "Turn will-change back off", says it turns a Path back to 0.
+11. **The spine and the Timelines' key take the gate's types from core,** after its move.
+12. **The moves:** the gate to core's `FlushGate` (from dom; it joins core's `PER_FRAME_LOOPS`, dom's Tier 2 `FlushGate` builds it with `DOM_GATE` and gives its service, and its tests take it as `CoreFlushGate`), then `Timelines`, `AppearHandoff`, `AnimationControls`, `VariantTree` and `Spine`. Each changes its imports into core's form, its references qualified by the syntax tree (code alone, never a comment), and its header; solid's old paths re-export it.
+
+**`bench:solid`** (paired, 11 reps, after `wardic-quiet`): warm mount −0.7% [−2.7% – +2.1%] (Solid 1) and +0.3% [−1.6% – +0.9%] (Solid 2) against `main`, Retarget, restRetarget and unmount within ±1.4%, bytes −0.4% and +0.3%, retained flat, every layout scene within its gate. **`bench:core`** passes every workload on all three engines; Node's noise control (`ticksOnly`, the frame loop alone, which PR 4 doesn't touch) read +10.7%, +3.7%, +5.6% and −0.6% over four passes, the last of them passing. **`pack:check`** 37 of 37. **Size:** every app within ±0.0% gzipped of `main`, the budgets unchanged.
+
 ## Open
 
-- **The spine's presence, in core** (PR 4). The spine reads the protocol over core's Subject there, and solid's elements hand it a presence over `Element`, which a context over `Subject` doesn't accept (the protocol takes its Subject as an argument, so it's contravariant in it). Either the spine is generic over its Subject, or the binding casts once where it hands the presence on, which holds while a DOM binding registers only elements.
-- **Will-change in core's names** (PR 4). `LiveRoutes`' `willChange` and `turnsWillChangeOn` name CSS's `will-change`, and reach core with the spine as member names, which no comment can reword (#610's `pageVisible`).
-
 - **`OwnerScope.close` on a Runner** (Q10, PR 5–6). It closes a Scope with `runSyncExit`, so a finalizer that suspends is reported, not thrown into Solid's cleanup (#618, decision 5). A Runner has `runSync` alone, and `runSync(Effect.exit(…))` throws on a suspending finalizer. Either the Runner gains `runSyncExit`, which `ManagedRuntime` has and `makeRunner` can give, or the close catches the throw.
-- **`appear.ts`'s split line,** export by export: inferred from its imports and its callers'. PR 4 reads it in full, with `AppearGroup`, which `variant-tree.ts` reads, and `childDelayOf`, which the sampler calls.
+- **`appear.ts`'s rest, in dom** (PR 5, PR4-Q3): its server sampler (`keyOf`, `specOf`, `serverAppear`, `enterServer`, …) and the DOM's Handoff reads (`handoffOf`, `pageAnimationsOf`, `DomHandoff`) go with `element-setup`, `batch`, `batch-handoff` and `presence-controller`, which import them; one dom module or two, named then.

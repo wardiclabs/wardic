@@ -26,6 +26,7 @@ import type * as Machine from "@wardic/core/Machine"
 import * as Playback from "@wardic/core/Playback"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Sequence from "@wardic/core/Sequence"
+import type * as Subject from "@wardic/core/unstable/Subject"
 import * as Appear from "@wardic/dom/Appear"
 import * as DomBatch from "@wardic/dom/DomBatch"
 import * as DomDefaultTransition from "@wardic/dom/DomDefaultTransition"
@@ -473,8 +474,9 @@ export interface BatchYield extends BatchHandover {
 const SUBJECTS = new WeakMap<object, BatchSubjectEntry>()
 
 /** Each member's element's entry, while it's the member's, so `animate` of the element moves the member (Q14). */
-// Module state (#460, Q7): held weakly by the element.
-const MEMBER_ELEMENTS = new WeakMap<Element, BatchMemberEntry>()
+// Module state (#460, Q7): held weakly by the element. Keyed by Subject (#672): the spine's hold, core's,
+// looks its element up as the Subject it holds.
+const MEMBER_ELEMENTS = new WeakMap<Subject.Subject, BatchMemberEntry>()
 
 /** `handle` is `binding`'s Batch, for `animate`. */
 export const registerBatch = (handle: object, binding: BatchBinding): void => {
@@ -557,10 +559,10 @@ const splitFor = <T extends object>(routeOf: (key: string) => KeyRoute, target: 
 }
 
 /** Whether `element` is a Batch member's element: one WeakMap read, so a call without one keeps the plain path. */
-export const isMemberElement = (element: Element): boolean => MEMBER_ELEMENTS.has(element)
+export const isMemberElement = (element: Subject.Subject): boolean => MEMBER_ELEMENTS.has(element)
 
 /** `element`'s member's entry, while it's a Batch member's element: its subject in a sequence (Q40). */
-export const memberEntryOf = (element: Element): BatchMemberEntry | undefined => MEMBER_ELEMENTS.get(element)
+export const memberEntryOf = (element: Subject.Subject): BatchMemberEntry | undefined => MEMBER_ELEMENTS.get(element)
 
 /** Whether a sequence's subject is a Batch member's entry. */
 export const isMemberEntry: Predicate.Refinement<unknown, BatchMemberEntry> = /*#__PURE__*/ Predicate.and(/*#__PURE__*/ Predicate.hasProperty("binding"), /*#__PURE__*/ Predicate.hasProperty("member")) as Predicate.Refinement<unknown, BatchMemberEntry>
