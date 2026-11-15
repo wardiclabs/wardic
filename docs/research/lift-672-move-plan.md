@@ -26,8 +26,8 @@ Read at `3538869` (1.1.0, 2026-11-14). Line counts are that commit's, of the fil
 | dom's `internal/runner.ts` and `runtime.ts`'s `WardicServices` and `WardicEnv` → `WardicServices` | 78, ~25 | 1 |
 | `reactivity.ts` → `Reactivity` | 29 | 1 |
 | `config.ts`'s generic half, with the controls' interface and mark from `animation-controls.ts` → `Config` (Q24, Q25) | ~270 of 864, ~30 | 1 |
-| the slot half of `member-hold.ts` (Q14) | ~30 | 2 |
-| `timelines.ts`'s key → `Timelines` (Q15) | ~25 | 2 |
+| the slot half of `member-hold.ts` (Q14), in `spine.ts` since PR 2 | ~75 | 4 |
+| `timelines.ts`'s key → `Timelines` (Q15): its options take a `FlushGate.Shape` | ~25 | 4 |
 | `presence-record.ts` | 196 | 3 |
 | `variant-target.ts` | 240 | 3 |
 | `wardic-config-value.ts` | 150 | 3 |
@@ -48,7 +48,7 @@ Read at `3538869` (1.1.0, 2026-11-14). Line counts are that commit's, of the fil
 |---|---|---|
 | `config.ts`'s DOM half → `WardConfig` (Q24) | ~590 of 864 | 1 |
 | `gesture-info.ts`, `drag-controls.ts`, `drag-constraints.ts` | 81, 94, 103 | 1 |
-| `dragDefaultsOf` and `applyDragDefaults`, from `spine.ts` → `DragDefaults` (Q11) | ~20 | 2 |
+| `element-setup.ts` → `ElementSetup`, `drag-defaults.ts` → `DragDefaults` (PR2-Q3), out of `spine.ts` in PR 2 | 159, 55 | 5 |
 | `appear.ts`'s server sampler → `AppearSampler`, with `server-interpolators.ts` | ~430, 33 | 4 |
 | `batch.ts` → `BatchMembers` (core has `Batch`), `batch-handoff.ts` → `BatchHandoff` | 3,078, 73 | 5 |
 | the filler half of `member-hold.ts` (Q14) | ~210 | 5 |
@@ -73,29 +73,36 @@ Service ids follow their modules: `"@wardic/solid/HoverGesture"` becomes `"@ward
 
 ## The ports (PR 2)
 
-**Required members of `WardicServices`** (Q19), each a `Context.Service` in core:
-- **Own values,** with the gate's inline read and the CSS-text parse `live-style.ts` reads through `Style.over`;
-- **Measured pairs,** which `retarget-legs.ts` reads too (`MeasuredPair.Requested`, `.measured`);
-- **Variables;**
-- **Appear's handoff;**
-- **the server's Starting style;**
-- **the Transform template,** a member of the Renderer port.
+**Ports only for what the spine and the modules moving to core read** (PR2-Q1, refining Q19). Every other DOM read goes to dom with the code that makes it, by Q11's rule: a helper only the bindings call needs no port.
 
-**Who gives them:** `DomLive` gives the DOM's; `@wardic/test`'s `TestLive` gives headless ones (no own values, no measured pairs, no variables, no handoff, core's plain template); a server render, which builds no runtime (ADR-0021), gives dom's as constants in `serverContext`, beside `SERVER_POSITIONAL_KEYS`. An env assembled from dom's parts without `DomLive` stops typechecking; none is documented.
+**Three ports, each an optional Environment member** (PR2-Q4, refining Q19's required ones), a `Context.Service` in core named for its glossary term (PR2-Q2):
+- **`unstable/OwnValues`:** `valueLike` (a raw value in a target's shape), `styleValueOf` (a key's value in a `style`), `recordOf` (a `style` as a record: the CSS-text parse `live-style`'s `split` took from `Style.over`);
+- **`unstable/MeasuredPairs`:** `needs` and `measure`. Each pair it returns carries the read of its result (`measured()`, which dom's `DomValues` adds to `MeasuredPair.measure`'s pairs, so dom's Tier 2 module stays as it is), so `retarget-legs`, whose leg reads it at its first step, needs no port; dom's presence controller measures through `DomValues` too;
+- **`unstable/VariableValues`:** `isValue` and `values(subject)`, a Subject's Key rule.
 
-**How the spine reaches them:** the provider resolves each once into its record, and the spine gets them through its options, as `positionalKeys` and `defaultTransition` already come (`spine.ts:1880`). An exported helper that reads one takes it as a parameter (`holdsVariable(from, to, stops, variables)`).
+**Who gives them** (PR2-Q4):
+- **An Environment that isn't the DOM** gives its own: `@wardic/test`'s `testLayer` headless ones (a raw value as it is when it has the target's type, no measured pairs, no variables), a scene's `@wardic/three`'s.
+- **`DomLive` gives none.** A DOM binding's element code falls back to dom's `unstable/DomValues` (its three service values, over dom's Tier 2 `OwnValues`, `MeasuredPair` and `Variables`, which stay as they are; and a `layer`, for an Environment that wants them explicit): `element-setup.ts`' `ownValuesOr`, `measuredPairsOr` and `variableValuesOr`.
+- **Why not `DomLive`:** an app on it would ship the DOM's port code whatever it animates. A Batch app, which never runs the spine, grew 2.0–3.2% so (measured at the build). Through the elements, only an app that animates one ships it, and the Slim apps already did, through the spine.
+- **A server render** gives none either (ADR-0021: no runtime); its elements fall back as a client's do. A server ward reads Own values for `split`.
 
-**Dropped:** drag defaults (Q11: `makeElementSpine` never reads them; the bindings call the two helpers, which go to dom) and subject resolution (Q20: once `imperative.ts` is dom's, nothing that moves to core checks a Subject's kind; `Subject` stays, as a type).
+**How the spine reaches them:** each provider resolves its Environment's once into its record (`ownValues`, `measuredPairs`, `variableValues`, each `undefined` when it gives none; a `useWardic…` hook each), and each element's spine gets it, or the DOM's, in its options, as `positionalKeys` comes. A helper that reads one takes it as a parameter (`holdsVariable`, `measuredOf`, `liveTargetOf`); `SpineHost` carries the two an Imperative animation reads.
 
-**Structural interfaces in core** (Q15), where an import would point from core into dom:
-- `SpineDrag { takeRelease }`: all the spine calls of the drag track (`spine.ts:2490`);
-- `SpineConfig`: the fields of `WardConfig` the spine and `animation-controls` read, typed without DOM types; dom's `WardConfig` extends it;
-- the gate's timeline calls (sync and cancel, `gate.ts:350-370`, `:617-640`), which dom's `TimelineValue` satisfies;
-- `Timelines`' key, with its element a Subject and its runtime a Runner. Its implementation stays in dom's `scroll` Feature.
+**No port for the rest:**
+- **Appear's handoff:** a `Handoff` carries what the spine reads of it, `elapsed()` and `delay()`, built where it's found, over its `Animation`. The DOM's (`DomHandoff`) keeps its `Animation` for development's `checkHandoff`, which moves to `element-setup.ts` with `SPINE_DIAGNOSTICS`, so a production build ships none of the match (#746, decision 6).
+- **The bindings-only helpers** (PR2-Q3): `startLinksOf`, `releasingAppear`, `restingOf`, `serverStartingStyle` and the Transform template's (`drawnAtRest`, `withTemplate`, `registeredValuesOf`, `heldTransformFor`, `followTemplate`) leave `spine.ts` for solid's `element-setup.ts`; `dragAxisOf`, `dragDefaultsOf` and `applyDragDefaults` (Q11) for `drag-defaults.ts`. They reach `@wardic/dom/unstable/ElementSetup` and `DragDefaults` once what they read has left solid (the spine's types, `appear.ts`, `live-style.ts`). So the server's Starting style and the Transform template need no port.
+- **The gate's two DOM edges**, an element's inline value and the renderer's Transform template key, are a `GateEnvironment` that dom's `FlushGate.make`, its only builder, gives it (`gate-environment.ts`).
+- **Subject resolution** (Q20): nothing that moves to core checks a Subject's kind.
 
-**`member-hold.ts` splits** (Q14): its slot (`MemberHold`, `MemberHolds`, `memberHoldsNow`, and a `provideMemberHolds(holds)` setter) goes to core beside the spine, page-wide module state as now, which links code in and holds no provider's data; its filler (`makeMemberHold`, `provideBatchHolds()`) goes to dom beside `BatchMembers`. The cycle between the spine and the hold goes.
+**Structural interfaces** (Q15), where an import would point from core into dom:
+- `SpineDrag { takeRelease }`, in the spine: all it calls of the drag track;
+- `SpineConfig`, in core's `Config`: what the spine and `animation-controls` read of a config, in core's types; dom's `WardConfig` extends it;
+- `GateTimeline { sync, cancel }`, in the gate, which dom's `TimelineValue` meets;
+- `StartLinks`, in the spine: what its binding's `startLinksOf` makes.
 
-**The spine's other DOM names** take core's forms: its `queueMicrotask` a local declaration (as `Clock.ts` has), and `DRAG_HOOKS`' keys and `SpineHost.element` the Subject type.
+**`member-hold.ts` splits** (Q14): its slot (`HoldHost`, `MemberHold`, `MemberHolds`, `memberHoldsNow`, `provideMemberHolds(holds)`) goes into `spine.ts`, page-wide module state as it was; its filler (`makeMemberHold`, `provideBatchHolds()`, which `createBatch` calls) stays, for dom beside `BatchMembers` (PR 5). The cycle between the spine and the hold goes. The slot reaches core with the spine.
+
+**Waiting for PR 4,** since they name what the spine or the gate defines: `Timelines`' key (its options take a `FlushGate.Shape`), and the spine's DOM global types (`HTMLElement`, `Element` in its options, `SpineHost` and `DRAG_HOOKS`), which its in-place commit makes core's Subject type, with its `queueMicrotask` a local declaration.
 
 After PR 2, `spine.ts` imports nothing from `@wardic/dom` but `FlushGate`'s types.
 
@@ -114,7 +121,7 @@ With dom in a program, every app's, each type is exactly what it was; core's own
 ## The order: six PRs, one at a time off `main` (Q2, Q21)
 
 1. **Foundations** (built, below).
-2. **Ports in place,** while the spine is still in solid: the port services, the structural interfaces, `member-hold`'s slot, `DragDefaults`. The only PR with runtime changes.
+2. **Ports in place,** while the spine is still in solid: the three ports, the structural interfaces, `member-hold`'s slot into the spine, the bindings-only helpers out of it (built, below). The only PR with runtime changes.
 3. **Leaves to core:** core's lint met in place first (Q16), then `presence-record`, `variant-target`, `wardic-config-value`, `frame-time`, `retarget-legs`, `live-style`.
 4. **The spine and what imports it:** `animation-controls`, `variant-tree`, `appear`'s split, the gate, the spine; the moved files' comments rewritten without DOM names (#609).
 5. **The Batch, `animate` and presence, to dom:** `BatchMembers`, `BatchHandoff`, the hold's filler, `imperative`, `presence-controller`.
@@ -157,8 +164,26 @@ Solid's own modules import the moved ones through one-line re-exports (`config.t
 - **`bench:core`** passes every workload on every engine (noise controls −2.1%, +0.4%, +0.0%).
 - Both ran on the first build of these commits, whose code differs from this one's only in import forms, a type's name (`ValueKeys`) and where the controls' interface was declared in between.
 
+## Built in PR 2
+
+Twelve commits after its docs commit, each through every per-commit gate (PR2-Q5: the review's fixes folded into the commits they belong to, so none fails a gate a later commit fixes):
+
+1. **The bindings-only helpers leave `spine.ts`** for `element-setup.ts` and `drag-defaults.ts`; the spine names its `StartLinks`.
+2. **A Batch member's hold's slot is the spine's;** `createBatch` fills it (`provideBatchHolds`).
+3. **`SpineDrag`** names what the spine calls of a drag.
+4. **The gate takes its `GateEnvironment` from `FlushGate.make`,** and names its `GateTimeline`.
+5. **A `Handoff` carries `elapsed` and `delay`;** the spine reads no `Animation`, and development's match stays the binding's.
+6. **The spine takes `Report` and `Stops` from core;** its template field is typed by its config.
+7. **`SpineConfig`,** which dom's `WardConfig` extends.
+8. **The Slim element's budgets** raised by what PR 2 measured (Q23; ADR-0067's *Note (#672)*), ahead of the commits that grow them.
+9. **Own values,** 10. **Measured pairs,** 11. **Variable values:** each a port, a commit each (Q3).
+12. **One context read for the three** (PR2-Q6): the provider's record holds one `ValueReads`, one hook gives it, and `element-setup.ts`' `valueReadsOf` fills its gaps with the DOM's, the shared `DOM_VALUE_READS` for `DomLive`.
+
+**Measured** (`bun run size` against `main`): `s1-slim` 94.0 → 94.7 KB gzipped, `s2-slim` 115.4 → 116.0, the ports' plumbing and the helpers out of the spine (ADR-0067's *Note (#672)*, by module); every other app within its +1% gate, the Batch apps +0.1–0.2%.
+
+**`bench:solid`** (paired, after `wardic-quiet`): the three ports read with a hook each put warm mount at +2.7% (Solid 1) and +4.6% (Solid 2) against `main`, within the gate. One context read (commit 12) measured −1.2% [−3.3% – −0.6%] and −0.8% [−1.2% – −0.2%] against that head, and the PR against `main` +2.1% [−0.2% – +4.1%] and +0.0% [−1.7% – +2.4%]: about PR 1's noise for a pure move. Retarget, restRetarget and unmount within ±1.3%, bytes +0.5–0.6%, retained +0.2–0.3%, every layout scene within its gate. **`bench:core`** passes every workload (Node's `batch/table` bytes on its rerun, its known flap). **`pack:check`** 37 of 37.
+
 ## Open
 
 - **`OwnerScope.close` on a Runner** (Q10, PR 5–6). It closes a Scope with `runSyncExit`, so a finalizer that suspends is reported, not thrown into Solid's cleanup (#618, decision 5). A Runner has `runSync` alone, and `runSync(Effect.exit(…))` throws on a suspending finalizer. Either the Runner gains `runSyncExit`, which `ManagedRuntime` has and `makeRunner` can give, or the close catches the throw.
 - **`appear.ts`'s split line,** export by export: inferred from its imports and its callers'. PR 4 reads it in full, with `AppearGroup`, which `variant-tree.ts` reads, and `childDelayOf`, which the sampler calls.
-- **The ports' cost:** PR 2's `bench:solid` measures it.
