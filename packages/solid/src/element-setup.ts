@@ -13,6 +13,7 @@ import * as BaseValue from "@wardic/core/BaseValue"
 import * as Projection from "@wardic/core/Projection"
 import type * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
+import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 import type * as Reactivity from "@wardic/core/unstable/Reactivity"
 import * as Appear from "@wardic/dom/Appear"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
@@ -20,13 +21,14 @@ import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as OwnValues from "@wardic/dom/OwnValues"
 import * as Style from "@wardic/dom/Style"
 import * as Bool from "effect/Boolean"
+import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
-import type { Handoff } from "./appear.ts"
+import { type DomHandoff, type Handoff, keyOf, type MountAnimation, repeatsForever } from "./appear.ts"
 import type { WardConfig } from "./config.ts"
 import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
-import type { Snapshot, StartLinks } from "./spine.ts"
+import { baseLog, type Snapshot, type SpineDiagnostics, type StartLinks } from "./spine.ts"
 
 /**
  * A mounted element's Base-value links (ADR-0022): a key with no value starts from its `style`
@@ -157,3 +159,28 @@ export const followTemplate = (
     write(next)
   })
 }
+
+/**
+ * A Handoff whose Appear animation the server sampled from another mount animation than the
+ * client's: the app rendered differently on the server, or a function it gave has no easing name.
+ * Noted once (cold path, `wardic.hydration`); the client's own animation goes on from the same time.
+ */
+const checkHandoff = (runtime: WardicServices.Runner<WardicServices.WardicServices>, id: string, handoff: Handoff, mount: MountAnimation): void => {
+  // A templated element's rule is named by its stops (#443), which the client doesn't sample to check.
+  if (Predicate.isNotUndefined(mount.template)) return
+  const same = Option.exists(keyOf(mount), (key) =>
+    Appear.matches((handoff as DomHandoff).animation, { key, tag: mount.tag, infinite: repeatsForever(mount.transition), projected: mount.layout }))
+  if (same) return
+  runtime.runFork(
+    Effect.logDebug("wardic.hydration: the server's Appear animation was sampled from another mount animation than this element's; it goes on from the same time").pipe(
+      Effect.annotateLogs({ id }),
+    ),
+  )
+}
+
+/**
+ * Development's diagnostics (#746): what a binding gives the spine under its Solid's `DEV`. Referenced
+ * nowhere else, so a production build, whose binding never gives it, drops it and what it calls.
+ */
+// #672: here, where the DOM's Handoff is, so the spine reads no Animation; given under `DEV` alone.
+export const SPINE_DIAGNOSTICS: SpineDiagnostics = { checkHandoff, baseLog }

@@ -25,7 +25,6 @@ import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Renderer from "@wardic/core/Renderer"
 import * as Supersede from "@wardic/core/Supersede"
 import * as Values from "@wardic/core/Values"
-import * as Appear from "@wardic/dom/Appear"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as OwnValues from "@wardic/dom/OwnValues"
@@ -49,7 +48,7 @@ import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { enterServer, type Handoff, keyOf, type MountAnimation, repeatsForever, type ServerAppear, skippedField, startAtOf } from "./appear.ts"
+import { enterServer, type Handoff, type MountAnimation, type ServerAppear, skippedField, startAtOf } from "./appear.ts"
 import type {
   WardConfig,
   WardicAnimationDefinition,
@@ -3232,38 +3231,14 @@ export const withOnUpdate = (sink: FlushGate.Sink, atMount: WardConfig["onUpdate
 }
 
 /**
- * A Handoff whose Appear animation the server sampled from another mount animation than the
- * client's: the app rendered differently on the server, or a function it gave has no easing name.
- * Noted once (cold path, `wardic.hydration`); the client's own animation goes on from the same time.
- */
-const checkHandoff = (runtime: WardicServices.Runner<WardicServices.WardicServices>, id: string, handoff: Handoff, mount: MountAnimation): void => {
-  // A templated element's rule is named by its stops (#443), which the client doesn't sample to check.
-  if (Predicate.isNotUndefined(mount.template)) return
-  const same = Option.exists(keyOf(mount), (key) =>
-    Appear.matches(handoff.animation, { key, tag: mount.tag, infinite: repeatsForever(mount.transition), projected: mount.layout }))
-  if (same) return
-  runtime.runFork(
-    Effect.logDebug("wardic.hydration: the server's Appear animation was sampled from another mount animation than this element's; it goes on from the same time").pipe(
-      Effect.annotateLogs({ id }),
-    ),
-  )
-}
-
-/**
  * A Retarget's note of the keys it started from their Base value, or returned to it (ADR-0022): run at
  * the head of its first leg, cold path (no fiber of its own: forking one per element cost 10-20 µs each
  * at a 1000-element mount).
  */
-const baseLog = (id: string, started: Record<string, string>, returns: ReadonlyArray<readonly [string, BaseValue.BaseSource]>): Effect.Effect<void> =>
+export const baseLog = (id: string, started: Record<string, string>, returns: ReadonlyArray<readonly [string, BaseValue.BaseSource]>): Effect.Effect<void> =>
   Effect.logDebug("wardic.base: a key with no value started from, or returned to, its Base value (ADR-0022)").pipe(
     Effect.annotateLogs({ id, started, returned: Object.fromEntries(returns) }),
   )
-
-/**
- * Development's diagnostics (#746): what a binding gives the spine under its Solid's `DEV`. Referenced
- * nowhere else, so a production build, whose binding never gives it, drops it and what it calls.
- */
-export const SPINE_DIAGNOSTICS: SpineDiagnostics = { checkHandoff, baseLog }
 
 /** The keys a Retarget returns to a Live value that's a number: each one's return follows it (#130). */
 const followingOf = (routes: LiveStyle, rest: Values.Values, returning: ReadonlyMap<string, BaseValue.BaseSource>): ReadonlyArray<string> =>
