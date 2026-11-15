@@ -244,6 +244,9 @@ export interface LiveStyle {
    * `willChange` or `will-change`; `undefined` otherwise, at once for a style that routes nothing.
    */
   readonly willChange: () => (() => void) | undefined
+  /** Whether a leg on `key` turns its element's will-change on: a transform key, or another the compositor draws (#443). */
+  // #672 (PR3-Q1): its own, so the spine asks it and reads no `style` code.
+  readonly turnsWillChangeOn: (key: string) => boolean
   /** A style value read now, live or not. */
   readonly read: (value: unknown) => unknown
   /**
@@ -346,6 +349,9 @@ const reconcile = (self: State, next: Readonly<Record<string, unknown>>): void =
 }
 
 const Proto: Omit<LiveStyle, never> & ThisType<State> = {
+  turnsWillChangeOn(key) {
+    return turnsWillChangeOn(key)
+  },
   css(user) {
     // The same style object as last time: the same answer (Solid may read `style` more than once).
     if (Bool.and(user === this.seen, Predicate.isNotUndefined(this.seen))) return this.last

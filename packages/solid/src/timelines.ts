@@ -8,7 +8,7 @@
  */
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Context from "effect/Context"
-import type { LiveStyle } from "./live-style.ts"
+import type * as Atom from "effect/reactivity/Atom"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /** An element's keys' Timeline values, as its spine tells of them. */
@@ -28,7 +28,14 @@ export interface TimelineKeysOptions {
   readonly id: string
   readonly element: HTMLElement
   /** Its routed `style` keys: each key's Atom, which describes its derivation. */
-  readonly live: LiveStyle
+  readonly live: LiveAtoms
+}
+
+/** What an element's Timeline values read of its Live values: a routed key's Atom, `undefined` for one not routed. */
+// #672: the one member the Timelines' keys call of the spine's LiveRoutes, which meets it; named here, so
+// this module, which the spine imports, imports nothing of the spine's.
+export interface LiveAtoms {
+  readonly atomOf: (key: string) => Atom.Atom<unknown> | undefined
 }
 
 /**

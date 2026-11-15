@@ -45,6 +45,7 @@ import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
+import type * as Atom from "effect/reactivity/Atom"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { enterServer, type Handoff, type MountAnimation, type ServerAppear, skippedField, startAtOf } from "./appear.ts"
@@ -59,7 +60,6 @@ import type {
 } from "./config.ts"
 import { type ControlsChange, join, leave } from "./animation-controls.ts"
 import { clockNowOf, frameNow, MAX_VELOCITY_DELTA, NOMINAL_FRAME } from "./frame-time.ts"
-import { type LiveStyle, turnsWillChangeOn } from "./live-style.ts"
 import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "./presence-record.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
 import { delayedBy, type Follows, hasManyStops, keyframesFrom, type Leg, legsOf, type MeasuredPairs, startingAt, type StopsByKey, transitionForKey, type Velocities, withPathAxes } from "./retarget-legs.ts"
@@ -1790,11 +1790,11 @@ export const recordFrameOf = (presence: PresenceRecord | undefined): ((value: Va
  * at its target starts no leg (#448), and a layout animation runs none, so neither does. Per start:
  * a lookup in its routed keys, none for a style that routes nothing.
  */
-export const turnWillChangeOn = (live: LiveStyle | undefined, legs: ReadonlyArray<Leg>): void => {
+export const turnWillChangeOn = (live: LiveRoutes | undefined, legs: ReadonlyArray<Leg>): void => {
   if (Predicate.isUndefined(live)) return
   const turnOn = live.willChange()
   if (Predicate.isUndefined(turnOn)) return
-  if (Arr.some(legs, (leg) => Arr.some(Rec.keys(leg.to), turnsWillChangeOn))) turnOn()
+  if (Arr.some(legs, (leg) => Arr.some(Rec.keys(leg.to), live.turnsWillChangeOn))) turnOn()
 }
 
 // A Batch member's hold's slot (#665, #746; #672's Q14: the spine's, so it reads no Batch code).
@@ -1860,7 +1860,7 @@ const tellDrag = (element: Element, on: boolean): void => {
  * Motion's): `"transform"`, as its drag draws `x` and `y`. Its spine hears each start and end too, for
  * a Batch member's `x` and `y` (#665's PR 4).
  */
-export const draggingWithWillChange = (live: LiveStyle | undefined, setDragging: (on: boolean) => void, element: Element): ((on: boolean) => void) => {
+export const draggingWithWillChange = (live: LiveRoutes | undefined, setDragging: (on: boolean) => void, element: Element): ((on: boolean) => void) => {
   const set = UndefinedOr.match(live, {
     onUndefined: () => setDragging,
     onDefined: (style) => (on: boolean) => {
@@ -1879,6 +1879,30 @@ export const draggingWithWillChange = (live: LiveStyle | undefined, setDragging:
  * rests or writes `x`/`y`, so a Batch member's element takes its transform from its Batch first.
  */
 export const claimForDrag = (element: Element): (() => void) => () => tellDrag(element, true)
+
+/**
+ * What a spine calls of its element's Live values routed through its binding's props (#130, ADR-0043):
+ * the routed keys' values now, and each one's change and removal as they come; and Motion's
+ * will-change, which a leg on a key its Environment accelerates turns on (#443).
+ */
+// #672 (PR3-Q1): the spine names what it calls, so it reads no `style` code; dom's LiveStyle meets it.
+export interface LiveRoutes {
+  readonly values: () => Values.Values
+  readonly routes: (key: string) => boolean
+  readonly valueOf: (key: string) => Option.Option<unknown>
+  readonly isLive: (key: string) => boolean
+  readonly atomOf: (key: string) => Atom.Atom<unknown> | undefined
+  readonly willChange: () => (() => void) | undefined
+  readonly turnsWillChangeOn: (key: string) => boolean
+  readonly whenRouted: (setup: () => LiveFollower) => void
+  readonly stop: () => void
+}
+
+/** What a spine follows its routed keys with: each one's change, and its removal. */
+export interface LiveFollower {
+  readonly change: (key: string, value: unknown) => void
+  readonly removed: (key: string) => void
+}
 
 /**
  * What a spine calls of its element's drag: a new target for `x` or `y` takes over a free drag's
@@ -1935,7 +1959,7 @@ export interface ElementSpineOptions {
   /** The user's style now, read untracked: a key's `style` link (ADR-0022). */
   readonly styleNow: (() => object | string | undefined) | undefined
   /** Its routed `style` keys (#130, ADR-0043). */
-  readonly live: LiveStyle | undefined
+  readonly live: LiveRoutes | undefined
   /**
    * Every Feature its provider has built so far, whichever section asked: where its Timeline values
    * are found (#240), once a `createScroll` has brought the `scroll` Feature. Omitted, it has none.
@@ -2056,7 +2080,7 @@ export interface SpineHost {
   /** End a leg where it is. */
   readonly endLeg: (running: Running) => void
   /** Its routed `style` keys (#130), whose will-change a leg turns on. */
-  readonly live: LiveStyle | undefined
+  readonly live: LiveRoutes | undefined
   /** A leg's keys owned by it. */
   readonly own: (running: Running) => void
   /** A leg's program: its machine's run into the gate. */
@@ -2134,7 +2158,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   let timelineKeys: TimelineKeys | undefined
   let featuresSeen: Context.Context<never> | undefined
   /** Its Timeline values, made once they're there. Per write of a Live value: statements. */
-  const timelineKeysNow = (routes: LiveStyle): TimelineKeys | undefined => {
+  const timelineKeysNow = (routes: LiveRoutes): TimelineKeys | undefined => {
     if (Predicate.isNotUndefined(timelineKeys)) return timelineKeys
     if (Predicate.isUndefined(options.builtFeatures)) return undefined
     const services = options.builtFeatures()
@@ -3263,11 +3287,11 @@ export const baseLog = (id: string, started: Record<string, string>, returns: Re
   )
 
 /** The keys a Retarget returns to a Live value that's a number: each one's return follows it (#130). */
-const followingOf = (routes: LiveStyle, rest: Values.Values, returning: ReadonlyMap<string, BaseValue.BaseSource>): ReadonlyArray<string> =>
+const followingOf = (routes: LiveRoutes, rest: Values.Values, returning: ReadonlyMap<string, BaseValue.BaseSource>): ReadonlyArray<string> =>
   Arr.filter(Rec.keys(rest), (key) => Bool.and(returning.get(key) === "style", Bool.and(routes.isLive(key), Predicate.isNumber(rest[key]))))
 
 /** Where `key`'s Live value is now, a number; where it last was when it's none (#130). */
-const liveTargetOf = (ownValues: OwnValues.Shape, routes: LiveStyle, key: string, start: number): (() => number) => {
+const liveTargetOf = (ownValues: OwnValues.Shape, routes: LiveRoutes, key: string, start: number): (() => number) => {
   let last = start
   return () => {
     const now = Option.flatMap(routes.valueOf(key), (raw) => ownValues.valueLike(raw, last))
