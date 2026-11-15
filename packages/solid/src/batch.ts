@@ -50,7 +50,7 @@ import type { WardicTransition } from "./config.ts"
 import type { WardicPoint, WardicPressInput } from "./gesture-info.ts"
 import { type PresenceContextValue, presenceBlocksInitial, presenceHold } from "./presence-record.ts"
 import { type Run, runOf, transitionForKey } from "./retarget-legs.ts"
-import type { WardicRuntime } from "./runtime.ts"
+import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 import { settingOf, type WardicConfigValue } from "./wardic-config-value.ts"
 
 /** The keys a Batch's members animate on the DOM: the transforms and `opacity`, as numbers. */
@@ -199,7 +199,7 @@ export const isKeyed = (config: BatchConfig | KeyedBatchConfig<unknown>): config
 
 /** What a Batch needs from its provider. */
 export interface BatchEnv {
-  readonly runtime: WardicRuntime
+  readonly runtime: WardicServices.Runner<WardicServices.WardicServices>
   readonly reducedMotion: () => boolean
   readonly skipAnimations: () => boolean
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
@@ -1045,7 +1045,7 @@ let handoffModule: typeof import("./batch-handoff.ts") | undefined = undefined
 let loadingHandoff: Promise<typeof import("./batch-handoff.ts") | undefined> | undefined = undefined
 
 /** The Handoff's module's load, started at its first need; a failure reported on `runtime`. */
-const loadHandoff = (runtime: WardicRuntime): Promise<typeof import("./batch-handoff.ts") | undefined> => {
+const loadHandoff = (runtime: WardicServices.Runner<WardicServices.WardicServices>): Promise<typeof import("./batch-handoff.ts") | undefined> => {
   if (Predicate.isUndefined(loadingHandoff)) {
     loadingHandoff = import("./batch-handoff.ts").then(
       (module) => {

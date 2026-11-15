@@ -12,7 +12,7 @@ import * as Iter from "effect/Iterable"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import { pageAnimationsOf } from "./appear.ts"
-import type { WardicRuntime } from "./runtime.ts"
+import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /** A Batch's members running their Appear animation, as its Handoff reads them. */
 export interface HandoffMembers {
@@ -23,7 +23,7 @@ export interface HandoffMembers {
   /** In development, a member's own transitions' key, which its animation's rule is checked against (Q9). */
   readonly keyOf: ((slot: number) => Option.Option<string>) | undefined
   /** Where a rule another set of transitions named is noted, at Debug. */
-  readonly runtime: WardicRuntime
+  readonly runtime: WardicServices.Runner<WardicServices.WardicServices>
   /** Each member let go of its animation, once the step's starts are done: none waits for a step then. */
   readonly release: () => void
 }

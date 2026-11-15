@@ -29,7 +29,7 @@ import { input } from "./features/input.ts"
 import { serviceOf } from "./gesture-features.ts"
 import { pointInfoOf, pressInfoOf } from "./gesture-info.ts"
 import * as OwnerScope from "./owner-scope.ts"
-import type { WardicRuntime } from "./runtime.ts"
+import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /** What a Batch's gestures stand on, which it brings (ADR-0067 decision 12): the gestures' input. */
 export const BATCH_GESTURES: ReadonlyArray<Feature> = [{ name: "createBatch's gestures", key: InputSource.InputSource, layer: input }]
@@ -123,7 +123,7 @@ const tell = (host: BatchGestureHost, i: number, told: Omit<BatchGestureTold, "i
  * A Batch's gestures on `runtime`, over the input `services` gives, in a Scope of their own until `close`;
  * a handler's throw reported, and the watch goes on.
  */
-export const batchGesturesOn = (runtime: WardicRuntime, services: () => Context.Context<never>): BatchGesturesOn => {
+export const batchGesturesOn = (runtime: WardicServices.Runner<WardicServices.WardicServices>, services: () => Context.Context<never>): BatchGesturesOn => {
   const scope = OwnerScope.open(runtime)
   const onDefect = (cause: Cause.Cause<never>): void => {
     runtime.runFork(Report.failure("createBatch: a gesture failed", cause))

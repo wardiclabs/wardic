@@ -14,7 +14,7 @@ import * as Predicate from "effect/Predicate"
 import type { BatchGestureWatches } from "./batch.ts"
 import type { BatchGesturesOn } from "./batch-gestures.ts"
 import type { FeatureRegistry } from "./feature.ts"
-import type { WardicRuntime } from "./runtime.ts"
+import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /** A Batch's gesture watches, and their end, with the Batch. */
 export interface LazyBatchGestures extends BatchGestureWatches {
@@ -28,7 +28,7 @@ let gesturesModule: typeof import("./batch-gestures.ts") | undefined
 let loadingModule: Promise<typeof import("./batch-gestures.ts") | undefined> | undefined
 
 /** The gestures' module's load, started at its first need; a failure reported on `runtime`. */
-const loadModule = (runtime: WardicRuntime): Promise<typeof import("./batch-gestures.ts") | undefined> => {
+const loadModule = (runtime: WardicServices.Runner<WardicServices.WardicServices>): Promise<typeof import("./batch-gestures.ts") | undefined> => {
   if (Predicate.isUndefined(loadingModule)) {
     loadingModule = import("./batch-gestures.ts").then(
       (module) => {
@@ -50,7 +50,7 @@ const loadModule = (runtime: WardicRuntime): Promise<typeof import("./batch-gest
  * A Batch's gesture watches, each run once its code has loaded (at once once it has), on `runtime`, over
  * the input `registry` builds; none once `close` has ended them.
  */
-export const lazyBatchGestures = (runtime: WardicRuntime, registry: FeatureRegistry): LazyBatchGestures => {
+export const lazyBatchGestures = (runtime: WardicServices.Runner<WardicServices.WardicServices>, registry: FeatureRegistry): LazyBatchGestures => {
   let loaded: BatchGesturesOn | undefined
   let closed = false
   /** Its gestures, made over the loaded module. */
