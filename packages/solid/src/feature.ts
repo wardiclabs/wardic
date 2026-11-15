@@ -13,15 +13,12 @@
  * @module
  */
 import * as Color from "@wardic/dom/Color"
-import * as Report from "@wardic/dom/Report"
 import * as Arr from "effect/Array"
 import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
-import * as Exit from "effect/Exit"
 import { constFalse, constVoid, identity } from "effect/Function"
 import * as Layer from "effect/Layer"
-import type * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -29,7 +26,8 @@ import * as OwnerScope from "./owner-scope.ts"
 import type { WardConfig, WardFeatureConfigs } from "./config.ts"
 import type { ALL } from "./features/all.ts"
 import type { Reactivity } from "./reactivity.ts"
-import type { ProviderRuntime, ProviderServices, WardicServices } from "./runtime.ts"
+import type { ProviderServices } from "./runtime.ts"
+import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /**
  * A **Feature**: its name, the key of the service its Layer gives (what an element looks up),
@@ -361,6 +359,9 @@ const sectionsAndWarnings = (build: Build, warn: (message: string) => void) => {
   }
 }
 
+/** What a provider's Features are built on (#672, Q10): its runtime as a Runner, with the MemoMap they share. */
+export type FeatureRuntime = WardicServices.Runner<ProviderServices> & { readonly memoMap: Layer.MemoMap }
+
 /**
  * A client provider's Features (#511): built into `runtime`'s `MemoMap` in a Scope of their own, a child
  * of the runtime's that closes before its Layers do, so a Feature ends before the Environment it stands
@@ -368,8 +369,9 @@ const sectionsAndWarnings = (build: Build, warn: (message: string) => void) => {
  */
 // #618 (decision 4): the Scope was detached, closed by `dispose` before the runtime's, and a failing
 // Feature finalizer skipped the runtime's disposal. A child forked after `ManagedRuntime.make`'s own
-// closes first in its Scope's reverse order.
-export const clientRegistry = (runtime: ProviderRuntime): FeatureRegistry => {
+// closes first in its Scope's reverse order. #672 (Q10): it runs on a Runner with its MemoMap, and its
+// binding disposes the runtime (`dispose`), so a Feature reads no binding's runtime type.
+export const clientRegistry = (runtime: FeatureRuntime, dispose: () => Promise<void>): FeatureRegistry => {
   const scope = OwnerScope.open(runtime)
   const built = new Map<Feature, Context.Context<never>>()
   const lists = new WeakMap<ReadonlyArray<Feature>, Context.Context<never>>()
@@ -402,31 +404,16 @@ export const clientRegistry = (runtime: ProviderRuntime): FeatureRegistry => {
     ...rest,
     dispose: () => {
       end()
-      return disposeReported(runtime)
+      return dispose()
     },
   }
 }
 
 /**
- * Disposes `runtime`, its Features first. A finalizer that fails is logged and reported, through the
- * `ErrorReporter`s its Environment had, once the runtime has gone, and the rest still run: the promise
- * never rejects.
- */
-const disposeReported = (runtime: ProviderRuntime): Promise<void> => {
-  // Read before it goes: its reporters are in it. Unbuilt, there's none, and a report is logged only.
-  const context = runtime.cachedContext
-  return Effect.runPromiseExit(runtime.disposeEffect).then((exit) => {
-    if (Exit.isSuccess(exit)) return
-    const report = Report.failure("wardic.provider: a finalizer failed as it was disposed", exit.cause)
-    return Effect.runPromise(UndefinedOr.match(context, { onUndefined: () => report, onDefined: (services) => Effect.provideContext(report, services) }))
-  })
-}
-
-/**
  * A server render's Features (ADR-0021): none built, as no runtime is; each one's `server` run once,
- * the first time it's asked for. Disposing disposes the unbuilt runtime, as on unmount.
+ * the first time it's asked for. Disposing disposes the unbuilt runtime (`dispose`), as on unmount.
  */
-export const serverRegistry = (runtime: ManagedRuntime.ManagedRuntime<WardicServices, never>): FeatureRegistry => {
+export const serverRegistry = (dispose: () => Promise<void>): FeatureRegistry => {
   const ran = new Set<Feature>()
   const build = (features: ReadonlyArray<Feature>): Context.Context<never> => {
     Arr.forEach(features, (feature) => {
@@ -444,7 +431,7 @@ export const serverRegistry = (runtime: ManagedRuntime.ManagedRuntime<WardicServ
     ...rest,
     dispose: () => {
       end()
-      return runtime.dispose()
+      return dispose()
     },
   }
 }

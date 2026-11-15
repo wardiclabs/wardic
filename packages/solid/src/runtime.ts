@@ -98,6 +98,22 @@ export const SERVER_DEFAULT_TRANSITION: DefaultTransition.DefaultTransition["Ser
 // record holds them.
 export type { ValueReads } from "./element-setup.ts"
 
+/**
+ * Disposes `runtime`, its Features first. A finalizer that fails is logged and reported, through the
+ * `ErrorReporter`s its Environment had, once the runtime has gone, and the rest still run: the promise
+ * never rejects.
+ */
+// #672 (Q10): the provider's, as it disposes its own runtime; the Feature registry is told to.
+const disposeReported = (runtime: ProviderRuntime): Promise<void> => {
+  // Read before it goes: its reporters are in it. Unbuilt, there's none, and a report is logged only.
+  const context = runtime.cachedContext
+  return Effect.runPromiseExit(runtime.disposeEffect).then((exit) => {
+    if (Exit.isSuccess(exit)) return
+    const report = Report.failure("wardic.provider: a finalizer failed as it was disposed", exit.cause)
+    return Effect.runPromise(UndefinedOr.match(context, { onUndefined: () => report, onDefined: (services) => Effect.provideContext(report, services) }))
+  })
+}
+
 /** No reads: a server's, whose elements read the DOM's (#672). */
 const NO_VALUE_READS: ValueReads = { ownValues: undefined, measuredPairs: undefined, variableValues: undefined }
 
@@ -229,7 +245,7 @@ export const clientContext = (
   const runtime: ProviderRuntime = ManagedRuntime.make(
     Layer.merge(FlushGate.layer({ batch }), Layer.succeed(ProjectionOptions)(projectionOptions)).pipe(Layer.provideMerge(builtAtOnce(env, waiting))),
   )
-  const features = clientRegistry(runtime)
+  const features = clientRegistry(runtime, () => disposeReported(runtime))
   // Its Instant changes (#443), timed by its Environment's Refresh frames, found at the first.
   const instant = makeInstantAnimations(() => runtime.runSync(RefreshFrameSource.RefreshFrameSource).requestFrame)
   const prepare = (): void => {
@@ -306,7 +322,7 @@ export const serverContext = (env: WardicEnv, waiting: string, appear: ServerApp
     get renderer() {
       return runtime.runSync(Renderer.Renderer)
     },
-    features: serverRegistry(runtime),
+    features: serverRegistry(() => runtime.dispose()),
     prepare: constVoid,
     gate: FlushGate.inert,
     projection: undefined,
