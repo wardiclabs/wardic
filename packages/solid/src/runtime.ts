@@ -39,6 +39,7 @@ import { clientRegistry, type FeatureRegistry, type FeatureSection, serverRegist
 import { ProjectionNodes } from "./features/keys.ts"
 import { type InstantAnimations, makeInstantAnimations, NO_INSTANT } from "./instant.ts"
 import { settingOf as configSettingOf, type WardicConfigValue } from "./wardic-config-value.ts"
+import type { ValueReads } from "./element-setup.ts"
 
 /**
  * The full Wardic environment a `WardicProvider` requires: core's service contracts but the
@@ -93,23 +94,17 @@ export const SERVER_POSITIONAL_KEYS: ReducedMotion.PositionalKeys["Service"] = {
 /** A server render's Default transition: it runs no animation (its Appear animations read the DOM's, #48). */
 export const SERVER_DEFAULT_TRANSITION: DefaultTransition.DefaultTransition["Service"] = { transitionFor: () => DefaultTransition.ONE_SPRING, keyframes: DefaultTransition.ONE_TWEEN }
 
-/**
- * The value a `WardicProvider` carries down the tree: the single Effect runtime
- * plus the provider-owned flush gate (ADR-0006) built atop it.
- */
-/**
- * An Environment's reads of its Subjects' values (#672): its own values, Measured pairs and Variable
- * values, each `undefined` when it gives none.
- */
-export interface ValueReads {
-  readonly ownValues: OwnValues.Shape | undefined
-  readonly measuredPairs: MeasuredPairs.Shape | undefined
-  readonly variableValues: VariableValues.Shape | undefined
-}
+// #672: an Environment's value reads are element-setup's, which fills them with the DOM's; the provider
+// record holds them.
+export type { ValueReads } from "./element-setup.ts"
 
 /** No reads: a server's, whose elements read the DOM's (#672). */
 const NO_VALUE_READS: ValueReads = { ownValues: undefined, measuredPairs: undefined, variableValues: undefined }
 
+/**
+ * The value a `WardicProvider` carries down the tree: the single Effect runtime
+ * plus the provider-owned flush gate (ADR-0006) built atop it.
+ */
 export interface WardicContextValue {
   readonly runtime: WardicRuntime
   readonly gate: FlushGate.Shape

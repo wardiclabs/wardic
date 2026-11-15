@@ -75,6 +75,16 @@ describe("a Layer-built service's runner (#132)", () => {
     expect(exit !== undefined && Exit.hasInterrupts(exit), "interrupted, not left running").toBe(true)
   })
 
+  it("RN7: runSyncExit runs an effect to its Exit, never throwing: a failure, and one that suspends (#672, PR5-Q1)", async () => {
+    const runtime = runtimeOf()
+    const runner = runtime.runSync(Probe)
+    const done = runner.runSyncExit(Effect.succeed(1))
+    expect(Exit.isSuccess(done) && done.value === 1, "its value").toBe(true)
+    expect(Exit.isFailure(runner.runSyncExit(Effect.fail("failed"))), "a failure in the Exit").toBe(true)
+    expect(Exit.isFailure(runner.runSyncExit(Effect.never)), "an effect that suspends: in the Exit, not thrown").toBe(true)
+    await runtime.dispose()
+  })
+
   it("RN3: built under a host's async scheduler, a fork resumes from a yield on that scheduler (#208)", async () => {
     const host = recording("async")
     const runtime = runtimeUnder(host.scheduler)

@@ -2,17 +2,19 @@
  * A Batch's Handoff (#706, ADR-0044 *Amendment (#706)*): its members' Appear animations read where they've
  * got to, and let go, at the first step of the first change after they arrive. Loaded with `import()` the
  * first time a hydrating Batch has a member running one (Q11), so a Batch that never takes one over ships
- * none of it. Shared by both bindings.
+ * none of it. Every DOM binding's Batch loads it.
  *
  * @module
  */
-import * as Appear from "@wardic/dom/Appear"
+// #672 (PR 5): solid's `batch-handoff.ts`, moved to dom's internal modules with the Batch, its one importer,
+// which loads it at the page's first Handoff.
+import * as Appear from "../Appear.ts"
 import * as Effect from "effect/Effect"
 import * as Iter from "effect/Iterable"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
-import { pageAnimationsOf } from "./appear.ts"
-import type { WardicRuntime } from "./runtime.ts"
+import * as AppearAnimations from "../unstable/AppearAnimations.ts"
+import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /** A Batch's members running their Appear animation, as its Handoff reads them. */
 export interface HandoffMembers {
@@ -23,7 +25,7 @@ export interface HandoffMembers {
   /** In development, a member's own transitions' key, which its animation's rule is checked against (Q9). */
   readonly keyOf: ((slot: number) => Option.Option<string>) | undefined
   /** Where a rule another set of transitions named is noted, at Debug. */
-  readonly runtime: WardicRuntime
+  readonly runtime: WardicServices.Runner<WardicServices.WardicServices>
   /** Each member let go of its animation, once the step's starts are done: none waits for a step then. */
   readonly release: () => void
 }
@@ -50,7 +52,7 @@ export const startAtOf = (members: HandoffMembers): ((slot: number) => number) =
     Iter.forEach(members.appearing, (slot) => {
       const el = members.elementOf(slot)
       if (Predicate.isUndefined(el)) return
-      const animation = pageAnimationsOf(el).get(el)
+      const animation = AppearAnimations.pageAnimationsOf(el).get(el)
       if (Predicate.isUndefined(animation)) return
       const name = (animation as Animation & { readonly animationName: string }).animationName
       if (Predicate.isNotUndefined(keyOf) && !checked.has(name)) {

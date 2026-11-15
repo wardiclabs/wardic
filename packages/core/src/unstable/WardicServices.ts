@@ -13,6 +13,7 @@
 import * as Bool from "effect/Boolean"
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
+import type * as Exit from "effect/Exit"
 import * as Fiber from "effect/Fiber"
 import type * as Layer from "effect/Layer"
 import type * as AtomRegistry from "effect/reactivity/AtomRegistry"
@@ -51,6 +52,12 @@ export type WardicEnv = Layer.Layer<WardicServices, never, never>
 export interface Runner<R> {
   readonly runSync: <A, E>(effect: Effect.Effect<A, E, R>) => A
   readonly runFork: <A, E>(effect: Effect.Effect<A, E, R>) => Fiber.Fiber<A, E>
+  /**
+   * Run `effect` now, synchronously, to its Exit: its failure, a defect, or an effect that suspends is
+   * in the Exit, never thrown. What a binding closes an owner's Scope with (`OwnerScope.close`).
+   */
+  // #672 (PR5-Q1): a ManagedRuntime has it, so a binding's runtime meets the Runner as it is.
+  readonly runSyncExit: <A, E>(effect: Effect.Effect<A, E, R>) => Exit.Exit<A, E>
   /**
    * The Scope it was made in: what a service built with it keeps its own fibers in, so closing the
    * Scope ends them, after the service's own cleanup, and awaits them.
@@ -104,7 +111,7 @@ export const makeRunner = <R>(): Effect.Effect<Runner<R>, never, R | Scope.Scope
       })
       return fiber
     }
-    return { runSync: Effect.runSyncWith(context), runFork, scope: Context.get(context, Scope.Scope) }
+    return { runSync: Effect.runSyncWith(context), runSyncExit: Effect.runSyncExitWith(context), runFork, scope: Context.get(context, Scope.Scope) }
   })
 
 /**
