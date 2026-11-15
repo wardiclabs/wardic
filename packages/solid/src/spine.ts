@@ -63,7 +63,6 @@ import { type ControlsChange, join, leave } from "./animation-controls.ts"
 import { clockNowOf, frameNow, MAX_VELOCITY_DELTA, NOMINAL_FRAME } from "./frame-time.ts"
 import { type LiveStyle, turnsWillChangeOn } from "./live-style.ts"
 import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "./presence-record.ts"
-import type { DragTrack } from "./drag-track.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
 import { delayedBy, type Follows, hasManyStops, keyframesFrom, type Leg, legsOf, type MeasuredPairs, startingAt, type StopsByKey, transitionForKey, type Velocities, withPathAxes } from "./retarget-legs.ts"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
@@ -1872,6 +1871,15 @@ export const draggingWithWillChange = (live: LiveStyle | undefined, setDragging:
  */
 export const claimForDrag = (element: Element): (() => void) => () => tellDrag(element, true)
 
+/**
+ * What a spine calls of its element's drag: a new target for `x` or `y` takes over a free drag's
+ * release in flight (#340). Its binding's drag track gives it.
+ */
+// #672 (Q15): the spine names what it calls, so it reads no drag code.
+export interface SpineDrag {
+  readonly takeRelease: (retargeted: { readonly x: boolean; readonly y: boolean }) => boolean
+}
+
 /** What {@link makeElementSpine} reads. */
 export interface ElementSpineOptions {
   /** The provider runtime the legs fork on. */
@@ -1928,7 +1936,7 @@ export interface ElementSpineOptions {
   /** Its drag axis, `undefined` without a drag (ADR-0004). */
   readonly dragAxis: boolean | "x" | "y" | undefined
   /** Its drag track, whose release a Retarget may take `x`/`y` from (#340); omitted, the drag holds them while `dragging`. */
-  readonly drag?: DragTrack | undefined
+  readonly drag?: SpineDrag | undefined
   /** Its Appear animation, while hydrating (#48, ADR-0044 decision 6). */
   readonly handoff: Handoff | undefined
   /** Told each Retarget's start and settle (#257); omitted, nothing is told. */
