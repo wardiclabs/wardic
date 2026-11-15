@@ -105,7 +105,7 @@ import { settingOf, type WardicConfigValue } from "../../wardic-config-value.ts"
 import { type PresenceSeed, presenceBlocksInitial, presenceHold, presenceSeedOf } from "../../presence-record.ts"
 import { handoffOf, setsAnimation } from "../../appear.ts"
 import { appearEntryOf, claimForDrag, draggingWithWillChange, type ElementSpine, type ElementSpineOptions, flagStartingStyle, isLayoutNode, makeElementSpine, makeReuse, exitConfigOf, exitTargetOf, presenceTreeOf, NO_EXIT_CONFIG, madeWith, presenceRecordOf, recordFrameOf, registryOf, type Resolution, resolutionOf, sameResolution, snapshotOf, type SpineDiagnostics, startOf, warnDroppedTransform, withOnUpdate } from "../../spine.ts"
-import { SPINE_DIAGNOSTICS, drawnAtRest, followTemplate, heldTransformFor, registeredValuesOf, releasingAppear, restingOf, serverStartingStyle, startLinksOf } from "../../element-setup.ts"
+import { SPINE_DIAGNOSTICS, drawnAtRest, followTemplate, heldTransformFor, registeredValuesOf, releasingAppear, restingOf, serverStartingStyle, startLinksOf, ownValuesOr } from "../../element-setup.ts"
 import { applyDragDefaults, dragAxisOf, dragDefaultsOf } from "../../drag-defaults.ts"
 import { inheritedContext, serverVariantNode, startsAtAnimate, startsQuiet, type WardicVariantContextValue } from "../../variant-tree.ts"
 import { followAtom } from "./bridge.tsx"
@@ -113,6 +113,7 @@ import {
   appearStyle,
   useWardicAppear,
   useWardicGate,
+  useWardicOwnValues,
   useWardicPositionalKeys,
   useWardicDefaultTransition,
   useBuiltProjection,
@@ -931,6 +932,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const pagePoint = transformPagePointOf(useWardicConfig())
   const positionalKeys = useWardicPositionalKeys()
   const defaultTransition = useWardicDefaultTransition()
+  // How a value is read in the Environment's own terms (#672).
+  const ownValues = ownValuesOr(useWardicOwnValues())
   const owner = getOwner()
   const reactivity = reactivityIn(owner)
   const registry = registryOf(runtime)
@@ -992,7 +995,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const dragDefaults = dragDefaultsOf(initialConfig, internal)
 
   // Its routed `style` keys (#130, ADR-0043), and its `style`, switched by the gate's hooks.
-  const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: droppedTransformWarning(runtime, id), reactivity })
+  const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: droppedTransformWarning(runtime, id), reactivity, ownValues })
   const projectStarting = Bool.match(hydrating, { onTrue: () => DomRenderer.project, onFalse: () => project })
   // The element's style (#264): the config's, with the latest `.with()` style over it, key by key.
   // `.with()` runs in the spread's computation, an owned scope: it tells `read(key)` through a
@@ -1509,6 +1512,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       skipAnimations,
       positionalKeys,
       defaultTransition,
+      ownValues,
       start: begun,
       snapshot,
       reuse,
@@ -1973,6 +1977,8 @@ const readServerStyle = (value: unknown): unknown => readLive(value, serverRegis
  * orchestration. No Appear animation yet (PR 4 of #209).
  */
 const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
+  // A server's own values: the DOM's, its context's constant (#672).
+  const ownValues = ownValuesOr(useWardicOwnValues())
   createUniqueId()
   const view = configuredView(WARD_VIEW.of(config, internal.fixed), useWardicConfig())
   // A key still loading (#257 item 1): one setup fixes is the client's error here too. One the ward
@@ -2008,7 +2014,7 @@ const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
   const dragDefaults = dragDefaultsOf(c, internal)
   // The element's style for its user style: the config's, or a `.with()` style over it (#264).
   const styleFor = (user: WardStyle | string | undefined): JSX.CSSProperties => {
-    const parts = split(user)
+    const parts = split(user, ownValues)
     if (setsAnimation(parts.css)) appear.veto("its own style sets an animation")
     return pipe(
       serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed, layoutNode, untrack, c.transformTemplate),

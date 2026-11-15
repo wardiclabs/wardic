@@ -23,7 +23,8 @@ import * as BaseValue from "@wardic/core/BaseValue"
 import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as LiveValue from "@wardic/core/LiveValue"
 import type * as Values from "@wardic/core/Values"
-import * as Style from "@wardic/dom/Style"
+import type * as OwnValues from "@wardic/core/unstable/OwnValues"
+import * as Stops from "@wardic/core/unstable/Stops"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import type * as Effect from "effect/Effect"
@@ -192,10 +193,10 @@ const NO_VALUES: Values.Values = {}
 /** No style: nothing routed. */
 const NO_STYLE: Split = { css: undefined, routed: NOTHING_ROUTED, droppedTransform: false }
 
-/** A user's style, split into Solid's part and the routed keys (CSS text parsed when it has one). */
-export const split = (user: StyleInput): Split => {
+/** A user's style, split into Solid's part and the routed keys (its text form read by its Environment's `ownValues`). */
+export const split = (user: StyleInput, ownValues: OwnValues.Shape): Split => {
   if (Predicate.isUndefined(user)) return NO_STYLE
-  const record = Style.over(user, undefined)
+  const record = ownValues.recordOf(user)
   const routed = Rec.filter(record, isRouted)
   if (Rec.isEmptyRecord(routed)) return { css: user, routed: NOTHING_ROUTED, droppedTransform: false }
   const droppedTransform = Bool.and(Arr.some(Rec.keys(routed), isTransformKey), Predicate.isNotNullish(record["transform"]))
@@ -213,7 +214,7 @@ export const valuesOf = (
 ): Values.Values =>
   Bool.match(routed === NOTHING_ROUTED, {
     onTrue: () => NO_VALUES,
-    onFalse: () => Style.toValues(Rec.map(routed, (value) => readLive(value, registry, untrack))),
+    onFalse: () => Stops.toValues(Rec.map(routed, (value) => readLive(value, registry, untrack))),
   })
 
 /** What the spine hears while it follows. */
@@ -264,6 +265,8 @@ export interface LiveStyleOptions {
   readonly onDroppedTransform?: (() => void) | undefined
   /** The binding's Solid: accessors are read untracked, and watched, through it (#209). */
   readonly reactivity: Reactivity
+  /** Its Environment's reads of its Subjects' own values (#672): a `style`'s text form read through them. */
+  readonly ownValues: OwnValues.Shape
 }
 
 /** A {@link LiveStyle}'s state: one object per element, its methods on {@link Proto}. */
@@ -271,6 +274,7 @@ interface State extends LiveStyle {
   readonly registry: () => AtomRegistry.AtomRegistry
   readonly onDroppedTransform: (() => void) | undefined
   readonly reactivity: Reactivity
+  readonly ownValues: OwnValues.Shape
   routed: Readonly<Record<string, unknown>>
   seen: StyleInput
   last: StyleInput
@@ -346,7 +350,7 @@ const Proto: Omit<LiveStyle, never> & ThisType<State> = {
     // The same style object as last time: the same answer (Solid may read `style` more than once).
     if (Bool.and(user === this.seen, Predicate.isNotUndefined(this.seen))) return this.last
     this.seen = user
-    const parts = split(user)
+    const parts = split(user, this.ownValues)
     if (Bool.and(parts.droppedTransform, Bool.not(this.warned))) {
       this.warned = true
       UndefinedOr.match(this.onDroppedTransform, { onUndefined: constVoid, onDefined: (warn) => warn() })
@@ -406,6 +410,7 @@ export const createLiveStyle = (options: LiveStyleOptions): LiveStyle => {
     registry: options.registry,
     onDroppedTransform: options.onDroppedTransform,
     reactivity: options.reactivity,
+    ownValues: options.ownValues,
     routed: NOTHING_ROUTED,
     seen: undefined,
     last: undefined,

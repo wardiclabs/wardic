@@ -14,6 +14,7 @@
 import type * as DefaultTransition from "@wardic/core/DefaultTransition"
 import type * as InputFeed from "@wardic/core/InputFeed"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
+import type * as OwnValues from "@wardic/core/unstable/OwnValues"
 import type * as Renderer from "@wardic/core/Renderer"
 import type * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
@@ -369,6 +370,11 @@ export function useWardicRenderer(): Renderer.Renderer["Service"] {
  */
 export function useWardicPositionalKeys(): ReducedMotion.PositionalKeys["Service"] {
   return fromContext(useContext(WardicContext), "useWardicPositionalKeys", (value) => value.positionalKeys)
+}
+
+/** The Environment's reads of its Subjects' own values (#672): what each element's spine and Live style read a value with; `undefined` when it gives none (`element-setup.ts`' fallback). Internal. */
+export function useWardicOwnValues(): OwnValues.Shape | undefined {
+  return fromContext(useContext(WardicContext), "useWardicOwnValues", (value) => value.ownValues)
 }
 
 /**

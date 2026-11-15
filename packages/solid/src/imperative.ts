@@ -57,6 +57,7 @@ import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicKeyframes, WardicTargetValues, WardicTransition, WardicVariant } from "./config.ts"
 import { filledStops, keyframesFrom, type Leg, legsOf, mapMachine, type MeasuredPairs, runOf, type StopsByKey } from "./retarget-legs.ts"
+import type * as OwnValues from "@wardic/core/unstable/OwnValues"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 import { type ElementSpine, emptySnapshotOf, holdsVariable, type ImperativeHooks, type ImperativeTrack, type Landing, makeElementSpine, makeReuse, measuredOf, NO_RUNNING, NO_VALUES, restsOf, type Resolution, type Running, runningOf, type Snapshot, type SpineHost, turnWillChangeOn } from "./spine.ts"
 import { startLinksOf } from "./element-setup.ts"
@@ -93,6 +94,8 @@ export interface AnimateEnv {
   readonly skipAnimations: () => boolean
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
+  /** Its Environment's reads of its Subjects' own values (#672). */
+  readonly ownValues: OwnValues.Shape
 }
 
 /** A plain element's spine (#433's Q4), its values, and how many of its animations run, which keep it in the gate. */
@@ -141,6 +144,7 @@ const plainOf = (env: AnimateEnv, element: Element): Plain => {
     reducedMotion: env.reducedMotion,
     positionalKeys: env.positionalKeys,
     defaultTransition: env.defaultTransition,
+    ownValues: env.ownValues,
     start: { initialValues: {}, initialLink: {}, startedLink: {}, quiet: false },
     snapshot,
     reuse: makeReuse(),

@@ -12,6 +12,7 @@ import * as Probe from "@wardic/core/Probe"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import * as Renderer from "@wardic/core/Renderer"
+import * as OwnValues from "@wardic/core/unstable/OwnValues"
 import type * as CoreWardicServices from "@wardic/core/unstable/WardicServices"
 import * as FlushGate from "@wardic/dom/FlushGate"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
@@ -120,6 +121,12 @@ export interface WardicContextValue {
   /** The Environment's Default transition (ADR-0051), read once: what a key with no transition of its own runs on. */
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
   /**
+   * The Environment's reads of its Subjects' own values (#672), read once: what a key's start is
+   * coerced with, and a `style` read through. `undefined` when it gives none: a DOM binding's element
+   * code then reads the DOM's (PR2-Q4).
+   */
+  readonly ownValues: OwnValues.Shape | undefined
+  /**
    * The Environment's Renderer (ADR-0003), read once: what each element and presence projects its
    * values with and commits them through.
    */
@@ -150,6 +157,7 @@ interface Built {
   readonly reducedMotionUnder: (setting: ReducedMotion.Config | undefined) => boolean
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
+  readonly ownValues: OwnValues.Shape | undefined
   readonly renderer: Renderer.Renderer["Service"]
 }
 
@@ -195,9 +203,12 @@ export const clientContext = (
     // What a key with no transition of its own runs on: the Environment's Default transition
     // (ADR-0051), read once too.
     const defaultTransition = runtime.runSync(DefaultTransition.DefaultTransition)
+    // The Environment's reads of its Subjects' own values (#672), read once too: an Environment that
+    // isn't the DOM gives them; `DomLive` doesn't (PR2-Q4), and an element falls back.
+    const ownValues = Option.getOrUndefined(runtime.runSync(Effect.serviceOption(OwnValues.OwnValues)))
     // The Renderer every element projects and commits through (ADR-0003), read once too.
     const renderer = runtime.runSync(Renderer.Renderer)
-    built = { gate, reducedMotion: applies, reducedMotionUnder: under, positionalKeys, defaultTransition, renderer }
+    built = { gate, reducedMotion: applies, reducedMotionUnder: under, positionalKeys, defaultTransition, ownValues, renderer }
     return built
   }
   // What the `layout` Feature builds its projection system with (#511): reduced motion read as each
@@ -236,6 +247,9 @@ export const clientContext = (
     },
     get defaultTransition() {
       return build().defaultTransition
+    },
+    get ownValues() {
+      return build().ownValues
     },
     get renderer() {
       return build().renderer
@@ -289,6 +303,8 @@ export const serverContext = (env: WardicEnv, waiting: string, appear: ServerApp
     reducedMotionSetting: reducedMotion,
     positionalKeys: SERVER_POSITIONAL_KEYS,
     defaultTransition: SERVER_DEFAULT_TRANSITION,
+    // None: a server's elements fall back to the DOM's (#672, PR2-Q4).
+    ownValues: undefined,
     appear,
     instant: NO_INSTANT,
   }

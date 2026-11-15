@@ -9,6 +9,7 @@
 // - ES3: a change of the keys the gate holds re-runs `style` only when it takes or lets go of a
 //   key the element's style sets: the base's or the defaults' as much as the user's.
 import * as Style from "@wardic/dom/Style"
+import * as DomValues from "@wardic/dom/unstable/DomValues"
 import { createMemo, createRoot, createSignal } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { AtomRegistry } from "effect/reactivity"
@@ -24,7 +25,7 @@ const elementStyle = (user: object) =>
       userStyle,
       starting: { opacity: 0 },
       startingWith: (routed) => ({ opacity: 0, ...routed }),
-      live: createLiveStyle({ registry: AtomRegistry.make, reactivity }),
+      live: createLiveStyle({ registry: AtomRegistry.make, reactivity, ownValues: DomValues.ownValues }),
       defaults: Style.dragDefaults("x"),
       base: () => ({ "touch-action": "pan-x", position: "relative", "-webkit-touch-callout": "default" }),
       reactivity,

@@ -30,6 +30,7 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as DefaultTransition from "@wardic/core/DefaultTransition"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
+import type * as OwnValues from "@wardic/core/unstable/OwnValues"
 import type * as Renderer from "@wardic/core/Renderer"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
@@ -386,6 +387,11 @@ export function useWardicRenderer(): Renderer.Renderer["Service"] {
 /** The Environment's Positional keys (ADR-0036): which keys reduced motion Snaps. Internal. */
 export function useWardicPositionalKeys(): ReducedMotion.PositionalKeys["Service"] {
   return fromContext(contextValue(), "useWardicPositionalKeys", (value) => value.positionalKeys)
+}
+
+/** The Environment's reads of its Subjects' own values (#672): what each element's spine and Live style read a value with; `undefined` when it gives none (`element-setup.ts`' fallback). Internal. */
+export function useWardicOwnValues(): OwnValues.Shape | undefined {
+  return fromContext(contextValue(), "useWardicOwnValues", (value) => value.ownValues)
 }
 
 /** The Environment's Default transition (ADR-0051): what a key with no transition of its own runs on. Internal. */

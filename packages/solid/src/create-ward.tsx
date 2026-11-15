@@ -85,14 +85,14 @@ import type { PresenceRecord } from "./presence-record.ts"
 import { createWhenWanted, NEVER_STARTED, type Started, stateOf, type Wants } from "./sensors.tsx"
 import { type GestureCallbacks, gestureCallbacksOf, inViewOptionsOf, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "./gesture-callbacks.ts"
 import { type Feature, type FeatureRegistry, type FeatureSection, type InstanceFeatures, LAYOUT_PROPS, missingMessage, unreadColorIn, wantsLayoutNode } from "./feature.ts"
-import { runWatch, useBuiltProjection, useElementFeatures, useFeatureRegistry, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicReducedMotion, useWardicRenderer, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
+import { runWatch, useBuiltProjection, useElementFeatures, useFeatureRegistry, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicOwnValues, useWardicPositionalKeys, useWardicReducedMotion, useWardicRenderer, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { transformPagePointOf } from "./wardic-config-value.ts"
 import { projectionIn, projectionNodesIn, type WardicRuntime } from "./runtime.ts"
 import { isHydrating, isServer } from "./server.ts"
 import { reactivity } from "./solid-reactivity.ts"
 import { accessorOf, type Active, animationCallbacks, claimForDrag, draggingWithWillChange, flagStartingStyle, isLayoutNode, madeWith, type ElementSpineOptions, makeElementSpine, makeReuse, exitConfigOf, exitTargetOf, presenceTreeOf, presenceRecordOf, recordFrameOf, registryOf, type Resolution, resolutionOf, sameResolution, snapshotOf, type SpineDiagnostics, type Start, startOf, warnDroppedTransform, withOnUpdate, appearEntryOf, type ServerAppearOf } from "./spine.ts"
-import { SPINE_DIAGNOSTICS, drawnAtRest, followTemplate, heldTransformFor, registeredValuesOf, restingOf, serverStartingStyle, startLinksOf, releasingAppear } from "./element-setup.ts"
+import { SPINE_DIAGNOSTICS, drawnAtRest, followTemplate, heldTransformFor, registeredValuesOf, restingOf, serverStartingStyle, startLinksOf, releasingAppear, ownValuesOr } from "./element-setup.ts"
 import { applyDragDefaults, dragAxisOf, dragDefaultsOf } from "./drag-defaults.ts"
 import { type WardicVariantContextValue, useVariantContext, WardicVariantContext } from "./variants.ts"
 import type { WardConfig, WardicTransformShorthands, WardicValues } from "./config.ts"
@@ -452,6 +452,8 @@ export function runSpine(opts: RunSpineOptions): void {
   const positionalKeys = useWardicPositionalKeys()
   // What a key with no transition of its own runs on (ADR-0051).
   const defaultTransition = useWardicDefaultTransition()
+  // How a value is read in the Environment's own terms (#672).
+  const ownValues = ownValuesOr(useWardicOwnValues())
 
   // Starting style: resolved purely from the config read EXACTLY ONCE (untrack — no
   // reactive dependency, must not re-seed after mount), with the inherited `initial`
@@ -885,6 +887,7 @@ export function runSpine(opts: RunSpineOptions): void {
         skipAnimations,
         positionalKeys,
         defaultTransition,
+        ownValues,
         start: begin,
         snapshot,
         reuse,
@@ -1046,7 +1049,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
 
   // Its routed `style` keys (#130, ADR-0043): its Live values and transform keys, which the gate
   // writes from mount, and the Starting style carries until then, under `initial`'s.
-  const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: droppedTransformWarning(runtime, id), reactivity })
+  const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: droppedTransformWarning(runtime, id), reactivity, ownValues: ownValuesOr(useWardicOwnValues()) })
   const projectStarting = Bool.match(hydrating, { onTrue: () => DomRenderer.project, onFalse: () => project })
   const startingWith = (routed: Values.Values): Renderer.Patch =>
     Svg.splitPatchForTag(internal.tag, projectStarting(drawnAtRest({ ...routed, ...initialValues }, layoutNode, initialConfig.transformTemplate))).style
@@ -1178,6 +1181,8 @@ const NO_OUTPUT: Atom.Atom<unknown> = Atom.make<unknown>(undefined)
  * transitions but no orchestration.
  */
 const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineInternals = NO_INTERNALS): Ward => {
+  // A server's own values: the DOM's, its context's constant (#672).
+  const ownValues = ownValuesOr(useWardicOwnValues())
   // The client's gate id: keeps every later hydration key in step.
   createUniqueId()
   // Animation controls (#433) set nothing on a server: no entry yet, and controlled, as on the client.
@@ -1201,7 +1206,7 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
     (userProps: WardUserProps = NO_USER_PROPS): WardProps => {
       lastStyle = userProps.style
       // Its routed keys' values join the Starting style, under `initial`'s (#130).
-      const parts = split(userProps.style)
+      const parts = split(userProps.style, ownValues)
       // A style with its own `animation` keeps it: the element's Appear animation would take its place.
       const ownAnimation = setsAnimation(parts.css)
       if (ownAnimation) appear.veto("its own style sets an animation")

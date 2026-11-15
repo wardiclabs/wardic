@@ -13,6 +13,7 @@ import * as BaseValue from "@wardic/core/BaseValue"
 import * as Projection from "@wardic/core/Projection"
 import type * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
+import type * as CoreOwnValues from "@wardic/core/unstable/OwnValues"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 import type * as Reactivity from "@wardic/core/unstable/Reactivity"
 import * as Appear from "@wardic/dom/Appear"
@@ -20,6 +21,7 @@ import * as DomRenderer from "@wardic/dom/DomRenderer"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as OwnValues from "@wardic/dom/OwnValues"
 import * as Style from "@wardic/dom/Style"
+import * as DomValues from "@wardic/dom/unstable/DomValues"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Option from "effect/Option"
@@ -184,3 +186,12 @@ const checkHandoff = (runtime: WardicServices.Runner<WardicServices.WardicServic
  */
 // #672: here, where the DOM's Handoff is, so the spine reads no Animation; given under `DEV` alone.
 export const SPINE_DIAGNOSTICS: SpineDiagnostics = { checkHandoff, baseLog }
+
+// The DOM's ports, where an element's Environment gives none (#672, PR2-Q4): `DomLive` doesn't, so
+// only an app that animates an element ships them, through these.
+
+/** Its Environment's own values, else the DOM's. */
+export const ownValuesOr = (given: CoreOwnValues.Shape | undefined): CoreOwnValues.Shape => {
+  if (Predicate.isUndefined(given)) return DomValues.ownValues
+  return given
+}

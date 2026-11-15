@@ -26,9 +26,9 @@ import type * as Renderer from "@wardic/core/Renderer"
 import * as Supersede from "@wardic/core/Supersede"
 import * as Values from "@wardic/core/Values"
 import * as Report from "@wardic/core/unstable/Report"
+import type * as OwnValues from "@wardic/core/unstable/OwnValues"
 import type * as Stops from "@wardic/core/unstable/Stops"
 import type * as FlushGate from "@wardic/dom/FlushGate"
-import * as OwnValues from "@wardic/dom/OwnValues"
 import * as MeasuredPair from "@wardic/dom/MeasuredPair"
 import * as Variables from "@wardic/dom/Variables"
 import * as Arr from "effect/Array"
@@ -1911,6 +1911,8 @@ export interface ElementSpineOptions {
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   /** What a key with no transition of its own runs on (ADR-0051). */
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
+  /** The Environment's reads of its Subjects' own values (#672), read once by its provider. */
+  readonly ownValues: OwnValues.Shape
   readonly start: Start
   readonly snapshot: Snapshot
   readonly reuse: (transition: WardicTransition) => WardicTransition
@@ -2090,7 +2092,7 @@ export interface ElementSpine {
  * fiber Scope interrupts what's left when the provider ends.
  */
 export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => {
-  const { animation, byName, canStart, config, defaultTransition, diagnostics, element, extraDelay, gate, id, links, live, onFrame, parent, positionalKeys, presence, runtime, snapshot, start, styleNow, tag } = options
+  const { animation, byName, canStart, config, defaultTransition, diagnostics, element, extraDelay, gate, id, links, live, onFrame, ownValues, parent, positionalKeys, presence, runtime, snapshot, start, styleNow, tag } = options
   const { initialLink, initialValues, startedLink } = start
   const { linksFor, ownValue, startLinkOf } = links
   let handoff = options.handoff
@@ -2165,7 +2167,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     const restore = UndefinedOr.map(styleNow, (now) => {
       const style = now()
       return Object.fromEntries(
-        Arr.map(handedBack, (key) => [key, Option.match(OwnValues.styleValueOf(style, key), { onNone: () => "", onSome: (value) => String(value) })]),
+        Arr.map(handedBack, (key) => [key, Option.match(ownValues.styleValueOf(style, key), { onNone: () => "", onSome: (value) => String(value) })]),
       ) as Record<string, string>
     })
     gate.release(id, handedBack, restore)
@@ -2329,7 +2331,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
    * (no motion). Guards, not a match: per key, per Retarget, and a key with a value builds nothing.
    */
   const startKey = (key: string, like: number | string, started: Record<string, string>): void => {
-    const coerced = OwnValues.valueLike(snapshot.values[key], like)
+    const coerced = ownValues.valueLike(snapshot.values[key], like)
     if (Option.isSome(coerced)) snapshot.values[key] = coerced.value
     // A start of another type than its target's, on a positional key, stays as it is: a Measured
     // pair (#430), measured at the end of the task.
@@ -2922,7 +2924,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     let follow: Follows | undefined
     if (returning.size > 0 && Predicate.isNotUndefined(live)) {
       const routes = live
-      follow = { keysOf: (rest) => followingOf(routes, rest, returning), targetOf: (key, start) => liveTargetOf(routes, key, start) }
+      follow = { keysOf: (rest) => followingOf(routes, rest, returning), targetOf: (key, start) => liveTargetOf(ownValues, routes, key, start) }
     }
     const reduce = options.reducedMotion()
     const skipped = skipAnimations()
@@ -3151,7 +3153,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
           delete snapshot.velocities[key]
           if (Predicate.isNotUndefined(presence)) delete presence.snapshot.current[key]
           // Gone from `style`: the element's own value comes back, or the key's CSS value now.
-          const restore = Option.match(OwnValues.styleValueOf(UndefinedOr.match(styleNow, { onUndefined: constUndefined, onDefined: (style) => style() }), key), {
+          const restore = Option.match(ownValues.styleValueOf(UndefinedOr.match(styleNow, { onUndefined: constUndefined, onDefined: (style) => style() }), key), {
             onNone: () => "",
             onSome: String,
           })
@@ -3244,10 +3246,10 @@ const followingOf = (routes: LiveStyle, rest: Values.Values, returning: Readonly
   Arr.filter(Rec.keys(rest), (key) => Bool.and(returning.get(key) === "style", Bool.and(routes.isLive(key), Predicate.isNumber(rest[key]))))
 
 /** Where `key`'s Live value is now, a number; where it last was when it's none (#130). */
-const liveTargetOf = (routes: LiveStyle, key: string, start: number): (() => number) => {
+const liveTargetOf = (ownValues: OwnValues.Shape, routes: LiveStyle, key: string, start: number): (() => number) => {
   let last = start
   return () => {
-    const now = Option.flatMap(routes.valueOf(key), (raw) => OwnValues.valueLike(raw, last))
+    const now = Option.flatMap(routes.valueOf(key), (raw) => ownValues.valueLike(raw, last))
     if (Option.isSome(now)) last = now.value as number
     return last
   }
