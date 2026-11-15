@@ -56,7 +56,7 @@ import * as Str from "effect/String"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { documentOf, prepareAnnouncer } from "./announcer.ts"
 import { type AutoScroller, makeAutoScroller } from "./auto-scroll.ts"
-import { debugOf } from "./report.ts"
+import * as Report from "./report.ts"
 import { type Rect, revealLayoutOf, revealRectOf } from "./reveal.ts"
 import type { Runner } from "./runner.ts"
 
@@ -259,7 +259,7 @@ export interface ReorderController<V> {
 /** Build a {@link ReorderController}: a **Reorder group** over `wiring.projection`'s nodes. */
 export const makeReorderController = <V>(wiring: ReorderControllerWiring, options: ReorderControllerOptions<V>): ReorderController<V> => {
   const { runtime, announce } = wiring
-  const debug = debugOf(runtime, "wardic.reorder")
+  const debug = Report.debugOf(runtime, "wardic.reorder")
   // Speak an Announcement, or nothing without an `announce`.
   const speak = UndefinedOr.match(announce, { onUndefined: () => constVoid, onDefined: identity })
   const keyboardOn = (): boolean => UndefinedOr.match(options.keyboard, { onUndefined: constTrue, onDefined: (on) => on() })

@@ -1,5 +1,5 @@
 /**
- * Where a binding's failure stops (ADR-0030, decision 4): `reportFailure` logs it at Error and
+ * Where a binding's failure stops (ADR-0030, decision 4): `failure` logs it at Error and
  * reports it to the Environment's `ErrorReporter`s. Core doesn't report: the Frame loop hands each
  * run's failure to its caller (ADR-0027, decision 7), and a Tier 2 caller may recover. A binding
  * boundary that ends a fiber nobody observes calls this, so a failure there reaches the console
@@ -26,7 +26,7 @@ import * as References from "effect/References"
  * `ErrorReporter`s. An interruption is neither: it's how a run is removed, by a retarget, an unmount or a
  * dispose. Annotate the log by piping `Effect.annotateLogs` onto it.
  */
-export const reportFailure = (message: string, cause: Cause.Cause<unknown>): Effect.Effect<void> =>
+export const failure = (message: string, cause: Cause.Cause<unknown>): Effect.Effect<void> =>
   Bool.match(Cause.hasInterruptsOnly(cause), {
     onTrue: () => Effect.void,
     onFalse: () => Effect.logError(message, cause).pipe(Effect.andThen(ErrorReporter.report(cause))),

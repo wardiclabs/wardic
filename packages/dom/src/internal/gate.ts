@@ -48,7 +48,7 @@
  * Observability (CONTEXT.md convention): the hot path (`write`/`flush`) is the
  * per-frame work, so — exactly like core's per-frame writes and the Clock's
  * `tick` — it stays quiet (no span, no per-call log, no metric). A flush that throws (a
- * binding's hook, a commit) is reported (`reportFailure`) and the gate
+ * binding's hook, a commit) is reported (`Report.failure`) and the gate
  * goes on, so it can't fail the Frame loop's tick it runs in (ADR-0033).
  */
 import * as FrameLoop from "@wardic/core/FrameLoop"
@@ -63,7 +63,7 @@ import type * as Fiber from "effect/Fiber"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as Scope from "effect/Scope"
-import { reportFailure } from "./report.ts"
+import * as Report from "./report.ts"
 import { TEMPLATE_KEY } from "./renderer.ts"
 import type { TimelineValue } from "./timeline.ts"
 import { dashCase } from "./svg.ts"
@@ -421,7 +421,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
       } catch (defect) {
         if (entry.failing) continue
         entry.failing = true
-        runtime.runFork(reportFailure("wardic.gate: an onCommit failed", Cause.die(defect)))
+        runtime.runFork(Report.failure("wardic.gate: an onCommit failed", Cause.die(defect)))
       }
     }
     committedSince.clear()
@@ -473,7 +473,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     } catch (defect) {
       prepared.length = 0
       heldChanged.length = 0
-      runtime.runFork(reportFailure("wardic.gate: a flush failed", Cause.die(defect)))
+      runtime.runFork(Report.failure("wardic.gate: a flush failed", Cause.die(defect)))
     }
     if (afterFlushes.length > 0) runAfterFlushes()
   }
@@ -486,7 +486,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
       try {
         fn()
       } catch (defect) {
-        runtime.runFork(reportFailure("wardic.gate: an afterFlush call failed", Cause.die(defect)))
+        runtime.runFork(Report.failure("wardic.gate: an afterFlush call failed", Cause.die(defect)))
       }
     }
   }
@@ -679,7 +679,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   const dispose: FlushGate["dispose"] = () => {
     // Off the loop first, so no tick flushes what follows; a failure reported, never thrown (#618).
     const unhooked = Effect.runSyncExit(Scope.close(ticks, Exit.void))
-    if (Exit.isFailure(unhooked)) runtime.runFork(reportFailure("wardic.gate: its tick hook failed to close", unhooked.cause))
+    if (Exit.isFailure(unhooked)) runtime.runFork(Report.failure("wardic.gate: its tick hook failed to close", unhooked.cause))
     if (scheduled) {
       cancelFrame(frame)
       scheduled = false
