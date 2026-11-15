@@ -50,10 +50,21 @@ import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicTransition, WardicVariantLabels } from "./config.ts"
-import type { ExitGroup, PresenceContextValue, PresenceExit, PresenceRecord, PresenceSeed, PresenceTree, PresenceWatch } from "./presence-record.ts"
+import type * as CorePresenceRecord from "@wardic/core/unstable/PresenceRecord"
 import { delayedBy, hasManyStops, keyframesFrom, type Leg, legsOf, type MeasuredPairs, type StopsByKey, velocitiesOf } from "./retarget-legs.ts"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 import { childDelayOf, staggerOf } from "./variant-tree.ts"
+
+// #672 (PR5-Q3): the DOM's presence types, core's protocol over Element, here with the DOM's presence:
+// what a DOM binding's presence, its Batch and its public types name.
+/** A child's live presence registration ({@link CorePresenceRecord.PresenceRecord}), its Subject an element. */
+export type PresenceRecord = CorePresenceRecord.PresenceRecord<Element>
+
+/** The value `<AnimatePresence>` publishes to descendant `createWard` spines ({@link CorePresenceRecord.PresenceContextValue}), over elements. */
+export type PresenceContextValue = CorePresenceRecord.PresenceContextValue<Element>
+
+/** What a presence hook registers ({@link CorePresenceRecord.PresenceWatch}), its Subject an element. */
+export type PresenceWatch = CorePresenceRecord.PresenceWatch<Element>
 
 /** Whether a value-map has any keys (an empty exit means "remove immediately"). */
 const isEmpty = (values: Values.Values): boolean => Rec.isEmptyRecord(values)
@@ -67,10 +78,10 @@ const valuesDrawn = (values: Values.Values): Values.Values => Rec.remove(values,
 /** An exit's spring: the defaults, one object, so core decodes it once (#66). */
 
 /** A record's place in the variant tree (#290): left out, a lone element's. */
-const LONE: PresenceTree = { joins: false, provides: false, twin: false }
+const LONE: CorePresenceRecord.PresenceTree = { joins: false, provides: false, twin: false }
 
 /** A record's place in the variant tree, {@link LONE} without one. */
-const treeOf = (rec: PresenceRecord): PresenceTree => UndefinedOr.match(rec.tree, { onUndefined: () => LONE, onDefined: identity })
+const treeOf = (rec: PresenceRecord): CorePresenceRecord.PresenceTree => UndefinedOr.match(rec.tree, { onUndefined: () => LONE, onDefined: identity })
 
 /** No elements: a leaving child with none inside it exiting. */
 const NO_PARTS: ReadonlyArray<Element> = []
@@ -84,7 +95,7 @@ const NO_OWN: ReadonlyArray<PresenceRecord> = []
 /** A leaving element's exit, and its Variant children's, resolved at the leave (#290). */
 interface ExitNode {
   readonly rec: PresenceRecord
-  readonly exit: PresenceExit
+  readonly exit: CorePresenceRecord.PresenceExit
   readonly kids: ReadonlyArray<ExitNode>
 }
 
@@ -95,7 +106,7 @@ const busy = (node: ExitNode): boolean => Bool.or(Bool.not(isEmpty(node.exit.val
 const NO_VELOCITIES: Readonly<Record<string, number>> = {}
 
 /** Where an element is drawn (#286): its values, and each numeric key's velocity. */
-type Drawn = PresenceSeed
+type Drawn = CorePresenceRecord.PresenceSeed
 
 /** No boxes: a leaver none of whose elements was on the page. */
 const NO_BOXES: ReadonlyMap<Element, Box.Box> = new Map()
@@ -242,10 +253,10 @@ const singleNameOf = (name: WardicVariantLabels | undefined): string | undefined
 }
 
 /** The transition a name of an exit orchestrates its Variant children's keys on (#297): its group's, else the exit's. */
-const transitionOfName = (exit: PresenceExit, name: string | undefined): WardicTransition | undefined => {
+const transitionOfName = (exit: CorePresenceRecord.PresenceExit, name: string | undefined): WardicTransition | undefined => {
   const groups = exit.groups
   if (Bool.or(Predicate.isUndefined(groups), Predicate.isUndefined(name))) return exit.transition
-  return Option.match(Arr.findFirst(groups as ReadonlyArray<ExitGroup>, (group) => group.name === name), {
+  return Option.match(Arr.findFirst(groups as ReadonlyArray<CorePresenceRecord.ExitGroup>, (group) => group.name === name), {
     onNone: () => exit.transition,
     onSome: (group) => group.transition,
   })
@@ -1127,7 +1138,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    * on the exit's own transition, else the element's, its positional keys snapping under reduced
    * motion (ADR-0029) unless it opts out. Nothing to run for an empty one.
    */
-  const exitOf = (rec: PresenceRecord, exit: PresenceExit, delay: DelayOf, only?: string): Effect.Effect<unknown, never, WardicServices.WardicServices> => {
+  const exitOf = (rec: PresenceRecord, exit: CorePresenceRecord.PresenceExit, delay: DelayOf, only?: string): Effect.Effect<unknown, never, WardicServices.WardicServices> => {
     const to = exit.values
     if (isEmpty(to)) return Effect.void
     const { from, stops, commitFrame, velocities, el } = preparedOf(rec, exit)
@@ -1147,17 +1158,17 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       onDefined: (groups) =>
         Arr.flatMap(
           Arr.filter(groups, (group) => Bool.or(Predicate.isUndefined(only), group.name === only)),
-          (group: ExitGroup) => legsOf(from, group.values, delayedBy(group.transition, delay(group.name)), reduce, skipped, positionalKeys, defaultTransition, moving, undefined, stops, measured),
+          (group: CorePresenceRecord.ExitGroup) => legsOf(from, group.values, delayedBy(group.transition, delay(group.name)), reduce, skipped, positionalKeys, defaultTransition, moving, undefined, stops, measured),
         ),
     })
     return Effect.all(Arr.map(legs, (leg) => exitRunOf(leg, el, commitFrame, velocities)), { concurrency: "unbounded", discard: true })
   }
 
   // Each exit's start, made once though a list's names run its keys apart (#297's PR 2).
-  const prepared = new WeakMap<PresenceExit, PreparedExit>()
+  const prepared = new WeakMap<CorePresenceRecord.PresenceExit, PreparedExit>()
 
   /** An element's exit made ready to run: where it starts, and what each frame commits. */
-  const preparedOf = (rec: PresenceRecord, exit: PresenceExit): PreparedExit => {
+  const preparedOf = (rec: PresenceRecord, exit: CorePresenceRecord.PresenceExit): PreparedExit => {
     const known = prepared.get(exit)
     if (Predicate.isNotUndefined(known)) return known
     const el = rec.element
