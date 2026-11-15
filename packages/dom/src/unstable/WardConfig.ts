@@ -148,6 +148,7 @@ export type {
   WardicControlsDefinition,
   WardicAnimationControls,
   WardicAnimationDefinition,
+  SpineConfig,
 } from "@wardic/core/unstable/Config"
 export { CONTROLS } from "@wardic/core/unstable/Config"
 
@@ -674,7 +675,8 @@ export interface WardLayoutConfig {
  * @see https://wardic.dev/reference/solid/elements/props
  */
 export interface WardConfig
-  extends WardBaseConfig,
+  extends Config.SpineConfig,
+    WardBaseConfig,
     WardHoverConfig,
     WardPressConfig,
     WardFocusConfig,

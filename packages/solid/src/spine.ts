@@ -49,7 +49,7 @@ import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { enterServer, type Handoff, type MountAnimation, type ServerAppear, skippedField, startAtOf } from "./appear.ts"
 import type {
-  WardConfig,
+  SpineConfig,
   WardicAnimationDefinition,
   WardicTransition,
   WardicVariant,
@@ -108,7 +108,7 @@ export interface ExitConfig {
 export const NO_EXIT_CONFIG: ExitConfig = { exit: undefined, variants: undefined, custom: undefined, transition: undefined }
 
 /** A record's place in the variant tree (#290), from its config at setup. */
-export const presenceTreeOf = (c: WardConfig): PresenceTree => ({
+export const presenceTreeOf = (c: SpineConfig): PresenceTree => ({
   joins: isVariantChild(c),
   provides: changesContext(c),
   twin: Predicate.isNotUndefined(c.layoutId),
@@ -118,7 +118,7 @@ export const presenceTreeOf = (c: WardConfig): PresenceTree => ({
  * An element's ref that tells its presence it was made (#286, ADR-0048): its `key`, read once, and
  * whether it's a twin. With no presence, `set` itself: nothing is made per element.
  */
-export const madeWith = <E extends Element>(presence: PresenceContextValue | undefined, set: (el: E) => void, c: WardConfig): ((el: E) => void) => {
+export const madeWith = <E extends Element>(presence: PresenceContextValue | undefined, set: (el: E) => void, c: SpineConfig): ((el: E) => void) => {
   if (Predicate.isUndefined(presence)) return set
   const key = c.key
   const twin = Predicate.isNotUndefined(c.layoutId)
@@ -129,7 +129,7 @@ export const madeWith = <E extends Element>(presence: PresenceContextValue | und
 }
 
 /** An element's {@link ExitConfig} from its config now. */
-export const exitConfigOf = (c: WardConfig, parent: WardicVariantContextValue | undefined): ExitConfig => ({
+export const exitConfigOf = (c: SpineConfig, parent: WardicVariantContextValue | undefined): ExitConfig => ({
   exit: c.exit,
   variants: c.variants,
   custom: c.custom,
@@ -436,7 +436,7 @@ const gesturesOnOf = (active: Active, above: GestureHandDown): GestureStates => 
  * The name each gesture layer resolves while it's on (#291): its own `while*`, if a name, else the
  * label it took. With none on, the shared empty one: nothing made.
  */
-const activeNamesFor = (c: WardConfig, on: GestureStates, labels: GestureNames): GestureNames => {
+const activeNamesFor = (c: SpineConfig, on: GestureStates, labels: GestureNames): GestureNames => {
   if (Bool.not(anyOn(on))) return NO_GESTURE_NAMES
   return activeNamesOf(handDownOf(c, on, { on: NO_GESTURE_STATES, names: labels }))
 }
@@ -909,7 +909,7 @@ interface ListingOf {
   /** Write a shut group's keys where they start. */
   readonly hold: (group: number) => void
   readonly afterFlush: (fn: () => void) => void
-  readonly config: WardConfig
+  readonly config: SpineConfig
 }
 
 /**
@@ -1258,9 +1258,9 @@ const GESTURES_DOWN: ReadonlyArray<GestureLayer> = Arr.reverse(GESTURE_LAYERS)
  */
 export interface AnimationHooks {
   /** A Retarget started its legs (the `when` gate let it); with no leg, it settles at once. */
-  readonly started: (resolution: Resolution, previous: Resolution | undefined, config: WardConfig) => void
+  readonly started: (resolution: Resolution, previous: Resolution | undefined, config: SpineConfig) => void
   /** That Retarget's last leg settled: not for one the next Retarget superseded, nor one a leg's failure cut off. */
-  readonly settled: (resolution: Resolution, previous: Resolution | undefined, config: WardConfig) => void
+  readonly settled: (resolution: Resolution, previous: Resolution | undefined, config: SpineConfig) => void
   /**
    * A leg of that Retarget failed (#257 item 4): it can't land. Told once a Retarget, at once (a
    * leg that fails before it writes leaves no flush to wait for), and never before `started`; the
@@ -1272,13 +1272,13 @@ export interface AnimationHooks {
    * callbacks, Motion's `animateVariant` a name) has it, called as the legs of the keys each drives
    * settle; one with none hears the list's end through `settled` alone.
    */
-  readonly namesSettled?: ((names: ReadonlyArray<string>, config: WardConfig) => void) | undefined
+  readonly namesSettled?: ((names: ReadonlyArray<string>, config: SpineConfig) => void) | undefined
 }
 
 /** A list a Retarget tells settled name by name (#297): its names, and what it tells. */
 interface ToldNames {
   readonly names: ReadonlyArray<string>
-  readonly tell: (names: ReadonlyArray<string>, config: WardConfig) => void
+  readonly tell: (names: ReadonlyArray<string>, config: SpineConfig) => void
 }
 
 /** Whether a resolution resolved a list (#297): its base, or an active gesture's. Cheap for the common case. */
@@ -1430,7 +1430,7 @@ export interface Active {
 }
 
 /** The variant name an element animates to: its own `animate`'s, else the one its provider hands down. */
-const variantOf = (animate: WardConfig["animate"], parent: WardicVariantContextValue | undefined): WardicVariantLabels | undefined => {
+const variantOf = (animate: SpineConfig["animate"], parent: WardicVariantContextValue | undefined): WardicVariantLabels | undefined => {
   if (Predicate.isNotUndefined(animate)) return nameOf(animate)
   if (Predicate.isUndefined(parent)) return undefined
   return parent.variant()
@@ -1458,7 +1458,7 @@ const baseTargetOf = (
  * (`parent.variant()`, read only when there's no `animate`) or an entry's drives a Retarget.
  */
 export const resolutionOf = (
-  c: WardConfig,
+  c: SpineConfig,
   parent: WardicVariantContextValue | undefined,
   initialLink: Values.Values,
   active: Active,
@@ -1533,7 +1533,7 @@ const overriddenOf = (resolution: Resolution, override: WardicTransition): Resol
  * active gestures resolved.
  */
 const withGestures = (
-  c: WardConfig,
+  c: SpineConfig,
   parent: WardicVariantContextValue | undefined,
   layers: Array<OverrideEntry>,
   base: Values.Values,
@@ -1590,7 +1590,7 @@ export interface Start {
  * it starts at its `animate`, and nothing animates at mount (#134).
  */
 export const startOf = (
-  config: WardConfig,
+  config: SpineConfig,
   parent: WardicVariantContextValue | undefined,
   presenceBlocks: boolean,
   untrack: Reactivity["untrack"],
@@ -1891,7 +1891,7 @@ export interface ElementSpineOptions {
   /** Its tag, for a Handoff's check (SVG's routing): `undefined` when it isn't known. */
   readonly tag: string | undefined
   /** Its config now, read where the binding doesn't track. */
-  readonly config: () => WardConfig
+  readonly config: () => SpineConfig
   /** The variant context it inherits names and its default transition from (`variant-tree.ts`). */
   readonly parent: WardicVariantContextValue | undefined
   /** Whether a Retarget may start now (ADR-0007 `when`); omitted, always. */
@@ -3217,7 +3217,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
  * `sink` with an `onCommit` that calls the config's current `onUpdate` (#233), when the config had
  * one at mount; `sink` as it is otherwise. `config` reads it untracked.
  */
-export const withOnUpdate = (sink: FlushGate.Sink, atMount: WardConfig["onUpdate"], config: () => WardConfig): FlushGate.Sink => {
+export const withOnUpdate = (sink: FlushGate.Sink, atMount: SpineConfig["onUpdate"], config: () => SpineConfig): FlushGate.Sink => {
   // Per element at mount: most have none, and pay a check.
   if (Predicate.isUndefined(atMount)) return sink
   return {
@@ -3334,7 +3334,7 @@ const NO_APPEAR_ENTRY = (provided: WardicVariantContextValue | undefined): Serve
  */
 export const appearEntryOf = (
   state: ServerAppear | undefined,
-  c: WardConfig,
+  c: SpineConfig,
   tag: string | undefined,
   initialValues: Values.Values,
   node: ServerVariantNode,
@@ -3382,7 +3382,7 @@ export const appearEntryOf = (
  * An element's target at mount on a server: its `animate`, else an inherited variant name resolved
  * against its own `variants`, a dynamic one with its `custom` and no values yet (#277).
  */
-export const serverTargetOf = (c: WardConfig, inherited: WardicVariantContextValue | undefined): Option.Option<Target> =>
+export const serverTargetOf = (c: SpineConfig, inherited: WardicVariantContextValue | undefined): Option.Option<Target> =>
   UndefinedOr.match(c.animate as Entry, {
     onDefined: (own) => Option.some(resolveTarget(own, c.variants, c.custom, NO_VARIANT_STATE)),
     onUndefined: () =>
@@ -3393,10 +3393,10 @@ export const serverTargetOf = (c: WardConfig, inherited: WardicVariantContextVal
   })
 
 /** Whether a config makes its element a layout node: `layout` (or a mode), or a `layoutId`. */
-export const isLayoutNode = (c: WardConfig): boolean =>
+export const isLayoutNode = (c: SpineConfig): boolean =>
   Bool.or(Bool.and(Predicate.isNotUndefined(c.layout), c.layout !== false), Predicate.isNotUndefined(c.layoutId))
 
 /** A mount animation's template field (#443): left out with none, as its key reads it. */
-export const templateField = (template: WardConfig["transformTemplate"]): { readonly template?: WardConfig["transformTemplate"] } =>
+export const templateField = (template: SpineConfig["transformTemplate"]): { readonly template?: SpineConfig["transformTemplate"] } =>
   UndefinedOr.match(template, { onUndefined: () => ({}), onDefined: (t) => ({ template: t }) })
 
