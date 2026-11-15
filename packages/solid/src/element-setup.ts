@@ -32,6 +32,7 @@ import * as Rec from "effect/Record"
 import { type DomHandoff, type Handoff, keyOf, type MountAnimation, repeatsForever } from "./appear.ts"
 import type { WardConfig } from "./config.ts"
 import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
+import type { ValueReads } from "./runtime.ts"
 import { baseLog, type Snapshot, type SpineDiagnostics, type StartLinks } from "./spine.ts"
 
 /**
@@ -192,20 +193,41 @@ export const SPINE_DIAGNOSTICS: SpineDiagnostics = { checkHandoff, baseLog }
 // The DOM's ports, where an element's Environment gives none (#672, PR2-Q4): `DomLive` doesn't, so
 // only an app that animates an element ships them, through these.
 
-/** Its Environment's own values, else the DOM's. */
-export const ownValuesOr = (given: CoreOwnValues.Shape | undefined): CoreOwnValues.Shape => {
-  if (Predicate.isUndefined(given)) return DomValues.ownValues
+/** An element's reads of its values: its Environment's, else the DOM's. */
+export interface ElementValueReads {
+  readonly ownValues: CoreOwnValues.Shape
+  readonly measuredPairs: MeasuredPairs.Shape
+  readonly variableValues: VariableValues.Shape
+}
+
+/** The DOM's, for an Environment that gives none: `DomLive`'s. */
+const DOM_VALUE_READS: ElementValueReads = { ownValues: DomValues.ownValues, measuredPairs: DomValues.measuredPairs, variableValues: DomValues.variableValues }
+
+/** `given`, else the DOM's `dom`. */
+const orDom = <A>(given: A | undefined, dom: A): A => {
+  if (Predicate.isUndefined(given)) return dom
   return given
 }
 
-/** Its Environment's Measured pairs, else the DOM's. */
-export const measuredPairsOr = (given: MeasuredPairs.Shape | undefined): MeasuredPairs.Shape => {
-  if (Predicate.isUndefined(given)) return DomValues.measuredPairs
-  return given
-}
+/** Each other Environment's reads, the DOM's in its gaps, made at its first element. */
+// Module state (#460, Q7): one record per provider's reads, held weakly by them.
+const filled = new WeakMap<ValueReads, ElementValueReads>()
 
-/** Its Environment's Variable values, else the DOM's. */
-export const variableValuesOr = (given: VariableValues.Shape | undefined): VariableValues.Shape => {
-  if (Predicate.isUndefined(given)) return DomValues.variableValues
-  return given
+/**
+ * An element's reads of its values (PR2-Q6): its Environment's, the DOM's where it gives none. One
+ * record a provider, made at its first element: an element reads it with one context read, and makes
+ * nothing.
+ */
+export const valueReadsOf = (given: ValueReads): ElementValueReads => {
+  // Per element at mount (#540): statements. `DomLive` gives none: the DOM's, with no lookup.
+  if (Bool.and(Predicate.isUndefined(given.ownValues), Bool.and(Predicate.isUndefined(given.measuredPairs), Predicate.isUndefined(given.variableValues)))) return DOM_VALUE_READS
+  const kept = filled.get(given)
+  if (Predicate.isNotUndefined(kept)) return kept
+  const reads: ElementValueReads = {
+    ownValues: orDom(given.ownValues, DomValues.ownValues),
+    measuredPairs: orDom(given.measuredPairs, DomValues.measuredPairs),
+    variableValues: orDom(given.variableValues, DomValues.variableValues),
+  }
+  filled.set(given, reads)
+  return reads
 }

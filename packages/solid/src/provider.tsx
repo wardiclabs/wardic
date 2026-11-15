@@ -14,9 +14,6 @@
 import type * as DefaultTransition from "@wardic/core/DefaultTransition"
 import type * as InputFeed from "@wardic/core/InputFeed"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
-import type * as MeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
-import type * as OwnValues from "@wardic/core/unstable/OwnValues"
-import type * as VariableValues from "@wardic/core/unstable/VariableValues"
 import type * as Renderer from "@wardic/core/Renderer"
 import type * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
@@ -56,6 +53,7 @@ import {
   type WardicRuntime,
   type WardicServices,
   whenIdle,
+  type ValueReads,
 } from "./runtime.ts"
 import { WAITING_ENV_FIX, WAITING_ENV_LINE } from "./messages.ts"
 import { warnWithoutSpans } from "./spans-check.ts"
@@ -374,19 +372,13 @@ export function useWardicPositionalKeys(): ReducedMotion.PositionalKeys["Service
   return fromContext(useContext(WardicContext), "useWardicPositionalKeys", (value) => value.positionalKeys)
 }
 
-/** The Environment's reads of its Subjects' own values (#672): what each element's spine and Live style read a value with; `undefined` when it gives none (`element-setup.ts`' fallback). Internal. */
-export function useWardicOwnValues(): OwnValues.Shape | undefined {
-  return fromContext(useContext(WardicContext), "useWardicOwnValues", (value) => value.ownValues)
-}
-
-/** The Environment's Measured pairs (#430, #672): what each element's spine measures a key whose ends don't blend with; `undefined` when it gives none. Internal. */
-export function useWardicMeasuredPairs(): MeasuredPairs.Shape | undefined {
-  return fromContext(useContext(WardicContext), "useWardicMeasuredPairs", (value) => value.measuredPairs)
-}
-
-/** The Environment's Variable values (#55, #672): what each element's spine resolves a `var()` with; `undefined` when it gives none. Internal. */
-export function useWardicVariableValues(): VariableValues.Shape | undefined {
-  return fromContext(useContext(WardicContext), "useWardicVariableValues", (value) => value.variableValues)
+/**
+ * The Environment's reads of its Subjects' values (#672): its own values, Measured pairs and Variable
+ * values, each `undefined` when it gives none (`element-setup.ts`' `valueReadsOf` fills them with the
+ * DOM's). Internal.
+ */
+export function useWardicValueReads(): ValueReads {
+  return fromContext(useContext(WardicContext), "useWardicValueReads", (value) => value.valueReads)
 }
 
 /**

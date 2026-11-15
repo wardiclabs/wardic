@@ -105,7 +105,7 @@ import { settingOf, type WardicConfigValue } from "../../wardic-config-value.ts"
 import { type PresenceSeed, presenceBlocksInitial, presenceHold, presenceSeedOf } from "../../presence-record.ts"
 import { handoffOf, setsAnimation } from "../../appear.ts"
 import { appearEntryOf, claimForDrag, draggingWithWillChange, type ElementSpine, type ElementSpineOptions, flagStartingStyle, isLayoutNode, makeElementSpine, makeReuse, exitConfigOf, exitTargetOf, presenceTreeOf, NO_EXIT_CONFIG, madeWith, presenceRecordOf, recordFrameOf, registryOf, type Resolution, resolutionOf, sameResolution, snapshotOf, type SpineDiagnostics, startOf, warnDroppedTransform, withOnUpdate } from "../../spine.ts"
-import { SPINE_DIAGNOSTICS, drawnAtRest, followTemplate, heldTransformFor, registeredValuesOf, releasingAppear, restingOf, serverStartingStyle, startLinksOf, ownValuesOr, measuredPairsOr, variableValuesOr } from "../../element-setup.ts"
+import { SPINE_DIAGNOSTICS, drawnAtRest, followTemplate, heldTransformFor, registeredValuesOf, releasingAppear, restingOf, serverStartingStyle, startLinksOf, valueReadsOf } from "../../element-setup.ts"
 import { applyDragDefaults, dragAxisOf, dragDefaultsOf } from "../../drag-defaults.ts"
 import { inheritedContext, serverVariantNode, startsAtAnimate, startsQuiet, type WardicVariantContextValue } from "../../variant-tree.ts"
 import { followAtom } from "./bridge.tsx"
@@ -113,9 +113,7 @@ import {
   appearStyle,
   useWardicAppear,
   useWardicGate,
-  useWardicMeasuredPairs,
-  useWardicOwnValues,
-  useWardicVariableValues,
+  useWardicValueReads,
   useWardicPositionalKeys,
   useWardicDefaultTransition,
   useBuiltProjection,
@@ -935,9 +933,8 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const positionalKeys = useWardicPositionalKeys()
   const defaultTransition = useWardicDefaultTransition()
   // How a value is read in the Environment's own terms (#672).
-  const ownValues = ownValuesOr(useWardicOwnValues())
-  const measuredPairs = measuredPairsOr(useWardicMeasuredPairs())
-  const variableValues = variableValuesOr(useWardicVariableValues())
+  // Its value reads (PR2-Q6): one context read.
+  const { ownValues, measuredPairs, variableValues } = valueReadsOf(useWardicValueReads())
   const owner = getOwner()
   const reactivity = reactivityIn(owner)
   const registry = registryOf(runtime)
@@ -1984,7 +1981,7 @@ const readServerStyle = (value: unknown): unknown => readLive(value, serverRegis
  */
 const serverWard = (config: WardConfig, internal: WardInternals): Ward => {
   // A server's own values: the DOM's, its context's constant (#672).
-  const ownValues = ownValuesOr(useWardicOwnValues())
+  const ownValues = valueReadsOf(useWardicValueReads()).ownValues
   createUniqueId()
   const view = configuredView(WARD_VIEW.of(config, internal.fixed), useWardicConfig())
   // A key still loading (#257 item 1): one setup fixes is the client's error here too. One the ward

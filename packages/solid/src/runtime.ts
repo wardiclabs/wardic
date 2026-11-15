@@ -97,6 +97,19 @@ export const SERVER_DEFAULT_TRANSITION: DefaultTransition.DefaultTransition["Ser
  * The value a `WardicProvider` carries down the tree: the single Effect runtime
  * plus the provider-owned flush gate (ADR-0006) built atop it.
  */
+/**
+ * An Environment's reads of its Subjects' values (#672): its own values, Measured pairs and Variable
+ * values, each `undefined` when it gives none.
+ */
+export interface ValueReads {
+  readonly ownValues: OwnValues.Shape | undefined
+  readonly measuredPairs: MeasuredPairs.Shape | undefined
+  readonly variableValues: VariableValues.Shape | undefined
+}
+
+/** No reads: a server's, whose elements read the DOM's (#672). */
+const NO_VALUE_READS: ValueReads = { ownValues: undefined, measuredPairs: undefined, variableValues: undefined }
+
 export interface WardicContextValue {
   readonly runtime: WardicRuntime
   readonly gate: FlushGate.Shape
@@ -123,15 +136,11 @@ export interface WardicContextValue {
   /** The Environment's Default transition (ADR-0051), read once: what a key with no transition of its own runs on. */
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
   /**
-   * The Environment's reads of its Subjects' own values (#672), read once: what a key's start is
-   * coerced with, and a `style` read through. `undefined` when it gives none: a DOM binding's element
-   * code then reads the DOM's (PR2-Q4).
+   * The Environment's reads of its Subjects' values (#672), read once: its own values, Measured pairs
+   * and Variable values, each `undefined` when it gives none, so a DOM binding's element code reads
+   * the DOM's (PR2-Q4). One record, so an element reads them with one context read (PR2-Q6).
    */
-  readonly ownValues: OwnValues.Shape | undefined
-  /** The Environment's Measured pairs (#430, #672), read once: `undefined` when it gives none, as `ownValues`. */
-  readonly measuredPairs: MeasuredPairs.Shape | undefined
-  /** The Environment's Variable values (#55, #672), read once: `undefined` when it gives none, as `ownValues`. */
-  readonly variableValues: VariableValues.Shape | undefined
+  readonly valueReads: ValueReads
   /**
    * The Environment's Renderer (ADR-0003), read once: what each element and presence projects its
    * values with and commits them through.
@@ -163,9 +172,7 @@ interface Built {
   readonly reducedMotionUnder: (setting: ReducedMotion.Config | undefined) => boolean
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
-  readonly ownValues: OwnValues.Shape | undefined
-  readonly measuredPairs: MeasuredPairs.Shape | undefined
-  readonly variableValues: VariableValues.Shape | undefined
+  readonly valueReads: ValueReads
   readonly renderer: Renderer.Renderer["Service"]
 }
 
@@ -218,7 +225,7 @@ export const clientContext = (
     const variableValues = Option.getOrUndefined(runtime.runSync(Effect.serviceOption(VariableValues.VariableValues)))
     // The Renderer every element projects and commits through (ADR-0003), read once too.
     const renderer = runtime.runSync(Renderer.Renderer)
-    built = { gate, reducedMotion: applies, reducedMotionUnder: under, positionalKeys, defaultTransition, ownValues, measuredPairs, variableValues, renderer }
+    built = { gate, reducedMotion: applies, reducedMotionUnder: under, positionalKeys, defaultTransition, valueReads: { ownValues, measuredPairs, variableValues }, renderer }
     return built
   }
   // What the `layout` Feature builds its projection system with (#511): reduced motion read as each
@@ -258,14 +265,8 @@ export const clientContext = (
     get defaultTransition() {
       return build().defaultTransition
     },
-    get ownValues() {
-      return build().ownValues
-    },
-    get measuredPairs() {
-      return build().measuredPairs
-    },
-    get variableValues() {
-      return build().variableValues
+    get valueReads() {
+      return build().valueReads
     },
     get renderer() {
       return build().renderer
@@ -320,9 +321,7 @@ export const serverContext = (env: WardicEnv, waiting: string, appear: ServerApp
     positionalKeys: SERVER_POSITIONAL_KEYS,
     defaultTransition: SERVER_DEFAULT_TRANSITION,
     // None: a server's elements fall back to the DOM's (#672, PR2-Q4).
-    ownValues: undefined,
-    measuredPairs: undefined,
-    variableValues: undefined,
+    valueReads: NO_VALUE_READS,
     appear,
     instant: NO_INSTANT,
   }
