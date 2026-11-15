@@ -50,11 +50,11 @@ Read at `3538869` (1.1.0, 2026-11-14). Line counts are that commit's, of the fil
 | `gesture-info.ts`, `drag-controls.ts`, `drag-constraints.ts` | 81, 94, 103 | 1 |
 | `element-setup.ts` → `ElementSetup`, `drag-defaults.ts` → `DragDefaults` (PR2-Q3), out of `spine.ts` in PR 2, with the spine's DOM-only helpers since PR 4 (PR4-Q2) | 159, 55 | 5 |
 | `live-style.ts` → `LiveStyle` (PR3-Q1: the DOM's `style` prop) | 471 | 3 |
-| the rest of `appear.ts`, its server sampler and the DOM's Handoff reads, with `server-interpolators.ts` (PR4-Q3: with its importers; its module or modules named then) | ~750, 33 | 5 |
-| `batch.ts` → `BatchMembers` (core has `Batch`), `batch-handoff.ts` → `BatchHandoff` | 3,078, 73 | 5 |
-| the filler half of `member-hold.ts` (Q14) | ~210 | 5 |
-| `imperative.ts` (Q13: the DOM's `animate`, its Subjects elements and selectors) | 1,052 | 5 |
-| `presence-controller.ts` | 1,732 | 5 |
+| the rest of `appear.ts` → `AppearAnimations` (PR5-Q2: its server sampler, the key and the DOM's Handoff reads), `server-interpolators.ts` → `ServerInterpolators` | ~750, 33 | 5 |
+| `batch.ts` → `BatchMembers` (core has `Batch`), `batch-handoff.ts` → dom's `internal/batch-handoff.ts` (only the Batch imports it) | 3,078, 73 | 5 |
+| the filler half of `member-hold.ts` (Q14) → `MemberHold` | ~210 | 5 |
+| `imperative.ts` → `Imperative` (Q13: the DOM's `animate`, its Subjects elements and selectors) | 1,052 | 5 |
+| `presence-controller.ts` → `PresenceController`, with the DOM's presence types (PR5-Q3) | 1,732 | 5 |
 | `feature.ts`, `gesture-features.ts`, `features/*` (15 files), `press.ts` | 491, 35, 549, 40 | 6 |
 | `owner-scope.ts`, `instant.ts` | 31, 90 | 6 |
 | `drag-track.ts`, `drag-transition.ts` | 955, 43 | 6 |
@@ -125,7 +125,7 @@ With dom in a program, every app's, each type is exactly what it was; core's own
 2. **Ports in place,** while the spine is still in solid: the three ports, the structural interfaces, `member-hold`'s slot into the spine, the bindings-only helpers out of it (built, below). The only PR with runtime changes.
 3. **The leaves:** core's lint, its lib and #609 met in place first (Q16), then `presence-record`, `variant-target`, `wardic-config-value`, `frame-time` and `retarget-legs` to core, and `live-style` to dom (PR3-Q1) (built, below).
 4. **The spine and what imports it:** `animation-controls`, `variant-tree`, the part of `appear` the spine reads, the gate, the Timelines' key, the spine; the moved files' comments rewritten without DOM names (#609) (built, below).
-5. **The Batch, `animate` and presence, to dom:** `BatchMembers`, `BatchHandoff`, the hold's filler, `imperative`, `presence-controller`, the rest of `appear` (PR4-Q3).
+5. **The Batch, `animate` and presence, to dom:** `BatchMembers` with its Handoff, the hold's filler, `imperative`, `presence-controller`, `element-setup`, `drag-defaults`, the rest of `appear` (PR4-Q3) (built, below).
 6. **The Features, to dom:** Q9's `PropFeature` and Q10's registry in place first, then `feature`, `gesture-features`, `features/*`, `press`, `owner-scope`, `instant`, the drag track, `layout-member`, `layout-group`, `ProjectionOptions`; **Feature**'s glossary wording; solid's re-exports with no importer left.
 
 **Every commit** passes typecheck, lint, `test`, `test:browser` and `size`. **Every PR** also runs `bench:solid` (paired base and head, after `wardic-quiet`), `bench:core` and `pack:check`; a bench that fails is bisected by commit, PR 2's by each port's commit (Q3).
@@ -218,7 +218,18 @@ Seventeen commits after its docs commit, each through every per-commit gate. Ele
 
 **`bench:solid`** (paired, 11 reps, after `wardic-quiet`): warm mount −0.7% [−2.7% – +2.1%] (Solid 1) and +0.3% [−1.6% – +0.9%] (Solid 2) against `main`, Retarget, restRetarget and unmount within ±1.4%, bytes −0.4% and +0.3%, retained flat, every layout scene within its gate. **`bench:core`** passes every workload on all three engines; Node's noise control (`ticksOnly`, the frame loop alone, which PR 4 doesn't touch) read +10.7%, +3.7%, +5.6% and −0.6% over four passes, the last of them passing. **`pack:check`** 37 of 37. **Size:** every app within ±0.0% gzipped of `main`, the budgets unchanged.
 
+## Built in PR 5
+
+Twelve commits after its docs commit, each through every per-commit gate. Four in place, then eight moves:
+
+1. **The Runner runs an effect to its Exit** (PR5-Q1): core's `Runner` gains `runSyncExit`, which `makeRunner` gives (`Effect.runSyncExitWith`) and a `ManagedRuntime` has, so a binding's runtime meets it as it is. `OwnerScope.close` takes a Runner (the plan's open item, closed); RN7 covers it.
+2. **The Batch and its gestures run on a Runner,** not Solid's runtime: its env, its Handoff, `batch-gestures` and `lazy-batch-gestures`, which only run on it.
+3. **An Environment's value reads (`ValueReads`) are `element-setup`'s,** beside `valueReadsOf`; `runtime.ts`, whose provider record holds them, takes them from there.
+4. **The DOM's presence types are the presence controller's** (PR5-Q3): `PresenceRecord`, `PresenceContextValue` and `PresenceWatch` over `Element`, the rest of the protocol named as core's there (`CorePresenceRecord`); solid's `presence-record.ts` re-exports core's protocol and the controller's three, so solid's public types are what they were. The Batch takes its presence's type from the controller.
+5. **The moves,** in dependency order: `ServerInterpolators`, `AppearAnimations` (PR5-Q2), `ElementSetup`, `DragDefaults`, `PresenceController`, `BatchMembers` with its Handoff to dom's `internal/batch-handoff.ts` (its lazy `import()` re-pointed, a chunk of its own as before; its `MOUNT_PATH_LOOPS` entry with it), `MemberHold`, `Imperative`. Each changes its imports into dom's form, its references qualified by the syntax tree (`move_to_dom`, the qualifier's dom mode, with a target per name where a solid module re-exports two homes), and its header, which names no Solid; the doc links the qualifying broke (`MountAnimation`, `MemberHold`, `ImperativeTrack`) name core's. solid's old paths re-export each.
+
+**`bench:solid`** (paired, 11 reps, after `wardic-quiet`): warm mount +1.5% [−0.6% – +3.4%] (Solid 1) and −2.6% [−4.4% – −0.8%] (Solid 2) against `main`, Retarget, restRetarget and unmount within ±1.2%, bytes +0.2% and +0.0%, retained flat, every layout scene within its gate. **`bench:core`** passes every workload on all three engines. **`pack:check`** 37 of 37. **Size:** every app within ±0.0% gzipped of `main`, the budgets unchanged. RT7 flaked once under the full suite (commit 4, a type's move) and passed 5 of 5 alone, and the suite on its rerun.
+
 ## Open
 
-- **`OwnerScope.close` on a Runner** (Q10, PR 5–6). It closes a Scope with `runSyncExit`, so a finalizer that suspends is reported, not thrown into Solid's cleanup (#618, decision 5). A Runner has `runSync` alone, and `runSync(Effect.exit(…))` throws on a suspending finalizer. Either the Runner gains `runSyncExit`, which `ManagedRuntime` has and `makeRunner` can give, or the close catches the throw.
-- **`appear.ts`'s rest, in dom** (PR 5, PR4-Q3): its server sampler (`keyOf`, `specOf`, `serverAppear`, `enterServer`, …) and the DOM's Handoff reads (`handoffOf`, `pageAnimationsOf`, `DomHandoff`) go with `element-setup`, `batch`, `batch-handoff` and `presence-controller`, which import them; one dom module or two, named then.
+- **Solid's names in dom** (PR 6). The modules dom took from solid still name it here and there, which a Foldkit app would read too: `LiveStyle`'s `CARRIED` is `Symbol.for("@wardic/solid/carried")`, the key solid's `live-style.ts` gave it; `BatchMembers`' error for a `transform` string says "Solid writes a string over what the Batch draws", and its env's `untrack` is "its binding's Solid's"; `PresenceController`'s docs name Solid about ten times. Each can say its binding, and the key dom, with PR 6's ids.
