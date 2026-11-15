@@ -2,7 +2,7 @@
  * A Retarget's legs as one pure builder (#48, ADR-0044 decision 8): which machines a Retarget
  * runs, each from where and on which transition, with nothing of the element's (its gate, its
  * Snapshot, its fibers). The spine runs each leg into its sinks; a server render samples a mount's
- * legs into an Appear animation's rule, so the two can't drift.
+ * legs into an Appear animation, so the two can't drift.
  *
  * - **Which transition** (ADR-0051, #357): a key runs on the transition it resolves to (#301), as
  *   Motion's: with none defined there, on its Environment's Default transition for it ({@link runOf}).
@@ -942,7 +942,7 @@ const mapMachineMatch: (input: { readonly leg: Leg; readonly f: MachineMap }) =>
 
 /**
  * `leg`, started `at()` seconds in (`Machine.startAt`): a Handoff's first legs, which pick up an
- * Appear animation where its CSS has got (#48, ADR-0044 decision 6).
+ * Appear animation where it has got (#48, ADR-0044 decision 6).
  */
 export const startingAt = (leg: Leg, at: LazyArg<number>): Leg => mapMachine(leg, Machine.startAt(at))
 

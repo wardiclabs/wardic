@@ -10,7 +10,7 @@
  *   reads its `MotionConfig`'s per element.
  * - **`skipAnimations`** (#468) makes every animation of the elements below a **Skipped animation**,
  *   Motion's `MotionConfig` `skipAnimations`, whatever their reduced motion.
- * - **`isValidProp`** (#443) keeps a tag's props it says aren't valid off its element, Motion's
+ * - **`isValidProp`** (#443) keeps the props it says aren't valid from being passed on, Motion's
  *   `MotionConfig` `isValidProp`.
  * - **`transformPagePoint`** (#443) maps the points a drag or a pan below it uses, Motion's
  *   `MotionConfig` `transformPagePoint`.
@@ -42,7 +42,7 @@ export interface WardicConfigValue {
    */
   readonly skipAnimations: () => boolean | undefined
   /**
-   * Which of a tag's own props reach its element (#443, Motion's `MotionConfig` `isValidProp`): its
+   * Which of an element's own props it passes on (#443, Motion's `MotionConfig` `isValidProp`): its
    * own, else an enclosing config's, else `undefined`, every one. Read as each element is made.
    */
   readonly isValidProp: () => ((key: string) => boolean) | undefined

@@ -173,7 +173,7 @@ const resolveOne = (entry: WardicVariant | string | undefined, variants: WardicV
   if (Bool.or(Predicate.isUndefined(definition), Bool.or(Predicate.isString(definition), Predicate.isFunction(definition)))) {
     return NO_TARGET
   }
-  // Its own transition is an object; a CSS `transition` string stays a value, as it was. Its
+  // Its own transition is an object; a `transition` string stays a value, as it was. Its
   // Transition end (#428) is an object too, which `toValues` leaves out of its values.
   const target = definition as { readonly transition?: unknown; readonly transitionEnd?: unknown }
   const transitionEnd = transitionEndOf(target.transitionEnd)

@@ -1,8 +1,8 @@
 /**
  * The time a key's velocity is read against (#464, Motion's `sync-time.ts`): its provider's Clock's
  * `now` (#460, Q7), read once per synchronous block and kept until a microtask clears it, so every
- * sink a tick runs, and a Retarget in the same task, read one time. A browser's is `performance.now()`;
- * a test Environment's, its own advances.
+ * sink a tick runs, and a Retarget in the same task, read one time: an Environment's own (`@wardic/dom`'s
+ * reads its runtime's clock; a test Environment's advances as its test says).
  *
  * @module
  */
@@ -37,7 +37,7 @@ const clockNows = new WeakMap<WardicServices.Runner<WardicServices.WardicService
 
 /**
  * The time a provider's elements read their velocities against (#460, Q7): its Environment's Clock's
- * `now` (#464's sync time in a browser; a test Environment's own advances), kept per runtime.
+ * `now` (#464's sync time, `@wardic/dom`'s or a test Environment's own), kept per runtime.
  */
 export const clockNowOf = (runtime: WardicServices.Runner<WardicServices.WardicServices>): (() => number) => {
   const kept = clockNows.get(runtime)

@@ -20,7 +20,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
  * the child's owner so the parent-driven exit reads them after the child leaves.
  */
 export interface PresenceRecord<E extends Subject.Subject = Subject.Subject> {
-  /** The child's root DOM element (the same `el` the spine wires). */
+  /** The child's root Subject (the same `el` the spine wires). */
   readonly element: E
   /** The latest emitted value-map, updated by the spine each frame. */
   readonly snapshot: { current: Values.Values }
@@ -38,10 +38,10 @@ export interface PresenceRecord<E extends Subject.Subject = Subject.Subject> {
    */
   readonly tree?: PresenceTree
   /**
-   * Where an exit key with no value in `snapshot` starts: its `style` value, else
-   * the element's Own value, read from the retained node at the exit, in the shape of `like`
-   * (the key's exit target). `undefined` starts it at its target. Optional: a record without
-   * it starts such a key at its target.
+   * Where an exit key with no value in `snapshot` starts: its value as the element was given it (in
+   * `@wardic/dom`, its `style`), else its Own value, read from the Subject kept at the exit, in the
+   * shape of `like` (the key's exit target). `undefined` starts it at its target. Optional: a record
+   * without it starts such a key at its target.
    */
   readonly startOf?: ((key: string, like: number | string) => number | string | undefined) | undefined
   /**
@@ -104,11 +104,11 @@ export interface PresenceTree {
   readonly twin: boolean
 }
 
-/** The value `<AnimatePresence>` publishes to descendant `createWard` spines. */
+/** The value a presence publishes to the spines below it. */
 export interface PresenceContextValue<E extends Subject.Subject = Subject.Subject> {
   /**
    * Register a child's live record. Returns a disposer the registrant MAY call,
-   * but the child does NOT call it on its own `onCleanup` — `<AnimatePresence>`
+   * but the child does NOT call it on its own cleanup — the presence
    * removes the registration after the exit completes.
    */
   readonly register: (rec: PresenceRecord<E>) => () => void
@@ -119,8 +119,8 @@ export interface PresenceContextValue<E extends Subject.Subject = Subject.Subjec
    */
   readonly blocksInitial?: () => boolean
   /**
-   * Whether an element setting up now is inside a child `mode="wait"` holds off the page: `undefined`
-   * when it isn't, and it starts now. Else `start` is called once the child is on the page, and the
+   * Whether an element setting up now is inside a child `mode="wait"` holds back: `undefined`
+   * when it isn't, and it starts now. Else `start` is called once the child is shown, and the
    * call returned cancels that (the element gone first). Optional: left out, never.
    */
   readonly hold?: (el: E, start: () => void) => (() => void) | undefined
@@ -133,7 +133,7 @@ export interface PresenceContextValue<E extends Subject.Subject = Subject.Subjec
   readonly data?: () => unknown
   /**
    * A Wardic element made: its `key` and whether it's a twin, told as its element is
-   * made, before the presence decides what goes on the page (so `mode="wait"` doesn't hold a child
+   * made, before the presence decides what it shows (so `mode="wait"` doesn't hold a child
    * back under its key), and before any of its child's wards mount (so the elements inside pair).
    * Optional: left out, no child is keyed.
    */
@@ -160,7 +160,7 @@ export const presenceSeedOf = <E extends Subject.Subject>(presence: PresenceCont
 /**
  * What a presence hook registers (#277's PR 5b, ADR-0048): its element, whose leaving child it
  * belongs to, and what it's told. Kept until that child goes, the presence goes, or its element
- * leaves the page some other way.
+ * goes some other way.
  */
 export interface PresenceWatch<E extends Subject.Subject = Subject.Subject> {
   /** Its element, once it has one: the child that holds it is the one it belongs to. */
@@ -191,7 +191,7 @@ export const presenceBlocksInitial = <E extends Subject.Subject>(presence: Prese
   })
 
 /**
- * Whether `el` waits for its child to go on the page ({@link PresenceContextValue.hold}): the call
+ * Whether `el` waits for its child to be shown ({@link PresenceContextValue.hold}): the call
  * that cancels `start`, or `undefined` when it starts now.
  */
 export const presenceHold = <E extends Subject.Subject>(presence: PresenceContextValue<E> | undefined, el: E, start: () => void): (() => void) | undefined =>
