@@ -143,7 +143,7 @@ export const splitValues = (v: object | undefined, at: StopAt): SplitValues => {
  * `toValues`'.
  *
  * @example
- * Stops.valuesAt({ opacity: [0, 0.5, 1], x: 10 }, "first") // { x: 10, opacity: 0 }
+ * valuesAt({ opacity: [0, 0.5, 1], x: 10 }, "first") // { x: 10, opacity: 0 }
  */
 // **Keyframes** (#429); one pass (#452).
 export const valuesAt = (v: object | undefined, at: StopAt): Values.Values => {
@@ -158,7 +158,7 @@ export const valuesAt = (v: object | undefined, at: StopAt): Values.Values => {
  * `null`. None when it has none, so a target without any makes nothing.
  *
  * @example
- * Stops.keyframesOf({ opacity: [0, 0.5, 1], x: 10 }) // { opacity: [0, 0.5, 1] }
+ * keyframesOf({ opacity: [0, 0.5, 1], x: 10 }) // { opacity: [0, 0.5, 1] }
  */
 // **Keyframes** (#429).
 export const keyframesOf = (v: object | undefined): Option.Option<Readonly<Record<string, Stops>>> => splitValues(v, "last").keyframes
@@ -211,7 +211,7 @@ const entryOf: (entry: Entry) => Values.Values = Match.type<Entry>().pipe(
  * at setup: the starting style is where it starts, never a live target.
  *
  * @example
- * Stops.resolveInitial({ initial: false, animate: { opacity: 1 } }) // { opacity: 1 }
+ * resolveInitial({ initial: false, animate: { opacity: 1 } }) // { opacity: 1 }
  */
 // #134, Motion's `initial={false}`; **Keyframes** (#429, Motion's `use-visual-state.ts`).
 export const resolveInitial = (config: InitialConfig): Values.Values => {

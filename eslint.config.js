@@ -246,6 +246,9 @@ const MOUNT_PATH_LOOPS = ["packages/dom/src/internal/starting-style.ts", "packag
 // #672: the Starting style's filter moved to core with `unstable/Stops`.
 const CORE_MOUNT_PATH_LOOPS = ["packages/core/src/unstable/Stops.ts"]
 
+/** Core's rules without its loop rule: the per-frame files' and core's mount-path files'. */
+const CORE_KEEPS_LOOPS = [...BRANCHES, ...CHECKS, ...ALIASES, ...SPANS, ...BOOL_OPERANDS, ...EVENT_NAMES]
+
 export default defineConfig([
   { ignores: ["**/dist/**"] },
   {
@@ -261,7 +264,7 @@ export default defineConfig([
   {
     files: PER_FRAME_LOOPS,
     rules: {
-      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...ALIASES, ...SPANS, ...BOOL_OPERANDS, ...EVENT_NAMES],
+      "no-restricted-syntax": ["error", ...CORE_KEEPS_LOOPS],
     },
   },
   {
@@ -354,7 +357,7 @@ export default defineConfig([
     // Core's mount-path files keep a loop at their marked sites (#540), and core's other rules.
     files: CORE_MOUNT_PATH_LOOPS,
     rules: {
-      "no-restricted-syntax": ["error", ...BRANCHES, ...CHECKS, ...ALIASES, ...SPANS, ...BOOL_OPERANDS, ...EVENT_NAMES],
+      "no-restricted-syntax": ["error", ...CORE_KEEPS_LOOPS],
     },
   },
   {

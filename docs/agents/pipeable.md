@@ -50,6 +50,13 @@ A Primitive is its machine, built by its constructor in the `Machine` module (`M
 - **The DOM's implementations of core's services** take Effect's platform prefix and hold their Layer: `DomRenderer.layer`, `DomInput`, `DomProbe`, `DomScrollSource`, `DomClock`, `DomAnnouncer`, `DomInterpolators`, `DomPositionalKeys`, `DomDefaultTransition`. `DomKeyRules` takes the prefix too, but holds no Layer: its Key rules are what `DomInterpolators.layer` installs.
 - **dom's own concepts** take the glossary's names: `FlushGate`, `ProjectionSystem`, `ReorderController`, `Style`, `Svg`, `Color`, `Variables`, `OwnValues`, `KeyboardPress`, `Report`. No dom module repeats a core module's name.
 - **A member drops its module's noun:** `FlushGate.make`, `FlushGate.inert`, `Style.starting`.
+
+## `unstable/` modules (ADR-0071, decision 5; #672)
+
+Core's and dom's `unstable/<Module>` subpaths hold the code a second binding needs, lifted out of `@wardic/solid`: public, with no semver promise, for Wardic's own packages. A module there keeps the shape it had where it came from (#672's build grill, Q5): its names, its exports and its signatures, so rules 1–4 and dom's naming above don't reshape it until it leaves `unstable/`, if it ever does.
+- **Named for its file,** in PascalCase (`spine.ts` → `Spine`), with no `Dom` prefix; a file that splits is named for each half (`Stops`, `Config` and `WardConfig`). Its members keep their names, the module's noun included (`DragControls.createDragControls`).
+- **A Tier 2 face may re-export one under its own name:** `@wardic/dom/Report` re-exports `@wardic/core/unstable/Report`, `@wardic/dom/Style` re-exports `unstable/Stops`, so dom repeats core's `Report` there by design.
+- **Imported as any subpath is** (rule 5): `import * as WardicServices from "@wardic/core/unstable/WardicServices"`, relatively inside core.
 - **Long-lived parts are services built by Layers,** ended by their Scope, with plain functions per frame. A part made per use, such as a Reorder group's controller, is a scoped constructor over the context (`ReorderController.make`). A server's stand-ins are values (`FlushGate.inert`), plus a Layer for an Effect-run server.
 - **Pure helpers are `dual` functions over plain records,** read left to right, the top layer first: `pipe(user, Style.over(defaults))` lays the user's style over the defaults.
 

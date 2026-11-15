@@ -102,12 +102,13 @@ Why: Effect's `dual` keeps its first argument for the data-last closure it might
 Code that runs **once per element as it mounts** follows the hot path's rules, but at a site a profile shows with a measurable helper cost (#540; ADR-0025, *Amendment (#540)*). There, plain statements and loops take the place of Effect's helpers: an `if` with an early return, a `let` set in a guard, a `for … of`, where the site had an `UndefinedOr.match`, a `Match.type`, a `Bool.match`, an `Arr.reduce` or a `Rec.filter`.
 
 - **Each site is marked** with a comment saying so: `// Per element at mount (#540): statements.`, or `a loop.`
-- **A file whose site loops is listed** in `eslint.config.js` (`MOUNT_PATH_LOOPS`), beside the per-frame files. Lint lets it keep a `for` and holds the rest; its other code follows the full rules by review.
+- **A file whose site loops is listed** in `eslint.config.js` (`MOUNT_PATH_LOOPS`; core's in `CORE_MOUNT_PATH_LOOPS`, under core's rules otherwise), beside the per-frame files. Lint lets it keep a `for` and holds the rest; its other code follows the full rules by review.
 - **Everything else stays Effect-first.** Ternaries stay banned, and `??`, `?.`, `=== undefined` and `typeof` too: a site checks with `Predicate`.
 - **A new site needs a profile behind it,** and a mount measured before and after (`bench:solid --base main`, or #519's harness for a cold mount).
 
 **The sites (#540):**
-- `@wardic/dom`'s Starting style (`internal/starting-style.ts`): the values filter `valuesAt` and `splitValues` share (`filtered`), `resolveInitial`, the style's layering (`over`, `recordOf`, `recordOfInput`) and its held keys (`without`, `isHeld`);
+- core's starting values (`unstable/Stops`, dom's Starting style's pure half until #672): the values filter `valuesAt` and `splitValues` share (`filtered`), and `resolveInitial`;
+- `@wardic/dom`'s Starting style (`internal/starting-style.ts`): the style's layering (`over`, `recordOf`, `recordOfInput`) and its held keys (`without`, `isHeld`);
 - solid's config build (`configBuildOf`, `motion-props.ts`) and its variant tree's `inheritedContext` and `startingValuesOf`;
 - core's `ReducedMotion.applies`.
 - solid's `batch.ts` (#665): a Batch's per-member loops at creation and at each change, as core's change (ADR-0025, *Amendment (#665)*).
