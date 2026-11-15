@@ -1781,17 +1781,10 @@ export const recordFrameOf = (presence: PresenceRecord | undefined): ((value: Va
   if (Predicate.isNotUndefined(presence)) Object.assign(presence.snapshot.current, value)
 }
 
-/**
- * Turn the element's will-change value on (#443, Motion's `addValueToWillChange`) when its `style`
- * gives it one and one of `legs` animates a transform key or one a browser composites. A key already
- * at its target starts no leg (#448), and a layout animation runs none, so neither does. Per start:
- * a lookup in its routed keys, none for a style that routes nothing.
- */
-export const turnWillChangeOn = (live: LiveRoutes | undefined, legs: ReadonlyArray<Leg>): void => {
+/** Tell an element's Live routes the legs a Retarget starts ({@link LiveRoutes.started}): nothing for an element with none. */
+export const tellStarted = (live: LiveRoutes | undefined, legs: ReadonlyArray<Leg>): void => {
   if (Predicate.isUndefined(live)) return
-  const turnOn = live.willChange()
-  if (Predicate.isUndefined(turnOn)) return
-  if (Arr.some(legs, (leg) => Arr.some(Rec.keys(leg.to), live.turnsWillChangeOn))) turnOn()
+  live.started(legs)
 }
 
 // A Batch member's hold's slot (#665, #746; #672's Q14: the spine's, so it reads no Batch code).
@@ -1854,8 +1847,8 @@ export const tellDrag = (element: Element, on: boolean): void => {
 
 /**
  * What a spine calls of its element's Live values routed through its binding's props (#130, ADR-0043):
- * the routed keys' values now, and each one's change and removal as they come; and Motion's
- * will-change, which a leg on a key its Environment accelerates turns on (#443).
+ * the routed keys' values now, and each one's change and removal as they come; and the legs each
+ * Retarget starts, which its binding's routes may act on (the DOM's turns its will-change on, #443).
  */
 // #672 (PR3-Q1): the spine names what it calls, so it reads no `style` code; dom's LiveStyle meets it.
 export interface LiveRoutes {
@@ -1864,8 +1857,7 @@ export interface LiveRoutes {
   readonly valueOf: (key: string) => Option.Option<unknown>
   readonly isLive: (key: string) => boolean
   readonly atomOf: (key: string) => Atom.Atom<unknown> | undefined
-  readonly willChange: () => (() => void) | undefined
-  readonly turnsWillChangeOn: (key: string) => boolean
+  readonly started: (legs: ReadonlyArray<Leg>) => void
   readonly whenRouted: (setup: () => LiveFollower) => void
   readonly stop: () => void
 }
@@ -2051,7 +2043,7 @@ export interface SpineHost {
   readonly forget: (running: Running) => void
   /** End a leg where it is. */
   readonly endLeg: (running: Running) => void
-  /** Its routed `style` keys (#130), whose will-change a leg turns on. */
+  /** Its routed `style` keys (#130), told the legs each Retarget starts. */
   readonly live: LiveRoutes | undefined
   /** A leg's keys owned by it. */
   readonly own: (running: Running) => void
@@ -3010,7 +3002,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         }))
     }
     // Its `style`'s will-change value turns on as a leg starts a key Motion's would (#443).
-    turnWillChangeOn(live, retargetLegs)
+    tellStarted(live, retargetLegs)
     // The element's Key rules only for a change a Variable value is in (#542).
     const variables = holdsVariable(variableValues, from, fresh, manyStops)
     // Each leg into its sink, in the builder's order (#69's PR 2: a Retarget is per element). Each

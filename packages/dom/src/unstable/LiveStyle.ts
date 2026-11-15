@@ -43,6 +43,7 @@ import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Config from "@wardic/core/unstable/Config"
 import type * as Reactivity from "@wardic/core/unstable/Reactivity"
+import type * as RetargetLegs from "@wardic/core/unstable/RetargetLegs"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /**
@@ -250,9 +251,15 @@ export interface LiveStyle {
    * `willChange` or `will-change`; `undefined` otherwise, at once for a style that routes nothing.
    */
   readonly willChange: () => (() => void) | undefined
-  /** Whether a leg on `key` turns its element's will-change on: a transform key, or another the compositor draws (#443). */
-  // #672 (PR3-Q1): its own, so the spine asks it and reads no `style` code.
-  readonly turnsWillChangeOn: (key: string) => boolean
+  /**
+   * Told the legs a Retarget starts: turns its element's will-change on (#443, Motion's
+   * `addValueToWillChange`) when its style gives it a `createWillChange` value and one of `legs`
+   * animates a transform key or another the compositor draws. A key already at its target starts no
+   * leg (#448), and a layout animation runs none, so neither does. Per start: a lookup in its routed
+   * keys, none for a style that routes nothing.
+   */
+  // #672 (PR4-Q1): the will-change decision is the DOM's, so the spine, in core, names none of it.
+  readonly started: (legs: ReadonlyArray<RetargetLegs.Leg>) => void
   /** A style value read now, live or not. */
   readonly read: (value: unknown) => unknown
   /**
@@ -355,8 +362,10 @@ const reconcile = (self: State, next: Readonly<Record<string, unknown>>): void =
 }
 
 const Proto: Omit<LiveStyle, never> & ThisType<State> = {
-  turnsWillChangeOn(key) {
-    return turnsWillChangeOn(key)
+  started(legs) {
+    const turnOn = this.willChange()
+    if (Predicate.isUndefined(turnOn)) return
+    if (Arr.some(legs, (leg) => Arr.some(Rec.keys(leg.to), turnsWillChangeOn))) turnOn()
   },
   css(user) {
     // The same style object as last time: the same answer (Solid may read `style` more than once).
