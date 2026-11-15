@@ -1,9 +1,9 @@
 /**
- * Where a binding's failure stops (ADR-0030, decision 4): `failure` logs it at Error and
- * reports it to the Environment's `ErrorReporter`s. Core doesn't report: the Frame loop hands each
- * run's failure to its caller (ADR-0027, decision 7), and a Tier 2 caller may recover. A binding
- * boundary that ends a fiber nobody observes calls this, so a failure there reaches the console
- * and an app's reporters instead of stopping its feature with nothing said.
+ * Where a binding's failure stops: `failure` logs it at Error and reports it to the Environment's
+ * `ErrorReporter`s. Core's engine doesn't report: the Frame loop hands each run's failure to its
+ * caller, and a Tier 2 caller may recover. A binding boundary that ends a fiber nobody observes calls
+ * this, so a failure there reaches the console and an app's reporters instead of stopping its feature
+ * with nothing said.
  *
  * An app installs its reporters on the Environment it hands the provider,
  * `ErrorReporter.layer([…])` merged into `env`; Wardic ships none. With none installed, a report
@@ -11,8 +11,14 @@
  * `ErrorReporter.make` dedupes a cause and its original error, so a failure that crosses two
  * boundaries reports once: pass the cause on as it came, never wrapped.
  *
- * Tier 2 (ADR-0008): for binding authors.
+ * Unstable, for Wardic's own packages: public, with no semver promise. Binding authors import
+ * `@wardic/dom/Report`, which re-exports it.
+ *
+ * @module
  */
+// ADR-0030, decision 4 (the Frame loop's hand-off: ADR-0027, decision 7). Unstable: ADR-0071,
+// decision 5. #672 (ADR-0030, *Amendment (#672)*): moved from dom's `internal/report.ts`, so the spine
+// reports from core once it's lifted there.
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"

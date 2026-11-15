@@ -56,7 +56,7 @@ import * as Str from "effect/String"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { documentOf, prepareAnnouncer } from "./announcer.ts"
 import { type AutoScroller, makeAutoScroller } from "./auto-scroll.ts"
-import * as Report from "./report.ts"
+import * as Report from "@wardic/core/unstable/Report"
 import { type Rect, revealLayoutOf, revealRectOf } from "./reveal.ts"
 import type { Runner } from "./runner.ts"
 

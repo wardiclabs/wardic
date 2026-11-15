@@ -122,7 +122,7 @@ import {
 import { DEFAULT_DRAG_TRANSITION, DEFAULT_LAYOUT_TRANSITION, type DragTransition, type LayoutTransition } from "./projection-defaults.ts"
 import { counted, watchPage, type Watched } from "./content-watch.ts"
 import { pending as appearRuns } from "./appear-slot.ts"
-import * as Report from "./report.ts"
+import * as Report from "@wardic/core/unstable/Report"
 import { blendRadius, borderRadiusCorrector, isUnitScale, SCALE_CORRECTORS, type ScaleCorrector, type ScaleCorrectorEntry, scaleRadius, ZERO_RADIUS } from "./scale-correction.ts"
 import { dashCase } from "./svg.ts"
 
