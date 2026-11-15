@@ -1,10 +1,10 @@
 /**
  * How an Environment reads a Subject's own values (**Own value**): a raw value in the shape of a
  * target, a key's value in the style a binding was given for its Subject, and that style as a record.
- * One of the Environment's optional members. An Environment that isn't the DOM gives
- * one (`@wardic/test`'s `TestLive` a headless one); a DOM binding falls back to
+ * One of the Environment's optional members. An Environment other than `@wardic/dom`'s gives
+ * one (`@wardic/test`'s `TestLive` a headless one); a binding on `@wardic/dom` falls back to
  * `@wardic/dom/unstable/DomValues`' when its Environment gives none, so an app that never reads it
- * ships none of the DOM's.
+ * ships none of that code.
  *
  * Unstable, for Wardic's own packages: public, with no semver promise.
  *

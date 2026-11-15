@@ -1,10 +1,10 @@
 /**
  * How an Environment measures a key whose two ends are in units its interpolators can't blend
  * (**Measured pair**): whether a pair needs it, and its measure, whose result each pair reads once
- * it's done. One of the Environment's optional members. An Environment that isn't the DOM gives
- * one (`@wardic/test`'s `TestLive` a headless one); a DOM binding falls back to
+ * it's done. One of the Environment's optional members. An Environment other than `@wardic/dom`'s gives
+ * one (`@wardic/test`'s `TestLive` a headless one); a binding on `@wardic/dom` falls back to
  * `@wardic/dom/unstable/DomValues`' when its Environment gives none, so an app that never reads it
- * ships none of the DOM's.
+ * ships none of that code.
  *
  * Unstable, for Wardic's own packages: public, with no semver promise.
  *
