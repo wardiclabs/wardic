@@ -56,9 +56,9 @@ import * as Str from "effect/String"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { documentOf, prepareAnnouncer } from "./announcer.ts"
 import { type AutoScroller, makeAutoScroller } from "./auto-scroll.ts"
-import { debugOf } from "./report.ts"
+import * as Report from "@wardic/core/unstable/Report"
 import { type Rect, revealLayoutOf, revealRectOf } from "./reveal.ts"
-import type { Runner } from "./runner.ts"
+import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /**
  * The group element's style: no scroll anchoring, so the browser doesn't shift the
@@ -75,7 +75,7 @@ export const REORDER_GROUP_STYLE = Object.freeze({ "overflow-anchor": "none" } a
  */
 export interface ReorderControllerWiring {
   /** The runner the controller logs through and waits in. */
-  readonly runtime: Runner<never>
+  readonly runtime: WardicServices.Runner<never>
   /** The app changed `values`: have the items laid out in it, a Measure pass, or nothing for items the binding places itself. */
   readonly layOut: () => void
   /** Speak an **Announcement**: the Environment's `Announcer`. Left out, nothing is announced. */
@@ -259,7 +259,7 @@ export interface ReorderController<V> {
 /** Build a {@link ReorderController}: a **Reorder group** over `wiring.projection`'s nodes. */
 export const makeReorderController = <V>(wiring: ReorderControllerWiring, options: ReorderControllerOptions<V>): ReorderController<V> => {
   const { runtime, announce } = wiring
-  const debug = debugOf(runtime, "wardic.reorder")
+  const debug = Report.debugOf(runtime, "wardic.reorder")
   // Speak an Announcement, or nothing without an `announce`.
   const speak = UndefinedOr.match(announce, { onUndefined: () => constVoid, onDefined: identity })
   const keyboardOn = (): boolean => UndefinedOr.match(options.keyboard, { onUndefined: constTrue, onDefined: (on) => on() })

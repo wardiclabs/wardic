@@ -122,7 +122,7 @@ import {
 import { DEFAULT_DRAG_TRANSITION, DEFAULT_LAYOUT_TRANSITION, type DragTransition, type LayoutTransition } from "./projection-defaults.ts"
 import { counted, watchPage, type Watched } from "./content-watch.ts"
 import { pending as appearRuns } from "./appear-slot.ts"
-import { debugOf, reportFailure } from "./report.ts"
+import * as Report from "@wardic/core/unstable/Report"
 import { blendRadius, borderRadiusCorrector, isUnitScale, SCALE_CORRECTORS, type ScaleCorrector, type ScaleCorrectorEntry, scaleRadius, ZERO_RADIUS } from "./scale-correction.ts"
 import { dashCase } from "./svg.ts"
 
@@ -1728,7 +1728,7 @@ export const makeProjectionSystem = (
           const timing = timingOf(Option.getOrElse(node.transition(), () => DEFAULT_LAYOUT_TRANSITION))
           return { position: 0, elapsed: 0, spring: Spring.init({}), timing, started: false, landed: false, curve: curveOf(node) }
         } catch (defect) {
-          runtime.runFork(reportFailure("wardic.projection: layout transition rejected", Cause.die(defect)))
+          runtime.runFork(Report.failure("wardic.projection: layout transition rejected", Cause.die(defect)))
           return landedFlight()
         }
       },
@@ -1766,7 +1766,7 @@ export const makeProjectionSystem = (
     try {
       return releaseFrom(offset, velocity, transition)
     } catch (defect) {
-      runtime.runFork(reportFailure("wardic.projection: drag transition rejected", Cause.die(defect)))
+      runtime.runFork(Report.failure("wardic.projection: drag transition rejected", Cause.die(defect)))
       return releaseFrom(ZERO_POINT, ZERO_POINT, DEFAULT_DRAG_TRANSITION)
     }
   }
@@ -1902,7 +1902,7 @@ export const makeProjectionSystem = (
    * the logger is at Debug (observability convention: `wardic.*` + annotated debug
    * logs on lifecycle; the per-frame derive/step hot path stays SILENT).
    */
-  const debug = debugOf(runtime, "wardic.projection")
+  const debug = Report.debugOf(runtime, "wardic.projection")
 
   /**
    * Run `expire` at the end of the current task — the next microtask checkpoint,
@@ -1926,7 +1926,7 @@ export const makeProjectionSystem = (
         Microtask.next.pipe(
           Effect.map(expire),
           Effect.flatMap((outcome) => Effect.annotateCurrentSpan(outcome)),
-          Effect.tapCause((cause) => reportFailure(`wardic.projection: ${span} failed`, cause)),
+          Effect.tapCause((cause) => Report.failure(`wardic.projection: ${span} failed`, cause)),
           // The app's to give, with no call-site stack (#746; ADR-0040, decision 2).
           Spans.withSpan(span, { attributes }),
         ),
@@ -3769,7 +3769,7 @@ export const makeProjectionSystem = (
     try {
       hook()
     } catch (defect) {
-      runtime.runFork(reportFailure(`wardic.projection: an ${name} failed`, Cause.die(defect)))
+      runtime.runFork(Report.failure(`wardic.projection: an ${name} failed`, Cause.die(defect)))
     }
   }
 
@@ -4329,7 +4329,7 @@ export const makeProjectionSystem = (
       try {
         listener()
       } catch (defect) {
-        runtime.runFork(reportFailure("wardic.projection: pass-end listener failed", Cause.die(defect)))
+        runtime.runFork(Report.failure("wardic.projection: pass-end listener failed", Cause.die(defect)))
       }
     }
     // This task's Declared layout changes settle once the flights this pass started have ended (#191).
@@ -4430,7 +4430,7 @@ export const makeProjectionSystem = (
       runtime.runFork(
         Microtask.next.pipe(
           Effect.andThen(measurePass),
-          Effect.tapCause((cause) => reportFailure("wardic.projection: measure pass failed", cause)),
+          Effect.tapCause((cause) => Report.failure("wardic.projection: measure pass failed", cause)),
         ),
       ),
     )
@@ -4441,7 +4441,7 @@ export const makeProjectionSystem = (
     try {
       callback()
     } catch (defect) {
-      runtime.runFork(reportFailure(`wardic.projection: ${name} failed`, Cause.die(defect)))
+      runtime.runFork(Report.failure(`wardic.projection: ${name} failed`, Cause.die(defect)))
     }
   }
 
@@ -4541,7 +4541,7 @@ export const makeProjectionSystem = (
     if (resizeBlocked) return
     const measure = Bool.match(passQueued, { onTrue: () => measurePass, onFalse: () => declaredMeasure })
     const due = passQueued
-    runtime.runSync(measure.pipe(Effect.catchCause((cause) => reportFailure("wardic.projection: animateLayout's measure failed", cause))))
+    runtime.runSync(measure.pipe(Effect.catchCause((cause) => Report.failure("wardic.projection: animateLayout's measure failed", cause))))
     // The pass that ran was due at the end of the task: its queued fiber runs that pass now, after the callback.
     if (due) passQueued = true
     declared = true
@@ -5028,7 +5028,7 @@ export const makeProjectionSystem = (
     FiberSet.addUnsafe(
       taskFibers,
       runtime.runFork(
-        measurePass.pipe(Effect.tapCause((cause) => reportFailure("wardic.projection: blocked pass failed", cause))),
+        measurePass.pipe(Effect.tapCause((cause) => Report.failure("wardic.projection: blocked pass failed", cause))),
       ),
     )
   }
@@ -5157,14 +5157,14 @@ export const makeProjectionSystem = (
    * The coordinator's end, told apart (ADR-0027, decision 7): a settle, or an
    * interruption (a stop outside its step, the system's dispose), is nothing; anything
    * else (a step that threw, the Frame loop's own failure) is logged and reported
-   * (`reportFailure`, ADR-0030 decision 4). Its nodes then wait where the last step left
+   * (`Report.failure`, ADR-0030 decision 4). Its nodes then wait where the last step left
    * them, and the next trigger starts a fresh run.
    */
   const coordinatorEnded = (exit: Exit.Exit<unknown>): Effect.Effect<void> =>
     Exit.match(exit, {
       onSuccess: () => Effect.void,
       onFailure: (cause) =>
-        reportFailure("wardic.projection: coordinator failed", cause).pipe(Effect.annotateLogs({ active: active.size })),
+        Report.failure("wardic.projection: coordinator failed", cause).pipe(Effect.annotateLogs({ active: active.size })),
     })
 
   /** Whether the coordinator's run is on the Frame loop: its fiber is still in the handle. */
@@ -5765,7 +5765,7 @@ export const makeProjectionSystem = (
     if (Bool.some([disposed, inPass, passQueued, resizeBlocked, nodes.size === 0])) return
     refreshing = true
     refreshResized = resized
-    runtime.runSync(measurePass.pipe(Effect.catchCause((cause) => reportFailure("wardic.projection: refresh failed", cause))))
+    runtime.runSync(measurePass.pipe(Effect.catchCause((cause) => Report.failure("wardic.projection: refresh failed", cause))))
   }
 
   /**

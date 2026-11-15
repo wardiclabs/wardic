@@ -9,7 +9,7 @@
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Context from "effect/Context"
 import type { LiveStyle } from "./live-style.ts"
-import type { WardicRuntime } from "./runtime.ts"
+import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /** An element's keys' Timeline values, as its spine tells of them. */
 export interface TimelineKeys {
@@ -23,7 +23,7 @@ export interface TimelineKeys {
 
 /** What an element's {@link TimelineKeys} are made with. */
 export interface TimelineKeysOptions {
-  readonly runtime: WardicRuntime
+  readonly runtime: WardicServices.Runner<WardicServices.WardicServices>
   readonly gate: FlushGate.Shape
   readonly id: string
   readonly element: HTMLElement

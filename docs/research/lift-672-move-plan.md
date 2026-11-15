@@ -1,166 +1,164 @@
 # #672: the lift's move plan
 
-The spine and the Flush gate move out of `@wardic/solid` and `@wardic/dom` into core, behind ports (ADR-0069 decision 2). The Solid-free modules around them follow, placed by #561's round 6 (Q21, Q22). This is the plan, for review before any code.
+The spine and the Flush gate move out of `@wardic/solid` and `@wardic/dom` into core, behind ports, and the Solid-free modules around them follow (ADR-0069 decision 2, ADR-0071 decisions 4–8). `@wardic/foldkit` then drives each element through the same spine as Solid, with no Solid in sight.
 
-**Status:** accepted in #561's round 7 (Q28–Q32, 2026-11-09). Work starts after the grill ends (Q33).
+**Status:** refreshed by #672's build grill (2026-11-14, Q1–Q24, [issuecomment-6885943992](https://github.com/wardiclabs/wardic/issues/672#issuecomment-6885943992)), recorded in ADR-0071's *Amendment (#672)*. It replaces the plan #561's round 7 accepted, read at `15f723d` (2026-11-09). Since then #665, #712, #706, #746, #516, #680 and #240 changed 96 files in `packages/solid/src`.
 
-Read at `15f723d` (2026-11-09). Line counts are today's.
+Read at `3538869` (1.1.0, 2026-11-14). Line counts are that commit's, of the file a module comes from; a `~` is part of one.
 
-## What moves, by the import graph
+## The rule
 
-### Placed by Q21
+**A module moves only if a moved module imports it, or Foldkit's decided API needs it** (Q12). Solid-free code that only Solid calls stays in solid until a second binding needs it.
 
-| Module | Lines | Goes to |
+**What a move commit holds** (Q5, Q16):
+- **The code keeps its shape:** its names, its exports and its signatures, but where a port changes one. No reshaping into ADR-0028's form; that waits until a module leaves `unstable/`, if one ever does.
+- **Imports, and the moved files' docs for their new home.** An import takes the form the module's new home asks, a core module as a namespace (`pipeable.md`'s rule 5), and a moved file's header says where it lives now (and, in core, names no CSS or DOM, #609). Any other change the move needs (core's lint, a rename, a port, a retype) is a commit of its own before it, in the file where it is, so `git show --color-moved=dimmed-zebra` shows the move as a move. A split (`config.ts`) is a change, not a move, and says so.
+- **Names** (Q6): a module is named for its file, in PascalCase, with no `Dom` prefix (ADR-0041 keeps that for service implementations): `spine.ts` → `Spine`, `presence-controller.ts` → `PresenceController`. The exceptions are the files that split; they're named in the tables.
+
+## Where each module goes
+
+### To core, `@wardic/core/unstable/<Module>`
+
+| Module | Lines | PR |
 |---|---|---|
-| `spine.ts` | 3,423 | core |
-| `retarget-legs.ts` | 1,049 | core |
-| `variant-target.ts` | 240 | core |
-| `variant-tree.ts` | 638 | core |
-| `presence-record.ts` | 189 | core |
-| `live-style.ts` | 450 | core |
-| `imperative.ts` | 793 | core; since #746 it holds the Imperative track, over the spine's `SpineHost` |
-| `reactivity.ts` (the port) | 29 | core |
-| `presence-controller.ts` | 1,494 | dom |
-| `drag-track.ts` | 937 | dom |
-| `feature.ts` | 359 | dom |
-| `gesture-features.ts` | 35 | dom |
-| `config.ts` | 805 | split: generic types to core, `WardConfig` to dom |
-| `runtime.ts` | 410 | split: `WardicServices` and the Runner to core; the `ManagedRuntime` provider stays |
-| dom's `internal/report.ts` | 60 | core (Q22) |
-| dom's `Style`, its pure half | ~190 | core |
-| dom's `internal/gate.ts` | 594 | core |
+| dom's `internal/report.ts` → `Report` | 69 | 1 |
+| the pure half of dom's `internal/starting-style.ts` → `Stops` | ~197 of 396 | 1 |
+| dom's `internal/runner.ts` and `runtime.ts`'s `WardicServices` and `WardicEnv` → `WardicServices` | 78, ~25 | 1 |
+| `reactivity.ts` → `Reactivity` | 29 | 1 |
+| `config.ts`'s generic half, with the controls' interface and mark from `animation-controls.ts` → `Config` (Q24, Q25) | ~270 of 864, ~30 | 1 |
+| the slot half of `member-hold.ts` (Q14) | ~30 | 2 |
+| `timelines.ts`'s key → `Timelines` (Q15) | ~25 | 2 |
+| `presence-record.ts` | 196 | 3 |
+| `variant-target.ts` | 240 | 3 |
+| `wardic-config-value.ts` | 150 | 3 |
+| `frame-time.ts` | 45 | 3 |
+| `retarget-legs.ts` | 1,049 | 3 |
+| `live-style.ts` | 471 | 3 |
+| `animation-controls.ts` | 206 | 4 |
+| `variant-tree.ts` | 638 | 4 |
+| `appear.ts`'s handoff half → `AppearHandoff` | ~450 | 4 |
+| dom's `internal/gate.ts` → `FlushGate` | 706 | 4 |
+| `spine.ts` | 3,540 | 4 |
 
-### Pulled in, and not placed by Q21
+**Why `animation-controls`, `variant-tree` and `appear`'s handoff wait for the spine** (found at the build): `animation-controls.ts` imports the spine's `Snapshot`, `variant-tree.ts` imports `animation-controls`, and `appear.ts` imports `variant-tree`. Moved before the spine, core would import solid; moved with it, each move stays a move. The controls' interface and mark, which `WardConfig` names, went ahead into `config.ts`, and with it to core's `Config`, in PR 1.
 
-The modules above import ten more solid-local modules. None of them imports Solid (grep of every file for `solid-js`, `@solidjs` and `@solid-primitives`: none).
+### To dom, `@wardic/dom/unstable/<Module>`
 
-| Module | Lines | Its DOM | Imported by | Proposed |
-|---|---|---|---|---|
-| `appear.ts` | 804 | `@wardic/dom/Appear`, `DomRenderer`, `DomDefaultTransition`, `DomPositionalKeys`, `OwnValues`, and through `server-interpolators.ts` `Color` and `DomInterpolators` | spine (`enterServer`, `Handoff`, `keyOf`, `MountAnimation`, `repeatsForever`, `ServerAppear`, `skippedField`, `startAtOf`), variant-tree (`AppearGroup`), runtime (`ServerAppear`) | **split**: what the spine and variant tree read goes to core as Appear's handoff port; the server sampler goes to dom |
-| `server-interpolators.ts` | 33 | `Color`, `DomInterpolators` | appear | dom, with the sampler |
-| `animation-controls.ts` | 206 | none (config types, spine's `Snapshot`) | spine, variant-tree, config | core |
-| `frame-time.ts` | 45 | `performance.now()` | spine | core, its clock read from core's `Clock` and keyed by the Runner |
-| `wardic-config-value.ts` | 150 | none | runtime, drag-track | core |
-| `instant.ts` | 90 | `ProjectionSystem` | runtime | dom |
-| `drag-constraints.ts` | 103 | `ProjectionSystem`, container elements | drag-track, config | dom |
-| `drag-controls.ts` | 94 | none | drag-track, config | dom, beside drag-track |
-| `drag-transition.ts` | 43 | `ProjectionSystem` | drag-track | dom |
-| `gesture-info.ts` | 81 | DOM event types | config | dom, with `WardConfig` |
-| `owner-scope.ts` | 31 | none (typed on `ManagedRuntime`) | feature | dom, retyped on the Runner and a Scope |
-
-## The ports
-
-### The spine's own DOM uses
-
-From `grep` on `spine.ts`.
-
-| Used today | Count | Becomes |
+| Module | Lines | PR |
 |---|---|---|
-| `OwnValues.styleValueOf`, `valueLike`, `of` | 9 | **Own values** (ADR-0068) |
-| `MeasuredPair.needs`, `measure` | 5 | **Measured pairs** (ADR-0068) |
-| `Variables.isValue`, `values` | 4 | **Variables** (ADR-0069) |
-| `Appear.release`, `matches` | 2 | **Appear's handoff** (ADR-0069) |
-| `DomRenderer.TEMPLATE`, `TransformTemplate`, `heldTransformOf` | 5 | **New:** the Transform template, a member of the Renderer port |
-| `Style.starting` | 1 | **New:** the server's Starting style, a member beside Appear's handoff |
-| `Style.dragDefaults`, `DragDefaults`, `DRAG` | 4 | **New:** drag defaults, filled by dom's drag Feature, since only a draggable element needs them |
-| `Style.Stops` | 4 | No port: a type, moving to core with the pure half of `Style` |
-| `FlushGate.Shape`, `Sink` | 6 | No port: the gate moves to core |
-| `Report.failure`, `debugKept` | 3 | No port: `Report` moves to core (Q22) |
+| `config.ts`'s DOM half → `WardConfig` (Q24) | ~590 of 864 | 1 |
+| `gesture-info.ts`, `drag-controls.ts`, `drag-constraints.ts` | 81, 94, 103 | 1 |
+| `dragDefaultsOf` and `applyDragDefaults`, from `spine.ts` → `DragDefaults` (Q11) | ~20 | 2 |
+| `appear.ts`'s server sampler → `AppearSampler`, with `server-interpolators.ts` | ~430, 33 | 4 |
+| `batch.ts` → `BatchMembers` (core has `Batch`), `batch-handoff.ts` → `BatchHandoff` | 3,078, 73 | 5 |
+| the filler half of `member-hold.ts` (Q14) | ~210 | 5 |
+| `imperative.ts` (Q13: the DOM's `animate`, its Subjects elements and selectors) | 1,052 | 5 |
+| `presence-controller.ts` | 1,732 | 5 |
+| `feature.ts`, `gesture-features.ts`, `features/*` (15 files), `press.ts` | 491, 35, 549, 40 | 6 |
+| `owner-scope.ts`, `instant.ts` | 31, 90 | 6 |
+| `drag-track.ts`, `drag-transition.ts` | 955, 43 | 6 |
+| `layout-member.ts`, `layout-group.ts` | 315, 32 | 6 |
+| `runtime.ts`'s `ProjectionOptions` | 1 | 6 |
 
-### The gate's own
+Service ids follow their modules: `"@wardic/solid/HoverGesture"` becomes `"@wardic/dom/HoverGesture"`, and so on.
 
-| Used today | Becomes |
-|---|---|
-| `inlineValueOf`: `style.getPropertyValue(dashCase(key))`, the element's inline value | **New:** the inline read, a member of Own values |
-| `TEMPLATE_KEY` from dom's renderer | the Transform template member above |
+### Staying in solid
 
-### Subject resolution
+- The Batch's gestures and its Reorder group: `batch-gestures`, `lazy-batch-gestures`, `batch-reorder`, `batch-reorder-places`. Only Solid's `createBatch` and `BatchGroup` use them; a Foldkit Batch is beyond Motion parity.
+- `gesture-callbacks.ts`: each binding keeps its own gesture start (Q8). Only the Features' services move.
+- `runtime.ts`'s provider half (`WardicContextValue`, `clientContext`, `serverContext`): both Solids' provider record. Foldkit's provider slice decides whether to share it.
+- `messages`, `spans-check`, `ward-keys`, `instance-features`, `wardic-instance`, `reorder-values`, `scroll-values`, `motion-props`: Solid's providers, props and instances.
 
-ADR-0068 decision 3: the `nodeType` checks in `imperative.ts` and `ward.tsx` become the Environment's is-Subject check. `HTMLElement` in the moved signatures becomes a Subject.
+**Solid's own modules keep their imports** through a one-line re-export where a moved module had importers (`config.ts`, `reactivity.ts`, `gesture-info.ts`, …). Each goes once its last importer has moved, in PR 6.
 
-### How the spine reaches them
+## The ports (PR 2)
 
-**Proposed:**
-- Each port is a `Context.Service` in core, filled in `DomLive` by a dom Layer, as core's Environment members are today (`Renderer`, `Probe`, `PositionalKeys`).
-- The provider resolves them once, when it builds `WardicServices`. The spine then reads them as plain fields of the record it already holds.
+**Required members of `WardicServices`** (Q19), each a `Context.Service` in core:
+- **Own values,** with the gate's inline read and the CSS-text parse `live-style.ts` reads through `Style.over`;
+- **Measured pairs,** which `retarget-legs.ts` reads too (`MeasuredPair.Requested`, `.measured`);
+- **Variables;**
+- **Appear's handoff;**
+- **the server's Starting style;**
+- **the Transform template,** a member of the Renderer port.
 
-**Why:**
-- Elements never do a Context lookup, and the per-element path gains nothing but the property load, which `bench:solid` checks.
-- Solid's provider and the Foldkit provider (`Layer.buildWithScope`) build the same record.
+**Who gives them:** `DomLive` gives the DOM's; `@wardic/test`'s `TestLive` gives headless ones (no own values, no measured pairs, no variables, no handoff, core's plain template); a server render, which builds no runtime (ADR-0021), gives dom's as constants in `serverContext`, beside `SERVER_POSITIONAL_KEYS`. An env assembled from dom's parts without `DomLive` stops typechecking; none is documented.
 
-## Order
+**How the spine reaches them:** the provider resolves each once into its record, and the spine gets them through its options, as `positionalKeys` and `defaultTransition` already come (`spine.ts:1880`). An exported helper that reads one takes it as a parameter (`holdsVariable(from, to, stops, variables)`).
 
-**Each commit:**
-- compiles, and passes `bun run test` and `bun run test:browser`;
-- leaves Solid's public API and behaviour unchanged;
-- updates `eslint.config.js`'s per-file lists (`PER_FRAME_LOOPS`, `PER_FRAME_READS` and the dom lists naming `internal/gate.ts`) in the same commit that moves a listed file.
+**Dropped:** drag defaults (Q11: `makeElementSpine` never reads them; the bindings call the two helpers, which go to dom) and subject resolution (Q20: once `imperative.ts` is dom's, nothing that moves to core checks a Subject's kind; `Subject` stays, as a type).
 
-**The idea that carries the plan:** put the ports in while the spine is still in solid (PR 2). Then every later move is a plain file move whose diff is imports only.
+**Structural interfaces in core** (Q15), where an import would point from core into dom:
+- `SpineDrag { takeRelease }`: all the spine calls of the drag track (`spine.ts:2490`);
+- `SpineConfig`: the fields of `WardConfig` the spine and `animation-controls` read, typed without DOM types; dom's `WardConfig` extends it;
+- the gate's timeline calls (sync and cancel, `gate.ts:350-370`, `:617-640`), which dom's `TimelineValue` satisfies;
+- `Timelines`' key, with its element a Subject and its runtime a Runner. Its implementation stays in dom's `scroll` Feature.
 
-**PR 1: the foundations.** No behaviour changes; Solid's code imports from the new places.
-1. `Report` to `@wardic/core/unstable/Report`. `@wardic/dom/Report` re-exports it.
-2. The pure half of dom's `Style` to core: `toValues`, `splitValues`, `valuesAt`, `keyframesOf`, `Stops`, `StopAt`, `resolveInitial`. dom's `Style` re-exports them.
-3. The Runner shape and `WardicServices` to core:
-   - dom's `internal/runner.ts` `Runner` becomes core's, re-exported;
-   - `WardicRuntime` parameters become `Runner`. A `ManagedRuntime` meets the shape, so Solid passes its runtime unchanged.
-4. The `Reactivity` port to core. Solid's two implementations stay in solid.
-5. `config.ts` splits:
-   - transition, variant and target types, generic over keys, to core;
-   - `WardConfig`, `gesture-info.ts` and the drag types to dom.
+**`member-hold.ts` splits** (Q14): its slot (`MemberHold`, `MemberHolds`, `memberHoldsNow`, and a `provideMemberHolds(holds)` setter) goes to core beside the spine, page-wide module state as now, which links code in and holds no provider's data; its filler (`makeMemberHold`, `provideBatchHolds()`) goes to dom beside `BatchMembers`. The cycle between the spine and the hold goes.
 
-   solid's `config.ts` re-exports both, so its public types don't change.
+**The spine's other DOM names** take core's forms: its `queueMicrotask` a local declaration (as `Clock.ts` has), and `DRAG_HOOKS`' keys and `SpineHost.element` the Subject type.
 
-**PR 2: the ports, in place.**
-1. Core gets the port services:
-   - Own values with its inline read;
-   - Measured pairs;
-   - Variables;
-   - Appear's handoff;
-   - the server's Starting style;
-   - the Transform template;
-   - drag defaults;
-   - subject resolution.
-2. dom fills each one in `DomLive`.
-3. `WardicServices` carries them.
-4. The spine, the gate and `imperative.ts` switch to them, still in their old files.
+After PR 2, `spine.ts` imports nothing from `@wardic/dom` but `FlushGate`'s types.
 
-After this PR, `spine.ts` imports nothing from `@wardic/dom` except `FlushGate`'s types.
+## The config types (Q24, Q25)
 
-**PR 3: the leaves, to core.** One commit each, imports only:
-- `presence-record`, `variant-target`, `wardic-config-value`, `animation-controls` and `frame-time`;
-- `retarget-legs` and `live-style`;
-- `appear.ts`'s split: its handoff half to core, and its sampler with `server-interpolators` to dom;
-- `variant-tree`.
+Core's `Config` declares `interface ValueKeys {}`, the keys an Environment animates and the values each takes, and builds every config type on it: `WardicTransition`, `WardicVariant`, `WardicTargetValues` and the rest, each with its name and shape. dom's `WardConfig` fills it:
 
-**PR 4: the gate, the spine and `imperative`.**
-1. The gate to `@wardic/core/unstable/FlushGate`. `@wardic/dom/FlushGate` (Tier 2, ADR-0041) re-exports it, with dom's Layer.
-2. The spine to `@wardic/core/unstable/Spine`.
-3. `imperative` to core.
-4. The moved files' comments get rewritten without DOM names (#609 covers core's docs).
+```ts
+declare module "@wardic/core/unstable/Config" {
+  interface ValueKeys extends WardicValues {}
+}
+```
 
-**PR 5: the DOM-bound modules, to `@wardic/dom/unstable/`:** `instant`, `drag-constraints`, `drag-controls`, `drag-transition`, `drag-track`, `presence-controller`, `feature`, `gesture-features` and `owner-scope`.
+With dom in a program, every app's, each type is exactly what it was; core's own build sees an empty map, and its code reads keys by name at run time, as it did. Solid's `declare module "solid-js"` for its directives is the precedent. One Environment fills the map: a scene's keys come through `@wardic/three`'s own `animate` types (ADR-0069 decision 4). The six types whose reader docs name CSS keep them on an alias in dom. The grill's sketch named it `Values`; the review renamed it `ValueKeys` (Q25), since core's `Values` module is a values record.
 
-**Changesets:** the PRs change what core and dom ship (new `unstable/` modules), so each adds a changeset (CLAUDE.md, #560). The packages are a fixed group, so all four version together.
+## The order: six PRs, one at a time off `main` (Q2, Q21)
+
+1. **Foundations** (built, below).
+2. **Ports in place,** while the spine is still in solid: the port services, the structural interfaces, `member-hold`'s slot, `DragDefaults`. The only PR with runtime changes.
+3. **Leaves to core:** core's lint met in place first (Q16), then `presence-record`, `variant-target`, `wardic-config-value`, `frame-time`, `retarget-legs`, `live-style`.
+4. **The spine and what imports it:** `animation-controls`, `variant-tree`, `appear`'s split, the gate, the spine; the moved files' comments rewritten without DOM names (#609).
+5. **The Batch, `animate` and presence, to dom:** `BatchMembers`, `BatchHandoff`, the hold's filler, `imperative`, `presence-controller`.
+6. **The Features, to dom:** Q9's `PropFeature` and Q10's registry in place first, then `feature`, `gesture-features`, `features/*`, `press`, `owner-scope`, `instant`, the drag track, `layout-member`, `layout-group`, `ProjectionOptions`; **Feature**'s glossary wording; solid's re-exports with no importer left.
+
+**Every commit** passes typecheck, lint, `test`, `test:browser` and `size`. **Every PR** also runs `bench:solid` (paired base and head, after `wardic-quiet`), `bench:core` and `pack:check`; a bench that fails is bisected by commit, PR 2's by each port's commit (Q3).
+
+**Each PR adds a `patch` changeset** until the 1.2 Foldkit release (Q4). **Size** (Q23): if PR 2's ports cross a budget, it rises by exactly what was measured, recorded in ADR-0067; a move must fit the 0.5 KB room, and one that doesn't is investigated.
+
+**ESLint:** core has no rule against DOM globals: its `lib: ["ES2022"]` keeps them out. It does enforce `BOOL_OPERANDS`, which solid and dom don't: the core-bound files fail it 15 times (`spine.ts` 6, `appear.ts` 6, `retarget-legs.ts`, `variant-target.ts` and `starting-style.ts` 1 each), each met before its move. The gate joins core's `PER_FRAME_LOOPS` in its move commit; `batch.ts` takes its `MOUNT_PATH_LOOPS` entry with it.
 
 ## How each step shows it's structural
 
 | Check | Expected | Why it shows the move is structural |
 |---|---|---|
-| `bun run typecheck`, `bun run lint` | clean | The moved code keeps its types, and core's lint keeps DOM globals out. |
-| `bun run test` and `bun run test:browser` | unchanged pass counts | The 182 files in `packages/solid/test` drive the spine through Solid. 13 of them import a moving module directly, and only their import paths change. |
-| `bun run bench:solid`, paired base and head, after `wardic-quiet` | flat | Per-element mount, Retarget and unmount. The ports' property loads are the one new cost. |
-| `bun run bench:core` | flat | Core's engine is untouched. The new modules aren't on its bench path. |
-| `bun run size` (solid's bundle, ADR-0067) | flat, within a few hundred bytes | Code that crosses a package boundary can minify differently. Any growth is reported, not explained away. |
-| `bun run pack:check` | passes | Core's `"./*": "./src/*.ts"` export already resolves `unstable/<Module>`. `./internal/*` stays `null`. |
+| `bun run typecheck`, `bun run lint` | clean | The moved code keeps its types; core's `lib` keeps DOM globals out. |
+| `bun run test`, `bun run test:browser` | unchanged pass counts | 16 test files outside `v2/` and 6 inside import a moved module directly; only their import paths change, through solid's re-exports. They stay in solid (Q17), but one that uses no Solid and tests one moved module, which moves with it. |
+| `bun run bench:solid` (paired) | flat | Per-element mount, Retarget and unmount. PR 2's property loads are the one new cost. |
+| `bun run bench:core` | flat | Core's engine is untouched. |
+| `bun run size` | flat, within the budgets' 0.5 KB | Code that crosses a package boundary can minify differently. |
+| `bun run pack:check` | passes | Core's and dom's `"./*"` export resolves `unstable/<Module>`; `./internal/*` stays `null`. TypeDoc documents `src/*.ts` only, so no `unstable/` module reaches the reference. |
 
-## Not decided here
+## Built in PR 1
 
-- Final module names under `unstable/` (`Spine`, `FlushGate`, `Report`, `Stops` for the pure half of `Style`, `AppearHandoff`, `AppearSampler`, and so on).
-- Where the Solid tests that import a moved module directly should live once the move is done. During the move they stay in solid.
-- Where `member-hold.ts` and `batch.ts` go: #665 gave a Batch member's hold its module after this plan was read. The spine reaches the hold through `member-hold.ts`'s module slot, which only `createBatch` fills, and since #746's PR 7 the hold builds what it works the spine with over the spine's `SpineHost`, reading its `velocityAt`. With the spine in core, that slot becomes a port, filled where `createBatch` is.
+Ten commits after this one, each through every per-commit gate. A move's commit changes imports and its file's header; each change it needed came first:
 
-## Not checked
+1. **`Report`'s `reportFailure` is named `failure`,** in dom, as `@wardic/dom/Report` named it, and dom's modules take `Report` as a namespace. Then **`Report` moves to core**; `@wardic/dom/Report` re-exports it.
+2. **`isStops` meets `BOOL_OPERANDS`** in dom. Then **`Stops`** moves: `toValues`, `splitValues`, `valuesAt`, `keyframesOf`, `resolveInitial` and their types; `@wardic/dom/Style` re-exports them. Its marked mount-path loop keeps #540's exemption in a core block of its own (`CORE_MOUNT_PATH_LOOPS`), under core's rules otherwise.
+3. **`WardicServices`:** `WardicServices`, `WardicEnv`, the Runner and `makeRunner`. dom's gate, projection system and Reorder controller make their runners from core; solid's `runtime.ts` keeps `WardicEnv` and `WardicServices` as aliases with their reader docs; the runner's test (RN1–RN6) moves to core's tests.
+4. **`Reactivity`** moves to core.
+5. **The spine, `live-style`, `timelines`, `imperative`, `presence-controller` and `frame-time` take a `WardicServices.Runner<WardicServices.WardicServices>`,** not Solid's `ManagedRuntime`, which they use only as a runner. `batch.ts` and `batch-handoff.ts` keep theirs until PR 5: `batch-reorder`, which stays in solid, closes its Scope on their runtime with `OwnerScope.close`, whose `runSyncExit` the Runner lacks (*Open*, below).
+6. **The controls' interface, its definition and its mark move into `config.ts`,** which names them, out of `animation-controls.ts`, which moves with the spine. Then **`config.ts` splits** (Q24, Q25), with `GestureInfo`, `DragControls` and `DragConstraints` to dom, their headers written for their new home. dom depends on `csstype` now: its emitted types name it.
+7. **The review's fixes:** the site's reference keeps documenting what dom's Tier 2 faces re-export from core's `unstable/` (its run took every core file as external, so dom's `Report` page lost its members and `Style` its starting values); `Stops`' examples unqualified; `pipeable.md` on `unstable/` modules; `effect-first.md`'s mount-path sites; one lint list for core's rules without the loop rule.
 
-- `appear.ts`'s split line, export by export, is *inferred* from its imports and its callers' imports. PR 3 reads it in full.
-- Whether `frame-time.ts`'s `performance.now()` can come from core's `Clock` with no change in timing.
-- The cost of the ports' property loads (PR 2's `bench:solid` measures it).
+Solid's own modules import the moved ones through one-line re-exports (`config.ts`, `reactivity.ts`, `gesture-info.ts`, `drag-controls.ts`, `drag-constraints.ts`).
+
+**Measured** (the bench host, after `wardic-quiet`, against `main`):
+- **`size`:** every app flat at every commit: `s1-slim` 94.0 of 94.5 KB gzipped, `s2-slim` 115.4 of 115.9.
+- **`bench:solid`** passes, both bindings, warm: Solid 1 mount −0.8%, retarget −1.7%, restRetarget +1.5%, unmount −1.8%; Solid 2 mount +2.3% (IQR −1.0% to +3.1%), retarget −0.0%, restRetarget −1.3%, unmount +0.8%. Bytes and retained flat; every layout scene within its gate.
+- **`bench:core`** passes every workload on every engine (noise controls −2.1%, +0.4%, +0.0%).
+- Both ran on the first build of these commits, whose code differs from this one's only in import forms, a type's name (`ValueKeys`) and where the controls' interface was declared in between.
+
+## Open
+
+- **`OwnerScope.close` on a Runner** (Q10, PR 5–6). It closes a Scope with `runSyncExit`, so a finalizer that suspends is reported, not thrown into Solid's cleanup (#618, decision 5). A Runner has `runSync` alone, and `runSync(Effect.exit(…))` throws on a suspending finalizer. Either the Runner gains `runSyncExit`, which `ManagedRuntime` has and `makeRunner` can give, or the close catches the throw.
+- **`appear.ts`'s split line,** export by export: inferred from its imports and its callers'. PR 4 reads it in full, with `AppearGroup`, which `variant-tree.ts` reads, and `childDelayOf`, which the sampler calls.
+- **The ports' cost:** PR 2's `bench:solid` measures it.

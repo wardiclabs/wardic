@@ -57,7 +57,7 @@ import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicKeyframes, WardicTargetValues, WardicTransition, WardicVariant } from "./config.ts"
 import { filledStops, keyframesFrom, type Leg, legsOf, mapMachine, type MeasuredPairs, runOf, type StopsByKey } from "./retarget-legs.ts"
-import type { WardicRuntime, WardicServices } from "./runtime.ts"
+import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 import {
   type ElementSpine,
   emptySnapshotOf,
@@ -102,7 +102,7 @@ export const registerAnimatable = (element: Element, spine: Animatable): (() => 
 
 /** What a scope animates plain elements with: its provider's. */
 export interface AnimateEnv {
-  readonly runtime: WardicRuntime
+  readonly runtime: WardicServices.Runner<WardicServices.WardicServices>
   readonly gate: FlushGate.Shape
   readonly reducedMotion: () => boolean
   /**
@@ -219,7 +219,7 @@ const imperativeTrackOf = (host: SpineHost, target: Target, given: WardicTransit
   const { snapshot, owners, giveUp, initialValues, ownValue, startKey, keepTheRest, element, positionalKeys, defaultTransition, readVelocity, gate, forget, endLeg, live, own, legProgram, legEnded, turnBack, id, recordFrame, runtime, elementRules } = host
   /** A leg of an Imperative animation, forked as a Retarget's are; it lands on its track. */
   // Data-first: a pipe's curried forms are two closures more for every leg (#618, H1).
-  const runImperative = (running: Running, program: Effect.Effect<unknown, never, WardicServices>): void => {
+  const runImperative = (running: Running, program: Effect.Effect<unknown, never, WardicServices.WardicServices>): void => {
     running.fiber = runtime.runFork(Effect.asVoid(Effect.onExit(program, legEnded(running))))
   }
   const to = target.values

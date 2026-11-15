@@ -6,15 +6,13 @@
  *
  * @module
  */
-import type * as Announcer from "@wardic/core/Announcer"
-import type * as Clock from "@wardic/core/Clock"
 import * as DefaultTransition from "@wardic/core/DefaultTransition"
-import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Probe from "@wardic/core/Probe"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import * as Renderer from "@wardic/core/Renderer"
+import type * as CoreWardicServices from "@wardic/core/unstable/WardicServices"
 import * as FlushGate from "@wardic/dom/FlushGate"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Report from "@wardic/dom/Report"
@@ -49,7 +47,8 @@ import { settingOf as configSettingOf, type WardicConfigValue } from "./wardic-c
  * the gesture Features': built with the first one, over the page, unless
  * the Environment gives one, as `TestLive` does, which they take.
  */
-export type WardicEnv = Layer.Layer<WardicServices, never, never>
+// #672: core's `unstable/WardicServices` defines it; this alias keeps its reader docs here.
+export type WardicEnv = CoreWardicServices.WardicEnv
 
 /**
  * `env`, built at once, on the runtime's memo map and Scope as it would be unwrapped. A provider
@@ -66,17 +65,8 @@ const builtAtOnce = (env: WardicEnv, waiting: string): WardicEnv =>
   })
 
 /** The services a `WardicProvider`'s runtime gives the code run on it: Wardic's Environment, as a union of Effect services. */
-export type WardicServices =
-  | Clock.Clock
-  | RefreshFrameSource.RefreshFrameSource
-  | FrameLoop.FrameLoop
-  | Renderer.Renderer
-  | Probe.Probe
-  | InterpolatorRegistry.InterpolatorRegistry
-  | ReducedMotion.PositionalKeys
-  | DefaultTransition.DefaultTransition
-  | Announcer.Announcer
-  | AtomRegistry.AtomRegistry
+// #672: core's `unstable/WardicServices` defines it, beside the Runner.
+export type WardicServices = CoreWardicServices.WardicServices
 
 /** A `WardicProvider`'s Effect runtime: a `ManagedRuntime` of its {@link WardicServices}. */
 export type WardicRuntime = ManagedRuntime.ManagedRuntime<WardicServices, never>

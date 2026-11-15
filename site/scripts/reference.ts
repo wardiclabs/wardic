@@ -214,6 +214,16 @@ const coreLink = (_ref: unknown, _reflection: unknown, _part: unknown, symbol: R
   return `/reference/core/${slugOf(module)}#${slugOfHeading(name)}`
 }
 
+/**
+ * Core's files as dom's run sees them, its sources or, through dom's project reference, its built
+ * types: every one but its `unstable/` modules' (#672).
+ */
+const CORE_EXTERNAL = [
+  join(REPO, "packages", "core", "!(src|dist)", "**"),
+  join(REPO, "packages", "core", "{src,dist}", "*"),
+  join(REPO, "packages", "core", "{src,dist}", "!(unstable)", "**"),
+]
+
 /** One package's ready modules as MDX pages in `CONTENT/<dir>`. */
 const generate = async (pkg: (typeof PACKAGES)[number]): Promise<number> => {
   const source = join(REPO, "packages", pkg.dir)
@@ -225,7 +235,9 @@ const generate = async (pkg: (typeof PACKAGES)[number]): Promise<number> => {
   const app = await Application.bootstrapWithPlugins({
     entryPoints: [join(source, "src", "*.ts")],
     // Core, which dom depends on from its source, is documented on its own pages: dom's link to them.
-    externalPattern: ["**/node_modules/**", ...(pkg.dir === "core" ? [] : [join(REPO, "packages", "core", "**")])],
+    // Not its `unstable/` modules (#672), which core's pages leave out: dom's Tier 2 faces re-export
+    // them (`Report`, `Style`'s starting values), so dom's pages document them.
+    externalPattern: ["**/node_modules/**", ...(pkg.dir === "core" ? [] : CORE_EXTERNAL)],
     exclude: [join(source, "src", "index.ts")],
     tsconfig: join(source, "tsconfig.json"),
     plugin: ["typedoc-plugin-markdown", "typedoc-plugin-missing-exports"],
