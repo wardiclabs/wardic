@@ -47,7 +47,7 @@ import * as Rec from "effect/Record"
 import type * as Atom from "effect/reactivity/Atom"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { type Handoff, type MountAnimation, skippedField, startAtOf } from "./appear.ts"
+import { type Handoff, type MountAnimation, skippedField, startAtOf } from "./appear-handoff.ts"
 import type {
   SpineConfig,
   WardicAnimationDefinition,
