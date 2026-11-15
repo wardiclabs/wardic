@@ -66,7 +66,6 @@ import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceM
 import type { DragTrack } from "./drag-track.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
 import { delayedBy, type Follows, hasManyStops, keyframesFrom, type Leg, legsOf, type MeasuredPairs, startingAt, type StopsByKey, transitionForKey, type Velocities, withPathAxes } from "./retarget-legs.ts"
-import { type MemberHold, memberHoldsNow } from "./member-hold.ts"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 import { type TimelineKeys, Timelines } from "./timelines.ts"
 import {
@@ -1788,6 +1787,51 @@ export const turnWillChangeOn = (live: LiveStyle | undefined, legs: ReadonlyArra
   const turnOn = live.willChange()
   if (Predicate.isUndefined(turnOn)) return
   if (Arr.some(legs, (leg) => Arr.some(Rec.keys(leg.to), turnsWillChangeOn))) turnOn()
+}
+
+// A Batch member's hold's slot (#665, #746; #672's Q14: the spine's, so it reads no Batch code).
+/** What a Batch member's hold reads of what its element's spine hands over (#746). */
+export type HoldHost = Pick<SpineHost, "element" | "gate" | "id" | "snapshot" | "owners" | "giveUp" | "keepTheRest" | "driven" | "returning">
+
+/**
+ * A Batch member's element's hold on the groups it takes from its Batch: its transform, or its opacity,
+ * taken as a leg on a key of it starts or a drag moves it, and given back as its last leg on it ends, or
+ * at its Batch's next change of it.
+ */
+export interface MemberHold {
+  /**
+   * A Retarget's target `t` against the Batch (Q53): a group a key of it moves (its target other than
+   * what's drawn) is taken; a key it'd leave where the Batch draws it stays the Batch's, out of `t`. A
+   * drag holding `x`/`y` takes the transform.
+   */
+  readonly retarget: (t: Record<string, unknown>, dragged: boolean) => void
+  /** A leg landed: each group no leg runs on any more goes back to the Batch (Q54), from where it is. */
+  readonly settle: () => void
+  /** Its drag reads or writes `x`/`y` (`true`): it takes the transform; or hands them back (`false`). */
+  readonly drag: (on: boolean) => void
+  /** Its element unmounted: every group back to the Batch. */
+  readonly dispose: () => void
+}
+
+/** How a spine finds its element a Batch member's, and makes its hold. */
+export interface MemberHolds {
+  readonly isMember: (element: Element) => boolean
+  readonly make: (host: HoldHost) => MemberHold
+}
+
+// Module state (#460, Q7): set once a Batch is made, so a spine can make a hold; none until then.
+let holds: MemberHolds | undefined
+
+/** What a spine makes its member hold with: `undefined` while no Batch has been made. */
+export const memberHoldsNow = (): MemberHolds | undefined => holds
+
+/**
+ * Holds made from now on, through `holds` (`createBatch`, as it's called, gives a Batch's): a Batch's
+ * members can be Wardic elements. The first one given stays.
+ */
+export const provideMemberHolds = (given: MemberHolds): void => {
+  if (Predicate.isNotUndefined(holds)) return
+  holds = given
 }
 
 /**

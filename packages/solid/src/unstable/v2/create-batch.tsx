@@ -30,7 +30,7 @@ import type { WardicPointInfo, WardicPressInput } from "../../gesture-info.ts"
 import { lazyBatchGestures } from "../../lazy-batch-gestures.ts"
 import { batchHandoffHere, batchServerAppearHere } from "./batch-appear-here.tsx"
 import { flightsOf } from "./flights.ts"
-import { provideMemberHolds } from "../../member-hold.ts"
+import { provideBatchHolds } from "../../member-hold.ts"
 import { useFeatureRegistry, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
 import type { PresenceContextValue } from "../../presence-record.ts"
@@ -196,7 +196,7 @@ export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<u
   const keyed = isKeyed(config)
   if (isServer) return serverBatchOf(config, keyed)
   // Its members' elements can be Wardic elements, which hand keys back and forth with it (#665's PR 4).
-  provideMemberHolds()
+  provideBatchHolds()
   const configTransition = configTransitionOf(useWardicConfig())
   const flights = flightsOf<WardicBatchLanding>()
   const events = new Waiters<WardicBatchEvents>("The Batch was disposed before its next event.")
