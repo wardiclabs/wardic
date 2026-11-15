@@ -1,10 +1,10 @@
 /**
  * How an Environment reads a value that names a variable it resolves when it draws (**Variable
  * value**): whether a value is one, and a Subject's Key rule, which blends a pair with one at either
- * end by what it resolves to there. One of the Environment's optional members. An Environment that isn't the DOM gives
- * one (`@wardic/test`'s `TestLive` a headless one); a DOM binding falls back to
+ * end by what it resolves to there. One of the Environment's optional members. An Environment other than `@wardic/dom`'s gives
+ * one (`@wardic/test`'s `TestLive` a headless one); a binding on `@wardic/dom` falls back to
  * `@wardic/dom/unstable/DomValues`' when its Environment gives none, so an app that never reads it
- * ships none of the DOM's.
+ * ships none of that code.
  *
  * Unstable, for Wardic's own packages: public, with no semver promise.
  *
