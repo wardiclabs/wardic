@@ -64,9 +64,6 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as Scope from "effect/Scope"
 import * as Report from "@wardic/core/unstable/Report"
-import { TEMPLATE_KEY } from "./renderer.ts"
-import type { TimelineValue } from "./timeline.ts"
-import { dashCase } from "./svg.ts"
 
 /**
  * Where a flushed `Patch` is delivered: committed onto `target` with the Renderer's `commit`,
@@ -139,16 +136,28 @@ interface Output {
   readonly unmount: () => void
 }
 
-/** The element's own inline value for a patch key (`""` for none, or a target with no style). */
-const inlineValueOf = (target: unknown, key: string): string => {
-  if (Predicate.isNullish(target)) return ""
-  const style = (target as { readonly style?: CSSStyleDeclaration }).style
-  if (Predicate.isUndefined(style)) return ""
-  return style.getPropertyValue(dashCase(key))
+/** What the gate calls of a key's Timeline value (#240): its sync with the values drawn, and its cancel. */
+// #672 (Q15): the gate names what it calls, so it reads no Timeline code; dom's TimelineValue meets it.
+export interface GateTimeline {
+  readonly sync: (values: Readonly<Record<string, unknown>>) => void
+  readonly cancel: () => void
+}
+
+/**
+ * What the gate reads of its Environment's targets, and what it keeps from a sink: a target's value
+ * for a key before the gate first writes it there (`""` for none), which it gives back at the key's
+ * release, and the key its Renderer reserves for an element's Transform template, which `onCommit`
+ * never sees.
+ */
+// #672 (PR2-Q1): the gate's two edges of its Environment, given by `FlushGate.make`, its only builder,
+// so the gate reads none itself and moves to core as it is.
+export interface GateEnvironment {
+  readonly valueBeforeOf: (target: unknown, key: string) => string
+  readonly templateKey: string
 }
 
 /** Each of `values` cancelled (#240). Per flush: a plain loop. */
-const cancelEach = (values: Iterable<TimelineValue>): void => {
+const cancelEach = (values: Iterable<GateTimeline>): void => {
   for (const value of values) value.cancel()
 }
 
@@ -207,7 +216,7 @@ export interface FlushGate {
    * or the other. A cleared or replaced one is cancelled at the next flush; a released key's, an
    * unregistered element's and a disposed gate's, at once. Setting one schedules a flush.
    */
-  readonly timeline: (id: string, key: string, timeline: TimelineValue | undefined) => void
+  readonly timeline: (id: string, key: string, timeline: GateTimeline | undefined) => void
   /**
    * Call `fn` once, after the gate's next flush: the end of the Frame loop's tick, for a call
    * made in one, else the next Refresh frame's, so what was written before it is on the elements.
@@ -261,8 +270,9 @@ export interface FlushGateOptions {
  * provider was given (`DomLive` / `TestLive`), so the gate inherits that environment's
  * grouping/unit logic, its Refresh frames and its loop with zero duplication.
  */
-export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptions): FlushGate => {
+export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptions, environment: GateEnvironment): FlushGate => {
   const { batch } = options
+  const { valueBeforeOf, templateKey } = environment
   // Resolve the Renderer's two halves and the Refresh frame source exactly once at creation.
   // `requestFrame` and `cancelFrame` are called detached, never as `frames.requestFrame(cb)`: a
   // browser throws "Illegal invocation" when `requestAnimationFrame` runs with `this` bound to
@@ -293,8 +303,8 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   const committedSince = new Set<Entry>()
   // Each element's Timeline values by key (#240), and those let go of since its last flush, cancelled at
   // its next: only the elements that have one, so the per-frame path checks their sizes alone.
-  const timelines = new Map<Entry, Map<string, TimelineValue>>()
-  const endings = new Map<Entry, Array<TimelineValue>>()
+  const timelines = new Map<Entry, Map<string, GateTimeline>>()
+  const endings = new Map<Entry, Array<GateTimeline>>()
   // A frame flush's entries, in order, prepared and waiting for their commit; and those whose
   // keys held changed, which the binding hears first. Reused each flush: the per-frame path.
   const prepared: Array<Entry> = []
@@ -322,7 +332,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
         kept++
         continue
       }
-      committed.set(key, inlineValueOf(target, key))
+      committed.set(key, valueBeforeOf(target, key))
       added = true
     }
     // A key the last patch wrote and this one doesn't: the element gets its own value
@@ -414,7 +424,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
       for (const key in latest) if (!Object.hasOwn(entry.values, key)) delete latest[key]
       Object.assign(latest, entry.values)
       // Its Transform template rides in its values (#443), and isn't one: Motion's `onUpdate` never sees it.
-      delete latest[TEMPLATE_KEY]
+      delete latest[templateKey]
       try {
         onCommit(latest)
         entry.failing = false
@@ -618,7 +628,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
     const entry = accumulator.get(id)
     if (Predicate.isUndefined(entry)) return
     let byKey = timelines.get(entry)
-    let known: TimelineValue | undefined
+    let known: GateTimeline | undefined
     if (Predicate.isNotUndefined(byKey)) known = byKey.get(key)
     if (known === value) return
     // The one it had is cancelled at the next flush, with the commit that draws the key without it.
