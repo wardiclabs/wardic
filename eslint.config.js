@@ -240,7 +240,7 @@ const DOM_PER_FRAME = [
  * each file follows the full rules by review.
  */
 // A Batch's binding (#665): its per-member loops at creation and at each change, as core's change (ADR-0025, *Amendment (#665)*).
-const MOUNT_PATH_LOOPS = ["packages/dom/src/internal/starting-style.ts", "packages/solid/src/motion-props.ts", "packages/solid/src/batch.ts"]
+const MOUNT_PATH_LOOPS = ["packages/dom/src/internal/starting-style.ts", "packages/solid/src/motion-props.ts", "packages/dom/src/unstable/BatchMembers.ts"]
 
 /** Core's mount-path files (#540's rule as {@link MOUNT_PATH_LOOPS}), under core's rules otherwise. */
 // #672: the Starting style's filter moved to core with `unstable/Stops`.
