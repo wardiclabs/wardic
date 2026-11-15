@@ -284,7 +284,11 @@ const sameFields = (a: object, b: object): boolean => {
   const ra = a as Readonly<Record<string, unknown>>
   const rb = b as Readonly<Record<string, unknown>>
   const keys = Rec.keys(ra)
-  return Bool.and(keys.length === Rec.keys(rb).length, Arr.every(keys, (key) => Bool.and(key in rb, sameField(ra[key], rb[key]))))
+  if (keys.length !== Rec.keys(rb).length) return false
+  return Arr.every(keys, (key) => {
+    if (Bool.not(key in rb)) return false
+    return sameField(ra[key], rb[key])
+  })
 }
 
 /** Whether two fields are the same: `===`, or two entries with the same fields (#301). */
@@ -1143,7 +1147,8 @@ const sameEnds = (a: Ends | undefined, b: Ends | undefined): boolean => {
   if (Predicate.isUndefined(a)) return false
   if (Predicate.isUndefined(b)) return false
   const y = b.byLayer
-  return Bool.and(a.byLayer.length === y.length, Arr.every(a.byLayer, (ends, i) => sameEndsAt(ends, y[i])))
+  if (a.byLayer.length !== y.length) return false
+  return Arr.every(a.byLayer, (ends, i) => sameEndsAt(ends, y[i]))
 }
 
 /** The value `key`'s Transition end sets it to in `ends` (#470): its driving entry's, the one entry that ends it. */
@@ -1178,7 +1183,11 @@ const sameEndsAt = (a: Values.Values | undefined, b: Values.Values | undefined):
 }
 
 /** Two lists of stops equal stop by stop (#429, Motion's `shallowCompare`). */
-const sameStops = (a: Stops.Stops, b: Stops.Stops): boolean => Bool.or(a === b, Bool.and(a.length === b.length, Arr.every(a, (stop, i) => stop === b[i])))
+const sameStops = (a: Stops.Stops, b: Stops.Stops): boolean => {
+  if (a === b) return true
+  if (a.length !== b.length) return false
+  return Arr.every(a, (stop, i) => stop === b[i])
+}
 
 /**
  * Whether a start that can't take its target's shape stays as it is (#430): it makes a Measured pair
@@ -1232,7 +1241,8 @@ const sameKeyframesNow = (a: KeyframesNow | undefined, b: KeyframesNow | undefin
   const x = a as KeyframesNow
   const y = b as KeyframesNow
   const keys = Rec.keys(x)
-  return Bool.and(keys.length === Rec.keys(y).length, Arr.every(keys, (key) => sameKeyframesAt(x[key], y[key])))
+  if (keys.length !== Rec.keys(y).length) return false
+  return Arr.every(keys, (key) => sameKeyframesAt(x[key], y[key]))
 }
 
 /** Whether `resolution` is `last` with only its `dragging` handed back (#340). */
@@ -3029,11 +3039,14 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         const owned = Rec.filter(freshEnds, (_, key) => ends.endOnly.get(key) === at)
         // Its end starts again when a key it also animates starts again, or its end for one changed
         // (#470, one already there starts none), or a key only it sets does.
-        const anew = Bool.or(
-          hasKeys(owned),
-          Arr.some(Rec.keys(writes), (key) => Bool.and(Bool.not(ends.endOnly.has(key)), Bool.or(Object.hasOwn(fresh, key), endMoved(lastResolution, resolution, key)))),
-        )
-        if (Bool.not(anew)) return
+        if (Bool.not(hasKeys(owned))) {
+          const anew = Arr.some(Rec.keys(writes), (key) => {
+            if (ends.endOnly.has(key)) return false
+            if (Object.hasOwn(fresh, key)) return true
+            return endMoved(lastResolution, resolution, key)
+          })
+          if (Bool.not(anew)) return
+        }
         const animated = Arr.filter(Rec.keys(resolved), (key) => Bool.and(Bool.not(ends.endOnly.has(key)), driverOf(layers, key) === at))
         // Its keys set at their end, at once: no motion, so no velocity (#464).
         const running = runningOf(owned, resolution, landing, "Snap")
