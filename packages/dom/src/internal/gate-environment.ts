@@ -5,7 +5,7 @@
  */
 // #672 (PR2-Q1): out of `gate.ts`, so the gate reads no DOM and moves to core as it is.
 import * as Predicate from "effect/Predicate"
-import type { GateEnvironment } from "./gate.ts"
+import type * as FlushGate from "@wardic/core/unstable/FlushGate"
 import { TEMPLATE_KEY } from "./renderer.ts"
 import { dashCase } from "./svg.ts"
 
@@ -18,4 +18,4 @@ const valueBeforeOf = (target: unknown, key: string): string => {
 }
 
 /** The DOM's: its inline style, and its renderer's Transform template key. */
-export const DOM_GATE: GateEnvironment = { valueBeforeOf, templateKey: TEMPLATE_KEY }
+export const DOM_GATE: FlushGate.GateEnvironment = { valueBeforeOf, templateKey: TEMPLATE_KEY }

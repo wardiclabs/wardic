@@ -1,7 +1,8 @@
 /**
- * `makeFlushGate` — the deferred **Flush gate** (ADR-0006), framework-free here in `@wardic/dom`
- * so every binding shares one (ADR-0031, decision 3). The binding hands in its `batch` and its
- * sinks; the gate imports nothing from a framework.
+ * `makeFlushGate` — the deferred **Flush gate** (ADR-0006), framework-free and Environment-free in
+ * core, so every binding shares one (ADR-0031, decision 3). The binding hands in its `batch` and its
+ * sinks, and its Environment the edges it reads (`GateEnvironment`); the gate imports nothing from a
+ * framework.
  *
  * Per ADR-0006, per-frame writes never reach their element directly. Each source
  * `write(id, partialValues)`s into a provider-owned gate that:
@@ -50,10 +51,16 @@
  * `tick` — it stays quiet (no span, no per-call log, no metric). A flush that throws (a
  * binding's hook, a commit) is reported (`Report.failure`) and the gate
  * goes on, so it can't fail the Frame loop's tick it runs in (ADR-0033).
+ *
+ * Unstable, for Wardic's own packages: public, with no semver promise.
+ *
+ * @module
  */
-import * as FrameLoop from "@wardic/core/FrameLoop"
-import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
-import * as Renderer from "@wardic/core/Renderer"
+// Unstable: ADR-0071, decision 5. #672: dom's `internal/gate.ts`, moved for the spine to write through
+// it in core; dom's `FlushGate` builds it with the DOM's edges (`DOM_GATE`) and gives it as a Layer.
+import * as FrameLoop from "../FrameLoop.ts"
+import * as RefreshFrameSource from "../RefreshFrameSource.ts"
+import * as Renderer from "../Renderer.ts"
 import * as Cause from "effect/Cause"
 import * as Atom from "effect/reactivity/Atom"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
@@ -63,7 +70,7 @@ import type * as Fiber from "effect/Fiber"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as Scope from "effect/Scope"
-import * as Report from "@wardic/core/unstable/Report"
+import * as Report from "./Report.ts"
 
 /**
  * Where a flushed `Patch` is delivered: committed onto `target` with the Renderer's `commit`,

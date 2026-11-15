@@ -19,7 +19,7 @@ import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Stream from "effect/Stream"
 import { beforeEach, describe, expect, it } from "vitest"
 import { fireFrame, frames, HEARD, HEARD_DOM, NO_BATCH, resetFrames, sinkOf, stillLoop, withFrames } from "./gate-harness.ts"
-import * as internalGate from "../src/internal/gate.ts"
+import * as CoreFlushGate from "@wardic/core/unstable/FlushGate"
 import { DOM_GATE } from "../src/internal/gate-environment.ts"
 
 beforeEach(resetFrames)
@@ -28,7 +28,7 @@ describe("makeFlushGate", () => {
   it("a sink's target is committed the projected patch after one fired frame (1-frame latency)", () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
     try {
-      const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
       let received: Renderer.Patch | undefined
       gate.register("a", sinkOf((p) => (received = p)))
 
@@ -50,7 +50,7 @@ describe("makeFlushGate", () => {
   it("one flush per frame commits every registered element together", () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
     try {
-      const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
       let applied = 0
       const seen: Array<Renderer.Patch> = []
       const heard = (p: Renderer.Patch): void => {
@@ -82,7 +82,7 @@ describe("makeFlushGate", () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
     try {
       const events: Array<string> = []
-      const gate = internalGate.makeFlushGate(runtime, {
+      const gate = CoreFlushGate.makeFlushGate(runtime, {
         batch: (apply) => {
           events.push("batch")
           apply()
@@ -114,7 +114,7 @@ describe("makeFlushGate", () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
     try {
       const events: Array<string> = []
-      const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
       gate.register("a", sinkOf(() => void events.push("commit"), { beforeFirstCommit: () => void events.push("switch") }))
 
       gate.flushPass(() => gate.write("a", { x: 1 }))
@@ -132,7 +132,7 @@ describe("makeFlushGate", () => {
   it("same-key writes within a frame coalesce (last wins); different keys merge", () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
     try {
-      const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
       let received: Renderer.Patch | undefined
       gate.register("a", sinkOf((p) => (received = p)))
 
@@ -154,7 +154,7 @@ describe("makeFlushGate", () => {
   it("gated frames: a flush with nothing newly written requests no new frame; a fresh write requests one", () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
     try {
-      const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
       let received: Renderer.Patch | undefined
       gate.register("a", sinkOf((p) => (received = p)))
 
@@ -182,7 +182,7 @@ describe("makeFlushGate", () => {
   it("unregister removes the element and a subsequent write is a no-op", () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
     try {
-      const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
       let received: Renderer.Patch | undefined
       const unregister = gate.register("a", sinkOf((p) => (received = p)))
 
@@ -203,7 +203,7 @@ describe("makeFlushGate", () => {
   it("dispose cancels a pending frame", () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
     try {
-      const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
       gate.register("a", sinkOf(() => {}))
       gate.write("a", { x: 1 })
       expect(frames.request).toHaveBeenCalledTimes(1)
@@ -224,7 +224,7 @@ describe("makeFlushGate", () => {
     const clock = Effect.runSync(TestClock.pushable())
     const runtime = ManagedRuntime.make(FrameLoop.layer.pipe(Layer.provideMerge(Layer.mergeAll(HEARD, clock.layer, AtomRegistry.layer))))
     const events: Array<string> = []
-    const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+    const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
     gate.register("a", sinkOf((p) => void events.push(`flush ${String(p.x)}`)))
     const { ticks } = runtime.runSync(Effect.service(Clock.Clock))
     let n = 0
@@ -291,7 +291,7 @@ describe("makeFlushGate — at the end of the Frame loop's tick (ADR-0033)", () 
   it("G1: what a tick writes is applied at the end of that tick, in the same frame, and the frame it requested is withdrawn", async () => {
     const t = onTicks()
     const events: Array<string> = []
-    const gate = internalGate.makeFlushGate(t.runtime, NO_BATCH, DOM_GATE)
+    const gate = CoreFlushGate.makeFlushGate(t.runtime, NO_BATCH, DOM_GATE)
     gate.register("a", sinkOf((p) => void events.push(`flush ${String(p.x)}`)))
     const fiber = t.run((n) => {
       events.push(`tick ${n}`)
@@ -313,7 +313,7 @@ describe("makeFlushGate — at the end of the Frame loop's tick (ADR-0033)", () 
   it("G2: the tick that settles the last run, and ends the loop's burst, flushes its settled Frame", async () => {
     const t = onTicks()
     const applied: Array<unknown> = []
-    const gate = internalGate.makeFlushGate(t.runtime, NO_BATCH, DOM_GATE)
+    const gate = CoreFlushGate.makeFlushGate(t.runtime, NO_BATCH, DOM_GATE)
     gate.register("a", sinkOf((p) => void applied.push(p.x)))
     const fiber = t.run((n) => gate.write("a", { x: n }), 2)
     await t.advance()
@@ -328,7 +328,7 @@ describe("makeFlushGate — at the end of the Frame loop's tick (ADR-0033)", () 
   it("G3: a write made before the tick, outside it, is flushed with the tick's, and its frame withdrawn", async () => {
     const t = onTicks()
     const patches: Array<Renderer.Patch> = []
-    const gate = internalGate.makeFlushGate(t.runtime, NO_BATCH, DOM_GATE)
+    const gate = CoreFlushGate.makeFlushGate(t.runtime, NO_BATCH, DOM_GATE)
     gate.register("a", sinkOf((p) => void patches.push(p)))
     gate.register("b", sinkOf((p) => void patches.push(p)))
     const fiber = t.run((n) => gate.write("a", { x: n }))
@@ -346,7 +346,7 @@ describe("makeFlushGate — at the end of the Frame loop's tick (ADR-0033)", () 
     const t = onTicks()
     const applied: Array<string> = []
     let effectWrote = false
-    const gate = internalGate.makeFlushGate(t.runtime, NO_BATCH, DOM_GATE)
+    const gate = CoreFlushGate.makeFlushGate(t.runtime, NO_BATCH, DOM_GATE)
     gate.register("b", sinkOf((p) => void applied.push(`b ${String(p.y)}`)))
     gate.register(
       "a",
@@ -373,7 +373,7 @@ describe("makeFlushGate — at the end of the Frame loop's tick (ADR-0033)", () 
   it("G5: a tick that writes nothing runs no batch, even with a switch waiting", async () => {
     const t = onTicks()
     let batches = 0
-    const gate = internalGate.makeFlushGate(t.runtime, {
+    const gate = CoreFlushGate.makeFlushGate(t.runtime, {
       batch: (apply) => {
         batches++
         apply()
@@ -392,7 +392,7 @@ describe("makeFlushGate — at the end of the Frame loop's tick (ADR-0033)", () 
   it("G6: dispose takes the gate's hook off the loop: a later tick flushes nothing", async () => {
     const t = onTicks()
     const applied: Array<unknown> = []
-    const gate = internalGate.makeFlushGate(t.runtime, NO_BATCH, DOM_GATE)
+    const gate = CoreFlushGate.makeFlushGate(t.runtime, NO_BATCH, DOM_GATE)
     gate.dispose()
     gate.register("a", sinkOf((p) => void applied.push(p.x)))
     const fiber = t.run((n) => gate.write("a", { x: n }))
@@ -408,7 +408,7 @@ describe("makeFlushGate — at the end of the Frame loop's tick (ADR-0033)", () 
     const applied: Array<unknown> = []
     const ticks: Array<number> = []
     let throws = true
-    const gate = internalGate.makeFlushGate(t.runtime, NO_BATCH, DOM_GATE)
+    const gate = CoreFlushGate.makeFlushGate(t.runtime, NO_BATCH, DOM_GATE)
     gate.register(
       "a",
       sinkOf((p) => {
@@ -439,7 +439,7 @@ describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-000
   it("runs the pass synchronously and applies exactly what it wrote before returning, with no frame fired", () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
     try {
-      const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
       const order: Array<string> = []
       let received: Renderer.Patch | undefined
       gate.register("a", sinkOf((p) => ((received = p), order.push("apply"))))
@@ -460,7 +460,7 @@ describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-000
   it("leaves an entry the pass did not write for the next frame, even if it was already dirty", () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
     try {
-      const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
       let a: Renderer.Patch | undefined
       let b: Renderer.Patch | undefined
       gate.register("a", sinkOf((p) => (a = p)))
@@ -483,7 +483,7 @@ describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-000
   it("the next frame does not re-apply an entry the pass flushed unless it was written again", () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
     try {
-      const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
       let applied = 0
       gate.register("a", sinkOf(() => applied++))
 
@@ -505,7 +505,7 @@ describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-000
   it("has no measure read-queue any more", () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
     try {
-      const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
       expect("scheduleMeasure" in gate).toBe(false)
       gate.dispose()
     } finally {
@@ -516,7 +516,7 @@ describe("makeFlushGate — flushPass (the Measure pass flush; ADR-0018, ADR-000
   it("after dispose, a pass applies nothing and requests no frame", () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
     try {
-      const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
       let applied = 0
       gate.register("a", sinkOf(() => applied++))
       gate.dispose()
@@ -546,7 +546,7 @@ describe("makeFlushGate — a key that drops out of a patch", () => {
   it("GK3: the patch carries z-index while raised; once lowered, the gate restores it, then commits a patch without it", () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD_DOM, stillLoop)))
     try {
-      const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
       const patches: Array<Renderer.Patch> = []
       gate.register("a", sinkOf((p) => patches.push(p)))
       gate.write("a", raised)
@@ -568,7 +568,7 @@ describe("makeFlushGate — release (#47, ADR-0022): a key handed back to the el
   it("GR1: a released key is restored, and the next patch lacks it and keeps the rest", () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD_DOM, stillLoop)))
     try {
-      const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
       const patches: Array<Renderer.Patch> = []
       gate.register("a", sinkOf((p) => patches.push(p)))
       gate.write("a", { opacity: 0.5, scale: 1.2 })
@@ -586,7 +586,7 @@ describe("makeFlushGate — release (#47, ADR-0022): a key handed back to the el
   it("GR4: releasing a key the entry doesn't hold, or an unknown id, requests nothing", () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD_DOM, stillLoop)))
     try {
-      const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
       gate.register("a", sinkOf(() => {}))
       gate.write("a", { opacity: 0.5 })
       fireFrame()
@@ -607,7 +607,7 @@ describe("makeFlushGate — the keys held on an element (ADR-0034)", () => {
   it("GH1: the sink hears the keys held before the commit that first writes one, and not on a frame that keeps them", () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
     try {
-      const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
       const events: Array<string> = []
       gate.register(
         "a",
@@ -637,7 +637,7 @@ describe("makeFlushGate — the keys held on an element (ADR-0034)", () => {
   it("GH2: a key that drops out is restored first, then the sink hears the keys left, then the patch is committed", () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
     try {
-      const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
       const events: Array<string> = []
       gate.register(
         "a",
@@ -660,7 +660,7 @@ describe("makeFlushGate — the keys held on an element (ADR-0034)", () => {
   it("GH3: a Measure pass's commits are heard too, so a key it adds is held before it's written", () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
     try {
-      const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+      const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
       const events: Array<string> = []
       gate.register(
         "a",
@@ -681,7 +681,7 @@ describe("makeFlushGate — the keys held, heard in the binding's batch (ADR-003
     try {
       const events: Array<string> = []
       // A binding that applies its updates at the end of its batch, as Solid 2's flush does.
-      const gate = internalGate.makeFlushGate(runtime, {
+      const gate = CoreFlushGate.makeFlushGate(runtime, {
         batch: (apply) => {
           events.push("batch")
           apply()
@@ -716,7 +716,7 @@ describe("the gate's live outputs, valueOf (#130, ADR-0043)", () => {
   /** A gate on a still loop, and the registry its outputs live in. */
   const harness = () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
-    const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+    const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
     const registry = runtime.runSync(AtomRegistry.AtomRegistry)
     const end = (): void => {
       gate.dispose()
@@ -816,7 +816,7 @@ describe("the gate's commit hook, onCommit (#233, ADR-0043 Amendment (#233, #234
   /** A gate on a still loop. */
   const harness = () => {
     const runtime = ManagedRuntime.make(withFrames(Layer.merge(HEARD, stillLoop)))
-    const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+    const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
     const end = (): void => {
       gate.dispose()
       void runtime.dispose()
@@ -889,7 +889,7 @@ describe("the gate's commit hook, onCommit (#233, ADR-0043 Amendment (#233, #234
     const runtime = ManagedRuntime.make(
       withFrames(Layer.merge(HEARD, stillLoop).pipe(Layer.provideMerge(ErrorReporter.layer([ErrorReporter.make(({ error }) => void reports.push(error.message))])))),
     )
-    const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+    const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
     const end = (): void => {
       gate.dispose()
       void runtime.dispose()
@@ -913,7 +913,7 @@ describe("the gate's commit hook, onCommit (#233, ADR-0043 Amendment (#233, #234
     const runtime = ManagedRuntime.make(
       withFrames(Layer.merge(HEARD, stillLoop).pipe(Layer.provideMerge(ErrorReporter.layer([ErrorReporter.make(({ error }) => void reports.push(error.message))])))),
     )
-    const gate = internalGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
+    const gate = CoreFlushGate.makeFlushGate(runtime, NO_BATCH, DOM_GATE)
     const end = (): void => {
       gate.dispose()
       void runtime.dispose()

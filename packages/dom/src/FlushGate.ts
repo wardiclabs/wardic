@@ -17,27 +17,28 @@
 // the Frame loop, cancels a pending frame and clears what it held. Its members are plain functions, called
 // per element and per frame. `make` is the scoped constructor, for a binding that wires it itself. `inert`
 // (ADR-0021, decision 9): a value for a binding whose server builds no runtime, or `layerInert` for one
-// whose server runs an Effect program.
+// whose server runs an Effect program. #672: the gate itself is core's `unstable/FlushGate`; this module gives it
+// the DOM's edges (`DOM_GATE`) and its service.
 import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Layer from "effect/Layer"
 import * as Atom from "effect/reactivity/Atom"
 import type * as Scope from "effect/Scope"
-import * as internal from "./internal/gate.ts"
+import * as CoreFlushGate from "@wardic/core/unstable/FlushGate"
 import { DOM_GATE } from "./internal/gate-environment.ts"
 import * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /** The gate: what a binding registers its elements with and writes their values into. */
-export type Shape = internal.Shape
+export type Shape = CoreFlushGate.Shape
 
 /** An element's commit target and hooks, given to `register`. */
-export type Sink = internal.Sink
+export type Sink = CoreFlushGate.Sink
 
 /** What a binding hands its gate: the `batch` a frame's Starting-style switches run in. */
-export type Options = internal.FlushGateOptions
+export type Options = CoreFlushGate.FlushGateOptions
 
 /** The services a gate needs from its Environment. */
-export type Services = internal.FlushGateServices
+export type Services = CoreFlushGate.FlushGateServices
 
 /** The Environment's Flush gate. */
 export class FlushGate extends Context.Service<FlushGate, Shape>()("@wardic/dom/FlushGate") {}
@@ -50,7 +51,7 @@ export const make: (options: Options) => Effect.Effect<Shape, never, Services | 
   function* (options: Options) {
     // The gate itself, typed without `dispose`: the Scope ends it. Its runner forks on Effect's
     // default scheduler, whatever call built the Layer (core's `unstable/WardicServices`).
-    const gate = internal.makeFlushGate(yield* WardicServices.makeRunner<Services>(), options, DOM_GATE)
+    const gate = CoreFlushGate.makeFlushGate(yield* WardicServices.makeRunner<Services>(), options, DOM_GATE)
     yield* Effect.addFinalizer(() => Effect.sync(gate.dispose))
     return gate
   })

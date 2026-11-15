@@ -202,6 +202,7 @@ const PER_FRAME_LOOPS = [
   "packages/core/src/Interpolator.ts",
   "packages/core/src/Scalar.ts",
   "packages/core/src/Projection.ts",
+  "packages/core/src/unstable/FlushGate.ts",
 ]
 
 /**
@@ -223,7 +224,6 @@ const PER_FRAME_READS = [...PER_FRAME_LOOPS, "packages/core/src/Easing.ts"]
 const DOM_PER_FRAME = [
   "packages/dom/src/internal/batch-writer.ts",
   "packages/dom/src/internal/projection.ts",
-  "packages/dom/src/internal/gate.ts",
   "packages/dom/src/internal/renderer.ts",
   "packages/dom/src/internal/svg.ts",
   "packages/dom/src/internal/scale-correction.ts",
