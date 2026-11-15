@@ -718,7 +718,7 @@ const stopsCheckOf = (variables: VariableValues.Shape): ((stops: ReadonlyArray<n
   return check
 }
 
-/** A Path's turn (#438, ADR-0065): the reserved key the dom transform adds onto `rotate`. */
+/** A Path's turn (#438, ADR-0065): the reserved key its Environment's renderer adds onto `rotate`. */
 const PATH_ROTATION = "pathRotation"
 
 /** The turn back at 0, written once no leg draws it (#460). */
@@ -932,7 +932,7 @@ interface ListingOf {
  * A list's names at a Retarget (#297): told settled as the legs of the keys each drives settle, to
  * the binding's callbacks (Solid 1's, PR 1) and to its orchestration (PR 2), told moving now; and each
  * shut name's legs waiting on its gate (PR 2), its keys held where they start, so another name's first
- * commit, which hands the element's style back (ADR-0034), doesn't drop them to their CSS value.
+ * commit, which hands the element's style back (ADR-0034), doesn't drop them to their own value.
  */
 const listingOf = (of: ListingOf): Listing => {
   const { listed, told, byName, resolution, groups, legGroups, legCount, carriedGroups, shut, config } = of
@@ -1762,7 +1762,7 @@ export interface StartLinks {
 /**
  * An element's presence record (ADR-0007 exit): seeded with its Starting values, so an exit that
  * fires before any frame still has a `from`, and its `exit` ref, which the ward keeps current. An exit key with no value starts
- * from its Base value's start links (ADR-0022), read from the retained node at the exit.
+ * from its Base value's start links (ADR-0022), read from the Subject kept at the exit.
  */
 export const presenceRecordOf = <E extends Subject.Subject>(
   element: E,
@@ -1862,7 +1862,7 @@ export const tellDrag = (element: Subject.Subject, on: boolean): void => {
 /**
  * What a spine calls of its element's Live values routed through its binding's props (#130, ADR-0043):
  * the routed keys' values now, and each one's change and removal as they come; and the legs each
- * Retarget starts, which its binding's routes may act on (the DOM's turns its will-change on, #443).
+ * Retarget starts, which its binding's routes may act on (`@wardic/dom`'s readies its element for them, #443).
  */
 // #672 (PR3-Q1): the spine names what it calls, so it reads no `style` code; dom's LiveStyle meets it.
 export interface LiveRoutes {
@@ -1901,7 +1901,7 @@ export interface ElementSpineOptions {
   readonly id: string
   /** The mounted element. */
   readonly element: Subject.Subject
-  /** Its tag, for a Handoff's check (SVG's routing): `undefined` when it isn't known. */
+  /** Its tag, for a Handoff's check (its Environment routes some keys by it): `undefined` when it isn't known. */
   readonly tag: string | undefined
   /** Its config now, read where the binding doesn't track. */
   readonly config: () => SpineConfig
@@ -1966,7 +1966,7 @@ export interface ElementSpineOptions {
   readonly byName?: NameOrchestration | undefined
   /**
    * Development's diagnostics (#746, ADR-0067 *Amendment (#746)*, decision 6): each binding gives
-   * {@link SPINE_DIAGNOSTICS} under its Solid's `DEV` alone, so a production build ships none of their
+   * its own under its development flag alone, so a production build ships none of their
    * code. The spine names no flag, as core, where the lift takes it (#672), has none. Omitted, nothing
    * is noted.
    */
@@ -2065,7 +2065,7 @@ export interface SpineHost {
   readonly legProgram: (leg: Leg, running: Running, variables: boolean) => Effect.Effect<unknown, never, WardicServices.WardicServices>
   /** What a leg's end is told: it settles its landing, or reports its failure. */
   readonly legEnded: (running: Running) => (exit: Exit.Exit<unknown>) => Effect.Effect<void>
-  /** Turn will-change back off. */
+  /** A Path's turn back to 0 once no leg draws it (#460, ADR-0065 decision 3). */
   readonly turnBack: () => void
   /** Its gate id. */
   readonly id: string
@@ -2167,8 +2167,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
 
   // A Retarget's returns have settled (ADR-0022, D4). A key back at its `style` value is
   // handed back to the element's style, so a later style change shows at rest and the
-  // next gesture starts from it; any other key rests inline at its Base value and leaves
-  // the target. A key a later Retarget took over is left alone. A routed key (#130) stays
+  // next gesture starts from it; any other key rests at its Base value where the gate drew
+  // it, and leaves the target. A key a later Retarget took over is left alone. A routed key (#130) stays
   // in the gate, handed to the follower, which writes its value from now on.
   const settleReturns = (returns: ReadonlyArray<readonly [string, BaseValue.BaseSource]>): void => {
     // The returns still this Retarget's: a later one took over the rest.
@@ -2710,7 +2710,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     const member = holdNow()
     if (Predicate.isNotUndefined(member)) member.retarget(t, held)
     // The keys this Retarget returns; once it lands, a key back at its `style` value is
-    // handed back to the element's style (D4) and the rest rest inline.
+    // handed back to the element's style (D4) and the rest rest where the gate drew them.
     const returns = [...returning]
     // The transition, read at Retarget time so a change applies to the next Retarget. A child
     // with no local transition inherits the parent context's (ADR-0007).
@@ -2974,7 +2974,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       legGroups = split.tags
     }
     // The Handoff (#48, ADR-0044 decision 6): the first Retarget that starts picks the Appear
-    // animation up as far in as its CSS has got, read at the legs' first tick.
+    // animation up as far in as it has got, read at the legs' first tick.
     if (Predicate.isNotUndefined(handoff)) {
       const taken = handoff
       handoff = undefined
@@ -3015,7 +3015,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
           running.names = settles.carried(i)
         }))
     }
-    // Its `style`'s will-change value turns on as a leg starts a key Motion's would (#443).
+    // Its Live routes hear the legs it starts (#443, PR4-Q1).
     tellStarted(live, retargetLegs)
     // The element's Key rules only for a change a Variable value is in (#542).
     const variables = holdsVariable(variableValues, from, fresh, manyStops)
@@ -3178,7 +3178,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
           delete snapshot.values[key]
           delete snapshot.velocities[key]
           if (Predicate.isNotUndefined(presence)) delete presence.snapshot.current[key]
-          // Gone from `style`: the element's own value comes back, or the key's CSS value now.
+          // Gone from `style`: the element's own value comes back, or none, its Environment's default now.
           const restore = Option.match(ownValues.styleValueOf(UndefinedOr.match(styleNow, { onUndefined: constUndefined, onDefined: (style) => style() }), key), {
             onNone: () => "",
             onSome: String,

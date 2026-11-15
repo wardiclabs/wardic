@@ -15,7 +15,7 @@ import { runOf, type StopsByKey } from "./retarget-legs.ts"
 
 /** An element's mount animation, described the same on the server and the client. */
 export interface MountAnimation {
-  /** The element's tag, for SVG's routing; `undefined` for an element whose tag isn't known. */
+  /** The element's tag, by which its Environment routes some keys; `undefined` for an element whose tag isn't known. */
   readonly tag: string | undefined
   /** Each animated key's start. */
   readonly from: Values.Values
@@ -27,14 +27,14 @@ export interface MountAnimation {
   readonly reduced: boolean
   /**
    * Whether it's a layout node (#245): drawn through its projection at rest, as the client draws
-   * it, its own translate on top (#363). Part of its rule's name (`Appear.Spec.projected`).
+   * it, its own translate on top (#363). Part of its key.
    */
   readonly layout: boolean
   /** Each key's Keyframes of more than two stops (#429), `from` at their first: part of its key. Left out with none. */
   readonly stops?: StopsByKey | undefined
   /**
-   * Whether it's a **Skipped animation** (#468): every key lands on its first frame, so its rule is
-   * 0 s, holding its end from first paint. Part of its key; left out when it isn't.
+   * Whether it's a **Skipped animation** (#468): every key lands on its first frame, so its Appear
+   * animation takes 0 s, holding its end from first paint. Part of its key; left out when it isn't.
    */
   readonly skipped?: boolean | undefined
   /** Its **Transform template** (#443): its stops drawn through it, as the client draws them. Left out with none. */
@@ -50,11 +50,11 @@ export const ownDelayOf = (transition: WardicTransition | undefined): number =>
   UndefinedOr.match(transition, { onUndefined: () => 0, onDefined: ({ delay = 0 }) => delay })
 
 /**
- * The seconds a rule holds before it moves, of the delay the client counts: a transition's own
- * delay is in its rule, except a forever-repeating one's, whose rule is a cycle and whose own delay
- * goes in `animation-delay` with the stagger.
+ * The seconds an Appear animation holds before it moves, of the delay the client counts: a
+ * transition's own delay is in the animation, except a forever-repeating one's, which is sampled as
+ * one cycle, its own delay given with the stagger.
  */
-const heldInRule = (transition: WardicTransition | undefined): number =>
+const heldInAppear = (transition: WardicTransition | undefined): number =>
   Bool.match(repeatsForever(transition), { onTrue: () => 0, onFalse: () => ownDelayOf(transition) })
 
 /** A mount animation's `skipped` (#468): left out when it isn't, so its key is as before. */
@@ -70,10 +70,9 @@ export interface Handoff {
 
 /**
  * How far into its own run the client's first legs start, in seconds, read at their first tick:
- * where the CSS has got, less what the CSS waited that the client waits for itself. The CSS waited
- * its `animation-delay` and its rule's hold; the client's legs hold their transition's delay
- * (`clientDelay`, the stagger in it). The difference is a `when` wait, which the client has already
- * waited.
+ * where the Appear animation has got, less what it waited that the client waits for itself. It
+ * waited its delay and its own hold; the client's legs hold their transition's delay (`clientDelay`,
+ * the stagger in it). The difference is a `when` wait, which the client has already waited.
  */
 export const startAtOf = (handoff: Handoff, ownTransition: WardicTransition | undefined, clientDelay: number) => (): number =>
-  handoff.elapsed() - handoff.delay() - heldInRule(ownTransition) + clientDelay
+  handoff.elapsed() - handoff.delay() - heldInAppear(ownTransition) + clientDelay

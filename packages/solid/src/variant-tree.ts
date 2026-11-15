@@ -81,7 +81,7 @@ export interface WardicStaggerConfig {
 }
 
 /**
- * The value carried down the tree by {@link WardicVariantContext}.
+ * The value carried down the tree by its binding's variant context.
  *
  * - `variant` — the parent instance's CURRENT variant NAME (reactive). It is
  *   `undefined` when the parent's resolved `animate` is a `Values` map rather
@@ -304,7 +304,7 @@ export interface WardicVariantContextValue {
   /**
    * The parent's stagger config for one of its names (Motion's `animateVariant` a name): that
    * name's own transition's, else the parent's `transition`. A Variant child's keys of that name take
-   * their delay from it. `undefined` asks for {@link stagger}. Optional: left out, `stagger` for all.
+   * their delay from it. `undefined` asks for `stagger`. Optional: left out, `stagger` for all.
    */
   readonly staggerFor?: (name: string | undefined) => WardicStaggerConfig
   /**
@@ -501,7 +501,7 @@ export const startingValuesOf = (
   const values = Style.resolveInitial({
     initial: from,
     animate,
-    // Dynamic variants resolved first (#277): dom's Starting style reads values maps only.
+    // Dynamic variants resolved first (#277): `@wardic/dom`'s Starting style reads values maps only.
     variants: startingVariantsOf(config.variants, config.custom) as Readonly<Record<string, object | undefined>> | undefined,
   })
   // The first target's Transition end (#428, Motion's `makeLatestValues`): set at once, so a server
@@ -612,7 +612,7 @@ export interface ServerVariantNode {
 }
 
 /**
- * {@link createVariantNode} during a server render: the same names, read once, and orchestration
+ * A binding's variant node during a server render: the same names, read once, and orchestration
  * that does nothing. No runtime, no signals.
  */
 export const serverVariantNode = (config: VariantConfig, parent: WardicVariantContextValue | undefined): ServerVariantNode => {

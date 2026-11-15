@@ -15,9 +15,9 @@
  *      turn each dirty element's merged value-map into a `Patch` exactly once
  *      per element per frame.
  *   3. Commits each resulting Patch onto its element with the Renderer's `commit`, a plain
- *      call (ADR-0034) — one DOM pass per frame, shared by every element: at the end of the
+ *      call (ADR-0034) — one pass over the elements per frame, shared by every element: at the end of the
  *      Frame loop's tick, in the Refresh frame that computed the values (ADR-0033). No
- *      framework runs per frame: a binding's JSX carries an element's style only until its
+ *      framework runs per frame: a binding's render carries an element's style only until its
  *      first commit (ADR-0021, decision 6), and after it only the keys the gate doesn't hold.
  *
  * Three locked design decisions (this session's grills):
@@ -29,17 +29,17 @@
  *     Refresh frame, only if one is not already pending, and the hook withdraws that request
  *     when it flushes first. `flush` does NOT auto-reschedule, so an idle accumulator
  *     requests no frames — the next `write` does. The frames come from the Environment's
- *     `RefreshFrameSource` (ADR-0031): on the web, `requestAnimationFrame` itself. No binding
- *     calls the browser's frame functions itself. A Tier 2 `Stream` that writes here paints in
+ *     `RefreshFrameSource` (ADR-0031): `@wardic/dom`'s is its runtime's frame callback. No binding
+ *     asks its runtime for frames itself. A Tier 2 `Stream` that writes here paints in
  *     the loop's frame or the next one, by its subscription order (ADR-0033): run it on the
  *     loop (`Machine.run`) to paint with it.
  *   - ONE flush per frame: all dirty elements flush together. The one exception
  *     is `flushPass` (ADR-0018): a projection Measure pass's own writes are applied
  *     at the end of its task, so a new layout never paints without its projection.
  *   - ONE sink shape (ADR-0034): a sink is the element its patch is committed onto. The gate
- *     also removes a key its last patch had and this one doesn't (a dragged node's `z-index`
- *     once its raise is dropped, ADR-0016 *Amendment (Reorder)*), restoring the element's own
- *     inline value, saved before the gate first wrote the key. Two hooks reach the binding,
+ *     also removes a key its last patch had and this one doesn't (a dragged element's raise
+ *     once it's dropped, ADR-0016 *Amendment (Reorder)*), restoring the element's own
+ *     value, saved before the gate first wrote the key. Two hooks reach the binding,
  *     outside the commits, each in the binding's `batch` (ADR-0034, *Amendment (#209)*): the
  *     Starting-style switch before an element's first commit (`beforeFirstCommit`), and the keys
  *     the gate holds on the element whenever they change (`onHeld`), so the binding's `style`
@@ -75,7 +75,7 @@ export interface FlushSink {
   /**
    * Called once, just before the element's first commit in a frame flush (not a Measure
    * pass's `flushPass`), inside the binding's `batch` with every other element's switch that
-   * flush: a binding drops its Starting style from its `style` prop here,
+   * flush: a binding drops its Starting style from its `style` here,
    * so its framework removes those keys and the commit writes the first frame in the same
    * Refresh frame, with no paint in between.
    */
@@ -83,7 +83,7 @@ export interface FlushSink {
   /**
    * Called with every key the gate now holds on the element, each time that set changes: after the
    * gate restores a key it dropped, and before the commit that first
-   * writes a key. A binding whose `style` prop reaches the element leaves these keys out of it,
+   * writes a key. A binding whose `style` reaches the element leaves these keys out of it,
    * so its framework never writes over Wardic's value (`style` is a key's fallback). Called in
    * the binding's `batch`, with every other element's whose keys changed that flush, so what the
    * binding changes reaches the element before the commit, a framework that applies an update later
@@ -112,7 +112,7 @@ interface Entry {
   dirty: boolean
   /**
    * The keys the gate holds on the element: its last patch's, each with the element's own
-   * inline value from before the gate first wrote it (`""` for none), to restore when the
+   * value from before the gate first wrote it (`""` for none), to restore when the
    * key drops out.
    */
   readonly committed: Map<string, string>
@@ -189,8 +189,8 @@ export interface FlushGate {
   readonly flushPass: (pass: () => void) => void
   /**
    * Hand `keys` back to the element's own style: drop each from the element's
-   * value-map and schedule a flush, which writes `restore[key]` (CSS text) for a key it had
-   * written, or else the inline value it overwrote, and tells the sink (`onHeld`). A key the
+   * value-map and schedule a flush, which writes `restore[key]` (its Environment's text form) for a key it had
+   * written, or else the element's own value it overwrote, and tells the sink (`onHeld`). A key the
    * entry doesn't hold, or an unknown id, is a no-op. A binding releases a key back at its `style`
    * value, so a later `style` change shows at rest. A later `write` brings the key back. A property in
    * `keep` (`transform` for its keys) is left as it's drawn when it drops out: another writer draws it next.
@@ -479,7 +479,7 @@ export const makeFlushGate = (runtime: FlushGateRuntime, options: FlushGateOptio
   const flush = (): void => {
     scheduled = false
     try {
-      // The switches first: an element's own inline values are read once its Starting style is gone.
+      // The switches first: an element's own values are read once its Starting style is gone.
       if (firstCommits.size > 0) batch(runFirstCommits)
       // Every dirty element, once. No auto-reschedule — the next write() does. A write()
       // from an effect a sink's hook runs requests the next frame (it isn't stranded).
