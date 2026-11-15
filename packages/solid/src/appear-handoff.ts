@@ -8,10 +8,9 @@
 // #672 (PR4-Q3): what of `appear.ts` the spine reads, apart, for core; the rest stays for dom.
 import type * as Machine from "@wardic/core/Machine"
 import type * as Values from "@wardic/core/Values"
-import type * as DomRenderer from "@wardic/dom/DomRenderer"
 import * as Bool from "effect/Boolean"
 import * as UndefinedOr from "effect/UndefinedOr"
-import type { WardicTransition } from "./config.ts"
+import type { SpineConfig, WardicTransition } from "./config.ts"
 import { runOf, type StopsByKey } from "./retarget-legs.ts"
 
 /** An element's mount animation, described the same on the server and the client. */
@@ -39,7 +38,7 @@ export interface MountAnimation {
    */
   readonly skipped?: boolean | undefined
   /** Its **Transform template** (#443): its stops drawn through it, as the client draws them. Left out with none. */
-  readonly template?: DomRenderer.TransformTemplate | undefined
+  readonly template?: SpineConfig["transformTemplate"]
 }
 
 /** Whether a transition repeats for ever: a tween's `repeat: Infinity`, a tween as it runs (ADR-0051). */

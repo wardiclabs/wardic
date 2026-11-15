@@ -9,6 +9,7 @@
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Context from "effect/Context"
 import type * as Atom from "effect/reactivity/Atom"
+import type * as Subject from "@wardic/core/unstable/Subject"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /** An element's keys' Timeline values, as its spine tells of them. */
@@ -26,7 +27,7 @@ export interface TimelineKeysOptions {
   readonly runtime: WardicServices.Runner<WardicServices.WardicServices>
   readonly gate: FlushGate.Shape
   readonly id: string
-  readonly element: HTMLElement
+  readonly element: Subject.Subject
   /** Its routed `style` keys: each key's Atom, which describes its derivation. */
   readonly live: LiveAtoms
 }

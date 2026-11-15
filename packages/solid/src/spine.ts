@@ -29,6 +29,7 @@ import type * as CoreMeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
 import type * as OwnValues from "@wardic/core/unstable/OwnValues"
 import type * as VariableValues from "@wardic/core/unstable/VariableValues"
 import type * as Stops from "@wardic/core/unstable/Stops"
+import type * as Subject from "@wardic/core/unstable/Subject"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
@@ -59,7 +60,7 @@ import type {
 } from "./config.ts"
 import { type ControlsChange, join, leave } from "./animation-controls.ts"
 import { clockNowOf, frameNow, MAX_VELOCITY_DELTA, NOMINAL_FRAME } from "./frame-time.ts"
-import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "./presence-record.ts"
+import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "@wardic/core/unstable/PresenceRecord"
 import type { Accessor, Reactivity } from "./reactivity.ts"
 import { delayedBy, type Follows, hasManyStops, keyframesFrom, type Leg, legsOf, type MeasuredPairs, startingAt, type StopsByKey, transitionForKey, type Velocities, withPathAxes } from "./retarget-legs.ts"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
@@ -90,6 +91,9 @@ import {
 } from "./variant-tree.ts"
 import { type Entry, type Keyframes, mergedOf, type NamedTarget, resolveTarget, resolveTargets, sameLabels, type Target, transitionOfTarget, type VariantState } from "./variant-target.ts"
 
+// #672: declared here, as core's `Microtask.ts` declares it, since core builds with no DOM in its lib.
+declare const queueMicrotask: (callback: () => void) => void
+
 export { NO_VARIANT_STATE, resolveTarget, type Target, transitionOfTarget, type VariantState } from "./variant-target.ts"
 
 /** What an element's exit is resolved from (#277): its last config, kept current while it's alive. */
@@ -115,7 +119,7 @@ export const presenceTreeOf = (c: SpineConfig): PresenceTree => ({
  * An element's ref that tells its presence it was made (#286, ADR-0048): its `key`, read once, and
  * whether it's a twin. With no presence, `set` itself: nothing is made per element.
  */
-export const madeWith = <E extends Element>(presence: PresenceContextValue | undefined, set: (el: E) => void, c: SpineConfig): ((el: E) => void) => {
+export const madeWith = <E extends Subject.Subject>(presence: PresenceContextValue<E> | undefined, set: (el: E) => void, c: SpineConfig): ((el: E) => void) => {
   if (Predicate.isUndefined(presence)) return set
   const key = c.key
   const twin = Predicate.isNotUndefined(c.layoutId)
@@ -1194,7 +1198,7 @@ const measuringOf = (found: ReadonlyArray<string> | undefined, keyframes: Keyfra
  * end-of-task batch with the values the element draws now, but a key with Keyframes of more than two
  * stops (`many`, #460). `undefined` with none.
  */
-export const measuredOf = (measured: CoreMeasuredPairs.Shape, element: HTMLElement, keys: ReadonlyArray<string>, from: Values.Values, to: Values.Values, values: Values.Values, many: StopsByKey | undefined): MeasuredPairs | undefined => {
+export const measuredOf = (measured: CoreMeasuredPairs.Shape, element: Subject.Subject, keys: ReadonlyArray<string>, from: Values.Values, to: Values.Values, values: Values.Values, many: StopsByKey | undefined): MeasuredPairs | undefined => {
   const pairs: Record<string, { readonly from: number | string; readonly to: number | string }> = {}
   Arr.forEach(keys, (key) => {
     if (hasManyStops(many, key)) return
@@ -1750,8 +1754,8 @@ export interface StartLinks {
  * fires before any frame still has a `from`, and its `exit` ref, which the ward keeps current. An exit key with no value starts
  * from its Base value's start links (ADR-0022), read from the retained node at the exit.
  */
-export const presenceRecordOf = (
-  element: HTMLElement,
+export const presenceRecordOf = <E extends Subject.Subject>(
+  element: E,
   start: Start,
   exitOf: (custom: unknown, inherited: WardicVariantLabels | undefined) => ExitTarget,
   links: StartLinks,
@@ -1759,7 +1763,7 @@ export const presenceRecordOf = (
   snapshot: Snapshot,
   reducedMotion: () => boolean,
   skipAnimations: () => boolean,
-): PresenceRecord => ({
+): PresenceRecord<E> => ({
   element,
   snapshot: { current: { ...start.initialValues } },
   exitOf,
@@ -1813,7 +1817,7 @@ export interface MemberHold {
 
 /** How a spine finds its element a Batch member's, and makes its hold. */
 export interface MemberHolds {
-  readonly isMember: (element: Element) => boolean
+  readonly isMember: (element: Subject.Subject) => boolean
   readonly make: (host: HoldHost) => MemberHold
 }
 
@@ -1838,10 +1842,10 @@ export const provideMemberHolds = (given: MemberHolds): void => {
  * transform from its Batch then, and gives it back.
  */
 // Module state (#460, Q7): held weakly by the element, so it goes with it.
-const DRAG_HOOKS = new WeakMap<Element, (on: boolean) => void>()
+const DRAG_HOOKS = new WeakMap<Subject.Subject, (on: boolean) => void>()
 
 /** `element`'s drag hook told `on`, when its spine has one: its binding's drag start and end, and a drag's claim. */
-export const tellDrag = (element: Element, on: boolean): void => {
+export const tellDrag = (element: Subject.Subject, on: boolean): void => {
   UndefinedOr.map(DRAG_HOOKS.get(element), (tell) => tell(on))
 }
 
@@ -1886,7 +1890,7 @@ export interface ElementSpineOptions {
   /** The element's gate id. */
   readonly id: string
   /** The mounted element. */
-  readonly element: HTMLElement
+  readonly element: Subject.Subject
   /** Its tag, for a Handoff's check (SVG's routing): `undefined` when it isn't known. */
   readonly tag: string | undefined
   /** Its config now, read where the binding doesn't track. */
@@ -2033,7 +2037,7 @@ export interface SpineHost {
   readonly reducedMotion: () => boolean
   /** Whether its animations are skipped now (#468). */
   readonly skipAnimations: () => boolean
-  readonly element: HTMLElement
+  readonly element: Subject.Subject
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
   /** Each key's velocity, as of the take. */

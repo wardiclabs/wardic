@@ -26,6 +26,9 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { CONTROLS, type SpineConfig, type WardicAnimationControls, type WardicControlsDefinition, type WardicTransition, type WardicVariant, type WardicVariantLabels, type WardicVariantResolver } from "./config.ts"
 
+// #672: declared here, as core's `Microtask.ts` declares it, since core builds with no DOM in its lib.
+declare const queueMicrotask: (callback: () => void) => void
+
 // #672: the controls' interface, its definition and its mark are config.ts's, where the config types
 // reach them; they move to core with its config types.
 export type { WardicAnimationControls, WardicControlsDefinition } from "./config.ts"

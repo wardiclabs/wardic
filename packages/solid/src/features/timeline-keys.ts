@@ -51,7 +51,9 @@ export const makeTimelines = (): Timelines["Service"] => {
  * nothing made. What it derives from changes only where it's described anew, which `recheck` hears.
  */
 const elementKeysOf = (options: TimelineKeysOptions, unmounted: () => void): ElementKeys => {
-  const { runtime, gate, id, element, live } = options
+  const { runtime, gate, id, live } = options
+  // #672: the spine hands its Subject; a DOM binding's is its element, which a Timeline value follows.
+  const element = options.element as Element
   const made = new Map<string, Made>()
   // The keys that show their Live value, whatever runs them, each with the Atom it was shown from (none
   // for a plain accessor's): the ones `recheck` looks at again.
