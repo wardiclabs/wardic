@@ -38,7 +38,6 @@ import { type AppearGroup, type DomHandoff, enterServer, keyOf, type ServerAppea
 import { type Handoff, type MountAnimation, repeatsForever } from "./appear-handoff.ts"
 import type { SpineConfig, WardConfig } from "./config.ts"
 import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
-import type { ValueReads } from "./runtime.ts"
 import { baseLog, isLayoutNode, type Snapshot, type SpineDiagnostics, type StartLinks, tellDrag } from "./spine.ts"
 import { hasOwnVariants, ownOrInherited, type ServerVariantNode, type WardicVariantContextValue } from "./variant-tree.ts"
 import { type Entry, NO_VARIANT_STATE, resolveTarget, type Target, transitionOfTarget } from "./variant-target.ts"
@@ -200,6 +199,16 @@ export const SPINE_DIAGNOSTICS: SpineDiagnostics = { checkHandoff, baseLog }
 
 // The DOM's ports, where an element's Environment gives none (#672, PR2-Q4): `DomLive` doesn't, so
 // only an app that animates an element ships them, through these.
+
+/**
+ * An Environment's reads of its Subjects' values (#672): its own values, Measured pairs and Variable
+ * values, each `undefined` when it gives none.
+ */
+export interface ValueReads {
+  readonly ownValues: CoreOwnValues.Shape | undefined
+  readonly measuredPairs: MeasuredPairs.Shape | undefined
+  readonly variableValues: VariableValues.Shape | undefined
+}
 
 /** An element's reads of its values: its Environment's, else the DOM's. */
 export interface ElementValueReads {
