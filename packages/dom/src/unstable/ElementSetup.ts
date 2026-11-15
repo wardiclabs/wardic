@@ -193,7 +193,7 @@ const checkHandoff = (runtime: WardicServices.Runner<WardicServices.WardicServic
 }
 
 /**
- * Development's diagnostics (#746): what a binding gives the spine under its Solid's `DEV`. Referenced
+ * Development's diagnostics (#746): what a binding gives the spine under its development flag alone. Referenced
  * nowhere else, so a production build, whose binding never gives it, drops it and what it calls.
  */
 // #672: here, where the DOM's Handoff is, so the spine reads no Animation; given under `DEV` alone.

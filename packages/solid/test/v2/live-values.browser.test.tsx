@@ -455,7 +455,7 @@ describe("createScroll, createVelocity and createTime on Solid 2", () => {
     ))
     await settle()
     // The Atom the accessor carries, kept mounted here so the registry keeps its value.
-    const atom = (time as unknown as Record<symbol, Atom.Atom<number>>)[Symbol.for("@wardic/solid/carried")]!
+    const atom = (time as unknown as Record<symbol, Atom.Atom<number>>)[Symbol.for("@wardic/dom/carried")]!
     const stop = registry.subscribe(atom, () => {})
     try {
       setShown(false)

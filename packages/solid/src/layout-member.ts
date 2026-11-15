@@ -52,7 +52,7 @@ const toLayoutTransition = (t: WardicTransition | undefined): Option.Option<Proj
 
 /**
  * `createProjectionNode`'s options: the element, its id, and what its motion props would give a `w.*`
- * element's layout node. Each function is read when the projection needs it, outside Solid's tracking.
+ * element's layout node. Each function is read when the projection needs it, outside its binding's tracking.
  */
 export interface CreateProjectionNodeOptions {
   /** The element's id in the provider's gate, the entry its values are written under. */

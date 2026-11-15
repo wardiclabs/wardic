@@ -19,7 +19,7 @@ export const open = (runtime: { readonly scope: Scope.Scope }): Scope.Closeable 
 
 /**
  * Closes `scope` now, synchronously, on `runtime`. A finalizer that fails is logged and reported as
- * `label` (`Report.failure`), never thrown: the rest of the Solid cleanup that closes it still runs. A
+ * `label` (`Report.failure`), never thrown: the rest of the binding's cleanup that closes it still runs. A
  * Scope the runtime's disposal already closed is left as it is.
  */
 // #618 (decision 5): `runtime.runSync(Scope.close(…))` threw a failed finalizer's cause into Solid's

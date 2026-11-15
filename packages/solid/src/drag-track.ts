@@ -146,7 +146,7 @@ export interface DragTrackOptions {
   /**
    * Runs the track in the element's watch Scope: its watches subscribed now, with no
    * fiber, until the element goes and the Scope closes, which stops a running release. A throw from a
-   * watch's fold goes to the `onDefect` it's given (#209: each binding's Solid owns the Scope).
+   * watch's fold goes to the `onDefect` it's given (#209: each binding owns the Scope).
    */
   readonly watch: (track: (onDefect: InputFeed.OnDefect) => Effect.Effect<void, never, Scope.Scope | TrackServices>) => void
   /**
