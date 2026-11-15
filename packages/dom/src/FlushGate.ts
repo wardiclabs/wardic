@@ -24,6 +24,7 @@ import * as Layer from "effect/Layer"
 import * as Atom from "effect/reactivity/Atom"
 import type * as Scope from "effect/Scope"
 import * as internal from "./internal/gate.ts"
+import { DOM_GATE } from "./internal/gate-environment.ts"
 import * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /** The gate: what a binding registers its elements with and writes their values into. */
@@ -49,7 +50,7 @@ export const make: (options: Options) => Effect.Effect<Shape, never, Services | 
   function* (options: Options) {
     // The gate itself, typed without `dispose`: the Scope ends it. Its runner forks on Effect's
     // default scheduler, whatever call built the Layer (core's `unstable/WardicServices`).
-    const gate = internal.makeFlushGate(yield* WardicServices.makeRunner<Services>(), options)
+    const gate = internal.makeFlushGate(yield* WardicServices.makeRunner<Services>(), options, DOM_GATE)
     yield* Effect.addFinalizer(() => Effect.sync(gate.dispose))
     return gate
   })

@@ -6,7 +6,7 @@
  * @module
  */
 // ADR-0070, *Amendment (#665)*: only members pay. A spine reads one module slot a Retarget while no
-// Batch has been made, and a WeakMap after; this module's code is reached through `provideMemberHolds`,
+// Batch has been made, and a WeakMap after; this module's code is reached through `provideBatchHolds`,
 // which only `createBatch` calls.
 import * as BaseValue from "@wardic/core/BaseValue"
 import * as Arr from "effect/Array"
@@ -15,10 +15,7 @@ import * as Iter from "effect/Iterable"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import { type BatchGroup, batchGroupOf, type BatchHandover, type BatchHolder, type BatchMemberEntry, isMemberElement, memberEntryOf } from "./batch.ts"
-import { type SpineHost, velocityAt } from "./spine.ts"
-
-/** What a Batch member's hold reads of what its element's spine hands over (#746). */
-type HoldHost = Pick<SpineHost, "element" | "gate" | "id" | "snapshot" | "owners" | "giveUp" | "keepTheRest" | "driven" | "returning">
+import { type HoldHost, type MemberHold, type MemberHolds, provideMemberHolds, velocityAt } from "./spine.ts"
 
 // What a hold works its spine with (#746): here, not in the spine, so an app with no Batch ships none
 // of it (ADR-0070's *Note (#746)*). Functions over the host, not closures: a hold makes none of its own.
@@ -54,43 +51,9 @@ const forgetKey = (host: HoldHost, key: string): void => {
   host.returning().delete(key)
 }
 
-/**
- * A Batch member's element's hold on the groups it takes from its Batch: its transform, or its opacity,
- * taken as a leg on a key of it starts or a drag moves it, and given back as its last leg on it ends, or
- * at its Batch's next change of it.
- */
-export interface MemberHold {
-  /**
-   * A Retarget's target `t` against the Batch (Q53): a group a key of it moves (its target other than
-   * what's drawn) is taken; a key it'd leave where the Batch draws it stays the Batch's, out of `t`. A
-   * drag holding `x`/`y` takes the transform.
-   */
-  readonly retarget: (t: Record<string, unknown>, dragged: boolean) => void
-  /** A leg landed: each group no leg runs on any more goes back to the Batch (Q54), from where it is. */
-  readonly settle: () => void
-  /** Its drag reads or writes `x`/`y` (`true`): it takes the transform; or hands them back (`false`). */
-  readonly drag: (on: boolean) => void
-  /** Its element unmounted: every group back to the Batch. */
-  readonly dispose: () => void
-}
-
-/** How a spine finds its element a Batch member's, and makes its hold. */
-export interface MemberHolds {
-  readonly isMember: (element: Element) => boolean
-  readonly make: (host: HoldHost) => MemberHold
-}
-
-// Module state (#460, Q7): set once a Batch is made, so a spine can make a hold; none until then.
-let holds: MemberHolds | undefined
-
-/** What a spine makes its member hold with: `undefined` while no Batch has been made. */
-export const memberHoldsNow = (): MemberHolds | undefined => holds
-
 /** Holds made from now on (`createBatch`, as it's called): a Batch's members can be Wardic elements. */
-export const provideMemberHolds = (): void => {
-  if (Predicate.isNotUndefined(holds)) return
-  holds = { isMember: isMemberElement, make: makeMemberHold }
-}
+// #672 (Q14): the slot is the spine's; this fills it with the Batch's holds.
+export const provideBatchHolds = (): void => provideMemberHolds(BATCH_HOLDS)
 
 /** A Batch member's element's {@link MemberHold}. */
 const makeMemberHold = (host: HoldHost): MemberHold => {
@@ -239,3 +202,6 @@ const makeMemberHold = (host: HoldHost): MemberHold => {
     dispose: () => giveBack(constFalse),
   }
 }
+
+/** The Batch's holds, which `provideBatchHolds` gives the spine's slot: one record, made once. */
+const BATCH_HOLDS: MemberHolds = { isMember: isMemberElement, make: makeMemberHold }

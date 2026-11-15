@@ -21,19 +21,16 @@ import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Machine from "@wardic/core/Machine"
 import * as Override from "@wardic/core/Override"
-import * as Projection from "@wardic/core/Projection"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Renderer from "@wardic/core/Renderer"
 import * as Supersede from "@wardic/core/Supersede"
 import * as Values from "@wardic/core/Values"
-import * as Appear from "@wardic/dom/Appear"
-import * as DomRenderer from "@wardic/dom/DomRenderer"
+import * as Report from "@wardic/core/unstable/Report"
+import type * as CoreMeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
+import type * as OwnValues from "@wardic/core/unstable/OwnValues"
+import type * as VariableValues from "@wardic/core/unstable/VariableValues"
+import type * as Stops from "@wardic/core/unstable/Stops"
 import type * as FlushGate from "@wardic/dom/FlushGate"
-import * as OwnValues from "@wardic/dom/OwnValues"
-import * as Report from "@wardic/dom/Report"
-import * as MeasuredPair from "@wardic/dom/MeasuredPair"
-import * as Style from "@wardic/dom/Style"
-import * as Variables from "@wardic/dom/Variables"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
@@ -50,9 +47,9 @@ import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { enterServer, type Handoff, keyOf, type MountAnimation, repeatsForever, type ServerAppear, skippedField, startAtOf } from "./appear.ts"
+import { enterServer, type Handoff, type MountAnimation, type ServerAppear, skippedField, startAtOf } from "./appear.ts"
 import type {
-  WardConfig,
+  SpineConfig,
   WardicAnimationDefinition,
   WardicTransition,
   WardicVariant,
@@ -62,12 +59,10 @@ import type {
 } from "./config.ts"
 import { type ControlsChange, join, leave } from "./animation-controls.ts"
 import { clockNowOf, frameNow, MAX_VELOCITY_DELTA, NOMINAL_FRAME } from "./frame-time.ts"
-import { type LiveStyle, serverRegistryOf, turnsWillChangeOn, valuesOf } from "./live-style.ts"
+import { type LiveStyle, turnsWillChangeOn } from "./live-style.ts"
 import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "./presence-record.ts"
-import type { DragTrack } from "./drag-track.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
 import { delayedBy, type Follows, hasManyStops, keyframesFrom, type Leg, legsOf, type MeasuredPairs, startingAt, type StopsByKey, transitionForKey, type Velocities, withPathAxes } from "./retarget-legs.ts"
-import { type MemberHold, memberHoldsNow } from "./member-hold.ts"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 import { type TimelineKeys, Timelines } from "./timelines.ts"
 import {
@@ -113,7 +108,7 @@ export interface ExitConfig {
 export const NO_EXIT_CONFIG: ExitConfig = { exit: undefined, variants: undefined, custom: undefined, transition: undefined }
 
 /** A record's place in the variant tree (#290), from its config at setup. */
-export const presenceTreeOf = (c: WardConfig): PresenceTree => ({
+export const presenceTreeOf = (c: SpineConfig): PresenceTree => ({
   joins: isVariantChild(c),
   provides: changesContext(c),
   twin: Predicate.isNotUndefined(c.layoutId),
@@ -123,7 +118,7 @@ export const presenceTreeOf = (c: WardConfig): PresenceTree => ({
  * An element's ref that tells its presence it was made (#286, ADR-0048): its `key`, read once, and
  * whether it's a twin. With no presence, `set` itself: nothing is made per element.
  */
-export const madeWith = <E extends Element>(presence: PresenceContextValue | undefined, set: (el: E) => void, c: WardConfig): ((el: E) => void) => {
+export const madeWith = <E extends Element>(presence: PresenceContextValue | undefined, set: (el: E) => void, c: SpineConfig): ((el: E) => void) => {
   if (Predicate.isUndefined(presence)) return set
   const key = c.key
   const twin = Predicate.isNotUndefined(c.layoutId)
@@ -134,7 +129,7 @@ export const madeWith = <E extends Element>(presence: PresenceContextValue | und
 }
 
 /** An element's {@link ExitConfig} from its config now. */
-export const exitConfigOf = (c: WardConfig, parent: WardicVariantContextValue | undefined): ExitConfig => ({
+export const exitConfigOf = (c: SpineConfig, parent: WardicVariantContextValue | undefined): ExitConfig => ({
   exit: c.exit,
   variants: c.variants,
   custom: c.custom,
@@ -344,7 +339,7 @@ export interface Resolution {
  * ending) or a new name for its entry (`variantDidChange`) plays them again from their first stop.
  */
 export interface KeyframesAt {
-  readonly stops: Style.Stops
+  readonly stops: Stops.Stops
   readonly layer: number
   readonly name: string | undefined
 }
@@ -441,7 +436,7 @@ const gesturesOnOf = (active: Active, above: GestureHandDown): GestureStates => 
  * The name each gesture layer resolves while it's on (#291): its own `while*`, if a name, else the
  * label it took. With none on, the shared empty one: nothing made.
  */
-const activeNamesFor = (c: WardConfig, on: GestureStates, labels: GestureNames): GestureNames => {
+const activeNamesFor = (c: SpineConfig, on: GestureStates, labels: GestureNames): GestureNames => {
   if (Bool.not(anyOn(on))) return NO_GESTURE_NAMES
   return activeNamesOf(handDownOf(c, on, { on: NO_GESTURE_STATES, names: labels }))
 }
@@ -691,20 +686,31 @@ const landEndsOf = (waiting: WaitingEnds | undefined): void => {
 /** No values: what a spine's Retarget keys are before its first. */
 export const NO_VALUES: Values.Values = {}
 
-/** Whether a key's Keyframes stops hold a Variable value (#55). Built once (#460). */
-const stopsHoldVariable = (stops: ReadonlyArray<number | string>): boolean => Arr.some(stops, Variables.isValue)
-
 /**
  * Whether a change's starts, targets or Keyframes stops hold a Variable value (#542): only then can
  * the element's Key rule, its Variable values (#55), take a pair, so only then is a leg's machine
  * built under it. It declines every pair with no `var()` at either end.
  */
-export const holdsVariable = (from: Values.Values, to: Values.Values, stops: StopsByKey | undefined): boolean => {
-  // Per Retarget (#460): statements, Effect's calls data-first.
-  if (Rec.some(from, Variables.isValue)) return true
-  if (Rec.some(to, Variables.isValue)) return true
+export const holdsVariable = (variables: VariableValues.Shape, from: Values.Values, to: Values.Values, stops: StopsByKey | undefined): boolean => {
+  // Per Retarget (#460): statements, Effect's calls data-first; the Environment's checks, built once.
+  const isValue = variables.isValue
+  if (Rec.some(from, isValue)) return true
+  if (Rec.some(to, isValue)) return true
   if (Predicate.isUndefined(stops)) return false
-  return Rec.some(stops, stopsHoldVariable)
+  return Rec.some(stops, stopsCheckOf(variables))
+}
+
+/** Each Environment's check of a key's Keyframes stops for a Variable value (#55), built at its first. */
+// Module state (#460, Q7): one check per Environment's Variable values (#672), held weakly by them.
+const stopsChecks = new WeakMap<VariableValues.Shape, (stops: ReadonlyArray<number | string>) => boolean>()
+
+/** `variables`' check of a key's Keyframes stops: built once an Environment. */
+const stopsCheckOf = (variables: VariableValues.Shape): ((stops: ReadonlyArray<number | string>) => boolean) => {
+  const kept = stopsChecks.get(variables)
+  if (Predicate.isNotUndefined(kept)) return kept
+  const check = (stops: ReadonlyArray<number | string>): boolean => Arr.some(stops, variables.isValue)
+  stopsChecks.set(variables, check)
+  return check
 }
 
 /** A Path's turn (#438, ADR-0065): the reserved key the dom transform adds onto `rotate`. */
@@ -914,7 +920,7 @@ interface ListingOf {
   /** Write a shut group's keys where they start. */
   readonly hold: (group: number) => void
   readonly afterFlush: (fn: () => void) => void
-  readonly config: WardConfig
+  readonly config: SpineConfig
 }
 
 /**
@@ -1095,11 +1101,10 @@ const keyframesNowOf = (layers: ReadonlyArray<OverrideEntry>, resolved: Values.V
     if (Predicate.isUndefined(layer)) return
     const stops = UndefinedOr.map((layer as OverrideEntry).keyframes, (byKey) => byKey[key])
     if (Bool.or(Predicate.isUndefined(stops), Bool.not(Object.hasOwn((layer as OverrideEntry).values, key)))) return
-    now[key] = { stops: stops as Style.Stops, layer: at, name: (layer as OverrideEntry).name }
+    now[key] = { stops: stops as Stops.Stops, layer: at, name: (layer as OverrideEntry).name }
   })
   return Bool.match(Rec.isEmptyRecord(now), { onTrue: constUndefined, onFalse: (): KeyframesNow => now })
 }
-
 
 /** Two values maps with the same keys, each holding the same value. Built once, at module load. */
 const sameValues: Equivalence.Equivalence<Values.Values> = Rec.makeEquivalence(Equivalence.strictEqual<number | string>())
@@ -1172,15 +1177,15 @@ const sameEndsAt = (a: Values.Values | undefined, b: Values.Values | undefined):
 }
 
 /** Two lists of stops equal stop by stop (#429, Motion's `shallowCompare`). */
-const sameStops = (a: Style.Stops, b: Style.Stops): boolean => Bool.or(a === b, Bool.and(a.length === b.length, Arr.every(a, (stop, i) => stop === b[i])))
+const sameStops = (a: Stops.Stops, b: Stops.Stops): boolean => Bool.or(a === b, Bool.and(a.length === b.length, Arr.every(a, (stop, i) => stop === b[i])))
 
 /**
  * Whether a start that can't take its target's shape stays as it is (#430): it makes a Measured pair
  * with it, so its leg measures both ends rather than starting at the target.
  */
-const keepsStart = (key: string, start: number | string | undefined, target: number | string): boolean => {
+const keepsStart = (pairs: CoreMeasuredPairs.Shape, key: string, start: number | string | undefined, target: number | string): boolean => {
   if (Predicate.isUndefined(start)) return false
-  return MeasuredPair.needs(key, start, target)
+  return pairs.needs(key, start, target)
 }
 
 /** The keys that may be Measured pairs (#430): those found, and each Keyframes key, its start now its first stop. */
@@ -1192,17 +1197,17 @@ const measuringOf = (found: ReadonlyArray<string> | undefined, keyframes: Keyfra
  * end-of-task batch with the values the element draws now, but a key with Keyframes of more than two
  * stops (`many`, #460). `undefined` with none.
  */
-export const measuredOf = (element: HTMLElement, keys: ReadonlyArray<string>, from: Values.Values, to: Values.Values, values: Values.Values, many: StopsByKey | undefined): MeasuredPairs | undefined => {
+export const measuredOf = (measured: CoreMeasuredPairs.Shape, element: HTMLElement, keys: ReadonlyArray<string>, from: Values.Values, to: Values.Values, values: Values.Values, many: StopsByKey | undefined): MeasuredPairs | undefined => {
   const pairs: Record<string, { readonly from: number | string; readonly to: number | string }> = {}
   Arr.forEach(keys, (key) => {
     if (hasManyStops(many, key)) return
     const start = from[key]
     const target = to[key]
     if (Bool.or(Predicate.isUndefined(start), Predicate.isUndefined(target))) return
-    if (MeasuredPair.needs(key, start as number | string, target as number | string)) pairs[key] = { from: start as number | string, to: target as number | string }
+    if (measured.needs(key, start as number | string, target as number | string)) pairs[key] = { from: start as number | string, to: target as number | string }
   })
   if (Rec.isEmptyRecord(pairs)) return undefined
-  return MeasuredPair.measure(element, pairs, values)
+  return measured.measure(element, pairs, values)
 }
 
 /** A key's Keyframes in `keyframes` (#429): per key, per Retarget, so a guard, nothing made. */
@@ -1264,9 +1269,9 @@ const GESTURES_DOWN: ReadonlyArray<GestureLayer> = Arr.reverse(GESTURE_LAYERS)
  */
 export interface AnimationHooks {
   /** A Retarget started its legs (the `when` gate let it); with no leg, it settles at once. */
-  readonly started: (resolution: Resolution, previous: Resolution | undefined, config: WardConfig) => void
+  readonly started: (resolution: Resolution, previous: Resolution | undefined, config: SpineConfig) => void
   /** That Retarget's last leg settled: not for one the next Retarget superseded, nor one a leg's failure cut off. */
-  readonly settled: (resolution: Resolution, previous: Resolution | undefined, config: WardConfig) => void
+  readonly settled: (resolution: Resolution, previous: Resolution | undefined, config: SpineConfig) => void
   /**
    * A leg of that Retarget failed (#257 item 4): it can't land. Told once a Retarget, at once (a
    * leg that fails before it writes leaves no flush to wait for), and never before `started`; the
@@ -1278,13 +1283,13 @@ export interface AnimationHooks {
    * callbacks, Motion's `animateVariant` a name) has it, called as the legs of the keys each drives
    * settle; one with none hears the list's end through `settled` alone.
    */
-  readonly namesSettled?: ((names: ReadonlyArray<string>, config: WardConfig) => void) | undefined
+  readonly namesSettled?: ((names: ReadonlyArray<string>, config: SpineConfig) => void) | undefined
 }
 
 /** A list a Retarget tells settled name by name (#297): its names, and what it tells. */
 interface ToldNames {
   readonly names: ReadonlyArray<string>
-  readonly tell: (names: ReadonlyArray<string>, config: WardConfig) => void
+  readonly tell: (names: ReadonlyArray<string>, config: SpineConfig) => void
 }
 
 /** Whether a resolution resolved a list (#297): its base, or an active gesture's. Cheap for the common case. */
@@ -1436,7 +1441,7 @@ export interface Active {
 }
 
 /** The variant name an element animates to: its own `animate`'s, else the one its provider hands down. */
-const variantOf = (animate: WardConfig["animate"], parent: WardicVariantContextValue | undefined): WardicVariantLabels | undefined => {
+const variantOf = (animate: SpineConfig["animate"], parent: WardicVariantContextValue | undefined): WardicVariantLabels | undefined => {
   if (Predicate.isNotUndefined(animate)) return nameOf(animate)
   if (Predicate.isUndefined(parent)) return undefined
   return parent.variant()
@@ -1464,7 +1469,7 @@ const baseTargetOf = (
  * (`parent.variant()`, read only when there's no `animate`) or an entry's drives a Retarget.
  */
 export const resolutionOf = (
-  c: WardConfig,
+  c: SpineConfig,
   parent: WardicVariantContextValue | undefined,
   initialLink: Values.Values,
   active: Active,
@@ -1539,7 +1544,7 @@ const overriddenOf = (resolution: Resolution, override: WardicTransition): Resol
  * active gestures resolved.
  */
 const withGestures = (
-  c: WardConfig,
+  c: SpineConfig,
   parent: WardicVariantContextValue | undefined,
   layers: Array<OverrideEntry>,
   base: Values.Values,
@@ -1596,7 +1601,7 @@ export interface Start {
  * it starts at its `animate`, and nothing animates at mount (#134).
  */
 export const startOf = (
-  config: WardConfig,
+  config: SpineConfig,
   parent: WardicVariantContextValue | undefined,
   presenceBlocks: boolean,
   untrack: Reactivity["untrack"],
@@ -1733,31 +1738,15 @@ export const makeReuse = (): ((transition: WardicTransition) => WardicTransition
 }
 
 /**
- * A mounted element's Base-value links (ADR-0022): a key with no value starts from its `style`
- * value, else its Own value. The Own value is read from the element once per key, at first need
- * (D3): after mount, so never on a server (ADR-0021). Each link is coerced to the shape of the
- * key's target (`like`). `styleNow` reads the user's style untracked; a Live value in it is read now.
+ * A mounted element's Base-value links (ADR-0022), as its binding reads them: its Own value per key,
+ * the links for a key's start coerced to the shape of its target (`like`), and that start.
  */
-export const startLinksOf = (element: HTMLElement, styleNow: (() => object | string | undefined) | undefined, live: LiveStyle | undefined) => {
-  const ownValue = OwnValues.of(element)
-  // A `style` value read now: a Live value's current value (#130), anything else as it is.
-  const readStyle = (raw: unknown): unknown => {
-    if (Predicate.isUndefined(live)) return raw
-    return live.read(raw)
-  }
-  const linksFor = (like: number | string) => ({
-    style: (key: string) =>
-      Option.flatMap(Option.fromUndefinedOr(styleNow), (now) =>
-        Option.flatMap(OwnValues.styleValueOf(now(), key), (raw) => OwnValues.valueLike(readStyle(raw), like)),
-      ),
-    own: (key: string) => Option.flatMap(ownValue(key), (raw) => OwnValues.valueLike(raw, like)),
-  })
-  const startLinkOf = (key: string, like: number | string) => BaseValue.start(key, linksFor(like))
-  return { ownValue, linksFor, startLinkOf }
+// #672: the spine names what it calls; the binding's `startLinksOf` (`element-setup.ts`) makes them.
+export interface StartLinks {
+  readonly ownValue: BaseValue.ValueLookup
+  readonly linksFor: (like: number | string) => Pick<BaseValue.BaseSources, "style" | "own">
+  readonly startLinkOf: (key: string, like: number | string) => Option.Option<BaseValue.BaseValue>
 }
-
-/** {@link startLinksOf}'s links. */
-export type StartLinks = ReturnType<typeof startLinksOf>
 
 /**
  * An element's presence record (ADR-0007 exit): seeded with its Starting values, so an exit that
@@ -1808,6 +1797,51 @@ export const turnWillChangeOn = (live: LiveStyle | undefined, legs: ReadonlyArra
   if (Arr.some(legs, (leg) => Arr.some(Rec.keys(leg.to), turnsWillChangeOn))) turnOn()
 }
 
+// A Batch member's hold's slot (#665, #746; #672's Q14: the spine's, so it reads no Batch code).
+/** What a Batch member's hold reads of what its element's spine hands over (#746). */
+export type HoldHost = Pick<SpineHost, "element" | "gate" | "id" | "snapshot" | "owners" | "giveUp" | "keepTheRest" | "driven" | "returning">
+
+/**
+ * A Batch member's element's hold on the groups it takes from its Batch: its transform, or its opacity,
+ * taken as a leg on a key of it starts or a drag moves it, and given back as its last leg on it ends, or
+ * at its Batch's next change of it.
+ */
+export interface MemberHold {
+  /**
+   * A Retarget's target `t` against the Batch (Q53): a group a key of it moves (its target other than
+   * what's drawn) is taken; a key it'd leave where the Batch draws it stays the Batch's, out of `t`. A
+   * drag holding `x`/`y` takes the transform.
+   */
+  readonly retarget: (t: Record<string, unknown>, dragged: boolean) => void
+  /** A leg landed: each group no leg runs on any more goes back to the Batch (Q54), from where it is. */
+  readonly settle: () => void
+  /** Its drag reads or writes `x`/`y` (`true`): it takes the transform; or hands them back (`false`). */
+  readonly drag: (on: boolean) => void
+  /** Its element unmounted: every group back to the Batch. */
+  readonly dispose: () => void
+}
+
+/** How a spine finds its element a Batch member's, and makes its hold. */
+export interface MemberHolds {
+  readonly isMember: (element: Element) => boolean
+  readonly make: (host: HoldHost) => MemberHold
+}
+
+// Module state (#460, Q7): set once a Batch is made, so a spine can make a hold; none until then.
+let holds: MemberHolds | undefined
+
+/** What a spine makes its member hold with: `undefined` while no Batch has been made. */
+export const memberHoldsNow = (): MemberHolds | undefined => holds
+
+/**
+ * Holds made from now on, through `holds` (`createBatch`, as it's called, gives a Batch's): a Batch's
+ * members can be Wardic elements. The first one given stays.
+ */
+export const provideMemberHolds = (given: MemberHolds): void => {
+  if (Predicate.isNotUndefined(holds)) return
+  holds = given
+}
+
 /**
  * Each draggable element's spine's drag hook (#665's PR 4): told `true` as its drag reads where the
  * element rests or writes `x`/`y`, and `false` as it hands them back. A Batch member's takes its
@@ -1846,6 +1880,15 @@ export const draggingWithWillChange = (live: LiveStyle | undefined, setDragging:
  */
 export const claimForDrag = (element: Element): (() => void) => () => tellDrag(element, true)
 
+/**
+ * What a spine calls of its element's drag: a new target for `x` or `y` takes over a free drag's
+ * release in flight (#340). Its binding's drag track gives it.
+ */
+// #672 (Q15): the spine names what it calls, so it reads no drag code.
+export interface SpineDrag {
+  readonly takeRelease: (retargeted: { readonly x: boolean; readonly y: boolean }) => boolean
+}
+
 /** What {@link makeElementSpine} reads. */
 export interface ElementSpineOptions {
   /** The provider runtime the legs fork on. */
@@ -1859,7 +1902,7 @@ export interface ElementSpineOptions {
   /** Its tag, for a Handoff's check (SVG's routing): `undefined` when it isn't known. */
   readonly tag: string | undefined
   /** Its config now, read where the binding doesn't track. */
-  readonly config: () => WardConfig
+  readonly config: () => SpineConfig
   /** The variant context it inherits names and its default transition from (`variant-tree.ts`). */
   readonly parent: WardicVariantContextValue | undefined
   /** Whether a Retarget may start now (ADR-0007 `when`); omitted, always. */
@@ -1879,6 +1922,12 @@ export interface ElementSpineOptions {
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   /** What a key with no transition of its own runs on (ADR-0051). */
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
+  /** The Environment's reads of its Subjects' own values (#672), read once by its provider. */
+  readonly ownValues: OwnValues.Shape
+  /** The Environment's Measured pairs (#430, #672), read once by its provider. */
+  readonly measuredPairs: CoreMeasuredPairs.Shape
+  /** The Environment's Variable values (#55, #672), read once by its provider. */
+  readonly variableValues: VariableValues.Shape
   readonly start: Start
   readonly snapshot: Snapshot
   readonly reuse: (transition: WardicTransition) => WardicTransition
@@ -1902,7 +1951,7 @@ export interface ElementSpineOptions {
   /** Its drag axis, `undefined` without a drag (ADR-0004). */
   readonly dragAxis: boolean | "x" | "y" | undefined
   /** Its drag track, whose release a Retarget may take `x`/`y` from (#340); omitted, the drag holds them while `dragging`. */
-  readonly drag?: DragTrack | undefined
+  readonly drag?: SpineDrag | undefined
   /** Its Appear animation, while hydrating (#48, ADR-0044 decision 6). */
   readonly handoff: Handoff | undefined
   /** Told each Retarget's start and settle (#257); omitted, nothing is told. */
@@ -2023,6 +2072,10 @@ export interface SpineHost {
   readonly runtime: WardicServices.Runner<WardicServices.WardicServices>
   /** Its Variable values' Key rule (#55): a blend's are built with it. */
   readonly elementRules: ReadonlyArray<InterpolatorRegistry.KeyRule>
+  /** The Environment's Measured pairs (#430, #672). */
+  readonly measuredPairs: CoreMeasuredPairs.Shape
+  /** The Environment's Variable values (#55, #672). */
+  readonly variableValues: VariableValues.Shape
 }
 
 /** A mounted element's spine. */
@@ -2058,7 +2111,7 @@ export interface ElementSpine {
  * fiber Scope interrupts what's left when the provider ends.
  */
 export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => {
-  const { animation, byName, canStart, config, defaultTransition, diagnostics, element, extraDelay, gate, id, links, live, onFrame, parent, positionalKeys, presence, runtime, snapshot, start, styleNow, tag } = options
+  const { animation, byName, canStart, config, defaultTransition, diagnostics, element, extraDelay, gate, id, links, live, measuredPairs, onFrame, ownValues, parent, positionalKeys, presence, runtime, snapshot, start, styleNow, tag, variableValues } = options
   const { initialLink, initialValues, startedLink } = start
   const { linksFor, ownValue, startLinkOf } = links
   let handoff = options.handoff
@@ -2066,7 +2119,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   let quiet = start.quiet
   // Its Variable values (#55, ADR-0035 *Amendment (#55)*): the Key rule bound to this element,
   // added to each leg it starts, so a `var()` end blends what it resolves to here.
-  const elementRules = [Variables.values(element)]
+  const elementRules = [variableValues.values(element)]
   const recordFrame = recordFrameOf(presence)
   // Whether its animations are skipped (#468): never, with nothing given.
   const skipAnimations = UndefinedOr.match(options.skipAnimations, { onUndefined: () => constFalse, onDefined: identity })
@@ -2133,7 +2186,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     const restore = UndefinedOr.map(styleNow, (now) => {
       const style = now()
       return Object.fromEntries(
-        Arr.map(handedBack, (key) => [key, Option.match(OwnValues.styleValueOf(style, key), { onNone: () => "", onSome: (value) => String(value) })]),
+        Arr.map(handedBack, (key) => [key, Option.match(ownValues.styleValueOf(style, key), { onNone: () => "", onSome: (value) => String(value) })]),
       ) as Record<string, string>
     })
     gate.release(id, handedBack, restore)
@@ -2297,12 +2350,12 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
    * (no motion). Guards, not a match: per key, per Retarget, and a key with a value builds nothing.
    */
   const startKey = (key: string, like: number | string, started: Record<string, string>): void => {
-    const coerced = OwnValues.valueLike(snapshot.values[key], like)
+    const coerced = ownValues.valueLike(snapshot.values[key], like)
     if (Option.isSome(coerced)) snapshot.values[key] = coerced.value
     // A start of another type than its target's, on a positional key, stays as it is: a Measured
     // pair (#430), measured at the end of the task.
     if (Option.isSome(coerced)) return
-    if (keepsStart(key, snapshot.values[key], like)) return
+    if (keepsStart(measuredPairs, key, snapshot.values[key], like)) return
     const link = startLinkOf(key, like)
     if (Option.isSome(link) && isSameKind(link.value.value, like)) {
       snapshot.values[key] = link.value.value
@@ -2534,6 +2587,8 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         recordFrame,
         runtime,
         elementRules,
+        measuredPairs,
+        variableValues,
       }
     }
     return handedOver
@@ -2785,7 +2840,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
       startKey(key, like, started)
       // A Measured pair (#430): its two ends of different types, found in this pass, so a Retarget
       // with none builds nothing for them.
-      if (MeasuredPair.needs(key, UndefinedOr.getOrThrow(snapshot.values[key]), like)) {
+      if (measuredPairs.needs(key, UndefinedOr.getOrThrow(snapshot.values[key]), like)) {
         if (Predicate.isUndefined(measuring)) measuring = []
         measuring.push(key)
       }
@@ -2890,7 +2945,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     let follow: Follows | undefined
     if (returning.size > 0 && Predicate.isNotUndefined(live)) {
       const routes = live
-      follow = { keysOf: (rest) => followingOf(routes, rest, returning), targetOf: (key, start) => liveTargetOf(routes, key, start) }
+      follow = { keysOf: (rest) => followingOf(routes, rest, returning), targetOf: (key, start) => liveTargetOf(ownValues, routes, key, start) }
     }
     const reduce = options.reducedMotion()
     const skipped = skipAnimations()
@@ -2898,7 +2953,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // animation is skipped (#468): the keys found above, and those Keyframes of two stops start from their first.
     let measured: MeasuredPairs | undefined
     if (!reduce && !skipped && (Predicate.isNotUndefined(measuring) || Predicate.isNotUndefined(keyframesNow))) {
-      measured = measuredOf(element, measuringOf(measuring, keyframesNow), from, fresh, snapshot.values, manyStops)
+      measured = measuredOf(measuredPairs, element, measuringOf(measuring, keyframesNow), from, fresh, snapshot.values, manyStops)
     }
     let told: ToldNames | undefined
     if (!silent) told = namesToldOf(animation, resolution, lastResolution)
@@ -2961,7 +3016,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // Its `style`'s will-change value turns on as a leg starts a key Motion's would (#443).
     turnWillChangeOn(live, retargetLegs)
     // The element's Key rules only for a change a Variable value is in (#542).
-    const variables = holdsVariable(from, fresh, manyStops)
+    const variables = holdsVariable(variableValues, from, fresh, manyStops)
     // Each leg into its sink, in the builder's order (#69's PR 2: a Retarget is per element). Each
     // leg draws the keys it animates (#325) until a later Retarget takes them.
     Arr.forEach(retargetLegs, (leg: Leg, i): void => {
@@ -3119,7 +3174,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
           delete snapshot.velocities[key]
           if (Predicate.isNotUndefined(presence)) delete presence.snapshot.current[key]
           // Gone from `style`: the element's own value comes back, or the key's CSS value now.
-          const restore = Option.match(OwnValues.styleValueOf(UndefinedOr.match(styleNow, { onUndefined: constUndefined, onDefined: (style) => style() }), key), {
+          const restore = Option.match(ownValues.styleValueOf(UndefinedOr.match(styleNow, { onUndefined: constUndefined, onDefined: (style) => style() }), key), {
             onNone: () => "",
             onSome: String,
           })
@@ -3181,12 +3236,11 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   return { retarget, follow, dispose, seed, host, stop }
 }
 
-
 /**
  * `sink` with an `onCommit` that calls the config's current `onUpdate` (#233), when the config had
  * one at mount; `sink` as it is otherwise. `config` reads it untracked.
  */
-export const withOnUpdate = (sink: FlushGate.Sink, atMount: WardConfig["onUpdate"], config: () => WardConfig): FlushGate.Sink => {
+export const withOnUpdate = (sink: FlushGate.Sink, atMount: SpineConfig["onUpdate"], config: () => SpineConfig): FlushGate.Sink => {
   // Per element at mount: most have none, and pay a check.
   if (Predicate.isUndefined(atMount)) return sink
   return {
@@ -3199,64 +3253,24 @@ export const withOnUpdate = (sink: FlushGate.Sink, atMount: WardConfig["onUpdate
 }
 
 /**
- * `sink`, removing the element's Appear animation in its first commit (#48, ADR-0044 decision 6):
- * in the task that writes the engine's first frame, so no paint falls between. Without one, `sink`.
- */
-export const releasingAppear = (sink: FlushGate.Sink, handoff: Handoff | undefined, element: HTMLElement): FlushGate.Sink => {
-  if (Predicate.isUndefined(handoff)) return sink
-  const before = sink.beforeFirstCommit
-  return {
-    ...sink,
-    beforeFirstCommit: () => {
-      Appear.release(element)
-      if (Predicate.isNotUndefined(before)) before()
-    },
-  }
-}
-
-/**
- * A Handoff whose Appear animation the server sampled from another mount animation than the
- * client's: the app rendered differently on the server, or a function it gave has no easing name.
- * Noted once (cold path, `wardic.hydration`); the client's own animation goes on from the same time.
- */
-const checkHandoff = (runtime: WardicServices.Runner<WardicServices.WardicServices>, id: string, handoff: Handoff, mount: MountAnimation): void => {
-  // A templated element's rule is named by its stops (#443), which the client doesn't sample to check.
-  if (Predicate.isNotUndefined(mount.template)) return
-  const same = Option.exists(keyOf(mount), (key) =>
-    Appear.matches(handoff.animation, { key, tag: mount.tag, infinite: repeatsForever(mount.transition), projected: mount.layout }))
-  if (same) return
-  runtime.runFork(
-    Effect.logDebug("wardic.hydration: the server's Appear animation was sampled from another mount animation than this element's; it goes on from the same time").pipe(
-      Effect.annotateLogs({ id }),
-    ),
-  )
-}
-
-/**
  * A Retarget's note of the keys it started from their Base value, or returned to it (ADR-0022): run at
  * the head of its first leg, cold path (no fiber of its own: forking one per element cost 10-20 µs each
  * at a 1000-element mount).
  */
-const baseLog = (id: string, started: Record<string, string>, returns: ReadonlyArray<readonly [string, BaseValue.BaseSource]>): Effect.Effect<void> =>
+export const baseLog = (id: string, started: Record<string, string>, returns: ReadonlyArray<readonly [string, BaseValue.BaseSource]>): Effect.Effect<void> =>
   Effect.logDebug("wardic.base: a key with no value started from, or returned to, its Base value (ADR-0022)").pipe(
     Effect.annotateLogs({ id, started, returned: Object.fromEntries(returns) }),
   )
-
-/**
- * Development's diagnostics (#746): what a binding gives the spine under its Solid's `DEV`. Referenced
- * nowhere else, so a production build, whose binding never gives it, drops it and what it calls.
- */
-export const SPINE_DIAGNOSTICS: SpineDiagnostics = { checkHandoff, baseLog }
 
 /** The keys a Retarget returns to a Live value that's a number: each one's return follows it (#130). */
 const followingOf = (routes: LiveStyle, rest: Values.Values, returning: ReadonlyMap<string, BaseValue.BaseSource>): ReadonlyArray<string> =>
   Arr.filter(Rec.keys(rest), (key) => Bool.and(returning.get(key) === "style", Bool.and(routes.isLive(key), Predicate.isNumber(rest[key]))))
 
 /** Where `key`'s Live value is now, a number; where it last was when it's none (#130). */
-const liveTargetOf = (routes: LiveStyle, key: string, start: number): (() => number) => {
+const liveTargetOf = (ownValues: OwnValues.Shape, routes: LiveStyle, key: string, start: number): (() => number) => {
   let last = start
   return () => {
-    const now = Option.flatMap(routes.valueOf(key), (raw) => OwnValues.valueLike(raw, last))
+    const now = Option.flatMap(routes.valueOf(key), (raw) => ownValues.valueLike(raw, last))
     if (Option.isSome(now)) last = now.value as number
     return last
   }
@@ -3264,18 +3278,6 @@ const liveTargetOf = (routes: LiveStyle, key: string, start: number): (() => num
 
 /** Whether a value is one an element can take: a number or a string. */
 const isValue = (value: unknown): value is number | string => Bool.or(Predicate.isNumber(value), Predicate.isString(value))
-
-/**
- * Where `key` rests outside the gate (#130): its `initial`, else its `style` value (a Live value's
- * now), else a transform key's identity, else `undefined`.
- */
-export const restingOf = (key: string, initial: Values.Values, style: object | string | undefined, read: (value: unknown) => unknown): unknown =>
-  Option.getOrUndefined(
-    Option.fromUndefinedOr(initial[key]).pipe(
-      Option.orElse((): Option.Option<unknown> => Option.flatMap(OwnValues.styleValueOf(style, key), (raw) => Option.fromNullishOr(read(raw)))),
-      Option.orElse((): Option.Option<unknown> => BaseValue.transformIdentity(key)),
-    ),
-  )
 
 /** A provider runtime's `AtomRegistry`, read on first need: an element with no Atom never reads it. */
 export const registryOf = (runtime: WardicServices.Runner<WardicServices.WardicServices>): (() => AtomRegistry.AtomRegistry) => {
@@ -3355,7 +3357,7 @@ const NO_APPEAR_ENTRY = (provided: WardicVariantContextValue | undefined): Serve
  */
 export const appearEntryOf = (
   state: ServerAppear | undefined,
-  c: WardConfig,
+  c: SpineConfig,
   tag: string | undefined,
   initialValues: Values.Values,
   node: ServerVariantNode,
@@ -3403,7 +3405,7 @@ export const appearEntryOf = (
  * An element's target at mount on a server: its `animate`, else an inherited variant name resolved
  * against its own `variants`, a dynamic one with its `custom` and no values yet (#277).
  */
-export const serverTargetOf = (c: WardConfig, inherited: WardicVariantContextValue | undefined): Option.Option<Target> =>
+export const serverTargetOf = (c: SpineConfig, inherited: WardicVariantContextValue | undefined): Option.Option<Target> =>
   UndefinedOr.match(c.animate as Entry, {
     onDefined: (own) => Option.some(resolveTarget(own, c.variants, c.custom, NO_VARIANT_STATE)),
     onUndefined: () =>
@@ -3413,128 +3415,11 @@ export const serverTargetOf = (c: WardConfig, inherited: WardicVariantContextVal
       ),
   })
 
-/**
- * A server's Starting style for an element whose `style` has routed keys (#130): the projected
- * `initial` with their values under it. With none, its Starting style as it was.
- */
-export const serverStartingStyle = (
-  tag: string | undefined,
-  starting: Renderer.Patch,
-  initialValues: Values.Values,
-  routed: Readonly<Record<string, unknown>>,
-  layout: boolean,
-  untrack: Reactivity["untrack"],
-  template: WardConfig["transformTemplate"],
-): Renderer.Patch =>
-  Bool.match(Rec.isEmptyRecord(routed), {
-    onTrue: () => starting,
-    onFalse: () => Style.starting(tag, drawnAtRest({ ...valuesOf(routed, serverRegistryOf, untrack), ...initialValues }, layout, template)).style,
-  })
-
 /** Whether a config makes its element a layout node: `layout` (or a mode), or a `layoutId`. */
-export const isLayoutNode = (c: WardConfig): boolean =>
+export const isLayoutNode = (c: SpineConfig): boolean =>
   Bool.or(Bool.and(Predicate.isNotUndefined(c.layout), c.layout !== false), Predicate.isNotUndefined(c.layoutId))
 
-/**
- * The values a layout node's Starting style is drawn from (#245, ADR-0044 *Amendment (#245)*):
- * through its projection at rest, as its first commit draws it, its own translate on top (#363).
- * Any other element's, as they are. A templated element's, with its Transform template (#443).
- */
-export const drawnAtRest = (values: Values.Values, layout: boolean, template: WardConfig["transformTemplate"]): Readonly<Record<string, unknown>> => {
-  // Per mount (#460): guards, nothing built for an element neither a layout node nor templated.
-  if (Bool.not(layout)) return withTemplate(values, template)
-  return withTemplate({ ...values, [Projection.KEY]: Projection.AT_REST }, template)
-}
-
-/** `values` with `template` under the renderer's reserved key, as its projection rides (#443); as they are with none. */
-export const withTemplate = <V extends Readonly<Record<string, unknown>>>(values: V, template: WardConfig["transformTemplate"]): V => {
-  if (Predicate.isUndefined(template)) return values
-  return { ...values, [DomRenderer.TEMPLATE_KEY]: template }
-}
-
-/**
- * What an element registers with in the gate (#443): its Transform template at mount, under the
- * renderer's reserved key, drawn with its first write (a write of its own would take its Starting
- * style off early). Nothing with none.
- */
-export const registeredValuesOf = (template: WardConfig["transformTemplate"]): Readonly<Record<string, unknown>> | undefined => {
-  if (Predicate.isUndefined(template)) return undefined
-  return { [DomRenderer.TEMPLATE_KEY]: template }
-}
-
-/**
- * What an element's projection node is held at for a Measure pass (#443, Motion's
- * `transformTemplate(values, "")`): its Transform template's, from its values now, when it had one
- * at mount. `undefined` otherwise, so a node without one pays a field read a pass.
- */
-export const heldTransformFor = (
-  snapshot: Snapshot,
-  atMount: WardConfig["transformTemplate"],
-  template: () => WardConfig["transformTemplate"],
-): (() => string) | undefined => {
-  if (Predicate.isUndefined(atMount)) return undefined
-  return () => DomRenderer.heldTransformOf(withTemplate(snapshot.values, template()))
-}
-
-/**
- * Follow an element's Transform template after mount (#443): `write` is called with each other one
- * its config gives, and draws it at the next frame. Only for an element with one at mount, as
- * `onUpdate` (#233): its caller asks only then, so another makes nothing (#460). Returns the stop.
- */
-export const followTemplate = (
-  atMount: DomRenderer.TransformTemplate,
-  template: () => WardConfig["transformTemplate"],
-  watch: Reactivity["watch"],
-  write: (template: WardConfig["transformTemplate"]) => void,
-): (() => void) => {
-  let last: WardConfig["transformTemplate"] = atMount
-  return watch(template, (next) => {
-    if (next === last) return
-    last = next
-    write(next)
-  })
-}
-
 /** A mount animation's template field (#443): left out with none, as its key reads it. */
-export const templateField = (template: WardConfig["transformTemplate"]): { readonly template?: DomRenderer.TransformTemplate } =>
+export const templateField = (template: SpineConfig["transformTemplate"]): { readonly template?: SpineConfig["transformTemplate"] } =>
   UndefinedOr.match(template, { onUndefined: () => ({}), onDefined: (t) => ({ template: t }) })
 
-/** What a `<Reorder>` item adds to an element's drag: its gesture's axis, read at each drag's start. */
-interface DragInternals {
-  readonly dragAxis?: (() => boolean | "x" | "y") | undefined
-}
-
-/** A plain element's drag internals: none. */
-const NO_DRAG_INTERNALS: DragInternals = {}
-
-/**
- * The drag axis a spine runs with: its static `drag` config, else `true` for a
- * `<Reorder>` item (its gesture's axis comes from `dragAxis`), else none.
- */
-export const dragAxisOf = (config: WardConfig, internal: DragInternals = NO_DRAG_INTERNALS): boolean | "x" | "y" | undefined =>
-  Option.getOrUndefined(
-    Option.orElse(Option.filter(Option.fromUndefinedOr(config.drag), (drag) => drag !== false), () =>
-      Option.map(Option.fromUndefinedOr(internal.dragAxis), (): true => true)),
-  )
-
-/**
- * A drag element's defaults (ADR-0019 *Amendment (Reorder)*): its axis's, unless its own presses don't
- * drag it (`dragListener={false}`, #431), as Motion's come with its listener.
- */
-export const dragDefaultsOf = (config: WardConfig, internal: DragInternals = NO_DRAG_INTERNALS): Style.DragDefaults | undefined => {
-  if (config.dragListener === false) return undefined
-  return UndefinedOr.map(dragAxisOf(config, internal), Style.dragDefaults)
-}
-
-/**
- * Set each of a drag element's defaults its inline style doesn't already set, and
- * `draggable="false"` unless it has the attribute, at mount: for an element whose props don't carry
- * them, a directive's (`use:wardic`, `use:w`) and a `wardic.create(Component)` wrap's, whose
- * component may not pass them on.
- */
-export const applyDragDefaults = (element: HTMLElement, defaults: Style.DragDefaults): void => {
-  Arr.forEach(Rec.keys(defaults), (key) => {
-    if (element.style.getPropertyValue(key) === "") element.style.setProperty(key, UndefinedOr.getOrThrow(defaults[key]))
-  })
-  if (!element.hasAttribute("draggable")) element.setAttribute("draggable", Style.DRAG_DEFAULT_ATTRIBUTES.draggable)
-}

@@ -29,7 +29,6 @@ import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Values from "@wardic/core/Values"
 import * as Sequence from "@wardic/core/Sequence"
 import type * as FlushGate from "@wardic/dom/FlushGate"
-import * as MeasuredPair from "@wardic/dom/MeasuredPair"
 import * as Report from "@wardic/dom/Report"
 import {
   type BatchBinding,
@@ -57,28 +56,12 @@ import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicKeyframes, WardicTargetValues, WardicTransition, WardicVariant } from "./config.ts"
 import { filledStops, keyframesFrom, type Leg, legsOf, mapMachine, type MeasuredPairs, runOf, type StopsByKey } from "./retarget-legs.ts"
+import type * as CoreMeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
+import type * as OwnValues from "@wardic/core/unstable/OwnValues"
+import type * as VariableValues from "@wardic/core/unstable/VariableValues"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
-import {
-  type ElementSpine,
-  emptySnapshotOf,
-  holdsVariable,
-  type ImperativeHooks,
-  type ImperativeTrack,
-  type Landing,
-  makeElementSpine,
-  makeReuse,
-  measuredOf,
-  NO_RUNNING,
-  NO_VALUES,
-  restsOf,
-  type Resolution,
-  type Running,
-  runningOf,
-  type Snapshot,
-  type SpineHost,
-  startLinksOf,
-  turnWillChangeOn,
-} from "./spine.ts"
+import { type ElementSpine, emptySnapshotOf, holdsVariable, type ImperativeHooks, type ImperativeTrack, type Landing, makeElementSpine, makeReuse, measuredOf, NO_RUNNING, NO_VALUES, restsOf, type Resolution, type Running, runningOf, type Snapshot, type SpineHost, turnWillChangeOn } from "./spine.ts"
+import { startLinksOf } from "./element-setup.ts"
 import { NO_VARIANT_STATE, resolveTarget, type Target } from "./variant-target.ts"
 import { NO_GESTURE_NAMES, NO_GESTURE_STATES } from "./variant-tree.ts"
 
@@ -112,6 +95,12 @@ export interface AnimateEnv {
   readonly skipAnimations: () => boolean
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
+  /** Its Environment's reads of its Subjects' own values (#672). */
+  readonly ownValues: OwnValues.Shape
+  /** Its Environment's Measured pairs (#430, #672). */
+  readonly measuredPairs: CoreMeasuredPairs.Shape
+  /** Its Environment's Variable values (#55, #672). */
+  readonly variableValues: VariableValues.Shape
 }
 
 /** A plain element's spine (#433's Q4), its values, and how many of its animations run, which keep it in the gate. */
@@ -160,6 +149,9 @@ const plainOf = (env: AnimateEnv, element: Element): Plain => {
     reducedMotion: env.reducedMotion,
     positionalKeys: env.positionalKeys,
     defaultTransition: env.defaultTransition,
+    ownValues: env.ownValues,
+    measuredPairs: env.measuredPairs,
+    variableValues: env.variableValues,
     start: { initialValues: {}, initialLink: {}, startedLink: {}, quiet: false },
     snapshot,
     reuse: makeReuse(),
@@ -216,7 +208,7 @@ const IMPERATIVE: Resolution = {
 // #746 (ADR-0067, *Amendment (#746)*, decision 10): here, not in the spine, so an app that never animates
 // imperatively ships none of it; the spine hands over what it takes (`SpineHost`).
 const imperativeTrackOf = (host: SpineHost, target: Target, given: WardicTransition | undefined, head: Playback.Playhead, hooks: ImperativeHooks): ImperativeTrack => {
-  const { snapshot, owners, giveUp, initialValues, ownValue, startKey, keepTheRest, element, positionalKeys, defaultTransition, readVelocity, gate, forget, endLeg, live, own, legProgram, legEnded, turnBack, id, recordFrame, runtime, elementRules } = host
+  const { snapshot, owners, giveUp, initialValues, ownValue, startKey, keepTheRest, element, positionalKeys, defaultTransition, readVelocity, gate, forget, endLeg, live, own, legProgram, legEnded, turnBack, id, recordFrame, runtime, elementRules, measuredPairs, variableValues } = host
   /** A leg of an Imperative animation, forked as a Retarget's are; it lands on its track. */
   // Data-first: a pipe's curried forms are two closures more for every leg (#618, H1).
   const runImperative = (running: Running, program: Effect.Effect<unknown, never, WardicServices.WardicServices>): void => {
@@ -242,7 +234,7 @@ const imperativeTrackOf = (host: SpineHost, target: Target, given: WardicTransit
     if (!Object.hasOwn(initialValues, key)) ownValue(key)
     const like = UndefinedOr.getOrThrow(to[key])
     startKey(key, like, started)
-    if (MeasuredPair.needs(key, UndefinedOr.getOrThrow(snapshot.values[key]), like)) {
+    if (measuredPairs.needs(key, UndefinedOr.getOrThrow(snapshot.values[key]), like)) {
       if (Predicate.isUndefined(measuring)) measuring = []
       measuring.push(key)
     }
@@ -258,10 +250,10 @@ const imperativeTrackOf = (host: SpineHost, target: Target, given: WardicTransit
   const reduce = host.reducedMotion()
   const skipped = host.skipAnimations()
   let measured: MeasuredPairs | undefined
-  if (Bool.and(Bool.not(Bool.or(reduce, skipped)), Predicate.isNotUndefined(measuring))) measured = measuredOf(element, UndefinedOr.getOrThrow(measuring), from, to, snapshot.values, stops)
+  if (Bool.and(Bool.not(Bool.or(reduce, skipped)), Predicate.isNotUndefined(measuring))) measured = measuredOf(measuredPairs, element, UndefinedOr.getOrThrow(measuring), from, to, snapshot.values, stops)
   // Built once: a seek or a replay runs the same legs, from the same start, with the same velocities.
   const built = legsOf(from, to, given, reduce, skipped, positionalKeys, defaultTransition, readVelocity, undefined, stops, measured, snapshot.values, rests)
-  const variables = holdsVariable(from, to, stops)
+  const variables = holdsVariable(variableValues, from, to, stops)
   const legs = Arr.map(built, (leg) => mapMachine(leg, Playback.drive(head)))
   let runnings: ReadonlyArray<Running> = NO_RUNNING
   let left = 0

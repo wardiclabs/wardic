@@ -11,6 +11,9 @@ import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import type * as Renderer from "@wardic/core/Renderer"
 import type * as ScrollSource from "@wardic/core/ScrollSource"
+import type * as MeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
+import type * as OwnValues from "@wardic/core/unstable/OwnValues"
+import type * as VariableValues from "@wardic/core/unstable/VariableValues"
 import { constUndefined, constVoid } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
@@ -18,6 +21,7 @@ import * as TestClock from "./clock.ts"
 import * as TestInput from "./input.ts"
 import * as TestProbe from "./probe.ts"
 import * as TestRenderer from "./renderer.ts"
+import * as TestValues from "./values.ts"
 
 /**
  * The headless Environment's Refresh frame source: it never calls back, as its Clock never ticks
@@ -53,6 +57,9 @@ export const testLayer = (
   | DefaultTransition.DefaultTransition
   | Announcer.Announcer
   | AtomRegistry.AtomRegistry
+  | OwnValues.OwnValues
+  | MeasuredPairs.MeasuredPairs
+  | VariableValues.VariableValues
 > =>
   FrameLoop.layer.pipe(
     Layer.provideMerge(
@@ -70,6 +77,8 @@ export const testLayer = (
         // No assistive technology to reach headless (ADR-0037).
         Announcer.layerSilent,
         AtomRegistry.layer,
+        // The headless Environment's own values, Measured pairs and Variable values (#672): none to read.
+        TestValues.layer,
         Layer.sync(DragActivity.DragActivity, DragActivity.make),
         Layer.sync(PressClaims.PressClaims, PressClaims.make),
       ),

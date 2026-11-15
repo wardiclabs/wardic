@@ -12,6 +12,9 @@ import * as Probe from "@wardic/core/Probe"
 import * as ReducedMotion from "@wardic/core/ReducedMotion"
 import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import * as Renderer from "@wardic/core/Renderer"
+import * as MeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
+import * as OwnValues from "@wardic/core/unstable/OwnValues"
+import * as VariableValues from "@wardic/core/unstable/VariableValues"
 import type * as CoreWardicServices from "@wardic/core/unstable/WardicServices"
 import * as FlushGate from "@wardic/dom/FlushGate"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
@@ -94,6 +97,19 @@ export const SERVER_DEFAULT_TRANSITION: DefaultTransition.DefaultTransition["Ser
  * The value a `WardicProvider` carries down the tree: the single Effect runtime
  * plus the provider-owned flush gate (ADR-0006) built atop it.
  */
+/**
+ * An Environment's reads of its Subjects' values (#672): its own values, Measured pairs and Variable
+ * values, each `undefined` when it gives none.
+ */
+export interface ValueReads {
+  readonly ownValues: OwnValues.Shape | undefined
+  readonly measuredPairs: MeasuredPairs.Shape | undefined
+  readonly variableValues: VariableValues.Shape | undefined
+}
+
+/** No reads: a server's, whose elements read the DOM's (#672). */
+const NO_VALUE_READS: ValueReads = { ownValues: undefined, measuredPairs: undefined, variableValues: undefined }
+
 export interface WardicContextValue {
   readonly runtime: WardicRuntime
   readonly gate: FlushGate.Shape
@@ -119,6 +135,12 @@ export interface WardicContextValue {
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   /** The Environment's Default transition (ADR-0051), read once: what a key with no transition of its own runs on. */
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
+  /**
+   * The Environment's reads of its Subjects' values (#672), read once: its own values, Measured pairs
+   * and Variable values, each `undefined` when it gives none, so a DOM binding's element code reads
+   * the DOM's (PR2-Q4). One record, so an element reads them with one context read (PR2-Q6).
+   */
+  readonly valueReads: ValueReads
   /**
    * The Environment's Renderer (ADR-0003), read once: what each element and presence projects its
    * values with and commits them through.
@@ -150,6 +172,7 @@ interface Built {
   readonly reducedMotionUnder: (setting: ReducedMotion.Config | undefined) => boolean
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
+  readonly valueReads: ValueReads
   readonly renderer: Renderer.Renderer["Service"]
 }
 
@@ -195,9 +218,14 @@ export const clientContext = (
     // What a key with no transition of its own runs on: the Environment's Default transition
     // (ADR-0051), read once too.
     const defaultTransition = runtime.runSync(DefaultTransition.DefaultTransition)
+    // The Environment's reads of its Subjects' own values (#672), read once too: an Environment that
+    // isn't the DOM gives them; `DomLive` doesn't (PR2-Q4), and an element falls back.
+    const ownValues = Option.getOrUndefined(runtime.runSync(Effect.serviceOption(OwnValues.OwnValues)))
+    const measuredPairs = Option.getOrUndefined(runtime.runSync(Effect.serviceOption(MeasuredPairs.MeasuredPairs)))
+    const variableValues = Option.getOrUndefined(runtime.runSync(Effect.serviceOption(VariableValues.VariableValues)))
     // The Renderer every element projects and commits through (ADR-0003), read once too.
     const renderer = runtime.runSync(Renderer.Renderer)
-    built = { gate, reducedMotion: applies, reducedMotionUnder: under, positionalKeys, defaultTransition, renderer }
+    built = { gate, reducedMotion: applies, reducedMotionUnder: under, positionalKeys, defaultTransition, valueReads: { ownValues, measuredPairs, variableValues }, renderer }
     return built
   }
   // What the `layout` Feature builds its projection system with (#511): reduced motion read as each
@@ -236,6 +264,9 @@ export const clientContext = (
     },
     get defaultTransition() {
       return build().defaultTransition
+    },
+    get valueReads() {
+      return build().valueReads
     },
     get renderer() {
       return build().renderer
@@ -289,6 +320,8 @@ export const serverContext = (env: WardicEnv, waiting: string, appear: ServerApp
     reducedMotionSetting: reducedMotion,
     positionalKeys: SERVER_POSITIONAL_KEYS,
     defaultTransition: SERVER_DEFAULT_TRANSITION,
+    // None: a server's elements fall back to the DOM's (#672, PR2-Q4).
+    valueReads: NO_VALUE_READS,
     appear,
     instant: NO_INSTANT,
   }

@@ -418,7 +418,7 @@ _Avoid_: re-measure, refresh (a **Page-size refresh** keeps every box and pairin
 ### Environment
 
 **Environment**:
-A complete set of Layer implementations of the core services (Clock, `RefreshFrameSource`, Renderer, Probe, InterpolatorRegistry with the Environment's **Key rules**, PositionalKeys naming its **Positional keys**, DefaultTransition, Announcer), with core's **Frame loop** over its Clock — e.g. DOM, Test. Its InputSource is built apart, when a gesture first needs one, so an app with none has no input code (ADR-0067, decision 14).
+A complete set of Layer implementations of the core services (Clock, `RefreshFrameSource`, Renderer, Probe, InterpolatorRegistry with the Environment's **Key rules**, PositionalKeys naming its **Positional keys**, DefaultTransition, Announcer, and, where it isn't the DOM, its reads of a Subject's **Own value**, **Measured pair** and **Variable value**: a DOM binding reads the DOM's itself), with core's **Frame loop** over its Clock — e.g. DOM, Test. Its InputSource is built apart, when a gesture first needs one, so an app with none has no input code (ADR-0067, decision 14).
 _Avoid_: platform, adapter, driver.
 
 **Shared source**:

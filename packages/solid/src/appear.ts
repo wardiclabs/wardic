@@ -807,6 +807,14 @@ export const setsAnimation: (css: object | string | undefined) => boolean = /*#_
 
 /** An element's Appear animation, found at mount: the spine starts its first legs as far in as it has got. */
 export interface Handoff {
+  /** How far its animation has run, in seconds (its delay included). */
+  readonly elapsed: () => number
+  /** The delay its animation was given, in seconds. */
+  readonly delay: () => number
+}
+
+/** A Handoff in the DOM: its animation, which development's check matches against the mount animation (`checkHandoff`). */
+export interface DomHandoff extends Handoff {
   readonly animation: Animation
 }
 
@@ -858,7 +866,15 @@ export const pageAnimationsOf = (element: Element): RootRead => {
   return animations
 }
 
-const toHandoff = (animation: Animation): Handoff => ({ animation })
+/** The Handoff of `animation`: what the spine reads of it. */
+// #672 (PR2-Q1): the spine reads its Handoff through these, so it reads no Animation, and the Handoff
+// needs no port; the DOM's reads of the animation stay with whatever finds it. Development's match
+// reads `animation` on the binding's side, so a production build ships none of it (#746, decision 6).
+const toHandoff = (animation: Animation): DomHandoff => ({
+  elapsed: () => Appear.elapsedOf(animation),
+  delay: () => Appear.delayOf(animation),
+  animation,
+})
 
 /**
  * The element's Appear animation, if a server started one (decision 6). Only an element whose inline style
@@ -875,4 +891,4 @@ export const handoffOf = (element: Element & ElementCSSInlineStyle): Option.Opti
  * waited.
  */
 export const startAtOf = (handoff: Handoff, ownTransition: WardicTransition | undefined, clientDelay: number) => (): number =>
-  Appear.elapsedOf(handoff.animation) - Appear.delayOf(handoff.animation) - heldInRule(ownTransition) + clientDelay
+  handoff.elapsed() - handoff.delay() - heldInRule(ownTransition) + clientDelay

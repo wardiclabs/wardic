@@ -23,7 +23,7 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { CONTROLS, type WardConfig, type WardicAnimationControls, type WardicControlsDefinition, type WardicTransition, type WardicVariant, type WardicVariantLabels, type WardicVariantResolver } from "./config.ts"
+import { CONTROLS, type SpineConfig, type WardicAnimationControls, type WardicControlsDefinition, type WardicTransition, type WardicVariant, type WardicVariantLabels, type WardicVariantResolver } from "./config.ts"
 import type { Snapshot } from "./spine.ts"
 
 // #672: the controls' interface, its definition and its mark are config.ts's, where the config types
@@ -155,11 +155,11 @@ export const arm = (change: ControlsChange): void => {
  * controls reads it: `change`'s entry (none before the first), and marked controlled, so it names its
  * own variants whatever the entry is (Motion's `isControllingVariants`).
  */
-export const controlledConfigOf = <C extends Pick<WardConfig, "animate">>(config: C, change: ControlsChange | undefined): C =>
+export const controlledConfigOf = <C extends Pick<SpineConfig, "animate">>(config: C, change: ControlsChange | undefined): C =>
   ({ ...config, animate: UndefinedOr.map(change, (c) => c.definition), controlled: true }) as C
 
 /** A config as a server reads it (#433): one given **Animation controls** has no entry yet, and is controlled. */
-export const uncontrolledOf = <C extends Pick<WardConfig, "animate">>(config: C): C =>
+export const uncontrolledOf = <C extends Pick<SpineConfig, "animate">>(config: C): C =>
   Bool.match(isAnimationControls(config.animate), { onTrue: () => controlledConfigOf(config, undefined), onFalse: () => config })
 
 /** What a controlled element reads at a change: its `custom`, and its values and velocities now (its Snapshot). */

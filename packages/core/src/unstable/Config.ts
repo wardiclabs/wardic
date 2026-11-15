@@ -293,3 +293,34 @@ export type WardicAnimationDefinition = WardicVariantLabels | ValueKeys
  * gives the one a drag or a pan uses.
  */
 export type WardicTransformPoint = (point: { readonly x: number; readonly y: number }) => { readonly x: number; readonly y: number }
+
+/**
+ * What the spine reads of an element's config: its start, its targets, variants and transitions, each
+ * gesture's target, its layout, and the callbacks it tells. Every binding's config extends it, with
+ * its Environment's own props beside.
+ */
+// #672 (the build grill's Q15): the spine and the Controls change read these, so core names what they
+// read, and dom's `WardConfig` extends it.
+export interface SpineConfig {
+  readonly initial?: WardicVariant | WardicVariantLabels | false
+  readonly animate?: WardicVariant | WardicVariantLabels | WardicAnimationControls
+  readonly exit?: WardicVariant | WardicVariantLabels
+  readonly variants?: WardicVariants
+  readonly transition?: WardicTransition
+  readonly inherit?: boolean
+  // Motion's `custom` is `any`: a resolver declares its own.
+  readonly custom?: any
+  readonly key?: string | number
+  readonly whileHover?: WardicVariant | WardicVariantLabels
+  readonly whileTap?: WardicVariant | WardicVariantLabels
+  readonly whileFocus?: WardicVariant | WardicVariantLabels
+  readonly whileInView?: WardicVariant | WardicVariantLabels
+  readonly whileDrag?: WardicVariant | WardicVariantLabels
+  readonly layout?: boolean | "position" | "size" | "preserve-aspect" | "x" | "y"
+  readonly layoutId?: string
+  readonly appear?: boolean
+  readonly transformTemplate?: (values: Readonly<Record<string, string | number>>, generated: string) => string
+  readonly onUpdate?: (latest: Readonly<Record<string, number | string>>) => void
+  readonly onAnimationStart?: (definition: WardicAnimationDefinition) => void
+  readonly onAnimationComplete?: (definition: WardicAnimationDefinition) => void
+}

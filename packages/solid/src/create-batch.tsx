@@ -31,7 +31,7 @@ import { lazyBatchGestures } from "./lazy-batch-gestures.ts"
 import { useFeatureRegistry, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import type { WardicRuntime } from "./runtime.ts"
 import { isServer } from "./server.ts"
-import { provideMemberHolds } from "./member-hold.ts"
+import { provideBatchHolds } from "./member-hold.ts"
 import { usePresenceContext } from "./presence.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 
@@ -176,7 +176,7 @@ export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<u
   const keyed = isKeyed(config)
   if (isServer) return serverBatchOf(config, keyed)
   // Its members' elements can be Wardic elements, which hand keys back and forth with it (#665's PR 4).
-  provideMemberHolds()
+  provideBatchHolds()
   const configTransition = configTransitionOf(useWardicConfig())
   const runtime = useWardicRuntime()
   // Its members' gestures (#665's PR 5, Q60): watched only when its config asks for them.

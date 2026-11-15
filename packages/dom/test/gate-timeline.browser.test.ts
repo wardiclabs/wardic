@@ -27,6 +27,7 @@ import * as DomScrollSource from "../src/DomScrollSource.ts"
 import * as TimelineValue from "../src/TimelineValue.ts"
 import { fireFrame, NO_BATCH, resetFrames, withFrames } from "./gate-harness.ts"
 import * as internalGate from "../src/internal/gate.ts"
+import { DOM_GATE } from "../src/internal/gate-environment.ts"
 
 /** The scroll Feature's services, on a runtime of their own. */
 const scrollServices = ManagedRuntime.make(Layer.provideMerge(Layer.merge(DomScrollSource.layer, DomInterpolators.layer), AtomRegistry.layer))
@@ -46,7 +47,7 @@ let box: HTMLElement
 beforeEach(() => {
   resetFrames()
   gateRuntime = ManagedRuntime.make(withFrames(DomLive)) as ManagedRuntime.ManagedRuntime<unknown, unknown>
-  gate = internalGate.makeFlushGate(gateRuntime as never, NO_BATCH)
+  gate = internalGate.makeFlushGate(gateRuntime as never, NO_BATCH, DOM_GATE)
   scope = Effect.runSync(Scope.make())
   host = document.createElement("div")
   host.innerHTML = `<div data-el style="width: 100px; height: 10px"></div>

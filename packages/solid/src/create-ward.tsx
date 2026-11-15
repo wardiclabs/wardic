@@ -85,54 +85,15 @@ import type { PresenceRecord } from "./presence-record.ts"
 import { createWhenWanted, NEVER_STARTED, type Started, stateOf, type Wants } from "./sensors.tsx"
 import { type GestureCallbacks, gestureCallbacksOf, inViewOptionsOf, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "./gesture-callbacks.ts"
 import { type Feature, type FeatureRegistry, type FeatureSection, type InstanceFeatures, LAYOUT_PROPS, missingMessage, unreadColorIn, wantsLayoutNode } from "./feature.ts"
-import { runWatch, useBuiltProjection, useElementFeatures, useFeatureRegistry, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicPositionalKeys, useWardicReducedMotion, useWardicRenderer, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
+import { runWatch, useBuiltProjection, useElementFeatures, useFeatureRegistry, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicValueReads, useWardicPositionalKeys, useWardicReducedMotion, useWardicRenderer, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { transformPagePointOf } from "./wardic-config-value.ts"
 import { projectionIn, projectionNodesIn, type WardicRuntime } from "./runtime.ts"
 import { isHydrating, isServer } from "./server.ts"
 import { reactivity } from "./solid-reactivity.ts"
-import {
-  accessorOf,
-  type Active,
-  animationCallbacks,
-  applyDragDefaults,
-  dragAxisOf,
-  dragDefaultsOf,
-  claimForDrag,
-  draggingWithWillChange,
-  drawnAtRest,
-  followTemplate,
-  heldTransformFor,
-  registeredValuesOf,
-  flagStartingStyle,
-  isLayoutNode,
-  madeWith,
-  type ElementSpineOptions,
-  makeElementSpine,
-  makeReuse,
-  exitConfigOf,
-  exitTargetOf,
-  presenceTreeOf,
-  presenceRecordOf,
-  recordFrameOf,
-  registryOf,
-  type Resolution,
-  resolutionOf,
-  restingOf,
-  sameResolution,
-  serverStartingStyle,
-  snapshotOf,
-  SPINE_DIAGNOSTICS,
-  type SpineDiagnostics,
-  startLinksOf,
-  type Start,
-  startOf,
-  warnDroppedTransform,
-  withOnUpdate,
-  releasingAppear,
-  appearEntryOf,
-  type ServerAppearOf,
-} from "./spine.ts"
+import { accessorOf, type Active, animationCallbacks, claimForDrag, draggingWithWillChange, flagStartingStyle, isLayoutNode, madeWith, type ElementSpineOptions, makeElementSpine, makeReuse, exitConfigOf, exitTargetOf, presenceTreeOf, presenceRecordOf, recordFrameOf, registryOf, type Resolution, resolutionOf, sameResolution, snapshotOf, type SpineDiagnostics, type Start, startOf, warnDroppedTransform, withOnUpdate, appearEntryOf, type ServerAppearOf } from "./spine.ts"
+import { SPINE_DIAGNOSTICS, drawnAtRest, followTemplate, heldTransformFor, registeredValuesOf, restingOf, serverStartingStyle, startLinksOf, releasingAppear, valueReadsOf, type ElementValueReads } from "./element-setup.ts"
+import { applyDragDefaults, dragAxisOf, dragDefaultsOf } from "./drag-defaults.ts"
 import { type WardicVariantContextValue, useVariantContext, WardicVariantContext } from "./variants.ts"
 import type { WardConfig, WardicTransformShorthands, WardicValues } from "./config.ts"
 import { DragGesture, FocusGesture, HoverGesture, InViewGesture, PanGesture, PressGesture } from "./features/keys.ts"
@@ -297,6 +258,8 @@ export interface SpineInternals {
 }
 
 export interface RunSpineOptions {
+  /** Its element's value reads (#672, PR2-Q6), when its caller has read them; else `runSpine` reads them. */
+  readonly valueReads?: ElementValueReads | undefined
   /** The provider runtime the spine forks its fibers on. */
   readonly runtime: WardicRuntime
   /** The provider-owned flush gate (ADR-0006). */
@@ -459,6 +422,12 @@ interface LateLayout {
 const layoutNodeOf = (atMount: ProjectionSystem.NodeHandle | undefined, later: LateLayout | undefined): ProjectionSystem.NodeHandle | undefined =>
   UndefinedOr.match(atMount, { onDefined: identity, onUndefined: () => UndefinedOr.match(later, { onDefined: (l) => l.handle, onUndefined: constUndefined }) })
 
+/** Its caller's value reads, else its own, with one context read (#672, PR2-Q6). */
+const valueReadsIn = (given: ElementValueReads | undefined): ElementValueReads => {
+  if (Predicate.isNotUndefined(given)) return given
+  return valueReadsOf(useWardicValueReads())
+}
+
 export function runSpine(opts: RunSpineOptions): void {
   const { bindGestures, byName, canStart, cfg, controls, defaultsInProps, el, entersFresh, extraDelay, gate, hydrating, id, internal = NO_INTERNALS, live, makeSink, onFrame, parent, restartStyle, runtime, styleOf, tag } = opts
   // Its Features (#511, ADR-0067): its section's, and those it brings.
@@ -491,6 +460,9 @@ export function runSpine(opts: RunSpineOptions): void {
   const positionalKeys = useWardicPositionalKeys()
   // What a key with no transition of its own runs on (ADR-0051).
   const defaultTransition = useWardicDefaultTransition()
+  // How a value is read in the Environment's own terms (#672).
+  // Its value reads (PR2-Q6): its caller's, else one context read.
+  const { ownValues, measuredPairs, variableValues } = valueReadsIn(opts.valueReads)
 
   // Starting style: resolved purely from the config read EXACTLY ONCE (untrack — no
   // reactive dependency, must not re-seed after mount), with the inherited `initial`
@@ -924,6 +896,9 @@ export function runSpine(opts: RunSpineOptions): void {
         skipAnimations,
         positionalKeys,
         defaultTransition,
+        ownValues,
+        measuredPairs,
+        variableValues,
         start: begin,
         snapshot,
         reuse,
@@ -1085,7 +1060,9 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
 
   // Its routed `style` keys (#130, ADR-0043): its Live values and transform keys, which the gate
   // writes from mount, and the Starting style carries until then, under `initial`'s.
-  const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: droppedTransformWarning(runtime, id), reactivity })
+  // Its value reads (PR2-Q6), read once here and handed to its spine.
+  const valueReads = valueReadsOf(useWardicValueReads())
+  const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: droppedTransformWarning(runtime, id), reactivity, ownValues: valueReads.ownValues })
   const projectStarting = Bool.match(hydrating, { onTrue: () => DomRenderer.project, onFalse: () => project })
   const startingWith = (routed: Values.Values): Renderer.Patch =>
     Svg.splitPatchForTag(internal.tag, projectStarting(drawnAtRest({ ...routed, ...initialValues }, layoutNode, initialConfig.transformTemplate))).style
@@ -1129,6 +1106,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   // wires the orchestration (ADR-0007, #50): the context it inherits names from, its
   // stagger delay as a Variant child, the `when` gates on its start, and its settle report.
   runSpine({
+    valueReads,
     runtime,
     gate,
     id,
@@ -1217,6 +1195,8 @@ const NO_OUTPUT: Atom.Atom<unknown> = Atom.make<unknown>(undefined)
  * transitions but no orchestration.
  */
 const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineInternals = NO_INTERNALS): Ward => {
+  // A server's own values: the DOM's, its context's constant (#672).
+  const ownValues = valueReadsOf(useWardicValueReads()).ownValues
   // The client's gate id: keeps every later hydration key in step.
   createUniqueId()
   // Animation controls (#433) set nothing on a server: no entry yet, and controlled, as on the client.
@@ -1240,7 +1220,7 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
     (userProps: WardUserProps = NO_USER_PROPS): WardProps => {
       lastStyle = userProps.style
       // Its routed keys' values join the Starting style, under `initial`'s (#130).
-      const parts = split(userProps.style)
+      const parts = split(userProps.style, ownValues)
       // A style with its own `animation` keeps it: the element's Appear animation would take its place.
       const ownAnimation = setsAnimation(parts.css)
       if (ownAnimation) appear.veto("its own style sets an animation")

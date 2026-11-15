@@ -53,6 +53,7 @@ import {
   type WardicRuntime,
   type WardicServices,
   whenIdle,
+  type ValueReads,
 } from "./runtime.ts"
 import { WAITING_ENV_FIX, WAITING_ENV_LINE } from "./messages.ts"
 import { warnWithoutSpans } from "./spans-check.ts"
@@ -369,6 +370,15 @@ export function useWardicRenderer(): Renderer.Renderer["Service"] {
  */
 export function useWardicPositionalKeys(): ReducedMotion.PositionalKeys["Service"] {
   return fromContext(useContext(WardicContext), "useWardicPositionalKeys", (value) => value.positionalKeys)
+}
+
+/**
+ * The Environment's reads of its Subjects' values (#672): its own values, Measured pairs and Variable
+ * values, each `undefined` when it gives none (`element-setup.ts`' `valueReadsOf` fills them with the
+ * DOM's). Internal.
+ */
+export function useWardicValueReads(): ValueReads {
+  return fromContext(useContext(WardicContext), "useWardicValueReads", (value) => value.valueReads)
 }
 
 /**
