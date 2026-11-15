@@ -32,6 +32,7 @@ import type * as DefaultTransition from "@wardic/core/DefaultTransition"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as MeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
 import type * as OwnValues from "@wardic/core/unstable/OwnValues"
+import type * as VariableValues from "@wardic/core/unstable/VariableValues"
 import type * as Renderer from "@wardic/core/Renderer"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
@@ -398,6 +399,11 @@ export function useWardicOwnValues(): OwnValues.Shape | undefined {
 /** The Environment's Measured pairs (#430, #672): what each element's spine measures a key whose ends don't blend with; `undefined` when it gives none. Internal. */
 export function useWardicMeasuredPairs(): MeasuredPairs.Shape | undefined {
   return fromContext(contextValue(), "useWardicMeasuredPairs", (value) => value.measuredPairs)
+}
+
+/** The Environment's Variable values (#55, #672): what each element's spine resolves a `var()` with; `undefined` when it gives none. Internal. */
+export function useWardicVariableValues(): VariableValues.Shape | undefined {
+  return fromContext(contextValue(), "useWardicVariableValues", (value) => value.variableValues)
 }
 
 /** The Environment's Default transition (ADR-0051): what a key with no transition of its own runs on. Internal. */

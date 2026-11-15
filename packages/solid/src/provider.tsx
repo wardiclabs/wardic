@@ -16,6 +16,7 @@ import type * as InputFeed from "@wardic/core/InputFeed"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as MeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
 import type * as OwnValues from "@wardic/core/unstable/OwnValues"
+import type * as VariableValues from "@wardic/core/unstable/VariableValues"
 import type * as Renderer from "@wardic/core/Renderer"
 import type * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
@@ -381,6 +382,11 @@ export function useWardicOwnValues(): OwnValues.Shape | undefined {
 /** The Environment's Measured pairs (#430, #672): what each element's spine measures a key whose ends don't blend with; `undefined` when it gives none. Internal. */
 export function useWardicMeasuredPairs(): MeasuredPairs.Shape | undefined {
   return fromContext(useContext(WardicContext), "useWardicMeasuredPairs", (value) => value.measuredPairs)
+}
+
+/** The Environment's Variable values (#55, #672): what each element's spine resolves a `var()` with; `undefined` when it gives none. Internal. */
+export function useWardicVariableValues(): VariableValues.Shape | undefined {
+  return fromContext(useContext(WardicContext), "useWardicVariableValues", (value) => value.variableValues)
 }
 
 /**

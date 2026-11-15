@@ -28,9 +28,9 @@ import * as Values from "@wardic/core/Values"
 import * as Report from "@wardic/core/unstable/Report"
 import type * as CoreMeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
 import type * as OwnValues from "@wardic/core/unstable/OwnValues"
+import type * as VariableValues from "@wardic/core/unstable/VariableValues"
 import type * as Stops from "@wardic/core/unstable/Stops"
 import type * as FlushGate from "@wardic/dom/FlushGate"
-import * as Variables from "@wardic/dom/Variables"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
@@ -686,20 +686,31 @@ const landEndsOf = (waiting: WaitingEnds | undefined): void => {
 /** No values: what a spine's Retarget keys are before its first. */
 export const NO_VALUES: Values.Values = {}
 
-/** Whether a key's Keyframes stops hold a Variable value (#55). Built once (#460). */
-const stopsHoldVariable = (stops: ReadonlyArray<number | string>): boolean => Arr.some(stops, Variables.isValue)
-
 /**
  * Whether a change's starts, targets or Keyframes stops hold a Variable value (#542): only then can
  * the element's Key rule, its Variable values (#55), take a pair, so only then is a leg's machine
  * built under it. It declines every pair with no `var()` at either end.
  */
-export const holdsVariable = (from: Values.Values, to: Values.Values, stops: StopsByKey | undefined): boolean => {
-  // Per Retarget (#460): statements, Effect's calls data-first.
-  if (Rec.some(from, Variables.isValue)) return true
-  if (Rec.some(to, Variables.isValue)) return true
+export const holdsVariable = (variables: VariableValues.Shape, from: Values.Values, to: Values.Values, stops: StopsByKey | undefined): boolean => {
+  // Per Retarget (#460): statements, Effect's calls data-first; the Environment's checks, built once.
+  const isValue = variables.isValue
+  if (Rec.some(from, isValue)) return true
+  if (Rec.some(to, isValue)) return true
   if (Predicate.isUndefined(stops)) return false
-  return Rec.some(stops, stopsHoldVariable)
+  return Rec.some(stops, stopsCheckOf(variables))
+}
+
+/** Each Environment's check of a key's Keyframes stops for a Variable value (#55), built at its first. */
+// Module state (#460, Q7): one check per Environment's Variable values (#672), held weakly by them.
+const stopsChecks = new WeakMap<VariableValues.Shape, (stops: ReadonlyArray<number | string>) => boolean>()
+
+/** `variables`' check of a key's Keyframes stops: built once an Environment. */
+const stopsCheckOf = (variables: VariableValues.Shape): ((stops: ReadonlyArray<number | string>) => boolean) => {
+  const kept = stopsChecks.get(variables)
+  if (Predicate.isNotUndefined(kept)) return kept
+  const check = (stops: ReadonlyArray<number | string>): boolean => Arr.some(stops, variables.isValue)
+  stopsChecks.set(variables, check)
+  return check
 }
 
 /** A Path's turn (#438, ADR-0065): the reserved key the dom transform adds onto `rotate`. */
@@ -1915,6 +1926,8 @@ export interface ElementSpineOptions {
   readonly ownValues: OwnValues.Shape
   /** The Environment's Measured pairs (#430, #672), read once by its provider. */
   readonly measuredPairs: CoreMeasuredPairs.Shape
+  /** The Environment's Variable values (#55, #672), read once by its provider. */
+  readonly variableValues: VariableValues.Shape
   readonly start: Start
   readonly snapshot: Snapshot
   readonly reuse: (transition: WardicTransition) => WardicTransition
@@ -2061,6 +2074,8 @@ export interface SpineHost {
   readonly elementRules: ReadonlyArray<InterpolatorRegistry.KeyRule>
   /** The Environment's Measured pairs (#430, #672). */
   readonly measuredPairs: CoreMeasuredPairs.Shape
+  /** The Environment's Variable values (#55, #672). */
+  readonly variableValues: VariableValues.Shape
 }
 
 /** A mounted element's spine. */
@@ -2096,7 +2111,7 @@ export interface ElementSpine {
  * fiber Scope interrupts what's left when the provider ends.
  */
 export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => {
-  const { animation, byName, canStart, config, defaultTransition, diagnostics, element, extraDelay, gate, id, links, live, measuredPairs, onFrame, ownValues, parent, positionalKeys, presence, runtime, snapshot, start, styleNow, tag } = options
+  const { animation, byName, canStart, config, defaultTransition, diagnostics, element, extraDelay, gate, id, links, live, measuredPairs, onFrame, ownValues, parent, positionalKeys, presence, runtime, snapshot, start, styleNow, tag, variableValues } = options
   const { initialLink, initialValues, startedLink } = start
   const { linksFor, ownValue, startLinkOf } = links
   let handoff = options.handoff
@@ -2104,7 +2119,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   let quiet = start.quiet
   // Its Variable values (#55, ADR-0035 *Amendment (#55)*): the Key rule bound to this element,
   // added to each leg it starts, so a `var()` end blends what it resolves to here.
-  const elementRules = [Variables.values(element)]
+  const elementRules = [variableValues.values(element)]
   const recordFrame = recordFrameOf(presence)
   // Whether its animations are skipped (#468): never, with nothing given.
   const skipAnimations = UndefinedOr.match(options.skipAnimations, { onUndefined: () => constFalse, onDefined: identity })
@@ -2573,6 +2588,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
         runtime,
         elementRules,
         measuredPairs,
+        variableValues,
       }
     }
     return handedOver
@@ -3000,7 +3016,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // Its `style`'s will-change value turns on as a leg starts a key Motion's would (#443).
     turnWillChangeOn(live, retargetLegs)
     // The element's Key rules only for a change a Variable value is in (#542).
-    const variables = holdsVariable(from, fresh, manyStops)
+    const variables = holdsVariable(variableValues, from, fresh, manyStops)
     // Each leg into its sink, in the builder's order (#69's PR 2: a Retarget is per element). Each
     // leg draws the keys it animates (#325) until a later Retarget takes them.
     Arr.forEach(retargetLegs, (leg: Leg, i): void => {

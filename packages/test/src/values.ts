@@ -1,13 +1,16 @@
 /**
  * The headless Environment's reads of its Subjects' values, as core's ports take them: a raw value as
  * it is when it already has the target's type, a key's value in an object style, and an object style
- * as its record; and no Measured pair, since a headless Subject has no units and no text form to read.
+ * as its record; and no Measured pair or Variable value, since a headless Subject has no units, no
+ * text form and no variables to read.
  *
  * @module
  */
 // #672 (PR2-Q2): `testLayer`'s implementation of core's ports.
+import type * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as MeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
 import * as OwnValues from "@wardic/core/unstable/OwnValues"
+import * as VariableValues from "@wardic/core/unstable/VariableValues"
 import * as Layer from "effect/Layer"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -44,8 +47,18 @@ export const measuredPairs: MeasuredPairs.Shape = {
   measure: () => NO_PAIRS,
 }
 
+/** A Key rule that declines every pair: a headless Subject has no variables. */
+const NO_VARIABLES: InterpolatorRegistry.KeyRule = { name: "no variable values", blend: () => Option.none() }
+
+/** The headless Variable values: none. */
+export const variableValues: VariableValues.Shape = {
+  isValue: () => false,
+  values: () => NO_VARIABLES,
+}
+
 /** The headless ports, as `testLayer` gives them. */
-export const layer: Layer.Layer<OwnValues.OwnValues | MeasuredPairs.MeasuredPairs> = Layer.mergeAll(
+export const layer: Layer.Layer<OwnValues.OwnValues | MeasuredPairs.MeasuredPairs | VariableValues.VariableValues> = Layer.mergeAll(
   Layer.succeed(OwnValues.OwnValues)(ownValues),
   Layer.succeed(MeasuredPairs.MeasuredPairs)(measuredPairs),
+  Layer.succeed(VariableValues.VariableValues)(variableValues),
 )

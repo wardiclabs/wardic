@@ -13,6 +13,7 @@ import type * as Renderer from "@wardic/core/Renderer"
 import type * as ScrollSource from "@wardic/core/ScrollSource"
 import type * as MeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
 import type * as OwnValues from "@wardic/core/unstable/OwnValues"
+import type * as VariableValues from "@wardic/core/unstable/VariableValues"
 import { constUndefined, constVoid } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
@@ -58,6 +59,7 @@ export const testLayer = (
   | AtomRegistry.AtomRegistry
   | OwnValues.OwnValues
   | MeasuredPairs.MeasuredPairs
+  | VariableValues.VariableValues
 > =>
   FrameLoop.layer.pipe(
     Layer.provideMerge(
@@ -75,7 +77,7 @@ export const testLayer = (
         // No assistive technology to reach headless (ADR-0037).
         Announcer.layerSilent,
         AtomRegistry.layer,
-        // The headless Environment's own values and Measured pairs (#672): no units, no text form.
+        // The headless Environment's own values, Measured pairs and Variable values (#672): none to read.
         TestValues.layer,
         Layer.sync(DragActivity.DragActivity, DragActivity.make),
         Layer.sync(PressClaims.PressClaims, PressClaims.make),

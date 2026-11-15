@@ -14,6 +14,7 @@ import * as RefreshFrameSource from "@wardic/core/RefreshFrameSource"
 import * as Renderer from "@wardic/core/Renderer"
 import * as MeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
 import * as OwnValues from "@wardic/core/unstable/OwnValues"
+import * as VariableValues from "@wardic/core/unstable/VariableValues"
 import type * as CoreWardicServices from "@wardic/core/unstable/WardicServices"
 import * as FlushGate from "@wardic/dom/FlushGate"
 import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
@@ -129,6 +130,8 @@ export interface WardicContextValue {
   readonly ownValues: OwnValues.Shape | undefined
   /** The Environment's Measured pairs (#430, #672), read once: `undefined` when it gives none, as `ownValues`. */
   readonly measuredPairs: MeasuredPairs.Shape | undefined
+  /** The Environment's Variable values (#55, #672), read once: `undefined` when it gives none, as `ownValues`. */
+  readonly variableValues: VariableValues.Shape | undefined
   /**
    * The Environment's Renderer (ADR-0003), read once: what each element and presence projects its
    * values with and commits them through.
@@ -162,6 +165,7 @@ interface Built {
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
   readonly ownValues: OwnValues.Shape | undefined
   readonly measuredPairs: MeasuredPairs.Shape | undefined
+  readonly variableValues: VariableValues.Shape | undefined
   readonly renderer: Renderer.Renderer["Service"]
 }
 
@@ -211,9 +215,10 @@ export const clientContext = (
     // isn't the DOM gives them; `DomLive` doesn't (PR2-Q4), and an element falls back.
     const ownValues = Option.getOrUndefined(runtime.runSync(Effect.serviceOption(OwnValues.OwnValues)))
     const measuredPairs = Option.getOrUndefined(runtime.runSync(Effect.serviceOption(MeasuredPairs.MeasuredPairs)))
+    const variableValues = Option.getOrUndefined(runtime.runSync(Effect.serviceOption(VariableValues.VariableValues)))
     // The Renderer every element projects and commits through (ADR-0003), read once too.
     const renderer = runtime.runSync(Renderer.Renderer)
-    built = { gate, reducedMotion: applies, reducedMotionUnder: under, positionalKeys, defaultTransition, ownValues, measuredPairs, renderer }
+    built = { gate, reducedMotion: applies, reducedMotionUnder: under, positionalKeys, defaultTransition, ownValues, measuredPairs, variableValues, renderer }
     return built
   }
   // What the `layout` Feature builds its projection system with (#511): reduced motion read as each
@@ -258,6 +263,9 @@ export const clientContext = (
     },
     get measuredPairs() {
       return build().measuredPairs
+    },
+    get variableValues() {
+      return build().variableValues
     },
     get renderer() {
       return build().renderer
@@ -314,6 +322,7 @@ export const serverContext = (env: WardicEnv, waiting: string, appear: ServerApp
     // None: a server's elements fall back to the DOM's (#672, PR2-Q4).
     ownValues: undefined,
     measuredPairs: undefined,
+    variableValues: undefined,
     appear,
     instant: NO_INSTANT,
   }

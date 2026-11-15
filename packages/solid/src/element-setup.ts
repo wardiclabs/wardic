@@ -15,6 +15,7 @@ import type * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
 import type * as MeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
 import type * as CoreOwnValues from "@wardic/core/unstable/OwnValues"
+import type * as VariableValues from "@wardic/core/unstable/VariableValues"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 import type * as Reactivity from "@wardic/core/unstable/Reactivity"
 import * as Appear from "@wardic/dom/Appear"
@@ -200,5 +201,11 @@ export const ownValuesOr = (given: CoreOwnValues.Shape | undefined): CoreOwnValu
 /** Its Environment's Measured pairs, else the DOM's. */
 export const measuredPairsOr = (given: MeasuredPairs.Shape | undefined): MeasuredPairs.Shape => {
   if (Predicate.isUndefined(given)) return DomValues.measuredPairs
+  return given
+}
+
+/** Its Environment's Variable values, else the DOM's. */
+export const variableValuesOr = (given: VariableValues.Shape | undefined): VariableValues.Shape => {
+  if (Predicate.isUndefined(given)) return DomValues.variableValues
   return given
 }
