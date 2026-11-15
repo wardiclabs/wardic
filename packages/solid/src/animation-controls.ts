@@ -19,12 +19,12 @@
  *
  * @module
  */
+import type * as Values from "@wardic/core/Values"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { CONTROLS, type SpineConfig, type WardicAnimationControls, type WardicControlsDefinition, type WardicTransition, type WardicVariant, type WardicVariantLabels, type WardicVariantResolver } from "./config.ts"
-import type { Snapshot } from "./spine.ts"
 
 // #672: the controls' interface, its definition and its mark are config.ts's, where the config types
 // reach them; they move to core with its config types.
@@ -166,7 +166,14 @@ export const uncontrolledOf = <C extends Pick<SpineConfig, "animate">>(config: C
 export interface ControlledState {
   readonly custom: () => unknown
   /** Its Snapshot: its values, and its velocities now (#663), a spring leg's being on its Frame. */
-  readonly snapshot: Snapshot
+  readonly snapshot: ControlledSnapshot
+}
+
+/** What Animation controls read of an element's Snapshot: its values, and its velocities now (#663). */
+// #672: the controls name what they read, so they import nothing of the spine, whose Snapshot meets it.
+export interface ControlledSnapshot {
+  readonly values: Values.Values
+  velocitiesNow(snapshot: ControlledSnapshot): Readonly<Record<string, number>>
 }
 
 /**
