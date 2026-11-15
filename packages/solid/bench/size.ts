@@ -54,9 +54,11 @@ const GATE = 1.01
  * development's diagnostics and errors left out of a production build, 98.0 and 119.3 with a layout node's
  * code the `layout` Feature's, 96.1 and 117.5 with Wardic's spans an app's to give, 95.4 and 116.7 with
  * the Frame loop's burst and dom's runner holding their fibers themselves, 94.6 and 116.0 with the Imperative
- * track `imperative.ts`'s, 94.5 and 115.9 with a Batch member's hold all `member-hold.ts`'s.
+ * track `imperative.ts`'s, 94.5 and 115.9 with a Batch member's hold all `member-hold.ts`'s. #672's
+ * PR 2 raised them by what it measured (Q23): 95.2 and 116.5, the Environment's three ports' plumbing and
+ * the helpers out of the spine (ADR-0067, *Note (#672)*).
  */
-const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 94.5, "s2-slim": 115.9 }
+const BUDGETS: Readonly<Record<string, number>> = { "s1-slim": 95.2, "s2-slim": 116.5 }
 
 const OUT = join(REPO, ".tmp/size-gate")
 

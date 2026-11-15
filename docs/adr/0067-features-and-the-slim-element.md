@@ -491,3 +491,15 @@ TS 7's default parallel check read +14% on Solid 2: adding the prototype's four 
 - **Checked** in a fresh clone of the branch, the job's command against `main`: exit 0, in 89 s on the bench host; with Solid 1's budget set 0.5 KB under its app, `s1-slim 94.0 of 93.5 FAIL` and exit 1.
 
 **At #746's end** (`bun run size` against `main` before its first PR, `d8fbc32`): the Slim element's app 100.0 → 94.0 KB gzipped on Solid 1 (−6.0%) and 121.5 → 115.4 on Solid 2 (−5.0%). Every Wardic app is smaller: −2.3% to −6.0% on Solid 1 and −1.9% to −5.0% on Solid 2, the Complete element's −2.8% and −2.5%. Eight PRs, #763–#769 and this one. The decided cuts' stubs had read 89.5 and 111.9; the gap is the cuts dropped under Q25's bar (the gesture start and drag block, the streams, the last three seams) and what each built seam keeps of its stub. With it, decision 5's wait ends: 1.1 can go out.
+
+## Note (#672, 2026-11-15): the Slim element's budgets raised for the lift's ports
+
+#672's PR 2 puts the lift's ports in place while the spine is still in solid (ADR-0071, *Amendment (#672)*). Its build grill decided that a port crossing a budget raises it by exactly what's measured (Q23).
+
+- **Measured** (`bun run size` against `main`, and a per-module build of each app): `s1-slim` 94.0 → 94.7 KB gzipped, `s2-slim` 115.4 → 116.0. Budgets 95.2 and 116.5. Every other app is within its +1% gate.
+- **What it is** (`s1-slim`, +1,590 B minified, +637 B gzipped):
+  - the three ports' plumbing: the provider's record (`runtime.ts` +249), its three hooks (`provider.tsx` +222), dom's `DomValues` (+210), core's three services (+183), the options each element gets (`create-ward.tsx` +105);
+  - the helpers out of the spine, a net +377 across module bounds (`element-setup.ts` +663, `drag-defaults.ts` +304, `spine.ts` −590);
+  - the gate's environment (+124).
+- **Not in it:** the DOM's port code itself, which every Slim app already shipped through the spine. `DomLive` gives no port (PR2-Q4): a DOM binding's element code falls back to `DomValues`, so an app with no Wardic element ships none of it. Through `DomLive`, a Batch app had grown 2.0–3.2%.
+- **Found and fixed at the build:** a Handoff's `matches` closure made `Appear.matches` reachable in production (+386 B gzipped), against decision 6 of *Amendment (#746)*; development's check reads the DOM's Handoff on the binding's side.
