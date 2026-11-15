@@ -440,3 +440,12 @@ Decision 11's step wrote both of its Frame's records, `value` and `velocity`, ev
   - **The spine's spring legs** (P7, `.tmp/564-canvas/p7-spine-bench.ts`: 1,000 elements through `createAnimate`'s path, 5 keys on a spring, every one retargeted each round; 5 interleaved processes a side; the same scene drawn, checksum 19,119.7): a frame 0.425 → 0.361 ms in Bun (−15%) and 0.535 → 0.448 ms in Node (−16%), Node's bytes a frame 214 → 146 KB (−32%), a retarget flat.
   - **`bench:solid`** passes, noise control +0.4%: every warm task within ±2.2%, bytes +0.7% (Solid 1) and −0.3% (Solid 2), retained flat. Its layout scene's `page frame` read +11.4% (a fail) in one run, and +6.3% and −0.7% in the next. The scene is noisy, and the change doesn't touch its path.
 - **Pinned by** `packages/test/test/spring-values-records.test.ts` SV1–SV4, and by the velocity tests that caught the readers above: `dynamic-variants` DV3, `presence-key` PK2 and `tween-velocity` VL10.
+
+## Amendment (#672, 2026-11-14): `Report` moves into core
+
+ADR-0071's decision 6 (#561's round 6, Q22), built in #672's first PR.
+
+- **`Report` is core's,** as `@wardic/core/unstable/Report`: `failure`, `debugKept`, `debugOf`, `DebugLog`. It was dom's `internal/report.ts`; its `reportFailure` is exported as `failure`, the name `@wardic/dom/Report` gave it, so the spine's `Report.failure` needs only its import changed when it moves.
+- **Core's engine still doesn't report** (decision 4 above): the Frame loop hands each run's failure to its caller. The spine does, as a binding boundary, and it moves into core (#672), so the reporting it does comes with it.
+- **`@wardic/dom/Report` stays,** re-exporting core's: it's the Tier 2 face binding authors import (ADR-0041). dom's own modules import core's.
+- **Unstable:** public, with no semver promise; Wardic's own packages always match it, through the Changesets fixed group (ADR-0071, decision 5).

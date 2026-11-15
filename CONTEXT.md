@@ -525,6 +525,10 @@ _Avoid_: render loop (the renderer's call alone), animation loop, rAF.
 One Subject's motion binding: its config, its Recognizers, its Override stack, its Legs and its Snapshot, however a binding attaches it. Solid's binding has three ways to put one on an element: a `wardic.*` component, `createWard`'s spread, and the `use:wardic` directive. Solid 2's has two: a `wardic.*` component, and `ward(config)`, a ref carrying its props, spread when it's kept or given to `ref`. A ward made with `ward(config)` can also be given to any Wardic component, `Reorder.Item` too, through its `wardRef`: the component then drives its element with that ward, the element's own motion props laid over its config (#349, #398). Foldkit's binding has two: a `w.*` element from `wardic.html(h)`, and the `Ward.attributes(config)` bundle on any other element (ADR-0071).
 _Avoid_: motion component (Motion's), controller, spine (the code that runs it).
 
+**Spine**:
+What runs a **Ward**, whatever binding attaches it: it resolves the Ward's config into targets, starts and Retargets its Legs, and keeps its Snapshot. Every binding drives the same one, and it reaches the **Subject** only through the **Environment**'s members (#672).
+_Avoid_: engine (core's Frame loop and Primitives), controller, runtime.
+
 **Delivery**:
 One render's config reaching a **Wardic element**, in a binding whose host has no reactive graph (Foldkit, ADR-0071): a property setter called inside the patch, once per fresh value, a parent's before its children's. The ward Retargets only when the delivered targets resolve differently from the last ones (#470). Its watches re-read once per patch, after the provider's delivery, which comes first in every patch.
 _Avoid_: update (Foldkit's `update`), prop write, re-render.

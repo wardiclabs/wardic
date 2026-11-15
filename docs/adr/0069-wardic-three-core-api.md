@@ -211,3 +211,13 @@ A step wrote every member in its moving lists whether it moved it or not: one wa
 - **Rejected:** caching each member's last string in the writer, which measured +17% on moving members and goes stale on a slot's reuse, a `replace`, and a group a Wardic element hands back.
 - **Not changed:** a paused change's run still ticks; it writes nothing now.
 - **Tests:** B29 (a waiting member isn't written, but is once after it enters), B30 (a start from a given value is written though it waits), B31 (paused, nothing is written; a seek played from, and a stop, are written once).
+
+## Amendment (#672, 2026-11-14): `unstable/` subpaths, not `internal/*`
+
+Decision 2 put the spine and the Flush gate in core's `internal/*`. ADR-0071 (#561's round 3, Q2, and round 6, Q21) moved them to public subpaths, and #672's build grill (2026-11-14) placed every module that follows them.
+
+- **Where they go:** `@wardic/core/unstable/<Module>` and `@wardic/dom/unstable/<Module>`, named for their files (`Spine`, `Report`, `Reactivity`, …), or, where a file splits or keeps its old name's meaning, for what each holds (`FlushGate`, `Stops`, `Config` and `WardConfig`, `WardicServices`). Public, with no semver promise: a binding other than Solid (Foldkit's first) imports them, and core's `"./internal/*"` export is `null`. Wardic's own packages always match them, through the Changesets fixed group, which `@wardic/foldkit` joins (ADR-0071, decision 5).
+  - Rejected: Tier 2 modules, which would make nearly every Motion fix a semver-major of core; bundling core's internals into each binding.
+- **Where each module goes** is ADR-0071's decision 4, as its *Amendment (#672)* refines it, and [`lift-672-move-plan.md`](../research/lift-672-move-plan.md).
+- **The build order's step 1, refined:** the Imperative track (`imperative.ts`, over the spine's `SpineHost`) moves to `@wardic/dom/unstable/Imperative`, with the DOM's `animate` it lives in (its Subjects elements, selectors and Batches of elements). Step 2's `@wardic/object` and step 3's `@wardic/three` split the track out into core when a scene's `animate` needs it.
+- **Core's config types name no Environment's keys** (#609): they're built on an empty `ValueKeys` interface that dom's `WardConfig` fills by declaration merging. A scene's keys come through `@wardic/three`'s own types (decision 4), not that map.
