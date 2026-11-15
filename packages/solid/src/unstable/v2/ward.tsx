@@ -104,45 +104,9 @@ import { type ControlsChange, controlledConfigOf, controlledElement, isAnimation
 import { settingOf, type WardicConfigValue } from "../../wardic-config-value.ts"
 import { type PresenceSeed, presenceBlocksInitial, presenceHold, presenceSeedOf } from "../../presence-record.ts"
 import { handoffOf, setsAnimation } from "../../appear.ts"
-import {
-  appearEntryOf,
-  applyDragDefaults,
-  dragAxisOf,
-  dragDefaultsOf,
-  claimForDrag,
-  draggingWithWillChange,
-  drawnAtRest,
-  followTemplate,
-  heldTransformFor,
-  registeredValuesOf,
-  type ElementSpine,
-  type ElementSpineOptions,
-  flagStartingStyle,
-  isLayoutNode,
-  makeElementSpine,
-  makeReuse,
-  exitConfigOf,
-  exitTargetOf,
-  presenceTreeOf,
-  NO_EXIT_CONFIG,
-  madeWith,
-  presenceRecordOf,
-  recordFrameOf,
-  registryOf,
-  releasingAppear,
-  type Resolution,
-  resolutionOf,
-  restingOf,
-  sameResolution,
-  serverStartingStyle,
-  snapshotOf,
-  SPINE_DIAGNOSTICS,
-  type SpineDiagnostics,
-  startLinksOf,
-  startOf,
-  warnDroppedTransform,
-  withOnUpdate,
-} from "../../spine.ts"
+import { appearEntryOf, claimForDrag, draggingWithWillChange, type ElementSpine, type ElementSpineOptions, flagStartingStyle, isLayoutNode, makeElementSpine, makeReuse, exitConfigOf, exitTargetOf, presenceTreeOf, NO_EXIT_CONFIG, madeWith, presenceRecordOf, recordFrameOf, registryOf, type Resolution, resolutionOf, sameResolution, snapshotOf, SPINE_DIAGNOSTICS, type SpineDiagnostics, startOf, warnDroppedTransform, withOnUpdate } from "../../spine.ts"
+import { drawnAtRest, followTemplate, heldTransformFor, registeredValuesOf, releasingAppear, restingOf, serverStartingStyle, startLinksOf } from "../../element-setup.ts"
+import { applyDragDefaults, dragAxisOf, dragDefaultsOf } from "../../drag-defaults.ts"
 import { inheritedContext, serverVariantNode, startsAtAnimate, startsQuiet, type WardicVariantContextValue } from "../../variant-tree.ts"
 import { followAtom } from "./bridge.tsx"
 import {

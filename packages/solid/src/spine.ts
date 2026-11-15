@@ -21,7 +21,6 @@ import type * as FrameLoop from "@wardic/core/FrameLoop"
 import * as InterpolatorRegistry from "@wardic/core/InterpolatorRegistry"
 import * as Machine from "@wardic/core/Machine"
 import * as Override from "@wardic/core/Override"
-import * as Projection from "@wardic/core/Projection"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Renderer from "@wardic/core/Renderer"
 import * as Supersede from "@wardic/core/Supersede"
@@ -62,7 +61,7 @@ import type {
 } from "./config.ts"
 import { type ControlsChange, join, leave } from "./animation-controls.ts"
 import { clockNowOf, frameNow, MAX_VELOCITY_DELTA, NOMINAL_FRAME } from "./frame-time.ts"
-import { type LiveStyle, serverRegistryOf, turnsWillChangeOn, valuesOf } from "./live-style.ts"
+import { type LiveStyle, turnsWillChangeOn } from "./live-style.ts"
 import { type ExitGroup, type PresenceContextValue, type PresenceExit, presenceMade, type PresenceRecord, type PresenceSeed, type PresenceTree } from "./presence-record.ts"
 import type { DragTrack } from "./drag-track.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
@@ -1100,7 +1099,6 @@ const keyframesNowOf = (layers: ReadonlyArray<OverrideEntry>, resolved: Values.V
   return Bool.match(Rec.isEmptyRecord(now), { onTrue: constUndefined, onFalse: (): KeyframesNow => now })
 }
 
-
 /** Two values maps with the same keys, each holding the same value. Built once, at module load. */
 const sameValues: Equivalence.Equivalence<Values.Values> = Rec.makeEquivalence(Equivalence.strictEqual<number | string>())
 
@@ -1733,31 +1731,15 @@ export const makeReuse = (): ((transition: WardicTransition) => WardicTransition
 }
 
 /**
- * A mounted element's Base-value links (ADR-0022): a key with no value starts from its `style`
- * value, else its Own value. The Own value is read from the element once per key, at first need
- * (D3): after mount, so never on a server (ADR-0021). Each link is coerced to the shape of the
- * key's target (`like`). `styleNow` reads the user's style untracked; a Live value in it is read now.
+ * A mounted element's Base-value links (ADR-0022), as its binding reads them: its Own value per key,
+ * the links for a key's start coerced to the shape of its target (`like`), and that start.
  */
-export const startLinksOf = (element: HTMLElement, styleNow: (() => object | string | undefined) | undefined, live: LiveStyle | undefined) => {
-  const ownValue = OwnValues.of(element)
-  // A `style` value read now: a Live value's current value (#130), anything else as it is.
-  const readStyle = (raw: unknown): unknown => {
-    if (Predicate.isUndefined(live)) return raw
-    return live.read(raw)
-  }
-  const linksFor = (like: number | string) => ({
-    style: (key: string) =>
-      Option.flatMap(Option.fromUndefinedOr(styleNow), (now) =>
-        Option.flatMap(OwnValues.styleValueOf(now(), key), (raw) => OwnValues.valueLike(readStyle(raw), like)),
-      ),
-    own: (key: string) => Option.flatMap(ownValue(key), (raw) => OwnValues.valueLike(raw, like)),
-  })
-  const startLinkOf = (key: string, like: number | string) => BaseValue.start(key, linksFor(like))
-  return { ownValue, linksFor, startLinkOf }
+// #672: the spine names what it calls; the binding's `startLinksOf` (`element-setup.ts`) makes them.
+export interface StartLinks {
+  readonly ownValue: BaseValue.ValueLookup
+  readonly linksFor: (like: number | string) => Pick<BaseValue.BaseSources, "style" | "own">
+  readonly startLinkOf: (key: string, like: number | string) => Option.Option<BaseValue.BaseValue>
 }
-
-/** {@link startLinksOf}'s links. */
-export type StartLinks = ReturnType<typeof startLinksOf>
 
 /**
  * An element's presence record (ADR-0007 exit): seeded with its Starting values, so an exit that
@@ -3181,7 +3163,6 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
   return { retarget, follow, dispose, seed, host, stop }
 }
 
-
 /**
  * `sink` with an `onCommit` that calls the config's current `onUpdate` (#233), when the config had
  * one at mount; `sink` as it is otherwise. `config` reads it untracked.
@@ -3194,22 +3175,6 @@ export const withOnUpdate = (sink: FlushGate.Sink, atMount: WardConfig["onUpdate
     onCommit: (latest) => {
       const onUpdate = config().onUpdate
       if (Predicate.isNotUndefined(onUpdate)) onUpdate(latest as Readonly<Record<string, number | string>>)
-    },
-  }
-}
-
-/**
- * `sink`, removing the element's Appear animation in its first commit (#48, ADR-0044 decision 6):
- * in the task that writes the engine's first frame, so no paint falls between. Without one, `sink`.
- */
-export const releasingAppear = (sink: FlushGate.Sink, handoff: Handoff | undefined, element: HTMLElement): FlushGate.Sink => {
-  if (Predicate.isUndefined(handoff)) return sink
-  const before = sink.beforeFirstCommit
-  return {
-    ...sink,
-    beforeFirstCommit: () => {
-      Appear.release(element)
-      if (Predicate.isNotUndefined(before)) before()
     },
   }
 }
@@ -3264,18 +3229,6 @@ const liveTargetOf = (routes: LiveStyle, key: string, start: number): (() => num
 
 /** Whether a value is one an element can take: a number or a string. */
 const isValue = (value: unknown): value is number | string => Bool.or(Predicate.isNumber(value), Predicate.isString(value))
-
-/**
- * Where `key` rests outside the gate (#130): its `initial`, else its `style` value (a Live value's
- * now), else a transform key's identity, else `undefined`.
- */
-export const restingOf = (key: string, initial: Values.Values, style: object | string | undefined, read: (value: unknown) => unknown): unknown =>
-  Option.getOrUndefined(
-    Option.fromUndefinedOr(initial[key]).pipe(
-      Option.orElse((): Option.Option<unknown> => Option.flatMap(OwnValues.styleValueOf(style, key), (raw) => Option.fromNullishOr(read(raw)))),
-      Option.orElse((): Option.Option<unknown> => BaseValue.transformIdentity(key)),
-    ),
-  )
 
 /** A provider runtime's `AtomRegistry`, read on first need: an element with no Atom never reads it. */
 export const registryOf = (runtime: WardicServices.Runner<WardicServices.WardicServices>): (() => AtomRegistry.AtomRegistry) => {
@@ -3413,128 +3366,11 @@ export const serverTargetOf = (c: WardConfig, inherited: WardicVariantContextVal
       ),
   })
 
-/**
- * A server's Starting style for an element whose `style` has routed keys (#130): the projected
- * `initial` with their values under it. With none, its Starting style as it was.
- */
-export const serverStartingStyle = (
-  tag: string | undefined,
-  starting: Renderer.Patch,
-  initialValues: Values.Values,
-  routed: Readonly<Record<string, unknown>>,
-  layout: boolean,
-  untrack: Reactivity["untrack"],
-  template: WardConfig["transformTemplate"],
-): Renderer.Patch =>
-  Bool.match(Rec.isEmptyRecord(routed), {
-    onTrue: () => starting,
-    onFalse: () => Style.starting(tag, drawnAtRest({ ...valuesOf(routed, serverRegistryOf, untrack), ...initialValues }, layout, template)).style,
-  })
-
 /** Whether a config makes its element a layout node: `layout` (or a mode), or a `layoutId`. */
 export const isLayoutNode = (c: WardConfig): boolean =>
   Bool.or(Bool.and(Predicate.isNotUndefined(c.layout), c.layout !== false), Predicate.isNotUndefined(c.layoutId))
-
-/**
- * The values a layout node's Starting style is drawn from (#245, ADR-0044 *Amendment (#245)*):
- * through its projection at rest, as its first commit draws it, its own translate on top (#363).
- * Any other element's, as they are. A templated element's, with its Transform template (#443).
- */
-export const drawnAtRest = (values: Values.Values, layout: boolean, template: WardConfig["transformTemplate"]): Readonly<Record<string, unknown>> => {
-  // Per mount (#460): guards, nothing built for an element neither a layout node nor templated.
-  if (Bool.not(layout)) return withTemplate(values, template)
-  return withTemplate({ ...values, [Projection.KEY]: Projection.AT_REST }, template)
-}
-
-/** `values` with `template` under the renderer's reserved key, as its projection rides (#443); as they are with none. */
-export const withTemplate = <V extends Readonly<Record<string, unknown>>>(values: V, template: WardConfig["transformTemplate"]): V => {
-  if (Predicate.isUndefined(template)) return values
-  return { ...values, [DomRenderer.TEMPLATE_KEY]: template }
-}
-
-/**
- * What an element registers with in the gate (#443): its Transform template at mount, under the
- * renderer's reserved key, drawn with its first write (a write of its own would take its Starting
- * style off early). Nothing with none.
- */
-export const registeredValuesOf = (template: WardConfig["transformTemplate"]): Readonly<Record<string, unknown>> | undefined => {
-  if (Predicate.isUndefined(template)) return undefined
-  return { [DomRenderer.TEMPLATE_KEY]: template }
-}
-
-/**
- * What an element's projection node is held at for a Measure pass (#443, Motion's
- * `transformTemplate(values, "")`): its Transform template's, from its values now, when it had one
- * at mount. `undefined` otherwise, so a node without one pays a field read a pass.
- */
-export const heldTransformFor = (
-  snapshot: Snapshot,
-  atMount: WardConfig["transformTemplate"],
-  template: () => WardConfig["transformTemplate"],
-): (() => string) | undefined => {
-  if (Predicate.isUndefined(atMount)) return undefined
-  return () => DomRenderer.heldTransformOf(withTemplate(snapshot.values, template()))
-}
-
-/**
- * Follow an element's Transform template after mount (#443): `write` is called with each other one
- * its config gives, and draws it at the next frame. Only for an element with one at mount, as
- * `onUpdate` (#233): its caller asks only then, so another makes nothing (#460). Returns the stop.
- */
-export const followTemplate = (
-  atMount: DomRenderer.TransformTemplate,
-  template: () => WardConfig["transformTemplate"],
-  watch: Reactivity["watch"],
-  write: (template: WardConfig["transformTemplate"]) => void,
-): (() => void) => {
-  let last: WardConfig["transformTemplate"] = atMount
-  return watch(template, (next) => {
-    if (next === last) return
-    last = next
-    write(next)
-  })
-}
 
 /** A mount animation's template field (#443): left out with none, as its key reads it. */
 export const templateField = (template: WardConfig["transformTemplate"]): { readonly template?: DomRenderer.TransformTemplate } =>
   UndefinedOr.match(template, { onUndefined: () => ({}), onDefined: (t) => ({ template: t }) })
 
-/** What a `<Reorder>` item adds to an element's drag: its gesture's axis, read at each drag's start. */
-interface DragInternals {
-  readonly dragAxis?: (() => boolean | "x" | "y") | undefined
-}
-
-/** A plain element's drag internals: none. */
-const NO_DRAG_INTERNALS: DragInternals = {}
-
-/**
- * The drag axis a spine runs with: its static `drag` config, else `true` for a
- * `<Reorder>` item (its gesture's axis comes from `dragAxis`), else none.
- */
-export const dragAxisOf = (config: WardConfig, internal: DragInternals = NO_DRAG_INTERNALS): boolean | "x" | "y" | undefined =>
-  Option.getOrUndefined(
-    Option.orElse(Option.filter(Option.fromUndefinedOr(config.drag), (drag) => drag !== false), () =>
-      Option.map(Option.fromUndefinedOr(internal.dragAxis), (): true => true)),
-  )
-
-/**
- * A drag element's defaults (ADR-0019 *Amendment (Reorder)*): its axis's, unless its own presses don't
- * drag it (`dragListener={false}`, #431), as Motion's come with its listener.
- */
-export const dragDefaultsOf = (config: WardConfig, internal: DragInternals = NO_DRAG_INTERNALS): Style.DragDefaults | undefined => {
-  if (config.dragListener === false) return undefined
-  return UndefinedOr.map(dragAxisOf(config, internal), Style.dragDefaults)
-}
-
-/**
- * Set each of a drag element's defaults its inline style doesn't already set, and
- * `draggable="false"` unless it has the attribute, at mount: for an element whose props don't carry
- * them, a directive's (`use:wardic`, `use:w`) and a `wardic.create(Component)` wrap's, whose
- * component may not pass them on.
- */
-export const applyDragDefaults = (element: HTMLElement, defaults: Style.DragDefaults): void => {
-  Arr.forEach(Rec.keys(defaults), (key) => {
-    if (element.style.getPropertyValue(key) === "") element.style.setProperty(key, UndefinedOr.getOrThrow(defaults[key]))
-  })
-  if (!element.hasAttribute("draggable")) element.setAttribute("draggable", Style.DRAG_DEFAULT_ATTRIBUTES.draggable)
-}

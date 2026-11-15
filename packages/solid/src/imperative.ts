@@ -58,27 +58,8 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicKeyframes, WardicTargetValues, WardicTransition, WardicVariant } from "./config.ts"
 import { filledStops, keyframesFrom, type Leg, legsOf, mapMachine, type MeasuredPairs, runOf, type StopsByKey } from "./retarget-legs.ts"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
-import {
-  type ElementSpine,
-  emptySnapshotOf,
-  holdsVariable,
-  type ImperativeHooks,
-  type ImperativeTrack,
-  type Landing,
-  makeElementSpine,
-  makeReuse,
-  measuredOf,
-  NO_RUNNING,
-  NO_VALUES,
-  restsOf,
-  type Resolution,
-  type Running,
-  runningOf,
-  type Snapshot,
-  type SpineHost,
-  startLinksOf,
-  turnWillChangeOn,
-} from "./spine.ts"
+import { type ElementSpine, emptySnapshotOf, holdsVariable, type ImperativeHooks, type ImperativeTrack, type Landing, makeElementSpine, makeReuse, measuredOf, NO_RUNNING, NO_VALUES, restsOf, type Resolution, type Running, runningOf, type Snapshot, type SpineHost, turnWillChangeOn } from "./spine.ts"
+import { startLinksOf } from "./element-setup.ts"
 import { NO_VARIANT_STATE, resolveTarget, type Target } from "./variant-target.ts"
 import { NO_GESTURE_NAMES, NO_GESTURE_STATES } from "./variant-tree.ts"
 

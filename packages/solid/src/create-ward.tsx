@@ -91,48 +91,9 @@ import { transformPagePointOf } from "./wardic-config-value.ts"
 import { projectionIn, projectionNodesIn, type WardicRuntime } from "./runtime.ts"
 import { isHydrating, isServer } from "./server.ts"
 import { reactivity } from "./solid-reactivity.ts"
-import {
-  accessorOf,
-  type Active,
-  animationCallbacks,
-  applyDragDefaults,
-  dragAxisOf,
-  dragDefaultsOf,
-  claimForDrag,
-  draggingWithWillChange,
-  drawnAtRest,
-  followTemplate,
-  heldTransformFor,
-  registeredValuesOf,
-  flagStartingStyle,
-  isLayoutNode,
-  madeWith,
-  type ElementSpineOptions,
-  makeElementSpine,
-  makeReuse,
-  exitConfigOf,
-  exitTargetOf,
-  presenceTreeOf,
-  presenceRecordOf,
-  recordFrameOf,
-  registryOf,
-  type Resolution,
-  resolutionOf,
-  restingOf,
-  sameResolution,
-  serverStartingStyle,
-  snapshotOf,
-  SPINE_DIAGNOSTICS,
-  type SpineDiagnostics,
-  startLinksOf,
-  type Start,
-  startOf,
-  warnDroppedTransform,
-  withOnUpdate,
-  releasingAppear,
-  appearEntryOf,
-  type ServerAppearOf,
-} from "./spine.ts"
+import { accessorOf, type Active, animationCallbacks, claimForDrag, draggingWithWillChange, flagStartingStyle, isLayoutNode, madeWith, type ElementSpineOptions, makeElementSpine, makeReuse, exitConfigOf, exitTargetOf, presenceTreeOf, presenceRecordOf, recordFrameOf, registryOf, type Resolution, resolutionOf, sameResolution, snapshotOf, SPINE_DIAGNOSTICS, type SpineDiagnostics, type Start, startOf, warnDroppedTransform, withOnUpdate, appearEntryOf, type ServerAppearOf } from "./spine.ts"
+import { drawnAtRest, followTemplate, heldTransformFor, registeredValuesOf, restingOf, serverStartingStyle, startLinksOf, releasingAppear } from "./element-setup.ts"
+import { applyDragDefaults, dragAxisOf, dragDefaultsOf } from "./drag-defaults.ts"
 import { type WardicVariantContextValue, useVariantContext, WardicVariantContext } from "./variants.ts"
 import type { WardConfig, WardicTransformShorthands, WardicValues } from "./config.ts"
 import { DragGesture, FocusGesture, HoverGesture, InViewGesture, PanGesture, PressGesture } from "./features/keys.ts"
