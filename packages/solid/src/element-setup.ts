@@ -1,8 +1,9 @@
 /**
  * What each binding's element setup does around the spine (#672): the Base-value links an element
- * starts from, its Transform template drawn, its Appear animation released at its first commit, and a
- * server's starting values. Solid 1's and Solid 2's elements both run them; they read the DOM, so the
- * spine doesn't.
+ * starts from, its Transform template drawn, its Appear animation released at its first commit, a
+ * server's starting values and its Appear entry, a drag's will-change and its claim, and the logs of a
+ * dropped `transform` string and of a hydration's Starting style. Solid 1's and Solid 2's elements both
+ * run them; they read the DOM, so the spine doesn't.
  *
  * @module
  */
@@ -11,6 +12,7 @@
 // the spine's `Snapshot`).
 import * as BaseValue from "@wardic/core/BaseValue"
 import * as Projection from "@wardic/core/Projection"
+import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
 import type * as MeasuredPairs from "@wardic/core/unstable/MeasuredPairs"
@@ -24,16 +26,21 @@ import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as OwnValues from "@wardic/dom/OwnValues"
 import * as Style from "@wardic/dom/Style"
 import * as DomValues from "@wardic/dom/unstable/DomValues"
+import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
+import { constUndefined, constVoid } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
-import { type DomHandoff, type Handoff, keyOf, type MountAnimation, repeatsForever } from "./appear.ts"
-import type { WardConfig } from "./config.ts"
+import * as UndefinedOr from "effect/UndefinedOr"
+import { type DomHandoff, enterServer, type Handoff, keyOf, type MountAnimation, repeatsForever, type ServerAppear } from "./appear.ts"
+import type { SpineConfig, WardConfig } from "./config.ts"
 import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
 import type { ValueReads } from "./runtime.ts"
-import { baseLog, type Snapshot, type SpineDiagnostics, type StartLinks } from "./spine.ts"
+import { baseLog, isLayoutNode, type Snapshot, type SpineDiagnostics, type StartLinks, tellDrag } from "./spine.ts"
+import { hasOwnVariants, ownOrInherited, type ServerVariantNode, type WardicVariantContextValue } from "./variant-tree.ts"
+import { type Entry, NO_VARIANT_STATE, resolveTarget, type Target, transitionOfTarget } from "./variant-target.ts"
 
 /**
  * A mounted element's Base-value links (ADR-0022): a key with no value starts from its `style`
@@ -231,3 +238,155 @@ export const valueReadsOf = (given: ValueReads): ElementValueReads => {
   filled.set(given, reads)
   return reads
 }
+
+/**
+ * A binding's `setDragging`, turning the element's will-change value on as a drag starts (#443,
+ * Motion's): `"transform"`, as its drag draws `x` and `y`. Its spine hears each start and end too, for
+ * a Batch member's `x` and `y` (#665's PR 4).
+ */
+export const draggingWithWillChange = (live: LiveStyle | undefined, setDragging: (on: boolean) => void, element: Element): ((on: boolean) => void) => {
+  const set = UndefinedOr.match(live, {
+    onUndefined: () => setDragging,
+    onDefined: (style) => (on: boolean) => {
+      if (on) UndefinedOr.map(style.willChange(), (turnOn) => turnOn())
+      setDragging(on)
+    },
+  })
+  return (on) => {
+    set(on)
+    tellDrag(element, on)
+  }
+}
+
+/**
+ * A drag track's `claim` for `element` (#665's PR 4): told before the drag reads where the element
+ * rests or writes `x`/`y`, so a Batch member's element takes its transform from its Batch first.
+ */
+export const claimForDrag = (element: Element): (() => void) => () => tellDrag(element, true)
+
+/** Log, once per element, that a `transform` string gave way to the transform keys in its `style` (#130). */
+export const warnDroppedTransform = (runtime: WardicServices.Runner<WardicServices.WardicServices>, id: string): void => {
+  runtime.runFork(
+    Effect.logWarning(
+      "wardic.style: a `transform` string is dropped while `style` sets a transform key (x, scale, rotate…); " +
+        "the keys win, as Motion's do. Give the transform as keys, or drop them",
+    ).pipe(Effect.annotateLogs({ id })),
+  )
+}
+
+/**
+ * Log, at debug level, the keys whose Starting style the Environment's Renderer projects
+ * differently from the DOM's `project`, which rendered the server markup. Hydration keeps
+ * the server's values (the Hydration hold); the Renderer's take over at the first frame.
+ * Hydration only, once per element. Internal.
+ */
+export const flagStartingStyle = (runtime: WardicServices.Runner<WardicServices.WardicServices>, id: string, server: Renderer.Patch, client: Renderer.Patch): void => {
+  const keys = Arr.appendAll(
+    Arr.filter(Rec.keys(server), (key) => String(server[key]) !== String(client[key])),
+    Arr.filter(Rec.keys(client), (key) => Bool.not(key in server)),
+  )
+  if (Arr.isReadonlyArrayEmpty(keys)) return
+  const pick = (patch: Renderer.Patch) => Object.fromEntries(keys.map((key) => [key, patch[key]]))
+  runtime.runFork(
+    Effect.logDebug(
+      "wardic.hydration: the Environment's Renderer projects the Starting style differently from the DOM's; " +
+        "hydration keeps the server's until the first frame, and an element that never animates keeps it",
+    ).pipe(
+      Effect.annotateLogs({ id, keys, server: pick(server), client: pick(client) }),
+    ),
+  )
+}
+
+/** An element's Appear animation on a server (#48, ADR-0044), as both bindings' server wards and component wraps use it. */
+export interface ServerAppearOf {
+  /** Its inline `animation`, under the user's style: none when it plays none. */
+  readonly style: { readonly animation: string } | undefined
+  /** The context its children read: its variant node's, with its Appear group when it leads one. */
+  readonly provided: WardicVariantContextValue | undefined
+  /** Rules it out once it has rendered: its user style is read when `ward()` is called. */
+  readonly veto: (reason: string) => void
+  /**
+   * Rendered after the shell (#245): in a late chunk, and its root when no late element is around
+   * it, which puts the chunk's `<style>` after itself. `state` is the render's.
+   */
+  readonly late: boolean
+  readonly chunkRoot: boolean
+  readonly state: ServerAppear | undefined
+}
+
+/** No Appear animation: a provider with `appear={false}`. */
+const NO_APPEAR_ENTRY = (provided: WardicVariantContextValue | undefined): ServerAppearOf => ({
+  style: undefined,
+  provided,
+  veto: constVoid,
+  late: false,
+  chunkRoot: false,
+  state: undefined,
+})
+
+/**
+ * An element's entry in the server render's Appear animations (#48, ADR-0044): its starting
+ * values, its targets at mount (`animate`, or an inherited variant name against its `variants`),
+ * its transition, its place in its parent's group, and its nearest `WardicConfig`'s reduced motion
+ * (#434). `state` is the provider's, `undefined` with `appear={false}`: each binding reads it from its
+ * own context.
+ */
+export const appearEntryOf = (
+  state: ServerAppear | undefined,
+  c: SpineConfig,
+  tag: string | undefined,
+  initialValues: Values.Values,
+  node: ServerVariantNode,
+  quiet: boolean,
+  reducedMotion: ReducedMotion.Config | undefined,
+  skipAnimations = false,
+): ServerAppearOf =>
+  UndefinedOr.match(state, {
+    onUndefined: () => NO_APPEAR_ENTRY(node.provided),
+    onDefined: (state) => {
+      // The target's own transition (#277) drives its mount animation, and its orchestration.
+      const target = serverTargetOf(c, node.inherited)
+      const own = Option.getOrUndefined(Option.flatMap(target, (t) => Option.fromUndefinedOr(t.transition)))
+      const entered = enterServer(state, {
+        appear: c.appear,
+        tag,
+        initial: initialValues,
+        to: Option.map(target, (t) => t.values),
+        keyframes: Option.getOrUndefined(Option.flatMap(target, (t) => Option.fromUndefinedOr(t.keyframes))),
+        quiet,
+        transition: transitionOfTarget(own, ownOrInherited(c.transition, node.inherited)),
+        layout: isLayoutNode(c),
+        template: c.transformTemplate,
+        group: Option.flatMap(Option.fromUndefinedOr(node.inherited), (inherited) => Option.fromUndefinedOr(inherited.appearGroup)),
+        leads: hasOwnVariants(c),
+        ownTransition: transitionOfTarget(own, c.transition),
+        reducedMotion,
+        skipAnimations,
+      })
+      return {
+        style: Option.match(entered.animation, { onNone: constUndefined, onSome: (animation) => ({ animation }) }),
+        provided: Option.match(entered.group, {
+          onNone: () => node.provided,
+          onSome: (appearGroup) => UndefinedOr.map(node.provided, (provided): WardicVariantContextValue => ({ ...provided, appearGroup })),
+        }),
+        veto: entered.veto,
+        late: entered.late,
+        chunkRoot: entered.chunkRoot,
+        state,
+      }
+    },
+  })
+
+/**
+ * An element's target at mount on a server: its `animate`, else an inherited variant name resolved
+ * against its own `variants`, a dynamic one with its `custom` and no values yet (#277).
+ */
+export const serverTargetOf = (c: SpineConfig, inherited: WardicVariantContextValue | undefined): Option.Option<Target> =>
+  UndefinedOr.match(c.animate as Entry, {
+    onDefined: (own) => Option.some(resolveTarget(own, c.variants, c.custom, NO_VARIANT_STATE)),
+    onUndefined: () =>
+      Option.map(
+        Option.flatMap(Option.fromUndefinedOr(inherited), (context) => Option.fromUndefinedOr(context.variant())),
+        (name) => resolveTarget(name, c.variants, c.custom, NO_VARIANT_STATE),
+      ),
+  })
