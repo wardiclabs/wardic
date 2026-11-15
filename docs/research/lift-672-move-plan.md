@@ -28,12 +28,12 @@ Read at `3538869` (1.1.0, 2026-11-14). Line counts are that commit's, of the fil
 | `config.ts`'s generic half, with the controls' interface and mark from `animation-controls.ts` → `Config` (Q24, Q25) | ~270 of 864, ~30 | 1 |
 | the slot half of `member-hold.ts` (Q14), in `spine.ts` since PR 2 | ~75 | 4 |
 | `timelines.ts`'s key → `Timelines` (Q15): its options take a `FlushGate.Shape` | ~25 | 4 |
+| `Subject` (new: a type, `object`, Q20) | 13 | 3 |
 | `presence-record.ts` | 196 | 3 |
 | `variant-target.ts` | 240 | 3 |
 | `wardic-config-value.ts` | 150 | 3 |
 | `frame-time.ts` | 45 | 3 |
 | `retarget-legs.ts` | 1,049 | 3 |
-| `live-style.ts` | 471 | 3 |
 | `animation-controls.ts` | 206 | 4 |
 | `variant-tree.ts` | 638 | 4 |
 | `appear.ts`'s handoff half → `AppearHandoff` | ~450 | 4 |
@@ -49,6 +49,7 @@ Read at `3538869` (1.1.0, 2026-11-14). Line counts are that commit's, of the fil
 | `config.ts`'s DOM half → `WardConfig` (Q24) | ~590 of 864 | 1 |
 | `gesture-info.ts`, `drag-controls.ts`, `drag-constraints.ts` | 81, 94, 103 | 1 |
 | `element-setup.ts` → `ElementSetup`, `drag-defaults.ts` → `DragDefaults` (PR2-Q3), out of `spine.ts` in PR 2 | 159, 55 | 5 |
+| `live-style.ts` → `LiveStyle` (PR3-Q1: the DOM's `style` prop) | 471 | 3 |
 | `appear.ts`'s server sampler → `AppearSampler`, with `server-interpolators.ts` | ~430, 33 | 4 |
 | `batch.ts` → `BatchMembers` (core has `Batch`), `batch-handoff.ts` → `BatchHandoff` | 3,078, 73 | 5 |
 | the filler half of `member-hold.ts` (Q14) | ~210 | 5 |
@@ -122,7 +123,7 @@ With dom in a program, every app's, each type is exactly what it was; core's own
 
 1. **Foundations** (built, below).
 2. **Ports in place,** while the spine is still in solid: the three ports, the structural interfaces, `member-hold`'s slot into the spine, the bindings-only helpers out of it (built, below). The only PR with runtime changes.
-3. **Leaves to core:** core's lint met in place first (Q16), then `presence-record`, `variant-target`, `wardic-config-value`, `frame-time`, `retarget-legs`, `live-style`.
+3. **The leaves:** core's lint, its lib and #609 met in place first (Q16), then `presence-record`, `variant-target`, `wardic-config-value`, `frame-time` and `retarget-legs` to core, and `live-style` to dom (PR3-Q1) (built, below).
 4. **The spine and what imports it:** `animation-controls`, `variant-tree`, `appear`'s split, the gate, the spine; the moved files' comments rewritten without DOM names (#609).
 5. **The Batch, `animate` and presence, to dom:** `BatchMembers`, `BatchHandoff`, the hold's filler, `imperative`, `presence-controller`.
 6. **The Features, to dom:** Q9's `PropFeature` and Q10's registry in place first, then `feature`, `gesture-features`, `features/*`, `press`, `owner-scope`, `instant`, the drag track, `layout-member`, `layout-group`, `ProjectionOptions`; **Feature**'s glossary wording; solid's re-exports with no importer left.
@@ -183,7 +184,25 @@ Twelve commits after its docs commit, each through every per-commit gate (PR2-Q5
 
 **`bench:solid`** (paired, after `wardic-quiet`): the three ports read with a hook each put warm mount at +2.7% (Solid 1) and +4.6% (Solid 2) against `main`, within the gate. One context read (commit 12) measured −1.2% [−3.3% – −0.6%] and −0.8% [−1.2% – −0.2%] against that head, and the PR against `main` +2.1% [−0.2% – +4.1%] and +0.0% [−1.7% – +2.4%]: about PR 1's noise for a pure move. Retarget, restRetarget and unmount within ±1.3%, bytes +0.5–0.6%, retained +0.2–0.3%, every layout scene within its gate. **`bench:core`** passes every workload (Node's `batch/table` bytes on its rerun, its known flap). **`pack:check`** 37 of 37.
 
+## Built in PR 3
+
+Eleven commits after its docs commit, each through every per-commit gate. Five in place, then six moves:
+
+1. **Core's `Subject` type** (`@wardic/core/unstable/Subject`, `object`: Q20's type), and **presence's protocol over it:** its record, context and watch take their Subject as a parameter, core's by default (`PresenceRecord<E>`, `PresenceContextValue<E>`, `PresenceWatch<E>`), and its helpers are generic over it. The protocol is `presence-protocol.ts` until it moves; `presence-record.ts` names it over `Element`, so solid's presence, its spines and its public `PresenceRecord`, `PresenceContextValue`, `PresenceContext` and `usePresenceContext` are what they were, with no cast.
+2. **Core's lint and lib, met in place:** `variant-target`'s `sameLabels` and `retarget-legs`' `isSpring` (`BOOL_OPERANDS`); `frame-time` declares `performance` as core's `Clock.ts` does. Each leaf linted under core's rules through stdin: nothing else.
+3. **The leaves' comments name no CSS, DOM or page** (#609): a child is shown, not put on the page; an exit starts from its value as given (in `@wardic/dom`, its `style`); `isValidProp` keeps props from being passed on; a presence publishes to the spines below it. The glossary's Starting style and the Measured pairs' px, which core's `MeasuredPairs` names, stay.
+4. **The ports' docs name `@wardic/dom`** (#609), not the DOM: PR 2's `OwnValues`, `MeasuredPairs` and `VariableValues`.
+5. **`LiveRoutes`** (PR3-Q1): what the spine and the Timelines' keys call of an element's Live values, nine members, among them `turnsWillChangeOn`, which the spine took from `live-style` as a module function and asks the Live style for now (a member of its prototype). `LiveFollower` beside it. The spine imports none of `live-style`. The Timelines' keys name the one member they call (`LiveAtoms`), so `timelines.ts`, which the spine imports, imports nothing of the spine's.
+6. **The moves:** `PresenceRecord`, `VariantTarget`, `WardicConfigValue`, `FrameTime` and `RetargetLegs` to core; `LiveStyle` to dom. Each changes its imports to its new home's form (core's modules relative and as namespaces; dom's core subpaths as namespaces) and its header; solid's old paths re-export it, `presence-record.ts` still naming the protocol over `Element`.
+
+**`bench:solid`** (paired, 11 reps, after `wardic-quiet`): warm mount +1.1% [−0.6% – +2.7%] (Solid 1) and −1.0% [−2.9% – +2.2%] (Solid 2) against `main`, Retarget, restRetarget and unmount within ±1.4%, bytes +0.1–0.2%, retained flat, every layout scene within its gate: noise, for a PR of moves. **`bench:core`** passes every workload on all three engines. **`pack:check`** 37 of 37. **Size:** every app within ±0.1% gzipped, the budgets unchanged.
+
+**Why `live-style` is dom's** (PR3-Q1, refining decision 4): it is the DOM's `style` prop, Live values routed through it (ADR-0043), its CSS text, the dropped `transform` string, Motion's will-change (`ACCELERATED` names CSS properties). A scene has no `style`.
+
 ## Open
+
+- **The spine's presence, in core** (PR 4). The spine reads the protocol over core's Subject there, and solid's elements hand it a presence over `Element`, which a context over `Subject` doesn't accept (the protocol takes its Subject as an argument, so it's contravariant in it). Either the spine is generic over its Subject, or the binding casts once where it hands the presence on, which holds while a DOM binding registers only elements.
+- **Will-change in core's names** (PR 4). `LiveRoutes`' `willChange` and `turnsWillChangeOn` name CSS's `will-change`, and reach core with the spine as member names, which no comment can reword (#610's `pageVisible`).
 
 - **`OwnerScope.close` on a Runner** (Q10, PR 5–6). It closes a Scope with `runSyncExit`, so a finalizer that suspends is reported, not thrown into Solid's cleanup (#618, decision 5). A Runner has `runSync` alone, and `runSync(Effect.exit(…))` throws on a suspending finalizer. Either the Runner gains `runSyncExit`, which `ManagedRuntime` has and `makeRunner` can give, or the close catches the throw.
 - **`appear.ts`'s split line,** export by export: inferred from its imports and its callers'. PR 4 reads it in full, with `AppearGroup`, which `variant-tree.ts` reads, and `childDelayOf`, which the sampler calls.
