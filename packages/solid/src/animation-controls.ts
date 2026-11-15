@@ -23,33 +23,12 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import type { WardConfig, WardicTransition, WardicVariant, WardicVariantLabels, WardicVariantResolver } from "./config.ts"
+import { CONTROLS, type WardConfig, type WardicAnimationControls, type WardicControlsDefinition, type WardicTransition, type WardicVariant, type WardicVariantLabels, type WardicVariantResolver } from "./config.ts"
 import type { Snapshot } from "./spine.ts"
 
-/** What controls start or set an element to: a target, a variant name or a list of them, or a function of each element's `custom`. Motion's `AnimationDefinition`. */
-export type WardicControlsDefinition = WardicVariant | WardicVariantLabels | WardicVariantResolver
-
-/** The mark that tells controls from a target. */
-const CONTROLS: unique symbol = Symbol("wardic.animationControls")
-
-/**
- * `createAnimationControls()`'s controls: give them as `animate={controls}`, and every element given
- * them follows `start`, `set` and `stop`. Motion's `LegacyAnimationControls`.
- */
-// #433.
-export interface WardicAnimationControls {
-  readonly [CONTROLS]: true
-  /**
-   * Animates every element given these controls to `definition`, as a change of its `animate` would,
-   * its variant children following. `transitionOverride`, when given, is the transition of this change,
-   * over the definition's own, and its stagger. Resolves once each element and its children have landed.
-   */
-  readonly start: (definition: WardicControlsDefinition, transitionOverride?: WardicTransition) => Promise<void>
-  /** Sets every element given these controls, and its variant children, at `definition` at once. */
-  readonly set: (definition: WardicControlsDefinition) => void
-  /** Ends every element's running animation where it is. */
-  readonly stop: () => void
-}
+// #672: the controls' interface, its definition and its mark are config.ts's, where the config types
+// reach them; they move to core with its config types.
+export type { WardicAnimationControls, WardicControlsDefinition } from "./config.ts"
 
 /**
  * A **Controls change** (#433): what one `start` or `set` set one element's `animate` entry to, the

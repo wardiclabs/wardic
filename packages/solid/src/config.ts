@@ -6,7 +6,6 @@
  *
  * @module
  */
-import type { WardicAnimationControls } from "./animation-controls.ts"
 import type * as Arc from "@wardic/core/Arc"
 import type * as Machine from "@wardic/core/Machine"
 import type * as Stagger from "@wardic/core/Stagger"
@@ -351,6 +350,32 @@ export type WardicVariantResolver = (
 
 /** Named targets, each a target or a {@link WardicVariantResolver}. */
 export type WardicVariants = Readonly<Record<string, WardicVariant | WardicVariantResolver>>
+
+/** What controls start or set an element to: a target, a variant name or a list of them, or a function of each element's `custom`. Motion's `AnimationDefinition`. */
+export type WardicControlsDefinition = WardicVariant | WardicVariantLabels | WardicVariantResolver
+
+/** The mark that tells controls from a target. */
+// #672: here, with the controls' interface, so the config types reach it without the controls' module.
+export const CONTROLS: unique symbol = Symbol("wardic.animationControls")
+
+/**
+ * `createAnimationControls()`'s controls: give them as `animate={controls}`, and every element given
+ * them follows `start`, `set` and `stop`. Motion's `LegacyAnimationControls`.
+ */
+// #433.
+export interface WardicAnimationControls {
+  readonly [CONTROLS]: true
+  /**
+   * Animates every element given these controls to `definition`, as a change of its `animate` would,
+   * its variant children following. `transitionOverride`, when given, is the transition of this change,
+   * over the definition's own, and its stagger. Resolves once each element and its children have landed.
+   */
+  readonly start: (definition: WardicControlsDefinition, transitionOverride?: WardicTransition) => Promise<void>
+  /** Sets every element given these controls, and its variant children, at `definition` at once. */
+  readonly set: (definition: WardicControlsDefinition) => void
+  /** Ends every element's running animation where it is. */
+  readonly stop: () => void
+}
 
 /**
  * A drag's release, Motion's `dragTransition`: the inertia every
