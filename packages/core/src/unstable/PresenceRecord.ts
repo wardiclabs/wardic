@@ -1,15 +1,18 @@
 /**
- * What a Wardic element and its `<AnimatePresence>` share (ADR-0007): the record a child registers,
- * and the presence's context value, over the Subjects its Environment draws. Solid-free, so both
- * bindings' spines write the same record (#209); `presence-record.ts` names them over the DOM's.
+ * What a Ward and its presence share (ADR-0007): the record a child registers, and the presence's
+ * context value, over the Subjects its Environment draws. Every binding's spine writes the same record.
+ *
+ * Unstable, for Wardic's own packages: public, with no semver promise.
  *
  * @module
  */
-import type * as Box from "@wardic/core/Box"
-import type * as Values from "@wardic/core/Values"
-import type * as Subject from "@wardic/core/unstable/Subject"
-import type * as Style from "@wardic/dom/Style"
-import type { WardicTransition, WardicVariantLabels } from "./config.ts"
+// Unstable: ADR-0071, decision 5. #672: solid's presence protocol, moved for the spine to share from
+// core (#209: it was Solid-free already); solid's `presence-record.ts` names it over Element.
+import type * as Box from "../Box.ts"
+import type * as Values from "../Values.ts"
+import type * as Subject from "./Subject.ts"
+import type * as Stops from "./Stops.ts"
+import type * as Config from "./Config.ts"
 import { constFalse } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -29,7 +32,7 @@ export interface PresenceRecord<E extends Subject.Subject = Subject.Subject> {
    * resolved with `custom` (the presence's, when it has one, else the child's last), and the
    * transition it runs on. The child keeps what it's resolved from current while alive.
    */
-  readonly exitOf: (custom: unknown, inherited: WardicVariantLabels | undefined) => PresenceExit
+  readonly exitOf: (custom: unknown, inherited: Config.WardicVariantLabels | undefined) => PresenceExit
   /**
    * Where it sits in the variant tree, decided at setup as the tree is: whether it joins the
    * nearest element that provides a context (a **Variant child**, which then exits on that one's
@@ -77,9 +80,9 @@ export interface PresenceSeed {
  */
 export interface PresenceExit {
   readonly values: Values.Values
-  readonly transition: WardicTransition | undefined
+  readonly transition: Config.WardicTransition | undefined
   /** The exit name it hands its Variant children (#290): its own `exit`, if a name or a list (#297), else the one it took. */
-  readonly name: WardicVariantLabels | undefined
+  readonly name: Config.WardicVariantLabels | undefined
   /**
    * A list's exit by name (#297): each name's keys (those it's the last to set) on its own transition,
    * else the element's, and its orchestration for its Variant children's keys of that name. Every
@@ -87,14 +90,14 @@ export interface PresenceExit {
    */
   readonly groups?: ReadonlyArray<ExitGroup> | undefined
   /** Its Keyframes (#429): each such key's stops, its value in `values` their last. Left out with none. */
-  readonly keyframes?: Readonly<Record<string, Style.Stops>> | undefined
+  readonly keyframes?: Readonly<Record<string, Stops.Stops>> | undefined
 }
 
 /** One name of a list's exit (#297): its keys, and the transition they and its orchestration run on. */
 export interface ExitGroup {
   readonly name: string
   readonly values: Values.Values
-  readonly transition: WardicTransition | undefined
+  readonly transition: Config.WardicTransition | undefined
 }
 
 /** A record's place in the variant tree (#290, {@link PresenceRecord.tree}). */
