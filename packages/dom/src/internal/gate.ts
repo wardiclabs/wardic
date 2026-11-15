@@ -230,6 +230,13 @@ export interface FlushGate {
   readonly dispose: () => void
 }
 
+/** The gate as its spine and its binding use it: all but its `dispose`, which its Scope runs. */
+// #672: named here, as dom's `FlushGate` names it, so the spine reads the gate's own types in core.
+export type Shape = Omit<FlushGate, "dispose">
+
+/** An element's commit target and hooks, given to `register`. */
+export type Sink = FlushSink
+
 /** What a flush gate needs from its Environment: the `Renderer`, the Frame loop it flushes at the end of each tick of, and the `RefreshFrameSource`. */
 // ADR-0033; ADR-0031.
 export type FlushGateServices = Renderer.Renderer | RefreshFrameSource.RefreshFrameSource | FrameLoop.FrameLoop | AtomRegistry.AtomRegistry

@@ -28,10 +28,10 @@ import { DOM_GATE } from "./internal/gate-environment.ts"
 import * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /** The gate: what a binding registers its elements with and writes their values into. */
-export type Shape = Omit<internal.FlushGate, "dispose">
+export type Shape = internal.Shape
 
 /** An element's commit target and hooks, given to `register`. */
-export type Sink = internal.FlushSink
+export type Sink = internal.Sink
 
 /** What a binding hands its gate: the `batch` a frame's Starting-style switches run in. */
 export type Options = internal.FlushGateOptions
