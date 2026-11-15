@@ -28,7 +28,6 @@ import { constTrue, constUndefined, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type ControlsChange, isAnimationControls } from "./animation-controls.ts"
-import type { AppearGroup } from "./appear.ts"
 import type { WardicStagger, WardicTransition, WardicVariantLabels, WardicVariants } from "./config.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
 import { type Entry, isLabels, labelsOf, NO_VARIANT_STATE, resolveTarget, sameLabels, startingVariantsOf } from "./variant-target.ts"
@@ -331,9 +330,11 @@ export interface WardicVariantContextValue {
   readonly change?: Accessor<ControlsChange | undefined>
   /**
    * During a server render, the parent's Appear group: its Variant
-   * children join it in render order, for their stagger and `when` before hydration.
+   * children join it in render order, for their stagger and `when` before hydration. Opaque here:
+   * the server's Appear entry writes it and reads it, and the variant tree passes it on.
    */
-  readonly appearGroup?: AppearGroup | undefined
+  // #672 (PR4-Q4): `unknown`, so the variant tree names none of the server sampler's types.
+  readonly appearGroup?: unknown
 }
 
 /** The part of an element's config its place in variant orchestration reads. */

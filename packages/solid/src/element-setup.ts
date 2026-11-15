@@ -34,7 +34,7 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { type DomHandoff, enterServer, type Handoff, keyOf, type MountAnimation, repeatsForever, type ServerAppear } from "./appear.ts"
+import { type AppearGroup, type DomHandoff, enterServer, type Handoff, keyOf, type MountAnimation, repeatsForever, type ServerAppear } from "./appear.ts"
 import type { SpineConfig, WardConfig } from "./config.ts"
 import { type LiveStyle, serverRegistryOf, valuesOf } from "./live-style.ts"
 import type { ValueReads } from "./runtime.ts"
@@ -357,7 +357,7 @@ export const appearEntryOf = (
         transition: transitionOfTarget(own, ownOrInherited(c.transition, node.inherited)),
         layout: isLayoutNode(c),
         template: c.transformTemplate,
-        group: Option.flatMap(Option.fromUndefinedOr(node.inherited), (inherited) => Option.fromUndefinedOr(inherited.appearGroup)),
+        group: Option.flatMap(Option.fromUndefinedOr(node.inherited), (inherited) => Option.fromUndefinedOr(appearGroupOf(inherited))),
         leads: hasOwnVariants(c),
         ownTransition: transitionOfTarget(own, c.transition),
         reducedMotion,
@@ -376,6 +376,13 @@ export const appearEntryOf = (
       }
     },
   })
+
+/**
+ * The Appear group a Variant child joins, its parent's: the variant context carries it opaque, and
+ * only {@link appearEntryOf} writes it, so it's always one.
+ */
+// #672 (PR4-Q4): the one read of the variant context's `appearGroup` as the sampler's type.
+const appearGroupOf = (context: WardicVariantContextValue): AppearGroup | undefined => context.appearGroup as AppearGroup | undefined
 
 /**
  * An element's target at mount on a server: its `animate`, else an inherited variant name resolved
