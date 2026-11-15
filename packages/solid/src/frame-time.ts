@@ -21,6 +21,9 @@ export const MAX_VELOCITY_DELTA = 30
 /** A frame at 60 Hz, in ms: the time a leg's first frame is read over, from where it started (Motion's first-frame delta). */
 export const NOMINAL_FRAME = 1000 / 60
 
+// #672: declared here, as core's `Clock.ts` declares it, since core builds with no DOM in its lib.
+declare const performance: { readonly now: () => number }
+
 /**
  * The time now, in ms: the same for the rest of this synchronous block (core's `Clock.syncNow`).
  * Per frame: a check, and a read once a tick. A Snapshot's time until its spine gives it its

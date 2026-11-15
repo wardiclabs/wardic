@@ -399,8 +399,12 @@ const isDefining = (key: string): boolean => Bool.not(NOT_DEFINING.has(key))
 const givesAny = (fields: Readonly<Record<string, unknown>>, keys: ReadonlyArray<string>): boolean => Arr.some(keys, (key) => Object.hasOwn(fields, key))
 
 /** Whether a transition's fields make it a spring: `type: "spring"`, or no `type` and a spring field. */
-const isSpring = (fields: Readonly<Record<string, unknown>>): boolean =>
-  Bool.or(fields.type === "spring", Bool.and(Predicate.isUndefined(fields.type), givesAny(fields, SPRING_FIELDS)))
+// #672: core's lint (`BOOL_OPERANDS`), met before the move: the fields are read only with no `type`.
+const isSpring = (fields: Readonly<Record<string, unknown>>): boolean => {
+  if (fields.type === "spring") return true
+  if (Predicate.isNotUndefined(fields.type)) return false
+  return givesAny(fields, SPRING_FIELDS)
+}
 
 /**
  * Whether a spring transition is set by time (#359): a time field and no physics field. Its physics

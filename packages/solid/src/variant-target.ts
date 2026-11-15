@@ -78,7 +78,9 @@ export const sameLabels = (a: WardicVariantLabels | undefined, b: WardicVariantL
   if (Bool.or(Bool.not(Arr.isArray(a)), Bool.not(Arr.isArray(b)))) return false
   const x = a as ReadonlyArray<string>
   const y = b as ReadonlyArray<string>
-  return Bool.and(x.length === y.length, Arr.every(x, (name, i) => name === y[i]))
+  // #672: core's lint (`BOOL_OPERANDS`), met before the move: the `every` is read only for lists of one length.
+  if (x.length !== y.length) return false
+  return Arr.every(x, (name, i) => name === y[i])
 }
 
 /** A target resolved for one of an entry's names (#297): `name` its name, `undefined` for a values map. */
