@@ -9,7 +9,7 @@
 import * as Clock from "@wardic/core/Clock"
 import * as Effect from "effect/Effect"
 import * as Predicate from "effect/Predicate"
-import type { WardicRuntime } from "./runtime.ts"
+import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /**
  * How long a key's velocity holds once nothing has moved it, in ms (Motion's `MAX_VELOCITY_DELTA`):
@@ -30,13 +30,13 @@ export const frameNow: () => number = Clock.syncNow(() => performance.now())
 
 /** Each runtime's Clock's `now`, read once. */
 // Module state (#460, Q7): each runtime's clock, held weakly by the runtime.
-const clockNows = new WeakMap<WardicRuntime, () => number>()
+const clockNows = new WeakMap<WardicServices.Runner<WardicServices.WardicServices>, () => number>()
 
 /**
  * The time a provider's elements read their velocities against (#460, Q7): its Environment's Clock's
  * `now` (#464's sync time in a browser; a test Environment's own advances), kept per runtime.
  */
-export const clockNowOf = (runtime: WardicRuntime): (() => number) => {
+export const clockNowOf = (runtime: WardicServices.Runner<WardicServices.WardicServices>): (() => number) => {
   const kept = clockNows.get(runtime)
   if (Predicate.isNotUndefined(kept)) return kept
   const read = runtime.runSync(Clock.Clock.use((clock) => Effect.succeed(clock.now)))

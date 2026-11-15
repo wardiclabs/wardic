@@ -36,7 +36,7 @@ import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicInertia } from "./config.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
-import type { WardicRuntime } from "./runtime.ts"
+import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /**
  * A live value as Solid takes it: an accessor, such as a signal, a memo or another live value, or an
@@ -127,7 +127,7 @@ export const numberOf = (value: number | string): number =>
   Bool.match(Predicate.isString(value), { onTrue: () => Number.parseFloat(value as string), onFalse: () => value as number })
 
 /** `accessor`, carrying a follow's Atom, with `jump` run on `runtime`. */
-export const followAccessorOf = <A extends number | string>(runtime: WardicRuntime, accessor: Accessor<A>): FollowAccessor<A> => {
+export const followAccessorOf = <A extends number | string>(runtime: WardicServices.Runner<WardicServices.WardicServices>, accessor: Accessor<A>): FollowAccessor<A> => {
   const atom = atomOf(accessor) as Atom.Atom<A>
   // A follow's own Atom, by construction: the one kind `jump` takes (#618).
   const numbers = UndefinedOr.match(UNIT_NUMBERS.get(atom), { onUndefined: () => atom, onDefined: (n) => n }) as unknown as LiveValue.Followed

@@ -52,7 +52,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import type { WardicTransition, WardicVariantLabels } from "./config.ts"
 import type { ExitGroup, PresenceContextValue, PresenceExit, PresenceRecord, PresenceSeed, PresenceTree, PresenceWatch } from "./presence-record.ts"
 import { delayedBy, hasManyStops, keyframesFrom, type Leg, legsOf, type MeasuredPairs, type StopsByKey, velocitiesOf } from "./retarget-legs.ts"
-import type { WardicRuntime, WardicServices } from "./runtime.ts"
+import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 import { childDelayOf, staggerOf } from "./variant-tree.ts"
 
 /** Whether a value-map has any keys (an empty exit means "remove immediately"). */
@@ -158,7 +158,7 @@ const exitRunOf = (
   el: Element,
   commitFrame: FrameLoop.Sink<Frame.Frame<Values.Values>>,
   velocities: Record<string, number>,
-): Effect.Effect<unknown, never, WardicServices> => {
+): Effect.Effect<unknown, never, WardicServices.WardicServices> => {
   if (leg._tag === "Blend") {
     return Effect.suspend(leg.machine).pipe(
       InterpolatorRegistry.withKeyRules([Variables.values(el)]),
@@ -559,7 +559,7 @@ export type PresenceMode = "sync" | "wait" | "popLayout"
 
 /** What a presence reads from its provider and its props. */
 export interface PresenceOptions {
-  readonly runtime: WardicRuntime
+  readonly runtime: WardicServices.Runner<WardicServices.WardicServices>
   /** The Environment's Renderer (ADR-0003), read once by the provider (#618, M1): what a retained node's values commit through. */
   readonly renderer: Renderer.Renderer["Service"]
   /** The provider's projection system once its `layout` Feature is built (#511), read at each use. */
@@ -652,7 +652,7 @@ export interface PresenceController {
  * Solid 1's {@link PresenceEvents} (#257): only Motion's `onExitComplete`, read when it's called. One
  * that throws is reported (`wardic.presence: onExitComplete failed`), and the presence goes on.
  */
-export const exitCompleteEvents = (runtime: WardicRuntime, onExitComplete: () => (() => void) | undefined): PresenceEvents => ({
+export const exitCompleteEvents = (runtime: WardicServices.Runner<WardicServices.WardicServices>, onExitComplete: () => (() => void) | undefined): PresenceEvents => ({
   exitStart: constVoid,
   exiting: constVoid,
   exitComplete: () => {
@@ -1067,7 +1067,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    * A node's exit and its Variant children's (#290), Motion's `animateVariant`: with `when`, one after
    * the other, the children's delays from 0; else together, the children's from `delay`.
    */
-  const runOf = (node: ExitNode, delay: DelayOf): Effect.Effect<unknown, never, WardicServices> => {
+  const runOf = (node: ExitNode, delay: DelayOf): Effect.Effect<unknown, never, WardicServices.WardicServices> => {
     // A list's names each run on their own (#297's PR 2): each name's keys and its children's, in that
     // name's own `when`.
     const groups = node.exit.groups
@@ -1084,7 +1084,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       const s = staggerOf(transitionOfName(node.exit, name))
       return childDelayOf(s, i, n)
     }
-    const kidsFrom = (from: DelayOf): Effect.Effect<unknown, never, WardicServices> =>
+    const kidsFrom = (from: DelayOf): Effect.Effect<unknown, never, WardicServices.WardicServices> =>
       Effect.all(Arr.map(node.kids, (kid, i) => runOf(kid, (name) => from(name) + slot(i)(name))), { concurrency: "unbounded", discard: true })
     // `when` for a list as a whole, meanwhile (#297's PR 1): the exit's, its last name's that sets it.
     const when = UndefinedOr.map(node.exit.transition, (t) => t.when)
@@ -1098,7 +1098,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    * name, and its Variant children's, one after the other with that name's `when`, else together. A
    * child whose exit isn't the list runs it whole, under the list's first name.
    */
-  const runName = (node: ExitNode, name: string, delay: DelayOf, first: boolean): Effect.Effect<unknown, never, WardicServices> => {
+  const runName = (node: ExitNode, name: string, delay: DelayOf, first: boolean): Effect.Effect<unknown, never, WardicServices.WardicServices> => {
     const own = exitOf(node.rec, node.exit, delay, name)
     const n = node.kids.length
     if (n === 0) return own
@@ -1106,7 +1106,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
       const s = staggerOf(transitionOfName(node.exit, of))
       return childDelayOf(s, i, n)
     }
-    const kidsFrom = (from: DelayOf): Effect.Effect<unknown, never, WardicServices> =>
+    const kidsFrom = (from: DelayOf): Effect.Effect<unknown, never, WardicServices.WardicServices> =>
       Effect.all(
         Arr.map(node.kids, (kid, i) => {
           const at: DelayOf = (of) => from(of) + slot(i)(of)
@@ -1127,7 +1127,7 @@ export const makePresence = (options: PresenceOptions): PresenceController => {
    * on the exit's own transition, else the element's, its positional keys snapping under reduced
    * motion (ADR-0029) unless it opts out. Nothing to run for an empty one.
    */
-  const exitOf = (rec: PresenceRecord, exit: PresenceExit, delay: DelayOf, only?: string): Effect.Effect<unknown, never, WardicServices> => {
+  const exitOf = (rec: PresenceRecord, exit: PresenceExit, delay: DelayOf, only?: string): Effect.Effect<unknown, never, WardicServices.WardicServices> => {
     const to = exit.values
     if (isEmpty(to)) return Effect.void
     const { from, stops, commitFrame, velocities, el } = preparedOf(rec, exit)

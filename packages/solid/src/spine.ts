@@ -68,7 +68,7 @@ import type { DragTrack } from "./drag-track.ts"
 import type { Accessor, Reactivity } from "./reactivity.ts"
 import { delayedBy, type Follows, hasManyStops, keyframesFrom, type Leg, legsOf, type MeasuredPairs, startingAt, type StopsByKey, transitionForKey, type Velocities, withPathAxes } from "./retarget-legs.ts"
 import { type MemberHold, memberHoldsNow } from "./member-hold.ts"
-import type { WardicRuntime, WardicServices } from "./runtime.ts"
+import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 import { type TimelineKeys, Timelines } from "./timelines.ts"
 import {
   changesContext,
@@ -974,8 +974,8 @@ const ownerLanded = (owner: Running | undefined): boolean => {
 
 /** Whether `runtime` keeps a Debug log: read once a runtime, so a log no level keeps forks nothing (#618). */
 // Module state (#460, Q7): each runtime's answer, held weakly by the runtime.
-const logsDebug = new WeakMap<WardicRuntime, boolean>()
-const logsDebugOn = (runtime: WardicRuntime): boolean => {
+const logsDebug = new WeakMap<WardicServices.Runner<WardicServices.WardicServices>, boolean>()
+const logsDebugOn = (runtime: WardicServices.Runner<WardicServices.WardicServices>): boolean => {
   const known = logsDebug.get(runtime)
   if (Predicate.isNotUndefined(known)) return known
   const on = runtime.runSync(Report.debugKept)
@@ -1384,7 +1384,7 @@ const nameSettlesOf = (
  * the config. A callback that throws is reported, and the element animates on. The Solid 2 binding's
  * config has neither: it hands the same facts over as async values.
  */
-export const animationCallbacks = (runtime: WardicRuntime, id: string): AnimationHooks => {
+export const animationCallbacks = (runtime: WardicServices.Runner<WardicServices.WardicServices>, id: string): AnimationHooks => {
   // Per Retarget, per element: the callback looked up first, and nothing made without one.
   const tell = (name: "onAnimationStart" | "onAnimationComplete", callback: (definition: WardicAnimationDefinition) => void, definition: WardicAnimationDefinition): void => {
     try {
@@ -1849,7 +1849,7 @@ export const claimForDrag = (element: Element): (() => void) => () => tellDrag(e
 /** What {@link makeElementSpine} reads. */
 export interface ElementSpineOptions {
   /** The provider runtime the legs fork on. */
-  readonly runtime: WardicRuntime
+  readonly runtime: WardicServices.Runner<WardicServices.WardicServices>
   /** The provider-owned flush gate (ADR-0006). */
   readonly gate: FlushGate.Shape
   /** The element's gate id. */
@@ -1925,7 +1925,7 @@ export interface ElementSpineOptions {
 /** What notes, in development, what an app may want to know but that changes nothing it draws (#746). */
 export interface SpineDiagnostics {
   /** Note, once, a Handoff whose Appear animation the server sampled from another mount animation than the client's. */
-  readonly checkHandoff: (runtime: WardicRuntime, id: string, handoff: Handoff, mount: MountAnimation) => void
+  readonly checkHandoff: (runtime: WardicServices.Runner<WardicServices.WardicServices>, id: string, handoff: Handoff, mount: MountAnimation) => void
   /** The log of a Retarget that started a key from its Base value, or returned one: run by the Retarget at its first leg. */
   readonly baseLog: (id: string, started: Record<string, string>, returns: ReadonlyArray<readonly [string, BaseValue.BaseSource]>) => Effect.Effect<void>
 }
@@ -2011,7 +2011,7 @@ export interface SpineHost {
   /** A leg's keys owned by it. */
   readonly own: (running: Running) => void
   /** A leg's program: its machine's run into the gate. */
-  readonly legProgram: (leg: Leg, running: Running, variables: boolean) => Effect.Effect<unknown, never, WardicServices>
+  readonly legProgram: (leg: Leg, running: Running, variables: boolean) => Effect.Effect<unknown, never, WardicServices.WardicServices>
   /** What a leg's end is told: it settles its landing, or reports its failure. */
   readonly legEnded: (running: Running) => (exit: Exit.Exit<unknown>) => Effect.Effect<void>
   /** Turn will-change back off. */
@@ -2020,7 +2020,7 @@ export interface SpineHost {
   readonly id: string
   /** Record a value written, for its presence record. */
   readonly recordFrame: (value: Values.Values) => void
-  readonly runtime: WardicRuntime
+  readonly runtime: WardicServices.Runner<WardicServices.WardicServices>
   /** Its Variable values' Key rule (#55): a blend's are built with it. */
   readonly elementRules: ReadonlyArray<InterpolatorRegistry.KeyRule>
 }
@@ -2326,7 +2326,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
    * Retarget's and an Imperative animation's (#433). A blend's machine is built under the element's
    * Key rules when its change holds a Variable value (`variables`, #542).
    */
-  const legProgram = (leg: Leg, running: Running, variables: boolean): Effect.Effect<unknown, never, WardicServices> => {
+  const legProgram = (leg: Leg, running: Running, variables: boolean): Effect.Effect<unknown, never, WardicServices.WardicServices> => {
     if (leg._tag === "Follow") {
       const key = leg.key
       const out: Record<string, number> = { [key]: 0 }
@@ -2875,7 +2875,7 @@ export const makeElementSpine = (options: ElementSpineOptions): ElementSpine => 
     // fiber Scope, which interrupts it if it's still running when the provider ends (#542).
     // The name the leg being started waits for (#297's PR 2), set as each is started; none for most.
     let gateNow: string | undefined
-    const runLeg = <R extends WardicServices>(running: Running, program: Effect.Effect<unknown, never, R>): void => {
+    const runLeg = <R extends WardicServices.WardicServices>(running: Running, program: Effect.Effect<unknown, never, R>): void => {
       let run: Effect.Effect<unknown, never, R | FrameLoop.FrameLoop> = program
       if (Predicate.isNotUndefined(gateNow)) run = gatedBy(gateNow, byName, running, program)
       running.fiber = runtime.runFork(leg(running, run))
@@ -3219,7 +3219,7 @@ export const releasingAppear = (sink: FlushGate.Sink, handoff: Handoff | undefin
  * client's: the app rendered differently on the server, or a function it gave has no easing name.
  * Noted once (cold path, `wardic.hydration`); the client's own animation goes on from the same time.
  */
-const checkHandoff = (runtime: WardicRuntime, id: string, handoff: Handoff, mount: MountAnimation): void => {
+const checkHandoff = (runtime: WardicServices.Runner<WardicServices.WardicServices>, id: string, handoff: Handoff, mount: MountAnimation): void => {
   // A templated element's rule is named by its stops (#443), which the client doesn't sample to check.
   if (Predicate.isNotUndefined(mount.template)) return
   const same = Option.exists(keyOf(mount), (key) =>
@@ -3278,7 +3278,7 @@ export const restingOf = (key: string, initial: Values.Values, style: object | s
   )
 
 /** A provider runtime's `AtomRegistry`, read on first need: an element with no Atom never reads it. */
-export const registryOf = (runtime: WardicRuntime): (() => AtomRegistry.AtomRegistry) => {
+export const registryOf = (runtime: WardicServices.Runner<WardicServices.WardicServices>): (() => AtomRegistry.AtomRegistry) => {
   let registry: AtomRegistry.AtomRegistry | undefined
   return () => {
     if (Predicate.isUndefined(registry)) registry = runtime.runSync(AtomRegistry.AtomRegistry)
@@ -3287,7 +3287,7 @@ export const registryOf = (runtime: WardicRuntime): (() => AtomRegistry.AtomRegi
 }
 
 /** Log, once per element, that a `transform` string gave way to the transform keys in its `style` (#130). */
-export const warnDroppedTransform = (runtime: WardicRuntime, id: string): void => {
+export const warnDroppedTransform = (runtime: WardicServices.Runner<WardicServices.WardicServices>, id: string): void => {
   runtime.runFork(
     Effect.logWarning(
       "wardic.style: a `transform` string is dropped while `style` sets a transform key (x, scale, rotate…); " +
@@ -3302,7 +3302,7 @@ export const warnDroppedTransform = (runtime: WardicRuntime, id: string): void =
  * the server's values (the Hydration hold); the Renderer's take over at the first frame.
  * Hydration only, once per element. Internal.
  */
-export const flagStartingStyle = (runtime: WardicRuntime, id: string, server: Renderer.Patch, client: Renderer.Patch): void => {
+export const flagStartingStyle = (runtime: WardicServices.Runner<WardicServices.WardicServices>, id: string, server: Renderer.Patch, client: Renderer.Patch): void => {
   const keys = Arr.appendAll(
     Arr.filter(Rec.keys(server), (key) => String(server[key]) !== String(client[key])),
     Arr.filter(Rec.keys(client), (key) => Bool.not(key in server)),
