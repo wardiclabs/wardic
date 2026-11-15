@@ -25,12 +25,11 @@ import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type * as Renderer from "@wardic/core/Renderer"
 import * as Supersede from "@wardic/core/Supersede"
 import * as Values from "@wardic/core/Values"
-import * as DomRenderer from "@wardic/dom/DomRenderer"
+import * as Report from "@wardic/core/unstable/Report"
+import type * as Stops from "@wardic/core/unstable/Stops"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as OwnValues from "@wardic/dom/OwnValues"
-import * as Report from "@wardic/dom/Report"
 import * as MeasuredPair from "@wardic/dom/MeasuredPair"
-import * as Style from "@wardic/dom/Style"
 import * as Variables from "@wardic/dom/Variables"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
@@ -340,7 +339,7 @@ export interface Resolution {
  * ending) or a new name for its entry (`variantDidChange`) plays them again from their first stop.
  */
 export interface KeyframesAt {
-  readonly stops: Style.Stops
+  readonly stops: Stops.Stops
   readonly layer: number
   readonly name: string | undefined
 }
@@ -1091,7 +1090,7 @@ const keyframesNowOf = (layers: ReadonlyArray<OverrideEntry>, resolved: Values.V
     if (Predicate.isUndefined(layer)) return
     const stops = UndefinedOr.map((layer as OverrideEntry).keyframes, (byKey) => byKey[key])
     if (Bool.or(Predicate.isUndefined(stops), Bool.not(Object.hasOwn((layer as OverrideEntry).values, key)))) return
-    now[key] = { stops: stops as Style.Stops, layer: at, name: (layer as OverrideEntry).name }
+    now[key] = { stops: stops as Stops.Stops, layer: at, name: (layer as OverrideEntry).name }
   })
   return Bool.match(Rec.isEmptyRecord(now), { onTrue: constUndefined, onFalse: (): KeyframesNow => now })
 }
@@ -1167,7 +1166,7 @@ const sameEndsAt = (a: Values.Values | undefined, b: Values.Values | undefined):
 }
 
 /** Two lists of stops equal stop by stop (#429, Motion's `shallowCompare`). */
-const sameStops = (a: Style.Stops, b: Style.Stops): boolean => Bool.or(a === b, Bool.and(a.length === b.length, Arr.every(a, (stop, i) => stop === b[i])))
+const sameStops = (a: Stops.Stops, b: Stops.Stops): boolean => Bool.or(a === b, Bool.and(a.length === b.length, Arr.every(a, (stop, i) => stop === b[i])))
 
 /**
  * Whether a start that can't take its target's shape stays as it is (#430): it makes a Measured pair
@@ -3398,6 +3397,6 @@ export const isLayoutNode = (c: WardConfig): boolean =>
   Bool.or(Bool.and(Predicate.isNotUndefined(c.layout), c.layout !== false), Predicate.isNotUndefined(c.layoutId))
 
 /** A mount animation's template field (#443): left out with none, as its key reads it. */
-export const templateField = (template: WardConfig["transformTemplate"]): { readonly template?: DomRenderer.TransformTemplate } =>
+export const templateField = (template: WardConfig["transformTemplate"]): { readonly template?: WardConfig["transformTemplate"] } =>
   UndefinedOr.match(template, { onUndefined: () => ({}), onDefined: (t) => ({ template: t }) })
 
