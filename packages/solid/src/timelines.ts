@@ -51,4 +51,4 @@ export class Timelines extends /*#__PURE__*/ Context.Service<
     readonly keysOf: (options: TimelineKeysOptions) => TimelineKeys
     readonly described: () => void
   }
->()("@wardic/solid/Timelines") {}
+>()("@wardic/core/Timelines") {}
