@@ -10,15 +10,15 @@ import * as Effect from "effect/Effect"
 import type { Accessor } from "solid-js"
 import { watchToSignal } from "./bridge.tsx"
 import { type CreateDragOptions, watchDragSamples } from "./drag-samples.ts"
-import type { Feature } from "./feature.ts"
-import { drag } from "./features/drag.ts"
-import { inputIn } from "./gesture-features.ts"
+import type * as Feature from "@wardic/dom/unstable/Feature"
+import * as DomDrag from "@wardic/dom/unstable/features/Drag"
+import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import { useBrought } from "./provider.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
-import { transformPagePointOf } from "./wardic-config-value.ts"
+import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 
 /** What it brings (ADR-0067 decision 12): its gesture's Feature, whatever its section has (#511). */
-const DRAG: ReadonlyArray<Feature> = [drag]
+const DRAG: ReadonlyArray<Feature.Feature> = [DomDrag.drag]
 
 /**
  * The latest sample of a drag on `target`, `null` before the first: where the pointer is, how far it
@@ -37,10 +37,10 @@ const DRAG: ReadonlyArray<Feature> = [drag]
 // that gesture.
 export const createDrag = (target: unknown, options?: CreateDragOptions): Accessor<Drag.Sample | null> => {
   // Its points through the nearest WardicConfig's `transformPagePoint` (#443), read at each down.
-  const pagePoint = transformPagePointOf(useWardicConfig())
+  const pagePoint = WardicConfigValue.transformPagePointOf(useWardicConfig())
   const services = useBrought(DRAG)
   return watchToSignal<Drag.Sample | null>(
-    (handlers) => Effect.provideService(watchDragSamples(target, { ...options }, handlers, pagePoint), InputSource.InputSource, inputIn(services())),
+    (handlers) => Effect.provideService(watchDragSamples(target, { ...options }, handlers, pagePoint), InputSource.InputSource, GestureFeatures.inputIn(services())),
     null,
   )
 }

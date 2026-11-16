@@ -6,7 +6,7 @@
  */
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import type * as Context from "effect/Context"
-import { layoutBrought, type LayoutServices, projectionBrought } from "../../features/layout.ts"
+import * as Layout from "@wardic/dom/unstable/features/Layout"
 import { fromWardicContext } from "./provider.tsx"
 
 /**
@@ -15,13 +15,13 @@ import { fromWardicContext } from "./provider.tsx"
  * error during a server render, which builds none.
  */
 export function useWardicProjection(): ProjectionSystem.Shape {
-  return fromWardicContext("useWardicProjection", projectionBrought)
+  return fromWardicContext("useWardicProjection", Layout.projectionBrought)
 }
 
 /**
  * {@link useWardicProjection}'s services, all of them, for a Reorder controller: the projection system
  * and what it hears each Measure pass by (#618). Internal.
  */
-export function useLayoutServices(): Context.Context<LayoutServices> {
-  return fromWardicContext("useWardicProjection", layoutBrought)
+export function useLayoutServices(): Context.Context<Layout.LayoutServices> {
+  return fromWardicContext("useWardicProjection", Layout.layoutBrought)
 }

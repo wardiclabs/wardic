@@ -28,6 +28,7 @@ How core's API is shaped: the way Effect organises its own modules, so `pipe` is
 5. **Code in the repo imports subpaths:** `import * as Machine from "@wardic/core/Machine"`, as core imports `effect/Option`. The root's namespaces are for users.
    - **Inside core, a module imports another relatively,** as a namespace: `import * as Clock from "./Clock.ts"`. The bench copies a core's `src` without its `package.json`, where `@wardic/core/Clock` would resolve to the working tree's core (#95).
    - **A local name that a module's would hide** takes `Core` before it: solid's `Reorder` component sits beside `import * as CoreReorder from "@wardic/core/Reorder"`.
+   - **A local name that a dom module's would hide** gives that module `Dom` before it, in a binding (#777): solid's `LayoutGroup` component sits beside `import * as DomLayoutGroup from "@wardic/dom/unstable/LayoutGroup"`, and its drag sensor, which names core's `Drag`, takes dom's `unstable/features/Drag` as `DomDrag`. The prefix is the local name's only: the module keeps its own name, with no `Dom`, as the `unstable/` section below says.
 
 Services keep Effect's own shape, a `Context.Service` and its `Layer`, which already composes through Effect.
 

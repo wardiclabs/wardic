@@ -6,8 +6,8 @@
  */
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import type * as Context from "effect/Context"
-import type { ProjectionNodes } from "./features/keys.ts"
-import { layoutBrought, type LayoutServices, projectionBrought, projectionNodesBrought } from "./features/layout.ts"
+import type * as Keys from "@wardic/dom/unstable/features/Keys"
+import * as Layout from "@wardic/dom/unstable/features/Layout"
 import { fromWardicContext } from "./provider.tsx"
 
 /**
@@ -17,21 +17,21 @@ import { fromWardicContext } from "./provider.tsx"
  * `WardicProvider`, or during a server render. Must be called within a Solid owner.
  */
 export function useWardicProjection(): ProjectionSystem.Shape {
-  return fromWardicContext("useWardicProjection", projectionBrought)
+  return fromWardicContext("useWardicProjection", Layout.projectionBrought)
 }
 
 /**
  * The `layout` Feature's element code beside {@link useWardicProjection}'s system (#746): what
  * `createProjectionNode` registers its node through, after `useWardicProjection`. Internal.
  */
-export function useProjectionNodes(): ProjectionNodes["Service"] {
-  return fromWardicContext("useWardicProjection", projectionNodesBrought)
+export function useProjectionNodes(): Keys.ProjectionNodes["Service"] {
+  return fromWardicContext("useWardicProjection", Layout.projectionNodesBrought)
 }
 
 /**
  * {@link useWardicProjection}'s services, all of them, for a Reorder controller: the projection system
  * and what it hears each Measure pass by (#618). Internal.
  */
-export function useLayoutServices(): Context.Context<LayoutServices> {
-  return fromWardicContext("useWardicProjection", layoutBrought)
+export function useLayoutServices(): Context.Context<Layout.LayoutServices> {
+  return fromWardicContext("useWardicProjection", Layout.layoutBrought)
 }

@@ -22,8 +22,8 @@ import * as Option from "effect/Option"
 import { createSignal, Errored, flush, Show } from "solid-js"
 import { describe, expect, it, vi } from "vitest"
 import { opacityOf, until } from "../browser-helpers.ts"
-import type { FeatureRegistry } from "../../src/feature.ts"
-import { DragGesture } from "../../src/features/keys.ts"
+import type * as Feature from "@wardic/dom/unstable/Feature"
+import * as Keys from "@wardic/dom/unstable/features/Keys"
 import { useFeatureRegistry } from "../../src/unstable/v2/provider.tsx"
 import { mount } from "./mount.tsx"
 import { pushedPointer } from "../pushed-pointer.ts"
@@ -207,7 +207,7 @@ describe("A Wardic instance (#516), Solid 2", () => {
     }
     const { w } = createWardic([load])
     const [shown, setShown] = createSignal(true)
-    let goneRegistry!: FeatureRegistry
+    let goneRegistry!: Feature.FeatureRegistry
     const Probe = (): JSX.Element => {
       goneRegistry = useFeatureRegistry()
       return undefined
@@ -230,8 +230,8 @@ describe("A Wardic instance (#516), Solid 2", () => {
       await wait(50)
     })
     expect(lines, "a load arriving after its provider ended says nothing").toEqual([])
-    const goneBuilt = goneRegistry.built() as Context.Context<DragGesture>
-    expect(Option.isNone(Context.getOption(goneBuilt, DragGesture)), "nor builds it into that provider").toBe(true)
+    const goneBuilt = goneRegistry.built() as Context.Context<Keys.DragGesture>
+    expect(Option.isNone(Context.getOption(goneBuilt, Keys.DragGesture)), "nor builds it into that provider").toBe(true)
     const pointer = pushedPointer()
     let el!: HTMLElement
     mount(() => (
@@ -283,7 +283,7 @@ describe("A Wardic instance (#516), Solid 2", () => {
 
   it("INV6: its layout hooks bring layout and count as a use", async () => {
     const given = createWardic([layout])
-    let registry!: FeatureRegistry
+    let registry!: Feature.FeatureRegistry
     const Hooked = (): JSX.Element => {
       given.useAnimateLayout()
       registry = useFeatureRegistry()

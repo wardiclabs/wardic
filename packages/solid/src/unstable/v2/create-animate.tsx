@@ -9,30 +9,21 @@
 import { isServer } from "@solidjs/web"
 import * as Bool from "effect/Boolean"
 import { onCleanup } from "solid-js"
-import {
-  type AnimateEnv,
-  type AnimationWatch,
-  scopedAnimate,
-  scopeOf,
-  serverAnimate,
-  type WardicAnimate,
-  type WardicAnimationScope,
-  type WardicPlaybackControls,
-} from "../../imperative.ts"
+import * as Imperative from "@wardic/dom/unstable/Imperative"
 import { useWardicDefaultTransition, useWardicGate, useWardicValueReads, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
-import { valueReadsOf } from "../../element-setup.ts"
+import * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
 import { flightsOf } from "./flights.ts"
 
 /** A scope's landing: the animation that landed last, as `scope.settled()` gives it. */
 // #433's Q8: held in an object, as the controls are awaitable, which an async value would wait on
 // rather than hold.
 export interface WardicScopeLanding {
-  readonly animation: WardicPlaybackControls
+  readonly animation: Imperative.WardicPlaybackControls
 }
 
 /** An animation scope on Solid 2: Solid 1's, with `settled()`. */
 // #433.
-export interface WardicAnimationScopeV2<T extends Element = HTMLElement> extends WardicAnimationScope<T> {
+export interface WardicAnimationScopeV2<T extends Element = HTMLElement> extends Imperative.WardicAnimationScope<T> {
   /**
    * Its last landing, `undefined` before the first: an async value, pending while any animation it
    * started is in flight, as a ward's `settled()` is, so `isPending(() => scope.settled())` reads
@@ -42,9 +33,9 @@ export interface WardicAnimationScopeV2<T extends Element = HTMLElement> extends
 }
 
 /** `scope.settled()` (#433's Q8): its animations in flight, counted, made reactive at its first read. */
-const settledOf = (): { readonly watch: AnimationWatch; readonly read: () => WardicScopeLanding | undefined } => {
+const settledOf = (): { readonly watch: Imperative.AnimationWatch; readonly read: () => WardicScopeLanding | undefined } => {
   const flights = flightsOf<WardicScopeLanding>()
-  const watch: AnimationWatch = {
+  const watch: Imperative.AnimationWatch = {
     started: () => flights.started(),
     ended: (controls, landed) => flights.ended(Bool.match(landed, { onTrue: () => ({ animation: controls }), onFalse: () => undefined })),
   }
@@ -67,21 +58,21 @@ const settledOf = (): { readonly watch: AnimationWatch; readonly read: () => War
  * @see https://wardic.dev/reference/solid/animation/create-animate
  */
 // #433, as Solid 1's; `settled()` is #433's Q8, as a ward's (ADR-0046).
-export function createAnimate<T extends Element = HTMLElement>(): readonly [WardicAnimationScopeV2<T>, WardicAnimate] {
+export function createAnimate<T extends Element = HTMLElement>(): readonly [WardicAnimationScopeV2<T>, Imperative.WardicAnimate] {
   const settled = settledOf()
-  const made = scopeOf<T>(settled.watch)
+  const made = Imperative.scopeOf<T>(settled.watch)
   const scope = Object.defineProperty(made.scope, "settled", { value: settled.read }) as WardicAnimationScopeV2<T>
   // A server animates nothing (#433's defaults).
-  if (isServer) return [scope, serverAnimate] as const
-  const env: AnimateEnv = {
+  if (isServer) return [scope, Imperative.serverAnimate] as const
+  const env: Imperative.AnimateEnv = {
     runtime: useWardicRuntime(),
     gate: useWardicGate(),
     reducedMotion: useWardicReducedMotion(),
     skipAnimations: useWardicSkipAnimations(),
     positionalKeys: useWardicPositionalKeys(),
     defaultTransition: useWardicDefaultTransition(),
-    ...valueReadsOf(useWardicValueReads()),
+    ...ElementSetup.valueReadsOf(useWardicValueReads()),
   }
   onCleanup(made.stopAll)
-  return [scope, scopedAnimate(env, () => scope.current, made.watch)] as const
+  return [scope, Imperative.scopedAnimate(env, () => scope.current, made.watch)] as const
 }

@@ -4,15 +4,15 @@
  *
  * @module
  */
-import type { Feature } from "../../feature.ts"
-import { press } from "../../features/press.ts"
-import { PressGesture } from "../../features/keys.ts"
-import { serviceOf } from "../../gesture-features.ts"
+import type * as Feature from "@wardic/dom/unstable/Feature"
+import * as Press from "@wardic/dom/unstable/features/Press"
+import * as Keys from "@wardic/dom/unstable/features/Keys"
+import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import { useBrought } from "./provider.tsx"
 import { type Sensor, watchSensorOf } from "./sensors.tsx"
 
 /** What it brings (ADR-0067 decision 12): its gesture's Feature, whatever its section has (#511). */
-const PRESS: ReadonlyArray<Feature> = [press]
+const PRESS: ReadonlyArray<Feature.Feature> = [Press.press]
 
 /**
  * `true` while the element it's given to as a `ref` is pressed, by a pointer held down on it or by
@@ -27,5 +27,5 @@ const PRESS: ReadonlyArray<Feature> = [press]
 // The core press watch; a Keyboard press (#427).
 export const createPress = (): Sensor<boolean> => {
   const services = useBrought(PRESS)
-  return watchSensorOf<boolean>((target, { on, onDefect }) => serviceOf(services(), PressGesture).watch(target, { on: (press) => on(press.phase === "start"), onDefect }), false)
+  return watchSensorOf<boolean>((target, { on, onDefect }) => GestureFeatures.serviceOf(services(), Keys.PressGesture).watch(target, { on: (press) => on(press.phase === "start"), onDefect }), false)
 }

@@ -5,7 +5,7 @@
  * `useSpring`, `useVelocity`, `useTime`, `useScroll`).
  *
  * Each gives an accessor back, for an element's `style` or anything else. Where it's derived on an
- * Atom, the accessor carries it (`live-style.ts`'s `carry`): a `style` given it follows the Atom,
+ * Atom, the accessor carries it (dom's `LiveStyle.carry`): a `style` given it follows the Atom,
  * set where its source is, so a value derived from a ward's `read(key)` is written in the gate's
  * frame and paints with it. Read through Solid it would come a frame late: Solid 2 shows a change at
  * its flush, after the gate's write. So:
@@ -34,34 +34,17 @@ import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { isServer } from "@solidjs/web"
 import { type Accessor, createEffect, createMemo, onCleanup, untrack } from "solid-js"
-import {
-  atomOf,
-  type FollowAccessor,
-  followAccessorOf,
-  followOptionsOf,
-  type FollowValueOptions,
-  type LiveSource,
-  numberOf,
-  rangesOf,
-  readLive,
-  serverFollowOf,
-  serverRegistryOf,
-  type SpringAccessor,
-  unitOf,
-  type WillChange,
-  willChangeOf,
-  withUnit,
-} from "../../live-style.ts"
+import * as LiveStyle from "@wardic/dom/unstable/LiveStyle"
 import type { WardicRuntime, WardicServices } from "../../runtime.ts"
 import { eachFrameOf } from "../../animation-frame.ts"
-import * as OwnerScope from "../../owner-scope.ts"
-import { withServerInterpolators } from "../../server-interpolators.ts"
+import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
+import * as ServerInterpolators from "@wardic/dom/unstable/ServerInterpolators"
 import { followAtom } from "./bridge.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
 import { useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 
 /** A Live value read now on a server: an Atom through a server's own registry, an accessor called. */
-const readOnServer = <A,>(source: LiveSource<A>): A => readLive(source, serverRegistryOf, untrack) as A
+const readOnServer = <A,>(source: LiveStyle.LiveSource<A>): A => LiveStyle.readLive(source, LiveStyle.serverRegistryOf, untrack) as A
 
 /** An accessor as an Atom, set at each of its changes (at Solid's flush), held in `registry` until its owner's disposal. */
 const mirrorOf = <A,>(accessor: Accessor<A>, registry: AtomRegistry.AtomRegistry): Atom.Writable<A> => {
@@ -78,8 +61,8 @@ const mirrorOf = <A,>(accessor: Accessor<A>, registry: AtomRegistry.AtomRegistry
 }
 
 /** `source`'s Atom: its own, the one it carries, or, for a plain accessor, a mirror of it. */
-const sourceAtomOf = <A,>(source: LiveSource<A>, registry: AtomRegistry.AtomRegistry): Atom.Atom<A> =>
-  UndefinedOr.match(atomOf(source) as Atom.Atom<A> | undefined, {
+const sourceAtomOf = <A,>(source: LiveStyle.LiveSource<A>, registry: AtomRegistry.AtomRegistry): Atom.Atom<A> =>
+  UndefinedOr.match(LiveStyle.atomOf(source) as Atom.Atom<A> | undefined, {
     onUndefined: () => mirrorOf(source as Accessor<A>, registry),
     onDefined: (atom) => atom,
   })
@@ -111,16 +94,16 @@ const liveOf = <A, R>(runtime: WardicRuntime, live: Effect.Effect<Atom.Atom<A>, 
  * @see https://wardic.dev/reference/solid/live-values/create-transform
  */
 // #440 (descending ranges, `mixer`), #360 (`ease`).
-export function createTransform<A, B>(source: LiveSource<A>, fn: (a: A) => B): Accessor<B>
+export function createTransform<A, B>(source: LiveStyle.LiveSource<A>, fn: (a: A) => B): Accessor<B>
 export function createTransform<O extends number | string>(
-  source: LiveSource<number>,
+  source: LiveStyle.LiveSource<number>,
   input: ReadonlyArray<number>,
   output: ReadonlyArray<O>,
   options?: LiveValue.TransformOptions<O>,
 ): Accessor<O>
-export function createTransform<O>(source: LiveSource<number>, input: ReadonlyArray<number>, output: ReadonlyArray<O>, options: LiveValue.MixedTransformOptions<O>): Accessor<O>
+export function createTransform<O>(source: LiveStyle.LiveSource<number>, input: ReadonlyArray<number>, output: ReadonlyArray<O>, options: LiveValue.MixedTransformOptions<O>): Accessor<O>
 export function createTransform(
-  source: LiveSource<unknown>,
+  source: LiveStyle.LiveSource<unknown>,
   fnOrInput: ((a: unknown) => unknown) | ReadonlyArray<number>,
   output?: ReadonlyArray<unknown>,
   options?: LiveValue.TransformOptions<unknown>,
@@ -128,9 +111,9 @@ export function createTransform(
   // Through ranges on an Atom, its own or the one it carries: derived on it by core, so it's set where its
   // source is, and one from a scroll is described for a Timeline value (#240).
   if (!isServer) {
-    const atom = atomOf(source)
+    const atom = LiveStyle.atomOf(source)
     if (Predicate.isNotUndefined(atom)) {
-      if (Bool.not(Predicate.isFunction(fnOrInput))) return liveOf(useWardicRuntime(), rangesOf(atom, fnOrInput as ReadonlyArray<number>, output as ReadonlyArray<unknown>, options))
+      if (Bool.not(Predicate.isFunction(fnOrInput))) return liveOf(useWardicRuntime(), LiveStyle.rangesOf(atom, fnOrInput as ReadonlyArray<number>, output as ReadonlyArray<unknown>, options))
     }
   }
   const fn = Bool.match(Predicate.isFunction(fnOrInput), {
@@ -138,7 +121,7 @@ export function createTransform(
     onFalse: () => interpolatorOf(fnOrInput as ReadonlyArray<number>, output as ReadonlyArray<unknown>, options) as (a: unknown) => unknown,
   })
   if (isServer) return () => fn(readOnServer(source))
-  const atom = atomOf(source)
+  const atom = LiveStyle.atomOf(source)
   // A plain accessor: mapped in a memo, as Solid maps it.
   if (Predicate.isUndefined(atom)) return createMemo(() => fn((source as Accessor<unknown>)()), CLIENT_ONLY)
   // On an Atom: derived on it, so it's set where its source is. What `fn` reads of Solid besides its
@@ -173,7 +156,7 @@ const interpolatorOf = <O,>(
     never,
     InterpolatorRegistry.InterpolatorRegistry
   >
-  if (isServer) return Effect.runSync(withServerInterpolators(mapping))
+  if (isServer) return Effect.runSync(ServerInterpolators.withServerInterpolators(mapping))
   return useWardicRuntime().runSync(mapping)
 }
 
@@ -193,19 +176,19 @@ const interpolatorOf = <O,>(
  */
 // #441: on the Frame loop, idle while it rests, ended with its owner. An inertia mid-flight glides again,
 // its target unread (#435). A `velocity` given is the one every run starts or steers with.
-export function createFollowValue(source: LiveSource<number>, options?: FollowValueOptions): FollowAccessor<number>
-export function createFollowValue(source: LiveSource<string>, options?: FollowValueOptions): FollowAccessor<string>
-export function createFollowValue(source: LiveSource<number | string>, options: FollowValueOptions = {}): FollowAccessor<number | string> {
-  if (isServer) return serverFollowOf(() => readOnServer(source))
+export function createFollowValue(source: LiveStyle.LiveSource<number>, options?: LiveStyle.FollowValueOptions): LiveStyle.FollowAccessor<number>
+export function createFollowValue(source: LiveStyle.LiveSource<string>, options?: LiveStyle.FollowValueOptions): LiveStyle.FollowAccessor<string>
+export function createFollowValue(source: LiveStyle.LiveSource<number | string>, options: LiveStyle.FollowValueOptions = {}): LiveStyle.FollowAccessor<number | string> {
+  if (isServer) return LiveStyle.serverFollowOf(() => readOnServer(source))
   const runtime = useWardicRuntime()
   // Its nearest WardicConfig's `skipAnimations` (#468): each change lands at once while it's on.
   const skipped = useWardicSkipAnimations()
-  const transition = followOptionsOf(options)
+  const transition = LiveStyle.followOptionsOf(options)
   const registry = runtime.runSync(AtomRegistry.AtomRegistry)
   const atom = sourceAtomOf(source, registry)
   const initial = registry.get(atom)
   // A string's accessor or a number's, as its source started.
-  return followAccessorOf(
+  return LiveStyle.followAccessorOf(
     runtime,
     Bool.match(Predicate.isString(initial), {
       onFalse: () => liveOf(runtime, LiveValue.follow(atom as Atom.Atom<number>, transition, skipped)),
@@ -213,7 +196,7 @@ export function createFollowValue(source: LiveSource<number | string>, options: 
       onTrue: () =>
         liveOf(
           runtime,
-          Effect.map(LiveValue.follow(Atom.map(atom, numberOf), transition, skipped), withUnit(unitOf(initial as string))),
+          Effect.map(LiveValue.follow(Atom.map(atom, LiveStyle.numberOf), transition, skipped), LiveStyle.withUnit(LiveStyle.unitOf(initial as string))),
         ) as Accessor<number | string>,
     }),
   )
@@ -235,10 +218,10 @@ export function createFollowValue(source: LiveSource<number | string>, options: 
  * @see https://wardic.dev/reference/solid/live-values/create-spring
  */
 // `createFollowValue`'s spring case (#441), at rest within 0.001. A writable memo source: #257 item 7.
-export function createSpring(source: LiveSource<number>, options?: LiveValue.SpringOptions): SpringAccessor<number>
-export function createSpring(source: LiveSource<string>, options?: LiveValue.SpringOptions): SpringAccessor<string>
-export function createSpring(source: LiveSource<number | string>, options: LiveValue.SpringOptions = {}): SpringAccessor<number | string> {
-  return createFollowValue(source as LiveSource<number>, { ...options, type: "spring" })
+export function createSpring(source: LiveStyle.LiveSource<number>, options?: LiveValue.SpringOptions): LiveStyle.SpringAccessor<number>
+export function createSpring(source: LiveStyle.LiveSource<string>, options?: LiveValue.SpringOptions): LiveStyle.SpringAccessor<string>
+export function createSpring(source: LiveStyle.LiveSource<number | string>, options: LiveValue.SpringOptions = {}): LiveStyle.SpringAccessor<number | string> {
+  return createFollowValue(source as LiveStyle.LiveSource<number>, { ...options, type: "spring" })
 }
 
 /**
@@ -251,7 +234,7 @@ export function createSpring(source: LiveSource<number | string>, options: LiveV
  * const skewY = createTransform(createVelocity(scrollY), [-1000, 1000], [-8, 8])
  * @see https://wardic.dev/reference/solid/live-values/create-velocity
  */
-export const createVelocity = (source: LiveSource<number>): Accessor<number> => {
+export const createVelocity = (source: LiveStyle.LiveSource<number>): Accessor<number> => {
   if (isServer) return SERVER_ZERO
   const runtime = useWardicRuntime()
   return liveOf(runtime, LiveValue.velocity(sourceAtomOf(source, runtime.runSync(AtomRegistry.AtomRegistry))))
@@ -286,13 +269,13 @@ export const SERVER_ZERO: Accessor<number> = () => 0
  * @see https://wardic.dev/reference/solid/live-values/create-will-change
  */
 // #443.
-export const createWillChange = (): Accessor<WillChange> => {
+export const createWillChange = (): Accessor<LiveStyle.WillChange> => {
   if (isServer) return SERVER_AUTO
   const registry = useWardicRuntime().runSync(AtomRegistry.AtomRegistry)
-  return willChangeOf(registry, onCleanup, (atom) => followAtom(registry, atom))
+  return LiveStyle.willChangeOf(registry, onCleanup, (atom) => followAtom(registry, atom))
 }
 
-const SERVER_AUTO: Accessor<WillChange> = () => "auto"
+const SERVER_AUTO: Accessor<LiveStyle.WillChange> = () => "auto"
 
 /**
  * Calls `callback` every frame while its owner lives, with the frame's `time` and `delta` in

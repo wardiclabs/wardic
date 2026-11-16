@@ -15,8 +15,8 @@
  * @module
  */
 import type { JSX } from "@solidjs/web"
-import type { AbsentGroupsOf, NamesEvery, PropFeatureNames } from "../../feature.ts"
-import type { EveryFeature } from "../../features/all.ts"
+import type * as Feature from "@wardic/dom/unstable/Feature"
+import type * as All from "@wardic/dom/unstable/features/All"
 import type { WardCheckedConfig } from "../../ward-keys.ts"
 import type { PerKeyApart } from "./config-view.ts"
 import { createOf, type CreateFor, type FeatureProps, formOf, type OwnPropsFor, type WardicComponentFor } from "./element.tsx"
@@ -49,7 +49,7 @@ export const wOf = (kind: WardInternals): W => formOf<W>(createOf(kind), { ward:
  * @see https://wardic.dev/reference/solid/elements/wardic-instance
  */
 // `F`: #516, ADR-0067 *Amendment (#516)*.
-export type W<F = EveryFeature> = WFor<PropFeatureNames<F>>
+export type W<F = All.EveryFeature> = WFor<Feature.PropFeatureNames<F>>
 
 /** {@link W} for the Features named `FN` (#516). */
 type WFor<FN extends string> = { readonly create: CreateFor<FN>; readonly ward: MakeWardFor<FN> } & {
@@ -57,7 +57,7 @@ type WFor<FN extends string> = { readonly create: CreateFor<FN>; readonly ward: 
 }
 
 /** `w.ward` for the Features named `FN` (#516): the Slim element's with every one; else a Wardic instance's. */
-type MakeWardFor<FN extends string> = NamesEvery<FeatureProps, FN> extends true ? SlimWard : MakeInstanceWard<FN>
+type MakeWardFor<FN extends string> = Feature.NamesEvery<FeatureProps, FN> extends true ? SlimWard : MakeInstanceWard<FN>
 
 /**
  * A Wardic instance's `w.ward` (#516), its Features named `FN`: its config takes their props alone, every
@@ -71,7 +71,7 @@ interface MakeInstanceWard<FN extends string> {
 }
 
 /** A Wardic instance's ward config values, its Features named `FN`: theirs, `style`, and every other Feature's `NeedsFeature`. */
-type InstanceValues<FN extends string> = OwnPropsFor<FN> & AbsentGroupsOf<FeatureProps, FN> & { readonly style?: WardStyle | string | undefined }
+type InstanceValues<FN extends string> = OwnPropsFor<FN> & Feature.AbsentGroupsOf<FeatureProps, FN> & { readonly style?: WardStyle | string | undefined }
 
 /**
  * The Slim element: `w.div`, `w.button` and every other tag, each taking the element's own props and

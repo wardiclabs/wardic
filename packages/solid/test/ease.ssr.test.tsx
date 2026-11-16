@@ -17,18 +17,18 @@ import * as DomInterpolators from "@wardic/dom/DomInterpolators"
 import * as Solid from "@wardic/solid"
 import * as Effect from "effect/Effect"
 import { describe, expect, it } from "vitest"
-import type { WardicTransition } from "../src/config.ts"
-import { type Leg, legsOf, NO_VELOCITY } from "../src/retarget-legs.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
+import * as RetargetLegs from "@wardic/core/unstable/RetargetLegs"
 
 const F = 1 / 60
 const POSITIONAL: ReducedMotion.PositionalKeys["Service"] = { isPositional: ReducedMotion.isTransform }
 const ONE_SPRING: DefaultTransition.DefaultTransition["Service"] = { transitionFor: () => DefaultTransition.ONE_SPRING, keyframes: DefaultTransition.ONE_TWEEN }
 
 /** The legs of an x and an opacity going 0 → 100 / 0 → 1 on `transition`. */
-const legsFor = (transition: WardicTransition): ReadonlyArray<Leg> => legsOf({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, transition, false, false, POSITIONAL, ONE_SPRING, NO_VELOCITY)
+const legsFor = (transition: WardConfig.WardicTransition): ReadonlyArray<RetargetLegs.Leg> => RetargetLegs.legsOf({ x: 0, opacity: 0 }, { x: 100, opacity: 1 }, transition, false, false, POSITIONAL, ONE_SPRING, RetargetLegs.NO_VELOCITY)
 
 /** A Blend leg's machine, built with the DOM's Interpolators. */
-const machineOf = (leg: Leg): Machine.Machine<Frame.Frame<Record<string, unknown>>> => {
+const machineOf = (leg: RetargetLegs.Leg): Machine.Machine<Frame.Frame<Record<string, unknown>>> => {
   if (leg._tag === "Blend") return Effect.runSync(Effect.provide(leg.machine(), DomInterpolators.layer)) as Machine.Machine<Frame.Frame<Record<string, unknown>>>
   return leg.machine() as Machine.Machine<Frame.Frame<Record<string, unknown>>>
 }
@@ -44,7 +44,7 @@ const xAt = (machine: Machine.Machine<Frame.Frame<Record<string, unknown>>>, sec
 describe("Motion's ease in the binding (#360)", () => {
   it("EA1: a tween's ease as a name, four numbers or a function runs that curve; with no type, it makes a tween on its own ease", () => {
     for (const ease of ["easeIn", [0.42, 0, 1, 1], Easing.easeIn] as ReadonlyArray<Easing.Definition>) {
-      for (const transition of [{ type: "tween", duration: 1, ease }, { duration: 1, ease }] as ReadonlyArray<WardicTransition>) {
+      for (const transition of [{ type: "tween", duration: 1, ease }, { duration: 1, ease }] as ReadonlyArray<WardConfig.WardicTransition>) {
         const legs = legsFor(transition)
         expect(legs.map((leg) => leg._tag), JSON.stringify(transition)).toEqual(["Blend"])
         expect(xAt(machineOf(legs[0]!), 0.5), JSON.stringify(transition)).toBeCloseTo(100 * Easing.easeIn(0.5), 4)
@@ -54,7 +54,7 @@ describe("Motion's ease in the binding (#360)", () => {
 
   it("EA2: a transition still giving easing fails its leg, naming ease", () => {
     const hoisted = { type: "tween", duration: 1, easing: Easing.easeIn } as const
-    const legs = legsFor(hoisted as unknown as WardicTransition)
+    const legs = legsFor(hoisted as unknown as WardConfig.WardicTransition)
     expect(() => machineOf(legs[0]!)).toThrow(expect.objectContaining({ name: "OptionError", message: expect.stringContaining("Wardic's `easing` is `ease` now") }))
   })
 

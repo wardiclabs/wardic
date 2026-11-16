@@ -7,10 +7,10 @@
  */
 import { createContext, createMemo, type JSX, useContext } from "solid-js"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
-import type { WardicTransformPoint, WardicVariantTransition } from "./config.ts"
-import { configIsValidPropOf, configReducedMotionOf, configTransformPagePointOf, configSkipAnimationsOf, configTransitionOf, type WardicConfigValue } from "./wardic-config-value.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
+import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 
-const WardicConfigContext = createContext<WardicConfigValue | undefined>(undefined)
+const WardicConfigContext = createContext<WardicConfigValue.WardicConfigValue | undefined>(undefined)
 
 /** `WardicConfig`'s props. */
 export interface WardicConfigProps {
@@ -20,7 +20,7 @@ export interface WardicConfigProps {
    * replaces an enclosing config's, or with `inherit: true` lays its own fields over it. Read when
    * each animation starts.
    */
-  readonly transition?: WardicVariantTransition | undefined
+  readonly transition?: WardConfig.WardicVariantTransition | undefined
   /**
    * How the Wardic elements below honour the user's `prefers-reduced-motion`, as Motion's
    * `MotionConfig` `reducedMotion`: `"user"` follows it, `"always"` reduces motion whatever it is,
@@ -52,7 +52,7 @@ export interface WardicConfigProps {
    * transforms. `correctParentTransform(parent)` makes one for a zoomed or rotated parent, and
    * `transformViewBoxPoint(svg)` one for an SVG's viewBox. It replaces an enclosing config's.
    */
-  readonly transformPagePoint?: WardicTransformPoint | undefined
+  readonly transformPagePoint?: WardConfig.WardicTransformPoint | undefined
   readonly children?: JSX.Element
 }
 
@@ -70,9 +70,9 @@ export interface WardicConfigProps {
 export function WardicConfig(props: WardicConfigProps): JSX.Element {
   const parent = useContext(WardicConfigContext)
   // One object per change, so the elements below share it, and its caches (#66, #301) hit.
-  const transition = createMemo(() => configTransitionOf(props.transition, parent))
-  return <WardicConfigContext.Provider value={{ transition, reducedMotion: () => configReducedMotionOf(props.reducedMotion, parent), skipAnimations: () => configSkipAnimationsOf(props.skipAnimations, parent), isValidProp: () => configIsValidPropOf(props.isValidProp, parent), transformPagePoint: () => configTransformPagePointOf(props.transformPagePoint, parent) }}>{props.children}</WardicConfigContext.Provider>
+  const transition = createMemo(() => WardicConfigValue.configTransitionOf(props.transition, parent))
+  return <WardicConfigContext.Provider value={{ transition, reducedMotion: () => WardicConfigValue.configReducedMotionOf(props.reducedMotion, parent), skipAnimations: () => WardicConfigValue.configSkipAnimationsOf(props.skipAnimations, parent), isValidProp: () => WardicConfigValue.configIsValidPropOf(props.isValidProp, parent), transformPagePoint: () => WardicConfigValue.configTransformPagePointOf(props.transformPagePoint, parent) }}>{props.children}</WardicConfigContext.Provider>
 }
 
 /** The nearest `WardicConfig`'s settings, or none. Internal. */
-export const useWardicConfig = (): WardicConfigValue | undefined => useContext(WardicConfigContext)
+export const useWardicConfig = (): WardicConfigValue.WardicConfigValue | undefined => useContext(WardicConfigContext)

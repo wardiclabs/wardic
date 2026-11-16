@@ -6,7 +6,7 @@
  */
 import type * as Easing from "@wardic/core/Easing"
 import * as Stagger from "@wardic/core/Stagger"
-import type { WardicStagger } from "./config.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 
 /** `stagger()`'s options (Motion's `StaggerOptions`). */
 export interface WardicStaggerOptions {
@@ -28,4 +28,4 @@ export interface WardicStaggerOptions {
  * @see https://wardic.dev/reference/solid/transitions/stagger
  */
 // #436.
-export const stagger = (duration = 0.1, options: WardicStaggerOptions = {}): WardicStagger => Stagger.make(duration, options)
+export const stagger = (duration = 0.1, options: WardicStaggerOptions = {}): WardConfig.WardicStagger => Stagger.make(duration, options)

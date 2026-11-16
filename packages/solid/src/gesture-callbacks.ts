@@ -1,7 +1,7 @@
 /**
  * Solid 1's gesture callbacks (#273, ADR-0047): Motion's `onHoverStart`, `onTap`, `onDragEnd` and the
  * rest, told from the recognizers' events and the drag track's samples. Motion's `(event, info)`: the
- * platform's own event core carried through (`raw`), then the info (`gesture-info.ts`), its point in
+ * platform's own event core carried through (`raw`), then the info (dom's `unstable/GestureInfo`), its point in
  * the viewport. Each is read from the config when it's called, at the event. One that throws is
  * reported (`wardic.gesture: onTap failed`), and the gesture goes on.
  *
@@ -21,8 +21,8 @@ import * as Effect from "effect/Effect"
 import * as Match from "effect/Match"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import type { WardConfig, WardicViewport } from "./config.ts"
-import { dragInfoOf, pointInfoOf, pointOfSample, pressInfoOf, type WardicPressEvent } from "./gesture-info.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
+import * as GestureInfo from "@wardic/dom/unstable/GestureInfo"
 import type { WardicRuntime } from "./runtime.ts"
 
 /**
@@ -46,20 +46,20 @@ export const GESTURE_KEYS = [
   "onViewportEnter",
   "onViewportLeave",
   "whileFocus",
-] as const satisfies ReadonlyArray<keyof WardConfig>
+] as const satisfies ReadonlyArray<keyof WardConfig.WardConfig>
 
 /**
  * Whether `config` runs the hover recognizer (Motion's hover feature). Read at every config change of
  * an element that doesn't run it yet: statement `if`s, no array (ADR-0025).
  */
-export const wantsHover = (config: WardConfig): boolean => {
+export const wantsHover = (config: WardConfig.WardConfig): boolean => {
   if (Predicate.isNotUndefined(config.whileHover)) return true
   if (Predicate.isNotUndefined(config.onHoverStart)) return true
   return Predicate.isNotUndefined(config.onHoverEnd)
 }
 
 /** Whether `config` runs the press recognizer (Motion's tap feature): as {@link wantsHover}. */
-export const wantsPress = (config: WardConfig): boolean => {
+export const wantsPress = (config: WardConfig.WardConfig): boolean => {
   if (Predicate.isNotUndefined(config.whileTap)) return true
   if (Predicate.isNotUndefined(config.onTap)) return true
   if (Predicate.isNotUndefined(config.onTapStart)) return true
@@ -67,7 +67,7 @@ export const wantsPress = (config: WardConfig): boolean => {
 }
 
 /** Whether `config` runs the pan recognizer (Motion's pan feature, #273): as {@link wantsHover}. */
-export const wantsPan = (config: WardConfig): boolean => {
+export const wantsPan = (config: WardConfig.WardConfig): boolean => {
   if (Predicate.isNotUndefined(config.onPan)) return true
   if (Predicate.isNotUndefined(config.onPanStart)) return true
   if (Predicate.isNotUndefined(config.onPanSessionStart)) return true
@@ -75,14 +75,14 @@ export const wantsPan = (config: WardConfig): boolean => {
 }
 
 /** Whether `config` runs the in-view recognizer (Motion's inView feature, #273): `whileInView` or a viewport callback. */
-export const wantsInView = (config: WardConfig): boolean => {
+export const wantsInView = (config: WardConfig.WardConfig): boolean => {
   if (Predicate.isNotUndefined(config.whileInView)) return true
   if (Predicate.isNotUndefined(config.onViewportEnter)) return true
   return Predicate.isNotUndefined(config.onViewportLeave)
 }
 
 /** Whether `config` runs the focus recognizer (Motion's focus feature, #273): `whileFocus`. */
-export const wantsFocus = (config: WardConfig): boolean => Predicate.isNotUndefined(config.whileFocus)
+export const wantsFocus = (config: WardConfig.WardConfig): boolean => Predicate.isNotUndefined(config.whileFocus)
 
 /** Motion's `amount` as a share of the element: `"some"` any of it, `"all"` all of it. */
 const amountOf = (amount: "some" | "all" | number | undefined): number | undefined =>
@@ -93,7 +93,7 @@ const amountOf = (amount: "some" | "all" | number | undefined): number | undefin
   )
 
 /** Motion's `viewport` as core's in-view options (#273): its root read now, when the recognizer starts. */
-export const inViewOptionsOf = (viewport: WardicViewport | undefined): Recognizer.InViewOptions =>
+export const inViewOptionsOf = (viewport: WardConfig.WardicViewport | undefined): Recognizer.InViewOptions =>
   UndefinedOr.match(viewport, {
     onUndefined: () => ({}),
     onDefined: (v) => ({
@@ -129,7 +129,7 @@ const PAN_CALLBACK = { start: "onPanStart", move: undefined, end: "onPanEnd" } a
 type MovementCallback = "onDragStart" | "onDragEnd" | "onPanStart" | "onPanEnd"
 
 /** An element's callers, reading `config` at each call; `id` names it in a report. */
-export const gestureCallbacksOf = (runtime: WardicRuntime, id: string, config: () => WardConfig): GestureCallbacks => {
+export const gestureCallbacksOf = (runtime: WardicRuntime, id: string, config: () => WardConfig.WardConfig): GestureCallbacks => {
   // The per-move callbacks whose last call threw (#257 item 4): a run of throws reports at its
   // first, so one that throws at every move logs once; a call that returns ends the run.
   let failing: Set<string> | undefined
@@ -171,19 +171,19 @@ export const gestureCallbacksOf = (runtime: WardicRuntime, id: string, config: (
     const each = c[every]
     if (Bool.and(Predicate.isUndefined(own), Bool.or(Bool.not(moving), Predicate.isUndefined(each)))) return
     const raw = sample.raw as PointerEvent
-    const info = dragInfoOf(sample)
+    const info = GestureInfo.dragInfoOf(sample)
     if (Predicate.isNotUndefined(named)) call(named, own, raw, info)
     if (moving) callPerMove(every, each, raw, info)
   }
   return {
     hovered: (edge) => {
       const name = Bool.match(edge.active, { onTrue: () => "onHoverStart" as const, onFalse: () => "onHoverEnd" as const })
-      call(name, config()[name], edge.event.raw as PointerEvent, pointInfoOf(edge.event))
+      call(name, config()[name], edge.event.raw as PointerEvent, GestureInfo.pointInfoOf(edge.event))
     },
     pressed: (press, element) => {
       const name = PRESS_CALLBACK[press.phase]
       if (Predicate.isUndefined(name)) return
-      call(name, config()[name], press.event.raw as WardicPressEvent, pressInfoOf(press, element))
+      call(name, config()[name], press.event.raw as GestureInfo.WardicPressEvent, GestureInfo.pressInfoOf(press, element))
     },
     dragged: (sample) => {
       // A drag its controls cancelled (#431) ends untold, as Motion's `cancel` tells no `onDragEnd`.
@@ -199,7 +199,7 @@ export const gestureCallbacksOf = (runtime: WardicRuntime, id: string, config: (
     panned: (sample) => {
       // Its session's start, at the down: Motion's `onPanSessionStart`, with the point only.
       if (sample.phase === "session") {
-        call("onPanSessionStart", config().onPanSessionStart, sample.raw as PointerEvent, pointOfSample(sample))
+        call("onPanSessionStart", config().onPanSessionStart, sample.raw as PointerEvent, GestureInfo.pointOfSample(sample))
         return
       }
       moved(PAN_CALLBACK[sample.phase], "onPan", sample as Drag.Sample)

@@ -27,8 +27,8 @@ import * as Style from "@wardic/dom/Style"
 import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as Rec from "effect/Record"
-import type { LiveStyle } from "./live-style.ts"
-import type { Reactivity } from "./reactivity.ts"
+import type * as LiveStyle from "@wardic/dom/unstable/LiveStyle"
+import type * as Reactivity from "@wardic/core/unstable/Reactivity"
 
 /** What {@link createElementStyle} reads. */
 export interface ElementStyleOptions {
@@ -39,13 +39,13 @@ export interface ElementStyleOptions {
   /** The element's Starting style with its routed keys at `routed` (#130). */
   readonly startingWith: (routed: Values.Values) => Renderer.Patch
   /** The element's routed `style` keys (#130). */
-  readonly live: LiveStyle
+  readonly live: LiveStyle.LiveStyle
   /** A drag element's defaults, under the user's style. */
   readonly defaults: Style.DragDefaults | undefined
   /** A `<Reorder>` item's base style, under the user's style. */
   readonly base?: (() => object | undefined) | undefined
   /** The binding's Solid (#209). */
-  readonly reactivity: Reactivity
+  readonly reactivity: Reactivity.Reactivity
 }
 
 /** An element's `style` and the sink hooks that switch it. */

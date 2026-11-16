@@ -16,7 +16,7 @@
  * @module
  */
 import { createEffect, createRoot, createSignal, createTrackedEffect, type Owner, runWithOwner, untrack } from "solid-js"
-import type { Reactivity } from "../../reactivity.ts"
+import type * as Reactivity from "@wardic/core/unstable/Reactivity"
 
 /**
  * The options of every computation the binding makes (#209 PR 4a): transparent to Solid 2's
@@ -52,7 +52,7 @@ const SETTLED = { name: "onSettled", ...CLIENT_ONLY }
 export const onSettledClientOnly = (callback: () => void | (() => void)): void => createTrackedEffect(() => untrack(callback), SETTLED)
 
 /** Solid 2's reactive primitives, a watch made under `owner`. */
-export const reactivityIn = (owner: Owner | null): Reactivity => ({
+export const reactivityIn = (owner: Owner | null): Reactivity.Reactivity => ({
   untrack,
   trigger: () => {
     const [track, notify] = createSignal<undefined>(undefined, { equals: false })

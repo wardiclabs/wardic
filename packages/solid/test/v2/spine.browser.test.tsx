@@ -1,4 +1,4 @@
-// The shared spine (`src/spine.ts`) through the Solid 2 ward (#209): each feature the Solid 1
+// The shared spine (core's `unstable/Spine`) through the Solid 2 ward (#209): each feature the Solid 1
 // binding's suites pin in depth, once, through `ward()`'s own wiring (its config accessor, its
 // effect, its Live-value watches under its owner, its gate sink).
 //

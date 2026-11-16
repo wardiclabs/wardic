@@ -4,9 +4,9 @@
  * @module
  */
 import { createComputed, createRoot, createSignal, on, untrack } from "solid-js"
-import type { Reactivity } from "./reactivity.ts"
+import type * as Reactivity from "@wardic/core/unstable/Reactivity"
 
-export const reactivity: Reactivity = {
+export const reactivity: Reactivity.Reactivity = {
   untrack,
   trigger: () => {
     const [track, notify] = createSignal(undefined, { equals: false })

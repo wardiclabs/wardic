@@ -1,7 +1,7 @@
 /**
  * An element's place in variant orchestration on the Solid 1 binding (ADR-0007, #50), shared by
  * every Wardic surface: `createWard` (so `wardic.*` and `<Reorder.Item>`), `wardic.create(Component)`
- * and the directives. The rules it runs are Solid-free, in `variant-tree.ts` (#209).
+ * and the directives. The rules it runs are Solid-free, in core's `unstable/VariantTree` (#209).
  *
  * Membership is decided once, at setup, as `initial` is read. The names stay reactive.
  */
@@ -11,52 +11,17 @@ import { constTrue, constUndefined, constVoid } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js"
-import type { ControlsChange } from "./animation-controls.ts"
-import type { WardicTransition, WardicVariantLabels } from "./config.ts"
-import {
-  activeNamesOf,
-  type ChangeAtTrigger,
-  changeAtTrigger,
-  controlsChangeOf,
-  changeConfigOf,
-  orchestrationAt,
-  type GestureHandDown,
-  handDownFrom,
-  handDownOf,
-  type GestureStates,
-  NO_GESTURE_STATES,
-  NO_HAND_DOWN,
-  sameHandDown,
-  topGestureName,
-  triggerKeyOf,
-  handedDown,
-  hasOwnVariants,
-  inheritedContext,
-  initialNameOf,
-  nameOf,
-  ownOrInherited,
-  childDelayOf,
-  mayStartOf,
-  type NameConfig,
-  nameConfigOf,
-  type NameOrchestration,
-  passedThrough,
-  sameStagger,
-  staggerOf,
-  staggerOfName,
-  type VariantConfig,
-  type WardicChildRegistration,
-  type WardicStaggerConfig,
-  type WardicVariantContextValue,
-} from "./variant-tree.ts"
-import { ownTransitionOf, sameLabels, transitionOfTarget } from "./variant-target.ts"
+import type * as AnimationControls from "@wardic/core/unstable/AnimationControls"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
+import * as VariantTree from "@wardic/core/unstable/VariantTree"
+import * as VariantTarget from "@wardic/core/unstable/VariantTarget"
 
 /** An element's place in variant orchestration, on the client. */
 export interface VariantNode {
   /** What its children read: its own context, its parent's passed through, or none. */
-  readonly provided: WardicVariantContextValue | undefined
+  readonly provided: VariantTree.WardicVariantContextValue | undefined
   /** The context its spine inherits names and its default transition from: its parent's, for a Variant child. */
-  readonly inherited: WardicVariantContextValue | undefined
+  readonly inherited: VariantTree.WardicVariantContextValue | undefined
   /** Its stagger delay in seconds, as a Variant child; `undefined` for any other element. */
   readonly extraDelay: ((name: string | undefined) => number) | undefined
   /** Whether its spine may start a Retarget: its ancestor's `beforeChildren` and its own `afterChildren` allow it. */
@@ -67,20 +32,20 @@ export interface VariantNode {
    * Bind its spine's gesture states (#291), once it mounts: the names it hands its Variant children
    * follow them. Only an element whose Variant children join it has one.
    */
-  readonly bindGestures: ((states: Accessor<GestureStates>) => void) | undefined
+  readonly bindGestures: ((states: Accessor<VariantTree.GestureStates>) => void) | undefined
   /**
    * A list's names orchestrated each on their own (#297's PR 2): its spine's gates and per-name
    * settles. Only an element that joins a provider or provides has one.
    */
-  readonly names: NameOrchestration | undefined
+  readonly names: VariantTree.NameOrchestration | undefined
 }
 
 /** The orchestration an element with variants of its own runs for its Variant children. */
 interface OwnOrchestration {
-  readonly context: WardicVariantContextValue
+  readonly context: VariantTree.WardicVariantContextValue
   readonly canStart: () => boolean
   readonly settled: (done: boolean) => void
-  readonly bindGestures: (states: Accessor<GestureStates>) => void
+  readonly bindGestures: (states: Accessor<VariantTree.GestureStates>) => void
   /** A list's name's own `afterChildren` (#297's PR 2): its keys wait for its children's of that name. */
   readonly canStartFor: (name: string) => boolean
   /** Its keys of a list's names settled, or moving again (#297's PR 2). */
@@ -101,10 +66,10 @@ interface ChildRecord {
  * children (ADR-0007), and the names it hands them. Call within a Solid owner.
  */
 const ownOrchestration = (
-  cfg: Accessor<VariantConfig>,
-  parent: WardicVariantContextValue | undefined,
-  inherited: WardicVariantContextValue | undefined,
-  change: Accessor<ControlsChange | undefined>,
+  cfg: Accessor<VariantTree.VariantConfig>,
+  parent: VariantTree.WardicVariantContextValue | undefined,
+  inherited: VariantTree.WardicVariantContextValue | undefined,
+  change: Accessor<AnimationControls.ControlsChange | undefined>,
 ): OwnOrchestration => {
   const config = untrack(cfg)
   // Children in mount order (a Set keeps insertion order); the effect below snapshots that
@@ -118,7 +83,7 @@ const ownOrchestration = (
   // Drives `beforeChildren`.
   const [ownSettled, setOwnSettled] = createSignal(false)
 
-  const register = (): WardicChildRegistration => {
+  const register = (): VariantTree.WardicChildRegistration => {
     const record: ChildRecord = { index: 0, total: 1, names: new Set() }
     // A child starts unsettled; its spine reports each frame, so only a change counts.
     let settled = false
@@ -171,44 +136,44 @@ const ownOrchestration = (
 
   // The names handed down. `animate`'s is reactive; `initial`'s is read once.
   // A list the same name by name is no change (#297).
-  const variant: Accessor<WardicVariantLabels | undefined> = createMemo(
+  const variant: Accessor<WardConfig.WardicVariantLabels | undefined> = createMemo(
     () => {
       const c = cfg()
-      return handedDown(c, () => nameOf(c.animate), () => UndefinedOr.map(parent, (p) => p.variant()))
+      return VariantTree.handedDown(c, () => VariantTree.nameOf(c.animate), () => UndefinedOr.map(parent, (p) => p.variant()))
     },
     undefined,
-    { equals: sameLabels },
+    { equals: VariantTarget.sameLabels },
   )
 
   // What it hands down for its gestures (#291), whether each is on and its label: its spine's states, bound once it mounts.
   // Changed only when a name does, so its children re-resolve only then.
-  const [states, setStates] = createSignal<Accessor<GestureStates> | undefined>(undefined)
-  const gestures: Accessor<GestureHandDown> = createMemo(
-    () => handDownOf(cfg(), UndefinedOr.match(states(), { onUndefined: () => NO_GESTURE_STATES, onDefined: (on) => on() }), handDownFrom(inherited)),
-    NO_HAND_DOWN,
-    { equals: sameHandDown },
+  const [states, setStates] = createSignal<Accessor<VariantTree.GestureStates> | undefined>(undefined)
+  const gestures: Accessor<VariantTree.GestureHandDown> = createMemo(
+    () => VariantTree.handDownOf(cfg(), UndefinedOr.match(states(), { onUndefined: () => VariantTree.NO_GESTURE_STATES, onDefined: (on) => on() }), VariantTree.handDownFrom(inherited)),
+    VariantTree.NO_HAND_DOWN,
+    { equals: VariantTree.sameHandDown },
   )
 
   // The Controls change its latest trigger came with (#433): while it's the latest, its override is
   // the orchestration.
-  const at: Accessor<ChangeAtTrigger> = createMemo((previous: ChangeAtTrigger | undefined) =>
-    changeAtTrigger(change(), triggerKeyOf(variant(), gestures(), change()), previous))
+  const at: Accessor<VariantTree.ChangeAtTrigger> = createMemo((previous: VariantTree.ChangeAtTrigger | undefined) =>
+    VariantTree.changeAtTrigger(change(), VariantTree.triggerKeyOf(variant(), gestures(), change()), previous))
   // Its orchestration (#277, #291, Motion's): the own transition of its highest active gesture's name,
   // else of its target (the variant it names), else its `transition`; a Controls change's override at
   // the trigger it came with (#433).
-  const orchestration: Accessor<WardicTransition | undefined> = createMemo(() =>
-    orchestrationAt(at(), () => {
+  const orchestration: Accessor<WardConfig.WardicTransition | undefined> = createMemo(() =>
+    VariantTree.orchestrationAt(at(), () => {
       const c = cfg()
-      const own = UndefinedOr.match(topGestureName(activeNamesOf(gestures())), {
-        onDefined: (name) => ownTransitionOf(undefined, name, c.variants, c.custom),
-        onUndefined: () => ownTransitionOf(c.animate, variant(), c.variants, c.custom),
+      const own = UndefinedOr.match(VariantTree.topGestureName(VariantTree.activeNamesOf(gestures())), {
+        onDefined: (name) => VariantTarget.ownTransitionOf(undefined, name, c.variants, c.custom),
+        onUndefined: () => VariantTarget.ownTransitionOf(c.animate, variant(), c.variants, c.custom),
       })
-      return transitionOfTarget(own, c.transition)
+      return VariantTarget.transitionOfTarget(own, c.transition)
     }))
   // What its children's stagger and `when` snapshot at: its variant, its gestures' names (#291), and
   // a Controls change (#433).
   const trigger: Accessor<string> = createMemo((previous: string | undefined) => {
-    const next = triggerKeyOf(variant(), gestures(), change())
+    const next = VariantTree.triggerKeyOf(variant(), gestures(), change())
     if (next !== previous) {
       stale = true
       // Each name waits again (#297's PR 2): its keys, and its children's, settle anew.
@@ -217,34 +182,34 @@ const ownOrchestration = (
     }
     return next
   })
-  const stagger: Accessor<WardicStaggerConfig> = createMemo(() => staggerOf(orchestration()), undefined, { equals: sameStagger })
+  const stagger: Accessor<VariantTree.WardicStaggerConfig> = createMemo(() => VariantTree.staggerOf(orchestration()), undefined, { equals: VariantTree.sameStagger })
   // A list's names have each their own (#297's PR 2): none for the list as a whole.
   const when: Accessor<"beforeChildren" | "afterChildren" | undefined> = () => {
     if (Arr.isArray(variant())) return undefined
     return UndefinedOr.map(orchestration(), (t) => t.when)
   }
-  const initial = handedDown<WardicVariantLabels | false>(config, () => initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial))
+  const initial = VariantTree.handedDown<WardConfig.WardicVariantLabels | false>(config, () => VariantTree.initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial))
 
   // Each name's orchestration for the Variant children's keys of that name (#297, Motion's
   // `animateVariant` a name): its own transition's, else the element's. Kept per name until the
   // config changes; a key from no name takes the element's whole orchestration.
-  const byName: Accessor<Map<string, NameConfig>> = createMemo(() => {
+  const byName: Accessor<Map<string, VariantTree.NameConfig>> = createMemo(() => {
     cfg()
     return new Map()
   })
-  const configOf = (name: string): NameConfig => {
+  const configOf = (name: string): VariantTree.NameConfig => {
     // A Controls change's override orchestrates every name at its trigger (#433).
-    const changed = changeConfigOf(untrack(at))
+    const changed = VariantTree.changeConfigOf(untrack(at))
     if (Predicate.isNotUndefined(changed)) return changed
     const known = byName()
     const kept = known.get(name)
     if (Predicate.isNotUndefined(kept)) return kept
     const c = untrack(cfg)
-    const made = nameConfigOf(transitionOfTarget(ownTransitionOf(undefined, name, c.variants, c.custom), c.transition))
+    const made = VariantTree.nameConfigOf(VariantTarget.transitionOfTarget(VariantTarget.ownTransitionOf(undefined, name, c.variants, c.custom), c.transition))
     known.set(name, made)
     return made
   }
-  const staggerFor = (name: string | undefined): WardicStaggerConfig => {
+  const staggerFor = (name: string | undefined): VariantTree.WardicStaggerConfig => {
     if (Predicate.isUndefined(name)) return stagger()
     return configOf(name).stagger
   }
@@ -274,7 +239,7 @@ const ownOrchestration = (
   const childrenMayStart: Accessor<boolean> = () => when() !== "beforeChildren" || ownSettled()
   const allChildrenSettled: Accessor<boolean> = () => unsettled() === 0
   // The transition its children default to: its own, else the one it inherits.
-  const transition: Accessor<WardicTransition | undefined> = createMemo(() => ownOrInherited(cfg().transition, inherited))
+  const transition: Accessor<WardConfig.WardicTransition | undefined> = createMemo(() => VariantTree.ownOrInherited(cfg().transition, inherited))
 
   return {
     context: { variant, initial, transition, gestures, register, stagger, staggerFor, mayStartFor, when, childrenMayStart, allChildrenSettled, change },
@@ -290,7 +255,7 @@ const ownOrchestration = (
 }
 
 /** A node's gesture binding: its own orchestration's, none without one. A guard: it's made per element. */
-const bindOf = (own: OwnOrchestration | undefined): ((states: Accessor<GestureStates>) => void) | undefined => {
+const bindOf = (own: OwnOrchestration | undefined): ((states: Accessor<VariantTree.GestureStates>) => void) | undefined => {
   if (Predicate.isUndefined(own)) return undefined
   return own.bindGestures
 }
@@ -300,18 +265,18 @@ const bindOf = (own: OwnOrchestration | undefined): ((states: Accessor<GestureSt
  * context (`useVariantContext()`). Call within a Solid owner.
  */
 export const createVariantNode = (
-  cfg: Accessor<VariantConfig>,
-  parent: WardicVariantContextValue | undefined,
-  controls?: Accessor<ControlsChange | undefined>,
+  cfg: Accessor<VariantTree.VariantConfig>,
+  parent: VariantTree.WardicVariantContextValue | undefined,
+  controls?: Accessor<AnimationControls.ControlsChange | undefined>,
 ): VariantNode => {
   const config = untrack(cfg)
-  const inherited = inheritedContext(config, parent)
+  const inherited = VariantTree.inheritedContext(config, parent)
   // The Controls change in effect (#433): its own controls', else the one its provider is in.
-  const change = controlsChangeOf(controls, inherited)
+  const change = VariantTree.controlsChangeOf(controls, inherited)
   // A Variant child registers with the ancestor it joins, for its stagger slot and its `when`.
   const joined = UndefinedOr.map(inherited, (context) => ({ context, registration: context.register() }))
   if (Predicate.isNotUndefined(joined)) onCleanup(joined.registration.dispose)
-  const own = Bool.match(hasOwnVariants(config), {
+  const own = Bool.match(VariantTree.hasOwnVariants(config), {
     onFalse: constUndefined,
     onTrue: () => ownOrchestration(cfg, parent, inherited, change),
   })
@@ -323,12 +288,12 @@ export const createVariantNode = (
   })
   const reportOwn: (done: boolean) => void = UndefinedOr.match(own, { onUndefined: () => constVoid, onDefined: (o) => o.settled })
   return {
-    provided: UndefinedOr.match(own, { onDefined: (o) => o.context, onUndefined: () => passedThrough(config, parent) }),
+    provided: UndefinedOr.match(own, { onDefined: (o) => o.context, onUndefined: () => VariantTree.passedThrough(config, parent) }),
     inherited,
     extraDelay: UndefinedOr.map(joined, ({ context, registration }) => (name: string | undefined) => {
-      const s = staggerOfName(context, name)
+      const s = VariantTree.staggerOfName(context, name)
       const n = registration.total()
-      return childDelayOf(s, registration.index(), n)
+      return VariantTree.childDelayOf(s, registration.index(), n)
     }),
     canStart: () =>
       UndefinedOr.match(inherited, { onUndefined: constTrue, onDefined: (context) => context.childrenMayStart() }) &&
@@ -348,9 +313,9 @@ export const createVariantNode = (
  * to both. None for an element that joins nothing and provides nothing: made per element, a guard.
  */
 const namesOf = (
-  joined: { readonly context: WardicVariantContextValue; readonly registration: WardicChildRegistration } | undefined,
+  joined: { readonly context: VariantTree.WardicVariantContextValue; readonly registration: VariantTree.WardicChildRegistration } | undefined,
   own: OwnOrchestration | undefined,
-): NameOrchestration | undefined => {
+): VariantTree.NameOrchestration | undefined => {
   if (Bool.and(Predicate.isUndefined(joined), Predicate.isUndefined(own))) return undefined
   const tell = (names: ReadonlyArray<string>, done: boolean): void => {
     UndefinedOr.map(joined, ({ registration }) => UndefinedOr.map(registration.setSettledFor, (set) => Arr.forEach(names, (name) => set(name, done))))
@@ -359,7 +324,7 @@ const namesOf = (
   return {
     mayStart: (name) =>
       Bool.and(
-        UndefinedOr.match(joined, { onUndefined: constTrue, onDefined: ({ context }) => mayStartOf(context, name) }),
+        UndefinedOr.match(joined, { onUndefined: constTrue, onDefined: ({ context }) => VariantTree.mayStartOf(context, name) }),
         UndefinedOr.match(own, { onUndefined: constTrue, onDefined: (o) => o.canStartFor(name) }),
       ),
     moving: (names) => tell(names, false),

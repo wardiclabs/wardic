@@ -41,21 +41,7 @@ import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
-import {
-  type BatchBinding,
-  type BatchEnv,
-  type BatchHooks,
-  type BatchServerAppear,
-  bindBatch,
-  identityOf,
-  type KeyedBatchConfig,
-  type ReorderBatchConfig,
-  serverKeyedHandlesOf,
-  type WardicBatchExit,
-  type WardicBatchGesture,
-  type WardicBatchTransition,
-  type WardicBatchValues,
-} from "./batch.ts"
+import * as BatchMembers from "@wardic/dom/unstable/BatchMembers"
 import { batchGesturesOn, turnDrag } from "./batch-gestures.ts"
 import {
   type BatchReorderDirection,
@@ -83,11 +69,11 @@ import {
   type WrittenSize,
   type XY,
 } from "./batch-reorder-places.ts"
-import type { Feature } from "./feature.ts"
-import { input } from "./features/input.ts"
-import { serviceOf } from "./gesture-features.ts"
-import * as OwnerScope from "./owner-scope.ts"
-import type { PresenceContextValue } from "./presence-record.ts"
+import type * as Feature from "@wardic/dom/unstable/Feature"
+import * as Input from "@wardic/dom/unstable/features/Input"
+import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
+import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
+import type * as PresenceController from "@wardic/dom/unstable/PresenceController"
 import { watchItemsInputAmong } from "./reorder-input.ts"
 
 export {
@@ -102,13 +88,13 @@ export {
 } from "./batch-reorder-places.ts"
 
 /** An item's gesture, `whileDrag`'s, `whileHover`'s or `whileTap`'s: values with an optional `transition`, or a function of its item and index. */
-export type BatchReorderGesture<V> = WardicBatchGesture | ((item: V, i: number) => WardicBatchValues)
+export type BatchReorderGesture<V> = BatchMembers.WardicBatchGesture | ((item: V, i: number) => BatchMembers.WardicBatchValues)
 
 /** An item's `initial`: values, a function of its item and index, `false` (at its place), or none. */
-export type BatchReorderInitial<V> = false | WardicBatchValues | ((item: V, i: number) => WardicBatchValues)
+export type BatchReorderInitial<V> = false | BatchMembers.WardicBatchValues | ((item: V, i: number) => BatchMembers.WardicBatchValues)
 
 /** An item's `exit`: values with an optional `transition`, or a function of its item, last index and the presence's `custom`. */
-export type BatchReorderExit<V> = WardicBatchExit | ((item: V, i: number, custom: unknown) => WardicBatchValues)
+export type BatchReorderExit<V> = BatchMembers.WardicBatchExit | ((item: V, i: number, custom: unknown) => BatchMembers.WardicBatchValues)
 
 const ORIGIN: XY = { x: 0, y: 0 }
 
@@ -119,7 +105,7 @@ const releaseVelocityOf: (sample: Drag.Sample) => XY = Match.type<Drag.Sample>()
 )
 
 /** What a group brings (ADR-0067 decision 12): the gestures' input, its items' drags heard through it. Either binding's. */
-export const GROUP_BRINGS: ReadonlyArray<Feature> = [{ name: "Reorder.BatchGroup", key: InputSource.InputSource, layer: input }]
+export const GROUP_BRINGS: ReadonlyArray<Feature.Feature> = [{ name: "Reorder.BatchGroup", key: InputSource.InputSource, layer: Input.input }]
 
 /** An item's `aria-describedby`: the app's own ids, then the instructions', or none. */
 export const describedByOf = (own: string | undefined, instructions: string | undefined): string | undefined => {
@@ -194,7 +180,7 @@ export interface BatchReorderOptions<V> {
   /** What it read of its element, as it mounts and as it's resized: for the binding to keep, and track. */
   readonly onRead: (read: BatchReorderRead) => void
   readonly initial: () => BatchReorderInitial<V> | undefined
-  readonly transition: () => WardicBatchTransition | undefined
+  readonly transition: () => BatchMembers.WardicBatchTransition | undefined
   /** Its `appear`: whether its items' entrance from a server render is taken over at hydration (#706, Q21). */
   readonly appear: () => boolean | undefined
   readonly whileDrag: () => BatchReorderGesture<V> | undefined
@@ -248,7 +234,7 @@ export interface BatchReorderSizeSignals {
 /** What a group's items read of it: each one's half, and whether they're pressed. A server's group is one. */
 export interface BatchReorderItems<V> {
   /** The item with `value`, its element made under `presence`. */
-  readonly item: (value: V, presence: PresenceContextValue | undefined) => BatchReorderItem
+  readonly item: (value: V, presence: PresenceController.PresenceContextValue | undefined) => BatchReorderItem
   /** Whether its items are pressed (`whileTap`): each one a tab stop, Enter and Space pressing it while the keyboard reorder is off. */
   readonly pressable: boolean
 }
@@ -256,9 +242,9 @@ export interface BatchReorderItems<V> {
 /** A Batch Reorder group bound to its binding: its Batch, its group's style, and each item's half. */
 export interface BatchReorderBinding<V> extends BatchReorderItems<V> {
   /** Its Batch: the binding tracks its `targetsOf` and hands each new value to {@link apply}. */
-  readonly batch: BatchBinding
+  readonly batch: BatchMembers.BatchBinding
   /** A change of the list or the geometry: every item turned toward its place, and the controller told they're placed. */
-  readonly apply: BatchBinding["apply"]
+  readonly apply: BatchMembers.BatchBinding["apply"]
   /** The group element's style: positioned, sized to its places, `overflow-anchor: none`, under `own`. */
   readonly groupStyle: (own: Style.Input) => Style.Style
   /** The group's element: what its Auto-scroll, its direction and its reveal go by. */
@@ -316,8 +302,8 @@ const NO_IDENTITIES: Readonly<Record<string, number>> = {}
 const isPlaceKey: Predicate.Predicate<string> = (key) => Bool.or(key === "x", key === "y")
 
 /** `values` but the keys an item's place sets. */
-const withoutPlaceKeys = (values: WardicBatchValues): WardicBatchValues =>
-  Rec.filter(values as Readonly<Record<string, number>>, (_, key) => Bool.not(isPlaceKey(key))) as WardicBatchValues
+const withoutPlaceKeys = (values: BatchMembers.WardicBatchValues): BatchMembers.WardicBatchValues =>
+  Rec.filter(values as Readonly<Record<string, number>>, (_, key) => Bool.not(isPlaceKey(key))) as BatchMembers.WardicBatchValues
 
 /**
  * Each item's targets (#706, Q20): its place, and the identity of each key its `initial` gives but `x` and
@@ -332,16 +318,16 @@ const targetsAtPlace = <V>(placeAt: (i: number) => XY, firstItem: () => V | unde
     if (Bool.or(Predicate.isUndefined(initial), initial === false)) return NO_IDENTITIES
     if (initial === given) return identities
     const values = Bool.match(Predicate.isFunction(initial), {
-      onTrue: () => UndefinedOr.map(firstItem(), (item) => (initial as (item: V, i: number) => WardicBatchValues)(item, 0)),
-      onFalse: () => initial as WardicBatchValues,
+      onTrue: () => UndefinedOr.map(firstItem(), (item) => (initial as (item: V, i: number) => BatchMembers.WardicBatchValues)(item, 0)),
+      onFalse: () => initial as BatchMembers.WardicBatchValues,
     })
     if (Predicate.isUndefined(values)) return NO_IDENTITIES
     given = initial
-    identities = Rec.map(withoutPlaceKeys(values) as Readonly<Record<string, number>>, (_, key) => identityOf(key))
+    identities = Rec.map(withoutPlaceKeys(values) as Readonly<Record<string, number>>, (_, key) => BatchMembers.identityOf(key))
     return identities
   }
   // Per member at a change (#665): its place alone when `initial` gives nothing more, as before Q20.
-  return (initial: BatchReorderInitial<V> | undefined, i: number): WardicBatchValues => {
+  return (initial: BatchReorderInitial<V> | undefined, i: number): BatchMembers.WardicBatchValues => {
     const own = identitiesOf(initial)
     if (Rec.isEmptyRecord(own)) return placeAt(i)
     return { ...own, ...placeAt(i) }
@@ -354,14 +340,14 @@ const targetsAtPlace = <V>(placeAt: (i: number) => XY, firstItem: () => V | unde
  */
 const startsAtPlace = <V>(placeAt: (i: number) => XY) => {
   let startGiven: unknown = undefined
-  let startMade: false | ((item: V, i: number) => WardicBatchValues) = false
-  return (given: BatchReorderInitial<V> | undefined): false | ((item: V, i: number) => WardicBatchValues) => {
+  let startMade: false | ((item: V, i: number) => BatchMembers.WardicBatchValues) = false
+  return (given: BatchReorderInitial<V> | undefined): false | ((item: V, i: number) => BatchMembers.WardicBatchValues) => {
     if (Bool.or(Predicate.isUndefined(given), given === false)) return false
     if (given === startGiven) return startMade
     startGiven = given
     startMade = Bool.match(Predicate.isFunction(given), {
-      onTrue: () => (item: V, i: number): WardicBatchValues => ({ ...placeAt(i), ...(given as (item: V, i: number) => WardicBatchValues)(item, i) }),
-      onFalse: () => (_: V, i: number): WardicBatchValues => ({ ...placeAt(i), ...(given as WardicBatchValues) }),
+      onTrue: () => (item: V, i: number): BatchMembers.WardicBatchValues => ({ ...placeAt(i), ...(given as (item: V, i: number) => BatchMembers.WardicBatchValues)(item, i) }),
+      onFalse: () => (_: V, i: number): BatchMembers.WardicBatchValues => ({ ...placeAt(i), ...(given as BatchMembers.WardicBatchValues) }),
     })
     return startMade
   }
@@ -371,7 +357,7 @@ const startsAtPlace = <V>(placeAt: (i: number) => XY) => {
  * A Batch Reorder group for `options`, under `env`'s provider. The binding tracks `batch.targetsOf` and
  * hands each new value to `apply`.
  */
-export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<V>, hooks: BatchHooks): BatchReorderBinding<V> => {
+export const bindBatchReorder = <V>(env: BatchMembers.BatchEnv, options: BatchReorderOptions<V>, hooks: BatchMembers.BatchHooks): BatchReorderBinding<V> => {
   const runtime = env.runtime
   // Its items' hover and presses, over the input it brings (#712's PR 3): a focused item's keys press it
   // only while the keyboard reorder doesn't take them (Q32), read at each key.
@@ -439,7 +425,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
     },
     gestureKeysFromFirst: true as const,
   }
-  const batch = bindBatch({ ...env, gestures, pressKeys: () => Bool.not(options.keyboard()) }, config as ReorderBatchConfig<V> as KeyedBatchConfig<unknown>, {
+  const batch = BatchMembers.bindBatch({ ...env, gestures, pressKeys: () => Bool.not(options.keyboard()) }, config as BatchMembers.ReorderBatchConfig<V> as BatchMembers.KeyedBatchConfig<unknown>, {
     ...hooks,
     started: () => {
       flying = true
@@ -609,7 +595,7 @@ export const bindBatchReorder = <V>(env: BatchEnv, options: BatchReorderOptions<
       DragRecognizer.watchDragAmong(host.memberElementOf, { axis: () => controller.axis() }, { on: onDrag, onDefect }),
       watchItemsInputAmong(host.memberElementOf, { driverOf, onPress, onPressEnd, fork: (effect) => void runtime.runFork(effect), onDefect }),
     ]).pipe(
-      Effect.provideService(InputSource.InputSource, serviceOf(options.brought(), InputSource.InputSource)),
+      Effect.provideService(InputSource.InputSource, GestureFeatures.serviceOf(options.brought(), InputSource.InputSource)),
       Scope.provide(scope),
     ),
   )
@@ -959,7 +945,7 @@ export interface ServerBatchReorderOptions<V> extends Pick<BatchReorderOptions<V
   /** The group's `appear`: its items' entrance an Appear animation with `true` (#706, Q16, Q21). */
   readonly appear: () => boolean | undefined
   /** The provider's Appear animations and the nearest `WardicConfig`'s settings, as the binding reads them here. */
-  readonly server: BatchServerAppear
+  readonly server: BatchMembers.BatchServerAppear
 }
 
 const noop = (): void => {}
@@ -996,9 +982,9 @@ export const serverBatchReorder = <V>(options: ServerBatchReorderOptions<V>, unt
     },
   }
   // Each item's start and its entrance, its keyed Batch's server handle's (#706, Q16).
-  let handles: ReturnType<typeof serverKeyedHandlesOf<Style.Style>> | undefined
-  const handlesFor = (presence: PresenceContextValue | undefined) => {
-    if (Predicate.isUndefined(handles)) handles = serverKeyedHandlesOf<Style.Style>(config as KeyedBatchConfig<unknown>, () => presence, options.server)
+  let handles: ReturnType<typeof BatchMembers.serverKeyedHandlesOf<Style.Style>> | undefined
+  const handlesFor = (presence: PresenceController.PresenceContextValue | undefined) => {
+    if (Predicate.isUndefined(handles)) handles = BatchMembers.serverKeyedHandlesOf<Style.Style>(config as BatchMembers.KeyedBatchConfig<unknown>, () => presence, options.server)
     return handles
   }
   const base = itemBaseOf(geometry, inFlow)
@@ -1049,8 +1035,8 @@ const withoutPlace = <V>(given: BatchReorderInitial<V> | undefined): BatchReorde
   const known = WITHOUT_PLACE.get(given as object)
   if (Predicate.isNotUndefined(known)) return known as BatchReorderInitial<V>
   const made = Bool.match(Predicate.isFunction(given), {
-    onTrue: () => (item: V, i: number): WardicBatchValues => withoutPlaceKeys((given as (item: V, i: number) => WardicBatchValues)(item, i)),
-    onFalse: () => withoutPlaceKeys(given as WardicBatchValues),
+    onTrue: () => (item: V, i: number): BatchMembers.WardicBatchValues => withoutPlaceKeys((given as (item: V, i: number) => BatchMembers.WardicBatchValues)(item, i)),
+    onFalse: () => withoutPlaceKeys(given as BatchMembers.WardicBatchValues),
   }) as BatchReorderInitial<V>
   WITHOUT_PLACE.set(given as object, made as BatchReorderInitial<unknown>)
   return made

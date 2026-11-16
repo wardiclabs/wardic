@@ -30,7 +30,7 @@ import { constUndefined } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import { isServer } from "@solidjs/web"
 import { type Accessor, createSignal, onCleanup } from "solid-js"
-import type { PresenceEvents as ControllerEvents } from "../../presence-controller.ts"
+import type * as PresenceController from "@wardic/dom/unstable/PresenceController"
 import { eachOf, serverWhen, Waiters, whenOf } from "./waiters.ts"
 
 /** What a presence handle's `next(name)` waits for. */
@@ -68,7 +68,7 @@ export interface Presence {
 const HEAR = Symbol("wardic.presence.hear")
 
 interface Hearing {
-  readonly [HEAR]: (events: ControllerEvents) => void
+  readonly [HEAR]: (events: PresenceController.PresenceEvents) => void
 }
 
 /** The `AbortError`'s message for a `next` the handle's owner cut off. */
@@ -78,14 +78,14 @@ const GONE = "The presence handle was disposed before its next event."
  * A handle, under the current owner, and the events that drive it: what an `<AnimatePresence>`
  * tells its controller's exits to, and what a handle given it hears through.
  */
-export const makePresenceHandle = (): { readonly handle: Presence; readonly events: ControllerEvents } => {
+export const makePresenceHandle = (): { readonly handle: Presence; readonly events: PresenceController.PresenceEvents } => {
   const [exiting, setExiting] = createSignal(false)
   // The last value written: Solid 2 reads a write from its next flush, so the signal can't say.
   let written = false
   const waiters = new Waiters<PresenceEvents>(GONE)
   // The handles hearing this one (`createPresence()`'s, given to the presence's `ref`).
-  const hearers = new Set<ControllerEvents>()
-  const events: ControllerEvents = {
+  const hearers = new Set<PresenceController.PresenceEvents>()
+  const events: PresenceController.PresenceEvents = {
     exitStart: () => {
       waiters.tell("exitStart", constUndefined)
       hearers.forEach((hearer) => hearer.exitStart())
@@ -113,7 +113,7 @@ export const makePresenceHandle = (): { readonly handle: Presence; readonly even
     each: { value: <E extends PresenceEvent>(name: E) => eachOf<PresenceEvents, E>(waiters, name) },
     when: { value: <E extends PresenceEvent>(name: E) => whenOf<PresenceEvents, E>(waiters, name) },
     [HEAR]: {
-      value: (hearer: ControllerEvents): void => {
+      value: (hearer: PresenceController.PresenceEvents): void => {
         hearers.add(hearer)
         // It starts from where this presence is now.
         hearer.exiting(written)

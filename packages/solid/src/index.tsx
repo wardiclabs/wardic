@@ -44,10 +44,10 @@ export {
  * `layoutId`, `layoutScroll` and `layoutRoot` (`LayoutGroup` and `Reorder` bring it themselves).
  * `scroll`: a container's scroll, which `createScroll` brings itself (#518).
  */
-export type { Feature, FeatureLoad, Features, FeaturesProp } from "./feature.ts"
-export { colors } from "./features/colors.ts"
-export { layout } from "./features/layout.ts"
-export { scroll } from "./features/scroll.ts"
+export type { Feature, FeatureLoad, Features, FeaturesProp } from "@wardic/dom/unstable/Feature"
+export { colors } from "@wardic/dom/unstable/features/Colors"
+export { layout } from "@wardic/dom/unstable/features/Layout"
+export { scroll } from "@wardic/dom/unstable/features/Scroll"
 /**
  * The gestures (#511, ADR-0067 decision 3), a Feature each: `hover`, `press` (its Keyboard presses
  * included), `focus`, `inView`, `pan` and `drag` (`dragControls` and the release's inertia included).
@@ -55,16 +55,16 @@ export { scroll } from "./features/scroll.ts"
  * DOM's. Motion's bundles: `domAnimation` (`hover`, `press`, `focus`, `inView`) and `domMax` (every
  * Feature).
  */
-export { drag } from "./features/drag.ts"
-export { focus } from "./features/focus.ts"
-export { hover } from "./features/hover.ts"
-export { inView } from "./features/in-view.ts"
-export { pan } from "./features/pan.ts"
-export { press } from "./features/press.ts"
-export { domAnimation } from "./features/dom-animation.ts"
-export { domMax } from "./features/dom-max.ts"
+export { drag } from "@wardic/dom/unstable/features/Drag"
+export { focus } from "@wardic/dom/unstable/features/Focus"
+export { hover } from "@wardic/dom/unstable/features/Hover"
+export { inView } from "@wardic/dom/unstable/features/InView"
+export { pan } from "@wardic/dom/unstable/features/Pan"
+export { press } from "@wardic/dom/unstable/features/Press"
+export { domAnimation } from "@wardic/dom/unstable/features/DomAnimation"
+export { domMax } from "@wardic/dom/unstable/features/DomMax"
 // The Instant change and the Projection reset (#443): Motion's `useInstantTransition` and kin.
-export type { InstantTransition } from "./instant.ts"
+export type { InstantTransition } from "@wardic/dom/unstable/Instant"
 // `WardicConfig`'s `transformPagePoint` helpers (#443, Motion's): a drag inside a transformed parent, or an SVG's viewBox.
 export { correctParentTransform, transformViewBoxPoint } from "./page-point.ts"
 export type { AnimateLayout, WardicEnv, WardicRuntime, WardicServices } from "./runtime.ts"
@@ -90,10 +90,10 @@ export type { Shape as FlushGate, Sink as FlushSink } from "@wardic/dom/FlushGat
  * `AtomRegistry`).
  */
 export { fromAtom, streamToSignal } from "./bridge.tsx"
-export type { WardicDragInfo, WardicPoint, WardicPointInfo, WardicPressEvent, WardicPressInfo, WardicPressInput } from "./gesture-info.ts"
-export type { WardicBoundingBox, WardicDragConstraints, WardicMeasureDragConstraints } from "./drag-constraints.ts"
+export type { WardicDragInfo, WardicPoint, WardicPointInfo, WardicPressEvent, WardicPressInfo, WardicPressInput } from "@wardic/dom/unstable/GestureInfo"
+export type { WardicBoundingBox, WardicDragConstraints, WardicMeasureDragConstraints } from "@wardic/dom/unstable/DragConstraints"
 // Drag controls (#431, Motion's `useDragControls`): a drag started from a handle or a track.
-export { createDragControls, type WardicDragControls, type WardicDragControlsOptions } from "./drag-controls.ts"
+export { createDragControls, type WardicDragControls, type WardicDragControlsOptions } from "@wardic/dom/unstable/DragControls"
 // Imperative animation (#433, Motion's `useAnimate`): an Animation scope, its `animate` and its Playback controls;
 // a sequence of Segments (Motion's), on the same controls.
 export { createAnimate } from "./create-animate.tsx"
@@ -101,22 +101,24 @@ export {
   createBatch,
   type WardicBatch,
   type WardicBatchConfig,
-  type WardicBatchExit,
-  type WardicBatchGesture,
-  type WardicBatchKey,
-  type WardicBatchLanding,
   type WardicBatchMember,
   type WardicBatchMemberProps,
-  type WardicBatchSegmentTarget,
-  type WardicBatchSegmentValue,
-  type WardicBatchStop,
-  type WardicBatchSubject,
-  type WardicBatchTarget,
-  type WardicBatchTransition,
-  type WardicBatchValues,
   type WardicKeyedBatch,
   type WardicKeyedBatchConfig,
 } from "./create-batch.tsx"
+export type {
+  WardicBatchExit,
+  WardicBatchGesture,
+  WardicBatchKey,
+  WardicBatchLanding,
+  WardicBatchSegmentTarget,
+  WardicBatchSegmentValue,
+  WardicBatchStop,
+  WardicBatchSubject,
+  WardicBatchTarget,
+  WardicBatchTransition,
+  WardicBatchValues,
+} from "@wardic/dom/unstable/BatchMembers"
 export type {
   WardicAnimate,
   WardicAnimateOptions,
@@ -134,9 +136,9 @@ export type {
   WardicSequenceLabel,
   WardicSequenceOptions,
   WardicSequenceTime,
-} from "./imperative.ts"
+} from "@wardic/dom/unstable/Imperative"
 // Animation controls (#433, Motion's `useAnimationControls`): `animate={controls}`, then `start`, `set` and `stop`.
-export { createAnimationControls, type WardicAnimationControls, type WardicControlsDefinition } from "./animation-controls.ts"
+export { createAnimationControls, type WardicAnimationControls, type WardicControlsDefinition } from "@wardic/core/unstable/AnimationControls"
 
 /**
  * Low-level sensor hooks: `createHover` / `createPress` / `createFocus` /
@@ -176,7 +178,7 @@ export {
   createWillChange,
 } from "./live-value.tsx"
 export { createScroll, type ElementSource, type ScrollOptions, type ScrollValues } from "./live-scroll.tsx"
-export type { FollowAccessor, FollowValueOptions, Live, LiveSource, SpringAccessor, WillChange } from "./live-style.ts"
+export type { FollowAccessor, FollowValueOptions, Live, LiveSource, SpringAccessor, WillChange } from "@wardic/dom/unstable/LiveStyle"
 
 /**
  * `createWard` — a **Ward**, one element's motion binding (ADR-0005, ADR-0042): recognizers ->
@@ -215,7 +217,7 @@ export type {
   WardicVariantResolver,
   WardicVariants,
   WardicVariantTransition,
-} from "./config.ts"
+} from "@wardic/dom/unstable/WardConfig"
 
 /**
  * `<Reorder>` (ADR-0020, ADR-0008 Tier 1): `Reorder.Group` / `Reorder.Item`, built on the
@@ -258,11 +260,13 @@ export {
  * where it was let go (`dragMomentum={false}`).
  */
 export {
-  type DragSnapshot,
-  type DragTrackConfig,
   type RunDragTrackOptions,
   runDragTrack,
 } from "./drag.tsx"
+export type {
+  DragSnapshot,
+  DragTrackConfig,
+} from "@wardic/dom/unstable/DragTrack"
 
 /**
  * Variant orchestration context (ADR-0007): the `WardicVariantContext` that
@@ -272,10 +276,12 @@ export {
  * against their own `variants` map.
  */
 export {
-  type WardicVariantContextValue,
   useVariantContext,
   WardicVariantContext,
 } from "./variants.ts"
+export type {
+  WardicVariantContextValue,
+} from "@wardic/core/unstable/VariantTree"
 
 /**
  * `wardic` (ADR-0008 Tier 1, ADR-0042): the `wardic.*` element proxy, `wardic.create(tag)`
@@ -318,14 +324,16 @@ export {
   AnimatePresence,
   type AnimatePresenceProps,
   PresenceContext,
-  type PresenceContextValue,
-  type PresenceMode,
-  type PresenceRecord,
   useIsPresent,
   usePresence,
   usePresenceContext,
   usePresenceData,
 } from "./presence.tsx"
+export type {
+  PresenceContextValue,
+  PresenceMode,
+  PresenceRecord,
+} from "@wardic/dom/unstable/PresenceController"
 
 /**
  * `layout` / `layoutId` surface (ADR-0009 + ADR-0005). `layout` FLIP runs on the
@@ -336,7 +344,8 @@ export {
  * Crossfade) is matched entirely by the Projection system (ADR-0010 *Amendment
  * (#13)*); `measureLayoutBox` reads an untransformed box.
  */
-export { type CreateProjectionNodeOptions, LayoutGroup, createProjectionNode } from "./layout.tsx"
+export { LayoutGroup, createProjectionNode } from "./layout.tsx"
+export type { CreateProjectionNodeOptions } from "@wardic/dom/unstable/LayoutMember"
 export { measureLayoutBox } from "@wardic/dom/ProjectionSystem"
 
 /**

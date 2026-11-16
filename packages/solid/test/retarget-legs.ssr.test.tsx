@@ -32,9 +32,9 @@ import type * as Values from "@wardic/core/Values"
 import * as DomInterpolators from "@wardic/dom/DomInterpolators"
 import * as Effect from "effect/Effect"
 import { describe, expect, it } from "vitest"
-import type { WardicTransition } from "../src/config.ts"
-import { delayedBy, type Follows, type Leg, legsOf, transitionForKey, velocitiesOf } from "../src/retarget-legs.ts"
-import { makeReuse } from "../src/spine.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
+import * as RetargetLegs from "@wardic/core/unstable/RetargetLegs"
+import * as Spine from "@wardic/core/unstable/Spine"
 
 const positionalKeys = Effect.runSync(Effect.provide(Effect.gen(function* () { return yield* ReducedMotion.PositionalKeys }), ReducedMotion.transformsOnly))
 
@@ -45,15 +45,15 @@ const defaults = Effect.runSync(Effect.provide(Effect.gen(function* () { return 
 interface Retarget {
   readonly from: Values.Values
   readonly to: Values.Values
-  readonly transition: WardicTransition | undefined
+  readonly transition: WardConfig.WardicTransition | undefined
   readonly reducedMotion: boolean
   readonly skipped?: boolean
   readonly velocities: Readonly<Record<string, number>>
-  readonly follow?: Follows
+  readonly follow?: RetargetLegs.Follows
 }
 
 /** The legs of a Retarget of `x`, `opacity` and a colour, with `over`'s changes. */
-const legsFor = (over: Partial<Retarget>): ReadonlyArray<Leg> => {
+const legsFor = (over: Partial<Retarget>): ReadonlyArray<RetargetLegs.Leg> => {
   const r: Retarget = {
     from: { x: 0, opacity: 0, backgroundColor: "#000" },
     to: { x: 100, opacity: 1, backgroundColor: "#fff" },
@@ -62,11 +62,11 @@ const legsFor = (over: Partial<Retarget>): ReadonlyArray<Leg> => {
     velocities: {},
     ...over,
   }
-  return legsOf(r.from, r.to, r.transition, r.reducedMotion, r.skipped === true, positionalKeys, defaults, velocitiesOf(r.velocities), r.follow)
+  return RetargetLegs.legsOf(r.from, r.to, r.transition, r.reducedMotion, r.skipped === true, positionalKeys, defaults, RetargetLegs.velocitiesOf(r.velocities), r.follow)
 }
 
 /** A leg's machine, built (a Blend's with the DOM's Interpolators). */
-const machineOf = (leg: Leg): Machine.Machine<Frame.Frame<unknown>> => {
+const machineOf = (leg: RetargetLegs.Leg): Machine.Machine<Frame.Frame<unknown>> => {
   if (leg._tag === "Blend") return Effect.runSync(Effect.provide(leg.machine(), DomInterpolators.layer))
   return leg.machine() as Machine.Machine<Frame.Frame<unknown>>
 }
@@ -108,7 +108,7 @@ describe("legsOf (#48, ADR-0044 decision 8)", () => {
   it("RL3: reduced motion: the positional keys snap first; a transition can opt out", () => {
     const legs = legsFor({ reducedMotion: true, transition: { delay: 0.25 } })
     expect(legs.map((leg) => leg._tag)).toEqual(["Snap", "Numbers", "Blend"])
-    const snap = legs[0] as Extract<Leg, { _tag: "Snap" }>
+    const snap = legs[0] as Extract<RetargetLegs.Leg, { _tag: "Snap" }>
     expect(snap.keys).toEqual(["x"])
     const step = machineOf(snap).start()
     expect(step(0.2).value, "held through the transition's delay").toEqual({ x: 0 })
@@ -138,7 +138,7 @@ describe("legsOf (#48, ADR-0044 decision 8)", () => {
     })
     expect(legs.map((leg) => leg._tag)).toEqual(["Snap", "Follow", "Blend"])
     expect(reads).toEqual(["opacity"])
-    const follow = legs[1] as Extract<Leg, { _tag: "Follow" }>
+    const follow = legs[1] as Extract<RetargetLegs.Leg, { _tag: "Follow" }>
     expect(follow.key).toBe("opacity")
     target = 3
     expect(settled(follow.machine() as Machine.Machine<Frame.Frame<unknown>>)).toBeCloseTo(3, 1)
@@ -195,13 +195,13 @@ describe("per-value transitions (#301, Motion's getValueTransition)", () => {
   })
 
   it("PV4: one transition object, the same transitions every Retarget; layout and default alone, one transition", () => {
-    const transition: WardicTransition = { type: "tween", duration: 0.4, opacity: { type: "tween", duration: 0.2 }, default: { delay: 0.1 } }
-    expect(transitionForKey(transition, "opacity")).toBe(transitionForKey(transition, "opacity"))
-    expect(transitionForKey(transition, "x")).toBe(transitionForKey(transition, "y"))
-    expect(transitionForKey(transition, "x")).toEqual({ delay: 0.1 })
-    const plain: WardicTransition = { type: "tween", duration: 0.2 }
-    expect(transitionForKey(plain, "opacity")).toBe(plain)
-    expect(transitionForKey(undefined, "opacity")).toBeUndefined()
+    const transition: WardConfig.WardicTransition = { type: "tween", duration: 0.4, opacity: { type: "tween", duration: 0.2 }, default: { delay: 0.1 } }
+    expect(RetargetLegs.transitionForKey(transition, "opacity")).toBe(RetargetLegs.transitionForKey(transition, "opacity"))
+    expect(RetargetLegs.transitionForKey(transition, "x")).toBe(RetargetLegs.transitionForKey(transition, "y"))
+    expect(RetargetLegs.transitionForKey(transition, "x")).toEqual({ delay: 0.1 })
+    const plain: WardConfig.WardicTransition = { type: "tween", duration: 0.2 }
+    expect(RetargetLegs.transitionForKey(plain, "opacity")).toBe(plain)
+    expect(RetargetLegs.transitionForKey(undefined, "opacity")).toBeUndefined()
     const layoutOnly = legsFor({ transition: { type: "tween", duration: 0.2, layout: { type: "tween", duration: 1 } } })
     expect(layoutOnly.map((leg) => leg._tag)).toEqual(["Blend"])
     expect(secondsOf(machineOf(layoutOnly[0]!)), "every value on the own fields").toBeCloseTo(0.2, 1)
@@ -212,7 +212,7 @@ describe("per-value transitions (#301, Motion's getValueTransition)", () => {
   })
 
   it("PV5: a stagger's delay goes on the own fields and each entry; an inherit entry with no delay takes the own fields'", () => {
-    const transition: WardicTransition = {
+    const transition: WardConfig.WardicTransition = {
       type: "tween",
       delay: 0.1,
       default: { type: "tween", duration: 0.2 },
@@ -220,15 +220,15 @@ describe("per-value transitions (#301, Motion's getValueTransition)", () => {
       x: { inherit: true },
       y: { inherit: true, delay: 0.3 },
     }
-    expect(delayedBy(transition, 0)).toBe(transition)
-    const later = delayedBy(transition, 0.5)!
-    const delayOf = (key: string): number | undefined => transitionForKey(later, key)!.delay
+    expect(RetargetLegs.delayedBy(transition, 0)).toBe(transition)
+    const later = RetargetLegs.delayedBy(transition, 0.5)!
+    const delayOf = (key: string): number | undefined => RetargetLegs.transitionForKey(later, key)!.delay
     expect(later.delay, "its own").toBeCloseTo(0.6, 9)
     expect(delayOf("backgroundColor"), "default's").toBeCloseTo(0.5, 9)
     expect(delayOf("opacity"), "an entry's").toBeCloseTo(0.55, 9)
     expect(delayOf("x"), "inherit with none: the own fields'").toBeCloseTo(0.6, 9)
     expect(delayOf("y"), "inherit with its own").toBeCloseTo(0.8, 9)
-    expect(delayedBy(undefined, 0.5)).toEqual({ delay: 0.5 })
+    expect(RetargetLegs.delayedBy(undefined, 0.5)).toEqual({ delay: 0.5 })
   })
 
   it("PV6: the reduced-motion opt-out is the whole transition's; an entry can set its own", () => {
@@ -241,17 +241,17 @@ describe("per-value transitions (#301, Motion's getValueTransition)", () => {
   })
 
   it("PV7: a stagger's transition, made anew with its entries, is reused while their fields are the same", () => {
-    const element: WardicTransition = { type: "tween", duration: 0.4, opacity: { type: "tween", duration: 0.2 } }
-    const reuse = makeReuse()
-    const first = reuse(delayedBy(element, 0.1)!)
-    expect(reuse(delayedBy(element, 0.1)!), "the same fields: the first object").toBe(first)
-    expect(reuse(delayedBy(element, 0.2)!), "another delay: a new one").not.toBe(first)
+    const element: WardConfig.WardicTransition = { type: "tween", duration: 0.4, opacity: { type: "tween", duration: 0.2 } }
+    const reuse = Spine.makeReuse()
+    const first = reuse(RetargetLegs.delayedBy(element, 0.1)!)
+    expect(reuse(RetargetLegs.delayedBy(element, 0.1)!), "the same fields: the first object").toBe(first)
+    expect(reuse(RetargetLegs.delayedBy(element, 0.2)!), "another delay: a new one").not.toBe(first)
   })
 })
 
 describe("a Skipped animation's legs (#468)", () => {
   /** Where each leg lands on its first tick, and whether it's done then. */
-  const firstTick = (legs: ReadonlyArray<Leg>) => legs.map((leg) => machineOf(leg).start()(1 / 60))
+  const firstTick = (legs: ReadonlyArray<RetargetLegs.Leg>) => legs.map((leg) => machineOf(leg).start()(1 / 60))
 
   it("SL1: skipped, every key snaps to its target on its first tick, delay or reduced-motion opt-out or not", () => {
     for (const transition of [undefined, { type: "tween", duration: 2, delay: 1 }, { type: "spring", stiffness: 50, respectReducedMotion: false }] as const) {
@@ -279,7 +279,7 @@ describe("a Skipped animation's legs (#468)", () => {
 
 describe("an inertia's legs (#435)", () => {
   /** Each leg's frames, stepped at 1/60 s until done. */
-  const settledOf = (leg: Leg): Readonly<Record<string, unknown>> => {
+  const settledOf = (leg: RetargetLegs.Leg): Readonly<Record<string, unknown>> => {
     const step = machineOf(leg).start()
     let frame = step(1 / 60)
     for (let i = 0; i < 2000 && !frame.done; i++) frame = step(1 / 60)
@@ -322,7 +322,7 @@ describe("an inertia's legs (#435)", () => {
     expect(settledOf(skipped[0]!), "x where it rests, opacity where it is (no velocity)").toEqual({ x: rest, opacity: 0 })
     const given = legsFor({ skipped: true, to: { x: 100 }, transition: { ...INERTIA, velocity: -200 }, velocities: { x: 500 } })
     expect(settledOf(given[0]!), "skipped, on the transition's velocity over its own").toEqual({ x: Inertia.restOf(0, -200, { max: 300 }) })
-    const keyframed = legsOf({ x: 0 }, { x: 50 }, INERTIA, false, false, positionalKeys, defaults, velocitiesOf({}), undefined, { x: [0, 100, 50] })
+    const keyframed = RetargetLegs.legsOf({ x: 0 }, { x: 50 }, INERTIA, false, false, positionalKeys, defaults, RetargetLegs.velocitiesOf({}), undefined, { x: [0, 100, 50] })
     const failing = keyframed.find((leg) => leg._tag === "Blend")!
     expect(() => Effect.runSync(Effect.provide(failing.machine() as Effect.Effect<unknown>, DomInterpolators.layer)), "Motion's two-keyframe rule").toThrow(/an inertia takes two/)
   })

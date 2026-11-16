@@ -4,7 +4,7 @@
  *
  * @module
  */
-import type { LayoutHooksFor, NamesEvery, PropFeatureNames } from "../../feature.ts"
+import type * as Feature from "@wardic/dom/unstable/Feature"
 import type { WardicMotionPropsV2 } from "../../motion-props.ts"
 import type { FeatureProps, OwnPropsFor } from "./element.tsx"
 import type { createInstantLayoutTransition, createResetProjection, useAnimateLayout } from "./provider.tsx"
@@ -26,7 +26,7 @@ import type { W } from "./w.tsx"
  */
 // ADR-0067 *Amendment (#516)*: decisions 2 (elements bring their Features), 5 (the layout hooks bring
 // `layout`), 7 (loads), 10 (NeedsFeature, and the events, Q19).
-export type WardicInstance<F> = { readonly w: W<F> } & LayoutHooksFor<PropFeatureNames<F>, LayoutHooks>
+export type WardicInstance<F> = { readonly w: W<F> } & Feature.LayoutHooksFor<Feature.PropFeatureNames<F>, LayoutHooks>
 
 /** The layout hooks a Wardic instance with `layout` has, typed as the binding's own. */
 interface LayoutHooks {
@@ -47,4 +47,4 @@ interface LayoutHooks {
  */
 // #516. No `NeedsFeature` here: no element that has a Feature takes its brand, so a wrapper's props
 // with them would fit none with more Features than `F`.
-export type WardConfigOf<F> = NamesEvery<FeatureProps, PropFeatureNames<F>> extends true ? WardicMotionPropsV2 : OwnPropsFor<PropFeatureNames<F>>
+export type WardConfigOf<F> = Feature.NamesEvery<FeatureProps, Feature.PropFeatureNames<F>> extends true ? WardicMotionPropsV2 : OwnPropsFor<Feature.PropFeatureNames<F>>

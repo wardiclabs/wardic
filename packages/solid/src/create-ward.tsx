@@ -28,7 +28,7 @@
  * writing into the same gate id) — see core's `Values.split`.
  */
 import type * as Drag from "@wardic/core/Drag"
-import { tapPropagates } from "./press.ts"
+import * as Press from "@wardic/dom/unstable/Press"
 import * as Renderer from "@wardic/core/Renderer"
 import type * as Values from "@wardic/core/Values"
 import * as DomRenderer from "@wardic/dom/DomRenderer"
@@ -62,42 +62,42 @@ import {
   runWithOwner,
   untrack,
 } from "solid-js"
-import { type ControlsChange, controlledConfigOf, controlledElement, isAnimationControls, subscribe, uncontrolledOf, type WardicAnimationControls } from "./animation-controls.ts"
+import * as AnimationControls from "@wardic/core/unstable/AnimationControls"
 import { fromAtom, watchToSignal } from "./bridge.tsx"
-import { pointMapOptionOf, settingOf, type WardicConfigValue, withConfigTransition } from "./wardic-config-value.ts"
-import { dragTransitionOf, type DragTrack, type DragTrackConfig, runDragTrackWith } from "./drag.tsx"
+import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
+import { runDragTrackWith } from "./drag.tsx"
+import * as DragTransition from "@wardic/dom/unstable/DragTransition"
+import type * as DragTrack from "@wardic/dom/unstable/DragTrack"
 import { createElementStyle } from "./element-style.ts"
-import { createLiveStyle, type LiveSource, type LiveStyle, readLive, serverRegistryOf, split } from "./live-style.ts"
+import * as LiveStyle from "@wardic/dom/unstable/LiveStyle"
 import { createVariantNode } from "./variant-node.ts"
-import { type GestureStates, type NameOrchestration, type ServerVariantNode, serverVariantNode, startingValuesOf, startsQuiet } from "./variant-tree.ts"
-import { registerAnimatable } from "./imperative.ts"
+import * as VariantTree from "@wardic/core/unstable/VariantTree"
+import * as Imperative from "@wardic/dom/unstable/Imperative"
 import { projectionNodeOf, useLayoutGroupId } from "./layout.tsx"
 
 
 
 
 
-import { GESTURE_WORDS, hasService, serviceIn } from "./gesture-features.ts"
-import { handoffOf, setsAnimation } from "./appear.ts"
-import { type PresenceContextValue, presenceBlocksInitial, presenceHold, usePresenceContext } from "./presence.tsx"
-import { type PresenceSeed, presenceSeedOf } from "./presence-record.ts"
-import type { PresenceRecord } from "./presence-record.ts"
+import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
+import * as AppearAnimations from "@wardic/dom/unstable/AppearAnimations"
+import { usePresenceContext } from "./presence.tsx"
+import type * as PresenceController from "@wardic/dom/unstable/PresenceController"
+import * as PresenceRecord from "@wardic/core/unstable/PresenceRecord"
 import { createWhenWanted, NEVER_STARTED, type Started, stateOf, type Wants } from "./sensors.tsx"
 import { type GestureCallbacks, gestureCallbacksOf, inViewOptionsOf, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "./gesture-callbacks.ts"
-import { type Feature, type FeatureRegistry, type FeatureSection, type InstanceFeatures, LAYOUT_PROPS, missingMessage, unreadColorIn, wantsLayoutNode } from "./feature.ts"
+import * as Feature from "@wardic/dom/unstable/Feature"
 import { runWatch, useBuiltProjection, useElementFeatures, useFeatureRegistry, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicValueReads, useWardicPositionalKeys, useWardicReducedMotion, useWardicRenderer, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
-import { transformPagePointOf } from "./wardic-config-value.ts"
 import type { WardicRuntime } from "./runtime.ts"
-import { projectionIn, projectionNodesIn } from "./features/keys.ts"
+import * as Keys from "@wardic/dom/unstable/features/Keys"
 import { isHydrating, isServer } from "./server.ts"
 import { reactivity } from "./solid-reactivity.ts"
-import { accessorOf, type Active, animationCallbacks, isLayoutNode, madeWith, type ElementSpineOptions, makeElementSpine, makeReuse, exitConfigOf, exitTargetOf, presenceTreeOf, presenceRecordOf, recordFrameOf, registryOf, type Resolution, resolutionOf, sameResolution, snapshotOf, type SpineDiagnostics, type Start, startOf, withOnUpdate } from "./spine.ts"
-import { appearEntryOf, claimForDrag, draggingWithWillChange, drawnAtRest, type ElementValueReads, flagStartingStyle, followTemplate, heldTransformFor, registeredValuesOf, releasingAppear, restingOf, type ServerAppearOf, serverStartingStyle, SPINE_DIAGNOSTICS, startLinksOf, valueReadsOf, warnDroppedTransform } from "./element-setup.ts"
-import { applyDragDefaults, dragAxisOf, dragDefaultsOf } from "./drag-defaults.ts"
-import { type WardicVariantContextValue, useVariantContext, WardicVariantContext } from "./variants.ts"
-import type { WardConfig, WardicTransformShorthands, WardicValues } from "./config.ts"
-import { DragGesture, FocusGesture, HoverGesture, InViewGesture, PanGesture, PressGesture } from "./features/keys.ts"
+import * as Spine from "@wardic/core/unstable/Spine"
+import * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
+import * as DragDefaults from "@wardic/dom/unstable/DragDefaults"
+import { useVariantContext, WardicVariantContext } from "./variants.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 
 /**
  * Optional user-supplied props passed INTO the {@link Ward} callable to be
@@ -125,7 +125,7 @@ export interface WardUserProps {
  */
 // #130, ADR-0043: a key is its Base value's `style` link; while no layer of the Override stack sets
 // it, the element shows it, following a Live value on every change, and a return goes to where it is.
-export type WardStyle = { readonly [K in keyof WardicValues]?: WardicValues[K] | LiveSource<number | string> | undefined }
+export type WardStyle = { readonly [K in keyof WardConfig.WardicValues]?: WardConfig.WardicValues[K] | LiveStyle.LiveSource<number | string> | undefined }
 
 /** The props a ward spreads on its element: `{...card()}`. */
 export interface WardProps {
@@ -176,7 +176,7 @@ export type Ward = ((userProps?: WardUserProps) => WardProps) & {
 
 /** `card.value`'s type: a transform key always has a value; any other key may have none. */
 export interface WardValue {
-  <A extends number | string = number>(key: keyof WardicTransformShorthands): Accessor<A>
+  <A extends number | string = number>(key: keyof WardConfig.WardicTransformShorthands): Accessor<A>
   <A extends number | string = number>(key: string): Accessor<A | undefined>
 }
 
@@ -185,7 +185,7 @@ const NO_INTERNALS: SpineInternals = {}
 
 /** What an element's gestures are wanted by: its config, and its section's Features (#511). */
 interface Wanted {
-  readonly config: WardConfig
+  readonly config: WardConfig.WardConfig
   readonly services: Context.Context<never>
 }
 
@@ -194,20 +194,20 @@ interface Wanted {
  * Feature (#511): shared by every element.
  */
 const WANTS: Wants<Wanted> = {
-  hover: (w) => wantsHover(w.config) && hasService(w.services, HoverGesture),
-  press: (w) => wantsPress(w.config) && hasService(w.services, PressGesture),
-  inView: (w) => wantsInView(w.config) && hasService(w.services, InViewGesture),
-  focus: (w) => wantsFocus(w.config) && hasService(w.services, FocusGesture),
-  pan: (w) => wantsPan(w.config) && hasService(w.services, PanGesture),
+  hover: (w) => wantsHover(w.config) && GestureFeatures.hasService(w.services, Keys.HoverGesture),
+  press: (w) => wantsPress(w.config) && GestureFeatures.hasService(w.services, Keys.PressGesture),
+  inView: (w) => wantsInView(w.config) && GestureFeatures.hasService(w.services, Keys.InViewGesture),
+  focus: (w) => wantsFocus(w.config) && GestureFeatures.hasService(w.services, Keys.FocusGesture),
+  pan: (w) => wantsPan(w.config) && GestureFeatures.hasService(w.services, Keys.PanGesture),
 }
 
 /** Each gesture a config may want, its Feature's name and key: what development's word on a missing one checks (#511). */
-const GESTURE_FEATURES: ReadonlyArray<readonly [keyof typeof GESTURE_WORDS, (config: WardConfig) => boolean, Context.Key<unknown, unknown>]> = [
-  ["hover", wantsHover, HoverGesture],
-  ["press", wantsPress, PressGesture],
-  ["inView", wantsInView, InViewGesture],
-  ["focus", wantsFocus, FocusGesture],
-  ["pan", wantsPan, PanGesture],
+const GESTURE_FEATURES: ReadonlyArray<readonly [keyof typeof GestureFeatures.GESTURE_WORDS, (config: WardConfig.WardConfig) => boolean, Context.Key<unknown, unknown>]> = [
+  ["hover", wantsHover, Keys.HoverGesture],
+  ["press", wantsPress, Keys.PressGesture],
+  ["inView", wantsInView, Keys.InViewGesture],
+  ["focus", wantsFocus, Keys.FocusGesture],
+  ["pan", wantsPan, Keys.PanGesture],
 ]
 
 /** A `ward()` call's user props when it's given none. */
@@ -239,10 +239,10 @@ export interface SpineInternals {
    * `GESTURE_KEYS`. It starts no computation to watch for one.
    */
   readonly gestureless?: boolean | undefined
-  readonly brings?: ReadonlyArray<Feature> | undefined
+  readonly brings?: ReadonlyArray<Feature.Feature> | undefined
   readonly complete?: boolean | undefined
   /** A Wardic instance's Features (#516): its element brings them, given at once or loaded, beside its section's. */
-  readonly instance?: InstanceFeatures | undefined
+  readonly instance?: Feature.InstanceFeatures | undefined
   /**
    * Whether the element's drag defaults go on it at mount too, for a `wardic.create(Component)`
    * wrap: its component may not pass the spread's `style` and `draggable` on (#253).
@@ -260,7 +260,7 @@ export interface SpineInternals {
 
 export interface RunSpineOptions {
   /** Its element's value reads (#672, PR2-Q6), when its caller has read them; else `runSpine` reads them. */
-  readonly valueReads?: ElementValueReads | undefined
+  readonly valueReads?: ElementSetup.ElementValueReads | undefined
   /** The provider runtime the spine forks its fibers on. */
   readonly runtime: WardicRuntime
   /** The provider-owned flush gate (ADR-0006). */
@@ -270,7 +270,7 @@ export interface RunSpineOptions {
   /** The element accessor; the spine is gated on it (started once defined). */
   readonly el: Accessor<HTMLElement | undefined>
   /** Reactive config accessor (animate / whileHover / whileTap / transition read reactively). */
-  readonly cfg: Accessor<WardConfig>
+  readonly cfg: Accessor<WardConfig.WardConfig>
   /**
    * The variant context this element inherits from (ADR-0007): its nearest ancestor's with
    * variants, for a Variant child (#50, `variant-node.ts`'s `inherited`), else `undefined`.
@@ -279,7 +279,7 @@ export interface RunSpineOptions {
    * it has no `initial` of its own, and falls back to `parent.transition()` when this config
    * has no local transition.
    */
-  readonly parent: WardicVariantContextValue | undefined
+  readonly parent: VariantTree.WardicVariantContextValue | undefined
   /**
    * Called for EVERY emitted spine frame with that frame's `done` flag (ADR-0007
    * orchestration): true on the settling frame, false while moving. The owner
@@ -297,7 +297,7 @@ export interface RunSpineOptions {
    */
   readonly canStart?: (() => boolean) | undefined
   /** Its variant node's binding of its gesture states (#291): the names it hands its Variant children follow them. */
-  readonly bindGestures?: ((states: Accessor<GestureStates>) => void) | undefined
+  readonly bindGestures?: ((states: Accessor<VariantTree.GestureStates>) => void) | undefined
   /**
    * Reactive extra delay (seconds) folded into the effective transition's
    * `delay` for the inherited-variant Retarget (ADR-0007 per-child stagger).
@@ -305,7 +305,7 @@ export interface RunSpineOptions {
    */
   readonly extraDelay?: ((name: string | undefined) => number) | undefined
   /** A list's names orchestrated each on their own (#297's PR 2): the variant node's. */
-  readonly byName?: NameOrchestration | undefined
+  readonly byName?: VariantTree.NameOrchestration | undefined
   /** A `<Reorder>` item's additions (internal; see {@link SpineInternals}). */
   readonly internal?: SpineInternals | undefined
   /**
@@ -321,7 +321,7 @@ export interface RunSpineOptions {
    * the spine writes through the gate while nothing else owns them, and which a return follows.
    * Omitted on the directives, which have no `style` prop.
    */
-  readonly live?: LiveStyle | undefined
+  readonly live?: LiveStyle.LiveStyle | undefined
   /**
    * Builds the {@link FlushSink} for the registered element: the element itself, plus, for a
    * surface whose `style` prop reaches it (`createWard`, `wardic.create(Component)`), the hooks
@@ -336,7 +336,7 @@ export interface RunSpineOptions {
   /** The element's tag, for its mount animation's spec (SVG's routing): `undefined` when it isn't known. */
   readonly tag?: string | undefined
   /** Its Features (#511), when its surface has read them already; else the spine reads them. */
-  readonly features?: FeatureSection | undefined
+  readonly features?: Feature.FeatureSection | undefined
   /**
    * Whether the element's drag defaults and base style reach it with its props: a `createWard`
    * spread's `style` and attributes. Otherwise the spine sets them on the element at mount (the
@@ -350,16 +350,16 @@ export interface RunSpineOptions {
    */
   readonly entersFresh?: ((element: HTMLElement) => boolean) | undefined
   /** Put the Starting style for `start` back on the element's `style` until its first commit (#414). */
-  readonly restartStyle?: ((start: Start) => void) | undefined
+  readonly restartStyle?: ((start: Spine.Start) => void) | undefined
   /** Its **Animation controls** (#433), when its `animate` is some: each change is its entry. */
   readonly controls?: Controls | undefined
 }
 
 /** An element's **Animation controls** on the Solid 1 binding (#433): the controls, and the change in effect, its signal. */
 export interface Controls {
-  readonly controls: WardicAnimationControls
-  readonly change: Accessor<ControlsChange | undefined>
-  readonly set: (change: ControlsChange) => void
+  readonly controls: AnimationControls.WardicAnimationControls
+  readonly change: Accessor<AnimationControls.ControlsChange | undefined>
+  readonly set: (change: AnimationControls.ControlsChange) => void
 }
 
 /**
@@ -367,25 +367,25 @@ export interface Controls {
  * entry, the config marked controlled; anything else leaves it as it is. Under a `WardicConfig`, its
  * **Config transition** is its own when it gives none (#434).
  */
-export const controlledOf = (given: Accessor<WardConfig>): { readonly cfg: Accessor<WardConfig>; readonly controls: Controls | undefined } => {
+export const controlledOf = (given: Accessor<WardConfig.WardConfig>): { readonly cfg: Accessor<WardConfig.WardConfig>; readonly controls: Controls | undefined } => {
   const configured = configuredOf(given, useWardicConfig())
   const animate = untrack(configured).animate
-  if (Bool.not(isAnimationControls(animate))) return { cfg: configured, controls: undefined }
-  const [change, set] = createSignal<ControlsChange | undefined>(undefined)
-  return { cfg: () => controlledConfigOf(configured(), change()), controls: { controls: animate as WardicAnimationControls, change, set: (made) => set(() => made) } }
+  if (Bool.not(AnimationControls.isAnimationControls(animate))) return { cfg: configured, controls: undefined }
+  const [change, set] = createSignal<AnimationControls.ControlsChange | undefined>(undefined)
+  return { cfg: () => AnimationControls.controlledConfigOf(configured(), change()), controls: { controls: animate as AnimationControls.WardicAnimationControls, change, set: (made) => set(() => made) } }
 }
 
 /**
  * `given` with its **Config transition** as its own when it gives none (#434, Motion's
  * `{ ...config, ...props }`), one object per change; `given` itself with no `WardicConfig` above.
  */
-const configuredOf = (given: Accessor<WardConfig>, config: WardicConfigValue | undefined): Accessor<WardConfig> => {
+const configuredOf = (given: Accessor<WardConfig.WardConfig>, config: WardicConfigValue.WardicConfigValue | undefined): Accessor<WardConfig.WardConfig> => {
   if (Predicate.isUndefined(config)) return given
-  return createMemo(() => withConfigTransition(given(), config))
+  return createMemo(() => WardicConfigValue.withConfigTransition(given(), config))
 }
 
 /** No change: an element without Animation controls. */
-const NO_CHANGE: Accessor<ControlsChange | undefined> = constUndefined
+const NO_CHANGE: Accessor<AnimationControls.ControlsChange | undefined> = constUndefined
 
 /**
  * The fixed motion spine, factored out so both sink shapes share it (ADR-0006):
@@ -405,9 +405,9 @@ const NO_CHANGE: Accessor<ControlsChange | undefined> = constUndefined
  * Whether a ward's element waits off the page for its held child (#277, ADR-0048): its start queued
  * with the presence (`shown`, made only under one), cancelled with the effect's run.
  */
-const heldBack = (presence: PresenceContextValue | undefined, element: HTMLElement, shown: (() => void) | undefined): boolean => {
+const heldBack = (presence: PresenceController.PresenceContextValue | undefined, element: HTMLElement, shown: (() => void) | undefined): boolean => {
   if (Predicate.isUndefined(shown)) return false
-  const cancel = presenceHold(presence, element, shown)
+  const cancel = PresenceRecord.presenceHold(presence, element, shown)
   if (Predicate.isUndefined(cancel)) return false
   onCleanup(cancel)
   return true
@@ -424,9 +424,9 @@ const layoutNodeOf = (atMount: ProjectionSystem.NodeHandle | undefined, later: L
   UndefinedOr.match(atMount, { onDefined: identity, onUndefined: () => UndefinedOr.match(later, { onDefined: (l) => l.handle, onUndefined: constUndefined }) })
 
 /** Its caller's value reads, else its own, with one context read (#672, PR2-Q6). */
-const valueReadsIn = (given: ElementValueReads | undefined): ElementValueReads => {
+const valueReadsIn = (given: ElementSetup.ElementValueReads | undefined): ElementSetup.ElementValueReads => {
   if (Predicate.isNotUndefined(given)) return given
-  return valueReadsOf(useWardicValueReads())
+  return ElementSetup.valueReadsOf(useWardicValueReads())
 }
 
 export function runSpine(opts: RunSpineOptions): void {
@@ -435,7 +435,7 @@ export function runSpine(opts: RunSpineOptions): void {
   const features = UndefinedOr.match(opts.features, { onDefined: identity, onUndefined: () => useElementFeatures(internal) })
   // Its section's projection system, the `layout` Feature's (#511): `undefined` without it. Read now,
   // which builds the Features given to its section at once: the first element to ask builds them.
-  const layoutProjection = projectionIn(untrack(features.services))
+  const layoutProjection = Keys.projectionIn(untrack(features.services))
   // Every Feature its provider has built: where its spine finds its Timeline values (#240).
   const builtFeatures = useFeatureRegistry().built
   // The provider's, once any section has built it: what its values register with.
@@ -457,7 +457,7 @@ export function runSpine(opts: RunSpineOptions): void {
   // Whether its animations are skipped (#468): its nearest WardicConfig's, read as each starts.
   const skipAnimations = useWardicSkipAnimations()
   // Where its drag's and pan's points are (#443): its nearest WardicConfig's, read as each starts.
-  const pagePoint = transformPagePointOf(useWardicConfig())
+  const pagePoint = WardicConfigValue.transformPagePointOf(useWardicConfig())
   const positionalKeys = useWardicPositionalKeys()
   // What a key with no transition of its own runs on (ADR-0051).
   const defaultTransition = useWardicDefaultTransition()
@@ -469,16 +469,16 @@ export function runSpine(opts: RunSpineOptions): void {
   // reactive dependency, must not re-seed after mount), with the inherited `initial`
   // name for a Variant child that has none (#50). Seeds the spring `from` Snapshot so
   // frame 1 flows continuously out of it (no snap).
-  const start = startOf(untrack(cfg), parent, presenceBlocksInitial(presence), untrack)
-  const snapshot = snapshotOf(start)
-  const reuse = makeReuse()
+  const start = Spine.startOf(untrack(cfg), parent, PresenceRecord.presenceBlocksInitial(presence), untrack)
+  const snapshot = Spine.snapshotOf(start)
+  const reuse = Spine.makeReuse()
   // Where an element starts (#414): the ward's start, or, for one that comes after the last left the
   // page, a fresh one, as a mount after the first render's (no presence holds its `initial` back).
   // Its Snapshot goes back to it, and its Starting style comes back on until its first commit.
-  const beginOf = (element: HTMLElement): Start => {
+  const beginOf = (element: HTMLElement): Spine.Start => {
     if (Predicate.isUndefined(entersFresh)) return start
     if (Bool.not(entersFresh(element))) return start
-    const fresh = startOf(untrack(cfg), parent, false, untrack)
+    const fresh = Spine.startOf(untrack(cfg), parent, false, untrack)
     snapshot.values = { ...fresh.initialValues }
     snapshot.velocities = {}
     snapshot.drawnAt = {}
@@ -486,7 +486,7 @@ export function runSpine(opts: RunSpineOptions): void {
     return fresh
   }
   // The config and the user's style, as the spine reads them: untracked.
-  const configNow = (): WardConfig => untrack(cfg)
+  const configNow = (): WardConfig.WardConfig => untrack(cfg)
   const styleNow = UndefinedOr.map(styleOf, (of) => () => untrack(of))
 
   // Inside a child `mode="wait"` holds off the page (#277, ADR-0048), everything starts once the child
@@ -520,13 +520,13 @@ export function runSpine(opts: RunSpineOptions): void {
       // is told each committed frame (#233); any other never joins the gate's tells. While
       // hydrating, its Appear animation is found here, taken over by its first Retarget that
       // starts, and removed in its first commit (#48, ADR-0044 decision 6).
-      const handoff = Bool.match(hydrating === true, { onTrue: () => Option.getOrUndefined(handoffOf(element)), onFalse: constUndefined })
+      const handoff = Bool.match(hydrating === true, { onTrue: () => Option.getOrUndefined(AppearAnimations.handoffOf(element)), onFalse: constUndefined })
       // Its Transform template (#443), drawn with its first write: the one at mount, then each other
       // one its config gives.
       const templateAtMount = untrack(cfg).transformTemplate
       let template = templateAtMount
-      const registered = registeredValuesOf(templateAtMount)
-      const unregister = gate.register(id, releasingAppear(withOnUpdate(makeSink(element), untrack(cfg).onUpdate, configNow), handoff, element), registered)
+      const registered = ElementSetup.registeredValuesOf(templateAtMount)
+      const unregister = gate.register(id, ElementSetup.releasingAppear(Spine.withOnUpdate(makeSink(element), untrack(cfg).onUpdate, configNow), handoff, element), registered)
       onCleanup(unregister)
 
       // A surface whose props don't carry a drag element's defaults (ADR-0019 *Amendment
@@ -551,12 +551,12 @@ export function runSpine(opts: RunSpineOptions): void {
           write(untrack(base) as Record<string, unknown> | undefined)
           createEffect(on(base, (style) => write(style as Record<string, unknown> | undefined), { defer: true }))
         }
-        UndefinedOr.map(dragDefaultsOf(untrack(cfg), internal), (defaults) => applyDragDefaults(element, defaults))
+        UndefinedOr.map(DragDefaults.dragDefaultsOf(untrack(cfg), internal), (defaults) => DragDefaults.applyDragDefaults(element, defaults))
       }
 
       // Base values (ADR-0022): a key with no value starts from its `style` value, else its Own
       // value, read from the element once per key, at first need (D3).
-      const links = startLinksOf(element, styleNow, live)
+      const links = ElementSetup.startLinksOf(element, styleNow, live)
 
       // --- Presence registration (ADR-0007 exit) -------------------------------
       // Under an <AnimatePresence>, publish a live record so the PARENT can drive
@@ -566,21 +566,21 @@ export function runSpine(opts: RunSpineOptions): void {
       // `variants`, `custom` and transition) is kept current while it's alive, and resolved as it
       // leaves. The child does NOT call the disposer on its own
       // onCleanup — <AnimatePresence> removes the registration after the exit settles.
-      let presenceRec: PresenceRecord | undefined
+      let presenceRec: PresenceController.PresenceRecord | undefined
       // Where it starts when its child takes over from a leaver (#286): asked before its layout node
       // registers, which moves from the leaver's box, and before its first Retarget.
-      let taken: PresenceSeed | undefined
+      let taken: PresenceRecord.PresenceSeed | undefined
       if (Predicate.isNotUndefined(presence)) {
-        const exitConfig = { current: exitConfigOf(untrack(cfg), parent) }
-        const rec = presenceRecordOf(element, begin, (custom, inherited) => exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, presenceTreeOf(untrack(cfg)), snapshot, reducedMotion, skipAnimations)
+        const exitConfig = { current: Spine.exitConfigOf(untrack(cfg), parent) }
+        const rec = Spine.presenceRecordOf(element, begin, (custom, inherited) => Spine.exitTargetOf(exitConfig.current, custom, snapshot, inherited), links, Spine.presenceTreeOf(untrack(cfg)), snapshot, reducedMotion, skipAnimations)
         presenceRec = rec
         presence.register(rec)
-        taken = presenceSeedOf(presence, element)
+        taken = PresenceRecord.presenceSeedOf(presence, element)
         createEffect(() => {
-          exitConfig.current = exitConfigOf(cfg(), parent)
+          exitConfig.current = Spine.exitConfigOf(cfg(), parent)
         })
       }
-      const recordFrame = recordFrameOf(presenceRec)
+      const recordFrame = Spine.recordFrameOf(presenceRec)
 
       // Every element's values, by element, for the projection (ADR-0012 *Amendment (#137)*): a twin's
       // flight follows the translate and scale Wardic animates on its ancestors each frame.
@@ -593,7 +593,7 @@ export function runSpine(opts: RunSpineOptions): void {
       if (Predicate.isNotUndefined(templateAtMount)) {
         recordFrame(registered as Values.Values)
         onCleanup(
-          followTemplate(templateAtMount, () => cfg().transformTemplate, reactivity.watch, (next) => {
+          ElementSetup.followTemplate(templateAtMount, () => cfg().transformTemplate, reactivity.watch, (next) => {
             template = next
             const values = { ...snapshot.values, [DomRenderer.TEMPLATE_KEY]: next }
             gate.write(id, values)
@@ -617,17 +617,17 @@ export function runSpine(opts: RunSpineOptions): void {
       // alone does not (it only tunes a node that already projects), but is forwarded.
       let layoutHandle: ProjectionSystem.NodeHandle | undefined
       // What every release runs on, the layout node's Release offset and the drag track's (ADR-0016, *Amendment (#140)*).
-      const dragTransition = dragTransitionOf(c0.dragElastic, c0.dragTransition)
+      const dragTransition = DragTransition.dragTransitionOf(c0.dragElastic, c0.dragTransition)
       // Its section's `layout` makes its node (#511): without it, its layout props do nothing, and
       // development says so once, unless `layout` is on its way.
-      if (DEV && wantsLayoutNode(c0) && Predicate.isUndefined(layoutProjection) && Bool.not(untrack(features.pending))) {
-        useFeatureRegistry().warnOnce("layout", missingMessage("layout", LAYOUT_PROPS, "@wardic/solid"))
+      if (DEV && Feature.wantsLayoutNode(c0) && Predicate.isUndefined(layoutProjection) && Bool.not(untrack(features.pending))) {
+        useFeatureRegistry().warnOnce("layout", Feature.missingMessage("layout", Feature.LAYOUT_PROPS, "@wardic/solid"))
       }
       // `layout` on its way (#582): its node is made as it arrives, under this owner, as Motion's is,
       // and measures from then on; nothing before it is replayed. A load that brings none gets
       // development's word then.
       let lateLayout: LateLayout | undefined
-      if (wantsLayoutNode(c0)) {
+      if (Feature.wantsLayoutNode(c0)) {
         // What its node is made with, copied into this block: the closures here hold only these, so an
         // element with no layout prop keeps none of them (#551's lesson).
         const ward = {
@@ -641,14 +641,14 @@ export function runSpine(opts: RunSpineOptions): void {
           layoutGroup,
           reducedMotion,
           skipAnimations,
-          heldTransform: heldTransformFor(snapshot, templateAtMount, () => template),
+          heldTransform: ElementSetup.heldTransformFor(snapshot, templateAtMount, () => template),
         }
         const onLayoutHandle = internal.onLayoutHandle
         // Its node on `projection`, handed to a `<Reorder>` item's group; `takenNow`, where a child that
         // takes over from a leaver starts, at its mount only (#286). Made by the `layout` Feature's code
         // (#746), read from its section's Features, which have `layout` once they have `projection`.
-        const layoutNodeOn = (projection: ProjectionSystem.Shape, takenNow: PresenceSeed | undefined): ProjectionSystem.NodeHandle => {
-          const nodes = projectionNodesIn(untrack(features.services))
+        const layoutNodeOn = (projection: ProjectionSystem.Shape, takenNow: PresenceRecord.PresenceSeed | undefined): ProjectionSystem.NodeHandle => {
+          const nodes = Keys.projectionNodesIn(untrack(features.services))
           const handle = projectionNodeOf(projection, nodes, nodes.optionsOf({ ...ward, taken: takenNow }))
           if (Predicate.isNotUndefined(onLayoutHandle)) onLayoutHandle(handle)
           return handle
@@ -662,12 +662,12 @@ export function runSpine(opts: RunSpineOptions): void {
             handle: undefined,
             arrive: () => {
               if (Predicate.isNotUndefined(later.handle)) return
-              UndefinedOr.match(projectionIn(section.services()), {
+              UndefinedOr.match(Keys.projectionIn(section.services()), {
                 onDefined: (arrived) => {
                   later.handle = runWithOwner(owner, () => untrack(() => layoutNodeOn(arrived, undefined)))
                 },
                 onUndefined: () => {
-                  if (DEV && Bool.not(section.pending())) registry.warnOnce("layout", missingMessage("layout", LAYOUT_PROPS, "@wardic/solid"))
+                  if (DEV && Bool.not(section.pending())) registry.warnOnce("layout", Feature.missingMessage("layout", Feature.LAYOUT_PROPS, "@wardic/solid"))
                 },
               })
             },
@@ -692,35 +692,35 @@ export function runSpine(opts: RunSpineOptions): void {
       // gates the whileDrag override + the translate-key strip); the drag
       // CONFIG is static — read ONCE here (untrack), since drag config is a
       // document. The track's single fiber is scoped to this owner's onCleanup.
-      const dragCfg = dragAxisOf(untrack(cfg), internal)
+      const dragCfg = DragDefaults.dragAxisOf(untrack(cfg), internal)
       const [dragging, setDragging] = createSignal(false)
       // Its hold on `x`/`y`, for the spine's Retargets (#340).
-      let dragTrack: DragTrack | undefined
+      let dragTrack: DragTrack.DragTrack | undefined
       // Its track's holder while `drag` is on its way (#551): the spine reads the track there, and
       // whether it drives the layout node (#582).
-      let late: { track: DragTrack | undefined; projected: boolean } | undefined
+      let late: { track: DragTrack.DragTrack | undefined; projected: boolean } | undefined
       // Its section's `drag` Feature drives it (#511): without it, `drag` does nothing, and development
       // says so once, unless `drag` is on its way.
-      const dragGesture = serviceIn(untrack(features.services), DragGesture)
+      const dragGesture = GestureFeatures.serviceIn(untrack(features.services), Keys.DragGesture)
       if (DEV && Predicate.isNotUndefined(dragCfg) && Predicate.isUndefined(dragGesture) && Bool.not(untrack(features.pending))) {
-        useFeatureRegistry().warnOnce("drag", missingMessage("drag", GESTURE_WORDS.drag, "@wardic/solid"))
+        useFeatureRegistry().warnOnce("drag", Feature.missingMessage("drag", GestureFeatures.GESTURE_WORDS.drag, "@wardic/solid"))
       }
       if (Predicate.isNotUndefined(dragCfg)) {
         // What the track is made with, copied into this block: a closure here holds only these, so an
         // element that never drags keeps none of them (#551).
         const axis = dragCfg
         const transition = dragTransition
-        const setDrag = draggingWithWillChange(live, setDragging, element)
+        const setDrag = ElementSetup.draggingWithWillChange(live, setDragging, element)
         const nodeAtMount = layoutHandle
         const nodeLater = lateLayout
         // It drives the layout node the element has as it's made, at mount or as `drag` arrives: a
         // node made later leaves it moving `x`/`y` (#582).
-        const trackWith = (dragGesture: DragGesture["Service"]): DragTrack => {
+        const trackWith = (dragGesture: Keys.DragGesture["Service"]): DragTrack.DragTrack => {
           const projection = layoutNodeOf(nodeAtMount, nodeLater)
           const c0d = untrack(cfg)
           // Motion's `dragConstraints` (#273): a box of numbers, or a container measured against the element.
           const constraints = dragGesture.constraintsOf(c0d.dragConstraints, element, () => untrack(cfg).onMeasureDragConstraints, pagePoint)
-          const trackConfig: DragTrackConfig = {
+          const trackConfig: DragTrack.DragTrackConfig = {
             axis,
             constraints: constraints.constraints,
             elastic: c0d.dragElastic,
@@ -741,7 +741,7 @@ export function runSpine(opts: RunSpineOptions): void {
             // A drag's start turns its `style`'s will-change value on (#443).
             setDragging: setDrag,
             // A Batch member's element takes its transform from its Batch as its drag reads or writes it (#665).
-            claim: claimForDrag(element),
+            claim: ElementSetup.claimForDrag(element),
             mapPoint: pagePoint,
             config: trackConfig,
             skipAnimations,
@@ -771,14 +771,14 @@ export function runSpine(opts: RunSpineOptions): void {
         // recognizer does, under this owner; nothing before it is replayed. A load that brings none
         // gets development's word then.
         if (Predicate.isUndefined(dragGesture) && untrack(features.pending)) {
-          const held: { track: DragTrack | undefined; projected: boolean } = { track: undefined, projected: false }
+          const held: { track: DragTrack.DragTrack | undefined; projected: boolean } = { track: undefined, projected: false }
           late = held
           const owner = getOwner()
           const registry = useFeatureRegistry()
           const section = features
           createComputed(() => {
             if (Predicate.isNotUndefined(held.track)) return
-            UndefinedOr.match(serviceIn(section.services(), DragGesture), {
+            UndefinedOr.match(GestureFeatures.serviceIn(section.services(), Keys.DragGesture), {
               onDefined: (arrived) => {
                 // A `layout` from the same load makes its node first, so the track drives it (#582).
                 if (Predicate.isNotUndefined(nodeLater)) nodeLater.arrive()
@@ -786,7 +786,7 @@ export function runSpine(opts: RunSpineOptions): void {
                 held.track = runWithOwner(owner, () => untrack(() => trackWith(arrived)))
               },
               onUndefined: () => {
-                if (DEV && Bool.not(section.pending())) registry.warnOnce("drag", missingMessage("drag", GESTURE_WORDS.drag, "@wardic/solid"))
+                if (DEV && Bool.not(section.pending())) registry.warnOnce("drag", Feature.missingMessage("drag", GestureFeatures.GESTURE_WORDS.drag, "@wardic/solid"))
               },
             })
           })
@@ -800,14 +800,14 @@ export function runSpine(opts: RunSpineOptions): void {
       // (runScoped). Until started, a layer reads false.
       // Each through its section's Feature (#511), read with the config, so one that arrives lazily
       // starts what the config wants of it from then on.
-      const gestureOf = <I, S>(key: Context.Key<I, S>): S => UndefinedOr.getOrThrow(serviceIn(untrack(features.services), key))
+      const gestureOf = <I, S>(key: Context.Key<I, S>): S => UndefinedOr.getOrThrow(GestureFeatures.serviceIn(untrack(features.services), key))
       // An element that can never want one watches for none (#525): no computation an element.
       let started: Accessor<Started> = NEVER_STARTED
       if (internal.gestureless !== true) started = createWhenWanted(() => ({ config: cfg(), services: features.services() }), WANTS, {
         hover: () =>
           watchToSignal<boolean>(
             ({ on, onDefect }) =>
-              gestureOf(HoverGesture).watch(element, {
+              gestureOf(Keys.HoverGesture).watch(element, {
                 on: (transition) => {
                   gesturesOf().hovered(transition)
                   on(transition.active)
@@ -819,7 +819,7 @@ export function runSpine(opts: RunSpineOptions): void {
         press: () =>
           watchToSignal<boolean>(
             ({ on, onDefect }) =>
-              gestureOf(PressGesture).watch(
+              gestureOf(Keys.PressGesture).watch(
                 element,
                 {
                   on: (press) => {
@@ -829,7 +829,7 @@ export function runSpine(opts: RunSpineOptions): void {
                   onDefect,
                 },
                 internal.keysTaken === true,
-                () => tapPropagates(untrack(cfg).propagate),
+                () => Press.tapPropagates(untrack(cfg).propagate),
               ),
             false,
           ),
@@ -837,7 +837,7 @@ export function runSpine(opts: RunSpineOptions): void {
         inView: () =>
           watchToSignal<boolean>(
             ({ on, onDefect }) =>
-              gestureOf(InViewGesture).watch(element, inViewOptionsOf(untrack(cfg).viewport), {
+              gestureOf(Keys.InViewGesture).watch(element, inViewOptionsOf(untrack(cfg).viewport), {
                 on: (transition) => {
                   gesturesOf().viewed(transition)
                   on(transition.active)
@@ -847,15 +847,15 @@ export function runSpine(opts: RunSpineOptions): void {
             false,
           ),
         // Focused as the browser shows it (`:focus-visible`, Motion's `whileFocus`).
-        focus: () => watchToSignal<boolean>((handlers) => gestureOf(FocusGesture).watch(element, { visible: true }, handlers), false),
-        pan: () => runWatch(runtime, (onDefect) => gestureOf(PanGesture).watch(element, { on: (sample) => gesturesOf().panned(sample), onDefect }, { mapPoint: pointMapOptionOf(pagePoint) })),
+        focus: () => watchToSignal<boolean>((handlers) => gestureOf(Keys.FocusGesture).watch(element, { visible: true }, handlers), false),
+        pan: () => runWatch(runtime, (onDefect) => gestureOf(Keys.PanGesture).watch(element, { on: (sample) => gesturesOf().panned(sample), onDefect }, { mapPoint: WardicConfigValue.pointMapOptionOf(pagePoint) })),
       })
       if (DEV && internal.complete !== true && internal.gestureless !== true) warnMissingGestures(useFeatureRegistry(), features, cfg)
 
       // Its gesture states: the started recognizers, one tracked read, then each started one's state.
       // A keyboard lift turns `whileDrag` on, as a drag does (ADR-0037).
       const lifted = internal.lifted
-      const active = (): Active => {
+      const active = (): Spine.Active => {
         const held = dragging()
         const layers = started()
         return {
@@ -871,7 +871,7 @@ export function runSpine(opts: RunSpineOptions): void {
       // change, a recognizer's flip or the drag's recomputes it, and only one that resolves a new
       // target drives a Retarget. A `transition`, a callback or an option alone tells nothing, as
       // Motion's doesn't.
-      const target = createMemo((): Resolution => resolutionOf(cfg(), parent, begin.initialLink, active(), snapshot, ownChange()), undefined, { equals: sameResolution })
+      const target = createMemo((): Spine.Resolution => Spine.resolutionOf(cfg(), parent, begin.initialLink, active(), snapshot, ownChange()), undefined, { equals: Spine.sameResolution })
       // A colour only the `colors` Feature reads, on a Slim element without it (#511, decision 7): said
       // once per provider, in development only, and not while a lazy load is on its way.
       if (DEV && internal.complete !== true) warnUnreadColors(useFeatureRegistry(), features, () => target().resolved)
@@ -879,9 +879,9 @@ export function runSpine(opts: RunSpineOptions): void {
       // themselves, as a gesture whose layer resolves nothing new leaves the target as it was.
       if (Predicate.isNotUndefined(bindGestures)) bindGestures(active)
 
-      // The spine (`spine.ts`): on each target change, end the running legs and reseed a fresh
+      // The spine (core's `unstable/Spine`): on each target change, end the running legs and reseed a fresh
       // primitive from the Snapshot (velocity-preserving), into the gate.
-      const spineOptions: ElementSpineOptions = {
+      const spineOptions: Spine.ElementSpineOptions = {
         runtime,
         gate,
         id,
@@ -913,7 +913,7 @@ export function runSpine(opts: RunSpineOptions): void {
         drag: dragTrack,
         handoff,
         // Motion's onAnimationStart / onAnimationComplete (#257).
-        animation: animationCallbacks(runtime, id),
+        animation: Spine.animationCallbacks(runtime, id),
         diagnostics: devSpineDiagnostics(),
       }
       // A track that starts once `drag` arrives (#551) is read at each Retarget from then on: only
@@ -929,12 +929,12 @@ export function runSpine(opts: RunSpineOptions): void {
             UndefinedOr.match(held.track, { onUndefined: () => Predicate.isNotUndefined(layoutNodeOf(nodeAtMount, nodeLater)), onDefined: () => held.projected }),
         })
       }
-      const spine = makeElementSpine(spineOptions)
+      const spine = Spine.makeElementSpine(spineOptions)
       onCleanup(spine.dispose)
       // Its Imperative animations (#433) go through its spine while it's mounted.
-      onCleanup(registerAnimatable(element, spine))
+      onCleanup(Imperative.registerAnimatable(element, spine))
       // Its Animation controls (#433) reach it while it's mounted.
-      UndefinedOr.map(controls, (c) => onCleanup(subscribe(c.controls, controlledElement(c.set, { custom: () => untrack(cfg).custom, snapshot }, spine.stop))))
+      UndefinedOr.map(controls, (c) => onCleanup(AnimationControls.subscribe(c.controls, AnimationControls.controlledElement(c.set, { custom: () => untrack(cfg).custom, snapshot }, spine.stop))))
       // A child back under its key starts where its leaver is drawn (#286), before its first Retarget.
       if (Predicate.isNotUndefined(taken)) spine.seed(taken)
 
@@ -966,14 +966,14 @@ export function runSpine(opts: RunSpineOptions): void {
  * Development's diagnostics for the spine (#746, ADR-0067 *Amendment (#746)*, decision 6): given under
  * Solid's `DEV` alone, so a production build ships none of their code.
  */
-const devSpineDiagnostics = (): SpineDiagnostics | undefined => {
-  if (DEV) return SPINE_DIAGNOSTICS
+const devSpineDiagnostics = (): Spine.SpineDiagnostics | undefined => {
+  if (DEV) return ElementSetup.SPINE_DIAGNOSTICS
   return undefined
 }
 
 /** In development alone (#746), what warns once that a `transform` string gave way to `style`'s transform keys. */
 const droppedTransformWarning = (runtime: WardicRuntime, id: string): (() => void) | undefined => {
-  if (DEV) return () => warnDroppedTransform(runtime, id)
+  if (DEV) return () => ElementSetup.warnDroppedTransform(runtime, id)
   return undefined
 }
 
@@ -981,13 +981,13 @@ const droppedTransformWarning = (runtime: WardicRuntime, id: string): (() => voi
  * Says, once per provider and gesture, that the element wants a gesture its section has no Feature for
  * (#511, ADR-0067 decision 7): outside a lazy load. Development only (its caller's `DEV`).
  */
-const warnMissingGestures = (registry: FeatureRegistry, features: FeatureSection, config: Accessor<WardConfig>): void => {
+const warnMissingGestures = (registry: Feature.FeatureRegistry, features: Feature.FeatureSection, config: Accessor<WardConfig.WardConfig>): void => {
   createEffect(() => {
     const c = config()
     const services = features.services()
     if (features.pending()) return
     Arr.forEach(GESTURE_FEATURES, ([name, wants, key]) => {
-      if (wants(c) && Bool.not(hasService(services, key))) registry.warnOnce(name, missingMessage(name, GESTURE_WORDS[name], "@wardic/solid"))
+      if (wants(c) && Bool.not(GestureFeatures.hasService(services, key))) registry.warnOnce(name, Feature.missingMessage(name, GestureFeatures.GESTURE_WORDS[name], "@wardic/solid"))
     })
   })
 }
@@ -997,11 +997,11 @@ const warnMissingGestures = (registry: FeatureRegistry, features: FeatureSection
  * decision 7): a value naming a wide-gamut space, while the page reads none, outside a lazy load.
  * Development only (its caller's `DEV`).
  */
-const warnUnreadColors = (registry: FeatureRegistry, features: FeatureSection, values: Accessor<Values.Values>): void => {
+const warnUnreadColors = (registry: Feature.FeatureRegistry, features: Feature.FeatureSection, values: Accessor<Values.Values>): void => {
   createEffect(() => {
-    const unread = unreadColorIn(values())
+    const unread = Feature.unreadColorIn(values())
     if (Predicate.isUndefined(unread) || features.pending()) return
-    registry.warnOnce("colors", missingMessage("colors", `The colour \`${unread}\``, "@wardic/solid"))
+    registry.warnOnce("colors", Feature.missingMessage("colors", `The colour \`${unread}\``, "@wardic/solid"))
   })
 }
 
@@ -1010,7 +1010,7 @@ const warnUnreadColors = (registry: FeatureRegistry, features: FeatureSection, v
  * {@link createWard} with a `<Reorder>` item's additions (internal, ADR-0020; not
  * exported from the package).
  */
-export function createWardWith(config: WardConfig | Accessor<WardConfig>, internal: SpineInternals = NO_INTERNALS): Ward {
+export function createWardWith(config: WardConfig.WardConfig | Accessor<WardConfig.WardConfig>, internal: SpineInternals = NO_INTERNALS): Ward {
   const runtime = useWardicRuntime()
   // Its Features (#511, ADR-0067), a Complete element's every one: what they register, a server
   // render's elements read too (the `colors` Feature's spaces).
@@ -1025,7 +1025,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   // Normalize to an Accessor<WardConfig>. A WardConfig is always an object,
   // so `typeof config === "function"` is a safe discriminant for the accessor. With Animation
   // controls for its `animate` (#433), each change they make is its entry.
-  const { cfg, controls } = controlledOf(accessorOf(config))
+  const { cfg, controls } = controlledOf(Spine.accessorOf(config))
 
   // Its place in variant orchestration (ADR-0007, #50): what it hands its children, and,
   // as a Variant child, the ancestor it inherits from and joins (its stagger slot, its
@@ -1041,10 +1041,10 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   // commit, so pre-mount render carries the initial style (no flash).
   const initialConfig = untrack(cfg)
   const presence = usePresenceContext()
-  const initialValues = startingValuesOf(initialConfig, node.inherited, presenceBlocksInitial(presence), untrack)
+  const initialValues = VariantTree.startingValuesOf(initialConfig, node.inherited, PresenceRecord.presenceBlocksInitial(presence), untrack)
   // A layout node's is drawn through its projection at rest, as its first commit draws it (#245).
-  const layoutNode = isLayoutNode(initialConfig)
-  const drawnStart = drawnAtRest(initialValues, layoutNode, initialConfig.transformTemplate)
+  const layoutNode = Spine.isLayoutNode(initialConfig)
+  const drawnStart = ElementSetup.drawnAtRest(initialValues, layoutNode, initialConfig.transformTemplate)
 
   // The Starting style: the projected SSR initial, carried by `style` until the gate's
   // first commit (ADR-0021 decision 6, ADR-0034). An svg-inner tag's attribute keys are
@@ -1056,21 +1056,21 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   const projected = project(drawnStart)
   const hydrating = isHydrating()
   const startingPatch = Bool.match(hydrating, { onTrue: () => DomRenderer.project(drawnStart), onFalse: () => projected })
-  if (hydrating) flagStartingStyle(runtime, id, startingPatch, projected)
+  if (hydrating) ElementSetup.flagStartingStyle(runtime, id, startingPatch, projected)
   const seed = Svg.splitPatchForTag(internal.tag, startingPatch)
 
   // Its routed `style` keys (#130, ADR-0043): its Live values and transform keys, which the gate
   // writes from mount, and the Starting style carries until then, under `initial`'s.
   // Its value reads (PR2-Q6), read once here and handed to its spine.
-  const valueReads = valueReadsOf(useWardicValueReads())
-  const live = createLiveStyle({ registry: registryOf(runtime), onDroppedTransform: droppedTransformWarning(runtime, id), reactivity, ownValues: valueReads.ownValues })
+  const valueReads = ElementSetup.valueReadsOf(useWardicValueReads())
+  const live = LiveStyle.createLiveStyle({ registry: Spine.registryOf(runtime), onDroppedTransform: droppedTransformWarning(runtime, id), reactivity, ownValues: valueReads.ownValues })
   const projectStarting = Bool.match(hydrating, { onTrue: () => DomRenderer.project, onFalse: () => project })
   const startingWith = (routed: Values.Values): Renderer.Patch =>
-    Svg.splitPatchForTag(internal.tag, projectStarting(drawnAtRest({ ...routed, ...initialValues }, layoutNode, initialConfig.transformTemplate))).style
+    Svg.splitPatchForTag(internal.tag, projectStarting(ElementSetup.drawnAtRest({ ...routed, ...initialValues }, layoutNode, initialConfig.transformTemplate))).style
 
   // A drag element's defaults (ADR-0019 *Amendment (Reorder)*), under the user's
   // style: `drag` is static, so they're chosen once.
-  const dragDefaults = dragDefaultsOf(untrack(cfg), internal)
+  const dragDefaults = DragDefaults.dragDefaultsOf(untrack(cfg), internal)
   const baseStyle = internal.baseStyle
 
   // The props `ward(userProps)` was last called with: their `style` is this element's style
@@ -1100,7 +1100,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
     refd = element
     setEl(element)
   }
-  const setElement = madeWith(presence, refElement, initialConfig)
+  const setElement = Spine.madeWith(presence, refElement, initialConfig)
 
   // Run the shared spine: the gate commits each flushed Patch onto this element
   // (ADR-0006, ADR-0034), and the sink's hooks switch its `style`. Its variant node
@@ -1133,7 +1133,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
     tag: internal.tag,
     entersFresh: (element) => element === fresh,
     restartStyle: (start) =>
-      elementStyle.restart(Svg.splitPatchForTag(internal.tag, project(drawnAtRest(start.initialValues, layoutNode, untrack(cfg).transformTemplate))).style),
+      elementStyle.restart(Svg.splitPatchForTag(internal.tag, project(ElementSetup.drawnAtRest(start.initialValues, layoutNode, untrack(cfg).transformTemplate))).style),
     features,
   })
 
@@ -1146,7 +1146,7 @@ export function createWardWith(config: WardConfig | Accessor<WardConfig>, intern
   // The element's value per key (#130, ADR-0043 decision 5): the gate's output while it holds the
   // key, else where the key rests, read when the accessor is (the user's style as last given, a
   // reactive `style` prop tracked).
-  const restingValueOf = (key: string): unknown => restingOf(key, initialValues, lastUserProps.style, (raw) => live.read(raw))
+  const restingValueOf = (key: string): unknown => ElementSetup.restingOf(key, initialValues, lastUserProps.style, (raw) => live.read(raw))
   // One accessor a key, made on first ask: most elements ask none.
   let values: Map<string, Accessor<unknown>> | undefined
   const value = (key: string): Accessor<unknown> => {
@@ -1195,23 +1195,23 @@ const NO_OUTPUT: Atom.Atom<unknown> = Atom.make<unknown>(undefined)
  * renders the same component nesting, with a variant context that carries the names and
  * transitions but no orchestration.
  */
-const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineInternals = NO_INTERNALS): Ward => {
+const serverWard = (config: WardConfig.WardConfig | Accessor<WardConfig.WardConfig>, internal: SpineInternals = NO_INTERNALS): Ward => {
   // A server's own values: the DOM's, its context's constant (#672).
-  const ownValues = valueReadsOf(useWardicValueReads()).ownValues
+  const ownValues = ElementSetup.valueReadsOf(useWardicValueReads()).ownValues
   // The client's gate id: keeps every later hydration key in step.
   createUniqueId()
   // Animation controls (#433) set nothing on a server: no entry yet, and controlled, as on the client.
-  const c = uncontrolledOf(withConfigTransition(accessorOf(config)(), useWardicConfig()))
+  const c = AnimationControls.uncontrolledOf(WardicConfigValue.withConfigTransition(Spine.accessorOf(config)(), useWardicConfig()))
   // The same names the client hands down, read once, with orchestration that does nothing
   // (#50); a Variant child's Starting style starts from its ancestor's `initial` name.
-  const node = serverVariantNode(c, useVariantContext())
-  const layoutNode = isLayoutNode(c)
-  const seed = Style.starting(internal.tag, drawnAtRest(startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack), layoutNode, c.transformTemplate))
-  const dragDefaults = dragDefaultsOf(c, internal)
-  const initialValues = startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack)
+  const node = VariantTree.serverVariantNode(c, useVariantContext())
+  const layoutNode = Spine.isLayoutNode(c)
+  const seed = Style.starting(internal.tag, ElementSetup.drawnAtRest(VariantTree.startingValuesOf(c, node.inherited, PresenceRecord.presenceBlocksInitial(usePresenceContext()), untrack), layoutNode, c.transformTemplate))
+  const dragDefaults = DragDefaults.dragDefaultsOf(c, internal)
+  const initialValues = VariantTree.startingValuesOf(c, node.inherited, PresenceRecord.presenceBlocksInitial(usePresenceContext()), untrack)
   // Its Appear animation (#48, ADR-0044): its slot in the render's, and the group its Variant
   // children join when it leads one.
-  const appear = serverAppearOf(c, internal.tag, initialValues, node, startsQuiet(c, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack))
+  const appear = serverAppearOf(c, internal.tag, initialValues, node, VariantTree.startsQuiet(c, node.inherited, PresenceRecord.presenceBlocksInitial(usePresenceContext()), untrack))
   const Provider: Component<{ readonly children?: JSX.Element }> = (props) => (
     <WardicVariantContext.Provider value={appear.provided}>{props.children}</WardicVariantContext.Provider>
   )
@@ -1221,14 +1221,14 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
     (userProps: WardUserProps = NO_USER_PROPS): WardProps => {
       lastStyle = userProps.style
       // Its routed keys' values join the Starting style, under `initial`'s (#130).
-      const parts = split(userProps.style, ownValues)
+      const parts = LiveStyle.split(userProps.style, ownValues)
       // A style with its own `animation` keeps it: the element's Appear animation would take its place.
-      const ownAnimation = setsAnimation(parts.css)
+      const ownAnimation = AppearAnimations.setsAnimation(parts.css)
       if (ownAnimation) appear.veto("its own style sets an animation")
       return {
         ref: UndefinedOr.match(userProps.ref, { onUndefined: () => noRef, onDefined: identity }),
         style: pipe(
-          serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed, layoutNode, untrack, c.transformTemplate),
+          ElementSetup.serverStartingStyle(internal.tag, seed.style, initialValues, parts.routed, layoutNode, untrack, c.transformTemplate),
           Style.over(parts.css),
           Style.over(UndefinedOr.match(internal.baseStyle, { onUndefined: constUndefined, onDefined: (base) => base() })),
           Style.over(dragDefaults),
@@ -1240,7 +1240,7 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
     },
     {
       Provider,
-      value: ((key: string) => () => restingOf(key, initialValues, lastStyle, read)) as WardValue,
+      value: ((key: string) => () => ElementSetup.restingOf(key, initialValues, lastStyle, read)) as WardValue,
       atom: (): Atom.Atom<unknown> => NO_OUTPUT,
       [SERVER_APPEAR]: appear,
     },
@@ -1254,7 +1254,7 @@ const serverWard = (config: WardConfig | Accessor<WardConfig>, internal: SpineIn
  * the head before the chunk hydrates, `Appear.adoptChunks`). Per element on a server: an element in
  * the shell, most, renders as it is, with guards and no allocation.
  */
-export const renderServerElement = (appear: ServerAppearOf | undefined, render: () => JSX.Element): JSX.Element => {
+export const renderServerElement = (appear: ElementSetup.ServerAppearOf | undefined, render: () => JSX.Element): JSX.Element => {
   if (Predicate.isUndefined(appear) || Bool.not(appear.late) || Predicate.isUndefined(appear.state)) return render()
   const state = appear.state
   const element = state.within(true, render)
@@ -1266,14 +1266,14 @@ export const renderServerElement = (appear: ServerAppearOf | undefined, render: 
 const SERVER_APPEAR = Symbol("wardic.serverAppear")
 
 /** A server ward's Appear entry (#245); `undefined` for a client one. Internal. */
-export const serverAppearOfWard = (ward: Ward): ServerAppearOf | undefined => (ward as Ward & { readonly [SERVER_APPEAR]?: ServerAppearOf })[SERVER_APPEAR]
+export const serverAppearOfWard = (ward: Ward): ElementSetup.ServerAppearOf | undefined => (ward as Ward & { readonly [SERVER_APPEAR]?: ElementSetup.ServerAppearOf })[SERVER_APPEAR]
 
 /** {@link appearEntryOf} with this provider's Appear state (#48, ADR-0044) and its nearest `WardicConfig`'s reduced motion (#434). */
-export const serverAppearOf = (c: WardConfig, tag: string | undefined, initialValues: Values.Values, node: ServerVariantNode, quiet: boolean): ServerAppearOf =>
-  appearEntryOf(useWardicAppear(), c, tag, initialValues, node, quiet, settingOf(useWardicConfig()), useWardicSkipAnimations()())
+export const serverAppearOf = (c: WardConfig.WardConfig, tag: string | undefined, initialValues: Values.Values, node: VariantTree.ServerVariantNode, quiet: boolean): ElementSetup.ServerAppearOf =>
+  ElementSetup.appearEntryOf(useWardicAppear(), c, tag, initialValues, node, quiet, WardicConfigValue.settingOf(useWardicConfig()), useWardicSkipAnimations()())
 
 /** A style value read on a server: an Atom through a server's own registry, an accessor called (#130). */
-const readServerStyle = (value: unknown): unknown => readLive(value, serverRegistryOf, untrack)
+const readServerStyle = (value: unknown): unknown => LiveStyle.readLive(value, LiveStyle.serverRegistryOf, untrack)
 
 /** A server render's `ref`: Solid never calls it there. */
 const noRef = (): void => {}

@@ -29,9 +29,9 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { isServer } from "@solidjs/web"
 import { type Accessor, createSignal, onCleanup } from "solid-js"
-import type { WardicViewport } from "../../config.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import { inViewOptionsOf } from "../../gesture-callbacks.ts"
-import * as OwnerScope from "../../owner-scope.ts"
+import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import type { WardicServices } from "../../runtime.ts"
 import { fromAtom } from "./bridge.tsx"
 import { useWardicReducedMotionSetting, useWardicRuntime } from "./provider.tsx"
@@ -109,7 +109,7 @@ export const watchSensorOf = <A,>(
  */
 // The core in-view watch, its options mapped as the element's `viewport` is (#273): `root` read as
 // it's attached.
-export const createInView = (viewport?: WardicViewport): Sensor<boolean> =>
+export const createInView = (viewport?: WardConfig.WardicViewport): Sensor<boolean> =>
   watchSensorOf<boolean>(
     (target, { on, onDefect }) => Recognizer.watchInView(target, inViewOptionsOf(viewport), { on: (transition) => on(transition.active), onDefect }),
     false,

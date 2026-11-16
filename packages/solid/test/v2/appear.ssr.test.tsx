@@ -58,7 +58,7 @@ import { type JSX, renderToStream, renderToString } from "@solidjs/web"
 import * as Option from "effect/Option"
 import { createMemo, Errored, For, Loading, Show } from "solid-js"
 import { describe, expect, it, vi } from "vitest"
-import { keyOf } from "../../src/appear.ts"
+import * as AppearAnimations from "@wardic/dom/unstable/AppearAnimations"
 import { tagsOf } from "./ssr.ts"
 
 type ProviderProps = { readonly appear?: boolean | "explain"; readonly reducedMotion?: "user" | "always" | "never"; readonly nonce?: string }
@@ -291,7 +291,7 @@ describe("Appear animations on a server, on Solid 2 (#48, ADR-0044)", () => {
 
   it("AR11: a spec's key: the same whatever its keys' order; none for an easing with no name", () => {
     const at = (from: Record<string, number>, to: Record<string, number>, ease: (t: number) => number = Easing.linear) =>
-      keyOf({ tag: "div", from, to, transition: { type: "tween", duration: 0.3, ease }, reduced: false, layout: false })
+      AppearAnimations.keyOf({ tag: "div", from, to, transition: { type: "tween", duration: 0.3, ease }, reduced: false, layout: false })
     expect(at({ opacity: 0, y: 20 }, { opacity: 1, y: 0 })).toEqual(at({ y: 20, opacity: 0 }, { y: 0, opacity: 1 }))
     expect(Option.isSome(at({ x: 0 }, { x: 1 }, Easing.easeOutCubic))).toBe(true)
     expect(Option.isNone(at({ x: 0 }, { x: 1 }, (t) => t * t))).toBe(true)

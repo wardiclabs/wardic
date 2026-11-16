@@ -7,7 +7,8 @@
  * @module
  */
 // Unstable: ADR-0071, decision 5. #672: solid's presence protocol, moved for the spine to share from
-// core (#209: it was Solid-free already); solid's `presence-record.ts` names it over Element.
+// core (#209: it was Solid-free already); `@wardic/dom`'s `unstable/PresenceController` names it over
+// that package's Subjects (#777).
 import type * as Box from "../Box.ts"
 import type * as Values from "../Values.ts"
 import type * as Subject from "./Subject.ts"

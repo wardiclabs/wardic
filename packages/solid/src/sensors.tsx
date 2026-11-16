@@ -22,7 +22,7 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createComputed, createSignal, getOwner, runWithOwner, untrack } from "solid-js"
 import { fromAtom, watchToSignal } from "./bridge.tsx"
-import type { WardicViewport } from "./config.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import { inViewOptionsOf } from "./gesture-callbacks.ts"
 import { useWardicReducedMotionSetting, useWardicRuntime } from "./provider.tsx"
 import { isServer } from "./server.ts"
@@ -126,7 +126,7 @@ export const createWhenWanted = <C,>(config: Accessor<C>, wants: Wants<C>, start
  */
 // The core in-view watch (#318), its options mapped as the element's `viewport` is (#273): `root` read
 // as it starts.
-export const createInView = (target: unknown, viewport?: WardicViewport): Accessor<boolean> =>
+export const createInView = (target: unknown, viewport?: WardConfig.WardicViewport): Accessor<boolean> =>
   watchToSignal<boolean>(({ on, onDefect }) => Recognizer.watchInView(target, inViewOptionsOf(viewport), { on: (transition) => on(transition.active), onDefect }), false)
 
 /**

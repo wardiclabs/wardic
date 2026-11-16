@@ -21,7 +21,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import { $PROXY, type Accessor, batch, createComponent, createContext, createEffect, createMemo, createRenderEffect, createSignal, type JSX, on, onCleanup, sharedConfig, splitProps, untrack, useContext } from "solid-js"
 import { Dynamic, getNextElement, insert, setAttribute, spread } from "solid-js/web"
 import { batchHandoffHere, batchServerAppearHere } from "./batch-appear-here.tsx"
-import { configTransitionOf, type WardicBatchTransition } from "./batch.ts"
+import * as BatchMembers from "@wardic/dom/unstable/BatchMembers"
 import { type BatchReorderBinding, type BatchReorderExit, type BatchReorderGesture, type BatchReorderInitial, type BatchReorderItem, type BatchReorderItems, serverBatchReorder, type BatchReorderRead, bindBatchReorder, describedByOf, geometryOf, GROUP_BRINGS, type ReorderBatchGap, type ReorderBatchSizing, sameRead, tabStopOf } from "./batch-reorder.ts"
 import { type BatchReorderItemSizes, cssTextOf, sameStyle } from "./batch-reorder-places.ts"
 import { usePresenceContext } from "./presence.tsx"
@@ -65,7 +65,7 @@ export type ReorderBatchGroupProps<V, Tag extends ReorderElementTag = "ul"> = Re
   /** Where each item starts: values, a function of its item and index, or `false` to start at its place. */
   readonly initial?: BatchReorderInitial<V> | undefined
   /** How the items move to their places: else the nearest `WardicConfig`'s, else each key's Default transition. */
-  readonly transition?: WardicBatchTransition | undefined
+  readonly transition?: BatchMembers.WardicBatchTransition | undefined
   /**
    * Whether a server render plays its items' entrance (`initial`'s keys) in CSS from first paint, and hydration
    * takes it over where it's got to (an **Appear animation**, #706): off unless `true`, under a provider whose
@@ -133,7 +133,7 @@ interface GroupLocal<V> {
   readonly announcements?: Partial<CoreReorder.Announcements<V>> | undefined
   readonly instructions?: string | undefined
   readonly initial?: BatchReorderInitial<V> | undefined
-  readonly transition?: WardicBatchTransition | undefined
+  readonly transition?: BatchMembers.WardicBatchTransition | undefined
   readonly appear?: boolean | undefined
   readonly whileDrag?: BatchReorderGesture<V> | undefined
   readonly whileHover?: BatchReorderGesture<V> | undefined
@@ -341,7 +341,7 @@ export function BatchGroup<V, Tag extends ReorderElementTag = "ul">(props: Reord
         skipAnimations: useWardicSkipAnimations(),
         positionalKeys: useWardicPositionalKeys(),
         defaultTransition: useWardicDefaultTransition(),
-        configTransition: configTransitionOf(useWardicConfig()),
+        configTransition: BatchMembers.configTransitionOf(useWardicConfig()),
         untrack,
         ...batchHandoffHere(),
       },

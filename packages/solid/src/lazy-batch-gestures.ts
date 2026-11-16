@@ -11,13 +11,13 @@
 import * as Report from "@wardic/dom/Report"
 import * as Cause from "effect/Cause"
 import * as Predicate from "effect/Predicate"
-import type { BatchGestureWatches } from "./batch.ts"
+import type * as BatchMembers from "@wardic/dom/unstable/BatchMembers"
 import type { BatchGesturesOn } from "./batch-gestures.ts"
-import type { FeatureRegistry } from "./feature.ts"
+import type * as Feature from "@wardic/dom/unstable/Feature"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /** A Batch's gesture watches, and their end, with the Batch. */
-export interface LazyBatchGestures extends BatchGestureWatches {
+export interface LazyBatchGestures extends BatchMembers.BatchGestureWatches {
   readonly close: () => void
 }
 
@@ -50,7 +50,7 @@ const loadModule = (runtime: WardicServices.Runner<WardicServices.WardicServices
  * A Batch's gesture watches, each run once its code has loaded (at once once it has), on `runtime`, over
  * the input `registry` builds; none once `close` has ended them.
  */
-export const lazyBatchGestures = (runtime: WardicServices.Runner<WardicServices.WardicServices>, registry: FeatureRegistry): LazyBatchGestures => {
+export const lazyBatchGestures = (runtime: WardicServices.Runner<WardicServices.WardicServices>, registry: Feature.FeatureRegistry): LazyBatchGestures => {
   let loaded: BatchGesturesOn | undefined
   let closed = false
   /** Its gestures, made over the loaded module. */

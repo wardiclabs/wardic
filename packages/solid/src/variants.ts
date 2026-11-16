@@ -9,7 +9,7 @@
  *
  *   local `animate` > parent-context variant name > `initial`.
  *
- * This file owns only the context plumbing; the value's types are Solid-free, in `variant-tree.ts` (#209). `variant-node.ts` decides what each element
+ * This file owns only the context plumbing; the value's types are Solid-free, in core's `unstable/VariantTree` (#209). `variant-node.ts` decides what each element
  * provides and whether it joins its ancestor (CONTEXT.md, **Variant child**); every
  * `wardic.*` element, component wrap and `<Reorder.Item>` provides it, and a `createWard`
  * spread publishes it through `ward.Provider` (#50).
@@ -20,9 +20,7 @@
  * fields they know about).
  */
 import { createContext, useContext } from "solid-js"
-import type { WardicVariantContextValue } from "./variant-tree.ts"
-
-export type { WardicChildRegistration, WardicStaggerConfig, WardicVariantContextValue } from "./variant-tree.ts"
+import type * as VariantTree from "@wardic/core/unstable/VariantTree"
 
 /**
  * The variant context: what the nearest variant parent hands its children, its names, transition and
@@ -32,7 +30,7 @@ export type { WardicChildRegistration, WardicStaggerConfig, WardicVariantContext
  * @see https://wardic.dev/reference/solid/advanced/variant-context
  */
 // ADR-0007.
-export const WardicVariantContext = createContext<WardicVariantContextValue | undefined>(undefined)
+export const WardicVariantContext = createContext<VariantTree.WardicVariantContextValue | undefined>(undefined)
 
 /**
  * The nearest variant parent's context, or `undefined` outside one: its current variant name,
@@ -44,4 +42,4 @@ export const WardicVariantContext = createContext<WardicVariantContextValue | un
  * @see https://wardic.dev/reference/solid/advanced/variant-context
  */
 // ADR-0007: local `animate` over the inherited name over `initial`.
-export const useVariantContext = (): WardicVariantContextValue | undefined => useContext(WardicVariantContext)
+export const useVariantContext = (): VariantTree.WardicVariantContextValue | undefined => useContext(WardicVariantContext)

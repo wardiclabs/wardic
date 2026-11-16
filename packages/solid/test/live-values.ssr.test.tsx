@@ -13,7 +13,7 @@
 // - SL9: `createFollowValue`'s inertia takes Motion's `timeConstant`, in milliseconds, and hands core
 //   seconds (#441, as a `transition`'s, #435); its other fields go as they are.
 import { createFollowValue, createScroll, createSpring, createTime, createVelocity, createWard, wardic } from "@wardic/solid"
-import { followOptionsOf } from "../src/live-style.ts"
+import * as LiveStyle from "@wardic/dom/unstable/LiveStyle"
 import { Atom } from "effect/reactivity"
 import type { JSX } from "solid-js"
 import { describe, expect, it } from "vitest"
@@ -95,8 +95,8 @@ describe("Live values in a server render (#130)", () => {
   })
 
   it("SL9: an inertia's timeConstant is Motion's milliseconds, core's seconds; the other fields go as they are (#441)", () => {
-    expect(followOptionsOf({ type: "inertia", velocity: 100, timeConstant: 200 })).toEqual({ type: "inertia", velocity: 100, timeConstant: 0.2 })
-    expect(followOptionsOf({ type: "inertia", velocity: 100 })).toEqual({ type: "inertia", velocity: 100 })
-    expect(followOptionsOf({ type: "tween", duration: 0.4, delay: 0.1 })).toEqual({ type: "tween", duration: 0.4, delay: 0.1 })
+    expect(LiveStyle.followOptionsOf({ type: "inertia", velocity: 100, timeConstant: 200 })).toEqual({ type: "inertia", velocity: 100, timeConstant: 0.2 })
+    expect(LiveStyle.followOptionsOf({ type: "inertia", velocity: 100 })).toEqual({ type: "inertia", velocity: 100 })
+    expect(LiveStyle.followOptionsOf({ type: "tween", duration: 0.4, delay: 0.1 })).toEqual({ type: "tween", duration: 0.4, delay: 0.1 })
   })
 })

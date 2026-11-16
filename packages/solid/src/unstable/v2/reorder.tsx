@@ -54,19 +54,19 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import { isServer, type JSX } from "@solidjs/web"
 import { $PROXY, type Accessor, type Component, createContext, createEffect, createMemo, createSignal, flush, omit, onCleanup, untrack, useContext } from "solid-js"
 import { MOTION_PROPS_V2 as MOTION_PROPS, type WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
-import type { Feature } from "../../feature.ts"
-import { drag } from "../../features/drag.ts"
-import { focus } from "../../features/focus.ts"
-import { hover } from "../../features/hover.ts"
-import { inView } from "../../features/in-view.ts"
-import { layout } from "../../features/layout.ts"
-import { pan } from "../../features/pan.ts"
-import { press } from "../../features/press.ts"
-import { inputIn } from "../../gesture-features.ts"
-import * as OwnerScope from "../../owner-scope.ts"
+import type * as Feature from "@wardic/dom/unstable/Feature"
+import * as Drag from "@wardic/dom/unstable/features/Drag"
+import * as Focus from "@wardic/dom/unstable/features/Focus"
+import * as Hover from "@wardic/dom/unstable/features/Hover"
+import * as InView from "@wardic/dom/unstable/features/InView"
+import * as Layout from "@wardic/dom/unstable/features/Layout"
+import * as Pan from "@wardic/dom/unstable/features/Pan"
+import * as Press from "@wardic/dom/unstable/features/Press"
+import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
+import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import { watchItemInput } from "../../reorder-input.ts"
 import { plainOrder } from "../../reorder-values.ts"
-import { changesContext } from "../../variant-tree.ts"
+import * as VariantTree from "@wardic/core/unstable/VariantTree"
 import { configView, type PerKey } from "./config-view.ts"
 import { useBrought, useWardicRuntime } from "./provider.tsx"
 import { useLayoutServices } from "./layout-projection.tsx"
@@ -260,7 +260,7 @@ interface ReorderItemOwn<V> {
  * drag, and every other gesture, so `whileHover` or `whileTap` on an item works as on Motion's, for
  * about 0.5 KB gzipped beside the drag's.
  */
-const ITEM_BRINGS: ReadonlyArray<Feature> = [layout, drag, hover, press, focus, inView, pan]
+const ITEM_BRINGS: ReadonlyArray<Feature.Feature> = [Layout.layout, Drag.drag, Hover.hover, Press.press, Focus.focus, InView.inView, Pan.pan]
 
 const ITEM_VIEW = configView<ReorderItemOwn<unknown>>(["value", "layout", "tabindex", "aria-describedby"], [])
 
@@ -598,7 +598,7 @@ const reorderItemWith = <V,>(list: ReorderGroup<V>, config: ReorderItemConfig<V>
       element = el
       setDocument(DomAnnouncer.documentOf(el))
       // Its keys, blurs and presses (ADR-0037), watched in the ward's watch Scope, with no fiber at rest (#379).
-      watch((onDefect) => Effect.provideService(watchItemInput(el, driver, (effect) => void runtime.runFork(effect), onDefect), InputSource.InputSource, inputIn(services())))
+      watch((onDefect) => Effect.provideService(watchItemInput(el, driver, (effect) => void runtime.runFork(effect), onDefect), InputSource.InputSource, GestureFeatures.inputIn(services())))
       return () => {
         element = undefined
       }
@@ -871,7 +871,7 @@ function Item<V, Tag extends ReorderElementTag = "li", C = {}>(props: ReorderIte
   // An item that changes what its children read renders its variant context's Provider around them
   // (#50), as every Wardic element does; any other renders none.
   const config = UndefinedOr.match(element.setup, { onUndefined: () => wardConfigView(local as unknown as WardConfig), onDefined: identity })
-  return Bool.match(untrack(() => changesContext(config)), {
+  return Bool.match(untrack(() => VariantTree.changesContext(config)), {
     onFalse: element.render,
     onTrue: () => <element.row.Provider>{element.render()}</element.row.Provider>,
   })

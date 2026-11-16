@@ -46,8 +46,8 @@ import {
   type WardicMotionProps,
 } from "@wardic/solid/unstable/v2"
 import { describe, expectTypeOf, it } from "vitest"
-import type { WardicVariantLabels } from "../../src/config.ts"
-import type { NeedsFeature } from "../../src/feature.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
+import type * as DomFeature from "@wardic/dom/unstable/Feature"
 import type { DrivenKey, InferredMotion, TargetKey } from "../../src/ward-keys.ts"
 import type { WardicProps } from "../../src/unstable/v2/element.tsx"
 
@@ -55,15 +55,15 @@ import type { WardicProps } from "../../src/unstable/v2/element.tsx"
 const typed = (make: () => unknown): void => void make
 
 /** A value typed as Feature `N`'s brand: only a prop typed `NeedsFeature<N>` takes it. Never called. */
-declare const needs: <N extends string>(name: N) => NeedsFeature<N>
+declare const needs: <N extends string>(name: N) => DomFeature.NeedsFeature<N>
 
 /** `WardicComponent<Tag>` as it was before #516, word for word: what its default must still be. */
 type Before<Tag extends keyof JSX.IntrinsicElements> = <
   C = {},
   K extends TargetKey = never,
   N extends string = never,
-  LI extends WardicVariantLabels = never,
-  LA extends WardicVariantLabels = never,
+  LI extends WardConfig.WardicVariantLabels = never,
+  LA extends WardConfig.WardicVariantLabels = never,
   D extends boolean | "x" | "y" = never,
 >(props: WardicProps<Tag, C, InferredMotion<WardicMotionProps, K, N, LI, LA, D, DrivenKey<C>>>) => JSX.Element
 

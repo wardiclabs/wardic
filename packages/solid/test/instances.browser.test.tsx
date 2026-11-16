@@ -22,8 +22,8 @@ import * as Context from "effect/Context"
 import * as Option from "effect/Option"
 import { createSignal, type JSX, Show } from "solid-js"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import type { FeatureRegistry } from "../src/feature.ts"
-import { DragGesture } from "../src/features/keys.ts"
+import type * as Feature from "@wardic/dom/unstable/Feature"
+import * as Keys from "@wardic/dom/unstable/features/Keys"
 import { useFeatureRegistry } from "../src/provider.tsx"
 import { opacityOf, until } from "./browser-helpers.ts"
 import { pushedPointer } from "./pushed-pointer.ts"
@@ -211,7 +211,7 @@ describe("A Wardic instance (#516), Solid 1", () => {
     }
     const { w } = createWardic([load])
     const [shown, setShown] = createSignal(true)
-    let goneRegistry!: FeatureRegistry
+    let goneRegistry!: Feature.FeatureRegistry
     const Probe = (): JSX.Element => {
       goneRegistry = useFeatureRegistry()
       return undefined
@@ -233,8 +233,8 @@ describe("A Wardic instance (#516), Solid 1", () => {
       await wait(50)
     })
     expect(lines, "a load arriving after its provider ended says nothing").toEqual([])
-    const goneBuilt = goneRegistry.built() as Context.Context<DragGesture>
-    expect(Option.isNone(Context.getOption(goneBuilt, DragGesture)), "nor builds it into that provider").toBe(true)
+    const goneBuilt = goneRegistry.built() as Context.Context<Keys.DragGesture>
+    expect(Option.isNone(Context.getOption(goneBuilt, Keys.DragGesture)), "nor builds it into that provider").toBe(true)
     const pointer = pushedPointer()
     let el!: HTMLElement
     render(() => (
@@ -286,7 +286,7 @@ describe("A Wardic instance (#516), Solid 1", () => {
 
   it("IN6: its layout hooks bring layout and count as a use", async () => {
     const given = createWardic([layout])
-    let registry!: FeatureRegistry
+    let registry!: Feature.FeatureRegistry
     const Hooked = (): JSX.Element => {
       given.useAnimateLayout()
       registry = useFeatureRegistry()

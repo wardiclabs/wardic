@@ -10,8 +10,8 @@
  * @module
  */
 // Unstable: ADR-0071, decision 5. #672 (the build grill's Q24 A): solid's `config.ts`, its DOM half;
-// its other half is core's `unstable/Config`. Solid's `config.ts` re-exports this, so its public types
-// don't change.
+// its other half is core's `unstable/Config`. Solid's entries re-export its types from here (#777), so
+// they didn't change.
 import type * as Box from "@wardic/core/Box"
 import type * as Config from "@wardic/core/unstable/Config"
 import type * as CSS from "csstype"

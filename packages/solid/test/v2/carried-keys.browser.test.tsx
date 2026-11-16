@@ -331,7 +331,7 @@ describe("a Retarget carries the keys whose target didn't change (#325)", () => 
   it("KC9: a leg a Retarget took one key from draws only the rest: the key taken follows its new leg alone", async () => {
     const [y, setY] = createSignal(100)
     const [fast, setFast] = createSignal(false)
-    // One tween leg over both keys (`retarget-legs.ts`): y's change takes y from it, x stays on it.
+    // One tween leg over both keys (core's `unstable/RetargetLegs`): y's change takes y from it, x stays on it.
     // y's new leg is the shorter, so it lands while the old one still runs x.
     const { el, twin } = twins(
       { initial: { x: 0, y: 0 }, animate: () => ({ x: 100, y: y() }), transition: () => Bool.match(fast(), { onTrue: (): WardicTransition => FAST, onFalse: (): WardicTransition => TWEEN }) },
@@ -396,7 +396,7 @@ describe("a Retarget carries the keys whose target didn't change (#325)", () => 
   it("KC13: a Retarget that changes only the colour of a spring's two legs ends that leg alone; the numeric one runs on", async () => {
     const logs: Array<Logged> = []
     const [color, setColor] = createSignal("rgb(255, 0, 0)")
-    // A spring runs the numbers in one leg and the strings in another (`retarget-legs.ts`).
+    // A spring runs the numbers in one leg and the strings in another (core's `unstable/RetargetLegs`).
     const SPRING = { type: "spring", stiffness: 60, damping: 14 } as const
     const { el, twin, card } = twins(
       { initial: { x: 0, "background-color": "rgb(0, 0, 0)" }, animate: () => ({ x: 100, "background-color": color() }), transition: SPRING },

@@ -7,7 +7,7 @@
  * @module
  */
 import * as Predicate from "effect/Predicate"
-import type { WardicTransformPoint } from "./config.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 
 /** An element given as it is, or an accessor of one. */
 export type ElementGiven<E extends Element> = E | (() => E | undefined)
@@ -53,7 +53,7 @@ const inverseOf = (element: Element): Linear | undefined => {
  */
 // #443. Points pass as they are while the parent is gone or has no transform.
 export const correctParentTransform =
-  (parent: ElementGiven<Element>): WardicTransformPoint =>
+  (parent: ElementGiven<Element>): WardConfig.WardicTransformPoint =>
   (point) => {
     const element = elementOf(parent)
     if (Predicate.isUndefined(element)) return point
@@ -83,7 +83,7 @@ export const correctParentTransform =
  */
 // #443. Points pass as they are while the SVG is gone, has no viewBox, or renders at no size.
 export const transformViewBoxPoint =
-  (svg: ElementGiven<SVGSVGElement>): WardicTransformPoint =>
+  (svg: ElementGiven<SVGSVGElement>): WardConfig.WardicTransformPoint =>
   (point) => {
     const element = elementOf(svg)
     if (Predicate.isUndefined(element)) return point

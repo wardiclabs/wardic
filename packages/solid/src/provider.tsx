@@ -32,11 +32,11 @@ import * as Appear from "@wardic/dom/Appear"
 import * as Report from "@wardic/dom/Report"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
-import { explainerOf, type ServerAppear, serverAppear } from "./appear.ts"
+import * as AppearAnimations from "@wardic/dom/unstable/AppearAnimations"
 import * as Context from "effect/Context"
-import { type Feature, type FeatureRegistry, type FeatureSection, type FeaturesProp, type ElementFeatures, type InstanceFeatures, joinSections, type Own, ROOT, strictMessage } from "./feature.ts"
+import * as Feature from "@wardic/dom/unstable/Feature"
 import { FeatureSectionProvider, sectionUnder, useLazySection } from "./feature-section.ts"
-import * as OwnerScope from "./owner-scope.ts"
+import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import {
   type AnimateLayout,
   animateLayoutOf,
@@ -53,16 +53,16 @@ import {
   type WardicRuntime,
   type WardicServices,
   whenIdle,
-  type ValueReads,
 } from "./runtime.ts"
+import type * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
 import { WAITING_ENV_FIX, WAITING_ENV_LINE } from "./messages.ts"
 import { warnWithoutSpans } from "./spans-check.ts"
 import { isHydrating, isServer } from "./server.ts"
 import { reactivity } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
-import { skipAnimationsOf } from "./wardic-config-value.ts"
-import { instantLayoutOf, type InstantTransition, instantTransitionOf, resetOf } from "./instant.ts"
-import type { WardicScaleCorrector } from "./config.ts"
+import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
+import * as Instant from "@wardic/dom/unstable/Instant"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 
 /**
  * Context carrying the single runtime + flush gate down the tree. Defaults to
@@ -129,12 +129,12 @@ export function WardicProvider(props: {
    * Your own corrections of a value a layout animation's scale would distort, by the key each corrects:
    * Motion's `addScaleCorrector`, given here. Read once.
    */
-  readonly scaleCorrectors?: Readonly<Record<string, WardicScaleCorrector>> | undefined
+  readonly scaleCorrectors?: Readonly<Record<string, WardConfig.WardicScaleCorrector>> | undefined
   /**
    * The Features every `w.*` element under it has: at once (`[domAnimation]`), or loaded with a
    * function (`() => import("./features").then((m) => m.drag)`). Read once.
    */
-  readonly features?: FeaturesProp | undefined
+  readonly features?: Feature.FeaturesProp | undefined
   /** In development, a `wardic.*` element under it throws, so every element ships only its Features. */
   readonly strict?: boolean | undefined
   readonly children?: JSX.Element
@@ -149,12 +149,12 @@ export function WardicProvider(props: {
     // Starting style, as they would without it.
     const appear = Bool.match(props.appear === false, {
       onTrue: constUndefined,
-      onFalse: () => serverAppear(Option.getOrElse(Option.fromUndefinedOr(props.reducedMotion), () => "user" as const), explainerOf(props.appear), props.nonce),
+      onFalse: () => AppearAnimations.serverAppear(Option.getOrElse(Option.fromUndefinedOr(props.reducedMotion), () => "user" as const), AppearAnimations.explainerOf(props.appear), props.nonce),
     })
     if (Predicate.isNotUndefined(appear)) useAssets(() => appearStyle(appear))
     const value = serverContext(props.env, WAITING_ENV_FIX, appear, () => untrack(() => props.reducedMotion))
     onCleanup(() => void value.features.dispose())
-    sections.set(value, sectionOf(value, ROOT, props))
+    sections.set(value, sectionOf(value, Feature.ROOT, props))
     return <WardicContext.Provider value={value}>{props.children}</WardicContext.Provider>
   }
 
@@ -178,7 +178,7 @@ export function WardicProvider(props: {
   )
   // Its Features end first, then the runtime they stand on (#511).
   onCleanup(() => void value.features.dispose())
-  const section = sectionOf(value, ROOT, props)
+  const section = sectionOf(value, Feature.ROOT, props)
   sections.set(value, section)
   // Built at the browser's idle time, after this render (#535): what a first element would build, so an
   // element mounted after pays none of it. One mounted before then builds it itself, as before. Asked
@@ -198,16 +198,16 @@ export function WardicProvider(props: {
  * context value, not in a context of its own, so a provider renders one Provider, as before.
  */
 // Module state (#460, Q7): each provider's root section, held weakly by its context value.
-const sections = new WeakMap<WardicContextValue, FeatureSection>()
+const sections = new WeakMap<WardicContextValue, Feature.FeatureSection>()
 
 /**
  * The section an element is in (#511): the nearest `LazyWardic`'s, else its provider's own; outside a
  * provider, none. Internal.
  */
-export function useFeatureSection(): FeatureSection {
+export function useFeatureSection(): Feature.FeatureSection {
   return UndefinedOr.match(useLazySection(), {
     onDefined: identity,
-    onUndefined: () => UndefinedOr.match(useContext(WardicContext), { onUndefined: () => ROOT, onDefined: (value) => UndefinedOr.getOrThrow(sections.get(value)) }),
+    onUndefined: () => UndefinedOr.match(useContext(WardicContext), { onUndefined: () => Feature.ROOT, onDefined: (value) => UndefinedOr.getOrThrow(sections.get(value)) }),
   })
 }
 
@@ -217,9 +217,9 @@ export function useFeatureSection(): FeatureSection {
  */
 const sectionOf = (
   value: WardicContextValue,
-  parent: FeatureSection,
-  props: { readonly features?: FeaturesProp | undefined; readonly strict?: boolean | undefined },
-): FeatureSection =>
+  parent: Feature.FeatureSection,
+  props: { readonly features?: Feature.FeaturesProp | undefined; readonly strict?: boolean | undefined },
+): Feature.FeatureSection =>
   sectionUnder(parent, value.features, untrack(() => props.features), untrack(() => props.strict) === true, (cause) => {
     value.runtime.runFork(Report.failure("wardic.features: a lazy load of Features failed", cause))
   })
@@ -241,7 +241,7 @@ const sectionOf = (
 // a layout node is made then (#582). A failed load is reported once. A server render loads nothing.
 export function LazyWardic(props: {
   /** Its Features: one, a list, or a function that loads them. Read once. */
-  readonly features: FeaturesProp
+  readonly features: Feature.FeaturesProp
   /** In development, a `wardic.*` element under it throws. Read once. */
   readonly strict?: boolean | undefined
   readonly children?: JSX.Element
@@ -256,26 +256,26 @@ export function LazyWardic(props: {
  * one (`brings`), built at once. A Complete element under a `strict` section is an error in
  * development. Internal.
  */
-export function useElementFeatures(internal: ElementFeatures): FeatureSection {
+export function useElementFeatures(internal: Feature.ElementFeatures): Feature.FeatureSection {
   const { brings, instance } = internal
   const complete = internal.complete === true
   const section = useFeatureSection()
-  if (DEV && complete && section.strict) throw new Error(strictMessage("wardic.*, wardic.create, createWard, use:wardic", "w.*, w.create, w.createWard, use:w"))
+  if (DEV && complete && section.strict) throw new Error(Feature.strictMessage("wardic.*, wardic.create, createWard, use:wardic", "w.*, w.create, w.createWard, use:w"))
   // A Wardic instance's element (#516): its instance's Features, given at once or loaded, beside its section's.
-  if (Predicate.isNotUndefined(instance)) return joinSections(section, useInstanceFeatures(instance))
+  if (Predicate.isNotUndefined(instance)) return Feature.joinSections(section, useInstanceFeatures(instance))
   if (Predicate.isUndefined(brings)) return section
   const registry = useFeatureRegistry()
   // A Complete element has every Feature, whatever its section has: one section per provider.
   if (complete) return registry.section(brings)
   const own = registry.build(brings)
-  return joinSections(section, { services: () => own, pending: constFalse })
+  return Feature.joinSections(section, { services: () => own, pending: constFalse })
 }
 
 /**
  * A Wardic instance's Features in this provider (#516), one per instance (`InstanceFeatures.own`): what's
  * given built on first need, each load started the first time it's asked for, on the client. Internal.
  */
-export function useInstanceFeatures(instance: InstanceFeatures): Own {
+export function useInstanceFeatures(instance: Feature.InstanceFeatures): Feature.Own {
   return fromContext(useContext(WardicContext), "createWardic", (value) =>
     instance.own(value.features, {
       reactivity: reactivity,
@@ -292,14 +292,14 @@ export function useInstanceFeatures(instance: InstanceFeatures): Own {
  * built and its loads start, as at its first element's mount, so its layout hooks bring `layout`.
  * Outside one, nothing. Internal.
  */
-export function useInstanceBrought(instance: InstanceFeatures): void {
+export function useInstanceBrought(instance: Feature.InstanceFeatures): void {
   if (Predicate.isUndefined(useContext(WardicContext))) return
   const own = useInstanceFeatures(instance)
   untrack(() => own.services())
 }
 
 /** The provider's Features (#511). Internal. */
-export function useFeatureRegistry(): FeatureRegistry {
+export function useFeatureRegistry(): Feature.FeatureRegistry {
   return fromContext(useContext(WardicContext), "useFeatureRegistry", (value) => value.features)
 }
 
@@ -308,7 +308,7 @@ export function useFeatureRegistry(): FeatureRegistry {
  * section has: built the first time they're read, on the client. `features` is a list the caller keeps,
  * so its provider joins it once. Internal.
  */
-export function useBrought(features: ReadonlyArray<Feature>): () => Context.Context<never> {
+export function useBrought(features: ReadonlyArray<Feature.Feature>): () => Context.Context<never> {
   const registry = useFeatureRegistry()
   return () => registry.build(features)
 }
@@ -317,12 +317,12 @@ export function useBrought(features: ReadonlyArray<Feature>): () => Context.Cont
  * A server render's Appear animations (#48, ADR-0044), or `undefined`: on the client, outside a
  * provider, or with `appear={false}`. Internal.
  */
-export function useWardicAppear(): ServerAppear | undefined {
+export function useWardicAppear(): AppearAnimations.ServerAppear | undefined {
   return UndefinedOr.match(useContext(WardicContext), { onUndefined: constUndefined, onDefined: (value) => value.appear })
 }
 
 /** The head's `<style>` for a render's Appear animations, or nothing when no element plays one. */
-const appearStyle = (appear: ServerAppear): JSX.Element => {
+const appearStyle = (appear: AppearAnimations.ServerAppear): JSX.Element => {
   const css = appear.css()
   return Bool.match(css === "", { onTrue: () => undefined, onFalse: () => <style data-wardic-appear nonce={appear.nonce} innerHTML={css} /> })
 }
@@ -374,10 +374,10 @@ export function useWardicPositionalKeys(): ReducedMotion.PositionalKeys["Service
 
 /**
  * The Environment's reads of its Subjects' values (#672): its own values, Measured pairs and Variable
- * values, each `undefined` when it gives none (`element-setup.ts`' `valueReadsOf` fills them with the
+ * values, each `undefined` when it gives none (dom's `ElementSetup.valueReadsOf` fills them with the
  * DOM's). Internal.
  */
-export function useWardicValueReads(): ValueReads {
+export function useWardicValueReads(): ElementSetup.ValueReads {
   return fromContext(useContext(WardicContext), "useWardicValueReads", (value) => value.valueReads)
 }
 
@@ -407,7 +407,7 @@ export function useWardicReducedMotion(): () => boolean {
  * Internal.
  */
 export function useWardicSkipAnimations(): () => boolean {
-  const config = skipAnimationsOf(useWardicConfig())
+  const config = WardicConfigValue.skipAnimationsOf(useWardicConfig())
   const value = useContext(WardicContext)
   if (Predicate.isUndefined(value)) return config
   const instant = value.instant
@@ -427,7 +427,7 @@ export function useWardicSkipAnimations(): () => boolean {
  */
 // #443: an Instant change of the layout, the projection system's `instant`.
 export function createInstantLayoutTransition(): (fn?: () => void) => void {
-  return fromContext(useContext(WardicContext), "createInstantLayoutTransition", (value) => instantLayoutOf(() => value.projection))
+  return fromContext(useContext(WardicContext), "createInstantLayoutTransition", (value) => Instant.instantLayoutOf(() => value.projection))
 }
 
 /**
@@ -443,8 +443,8 @@ export function createInstantLayoutTransition(): (fn?: () => void) => void {
  */
 // #443: an Instant change, each animation it covers a Skipped animation (#468); `start.end()` is
 // Motion's `disableInstantTransitions`.
-export function createInstantTransition(): InstantTransition {
-  return fromContext(useContext(WardicContext), "createInstantTransition", (value) => instantTransitionOf(() => value.projection, () => value.instant))
+export function createInstantTransition(): Instant.InstantTransition {
+  return fromContext(useContext(WardicContext), "createInstantTransition", (value) => Instant.instantTransitionOf(() => value.projection, () => value.instant))
 }
 
 /**
@@ -463,7 +463,7 @@ export function createInstantTransition(): InstantTransition {
  */
 // #443: a Projection reset, the projection system's `reset`: leavers and Switch seeds dropped.
 export function createResetProjection(): () => void {
-  return fromContext(useContext(WardicContext), "createResetProjection", (value) => resetOf(() => value.projection))
+  return fromContext(useContext(WardicContext), "createResetProjection", (value) => Instant.resetOf(() => value.projection))
 }
 
 /**
