@@ -1,5 +1,18 @@
 # @wardic/test
 
+## 1.1.1
+
+### Patch Changes
+
+- 3d10386: The lift's second move (#672): Wardic's spine reads a Subject's own values, Measured pairs and Variable values through three new, optional Environment members, `@wardic/core/unstable/OwnValues`, `MeasuredPairs` and `VariableValues`, instead of reading the DOM itself. `DomLive` gives none: a DOM binding falls back to the DOM's (`@wardic/dom/unstable/DomValues`), so an app on `DomLive` sees no change, and an app with no Wardic element ships none of them. `@wardic/test`'s `TestLive` gives headless ones: under it the spine no longer reads the DOM, so a value keeps its own type with no units read, and no pair is measured nor `var()` resolved.
+- Updated dependencies [64c2b56]
+- Updated dependencies [ffefbe3]
+- Updated dependencies [9aa3e4b]
+- Updated dependencies [3d1baf2]
+- Updated dependencies [3d10386]
+- Updated dependencies [7b6a1a1]
+  - @wardic/core@1.1.1
+
 ## 1.1.0
 
 ### Patch Changes
