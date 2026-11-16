@@ -45,9 +45,9 @@ export {
  * `scroll`: a container's scroll, which `createScroll` brings itself (#518).
  */
 export type { Feature, FeatureLoad, Features, FeaturesProp } from "@wardic/dom/unstable/Feature"
-export { colors } from "./features/colors.ts"
-export { layout } from "./features/layout.ts"
-export { scroll } from "./features/scroll.ts"
+export { colors } from "@wardic/dom/unstable/features/Colors"
+export { layout } from "@wardic/dom/unstable/features/Layout"
+export { scroll } from "@wardic/dom/unstable/features/Scroll"
 /**
  * The gestures (#511, ADR-0067 decision 3), a Feature each: `hover`, `press` (its Keyboard presses
  * included), `focus`, `inView`, `pan` and `drag` (`dragControls` and the release's inertia included).
@@ -55,14 +55,14 @@ export { scroll } from "./features/scroll.ts"
  * DOM's. Motion's bundles: `domAnimation` (`hover`, `press`, `focus`, `inView`) and `domMax` (every
  * Feature).
  */
-export { drag } from "./features/drag.ts"
-export { focus } from "./features/focus.ts"
-export { hover } from "./features/hover.ts"
-export { inView } from "./features/in-view.ts"
-export { pan } from "./features/pan.ts"
-export { press } from "./features/press.ts"
-export { domAnimation } from "./features/dom-animation.ts"
-export { domMax } from "./features/dom-max.ts"
+export { drag } from "@wardic/dom/unstable/features/Drag"
+export { focus } from "@wardic/dom/unstable/features/Focus"
+export { hover } from "@wardic/dom/unstable/features/Hover"
+export { inView } from "@wardic/dom/unstable/features/InView"
+export { pan } from "@wardic/dom/unstable/features/Pan"
+export { press } from "@wardic/dom/unstable/features/Press"
+export { domAnimation } from "@wardic/dom/unstable/features/DomAnimation"
+export { domMax } from "@wardic/dom/unstable/features/DomMax"
 // The Instant change and the Projection reset (#443): Motion's `useInstantTransition` and kin.
 export type { InstantTransition } from "@wardic/dom/unstable/Instant"
 // `WardicConfig`'s `transformPagePoint` helpers (#443, Motion's): a drag inside a transformed parent, or an SVG's viewBox.

@@ -7,11 +7,11 @@ import * as InputSource from "@wardic/core/InputSource"
 import * as Effect from "effect/Effect"
 import * as DragTrack from "@wardic/dom/unstable/DragTrack"
 import type * as Feature from "@wardic/dom/unstable/Feature"
-import { drag } from "./features/drag.ts"
+import * as Drag from "@wardic/dom/unstable/features/Drag"
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import { runWatch, useBrought } from "./provider.tsx"
 import type { WardicRuntime } from "./runtime.ts"
-import { type DragGesture } from "./features/keys.ts"
+import type * as Keys from "@wardic/dom/unstable/features/Keys"
 
 export { DEFAULT_DRAG_ELASTIC, dragTransitionOf } from "@wardic/dom/unstable/DragTransition"
 export type { DragSnapshot, DragTrack, DragTrackConfig } from "@wardic/dom/unstable/DragTrack"
@@ -46,10 +46,10 @@ export const runDragTrack = (opts: RunDragTrackOptions): DragTrack.DragTrack => 
 }
 
 /** What {@link runDragTrack} brings (ADR-0067 decision 12): the `drag` Feature, whatever its section has (#511). */
-const BRINGS: ReadonlyArray<Feature.Feature> = [drag]
+const BRINGS: ReadonlyArray<Feature.Feature> = [Drag.drag]
 
 /** {@link runDragTrack} through `drive`: an element's section's `drag` Feature's (#511), where `runDragTrack` brings it. Internal. */
-export const runDragTrackWith = (drive: DragGesture["Service"]["drive"], opts: RunDragTrackOptions): DragTrack.DragTrack =>
+export const runDragTrackWith = (drive: Keys.DragGesture["Service"]["drive"], opts: RunDragTrackOptions): DragTrack.DragTrack =>
   drive({
     ...opts,
     watch: (track) => runWatch(opts.runtime, track),

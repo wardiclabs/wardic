@@ -7,13 +7,13 @@
 import type { Accessor } from "solid-js"
 import { watchToSignal } from "./bridge.tsx"
 import type * as Feature from "@wardic/dom/unstable/Feature"
-import { hover } from "./features/hover.ts"
-import { HoverGesture } from "./features/keys.ts"
+import * as Hover from "@wardic/dom/unstable/features/Hover"
+import * as Keys from "@wardic/dom/unstable/features/Keys"
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import { useBrought } from "./provider.tsx"
 
 /** What it brings (ADR-0067 decision 12): its gesture's Feature, whatever its section has (#511). */
-const HOVER: ReadonlyArray<Feature.Feature> = [hover]
+const HOVER: ReadonlyArray<Feature.Feature> = [Hover.hover]
 
 /**
  * `true` while the pointer is over `target`, `false` once it leaves: a hover as state, for what isn't
@@ -28,5 +28,5 @@ const HOVER: ReadonlyArray<Feature.Feature> = [hover]
 // The core hover watch (#318); `false` until its first transition.
 export const createHover = (target: unknown): Accessor<boolean> => {
   const services = useBrought(HOVER)
-  return watchToSignal<boolean>(({ on, onDefect }) => GestureFeatures.serviceOf(services(), HoverGesture).watch(target, { on: (transition) => on(transition.active), onDefect }), false)
+  return watchToSignal<boolean>(({ on, onDefect }) => GestureFeatures.serviceOf(services(), Keys.HoverGesture).watch(target, { on: (transition) => on(transition.active), onDefect }), false)
 }

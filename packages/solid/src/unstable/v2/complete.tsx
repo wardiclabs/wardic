@@ -7,14 +7,14 @@
  * @module
  */
 import * as Predicate from "effect/Predicate"
-import { ALL } from "../../features/all.ts"
+import * as All from "@wardic/dom/unstable/features/All"
 import { internalsOf, type Ward, type WardChecked, type WardConfig, type WardInternals, wardWith, type WardOptions } from "./ward.tsx"
 
 /**
  * What a **Complete element** tells its ward (#511, ADR-0067): it brings every Feature. Its forms'
  * (`ward()`, `wardic.*`, `wardic.create`) alone: a Slim element's never name it.
  */
-export const COMPLETE: WardInternals = { brings: ALL, complete: true }
+export const COMPLETE: WardInternals = { brings: All.ALL, complete: true }
 
 /** No config: a ward that only listens (#398), `ward()`. */
 const NO_CONFIG: WardConfig = {}

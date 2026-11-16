@@ -70,7 +70,7 @@ import {
   type XY,
 } from "./batch-reorder-places.ts"
 import type * as Feature from "@wardic/dom/unstable/Feature"
-import { input } from "./features/input.ts"
+import * as Input from "@wardic/dom/unstable/features/Input"
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import type * as PresenceController from "@wardic/dom/unstable/PresenceController"
@@ -105,7 +105,7 @@ const releaseVelocityOf: (sample: Drag.Sample) => XY = Match.type<Drag.Sample>()
 )
 
 /** What a group brings (ADR-0067 decision 12): the gestures' input, its items' drags heard through it. Either binding's. */
-export const GROUP_BRINGS: ReadonlyArray<Feature.Feature> = [{ name: "Reorder.BatchGroup", key: InputSource.InputSource, layer: input }]
+export const GROUP_BRINGS: ReadonlyArray<Feature.Feature> = [{ name: "Reorder.BatchGroup", key: InputSource.InputSource, layer: Input.input }]
 
 /** An item's `aria-describedby`: the app's own ids, then the instructions', or none. */
 export const describedByOf = (own: string | undefined, instructions: string | undefined): string | undefined => {

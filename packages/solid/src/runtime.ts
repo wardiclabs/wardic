@@ -35,7 +35,7 @@ import * as Result from "effect/Result"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as AppearAnimations from "@wardic/dom/unstable/AppearAnimations"
 import * as Feature from "@wardic/dom/unstable/Feature"
-import { projectionIn } from "./features/keys.ts"
+import * as Keys from "@wardic/dom/unstable/features/Keys"
 import * as Instant from "@wardic/dom/unstable/Instant"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
@@ -252,7 +252,7 @@ export const clientContext = (
       return build().gate
     },
     get projection() {
-      return projectionIn(features.built())
+      return Keys.projectionIn(features.built())
     },
     get reducedMotion() {
       return build().reducedMotion

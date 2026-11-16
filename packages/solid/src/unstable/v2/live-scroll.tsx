@@ -18,7 +18,7 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import { isServer } from "@solidjs/web"
 import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js"
 import type * as Feature from "@wardic/dom/unstable/Feature"
-import { scroll } from "../../features/scroll.ts"
+import * as Scroll from "@wardic/dom/unstable/features/Scroll"
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import { followScroll, letGoScroll, scrollAtomsOf } from "../../scroll-values.ts"
@@ -29,7 +29,7 @@ import { useBrought, useWardicRuntime } from "./provider.tsx"
 import { CLIENT_ONLY, onSettledClientOnly } from "./solid-reactivity.ts"
 
 /** What it brings (ADR-0067 decision 12): the `scroll` Feature, whatever its section has (#518). */
-const SCROLL: ReadonlyArray<Feature.Feature> = [scroll]
+const SCROLL: ReadonlyArray<Feature.Feature> = [Scroll.scroll]
 
 /** An element, or an accessor of one, such as `() => box` for a ref: read once it's there. */
 export type ElementSource = Element | Accessor<Element | undefined>

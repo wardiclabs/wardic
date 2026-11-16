@@ -20,7 +20,7 @@ import { createWardWith, type SpineInternals, type Ward } from "./create-ward.ts
 import { runDirective } from "./directive.tsx"
 import { createOf, type CreateFor, formOf, type InferredPropsFor, type WardicComponentFor } from "./element.tsx"
 import type * as Feature from "@wardic/dom/unstable/Feature"
-import type { EveryFeature } from "./features/all.ts"
+import type * as All from "@wardic/dom/unstable/features/All"
 import type { TargetKey } from "./ward-keys.ts"
 
 /** What a Slim element tells the spine: it brings no Feature of its own. */
@@ -54,7 +54,7 @@ export const wOf = (kind: SpineInternals): W =>
  * @see https://wardic.dev/reference/solid/elements/wardic-instance
  */
 // `F`: #516, ADR-0067 *Amendment (#516)*; `use:w`, its decision 4.
-export type W<F = EveryFeature> = WFor<Feature.PropFeatureNames<F>>
+export type W<F = All.EveryFeature> = WFor<Feature.PropFeatureNames<F>>
 
 /** {@link W} for the Features named `FN` (#516). */
 type WFor<FN extends string> = ((el: HTMLElement, value: Accessor<WardConfig.WardConfig>) => void) & {

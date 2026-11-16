@@ -21,7 +21,7 @@ import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Bool from "effect/Boolean"
 import { createContext, createEffect, createMemo, type JSX, on, onCleanup, untrack, useContext } from "solid-js"
 import * as DomLayoutGroup from "@wardic/dom/unstable/LayoutGroup"
-import type { ProjectionNodes } from "./features/keys.ts"
+import type * as Keys from "@wardic/dom/unstable/features/Keys"
 import type * as LayoutMember from "@wardic/dom/unstable/LayoutMember"
 import { useProjectionNodes, useWardicProjection } from "./layout-projection.tsx"
 import { isServer } from "./server.ts"
@@ -51,7 +51,7 @@ export const createProjectionNode = (opts: LayoutMember.CreateProjectionNodeOpti
  * {@link createProjectionNode} on `projection`: an element's, its section's `layout` Feature's (#511), where
  * `createProjectionNode` brings it, registered through the Feature's `nodes` (#746). Internal.
  */
-export const projectionNodeOf = (projection: ProjectionSystem.Shape, nodes: ProjectionNodes["Service"], opts: LayoutMember.CreateProjectionNodeOptions): ProjectionSystem.NodeHandle => {
+export const projectionNodeOf = (projection: ProjectionSystem.Shape, nodes: Keys.ProjectionNodes["Service"], opts: LayoutMember.CreateProjectionNodeOptions): ProjectionSystem.NodeHandle => {
   const handle = projection.register(nodes.registrationOf(opts))
   onCleanup(handle.dispose)
   // Compared before it measures, as Motion's `prevProps.layoutDependency !== layoutDependency`: an

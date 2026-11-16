@@ -64,13 +64,13 @@ import { useLayoutServices } from "./layout-projection.tsx"
 import { watchItemInput } from "./reorder-input.ts"
 import { plainOrder } from "./reorder-values.ts"
 import type * as Feature from "@wardic/dom/unstable/Feature"
-import { drag } from "./features/drag.ts"
-import { focus } from "./features/focus.ts"
-import { hover } from "./features/hover.ts"
-import { inView } from "./features/in-view.ts"
-import { layout } from "./features/layout.ts"
-import { pan } from "./features/pan.ts"
-import { press } from "./features/press.ts"
+import * as Drag from "@wardic/dom/unstable/features/Drag"
+import * as Focus from "@wardic/dom/unstable/features/Focus"
+import * as Hover from "@wardic/dom/unstable/features/Hover"
+import * as InView from "@wardic/dom/unstable/features/InView"
+import * as Layout from "@wardic/dom/unstable/features/Layout"
+import * as Pan from "@wardic/dom/unstable/features/Pan"
+import * as Press from "@wardic/dom/unstable/features/Press"
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import type { WardicRuntime } from "./runtime.ts"
 import { controlledOf, runSpine, type SpineInternals, createWardWith, type Ward, type WardProps, type WardUserProps } from "./create-ward.tsx"
@@ -298,7 +298,7 @@ const touchActionOf = <V,>(group: ItemGroup<V>, listens: boolean): SpineInternal
  * drag, and every other gesture, so `whileHover` or `whileTap` on an item works as on Motion's, for
  * about 0.5 KB gzipped beside the drag's.
  */
-const ITEM_BRINGS: ReadonlyArray<Feature.Feature> = [layout, drag, hover, press, focus, inView, pan]
+const ITEM_BRINGS: ReadonlyArray<Feature.Feature> = [Layout.layout, Drag.drag, Hover.hover, Press.press, Focus.focus, InView.inView, Pan.pan]
 
 const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTMLElement | undefined>, runtime: WardicRuntime, listens: boolean): SpineInternals => {
   // Its keys' input, the `drag` Feature's it brings (#511).

@@ -94,7 +94,7 @@ import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import { inViewOptionsOf } from "../../gesture-callbacks.ts"
 import type { WardicRuntime, WardicServices } from "../../runtime.ts"
-import { projectionIn, projectionNodesIn } from "../../features/keys.ts"
+import * as Keys from "@wardic/dom/unstable/features/Keys"
 import type { WardCheckedConfig, WardKey, WardValueOf } from "../../ward-keys.ts"
 import { createElementStyle } from "../../element-style.ts"
 import * as LiveStyle from "@wardic/dom/unstable/LiveStyle"
@@ -126,7 +126,7 @@ import {
   useFeatureRegistry,
 } from "./provider.tsx"
 import * as Feature from "@wardic/dom/unstable/Feature"
-import type { EveryFeature } from "../../features/all.ts"
+import type * as All from "@wardic/dom/unstable/features/All"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, CLIENT_ONLY_SYNC, CLIENT_ONLY_SYNC_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { configView, type Fixed, type PerKey, type PerKeyApart } from "./config-view.ts"
@@ -135,7 +135,6 @@ import { neverLands, NO_EVENTS, serverWhen } from "./waiters.ts"
 import { usePresenceContext } from "./presence.tsx"
 import { createVariantNode, useVariantContext, type VariantNode, WardicVariantContext } from "./variant-node.ts"
 import type * as DragTrack from "@wardic/dom/unstable/DragTrack"
-import { DragGesture, FocusGesture, HoverGesture, InViewGesture, PanGesture, PressGesture } from "../../features/keys.ts"
 
 /**
  * A Wardic element's `style`: every CSS property and the transform keys (`x`,
@@ -424,7 +423,7 @@ export interface WardOptions {
  * `Ward<C, F>` is a Wardic instance's ward, with Features `F`: it hears `settled` and their events alone.
  */
 // `F` (#516, Q19): its default, every Feature, gives the ward as it was ({@link WardFor}).
-export type Ward<C extends WardConfig = WardConfig, F = EveryFeature> = WardFor<C, Feature.PropFeatureNames<F>>
+export type Ward<C extends WardConfig = WardConfig, F = All.EveryFeature> = WardFor<C, Feature.PropFeatureNames<F>>
 
 /**
  * A {@link Ward} whose Features are named `FN` (#516): its `next`, `each` and `when` take `settled` and
@@ -909,7 +908,7 @@ const forgetJustLeft = (): void => justLeft.clear()
  * `services` has `layout` now (#582). A module's function, not a ward's: a ward makes none.
  */
 const layoutArrivedIn = (arrive: ((projection: ProjectionSystem.Shape) => void) | undefined, services: Context.Context<never>): void => {
-  UndefinedOr.map(arrive, (make) => UndefinedOr.map(projectionIn(services), make))
+  UndefinedOr.map(arrive, (make) => UndefinedOr.map(Keys.projectionIn(services), make))
 }
 
 export function wardWith(config: WardConfig, internal: WardInternals): Ward {
@@ -923,7 +922,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
   const gate = useWardicGate()
   // Its section's projection system, the `layout` Feature's (#511): `undefined` without it. Read now,
   // which builds the Features given to its section at once: the first element to ask builds them.
-  const layoutProjection = projectionIn(untrack(features.services))
+  const layoutProjection = Keys.projectionIn(untrack(features.services))
   // The provider's, once any section has built it: what its values register with.
   const builtProjection = useBuiltProjection()
   const reducedMotion = useWardicReducedMotion()
@@ -1181,7 +1180,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     readonly arriveLayout: ((projection: ProjectionSystem.Shape) => void) | undefined
     readonly watch: (watch: Effect.Effect<void, never, Scope.Scope | WardicServices>) => void
     /** Starts its drag track with a `drag` that arrived after it mounted (#551); absent unless one was on its way. */
-    readonly startDrag: ((gesture: DragGesture["Service"]) => void) | undefined
+    readonly startDrag: ((gesture: Keys.DragGesture["Service"]) => void) | undefined
     hover: boolean
     press: boolean
     pan: boolean
@@ -1216,7 +1215,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     // Each through its section's Feature (#511), read as it starts: one that arrives lazily starts from
     // then on, as the effect below runs this again.
     const services = untrack(features.services)
-    const hover = gestureIn(services, "hover", HoverGesture, Bool.or(untrack(wantsHover), lifecycle.wantsHover))
+    const hover = gestureIn(services, "hover", Keys.HoverGesture, Bool.or(untrack(wantsHover), lifecycle.wantsHover))
     if (Predicate.isNotUndefined(hover) && Bool.not(m.hover)) {
       m.hover = true
       m.watch(
@@ -1231,7 +1230,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         }),
       )
     }
-    const press = gestureIn(services, "press", PressGesture, Bool.or(untrack(wantsPress), lifecycle.wantsPress))
+    const press = gestureIn(services, "press", Keys.PressGesture, Bool.or(untrack(wantsPress), lifecycle.wantsPress))
     if (Predicate.isNotUndefined(press) && Bool.not(m.press)) {
       m.press = true
       m.watch(
@@ -1250,13 +1249,13 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       )
     }
     // A pan sets no layer: only a `next` wants it (#273).
-    const pan = gestureIn(services, "pan", PanGesture, lifecycle.wantsPan)
+    const pan = gestureIn(services, "pan", Keys.PanGesture, lifecycle.wantsPan)
     if (Predicate.isNotUndefined(pan) && Bool.not(m.pan)) {
       m.pan = true
       m.watch(pan.watch(m.element, { on: (sample) => lifecycle.panned(sample, m.element), onDefect }, { mapPoint: WardicConfigValue.pointMapOptionOf(pagePoint) }))
     }
     // In view as its `viewport` says, read when it starts (#273).
-    const inView = gestureIn(services, "inView", InViewGesture, Bool.or(untrack(wantsInView), lifecycle.wantsInView))
+    const inView = gestureIn(services, "inView", Keys.InViewGesture, Bool.or(untrack(wantsInView), lifecycle.wantsInView))
     if (Predicate.isNotUndefined(inView) && Bool.not(m.inView)) {
       m.inView = true
       m.watch(
@@ -1270,7 +1269,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       )
     }
     // Focused as the browser shows it (`:focus-visible`, #273).
-    const focus = gestureIn(services, "focus", FocusGesture, untrack(wantsFocus))
+    const focus = gestureIn(services, "focus", Keys.FocusGesture, untrack(wantsFocus))
     if (Predicate.isNotUndefined(focus) && Bool.not(m.focus)) {
       m.focus = true
       m.watch(focus.watch(m.element, { visible: true }, { on: (focused) => setGesture(m.element, "focused", focused), onDefect }))
@@ -1391,7 +1390,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       // Made by the `layout` Feature's code (#746), read from its section's Features, which have `layout`
       // once they have `projection`.
       const layoutNodeOn = (projection: ProjectionSystem.Shape, takenNow: PresenceRecord.PresenceSeed | undefined): void => {
-        const nodes = projectionNodesIn(untrack(features.services))
+        const nodes = Keys.projectionNodesIn(untrack(features.services))
         const started = (): void => lifecycle.layoutStarted()
         const completed = (): void => lifecycle.layoutCompleted()
         const released = (): void => lifecycle.released()
@@ -1421,7 +1420,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
         handedOver = UndefinedOr.map(internal.onLayoutHandle, (onHandle) => onHandle(handle))
       }
       // Its section's `layout` as it mounts: had at setup, or arrived since (#582).
-      const now = UndefinedOr.match(layoutNodes, { onDefined: identity, onUndefined: () => projectionIn(untrack(features.services)) })
+      const now = UndefinedOr.match(layoutNodes, { onDefined: identity, onUndefined: () => Keys.projectionIn(untrack(features.services)) })
       if (Predicate.isNotUndefined(now)) layoutNodeOn(now, taken)
       if (Predicate.isUndefined(layout)) {
         arriveLayout = (projection) => {
@@ -1446,11 +1445,11 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     const locked = initialConfig.dragDirectionLock === true
     // Its section's `drag` Feature drives it (#511): without it, `drag` does nothing, and development
     // says so once, unless `drag` is on its way.
-    const dragGesture = gestureIn(untrack(features.services), "drag", DragGesture, Predicate.isNotUndefined(dragAxis))
+    const dragGesture = gestureIn(untrack(features.services), "drag", Keys.DragGesture, Predicate.isNotUndefined(dragAxis))
     // Whether its track drives its layout node (ADR-0016): the node it has as the track is made, at
     // mount or as `drag` arrives; a node made later leaves it moving `x`/`y` (#582).
     let dragProjected = false
-    const driveDrag = (gesture: DragGesture["Service"]): DragTrack.DragTrack => {
+    const driveDrag = (gesture: Keys.DragGesture["Service"]): DragTrack.DragTrack => {
       const axis = UndefinedOr.getOrThrow(dragAxis)
       dragProjected = Predicate.isNotUndefined(layout)
       // Motion's `dragConstraints` (#273): a box of numbers, or a container measured against the element.
@@ -1536,7 +1535,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
     // A `drag` on its way as it mounted (#551): its track starts as the Feature arrives (`startDrag`),
     // and the spine reads it at each Retarget from then on. Only then is `drag` a getter, so an
     // element that has it at mount, or never wants it, pays nothing.
-    let startDrag: ((gesture: DragGesture["Service"]) => void) | undefined
+    let startDrag: ((gesture: Keys.DragGesture["Service"]) => void) | undefined
     if (Predicate.isNotUndefined(dragAxis) && Predicate.isUndefined(dragTrack) && untrack(features.pending)) {
       Object.defineProperty(spineOptions, "drag", { get: () => dragTrack })
       // Whether that track drives the layout node (#582): until it starts, whether the element has one.
@@ -1621,7 +1620,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       // Its apply returns nothing: a function returned there would be its cleanup.
       ({ services, pending }) => {
         UndefinedOr.map(mounted, (m) => layoutArrivedIn(m.arriveLayout, services))
-        if (DEV && Predicate.isUndefined(projectionIn(services)) && Bool.not(pending)) {
+        if (DEV && Predicate.isUndefined(Keys.projectionIn(services)) && Bool.not(pending)) {
           featureRegistry.warnOnce("layout", Feature.missingMessage("layout", Feature.LAYOUT_PROPS, "@wardic/solid/unstable/v2"))
         }
       },
@@ -1637,7 +1636,7 @@ export function wardWith(config: WardConfig, internal: WardInternals): Ward {
       () => ({ services: features.services(), pending: features.pending() }),
       // Its apply returns nothing: a function returned there would be its cleanup.
       ({ services, pending }) => {
-        UndefinedOr.match(GestureFeatures.serviceIn(services, DragGesture), {
+        UndefinedOr.match(GestureFeatures.serviceIn(services, Keys.DragGesture), {
           // A `layout` from the same load makes its node first, so the track drives it (#582).
           onDefined: (gesture) =>
             UndefinedOr.map(mounted, (m) => {

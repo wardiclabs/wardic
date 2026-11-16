@@ -46,7 +46,7 @@ import { GESTURE_KEYS } from "./gesture-callbacks.ts"
 import { renderServerElement, serverAppearOfWard, createWardWith, type SpineInternals, type WardStyle, type WardUserProps } from "./create-ward.tsx"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import type * as Feature from "@wardic/dom/unstable/Feature"
-import type { EveryFeature } from "./features/all.ts"
+import type * as All from "@wardic/dom/unstable/features/All"
 import type { InferredMotion, InferredMotionOf, TargetKey } from "./ward-keys.ts"
 import * as VariantTree from "@wardic/core/unstable/VariantTree"
 import { MOTION_PROPS, motionToConfig, type WardicMotionProps } from "./motion-props.ts"
@@ -76,7 +76,7 @@ export type WardicProps<Tag extends keyof JSX.IntrinsicElements, M = WardicMotio
 //
 // `F` (#516): a Wardic instance's Features. Its default, every one, gives the props as they were; a
 // list without some gives their props as `NeedsFeature` ({@link InferredPropsFor}).
-export type WardicComponent<Tag extends keyof JSX.IntrinsicElements, F = EveryFeature> = WardicComponentFor<Tag, Feature.PropFeatureNames<F>>
+export type WardicComponent<Tag extends keyof JSX.IntrinsicElements, F = All.EveryFeature> = WardicComponentFor<Tag, Feature.PropFeatureNames<F>>
 
 /** A {@link WardicComponent} whose Features are named `FN` (#516). */
 export type WardicComponentFor<Tag extends keyof JSX.IntrinsicElements, FN extends string> = <
@@ -153,7 +153,7 @@ export function createWith(arg: string | Component<Record<string, unknown> & War
 }
 
 /** The `create` of a form: {@link createWith}'s overloads. `F` (#516): a Wardic instance's Features. */
-export type Create<F = EveryFeature> = CreateFor<Feature.PropFeatureNames<F>>
+export type Create<F = All.EveryFeature> = CreateFor<Feature.PropFeatureNames<F>>
 
 /** {@link Create} for the Features named `FN` (#516). */
 export interface CreateFor<FN extends string> {

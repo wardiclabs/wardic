@@ -16,7 +16,7 @@
  */
 import type { JSX } from "@solidjs/web"
 import type * as Feature from "@wardic/dom/unstable/Feature"
-import type { EveryFeature } from "../../features/all.ts"
+import type * as All from "@wardic/dom/unstable/features/All"
 import type { WardCheckedConfig } from "../../ward-keys.ts"
 import type { PerKeyApart } from "./config-view.ts"
 import { createOf, type CreateFor, type FeatureProps, formOf, type OwnPropsFor, type WardicComponentFor } from "./element.tsx"
@@ -49,7 +49,7 @@ export const wOf = (kind: WardInternals): W => formOf<W>(createOf(kind), { ward:
  * @see https://wardic.dev/reference/solid/elements/wardic-instance
  */
 // `F`: #516, ADR-0067 *Amendment (#516)*.
-export type W<F = EveryFeature> = WFor<Feature.PropFeatureNames<F>>
+export type W<F = All.EveryFeature> = WFor<Feature.PropFeatureNames<F>>
 
 /** {@link W} for the Features named `FN` (#516). */
 type WFor<FN extends string> = { readonly create: CreateFor<FN>; readonly ward: MakeWardFor<FN> } & {

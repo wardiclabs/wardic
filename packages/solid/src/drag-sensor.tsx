@@ -11,14 +11,14 @@ import type { Accessor } from "solid-js"
 import { watchToSignal } from "./bridge.tsx"
 import { type CreateDragOptions, watchDragSamples } from "./drag-samples.ts"
 import type * as Feature from "@wardic/dom/unstable/Feature"
-import { drag } from "./features/drag.ts"
+import * as DomDrag from "@wardic/dom/unstable/features/Drag"
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import { useBrought } from "./provider.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 
 /** What it brings (ADR-0067 decision 12): its gesture's Feature, whatever its section has (#511). */
-const DRAG: ReadonlyArray<Feature.Feature> = [drag]
+const DRAG: ReadonlyArray<Feature.Feature> = [DomDrag.drag]
 
 /**
  * The latest sample of a drag on `target`, `null` before the first: where the pointer is, how far it

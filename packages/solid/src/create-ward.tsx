@@ -88,7 +88,7 @@ import * as Feature from "@wardic/dom/unstable/Feature"
 import { runWatch, useBuiltProjection, useElementFeatures, useFeatureRegistry, useWardicAppear, useWardicDefaultTransition, useWardicGate, useWardicValueReads, useWardicPositionalKeys, useWardicReducedMotion, useWardicRenderer, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 import type { WardicRuntime } from "./runtime.ts"
-import { projectionIn, projectionNodesIn } from "./features/keys.ts"
+import * as Keys from "@wardic/dom/unstable/features/Keys"
 import { isHydrating, isServer } from "./server.ts"
 import { reactivity } from "./solid-reactivity.ts"
 import * as Spine from "@wardic/core/unstable/Spine"
@@ -96,7 +96,6 @@ import * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
 import * as DragDefaults from "@wardic/dom/unstable/DragDefaults"
 import { type WardicVariantContextValue, useVariantContext, WardicVariantContext } from "./variants.ts"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
-import { DragGesture, FocusGesture, HoverGesture, InViewGesture, PanGesture, PressGesture } from "./features/keys.ts"
 
 /**
  * Optional user-supplied props passed INTO the {@link Ward} callable to be
@@ -193,20 +192,20 @@ interface Wanted {
  * Feature (#511): shared by every element.
  */
 const WANTS: Wants<Wanted> = {
-  hover: (w) => wantsHover(w.config) && GestureFeatures.hasService(w.services, HoverGesture),
-  press: (w) => wantsPress(w.config) && GestureFeatures.hasService(w.services, PressGesture),
-  inView: (w) => wantsInView(w.config) && GestureFeatures.hasService(w.services, InViewGesture),
-  focus: (w) => wantsFocus(w.config) && GestureFeatures.hasService(w.services, FocusGesture),
-  pan: (w) => wantsPan(w.config) && GestureFeatures.hasService(w.services, PanGesture),
+  hover: (w) => wantsHover(w.config) && GestureFeatures.hasService(w.services, Keys.HoverGesture),
+  press: (w) => wantsPress(w.config) && GestureFeatures.hasService(w.services, Keys.PressGesture),
+  inView: (w) => wantsInView(w.config) && GestureFeatures.hasService(w.services, Keys.InViewGesture),
+  focus: (w) => wantsFocus(w.config) && GestureFeatures.hasService(w.services, Keys.FocusGesture),
+  pan: (w) => wantsPan(w.config) && GestureFeatures.hasService(w.services, Keys.PanGesture),
 }
 
 /** Each gesture a config may want, its Feature's name and key: what development's word on a missing one checks (#511). */
 const GESTURE_FEATURES: ReadonlyArray<readonly [keyof typeof GestureFeatures.GESTURE_WORDS, (config: WardConfig.WardConfig) => boolean, Context.Key<unknown, unknown>]> = [
-  ["hover", wantsHover, HoverGesture],
-  ["press", wantsPress, PressGesture],
-  ["inView", wantsInView, InViewGesture],
-  ["focus", wantsFocus, FocusGesture],
-  ["pan", wantsPan, PanGesture],
+  ["hover", wantsHover, Keys.HoverGesture],
+  ["press", wantsPress, Keys.PressGesture],
+  ["inView", wantsInView, Keys.InViewGesture],
+  ["focus", wantsFocus, Keys.FocusGesture],
+  ["pan", wantsPan, Keys.PanGesture],
 ]
 
 /** A `ward()` call's user props when it's given none. */
@@ -434,7 +433,7 @@ export function runSpine(opts: RunSpineOptions): void {
   const features = UndefinedOr.match(opts.features, { onDefined: identity, onUndefined: () => useElementFeatures(internal) })
   // Its section's projection system, the `layout` Feature's (#511): `undefined` without it. Read now,
   // which builds the Features given to its section at once: the first element to ask builds them.
-  const layoutProjection = projectionIn(untrack(features.services))
+  const layoutProjection = Keys.projectionIn(untrack(features.services))
   // Every Feature its provider has built: where its spine finds its Timeline values (#240).
   const builtFeatures = useFeatureRegistry().built
   // The provider's, once any section has built it: what its values register with.
@@ -647,7 +646,7 @@ export function runSpine(opts: RunSpineOptions): void {
         // takes over from a leaver starts, at its mount only (#286). Made by the `layout` Feature's code
         // (#746), read from its section's Features, which have `layout` once they have `projection`.
         const layoutNodeOn = (projection: ProjectionSystem.Shape, takenNow: PresenceRecord.PresenceSeed | undefined): ProjectionSystem.NodeHandle => {
-          const nodes = projectionNodesIn(untrack(features.services))
+          const nodes = Keys.projectionNodesIn(untrack(features.services))
           const handle = projectionNodeOf(projection, nodes, nodes.optionsOf({ ...ward, taken: takenNow }))
           if (Predicate.isNotUndefined(onLayoutHandle)) onLayoutHandle(handle)
           return handle
@@ -661,7 +660,7 @@ export function runSpine(opts: RunSpineOptions): void {
             handle: undefined,
             arrive: () => {
               if (Predicate.isNotUndefined(later.handle)) return
-              UndefinedOr.match(projectionIn(section.services()), {
+              UndefinedOr.match(Keys.projectionIn(section.services()), {
                 onDefined: (arrived) => {
                   later.handle = runWithOwner(owner, () => untrack(() => layoutNodeOn(arrived, undefined)))
                 },
@@ -700,7 +699,7 @@ export function runSpine(opts: RunSpineOptions): void {
       let late: { track: DragTrack | undefined; projected: boolean } | undefined
       // Its section's `drag` Feature drives it (#511): without it, `drag` does nothing, and development
       // says so once, unless `drag` is on its way.
-      const dragGesture = GestureFeatures.serviceIn(untrack(features.services), DragGesture)
+      const dragGesture = GestureFeatures.serviceIn(untrack(features.services), Keys.DragGesture)
       if (DEV && Predicate.isNotUndefined(dragCfg) && Predicate.isUndefined(dragGesture) && Bool.not(untrack(features.pending))) {
         useFeatureRegistry().warnOnce("drag", Feature.missingMessage("drag", GestureFeatures.GESTURE_WORDS.drag, "@wardic/solid"))
       }
@@ -714,7 +713,7 @@ export function runSpine(opts: RunSpineOptions): void {
         const nodeLater = lateLayout
         // It drives the layout node the element has as it's made, at mount or as `drag` arrives: a
         // node made later leaves it moving `x`/`y` (#582).
-        const trackWith = (dragGesture: DragGesture["Service"]): DragTrack => {
+        const trackWith = (dragGesture: Keys.DragGesture["Service"]): DragTrack => {
           const projection = layoutNodeOf(nodeAtMount, nodeLater)
           const c0d = untrack(cfg)
           // Motion's `dragConstraints` (#273): a box of numbers, or a container measured against the element.
@@ -777,7 +776,7 @@ export function runSpine(opts: RunSpineOptions): void {
           const section = features
           createComputed(() => {
             if (Predicate.isNotUndefined(held.track)) return
-            UndefinedOr.match(GestureFeatures.serviceIn(section.services(), DragGesture), {
+            UndefinedOr.match(GestureFeatures.serviceIn(section.services(), Keys.DragGesture), {
               onDefined: (arrived) => {
                 // A `layout` from the same load makes its node first, so the track drives it (#582).
                 if (Predicate.isNotUndefined(nodeLater)) nodeLater.arrive()
@@ -806,7 +805,7 @@ export function runSpine(opts: RunSpineOptions): void {
         hover: () =>
           watchToSignal<boolean>(
             ({ on, onDefect }) =>
-              gestureOf(HoverGesture).watch(element, {
+              gestureOf(Keys.HoverGesture).watch(element, {
                 on: (transition) => {
                   gesturesOf().hovered(transition)
                   on(transition.active)
@@ -818,7 +817,7 @@ export function runSpine(opts: RunSpineOptions): void {
         press: () =>
           watchToSignal<boolean>(
             ({ on, onDefect }) =>
-              gestureOf(PressGesture).watch(
+              gestureOf(Keys.PressGesture).watch(
                 element,
                 {
                   on: (press) => {
@@ -836,7 +835,7 @@ export function runSpine(opts: RunSpineOptions): void {
         inView: () =>
           watchToSignal<boolean>(
             ({ on, onDefect }) =>
-              gestureOf(InViewGesture).watch(element, inViewOptionsOf(untrack(cfg).viewport), {
+              gestureOf(Keys.InViewGesture).watch(element, inViewOptionsOf(untrack(cfg).viewport), {
                 on: (transition) => {
                   gesturesOf().viewed(transition)
                   on(transition.active)
@@ -846,8 +845,8 @@ export function runSpine(opts: RunSpineOptions): void {
             false,
           ),
         // Focused as the browser shows it (`:focus-visible`, Motion's `whileFocus`).
-        focus: () => watchToSignal<boolean>((handlers) => gestureOf(FocusGesture).watch(element, { visible: true }, handlers), false),
-        pan: () => runWatch(runtime, (onDefect) => gestureOf(PanGesture).watch(element, { on: (sample) => gesturesOf().panned(sample), onDefect }, { mapPoint: WardicConfigValue.pointMapOptionOf(pagePoint) })),
+        focus: () => watchToSignal<boolean>((handlers) => gestureOf(Keys.FocusGesture).watch(element, { visible: true }, handlers), false),
+        pan: () => runWatch(runtime, (onDefect) => gestureOf(Keys.PanGesture).watch(element, { on: (sample) => gesturesOf().panned(sample), onDefect }, { mapPoint: WardicConfigValue.pointMapOptionOf(pagePoint) })),
       })
       if (DEV && internal.complete !== true && internal.gestureless !== true) warnMissingGestures(useFeatureRegistry(), features, cfg)
 

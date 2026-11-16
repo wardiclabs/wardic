@@ -9,7 +9,7 @@
 import type { Accessor } from "solid-js"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import { createWardWith, type SpineInternals, type Ward } from "./create-ward.tsx"
-import { ALL } from "./features/all.ts"
+import * as All from "@wardic/dom/unstable/features/All"
 import type { InferredMotion, TargetKey } from "./ward-keys.ts"
 
 /**
@@ -42,4 +42,4 @@ export function createWard<
  * (`createWard`, `wardic.*`, `wardic.create`, `use:wardic`) alone: a Slim element's never name it, so
  * its app ships no Feature it doesn't choose.
  */
-export const COMPLETE: SpineInternals = { brings: ALL, complete: true }
+export const COMPLETE: SpineInternals = { brings: All.ALL, complete: true }

@@ -25,14 +25,14 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import * as BatchMembers from "@wardic/dom/unstable/BatchMembers"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import type * as Feature from "@wardic/dom/unstable/Feature"
-import { input } from "./features/input.ts"
+import * as Input from "@wardic/dom/unstable/features/Input"
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import * as GestureInfo from "@wardic/dom/unstable/GestureInfo"
 import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /** What a Batch's gestures stand on, which it brings (ADR-0067 decision 12): the gestures' input. */
-export const BATCH_GESTURES: ReadonlyArray<Feature.Feature> = [{ name: "createBatch's gestures", key: InputSource.InputSource, layer: input }]
+export const BATCH_GESTURES: ReadonlyArray<Feature.Feature> = [{ name: "createBatch's gestures", key: InputSource.InputSource, layer: Input.input }]
 
 /** A Batch's gestures once their code has loaded: each watched over its host, all stopped at `close`. */
 export interface BatchGesturesOn {
