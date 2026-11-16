@@ -9,7 +9,9 @@
 // nothing, and a Declared layout change in the block animates nothing (#4, RB10). The flights a
 // width change finishes fire no complete, and settle a Declared layout change waiting on them (#191, RB11).
 // A burst of width changes ends in one blocked pass, however long it lasts: each change restarts the
-// block's wait (RB8, RB12).
+// block's wait (RB8, RB12). Their bursts fake the width on `window` and dispatch `resize` by hand
+// (#785): a real change is a runner command whose reply, a frame idle, outlasts the block on a
+// loaded host, and the burst splits into a pass a change.
 // The width comes from the Environment's `Probe.viewport`, written inside the resize event, so the
 // block is set in the event's own dispatch, before any scheduler hop (#45, RB13).
 // Before, nothing re-measured on a resize, so the next pass animated every node from
@@ -21,6 +23,7 @@ import { clearStages, el, endOfTask, type Engine, fireFrame, fireFrames, makeEng
 import { resizeTo, viewportSettled } from "./viewport.ts"
 import * as Option from "effect/Option"
 import * as Scheduler from "effect/Scheduler"
+import * as UndefinedOr from "effect/UndefinedOr"
 
 let width = 0
 let height = 0
@@ -33,12 +36,43 @@ beforeEach(() => {
 afterEach(async () => {
   unstubFrames()
   clearStages()
+  realWidth()
   await resizeTo(width, height)
   await viewportSettled() // nothing in flight into the next test
 })
 
 /** Narrow the window by `by` px; the engine has seen the resize when this returns. */
 const narrow = (by = 200): Promise<void> => resizeTo(width - by, height)
+
+/** The window's own `innerWidth`, as the page has it. */
+const INNER_WIDTH = Object.getOwnPropertyDescriptor(window, "innerWidth")
+
+/**
+ * A width change without the runner (#785): `innerWidth` faked at `w` and a `resize` dispatched, which
+ * the Probe's listener reads inside the event (#45), so the engine sees it as a real one. `realWidth`
+ * puts the window's own back.
+ */
+const fakeWidth = (w: number): void => {
+  Object.defineProperty(window, "innerWidth", { configurable: true, get: () => w })
+  window.dispatchEvent(new Event("resize"))
+}
+const realWidth = (): void =>
+  UndefinedOr.match(INNER_WIDTH, {
+    onUndefined: () => {
+      delete (window as { innerWidth?: number }).innerWidth
+    },
+    onDefined: (own) => {
+      Object.defineProperty(window, "innerWidth", own)
+    },
+  })
+
+/** A burst of five width changes, each a frame after the last. */
+const burstOfWidths = async (): Promise<void> => {
+  for (let k = 0; k < 5; k++) {
+    fakeWidth(width - 40 * (k + 1))
+    await wait(16)
+  }
+}
 
 /** A centred 200 px column of `n` 50 px items (10 px apart): a width change moves it sideways. */
 const centredColumn = (n: number): Array<HTMLElement> => {
@@ -179,8 +213,7 @@ describe("a window resize blocks the next Measure pass (ADR-0018, Amendment (#39
     const e = makeEngine(makeSink().sink)
     await mount(e, centredColumn(5))
     const before = e.spans.length
-    // Each step waits for the last command's reply: one slower than 250 ms would split the burst.
-    for (let k = 0; k < 5; k++) await resizeTo(width - 40 * (k + 1), height)
+    await burstOfWidths()
     await wait(350)
     const own = e.spans.slice(before)
     expect(own).toHaveLength(1)
@@ -195,7 +228,7 @@ describe("a window resize blocks the next Measure pass (ADR-0018, Amendment (#39
     // Five changes about 100 ms apart, so the burst outlasts 250 ms while no gap reaches it.
     const at: Array<number> = []
     for (let k = 0; k < 5; k++) {
-      await resizeTo(width - 40 * (k + 1), height)
+      fakeWidth(width - 40 * (k + 1))
       at.push(performance.now())
       if (k < 4) await wait(100)
     }

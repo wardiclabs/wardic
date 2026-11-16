@@ -6,12 +6,15 @@
 // - GW3: a child's own `whileHover` is on with its parent's hover, over the name it would take.
 // - GW4: names with their own transitions, through hover, press, release and leave, twice: the
 //   orchestration holds its transition, so the gate sees no `UNSTABLE_MEMO_OUTPUT` (#460, the
-//   storefront's settings button in the smoke's dev mode).
+//   storefront's settings button in the smoke's dev mode). Holding is `WASTED_RECOMPUTE`'s count (#785):
+//   every name's transition is the one spring on purpose, so each of the eight gesture changes re-runs
+//   the button's and the cog's orchestration to the same value; the code is allowed here, for that.
 import { DomLive } from "@wardic/dom"
 import { wardic, WardicProvider, type WardicVariants } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
 import { describe, expect, it } from "vitest"
 import { raf, until } from "../browser-helpers.ts"
+import { allowDiagnostic } from "./diagnostics.ts"
 import { mount } from "./mount.tsx"
 
 const frames = async (n: number): Promise<void> => {
@@ -78,6 +81,7 @@ describe("gesture props taking a variant name on Solid 2 (#291)", () => {
   })
 
   it("GW4: names with their own transitions, hovered and pressed twice: the orchestration holds (no UNSTABLE_MEMO_OUTPUT)", async () => {
+    allowDiagnostic("WASTED_RECOMPUTE", "every name's transition is the one spring, so each gesture change re-runs the orchestration to the same value")
     const spring = { type: "spring", stiffness: 500, damping: 30 } as const
     const icon: WardicVariants = { rest: { scale: 1, transition: spring }, hover: { scale: 1.2, transition: spring }, press: { scale: 0.8, transition: spring } }
     const cog: WardicVariants = { rest: { rotate: 0, transition: spring }, hover: { rotate: 60, transition: spring } }
