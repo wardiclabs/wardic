@@ -33,12 +33,12 @@ import * as Predicate from "effect/Predicate"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Result from "effect/Result"
 import * as UndefinedOr from "effect/UndefinedOr"
-import type { ServerAppear } from "./appear.ts"
-import { clientRegistry, type FeatureRegistry, type FeatureSection, ProjectionOptions, type ProviderServices, serverRegistry } from "./feature.ts"
+import type * as AppearAnimations from "@wardic/dom/unstable/AppearAnimations"
+import * as Feature from "@wardic/dom/unstable/Feature"
 import { projectionIn } from "./features/keys.ts"
-import { type InstantAnimations, makeInstantAnimations, NO_INSTANT } from "./instant.ts"
+import * as Instant from "@wardic/dom/unstable/Instant"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
-import type { ValueReads } from "./element-setup.ts"
+import type * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
 
 /**
  * The full Wardic environment a `WardicProvider` requires: core's service contracts but the
@@ -76,7 +76,7 @@ export type WardicRuntime = ManagedRuntime.ManagedRuntime<WardicServices, never>
 
 
 /** A provider's runtime, as its Features build on it. */
-export type ProviderRuntime = ManagedRuntime.ManagedRuntime<ProviderServices, never>
+export type ProviderRuntime = ManagedRuntime.ManagedRuntime<Feature.ProviderServices, never>
 
 /** A server render's Positional keys: it builds no runtime, and reduced motion never applies there. */
 export const SERVER_POSITIONAL_KEYS: ReducedMotion.PositionalKeys["Service"] = { isPositional: ReducedMotion.isTransform }
@@ -86,7 +86,7 @@ export const SERVER_DEFAULT_TRANSITION: DefaultTransition.DefaultTransition["Ser
 
 // #672: an Environment's value reads are element-setup's, which fills them with the DOM's; the provider
 // record holds them.
-export type { ValueReads } from "./element-setup.ts"
+export type { ValueReads } from "@wardic/dom/unstable/ElementSetup"
 
 /**
  * Disposes `runtime`, its Features first. A finalizer that fails is logged and reported, through the
@@ -105,7 +105,7 @@ const disposeReported = (runtime: ProviderRuntime): Promise<void> => {
 }
 
 /** No reads: a server's, whose elements read the DOM's (#672). */
-const NO_VALUE_READS: ValueReads = { ownValues: undefined, measuredPairs: undefined, variableValues: undefined }
+const NO_VALUE_READS: ElementSetup.ValueReads = { ownValues: undefined, measuredPairs: undefined, variableValues: undefined }
 
 /**
  * The value a `WardicProvider` carries down the tree: the single Effect runtime
@@ -141,7 +141,7 @@ export interface WardicContextValue {
    * and Variable values, each `undefined` when it gives none, so a DOM binding's element code reads
    * the DOM's (PR2-Q4). One record, so an element reads them with one context read (PR2-Q6).
    */
-  readonly valueReads: ValueReads
+  readonly valueReads: ElementSetup.ValueReads
   /**
    * The Environment's Renderer (ADR-0003), read once: what each element and presence projects its
    * values with and commits them through.
@@ -149,14 +149,14 @@ export interface WardicContextValue {
   // #618 (M1): each element read it through `runSync` as it mounted, 196 ns and ~340 B (Node).
   readonly renderer: Renderer.Renderer["Service"]
   /** A server render's Appear animations (#48, ADR-0044); none on the client, or with `appear={false}`. */
-  readonly appear?: ServerAppear | undefined
+  readonly appear?: AppearAnimations.ServerAppear | undefined
   /** Whether its animations are instant now (#443, an Instant change's); never on a server. */
-  readonly instant: InstantAnimations
+  readonly instant: Instant.InstantAnimations
   /**
    * Its **Features** (#511, ADR-0067), each built once on first need into the runtime's `MemoMap`; a
    * server render's run their `server` part alone. Disposing them disposes the runtime after.
    */
-  readonly features: FeatureRegistry
+  readonly features: Feature.FeatureRegistry
   /**
    * Build what a first element would (#535): the runtime, its Environment and the gate, and the first
    * animation's code warmed through the interpolators nearly every app uses. A provider runs it at
@@ -173,7 +173,7 @@ interface Built {
   readonly reducedMotionUnder: (setting: ReducedMotion.Config | undefined) => boolean
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
-  readonly valueReads: ValueReads
+  readonly valueReads: ElementSetup.ValueReads
   readonly renderer: Renderer.Renderer["Service"]
 }
 
@@ -233,11 +233,11 @@ export const clientContext = (
   // layout animation starts, and the app's scale correctors.
   const projectionOptions: ProjectionSystem.Options = { reducedMotion: () => build().reducedMotion(), scaleCorrectors }
   const runtime: ProviderRuntime = ManagedRuntime.make(
-    Layer.merge(FlushGate.layer({ batch }), Layer.succeed(ProjectionOptions)(projectionOptions)).pipe(Layer.provideMerge(builtAtOnce(env, waiting))),
+    Layer.merge(FlushGate.layer({ batch }), Layer.succeed(Feature.ProjectionOptions)(projectionOptions)).pipe(Layer.provideMerge(builtAtOnce(env, waiting))),
   )
-  const features = clientRegistry(runtime, () => disposeReported(runtime))
+  const features = Feature.clientRegistry(runtime, () => disposeReported(runtime))
   // Its Instant changes (#443), timed by its Environment's Refresh frames, found at the first.
-  const instant = makeInstantAnimations(() => runtime.runSync(RefreshFrameSource.RefreshFrameSource).requestFrame)
+  const instant = Instant.makeInstantAnimations(() => runtime.runSync(RefreshFrameSource.RefreshFrameSource).requestFrame)
   const prepare = (): void => {
     build()
     warmInterpolators(runtime)
@@ -304,7 +304,7 @@ const settingOf = (setting: ReducedMotion.Config | undefined, provider: () => Re
  * working), an inert gate, no projection system, reduced motion never applying, and the render's
  * Appear animations when it has them.
  */
-export const serverContext = (env: WardicEnv, waiting: string, appear: ServerAppear | undefined, reducedMotion: () => ReducedMotion.Config | undefined): WardicContextValue => {
+export const serverContext = (env: WardicEnv, waiting: string, appear: AppearAnimations.ServerAppear | undefined, reducedMotion: () => ReducedMotion.Config | undefined): WardicContextValue => {
   const runtime = ManagedRuntime.make(builtAtOnce(env, waiting))
   return {
     runtime,
@@ -312,7 +312,7 @@ export const serverContext = (env: WardicEnv, waiting: string, appear: ServerApp
     get renderer() {
       return runtime.runSync(Renderer.Renderer)
     },
-    features: serverRegistry(() => runtime.dispose()),
+    features: Feature.serverRegistry(() => runtime.dispose()),
     prepare: constVoid,
     gate: FlushGate.inert,
     projection: undefined,
@@ -324,7 +324,7 @@ export const serverContext = (env: WardicEnv, waiting: string, appear: ServerApp
     // None: a server's elements fall back to the DOM's (#672, PR2-Q4).
     valueReads: NO_VALUE_READS,
     appear,
-    instant: NO_INSTANT,
+    instant: Instant.NO_INSTANT,
   }
 }
 
@@ -371,7 +371,7 @@ export const whenIdle = (fn: () => void): (() => void) => {
  * and `section`'s Features, its own. A failure here is left to the first element, whose own build
  * fails the same way and reports it where it renders.
  */
-export const prepareIdle = (value: WardicContextValue, section: FeatureSection): void => {
+export const prepareIdle = (value: WardicContextValue, section: Feature.FeatureSection): void => {
   try {
     value.prepare()
     section.services()

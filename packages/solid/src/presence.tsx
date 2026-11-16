@@ -44,14 +44,13 @@
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, children, createContext, createEffect, createMemo, createSignal, type JSX, onCleanup, onMount, untrack, useContext } from "solid-js"
-import { exitCompleteEvents, makePresence, type PresenceMode, propagateTo } from "./presence-controller.ts"
+import * as PresenceController from "@wardic/dom/unstable/PresenceController"
 import { useBuiltProjection, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRenderer, useWardicRuntime } from "./provider.tsx"
 import { isServer } from "./server.ts"
-import type * as PresenceController from "@wardic/dom/unstable/PresenceController"
 
 export { type PresenceContextValue, type PresenceRecord } from "@wardic/dom/unstable/PresenceController"
 export { presenceBlocksInitial, presenceHold } from "@wardic/core/unstable/PresenceRecord"
-export type { PresenceMode } from "./presence-controller.ts"
+export type { PresenceMode } from "@wardic/dom/unstable/PresenceController"
 
 /**
  * Context carrying the nearest `<AnimatePresence>`'s registrar. `undefined` when
@@ -86,7 +85,7 @@ export interface AnimatePresenceProps {
    * (#744), beyond Motion's, though a rotated or skewed ancestor puts it off its place; the SVG
    * elements inside an `<svg>` exit where they are (#702).
    */
-  readonly mode?: PresenceMode | undefined
+  readonly mode?: PresenceController.PresenceMode | undefined
   /**
    * What a leaving child's dynamic `exit` resolves with (Motion's `custom`), over the
    * child's own `custom`: a child that has left can't take new props, so the presence hands it the
@@ -141,7 +140,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   // The retained nodes, their exits and the twins they hand back (`presence-controller.ts`).
   // The presence above, if any (#277's PR 5c): read before this one provides its own.
   const parent = usePresenceContext()
-  const presence = makePresence({
+  const presence = PresenceController.makePresence({
     runtime,
     renderer: useWardicRenderer(),
     projection: useBuiltProjection(),
@@ -150,7 +149,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
     defaultTransition,
     initial: () => props.initial,
     // Motion's `onExitComplete` (#257).
-    events: exitCompleteEvents(runtime, () => untrack(() => props.onExitComplete)),
+    events: PresenceController.exitCompleteEvents(runtime, () => untrack(() => props.onExitComplete)),
     mode: () => props.mode,
     custom: () => untrack(() => props.custom),
     anchorX: () => untrack(() => props.anchorX),
@@ -183,7 +182,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
 
   // `propagate` (#277's PR 5c): with a presence above, its teardown waits to hear whether this one's
   // child left. Read before this presence provides its own context.
-  onCleanup(propagateTo(parent, untrack(() => props.propagate) === true, presence))
+  onCleanup(PresenceController.propagateTo(parent, untrack(() => props.propagate) === true, presence))
 
   // Its `custom`, reactive, for `usePresenceData` (#277's PR 5b).
   const context: PresenceController.PresenceContextValue = { ...presence.context, data: () => props.custom }

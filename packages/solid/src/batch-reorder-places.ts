@@ -29,7 +29,7 @@ import * as Match from "effect/Match"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { fail } from "./batch.ts"
+import * as BatchMembers from "@wardic/dom/unstable/BatchMembers"
 
 /** An item's size in a Batch Reorder group, in px. */
 export interface ReorderBatchItemSize {
@@ -278,7 +278,7 @@ const isColumnCount = (columns: number): boolean => Bool.and(Number.isInteger(co
 const checkedColumns = (columns: number): number =>
   Bool.match(isColumnCount(columns), {
     onTrue: () => columns,
-    onFalse: () => fail(`a Reorder.BatchGroup's \`columns\` is ${String(columns)}: a whole number, 1 or more`),
+    onFalse: () => BatchMembers.fail(`a Reorder.BatchGroup's \`columns\` is ${String(columns)}: a whole number, 1 or more`),
   })
 
 /** How many places of `step` fit `width`, a `gap` after all but the last: at least one; one before the width is read. */

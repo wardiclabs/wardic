@@ -6,19 +6,19 @@
  * @module
  */
 import { DEV, isHydrating } from "solid-js"
-import { batchKeyOf } from "../../appear.ts"
-import { type BatchEnv, type BatchServerAppear, batchServerAppearOf } from "../../batch.ts"
+import * as AppearAnimations from "@wardic/dom/unstable/AppearAnimations"
+import * as BatchMembers from "@wardic/dom/unstable/BatchMembers"
 import { useWardicAppear, useWardicSkipAnimations } from "./provider.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 
 /** A Batch's server plan for its members' Appear animation, under the provider and config around it. */
-export const batchServerAppearHere = (): BatchServerAppear => batchServerAppearOf(useWardicAppear(), useWardicConfig(), useWardicSkipAnimations()())
+export const batchServerAppearHere = (): BatchMembers.BatchServerAppear => BatchMembers.batchServerAppearOf(useWardicAppear(), useWardicConfig(), useWardicSkipAnimations()())
 
 /**
  * A Batch's Handoff's part of its env: whether it hydrates, and, in development alone, the key each
  * member's rule is checked against (Q9), out of a production build.
  */
-export const batchHandoffHere = (): Pick<BatchEnv, "hydrating" | "appearKeyOf"> => {
-  if (DEV) return { hydrating: isHydrating(), appearKeyOf: batchKeyOf }
+export const batchHandoffHere = (): Pick<BatchMembers.BatchEnv, "hydrating" | "appearKeyOf"> => {
+  if (DEV) return { hydrating: isHydrating(), appearKeyOf: AppearAnimations.batchKeyOf }
   return { hydrating: isHydrating() }
 }

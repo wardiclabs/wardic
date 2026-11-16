@@ -5,20 +5,19 @@
  */
 import * as InputSource from "@wardic/core/InputSource"
 import * as Effect from "effect/Effect"
-import { DEFAULT_DRAG_ELASTIC, dragTransitionOf } from "./drag-transition.ts"
-import { driveDragTrack, type DragTrack, type DragTrackOptions } from "./drag-track.ts"
-import type { Feature } from "./feature.ts"
+import * as DragTrack from "@wardic/dom/unstable/DragTrack"
+import type * as Feature from "@wardic/dom/unstable/Feature"
 import { drag } from "./features/drag.ts"
-import { inputIn } from "./gesture-features.ts"
+import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import { runWatch, useBrought } from "./provider.tsx"
 import type { WardicRuntime } from "./runtime.ts"
 import { type DragGesture } from "./features/keys.ts"
 
-export { DEFAULT_DRAG_ELASTIC, dragTransitionOf }
-export type { DragSnapshot, DragTrack, DragTrackConfig } from "./drag-track.ts"
+export { DEFAULT_DRAG_ELASTIC, dragTransitionOf } from "@wardic/dom/unstable/DragTransition"
+export type { DragSnapshot, DragTrack, DragTrackConfig } from "@wardic/dom/unstable/DragTrack"
 
 /** `runDragTrack`'s options: the element, its drag config, the spine's snapshot and callbacks, and the provider's runtime. */
-export interface RunDragTrackOptions extends Omit<DragTrackOptions, "watch" | "fork"> {
+export interface RunDragTrackOptions extends Omit<DragTrack.DragTrackOptions, "watch" | "fork"> {
   /** The provider runtime the track's watches and responses run on. */
   readonly runtime: WardicRuntime
 }
@@ -34,12 +33,12 @@ export interface RunDragTrackOptions extends Omit<DragTrackOptions, "watch" | "f
 // `drag-track.ts`, ADR-0004: its watches in a Scope of their own via `runWatch`, no fiber at rest, closed
 // by the caller's owner, which stops the watches and an in-flight release (#379). Its hold on x/y goes
 // to the spine (#340).
-export const runDragTrack = (opts: RunDragTrackOptions): DragTrack => {
+export const runDragTrack = (opts: RunDragTrackOptions): DragTrack.DragTrack => {
   // The gestures' input, read as the track first watches, on the client: a server render runs no watch.
   const services = useBrought(BRINGS)
   const given = <A, E, R>(effect: Effect.Effect<A, E, R>): Effect.Effect<A, E, Exclude<R, InputSource.InputSource>> =>
-    Effect.provideService(effect, InputSource.InputSource, inputIn(services()))
-  return driveDragTrack({
+    Effect.provideService(effect, InputSource.InputSource, GestureFeatures.inputIn(services()))
+  return DragTrack.driveDragTrack({
     ...opts,
     watch: (track) => runWatch(opts.runtime, (onDefect) => given(track(onDefect))),
     fork: (response) => void opts.runtime.runFork(given(response)),
@@ -47,10 +46,10 @@ export const runDragTrack = (opts: RunDragTrackOptions): DragTrack => {
 }
 
 /** What {@link runDragTrack} brings (ADR-0067 decision 12): the `drag` Feature, whatever its section has (#511). */
-const BRINGS: ReadonlyArray<Feature> = [drag]
+const BRINGS: ReadonlyArray<Feature.Feature> = [drag]
 
 /** {@link runDragTrack} through `drive`: an element's section's `drag` Feature's (#511), where `runDragTrack` brings it. Internal. */
-export const runDragTrackWith = (drive: DragGesture["Service"]["drive"], opts: RunDragTrackOptions): DragTrack =>
+export const runDragTrackWith = (drive: DragGesture["Service"]["drive"], opts: RunDragTrackOptions): DragTrack.DragTrack =>
   drive({
     ...opts,
     watch: (track) => runWatch(opts.runtime, track),

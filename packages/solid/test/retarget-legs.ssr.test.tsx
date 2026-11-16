@@ -32,7 +32,7 @@ import type * as Values from "@wardic/core/Values"
 import * as DomInterpolators from "@wardic/dom/DomInterpolators"
 import * as Effect from "effect/Effect"
 import { describe, expect, it } from "vitest"
-import type { WardicTransition } from "../src/config.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import * as RetargetLegs from "@wardic/core/unstable/RetargetLegs"
 import * as Spine from "@wardic/core/unstable/Spine"
 
@@ -45,7 +45,7 @@ const defaults = Effect.runSync(Effect.provide(Effect.gen(function* () { return 
 interface Retarget {
   readonly from: Values.Values
   readonly to: Values.Values
-  readonly transition: WardicTransition | undefined
+  readonly transition: WardConfig.WardicTransition | undefined
   readonly reducedMotion: boolean
   readonly skipped?: boolean
   readonly velocities: Readonly<Record<string, number>>
@@ -195,11 +195,11 @@ describe("per-value transitions (#301, Motion's getValueTransition)", () => {
   })
 
   it("PV4: one transition object, the same transitions every Retarget; layout and default alone, one transition", () => {
-    const transition: WardicTransition = { type: "tween", duration: 0.4, opacity: { type: "tween", duration: 0.2 }, default: { delay: 0.1 } }
+    const transition: WardConfig.WardicTransition = { type: "tween", duration: 0.4, opacity: { type: "tween", duration: 0.2 }, default: { delay: 0.1 } }
     expect(RetargetLegs.transitionForKey(transition, "opacity")).toBe(RetargetLegs.transitionForKey(transition, "opacity"))
     expect(RetargetLegs.transitionForKey(transition, "x")).toBe(RetargetLegs.transitionForKey(transition, "y"))
     expect(RetargetLegs.transitionForKey(transition, "x")).toEqual({ delay: 0.1 })
-    const plain: WardicTransition = { type: "tween", duration: 0.2 }
+    const plain: WardConfig.WardicTransition = { type: "tween", duration: 0.2 }
     expect(RetargetLegs.transitionForKey(plain, "opacity")).toBe(plain)
     expect(RetargetLegs.transitionForKey(undefined, "opacity")).toBeUndefined()
     const layoutOnly = legsFor({ transition: { type: "tween", duration: 0.2, layout: { type: "tween", duration: 1 } } })
@@ -212,7 +212,7 @@ describe("per-value transitions (#301, Motion's getValueTransition)", () => {
   })
 
   it("PV5: a stagger's delay goes on the own fields and each entry; an inherit entry with no delay takes the own fields'", () => {
-    const transition: WardicTransition = {
+    const transition: WardConfig.WardicTransition = {
       type: "tween",
       delay: 0.1,
       default: { type: "tween", duration: 0.2 },
@@ -241,7 +241,7 @@ describe("per-value transitions (#301, Motion's getValueTransition)", () => {
   })
 
   it("PV7: a stagger's transition, made anew with its entries, is reused while their fields are the same", () => {
-    const element: WardicTransition = { type: "tween", duration: 0.4, opacity: { type: "tween", duration: 0.2 } }
+    const element: WardConfig.WardicTransition = { type: "tween", duration: 0.4, opacity: { type: "tween", duration: 0.2 } }
     const reuse = Spine.makeReuse()
     const first = reuse(RetargetLegs.delayedBy(element, 0.1)!)
     expect(reuse(RetargetLegs.delayedBy(element, 0.1)!), "the same fields: the first object").toBe(first)

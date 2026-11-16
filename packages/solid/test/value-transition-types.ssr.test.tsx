@@ -11,13 +11,13 @@
 import type * as Machine from "@wardic/core/Machine"
 import type { WardicReducedMotion, WardicTransition, WardicValueKey, WardicValueTransition, WardicVariant } from "@wardic/solid"
 import { describe, expectTypeOf, it } from "vitest"
-import type { WardicOrchestration } from "../src/config.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 
 /** A transition's own fields, on either arm, and the names an entry is read under besides a value's. */
 type OwnField =
   | keyof ({ readonly type?: "spring" } & Omit<Machine.SpringOptions, "from">)
   | keyof ({ readonly type: "tween" } & Machine.AnimateOptions)
-  | keyof WardicOrchestration
+  | keyof WardConfig.WardicOrchestration
   | keyof WardicReducedMotion
   | "inherit"
   | "default"

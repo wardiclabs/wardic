@@ -10,7 +10,7 @@ import { isServer, type JSX } from "@solidjs/web"
 import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
 import { createContext, createEffect, createMemo, untrack, useContext } from "solid-js"
-import { layoutGroupIdOf, type LayoutGroupInherit } from "../../layout-group.ts"
+import * as DomLayoutGroup from "@wardic/dom/unstable/LayoutGroup"
 import { useWardicProjection } from "./layout-projection.tsx"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
 
@@ -39,7 +39,7 @@ export interface LayoutGroupProps {
    */
   // Motion's `true` also joins the outer group's re-measure, which every Measure pass here already is:
   // it reads the whole tree.
-  readonly inherit?: LayoutGroupInherit | undefined
+  readonly inherit?: DomLayoutGroup.LayoutGroupInherit | undefined
   /** A value whose change has every layout element measured again, for a change nothing else sees. */
   readonly layoutDependency?: unknown
 }
@@ -64,7 +64,7 @@ export interface LayoutGroupProps {
 export function LayoutGroup(props: LayoutGroupProps): JSX.Element {
   // Its id, from the group around and its own, once (Motion's).
   const outer = useLayoutGroupId()
-  const id = untrack(() => layoutGroupIdOf(outer, props.id, props.inherit))
+  const id = untrack(() => DomLayoutGroup.layoutGroupIdOf(outer, props.id, props.inherit))
   // A server render has no projection system to re-measure (ADR-0021). Not at mount: nodes measure
   // themselves as they register.
   if (!isServer) {

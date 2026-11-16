@@ -5,9 +5,9 @@
  * @module
  */
 import { onCleanup } from "solid-js"
-import { type AnimateEnv, scopedAnimate, scopeOf, serverAnimate, type WardicAnimate, type WardicAnimationScope } from "./imperative.ts"
+import * as Imperative from "@wardic/dom/unstable/Imperative"
 import { useWardicDefaultTransition, useWardicGate, useWardicValueReads, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
-import { valueReadsOf } from "./element-setup.ts"
+import * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
 import { isServer } from "./server.ts"
 
 /**
@@ -25,19 +25,19 @@ import { isServer } from "./server.ts"
  * @see https://wardic.dev/reference/solid/animation/create-animate
  */
 // #433. A plain element animates through a spine of its own (imperative.ts).
-export function createAnimate<T extends Element = HTMLElement>(): readonly [WardicAnimationScope<T>, WardicAnimate] {
-  const made = scopeOf<T>()
+export function createAnimate<T extends Element = HTMLElement>(): readonly [Imperative.WardicAnimationScope<T>, Imperative.WardicAnimate] {
+  const made = Imperative.scopeOf<T>()
   // A server animates nothing (#433's defaults).
-  if (isServer) return [made.scope, serverAnimate] as const
-  const env: AnimateEnv = {
+  if (isServer) return [made.scope, Imperative.serverAnimate] as const
+  const env: Imperative.AnimateEnv = {
     runtime: useWardicRuntime(),
     gate: useWardicGate(),
     reducedMotion: useWardicReducedMotion(),
     skipAnimations: useWardicSkipAnimations(),
     positionalKeys: useWardicPositionalKeys(),
     defaultTransition: useWardicDefaultTransition(),
-    ...valueReadsOf(useWardicValueReads()),
+    ...ElementSetup.valueReadsOf(useWardicValueReads()),
   }
   onCleanup(made.stopAll)
-  return [made.scope, scopedAnimate(env, () => made.scope.current, made.watch)] as const
+  return [made.scope, Imperative.scopedAnimate(env, () => made.scope.current, made.watch)] as const
 }

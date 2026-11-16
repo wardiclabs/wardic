@@ -14,7 +14,7 @@
 import type { Accessor, JSX } from "solid-js"
 import { runDirective } from "./directive.tsx"
 import { COMPLETE } from "./complete.tsx"
-import type { WardConfig } from "./config.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import { type Create, createOf, formOf, type WardicComponent } from "./element.tsx"
 
 export { MOTION_PROPS, motionToConfig, type WardicMotionProps } from "./motion-props.ts"
@@ -33,13 +33,13 @@ export const create: Create = createOf(COMPLETE)
  * The `use:wardic` directive: drive `el` through Wardic's motion spine, a Complete element. An arrow
  * function, so the `wardic` Proxy over it has no non-configurable `prototype` to keep.
  */
-const wardicDirective = (el: HTMLElement, value: Accessor<WardConfig>): void => runDirective(el, value, COMPLETE)
+const wardicDirective = (el: HTMLElement, value: Accessor<WardConfig.WardConfig>): void => runDirective(el, value, COMPLETE)
 
 /**
  * The typed `wardic` proxy: called, it's the `use:wardic` directive; `wardic.create` is the
  * HOC, and `wardic.<tag>` is a Complete element for that intrinsic element (cached per tag).
  */
-export type Wardic = ((el: HTMLElement, value: Accessor<WardConfig>) => void) & {
+export type Wardic = ((el: HTMLElement, value: Accessor<WardConfig.WardConfig>) => void) & {
   readonly create: typeof create
 } & {
   readonly [Tag in keyof JSX.IntrinsicElements]: WardicComponent<Tag>

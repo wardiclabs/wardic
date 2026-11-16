@@ -20,13 +20,13 @@
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Bool from "effect/Boolean"
 import { createContext, createEffect, createMemo, type JSX, on, onCleanup, untrack, useContext } from "solid-js"
-import { layoutGroupIdOf, type LayoutGroupInherit } from "./layout-group.ts"
+import * as DomLayoutGroup from "@wardic/dom/unstable/LayoutGroup"
 import type { ProjectionNodes } from "./features/keys.ts"
-import type { CreateProjectionNodeOptions } from "./layout-member.ts"
+import type * as LayoutMember from "@wardic/dom/unstable/LayoutMember"
 import { useProjectionNodes, useWardicProjection } from "./layout-projection.tsx"
 import { isServer } from "./server.ts"
 
-export type { CreateProjectionNodeOptions } from "./layout-member.ts"
+export type { CreateProjectionNodeOptions } from "@wardic/dom/unstable/LayoutMember"
 
 /**
  * Registers an element with its provider's projection system as one layout node, as a `w.*` element
@@ -45,13 +45,13 @@ export type { CreateProjectionNodeOptions } from "./layout-member.ts"
 // lead/follow stack, and seeds its first measure from a twin disposed in the same task (a Switch), in
 // either swap order (ADR-0010 *Amendment (#13)*), so there's no registry here. It brings `layout`
 // (#511), whatever its section has: a Slim element's own layout node is its section's.
-export const createProjectionNode = (opts: CreateProjectionNodeOptions): ProjectionSystem.NodeHandle => projectionNodeOf(useWardicProjection(), useProjectionNodes(), opts)
+export const createProjectionNode = (opts: LayoutMember.CreateProjectionNodeOptions): ProjectionSystem.NodeHandle => projectionNodeOf(useWardicProjection(), useProjectionNodes(), opts)
 
 /**
  * {@link createProjectionNode} on `projection`: an element's, its section's `layout` Feature's (#511), where
  * `createProjectionNode` brings it, registered through the Feature's `nodes` (#746). Internal.
  */
-export const projectionNodeOf = (projection: ProjectionSystem.Shape, nodes: ProjectionNodes["Service"], opts: CreateProjectionNodeOptions): ProjectionSystem.NodeHandle => {
+export const projectionNodeOf = (projection: ProjectionSystem.Shape, nodes: ProjectionNodes["Service"], opts: LayoutMember.CreateProjectionNodeOptions): ProjectionSystem.NodeHandle => {
   const handle = projection.register(nodes.registrationOf(opts))
   onCleanup(handle.dispose)
   // Compared before it measures, as Motion's `prevProps.layoutDependency !== layoutDependency`: an
@@ -83,7 +83,7 @@ export interface LayoutGroupProps {
    */
   // Motion's `true` also joins the outer group's re-measure, which every Measure pass here already is:
   // it reads the whole tree.
-  readonly inherit?: LayoutGroupInherit | undefined
+  readonly inherit?: DomLayoutGroup.LayoutGroupInherit | undefined
   /** A value whose change has every layout element measured again, for a change nothing else sees. */
   readonly layoutDependency?: unknown
 }
@@ -109,7 +109,7 @@ export interface LayoutGroupProps {
 export function LayoutGroup(props: LayoutGroupProps): JSX.Element {
   // Its id, from the group around and its own, once (Motion's).
   const outer = useLayoutGroupId()
-  const id = untrack(() => layoutGroupIdOf(outer, props.id, props.inherit))
+  const id = untrack(() => DomLayoutGroup.layoutGroupIdOf(outer, props.id, props.inherit))
   // A server render has no projection system to re-measure (ADR-0021).
   if (!isServer) {
     const projection = useWardicProjection()

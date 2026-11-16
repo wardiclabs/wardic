@@ -8,7 +8,7 @@
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
-import type { WardConfig } from "./config.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import type * as Reactivity from "@wardic/core/unstable/Reactivity"
 
 /** Motion's gesture callbacks (#273): Solid 1's, which most elements don't take. */
@@ -100,14 +100,14 @@ type ConfigKey = (typeof CONFIG_KEYS)[number]
  * A config's build from `motion`'s `keys`: each one's value, when it's defined; reading a key tracks
  * it. A build allocates its config alone (#525, #540).
  */
-const configBuildOf = (motion: WardicMotionProps, keys: ReadonlyArray<ConfigKey>): Reactivity.Accessor<WardConfig> => () => {
+const configBuildOf = (motion: WardicMotionProps, keys: ReadonlyArray<ConfigKey>): Reactivity.Accessor<WardConfig.WardConfig> => () => {
   // Per element at mount (#540): a loop.
   const config: Record<string, unknown> = {}
   for (const key of keys) {
     const value = motion[key]
     if (Predicate.isNotUndefined(value)) config[key] = value
   }
-  return config as WardConfig
+  return config as WardConfig.WardConfig
 }
 
 /**
@@ -224,7 +224,7 @@ export const isValidWardicPropV2 = (key: string): boolean => MOTION_PROP_SET_V2.
 // The same props as WardConfig, so one JSDoc per prop is every hover's (#558). Each is a plain value,
 // with no MaybeAccessor (step 21f): a Wardic element's props are getters, so reading one inside the
 // config accessor (motionToConfig) tracks whatever signals back it.
-export type WardicMotionProps = WardConfig
+export type WardicMotionProps = WardConfig.WardConfig
 
 /** {@link WardicMotionProps} on Solid 2: all but Solid 1's callbacks, which its ward's events tell. */
 export type WardicMotionPropsV2 = Omit<WardicMotionProps, (typeof SOLID_1_CALLBACKS)[number]>
@@ -250,7 +250,7 @@ export type WardicMotionPropsV2 = Omit<WardicMotionProps, (typeof SOLID_1_CALLBA
  * mount reads it 13 times, and each read took the 28 common keys where most elements are given two
  * or three. Without it, all are, as a proxy's keys can change.
  */
-export const motionToConfig = (motion: WardicMotionProps, fixedKeys = false): Reactivity.Accessor<WardConfig> => {
+export const motionToConfig = (motion: WardicMotionProps, fixedKeys = false): Reactivity.Accessor<WardConfig.WardConfig> => {
   if (fixedKeys) {
     return configBuildOf(
       motion,
@@ -258,7 +258,7 @@ export const motionToConfig = (motion: WardicMotionProps, fixedKeys = false): Re
     )
   }
   return () => {
-    const config: { -readonly [K in keyof WardConfig]: WardConfig[K] } = {}
+    const config: { -readonly [K in keyof WardConfig.WardConfig]: WardConfig.WardConfig[K] } = {}
     // Read each (reactive) prop getter inside the accessor so it tracks.
     const initial = motion.initial
     const animate = motion.animate

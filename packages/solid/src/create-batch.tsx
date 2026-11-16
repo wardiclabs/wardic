@@ -8,41 +8,25 @@ import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createRenderEffect, type JSX, on, onCleanup, untrack } from "solid-js"
-import {
-  type BatchConfig,
-  type BatchGestureTold,
-  type BatchGestureWatches,
-  bindBatch,
-  configTransitionOf,
-  handlesOf,
-  isKeyed,
-  keyedHandlesOf,
-  type KeyedBatchConfig,
-  type Member,
-  type MemberProps,
-  registerBatch,
-  serverHandlesOf,
-  serverKeyedHandlesOf,
-  type WardicBatchLanding,
-} from "./batch.ts"
+import * as BatchMembers from "@wardic/dom/unstable/BatchMembers"
 import { batchHandoffHere, batchServerAppearHere } from "./batch-appear-here.tsx"
-import type { WardicPointInfo, WardicPressEvent, WardicPressInfo } from "./gesture-info.ts"
+import type * as GestureInfo from "@wardic/dom/unstable/GestureInfo"
 import { lazyBatchGestures } from "./lazy-batch-gestures.ts"
 import { useFeatureRegistry, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import type { WardicRuntime } from "./runtime.ts"
 import { isServer } from "./server.ts"
-import { provideBatchHolds } from "./member-hold.ts"
+import * as MemberHold from "@wardic/dom/unstable/MemberHold"
 import { usePresenceContext } from "./presence.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 
-export type { WardicBatchKey, WardicBatchExit, WardicBatchGesture, WardicBatchLanding, WardicBatchSegmentTarget, WardicBatchSegmentValue, WardicBatchStop, WardicBatchSubject, WardicBatchTarget, WardicBatchTransition, WardicBatchValues } from "./batch.ts"
+export type { WardicBatchKey, WardicBatchExit, WardicBatchGesture, WardicBatchLanding, WardicBatchSegmentTarget, WardicBatchSegmentValue, WardicBatchStop, WardicBatchSubject, WardicBatchTarget, WardicBatchTransition, WardicBatchValues } from "@wardic/dom/unstable/BatchMembers"
 
 /** A Batch's callbacks on Solid 1: a flight's start and its landing. */
 interface BatchCallbacks {
   /** Called as its members set off from rest, every one at rest before. */
   readonly onAnimationStart?: () => void
   /** Called once every member is at rest again, with how many set off. */
-  readonly onAnimationComplete?: (landing: WardicBatchLanding) => void
+  readonly onAnimationComplete?: (landing: BatchMembers.WardicBatchLanding) => void
 }
 
 /**
@@ -51,25 +35,25 @@ interface BatchCallbacks {
  */
 interface BatchGestureCallbacks<M> {
   /** Called as the pointer comes over a member (touch never hovers). */
-  readonly onHoverStart?: (event: PointerEvent, info: WardicPointInfo & M) => void
+  readonly onHoverStart?: (event: PointerEvent, info: GestureInfo.WardicPointInfo & M) => void
   /** Called as it leaves, or a press held on it as it left is let go. */
-  readonly onHoverEnd?: (event: PointerEvent, info: WardicPointInfo & M) => void
+  readonly onHoverEnd?: (event: PointerEvent, info: GestureInfo.WardicPointInfo & M) => void
   /** Called as a press begins on a member: a pointer's down, or Enter or Space while it has focus. */
-  readonly onTapStart?: (event: WardicPressEvent, info: WardicPressInfo & M) => void
+  readonly onTapStart?: (event: GestureInfo.WardicPressEvent, info: GestureInfo.WardicPressInfo & M) => void
   /** Called as that press ends on the member, or its key comes up. */
-  readonly onTap?: (event: WardicPressEvent, info: WardicPressInfo & M) => void
+  readonly onTap?: (event: GestureInfo.WardicPressEvent, info: GestureInfo.WardicPressInfo & M) => void
   /** Called as it ends elsewhere, or is cancelled. A press a drag took over is neither. */
-  readonly onTapCancel?: (event: WardicPressEvent, info: WardicPressInfo & M) => void
+  readonly onTapCancel?: (event: GestureInfo.WardicPressEvent, info: GestureInfo.WardicPressInfo & M) => void
 }
 
 /** `createBatch`'s config on Solid 1 by index: `count` members, their targets and transition, and its callbacks. */
-export interface WardicBatchConfig extends BatchConfig, BatchCallbacks, BatchGestureCallbacks<{ readonly i: number }> {}
+export interface WardicBatchConfig extends BatchMembers.BatchConfig, BatchCallbacks, BatchGestureCallbacks<{ readonly i: number }> {}
 
 /**
  * `createBatch`'s keyed config on Solid 1 (#665): a list's items, each a member by its key, their
  * targets by item and index, its transition and callbacks.
  */
-export interface WardicKeyedBatchConfig<T> extends KeyedBatchConfig<T>, BatchCallbacks, BatchGestureCallbacks<{ readonly i: number; readonly item: T }> {}
+export interface WardicKeyedBatchConfig<T> extends BatchMembers.KeyedBatchConfig<T>, BatchCallbacks, BatchGestureCallbacks<{ readonly i: number; readonly item: T }> {}
 
 /** Whether a Batch's config watches its members' hover: `whileHover`, or a hover callback (Q60). */
 const wantsHover = (config: WardicBatchConfig | WardicKeyedBatchConfig<unknown>): boolean => {
@@ -90,7 +74,7 @@ const wantsPress = (config: WardicBatchConfig | WardicKeyedBatchConfig<unknown>)
 const CALLBACK = { hoverStart: "onHoverStart", hoverEnd: "onHoverEnd", pressStart: "onTapStart", tap: "onTap", tapCancel: "onTapCancel" } as const
 
 /** A member's gesture event told the config's callback (Q60): the platform's event, then its point, a press's input, and the member. */
-const callGesture = (config: WardicBatchConfig | WardicKeyedBatchConfig<unknown>, keyed: boolean, told: BatchGestureTold): void => {
+const callGesture = (config: WardicBatchConfig | WardicKeyedBatchConfig<unknown>, keyed: boolean, told: BatchMembers.BatchGestureTold): void => {
   const callback = config[CALLBACK[told.name]] as ((event: unknown, info: unknown) => void) | undefined
   if (Predicate.isUndefined(callback)) return
   const info: Record<string, unknown> = { point: told.point, i: told.i }
@@ -100,17 +84,17 @@ const callGesture = (config: WardicBatchConfig | WardicKeyedBatchConfig<unknown>
 }
 
 /** A Batch's gesture watches, ended with its owner, over the input it brings: their code loaded at the first (Q62). */
-const gestureWatchesOf = (runtime: WardicRuntime): BatchGestureWatches => {
+const gestureWatchesOf = (runtime: WardicRuntime): BatchMembers.BatchGestureWatches => {
   const gestures = lazyBatchGestures(runtime, useFeatureRegistry())
   onCleanup(gestures.close)
   return gestures
 }
 
 /** What a member's element takes beside its handle: its own `ref`, and its own `style`, as an object. */
-export type WardicBatchMemberProps<E extends Element = HTMLElement> = MemberProps<E, JSX.CSSProperties>
+export type WardicBatchMemberProps<E extends Element = HTMLElement> = BatchMembers.MemberProps<E, JSX.CSSProperties>
 
 /** A member's handle: spread it onto the member's element. */
-export type WardicBatchMember<E extends Element = HTMLElement> = Member<E, JSX.CSSProperties>
+export type WardicBatchMember<E extends Element = HTMLElement> = BatchMembers.Member<E, JSX.CSSProperties>
 
 /** A Batch on Solid 1: its members' handles. */
 export interface WardicBatch {
@@ -138,8 +122,8 @@ export interface WardicKeyedBatch<K> {
  */
 const serverBatchOf = (config: WardicBatchConfig | WardicKeyedBatchConfig<unknown>, keyed: boolean): WardicBatch | WardicKeyedBatch<unknown> =>
   Bool.match(keyed, {
-    onTrue: (): WardicKeyedBatch<unknown> => ({ member: serverKeyedHandlesOf<JSX.CSSProperties>(config as WardicKeyedBatchConfig<unknown>, usePresenceContext, batchServerAppearHere()) }),
-    onFalse: (): WardicBatch => ({ at: serverHandlesOf<JSX.CSSProperties>(config as WardicBatchConfig, batchServerAppearHere()) }),
+    onTrue: (): WardicKeyedBatch<unknown> => ({ member: BatchMembers.serverKeyedHandlesOf<JSX.CSSProperties>(config as WardicKeyedBatchConfig<unknown>, usePresenceContext, batchServerAppearHere()) }),
+    onFalse: (): WardicBatch => ({ at: BatchMembers.serverHandlesOf<JSX.CSSProperties>(config as WardicBatchConfig, batchServerAppearHere()) }),
   })
 
 /**
@@ -173,11 +157,11 @@ export function createBatch<T, P extends keyof T>(config: WardicKeyedBatchConfig
 export function createBatch<T, K>(config: WardicKeyedBatchConfig<T> & { readonly key: (item: T) => K }): WardicKeyedBatch<K>
 export function createBatch(config: WardicBatchConfig): WardicBatch
 export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<unknown>): WardicBatch | WardicKeyedBatch<unknown> {
-  const keyed = isKeyed(config)
+  const keyed = BatchMembers.isKeyed(config)
   if (isServer) return serverBatchOf(config, keyed)
   // Its members' elements can be Wardic elements, which hand keys back and forth with it (#665's PR 4).
-  provideBatchHolds()
-  const configTransition = configTransitionOf(useWardicConfig())
+  MemberHold.provideBatchHolds()
+  const configTransition = BatchMembers.configTransitionOf(useWardicConfig())
   const runtime = useWardicRuntime()
   // Its members' gestures (#665's PR 5, Q60): watched only when its config asks for them.
   const hovers = wantsHover(config)
@@ -185,7 +169,7 @@ export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<u
   const gestures = Bool.match(Bool.or(hovers, presses), { onTrue: () => gestureWatchesOf(runtime), onFalse: () => undefined })
   // Its first targets and starts read untracked, wherever it's called: what tracks them is its own effect.
   const binding = untrack(() =>
-    bindBatch(
+    BatchMembers.bindBatch(
       {
         runtime,
         reducedMotion: useWardicReducedMotion(),
@@ -210,10 +194,10 @@ export function createBatch(config: WardicBatchConfig | WardicKeyedBatchConfig<u
   createRenderEffect(on(binding.targetsOf, binding.apply, { defer: true }))
   onCleanup(binding.dispose)
   const grid: WardicBatch | WardicKeyedBatch<unknown> = Bool.match(keyed, {
-    onTrue: (): WardicKeyedBatch<unknown> => ({ member: keyedHandlesOf<JSX.CSSProperties>(binding, usePresenceContext) }),
-    onFalse: (): WardicBatch => ({ at: handlesOf<JSX.CSSProperties>(binding) }),
+    onTrue: (): WardicKeyedBatch<unknown> => ({ member: BatchMembers.keyedHandlesOf<JSX.CSSProperties>(binding, usePresenceContext) }),
+    onFalse: (): WardicBatch => ({ at: BatchMembers.handlesOf<JSX.CSSProperties>(binding) }),
   })
   // Known to `createAnimate`'s `animate` (#665).
-  registerBatch(grid, binding)
+  BatchMembers.registerBatch(grid, binding)
   return grid
 }

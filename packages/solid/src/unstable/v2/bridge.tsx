@@ -14,7 +14,7 @@ import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Stream from "effect/Stream"
 import { isServer } from "@solidjs/web"
 import { type Accessor, createSignal, isHydrating, onCleanup } from "solid-js"
-import { carry } from "../../live-style.ts"
+import * as LiveStyle from "@wardic/dom/unstable/LiveStyle"
 import type { WardicServices } from "../../runtime.ts"
 import { runScoped, useWardicRuntime } from "./provider.tsx"
 import { onSettledClientOnly } from "./solid-reactivity.ts"
@@ -45,7 +45,7 @@ export const followAtom = <A,>(registry: AtomRegistry.AtomRegistry, atom: Atom.A
   const [value, setValue] = createSignal<A>(registry.get(atom) as Exclude<A, Function>)
   onCleanup(registry.subscribe(atom, (next) => setValue(() => next as Exclude<A, Function>)))
   // eslint-disable-next-line solid/reactivity -- the accessor itself is returned, for its caller to read where it tracks
-  return carry(value, atom)
+  return LiveStyle.carry(value, atom)
 }
 
 /**

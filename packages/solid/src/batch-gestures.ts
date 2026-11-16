@@ -22,30 +22,30 @@ import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
-import { type BatchGestureHost, type BatchGestureLayer, type BatchGestureTold, fail, objectFormOf, objectFormValues } from "./batch.ts"
-import type { WardicTransition } from "./config.ts"
-import type { Feature } from "./feature.ts"
+import * as BatchMembers from "@wardic/dom/unstable/BatchMembers"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
+import type * as Feature from "@wardic/dom/unstable/Feature"
 import { input } from "./features/input.ts"
-import { serviceOf } from "./gesture-features.ts"
-import { pointInfoOf, pressInfoOf } from "./gesture-info.ts"
-import * as OwnerScope from "./owner-scope.ts"
+import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
+import * as GestureInfo from "@wardic/dom/unstable/GestureInfo"
+import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /** What a Batch's gestures stand on, which it brings (ADR-0067 decision 12): the gestures' input. */
-export const BATCH_GESTURES: ReadonlyArray<Feature> = [{ name: "createBatch's gestures", key: InputSource.InputSource, layer: input }]
+export const BATCH_GESTURES: ReadonlyArray<Feature.Feature> = [{ name: "createBatch's gestures", key: InputSource.InputSource, layer: input }]
 
 /** A Batch's gestures once their code has loaded: each watched over its host, all stopped at `close`. */
 export interface BatchGesturesOn {
-  readonly listen: (gesture: "hover" | "press", host: BatchGestureHost) => void
+  readonly listen: (gesture: "hover" | "press", host: BatchMembers.BatchGestureHost) => void
   readonly close: () => void
 }
 
 /** A gesture of a member's, and where the Batch's config gives it. */
 interface Gesture {
-  readonly layer: BatchGestureLayer
+  readonly layer: BatchMembers.BatchGestureLayer
   /** Its config key, as an error names it. */
   readonly name: "whileHover" | "whileTap" | "whileDrag"
-  readonly given: (host: BatchGestureHost) => unknown
+  readonly given: (host: BatchMembers.BatchGestureHost) => unknown
 }
 
 const HOVER: Gesture = { layer: "hover", name: "whileHover", given: (host) => host.hoverGiven }
@@ -63,7 +63,7 @@ const PRESS_EVENT = { start: "pressStart", tap: "tap", cancel: "tapCancel", drag
  * less its `transition`, or a function's, called untracked with its index (keyed: its item and index).
  * A key the Batch doesn't have, or a value that isn't a number, is an error naming it.
  */
-const valuesOf = (host: BatchGestureHost, gesture: Gesture, given: unknown, i: number): Float64Array => {
+const valuesOf = (host: BatchMembers.BatchGestureHost, gesture: Gesture, given: unknown, i: number): Float64Array => {
   const values: Readonly<Record<string, unknown>> = Bool.match(Predicate.isFunction(given), {
     onTrue: () =>
       host.untrack(() =>
@@ -72,7 +72,7 @@ const valuesOf = (host: BatchGestureHost, gesture: Gesture, given: unknown, i: n
           onFalse: () => (given as (i: number) => Readonly<Record<string, unknown>>)(i),
         })
       ),
-    onFalse: () => objectFormValues(given),
+    onFalse: () => BatchMembers.objectFormValues(given),
   })
   const keys = host.keys()
   const out = new Float64Array(keys.length).fill(Number.NaN)
@@ -81,16 +81,16 @@ const valuesOf = (host: BatchGestureHost, gesture: Gesture, given: unknown, i: n
     const value = values[key]
     if (Predicate.isUndefined(value)) return
     const k = keys.indexOf(key)
-    if (k === -1) return fail(`${host.nameOf(i)}'s \`${gesture.name}\` gives "${key}", which isn't one of its keys (${keys.join(", ")}): a Batch's keys are fixed when it's made`)
-    if (!Predicate.isNumber(value)) return fail(`${host.nameOf(i)}'s \`${gesture.name}\` "${key}" is ${JSON.stringify(value)}: a Batch's values are numbers`)
+    if (k === -1) return BatchMembers.fail(`${host.nameOf(i)}'s \`${gesture.name}\` gives "${key}", which isn't one of its keys (${keys.join(", ")}): a Batch's keys are fixed when it's made`)
+    if (!Predicate.isNumber(value)) return BatchMembers.fail(`${host.nameOf(i)}'s \`${gesture.name}\` "${key}" is ${JSON.stringify(value)}: a Batch's values are numbers`)
     out[k] = value
   })
   return out
 }
 
 /** A gesture's own transition, its object's (Q58), else the Batch's. */
-const transitionOf = (host: BatchGestureHost, given: unknown): WardicTransition | undefined => {
-  const own = UndefinedOr.map(objectFormOf(given), (object) => object.transition as WardicTransition | undefined)
+const transitionOf = (host: BatchMembers.BatchGestureHost, given: unknown): WardConfig.WardicTransition | undefined => {
+  const own = UndefinedOr.map(BatchMembers.objectFormOf(given), (object) => object.transition as WardConfig.WardicTransition | undefined)
   if (Predicate.isNotUndefined(own)) return own
   return host.configured()
 }
@@ -100,7 +100,7 @@ const transitionOf = (host: BatchGestureHost, given: unknown): WardicTransition 
  * under it, a press's to its hover's on the hover's transition while it's hovered (a Wardic element's
  * way, Motion's), else to `animate`'s on the Batch's (Q59).
  */
-const turn = (host: BatchGestureHost, gesture: Gesture, i: number, on: boolean): void => {
+const turn = (host: BatchMembers.BatchGestureHost, gesture: Gesture, i: number, on: boolean): void => {
   const given = gesture.given(host)
   if (Predicate.isUndefined(given)) return
   if (on === host.layered(gesture.layer, i)) return
@@ -113,10 +113,10 @@ const turn = (host: BatchGestureHost, gesture: Gesture, i: number, on: boolean):
  * A Batch Reorder group's item in hand (#712, ADR-0072 decision 8): its `whileDrag` on as it's taken, by a
  * drag or a keyboard lift, from its values on their transition; off as it's let go, on the Batch's.
  */
-export const turnDrag = (host: BatchGestureHost, i: number, on: boolean): void => turn(host, DRAG, i, on)
+export const turnDrag = (host: BatchMembers.BatchGestureHost, i: number, on: boolean): void => turn(host, DRAG, i, on)
 
 /** A member's gesture event, told its binding with its point, element and member (Q60). */
-const tell = (host: BatchGestureHost, i: number, told: Omit<BatchGestureTold, "i" | "item">): void =>
+const tell = (host: BatchMembers.BatchGestureHost, i: number, told: Omit<BatchMembers.BatchGestureTold, "i" | "item">): void =>
   host.tell({ ...told, i: host.indexOf(i), item: host.itemOf(i) })
 
 /**
@@ -129,25 +129,25 @@ export const batchGesturesOn = (runtime: WardicServices.Runner<WardicServices.Wa
     runtime.runFork(Report.failure("createBatch: a gesture failed", cause))
   }
   const run = (watch: Effect.Effect<void, never, Scope.Scope | InputSource.InputSource>): void => {
-    runtime.runSync(watch.pipe(Effect.provideService(InputSource.InputSource, serviceOf(services(), InputSource.InputSource)), Scope.provide(scope)))
+    runtime.runSync(watch.pipe(Effect.provideService(InputSource.InputSource, GestureFeatures.serviceOf(services(), InputSource.InputSource)), Scope.provide(scope)))
   }
-  const hoverOf = (host: BatchGestureHost) => (element: unknown, edge: Recognizer.Edge): void => {
+  const hoverOf = (host: BatchMembers.BatchGestureHost) => (element: unknown, edge: Recognizer.Edge): void => {
     const i = host.memberAt(element)
     if (Predicate.isUndefined(i)) return
     turn(host, HOVER, i, edge.active)
     const event = edge.event
-    tell(host, i, { name: HOVER_EVENT[`${edge.active}`], raw: event.raw, ...pointInfoOf(event), input: undefined, element: element as Element })
+    tell(host, i, { name: HOVER_EVENT[`${edge.active}`], raw: event.raw, ...GestureInfo.pointInfoOf(event), input: undefined, element: element as Element })
   }
-  const pressOf = (host: BatchGestureHost) => (element: unknown, press: Recognizer.PressEvent): void => {
+  const pressOf = (host: BatchMembers.BatchGestureHost) => (element: unknown, press: Recognizer.PressEvent): void => {
     const i = host.memberAt(element)
     if (Predicate.isUndefined(i)) return
     turn(host, PRESS, i, press.phase === "start")
     const name = PRESS_EVENT[press.phase]
     if (Predicate.isUndefined(name)) return
-    tell(host, i, { name, raw: press.event.raw, ...pressInfoOf(press, element as Element), element: element as Element })
+    tell(host, i, { name, raw: press.event.raw, ...GestureInfo.pressInfoOf(press, element as Element), element: element as Element })
   }
   // Each gesture's watch, over its host.
-  const watches: Readonly<Record<"hover" | "press", (host: BatchGestureHost) => void>> = {
+  const watches: Readonly<Record<"hover" | "press", (host: BatchMembers.BatchGestureHost) => void>> = {
     hover: (host) => run(Recognizer.watchHoverAmong(host.memberElementOf, { on: hoverOf(host), onDefect })),
     // A Batch Reorder group's keys press a member only while its keyboard reorder doesn't take them (#712, Q32).
     press: (host) => run(Recognizer.watchPressAmong(host.memberElementOf, { on: pressOf(host), onDefect }, { keys: host.pressKeys })),

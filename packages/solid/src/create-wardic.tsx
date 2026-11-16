@@ -5,7 +5,7 @@
  *
  * @module
  */
-import { type InstanceFeaturesProp } from "./feature.ts"
+import type * as Feature from "@wardic/dom/unstable/Feature"
 import { instanceFeaturesOf } from "./instance-features.ts"
 import { createInstantLayoutTransition, createResetProjection, useAnimateLayout, useInstanceBrought } from "./provider.tsx"
 import { wOf } from "./w.tsx"
@@ -26,7 +26,7 @@ import type { WardicInstance } from "./wardic-instance.ts"
  */
 // #516: decisions 1 (beside the sections), 2 (its elements bring their Features), 4 (every form), 5 (the
 // layout hooks), 7 (loads), 8 (`strict` allows them).
-export function createWardic<const F extends InstanceFeaturesProp>(features: F): WardicInstance<F> {
+export function createWardic<const F extends Feature.InstanceFeaturesProp>(features: F): WardicInstance<F> {
   const instance = instanceFeaturesOf(features)
   /** `hook`, its instance's Features brought first. */
   const bringing =

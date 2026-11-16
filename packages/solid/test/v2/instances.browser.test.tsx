@@ -22,7 +22,7 @@ import * as Option from "effect/Option"
 import { createSignal, Errored, flush, Show } from "solid-js"
 import { describe, expect, it, vi } from "vitest"
 import { opacityOf, until } from "../browser-helpers.ts"
-import type { FeatureRegistry } from "../../src/feature.ts"
+import type * as Feature from "@wardic/dom/unstable/Feature"
 import { DragGesture } from "../../src/features/keys.ts"
 import { useFeatureRegistry } from "../../src/unstable/v2/provider.tsx"
 import { mount } from "./mount.tsx"
@@ -207,7 +207,7 @@ describe("A Wardic instance (#516), Solid 2", () => {
     }
     const { w } = createWardic([load])
     const [shown, setShown] = createSignal(true)
-    let goneRegistry!: FeatureRegistry
+    let goneRegistry!: Feature.FeatureRegistry
     const Probe = (): JSX.Element => {
       goneRegistry = useFeatureRegistry()
       return undefined
@@ -283,7 +283,7 @@ describe("A Wardic instance (#516), Solid 2", () => {
 
   it("INV6: its layout hooks bring layout and count as a use", async () => {
     const given = createWardic([layout])
-    let registry!: FeatureRegistry
+    let registry!: Feature.FeatureRegistry
     const Hooked = (): JSX.Element => {
       given.useAnimateLayout()
       registry = useFeatureRegistry()

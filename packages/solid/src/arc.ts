@@ -5,7 +5,7 @@
  * @module
  */
 import * as Arc from "@wardic/core/Arc"
-import type { WardicPath } from "./config.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 
 /** `arc()`'s options (Motion's `ArcOptions`). */
 export interface WardicArcOptions {
@@ -31,4 +31,4 @@ export interface WardicArcOptions {
  * @see https://wardic.dev/reference/solid/transitions/arc
  */
 // #438.
-export const arc = (options: WardicArcOptions = {}): WardicPath => Arc.make(options)
+export const arc = (options: WardicArcOptions = {}): WardConfig.WardicPath => Arc.make(options)

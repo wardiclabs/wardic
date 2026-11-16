@@ -10,23 +10,23 @@ import { isServer } from "@solidjs/web"
 import type * as Cause from "effect/Cause"
 import { createContext, getOwner, onCleanup, useContext } from "solid-js"
 import * as Option from "effect/Option"
-import { type FeatureRegistry, type FeatureSection, type FeaturesProp, makeSection } from "../../feature.ts"
+import * as Feature from "@wardic/dom/unstable/Feature"
 import { reactivityIn } from "./solid-reactivity.ts"
 
 /**
  * A `LazyWardic`'s section, a provider of its own. `null` under none: Solid 2 takes an `undefined`
  * default for none, and its `useContext` then throws outside a provider.
  */
-export const FeatureSectionContext = createContext<FeatureSection | null>(null)
+export const FeatureSectionContext = createContext<Feature.FeatureSection | null>(null)
 
 /** The nearest `LazyWardic`'s section, or `undefined` under none: its provider's then. */
-export const useLazySection = (): FeatureSection | undefined => Option.getOrUndefined(Option.fromNullishOr(useContext(FeatureSectionContext)))
+export const useLazySection = (): Feature.FeatureSection | undefined => Option.getOrUndefined(Option.fromNullishOr(useContext(FeatureSectionContext)))
 
 /** A section under `parent`, made under the current owner (`makeSection`). */
 export const sectionUnder = (
-  parent: FeatureSection,
-  registry: FeatureRegistry,
-  prop: FeaturesProp | undefined,
+  parent: Feature.FeatureSection,
+  registry: Feature.FeatureRegistry,
+  prop: Feature.FeaturesProp | undefined,
   strict: boolean,
   report: (cause: Cause.Cause<unknown>) => void,
-): FeatureSection => makeSection(parent, registry, prop, strict, report, { reactivity: reactivityIn(getOwner()), server: isServer, onCleanup })
+): Feature.FeatureSection => Feature.makeSection(parent, registry, prop, strict, report, { reactivity: reactivityIn(getOwner()), server: isServer, onCleanup })

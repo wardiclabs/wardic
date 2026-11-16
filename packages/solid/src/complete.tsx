@@ -7,7 +7,7 @@
  * @module
  */
 import type { Accessor } from "solid-js"
-import type { WardConfig, WardicVariantLabels } from "./config.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import { createWardWith, type SpineInternals, type Ward } from "./create-ward.tsx"
 import { ALL } from "./features/all.ts"
 import type { InferredMotion, TargetKey } from "./ward-keys.ts"
@@ -30,11 +30,11 @@ import type { InferredMotion, TargetKey } from "./ward-keys.ts"
 export function createWard<
   K extends TargetKey = never,
   N extends string = never,
-  LI extends WardicVariantLabels = never,
-  LA extends WardicVariantLabels = never,
+  LI extends WardConfig.WardicVariantLabels = never,
+  LA extends WardConfig.WardicVariantLabels = never,
   D extends boolean | "x" | "y" = never,
->(config: InferredMotion<WardConfig, K, N, LI, LA, D> | Accessor<InferredMotion<WardConfig, K, N, LI, LA, D>>): Ward {
-  return createWardWith(config as WardConfig | Accessor<WardConfig>, COMPLETE)
+>(config: InferredMotion<WardConfig.WardConfig, K, N, LI, LA, D> | Accessor<InferredMotion<WardConfig.WardConfig, K, N, LI, LA, D>>): Ward {
+  return createWardWith(config as WardConfig.WardConfig | Accessor<WardConfig.WardConfig>, COMPLETE)
 }
 
 /**

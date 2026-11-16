@@ -7,7 +7,7 @@
  */
 import { createContext, createMemo, type JSX, useContext } from "solid-js"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
-import type { WardicTransformPoint, WardicVariantTransition } from "./config.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 
 const WardicConfigContext = createContext<WardicConfigValue.WardicConfigValue | undefined>(undefined)
@@ -20,7 +20,7 @@ export interface WardicConfigProps {
    * replaces an enclosing config's, or with `inherit: true` lays its own fields over it. Read when
    * each animation starts.
    */
-  readonly transition?: WardicVariantTransition | undefined
+  readonly transition?: WardConfig.WardicVariantTransition | undefined
   /**
    * How the Wardic elements below honour the user's `prefers-reduced-motion`, as Motion's
    * `MotionConfig` `reducedMotion`: `"user"` follows it, `"always"` reduces motion whatever it is,
@@ -52,7 +52,7 @@ export interface WardicConfigProps {
    * transforms. `correctParentTransform(parent)` makes one for a zoomed or rotated parent, and
    * `transformViewBoxPoint(svg)` one for an SVG's viewBox. It replaces an enclosing config's.
    */
-  readonly transformPagePoint?: WardicTransformPoint | undefined
+  readonly transformPagePoint?: WardConfig.WardicTransformPoint | undefined
   readonly children?: JSX.Element
 }
 

@@ -11,7 +11,7 @@ import * as DragRecognizer from "@wardic/core/DragRecognizer"
 import type * as Effect from "effect/Effect"
 import type * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
-import type { WardicTransformPoint } from "./config.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 
 /** The axis, claim and bounds options for {@link createDrag}. */
@@ -40,7 +40,7 @@ export const watchDragSamples = (
   target: unknown,
   options: CreateDragOptions,
   handlers: InputFeed.Handlers<Drag.Sample>,
-  mapPoint?: () => WardicTransformPoint | undefined,
+  mapPoint?: () => WardConfig.WardicTransformPoint | undefined,
 ): Effect.Effect<void, never, Scope.Scope | InputSource.InputSource> => {
   const { axis = "xy", claim = true } = options
   const on = UndefinedOr.match(options.bounds, {

@@ -19,7 +19,7 @@ import * as Context from "effect/Context"
 import * as Option from "effect/Option"
 import { For } from "solid-js"
 import { describe, expect, it, vi } from "vitest"
-import type { FeatureRegistry } from "../../src/feature.ts"
+import type * as Feature from "@wardic/dom/unstable/Feature"
 import { useFeatureRegistry } from "../../src/unstable/v2/provider.tsx"
 import { opacityOf, until, waitAtMost } from "../browser-helpers.ts"
 import { pushedPointer } from "../pushed-pointer.ts"
@@ -56,12 +56,12 @@ const entering = (el: HTMLElement, done: () => boolean) => (): boolean => {
 const hoverUntil = (el: HTMLElement, done: () => boolean, ms: number): Promise<void> => until(entering(el, done), ms)
 
 /** Whether its provider's Features have built the gestures' input. */
-const hasInput = (registry: FeatureRegistry): boolean => Option.isSome(Context.getOption(registry.built() as Context.Context<InputSource.InputSource>, InputSource.InputSource))
+const hasInput = (registry: Feature.FeatureRegistry): boolean => Option.isSome(Context.getOption(registry.built() as Context.Context<InputSource.InputSource>, InputSource.InputSource))
 
 describe("The gesture Features (#511), Solid 2", () => {
   it("FGV1: without `hover`, a w.div's whileHover does nothing, no input is built, and development says so once per provider", async () => {
     const els: Array<HTMLElement> = []
-    let registry!: FeatureRegistry
+    let registry!: Feature.FeatureRegistry
     const Probe = (): JSX.Element => {
       registry = useFeatureRegistry()
       return undefined
@@ -88,7 +88,7 @@ describe("The gesture Features (#511), Solid 2", () => {
 
   it("FGV2: `hover` given at once: a w.div hovers, over the DOM's input the Feature built", async () => {
     let el!: HTMLElement
-    let registry!: FeatureRegistry
+    let registry!: Feature.FeatureRegistry
     const Probe = (): JSX.Element => {
       registry = useFeatureRegistry()
       return undefined

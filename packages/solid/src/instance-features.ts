@@ -12,29 +12,17 @@ import type * as Cause from "effect/Cause"
 import { constVoid, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import {
-  type Build,
-  type Feature,
-  type FeatureLoad,
-  type FeatureRegistry,
-  type Features,
-  type InstanceFeatures,
-  type InstanceFeaturesProp,
-  joinOwns,
-  type Own,
-  ownOf,
-  type SectionHost,
-} from "./feature.ts"
+import * as Feature from "@wardic/dom/unstable/Feature"
 
 /**
  * `prop`'s Features (#516): those given at once, flattened, each once, and its loads, each started once,
  * the first time any provider asks, so one module's Wardic instance loads each once.
  */
-export const instanceFeaturesOf = (prop: InstanceFeaturesProp): InstanceFeatures => {
+export const instanceFeaturesOf = (prop: Feature.InstanceFeaturesProp): Feature.InstanceFeatures => {
   const leaves = leavesOf(prop)
   const given = Arr.dedupeWith(Arr.filter(leaves, isFeature), (a, b) => a === b)
   const loads = Arr.map(Arr.filter(leaves, isLoad), once)
-  const owns = new WeakMap<FeatureRegistry, Own>()
+  const owns = new WeakMap<Feature.FeatureRegistry, Feature.Own>()
   return {
     own: (registry, host) =>
       UndefinedOr.match(owns.get(registry), {
@@ -49,22 +37,22 @@ export const instanceFeaturesOf = (prop: InstanceFeaturesProp): InstanceFeatures
 }
 
 /** `prop`'s Features and loads, every list flattened. */
-const leavesOf = (prop: InstanceFeaturesProp): ReadonlyArray<Feature | FeatureLoad> =>
+const leavesOf = (prop: Feature.InstanceFeaturesProp): ReadonlyArray<Feature.Feature | Feature.FeatureLoad> =>
   Bool.match(Array.isArray(prop), {
-    onTrue: () => Arr.flatMap(prop as ReadonlyArray<InstanceFeaturesProp>, leavesOf),
-    onFalse: () => [prop as Feature | FeatureLoad],
+    onTrue: () => Arr.flatMap(prop as ReadonlyArray<Feature.InstanceFeaturesProp>, leavesOf),
+    onFalse: () => [prop as Feature.Feature | Feature.FeatureLoad],
   })
 
-const isFeature = (leaf: Feature | FeatureLoad): leaf is Feature => Predicate.hasProperty(leaf, "layer")
+const isFeature = (leaf: Feature.Feature | Feature.FeatureLoad): leaf is Feature.Feature => Predicate.hasProperty(leaf, "layer")
 
-const isLoad = (leaf: Feature | FeatureLoad): leaf is FeatureLoad => Predicate.isFunction(leaf)
+const isLoad = (leaf: Feature.Feature | Feature.FeatureLoad): leaf is Feature.FeatureLoad => Predicate.isFunction(leaf)
 
 /**
  * `load`, started at its first call, its promise kept for every call after. A failed load is forgotten,
  * so the next provider to ask loads again, as a new `LazyWardic` does.
  */
-const once = (load: FeatureLoad): FeatureLoad => {
-  let started: Promise<Features> | undefined
+const once = (load: Feature.FeatureLoad): Feature.FeatureLoad => {
+  let started: Promise<Feature.Features> | undefined
   return () =>
     UndefinedOr.match(started, {
       onDefined: identity,
@@ -80,9 +68,9 @@ const once = (load: FeatureLoad): FeatureLoad => {
 }
 
 /** A Wardic instance's Features in one provider: those given at once, and each load's, joined. */
-const ownIn = (build: Build, given: ReadonlyArray<Feature>, loads: ReadonlyArray<FeatureLoad>, report: (cause: Cause.Cause<unknown>) => void, host: SectionHost): Own =>
+const ownIn = (build: Feature.Build, given: ReadonlyArray<Feature.Feature>, loads: ReadonlyArray<Feature.FeatureLoad>, report: (cause: Cause.Cause<unknown>) => void, host: Feature.SectionHost): Feature.Own =>
   Arr.reduce(
-    Arr.map(loads, (load) => ownOf(build, load, report, host)),
-    ownOf(build, given, report, host),
-    joinOwns,
+    Arr.map(loads, (load) => Feature.ownOf(build, load, report, host)),
+    Feature.ownOf(build, given, report, host),
+    Feature.joinOwns,
   )

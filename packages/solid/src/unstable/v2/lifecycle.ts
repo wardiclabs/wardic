@@ -34,9 +34,9 @@ import type * as InputSource from "@wardic/core/InputSource"
 import type * as DragRecognizer from "@wardic/core/DragRecognizer"
 import type * as Recognizer from "@wardic/core/Recognizer"
 import { type Accessor, createMemo, createSignal, type Owner, runWithOwner } from "solid-js"
-import type { WardicAnimationDefinition, WardicValues } from "../../config.ts"
-import type { NeedsFeature } from "../../feature.ts"
-import { dragInfoOf, pointInfoOf, pointOfSample, pressInfoOf, type WardicDragInfo, type WardicPoint, type WardicPointInfo, type WardicPressInfo } from "../../gesture-info.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
+import type * as Feature from "@wardic/dom/unstable/Feature"
+import * as GestureInfo from "@wardic/dom/unstable/GestureInfo"
 import * as Spine from "@wardic/core/unstable/Spine"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
 import { eachOf, type Listener, Waiters, whenOf } from "./waiters.ts"
@@ -58,15 +58,15 @@ export interface WardSettled {
    * Motion's `definition` of it: the variant name its `animate` changed to, else its target values
    * (a values map, or a gesture layer turning on or off).
    */
-  readonly definition: WardicAnimationDefinition
+  readonly definition: WardConfig.WardicAnimationDefinition
   /** The values it landed on: every key its Retarget animated. */
-  readonly target: WardicValues
+  readonly target: WardConfig.WardicValues
   /** The gesture layers that were on when it started. */
   readonly gestures: WardGestures
 }
 
 /** A point in the viewport, as `clientX` / `clientY` and `getBoundingClientRect()` measure. */
-export type WardPoint = WardicPoint
+export type WardPoint = GestureInfo.WardicPoint
 
 /**
  * The element a gesture's event happened on: the ward's, or, for a ward given to `wardRef`,
@@ -78,7 +78,7 @@ export type WardElement = HTMLElement | SVGElement
  * A hover's or a press's event (Motion's `EventInfo` / `TapInfo`): where the pointer was, in
  * the viewport, and the element it was on.
  */
-export interface WardPointInfo extends WardicPointInfo {
+export interface WardPointInfo extends GestureInfo.WardicPointInfo {
   readonly element: WardElement
 }
 
@@ -87,7 +87,7 @@ export interface WardPointInfo extends WardicPointInfo {
  * "keyboard"`), and the element it was on. A **Keyboard press**'s point is the element's centre,
  * measured at the key.
  */
-export interface WardPressInfo extends WardicPressInfo {
+export interface WardPressInfo extends GestureInfo.WardicPressInfo {
   readonly element: WardElement
 }
 
@@ -95,7 +95,7 @@ export interface WardPressInfo extends WardicPressInfo {
  * A drag's event (Motion's `PanInfo`): where the pointer was, in the viewport, the drag's
  * `offset`, `delta` and `velocity` (`gesture-info.ts`), and the element dragged.
  */
-export interface WardDragInfo extends WardicDragInfo {
+export interface WardDragInfo extends GestureInfo.WardicDragInfo {
   readonly element: WardElement
 }
 
@@ -215,7 +215,7 @@ void everyEventMapped
  * What event `E` meets on a ward whose Features are named `FN` (#516): nothing more when it's
  * `settled` or one of theirs; else `NeedsFeature<"name">`, so naming it is an error naming the Feature.
  */
-export type EventNeeds<E extends WardEvent, FN extends string> = E extends keyof EventFeature ? (EventFeature[E] extends FN ? unknown : NeedsFeature<EventFeature[E]>) : unknown
+export type EventNeeds<E extends WardEvent, FN extends string> = E extends keyof EventFeature ? (EventFeature[E] extends FN ? unknown : Feature.NeedsFeature<EventFeature[E]>) : unknown
 
 /** The `AbortError`'s message for a `next` the ward's disposal cut off. */
 const GONE = "The ward was disposed before its next event."
@@ -385,7 +385,7 @@ export class Lifecycle implements Spine.AnimationHooks {
   /** A hover's start or end on `element` (#257): its start is the first `hover` too (#397). */
   hovered(edge: Recognizer.Edge, element: WardElement): void {
     if (Predicate.isUndefined(this.events)) return
-    const info = (): WardPointInfo => ({ ...pointInfoOf(edge.event), element })
+    const info = (): WardPointInfo => ({ ...GestureInfo.pointInfoOf(edge.event), element })
     if (edge.active) {
       this.tell("hoverStart", info)
       this.tell("hover", info)
@@ -397,7 +397,7 @@ export class Lifecycle implements Spine.AnimationHooks {
   /** A move of the pointer over `element` while it's hovered (#397). */
   hoverMoved(event: InputSource.PointerLikeEvent, element: WardElement): void {
     if (Predicate.isUndefined(this.events)) return
-    this.tell("hover", () => ({ ...pointInfoOf(event), element }))
+    this.tell("hover", () => ({ ...GestureInfo.pointInfoOf(event), element }))
   }
 
   /** A press's start or end (#257): a press a drag took over tells nothing. */
@@ -406,7 +406,7 @@ export class Lifecycle implements Spine.AnimationHooks {
     if (Predicate.isUndefined(this.events)) return
     const name = PRESS_EVENT[press.phase]
     if (Predicate.isUndefined(name)) return
-    this.tell(name, () => ({ ...pressInfoOf(press, element), element }))
+    this.tell(name, () => ({ ...GestureInfo.pressInfoOf(press, element), element }))
   }
 
   /**
@@ -424,7 +424,7 @@ export class Lifecycle implements Spine.AnimationHooks {
   panned(sample: DragRecognizer.PanSample, element: WardElement): void {
     if (Predicate.isUndefined(this.events)) return
     if (sample.phase === "session") {
-      this.tell("panSessionStart", () => ({ ...pointOfSample(sample), element }))
+      this.tell("panSessionStart", () => ({ ...GestureInfo.pointOfSample(sample), element }))
       return
     }
     this.moved(PAN_EVENT[sample.phase], "pan", sample as Drag.Sample, element)
@@ -453,7 +453,7 @@ export class Lifecycle implements Spine.AnimationHooks {
   /** A drag's or a pan's sample past a pan's session's start: its start's or end's event (`named`), then `every` at its start and each move. */
   private moved(named: MovementEvent | undefined, every: "drag" | "pan", sample: Drag.Sample, element: WardElement): void {
     if (Predicate.isUndefined(this.events)) return
-    const info = (): WardDragInfo => ({ ...dragInfoOf(sample), element })
+    const info = (): WardDragInfo => ({ ...GestureInfo.dragInfoOf(sample), element })
     if (Predicate.isNotUndefined(named)) this.tell(named, info)
     if (sample.phase !== "end") this.tell(every, info)
   }
@@ -497,7 +497,7 @@ export class Lifecycle implements Spine.AnimationHooks {
   private lastTapNow(): WardPressInfo | undefined {
     if (Bool.or(Predicate.isNotUndefined(this.lastTap), Predicate.isUndefined(this.tapPress))) return this.lastTap
     const element = this.tapElement as WardElement
-    this.lastTap = { ...pressInfoOf(this.tapPress as Recognizer.PressEvent, element), element }
+    this.lastTap = { ...GestureInfo.pressInfoOf(this.tapPress as Recognizer.PressEvent, element), element }
     return this.lastTap
   }
 
@@ -621,7 +621,7 @@ export class Lifecycle implements Spine.AnimationHooks {
     const landing = resolution as Spine.Resolution
     const active = landing.active
     this.last = {
-      definition: Spine.definitionOf(landing, this.landedPrevious) as WardicAnimationDefinition,
+      definition: Spine.definitionOf(landing, this.landedPrevious) as WardConfig.WardicAnimationDefinition,
       target: landing.resolved,
       gestures: { hover: active.hovered, tap: active.pressed, drag: active.dragged, inView: active.inView, focus: active.focused },
     }

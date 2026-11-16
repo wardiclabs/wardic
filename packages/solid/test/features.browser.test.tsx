@@ -16,7 +16,7 @@ import { colors, type FeatureLoad, LazyWardic, Reorder, w, wardic, WardicProvide
 import * as Bool from "effect/Boolean"
 import { createSignal, For, type JSX } from "solid-js"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { hasService } from "../src/gesture-features.ts"
+import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import { useFeatureSection } from "../src/provider.tsx"
 import { opacityOf, until } from "./browser-helpers.ts"
 import { resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
@@ -146,7 +146,7 @@ describe("Features and the Slim element (#511), Solid 1", () => {
     const seen: Record<string, boolean> = {}
     const Probe = (props: { readonly name: string }) => {
       const section = useFeatureSection()
-      seen[props.name] = hasService(section.services(), colors.key)
+      seen[props.name] = GestureFeatures.hasService(section.services(), colors.key)
       return null
     }
     render(() => (

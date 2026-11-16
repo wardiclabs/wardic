@@ -58,12 +58,12 @@ import {
   useContext,
 } from "solid-js"
 import { Dynamic } from "solid-js/web"
-import * as OwnerScope from "./owner-scope.ts"
+import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import { runWatch, useBrought, useWardicGate, useWardicRuntime } from "./provider.tsx"
 import { useLayoutServices } from "./layout-projection.tsx"
 import { watchItemInput } from "./reorder-input.ts"
 import { plainOrder } from "./reorder-values.ts"
-import type { Feature } from "./feature.ts"
+import type * as Feature from "@wardic/dom/unstable/Feature"
 import { drag } from "./features/drag.ts"
 import { focus } from "./features/focus.ts"
 import { hover } from "./features/hover.ts"
@@ -71,10 +71,10 @@ import { inView } from "./features/in-view.ts"
 import { layout } from "./features/layout.ts"
 import { pan } from "./features/pan.ts"
 import { press } from "./features/press.ts"
-import { inputIn } from "./gesture-features.ts"
+import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import type { WardicRuntime } from "./runtime.ts"
 import { controlledOf, runSpine, type SpineInternals, createWardWith, type Ward, type WardProps, type WardUserProps } from "./create-ward.tsx"
-import type { WardConfig } from "./config.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import { isServer } from "./server.ts"
 import { createVariantNode } from "./variant-node.ts"
 import * as Spine from "@wardic/core/unstable/Spine"
@@ -172,7 +172,7 @@ export type ReorderItemLayout = true | "position"
  * A `<Reorder>` item's config: its `value`, its `layout` ({@link ReorderItemLayout}), and any motion
  * prop but `layoutId` and `drag`, which the group sets.
  */
-export type ReorderItemConfig<V> = { readonly value: V; readonly layout?: ReorderItemLayout } & Omit<WardConfig, "layout" | "layoutId" | "drag">
+export type ReorderItemConfig<V> = { readonly value: V; readonly layout?: ReorderItemLayout } & Omit<WardConfig.WardConfig, "layout" | "layoutId" | "drag">
 
 /** An item's `layout` as its Layout mode: `"position"`, else `true` (ADR-0009, *Amendment (#42)*). */
 const itemLayoutOf = (layout: unknown): ReorderItemLayout =>
@@ -298,7 +298,7 @@ const touchActionOf = <V,>(group: ItemGroup<V>, listens: boolean): SpineInternal
  * drag, and every other gesture, so `whileHover` or `whileTap` on an item works as on Motion's, for
  * about 0.5 KB gzipped beside the drag's.
  */
-const ITEM_BRINGS: ReadonlyArray<Feature> = [layout, drag, hover, press, focus, inView, pan]
+const ITEM_BRINGS: ReadonlyArray<Feature.Feature> = [layout, drag, hover, press, focus, inView, pan]
 
 const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTMLElement | undefined>, runtime: WardicRuntime, listens: boolean): SpineInternals => {
   // Its keys' input, the `drag` Feature's it brings (#511).
@@ -314,7 +314,7 @@ const itemInternals = <V,>(group: ItemGroup<V>, value: V, element: Accessor<HTML
     on(element, (el) => {
       if (Predicate.isNotUndefined(el)) {
         runWatch(runtime, (onDefect) =>
-          Effect.provideService(watchItemInput(el, driver, (effect) => void runtime.runFork(effect), onDefect), InputSource.InputSource, inputIn(services())),
+          Effect.provideService(watchItemInput(el, driver, (effect) => void runtime.runFork(effect), onDefect), InputSource.InputSource, GestureFeatures.inputIn(services())),
         )
       }
     }),
@@ -448,7 +448,7 @@ const serverReorderGroup = <V,>(cfg: Accessor<ReorderGroupConfig<V>>): ReorderGr
   return Object.assign(spread, { group: controller.group, axis, move: noop, controller, ...keyboardOf(cfg) })
 }
 
-const withoutValue = <V,>(config: ReorderItemConfig<V>): WardConfig => {
+const withoutValue = <V,>(config: ReorderItemConfig<V>): WardConfig.WardConfig => {
   const { value: _value, ...rest } = config
   return rest
 }
@@ -459,7 +459,7 @@ export type ReorderItemDirectiveValue = {
   readonly group: ItemGroup<never>
   readonly value: unknown
   readonly layout?: ReorderItemLayout
-} & Omit<WardConfig, "layout" | "layoutId" | "drag">
+} & Omit<WardConfig.WardConfig, "layout" | "layoutId" | "drag">
 
 /**
  * `use:reorderItem`: makes an element an item of a Reorder group, as `use:wardic` makes it a Wardic
@@ -474,7 +474,7 @@ export type ReorderItemDirectiveValue = {
 export function reorderItem(el: HTMLElement, value: Accessor<ReorderItemDirectiveValue>): void {
   const first = untrack(value)
   // Animation controls for its `animate` (#433): each change they make is its entry.
-  const { cfg, controls } = controlledOf((): WardConfig => {
+  const { cfg, controls } = controlledOf((): WardConfig.WardConfig => {
     const { group: _group, value: _value, ...rest } = value()
     return { ...rest, layout: itemLayoutOf(rest.layout) }
   })

@@ -8,16 +8,16 @@ import type * as Drag from "@wardic/core/Drag"
 import * as InputSource from "@wardic/core/InputSource"
 import * as Effect from "effect/Effect"
 import { type CreateDragOptions, watchDragSamples } from "../../drag-samples.ts"
-import type { Feature } from "../../feature.ts"
+import type * as Feature from "@wardic/dom/unstable/Feature"
 import { drag } from "../../features/drag.ts"
-import { inputIn } from "../../gesture-features.ts"
+import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import { useBrought } from "./provider.tsx"
 import { type Sensor, watchSensorOf } from "./sensors.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 
 /** What it brings (ADR-0067 decision 12): its gesture's Feature, whatever its section has (#511). */
-const DRAG: ReadonlyArray<Feature> = [drag]
+const DRAG: ReadonlyArray<Feature.Feature> = [drag]
 
 /**
  * The latest sample of a drag on the element it's given to as a `ref`, `null` before the first: where
@@ -38,7 +38,7 @@ export const createDrag = (options?: CreateDragOptions): Sensor<Drag.Sample | nu
   const pagePoint = WardicConfigValue.transformPagePointOf(useWardicConfig())
   const services = useBrought(DRAG)
   return watchSensorOf<Drag.Sample | null>(
-    (target, handlers) => Effect.provideService(watchDragSamples(target, { ...options }, handlers, pagePoint), InputSource.InputSource, inputIn(services())),
+    (target, handlers) => Effect.provideService(watchDragSamples(target, { ...options }, handlers, pagePoint), InputSource.InputSource, GestureFeatures.inputIn(services())),
     null,
   )
 }

@@ -6,14 +6,14 @@
  */
 import type { Accessor } from "solid-js"
 import { watchToSignal } from "./bridge.tsx"
-import type { Feature } from "./feature.ts"
+import type * as Feature from "@wardic/dom/unstable/Feature"
 import { press } from "./features/press.ts"
 import { PressGesture } from "./features/keys.ts"
-import { serviceOf } from "./gesture-features.ts"
+import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import { useBrought } from "./provider.tsx"
 
 /** What it brings (ADR-0067 decision 12): its gesture's Feature, whatever its section has (#511). */
-const PRESS: ReadonlyArray<Feature> = [press]
+const PRESS: ReadonlyArray<Feature.Feature> = [press]
 
 /**
  * `true` while `target` is pressed, by a pointer held down on it or by Enter or Space while it has
@@ -29,5 +29,5 @@ const PRESS: ReadonlyArray<Feature> = [press]
 // The core press watch (#318); a Keyboard press (#427). `false` until its first transition.
 export const createPress = (target: unknown): Accessor<boolean> => {
   const services = useBrought(PRESS)
-  return watchToSignal<boolean>(({ on, onDefect }) => serviceOf(services(), PressGesture).watch(target, { on: (press) => on(press.phase === "start"), onDefect }), false)
+  return watchToSignal<boolean>(({ on, onDefect }) => GestureFeatures.serviceOf(services(), PressGesture).watch(target, { on: (press) => on(press.phase === "start"), onDefect }), false)
 }

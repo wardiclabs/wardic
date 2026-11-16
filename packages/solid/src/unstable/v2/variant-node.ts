@@ -25,7 +25,7 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createContext, createMemo, createSignal, onCleanup, untrack, useContext } from "solid-js"
 import type * as AnimationControls from "@wardic/core/unstable/AnimationControls"
-import type { WardicTransition, WardicVariantLabels } from "../../config.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import * as VariantTree from "@wardic/core/unstable/VariantTree"
 import { CLIENT_ONLY, CLIENT_ONLY_SYNC } from "./solid-reactivity.ts"
 import * as VariantTarget from "@wardic/core/unstable/VariantTarget"
@@ -183,15 +183,15 @@ const ownOrchestration = (
 
   // The names handed down. `animate`'s is reactive, its change the trigger; `initial`'s is read once.
   // A list the same name by name is no change (#297): the one before is kept.
-  const variant: Accessor<WardicVariantLabels | undefined> = createMemo(
-    (previous: WardicVariantLabels | undefined) => {
+  const variant: Accessor<WardConfig.WardicVariantLabels | undefined> = createMemo(
+    (previous: WardConfig.WardicVariantLabels | undefined) => {
       const c = cfg()
       const next = VariantTree.handedDown(c, () => VariantTree.nameOf(c.animate), () => UndefinedOr.map(parent, (p) => p.variant()))
       if (VariantTarget.sameLabels(next, previous)) return previous
       stale = true
       return next
     },
-    { ...CLIENT_ONLY, equals: (a: WardicVariantLabels | undefined, b: WardicVariantLabels | undefined) => VariantTarget.sameLabels(a, b) },
+    { ...CLIENT_ONLY, equals: (a: WardConfig.WardicVariantLabels | undefined, b: WardConfig.WardicVariantLabels | undefined) => VariantTarget.sameLabels(a, b) },
   )
 
   // What it hands down for its gestures (#291), whether each is on and its label: its spine's states, bound at its ward's
@@ -219,7 +219,7 @@ const ownOrchestration = (
   // Its orchestration (#277, #291, Motion's): the own transition of its highest active gesture's name,
   // else of its target (the variant it names), else its `transition`; a Controls change's override at
   // the trigger it came with (#433).
-  const orchestration: Accessor<WardicTransition | undefined> = createMemo(
+  const orchestration: Accessor<WardConfig.WardicTransition | undefined> = createMemo(
     () =>
       // eslint-disable-next-line solid/reactivity -- orchestrationAt calls it at once, inside the memo, where it tracks
       VariantTree.orchestrationAt(at(), () => {
@@ -240,7 +240,7 @@ const ownOrchestration = (
     if (Arr.isArray(variant())) return undefined
     return UndefinedOr.map(orchestration(), (t) => t.when)
   }
-  const initial = VariantTree.handedDown<WardicVariantLabels | false>(config, () => VariantTree.initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial))
+  const initial = VariantTree.handedDown<WardConfig.WardicVariantLabels | false>(config, () => VariantTree.initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial))
 
   // Each name's orchestration for the Variant children's keys of that name (#297, Motion's
   // `animateVariant` a name): its own transition's, else the element's. Kept per name until what it's
@@ -295,7 +295,7 @@ const ownOrchestration = (
   const childrenMayStart: Accessor<boolean> = () => when() !== "beforeChildren" || settledAt() === trigger()
   const allChildrenSettled: Accessor<boolean> = () => unsettled() === 0
   // The transition its children default to: its own, else the one it inherits.
-  const transition: Accessor<WardicTransition | undefined> = createMemo(() => VariantTree.ownOrInherited(cfg().transition, inherited), CLIENT_ONLY)
+  const transition: Accessor<WardConfig.WardicTransition | undefined> = createMemo(() => VariantTree.ownOrInherited(cfg().transition, inherited), CLIENT_ONLY)
 
   return {
     context: { variant, initial, transition, gestures, register, stagger, staggerFor, mayStartFor, when, childrenMayStart, allChildrenSettled, change },

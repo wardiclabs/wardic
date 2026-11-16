@@ -14,7 +14,7 @@ import { createMemo, createRoot, createSignal } from "solid-js"
 import { describe, expect, it } from "vitest"
 import { AtomRegistry } from "effect/reactivity"
 import { createElementStyle } from "../src/element-style.ts"
-import { createLiveStyle } from "../src/live-style.ts"
+import * as LiveStyle from "@wardic/dom/unstable/LiveStyle"
 import { reactivity } from "../src/solid-reactivity.ts"
 
 /** An element's style over `user`, a base and x-axis drag defaults, and how often `style` has run. */
@@ -25,7 +25,7 @@ const elementStyle = (user: object) =>
       userStyle,
       starting: { opacity: 0 },
       startingWith: (routed) => ({ opacity: 0, ...routed }),
-      live: createLiveStyle({ registry: AtomRegistry.make, reactivity, ownValues: DomValues.ownValues }),
+      live: LiveStyle.createLiveStyle({ registry: AtomRegistry.make, reactivity, ownValues: DomValues.ownValues }),
       defaults: Style.dragDefaults("x"),
       base: () => ({ "touch-action": "pan-x", position: "relative", "-webkit-touch-callout": "default" }),
       reactivity,

@@ -17,10 +17,10 @@ import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { isServer } from "@solidjs/web"
 import { type Accessor, createEffect, createSignal, onCleanup } from "solid-js"
-import type { Feature } from "../../feature.ts"
+import type * as Feature from "@wardic/dom/unstable/Feature"
 import { scroll } from "../../features/scroll.ts"
-import { serviceOf } from "../../gesture-features.ts"
-import * as OwnerScope from "../../owner-scope.ts"
+import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
+import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import { followScroll, letGoScroll, scrollAtomsOf } from "../../scroll-values.ts"
 import * as Timelines from "@wardic/core/unstable/Timelines"
 import { followAtom } from "./bridge.tsx"
@@ -29,7 +29,7 @@ import { useBrought, useWardicRuntime } from "./provider.tsx"
 import { CLIENT_ONLY, onSettledClientOnly } from "./solid-reactivity.ts"
 
 /** What it brings (ADR-0067 decision 12): the `scroll` Feature, whatever its section has (#518). */
-const SCROLL: ReadonlyArray<Feature> = [scroll]
+const SCROLL: ReadonlyArray<Feature.Feature> = [scroll]
 
 /** An element, or an accessor of one, such as `() => box` for a ref: read once it's there. */
 export type ElementSource = Element | Accessor<Element | undefined>
@@ -101,7 +101,7 @@ export const createScroll = (options: ScrollOptions = {}): ScrollValues => {
   const runtime = useWardicRuntime()
   const services = useBrought(SCROLL)
   // Built now, before a `style` follows its values, so the element finds its Timeline values (#240).
-  const timelines = serviceOf(services(), Timelines.Timelines)
+  const timelines = GestureFeatures.serviceOf(services(), Timelines.Timelines)
   const registry = runtime.runSync(AtomRegistry.AtomRegistry)
   // Its own four Atoms, set from the scroll of the elements there now.
   const outs = scrollAtomsOf(registry, onCleanup)
@@ -133,7 +133,7 @@ export const createScroll = (options: ScrollOptions = {}): ScrollValues => {
           ...UndefinedOr.match(Option.getOrUndefined(target), { onUndefined: () => ({}), onDefined: (element) => ({ target: element }) }),
           ...UndefinedOr.match(options.offset, { onUndefined: () => ({}), onDefined: (offset) => ({ offset }) }),
           ...UndefinedOr.match(options.axis, { onUndefined: () => ({}), onDefined: (axis) => ({ axis }) }),
-        }).pipe(Effect.provideService(ScrollSource.ScrollSource, serviceOf(services(), ScrollSource.ScrollSource)), Scope.provide(scope)),
+        }).pipe(Effect.provideService(ScrollSource.ScrollSource, GestureFeatures.serviceOf(services(), ScrollSource.ScrollSource)), Scope.provide(scope)),
       )
       following = true
       const stop = followScroll(registry, outs, values, timelines)

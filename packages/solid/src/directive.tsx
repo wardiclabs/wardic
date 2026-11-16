@@ -36,7 +36,7 @@ import { useWardicGate, useWardicRuntime } from "./provider.tsx"
 import { controlledOf, runSpine, type SpineInternals } from "./create-ward.tsx"
 import { usePresenceContext } from "./presence.tsx"
 import * as Spine from "@wardic/core/unstable/Spine"
-import type { WardConfig } from "./config.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import { createVariantNode } from "./variant-node.ts"
 import { useVariantContext } from "./variants.ts"
 
@@ -47,7 +47,7 @@ import { useVariantContext } from "./variants.ts"
  * @param el the directive's host element (supplied by Solid).
  * @param value the reactive config accessor (Solid wraps `use:wardic={config}` as `() => config`).
  */
-export const runDirective = (el: HTMLElement, value: Accessor<WardConfig>, internal: SpineInternals): void => {
+export const runDirective = (el: HTMLElement, value: Accessor<WardConfig.WardConfig>, internal: SpineInternals): void => {
   // The directive runs in a component owner, so it reads the nearest variant context
   // (ADR-0007) and, as a Variant child, joins it (#50). It renders no children, so it
   // provides none.
@@ -79,9 +79,9 @@ declare module "solid-js" {
   // biome-ignore lint/style/useNamingConvention: augmenting Solid's JSX namespace.
   namespace JSX {
     interface Directives {
-      wardic: WardConfig
+      wardic: WardConfig.WardConfig
       /** `use:w` (#511): a Slim element's directive. */
-      w: WardConfig
+      w: WardConfig.WardConfig
     }
   }
 }

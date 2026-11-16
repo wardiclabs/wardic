@@ -26,7 +26,7 @@ export {
  * props `layout`, `layoutId`, `layoutScroll` and `layoutRoot` (`LayoutGroup` and `Reorder` bring it
  * themselves). `scroll`: a container's scroll, which `createScroll` brings itself (#518).
  */
-export type { Feature, FeatureLoad, Features, FeaturesProp } from "../../feature.ts"
+export type { Feature, FeatureLoad, Features, FeaturesProp } from "@wardic/dom/unstable/Feature"
 export { colors } from "../../features/colors.ts"
 export { layout } from "../../features/layout.ts"
 export { scroll } from "../../features/scroll.ts"
@@ -46,7 +46,7 @@ export { press } from "../../features/press.ts"
 export { domAnimation } from "../../features/dom-animation.ts"
 export { domMax } from "../../features/dom-max.ts"
 // The Instant change and the Projection reset (#443): Motion's `useInstantTransition` and kin.
-export type { InstantTransition } from "../../instant.ts"
+export type { InstantTransition } from "@wardic/dom/unstable/Instant"
 // `WardicConfig`'s `transformPagePoint` helpers (#443, Motion's): a drag inside a transformed parent, or an SVG's viewBox.
 export { correctParentTransform, transformViewBoxPoint } from "../../page-point.ts"
 export type { WardicEnv, WardicRuntime, WardicServices } from "../../runtime.ts"
@@ -78,7 +78,7 @@ export {
 } from "./ward.tsx"
 export { ward } from "./complete.tsx"
 export type { WardDragInfo, WardElement, WardEvent, WardEvents, WardGestures, WardPoint, WardPointInfo, WardPressInfo, WardSettled } from "./lifecycle.ts"
-export type { WardicAnimationDefinition } from "../../config.ts"
+export type { WardicAnimationDefinition } from "@wardic/dom/unstable/WardConfig"
 export type { AnimatedKey, WardKey, WardValueOf } from "../../ward-keys.ts"
 
 /** The variant context (ADR-0007): what a ward's `.Provider` and a `wardic.*` element hand their children. */
@@ -105,7 +105,7 @@ export type {
   WardicVariantResolver,
   WardicVariants,
   WardicVariantTransition,
-} from "../../config.ts"
+} from "@wardic/dom/unstable/WardConfig"
 
 /**
  * `wardic.<tag>` and `wardic.create(tag | Component)` (ADR-0008): Motion's components, with the
@@ -144,7 +144,7 @@ export { isValidWardicPropV2 as isValidWardicProp } from "../../motion-props.ts"
  */
 export { AnimatePresence, type AnimatePresenceProps, PresenceContext, usePresenceContext } from "./presence.tsx"
 export { type IsPresent, type PresenceExit, type PresenceLeaveEvents, useIsPresent, usePresence, usePresenceData } from "./presence-hooks.tsx"
-export type { PresenceMode } from "../../presence-controller.ts"
+export type { PresenceMode } from "@wardic/dom/unstable/PresenceController"
 export { createPresence, type Presence, type PresenceEvent, type PresenceEvents } from "./presence-handle.ts"
 export type { PresenceContextValue, PresenceRecord } from "@wardic/dom/unstable/PresenceController"
 
@@ -178,10 +178,10 @@ export { createCycle, type Cycle } from "./cycle.ts"
 
 /** Reactive bridges (ADR-0006): a core `Stream` or an Effect `Atom` as an accessor. */
 export { fromAtom, streamToSignal } from "./bridge.tsx"
-export type { WardicDragTransition, WardicLayoutBox, WardicScaleCorrector, WardicTransformPoint, WardicTransformTemplate, WardicViewport } from "../../config.ts"
-export type { WardicBoundingBox, WardicDragConstraints, WardicMeasureDragConstraints } from "../../drag-constraints.ts"
+export type { WardicDragTransition, WardicLayoutBox, WardicScaleCorrector, WardicTransformPoint, WardicTransformTemplate, WardicViewport } from "@wardic/dom/unstable/WardConfig"
+export type { WardicBoundingBox, WardicDragConstraints, WardicMeasureDragConstraints } from "@wardic/dom/unstable/DragConstraints"
 // Drag controls (#431, Motion's `useDragControls`): a drag started from a handle or a track.
-export { createDragControls, type WardicDragControls, type WardicDragControlsOptions } from "../../drag-controls.ts"
+export { createDragControls, type WardicDragControls, type WardicDragControlsOptions } from "@wardic/dom/unstable/DragControls"
 // Imperative animation (#433, Motion's `useAnimate`): an Animation scope with `settled()`, its `animate` and its Playback controls.
 // `WardicAnimationScope` on both bindings, each its own (#618, P1), as `isValidWardicProp` is.
 export { createAnimate, type WardicAnimationScopeV2 as WardicAnimationScope, type WardicScopeLanding } from "./create-animate.tsx"
@@ -224,7 +224,7 @@ export type {
   WardicSequenceLabel,
   WardicSequenceOptions,
   WardicSequenceTime,
-} from "../../imperative.ts"
+} from "@wardic/dom/unstable/Imperative"
 export { createAnimationControls, type WardicAnimationControls, type WardicControlsDefinition } from "@wardic/core/unstable/AnimationControls"
 
 
@@ -244,7 +244,7 @@ export {
   createWillChange,
 } from "./live-value.tsx"
 export { createScroll, type ElementSource, type ScrollOptions, type ScrollValues } from "./live-scroll.tsx"
-export type { FollowAccessor, FollowValueOptions, Live, LiveSource, SpringAccessor, WillChange } from "../../live-style.ts"
+export type { FollowAccessor, FollowValueOptions, Live, LiveSource, SpringAccessor, WillChange } from "@wardic/dom/unstable/LiveStyle"
 
 /**
  * `<Reorder>` (ADR-0020, ADR-0037; #209 PR 3b): `reorderGroup(config)` and `reorderItem(list, config)`,

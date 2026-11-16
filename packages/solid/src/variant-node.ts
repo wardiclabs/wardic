@@ -12,7 +12,7 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createEffect, createMemo, createSignal, on, onCleanup, untrack } from "solid-js"
 import type * as AnimationControls from "@wardic/core/unstable/AnimationControls"
-import type { WardicTransition, WardicVariantLabels } from "./config.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import * as VariantTree from "@wardic/core/unstable/VariantTree"
 import * as VariantTarget from "@wardic/core/unstable/VariantTarget"
 
@@ -136,7 +136,7 @@ const ownOrchestration = (
 
   // The names handed down. `animate`'s is reactive; `initial`'s is read once.
   // A list the same name by name is no change (#297).
-  const variant: Accessor<WardicVariantLabels | undefined> = createMemo(
+  const variant: Accessor<WardConfig.WardicVariantLabels | undefined> = createMemo(
     () => {
       const c = cfg()
       return VariantTree.handedDown(c, () => VariantTree.nameOf(c.animate), () => UndefinedOr.map(parent, (p) => p.variant()))
@@ -161,7 +161,7 @@ const ownOrchestration = (
   // Its orchestration (#277, #291, Motion's): the own transition of its highest active gesture's name,
   // else of its target (the variant it names), else its `transition`; a Controls change's override at
   // the trigger it came with (#433).
-  const orchestration: Accessor<WardicTransition | undefined> = createMemo(() =>
+  const orchestration: Accessor<WardConfig.WardicTransition | undefined> = createMemo(() =>
     VariantTree.orchestrationAt(at(), () => {
       const c = cfg()
       const own = UndefinedOr.match(VariantTree.topGestureName(VariantTree.activeNamesOf(gestures())), {
@@ -188,7 +188,7 @@ const ownOrchestration = (
     if (Arr.isArray(variant())) return undefined
     return UndefinedOr.map(orchestration(), (t) => t.when)
   }
-  const initial = VariantTree.handedDown<WardicVariantLabels | false>(config, () => VariantTree.initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial))
+  const initial = VariantTree.handedDown<WardConfig.WardicVariantLabels | false>(config, () => VariantTree.initialNameOf(config.initial), () => UndefinedOr.map(parent, (p) => p.initial))
 
   // Each name's orchestration for the Variant children's keys of that name (#297, Motion's
   // `animateVariant` a name): its own transition's, else the element's. Kept per name until the
@@ -239,7 +239,7 @@ const ownOrchestration = (
   const childrenMayStart: Accessor<boolean> = () => when() !== "beforeChildren" || ownSettled()
   const allChildrenSettled: Accessor<boolean> = () => unsettled() === 0
   // The transition its children default to: its own, else the one it inherits.
-  const transition: Accessor<WardicTransition | undefined> = createMemo(() => VariantTree.ownOrInherited(cfg().transition, inherited))
+  const transition: Accessor<WardConfig.WardicTransition | undefined> = createMemo(() => VariantTree.ownOrInherited(cfg().transition, inherited))
 
   return {
     context: { variant, initial, transition, gestures, register, stagger, staggerFor, mayStartFor, when, childrenMayStart, allChildrenSettled, change },

@@ -19,19 +19,18 @@
 //   ones are typed (Q6); one without it hasn't them.
 // - IT8: `createWardic`'s instance is typed from its list literal: a preset, a nested list, one
 //   Feature, and a load, its Features from what it resolves to.
-import { createWardic, domAnimation, domMax, drag, type Feature, focus, hover, inView, layout, pan, press, type W as PlainW, w, type WardConfig, type WardConfigOf, type WardicComponent, type WardicInstance, createInstantLayoutTransition, createResetProjection, useAnimateLayout } from "@wardic/solid"
+import { createWardic, domAnimation, domMax, drag, type Feature, focus, hover, inView, layout, pan, press, type W as PlainW, w, type WardConfig, type WardConfigOf, type WardicComponent, type WardicInstance, type WardicVariantLabels, createInstantLayoutTransition, createResetProjection, useAnimateLayout } from "@wardic/solid"
 import type { JSX } from "solid-js"
 import { describe, expectTypeOf, it } from "vitest"
-import type { WardicVariantLabels } from "../src/config.ts"
 import type { WardicMotionProps, WardicProps } from "../src/element.tsx"
-import type { NeedsFeature } from "../src/feature.ts"
+import type * as DomFeature from "@wardic/dom/unstable/Feature"
 import type { InferredMotion, TargetKey } from "../src/ward-keys.ts"
 
 /** An element, type-checked only: the function is never called. */
 const typed = (make: () => unknown): void => void make
 
 /** A value typed as Feature `N`'s brand: only a prop typed `NeedsFeature<N>` takes it. Never called. */
-declare const needs: <N extends string>(name: N) => NeedsFeature<N>
+declare const needs: <N extends string>(name: N) => DomFeature.NeedsFeature<N>
 
 /** `WardicComponent<Tag>` as it was before #516, word for word: what its default must still be. */
 type Before<Tag extends keyof JSX.IntrinsicElements> = <

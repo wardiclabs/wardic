@@ -33,7 +33,7 @@ import * as DomInterpolators from "@wardic/dom/DomInterpolators"
 import * as DomPositionalKeys from "@wardic/dom/DomPositionalKeys"
 import * as Effect from "effect/Effect"
 import { describe, expect, it } from "vitest"
-import type { WardicTransition } from "../src/config.ts"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import * as RetargetLegs from "@wardic/core/unstable/RetargetLegs"
 
 const F = 1 / 60
@@ -55,7 +55,7 @@ const TO: Values.Values = { x: 100, y: 50, scale: 2, opacity: 1, backgroundColor
 
 /** A Retarget's legs from `from` to `to` on `transition`, under the DOM's defaults unless given others. */
 const legsFor = (
-  transition: WardicTransition | undefined,
+  transition: WardConfig.WardicTransition | undefined,
   options: { readonly from?: Values.Values; readonly to?: Values.Values; readonly reduced?: boolean; readonly defaults?: DefaultTransition.DefaultTransition["Service"] } = {},
 ): ReadonlyArray<RetargetLegs.Leg> => {
   const { from = FROM, to = TO, reduced = false, defaults = DOM } = options
@@ -129,7 +129,7 @@ describe("the Default transition (#357, ADR-0051)", () => {
 
   it("DT3: a transition that defines none leaves each key on its default, with its delay and its opt-out", () => {
     const none = valuesOf(machineOf(legsFor(undefined)[0]!))
-    for (const transition of [{}, { staggerChildren: 0.1, when: "beforeChildren" }, { stiffness: undefined }] as ReadonlyArray<WardicTransition>) {
+    for (const transition of [{}, { staggerChildren: 0.1, when: "beforeChildren" }, { stiffness: undefined }] as ReadonlyArray<WardConfig.WardicTransition>) {
       const legs = legsFor(transition)
       expect(shapeOf(legs), JSON.stringify(transition)).toEqual(["Numbers x,y", "Numbers scale", "Blend opacity,backgroundColor"])
       expect(valuesOf(machineOf(legs[0]!)), JSON.stringify(transition)).toEqual(none)
@@ -175,7 +175,7 @@ describe("the Default transition (#357, ADR-0051)", () => {
     expect(xs.at(-1), "reversed, at its start").toBe(0)
     // `type: "tween"` wins over a spring field (a type error in a literal; a hoisted object gets past).
     const mixed = { type: "tween", stiffness: 300 } as const
-    expect(shapeOf(legsFor(mixed as WardicTransition))).toEqual(["Blend x,y,scale,opacity,backgroundColor"])
+    expect(shapeOf(legsFor(mixed as WardConfig.WardicTransition))).toEqual(["Blend x,y,scale,opacity,backgroundColor"])
   })
 
   it("DT6: a typed transition takes Motion's fields for those it leaves out", () => {
@@ -197,7 +197,7 @@ describe("the Default transition (#357, ADR-0051)", () => {
   })
 
   it("DT8: a transition's run is worked out once per object; one that defines none has none", () => {
-    const given: WardicTransition = { duration: 0.5 }
+    const given: WardConfig.WardicTransition = { duration: 0.5 }
     expect(RetargetLegs.runOf(given)).toBe(RetargetLegs.runOf(given))
     expect(RetargetLegs.runOf(given)).toEqual({ type: "tween", duration: 0.5, ease: Easing.easeOut })
     expect(RetargetLegs.runOf(undefined)).toBeUndefined()
@@ -209,7 +209,7 @@ describe("the Default transition (#357, ADR-0051)", () => {
     const one = { from: { x: 0, backgroundColor: "#000" }, to: { x: 100, backgroundColor: "#fff" } }
     const pickX = (legs: ReadonlyArray<RetargetLegs.Leg>) => legs[0]!
     // No type: a bounce or a visual duration makes a spring, solved by core; a duration alone a tween.
-    for (const transition of [{ bounce: 0.25 }, { duration: 0.5, bounce: 0.2 }, { visualDuration: 0.4 }, { visualDuration: 0.4, bounce: 0.5 }] as ReadonlyArray<WardicTransition>) {
+    for (const transition of [{ bounce: 0.25 }, { duration: 0.5, bounce: 0.2 }, { visualDuration: 0.4 }, { visualDuration: 0.4, bounce: 0.5 }] as ReadonlyArray<WardConfig.WardicTransition>) {
       expect(RetargetLegs.runOf(transition), JSON.stringify(transition)).toEqual({ ...transition, type: "spring" })
       const legs = legsFor(transition, one)
       expect(shapeOf(legs), JSON.stringify(transition)).toEqual(["Numbers x", "Blend backgroundColor"])
