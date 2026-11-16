@@ -1,8 +1,8 @@
 /**
  * An element's place in variant orchestration on Solid 2 (ADR-0007, #50, #209): the variant context
  * a ward's `.Provider` and every `wardic.*` element provide, and the registry, stagger and `when` an
- * element with variants of its own runs for its Variant children. The rules are the Solid 1
- * binding's, Solid-free in `variant-tree.ts`; what Solid 2 changes is when a write is seen.
+ * element with variants of its own runs for its Variant children. The rules are both
+ * bindings', Solid-free, in core's `unstable/VariantTree`; what Solid 2 changes is when a write is seen.
  *
  * A Solid 2 signal's read lags its write until the flush, and an effect's apply runs in an order
  * the binding doesn't choose. So nothing a child reads at its Retarget is written by an effect at

@@ -1,6 +1,6 @@
 /**
  * A section's **Features** (#511, ADR-0067), for the Solid 2 binding: the context each `LazyWardic`
- * puts its section in (`../../feature.ts`'s `makeSection`), as the Solid 1 binding's
+ * puts its section in (dom's `Feature.makeSection`), as the Solid 1 binding's
  * (`../../feature-section.ts`); a provider keeps its own (`provider.tsx`). A context value is its own
  * provider in Solid 2.
  *

@@ -374,7 +374,7 @@ export function useWardicPositionalKeys(): ReducedMotion.PositionalKeys["Service
 
 /**
  * The Environment's reads of its Subjects' values (#672): its own values, Measured pairs and Variable
- * values, each `undefined` when it gives none (`element-setup.ts`' `valueReadsOf` fills them with the
+ * values, each `undefined` when it gives none (dom's `ElementSetup.valueReadsOf` fills them with the
  * DOM's). Internal.
  */
 export function useWardicValueReads(): ElementSetup.ValueReads {

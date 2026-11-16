@@ -1,5 +1,5 @@
 // A ward's drag on Solid 2 (#209 PR 3a, ADR-0004, ADR-0016), in a real browser: the drag track the
-// Solid 1 binding runs (drag-track.ts), on a ward. Ports of the Solid 1 binding's drag tests.
+// Solid 1 binding runs (dom's `unstable/DragTrack`), on a ward. Ports of the Solid 1 binding's drag tests.
 //
 // - DG1: a free drag direct-sets `x` to the pointer's offset.
 // - DG2: `whileDrag` through a kept ward animates while held, and returns after the release.

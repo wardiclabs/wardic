@@ -1,5 +1,5 @@
 /**
- * `runDragTrack` (ADR-0004): the Solid 1 binding's drag track, the shared one (`drag-track.ts`), its
+ * `runDragTrack` (ADR-0004): the Solid 1 binding's drag track, the shared one (dom's `unstable/DragTrack`), its
  * watches run by `runWatch` in a Scope the caller's owner closes, and its responses forked on the
  * provider runtime (#379). The track is the `drag` Feature's (#511): `runDragTrack` brings it.
  */
@@ -27,7 +27,7 @@ export interface RunDragTrackOptions extends Omit<DragTrack.DragTrackOptions, "w
  *
  * @see https://wardic.dev/reference/solid/advanced/run-drag-track
  */
-// `drag-track.ts`, ADR-0004: its watches in a Scope of their own via `runWatch`, no fiber at rest, closed
+// dom's `unstable/DragTrack`, ADR-0004: its watches in a Scope of their own via `runWatch`, no fiber at rest, closed
 // by the caller's owner, which stops the watches and an in-flight release (#379). Its hold on x/y goes
 // to the spine (#340).
 export const runDragTrack = (opts: RunDragTrackOptions): DragTrack.DragTrack => {

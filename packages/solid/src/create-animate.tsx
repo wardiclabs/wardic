@@ -1,6 +1,6 @@
 /**
  * `createAnimate()` (#433, Motion's `useAnimate`): an **Animation scope** and its `animate`, for
- * **Imperative animations** of the elements in it, Wardic's and plain ones (`imperative.ts`).
+ * **Imperative animations** of the elements in it, Wardic's and plain ones (dom's `unstable/Imperative`).
  *
  * @module
  */
@@ -24,7 +24,7 @@ import { isServer } from "./server.ts"
  * <ul ref={scope}>…</ul>
  * @see https://wardic.dev/reference/solid/animation/create-animate
  */
-// #433. A plain element animates through a spine of its own (imperative.ts).
+// #433. A plain element animates through a spine of its own (dom's `unstable/Imperative`).
 export function createAnimate<T extends Element = HTMLElement>(): readonly [Imperative.WardicAnimationScope<T>, Imperative.WardicAnimate] {
   const made = Imperative.scopeOf<T>()
   // A server animates nothing (#433's defaults).

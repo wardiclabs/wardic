@@ -1,7 +1,7 @@
 /**
  * An element's place in variant orchestration on the Solid 1 binding (ADR-0007, #50), shared by
  * every Wardic surface: `createWard` (so `wardic.*` and `<Reorder.Item>`), `wardic.create(Component)`
- * and the directives. The rules it runs are Solid-free, in `variant-tree.ts` (#209).
+ * and the directives. The rules it runs are Solid-free, in core's `unstable/VariantTree` (#209).
  *
  * Membership is decided once, at setup, as `initial` is read. The names stay reactive.
  */

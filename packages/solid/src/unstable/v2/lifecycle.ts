@@ -93,7 +93,7 @@ export interface WardPressInfo extends GestureInfo.WardicPressInfo {
 
 /**
  * A drag's event (Motion's `PanInfo`): where the pointer was, in the viewport, the drag's
- * `offset`, `delta` and `velocity` (`gesture-info.ts`), and the element dragged.
+ * `offset`, `delta` and `velocity`, and the element dragged.
  */
 export interface WardDragInfo extends GestureInfo.WardicDragInfo {
   readonly element: WardElement

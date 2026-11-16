@@ -1,6 +1,6 @@
 /**
  * A section's **Features** (#511, ADR-0067), for the Solid 1 binding: the context each `LazyWardic`
- * puts its section in (`feature.ts`'s `makeSection`), so a Slim element has its provider's Features
+ * puts its section in (dom's `Feature.makeSection`), so a Slim element has its provider's Features
  * and every `LazyWardic`'s between them (decision 2). A provider's own section isn't in it: the
  * provider keeps it (`provider.tsx`), so a provider renders no second context, and every hydration
  * key stays where it was.
@@ -23,7 +23,7 @@ export const FeatureSectionProvider = FeatureSectionContext.Provider
 
 const HOST: Feature.SectionHost = { reactivity, server: isServer, onCleanup }
 
-/** A section under `parent`, made under the current owner (`feature.ts`'s `makeSection`). */
+/** A section under `parent`, made under the current owner (dom's `Feature.makeSection`). */
 export const sectionUnder = (
   parent: Feature.FeatureSection,
   registry: Feature.FeatureRegistry,

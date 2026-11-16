@@ -879,7 +879,7 @@ export function runSpine(opts: RunSpineOptions): void {
       // themselves, as a gesture whose layer resolves nothing new leaves the target as it was.
       if (Predicate.isNotUndefined(bindGestures)) bindGestures(active)
 
-      // The spine (`spine.ts`): on each target change, end the running legs and reseed a fresh
+      // The spine (core's `unstable/Spine`): on each target change, end the running legs and reseed a fresh
       // primitive from the Snapshot (velocity-preserving), into the gate.
       const spineOptions: Spine.ElementSpineOptions = {
         runtime,

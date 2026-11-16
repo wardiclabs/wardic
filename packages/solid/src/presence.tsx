@@ -133,7 +133,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   if (isServer) return serverPresence(props)
   // `mode="wait"`'s held children may go on the page (#277): the children are rendered again.
   const [released, release] = createSignal<void>(undefined, { equals: false })
-  // The retained nodes, their exits and the twins they hand back (`presence-controller.ts`).
+  // The retained nodes, their exits and the twins they hand back (dom's `unstable/PresenceController`).
   // The presence above, if any (#277's PR 5c): read before this one provides its own.
   const parent = usePresenceContext()
   const presence = PresenceController.makePresence({

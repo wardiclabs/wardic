@@ -9,7 +9,7 @@
  */
 // Q56: core's `Recognizer.watchHoverAmong` and `watchPressAmong`, over the InputSource's feeds over many
 // targets (Q17's probe: a listener set per member cost 12 ms and 4.6 KB a member per 1,000). The input is
-// the gesture Features' (`features/input.ts`), brought as the Batch listens (ADR-0067 decision 12).
+// the gesture Features' (dom's `unstable/features/Input`), brought as the Batch listens (ADR-0067 decision 12).
 import * as InputSource from "@wardic/core/InputSource"
 import * as Recognizer from "@wardic/core/Recognizer"
 import * as Report from "@wardic/dom/Report"

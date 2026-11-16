@@ -247,6 +247,6 @@ Nineteen commits after its docs commit, each through every per-commit gate. Seve
 
 ## Open
 
-- **Solid's re-export shims** (PR6-Q3, a follow-up issue). The one-line `export *` modules the lift left at solid's old paths keep the import paths of the solid modules that stay (`create-ward`, the providers, the elements, `batch-reorder`, …). Pointing each importer at core or dom in pipeable rule 5's namespace form, which `qualify.cjs` does mechanically, removes every shim.
+- **Solid's re-export shims** (PR6-Q3): done in #777. The 45 re-export modules the lift left at solid's old paths are gone: each importer takes the module from core or dom in pipeable rule 5's namespace form, and the solid modules that passed core's or dom's names on (`create-batch`, `drag`, `layout`, `presence`, `runtime`, `variants`) no longer do, the public entries re-exporting them from their homes.
 - **RT7's flake** (a follow-up issue): its flick lifts the pointer in a command of its own, so under a loaded suite the trailing 100 ms velocity it reads drops below 500 px/s; `flingFrom`'s pattern, as the drag tests' since #499, would hold it.
 - **The DOM's props' docs** (`WardConfig`) describe Solid's two bindings' callbacks ("Solid 1; Solid 2's ward gives …"): accurate while they're the only DOM bindings, and the first place Foldkit's props differ (PascalCase, Messages).

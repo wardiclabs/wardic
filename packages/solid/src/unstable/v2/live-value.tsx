@@ -5,7 +5,7 @@
  * `useSpring`, `useVelocity`, `useTime`, `useScroll`).
  *
  * Each gives an accessor back, for an element's `style` or anything else. Where it's derived on an
- * Atom, the accessor carries it (`live-style.ts`'s `carry`): a `style` given it follows the Atom,
+ * Atom, the accessor carries it (dom's `LiveStyle.carry`): a `style` given it follows the Atom,
  * set where its source is, so a value derived from a ward's `read(key)` is written in the gate's
  * frame and paints with it. Read through Solid it would come a frame late: Solid 2 shows a change at
  * its flush, after the gate's write. So:

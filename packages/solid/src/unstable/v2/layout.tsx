@@ -2,7 +2,7 @@
  * `<LayoutGroup>` on Solid 2 (#209, ADR-0009), as the Solid 1 binding's: a **Layout group** whose
  * `id` is a namespace for the `layoutId`s made under it (#432), and whose `layoutDependency`
  * re-measures the whole projection tree. A ward's own layout node is registered at its mount
- * (`ward.tsx`, through `layout-member.ts`).
+ * (`ward.tsx`, through dom's `unstable/LayoutMember`).
  *
  * @module
  */

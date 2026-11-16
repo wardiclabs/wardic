@@ -1,7 +1,7 @@
 /**
  * Solid 1's gesture callbacks (#273, ADR-0047): Motion's `onHoverStart`, `onTap`, `onDragEnd` and the
  * rest, told from the recognizers' events and the drag track's samples. Motion's `(event, info)`: the
- * platform's own event core carried through (`raw`), then the info (`gesture-info.ts`), its point in
+ * platform's own event core carried through (`raw`), then the info (dom's `unstable/GestureInfo`), its point in
  * the viewport. Each is read from the config when it's called, at the event. One that throws is
  * reported (`wardic.gesture: onTap failed`), and the gesture goes on.
  *

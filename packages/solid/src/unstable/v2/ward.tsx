@@ -1,6 +1,6 @@
 /**
  * `ward(config)`: a **Ward** on Solid 2 (`@wardic/solid/unstable/v2`, #209, ADR-0045). It puts one
- * element's motion on the Solid 1 binding's spine (`../../spine.ts`): the same Override stack,
+ * element's motion on the spine both bindings share (core's `unstable/Spine`): the same Override stack,
  * Retarget, Base values and flush gate (ADR-0005, ADR-0022, ADR-0034), wired into Solid 2.
  *
  * A ward is a ref that carries its props:
@@ -40,7 +40,7 @@
  *   given or spread, throws.
  * - **Presence and layout** (PR 2 of #209): under an `<AnimatePresence>` the mount registers its exit
  *   record, kept current from its config's `exit`; a `layout`, `layoutId`, `layoutScroll` or
- *   `layoutRoot` element registers one projection node (`layout-member.ts`), re-measured when its
+ *   `layoutRoot` element registers one projection node (dom's `unstable/LayoutMember`), re-measured when its
  *   `layoutDependency` changes. A layout node's Starting style is drawn through its projection at
  *   rest, as its first commit draws it (#245).
  *

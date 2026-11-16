@@ -1,7 +1,7 @@
 /**
  * `<AnimatePresence>` on Solid 2 (#209, ADR-0007): exit-before-unmount for its children (many since
  * #277, ADR-0048), and `mode="wait"`, as the Solid 1 binding's. Its work (each retained node, its parent-driven exit,
- * the twins it hands back) is Solid-free, in `presence-controller.ts`. What's Solid 2's:
+ * the twins it hands back) is Solid-free, in dom's `unstable/PresenceController`. What's Solid 2's:
  *
  * - **The children are resolved with `children()`** under the presence's context, so each child's
  *   ward registers its exit record with it.

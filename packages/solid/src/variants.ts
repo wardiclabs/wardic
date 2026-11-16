@@ -9,7 +9,7 @@
  *
  *   local `animate` > parent-context variant name > `initial`.
  *
- * This file owns only the context plumbing; the value's types are Solid-free, in `variant-tree.ts` (#209). `variant-node.ts` decides what each element
+ * This file owns only the context plumbing; the value's types are Solid-free, in core's `unstable/VariantTree` (#209). `variant-node.ts` decides what each element
  * provides and whether it joins its ancestor (CONTEXT.md, **Variant child**); every
  * `wardic.*` element, component wrap and `<Reorder.Item>` provides it, and a `createWard`
  * spread publishes it through `ward.Provider` (#50).
