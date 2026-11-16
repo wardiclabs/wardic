@@ -84,10 +84,6 @@ export const SERVER_POSITIONAL_KEYS: ReducedMotion.PositionalKeys["Service"] = {
 /** A server render's Default transition: it runs no animation (its Appear animations read the DOM's, #48). */
 export const SERVER_DEFAULT_TRANSITION: DefaultTransition.DefaultTransition["Service"] = { transitionFor: () => DefaultTransition.ONE_SPRING, keyframes: DefaultTransition.ONE_TWEEN }
 
-// #672: an Environment's value reads are element-setup's, which fills them with the DOM's; the provider
-// record holds them.
-export type { ValueReads } from "@wardic/dom/unstable/ElementSetup"
-
 /**
  * Disposes `runtime`, its Features first. A finalizer that fails is logged and reported, through the
  * `ErrorReporter`s its Environment had, once the runtime has gone, and the rest still run: the promise

@@ -48,10 +48,6 @@ import * as PresenceController from "@wardic/dom/unstable/PresenceController"
 import { useBuiltProjection, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRenderer, useWardicRuntime } from "./provider.tsx"
 import { isServer } from "./server.ts"
 
-export { type PresenceContextValue, type PresenceRecord } from "@wardic/dom/unstable/PresenceController"
-export { presenceBlocksInitial, presenceHold } from "@wardic/core/unstable/PresenceRecord"
-export type { PresenceMode } from "@wardic/dom/unstable/PresenceController"
-
 /**
  * Context carrying the nearest `<AnimatePresence>`'s registrar. `undefined` when
  * there is no presence in scope — `createWard` then skips exit registration.

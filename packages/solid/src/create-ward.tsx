@@ -65,7 +65,9 @@ import {
 import * as AnimationControls from "@wardic/core/unstable/AnimationControls"
 import { fromAtom, watchToSignal } from "./bridge.tsx"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
-import { dragTransitionOf, type DragTrack, type DragTrackConfig, runDragTrackWith } from "./drag.tsx"
+import { runDragTrackWith } from "./drag.tsx"
+import * as DragTransition from "@wardic/dom/unstable/DragTransition"
+import type * as DragTrack from "@wardic/dom/unstable/DragTrack"
 import { createElementStyle } from "./element-style.ts"
 import * as LiveStyle from "@wardic/dom/unstable/LiveStyle"
 import { createVariantNode } from "./variant-node.ts"
@@ -79,9 +81,9 @@ import { projectionNodeOf, useLayoutGroupId } from "./layout.tsx"
 
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import * as AppearAnimations from "@wardic/dom/unstable/AppearAnimations"
-import { type PresenceContextValue, presenceBlocksInitial, presenceHold, usePresenceContext } from "./presence.tsx"
-import * as PresenceRecord from "@wardic/core/unstable/PresenceRecord"
+import { usePresenceContext } from "./presence.tsx"
 import type * as PresenceController from "@wardic/dom/unstable/PresenceController"
+import * as PresenceRecord from "@wardic/core/unstable/PresenceRecord"
 import { createWhenWanted, NEVER_STARTED, type Started, stateOf, type Wants } from "./sensors.tsx"
 import { type GestureCallbacks, gestureCallbacksOf, inViewOptionsOf, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "./gesture-callbacks.ts"
 import * as Feature from "@wardic/dom/unstable/Feature"
@@ -94,7 +96,7 @@ import { reactivity } from "./solid-reactivity.ts"
 import * as Spine from "@wardic/core/unstable/Spine"
 import * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
 import * as DragDefaults from "@wardic/dom/unstable/DragDefaults"
-import { type WardicVariantContextValue, useVariantContext, WardicVariantContext } from "./variants.ts"
+import { useVariantContext, WardicVariantContext } from "./variants.ts"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 
 /**
@@ -277,7 +279,7 @@ export interface RunSpineOptions {
    * it has no `initial` of its own, and falls back to `parent.transition()` when this config
    * has no local transition.
    */
-  readonly parent: WardicVariantContextValue | undefined
+  readonly parent: VariantTree.WardicVariantContextValue | undefined
   /**
    * Called for EVERY emitted spine frame with that frame's `done` flag (ADR-0007
    * orchestration): true on the settling frame, false while moving. The owner
@@ -403,9 +405,9 @@ const NO_CHANGE: Accessor<AnimationControls.ControlsChange | undefined> = constU
  * Whether a ward's element waits off the page for its held child (#277, ADR-0048): its start queued
  * with the presence (`shown`, made only under one), cancelled with the effect's run.
  */
-const heldBack = (presence: PresenceContextValue | undefined, element: HTMLElement, shown: (() => void) | undefined): boolean => {
+const heldBack = (presence: PresenceController.PresenceContextValue | undefined, element: HTMLElement, shown: (() => void) | undefined): boolean => {
   if (Predicate.isUndefined(shown)) return false
-  const cancel = presenceHold(presence, element, shown)
+  const cancel = PresenceRecord.presenceHold(presence, element, shown)
   if (Predicate.isUndefined(cancel)) return false
   onCleanup(cancel)
   return true
@@ -467,7 +469,7 @@ export function runSpine(opts: RunSpineOptions): void {
   // reactive dependency, must not re-seed after mount), with the inherited `initial`
   // name for a Variant child that has none (#50). Seeds the spring `from` Snapshot so
   // frame 1 flows continuously out of it (no snap).
-  const start = Spine.startOf(untrack(cfg), parent, presenceBlocksInitial(presence), untrack)
+  const start = Spine.startOf(untrack(cfg), parent, PresenceRecord.presenceBlocksInitial(presence), untrack)
   const snapshot = Spine.snapshotOf(start)
   const reuse = Spine.makeReuse()
   // Where an element starts (#414): the ward's start, or, for one that comes after the last left the
@@ -615,7 +617,7 @@ export function runSpine(opts: RunSpineOptions): void {
       // alone does not (it only tunes a node that already projects), but is forwarded.
       let layoutHandle: ProjectionSystem.NodeHandle | undefined
       // What every release runs on, the layout node's Release offset and the drag track's (ADR-0016, *Amendment (#140)*).
-      const dragTransition = dragTransitionOf(c0.dragElastic, c0.dragTransition)
+      const dragTransition = DragTransition.dragTransitionOf(c0.dragElastic, c0.dragTransition)
       // Its section's `layout` makes its node (#511): without it, its layout props do nothing, and
       // development says so once, unless `layout` is on its way.
       if (DEV && Feature.wantsLayoutNode(c0) && Predicate.isUndefined(layoutProjection) && Bool.not(untrack(features.pending))) {
@@ -693,10 +695,10 @@ export function runSpine(opts: RunSpineOptions): void {
       const dragCfg = DragDefaults.dragAxisOf(untrack(cfg), internal)
       const [dragging, setDragging] = createSignal(false)
       // Its hold on `x`/`y`, for the spine's Retargets (#340).
-      let dragTrack: DragTrack | undefined
+      let dragTrack: DragTrack.DragTrack | undefined
       // Its track's holder while `drag` is on its way (#551): the spine reads the track there, and
       // whether it drives the layout node (#582).
-      let late: { track: DragTrack | undefined; projected: boolean } | undefined
+      let late: { track: DragTrack.DragTrack | undefined; projected: boolean } | undefined
       // Its section's `drag` Feature drives it (#511): without it, `drag` does nothing, and development
       // says so once, unless `drag` is on its way.
       const dragGesture = GestureFeatures.serviceIn(untrack(features.services), Keys.DragGesture)
@@ -713,12 +715,12 @@ export function runSpine(opts: RunSpineOptions): void {
         const nodeLater = lateLayout
         // It drives the layout node the element has as it's made, at mount or as `drag` arrives: a
         // node made later leaves it moving `x`/`y` (#582).
-        const trackWith = (dragGesture: Keys.DragGesture["Service"]): DragTrack => {
+        const trackWith = (dragGesture: Keys.DragGesture["Service"]): DragTrack.DragTrack => {
           const projection = layoutNodeOf(nodeAtMount, nodeLater)
           const c0d = untrack(cfg)
           // Motion's `dragConstraints` (#273): a box of numbers, or a container measured against the element.
           const constraints = dragGesture.constraintsOf(c0d.dragConstraints, element, () => untrack(cfg).onMeasureDragConstraints, pagePoint)
-          const trackConfig: DragTrackConfig = {
+          const trackConfig: DragTrack.DragTrackConfig = {
             axis,
             constraints: constraints.constraints,
             elastic: c0d.dragElastic,
@@ -769,7 +771,7 @@ export function runSpine(opts: RunSpineOptions): void {
         // recognizer does, under this owner; nothing before it is replayed. A load that brings none
         // gets development's word then.
         if (Predicate.isUndefined(dragGesture) && untrack(features.pending)) {
-          const held: { track: DragTrack | undefined; projected: boolean } = { track: undefined, projected: false }
+          const held: { track: DragTrack.DragTrack | undefined; projected: boolean } = { track: undefined, projected: false }
           late = held
           const owner = getOwner()
           const registry = useFeatureRegistry()
@@ -1039,7 +1041,7 @@ export function createWardWith(config: WardConfig.WardConfig | Accessor<WardConf
   // commit, so pre-mount render carries the initial style (no flash).
   const initialConfig = untrack(cfg)
   const presence = usePresenceContext()
-  const initialValues = VariantTree.startingValuesOf(initialConfig, node.inherited, presenceBlocksInitial(presence), untrack)
+  const initialValues = VariantTree.startingValuesOf(initialConfig, node.inherited, PresenceRecord.presenceBlocksInitial(presence), untrack)
   // A layout node's is drawn through its projection at rest, as its first commit draws it (#245).
   const layoutNode = Spine.isLayoutNode(initialConfig)
   const drawnStart = ElementSetup.drawnAtRest(initialValues, layoutNode, initialConfig.transformTemplate)
@@ -1204,12 +1206,12 @@ const serverWard = (config: WardConfig.WardConfig | Accessor<WardConfig.WardConf
   // (#50); a Variant child's Starting style starts from its ancestor's `initial` name.
   const node = VariantTree.serverVariantNode(c, useVariantContext())
   const layoutNode = Spine.isLayoutNode(c)
-  const seed = Style.starting(internal.tag, ElementSetup.drawnAtRest(VariantTree.startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack), layoutNode, c.transformTemplate))
+  const seed = Style.starting(internal.tag, ElementSetup.drawnAtRest(VariantTree.startingValuesOf(c, node.inherited, PresenceRecord.presenceBlocksInitial(usePresenceContext()), untrack), layoutNode, c.transformTemplate))
   const dragDefaults = DragDefaults.dragDefaultsOf(c, internal)
-  const initialValues = VariantTree.startingValuesOf(c, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack)
+  const initialValues = VariantTree.startingValuesOf(c, node.inherited, PresenceRecord.presenceBlocksInitial(usePresenceContext()), untrack)
   // Its Appear animation (#48, ADR-0044): its slot in the render's, and the group its Variant
   // children join when it leads one.
-  const appear = serverAppearOf(c, internal.tag, initialValues, node, VariantTree.startsQuiet(c, node.inherited, presenceBlocksInitial(usePresenceContext()), untrack))
+  const appear = serverAppearOf(c, internal.tag, initialValues, node, VariantTree.startsQuiet(c, node.inherited, PresenceRecord.presenceBlocksInitial(usePresenceContext()), untrack))
   const Provider: Component<{ readonly children?: JSX.Element }> = (props) => (
     <WardicVariantContext.Provider value={appear.provided}>{props.children}</WardicVariantContext.Provider>
   )

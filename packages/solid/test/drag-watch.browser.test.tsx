@@ -9,7 +9,7 @@ import { runDragTrack, useWardicGate, useWardicRuntime, WardicProvider } from "@
 import * as Bool from "effect/Boolean"
 import * as MutableRef from "effect/MutableRef"
 import { afterEach, expect, it } from "vitest"
-import { dragTransitionOf } from "../src/drag.tsx"
+import * as DragTransition from "@wardic/dom/unstable/DragTransition"
 import { raf } from "./browser-helpers.ts"
 import { envWith, errorsNamed, type Logged } from "./report-env.ts"
 
@@ -41,7 +41,7 @@ it("DW1: a response that fails is logged at Error, reported once, and the track 
         MutableRef.increment(starts)
         if (MutableRef.get(starts) === 1) throw new Error("the response broke")
       },
-      config: { axis: "x", momentum: false, transition: dragTransitionOf(undefined, undefined) },
+      config: { axis: "x", momentum: false, transition: DragTransition.dragTransitionOf(undefined, undefined) },
     })
     return el
   }

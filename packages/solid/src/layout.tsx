@@ -26,8 +26,6 @@ import type * as LayoutMember from "@wardic/dom/unstable/LayoutMember"
 import { useProjectionNodes, useWardicProjection } from "./layout-projection.tsx"
 import { isServer } from "./server.ts"
 
-export type { CreateProjectionNodeOptions } from "@wardic/dom/unstable/LayoutMember"
-
 /**
  * Registers an element with its provider's projection system as one layout node, as a `w.*` element
  * with `layout` or a `layoutId` is: for an element of your own built on Wardic's layout animations.

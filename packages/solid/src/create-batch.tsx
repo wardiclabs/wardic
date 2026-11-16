@@ -19,8 +19,6 @@ import * as MemberHold from "@wardic/dom/unstable/MemberHold"
 import { usePresenceContext } from "./presence.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 
-export type { WardicBatchKey, WardicBatchExit, WardicBatchGesture, WardicBatchLanding, WardicBatchSegmentTarget, WardicBatchSegmentValue, WardicBatchStop, WardicBatchSubject, WardicBatchTarget, WardicBatchTransition, WardicBatchValues } from "@wardic/dom/unstable/BatchMembers"
-
 /** A Batch's callbacks on Solid 1: a flight's start and its landing. */
 interface BatchCallbacks {
   /** Called as its members set off from rest, every one at rest before. */

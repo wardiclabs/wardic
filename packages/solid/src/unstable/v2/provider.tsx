@@ -55,8 +55,8 @@ import {
   type WardicRuntime,
   type WardicServices,
   whenIdle,
-  type ValueReads,
 } from "../../runtime.ts"
+import type * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
 import { WAITING_ENV_FIX, WAITING_ENV_LINE } from "../../messages.ts"
 import { warnWithoutSpans } from "../../spans-check.ts"
 import { onSettledClientOnly, reactivityIn } from "./solid-reactivity.ts"
@@ -394,7 +394,7 @@ export function useWardicPositionalKeys(): ReducedMotion.PositionalKeys["Service
  * values, each `undefined` when it gives none (`element-setup.ts`' `valueReadsOf` fills them with the
  * DOM's). Internal.
  */
-export function useWardicValueReads(): ValueReads {
+export function useWardicValueReads(): ElementSetup.ValueReads {
   return fromContext(contextValue(), "useWardicValueReads", (value) => value.valueReads)
 }
 

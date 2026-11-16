@@ -13,9 +13,6 @@ import { runWatch, useBrought } from "./provider.tsx"
 import type { WardicRuntime } from "./runtime.ts"
 import type * as Keys from "@wardic/dom/unstable/features/Keys"
 
-export { DEFAULT_DRAG_ELASTIC, dragTransitionOf } from "@wardic/dom/unstable/DragTransition"
-export type { DragSnapshot, DragTrack, DragTrackConfig } from "@wardic/dom/unstable/DragTrack"
-
 /** `runDragTrack`'s options: the element, its drag config, the spine's snapshot and callbacks, and the provider's runtime. */
 export interface RunDragTrackOptions extends Omit<DragTrack.DragTrackOptions, "watch" | "fork"> {
   /** The provider runtime the track's watches and responses run on. */

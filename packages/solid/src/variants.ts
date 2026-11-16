@@ -22,8 +22,6 @@
 import { createContext, useContext } from "solid-js"
 import type * as VariantTree from "@wardic/core/unstable/VariantTree"
 
-export type { WardicChildRegistration, WardicStaggerConfig, WardicVariantContextValue } from "@wardic/core/unstable/VariantTree"
-
 /**
  * The variant context: what the nearest variant parent hands its children, its names, transition and
  * orchestration. Wardic's elements read it to follow their parent's variants; a binding of your own

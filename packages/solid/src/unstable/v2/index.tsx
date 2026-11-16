@@ -144,9 +144,8 @@ export { isValidWardicPropV2 as isValidWardicProp } from "../../motion-props.ts"
  */
 export { AnimatePresence, type AnimatePresenceProps, PresenceContext, usePresenceContext } from "./presence.tsx"
 export { type IsPresent, type PresenceExit, type PresenceLeaveEvents, useIsPresent, usePresence, usePresenceData } from "./presence-hooks.tsx"
-export type { PresenceMode } from "@wardic/dom/unstable/PresenceController"
 export { createPresence, type Presence, type PresenceEvent, type PresenceEvents } from "./presence-handle.ts"
-export type { PresenceContextValue, PresenceRecord } from "@wardic/dom/unstable/PresenceController"
+export type { PresenceContextValue, PresenceMode, PresenceRecord } from "@wardic/dom/unstable/PresenceController"
 
 /**
  * Layout (ADR-0009, ADR-0010): a ward's `layout`, `layoutId`, `layoutScroll`, `layoutRoot` and
@@ -190,24 +189,26 @@ export {
   type WardicBatch,
   type WardicBatchConfig,
   type WardicBatchEvents,
-  type WardicBatchExit,
-  type WardicBatchGesture,
-  type WardicBatchKey,
-  type WardicBatchLanding,
   type WardicBatchMember,
   type WardicBatchMemberProps,
   type WardicBatchPointInfo,
   type WardicBatchPressInfo,
-  type WardicBatchSegmentTarget,
-  type WardicBatchSegmentValue,
-  type WardicBatchStop,
-  type WardicBatchSubject,
-  type WardicBatchTarget,
-  type WardicBatchTransition,
-  type WardicBatchValues,
   type WardicKeyedBatch,
   type WardicKeyedBatchConfig,
 } from "./create-batch.tsx"
+export type {
+  WardicBatchExit,
+  WardicBatchGesture,
+  WardicBatchKey,
+  WardicBatchLanding,
+  WardicBatchSegmentTarget,
+  WardicBatchSegmentValue,
+  WardicBatchStop,
+  WardicBatchSubject,
+  WardicBatchTarget,
+  WardicBatchTransition,
+  WardicBatchValues,
+} from "@wardic/dom/unstable/BatchMembers"
 export type {
   WardicAnimate,
   WardicAnimateOptions,

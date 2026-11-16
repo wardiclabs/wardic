@@ -101,22 +101,24 @@ export {
   createBatch,
   type WardicBatch,
   type WardicBatchConfig,
-  type WardicBatchExit,
-  type WardicBatchGesture,
-  type WardicBatchKey,
-  type WardicBatchLanding,
   type WardicBatchMember,
   type WardicBatchMemberProps,
-  type WardicBatchSegmentTarget,
-  type WardicBatchSegmentValue,
-  type WardicBatchStop,
-  type WardicBatchSubject,
-  type WardicBatchTarget,
-  type WardicBatchTransition,
-  type WardicBatchValues,
   type WardicKeyedBatch,
   type WardicKeyedBatchConfig,
 } from "./create-batch.tsx"
+export type {
+  WardicBatchExit,
+  WardicBatchGesture,
+  WardicBatchKey,
+  WardicBatchLanding,
+  WardicBatchSegmentTarget,
+  WardicBatchSegmentValue,
+  WardicBatchStop,
+  WardicBatchSubject,
+  WardicBatchTarget,
+  WardicBatchTransition,
+  WardicBatchValues,
+} from "@wardic/dom/unstable/BatchMembers"
 export type {
   WardicAnimate,
   WardicAnimateOptions,
@@ -258,11 +260,13 @@ export {
  * where it was let go (`dragMomentum={false}`).
  */
 export {
-  type DragSnapshot,
-  type DragTrackConfig,
   type RunDragTrackOptions,
   runDragTrack,
 } from "./drag.tsx"
+export type {
+  DragSnapshot,
+  DragTrackConfig,
+} from "@wardic/dom/unstable/DragTrack"
 
 /**
  * Variant orchestration context (ADR-0007): the `WardicVariantContext` that
@@ -272,10 +276,12 @@ export {
  * against their own `variants` map.
  */
 export {
-  type WardicVariantContextValue,
   useVariantContext,
   WardicVariantContext,
 } from "./variants.ts"
+export type {
+  WardicVariantContextValue,
+} from "@wardic/core/unstable/VariantTree"
 
 /**
  * `wardic` (ADR-0008 Tier 1, ADR-0042): the `wardic.*` element proxy, `wardic.create(tag)`
@@ -318,14 +324,16 @@ export {
   AnimatePresence,
   type AnimatePresenceProps,
   PresenceContext,
-  type PresenceContextValue,
-  type PresenceMode,
-  type PresenceRecord,
   useIsPresent,
   usePresence,
   usePresenceContext,
   usePresenceData,
 } from "./presence.tsx"
+export type {
+  PresenceContextValue,
+  PresenceMode,
+  PresenceRecord,
+} from "@wardic/dom/unstable/PresenceController"
 
 /**
  * `layout` / `layoutId` surface (ADR-0009 + ADR-0005). `layout` FLIP runs on the
@@ -336,7 +344,8 @@ export {
  * Crossfade) is matched entirely by the Projection system (ADR-0010 *Amendment
  * (#13)*); `measureLayoutBox` reads an untransformed box.
  */
-export { type CreateProjectionNodeOptions, LayoutGroup, createProjectionNode } from "./layout.tsx"
+export { LayoutGroup, createProjectionNode } from "./layout.tsx"
+export type { CreateProjectionNodeOptions } from "@wardic/dom/unstable/LayoutMember"
 export { measureLayoutBox } from "@wardic/dom/ProjectionSystem"
 
 /**
