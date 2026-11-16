@@ -2,7 +2,9 @@
 // elements and wards bring its Features wherever they render.
 // - INV1: an instance of `hover`: its `w.div` hovers under a provider given no Features.
 // - INV2: joined with its section's: under a `LazyWardic` giving `press`, an instance of `hover`'s element
-//   taps too, a prop its types don't take, given untyped.
+//   taps too, a prop its types don't take, given untyped. It presses until the press took (#785): a down
+//   from a pointer already held ends that hold as a lost release and presses again (ADR-0019, decision 7),
+//   re-running the target to the same value, once a frame.
 // - INV3: every form of its `w` brings them: `w.create(tag)`, `w.create(Component)` and `w.ward()`.
 // - INV7: `strict` allows an instance's elements, an instance of `domMax`'s too; a `wardic.*` still throws.
 // - INV4: a load in its list starts at its first element's mount, not as it's made, once for two elements
@@ -56,7 +58,11 @@ const logged = async (run: () => Promise<void>): Promise<ReadonlyArray<string>> 
   return lines
 }
 
-/** Presses `el` with the primary pointer, then reads `done`: again and again, as the recognizer attaches asynchronously. */
+/**
+ * Presses `el` with the primary pointer, then reads `done`: again and again, as the recognizer attaches
+ * asynchronously. `done` is the press having taken, not its target reached: each down after it presses
+ * again (#785).
+ */
 const pressing = (el: HTMLElement, done: () => boolean) => (): boolean => {
   const r = el.getBoundingClientRect()
   el.dispatchEvent(new PointerEvent("pointerdown", { clientX: r.left + 5, clientY: r.top + 5, buttons: 1, pointerId: 1, pointerType: "mouse", isPrimary: true, bubbles: true }))
@@ -119,7 +125,7 @@ describe("A Wardic instance (#516), Solid 2", () => {
       </WardicProvider>
     ))
     await settle()
-    await until(pressing(el, () => opacityOf(el) > 0.5), 2000)
+    await until(pressing(el, () => opacityOf(el) > 0.2), 2000)
     await until(() => opacityOf(el) === 1, 2000)
     expect(opacityOf(el)).toBe(1)
   })
