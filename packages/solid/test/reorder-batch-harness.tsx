@@ -6,7 +6,7 @@ import type * as ReorderController from "@wardic/dom/ReorderController"
 import { render } from "@solidjs/testing-library"
 import type * as CoreReorder from "@wardic/core/Reorder"
 import { DomLive } from "@wardic/dom"
-import { AnimatePresence, Reorder, type WardicBatchExit, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues, WardicProvider } from "@wardic/solid"
+import { AnimatePresence, Reorder, type WardicBatchExit, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues, type WardicEnv, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -46,6 +46,8 @@ export interface BatchSceneOptions {
    * (#714): a column's items take the group's width, the layout's, a grid's rows from its width.
    */
   readonly readSizeOf?: (value: string) => { readonly width: number; readonly height: number }
+  /** The provider's Environment: `DomLive` when left out; a pushed pointer's for a fling the test times (#783). */
+  readonly env?: WardicEnv
 }
 
 /** The group's place on the page: `reorder-harness.tsx`'s. */
@@ -140,7 +142,7 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Scen
     </Reorder.BatchGroup>
   )
   render(() => (
-    <WardicProvider env={DomLive}>
+    <WardicProvider env={o.env ?? DomLive}>
       {UndefinedOr.match(o.container, {
         onDefined: (height) => (
           <div

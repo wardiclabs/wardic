@@ -11,8 +11,10 @@
 //   arrows step, Escape cancels) give the same values and announcements; focus stays on the item; a lift
 //   raises it; each item is a tab stop reading the instructions. In a scroller, End reveals the item's place.
 // - BG4: the item in hand: `whileDrag` on through a drag and a keyboard lift, off as it's let go; raised
-//   (`z-index` 2) in hand, 1 as it comes to rest, none once it lands, or at once when nothing moves; let
-//   go while flung, it carries on along the fling before it turns back to its place.
+//   (`z-index` 2) in hand, 1 as it comes to rest, none once it lands, or at once when nothing moves.
+// - BG4b: let go while flung, it carries on along the fling before it turns back to its place. Its fling is
+//   pushed with its own timestamps (#783, as RT7's is for #778): on the real mouse a loaded runner can land
+//   the up late, and the release reads low.
 // - BG7: a drag held near its scroller's edge scrolls it (Auto-scroll), the item moving down the list and
 //   staying under the pointer.
 // - BG8: a grab of an item flying back from a release stops it where it is; a press that ends with no drag
@@ -91,6 +93,7 @@ import * as Predicate from "effect/Predicate"
 import { createSignal, For } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { page } from "vitest/browser"
+import { pushedFling, pushedPointer } from "./pushed-pointer.ts"
 import { type BatchSceneOptions, mountBatchReorder } from "./reorder-batch-harness.tsx"
 import { add, centreOf, glide, grabOffsetOf, type Layout, mountReorder, mouse, offPointer, type Pt, resetScene, sampleFrames, type Scene, type SceneOptions, wait } from "./reorder-harness.tsx"
 
@@ -258,7 +261,7 @@ describe("Reorder.BatchGroup and Reorder.BatchItem", () => {
     expect(scroller.scrollTop, "its place in view").toBe(9 * 60 + 50 - 120)
   }, 60_000)
 
-  it("BG4: the item in hand: whileDrag through a drag and a lift, the raise, and a fling's speed carried on", async () => {
+  it("BG4: the item in hand: whileDrag through a drag and a lift, and the raise", async () => {
     const fast = { type: "spring", stiffness: 400, damping: 40 } as const
     const s = await mountBatchReorder({ layout: "y", whileDrag: { scale: 1.1 }, transition: fast })
     const b = s.item("b")
@@ -298,26 +301,25 @@ describe("Reorder.BatchGroup and Reorder.BatchItem", () => {
     await commands.realKey("press", "Space")
     await frames(2)
     expect(getComputedStyle(c).zIndex, "let down at once, nothing moving").toBe("auto")
-    await resetScene()
+  }, 30_000)
 
-    // Flung down, let go 30 px below its place (short of b's crossover): it carries on down before it turns back.
-    const t = await mountBatchReorder({ layout: "y", transition: { type: "spring", stiffness: 40, damping: 6 } })
+  it("BG4b: let go while flung, the item carries on along the fling before it turns back", async () => {
+    const pointer = pushedPointer()
+    const t = await mountBatchReorder({ layout: "y", transition: { type: "spring", stiffness: 40, damping: 6 }, env: pointer.env })
     const a = t.item("a")
-    const ga = centreOf(a)
-    await mouse.down(ga)
-    await glide(ga, add(ga, 0, 6), 3, 20)
-    for (let k = 1; k <= 3; k++) {
-      await mouse.move(add(ga, 0, 6 + 6 * k))
-      await wait(30)
-    }
+    // A gentle fling down, told for the item: 6 px slowly, then 4 moves of 6 px, 35 ms apart; 30 px in
+    // all, short of the crossover into b's place.
+    const end = await pushedFling(pointer, { from: centreOf(a), axis: "y", slow: 6, fast: 6, target: a })
     const tops = sampleFrames(() => a.getBoundingClientRect().top)
-    await mouse.up(add(ga, 0, 30))
+    // The up: told for the item (its press ends), then on the held pointer (its drag ends).
+    pointer.pushTo(a, "up", end, 5)
+    pointer.push("up", end, 0)
     const releasedAt = performance.now()
     await wait(300)
     const after = tops.stop().filter((frame) => frame.frameAt > releasedAt).map((frame) => frame.v)
     expect(t.order().join(""), "no reorder").toBe("abcde")
-    // A soft spring, so a slow runner's lower release speed still carries it on a few px; let go at none, it
-    // never passes where it was let go (40 + 30).
+    // A soft spring, so the fling's modest speed carries it on a few px; let go at none, it never passes
+    // where it was let go (40 + 30).
     expect(Math.max(...after.slice(0, 6)), "carried on down past where it was let go").toBeGreaterThan(40 + 30 + 0.5)
     await wait(2500)
     expect(Math.round(a.getBoundingClientRect().top), "then back at its place").toBe(40)

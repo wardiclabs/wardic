@@ -272,8 +272,9 @@ describe("a target for x during a drag's release takes over (#340)", () => {
     const frames = sampling.stop()
     // The release's last whole frame before the takeover, and the takeover's first whole frame after
     // it (#361): over three frames each, the spring's braking put the ratio on a 0.4 bound (0.39–0.42).
+    // Each speed timed by the frames' own timestamps (#783): by `frameAt` one read 0.35 under load.
     const i = frames.findIndex((f) => f.frameAt > takenAt)
-    const speedOf = (a: number, b: number) => (frames[b]!.v - frames[a]!.v) / (frames[b]!.frameAt - frames[a]!.frameAt)
+    const speedOf = (a: number, b: number) => (frames[b]!.v - frames[a]!.v) / (frames[b]!.rafAt - frames[a]!.rafAt)
     const releasing = speedOf(i - 2, i - 1)
     const taken = speedOf(i, i + 1)
     expect(Math.abs(releasing), "the release was moving").toBeGreaterThan(0.3)
