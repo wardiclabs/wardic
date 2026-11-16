@@ -11,7 +11,9 @@
 // - DG7: a layout drag follows through the projection, not a raw `x`, and FLIPs back to its slot.
 // - DG8: Motion's drag defaults (#36): on `wardic.div`, by axis, under the user's style, none
 //   without `drag`, through a kept ward's spread, and on a `wardic.create(Component)` wrap's element.
-// - DG9: a real-mouse flick carries on past the release; with `dragMomentum: false` it doesn't (#139).
+// - DG9: a flick carries on past the release; with `dragMomentum: false` it doesn't (#139). Pushed with
+//   its own timestamps (#783, as RT7's is for #778): on the real mouse a loaded runner can land the up
+//   late, and the release reads low.
 // - DG10: a claiming `createDrag` on the parent is refused while the ward drags; `claim: false` sees it (#29).
 // - DG11: with `dragPropagation`, the ward claims nothing: the parent's claiming `createDrag` sees it too.
 // - DG12 (#691): in the lab's s12 scene, a `layoutRoot` alone rides its dragged item's layout animation:
@@ -19,14 +21,15 @@
 //   DG12b: a `layout layoutRoot` is at its new place at that grab, and at its place in the item at the end.
 import { DomLive } from "@wardic/dom"
 import type { JSX } from "@solidjs/web"
-import { createDrag, ward, wardic, WardicProvider } from "@wardic/solid/unstable/v2"
+import { createDrag, ward, wardic, type WardicEnv, WardicProvider } from "@wardic/solid/unstable/v2"
 import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
 import { createSignal, flush } from "solid-js"
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
-import { commands, page } from "vitest/browser"
+import { afterEach, describe, expect, it } from "vitest"
+import { commands } from "vitest/browser"
 import "../browser-commands.ts"
 import { afterPaint, leftOf, paintedReads, raf, retryGesture, topOf, until } from "../browser-helpers.ts"
+import { pushedFling, pushedPointer } from "../pushed-pointer.ts"
 import { mount } from "./mount.tsx"
 
 const termOf = (el: HTMLElement, pattern: RegExp, none: number): number =>
@@ -221,45 +224,12 @@ describe("a drag element's defaults on Solid 2 (#36)", () => {
   })
 })
 
-describe("a real-mouse fling on Solid 2 (ADR-0004, Amendment (#139))", () => {
-  interface Pt {
-    readonly x: number
-    readonly y: number
-  }
-  let held = false
-  const mouse = {
-    move: (p: Pt): Promise<void> => commands.realMouse("move", p.x, p.y),
-    down: async (p: Pt): Promise<void> => {
-      await commands.realMouse("down", p.x, p.y)
-      held = true
-    },
-    up: async (p: Pt): Promise<void> => {
-      await commands.realMouse("up", p.x, p.y)
-      held = false
-    },
-  }
-  const add = (p: Pt, dx: number): Pt => ({ x: p.x + dx, y: p.y })
-
-  let viewport = { width: 0, height: 0 }
-  beforeAll(async () => {
-    viewport = { width: window.innerWidth, height: window.innerHeight }
-    await page.viewport(1200, viewport.height)
-    await wait(50)
-  })
-  afterAll(async () => {
-    await page.viewport(viewport.width, viewport.height)
-  })
-  afterEach(async () => {
-    if (held) await mouse.up({ x: 5, y: 5 })
-    await mouse.move({ x: 5, y: 5 })
-    window.getSelection()?.removeAllRanges()
-  })
-
-  /** A 120x80 free drag box at (40, 400): low on the page, away from other files' elements under the shared mouse. */
-  const mountBox = async (momentum: boolean) => {
+describe("a fling on Solid 2 (ADR-0004, Amendment (#139))", () => {
+  /** A 120x80 free drag box at (40, 400), on `env`: each box on its own pushed pointer's. */
+  const mountBox = async (momentum: boolean, env: WardicEnv) => {
     let el!: HTMLElement
     mount(() => (
-      <WardicProvider env={DomLive}>
+      <WardicProvider env={env}>
         <div style={{ position: "absolute", top: "400px", left: "40px" }}>
           <wardic.div ref={(n: HTMLElement) => (el = n)} drag dragMomentum={momentum} style={{ position: "relative", width: "120px", height: "80px" }} />
         </div>
@@ -267,36 +237,23 @@ describe("a real-mouse fling on Solid 2 (ADR-0004, Amendment (#139))", () => {
     ))
     await settle()
     const slot = el.getBoundingClientRect()
-    return { dx: () => el.getBoundingClientRect().left - slot.left, grab: { x: slot.left + 20, y: slot.top + 40 } }
-  }
-
-  /** Grab, glide 100 px right, then flick 4 moves of 50 px, 35 ms apart; where the pointer is, not let go. */
-  const flick = async (grab: Pt): Promise<Pt> => {
-    await mouse.down(grab)
-    for (let k = 1; k <= 10; k++) {
-      await mouse.move(add(grab, 10 * k))
-      await wait(20)
-    }
-    for (let k = 1; k <= 4; k++) {
-      await mouse.move(add(grab, 100 + 50 * k))
-      if (k < 4) await wait(35)
-    }
-    return add(grab, 300)
+    return { dx: () => el.getBoundingClientRect().left - slot.left }
   }
 
   it("DG9: a flick carries on past where it was let go; with dragMomentum false it stays", async () => {
-    const free = await mountBox(true)
-    const at = await flick(free.grab)
+    const pointer = pushedPointer()
+    const free = await mountBox(true, pointer.env)
+    const end = await pushedFling(pointer, { fast: 50 })
     const released = free.dx()
-    await mouse.up(at)
+    pointer.push("up", end, 5)
     await wait(1500)
     expect(free.dx() - released, "carried past the release").toBeGreaterThan(30)
-    await mouse.move({ x: 5, y: 5 })
-    const still = await mountBox(false)
-    // The first box carried on to the right: the second is grabbed where it is, over the first's slot.
-    const at2 = await flick(still.grab)
+    // The first box carried on to the right: the second, on its own pointer, is flung where it is.
+    const pointer2 = pushedPointer()
+    const still = await mountBox(false, pointer2.env)
+    const end2 = await pushedFling(pointer2, { fast: 50 })
     const released2 = still.dx()
-    await mouse.up(at2)
+    pointer2.push("up", end2, 5)
     await wait(600)
     expect(Math.abs(still.dx() - released2), "it stayed").toBeLessThan(0.5)
   })

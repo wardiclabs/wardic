@@ -1,5 +1,7 @@
 // Element `dragConstraints` on Solid 1 (#273, ADR-0047, Motion's `dragConstraints={ref}`): an accessor of
-// the container, read at each measure. Real Playwright mouse input.
+// the container, read at each measure. Real Playwright mouse input, but for DC9's fling, which must
+// reach the edge: it's `pushedFling`'s, with its own timestamps (#783, as RT7's is for #778), since on
+// the real mouse a loaded runner can land the up late and the release reads low.
 //
 // - DC1: the element's box stays inside the container's, on both sides.
 // - DC2: an element bigger than its container: dragged to show what overflows, and no further.
@@ -14,22 +16,27 @@
 //   next drag's start measures it where it is now.
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { wardic, type WardicBoundingBox, WardicProvider } from "@wardic/solid"
+import { wardic, type WardicBoundingBox, type WardicEnv, WardicProvider } from "@wardic/solid"
 import { createSignal, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { raf, until } from "./browser-helpers.ts"
+import { pushedFling, pushedPointer } from "./pushed-pointer.ts"
 import { add, centreOf, glide, mouse, type Pt, resetScene, settle } from "./reorder-harness.tsx"
 
 afterEach(resetScene)
 
 const BOX = { width: "60px", height: "60px", background: "teal", "user-select": "none" } as const
 
-/** A 300x200 frame at (100, 100) holding `content`; the frame element and the draggable's. */
-const mountIn = async (content: (frame: () => HTMLElement | undefined, ref: (n: HTMLElement) => void) => JSX.Element, frameStyle: () => JSX.CSSProperties = () => ({})) => {
+/** A 300x200 frame at (100, 100) holding `content`, on `env`; the frame element and the draggable's. */
+const mountIn = async (
+  content: (frame: () => HTMLElement | undefined, ref: (n: HTMLElement) => void) => JSX.Element,
+  frameStyle: () => JSX.CSSProperties = () => ({}),
+  env: WardicEnv = DomLive,
+) => {
   const [frame, setFrame] = createSignal<HTMLElement>()
   const [el, setEl] = createSignal<HTMLElement>()
   render(() => (
-    <WardicProvider env={DomLive}>
+    <WardicProvider env={env}>
       <div
         ref={(n: HTMLElement) => setFrame(n)}
         style={{ position: "absolute", top: "100px", left: "100px", width: "300px", height: "200px", outline: "1px solid grey", ...frameStyle() }}
@@ -176,11 +183,11 @@ describe("element dragConstraints on Solid 1 (#273)", () => {
   })
 
   it("DC9: a fling past the container's edge springs back inside it", async () => {
-    const { frame, el } = await mountIn((frame, ref) => <wardic.div ref={ref} drag="x" dragConstraints={frame} style={BOX} />)
-    const c = centreOf(el)
-    await mouse.down(c)
-    await glide(c, add(c, 200, 0), 5, 10)
-    await mouse.up(add(c, 200, 0))
+    const pointer = pushedPointer()
+    const { frame, el } = await mountIn((frame, ref) => <wardic.div ref={ref} drag="x" dragConstraints={frame} style={BOX} />, () => ({}), pointer.env)
+    // 260 px right: past the edge at 240, pulled back by `dragElastic`, and let go at speed.
+    const end = await pushedFling(pointer, { from: centreOf(el), fast: 50 })
+    pointer.push("up", end, 5)
     const f = frame.getBoundingClientRect()
     await until(() => Math.abs(el.getBoundingClientRect().right - f.right) < 0.5, 3000)
     expect(r(el.getBoundingClientRect().right), "at rest on the frame's right").toBe(r(f.right))

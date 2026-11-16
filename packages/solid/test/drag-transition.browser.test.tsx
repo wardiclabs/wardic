@@ -2,7 +2,9 @@
 // inertia on each axis the gesture moved, from the release's velocity, toward the drag's edges. With
 // real Playwright mouse input, timed by the frames' own timestamps; DT10–DT13's clicks are dispatched
 // on the box itself (#332). A test that needs the release to glide lets go with its flick's last move
-// (`fling`, #369).
+// (`fling`, #369), but for DT1 and DT9, which read how far the glide carries: their flick is
+// `pushedFling`'s, with its own timestamps (#783, as RT7's is for #778). On the real mouse a loaded
+// runner can land the up late, even `fling`'s, and the release reads low.
 //
 // - DT1: a free flick glides on Motion's curve: its steps shrink by e^(−t / 0.75 s), and it's still
 //   on its way at 1.5 s. Before #140 a Fling was a decay that stopped in about 1.7 s, a third as far.
@@ -26,12 +28,13 @@
 //   release rests (Motion's starts a release that ends at once and tells `onDragTransitionEnd`).
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { wardic, type WardicBoundingBox, type WardicDragTransition, WardicProvider } from "@wardic/solid"
+import { wardic, type WardicBoundingBox, type WardicDragTransition, type WardicEnv, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { createSignal } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { page } from "vitest/browser"
+import { pushedFling, pushedPointer } from "./pushed-pointer.ts"
 import { add, flingFrom, glide, mountReorder, mouse, type Pt, resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
 
 afterEach(resetScene)
@@ -62,13 +65,13 @@ interface BoxOptions {
 }
 
 /**
- * A 120x80 box free to drag at (40, 400). Low on the page: the browser files run side by side in one
- * page and share its one mouse, and most mount near the top, where a flick here could hover them.
+ * A 120x80 box free to drag at (40, 400), on `env`. Low on the page: the browser files run side by side
+ * in one page and share its one mouse, and most mount near the top, where a flick here could hover them.
  */
-const mountBox = async (opts: BoxOptions = {}): Promise<Box> => {
+const mountBox = async (opts: BoxOptions = {}, env: WardicEnv = DomLive): Promise<Box> => {
   const [el, setEl] = createSignal<HTMLElement>()
   render(() => (
-    <WardicProvider env={DomLive}>
+    <WardicProvider env={env}>
       <div style={{ position: "absolute", top: "400px", left: "40px" }}>
         <wardic.div
           ref={(n: HTMLElement) => setEl(n)}
@@ -152,9 +155,14 @@ const at = (frames: ReadonlyArray<{ readonly frameAt: number; readonly v: number
 
 describe("a drag's release runs on its drag transition (#140)", () => {
   it("DT1: a free flick glides on Motion's curve, easing out over 0.75 s, still on its way at 1.5 s", async () => {
-    const b = await mountBox()
-    const { pointer, released } = await fling(b, 100, 50)
-    const frames = await releaseAndSample(b, pointer, 1700)
+    const pointer = pushedPointer()
+    const b = await mountBox({}, pointer.env)
+    const end = await pushedFling(pointer, { fast: 50 })
+    const released = dxOf(b)
+    const sampling = sampleFrames(() => dxOf(b))
+    pointer.push("up", end, 5)
+    await wait(1700)
+    const frames = sampling.stop()
     const first = frames.findIndex((f) => f.v > released + 0.5)
     expect(first, "it carries on").toBeGreaterThan(-1)
     const start = frames[first]!.frameAt
@@ -255,12 +263,17 @@ describe("a drag's release runs on its drag transition (#140)", () => {
 
 describe("an x drag's release (#140)", () => {
   it("DT9: runs on x alone: x glides on from its velocity to its edge, and y, outside its own bounds, is never moved", async () => {
-    const b = await mountBox({ axis: "x", constraints: { left: 0, right: 300, top: 50, bottom: 100 } })
-    const { pointer, released } = await fling(b, 100, 25)
+    const pointer = pushedPointer()
+    const b = await mountBox({ axis: "x", constraints: { left: 0, right: 300, top: 50, bottom: 100 } }, pointer.env)
+    const end = await pushedFling(pointer, { fast: 25 })
+    const released = dxOf(b)
     expect(released, "let go inside its edges").toBeLessThan(250)
     expect(dyOf(b), "y held where it was").toBeCloseTo(0, 2)
-    const frames = await releaseAndSample(b, pointer, 1500)
-    // About 500 px/s: 0.8 × that would carry it 400 px on, past its edge at 300.
+    const sampling = sampleFrames(() => dxOf(b))
+    pointer.push("up", end, 5)
+    await wait(1500)
+    const frames = sampling.stop()
+    // About 700 px/s: 0.8 × that would carry it over 500 px on, past its edge at 300.
     expect(frames.at(-1)!.v, "x glided on to its edge").toBeCloseTo(300, 2)
     expect(dyOf(b), "y still where it was, outside its bounds").toBeCloseTo(0, 2)
   })

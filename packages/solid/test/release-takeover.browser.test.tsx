@@ -1,8 +1,9 @@
 // A target for x or y during a drag's release takes over (#340, ADR-0016 *Amendment (#340)*), as a
 // newer animation of Motion's value does: the release stops, and x goes on from where the release
 // had it, at its speed. With real Playwright mouse input, timed by the frames' own timestamps, but for
-// RT7 and RT9: they read the release's speed, so they push the flick with its own timestamps (#778, as
-// FL5 does for #729). On the real mouse a loaded runner can land the up late, and the throw reads low.
+// RT7 and RT9: they read the release's speed, so their flick is `pushedFling`'s, with its own timestamps
+// (#778, as FL5's is for #729). On the real mouse a loaded runner can land the up late, and the throw
+// reads low.
 //
 // - RT1: a fling with `dragSnapToOrigin` whose `onDragEnd` sets `animate` to x 420 flies on out to
 //   420, never back toward its slot first. Before #340 it sprang back home, then went to 420.
@@ -26,8 +27,7 @@ import { wardic, type WardicDragInfo, type WardicEnv, WardicProvider, type Wardi
 import { createSignal } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { page } from "vitest/browser"
-import { raf } from "./browser-helpers.ts"
-import { type PushedPointer, pushedPointer } from "./pushed-pointer.ts"
+import { pushedFling, pushedPointer } from "./pushed-pointer.ts"
 import { add, glide, mouse, type Pt, resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
 
 afterEach(resetScene)
@@ -103,27 +103,6 @@ const flick = async (c: Card): Promise<Pt> => {
     if (k < 4) await wait(35)
   }
   return add(g, 220, 0)
-}
-
-/**
- * `flick`'s gesture on a pushed pointer, with its own timestamps: 6 moves of 10 px 20 ms apart, then 4
- * of 40 px 35 ms apart, each painted. The pointer stays down, 220 px right; let go with
- * `pointer.push("up", 220, 5)`. Its 100 ms window then reaches back to the first 40 px move:
- * (220 - 100) px over 110 ms, about 1,090 px/s on any host.
- */
-const pushedFlick = async (pointer: PushedPointer): Promise<void> => {
-  pointer.push("down", 0, 0)
-  for (let k = 1; k <= 6; k++) {
-    pointer.push("move", 10 * k, 20)
-    await raf()
-  }
-  for (let k = 1; k <= 4; k++) {
-    pointer.push("move", 60 + 40 * k, 35)
-    await raf()
-  }
-  // The last move painted.
-  await raf()
-  await raf()
 }
 
 /** Let go at `at` and sample the card's x each frame for `ms`. */
@@ -244,10 +223,10 @@ describe("a target for x during a drag's release takes over (#340)", () => {
       {},
       pointer.env,
     )
-    await pushedFlick(pointer)
+    const end = await pushedFling(pointer)
     const released = dxOf(c)
     const sampling = sampleFrames(() => dxOf(c))
-    pointer.push("up", 220, 5)
+    pointer.push("up", end, 5)
     await wait(300)
     const frames = sampling.stop()
     expect(thrown, "thrown, px/s").toBeGreaterThan(500)
@@ -286,15 +265,16 @@ describe("a target for x during a drag's release takes over (#340)", () => {
       {},
       pointer.env,
     )
-    await pushedFlick(pointer)
+    const end = await pushedFling(pointer)
     const sampling = sampleFrames(() => dxOf(c))
-    pointer.push("up", 220, 5)
+    pointer.push("up", end, 5)
     await wait(400)
     const frames = sampling.stop()
     // The release's last whole frame before the takeover, and the takeover's first whole frame after
     // it (#361): over three frames each, the spring's braking put the ratio on a 0.4 bound (0.39–0.42).
+    // Each speed timed by the frames' own timestamps (#783): by `frameAt` one read 0.35 under load.
     const i = frames.findIndex((f) => f.frameAt > takenAt)
-    const speedOf = (a: number, b: number) => (frames[b]!.v - frames[a]!.v) / (frames[b]!.frameAt - frames[a]!.frameAt)
+    const speedOf = (a: number, b: number) => (frames[b]!.v - frames[a]!.v) / (frames[b]!.rafAt - frames[a]!.rafAt)
     const releasing = speedOf(i - 2, i - 1)
     const taken = speedOf(i, i + 1)
     expect(Math.abs(releasing), "the release was moving").toBeGreaterThan(0.3)
