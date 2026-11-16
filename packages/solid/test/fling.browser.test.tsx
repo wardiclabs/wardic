@@ -7,10 +7,10 @@
 // its slower elastic offsets'. Each release runs on the drag transition (ADR-0016, *Amendment
 // (#140)*): FL4 and FL5 give it a soft bounce, so a release's carry outward before it turns back
 // shows its velocity. A release that should carry lets go with its flick's last move (`fling`, #496,
-// as drag-transition's did for #369): FL1 and FL4. FL2 and FL3 let go a command after it, since
-// theirs shouldn't carry. FL5 compares two releases' carries, so it runs on pushed input whose
-// timestamps it sets (#729, as DR1 does for #206): on the real mouse a loaded runner can land one
-// run's up late, and its velocity reads low.
+// as drag-transition's did for #369): FL1. FL2 and FL3 let go a command after it, since theirs
+// shouldn't carry. FL4 and FL5 read how far a release carries, so they run on pushed input whose
+// timestamps they set (#729, as DR1 does for #206; FL4 since #783, on `pushedFling`): on the real
+// mouse a loaded runner can land the up late, even `fling`'s, and the velocity reads low.
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
 import { wardic, type WardicBoundingBox, type WardicDragTransition, type WardicEnv, WardicProvider } from "@wardic/solid"
@@ -20,7 +20,7 @@ import { createSignal } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { page } from "vitest/browser"
 import { raf } from "./browser-helpers.ts"
-import { pushedPointer } from "./pushed-pointer.ts"
+import { pushedFling, pushedPointer } from "./pushed-pointer.ts"
 import { add, flingFrom, glide, mouse, type Pt, resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
 
 afterEach(resetScene)
@@ -144,10 +144,12 @@ describe("a free drag's release reads the pointer's last 100 ms (ADR-0004, Amend
   })
 
   it("FL4: with dragSnapToOrigin a flick away from the origin carries on outward first, then springs back to it", async () => {
-    const b = await mountBox({ snapToOrigin: true, dragTransition: SOFT })
-    const { pointer, released } = await fling(b, 100, 50)
+    const pointer = pushedPointer()
+    const b = await mountBox({ snapToOrigin: true, dragTransition: SOFT }, pointer.env)
+    const end = await pushedFling(pointer, { fast: 50 })
+    const released = dxOf(b)
     const sampling = sampleFrames(() => dxOf(b))
-    await mouse.up(pointer)
+    pointer.push("up", end, 5)
     await wait(2000)
     const farthest = Math.max(...sampling.stop().map((f) => f.v))
     expect(farthest - released, `it went ${farthest - released} px past the release before turning back`).toBeGreaterThan(5)

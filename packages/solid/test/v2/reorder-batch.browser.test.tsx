@@ -9,8 +9,10 @@
 //   focus stays; a lift raises the item; each item is a tab stop reading the instructions; in a scroller,
 //   End reveals the item's place.
 // - BG4: the item in hand: `whileDrag` through a drag and a keyboard lift; raised in hand, then let down
-//   once it lands, or at once when nothing moves; let go while flung, it carries on along the fling before
-//   it turns back.
+//   once it lands, or at once when nothing moves.
+// - BG4b: let go while flung, it carries on along the fling before it turns back. Its fling is pushed with
+//   its own timestamps (#783, as RT7's is for #778): on the real mouse a loaded runner can land the up
+//   late, and the release reads low.
 // - BG5: no item listens at rest, and the page's listeners are as many for 10 items as for 5.
 // - BG7: a drag held near its scroller's edge scrolls it, the item moving down the list under the pointer.
 // - BG10: held past its scroller's edge while Auto-scroll runs faster than a place a drag update, brought back
@@ -72,6 +74,7 @@ import { commands, page } from "vitest/browser"
 import "../browser-commands.ts"
 import { mount } from "./mount.tsx"
 import { raf, recordLoopErrors, unstacked } from "../browser-helpers.ts"
+import { pushedFling, pushedPointer } from "../pushed-pointer.ts"
 import { type BatchScene, type BatchSceneOptions, mountBatchReorder, resetBatchScene } from "./reorder-batch-scene.tsx"
 import { add, centreOf, glide, grabOffsetOf, type Layout, mountReorder, mouse, offPointer, type Pt, sampleFrames, type SceneOptions, wait } from "./reorder-scene.tsx"
 
@@ -239,7 +242,7 @@ describe("Reorder.BatchGroup and Reorder.BatchItem on Solid 2", () => {
     expect(scroller.scrollTop, "its place in view").toBe(9 * 60 + 50 - 120)
   }, 60_000)
 
-  it("BG4: the item in hand: whileDrag through a drag and a lift, the raise, and a fling's speed carried on", async () => {
+  it("BG4: the item in hand: whileDrag through a drag and a lift, and the raise", async () => {
     const fast = { type: "spring", stiffness: 400, damping: 40 } as const
     const s = await mountBatchReorder({ layout: "y", whileDrag: { scale: 1.1 }, transition: fast })
     const b = s.item("b")
@@ -277,25 +280,25 @@ describe("Reorder.BatchGroup and Reorder.BatchItem on Solid 2", () => {
     await commands.realKey("press", "Space")
     await frames(2)
     expect(getComputedStyle(c).zIndex, "let down at once, nothing moving").toBe("auto")
-    await resetBatchScene()
+  }, 30_000)
 
-    const t = await mountBatchReorder({ layout: "y", transition: { type: "spring", stiffness: 40, damping: 6 } })
+  it("BG4b: let go while flung, the item carries on along the fling before it turns back", async () => {
+    const pointer = pushedPointer()
+    const t = await mountBatchReorder({ layout: "y", transition: { type: "spring", stiffness: 40, damping: 6 }, env: pointer.env })
     const a = t.item("a")
-    const ga = centreOf(a)
-    await mouse.down(ga)
-    await glide(ga, add(ga, 0, 6), 3, 20)
-    for (let k = 1; k <= 3; k++) {
-      await mouse.move(add(ga, 0, 6 + 6 * k))
-      await wait(30)
-    }
+    // A gentle fling down, told for the item: 6 px slowly, then 4 moves of 6 px, 35 ms apart; 30 px in
+    // all, short of the crossover into b's place.
+    const end = await pushedFling(pointer, { from: centreOf(a), axis: "y", slow: 6, fast: 6, target: a })
     const tops = sampleFrames(() => a.getBoundingClientRect().top)
-    await mouse.up(add(ga, 0, 30))
+    // The up: told for the item (its press ends), then on the held pointer (its drag ends).
+    pointer.pushTo(a, "up", end, 5)
+    pointer.push("up", end, 0)
     const releasedAt = performance.now()
     await wait(300)
     const after = tops.stop().filter((frame) => frame.frameAt > releasedAt).map((frame) => frame.v)
     expect(t.order().join(""), "no reorder").toBe("abcde")
-    // A soft spring, so a slow runner's lower release speed still carries it on a few px; let go at none, it
-    // never passes where it was let go (40 + 30).
+    // A soft spring, so the fling's modest speed carries it on a few px; let go at none, it never passes
+    // where it was let go (40 + 30).
     expect(Math.max(...after.slice(0, 6)), "carried on down past where it was let go").toBeGreaterThan(40 + 30 + 0.5)
     await wait(2500)
     expect(Math.round(a.getBoundingClientRect().top), "then back at its place").toBe(40)

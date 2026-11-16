@@ -4,7 +4,7 @@
 // the page, so one drag path drives both. Not a test file itself.
 import type * as CoreReorder from "@wardic/core/Reorder"
 import { DomLive } from "@wardic/dom"
-import { AnimatePresence, Reorder, type ReorderBatchGroup, type WardicBatchExit, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues, WardicProvider } from "@wardic/solid/unstable/v2"
+import { AnimatePresence, Reorder, type ReorderBatchGroup, type WardicBatchExit, type WardicBatchGesture, type WardicBatchTransition, type WardicBatchValues, type WardicEnv, WardicProvider } from "@wardic/solid/unstable/v2"
 import type { JSX } from "@solidjs/web"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
@@ -38,6 +38,8 @@ export interface BatchSceneOptions {
   readonly fromWidth?: Accessor<number>
   /** Each item's own size, by its value, the group's `itemSize` function (#714): a grid's rows from its width. */
   readonly sizeOf?: (value: string) => { readonly width: number; readonly height: number }
+  /** The provider's Environment: `DomLive` when left out; a pushed pointer's for a fling the test times (#783). */
+  readonly env?: WardicEnv
   /**
    * Each item's own size, by its value, set by its own CSS and read by the group, its `itemSize` left out
    * (#714): a column's items take the group's width, the layout's, a grid's rows from its width.
@@ -154,7 +156,7 @@ export const mountBatchReorder = async (o: BatchSceneOptions = {}): Promise<Batc
     </Reorder.BatchGroup>
   )
   const { unmount } = mount(() => (
-    <WardicProvider env={DomLive}>
+    <WardicProvider env={o.env ?? DomLive}>
       {UndefinedOr.match(o.container, {
         onDefined: (height) => (
           <div
