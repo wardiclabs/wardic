@@ -19,6 +19,7 @@ import type * as DomRenderer from "../DomRenderer.ts"
 import type * as ProjectionSystem from "../ProjectionSystem.ts"
 import type { WardicDragConstraints, WardicMeasureDragConstraints } from "./DragConstraints.ts"
 import type { WardicDragControls } from "./DragControls.ts"
+import type * as Feature from "./Feature.ts"
 import type { WardicDragInfo, WardicPointInfo, WardicPressEvent, WardicPressInfo } from "./GestureInfo.ts"
 
 /** What "in view" means: an element's `viewport`, and `createInView`'s. Motion's `viewport` and `useInView` options. */
@@ -690,7 +691,9 @@ export interface WardConfig
  * instance**'s elements take for the Features it has, beside {@link WardBaseConfig}. `colors` and
  * `scroll` add none. Solid 1's; Solid 2's are these without Solid 1's callbacks.
  */
-export interface WardFeatureConfigs {
+// #672 (the build grill's Q9): the DOM's map of each Feature that adds props, as every binding's names
+// them (Feature.PropFeature).
+export interface WardFeatureConfigs extends Record<Feature.PropFeature, object> {
   readonly hover: WardHoverConfig
   readonly press: WardPressConfig
   readonly focus: WardFocusConfig
