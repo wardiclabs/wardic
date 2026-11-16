@@ -322,13 +322,23 @@ describe("a layoutRoot in a dragged item on Solid 2 (#691)", () => {
   /** How far apart two offsets are, on either axis. */
   const apartBy = (a: Offset, b: Offset): number => Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y))
 
+  /** R's offset from D, with D's top and R's top, read in one frame. */
+  interface Placed {
+    readonly off: Offset
+    readonly dTop: number
+    readonly rTop: number
+  }
+
+  /** How far D's slot moves at `layoutRootScene`'s toggle: the `layout` sibling above it grows 20 → 70 px. */
+  const SLOT_MOVE = 50
+
   /**
    * The lab's s12, as Solid 1's T19 scene: a `layout` sibling above the draggable `layout` item D, which
    * holds C1 (`layout`), C2 (`layoutAnchor: false`), M (`layout`, its `layoutDependency` flipped at each
    * press), and R, a `layoutRoot` (with `layout` too, given `rootLayout`) holding its own `layout` child G.
    * `grabMidFlight` moves D's slot at rest (the lab's X), grabs D `wait` frames into its FLIP with the real
-   * mouse, drags it `hold` moves 16 ms apart and releases it: R's offset from D in every frame painted from
-   * the X, R's offset at the first frame after the grab and at the end, and G's from R at the end.
+   * mouse, drags it `hold` moves 16 ms apart and releases it: R's offset from D with both tops in every frame
+   * painted from the X and at the first paint after the grab, R's offset at the end, and G's from R at the end.
    */
   const layoutRootScene = async (rootLayout: boolean) => {
     const [tall, setTall] = createSignal(false)
@@ -366,14 +376,14 @@ describe("a layoutRoot in a dragged item on Solid 2 (#691)", () => {
       </WardicProvider>
     ))
     await settle()
-    const offsetOf = (): Offset => {
+    const placeOf = (): Placed => {
       const dBox = d.getBoundingClientRect()
       const rBox = r.getBoundingClientRect()
-      return { x: rBox.left - dBox.left, y: rBox.top - dBox.top }
+      return { off: { x: rBox.left - dBox.left, y: rBox.top - dBox.top }, dTop: dBox.top, rTop: rBox.top }
     }
-    const rest = offsetOf()
+    const rest = placeOf()
     const grabMidFlight = async (wait: number, hold: number) => {
-      const sampling = paintedReads(offsetOf, 130)
+      const sampling = paintedReads(placeOf, 130)
       await raf()
       setTall((t) => !t) // D's slot moves 50 px at rest, and D FLIPs to it
       flush()
@@ -383,7 +393,7 @@ describe("a layoutRoot in a dragged item on Solid 2 (#691)", () => {
       const y0 = box.top + box.height / 2
       await commands.realMouse("down", x0, y0)
       await afterPaint()
-      const atGrab = offsetOf()
+      const atGrab = placeOf()
       for (let k = 1; k <= hold; k++) {
         await commands.realMouse("move", x0 + 6 * k, y0 + 4 * k)
         await new Promise((resolve) => setTimeout(resolve, 16))
@@ -392,7 +402,7 @@ describe("a layoutRoot in a dragged item on Solid 2 (#691)", () => {
       const frames = await sampling
       const gBox = g.getBoundingClientRect()
       const rBox = r.getBoundingClientRect()
-      return { frames, atGrab, end: offsetOf(), g: { x: gBox.left - rBox.left, y: gBox.top - rBox.top } }
+      return { frames, atGrab, end: placeOf().off, g: { x: gBox.left - rBox.left, y: gBox.top - rBox.top } }
     }
     return { rest, grabMidFlight }
   }
@@ -400,17 +410,20 @@ describe("a layoutRoot in a dragged item on Solid 2 (#691)", () => {
   it("DG12: a layoutRoot alone rides D's layout animation: on D at its place in every frame, through a grab mid-flight and the release", async () => {
     const scene = await layoutRootScene(false)
     const run = await scene.grabMidFlight(4, 6)
-    const worst = Math.max(...run.frames.map((f) => apartBy(f, scene.rest)))
-    expect.soft(worst, `R's offset from D, worst off its ${JSON.stringify(scene.rest)} (Motion's: 0 every frame)`).toBeLessThan(1)
+    const worst = Math.max(...run.frames.map((f) => apartBy(f.off, scene.rest.off)))
+    expect.soft(worst, `R's offset from D, worst off its ${JSON.stringify(scene.rest.off)} (Motion's: 0 every frame)`).toBeLessThan(1)
     expect.soft(apartBy(run.g, { x: 8, y: 8 }), "G on R").toBeLessThan(1)
   })
 
   it("DG12b: a layout layoutRoot is at its new place at a grab mid-flight, and at its place in D once D's flight has ended", async () => {
     const scene = await layoutRootScene(true)
     const run = await scene.grabMidFlight(4, 6)
-    // At its new place while D flies, as Motion's: off its place in D by D's remaining flight.
-    expect.soft(apartBy(run.atGrab, scene.rest), `R's offset from D at the grab: ${JSON.stringify(run.atGrab)}`).toBeGreaterThan(10)
-    expect.soft(apartBy(run.end, scene.rest), `R's offset from D at the end: ${JSON.stringify(run.end)}`).toBeLessThan(1)
+    // R jumped to its new place at the toggle and holds it while D flies there, as Motion's. Both tops are read
+    // in one frame, so when the press lands (#782: late under load) sets only how far D still has to fly.
+    const remaining = scene.rest.dTop + SLOT_MOVE - run.atGrab.dTop
+    expect.soft(remaining, "D still in flight at the grab (a press landing after D's flight tests nothing: #782)").toBeGreaterThan(2)
+    expect.soft(Math.abs(run.atGrab.rTop - (scene.rest.rTop + SLOT_MOVE)), `R at its new place at the grab, D ${remaining.toFixed(1)} px short of it`).toBeLessThan(1)
+    expect.soft(apartBy(run.end, scene.rest.off), `R's offset from D at the end: ${JSON.stringify(run.end)}`).toBeLessThan(1)
     expect.soft(apartBy(run.g, { x: 8, y: 8 }), "G on R").toBeLessThan(1)
   })
 })
