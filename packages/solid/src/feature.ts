@@ -13,6 +13,8 @@
  * @module
  */
 import * as Color from "@wardic/dom/Color"
+import type * as FlushGate from "@wardic/dom/FlushGate"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Arr from "effect/Array"
 import * as Cause from "effect/Cause"
 import * as Context from "effect/Context"
@@ -25,7 +27,6 @@ import * as UndefinedOr from "effect/UndefinedOr"
 import * as OwnerScope from "./owner-scope.ts"
 import type { WardConfig } from "./config.ts"
 import type { Reactivity } from "./reactivity.ts"
-import type { ProviderServices } from "./runtime.ts"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /**
@@ -359,6 +360,17 @@ const sectionsAndWarnings = (build: Build, warn: (message: string) => void) => {
     },
   }
 }
+
+/**
+ * What a client provider hands its projection system (#511): whether reduced motion applies now
+ * (ADR-0029), and the app's scale correctors (#443). The `layout` Feature's Layer reads it from the
+ * provider's runtime, as the projection system is no longer built with it.
+ */
+export class ProjectionOptions extends /*#__PURE__*/ Context.Service<ProjectionOptions, ProjectionSystem.Options>()("@wardic/solid/ProjectionOptions") {}
+
+/** What a provider's runtime holds: its Environment, and its flush gate and projection options over it. */
+// #672: out of solid's runtime.ts, with the Features that build on it.
+export type ProviderServices = WardicServices.WardicServices | FlushGate.FlushGate | ProjectionOptions
 
 /** What a provider's Features are built on (#672, Q10): its runtime as a Runner, with the MemoMap they share. */
 export type FeatureRuntime = WardicServices.Runner<ProviderServices> & { readonly memoMap: Layer.MemoMap }

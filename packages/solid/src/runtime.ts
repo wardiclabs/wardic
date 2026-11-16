@@ -22,7 +22,6 @@ import * as Report from "@wardic/dom/Report"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
-import * as Context from "effect/Context"
 import * as Effect from "effect/Effect"
 import * as Exit from "effect/Exit"
 import { constVoid } from "effect/Function"
@@ -35,8 +34,8 @@ import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Result from "effect/Result"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { ServerAppear } from "./appear.ts"
-import { clientRegistry, type FeatureRegistry, type FeatureSection, serverRegistry } from "./feature.ts"
-import { ProjectionNodes } from "./features/keys.ts"
+import { clientRegistry, type FeatureRegistry, type FeatureSection, ProjectionOptions, type ProviderServices, serverRegistry } from "./feature.ts"
+import { projectionIn } from "./features/keys.ts"
 import { type InstantAnimations, makeInstantAnimations, NO_INSTANT } from "./instant.ts"
 import { settingOf as configSettingOf, type WardicConfigValue } from "./wardic-config-value.ts"
 import type { ValueReads } from "./element-setup.ts"
@@ -75,15 +74,6 @@ export type WardicServices = CoreWardicServices.WardicServices
 /** A `WardicProvider`'s Effect runtime: a `ManagedRuntime` of its {@link WardicServices}. */
 export type WardicRuntime = ManagedRuntime.ManagedRuntime<WardicServices, never>
 
-/**
- * What a client provider hands its projection system (#511): whether reduced motion applies now
- * (ADR-0029), and the app's scale correctors (#443). The `layout` Feature's Layer reads it from the
- * provider's runtime, as the projection system is no longer built with it.
- */
-export class ProjectionOptions extends /*#__PURE__*/ Context.Service<ProjectionOptions, ProjectionSystem.Options>()("@wardic/solid/ProjectionOptions") {}
-
-/** What a provider's runtime holds: its Environment, and its flush gate and projection options over it. */
-export type ProviderServices = WardicServices | FlushGate.FlushGate | ProjectionOptions
 
 /** A provider's runtime, as its Features build on it. */
 export type ProviderRuntime = ManagedRuntime.ManagedRuntime<ProviderServices, never>
@@ -395,18 +385,6 @@ export const fromContext = <A>(value: WardicContextValue | undefined, name: stri
   if (Predicate.isUndefined(value)) throw new Error(`${name} must be used within a <WardicProvider>`)
   return pick(value)
 }
-
-/** The projection system among `services`, the `layout` Feature's (#511), or `undefined` when they hold none. */
-export const projectionIn = (services: Context.Context<never>): ProjectionSystem.Shape | undefined =>
-  Option.getOrUndefined(Context.getOption(services as Context.Context<ProjectionSystem.ProjectionSystem>, ProjectionSystem.ProjectionSystem))
-
-/**
- * The `layout` Feature's element code in `services` (#746): what makes a Wardic element's node on its
- * projection system. Read where an element makes its node, from Features {@link projectionIn} found
- * `layout` in, which give both.
- */
-export const projectionNodesIn = (services: Context.Context<never>): ProjectionNodes["Service"] =>
-  Context.get(services as Context.Context<ProjectionNodes>, ProjectionNodes)
 
 /**
  * `useAnimateLayout()`'s function: `animateLayout(fn, options?)` runs `fn` at once, animates the

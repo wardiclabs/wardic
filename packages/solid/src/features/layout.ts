@@ -17,7 +17,9 @@ import * as Layer from "effect/Layer"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { Feature } from "../feature.ts"
 import { layoutOptionsOf, registrationOf } from "../layout-member.ts"
-import { ProjectionOptions, projectionIn, projectionNodesIn, type WardicContextValue } from "../runtime.ts"
+import type { WardicContextValue } from "../runtime.ts"
+import { ProjectionOptions } from "../feature.ts"
+import { projectionIn, projectionNodesIn } from "./keys.ts"
 import { ProjectionNodes } from "./keys.ts"
 
 /**

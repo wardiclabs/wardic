@@ -10,9 +10,10 @@ import type * as DragRecognizer from "@wardic/core/DragRecognizer"
 import type * as InputFeed from "@wardic/core/InputFeed"
 import type * as Probe from "@wardic/core/Probe"
 import type * as Recognizer from "@wardic/core/Recognizer"
-import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
+import * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Context from "effect/Context"
 import type * as Effect from "effect/Effect"
+import * as Option from "effect/Option"
 import type { LazyArg } from "effect/Function"
 import type * as Scope from "effect/Scope"
 import type { trackConstraintsOf } from "../drag-constraints.ts"
@@ -104,3 +105,16 @@ export class ProjectionNodes extends /*#__PURE__*/ Context.Service<
     readonly registrationOf: (opts: CreateProjectionNodeOptions) => ProjectionSystem.RegisterNodeOptions
   }
 >()("@wardic/solid/ProjectionNodes") {}
+
+// #672: the readers of a section's layout services, out of solid's runtime.ts, with the keys they read.
+/** The projection system among `services`, the `layout` Feature's (#511), or `undefined` when they hold none. */
+export const projectionIn = (services: Context.Context<never>): ProjectionSystem.Shape | undefined =>
+  Option.getOrUndefined(Context.getOption(services as Context.Context<ProjectionSystem.ProjectionSystem>, ProjectionSystem.ProjectionSystem))
+
+/**
+ * The `layout` Feature's element code in `services` (#746): what makes a Wardic element's node on its
+ * projection system. Read where an element makes its node, from Features {@link projectionIn} found
+ * `layout` in, which give both.
+ */
+export const projectionNodesIn = (services: Context.Context<never>): ProjectionNodes["Service"] =>
+  Context.get(services as Context.Context<ProjectionNodes>, ProjectionNodes)
