@@ -17,8 +17,7 @@ import * as Layer from "effect/Layer"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { Feature } from "../feature.ts"
 import { layoutOptionsOf, registrationOf } from "../layout-member.ts"
-import type { WardicContextValue } from "../runtime.ts"
-import { ProjectionOptions } from "../feature.ts"
+import { type FeatureRegistry, ProjectionOptions } from "../feature.ts"
 import { projectionIn, projectionNodesIn } from "./keys.ts"
 import { ProjectionNodes } from "./keys.ts"
 
@@ -46,23 +45,29 @@ export type LayoutServices = Exclude<ReorderController.Services, Announcer.Annou
 /** What a component that brings `layout` asks its provider for: one list, so the provider joins it once. */
 const BRINGS: ReadonlyArray<Feature> = [layout]
 
+/** What the layout Feature's helpers read of a provider (Q15): its Features, built as they're asked for. */
+// #672: named here, so the layout Feature reads no binding's provider record; each binding's meets it.
+export interface BringsFeatures {
+  readonly features: Pick<FeatureRegistry, "build">
+}
+
 /**
  * The projection system of `value`'s provider, its `layout` Feature built now if nothing has built it
  * yet (#511, decision 12): what a component that brings it works with (`LayoutGroup`, `Reorder`,
  * `createProjectionNode`), whatever its section has. A clear error during a server render, which builds
  * none (ADR-0021).
  */
-export const projectionBrought = (value: WardicContextValue): ProjectionSystem.Shape =>
+export const projectionBrought = (value: BringsFeatures): ProjectionSystem.Shape =>
   UndefinedOr.getOrThrowWith(projectionIn(value.features.build(BRINGS)), () => new Error("useWardicProjection: there is no projection system during a server render (ADR-0021)"))
 
 /**
  * The `layout` Feature's element code (#746), brought as {@link projectionBrought} brings the projection
  * system, whose call comes first and gives a server render's error: what `createProjectionNode` registers through.
  */
-export const projectionNodesBrought = (value: WardicContextValue): ProjectionNodes["Service"] => projectionNodesIn(value.features.build(BRINGS))
+export const projectionNodesBrought = (value: BringsFeatures): ProjectionNodes["Service"] => projectionNodesIn(value.features.build(BRINGS))
 
 /** {@link projectionBrought}'s services, all of them: what a Reorder controller is built with (#618). */
-export const layoutBrought = (value: WardicContextValue): Context.Context<LayoutServices> => {
+export const layoutBrought = (value: BringsFeatures): Context.Context<LayoutServices> => {
   projectionBrought(value)
   return value.features.build(BRINGS) as Context.Context<LayoutServices>
 }
