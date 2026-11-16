@@ -9,7 +9,7 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Predicate from "effect/Predicate"
 import type { WardConfig } from "./config.ts"
-import type { Accessor } from "./reactivity.ts"
+import type * as Reactivity from "@wardic/core/unstable/Reactivity"
 
 /** Motion's gesture callbacks (#273): Solid 1's, which most elements don't take. */
 const GESTURE_CALLBACKS = [
@@ -100,7 +100,7 @@ type ConfigKey = (typeof CONFIG_KEYS)[number]
  * A config's build from `motion`'s `keys`: each one's value, when it's defined; reading a key tracks
  * it. A build allocates its config alone (#525, #540).
  */
-const configBuildOf = (motion: WardicMotionProps, keys: ReadonlyArray<ConfigKey>): Accessor<WardConfig> => () => {
+const configBuildOf = (motion: WardicMotionProps, keys: ReadonlyArray<ConfigKey>): Reactivity.Accessor<WardConfig> => () => {
   // Per element at mount (#540): a loop.
   const config: Record<string, unknown> = {}
   for (const key of keys) {
@@ -250,7 +250,7 @@ export type WardicMotionPropsV2 = Omit<WardicMotionProps, (typeof SOLID_1_CALLBA
  * mount reads it 13 times, and each read took the 28 common keys where most elements are given two
  * or three. Without it, all are, as a proxy's keys can change.
  */
-export const motionToConfig = (motion: WardicMotionProps, fixedKeys = false): Accessor<WardConfig> => {
+export const motionToConfig = (motion: WardicMotionProps, fixedKeys = false): Reactivity.Accessor<WardConfig> => {
   if (fixedKeys) {
     return configBuildOf(
       motion,

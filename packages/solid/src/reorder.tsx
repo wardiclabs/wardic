@@ -77,8 +77,8 @@ import { controlledOf, runSpine, type SpineInternals, createWardWith, type Ward,
 import type { WardConfig } from "./config.ts"
 import { isServer } from "./server.ts"
 import { createVariantNode } from "./variant-node.ts"
-import { accessorOf } from "./spine.ts"
-import { changesContext } from "./variant-tree.ts"
+import * as Spine from "@wardic/core/unstable/Spine"
+import * as VariantTree from "@wardic/core/unstable/VariantTree"
 import { useVariantContext } from "./variants.ts"
 import { configOfMotion, type WardicProps } from "./element.tsx"
 import { MOTION_PROPS, type WardicMotionProps } from "./motion-props.ts"
@@ -205,7 +205,7 @@ const CLOSE_FAILED = "wardic.reorder: a finalizer failed"
 // element's style and nothing else: no controller, no runtime; its `group`, `move` and `controller` do
 // nothing (ADR-0021).
 export function createReorderGroup<V>(config: ReorderGroupConfig<V> | Accessor<ReorderGroupConfig<V>>): ReorderGroup<V> {
-  const cfg: Accessor<ReorderGroupConfig<V>> = accessorOf(config)
+  const cfg: Accessor<ReorderGroupConfig<V>> = Spine.accessorOf(config)
   if (isServer) {
     useWardicRuntime()
     return serverReorderGroup(cfg)
@@ -391,7 +391,7 @@ export type ReorderItemWard = ((userProps?: ReorderItemUserProps) => ReorderItem
 // ADR-0020, ADR-0037. The element takes the drag defaults, with the group's axis's touch-action, which
 // its style can override.
 export function createReorderItem<V>(group: ReorderGroup<V>, config: ReorderItemConfig<V> | Accessor<ReorderItemConfig<V>>): ReorderItemWard {
-  const cfg: Accessor<ReorderItemConfig<V>> = accessorOf(config)
+  const cfg: Accessor<ReorderItemConfig<V>> = Spine.accessorOf(config)
   const value = untrack(cfg).value
   const listens = untrack(cfg).dragListener !== false
   const [element, setElement] = createSignal<HTMLElement>()
@@ -695,7 +695,7 @@ function Item<V, Tag extends ReorderElementTag = "li">(props: ReorderItemProps<V
   )
   // An item that changes what its children read renders its variant context's Provider around
   // them (#50), as every Wardic element does; any other renders none.
-  return Bool.match(changesContext(untrack(config)), {
+  return Bool.match(VariantTree.changesContext(untrack(config)), {
     onFalse: element,
     onTrue: () => <item.Provider>{element()}</item.Provider>,
   })

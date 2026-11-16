@@ -61,7 +61,7 @@ import { WAITING_ENV_FIX, WAITING_ENV_LINE } from "../../messages.ts"
 import { warnWithoutSpans } from "../../spans-check.ts"
 import { onSettledClientOnly, reactivityIn } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
-import { skipAnimationsOf } from "../../wardic-config-value.ts"
+import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import { instantLayoutOf, type InstantTransition, instantTransitionOf, resetOf } from "../../instant.ts"
 import type { WardicScaleCorrector } from "../../config.ts"
 
@@ -418,7 +418,7 @@ export function useWardicReducedMotion(): () => boolean {
  * Internal.
  */
 export function useWardicSkipAnimations(): () => boolean {
-  const config = skipAnimationsOf(useWardicConfig())
+  const config = WardicConfigValue.skipAnimationsOf(useWardicConfig())
   const value = contextValue()
   if (Predicate.isUndefined(value)) return config
   const instant = value.instant

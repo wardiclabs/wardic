@@ -11,7 +11,7 @@ import * as Arr from "effect/Array"
 import * as Atom from "effect/reactivity/Atom"
 import type * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Rec from "effect/Record"
-import type { Timelines } from "./timelines.ts"
+import type * as Timelines from "@wardic/core/unstable/Timelines"
 
 /** `createScroll`'s four values, by name. */
 export const SCROLL_KEYS = ["scrollX", "scrollY", "scrollXProgress", "scrollYProgress"] as const
@@ -34,7 +34,7 @@ const NO_SCROLL: Atom.Atom<number> = Atom.make(0)
  * does and read at once (a derived Atom tracks the scroll only once it's read). `timelines` is told, as
  * the elements following them may have shown them before they were described. Gives the stop.
  */
-export const followScroll = (registry: AtomRegistry.AtomRegistry, outs: ScrollAtoms, values: LiveValue.ScrollValues, timelines: Timelines["Service"]): (() => void) => {
+export const followScroll = (registry: AtomRegistry.AtomRegistry, outs: ScrollAtoms, values: LiveValue.ScrollValues, timelines: Timelines.Timelines["Service"]): (() => void) => {
   const stops = Arr.map(SCROLL_KEYS, (key) => {
     LiveValue.derivesAs(outs[key], values[key])
     return registry.subscribe(values[key], (v) => registry.set(outs[key], v), { immediate: true })
@@ -47,7 +47,7 @@ export const followScroll = (registry: AtomRegistry.AtomRegistry, outs: ScrollAt
  * `outs`, their elements gone (an accessor's ref back to `undefined`), described as no scroll's: they hold
  * their values, which the gate draws, and `timelines` is told, so no Timeline value draws the old scroll.
  */
-export const letGoScroll = (outs: ScrollAtoms, timelines: Timelines["Service"]): void => {
+export const letGoScroll = (outs: ScrollAtoms, timelines: Timelines.Timelines["Service"]): void => {
   Arr.forEach(SCROLL_KEYS, (key) => LiveValue.derivesAs(outs[key], NO_SCROLL))
   timelines.described()
 }

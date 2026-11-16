@@ -87,7 +87,7 @@ import type { Feature } from "./feature.ts"
 import { input } from "./features/input.ts"
 import { serviceOf } from "./gesture-features.ts"
 import * as OwnerScope from "./owner-scope.ts"
-import type { PresenceContextValue } from "./presence-record.ts"
+import type * as PresenceController from "@wardic/dom/unstable/PresenceController"
 import { watchItemsInputAmong } from "./reorder-input.ts"
 
 export {
@@ -248,7 +248,7 @@ export interface BatchReorderSizeSignals {
 /** What a group's items read of it: each one's half, and whether they're pressed. A server's group is one. */
 export interface BatchReorderItems<V> {
   /** The item with `value`, its element made under `presence`. */
-  readonly item: (value: V, presence: PresenceContextValue | undefined) => BatchReorderItem
+  readonly item: (value: V, presence: PresenceController.PresenceContextValue | undefined) => BatchReorderItem
   /** Whether its items are pressed (`whileTap`): each one a tab stop, Enter and Space pressing it while the keyboard reorder is off. */
   readonly pressable: boolean
 }
@@ -997,7 +997,7 @@ export const serverBatchReorder = <V>(options: ServerBatchReorderOptions<V>, unt
   }
   // Each item's start and its entrance, its keyed Batch's server handle's (#706, Q16).
   let handles: ReturnType<typeof serverKeyedHandlesOf<Style.Style>> | undefined
-  const handlesFor = (presence: PresenceContextValue | undefined) => {
+  const handlesFor = (presence: PresenceController.PresenceContextValue | undefined) => {
     if (Predicate.isUndefined(handles)) handles = serverKeyedHandlesOf<Style.Style>(config as KeyedBatchConfig<unknown>, () => presence, options.server)
     return handles
   }

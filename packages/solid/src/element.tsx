@@ -48,11 +48,11 @@ import type { WardBaseConfig, WardConfig, WardFeatureConfigs, WardicVariantLabel
 import type { AbsentGroupsOf, GroupsOf, NamesEvery, PropFeatureNames } from "./feature.ts"
 import type { EveryFeature } from "./features/all.ts"
 import type { InferredMotion, InferredMotionOf, TargetKey } from "./ward-keys.ts"
-import { changesContext } from "./variant-tree.ts"
+import * as VariantTree from "@wardic/core/unstable/VariantTree"
 import { MOTION_PROPS, motionToConfig, type WardicMotionProps } from "./motion-props.ts"
 import { droppedKeysOf, markWardic, routingTagOf, type WardicCreateOptions } from "./wardic-component.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
-import { isValidPropOf } from "./wardic-config-value.ts"
+import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 
 export { MOTION_PROPS, motionToConfig, type WardicMotionProps } from "./motion-props.ts"
 
@@ -257,7 +257,7 @@ const wardComponent = (component: Rendered, internal: SpineInternals, forward: b
   const gestureless: SpineInternals = { ...internal, gestureless: true }
   return (props) => {
     // The nearest `WardicConfig`'s `isValidProp`, as the element is made (#443).
-    const isValidProp = isValidPropOf(useWardicConfig())
+    const isValidProp = WardicConfigValue.isValidPropOf(useWardicConfig())
     // A server render takes the lean path (ADR-0021, decision 4).
     if (isServer) return serverElement(component, internal, props, forward, isValidProp)
 
@@ -311,7 +311,7 @@ const wardComponent = (component: Rendered, internal: SpineInternals, forward: b
     // `mergeProps` a proxy that the spread read every key through (#525). Their `style` is a getter.
     const wardProps = ward(userProps)
     const element = (): JSX.Element => <Rendered {...handedOn} {...rest} {...wardProps} />
-    return Bool.match(changesContext(untrack(cfg)), {
+    return Bool.match(VariantTree.changesContext(untrack(cfg)), {
       onFalse: () => forwarding.render(element),
       onTrue: () => <ward.Provider>{forwarding.render(element)}</ward.Provider>,
     })
@@ -423,7 +423,7 @@ const serverElement = (
   // (#50), then the element; a late chunk's root then its chunk's style (#245).
   const element = (): JSX.Element => createComponent(Dynamic, out as Parameters<typeof Dynamic>[0])
   const render = (): JSX.Element =>
-    Bool.match(changesContext(cfg()), {
+    Bool.match(VariantTree.changesContext(cfg()), {
       onFalse: element,
       onTrue: () =>
         createComponent(ward.Provider, {

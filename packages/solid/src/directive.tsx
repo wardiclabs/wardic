@@ -35,7 +35,7 @@ import { createUniqueId, type Accessor, untrack } from "solid-js"
 import { useWardicGate, useWardicRuntime } from "./provider.tsx"
 import { controlledOf, runSpine, type SpineInternals } from "./create-ward.tsx"
 import { usePresenceContext } from "./presence.tsx"
-import { madeWith } from "./spine.ts"
+import * as Spine from "@wardic/core/unstable/Spine"
 import type { WardConfig } from "./config.ts"
 import { createVariantNode } from "./variant-node.ts"
 import { useVariantContext } from "./variants.ts"
@@ -56,7 +56,7 @@ export const runDirective = (el: HTMLElement, value: Accessor<WardConfig>, inter
   const node = createVariantNode(cfg, useVariantContext(), UndefinedOr.map(controls, (c) => c.change))
   // Under a presence, its element is told to it (#286): its `key`, and whether it's a twin.
   const presence = usePresenceContext()
-  if (Predicate.isNotUndefined(presence)) madeWith(presence, constVoid, untrack(cfg))(el)
+  if (Predicate.isNotUndefined(presence)) Spine.madeWith(presence, constVoid, untrack(cfg))(el)
   runSpine({
     runtime: useWardicRuntime(),
     gate: useWardicGate(),

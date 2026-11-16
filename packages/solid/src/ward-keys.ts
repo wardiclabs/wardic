@@ -32,8 +32,8 @@ import type {
   WardicVariantLabels,
   WardicVariantResolver,
 } from "./config.ts"
-import type { WardicAnimationControls } from "./animation-controls.ts"
-import type { Accessor } from "./reactivity.ts"
+import type * as AnimationControls from "@wardic/core/unstable/AnimationControls"
+import type * as Reactivity from "@wardic/core/unstable/Reactivity"
 
 /** A key's value through its accessor, the Solid 2 binding's per-key form (#259): what it returns. */
 type Unwrap<V> = V extends (...args: never) => infer R ? R : V
@@ -48,7 +48,7 @@ type MapOf<V> = Unwrap<V> extends infer U
       ? never
       : U extends ReadonlyArray<unknown>
         ? never
-        : U extends WardicAnimationControls
+        : U extends AnimationControls.WardicAnimationControls
           ? never
           : U
     : never
@@ -112,7 +112,7 @@ export type DrivenKey<C> = KeysOf<MotionLayers<C>> | DragKeys<C>
 export type WardKey<C> = AnimatedKey<C> | (string & {})
 
 /** A value as a ward reads it: a number or a string, a Live value read through. */
-type Widen<V> = V extends number ? number : V extends string ? string : V extends Accessor<infer A> ? Widen<A> : V extends Atom.Atom<infer A> ? Widen<A> : never
+type Widen<V> = V extends number ? number : V extends string ? string : V extends Reactivity.Accessor<infer A> ? Widen<A> : V extends Atom.Atom<infer A> ? Widen<A> : never
 
 /** `K`'s values across a config's layers. */
 type ValuesAt<C, K extends string> = Layers<C> extends infer L ? (L extends unknown ? (K extends keyof L ? L[K] : never) : never) : never
@@ -181,7 +181,7 @@ type RawOf<C, K extends string> = K extends keyof C ? C[K] : undefined
  */
 type CheckedTarget<T> = T extends (...args: never) => unknown
   ? WardicVariantResolver
-  : T extends WardicAnimationControls
+  : T extends AnimationControls.WardicAnimationControls
     ? T
     : T extends object
       ? T extends ReadonlyArray<unknown>
@@ -229,7 +229,7 @@ type VariantsOf<C> = Unwrap<C["variants" & keyof C]> extends infer Vs
   : never
 
 /** Whether a prop gives a variant name, or a list of them (#297), or **Animation controls** (#433), which give them. */
-type GivesLabels<V> = Unwrap<V> extends string | ReadonlyArray<string> | WardicAnimationControls ? true : false
+type GivesLabels<V> = Unwrap<V> extends string | ReadonlyArray<string> | AnimationControls.WardicAnimationControls ? true : false
 
 /**
  * Whether Variant children can join the element (Motion's `isVariantNode`): it has `variants`, or
@@ -349,7 +349,7 @@ export type InferredMotionOf<M, K extends TargetKey, N extends string, LI extend
 /** The props {@link InferredMotion} types again, from the keys inferred. */
 type InferredParts<K extends TargetKey, N extends string, LI extends WardicVariantLabels, LA extends WardicVariantLabels, D extends boolean | "x" | "y", X extends string> = {
   readonly initial?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | LI | false
-  readonly animate?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | LA | WardicAnimationControls
+  readonly animate?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | LA | AnimationControls.WardicAnimationControls
   readonly exit?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
   readonly whileHover?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels
   readonly whileTap?: InferredTarget<K, NoInfer<ValueNameOf<K>>> | WardicVariantLabels

@@ -11,14 +11,14 @@
 // - LF4: a gesture's event is told at its viewport point, its `x`/`y` less the scroll its hold
 //   counted into them; a press a drag took over tells nothing, nor does a drag's move.
 import * as InputSource from "@wardic/core/InputSource"
-import type { Active, Resolution } from "../../src/spine.ts"
+import type * as Spine from "@wardic/core/unstable/Spine"
 import { Lifecycle } from "../../src/unstable/v2/lifecycle.ts"
 import { createRoot, getOwner } from "solid-js"
 import { describe, expect, it } from "vitest"
 
-const NONE: Active = { inView: false, focused: false, hovered: false, pressed: false, dragged: false, dragging: false }
+const NONE: Spine.Active = { inView: false, focused: false, hovered: false, pressed: false, dragged: false, dragging: false }
 
-const resolution = (resolved: Record<string, number>, variant?: string, active: Active = NONE): Resolution => ({ resolved, base: resolved, dragging: false, variant, active, transition: undefined, layers: [], names: {}, layersOn: { ...NONE, hovered: true }, ends: undefined, keyframes: undefined, change: undefined })
+const resolution = (resolved: Record<string, number>, variant?: string, active: Spine.Active = NONE): Spine.Resolution => ({ resolved, base: resolved, dragging: false, variant, active, transition: undefined, layers: [], names: {}, layersOn: { ...NONE, hovered: true }, ends: undefined, keyframes: undefined, change: undefined })
 
 /** A lifecycle in a root of its own, disposed with it. */
 const lifecycleIn = () => {
@@ -68,7 +68,7 @@ describe("a ward's lifecycle (#257)", () => {
     hooks.started(rest)
     hooks.settled(rest, undefined)
     expect((await first).definition).toBe("rest")
-    const hovered: Resolution = { resolved: { opacity: 1 }, base: { opacity: 0.2 }, dragging: false, variant: "rest", active: { ...NONE, hovered: true }, transition: undefined, layers: [], names: {}, layersOn: { ...NONE, hovered: true }, ends: undefined, keyframes: undefined, change: undefined }
+    const hovered: Spine.Resolution = { resolved: { opacity: 1 }, base: { opacity: 0.2 }, dragging: false, variant: "rest", active: { ...NONE, hovered: true }, transition: undefined, layers: [], names: {}, layersOn: { ...NONE, hovered: true }, ends: undefined, keyframes: undefined, change: undefined }
     const second = lifecycle.wait("settled")
     hooks.started(hovered)
     hooks.settled(hovered, rest)

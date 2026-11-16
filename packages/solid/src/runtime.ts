@@ -37,7 +37,7 @@ import type { ServerAppear } from "./appear.ts"
 import { clientRegistry, type FeatureRegistry, type FeatureSection, ProjectionOptions, type ProviderServices, serverRegistry } from "./feature.ts"
 import { projectionIn } from "./features/keys.ts"
 import { type InstantAnimations, makeInstantAnimations, NO_INSTANT } from "./instant.ts"
-import { settingOf as configSettingOf, type WardicConfigValue } from "./wardic-config-value.ts"
+import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type { ValueReads } from "./element-setup.ts"
 
 /**
@@ -279,7 +279,7 @@ export const clientContext = (
  * Whether reduced motion applies now for an element under `config` (#434): its nearest
  * `WardicConfig`'s setting, else the provider's; with no config above, the provider's reader as it is.
  */
-export const reducedMotionWith = (value: WardicContextValue, config: WardicConfigValue | undefined): (() => boolean) => {
+export const reducedMotionWith = (value: WardicContextValue, config: WardicConfigValue.WardicConfigValue | undefined): (() => boolean) => {
   if (Predicate.isUndefined(config)) return value.reducedMotion
   const under = value.reducedMotionUnder
   return () => under(config.reducedMotion())
@@ -289,8 +289,8 @@ export const reducedMotionWith = (value: WardicContextValue, config: WardicConfi
  * The reduced-motion setting that applies to an element under `config` (#443, Motion's
  * `useReducedMotionConfig`): its nearest `WardicConfig`'s, else the provider's, else `"user"`.
  */
-export const reducedMotionSettingWith = (value: WardicContextValue, config: WardicConfigValue | undefined): (() => ReducedMotion.Config) =>
-  () => settingOf(configSettingOf(config), value.reducedMotionSetting)
+export const reducedMotionSettingWith = (value: WardicContextValue, config: WardicConfigValue.WardicConfigValue | undefined): (() => ReducedMotion.Config) =>
+  () => settingOf(WardicConfigValue.settingOf(config), value.reducedMotionSetting)
 
 /** A setting: the given one (a `WardicConfig`'s), else the provider's, else `"user"`. */
 const settingOf = (setting: ReducedMotion.Config | undefined, provider: () => ReducedMotion.Config | undefined): ReducedMotion.Config => {

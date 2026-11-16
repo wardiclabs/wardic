@@ -83,7 +83,7 @@ export type { AnimatedKey, WardKey, WardValueOf } from "../../ward-keys.ts"
 
 /** The variant context (ADR-0007): what a ward's `.Provider` and a `wardic.*` element hand their children. */
 export { useVariantContext, WardicVariantContext } from "./variant-node.ts"
-export type { WardicVariantContextValue } from "../../variant-tree.ts"
+export type { WardicVariantContextValue } from "@wardic/core/unstable/VariantTree"
 export type {
   WardicOrchestration,
   WardicReducedMotion,
@@ -146,7 +146,7 @@ export { AnimatePresence, type AnimatePresenceProps, PresenceContext, usePresenc
 export { type IsPresent, type PresenceExit, type PresenceLeaveEvents, useIsPresent, usePresence, usePresenceData } from "./presence-hooks.tsx"
 export type { PresenceMode } from "../../presence-controller.ts"
 export { createPresence, type Presence, type PresenceEvent, type PresenceEvents } from "./presence-handle.ts"
-export type { PresenceContextValue, PresenceRecord } from "../../presence-record.ts"
+export type { PresenceContextValue, PresenceRecord } from "@wardic/dom/unstable/PresenceController"
 
 /**
  * Layout (ADR-0009, ADR-0010): a ward's `layout`, `layoutId`, `layoutScroll`, `layoutRoot` and
@@ -225,7 +225,7 @@ export type {
   WardicSequenceOptions,
   WardicSequenceTime,
 } from "../../imperative.ts"
-export { createAnimationControls, type WardicAnimationControls, type WardicControlsDefinition } from "../../animation-controls.ts"
+export { createAnimationControls, type WardicAnimationControls, type WardicControlsDefinition } from "@wardic/core/unstable/AnimationControls"
 
 
 /**

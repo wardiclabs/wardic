@@ -20,9 +20,9 @@
  * fields they know about).
  */
 import { createContext, useContext } from "solid-js"
-import type { WardicVariantContextValue } from "./variant-tree.ts"
+import type * as VariantTree from "@wardic/core/unstable/VariantTree"
 
-export type { WardicChildRegistration, WardicStaggerConfig, WardicVariantContextValue } from "./variant-tree.ts"
+export type { WardicChildRegistration, WardicStaggerConfig, WardicVariantContextValue } from "@wardic/core/unstable/VariantTree"
 
 /**
  * The variant context: what the nearest variant parent hands its children, its names, transition and
@@ -32,7 +32,7 @@ export type { WardicChildRegistration, WardicStaggerConfig, WardicVariantContext
  * @see https://wardic.dev/reference/solid/advanced/variant-context
  */
 // ADR-0007.
-export const WardicVariantContext = createContext<WardicVariantContextValue | undefined>(undefined)
+export const WardicVariantContext = createContext<VariantTree.WardicVariantContextValue | undefined>(undefined)
 
 /**
  * The nearest variant parent's context, or `undefined` outside one: its current variant name,
@@ -44,4 +44,4 @@ export const WardicVariantContext = createContext<WardicVariantContextValue | un
  * @see https://wardic.dev/reference/solid/advanced/variant-context
  */
 // ADR-0007: local `animate` over the inherited name over `initial`.
-export const useVariantContext = (): WardicVariantContextValue | undefined => useContext(WardicVariantContext)
+export const useVariantContext = (): VariantTree.WardicVariantContextValue | undefined => useContext(WardicVariantContext)

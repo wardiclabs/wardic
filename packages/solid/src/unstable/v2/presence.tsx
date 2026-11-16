@@ -19,7 +19,7 @@ import * as Option from "effect/Option"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { children, createContext, createEffect, createMemo, createSignal, onCleanup, untrack, useContext } from "solid-js"
 import { makePresence, type PresenceMode, propagateTo } from "../../presence-controller.ts"
-import type { PresenceContextValue } from "../../presence-record.ts"
+import type * as PresenceController from "@wardic/dom/unstable/PresenceController"
 import { useBuiltProjection, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRenderer, useWardicRuntime } from "./provider.tsx"
 import { CLIENT_ONLY, onSettledClientOnly } from "./solid-reactivity.ts"
 import { hasRef, makePresenceHandle, type Presence, serverPresenceHandle } from "./presence-handle.ts"
@@ -28,10 +28,10 @@ import { hasRef, makePresenceHandle, type Presence, serverPresenceHandle } from 
  * The nearest `<AnimatePresence>`'s registrar, `null` outside one: Solid 2 takes an `undefined`
  * default for none and then throws in `useContext`.
  */
-export const PresenceContext = createContext<PresenceContextValue | null>(null)
+export const PresenceContext = createContext<PresenceController.PresenceContextValue | null>(null)
 
 /** The nearest `<AnimatePresence>`'s registrar, `undefined` outside one. */
-export const usePresenceContext = (): PresenceContextValue | undefined => Option.getOrUndefined(Option.fromNullishOr(useContext(PresenceContext)))
+export const usePresenceContext = (): PresenceController.PresenceContextValue | undefined => Option.getOrUndefined(Option.fromNullishOr(useContext(PresenceContext)))
 
 /** {@link AnimatePresence}'s props. */
 export interface AnimatePresenceProps {
@@ -152,7 +152,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   }
 
   // Its `custom`, reactive, for `usePresenceData` (#277's PR 5b).
-  const context: PresenceContextValue = { ...presence.context, data: () => props.custom }
+  const context: PresenceController.PresenceContextValue = { ...presence.context, data: () => props.custom }
   return (
     <PresenceContext value={context}>
       <Tracker />
@@ -166,7 +166,7 @@ const serverPresence = (props: AnimatePresenceProps): JSX.Element => {
   const ref = untrack(() => props.ref)
   if (hasRef(ref)) ref(serverPresenceHandle())
   // A server renders once: every child is set up with the first render (#134).
-  const context: PresenceContextValue = { register: () => () => {}, blocksInitial: () => untrack(() => props.initial) === false, data: () => props.custom }
+  const context: PresenceController.PresenceContextValue = { register: () => () => {}, blocksInitial: () => untrack(() => props.initial) === false, data: () => props.custom }
   const Tracker = (): JSX.Element => children(() => props.children) as unknown as JSX.Element
   return (
     <PresenceContext value={context}>

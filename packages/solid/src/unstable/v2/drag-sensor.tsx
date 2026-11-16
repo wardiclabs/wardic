@@ -11,7 +11,7 @@ import { type CreateDragOptions, watchDragSamples } from "../../drag-samples.ts"
 import type { Feature } from "../../feature.ts"
 import { drag } from "../../features/drag.ts"
 import { inputIn } from "../../gesture-features.ts"
-import { transformPagePointOf } from "../../wardic-config-value.ts"
+import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import { useBrought } from "./provider.tsx"
 import { type Sensor, watchSensorOf } from "./sensors.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
@@ -35,7 +35,7 @@ const DRAG: ReadonlyArray<Feature> = [drag]
 // while a gesture is on.
 export const createDrag = (options?: CreateDragOptions): Sensor<Drag.Sample | null> => {
   // Its points through the nearest WardicConfig's `transformPagePoint` (#443), read at each down.
-  const pagePoint = transformPagePointOf(useWardicConfig())
+  const pagePoint = WardicConfigValue.transformPagePointOf(useWardicConfig())
   const services = useBrought(DRAG)
   return watchSensorOf<Drag.Sample | null>(
     (target, handlers) => Effect.provideService(watchDragSamples(target, { ...options }, handlers, pagePoint), InputSource.InputSource, inputIn(services())),

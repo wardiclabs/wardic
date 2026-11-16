@@ -66,7 +66,7 @@ import { inputIn } from "../../gesture-features.ts"
 import * as OwnerScope from "../../owner-scope.ts"
 import { watchItemInput } from "../../reorder-input.ts"
 import { plainOrder } from "../../reorder-values.ts"
-import { changesContext } from "../../variant-tree.ts"
+import * as VariantTree from "@wardic/core/unstable/VariantTree"
 import { configView, type PerKey } from "./config-view.ts"
 import { useBrought, useWardicRuntime } from "./provider.tsx"
 import { useLayoutServices } from "./layout-projection.tsx"
@@ -871,7 +871,7 @@ function Item<V, Tag extends ReorderElementTag = "li", C = {}>(props: ReorderIte
   // An item that changes what its children read renders its variant context's Provider around them
   // (#50), as every Wardic element does; any other renders none.
   const config = UndefinedOr.match(element.setup, { onUndefined: () => wardConfigView(local as unknown as WardConfig), onDefined: identity })
-  return Bool.match(untrack(() => changesContext(config)), {
+  return Bool.match(untrack(() => VariantTree.changesContext(config)), {
     onFalse: element.render,
     onTrue: () => <element.row.Provider>{element.render()}</element.row.Provider>,
   })

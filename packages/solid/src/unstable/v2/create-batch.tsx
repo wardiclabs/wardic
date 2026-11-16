@@ -33,7 +33,7 @@ import { flightsOf } from "./flights.ts"
 import { provideBatchHolds } from "../../member-hold.ts"
 import { useFeatureRegistry, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRuntime, useWardicSkipAnimations } from "./provider.tsx"
 import { CLIENT_ONLY_DEFERRED } from "./solid-reactivity.ts"
-import type { PresenceContextValue } from "../../presence-record.ts"
+import type * as PresenceController from "@wardic/dom/unstable/PresenceController"
 import { usePresenceContext } from "./presence.tsx"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { neverLands, serverWhen, Waiters, whenOf } from "./waiters.ts"
@@ -138,7 +138,7 @@ export interface WardicKeyedBatch<K> extends BatchLandings {
  * The `<AnimatePresence>` a member's handle is made under: none outside an owner (a handle made in a
  * handler, or after an `await`), where Solid 2's context read throws.
  */
-const presenceHere = (): PresenceContextValue | undefined => {
+const presenceHere = (): PresenceController.PresenceContextValue | undefined => {
   if (Predicate.isNullish(getOwner())) return undefined
   return usePresenceContext()
 }

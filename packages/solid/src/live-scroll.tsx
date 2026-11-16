@@ -26,7 +26,7 @@ import * as OwnerScope from "./owner-scope.ts"
 import { useBrought, useWardicRuntime } from "./provider.tsx"
 import { followScroll, letGoScroll, scrollAtomsOf } from "./scroll-values.ts"
 import { isServer } from "./server.ts"
-import { Timelines } from "./timelines.ts"
+import * as Timelines from "@wardic/core/unstable/Timelines"
 
 /** What it brings (ADR-0067 decision 12): the `scroll` Feature, whatever its section has (#518). */
 const SCROLL: ReadonlyArray<Feature> = [scroll]
@@ -101,7 +101,7 @@ export const createScroll = (options: ScrollOptions = {}): ScrollValues => {
   if (isServer) return SERVER_SCROLL
   const services = useBrought(SCROLL)
   // Built now, before a `style` follows its values, so the element finds its Timeline values (#240).
-  const timelines = serviceOf(services(), Timelines)
+  const timelines = serviceOf(services(), Timelines.Timelines)
   const registry = runtime.runSync(AtomRegistry.AtomRegistry)
   // Its own four Atoms, set from the scroll of the elements there now.
   const outs = scrollAtomsOf(registry, onCleanup)

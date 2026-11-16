@@ -47,19 +47,20 @@ import { type Accessor, children, createContext, createEffect, createMemo, creat
 import { exitCompleteEvents, makePresence, type PresenceMode, propagateTo } from "./presence-controller.ts"
 import { useBuiltProjection, useWardicDefaultTransition, useWardicPositionalKeys, useWardicReducedMotion, useWardicRenderer, useWardicRuntime } from "./provider.tsx"
 import { isServer } from "./server.ts"
-import type { PresenceContextValue } from "./presence-record.ts"
+import type * as PresenceController from "@wardic/dom/unstable/PresenceController"
 
-export { type PresenceContextValue, type PresenceRecord, presenceBlocksInitial, presenceHold } from "./presence-record.ts"
+export { type PresenceContextValue, type PresenceRecord } from "@wardic/dom/unstable/PresenceController"
+export { presenceBlocksInitial, presenceHold } from "@wardic/core/unstable/PresenceRecord"
 export type { PresenceMode } from "./presence-controller.ts"
 
 /**
  * Context carrying the nearest `<AnimatePresence>`'s registrar. `undefined` when
  * there is no presence in scope — `createWard` then skips exit registration.
  */
-export const PresenceContext = createContext<PresenceContextValue | undefined>(undefined)
+export const PresenceContext = createContext<PresenceController.PresenceContextValue | undefined>(undefined)
 
 /** Read the nearest {@link PresenceContext}, or `undefined` outside one. */
-export const usePresenceContext = (): PresenceContextValue | undefined => useContext(PresenceContext)
+export const usePresenceContext = (): PresenceController.PresenceContextValue | undefined => useContext(PresenceContext)
 
 /** {@link AnimatePresence}'s props. */
 export interface AnimatePresenceProps {
@@ -185,7 +186,7 @@ export function AnimatePresence(props: AnimatePresenceProps): JSX.Element {
   onCleanup(propagateTo(parent, untrack(() => props.propagate) === true, presence))
 
   // Its `custom`, reactive, for `usePresenceData` (#277's PR 5b).
-  const context: PresenceContextValue = { ...presence.context, data: () => props.custom }
+  const context: PresenceController.PresenceContextValue = { ...presence.context, data: () => props.custom }
   return (
     <PresenceContext.Provider value={context}>
       <Tracker />
@@ -261,7 +262,7 @@ export function usePresenceData<T = any>(): Accessor<T | undefined> {
 /** {@link AnimatePresence} during a server render: the client's boundaries, nothing to track. */
 const serverPresence = (props: AnimatePresenceProps): JSX.Element => {
   // A server renders once: every child is set up with the first render (#134).
-  const ctx: PresenceContextValue = { register: () => () => {}, blocksInitial: () => props.initial === false, data: () => props.custom }
+  const ctx: PresenceController.PresenceContextValue = { register: () => () => {}, blocksInitial: () => props.initial === false, data: () => props.custom }
   const Tracker = (): JSX.Element => children(() => props.children) as unknown as JSX.Element
   return (
     <PresenceContext.Provider value={ctx}>

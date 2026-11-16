@@ -60,7 +60,7 @@ import { warnWithoutSpans } from "./spans-check.ts"
 import { isHydrating, isServer } from "./server.ts"
 import { reactivity } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
-import { skipAnimationsOf } from "./wardic-config-value.ts"
+import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import { instantLayoutOf, type InstantTransition, instantTransitionOf, resetOf } from "./instant.ts"
 import type { WardicScaleCorrector } from "./config.ts"
 
@@ -407,7 +407,7 @@ export function useWardicReducedMotion(): () => boolean {
  * Internal.
  */
 export function useWardicSkipAnimations(): () => boolean {
-  const config = skipAnimationsOf(useWardicConfig())
+  const config = WardicConfigValue.skipAnimationsOf(useWardicConfig())
   const value = useContext(WardicContext)
   if (Predicate.isUndefined(value)) return config
   const instant = value.instant

@@ -9,12 +9,12 @@ import * as Option from "effect/Option"
 import { createContext, createMemo, useContext } from "solid-js"
 import type * as ReducedMotion from "@wardic/core/ReducedMotion"
 import type { WardicTransformPoint, WardicVariantTransition } from "../../config.ts"
-import { configIsValidPropOf, configReducedMotionOf, configTransformPagePointOf, configSkipAnimationsOf, configTransitionOf, type WardicConfigValue } from "../../wardic-config-value.ts"
+import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
 
 // `null` for none, as the binding's other contexts: Solid 2 throws on a read of a context made with
 // `undefined` and no provider above, and most elements have no `WardicConfig` above them.
-const WardicConfigContext = createContext<WardicConfigValue | null>(null)
+const WardicConfigContext = createContext<WardicConfigValue.WardicConfigValue | null>(null)
 
 /** `WardicConfig`'s props. */
 export interface WardicConfigProps {
@@ -75,10 +75,10 @@ export function WardicConfig(props: WardicConfigProps): JSX.Element {
   const parent = useWardicConfig()
   // One object per change, so the elements below share it, and its caches (#66, #301) hit. Transparent
   // to hydration ids, as every computation the binding makes (#209).
-  const transition = createMemo(() => configTransitionOf(props.transition, parent), CLIENT_ONLY)
-  return <WardicConfigContext value={{ transition, reducedMotion: () => configReducedMotionOf(props.reducedMotion, parent), skipAnimations: () => configSkipAnimationsOf(props.skipAnimations, parent), isValidProp: () => configIsValidPropOf(props.isValidProp, parent), transformPagePoint: () => configTransformPagePointOf(props.transformPagePoint, parent) }}>{props.children}</WardicConfigContext>
+  const transition = createMemo(() => WardicConfigValue.configTransitionOf(props.transition, parent), CLIENT_ONLY)
+  return <WardicConfigContext value={{ transition, reducedMotion: () => WardicConfigValue.configReducedMotionOf(props.reducedMotion, parent), skipAnimations: () => WardicConfigValue.configSkipAnimationsOf(props.skipAnimations, parent), isValidProp: () => WardicConfigValue.configIsValidPropOf(props.isValidProp, parent), transformPagePoint: () => WardicConfigValue.configTransformPagePointOf(props.transformPagePoint, parent) }}>{props.children}</WardicConfigContext>
 }
 
 /** The nearest `WardicConfig`'s settings, or none. Internal. */
-export const useWardicConfig = (): WardicConfigValue | undefined => Option.getOrUndefined(Option.fromNullishOr(useContext(WardicConfigContext)))
+export const useWardicConfig = (): WardicConfigValue.WardicConfigValue | undefined => Option.getOrUndefined(Option.fromNullishOr(useContext(WardicConfigContext)))
 

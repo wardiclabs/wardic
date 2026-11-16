@@ -37,7 +37,7 @@ import { type Accessor, createMemo, createSignal, type Owner, runWithOwner } fro
 import type { WardicAnimationDefinition, WardicValues } from "../../config.ts"
 import type { NeedsFeature } from "../../feature.ts"
 import { dragInfoOf, pointInfoOf, pointOfSample, pressInfoOf, type WardicDragInfo, type WardicPoint, type WardicPointInfo, type WardicPressInfo } from "../../gesture-info.ts"
-import { type AnimationHooks, definitionOf, type Resolution } from "../../spine.ts"
+import * as Spine from "@wardic/core/unstable/Spine"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
 import { eachOf, type Listener, Waiters, whenOf } from "./waiters.ts"
 
@@ -270,14 +270,14 @@ const PAN_EVENT: Record<Drag.Sample["phase"], MovementEvent | undefined> = {
  * {@link Lifecycle.dispose} in its own cleanup. A landing's gestures are the layers its Retarget's
  * resolution was made with.
  */
-export class Lifecycle implements AnimationHooks {
+export class Lifecycle implements Spine.AnimationHooks {
   // The Retargets started and the last one landed, counted, and the one in flight.
   private starts = 0
   private landed = 0
-  private flying: Resolution | undefined = undefined
+  private flying: Spine.Resolution | undefined = undefined
   // The last landing, built when it's asked for: its resolution and the variant before it.
-  private landedResolution: Resolution | undefined = undefined
-  private landedPrevious: Resolution | undefined = undefined
+  private landedResolution: Spine.Resolution | undefined = undefined
+  private landedPrevious: Spine.Resolution | undefined = undefined
   private last: WardSettled | undefined = undefined
   // Made at the first read: the setter of the count it tracks, its memo, and its pending read's resolver.
   private setCount: ((count: number) => void) | undefined = undefined
@@ -333,7 +333,7 @@ export class Lifecycle implements AnimationHooks {
     return this.inView
   }
 
-  started(resolution: Resolution): void {
+  started(resolution: Spine.Resolution): void {
     this.starts++
     this.flying = resolution
     this.failure = undefined
@@ -349,7 +349,7 @@ export class Lifecycle implements AnimationHooks {
     UndefinedOr.map(this.setCount, (set) => set(this.starts))
   }
 
-  settled(resolution: Resolution, previous: Resolution | undefined): void {
+  settled(resolution: Spine.Resolution, previous: Spine.Resolution | undefined): void {
     // A landing told after a later Retarget started (a settle waits for the gate's flush) is stale.
     if (resolution !== this.flying) return
     this.landed = this.starts
@@ -370,7 +370,7 @@ export class Lifecycle implements AnimationHooks {
    * The Retarget in flight can't land: a leg failed (#257 item 4). It's no longer in flight;
    * `settled()` reads as errored until the next starts, and the waits for `settled` are rejected.
    */
-  failed(resolution: Resolution, error: unknown): void {
+  failed(resolution: Spine.Resolution, error: unknown): void {
     if (resolution !== this.flying) return
     this.flying = undefined
     this.landed = this.starts
@@ -618,10 +618,10 @@ export class Lifecycle implements AnimationHooks {
   private lastLanding(): WardSettled | undefined {
     const resolution = this.landedResolution
     if (Bool.or(Predicate.isNotUndefined(this.last), Predicate.isUndefined(resolution))) return this.last
-    const landing = resolution as Resolution
+    const landing = resolution as Spine.Resolution
     const active = landing.active
     this.last = {
-      definition: definitionOf(landing, this.landedPrevious) as WardicAnimationDefinition,
+      definition: Spine.definitionOf(landing, this.landedPrevious) as WardicAnimationDefinition,
       target: landing.resolved,
       gestures: { hover: active.hovered, tap: active.pressed, drag: active.dragged, inView: active.inView, focus: active.focused },
     }

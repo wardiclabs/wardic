@@ -28,7 +28,7 @@ import * as Bool from "effect/Boolean"
 import { constUndefined } from "effect/Function"
 import * as Rec from "effect/Record"
 import type { LiveStyle } from "./live-style.ts"
-import type { Reactivity } from "./reactivity.ts"
+import type * as Reactivity from "@wardic/core/unstable/Reactivity"
 
 /** What {@link createElementStyle} reads. */
 export interface ElementStyleOptions {
@@ -45,7 +45,7 @@ export interface ElementStyleOptions {
   /** A `<Reorder>` item's base style, under the user's style. */
   readonly base?: (() => object | undefined) | undefined
   /** The binding's Solid (#209). */
-  readonly reactivity: Reactivity
+  readonly reactivity: Reactivity.Reactivity
 }
 
 /** An element's `style` and the sink hooks that switch it. */

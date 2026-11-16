@@ -31,7 +31,7 @@ import { type ComponentProps, dynamic, isServer, type JSX, type ValidComponent }
 import { $PROXY, children, type Component, createEffect, createMemo, createRoot, DEV, omit, runWithOwner, untrack } from "solid-js"
 import { unforwardedRefFix, unforwardedRefLine } from "../../messages.ts"
 import { MOTION_PROPS_V2 as MOTION_PROPS, type WardicMotionPropsV2 as WardicMotionProps } from "../../motion-props.ts"
-import { changesContext, isVariantChild } from "../../variant-tree.ts"
+import * as VariantTree from "@wardic/core/unstable/VariantTree"
 import { type AnyWard, GESTURE_KEYS, shareOf, type Ward, WARD, type WardConfig, type WardFor, type WardConfigValues, wardConfigView, type WardInternals, type WardRead, type WardShare, type WardStyle, wardWith } from "./ward.tsx"
 import { CLIENT_ONLY } from "./solid-reactivity.ts"
 import type { WardBaseConfig, WardFeatureConfigs, WardicVariantLabels } from "../../config.ts"
@@ -41,7 +41,7 @@ import type { SolidOneCallback } from "../../motion-props.ts"
 import type { DrivenKey, InferredMotion, InferredMotionOf, TargetKey } from "../../ward-keys.ts"
 import { useVariantContext } from "./variant-node.ts"
 import { droppedKeysOf, markWardic, routingTagOf, type WardicCreateOptions } from "../../wardic-component.ts"
-import { isValidPropOf } from "../../wardic-config-value.ts"
+import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import { useWardicConfig } from "./wardic-config.tsx"
 
 /**
@@ -259,7 +259,7 @@ const checkParent = (name: string, share: WardShare): void => {
   if (share.chosen) return
   const here = useVariantContext()
   if (Bool.or(here === share.parent, Predicate.isUndefined(here))) return
-  if (Bool.not(isVariantChild(share.setup))) return
+  if (Bool.not(VariantTree.isVariantChild(share.setup))) return
   throw new Error(
     `${name}: the ward in wardRef was made outside its element's variant parent, so it wouldn't inherit from it (#349). ` +
       "Make it with ward(config, { parent }), naming the ward whose element it renders in, or give it `inherit: false` to stand alone.",
@@ -324,7 +324,7 @@ const PASSED_OVER_FORWARDING = ["ref", "style", "wardRef"] as const
  */
 const restOf = (props: Record<string, unknown>, forward: boolean, isTag: boolean): Record<string, unknown> => {
   const rest = Bool.match(forward, { onTrue: () => omit(props, ...PASSED_OVER_FORWARDING), onFalse: () => omit(props, ...PASSED_OVER) })
-  const dropped = droppedKeysOf(() => Object.keys(rest), isValidPropOf(useWardicConfig()), isTag)
+  const dropped = droppedKeysOf(() => Object.keys(rest), WardicConfigValue.isValidPropOf(useWardicConfig()), isTag)
   // Omitted again only when it keeps any off (most elements have no `isValidProp` above them).
   if (Arr.isReadonlyArrayEmpty(dropped)) return rest
   return omit(rest, ...dropped)
@@ -335,7 +335,7 @@ const restOf = (props: Record<string, unknown>, forward: boolean, isTag: boolean
  * the element's props, read at setup, or a given ward's config (#349).
  */
 const withProvider = (ward: Ward, config: WardConfigValues, element: () => JSX.Element): JSX.Element =>
-  Bool.match(untrack(() => changesContext(config)), {
+  Bool.match(untrack(() => VariantTree.changesContext(config)), {
     onFalse: element,
     onTrue: () => <ward.Provider>{element()}</ward.Provider>,
   })
