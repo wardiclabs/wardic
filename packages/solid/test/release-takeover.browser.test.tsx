@@ -1,6 +1,8 @@
 // A target for x or y during a drag's release takes over (#340, ADR-0016 *Amendment (#340)*), as a
 // newer animation of Motion's value does: the release stops, and x goes on from where the release
-// had it, at its speed. With real Playwright mouse input, timed by the frames' own timestamps.
+// had it, at its speed. With real Playwright mouse input, timed by the frames' own timestamps, but for
+// RT7 and RT9: they read the release's speed, so they push the flick with its own timestamps (#778, as
+// FL5 does for #729). On the real mouse a loaded runner can land the up late, and the throw reads low.
 //
 // - RT1: a fling with `dragSnapToOrigin` whose `onDragEnd` sets `animate` to x 420 flies on out to
 //   420, never back toward its slot first. Before #340 it sprang back home, then went to 420.
@@ -20,10 +22,12 @@
 //   not the values of the hand-back's Retarget, which changes nothing else (Motion's has none).
 import { render } from "@solidjs/testing-library"
 import { DomLive } from "@wardic/dom"
-import { wardic, type WardicDragInfo, WardicProvider, type WardicValueTransition, type WardicVariant } from "@wardic/solid"
+import { wardic, type WardicDragInfo, type WardicEnv, WardicProvider, type WardicValueTransition, type WardicVariant } from "@wardic/solid"
 import { createSignal } from "solid-js"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import { page } from "vitest/browser"
+import { raf } from "./browser-helpers.ts"
+import { type PushedPointer, pushedPointer } from "./pushed-pointer.ts"
 import { add, glide, mouse, type Pt, resetScene, sampleFrames, settle, wait } from "./reorder-harness.tsx"
 
 afterEach(resetScene)
@@ -48,19 +52,21 @@ interface Card {
 }
 
 /**
- * A 120x80 card on x with `dragSnapToOrigin` at (40, 420), its `animate` a signal; `onRelease` hears
- * each `onDragEnd` and may set it. Low on the page: the browser files share one page and its mouse.
+ * A 120x80 card on x with `dragSnapToOrigin` at (40, 420), on `env`, its `animate` a signal;
+ * `onRelease` hears each `onDragEnd` and may set it. Low on the page: the browser files share one page
+ * and its mouse.
  */
 const mountCard = async (
   onRelease: (info: WardicDragInfo, setTarget: (target: Target) => void) => void,
   xTransition: WardicValueTransition = { type: "tween", duration: 0.4 },
   whileDrag: WardicVariant = {},
+  env: WardicEnv = DomLive,
 ): Promise<Card> => {
   const [el, setEl] = createSignal<HTMLElement>()
   const [target, setTarget] = createSignal<Target>({ x: 0, opacity: 1 })
   let ends = 0
   render(() => (
-    <WardicProvider env={DomLive}>
+    <WardicProvider env={env}>
       <div style={{ position: "absolute", top: "420px", left: "40px" }}>
         <wardic.div
           ref={(n: HTMLElement) => setEl(n)}
@@ -97,6 +103,27 @@ const flick = async (c: Card): Promise<Pt> => {
     if (k < 4) await wait(35)
   }
   return add(g, 220, 0)
+}
+
+/**
+ * `flick`'s gesture on a pushed pointer, with its own timestamps: 6 moves of 10 px 20 ms apart, then 4
+ * of 40 px 35 ms apart, each painted. The pointer stays down, 220 px right; let go with
+ * `pointer.push("up", 220, 5)`. Its 100 ms window then reaches back to the first 40 px move:
+ * (220 - 100) px over 110 ms, about 1,090 px/s on any host.
+ */
+const pushedFlick = async (pointer: PushedPointer): Promise<void> => {
+  pointer.push("down", 0, 0)
+  for (let k = 1; k <= 6; k++) {
+    pointer.push("move", 10 * k, 20)
+    await raf()
+  }
+  for (let k = 1; k <= 4; k++) {
+    pointer.push("move", 60 + 40 * k, 35)
+    await raf()
+  }
+  // The last move painted.
+  await raf()
+  await raf()
 }
 
 /** Let go at `at` and sample the card's x each frame for `ms`. */
@@ -207,26 +234,31 @@ describe("a target for x during a drag's release takes over (#340)", () => {
 
   it("RT7: x goes on at the release's speed", async () => {
     let thrown = 0
+    const pointer = pushedPointer()
     const c = await mountCard(
       (info, setTarget) => {
         thrown = info.velocity.x
         if (Math.abs(info.offset.x) >= 120) setTarget({ x: 420, opacity: 1 })
       },
       { type: "spring", stiffness: 20, damping: 10 },
+      {},
+      pointer.env,
     )
-    const pointer = await flick(c)
+    await pushedFlick(pointer)
     const released = dxOf(c)
     const sampling = sampleFrames(() => dxOf(c))
-    await mouse.up(pointer)
+    pointer.push("up", 220, 5)
     await wait(300)
     const frames = sampling.stop()
     expect(thrown, "thrown, px/s").toBeGreaterThan(500)
     // Its first frame on the move, wherever the up's round trip put it (#361), against the throw's
-    // speed: 0.81–0.87 of it, measured; with half its velocity it would be ~0.43, from rest under 0.1.
+    // speed: 0.855 of it, measured; with half its velocity 0.47, from rest 0.08. Timed by the frames'
+    // own timestamps (#778): by `frameAt`, which drifts on a loaded page, the same carry read from 19%
+    // under to 43% over.
     const first = frames.findIndex((f) => f.v > released + 0.5)
     expect(first, "it moves").toBeGreaterThan(-1)
     const [from, to] = [frames[first]!, frames[first + 1]!]
-    expect((to.v - from.v) / (to.frameAt - from.frameAt), "carried on at the throw's speed, px/ms").toBeGreaterThan((thrown / 1000) * 0.65)
+    expect((to.v - from.v) / (to.rafAt - from.rafAt), "carried on at the throw's speed, px/ms").toBeGreaterThan((thrown / 1000) * 0.65)
   })
 
   it("RT8: a target that stops setting x is no new target: the release goes on, home, and told", async () => {
@@ -241,6 +273,7 @@ describe("a target for x during a drag's release takes over (#340)", () => {
 
   it("RT9: taken mid-release, x goes on at the release's speed there", async () => {
     let takenAt = 0
+    const pointer = pushedPointer()
     const c = await mountCard(
       (info, setTarget) => {
         if (Math.abs(info.offset.x) < 120) return
@@ -250,10 +283,12 @@ describe("a target for x during a drag's release takes over (#340)", () => {
         }, 150)
       },
       { type: "spring", stiffness: 20, damping: 10 },
+      {},
+      pointer.env,
     )
-    const pointer = await flick(c)
+    await pushedFlick(pointer)
     const sampling = sampleFrames(() => dxOf(c))
-    await mouse.up(pointer)
+    pointer.push("up", 220, 5)
     await wait(400)
     const frames = sampling.stop()
     // The release's last whole frame before the takeover, and the takeover's first whole frame after

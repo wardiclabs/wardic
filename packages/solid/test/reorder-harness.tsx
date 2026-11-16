@@ -102,7 +102,14 @@ export const offPointer = (el: Element, pointer: Pt, grabOffset: Pt): number => 
 
 /** A painted frame: when its rAF ran, and what `read` returned just after its paint. */
 export interface Frame<T> {
+  /** `performance.now()` in its rAF callback: comparable with other `performance.now()` reads. */
   readonly frameAt: number
+  /**
+   * The frame's own timestamp, the one rAF hands its callbacks and the frame loop steps by. Time a
+   * speed by it: a loaded page runs other callbacks before this one, so `frameAt` drifts a few ms
+   * from frame to frame where this doesn't (#778).
+   */
+  readonly rafAt: number
   readonly v: T
 }
 
@@ -112,12 +119,14 @@ export const sampleFrames = <T,>(read: () => T): { readonly stop: () => Readonly
   const channel = new MessageChannel()
   let on = true
   let frameAt = 0
-  const post = (): void => {
+  let rafAt = 0
+  const post = (t: number): void => {
     frameAt = performance.now()
+    rafAt = t
     channel.port2.postMessage(undefined)
   }
   channel.port1.onmessage = () => {
-    frames.push({ frameAt, v: read() })
+    frames.push({ frameAt, rafAt, v: read() })
     if (on) requestAnimationFrame(post)
   }
   requestAnimationFrame(post)
