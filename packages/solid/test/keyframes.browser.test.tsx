@@ -12,7 +12,8 @@
 //   does a list's change that moves the same name's to another layer.
 // - KS11: new stops with the same last one play again; a list's later name setting a key to one value
 //   ends an earlier name's Keyframes for it.
-// - KS7: a hover over Keyframes ending plays them again from their first stop: a pulse resumes.
+// - KS7: a hover over Keyframes ending plays them again from their first stop: a pulse resumes. On a
+//   pushed pointer (#784): the real mouse's leave returns a frame or more late under load, into the pulse.
 // - KS8: `initial={false}` starts at `animate`'s last stop and plays nothing, told nothing; an
 //   `initial` with Keyframes starts at its first stop.
 // - KS9: under reduced motion, a positional key's Keyframes snap to their last stop.
@@ -26,9 +27,10 @@ import * as Layer from "effect/Layer"
 import * as Logger from "effect/Logger"
 import { createSignal, type JSX, Show } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
-import { BOX, hover, leave, opacityOf, scaleOf } from "./base-values-harness.ts"
+import { BOX, opacityOf, scaleOf } from "./base-values-harness.ts"
 import { raf, until } from "./browser-helpers.ts"
-import { resetScene, settle, wait } from "./reorder-harness.tsx"
+import { pushedPointer } from "./pushed-pointer.ts"
+import { centreOf, resetScene, settle, wait } from "./reorder-harness.tsx"
 
 afterEach(resetScene)
 
@@ -241,20 +243,26 @@ describe("Keyframes on Solid 1 (#429)", () => {
   })
 
   it("KS7: a hover over Keyframes ending plays them again from their first stop: a pulse resumes", async () => {
+    // A pushed pointer (#784): the sample after the leave starts at once, not after the real mouse's
+    // return trip (a frame idle, up to 100 ms under load) with the pulse playing on.
+    const pointer = pushedPointer()
     let el!: HTMLElement
-    show(() => (
-      <wardic.div
-        ref={(n: HTMLElement) => (el = n)}
-        style={BOX}
-        animate={{ scale: [1, 1.5, 1], transition: { ...LINEAR, duration: 0.4, repeat: Infinity } }}
-        whileHover={{ scale: 2 }}
-      />
-    ))
+    show(
+      () => (
+        <wardic.div
+          ref={(n: HTMLElement) => (el = n)}
+          style={BOX}
+          animate={{ scale: [1, 1.5, 1], transition: { ...LINEAR, duration: 0.4, repeat: Infinity } }}
+          whileHover={{ scale: 2 }}
+        />
+      ),
+      pointer.env,
+    )
     expect(max(values(await sample(el, scaleOf, 500))), "the pulse").toBeGreaterThan(1.4)
-    await hover(el)
+    pointer.push("enter", centreOf(el))
     await until(() => Math.abs(scaleOf(el) - 2) < 0.01, 3000)
     expect(scaleOf(el)).toBeCloseTo(2, 1)
-    await leave()
+    pointer.push("leave", { x: 5, y: 5 })
     const after = values(await sample(el, scaleOf, 900))
     expect(min(after.slice(0, 3)), "from its first stop, jumped to").toBeLessThan(1.15)
     expect(max(after.slice(3)), "and pulsing again").toBeGreaterThan(1.4)

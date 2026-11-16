@@ -1,7 +1,9 @@
 // A key's velocity, from its frames, whatever drew them (#464, Motion's `getVelocity`), and at rest
 // once nothing has moved it for 30 ms.
 //
-// - VL1: a spring that takes over a moving tween carries its speed on outward first, as Motion's.
+// - VL1: a spring that takes over a moving tween carries its speed on outward first, as Motion's. On
+//   `SOFT` (#784): `SPRING_BACK`'s 3 px peak lasts one frame, which a long frame under load reads past;
+//   `SOFT`'s 11 px peak holds above the read for a dozen.
 // - VL2: a spring after a tween that landed starts at rest: the older spring's velocity is gone, so a
 //   critically damped spring doesn't overshoot (the issue's 113, 122, 129…).
 // - VL3: a spring chained in the frame a linear tween lands carries its last speed; one started later
@@ -11,7 +13,7 @@
 // - VL7: a spring stopped mid-flight leaves no velocity 100 ms later: the next starts at rest.
 // - VL8: so does a declarative one (Animation controls' `stop()`), for the element's next Retarget.
 // - VL9: a spring stopped and followed in the same task carries its speed on.
-// - VL6: an exit that takes over a moving tween starts with its speed, as Motion's.
+// - VL6: an exit that takes over a moving tween starts with its speed, as Motion's. On `SOFT` (#784), as VL1.
 // - VL10: an exit reads a key a paused Imperative animation holds at rest: its held frames move nothing.
 // - VL11: an exit after a long task reads a moving spring's key at rest: it drew nothing for 100 ms.
 import { cleanup, render } from "@solidjs/testing-library"
@@ -77,9 +79,10 @@ describe("a key's velocity from its frames (#464)", () => {
     box.set(300, { duration: 1, ease: "linear" })
     await until(() => xOf(byId("box")) > 100)
     const at = xOf(byId("box"))
-    box.set(0, SPRING_BACK)
+    box.set(0, SOFT)
     const after = await xs(byId("box"), 4)
-    // At about 300 px/s, it goes on outward before it turns: today's turned at once.
+    // At about 300 px/s, it goes on outward before it turns: today's turned at once. `SOFT` peaks ~11 px
+    // past the read 70 ms in and holds above it for ~12 frames (#784).
     expect(Math.max(...after), "on outward first").toBeGreaterThan(at + 2)
   })
 
@@ -235,7 +238,7 @@ describe("an exit's velocity (#464)", () => {
       <WardicProvider env={DomLive}>
         <AnimatePresence>
           <Show when={shown()}>
-            <wardic.div ref={(n: HTMLElement) => (el = n)} initial={{ x: 0 }} animate={{ x: x() }} exit={{ x: 0, transition: SPRING_BACK }} transition={{ duration: 1, ease: "linear" }} style={BOX} />
+            <wardic.div ref={(n: HTMLElement) => (el = n)} initial={{ x: 0 }} animate={{ x: x() }} exit={{ x: 0, transition: SOFT }} transition={{ duration: 1, ease: "linear" }} style={BOX} />
           </Show>
         </AnimatePresence>
       </WardicProvider>
