@@ -1,5 +1,24 @@
 # @wardic/solid
 
+## 1.1.1
+
+### Patch Changes
+
+- 64c2b56: The lift's fifth move (#672): the Batch, `animate` and presence move out of `@wardic/solid` into `@wardic/dom`, with no change an app or a Solid binding author sees. dom gains `unstable/BatchMembers`, `unstable/MemberHold`, `unstable/Imperative`, `unstable/PresenceController` (with the DOM's presence types), `unstable/ElementSetup`, `unstable/DragDefaults`, `unstable/AppearAnimations` and `unstable/ServerInterpolators`. Core's `unstable/WardicServices` Runner gains `runSyncExit`, which a `ManagedRuntime` already has. `unstable/` modules are for Wardic's own packages: public, with no semver promise.
+- ffefbe3: The lift's sixth and last move (#672): the Features move out of `@wardic/solid` into `@wardic/dom`, with no change an app or a Solid binding author sees. dom gains `unstable/Feature`, `unstable/GestureFeatures`, `unstable/Press`, `unstable/OwnerScope`, `unstable/Instant`, `unstable/DragTrack`, `unstable/DragTransition`, `unstable/LayoutMember`, `unstable/LayoutGroup` and the Features' folder, `unstable/features/<Name>`. A Feature registry runs on core's Runner. `unstable/` modules are for Wardic's own packages: public, with no semver promise.
+- 9aa3e4b: The first of the lift's six moves (#672): code a second binding needs moves out of `@wardic/solid` into public `unstable/` modules of core and dom, with no change an app or a Solid binding author sees. Core gains `unstable/Report`, `unstable/Stops`, `unstable/WardicServices` (the services an Environment gives, and the Runner), `unstable/Reactivity` and `unstable/Config`; dom gains `unstable/WardConfig`, `unstable/GestureInfo`, `unstable/DragControls` and `unstable/DragConstraints`. `unstable/` modules are for Wardic's own packages: public, with no semver promise. `@wardic/dom` now depends on `csstype`, whose types its config types are built on.
+- 3d1baf2: The lift's third move (#672): the spine's leaves move out of `@wardic/solid`, with no change an app or a Solid binding author sees. Core gains `unstable/PresenceRecord`, `unstable/VariantTarget`, `unstable/WardicConfigValue`, `unstable/FrameTime`, `unstable/RetargetLegs` and `unstable/Subject`; dom gains `unstable/LiveStyle`, the Live values routed through an element's `style`. `unstable/` modules are for Wardic's own packages: public, with no semver promise.
+- 3d10386: The lift's second move (#672): Wardic's spine reads a Subject's own values, Measured pairs and Variable values through three new, optional Environment members, `@wardic/core/unstable/OwnValues`, `MeasuredPairs` and `VariableValues`, instead of reading the DOM itself. `DomLive` gives none: a DOM binding falls back to the DOM's (`@wardic/dom/unstable/DomValues`), so an app on `DomLive` sees no change, and an app with no Wardic element ships none of them. `@wardic/test`'s `TestLive` gives headless ones: under it the spine no longer reads the DOM, so a value keeps its own type with no units read, and no pair is measured nor `var()` resolved.
+- 7b6a1a1: The lift's fourth move (#672): the spine and what it imports move out of `@wardic/solid`, with one type a binding author may see: `WardicVariantContextValue.appearGroup`, the server's Appear group a Variant child joins, is `unknown` (no export names its type). Core gains `unstable/Spine`, `unstable/FlushGate` (the gate, dom's Tier 2 `FlushGate` building it with the DOM's edges), `unstable/Timelines`, `unstable/VariantTree`, `unstable/AnimationControls` and `unstable/AppearHandoff`. dom's `unstable/LiveStyle` decides an element's will-change from the legs a Retarget starts (`started`). `unstable/` modules are for Wardic's own packages: public, with no semver promise.
+- Updated dependencies [64c2b56]
+- Updated dependencies [ffefbe3]
+- Updated dependencies [9aa3e4b]
+- Updated dependencies [3d1baf2]
+- Updated dependencies [3d10386]
+- Updated dependencies [7b6a1a1]
+  - @wardic/core@1.1.1
+  - @wardic/dom@1.1.1
+
 ## 1.1.0
 
 ### Minor Changes
