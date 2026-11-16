@@ -11,7 +11,7 @@ import * as Exit from "effect/Exit"
 import * as ManagedRuntime from "effect/ManagedRuntime"
 import * as Scope from "effect/Scope"
 import { describe, expect, it } from "vitest"
-import * as OwnerScope from "../src/owner-scope.ts"
+import * as OwnerScope from "../src/unstable/OwnerScope.ts"
 
 /** A runtime whose ErrorReporter appends each reported error's message to `reports`. */
 const runtimeOf = (reports: Array<string>) =>
