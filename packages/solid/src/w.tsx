@@ -19,7 +19,8 @@ import type { WardConfig, WardicVariantLabels } from "./config.ts"
 import { createWardWith, type SpineInternals, type Ward } from "./create-ward.tsx"
 import { runDirective } from "./directive.tsx"
 import { createOf, type CreateFor, formOf, type InferredPropsFor, type WardicComponentFor } from "./element.tsx"
-import type { EveryFeature, PropFeatureNames } from "./feature.ts"
+import type { PropFeatureNames } from "./feature.ts"
+import type { EveryFeature } from "./features/all.ts"
 import type { TargetKey } from "./ward-keys.ts"
 
 /** What a Slim element tells the spine: it brings no Feature of its own. */

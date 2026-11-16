@@ -211,7 +211,7 @@ export interface BatchEnv {
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
   /** The nearest `WardicConfig`'s transition, read as each change starts. */
   readonly configTransition: () => WardConfig.WardicTransition | undefined
-  /** Its binding's Solid's `untrack`: a keyed Batch reads its list again at a task's end, outside its tracking. */
+  /** Its binding's `untrack`: a keyed Batch reads its list again at a task's end, outside its tracking. */
   readonly untrack: <A>(read: () => A) => A
   /**
    * Whether it's made while hydrating a server render (#706): its members' elements may run their Appear
@@ -219,7 +219,7 @@ export interface BatchEnv {
    */
   readonly hydrating?: boolean | undefined
   /**
-   * In development alone (each binding's Solid `DEV`), what checks a taken-over Appear animation against the
+   * In development alone (each binding's development flag), what checks a taken-over Appear animation against the
    * member's own transitions (#706, Q9): left out of a production build, with the canonical text it writes.
    */
   readonly appearKeyOf?: typeof AppearAnimations.batchKeyOf | undefined
@@ -866,10 +866,10 @@ const withConfigKeys = (
 const drawnBy = (keys: ReadonlyArray<string>): ReadonlySet<string> =>
   new Set([...Arr.filter(["transform"], () => Arr.some(keys, (key) => key !== "opacity")), ...Arr.filter(["opacity"], () => Arr.contains(keys, "opacity"))])
 
-/** A member's own `style`, without the properties the Batch draws (`drawn`): a string's an error, Solid writing it over them. */
+/** A member's own `style`, without the properties the Batch draws (`drawn`): a string's an error, its binding writing it over them. */
 const ownStyleOf = <Style>(style: Style, drawn: ReadonlySet<string>): Style => {
   if (Predicate.isString(style)) {
-    return fail(`give a member's own \`style\` as an object: Solid writes a string over what the Batch draws`)
+    return fail(`give a member's own \`style\` as an object: a string is written over what the Batch draws`)
   }
   if (!Predicate.isObject(style)) return style
   return Rec.filter(style as Readonly<Record<string, unknown>>, (_, name) => !drawn.has(name)) as Style

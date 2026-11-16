@@ -47,7 +47,7 @@ import type * as RetargetLegs from "@wardic/core/unstable/RetargetLegs"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 
 /**
- * A live value as Solid takes it: an accessor, such as a signal, a memo or another live value, or an
+ * A live value as a binding takes it: an accessor, such as a signal, a memo or another live value, or an
  * `effect/reactivity` Atom. An element's `style` follows it, and the `create*` live values take it.
  */
 export type LiveSource<A> = Atom.Atom<A> | Reactivity.Accessor<A>
@@ -62,7 +62,7 @@ type StyleInput = object | string | undefined
 export const isLive = (value: unknown): value is LiveSource<unknown> => Bool.or(Atom.isAtom(value), Predicate.isFunction(value))
 
 /** Where an accessor keeps the Atom it carries (#209 PR 3's Q2). */
-const CARRIED = Symbol.for("@wardic/solid/carried")
+const CARRIED = Symbol.for("@wardic/dom/carried")
 
 /**
  * `accessor`, carrying `atom`: the Atom it reads, so a `style` that's given it follows the Atom
@@ -185,7 +185,7 @@ export const readLive = (value: unknown, registry: () => AtomRegistry.AtomRegist
 const isRouted = (value: unknown, key: string): boolean =>
   Bool.and(Predicate.isNotNullish(value), Bool.or(isLive(value), isTransformKey(key)))
 
-/** A user's style split: what Solid's `style` carries, and the routed keys' sources. */
+/** A user's style split: what its binding's `style` carries, and the routed keys' sources. */
 export interface Split {
   /** The style without the routed keys. The user's own when nothing is routed. */
   readonly css: StyleInput
@@ -200,7 +200,7 @@ const NO_VALUES: Values.Values = {}
 /** No style: nothing routed. */
 const NO_STYLE: Split = { css: undefined, routed: NOTHING_ROUTED, droppedTransform: false }
 
-/** A user's style, split into Solid's part and the routed keys (its text form read by its Environment's `ownValues`). */
+/** A user's style, split into its binding's part and the routed keys (its text form read by its Environment's `ownValues`). */
 export const split = (user: StyleInput, ownValues: OwnValues.Shape): Split => {
   if (Predicate.isUndefined(user)) return NO_STYLE
   const record = ownValues.recordOf(user)
@@ -208,7 +208,7 @@ export const split = (user: StyleInput, ownValues: OwnValues.Shape): Split => {
   if (Rec.isEmptyRecord(routed)) return { css: user, routed: NOTHING_ROUTED, droppedTransform: false }
   const droppedTransform = Bool.and(Arr.some(Rec.keys(routed), isTransformKey), Predicate.isNotNullish(record["transform"]))
   // A `transform` string stays: the gate holds `transform` while a transform key is routed, so it's
-  // left out of what Solid writes, and shows again once none is.
+  // left out of what its binding writes, and shows again once none is.
   const css = Rec.filter(record, (_, key) => Bool.not(Object.hasOwn(routed, key)))
   return { css, routed, droppedTransform }
 }
@@ -234,7 +234,7 @@ export interface Follower {
 
 /** An element's routed `style` keys, seen through its `style` and followed from mount. */
 export interface LiveStyle {
-  /** Sees the user's `style` (reconciling the routed keys), and gives Solid's part of it. Called where the binding reads it reactively. */
+  /** Sees the user's `style` (reconciling the routed keys), and gives the binding's part of it. Called where the binding reads it reactively. */
   readonly css: (user: StyleInput) => StyleInput
   /** The routed keys' values now, as a values map: the Starting style's. */
   readonly values: () => Values.Values
@@ -279,7 +279,7 @@ export interface LiveStyleOptions {
   readonly registry: () => AtomRegistry.AtomRegistry
   /** Called once, the first time a `transform` string is dropped for the transform keys. */
   readonly onDroppedTransform?: (() => void) | undefined
-  /** The binding's Solid: accessors are read untracked, and watched, through it (#209). */
+  /** The binding's reactivity: accessors are read untracked, and watched, through it (#209). */
   readonly reactivity: Reactivity.Reactivity
   /** Its Environment's reads of its Subjects' own values (#672): a `style`'s text form read through them. */
   readonly ownValues: OwnValues.Shape

@@ -55,13 +55,13 @@ Read at `3538869` (1.1.0, 2026-11-14). Line counts are that commit's, of the fil
 | the filler half of `member-hold.ts` (Q14) → `MemberHold` | ~210 | 5 |
 | `imperative.ts` → `Imperative` (Q13: the DOM's `animate`, its Subjects elements and selectors) | 1,052 | 5 |
 | `presence-controller.ts` → `PresenceController`, with the DOM's presence types (PR5-Q3) | 1,732 | 5 |
-| `feature.ts`, `gesture-features.ts`, `features/*` (15 files), `press.ts` | 491, 35, 549, 40 | 6 |
-| `owner-scope.ts`, `instant.ts` | 31, 90 | 6 |
-| `drag-track.ts`, `drag-transition.ts` | 955, 43 | 6 |
-| `layout-member.ts`, `layout-group.ts` | 315, 32 | 6 |
-| `runtime.ts`'s `ProjectionOptions` | 1 | 6 |
+| `feature.ts` → `Feature`, `gesture-features.ts` → `GestureFeatures`, `features/*` → `features/<Name>` (15 files, PR6-Q1), `press.ts` → `Press` | 491, 35, 549, 40 | 6 |
+| `owner-scope.ts` → `OwnerScope`, `instant.ts` → `Instant` | 31, 90 | 6 |
+| `drag-track.ts` → `DragTrack`, `drag-transition.ts` → `DragTransition` | 955, 43 | 6 |
+| `layout-member.ts` → `LayoutMember`, `layout-group.ts` → `LayoutGroup` | 315, 32 | 6 |
+| `runtime.ts`'s `ProjectionOptions` and `ProviderServices`, into `Feature`; its `projectionIn` and `projectionNodesIn`, into `features/Keys` | ~25 | 6 |
 
-Service ids follow their modules: `"@wardic/solid/HoverGesture"` becomes `"@wardic/dom/HoverGesture"`, and so on.
+Service ids follow their modules: `"@wardic/solid/HoverGesture"` becomes `"@wardic/dom/unstable/HoverGesture"` (PR6-Q2, as core's are `"@wardic/core/unstable/<Service>"`), and so on.
 
 ### Staying in solid
 
@@ -70,7 +70,7 @@ Service ids follow their modules: `"@wardic/solid/HoverGesture"` becomes `"@ward
 - `runtime.ts`'s provider half (`WardicContextValue`, `clientContext`, `serverContext`): both Solids' provider record. Foldkit's provider slice decides whether to share it.
 - `messages`, `spans-check`, `ward-keys`, `instance-features`, `wardic-instance`, `reorder-values`, `scroll-values`, `motion-props`: Solid's providers, props and instances.
 
-**Solid's own modules keep their imports** through a one-line re-export where a moved module had importers (`config.ts`, `reactivity.ts`, `gesture-info.ts`, …). Each goes once its last importer has moved, in PR 6.
+**Solid's own modules keep their imports** through a one-line re-export where a moved module had importers (`config.ts`, `reactivity.ts`, `gesture-info.ts`, …). Each goes once its last importer has moved, in PR 6; pointing the importers that stay in solid at core and dom, and every shim with them, is a follow-up (PR6-Q3).
 
 ## The ports (PR 2)
 
@@ -126,7 +126,7 @@ With dom in a program, every app's, each type is exactly what it was; core's own
 3. **The leaves:** core's lint, its lib and #609 met in place first (Q16), then `presence-record`, `variant-target`, `wardic-config-value`, `frame-time` and `retarget-legs` to core, and `live-style` to dom (PR3-Q1) (built, below).
 4. **The spine and what imports it:** `animation-controls`, `variant-tree`, the part of `appear` the spine reads, the gate, the Timelines' key, the spine; the moved files' comments rewritten without DOM names (#609) (built, below).
 5. **The Batch, `animate` and presence, to dom:** `BatchMembers` with its Handoff, the hold's filler, `imperative`, `presence-controller`, `element-setup`, `drag-defaults`, the rest of `appear` (PR4-Q3) (built, below).
-6. **The Features, to dom:** Q9's `PropFeature` and Q10's registry in place first, then `feature`, `gesture-features`, `features/*`, `press`, `owner-scope`, `instant`, the drag track, `layout-member`, `layout-group`, `ProjectionOptions`; **Feature**'s glossary wording; solid's re-exports with no importer left.
+6. **The Features, to dom:** Q9's `PropFeature` and Q10's registry in place first, then `feature`, `gesture-features`, `features/*`, `press`, `owner-scope`, `instant`, the drag track, `layout-member`, `layout-group`, `ProjectionOptions`; **Feature**'s glossary wording; solid's re-exports with no importer left (built, below).
 
 **Every commit** passes typecheck, lint, `test`, `test:browser` and `size`. **Every PR** also runs `bench:solid` (paired base and head, after `wardic-quiet`), `bench:core` and `pack:check`; a bench that fails is bisected by commit, PR 2's by each port's commit (Q3).
 
@@ -230,6 +230,23 @@ Twelve commits after its docs commit, each through every per-commit gate. Four i
 
 **`bench:solid`** (paired, 11 reps, after `wardic-quiet`): warm mount +1.5% [−0.6% – +3.4%] (Solid 1) and −2.6% [−4.4% – −0.8%] (Solid 2) against `main`, Retarget, restRetarget and unmount within ±1.2%, bytes +0.2% and +0.0%, retained flat, every layout scene within its gate. **`bench:core`** passes every workload on all three engines. **`pack:check`** 37 of 37. **Size:** every app within ±0.0% gzipped of `main`, the budgets unchanged. RT7 flaked once under the full suite (commit 4, a type's move) and passed 5 of 5 alone, and the suite on its rerun.
 
+## Built in PR 6
+
+Nineteen commits after its docs commit, each through every per-commit gate. Seven in place, then ten moves, then the two that close it:
+
+1. **The Feature registries run on a Runner** (Q10): `clientRegistry` takes `FeatureRuntime`, a Runner with the MemoMap its Features share, and its provider's dispose; `serverRegistry` the dispose alone. `disposeReported` stays in solid, with the provider that hands it in.
+2. **The Features that add props are named** (Q9): `PropFeature`, and `PropFeatureNames` keyed by it. Then, a commit of its own, `EveryFeature` and `EveryFeatureName` go with `ALL`, so `feature.ts` imports none of the Features (the cycle goes).
+3. **What the Features build on is theirs:** `ProjectionOptions` and `ProviderServices` move from solid's `runtime.ts` to `feature.ts`; `projectionIn` and `projectionNodesIn` to `features/keys.ts`, the light module of the keys they read (both bindings' elements call them). Then, a commit of its own, the layout Feature's helpers take `BringsFeatures` (Q15's rule) for solid's provider record.
+4. **The nine service ids** are `"@wardic/dom/unstable/<Service>"` (PR6-Q2).
+5. **Solid's names in dom** (PR 5's open item): LiveStyle's carried mark is `Symbol.for("@wardic/dom/carried")`; a Batch member's string `style` fails with "a string is written over what the Batch draws"; the Batch's `untrack` and development check, a live value, a style's split, the reactivity and a presence's exits are each "its binding's"; and, before they move, an owner's Scope closing in its binding's cleanup, a drag's watch Scope and a layout node's tracking. Notes that explain code by Solid's own behaviour (the presence controller's of its reconciliation), and the Features' headers' Solid 2 events, stay.
+6. **The moves:** `OwnerScope`, with its test (OS1–OS4, Solid-free: Q17's rule) to dom's tests, `Instant`, `Press`, `GestureFeatures`, `LayoutGroup`, `DragTransition`, `DragTrack` (its header given its `@module`), `LayoutMember`, `Feature`, then the Features' folder in one commit (PR6-Q1). Each changes its imports into dom's form, a module's type and value imports one namespace, and its header, naming no Solid; doc links to names the old file imported by name are qualified as the import is (`DragTransition.*`, `Timelines.*`), found by a check the moves ran (`namedlinks.py`); the files of solid's their docs named are dom's modules.
+7. **The DOM's props satisfy the names** (Q9): `WardFeatureConfigs extends Record<Feature.PropFeature, object>`.
+8. **The shims nothing imports go** (PR6-Q3): `appear-handoff.ts`, `frame-time.ts`, `features/timeline-keys.ts`.
+
+**`bench:solid`** (paired, 11 reps, after `wardic-quiet`): warm mount −0.2% [−1.4% – +1.8%] (Solid 1) and −0.6% [−1.6% – +0.3%] (Solid 2) against `main`, Retarget and restRetarget within ±1.3%, bytes −0.3% and −0.6%, retained flat, every layout scene within its gate. Solid 2's unmount read +5.2% [+0.4% – +6.6%] (2.4 → 2.5 ms) and failed its gate; Solid 2 alone at 21 reps read it +0.8% [−2.2% – +3.1%], mount +0.3%, the control +0.3%: noise. **`bench:core`** passes every workload on all three engines. **`pack:check`** 37 of 37. **Size:** every app within ±0.0% gzipped of `main`, the budgets unchanged. Nothing in core or dom imports `@wardic/solid` or `solid-js`. RT7 flaked under the full suite at three commits (types, docs, a move) and passed 5 of 5 alone at each, and each suite on its rerun: a follow-up.
+
 ## Open
 
-- **Solid's names in dom** (PR 6). The modules dom took from solid still name it here and there, which a Foldkit app would read too: `LiveStyle`'s `CARRIED` is `Symbol.for("@wardic/solid/carried")`, the key solid's `live-style.ts` gave it; `BatchMembers`' error for a `transform` string says "Solid writes a string over what the Batch draws", and its env's `untrack` is "its binding's Solid's"; `PresenceController`'s docs name Solid about ten times. Each can say its binding, and the key dom, with PR 6's ids.
+- **Solid's re-export shims** (PR6-Q3, a follow-up issue). The one-line `export *` modules the lift left at solid's old paths keep the import paths of the solid modules that stay (`create-ward`, the providers, the elements, `batch-reorder`, …). Pointing each importer at core or dom in pipeable rule 5's namespace form, which `qualify.cjs` does mechanically, removes every shim.
+- **RT7's flake** (a follow-up issue): its flick lifts the pointer in a command of its own, so under a loaded suite the trailing 100 ms velocity it reads drops below 500 px/s; `flingFrom`'s pattern, as the drag tests' since #499, would hold it.
+- **The DOM's props' docs** (`WardConfig`) describe Solid's two bindings' callbacks ("Solid 1; Solid 2's ward gives …"): accurate while they're the only DOM bindings, and the first place Foldkit's props differ (PascalCase, Messages).

@@ -5,15 +5,19 @@
  * its Live value and taken back from it while anything else draws the key. Made again when what the key
  * derives from changes: a new source in its `style`, or a `createScroll`'s new container.
  *
+ * Unstable, for Wardic's own packages: public, with no semver promise.
+ *
  * @module
  */
+// Unstable: ADR-0071, decision 5. #672 (PR6-Q1): solid's `features/timeline-keys.ts`, moved to dom with the Features, for
+// every DOM binding.
 import * as LiveValue from "@wardic/core/LiveValue"
-import * as TimelineValue from "@wardic/dom/TimelineValue"
+import * as TimelineValue from "../../TimelineValue.ts"
 import * as Bool from "effect/Boolean"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import type * as Atom from "effect/reactivity/Atom"
-import type { TimelineKeys, TimelineKeysOptions, Timelines } from "../timelines.ts"
+import type * as Timelines from "@wardic/core/unstable/Timelines"
 
 /** A key's Timeline value as last made: the derivation it was made from, and the value, `undefined` where the gate draws the key. */
 interface Made {
@@ -21,17 +25,17 @@ interface Made {
   readonly timeline: TimelineValue.TimelineValue | undefined
 }
 
-/** An element's {@link TimelineKeys}, and what its provider's `described` tells it. */
-interface ElementKeys extends TimelineKeys {
+/** An element's {@link Timelines.TimelineKeys}, and what its provider's `described` tells it. */
+interface ElementKeys extends Timelines.TimelineKeys {
   /** Find each key it shows its Timeline value again: what it derives from may have been described since. */
   readonly recheck: () => void
 }
 
 /**
- * A provider's {@link Timelines}: each mounted element's keys, told again when a `createScroll`
+ * A provider's {@link Timelines.Timelines}: each mounted element's keys, told again when a `createScroll`
  * describes its values.
  */
-export const makeTimelines = (): Timelines["Service"] => {
+export const makeTimelines = (): Timelines.Timelines["Service"] => {
   const mounted = new Set<ElementKeys>()
   return {
     keysOf: (options) => {
@@ -50,7 +54,7 @@ export const makeTimelines = (): Timelines["Service"] => {
  * shown already from the same source is left as it is, with nothing read but its source, statements and
  * nothing made. What it derives from changes only where it's described anew, which `recheck` hears.
  */
-const elementKeysOf = (options: TimelineKeysOptions, unmounted: () => void): ElementKeys => {
+const elementKeysOf = (options: Timelines.TimelineKeysOptions, unmounted: () => void): ElementKeys => {
   const { runtime, gate, id, live } = options
   // #672: the spine hands its Subject; a DOM binding's is its element, which a Timeline value follows.
   const element = options.element as Element

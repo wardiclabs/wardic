@@ -615,8 +615,8 @@ export interface PresenceOptions {
 }
 
 /**
- * A presence's exits, told to its binding (#257, ADR-0046): Solid 1's `onExitComplete`, Solid 2's
- * presence handle. A child that leaves exits; a child with no record (not a Wardic element) leaves at
+ * A presence's exits, told to its binding (#257, ADR-0046): Motion's `onExitComplete`, or a presence
+ * handle (Solid 2's). A child that leaves exits; a child with no record (not a Wardic element) leaves at
  * once, its exit starting and ending together, as Motion's does.
  */
 export interface PresenceEvents {
@@ -664,7 +664,7 @@ export interface PresenceController {
 }
 
 /**
- * Solid 1's {@link PresenceEvents} (#257): only Motion's `onExitComplete`, read when it's called. One
+ * {@link PresenceEvents} as Motion's (#257, Solid 1's): only its `onExitComplete`, read when it's called. One
  * that throws is reported (`wardic.presence: onExitComplete failed`), and the presence goes on.
  */
 export const exitCompleteEvents = (runtime: WardicServices.Runner<WardicServices.WardicServices>, onExitComplete: () => (() => void) | undefined): PresenceEvents => ({
