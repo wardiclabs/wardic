@@ -260,6 +260,11 @@ The lift's move plan was read at `15f723d` (2026-11-09). By 1.1.0, #665, #712, #
 **Refined at PR 3's build** (PR3-Q1, 2026-11-15): `live-style.ts` goes to dom (`@wardic/dom/unstable/LiveStyle`), not core: it is the DOM's `style` prop, Live values routed through it, its CSS text and Motion's will-change, whose accelerated keys are CSS properties. The spine names the nine members it and the Timelines' keys call (`LiveRoutes`), among them `turnsWillChangeOn`, which the Live style gives. Core gains `Subject`, a type (Q20), which the presence protocol's shapes take as a parameter; solid names them over `Element`, so its public presence types are unchanged.
   - Rejected: splitting it, core keeping the routing and dom its CSS, with the DOM's will-change policy passed in as options; core describing a `style` all the same.
 
+**Refined at PR 6's build** (PR6-Q1 to PR6-Q3, 2026-11-16):
+- **The Features keep their folder,** `@wardic/dom/unstable/features/<Name>`, each its own module, as lazy loading and tree-shaking need. Rejected: flat names with a suffix (`HoverFeature`).
+- **Service ids are `"@wardic/dom/unstable/<Service>"`,** as core's unstable services are. Rejected: the plan's `"@wardic/dom/<Service>"`, written before `unstable/` was.
+- **Solid's shims go when nothing imports them;** pointing the importers that stay at core and dom is a follow-up, so the lift closes on the lift. Rejected: every importer re-pointed in PR 6, a diff across most of solid's remaining files.
+
 **Refined at PR 5's build** (PR5-Q1 to PR5-Q3, 2026-11-15):
 - **The Runner runs an effect to its Exit** (`runSyncExit`): what `OwnerScope.close` needs, so a Batch's env and every Scope a binding closes run on a Runner, and dom names no binding's runtime. A `ManagedRuntime` meets it as it is. Rejected: the env typed by effect's `ManagedRuntime` in dom, which left a Foldkit runtime out; the close catching a suspending finalizer's throw.
 - **The rest of `appear.ts` is one dom module, `AppearAnimations`:** its server sampler, the key that matches a server's to a client's, and the DOM's Handoff reads, most importers using more than one. Rejected: two modules split in place first; `AppearSampler`, a name for half of it.
