@@ -22,6 +22,8 @@
 //   it toward its target while the ward's `scale` still runs.
 // - CD10: hovered mid-flight, its `whileHover` takes the transform, `x` holding where the Batch had it;
 //   once the hover ends and its `scale` is back, the Batch takes the transform back toward its target.
+//   On a pushed pointer (#784): the real mouse's move returns up to 100 ms late under load, racing the
+//   hold's first frame.
 // - CD11: a held member leaving: its ward, gone with it, hands its group back, and its exit fades it out
 //   from where the ward had it; its element goes as its exit lands.
 import { render } from "@solidjs/testing-library"
@@ -30,6 +32,7 @@ import { AnimatePresence, createBatch, wardic, type WardicBatch, WardicProvider 
 import { createSignal, For, type JSX } from "solid-js"
 import { afterEach, describe, expect, it } from "vitest"
 import { raf } from "./browser-helpers.ts"
+import { pushedPointer } from "./pushed-pointer.ts"
 import { add, centreOf, flingFrom, glide, mouse, resetScene } from "./reorder-harness.tsx"
 
 afterEach(resetScene)
@@ -342,16 +345,18 @@ describe("the latest driver of a Batch member's keys on Solid 1 (#665)", () => {
   })
 
   it("CD10: hovered mid-flight, its whileHover takes the transform; once it's back, the Batch takes it", async () => {
+    // A pushed pointer (#784): the hover holds x from the push itself, where the real mouse's move
+    // returns a frame late idle and up to 100 ms late under load, racing the hold's first frame. The
+    // real mouse, parked over the page's corner by an earlier test, reaches nothing here.
+    const pointer = pushedPointer()
     const [tx, setTx] = createSignal(0)
     let member!: HTMLDivElement
     const Scene = (): JSX.Element => {
       const grid = createBatch({ count: 1, initial: false, animate: () => ({ x: tx() }), transition: { type: "tween", duration: 1 } })
       return <wardic.div style={BOX} {...grid.at(0, { ref: (el) => (member = el as HTMLDivElement) })} whileHover={{ scale: 1.2 }} transition={TWEEN} />
     }
-    // The mouse off the element first: an earlier test leaves it parked over the page's corner.
-    await mouse.move(AWAY)
     render(() => (
-      <WardicProvider env={DomLive}>
+      <WardicProvider env={pointer.env}>
         <Scene />
       </WardicProvider>
     ))
@@ -360,7 +365,7 @@ describe("the latest driver of a Batch member's keys on Solid 1 (#665)", () => {
     setTx(100)
     await over(6, () => 0)
     // Onto it: the hover takes the transform where the Batch had it.
-    await mouse.move(add(at, xOf(member), 0))
+    pointer.push("enter", add(at, xOf(member), 0))
     const hovered = await over(24, () => [xOf(member), scaleOf(member)] as const)
     const x = hovered[0][0]
     expect(x).toBeGreaterThan(1)
@@ -368,7 +373,7 @@ describe("the latest driver of a Batch member's keys on Solid 1 (#665)", () => {
     hovered.forEach(([held], f) => expect(held, `frame ${f}: x held`).toBeCloseTo(x, 6))
     expect(hovered[hovered.length - 1][1]).toBeCloseTo(1.2, 6)
     // Off it: scale back to 1, and the Batch takes the transform back, on toward its 100.
-    await mouse.move(AWAY)
+    pointer.push("leave", AWAY)
     const back = await over(120, () => [xOf(member), scaleOf(member)] as const)
     expect(back[back.length - 1]).toEqual([100, 1])
   })
