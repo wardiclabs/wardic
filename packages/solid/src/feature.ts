@@ -23,7 +23,7 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as OwnerScope from "./owner-scope.ts"
-import type { WardConfig, WardFeatureConfigs } from "./config.ts"
+import type { WardConfig } from "./config.ts"
 import type { ALL } from "./features/all.ts"
 import type { Reactivity } from "./reactivity.ts"
 import type { ProviderServices } from "./runtime.ts"
@@ -88,11 +88,19 @@ export type AbsentGroupsOf<Groups, N extends string> = UnionToIntersection<
 export type EveryFeature = typeof ALL
 
 /**
- * The names of those of Features `F` that add props (#516), on either binding. A Wardic instance's
+ * The Features that add props to an element (#516): the gestures and `layout`. `colors` and `scroll`
+ * add none. Each binding's props for them are a map over these names.
+ */
+// #672 (the build grill's Q9): named here, not as the keys of the DOM's props, so a binding whose props
+// differ (Foldkit's) names the same Features; each binding's map of props satisfies it.
+export type PropFeature = "hover" | "press" | "focus" | "inView" | "pan" | "drag" | "layout"
+
+/**
+ * The names of those of Features `F` that add props (#516), on any binding. A Wardic instance's
  * types take these, not `F`: every list with each of them is one type, and an error prints names, not
  * each Feature's service.
  */
-export type PropFeatureNames<F> = Extract<FeatureNames<F>, keyof WardFeatureConfigs>
+export type PropFeatureNames<F> = Extract<FeatureNames<F>, PropFeature>
 
 /** The names of every Feature that adds props (#516): what an element has unless it's a Wardic instance's. */
 export type EveryFeatureName = PropFeatureNames<EveryFeature>
