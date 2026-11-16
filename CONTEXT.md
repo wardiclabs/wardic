@@ -522,7 +522,7 @@ The loop a scene's host runs, one pass a **Refresh frame**: it steps Wardic, the
 _Avoid_: render loop (the renderer's call alone), animation loop, rAF.
 
 **Ward**:
-One Subject's motion binding: its config, its Recognizers, its Override stack, its Legs and its Snapshot, however a binding attaches it. Solid's binding has three ways to put one on an element: a `wardic.*` component, `createWard`'s spread, and the `use:wardic` directive. Solid 2's has two: a `wardic.*` component, and `ward(config)`, a ref carrying its props, spread when it's kept or given to `ref`. A ward made with `ward(config)` can also be given to any Wardic component, `Reorder.Item` too, through its `wardRef`: the component then drives its element with that ward, the element's own motion props laid over its config (#349, #398). Foldkit's binding has two: a `w.*` element from `wardic.html(h)`, and the `Ward.attributes(config)` bundle on any other element (ADR-0071).
+One Subject's motion binding: its config, its Recognizers, its Override stack, its Legs and its Snapshot, however a binding attaches it. Solid's binding has three ways to put one on an element: a `wardic.*` component, `createWard`'s spread, and the `use:wardic` directive. Solid 2's has two: a `wardic.*` component, and `ward(config)`, a ref carrying its props, spread when it's kept or given to `ref`. A ward made with `ward(config)` can also be given to any Wardic component, `Reorder.Item` too, through its `wardRef`: the component then drives its element with that ward, the element's own motion props laid over its config (#349, #398). Foldkit's binding has two: a `w.*` element from `wardic.html(h)`, and the **Bundle**, `w.attributes(config)`, on any other element (ADR-0071).
 _Avoid_: motion component (Motion's), controller, spine (the code that runs it).
 
 **Spine**:
@@ -530,8 +530,28 @@ What runs a **Ward**, whatever binding attaches it: it resolves the Ward's confi
 _Avoid_: engine (core's Frame loop and Primitives), controller, runtime.
 
 **Delivery**:
-One render's config reaching a **Wardic element**, in a binding whose host has no reactive graph (Foldkit, ADR-0071): a property setter called inside the patch, once per fresh value, a parent's before its children's. The ward Retargets only when the delivered targets resolve differently from the last ones (#470). Its watches re-read once per patch, after the provider's delivery, which comes first in every patch.
+One render's config reaching a **Wardic element**, in a binding whose host has no reactive graph (Foldkit, ADR-0071): a property setter called inside the patch, once per fresh value, a parent's before its children's. The ward Retargets only when the delivered targets resolve differently from the last ones (#470). Its watches re-read once per patch, in one microtask the patch's first delivery or first mount queues, after the whole patch and before paint (#791).
 _Avoid_: update (Foldkit's `update`), prop write, re-render.
+
+**Handle**:
+What `Wardic.make({ env, features })` returns on Foldkit (ADR-0071, decision 9), made once per program at module scope: the **Wardic instance** that also holds Wardic's one runtime inside Foldkit's. It gives a view its `w` (`wardic.html(h)`), and a Scene test the **Raw Mounts** it resolves. Its runtime is built by its **Provider attribute**'s element, and a second provider mounting while one is live is reported and ignored (#791).
+_Avoid_: app (Foldkit's program), context (Solid's), instance (bare).
+
+**Provider attribute**:
+`w.Provider(options)`, on the `w.*` element at the top of a Foldkit view (ADR-0071, decision 9): that element's Mount builds Wardic's Layer on the **Handle**'s `env` into its Scope at insert, and every `w.*` element under it animates with what it built. The counterpart of Solid's `<WardicProvider>`, as an attribute, since Foldkit has no wrapper node.
+_Avoid_: provider element, root ward, WardicProvider (Solid's component).
+
+**Bundle**:
+`w.attributes({ initial, animate, transition, style, mount })` on Foldkit (ADR-0071, decision 18): a **Ward**'s attributes for an element `w` doesn't make, a custom element or a component library's. It takes the element's own Mount and fuses it with Wardic's, since one element has one `OnMount`, and it carries no **Identity stamp**, so such an element is keyed.
+_Avoid_: spread (Solid's), attribute group, mixin.
+
+**Identity stamp**:
+The one Foldkit identity every `w.*` element is stamped with (`foldkit/brand`'s `brandViewResult`; ADR-0071, decision 19), so a `w.*` element rendered where a plain element was is recreated and its Mount runs, where Foldkit would keep the node and never start a Mount added to it (P2). A `w.*` element replacing a `w.*` element is kept, and its **Delivery** carries the new config.
+_Avoid_: key (Foldkit's keyed axis), brand (the mechanism), marker.
+
+**Raw Mount**:
+A Mount in Foldkit's plain shape (`{ name, f }`, with no Definition and no Schema), as a **Handle**'s `Provider` and `Element` are (ADR-0071, decision 36): what a Scene test resolves Wardic's Mounts by, by name. A `w.*` element's Mount is one, fused with the user's own `OnMount` when the element has one, which then keeps the user's name (#791).
+_Avoid_: mount definition (Foldkit's `Mount.define`), hook, lifecycle.
 
 **Listening ward**:
 A **Ward** given to a Wardic component's `wardRef` whose config carries no variants (sets neither `variants` nor `inherit`): the element's own props set its motion and its place in the variant tree, and the ward is what its gestures, landings and values are heard through. `ward()`, with no config, is one. A ward whose config sets `variants` or `inherit` **carries its variants**: its variant node is made where the ward is made, and the keys that node reads stay in its config (#398).

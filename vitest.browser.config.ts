@@ -10,6 +10,7 @@ import { defineConfig } from "vitest/config"
 //   - hydrate        (packages/solid/vitest.hydrate.config.ts) — fixtures rendered on
 //     the server in Node, then hydrated in Chromium (ADR-0021).
 //   - v2-browser and v2-hydrate — the Solid 2 binding's, `@wardic/solid/unstable/v2` (#209).
+//   - foldkit-browser — `@wardic/foldkit`'s (#791): embedded Foldkit programs and Scene tests.
 //
 // The fast node tier (`bun run test`, vitest.config.ts) stays pure logic:
 // @wardic/core, @wardic/test and the layout lab's classifier. Both gates must pass in CI.
@@ -26,6 +27,8 @@ export default defineConfig({
       // The layout lab's page, mounted on either binding (#681).
       "examples/layout-lab/vitest.browser.config.ts",
       "examples/layout-lab/vitest.browser-v2.config.ts",
+      // The Foldkit binding, `@wardic/foldkit` (#791, ADR-0071): every one of its tests, Scene tests too, in Chromium.
+      "packages/foldkit/vitest.browser.config.ts",
     ],
   },
 })

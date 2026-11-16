@@ -10,7 +10,8 @@
  *    - `solid1-vite`: Solid 1 on Vite, client-rendered, through the `solid` condition;
  *    - `solid1-start`: SolidStart with Solid 1, rendered on the server and hydrated;
  *    - `solid2-start`: Solid 2 in `@solidjs/vite-plugin`'s start mode, the same, on `/unstable/v2`;
- *    - `compiled`: Vite with no Solid plugin, so `@wardic/solid` is its compiled browser build.
+ *    - `compiled`: Vite with no Solid plugin, so `@wardic/solid` is its compiled browser build;
+ *    - `foldkit-vite`: Foldkit on Vite, client-rendered, on `@wardic/foldkit` (#791).
  * 4. Each served by `vite preview` and opened in Chromium: no error in the console (a hydration
  *    mismatch is one), `#enter` animates to its target (from the `opacity: 0` the server rendered,
  *    where it renders), and `#drag`, under a `LazyWardic` loading `drag`, drags once it arrives.
@@ -27,7 +28,7 @@ import { chromium } from "playwright"
 
 const ROOT = join(import.meta.dirname, "..", "..")
 const FIXTURES = join(import.meta.dirname, "fixtures")
-const PACKAGES = ["core", "dom", "solid", "test"] as const
+const PACKAGES = ["core", "dom", "solid", "test", "foldkit"] as const
 
 interface Fixture {
   readonly name: string
@@ -37,6 +38,8 @@ interface Fixture {
   readonly ssr: boolean
   /** What Node imports from it, to load a binding's server build. */
   readonly nodeImport?: string | undefined
+  /** Whether it has `#drag`, a lazily loaded drag element: the Foldkit fixture doesn't until slice 3 (#791). */
+  readonly drag?: boolean | undefined
 }
 
 const ALL: ReadonlyArray<Fixture> = [
@@ -44,6 +47,8 @@ const ALL: ReadonlyArray<Fixture> = [
   { name: "solid1-start", installs: ["core", "dom", "solid", "test"], ssr: true, nodeImport: "@wardic/solid" },
   { name: "solid2-start", installs: ["core", "dom", "solid"], ssr: true, nodeImport: "@wardic/solid/unstable/v2" },
   { name: "compiled", installs: ["core", "dom", "solid"], ssr: false },
+  // `@wardic/foldkit` on Vite, client-rendered (#791, Q12): private until 1.2, packed and installed all the same.
+  { name: "foldkit-vite", installs: ["core", "dom", "foldkit"], ssr: false, drag: false },
 ]
 
 const asked = process.argv.slice(2).filter((arg) => !arg.startsWith("--"))
@@ -149,7 +154,7 @@ for (const fixture of fixtures) {
     await step(`${fixture.name}: #enter animates to its target`, async () => {
       await page.waitForFunction(() => Number(getComputedStyle(document.getElementById("enter")!).opacity) > 0.99, undefined, { timeout: 5000 })
     })
-    await step(`${fixture.name}: #drag drags once its lazy \`drag\` arrives`, async () => {
+    if (fixture.drag !== false) await step(`${fixture.name}: #drag drags once its lazy \`drag\` arrives`, async () => {
       const until = Date.now() + 5000
       const target = page.locator("#drag")
       const start = (await target.boundingBox())!

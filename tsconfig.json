@@ -5,6 +5,7 @@
     { "path": "./packages/core" },
     { "path": "./packages/test" },
     { "path": "./packages/dom" },
-    { "path": "./packages/solid" }
+    { "path": "./packages/solid" },
+    { "path": "./packages/foldkit" }
   ]
 }

@@ -308,7 +308,7 @@ export default defineConfig([
   },
   {
     // The pipeable API's subpaths, for every package's code but core's source (which has its own block).
-    files: ["packages/{dom,solid,test}/{src,test}/**/*.{ts,tsx}", "packages/core/test/**/*.ts", "packages/{core,solid}/bench/**/*.{ts,tsx}"],
+    files: ["packages/{dom,solid,test,foldkit}/{src,test}/**/*.{ts,tsx}", "packages/core/test/**/*.ts", "packages/{core,solid}/bench/**/*.{ts,tsx}"],
     languageOptions: { parser: tseslint.parser },
     // solid's code carries eslint-plugin-solid's `solid/reactivity` directives. The plugin is
     // registered for every package's code, as the same object its `v2-strict` config registers (so the
@@ -321,16 +321,17 @@ export default defineConfig([
     },
   },
   {
-    // dom's and solid's source take the span rule too (ADR-0040, decision 2), over the block above.
-    files: ["packages/{dom,solid}/src/**/*.{ts,tsx}"],
+    // dom's, solid's and foldkit's source take the span rule too (ADR-0040, decision 2), over the block above.
+    files: ["packages/{dom,solid,foldkit}/src/**/*.{ts,tsx}"],
     rules: {
       "no-restricted-syntax": ["error", ...SUBPATHS, ...SPANS],
     },
   },
   {
-    // dom's, solid's and test's source take the Effect-first rules (ADR-0025, *Amendment (#69)*). solid
-    // and test have no per-frame file: solid's run sinks are one-line closures (decision 2).
-    files: ["packages/dom/src/**/*.ts", "packages/solid/src/**/*.{ts,tsx}", "packages/test/src/**/*.ts"],
+    // dom's, solid's, test's and foldkit's source take the Effect-first rules (ADR-0025, *Amendment (#69)*;
+    // foldkit's since #791). solid, test and foldkit have no per-frame file: solid's run sinks are one-line
+    // closures (decision 2).
+    files: ["packages/dom/src/**/*.ts", "packages/solid/src/**/*.{ts,tsx}", "packages/test/src/**/*.ts", "packages/foldkit/src/**/*.ts"],
     plugins: { "@typescript-eslint": tseslint.plugin },
     rules: {
       "no-ternary": "error",
@@ -373,7 +374,7 @@ export default defineConfig([
     rules: { "no-ternary": "error" },
   },
   {
-    files: ["packages/{dom,solid}/src/**/*.{ts,tsx}"],
+    files: ["packages/{dom,solid,foldkit}/src/**/*.{ts,tsx}"],
     ignores: ["packages/dom/src/internal/clock.ts"],
     rules: {
       "no-restricted-globals": ["error", ...FRAME_FUNCTIONS.map((name) => ({ name, message: FRAME_MESSAGE }))],
