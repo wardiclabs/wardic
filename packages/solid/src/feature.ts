@@ -24,7 +24,6 @@ import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import * as OwnerScope from "./owner-scope.ts"
 import type { WardConfig } from "./config.ts"
-import type { ALL } from "./features/all.ts"
 import type { Reactivity } from "./reactivity.ts"
 import type { ProviderServices } from "./runtime.ts"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
@@ -84,9 +83,6 @@ export type AbsentGroupsOf<Groups, N extends string> = UnionToIntersection<
   Exclude<keyof Groups, N> extends infer A ? (A extends keyof Groups & string ? { readonly [P in keyof Groups[A]]?: NeedsFeature<A> } : never) : never
 >
 
-/** Every Feature: what an element has unless it's a Wardic instance's (#516). */
-export type EveryFeature = typeof ALL
-
 /**
  * The Features that add props to an element (#516): the gestures and `layout`. `colors` and `scroll`
  * add none. Each binding's props for them are a map over these names.
@@ -101,9 +97,6 @@ export type PropFeature = "hover" | "press" | "focus" | "inView" | "pan" | "drag
  * each Feature's service.
  */
 export type PropFeatureNames<F> = Extract<FeatureNames<F>, PropFeature>
-
-/** The names of every Feature that adds props (#516): what an element has unless it's a Wardic instance's. */
-export type EveryFeatureName = PropFeatureNames<EveryFeature>
 
 /** Whether `N` names every Feature in `Groups`: a Wardic instance whose props are the binding's plain ones. */
 export type NamesEvery<Groups, N extends string> = [Exclude<keyof Groups, N>] extends [never] ? true : false

@@ -124,7 +124,8 @@ import {
   useElementFeatures,
   useFeatureRegistry,
 } from "./provider.tsx"
-import { type EveryFeature, type Feature, type FeatureRegistry, type FeatureSection, type InstanceFeatures, LAYOUT_PROPS, missingMessage, type PropFeatureNames, unreadColorIn, wantsLayoutNode } from "../../feature.ts"
+import { type Feature, type FeatureRegistry, type FeatureSection, type InstanceFeatures, LAYOUT_PROPS, missingMessage, type PropFeatureNames, unreadColorIn, wantsLayoutNode } from "../../feature.ts"
+import type { EveryFeature } from "../../features/all.ts"
 import { CLIENT_ONLY, CLIENT_ONLY_DEFERRED, CLIENT_ONLY_SYNC, CLIENT_ONLY_SYNC_DEFERRED, reactivityIn } from "./solid-reactivity.ts"
 import { useWardicConfig } from "./wardic-config.tsx"
 import { pointMapOptionOf, transformPagePointOf } from "../../wardic-config-value.ts"

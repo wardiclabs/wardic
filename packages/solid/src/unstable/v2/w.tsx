@@ -15,7 +15,8 @@
  * @module
  */
 import type { JSX } from "@solidjs/web"
-import type { AbsentGroupsOf, EveryFeature, NamesEvery, PropFeatureNames } from "../../feature.ts"
+import type { AbsentGroupsOf, NamesEvery, PropFeatureNames } from "../../feature.ts"
+import type { EveryFeature } from "../../features/all.ts"
 import type { WardCheckedConfig } from "../../ward-keys.ts"
 import type { PerKeyApart } from "./config-view.ts"
 import { createOf, type CreateFor, type FeatureProps, formOf, type OwnPropsFor, type WardicComponentFor } from "./element.tsx"

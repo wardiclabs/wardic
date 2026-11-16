@@ -5,6 +5,7 @@
  *
  * @module
  */
+import type { PropFeatureNames } from "../feature.ts"
 import { colors } from "./colors.ts"
 import { drag } from "./drag.ts"
 import { focus } from "./focus.ts"
@@ -25,3 +26,10 @@ export const ALL: readonly [typeof colors, typeof layout, typeof hover, typeof p
   pan,
   drag,
 ]
+
+/** Every Feature: what an element has unless it's a Wardic instance's (#516). */
+// #672 (the build grill's Q9): with ALL, so the Feature module imports none of the Features.
+export type EveryFeature = typeof ALL
+
+/** The names of every Feature that adds props (#516): what an element has unless it's a Wardic instance's. */
+export type EveryFeatureName = PropFeatureNames<EveryFeature>
