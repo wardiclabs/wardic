@@ -25,6 +25,7 @@ import * as Report from "@wardic/dom/Report"
 import * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
 import * as Feature from "@wardic/dom/unstable/Feature"
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
+import * as InstanceFeatures from "@wardic/dom/unstable/InstanceFeatures"
 import * as LiveStyle from "@wardic/dom/unstable/LiveStyle"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
@@ -42,7 +43,6 @@ import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Scope from "effect/Scope"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as Ward from "../Ward.ts"
-import { ownOf } from "./features.ts"
 import { reactivity } from "./reactivity.ts"
 import { rootConfigValueOf } from "./tree.ts"
 
@@ -75,8 +75,8 @@ export interface Provider {
    * and each load's built as it arrives, and whether a load is still on its way.
    */
   readonly features: Feature.Own
-  /** Run `hook` as a load's Features arrive, until what's returned is called: an element re-checks what it wants then (Q15). */
-  readonly onFeatures: (hook: () => void) => () => void
+  /** Run `recheck` as a load's Features arrive, until what's returned is called: an element re-checks what it wants then (Q15). */
+  readonly onFeatures: (recheck: () => void) => () => void
   /** The Scope the Handle owns it in: closed once its last element has left. */
   readonly scope: Scope.Closeable
   /** The element carrying `w.Provider(options)`, while it's mounted: what the subtree options (slice 2) hang on, and what a selector resolves under. */
@@ -98,8 +98,8 @@ export interface LayoutOptions {
 /** What a Handle holds of its provider: the live one, the `Deferred` a build in flight completes, and its Features. */
 export interface State {
   readonly env: WardicServices.WardicEnv
-  /** Its Features (#516), as given: Features, loads, and lists of either, which each provider builds its own from (`features.ts`). */
-  readonly features: Feature.InstanceFeaturesProp | undefined
+  /** Its Features (#516), as a Wardic instance's: those given, and each load started once per Handle (dom's `InstanceFeatures`); none without any. */
+  readonly instance: Feature.InstanceFeatures | undefined
   /** The Handle's app-wide config (`Wardic.make({ config })`), the root of every element's `w.Config` chain; none without one. */
   readonly rootConfig: WardicConfigValue.WardicConfigValue | undefined
   /** How its Measure passes are triggered (decision 30). */
@@ -140,7 +140,7 @@ export const registryOf =
 /** A Handle's state: no provider yet. */
 export const makeState = (env: WardicServices.WardicEnv, features: Feature.InstanceFeaturesProp | undefined, config: Ward.ConfigOptions | undefined, layout: LayoutOptions): State => ({
   env,
-  features,
+  instance: UndefinedOr.map(features, InstanceFeatures.instanceFeaturesOf),
   rootConfig: rootConfigValueOf(config),
   layout,
   transitioning: false,
@@ -159,13 +159,12 @@ export const featureIn = <I, S>(provider: Provider, key: Context.Key<I, S>): S |
 /** A load of the Handle's Features that failed (#793, Q15): reported once, and the rest stand. */
 const LOAD_FAILED = "wardic.features: a load of the Handle's Features failed; its Features are left out"
 
-/**
- * Development's word on a Feature the Handle wasn't given (#511, ADR-0067 decision 7), in Foldkit's
- * terms: what needed it (`what`), and how a Handle takes it.
- */
+/** Development's word on a Feature the Handle wasn't given (#511, ADR-0067 decision 7): dom's, with how a Handle takes one. */
 export const missingMessage = (feature: string, what: string): string =>
-  `wardic: ${what} needs the \`${feature}\` Feature, which this Handle wasn't given. ` +
-  `Add it: \`import { Features } from "@wardic/foldkit"\`, then \`Wardic.make({ env, features: [Features.${feature}] })\`.`
+  Feature.missingMessage(feature, what, "@wardic/foldkit", `which this Handle wasn't given. Add it: \`import { Features } from "@wardic/foldkit"\`, then \`Wardic.make({ env, features: [Features.${feature}] })\`.`)
+
+/** No Features: a Handle made without any. */
+const NO_FEATURES: Feature.Own = { services: () => Feature.NONE, pending: constFalse }
 
 /** A second `w.Provider()` for one Handle, while the first's element is mounted: reported, then ignored. */
 const SECOND_PROVIDER =
@@ -202,11 +201,11 @@ const build = (state: State): Effect.Effect<Provider> =>
     // Its Features' Scope is a child of the runtime's, closed with it: nothing more to dispose.
     const registry = Feature.clientRegistry(runtime, () => Promise.resolve())
     // The Handle's Features in it (#793, Q2 and Q15): each load started now, its arrival told to the
-    // elements' hooks directly, since no patch ran; a failed load reported once.
-    const hooks = new Set<() => void>()
-    const arrived = (): void => Iter.forEach(hooks, (hook) => hook())
-    const host: Feature.SectionHost = { reactivity: { ...reactivity, trigger: () => ({ track: constVoid, notify: arrived }) }, server: false, onCleanup: registry.onEnd }
-    const features = ownOf(state.features, registry.build, (cause) => runner.runFork(Report.failure(LOAD_FAILED, cause)), host)
+    // elements' re-checks directly, since no patch ran; a failed load reported once.
+    const rechecks = new Set<() => void>()
+    const arrived = (): void => Iter.forEach(rechecks, (recheck) => recheck())
+    const host: Feature.InstanceHost = { reactivity: { ...reactivity, trigger: () => ({ track: constVoid, notify: arrived }) }, server: false, report: (cause) => runner.runFork(Report.failure(LOAD_FAILED, cause)) }
+    const features = UndefinedOr.match(state.instance, { onUndefined: () => NO_FEATURES, onDefined: (instance) => instance.own(registry, host) })
     return {
       runtime,
       context,
@@ -225,10 +224,10 @@ const build = (state: State): Effect.Effect<Provider> =>
       }),
       registry,
       features,
-      onFeatures: (hook) => {
-        hooks.add(hook)
+      onFeatures: (recheck) => {
+        rechecks.add(recheck)
         return () => {
-          hooks.delete(hook)
+          rechecks.delete(recheck)
         }
       },
       scope,

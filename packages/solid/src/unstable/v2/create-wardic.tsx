@@ -7,7 +7,7 @@
  * @module
  */
 import type * as Feature from "@wardic/dom/unstable/Feature"
-import { instanceFeaturesOf } from "../../instance-features.ts"
+import { instanceFeaturesOf } from "@wardic/dom/unstable/InstanceFeatures"
 import { createInstantLayoutTransition, createResetProjection, useAnimateLayout, useInstanceBrought } from "./provider.tsx"
 import { wOf } from "./w.tsx"
 import type { WardicInstance } from "./wardic-instance.ts"

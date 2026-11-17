@@ -30,6 +30,9 @@
 //   element mounted before it arrives hovers once it has.
 // - G15: a `layout` load: a `w.Layout` element mounted before it arrives gets its node once it has,
 //   and a reorder after that flies.
+// - G16: `Viewport`'s `root` as `"parent"`, and `amount: "all"`: half in view isn't in.
+// - G17: a load that fails is reported once; the element is inert, and the missing Feature said then.
+// - G18: a handler that throws is reported by name, and the gesture goes on: `WhileHover` still applies.
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
 import * as Schema from "effect/Schema"
@@ -41,7 +44,7 @@ import * as Features from "@wardic/foldkit/Features"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import type * as Ward from "@wardic/foldkit/Ward"
 import { raf, until, waitAtMost } from "../../solid/test/browser-helpers.ts"
-import { centreOf, embed, type Embedded, mouse, PARK, type Pt } from "./harness.ts"
+import { boxOf, centreOf, embed, type Embedded, embedKeyedList, mouse, opacityOf, PARK, type Pt } from "./harness.ts"
 
 const Model = Schema.Struct({ on: Schema.Boolean })
 type Model = typeof Model.Type
@@ -66,9 +69,6 @@ const BOX = { width: "80px", height: "80px", background: "teal", "user-select": 
 const FAST = { type: "tween", duration: 0.05 } as const
 
 const r = (n: number): number => Math.round(n)
-
-/** `el`'s inline opacity, as the gate writes it. */
-const opacityOf = (el: HTMLElement): number => Number(el.style.opacity)
 
 /** `el`'s scale, from its computed transform. */
 const scaleOf = (el: HTMLElement): number => new DOMMatrix(getComputedStyle(el).transform).a
@@ -97,12 +97,12 @@ const embedBox = (box: (model: Model, w: Wardic.Html<Message, typeof Features.do
     toMessage: (on) => Message.Set({ on }),
   })
 
-/** The `#box` of `app`, once it renders and a frame has passed. */
-const boxOf = async (app: Pick<Embedded<never>, "container">): Promise<HTMLElement> => {
-  await until(() => app.container.querySelector("#box") !== null, 2000, "the box renders")
+/** The `#box` of `app`, once it renders and two frames have passed: what mounts with it (a recognizer's listeners) is in place. */
+const settledBox = async (app: Pick<Embedded<never>, "container">): Promise<HTMLElement> => {
+  const box = await boxOf(app)
   await raf()
   await raf()
-  return app.container.querySelector<HTMLElement>("#box")!
+  return box
 }
 
 /** Scroll the page so `top` (px down the page) sits `at` px down the window. */
@@ -111,21 +111,30 @@ const scrollToShow = (top: number, at: number): void => window.scrollTo(0, top -
 /** A box 2000 px down its wrapper, which sits 100 px down the page: its top on the page. */
 const FAR = 2100
 
-/** Every line logged while `run` runs. */
-const logged = async (run: () => Promise<void>): Promise<ReadonlyArray<string>> => {
+/** The console captured: every line logged from now until `stop`. */
+const capture = (): { readonly lines: ReadonlyArray<string>; readonly stop: () => void } => {
   const lines: Array<string> = []
   const spies = (["log", "info", "warn", "error", "debug"] as const).map((m) =>
     vi.spyOn(console, m).mockImplementation((...args: Array<unknown>) => {
       lines.push(args.map(String).join(" "))
     }),
   )
+  return { lines, stop: () => spies.forEach((spy) => spy.mockRestore()) }
+}
+
+/** Every line logged while `run` runs. */
+const logged = async (run: () => Promise<void>): Promise<ReadonlyArray<string>> => {
+  const captured = capture()
   try {
     await run()
   } finally {
-    for (const spy of spies) spy.mockRestore()
+    captured.stop()
   }
-  return lines
+  return captured.lines
 }
+
+/** Whether a logged line says `text`. */
+const said = (lines: ReadonlyArray<string>, text: string): boolean => lines.some((line) => line.includes(text))
 
 /** A Handle with no Features: its `w.*` take the base attributes alone. */
 const bare = Wardic.make({ env: DomLive })
@@ -145,7 +154,7 @@ describe("the gestures on a w.* element (#793)", () => {
       w.div([h.Id("box"), w.OnHoverStart((e, info) => Message.Seen({ call: seen("start", e, info) })), w.OnHoverEnd((e, info) => Message.Seen({ call: seen("end", e, info) })), h.Style(BOX)]),
     )
     app = held
-    const box = await boxOf(held)
+    const box = await settledBox(held)
     const c = centreOf(box)
     await mouse.move(c)
     await until(() => calls.length > 0, 2000, "the start's Message")
@@ -157,7 +166,7 @@ describe("the gestures on a w.* element (#793)", () => {
   it("G2: WhileHover applies while the pointer is over the element, and leaves when it leaves", async () => {
     const held = embedBox((_model, w, h) => w.div([h.Id("box"), w.Initial({ opacity: 0.2 }), w.Animate({ opacity: 0.2 }), w.WhileHover({ opacity: 1 }), w.Transition(FAST), h.Style(BOX)]))
     app = held
-    const box = await boxOf(held)
+    const box = await settledBox(held)
     expect(opacityOf(box), "at rest").toBe(0.2)
     await mouse.move(centreOf(box))
     await landsAt(box, 1, "hovered")
@@ -179,7 +188,7 @@ describe("the gestures on a w.* element (#793)", () => {
       ),
     )
     app = held
-    const box = await boxOf(held)
+    const box = await settledBox(held)
     const c = centreOf(box)
     const onChild = centreOf(box.querySelector("#child")!)
     await mouse.down(c)
@@ -215,7 +224,7 @@ describe("the gestures on a w.* element (#793)", () => {
       ]),
     )
     app = held
-    const box = await boxOf(held)
+    const box = await settledBox(held)
     const tabindex = (id: string): string | null => held.container.querySelector(`#${id}`)!.getAttribute("tabindex")
     expect(["box", "button", "given", "none"].map((id) => `${id} ${tabindex(id)}`)).toEqual(["box 0", "button null", "given -1", "none null"])
     box.focus()
@@ -242,7 +251,7 @@ describe("the gestures on a w.* element (#793)", () => {
       ),
     )
     app = held
-    const box = await boxOf(held)
+    const box = await settledBox(held)
     const parentSaw: Array<string> = []
     held.container.querySelector("#wrap")!.addEventListener("pointerdown", () => parentSaw.push("down"))
     const c = centreOf(box)
@@ -277,7 +286,7 @@ describe("the gestures on a w.* element (#793)", () => {
       ),
     )
     app = held
-    const box = await boxOf(held)
+    const box = await settledBox(held)
     const inner = centreOf(box.querySelector("#inner")!)
     held.send(true)
     await raf()
@@ -303,7 +312,7 @@ describe("the gestures on a w.* element (#793)", () => {
   it("G7: WhileFocus at a keyboard's focus, not a pointer's click", async () => {
     const held = embedBox((_model, w, h) => w.button([h.Id("box"), w.Initial({ opacity: 0.2 }), w.Animate({ opacity: 0.2 }), w.WhileFocus({ opacity: 1 }), w.Transition(FAST), h.Style(BOX)]))
     app = held
-    const box = await boxOf(held)
+    const box = await settledBox(held)
     // A click focuses the button without showing it.
     await mouse.down(centreOf(box))
     await mouse.up(centreOf(box))
@@ -325,7 +334,7 @@ describe("the gestures on a w.* element (#793)", () => {
       w.div([h.Id("box"), w.Initial({ opacity: 0.2 }), w.Animate({ opacity: 0.2 }), w.WhileInView({ opacity: 1 }), w.Transition(FAST), h.Style({ ...BOX, position: "absolute", top: "2000px" })]),
     )
     app = held
-    const box = await boxOf(held)
+    const box = await settledBox(held)
     expect(await waitAtMost(300, () => opacityOf(box) > 0.2), "out of view").toBe(false)
     scrollToShow(FAR, 100)
     await landsAt(box, 1, "in view")
@@ -349,7 +358,7 @@ describe("the gestures on a w.* element (#793)", () => {
       ]),
     )
     app = held
-    const box = await boxOf(held)
+    const box = await settledBox(held)
     const scroller = held.container.querySelector<HTMLElement>("#scroller")!
     expect(await waitAtMost(300, () => opacityOf(box) > 0.2), "clipped by its container: out of its view").toBe(false)
     scroller.scrollTop = 1900
@@ -362,7 +371,7 @@ describe("the gestures on a w.* element (#793)", () => {
     const told = (name: string) => (entry: IntersectionObserverEntry) => Message.Seen({ call: `${name} ${entry.isIntersecting} ${entry instanceof IntersectionObserverEntry}` })
     const held = embedBox((_model, w, h) => w.div([h.Id("box"), w.OnViewportEnter(told("enter")), w.OnViewportLeave(told("leave")), h.Style({ ...BOX, position: "absolute", top: "2000px" })]))
     app = held
-    await boxOf(held)
+    await settledBox(held)
     expect(await waitAtMost(300, () => calls.length > 0), "out of view at the start: nothing").toBe(false)
     scrollToShow(FAR, 100)
     await until(() => calls.length > 0, 2000, "the entry's Message")
@@ -374,7 +383,7 @@ describe("the gestures on a w.* element (#793)", () => {
   it("G11: a callback a later render adds starts its recognizer then", async () => {
     const held = embedBox((model, w, h) => w.div([h.Id("box"), ...Bool.match(model.on, { onTrue: () => [w.OnHoverStart(Message.Seen({ call: "start" }))], onFalse: () => [] }), h.Style(BOX)]))
     app = held
-    const box = await boxOf(held)
+    const box = await settledBox(held)
     await mouse.move(centreOf(box))
     await mouse.move(PARK)
     expect(await waitAtMost(300, () => calls.length > 0), "no recognizer yet").toBe(false)
@@ -394,7 +403,7 @@ describe("the gestures on a w.* element (#793)", () => {
       ]),
     )
     app = held
-    const box = await boxOf(held)
+    const box = await settledBox(held)
     const child = box.querySelector<HTMLElement>("#child")!
     await landsAt(child, 0.2, "dim at rest")
     await mouse.move(centreOf(box))
@@ -420,7 +429,7 @@ describe("the gestures on a w.* element (#793)", () => {
         toMessage: (on) => Message.Set({ on }),
       })
       app = held
-      const box = await boxOf(held)
+      const box = await settledBox(held)
       await mouse.move(centreOf(box))
       expect(await waitAtMost(400, () => opacityOf(box) > 0.2), "it never hovers").toBe(false)
     })
@@ -450,7 +459,7 @@ describe("the gestures on a w.* element (#793)", () => {
       toMessage: (on) => Message.Set({ on }),
     })
     app = held
-    const box = await boxOf(held)
+    const box = await settledBox(held)
     const lines = await logged(async () => {
       await mouse.move(centreOf(box))
       expect(await waitAtMost(300, () => opacityOf(box) > 0.2), "not here yet: no hover").toBe(false)
@@ -471,22 +480,7 @@ describe("the gestures on a w.* element (#793)", () => {
         arrive = () => resolve(Features.layout)
       })
     const lazy = Wardic.make({ env: DomLive, features: load })
-    const Items = Schema.Struct({ items: Schema.Array(Schema.String) })
-    type Items = typeof Items.Type
-    const ItemsMessage = defineMessageUnion({ Items: { items: Schema.Array(Schema.String) } })
-    type ItemsMessage = typeof ItemsMessage.Type
-    const held = embed<Items, ItemsMessage, ReadonlyArray<string>>({
-      Model: Items,
-      Set: Schema.Array(Schema.String),
-      init: { items: ["a", "b", "c"] },
-      update: (model, message) => ItemsMessage.match(message, { Items: ({ items }) => ({ model: { ...model, items } }) }),
-      view: (model, h) => {
-        const w = lazy.html(h)
-        return h.ul([h.Id("list"), h.Style({ position: "relative", margin: "0", padding: "0" })], model.items.map((key) =>
-          w.keyed("li")(key, [h.Id(`item-${key}`), w.Layout(true), w.Transition({ duration: 0.3, ease: "linear" }), h.Style({ height: "40px", margin: "0", padding: "0", listStyle: "none" })], [key])))
-      },
-      toMessage: (items) => ItemsMessage.Items({ items }),
-    })
+    const held = embedKeyedList(lazy, ["a", "b", "c"])
     app = held
     await until(() => held.container.querySelector("#item-c") !== null, 2000, "the list renders")
     const c = held.container.querySelector<HTMLElement>("#item-c")!
@@ -499,5 +493,89 @@ describe("the gestures on a w.* element (#793)", () => {
     held.send(["c", "a", "b"])
     await until(() => topOfC() > 40 && topOfC() < 80, 2000, "c seeds back near its old slot and moves")
     await until(() => topOfC() < 0.5, 2000, "c lands at the top")
+  })
+
+  it("G16: Viewport's root as the parent, and amount all: half in view isn't in", async () => {
+    const held = embedBox((_model, w, h) =>
+      h.div([h.Id("scroller"), h.Style({ position: "relative", width: "200px", height: "200px", overflow: "auto" })], [
+        h.div([h.Style({ height: "2400px" })]),
+        w.div([
+          h.Id("box"),
+          w.Initial({ opacity: 0.2 }),
+          w.Animate({ opacity: 0.2 }),
+          w.WhileInView({ opacity: 1 }),
+          w.Viewport({ root: "parent", amount: "all" }),
+          w.Transition(FAST),
+          h.Style({ ...BOX, position: "absolute", top: "2000px" }),
+        ]),
+      ]),
+    )
+    app = held
+    const box = await settledBox(held)
+    const scroller = held.container.querySelector<HTMLElement>("#scroller")!
+    // The box's top 160 px down a 200 px root: half of it shows, which "all" doesn't count.
+    scroller.scrollTop = 1840
+    expect(await waitAtMost(400, () => opacityOf(box) > 0.2), "half in view: not all of it").toBe(false)
+    scroller.scrollTop = 1900
+    await landsAt(box, 1, "all of it in the parent's view")
+  })
+
+  it("G17: a load that fails is reported once; the element is inert, and the missing Feature said then", async () => {
+    const load = (): Promise<typeof Features.domAnimation> => Promise.reject(new Error("no features here"))
+    const failing = Wardic.make({ env: DomLive, features: load })
+    const captured = capture()
+    try {
+      const held = embed<Model, Message, boolean>({
+        Model,
+        Set: Schema.Boolean,
+        init: { on: false },
+        update,
+        view: (_model, h) => {
+          const w = failing.html(h)
+          return h.div([h.Id("wrap"), h.Style({ position: "absolute", top: "100px", left: "100px" })], [
+            w.div([h.Id("box"), w.Initial({ opacity: 0.2 }), w.Animate({ opacity: 0.2 }), w.WhileHover({ opacity: 1 }), w.Transition(FAST), h.Style(BOX)]),
+          ])
+        },
+        toMessage: (on) => Message.Set({ on }),
+      })
+      app = held
+      const box = await settledBox(held)
+      await until(() => said(captured.lines, "a load of the Handle's Features failed"), 2000, "the load's failure reported")
+      await mouse.move(centreOf(box))
+      expect(await waitAtMost(400, () => opacityOf(box) > 0.2), "inert").toBe(false)
+      await mouse.move(PARK)
+      // A later render still wants the hover, now with no load on its way: the missing Feature is said, once.
+      held.send(true)
+      await until(() => said(captured.lines, "needs the `hover` Feature"), 2000, "the missing Feature said")
+    } finally {
+      captured.stop()
+    }
+    expect(captured.lines.filter((line) => line.includes("a load of the Handle's Features failed")), "reported once").toHaveLength(1)
+  })
+
+  it("G18: a handler that throws is reported by name, and the gesture goes on", async () => {
+    const held = embedBox((_model, w, h) =>
+      w.div([
+        h.Id("box"),
+        w.Initial({ opacity: 0.2 }),
+        w.Animate({ opacity: 0.2 }),
+        w.WhileHover({ opacity: 1 }),
+        w.OnHoverStart(() => {
+          throw new Error("boom")
+        }),
+        w.Transition(FAST),
+        h.Style(BOX),
+      ]),
+    )
+    app = held
+    const box = await settledBox(held)
+    const captured = capture()
+    try {
+      await mouse.move(centreOf(box))
+      await landsAt(box, 1, "hovered, the throw reported")
+      await until(() => said(captured.lines, "wardic.gesture: onHoverStart failed"), 2000, "the report, named")
+    } finally {
+      captured.stop()
+    }
   })
 })

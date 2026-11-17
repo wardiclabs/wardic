@@ -30,7 +30,8 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import * as Equal from "effect/Equal"
-import { constFalse, constVoid } from "effect/Function"
+import { constFalse, constVoid, identity } from "effect/Function"
+import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import type * as AtomRegistry from "effect/reactivity/AtomRegistry"
@@ -129,41 +130,67 @@ const writeStartingStyle = (element: HTMLElement, starting: Style.Style): void =
 }
 
 /** What a callback's handler becomes for the spine or a presence: a function told what the callback is. */
-export type Dispatch = <A>(handler: Ward.Handler<unknown, A>) => (value: A) => void
+export type Dispatch = <Args extends ReadonlyArray<unknown>>(handler: Ward.Callback<unknown, Args>) => (...args: Args) => void
 
-/** A callback's dispatch (decision 23): a Message sent as it is, a function's result sent unless it's `Option.none()`. */
+/** What sends a callback's Message (decision 23) through `offer`: a Message as it is; a function's answer, an `Option.none()` sending nothing. */
 export const dispatcherOf =
   (offer: (message: unknown) => void): Dispatch =>
-  <A>(handler: Ward.Handler<unknown, A>) =>
-  (value: A) => {
+  <Args extends ReadonlyArray<unknown>>(handler: Ward.Callback<unknown, Args>) =>
+  (...args: Args) => {
     if (Bool.not(Predicate.isFunction(handler))) {
       offer(handler)
       return
     }
-    const out = (handler as (value: A) => unknown)(value)
+    const out = (handler as (...args: Args) => unknown)(...args)
     if (Option.isOption(out)) {
-      Option.map(out, offer)
+      Option.match(out, { onNone: constVoid, onSome: offer })
       return
     }
     offer(out)
   }
 
+/** A `viewport` as dom reads it: Foldkit's, its `root` resolved into an accessor (`viewportRootOf`). */
+export interface ViewportResolved extends Pick<Ward.ViewportOptions, "once" | "margin" | "amount"> {
+  readonly root?: (() => Element | undefined) | undefined
+}
+
 /**
- * The config as the spine reads it: the delivered one, its **Config transition** as its own when it
- * gives none (#434, Motion's `{ ...config, ...props }`), its callback Messages as the spine's
- * functions, and its `OnUpdate` Atom as the sink's `onUpdate`, set to a copy of each frame's values
- * (#791, Q6). Per delivery; the delivered record itself when nothing is added.
+ * An element's config as its spine and its gestures read it: the delivered one, its callbacks as the
+ * spine's functions (`onUpdate` the Atom's setter, the animation and layout callbacks' Messages sent),
+ * and its viewport resolved.
  */
-const spineViewOf = (config: Config, value: WardicConfigValue.WardicConfigValue | undefined, dispatch: Dispatch, registry: AtomRegistry.AtomRegistry): Config => {
-  const configured = WardicConfigValue.withConfigTransition(config, value)
+export type View = Omit<Config, "viewport" | "onUpdate"> &
+  Pick<CoreConfig.SpineConfig, "onUpdate"> &
+  Pick<WardConfig.WardConfig, "onLayoutAnimationStart" | "onLayoutAnimationComplete"> & { readonly viewport?: ViewportResolved | undefined }
+
+/**
+ * `root`'s element for a viewport (#793, Q16): `"parent"`, the element's parent; a selector, resolved
+ * under the `w.Provider()` element, else the document; none, the window. Read as the recognizer starts.
+ */
+const viewportRootOf = (provider: Provider, element: Element, root: string): Element | undefined => {
+  if (root === "parent") return Option.getOrUndefined(Option.fromNullOr(element.parentElement))
+  const under: ParentNode = UndefinedOr.match(provider.root, { onUndefined: (): ParentNode => document, onDefined: identity })
+  return Option.getOrUndefined(Option.fromNullOr(under.querySelector(root)))
+}
+
+const spineViewOf = (config: Config, value: WardicConfigValue.WardicConfigValue | undefined, dispatch: Dispatch, registry: AtomRegistry.AtomRegistry, provider: Provider, element: Element): View => {
+  const { viewport: given, ...configured } = WardicConfigValue.withConfigTransition(config, value)
+  // Its viewport as dom reads it (#793, Q16): the root resolved as the recognizer starts.
+  const viewport = UndefinedOr.match(given, {
+    onUndefined: () => ({}),
+    onDefined: (v): { readonly viewport: ViewportResolved } => ({
+      viewport: { once: v.once, margin: v.margin, amount: v.amount, ...UndefinedOr.match(v.root, { onUndefined: () => ({}), onDefined: (root) => ({ root: () => viewportRootOf(provider, element, root) }) }) },
+    }),
+  })
+  const base: View = { ...configured, ...viewport }
   const start = config.animationStart
   const complete = config.animationComplete
   const update = config.onUpdate
   const layoutStart = config.layoutAnimationStart
   const layoutComplete = config.layoutAnimationComplete
-  if (Predicate.isUndefined(start) && Predicate.isUndefined(complete) && Predicate.isUndefined(update) && Predicate.isUndefined(layoutStart) && Predicate.isUndefined(layoutComplete)) return configured
-  const view: CoreConfig.SpineConfig & Pick<WardConfig.WardConfig, "onLayoutAnimationStart" | "onLayoutAnimationComplete"> = {
-    ...configured,
+  if (Predicate.isUndefined(start) && Predicate.isUndefined(complete) && Predicate.isUndefined(update) && Predicate.isUndefined(layoutStart) && Predicate.isUndefined(layoutComplete)) return base
+  const view: View = {
+    ...base,
     ...UndefinedOr.match(start, { onUndefined: () => ({}), onDefined: (handler) => ({ onAnimationStart: dispatch(handler) }) }),
     ...UndefinedOr.match(complete, { onUndefined: () => ({}), onDefined: (handler) => ({ onAnimationComplete: dispatch(handler) }) }),
     ...UndefinedOr.match(update, { onUndefined: () => ({}), onDefined: (atom) => ({ onUpdate: (latest: Ward.Latest) => registry.set(atom, { ...latest }) }) }),
@@ -171,7 +198,7 @@ const spineViewOf = (config: Config, value: WardicConfigValue.WardicConfigValue 
     ...UndefinedOr.match(layoutStart, { onUndefined: () => ({}), onDefined: (handler) => ({ onLayoutAnimationStart: () => dispatch(handler)(undefined) }) }),
     ...UndefinedOr.match(layoutComplete, { onUndefined: () => ({}), onDefined: (handler) => ({ onLayoutAnimationComplete: () => dispatch(handler)(undefined) }) }),
   }
-  return view as Config
+  return view
 }
 
 /** Follow `config`'s `text` Atom on the element, writing `textContent` outside the patch (decision 16); the stop. */
@@ -212,8 +239,8 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
   const registryNow = (): AtomRegistry.AtomRegistry => registry
   const id = `wardic-foldkit-${ids++}`
   let config = configOf(deliveredTo(element))
-  let view = spineViewOf(config, configValue, dispatch, registry)
-  const configNow = (): Config => view
+  let view = spineViewOf(config, configValue, dispatch, registry, provider, element)
+  const configNow = (): View => view
   // The nearest `w.Presence` above it (decision 29), told its key now, before that presence decides what it shows (#286).
   const presence = nearestPresence(provider, state, element)
   const context = UndefinedOr.map(presence, (p) => p.context)
@@ -295,7 +322,6 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       provider,
       element,
       config: configNow,
-      send,
       dispatch,
       onChange: () => {
         retarget()
@@ -308,14 +334,14 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     // `LayoutScroll` or `LayoutRoot`, on the provider's layout, built at the first; and, with a layout
     // built, its values by element, for a twin's flight to follow (ADR-0012 *Amendment (#137)*). Each
     // joined at mount, or as a load brings the Feature (#793, Q15).
-    // Its config as dom's layout code reads it (the layout keys alone); `viewport.root` is Foldkit's own form, read by `gestures.ts`.
-    const wardConfig = (): WardConfig.WardConfig => view as unknown as WardConfig.WardConfig
+    // Its config as dom's layout code reads it: the layout keys alone.
+    const wardConfig = (): WardConfig.WardConfig => view as WardConfig.WardConfig
     const builtProjection = (): ProjectionSystem.Shape | undefined => Keys.projectionIn(provider.registry.built())
-    let layoutNode: LayoutNode | undefined
-    let unregisterValues: (() => void) | undefined
+    const layoutNode = MutableRef.make<LayoutNode | undefined>(undefined)
+    const unregisterValues = MutableRef.make<(() => void) | undefined>(undefined)
     const joinLayout = (): void => {
-      if (Bool.and(Predicate.isUndefined(layoutNode), Feature.wantsLayoutNode(wardConfig()))) {
-        layoutNode = UndefinedOr.map(layoutOf(provider, state), (made) =>
+      if (Bool.and(Predicate.isUndefined(MutableRef.get(layoutNode)), Feature.wantsLayoutNode(wardConfig()))) {
+        MutableRef.set(layoutNode, UndefinedOr.map(layoutOf(provider, state), (made) =>
           made.projection.register(
             made.nodes.registrationOf(
               made.nodes.optionsOf({
@@ -333,13 +359,13 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
                 heldTransform: ElementSetup.heldTransformFor(snapshot, templateAtMount, () => view.transformTemplate),
               }),
             ),
-          ))
+          )))
       }
-      if (Predicate.isUndefined(unregisterValues)) unregisterValues = UndefinedOr.map(builtProjection(), (projection) => projection.registerValues(element, () => snapshot.values))
+      if (Predicate.isUndefined(MutableRef.get(unregisterValues))) MutableRef.set(unregisterValues, UndefinedOr.map(builtProjection(), (projection) => projection.registerValues(element, () => snapshot.values)))
     }
     joinLayout()
     // A load's Features arriving (Q15): what the element wants of them starts then.
-    const unhook = provider.onFeatures(() => {
+    const stopRechecks = provider.onFeatures(() => {
       gestures.check()
       joinLayout()
     })
@@ -351,7 +377,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       if (Equal.equals(dependency, next)) return
       dependency = next
       const ask = (): void => {
-        UndefinedOr.match(layoutNode, {
+        UndefinedOr.match(MutableRef.get(layoutNode), {
           onDefined: (node) => node.notify(),
           onUndefined: () => UndefinedOr.map(builtProjection(), (projection) => projection.notify()),
         })
@@ -380,7 +406,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     // and the element stays where it is.
     const uninstall = installSetter(element, (delivered) => {
       config = configOf(delivered)
-      view = spineViewOf(config, configValue, dispatch, registry)
+      view = spineViewOf(config, configValue, dispatch, registry, provider, element)
       exitConfig.current = Spine.exitConfigOf(view, inherited)
       patchTouched()
       hintFrameUnless(provider.loop, paused)
@@ -436,10 +462,10 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       unfollowTemplate()
       unregisterAnimatable()
       uninstall()
-      unhook()
+      stopRechecks()
       gestures.dispose()
-      UndefinedOr.map(layoutNode, (node) => node.dispose())
-      UndefinedOr.map(unregisterValues, (unregister) => unregister())
+      UndefinedOr.map(MutableRef.get(layoutNode), (node) => node.dispose())
+      UndefinedOr.map(MutableRef.get(unregisterValues), (unregister) => unregister())
       spine.dispose()
       unregister()
       dropNode(element)

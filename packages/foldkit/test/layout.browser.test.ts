@@ -14,27 +14,11 @@ import { afterEach, describe, expect, it } from "vitest"
 import { Features } from "@wardic/foldkit"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import { leftOf, paintedReads, topOf, until } from "../../solid/test/browser-helpers.ts"
-import { embed, type Embedded } from "./harness.ts"
-
-const Model = Schema.Struct({ items: Schema.Array(Schema.String) })
-type Model = typeof Model.Type
-const Message = defineMessageUnion({ Items: { items: Schema.Array(Schema.String) } })
-type Message = typeof Message.Type
-const update = (model: Model, message: Message) => Message.match(message, { Items: ({ items }) => ({ model: { ...model, items } }) })
+import { embed, type Embedded, embedKeyedList } from "./harness.ts"
 
 const wardic = Wardic.make({ env: DomLive, features: [Features.layout] })
 
 const ROW = { height: "40px", margin: "0", padding: "0", listStyle: "none" } as const
-
-/** A keyed list whose items are layout elements: a reorder moves each to its new slot. */
-const listOf = (model: Model, h: HtmlBuilder<Message>): Html => {
-  const w = wardic.html(h)
-  return h.ul([h.Id("list"), h.Style({ position: "relative", margin: "0", padding: "0" })], Arr.map(model.items, (key) =>
-    w.keyed("li")(key, [h.Id(`item-${key}`), w.Layout(true), w.Transition({ duration: 0.3, ease: "linear" }), h.Style(ROW)], [key])))
-}
-
-const embedList = (items: ReadonlyArray<string>): Embedded<ReadonlyArray<string>> =>
-  embed<Model, Message, ReadonlyArray<string>>({ Model, Set: Schema.Array(Schema.String), init: { items }, update, view: listOf, toMessage: (items) => Message.Items({ items }) })
 
 const itemOf = (app: Pick<Embedded<never>, "container">, key: string): HTMLElement => app.container.querySelector<HTMLElement>(`#item-${key}`)!
 
@@ -46,7 +30,7 @@ afterEach(() => {
 
 describe("w.Layout", () => {
   it("a keyed reorder's items fly to their new slots after the patch", async () => {
-    const held = embedList(["a", "b", "c"])
+    const held = embedKeyedList(wardic, ["a", "b", "c"])
     app = held
     await until(() => held.container.querySelector("#item-c") !== null, 2000, "the list renders")
     const c = itemOf(held, "c")

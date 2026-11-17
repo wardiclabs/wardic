@@ -14,7 +14,7 @@ import { Features, LiveValue } from "@wardic/foldkit"
 import type * as Ward from "@wardic/foldkit/Ward"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import { paintedReads, until } from "../../solid/test/browser-helpers.ts"
-import { embed, type Embedded } from "./harness.ts"
+import { boxOf, embed, type Embedded } from "./harness.ts"
 
 const Model = Schema.Struct({ x: Schema.Number })
 type Model = typeof Model.Type
@@ -25,10 +25,6 @@ const update = (model: Model, message: Message) => Message.match(message, { Set:
 const wardic = Wardic.make({ env: DomLive })
 
 const xOf = (app: Pick<Embedded<never>, "container">, box: HTMLElement): number => box.getBoundingClientRect().left - app.container.getBoundingClientRect().left
-const boxOf = async (app: Pick<Embedded<never>, "container">, id = "box"): Promise<HTMLElement> => {
-  await until(() => app.container.querySelector(`#${id}`) !== null, 2000, `#${id} renders`)
-  return app.container.querySelector<HTMLElement>(`#${id}`)!
-}
 
 let app: Pick<Embedded<never>, "dispose"> | undefined
 afterEach(() => {

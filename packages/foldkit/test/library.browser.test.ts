@@ -10,7 +10,7 @@ import { defineMessageUnion } from "foldkit/message"
 import { afterEach, describe, expect, it } from "vitest"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import { until } from "../../solid/test/browser-helpers.ts"
-import { embed, type Embedded } from "./harness.ts"
+import { embed, type Embedded, opacityOf } from "./harness.ts"
 
 const Model = Schema.Struct({ open: Schema.Boolean, color: Schema.String })
 type Model = typeof Model.Type
@@ -35,8 +35,6 @@ const chip = <M>(h: HtmlBuilder<M>, attributes: ReadonlyArray<Attribute<M> | Chi
 
 const list = { closed: { opacity: 0.2 }, open: { opacity: 1 } }
 const item = { closed: { opacity: 0, x: -10 }, open: { opacity: 1, x: 0 } }
-
-const opacityOf = (el: HTMLElement): number => Number(el.style.opacity)
 
 let app: Pick<Embedded<never>, "dispose"> | undefined
 afterEach(() => {

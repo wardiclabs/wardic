@@ -1,18 +1,24 @@
 /**
- * A **Wardic instance**'s Features (#516, ADR-0067 *Amendment (#516)*), for both bindings: what
- * `createWardic` splits its list into, and what its elements and hooks take in each provider. In a module
- * that only `createWardic` imports, apart from the spine every page shares, so an app with no Wardic
+ * A **Wardic instance**'s Features (#516, ADR-0067 *Amendment (#516)*), for every binding: what
+ * Solid's `createWardic` and Foldkit's `Wardic.make` split their list into, and what their elements take
+ * in each provider: those given at once, flattened, each once, and each load (`() => import(…)`), started
+ * once per instance the first time any provider asks, so one module's instance loads each once. In a
+ * module only the makers import, apart from the spine every page shares, so an app with no Wardic
  * instance ships none of it (ADR-0067, *Amendment (#548)*).
+ *
+ * Unstable, for Wardic's own packages: public, with no semver promise.
  *
  * @module
  */
+// Unstable: ADR-0071, decision 5. #793 (PR 1's review): solid's `instance-features.ts`, moved to dom for
+// the Foldkit binding's loads (Q15).
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import type * as Cause from "effect/Cause"
 import { constVoid, identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
-import * as Feature from "@wardic/dom/unstable/Feature"
+import * as Feature from "./Feature.ts"
 
 /**
  * `prop`'s Features (#516): those given at once, flattened, each once, and its loads, each started once,

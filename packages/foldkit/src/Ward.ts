@@ -71,15 +71,18 @@ export type Key =
  * as it is, or a function of what the callback is told, giving a Message, or an `Option` of one, where
  * `Option.none()` sends nothing.
  */
-export type Handler<Message, A> = Message | ((value: A) => Message | Option.Option<Message>)
+export type Callback<Message, Args extends ReadonlyArray<unknown>> = Message | ((...args: Args) => Message | Option.Option<Message>)
+
+/** A {@link Callback} told one value: the animation, layout and viewport callbacks', and a presence's `onExitComplete`. */
+export type Handler<Message, A> = Callback<Message, [value: A]>
 
 /**
- * A gesture callback as a Message (decision 23; ADR-0047's `(event, info)`): a Message, sent as it
- * is, or a function of the platform's event and the gesture's info, giving a Message, or an `Option`
- * of one. The function runs at the event, inside the recognizer's dispatch, so `stopPropagation()`
- * and `preventDefault()` do what they say; its Message reaches `update` a microtask later.
+ * A gesture {@link Callback} (decision 23; ADR-0047's `(event, info)`): told the platform's event
+ * (`Raw`) and the gesture's info. The function runs at the event, inside the recognizer's dispatch, so
+ * `stopPropagation()` and `preventDefault()` do what they say; its Message reaches `update` a
+ * microtask later.
  */
-export type GestureHandler<Message, Event, Info> = Message | ((event: Event, info: Info) => Message | Option.Option<Message>)
+export type GestureHandler<Message, Raw, Info> = Callback<Message, [event: Raw, info: Info]>
 
 /** A hover's info (Motion's `EventInfo`): where the pointer was, in the viewport. */
 export type PointInfo = GestureInfo.WardicPointInfo

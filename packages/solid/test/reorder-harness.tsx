@@ -15,45 +15,16 @@ import { Reorder, type WardicValues, WardicProvider } from "@wardic/solid"
 import * as Bool from "effect/Boolean"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { type Accessor, createSignal, For, type JSX } from "solid-js"
-import { commands } from "vitest/browser"
-import "./browser-commands.ts"
 import { afterPaint, raf } from "./browser-helpers.ts"
+import { add, glide, heldButton, mouse, type Pt, wait } from "./real-mouse.ts"
 
-export interface Pt {
-  readonly x: number
-  readonly y: number
-}
-
-export const wait = (ms: number): Promise<void> => new Promise((resolve) => setTimeout(resolve, ms))
+// The real mouse and its points are Solid-free, in real-mouse.ts (#793): re-exported here for the Solid tests.
+export { add, centreOf, glide, mouse, type Pt, wait } from "./real-mouse.ts"
 
 export const settle = async (): Promise<void> => {
   for (let i = 0; i < 4; i++) await raf()
   await afterPaint()
 }
-
-// Whether the button is held, so a test that fails mid-press still releases it.
-let held = false
-export const mouse = {
-  move: (p: Pt): Promise<void> => commands.realMouse("move", p.x, p.y),
-  down: async (p: Pt): Promise<void> => {
-    await commands.realMouse("down", p.x, p.y)
-    held = true
-  },
-  up: async (p: Pt): Promise<void> => {
-    await commands.realMouse("up", p.x, p.y)
-    held = false
-  },
-}
-
-/** Move the real mouse from `from` to `to` in `steps` moves, `ms` apart (each move also waits for its ack). */
-export const glide = async (from: Pt, to: Pt, steps: number, ms = 20): Promise<void> => {
-  for (let k = 1; k <= steps; k++) {
-    await mouse.move({ x: from.x + ((to.x - from.x) * k) / steps, y: from.y + ((to.y - from.y) * k) / steps })
-    if (ms > 0) await wait(ms)
-  }
-}
-
-export const add = (p: Pt, dx: number, dy: number): Pt => ({ x: p.x + dx, y: p.y + dy })
 
 /**
  * A flick that lets go with its last move (#369, #496): grab at `g`, glide `slow` px right, make 3
@@ -76,16 +47,11 @@ export const flingFrom = async (g: Pt, slow: number, step: number): Promise<Pt> 
 
 /** For `afterEach`: release a held button, park the mouse, clear any selection, unmount, scroll home. */
 export const resetScene = async (): Promise<void> => {
-  if (held) await mouse.up({ x: 5, y: 5 })
+  if (heldButton()) await mouse.up({ x: 5, y: 5 })
   await mouse.move({ x: 5, y: 5 })
   window.getSelection()?.removeAllRanges()
   cleanup()
   window.scrollTo(0, 0)
-}
-
-export const centreOf = (el: Element): Pt => {
-  const b = el.getBoundingClientRect()
-  return { x: b.left + b.width / 2, y: b.top + b.height / 2 }
 }
 
 /** Where `el`'s top-left corner is relative to the grab point `g`. */

@@ -36,9 +36,9 @@ export interface VariantNode {
   /** A list's names orchestrated each on their own (#297's PR 2). Only an element that joins a provider or provides has one. */
   readonly names: VariantTree.NameOrchestration | undefined
   /**
-   * Its element's gesture states (#291, #793), read into the names it hands its Variant children:
-   * bound by the element's Mount. Nothing for an element with no variants of its own, which hands
-   * down what it takes.
+   * Which of its element's gestures are on (#291, #793), read into the names it hands its Variant
+   * children: bound by the element's Mount. Nothing for an element with no variants of its own, which
+   * hands down what it takes.
    */
   readonly bindGestures: (states: () => VariantTree.GestureStates) => void
   /** Its registration with the ancestor it joined, given up: at its element's release. */
@@ -94,7 +94,7 @@ const ownOrchestration = (
     const c = cfg()
     return VariantTree.handedDown(c, () => VariantTree.nameOf(c.animate), () => UndefinedOr.map(parent, (p) => p.variant()))
   }
-  // What it hands down for its gestures (#291): its own states, bound by its element's Mount (#793), and what it inherits, passed on.
+  // What it hands down for its gestures (#291): which of its own are on, bound by its element's Mount (#793), and what it inherits, passed on.
   const ownStates = MutableRef.make<() => VariantTree.GestureStates>(noGestures)
   const gestures = (): VariantTree.GestureHandDown => VariantTree.handDownOf(cfg(), MutableRef.get(ownStates)(), VariantTree.handDownFrom(inherited))
   const triggerKey = (): string => VariantTree.triggerKeyOf(variant(), gestures(), NO_CHANGE)
