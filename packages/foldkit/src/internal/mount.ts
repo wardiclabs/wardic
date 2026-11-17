@@ -13,6 +13,7 @@ import * as Report from "@wardic/dom/Report"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
 import * as Predicate from "effect/Predicate"
+import * as Queue from "effect/Queue"
 import * as Stream from "effect/Stream"
 import type { MountAction, ViewState } from "foldkit/mount"
 import type * as Ward from "../Ward.ts"
@@ -40,15 +41,19 @@ const FAILED = "wardic.mount: a w.* element's mount failed; it stays at its Star
 const wardicPart =
   <Message>(state: State, provider: Ward.ProviderOptions | undefined): MountFn<Message> =>
   (element, viewStateChanges) =>
-    Stream.callback<Message>(() =>
+    Stream.callback<Message>((queue) =>
       Effect.gen(function* () {
+        // The element's callbacks (PR 2) leave as Messages through its own Stream (P7).
+        const offer = (message: unknown): void => {
+          Queue.offerUnsafe(queue, message as Message)
+        }
         let paused = false
         yield* Effect.forkScoped(Stream.runForEach(viewStateChanges, (view: ViewState) => Effect.sync(() => {
           paused = view === "Paused"
         })))
         const on = yield* providerFor(state, element, provider)
         const left = joined(state, on, element)
-        const release = mountElement(on, element as HTMLElement, () => paused)
+        const release = mountElement(on, element as HTMLElement, () => paused, offer, state.rootConfig)
         yield* Effect.addFinalizer(() =>
           Effect.sync(() => {
             release()

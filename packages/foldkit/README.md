@@ -21,6 +21,9 @@ const view = (model: Model, h: HtmlBuilder<Message>): Html => {
 - The first `w.*` element to mount builds Wardic's services on the Handle's `env`, shared until the last has left. `w.Provider(options)` on the `w.*` element at the top names the root the subtree options hang on.
 - An element animates its `Animate` target from `Initial` as it mounts, Retargets on a render that changes its target, and holds through one that doesn't.
 - `h.div([...w.attributes({ initial, animate, transition, style, mount })])` puts a Ward on an element `w` doesn't make.
+- Variants go down the DOM: a child with `w.Variants(…)` and no `Animate` of its own follows the name its nearest `w.*` ancestor hands down, staggered by that ancestor's `Transition` (`staggerChildren`, `delayChildren`, `when`). `w.Custom(value)` resolves its dynamic variants; `w.Inherit(false)` keeps it out.
+- `w.Config({ transition, reducedMotion, skipAnimations })` sets a subtree's defaults, over the Handle's `Wardic.make({ config })`.
+- `w.OnAnimationStart(message | (definition) => message)` and `w.OnAnimationComplete(…)` send Messages to `update`; `Option.none()` from a function sends nothing.
 - Scene tests resolve Wardic's Mounts by name: `Scene.Mount.resolve(wardic.Element, Done())`, and `wardic.Provider`.
 
 - Docs: https://wardic.dev

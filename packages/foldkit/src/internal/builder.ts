@@ -34,7 +34,7 @@ const attribute = (key: Ward.Attribute[Ward.TypeId], value: unknown): Ward.Attri
 
 /** An element's attributes, folded: its Wardic config, the user's `h.Style`, the user's Mount, `w.Provider()`'s options, and the rest, Foldkit's. */
 interface Folded<Message> {
-  config: Ward.Config
+  config: Ward.Config<Message>
   style: Record<string, string> | undefined
   mount: MountAction<Message> | undefined
   provider: Ward.ProviderOptions | undefined
@@ -71,7 +71,7 @@ const fold = <Message>(attributes: Attributes<Message>): Folded<Message> => {
     }
     folded.rest.push(attribute)
   })
-  folded.config = config as Ward.Config
+  folded.config = config as Ward.Config<Message>
   return folded
 }
 
@@ -141,5 +141,11 @@ export const builderOf = <Message>(state: State, h: HtmlBuilder<Message>): objec
   w.Animate = (value: Ward.Config["animate"]) => attribute("animate", value)
   w.Transition = (value: Ward.Config["transition"]) => attribute("transition", value)
   w.Style = (value: Ward.Config["style"]) => attribute("style", value)
+  w.Variants = (value: Ward.Config["variants"]) => attribute("variants", value)
+  w.Custom = (value: Ward.Config["custom"]) => attribute("custom", value)
+  w.Inherit = (value: Ward.Config["inherit"]) => attribute("inherit", value)
+  w.Config = (options: Ward.ConfigOptions) => attribute("config", options)
+  w.OnAnimationStart = (handler: Ward.Handler<Message, Ward.AnimationDefinition>) => attribute("animationStart", handler)
+  w.OnAnimationComplete = (handler: Ward.Handler<Message, Ward.AnimationDefinition>) => attribute("animationComplete", handler)
   return w
 }

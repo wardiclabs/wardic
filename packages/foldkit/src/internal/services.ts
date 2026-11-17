@@ -34,7 +34,9 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as AtomRegistry from "effect/reactivity/AtomRegistry"
 import * as Scope from "effect/Scope"
+import type * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as Ward from "../Ward.ts"
+import { rootConfigValueOf } from "./tree.ts"
 
 /** A live **Provider**: Wardic's services built on an app's `env`, read once, as a Solid provider's context value holds them. */
 export interface Provider {
@@ -44,6 +46,8 @@ export interface Provider {
   readonly gate: FlushGate.Shape
   /** Whether reduced motion applies now (ADR-0029): the user's preference, read as each animation starts. */
   readonly reducedMotion: () => boolean
+  /** Whether the user prefers reduced motion now, through the Probe's atom: what a `w.Config` setting is applied with. */
+  readonly prefers: () => boolean
   readonly positionalKeys: ReducedMotion.PositionalKeys["Service"]
   readonly defaultTransition: DefaultTransition.DefaultTransition["Service"]
   /** Its elements' reads of their values (#672): the Environment's, the DOM's where it gives none. */
@@ -66,6 +70,8 @@ export interface State {
    * bring them through the provider's registry. Nothing reads them in slice 1.
    */
   readonly features: Feature.InstanceFeaturesProp | undefined
+  /** The Handle's app-wide config (`Wardic.make({ config })`), the root of every element's `w.Config` chain; none without one. */
+  readonly rootConfig: WardicConfigValue.WardicConfigValue | undefined
   deferred: Deferred.Deferred<Provider>
   live: Provider | undefined
   /** Whether a build is in flight: an `env` that waits as it builds has the elements after the first await the `Deferred`. */
@@ -73,9 +79,10 @@ export interface State {
 }
 
 /** A Handle's state: no provider yet. */
-export const makeState = (env: WardicServices.WardicEnv, features: Feature.InstanceFeaturesProp | undefined): State => ({
+export const makeState = (env: WardicServices.WardicEnv, features: Feature.InstanceFeaturesProp | undefined, config: Ward.ConfigOptions | undefined): State => ({
   env,
   features,
+  rootConfig: rootConfigValueOf(config),
   deferred: Deferred.makeUnsafe<Provider>(),
   live: undefined,
   building: false,
@@ -108,13 +115,15 @@ const build = (state: State): Effect.Effect<Provider> =>
     // The user's preference, through the Probe's atom (ADR-0029); an app's setting comes with `w.Config` (slice 1, PR 2).
     const registry = Context.get(context, AtomRegistry.AtomRegistry)
     const probe = Context.get(context, Probe.Probe)
-    const reducedMotion = (): boolean => ReducedMotion.applies("user", registry.get(probe.prefersReducedMotion))
+    const prefers = (): boolean => registry.get(probe.prefersReducedMotion)
+    const reducedMotion = (): boolean => ReducedMotion.applies("user", prefers())
     reducedMotionNow = reducedMotion
     const services = context as Context.Context<never>
     return {
       runtime,
       gate: Context.get(context, FlushGate.FlushGate),
       reducedMotion,
+      prefers,
       positionalKeys: Context.get(context, ReducedMotion.PositionalKeys),
       defaultTransition: Context.get(context, DefaultTransition.DefaultTransition),
       valueReads: ElementSetup.valueReadsOf({

@@ -44,6 +44,8 @@ export interface MakeOptions<F> {
    * gesture or layout attribute is then a type error naming its Feature (from slice 3 on).
    */
   readonly features?: F | undefined
+  /** The app-wide settings (ADR-0062; ADR-0071 decision 22): what `w.Config(…)` takes, under every subtree's. */
+  readonly config?: Ward.ConfigOptions | undefined
 }
 
 /** A `w.*` element's function: `h.div`'s shape, taking Wardic's attributes too. */
@@ -88,6 +90,22 @@ export type Html<Message, F = never> = { readonly [Tag in FoldkitHtml.TagName]: 
    * when nothing animates it. A key in both `w.Style` and `h.Style` is an error in development.
    */
   Style: (value: Ward.Config["style"]) => Ward.Attribute
+  /**
+   * Named targets `Initial`, `Animate` and the rest can name (Motion's `variants`). A child with
+   * `Variants` and no `Animate` of its own follows the name its nearest Wardic ancestor hands down,
+   * staggered by that ancestor's `Transition`.
+   */
+  Variants: (value: Ward.Config["variants"]) => Ward.Attribute
+  /** What the element's dynamic variants resolve with (Motion's `custom`). */
+  Custom: (value: Ward.Config["custom"]) => Ward.Attribute
+  /** `false` keeps the element out of its ancestor's variants (Motion's `inherit`). */
+  Inherit: (value: Ward.Config["inherit"]) => Ward.Attribute
+  /** The subtree's settings (Motion's `MotionConfig`), this element's included, over the nearest ancestor's and the Handle's. */
+  Config: (options: Ward.ConfigOptions) => Ward.Attribute
+  /** Sent as an animation of the element starts, with what it animates to (Motion's `onAnimationStart`). */
+  OnAnimationStart: (handler: Ward.Handler<Message, Ward.AnimationDefinition>) => Ward.Attribute
+  /** Sent as that animation lands (Motion's `onAnimationComplete`); not for one a new target interrupted. */
+  OnAnimationComplete: (handler: Ward.Handler<Message, Ward.AnimationDefinition>) => Ward.Attribute
 }>
 
 /**
@@ -108,7 +126,7 @@ export interface Handle<F = never> {
  * `w.Provider()` for it while the first's element is mounted is reported and ignored.
  */
 export const make = <const F extends Feature.InstanceFeaturesProp = never>(options: MakeOptions<F>): Handle<F> => {
-  const state: State = makeState(options.env, options.features)
+  const state: State = makeState(options.env, options.features, options.config)
   // Made once per `h` (decision 18): as `===`-stable as `h` is, for `createLazy`.
   const builders = new WeakMap<object, object>()
   const html = <Message>(h: FoldkitHtml.HtmlBuilder<Message>): Html<Message, F> => {
