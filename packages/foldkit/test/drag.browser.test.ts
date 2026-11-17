@@ -21,9 +21,10 @@
 //   `DragListener(false)` a press on the element itself drags nothing; a press on the `StartsDrag`
 //   element drags it, `OnDragStart` sent; `snapToCursor` puts its centre under the pointer at the press.
 // - D10: the pan (Q9): `OnPanSessionStart` at the down with its point, `OnPanStart` past the threshold,
-//   `OnPan` at its start and each move, `OnPanEnd` at the release, with the pan's info; nothing moves.
+//   `OnPan` at its start and each move, `OnPanEnd` at the release, with the pan's info; nothing moves;
+//   once with the browser's own mouse.
 // - D12: `transformPagePoint` (Q9) on `w.Config` and on the Handle's `config`: the drag's points are
-//   mapped, so the element moves half as far.
+//   mapped, so the element moves half as far, and so are the boxes a constraints container is measured against.
 // - D8: the controls' `stop()` ends the drag as a release would (`OnDragEnd`, `WhileDrag` off, the
 //   spring back to the origin); `cancel()` ends it where it is, with no `OnDragEnd` and no release.
 // - D9: `DragDirectionLock`: nothing before 10 px on one axis, then `OnDirectionLock` with that axis
@@ -34,8 +35,8 @@
 // - D13: of nested draggables the innermost drags (a **Drag claim**); with `DragPropagation` both do.
 // - D14: a render that gives `x` a new target mid-release takes it over (#340): the release stops,
 //   untold, and the spring goes on to the target.
-// - D15: `OnDragTransitionEnd` once at the release with no momentum; once a Fling comes to rest,
-//   past where it was dropped, with momentum.
+// - D15: `OnDragTransitionEnd` once at the release with `DragMomentum(false)`; once a Fling comes to
+//   rest, past where it was dropped, without it.
 // - D16: `Layout` and `Drag` (ADR-0016): the drag moves the projection, and the element returns to
 //   its slot on release.
 // - D17: without `Features.drag`, `w.Drag` is a type error naming the Feature and does nothing, said
@@ -56,7 +57,7 @@ import type * as Ward from "@wardic/foldkit/Ward"
 import { leftOf, raf, until, waitAtMost } from "../../solid/test/browser-helpers.ts"
 import { pushedFling, pushedPointer, type PushedPointer } from "../../solid/test/pushed-pointer.ts"
 import { add, glide, wait } from "../../solid/test/real-mouse.ts"
-import { boxOf, capture, centreOf, embed, type Embedded, logged, mouse, opacityOf, PARK, type Pt, said, saidTimes } from "./harness.ts"
+import { at, BOX, boxOf, capture, centreOf, embed, type Embedded, FAST, landsAt, logged, mouse, opacityOf, PARK, type Pt, said, saidTimes, settledBox } from "./harness.ts"
 
 const Model = Schema.Struct({ on: Schema.Boolean })
 type Model = typeof Model.Type
@@ -78,11 +79,6 @@ const update = (model: Model, message: Message) =>
 /** The builder of a Handle with every DOM Feature: `domMax` has `drag`, `pan` and `layout`. */
 type W = Wardic.Html<Message, typeof Features.domMax>
 
-const BOX = { width: "80px", height: "80px", background: "teal", "user-select": "none" } as const
-
-const r = (n: number): number => Math.round(n)
-const at = (p: Pt): string => `${r(p.x)},${r(p.y)}`
-
 /** A drag call: its name, the event's type and whether the browser made it, and the info's offset and point. */
 const dragged = (name: string, event: Event, info: Ward.DragInfo): string => `${name} ${event.type} ${event.isTrusted} ${at(info.offset)} ${at(info.point)}`
 
@@ -90,14 +86,6 @@ const dragged = (name: string, event: Event, info: Ward.DragInfo): string => `${
 const translateOf = (el: HTMLElement): Pt => {
   const m = new DOMMatrix(getComputedStyle(el).transform)
   return { x: m.e, y: m.f }
-}
-
-const FAST = { type: "tween", duration: 0.05 } as const
-
-/** Wait for `el`'s opacity to land on `value`, then check it did. */
-const landsAt = async (el: HTMLElement, value: number, what: string): Promise<void> => {
-  await until(() => opacityOf(el) === value, 2000, what)
-  expect(opacityOf(el), what).toBe(value)
 }
 
 /** Where a pushed drag presses: any point, since a pushed event reaches the element whatever its target. */
@@ -129,7 +117,7 @@ const pushedBox = async (box: (w: W, h: HtmlBuilder<Message>) => Html): Promise<
   return { pointer, box: await settledBox(app) }
 }
 
-/** A box that drags on x with no momentum and a hard clamp, with `attributes` more. */
+/** A box that drags on x with `DragMomentum(false)` and a hard clamp, with `attributes` more. */
 const clamped = (w: W, h: HtmlBuilder<Message>, attributes: ReadonlyArray<Ward.Attribute>): Html =>
   w.div([h.Id("box"), h.Style(BOX), w.Drag("x"), w.DragMomentum(false), w.DragElastic(0), ...attributes], [])
 
@@ -150,14 +138,6 @@ const embedBox = <F>(wardic: Wardic.Handle<F>, box: (model: Model, w: Wardic.Htm
     view: (model, h) => h.div([h.Id("wrap"), h.Style({ position: "absolute", top: "100px", left: "100px" })], [box(model, wardic.html(h), h)]),
     toMessage: (on) => Message.Set({ on }),
   })
-
-/** The `#box` of `app`, once it renders and two frames have passed: what mounts with it (the track's listeners) is in place. */
-const settledBox = async (app: Pick<Embedded<never>, "container">): Promise<HTMLElement> => {
-  const box = await boxOf(app)
-  await raf()
-  await raf()
-  return box
-}
 
 let apps: Array<Embedded<boolean>> = []
 const mounted = (app: Embedded<boolean>): Embedded<boolean> => {
@@ -405,6 +385,31 @@ describe("a w.* element's drag (#793, PR 2; ADR-0004)", () => {
       "panEnd 40,0",
     ])
     expect(translateOf(box).x, "a pan moves nothing").toBe(0)
+    calls = []
+
+    // The browser's own mouse once: the DOM's events reach the callbacks.
+    const wardic = Wardic.make({ env: DomLive, features: Features.domMax })
+    const real = await settledBox(
+      mounted(
+        embedBox(wardic, (_, w, h) =>
+          w.div(
+            [
+              h.Id("box"),
+              h.Style(BOX),
+              w.OnPanSessionStart((event) => Message.Seen({ call: `session ${event.type} ${event.isTrusted}` })),
+              w.OnPanEnd((event) => Message.Seen({ call: `panEnd ${event.type} ${event.isTrusted}` })),
+            ],
+            [],
+          )),
+      ),
+    )
+    const c = centreOf(real)
+    await mouse.down(c)
+    await glide(c, add(c, 30, 0), 2)
+    await mouse.up(add(c, 30, 0))
+    await until(() => calls.some((call) => call.startsWith("panEnd")), 2000, "the real pan's end")
+    expect(calls, "the browser's own events").toEqual(["session pointerdown true", "panEnd pointerup true"])
+    expect(translateOf(real).x).toBe(0)
   })
 
   it("D12: transformPagePoint on w.Config, and on the Handle's config, maps the drag's points", async () => {
@@ -419,6 +424,11 @@ describe("a w.* element's drag (#793, PR 2; ADR-0004)", () => {
     const box = await settledBox(app)
     await dragBy(pointer, 60)
     expect(translateOf(box).x, "half as far, through the Handle's mapping").toBeCloseTo(30, 0)
+
+    // The boxes a container is measured against go through it too: the parent's 120 px of room is 60 in the mapped space.
+    const bounded = await pushedBox((w, h) => framed(h, clamped(w, h, [w.DragConstraints("parent"), w.Config({ transformPagePoint: halved })])))
+    await dragBy(bounded.pointer, 400)
+    expect(translateOf(bounded.box).x, "clamped at the mapped room").toBeCloseTo(60, 0)
   })
 
   it("D8: stop() ends the drag as a release, cancel() where it is", async () => {
@@ -575,7 +585,7 @@ describe("a w.* element's drag (#793, PR 2; ADR-0004)", () => {
     expect(calls, "the release was taken over: its end untold").toEqual([])
   })
 
-  it("D15: OnDragTransitionEnd once at the release with no momentum, and once a Fling comes to rest with it", async () => {
+  it("D15: OnDragTransitionEnd once at the release with DragMomentum(false), and once a Fling comes to rest without it", async () => {
     const resting = (momentum: boolean) => (w: W, h: HtmlBuilder<Message>): Html =>
       w.div([h.Id("box"), h.Style(BOX), w.Drag("x"), w.DragMomentum(momentum), w.DragTransition({ timeConstant: 200 }), w.OnDragTransitionEnd(Message.Seen({ call: "rest" }))], [])
     const still = await pushedBox(resting(false))

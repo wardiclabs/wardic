@@ -16,8 +16,8 @@ import type * as InputFeed from "@wardic/core/InputFeed"
 import type * as Spine from "@wardic/core/unstable/Spine"
 import type * as Values from "@wardic/core/Values"
 import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
-import * as Report from "@wardic/dom/Report"
 import * as DragDefaults from "@wardic/dom/unstable/DragDefaults"
+import * as DragTrack from "@wardic/dom/unstable/DragTrack"
 import * as DragTransition from "@wardic/dom/unstable/DragTransition"
 import * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
@@ -25,15 +25,12 @@ import type * as LiveStyle from "@wardic/dom/unstable/LiveStyle"
 import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import * as Keys from "@wardic/dom/unstable/features/Keys"
-import * as Bool from "effect/Boolean"
-import * as Effect from "effect/Effect"
 import * as MutableRef from "effect/MutableRef"
 import * as Predicate from "effect/Predicate"
 import * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type { View } from "./element.ts"
-import { featureIn, missingMessage, type Provider } from "./services.ts"
-import { DEV } from "@wardic/foldkit/internal/dev"
+import { featureIn, type Provider, reporterOf, warnMissing } from "./services.ts"
 
 /** What the spine reads of an element's drag (ADR-0004, #340): on its options, written as the track starts. */
 export interface SpineDragOptions {
@@ -49,7 +46,7 @@ export interface DragOptions {
   /** The element's id, for a report. */
   readonly id: string
   /** The element's config now, as its last delivery gave it: the drag's options read as the track starts, the measure's function at each measure. */
-  readonly config: () => View
+  readonly config: () => Pick<View, "drag" | "dragListener" | "dragConstraints" | "dragControls" | "onMeasureDragConstraints" | keyof DragTrack.DragOptions | "dragTransition">
   /** The spine's Snapshot, which the drag reads and writes `x`/`y` through. */
   readonly snapshot: Spine.Snapshot
   readonly recordFrame: (value: Values.Values) => void
@@ -85,16 +82,15 @@ const WATCH_FAILED = "wardic.drag: a watch's handler failed"
 
 /** An element's drag (above): nothing started until `check` wants it. */
 export const dragOf = (opts: DragOptions): ElementDrag => {
-  const { provider, element, id, spine } = opts
+  const { provider, element, id, spine, config } = opts
   const scope = MutableRef.make<Scope.Closeable | undefined>(undefined)
-  /** Its config with the drag keys as dom reads them. */
-  const configured = (): WardConfig.WardConfig => opts.config() as WardConfig.WardConfig
-  const onDefect: InputFeed.OnDefect = (cause) => provider.runtime.runFork(Report.failure(WATCH_FAILED, cause).pipe(Effect.annotateLogs({ id })))
+  const report = reporterOf(provider, id)
+  const onDefect: InputFeed.OnDefect = (cause) => report(WATCH_FAILED, cause)
   /** The track, from this delivery's options: its defaults written first, its Scope the element's own. */
   const start = (service: Keys.DragGesture["Service"], axis: boolean | "x" | "y"): void => {
-    const c = configured()
+    const c = config()
     UndefinedOr.map(DragDefaults.dragDefaultsOf(c), (defaults) => DragDefaults.applyDragDefaults(element, defaults))
-    const constraints = service.constraintsOf(c.dragConstraints, element, () => configured().onMeasureDragConstraints, opts.pagePoint)
+    const constraints = service.constraintsOf(c.dragConstraints, element, () => config().onMeasureDragConstraints, opts.pagePoint)
     const projection = opts.layoutNode()
     const owner = OwnerScope.open(provider.runtime)
     MutableRef.set(scope, owner)
@@ -109,17 +105,7 @@ export const dragOf = (opts: DragOptions): ElementDrag => {
       // A drag's start turns its `style`'s will-change value on (#443).
       setDragging: ElementSetup.draggingWithWillChange(opts.live, opts.onDragging, element),
       claim: ElementSetup.claimForDrag(element),
-      config: {
-        axis,
-        constraints: constraints.constraints,
-        elastic: c.dragElastic,
-        momentum: c.dragMomentum,
-        snapToOrigin: c.dragSnapToOrigin,
-        propagation: c.dragPropagation,
-        directionLock: c.dragDirectionLock,
-        transition: DragTransition.dragTransitionOf(c.dragElastic, c.dragTransition),
-        listen: c.dragListener,
-      },
+      config: DragTrack.trackConfigOf(c, axis, constraints.constraints, DragTransition.dragTransitionOf(c.dragElastic, c.dragTransition)),
       // A drag on a layout node feeds the projection (ADR-0016): it follows the pointer and FLIPs to its slot on release.
       projection,
       onSample: opts.onSample,
@@ -133,16 +119,12 @@ export const dragOf = (opts: DragOptions): ElementDrag => {
     spine.drag = track
     spine.projected = Predicate.isNotUndefined(projection)
   }
-  /** Development's word on a drag wanted without its Feature (#511): once per provider, and not while a load is on its way (Q15). */
-  const missing = (): void => {
-    if (DEV && Bool.not(provider.features.pending())) provider.registry.warnOnce("drag", missingMessage("drag", GestureFeatures.GESTURE_WORDS.drag))
-  }
   return {
     check: () => {
       if (Predicate.isNotUndefined(MutableRef.get(scope))) return
-      const axis = DragDefaults.dragAxisOf(configured())
+      const axis = DragDefaults.dragAxisOf(config())
       if (Predicate.isUndefined(axis)) return
-      UndefinedOr.match(featureIn(provider, Keys.DragGesture), { onUndefined: missing, onDefined: (service) => start(service, axis) })
+      UndefinedOr.match(featureIn(provider, Keys.DragGesture), { onUndefined: () => warnMissing(provider, "drag", GestureFeatures.GESTURE_WORDS.drag), onDefined: (service) => start(service, axis) })
     },
     dispose: () => UndefinedOr.map(MutableRef.get(scope), (owner) => OwnerScope.close(provider.runtime, owner, END_FAILED)),
   }

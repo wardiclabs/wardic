@@ -15,13 +15,13 @@
  *
  * @module
  */
-import * as DomControls from "@wardic/dom/unstable/DragControls"
+import * as DomDragControls from "@wardic/dom/unstable/DragControls"
 
 /** The controls: `start(event, options?)`, `stop()` and `cancel()`, over every element given them. */
-export type DragControls = DomControls.WardicDragControls
+export type DragControls = DomDragControls.WardicDragControls
 
 /** `start`'s options (Motion's): `snapToCursor` moves the element's centre under the pointer as the drag begins; `distanceThreshold` is how far it moves first, 3 px by default. */
-export type StartOptions = DomControls.WardicDragControlsOptions
+export type StartOptions = DomDragControls.WardicDragControlsOptions
 
 /** Makes drag controls (Motion's `useDragControls`): needs no element, and outlives the elements given them. */
-export const make: () => DragControls = DomControls.createDragControls
+export const make: () => DragControls = DomDragControls.createDragControls

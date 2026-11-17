@@ -20,6 +20,7 @@ import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Report from "@wardic/dom/Report"
 import * as Style from "@wardic/dom/Style"
+import * as DragDefaults from "@wardic/dom/unstable/DragDefaults"
 import * as DragTransition from "@wardic/dom/unstable/DragTransition"
 import * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
 import * as Feature from "@wardic/dom/unstable/Feature"
@@ -162,15 +163,18 @@ export type View = Omit<Config, "viewport" | "onUpdate" | "dragConstraints"> &
   Pick<CoreConfig.SpineConfig, "onUpdate"> &
   Pick<WardConfig.WardConfig, "onLayoutAnimationStart" | "onLayoutAnimationComplete" | "dragConstraints"> & { readonly viewport?: ViewportResolved | undefined }
 
+/** How an attribute names an element under the view (#793, Q7 and Q16): `"parent"`, the element's parent, or a selector. */
+type ElementRef = "parent" | string
+
 /**
- * The element `named` under the view (#793, Q7 and Q16): `"parent"`, the element's parent; a selector,
- * resolved under the `w.Provider()` element, else the document. What a viewport's `root` and a
- * `DragConstraints` container are read as: as the recognizer starts, and at each measure.
+ * The element `ref` names (above): the element's parent, or the selector's first match under the
+ * `w.Provider()` element, else the document. What a viewport's `root` and a `DragConstraints` container
+ * are read as: as the recognizer starts, and at each measure.
  */
-const elementUnder = (provider: Provider, element: Element, named: string): Element | undefined => {
-  if (named === "parent") return Option.getOrUndefined(Option.fromNullOr(element.parentElement))
+const elementUnder = (provider: Provider, element: Element, ref: ElementRef): Element | undefined => {
+  if (ref === "parent") return Option.getOrUndefined(Option.fromNullOr(element.parentElement))
   const under: ParentNode = UndefinedOr.match(provider.root, { onUndefined: (): ParentNode => document, onDefined: identity })
-  return Option.getOrUndefined(Option.fromNullOr(under.querySelector(named)))
+  return Option.getOrUndefined(Option.fromNullOr(under.querySelector(ref)))
 }
 
 /** `DragConstraints` as dom reads them (Q7): `"parent"` or a selector as the container's accessor; a box or `false` as they are. */
@@ -317,6 +321,8 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     const recordFrame = Spine.recordFrameOf(record)
     // Its spine's options, with what its drag writes as its track starts (ADR-0004; #793, PR 2): its
     // axis, its track and whether it drives a layout node, which the spine reads where it uses them.
+    // The axis is seeded from the config at mount too, as Solid's: the spine registers its drag hook (a
+    // Batch member's hold, #665) at make from it, so a `Drag` a later render adds registers none.
     const spineOptions: Spine.ElementSpineOptions & SpineDragOptions = {
       runtime: provider.runtime,
       gate: provider.gate,
@@ -345,7 +351,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       builtFeatures: provider.registry.built,
       presence: record,
       projected: false,
-      dragAxis: undefined,
+      dragAxis: DragDefaults.dragAxisOf(view),
       drag: undefined,
       handoff: undefined,
       // Motion's onAnimationStart / onAnimationComplete (decision 23), as Messages through `dispatch`.

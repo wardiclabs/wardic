@@ -19,9 +19,8 @@ import { identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { hintFrameUnless } from "./delivery.ts"
-import { missingMessage, type Provider, type State } from "./services.ts"
+import { type Provider, type State, warnMissing } from "./services.ts"
 import { underWard } from "./tree.ts"
-import { DEV } from "@wardic/foldkit/internal/dev"
 
 /** A provider's layout: its projection system, and the `layout` Feature's element code. */
 export interface Layout {
@@ -50,8 +49,7 @@ export const layoutOf = (provider: Provider, state: State): Layout | undefined =
   const built = provider.features.services()
   const projection = Keys.projectionIn(built)
   if (Predicate.isUndefined(projection)) {
-    // Not while a load is on its way (#793, Q15): it may bring the Feature.
-    if (DEV && Bool.not(provider.features.pending())) provider.registry.warnOnce("layout", missingMessage("layout", Feature.LAYOUT_PROPS))
+    warnMissing(provider, "layout", Feature.LAYOUT_PROPS)
     return undefined
   }
   const made: Layout = { projection, nodes: Keys.projectionNodesIn(built) }

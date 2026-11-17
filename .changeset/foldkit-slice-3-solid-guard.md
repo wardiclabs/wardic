@@ -2,4 +2,4 @@
 "@wardic/solid": patch
 ---
 
-The gesture callbacks run through `@wardic/dom`'s callback guard and phase tables; no change in behaviour (#793).
+The gesture callbacks are `@wardic/dom`'s gesture teller, and the drag track's config its builder; no change in behaviour (#793).

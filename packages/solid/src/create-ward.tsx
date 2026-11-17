@@ -67,7 +67,7 @@ import { fromAtom, watchToSignal } from "./bridge.tsx"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import { runDragTrackWith } from "./drag.tsx"
 import * as DragTransition from "@wardic/dom/unstable/DragTransition"
-import type * as DragTrack from "@wardic/dom/unstable/DragTrack"
+import * as DragTrack from "@wardic/dom/unstable/DragTrack"
 import { createElementStyle } from "./element-style.ts"
 import * as LiveStyle from "@wardic/dom/unstable/LiveStyle"
 import { createVariantNode } from "./variant-node.ts"
@@ -720,17 +720,7 @@ export function runSpine(opts: RunSpineOptions): void {
           const c0d = untrack(cfg)
           // Motion's `dragConstraints` (#273): a box of numbers, or a container measured against the element.
           const constraints = dragGesture.constraintsOf(c0d.dragConstraints, element, () => untrack(cfg).onMeasureDragConstraints, pagePoint)
-          const trackConfig: DragTrack.DragTrackConfig = {
-            axis,
-            constraints: constraints.constraints,
-            elastic: c0d.dragElastic,
-            momentum: c0d.dragMomentum,
-            snapToOrigin: c0d.dragSnapToOrigin,
-            propagation: c0d.dragPropagation,
-            directionLock: c0d.dragDirectionLock,
-            transition,
-            listen: c0d.dragListener,
-          }
+          const trackConfig = DragTrack.trackConfigOf(c0d, axis, constraints.constraints, transition)
           return runDragTrackWith(dragGesture.drive, {
             runtime,
             gate,

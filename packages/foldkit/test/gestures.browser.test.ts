@@ -44,7 +44,7 @@ import * as Features from "@wardic/foldkit/Features"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import type * as Ward from "@wardic/foldkit/Ward"
 import { raf, until, waitAtMost } from "../../solid/test/browser-helpers.ts"
-import { boxOf, capture, centreOf, embed, type Embedded, embedKeyedList, logged, mouse, opacityOf, PARK, type Pt, said } from "./harness.ts"
+import { at, BOX, capture, centreOf, embed, type Embedded, embedKeyedList, FAST, landsAt, logged, mouse, opacityOf, PARK, said, settledBox } from "./harness.ts"
 
 const Model = Schema.Struct({ on: Schema.Boolean })
 type Model = typeof Model.Type
@@ -65,20 +65,8 @@ const update = (model: Model, message: Message) =>
 
 const wardic = Wardic.make({ env: DomLive, features: Features.domAnimation })
 
-const BOX = { width: "80px", height: "80px", background: "teal", "user-select": "none" } as const
-const FAST = { type: "tween", duration: 0.05 } as const
-
-const r = (n: number): number => Math.round(n)
-
 /** `el`'s scale, from its computed transform. */
 const scaleOf = (el: HTMLElement): number => new DOMMatrix(getComputedStyle(el).transform).a
-
-/** Wait for `el`'s opacity to land on `value`, then check it did. */
-const landsAt = async (el: HTMLElement, value: number, what: string): Promise<void> => {
-  await until(() => opacityOf(el) === value, 2000, what)
-  expect(opacityOf(el), what).toBe(value)
-}
-const at = (p: Pt): string => `${r(p.x)},${r(p.y)}`
 
 /** A call: its name, the event's type and whether the browser made it, and the info's point. */
 const seen = (name: string, event: Event, info: Ward.PointInfo): string => `${name} ${event.type} ${event.isTrusted} ${at(info.point)}`
@@ -96,14 +84,6 @@ const embedBox = (box: (model: Model, w: Wardic.Html<Message, typeof Features.do
     view: (model, h) => h.div([h.Id("wrap"), h.Style({ position: "absolute", top: "100px", left: "100px", height: "3000px" })], [box(model, wardic.html(h), h)]),
     toMessage: (on) => Message.Set({ on }),
   })
-
-/** The `#box` of `app`, once it renders and two frames have passed: what mounts with it (a recognizer's listeners) is in place. */
-const settledBox = async (app: Pick<Embedded<never>, "container">): Promise<HTMLElement> => {
-  const box = await boxOf(app)
-  await raf()
-  await raf()
-  return box
-}
 
 /** Scroll the page so `top` (px down the page) sits `at` px down the window. */
 const scrollToShow = (top: number, at: number): void => window.scrollTo(0, top - at)

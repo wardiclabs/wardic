@@ -45,6 +45,7 @@ import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as Ward from "../Ward.ts"
 import { reactivity } from "./reactivity.ts"
 import { rootConfigValueOf } from "./tree.ts"
+import { DEV } from "@wardic/foldkit/internal/dev"
 
 /** A live **Provider**: Wardic's services built on an app's `env`, read once, as a Solid provider's context value holds them. */
 export interface Provider {
@@ -162,6 +163,21 @@ const LOAD_FAILED = "wardic.features: a load of the Handle's Features failed; it
 /** Development's word on a Feature the Handle wasn't given (#511, ADR-0067 decision 7): dom's, with how a Handle takes one. */
 export const missingMessage = (feature: string, what: string): string =>
   Feature.missingMessage(feature, what, "@wardic/foldkit", `which this Handle wasn't given. Add it: \`import { Features } from "@wardic/foldkit"\`, then \`Wardic.make({ env, features: [Features.${feature}] })\`.`)
+
+/**
+ * Development's word on `feature`, wanted by an element without being given (#511, ADR-0067 decision 7):
+ * once per provider, and not while a load is on its way (#793, Q15), which may bring it.
+ */
+export const warnMissing = (provider: Provider, feature: string, what: string): void => {
+  if (DEV && Bool.not(provider.features.pending())) provider.registry.warnOnce(feature, missingMessage(feature, what))
+}
+
+/** What reports an element's failure on the provider, `label` with its cause, annotated with the element's id. */
+export const reporterOf =
+  (provider: Provider, id: string): ((label: string, cause: Cause.Cause<never>) => void) =>
+  (label, cause) => {
+    provider.runtime.runFork(Report.failure(label, cause).pipe(Effect.annotateLogs({ id })))
+  }
 
 /** No Features: a Handle made without any. */
 const NO_FEATURES: Feature.Own = { services: () => Feature.NONE, pending: constFalse }
