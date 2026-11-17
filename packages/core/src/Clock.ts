@@ -79,9 +79,9 @@ export class Clock extends Context.Service<Clock, {
   // #464; #460, Q7.
   readonly now: () => number
   /**
-   * The Refresh frame time of the last tick, in ms, as the Environment's frame clock stamps it (the DOM's
-   * `requestAnimationFrame` timestamp, which `document.timeline.currentTime` reads inside the frame): what
-   * a binding's hint compares its frame's time with (`FrameLoop`'s `hint`). `NaN` before any tick.
+   * The Refresh frame time of the last tick, in ms, as the Environment's `RefreshFrameSource` stamps its
+   * frames: what a binding's hint compares its frame's time with (`FrameLoop`'s `hint`). `NaN` before any
+   * tick.
    */
   // #791 (ADR-0071, decision 32): the Frame loop's hint rule, "the last tick's frame time equals this frame's".
   readonly frameAt: () => number

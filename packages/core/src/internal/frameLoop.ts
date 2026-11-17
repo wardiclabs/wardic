@@ -142,10 +142,10 @@ export interface Shape {
   readonly inLateWindow: () => boolean
   /**
    * A binding's hint: its code runs inside the Refresh frame whose time is `frameTime`, after the
-   * frame's rAF callbacks the engine knows of (Foldkit's patch, ADR-0071 decision 32). Opens the **Late
-   * window** when a burst's last tick was this frame's (`Clock.frameAt`) or no burst runs (no tick is
-   * coming this frame), so the runs added after it, in the rest of the callback and its microtasks, take
-   * their Late step and paint in this frame, and a queued Measure pass runs as an after-tick one. With a
+   * frame's tick, as a binding that renders in a frame callback of its own does (ADR-0071 decision 32).
+   * Opens the **Late window** when a burst's last tick was this frame's (`Clock.frameAt`) or no burst runs
+   * (no tick is coming this frame), so the runs added after it, in the rest of the callback and its
+   * microtasks, take their Late step and paint in this frame, and a queued Measure pass runs as an after-tick one. With a
    * tick still to come in the frame, nothing: that tick is their first step. Idle, the Late step's dt is
    * the last tick's, or a nominal frame before any.
    */
