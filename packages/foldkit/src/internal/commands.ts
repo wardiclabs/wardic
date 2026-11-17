@@ -9,19 +9,24 @@
  * @module
  */
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
+import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import * as Imperative from "@wardic/dom/unstable/Imperative"
 import * as Arr from "effect/Array"
 import * as Context from "effect/Context"
 import * as Data from "effect/Data"
 import * as Effect from "effect/Effect"
+import { constVoid } from "effect/Function"
 import * as Layer from "effect/Layer"
 import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import type * as Scope from "effect/Scope"
 import * as UndefinedOr from "effect/UndefinedOr"
+import * as Render from "foldkit/render"
 import type * as Feature from "@wardic/dom/unstable/Feature"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
+import { hintFrameUnless } from "./delivery.ts"
+import { type Layout, layoutOf } from "./layout.ts"
 import { joined, providerFor, type Provider, reducedMotionUnder, type State, stateOf } from "./services.ts"
 
 /** The mark of a Handle, as the `Wardic` service carries it: what its Effects reach the Handle's state through. */
@@ -47,6 +52,71 @@ export interface AnimationEnd {
 export class AnimationFailed extends Data.TaggedError("AnimationFailed")<{
   readonly subject: string
 }> {}
+
+/** `animateLayout` found no layout to animate: the Handle has no `layout` Feature (`Features.layout`). */
+export class LayoutFailed extends Data.TaggedError("LayoutFailed")<{
+  readonly reason: "no-layout-feature"
+}> {}
+
+/** What a Command's Effect is a member of: the Handle's Provider, built when none is live, and the count out. */
+const member = Effect.fnUntraced(function* () {
+  const handle = yield* Wardic
+  const state = stateOf(handle)
+  const provider = yield* providerFor(state, undefined, undefined)
+  // A member while it runs: the Provider stays up until it ends.
+  return { state, provider, left: joined(state, provider, undefined) }
+})
+
+/** What `animateLayout` takes: dom's options, less `onSettled`, which the Effect's success is. */
+export type AnimateLayoutOptions = Omit<ProjectionSystem.AnimateLayoutOptions, "onSettled">
+
+/** No options: a change animated from the last pass's boxes. */
+const FROM_LAST_PASS: AnimateLayoutOptions = { from: "lastPass" }
+
+/**
+ * A **Declared layout change** (ADR-0071, decision 26; ADR-0038; Motion's `animateLayout`): what a
+ * Command runs after the Model change that moved the layout elements, under either trigger, and the
+ * only trigger beside `w.LayoutDependency` under `layoutTrigger: "declared"`. It waits for the
+ * render's commit (Foldkit's `Render.afterCommit`), then asks for a Measure pass from the boxes the
+ * last pass kept (`from: "lastPass"`, the default: the change is on the page by then), and succeeds
+ * once every layout animation the pass started has ended, at once if none. Fails with
+ * {@link LayoutFailed} when the Handle has no `layout` Feature. Wrap it in `Command.define`, with
+ * `resources: wardic.resources` on the program.
+ */
+export const animateLayout: (options?: AnimateLayoutOptions) => Effect.Effect<void, LayoutFailed, Wardic> = Effect.fnUntraced(function* (options) {
+  const { state, provider, left } = yield* member()
+  const layout = layoutOf(provider, state)
+  if (Predicate.isUndefined(layout)) {
+    left()
+    return yield* Effect.fail(new LayoutFailed({ reason: "no-layout-feature" }))
+  }
+  yield* Render.afterCommit
+  return yield* settling(state, provider, layout, left, { ...FROM_LAST_PASS, ...options })
+})
+
+/** The change's pass, and its settling as the Effect's success; its interruption leaves the member. */
+const settling = (state: State, provider: Provider, layout: Layout, left: () => void, options: AnimateLayoutOptions): Effect.Effect<void> =>
+  Effect.callback<void>((resume) => {
+    const run = (): void => {
+      layout.projection.animateLayout(constVoid, {
+        ...options,
+        onSettled: () => {
+          left()
+          resume(Effect.void)
+        },
+      })
+    }
+    // A View Transition's render (decision 33): the change lands as an Instant change of the layout, settled at once.
+    if (state.transitioning) {
+      state.transitioning = false
+      layout.projection.instant(run)
+      return Effect.sync(left)
+    }
+    // The pass's first step paints in this frame (decision 32): the Command resumed inside it, after the commit.
+    hintFrameUnless(provider.loop, provider.paused)
+    run()
+    return Effect.sync(left)
+  })
 
 /** What `animate` takes: dom's options, less `onComplete`, which the Effect's success is. */
 // An intersection, not an `Omit`: dom's options are a union of transitions, which `Omit` spreads past
@@ -95,12 +165,9 @@ const envOf = (state: State, provider: Provider): Imperative.AnimateEnv => ({
  */
 export const animate: (subject: Imperative.WardicAnimationSubject, values: WardConfig.WardicVariant, options?: AnimateOptions) => Effect.Effect<AnimationEnd, AnimationFailed, Wardic> = Effect.fnUntraced(
   function* (subject, values, options) {
-    const handle = yield* Wardic
-    const state = stateOf(handle)
-    const provider = yield* providerFor(state, undefined, undefined)
-    // A member while it runs, from before its subject is checked: a Provider built for a subject that
-    // finds nothing is left again at once, not kept up with no member.
-    const left = joined(state, provider, undefined)
+    // A member from before its subject is checked: a Provider built for a subject that finds nothing is
+    // left again at once, not kept up with no member.
+    const { state, provider, left } = yield* member()
     const root = provider.root
     if (countOf(subject, root) === 0) {
       left()
@@ -141,10 +208,7 @@ const running = (state: State, provider: Provider, root: Element | undefined, le
  */
 export const provide: <A, E, R>(effect: Effect.Effect<A, E, R>) => Effect.Effect<A, E, Exclude<R, Feature.ProviderServices> | Wardic | Scope.Scope> = Effect.fnUntraced(
   function* <A, E, R>(effect: Effect.Effect<A, E, R>) {
-    const handle = yield* Wardic
-    const state = stateOf(handle)
-    const provider = yield* providerFor(state, undefined, undefined)
-    const left = joined(state, provider, undefined)
+    const { provider, left } = yield* member()
     yield* Effect.addFinalizer(() => Effect.sync(left))
     return yield* Effect.provideContext(effect, provider.context)
   },

@@ -99,6 +99,12 @@ export interface State {
   readonly rootConfig: WardicConfigValue.WardicConfigValue | undefined
   /** How its Measure passes are triggered (decision 30). */
   readonly layout: LayoutOptions
+  /**
+   * Whether the render under way is a View Transition's (decision 33): the next pass asked for by the
+   * app's own changes, a `w.LayoutDependency` change or `Wardic.animateLayout` is an Instant change of
+   * the layout. Set by each decision, cleared by the pass that consumes it.
+   */
+  transitioning: boolean
   deferred: Deferred.Deferred<Provider>
   live: Provider | undefined
   /** Whether a build is in flight: an `env` that waits as it builds has the elements after the first await the `Deferred`. */
@@ -133,6 +139,7 @@ export const makeState = (env: WardicServices.WardicEnv, features: Feature.Insta
   given: givenOf(features),
   rootConfig: rootConfigValueOf(config),
   layout,
+  transitioning: false,
   deferred: Deferred.makeUnsafe<Provider>(),
   live: undefined,
   building: false,

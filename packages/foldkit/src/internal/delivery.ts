@@ -104,3 +104,9 @@ const frameTime = (): number => Number(document.timeline.currentTime)
 export const hintFrame = (loop: FrameLoop.FrameLoop["Service"]): void => {
   loop.hint(frameTime())
 }
+
+/** The hint (above), unless DevTools replay has the view (decision 34), whose patch runs in a task and lands everything at once. */
+export const hintFrameUnless = (loop: FrameLoop.FrameLoop["Service"], paused: () => boolean): void => {
+  if (paused()) return
+  hintFrame(loop)
+}

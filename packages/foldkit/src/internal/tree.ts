@@ -11,6 +11,7 @@
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as VariantTree from "@wardic/core/unstable/VariantTree"
 import * as LayoutGroup from "@wardic/dom/unstable/LayoutGroup"
+import * as Bool from "effect/Boolean"
 import { constUndefined, identity } from "effect/Function"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
@@ -44,6 +45,14 @@ const isPresence = (element: Element): boolean => Predicate.isNotUndefined(confi
 
 /** The nearest Wardic ancestor of `element`: one carrying a delivered config. */
 const nearestWard = (element: Element): Element | undefined => nearestAncestor(element, isWard)
+
+/** Whether `node` is a `w.*` element or under one: a change of the Handle's own, not another app's under the body (decision 33). */
+export const underWard = (node: Node): boolean => {
+  const element = Bool.match(node instanceof Element, { onTrue: () => node as Element, onFalse: () => node.parentElement })
+  if (Predicate.isNull(element)) return false
+  if (isWard(element)) return true
+  return Predicate.isNotUndefined(nearestWard(element))
+}
 
 /** The nearest `w.Presence` element above `element` (decision 29), found as the variant parent is. */
 export const nearestPresenceElement = (element: Element): Element | undefined => nearestAncestor(element, isPresence)

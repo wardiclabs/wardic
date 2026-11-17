@@ -37,6 +37,8 @@ export interface Program<Model, Message extends Tagged, Value, R = never> {
   readonly toMessage: (value: Value) => Message
   /** Foldkit's DevTools on, in time-travel mode, for a replay test: the store comes through `__setDevToolsOverlay`. */
   readonly devTools?: boolean | undefined
+  /** The program's `viewTransition` predicate (a Handle's `wardic.viewTransition(…)` around the app's). */
+  readonly viewTransition?: Runtime.ViewTransitionConfig<Model, Message> | undefined
 }
 
 // Each container's id, counted.
@@ -62,6 +64,7 @@ export const embed = <Model, Message extends Tagged, Value, R = never>(program: 
     subscriptions: Subscription.make<Model, Message, R>()(() => ({ set: Port.subscriptionEntry(set, program.toMessage) })),
     ...Bool.match(program.devTools === true, { onTrue: () => ({ devTools: { show: "Always", mode: "TimeTravel" } as const }), onFalse: () => ({}) }),
     ...UndefinedOr.match(program.resources, { onUndefined: () => ({}), onDefined: (resources) => ({ resources }) }),
+    ...UndefinedOr.match(program.viewTransition, { onUndefined: () => ({}), onDefined: (viewTransition) => ({ viewTransition }) }),
   })
   const handle = Runtime.embed(element)
   return {

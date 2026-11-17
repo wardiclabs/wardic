@@ -22,7 +22,7 @@ import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Ward from "../Ward.ts"
-import { deliveredTo, hintFrame } from "./delivery.ts"
+import { deliveredTo, hintFrameUnless } from "./delivery.ts"
 import { configOf, dispatcherOf } from "./element.ts"
 import { PresenceMaker, type PresenceMakerShape } from "./keys.ts"
 import { quietLayoutIn } from "./layout.ts"
@@ -252,7 +252,7 @@ const makePresence = (provider: Provider, state: State, maker: PresenceMakerShap
     // Records of the controller's own removals alone (an exit's end, after its delivery): nothing of Foldkit's changed.
     if (Bool.and(records.length > 0, Bool.and(leavers.size === 0, Bool.and(enterers.size === 0, dropped === 0)))) return
     // The exits and the starts take their first step in this frame (decision 32; #792, Q7); not at the mount, nor under replay.
-    if (Bool.and(hint, Bool.not(paused()))) hintFrame(provider.loop)
+    if (hint) hintFrameUnless(provider.loop, paused)
     // Foldkit's children now: the known ones it kept, and the ones it put in; not a leaver the controller retains.
     const current = Arr.filter(Arr.fromIterable(element.children), (child) => Bool.or(Bool.and(known.has(child), Bool.not(leavers.has(child))), enterers.has(child)))
     const onPage = new Set(elementsOf(controller.shown(current)))

@@ -31,14 +31,16 @@ import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import type * as Layer from "effect/Layer"
 import type * as FoldkitHtml from "foldkit/html"
 import type { MountAction } from "foldkit/mount"
+import type * as FoldkitRuntime from "foldkit/runtime"
 import * as Predicate from "effect/Predicate"
 import type * as Ward from "./Ward.ts"
 import { type Attributes, builderOf } from "./internal/builder.ts"
 import { HANDLE, resourcesOf, type Wardic as WardicTag } from "./internal/commands.ts"
 import { mountOf } from "./internal/mount.ts"
 import { makeState, remember, type State } from "./internal/services.ts"
+import { viewTransitionOf } from "./internal/view-transition.ts"
 
-export { animate, type AnimateOptions, AnimationFailed, type AnimationEnd, provide, Wardic } from "./internal/commands.ts"
+export { animate, animateLayout, type AnimateLayoutOptions, type AnimateOptions, AnimationFailed, type AnimationEnd, LayoutFailed, provide, Wardic } from "./internal/commands.ts"
 
 /** What {@link make} takes. */
 export interface MakeOptions<F> {
@@ -55,7 +57,7 @@ export interface MakeOptions<F> {
   /**
    * What runs a Measure pass (decision 30; #792, Q10 and Q17): `"patch"` (the default), a pass after
    * every patch that changed the DOM, found by a `MutationObserver` on the `w.Provider()` element, else
-   * the document's body; `"declared"`, only a `w.LayoutDependency` change (and `Wardic.animateLayout`, from PR 3).
+   * the document's body; `"declared"`, only a `w.LayoutDependency` change and `Wardic.animateLayout`.
    */
   readonly layoutTrigger?: "patch" | "declared" | undefined
   /** Attributes the observer watches beside `class` and `hidden` (decision 30): those the app's CSS lays out by. */
@@ -185,10 +187,17 @@ export interface Handle<F = never> {
   /** A `w.Presence` element's raw Mount, for a Scene test to resolve by name (#792, Q19). */
   readonly Presence: MountAction<never>
   /**
-   * The Layer a program's `resources` takes (decision 9): its Commands then run `Wardic.animate` and
-   * `Wardic.provide`, which need the `Wardic` service, this Handle.
+   * The Layer a program's `resources` takes (decision 9): its Commands then run `Wardic.animate`,
+   * `Wardic.animateLayout` and `Wardic.provide`, which need the `Wardic` service, this Handle.
    */
   readonly resources: Layer.Layer<WardicTag>
+  /**
+   * The app's `viewTransition` predicate, wrapped (decision 33): `Runtime.makeElement({ viewTransition:
+   * wardic.viewTransition(decide) })`. In a render `decide` transitions, layout moves and `layoutId`
+   * handovers land at once, for the View Transition's morph to carry; the decision passes through
+   * unchanged, and where the document has no `startViewTransition` Wardic animates them itself.
+   */
+  readonly viewTransition: <Model, Message>(decide: FoldkitRuntime.ViewTransitionConfig<Model, Message>) => FoldkitRuntime.ViewTransitionConfig<Model, Message>
 }
 
 /**
@@ -213,6 +222,7 @@ export const make = <const F extends Feature.InstanceFeaturesProp = never>(optio
     Element: mountOf<never>(state, { provider: undefined, user: undefined, presence: false }),
     Presence: mountOf<never>(state, { provider: undefined, user: undefined, presence: true }),
     resources: resourcesOf(() => handle),
+    viewTransition: viewTransitionOf(state),
   }
   remember(handle, state)
   return handle

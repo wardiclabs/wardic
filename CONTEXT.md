@@ -365,7 +365,11 @@ _Avoid_: fade transition (opacity-only, no shared box), dissolve.
 
 **Page transition**:
 A route change animated by an `<AnimatePresence>` around the router's outlet (#479): the leaving page's root, a Wardic element, runs its `exit` popped out of the flow (`mode="popLayout"`), the new page's runs its entrance in its place, and an element on both pages flies between them by its `layoutId`. A route change gives the new page new nodes, so it needs no `key`; a change of a route's params alone keeps its nodes, and its page keys its content to animate it.
-_Avoid_: route animation, view transition (the browser's snapshots, which Wardic doesn't use, #437).
+_Avoid_: route animation, view transition (the browser's own, a **View Transition**: the Page transition is Wardic's, with no snapshot).
+
+**View Transition**:
+The browser's `document.startViewTransition`: a render wrapped in it is snapshotted before and after, and the browser morphs between the two. Wardic doesn't make one (#437); on Foldkit, whose runtime wraps a render in one when the app's `viewTransition` predicate says so, Wardic lands the render's layout moves and **Shared layout** handovers at once, so the morph carries the motion and nothing animates under it twice (ADR-0071, decision 33). A transitioned render *arms* the next **Measure pass**: whichever asks for it, the pass is an **Instant change** of the layout.
+_Avoid_: page transition (Wardic's own, above), snapshot animation, morph (the browser's part alone).
 
 **Lead / Follower**:
 Among the Projection nodes sharing one `layoutId`, the **Lead** is the most-recently-mounted live node — the only visible one, projecting to its own Box. Every other node is a **Follower**: locked onto where the Lead is drawn, its Box at the Lead's own scale and with the Lead's corner radius and tilt as they ease, so the two overlap exactly (its own set aside while it follows), and held hidden (a *live* follower at rest) or fading out toward removal (a *leaving* follower, retained mid-exit). A Follower takes no pointer input, so one painted over its Lead never takes the Lead's clicks. The layout nodes a Follower carries stay corrected for its lock, as under any moving ancestor, and a leaving Follower brings them back with it. Mounting promotes a new Lead; the prior Lead is relegated to a Follower.
