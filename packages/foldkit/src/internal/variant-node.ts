@@ -17,6 +17,7 @@ import * as VariantTree from "@wardic/core/unstable/VariantTree"
 import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constTrue, constUndefined, constVoid } from "effect/Function"
+import * as MutableRef from "effect/MutableRef"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 
@@ -34,6 +35,12 @@ export interface VariantNode {
   readonly onFrame: (done: boolean) => void
   /** A list's names orchestrated each on their own (#297's PR 2). Only an element that joins a provider or provides has one. */
   readonly names: VariantTree.NameOrchestration | undefined
+  /**
+   * Which of its element's gestures are on (#291, #793), read into the names it hands its Variant
+   * children: bound by the element's Mount. Nothing for an element with no variants of its own, which
+   * hands down what it takes.
+   */
+  readonly bindGestures: (states: () => VariantTree.GestureStates) => void
   /** Its registration with the ancestor it joined, given up: at its element's release. */
   readonly dispose: () => void
 }
@@ -45,7 +52,11 @@ interface OwnOrchestration {
   readonly settled: (done: boolean) => void
   readonly canStartFor: (name: string) => boolean
   readonly settledFor: (names: ReadonlyArray<string>, done: boolean) => void
+  readonly bindGestures: (states: () => VariantTree.GestureStates) => void
 }
+
+/** No gesture on: what an element hands down before its Mount binds its gestures. */
+const noGestures = (): VariantTree.GestureStates => VariantTree.NO_GESTURE_STATES
 
 /** A registered Variant child's stagger slot, as its ancestor's registry holds it: set at each trigger. */
 interface ChildRecord {
@@ -83,8 +94,9 @@ const ownOrchestration = (
     const c = cfg()
     return VariantTree.handedDown(c, () => VariantTree.nameOf(c.animate), () => UndefinedOr.map(parent, (p) => p.variant()))
   }
-  // What it hands down for its gestures (#291): none of its own until slice 3; what it inherits, passed on.
-  const gestures = (): VariantTree.GestureHandDown => VariantTree.handDownOf(cfg(), VariantTree.NO_GESTURE_STATES, VariantTree.handDownFrom(inherited))
+  // What it hands down for its gestures (#291): which of its own are on, bound by its element's Mount (#793), and what it inherits, passed on.
+  const ownStates = MutableRef.make<() => VariantTree.GestureStates>(noGestures)
+  const gestures = (): VariantTree.GestureHandDown => VariantTree.handDownOf(cfg(), MutableRef.get(ownStates)(), VariantTree.handDownFrom(inherited))
   const triggerKey = (): string => VariantTree.triggerKeyOf(variant(), gestures(), NO_CHANGE)
 
   // Snapshot-at-trigger (ADR-0007): each child's index and total are recomputed only when a trigger
@@ -236,6 +248,9 @@ const ownOrchestration = (
     },
     canStartFor,
     settledFor,
+    bindGestures: (states) => {
+      MutableRef.set(ownStates, states)
+    },
   }
 }
 
@@ -271,6 +286,7 @@ export const variantNodeOf = (cfg: () => VariantTree.VariantConfig, parent: Vari
       reportOwn(done)
     },
     names: namesOf(joined, own),
+    bindGestures: UndefinedOr.match(own, { onUndefined: () => constVoid, onDefined: (o) => o.bindGestures }),
     dispose: UndefinedOr.match(joined, { onUndefined: () => constVoid, onDefined: ({ registration }) => registration.dispose }),
   }
 }

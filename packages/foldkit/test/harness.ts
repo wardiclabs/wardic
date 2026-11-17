@@ -4,12 +4,17 @@
 import * as Bool from "effect/Boolean"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Layer from "effect/Layer"
-import type * as Schema from "effect/Schema"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import * as Port from "foldkit/port"
 import * as Runtime from "foldkit/runtime"
 import * as Subscription from "foldkit/subscription"
 import type * as Update from "foldkit/update"
+import * as Arr from "effect/Array"
+import * as Schema from "effect/Schema"
+import { defineMessageUnion } from "foldkit/message"
+import type * as Wardic from "@wardic/foldkit/Wardic"
+import { until } from "../../solid/test/browser-helpers.ts"
+import { type Pt } from "../../solid/test/real-mouse.ts"
 
 /** An embedded program: the host its view renders in, its one inbound port and its disposal. */
 export interface Embedded<Value> {
@@ -40,6 +45,48 @@ export interface Program<Model, Message extends Tagged, Value, R = never> {
   /** The program's `viewTransition` predicate (a Handle's `wardic.viewTransition(…)` around the app's). */
   readonly viewTransition?: Runtime.ViewTransitionConfig<Model, Message> | undefined
 }
+
+// The browser's own mouse and its points: Solid's Solid-free module (#793), shared with its tests.
+export { centreOf, mouse, type Pt } from "../../solid/test/real-mouse.ts"
+
+/** Where the mouse rests between gestures: off every fixture's elements. */
+export const PARK: Pt = { x: 5, y: 5 }
+
+/** `el`'s inline opacity, as the gate writes it. */
+export const opacityOf = (el: HTMLElement): number => Number(el.style.opacity)
+
+/** The `#id` element of `app`, once it renders. */
+export const boxOf = async (app: Pick<Embedded<never>, "container">, id = "box"): Promise<HTMLElement> => {
+  await until(() => app.container.querySelector(`#${id}`) !== null, 2000, `#${id} renders`)
+  return app.container.querySelector<HTMLElement>(`#${id}`)!
+}
+
+/** A keyed list's Model: its items, in order. */
+export const ListModel = Schema.Struct({ items: Schema.Array(Schema.String) })
+export type ListModel = typeof ListModel.Type
+/** Its one Message: a new order. */
+export const ListMessage = defineMessageUnion({ Items: { items: Schema.Array(Schema.String) } })
+export type ListMessage = typeof ListMessage.Type
+
+const ROW = { height: "40px", margin: "0", padding: "0", listStyle: "none" } as const
+
+/**
+ * A keyed `#list` whose `#item-<key>` rows are layout elements on `handle`, embedded with `items`: a
+ * reorder sent in moves each to its new slot, over 0.3 s, linear.
+ */
+export const embedKeyedList = <F>(handle: Pick<Wardic.Handle<F>, "html">, items: ReadonlyArray<string>): Embedded<ReadonlyArray<string>> =>
+  embed<ListModel, ListMessage, ReadonlyArray<string>>({
+    Model: ListModel,
+    Set: Schema.Array(Schema.String),
+    init: { items },
+    update: (model, message) => ListMessage.match(message, { Items: ({ items }) => ({ model: { ...model, items } }) }),
+    view: (model, h) => {
+      const w = handle.html(h)
+      return h.ul([h.Id("list"), h.Style({ position: "relative", margin: "0", padding: "0" })], Arr.map(model.items, (key) =>
+        w.keyed("li")(key, [h.Id(`item-${key}`), w.Layout(true), w.Transition({ duration: 0.3, ease: "linear" }), h.Style(ROW)], [key])))
+    },
+    toMessage: (items) => ListMessage.Items({ items }),
+  })
 
 // Each container's id, counted.
 let embedded = 0

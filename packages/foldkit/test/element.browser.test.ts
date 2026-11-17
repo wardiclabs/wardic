@@ -13,7 +13,7 @@ import type { MountAction } from "foldkit/mount"
 import { afterEach, describe, expect, it } from "vitest"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import { over, until, waitAtMost } from "../../solid/test/browser-helpers.ts"
-import { embed, type Embedded } from "./harness.ts"
+import { boxOf, embed, type Embedded, opacityOf } from "./harness.ts"
 
 const Model = Schema.Struct({ x: Schema.Number })
 type Model = typeof Model.Type
@@ -33,17 +33,8 @@ const boxAt = (model: Model, h: HtmlBuilder<Message>): Html => {
 /** The program `boxAt` is the view of, embedded. */
 const embedBox = (devTools = false): Embedded<number> => embed<Model, Message, number>({ Model, Set: Schema.Number, init: { x: 0 }, update, view: boxAt, toMessage: (x) => Message.Set({ x }), devTools })
 
-/** The box's inline opacity, as the gate writes it. */
-const opacityOf = (el: HTMLElement): number => Number(el.style.opacity)
-
 /** The box's left, inside its app. */
 const xOf = (app: Pick<Embedded<never>, "container">, box: HTMLElement): number => box.getBoundingClientRect().left - app.container.getBoundingClientRect().left
-
-/** The `#box` of `app`, once it renders. */
-const boxOf = async (app: Pick<Embedded<never>, "container">): Promise<HTMLElement> => {
-  await until(() => app.container.querySelector("#box") !== null, 2000, "the box renders")
-  return app.container.querySelector<HTMLElement>("#box")!
-}
 
 let app: Pick<Embedded<never>, "dispose"> | undefined
 afterEach(() => {

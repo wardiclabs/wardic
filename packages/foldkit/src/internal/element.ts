@@ -14,6 +14,7 @@ import type * as ProjectionSystem from "@wardic/dom/ProjectionSystem"
 import type * as CoreConfig from "@wardic/core/unstable/Config"
 import * as PresenceRecord from "@wardic/core/unstable/PresenceRecord"
 import * as Spine from "@wardic/core/unstable/Spine"
+import * as VariantTree from "@wardic/core/unstable/VariantTree"
 import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as FlushGate from "@wardic/dom/FlushGate"
 import * as Report from "@wardic/dom/Report"
@@ -29,7 +30,8 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import * as Equal from "effect/Equal"
-import { constFalse, constVoid } from "effect/Function"
+import { constFalse, constVoid, identity } from "effect/Function"
+import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import type * as AtomRegistry from "effect/reactivity/AtomRegistry"
@@ -37,7 +39,8 @@ import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as Ward from "../Ward.ts"
 import { deliveredTo, hintFrameUnless, installSetter, patchTouched } from "./delivery.ts"
-import { reactivity } from "./reactivity.ts"
+import { gesturesOf } from "./gestures.ts"
+import { reactivity, recheck } from "./reactivity.ts"
 import { layoutOf } from "./layout.ts"
 import { nearestPresence } from "./presence.ts"
 import { type Provider, reducedMotionUnder, type State } from "./services.ts"
@@ -59,11 +62,11 @@ export const configOf = (delivered: unknown): Config => {
 /** What a Retarget throwing inside the patch is reported as: contained at the binding's edge (decision 13), the element left where it is. */
 const RETARGET_FAILED = "wardic.retarget: a w.* element's Retarget failed; it stays where it is"
 
-/** No gesture is on (slice 3 brings them): every entry of the Override stack but the base off. */
-const NO_ACTIVE: Spine.Active = { inView: false, focused: false, hovered: false, pressed: false, dragged: false, dragging: false }
-
 // Module state (#460, Q7): an id counter, only ever compared for distinctness.
 let ids = 0
+
+/** An element's registered projection node, as the projection system hands it back. */
+type LayoutNode = ReturnType<ProjectionSystem.Shape["register"]>
 
 /** What a layout node's release runs on, with no drag (slice 3's): Motion's release, made once. */
 const NO_DRAG_RELEASE = DragTransition.dragTransitionOf(undefined, undefined)
@@ -127,41 +130,67 @@ const writeStartingStyle = (element: HTMLElement, starting: Style.Style): void =
 }
 
 /** What a callback's handler becomes for the spine or a presence: a function told what the callback is. */
-type Dispatch = <A>(handler: Ward.Handler<unknown, A>) => (value: A) => void
+export type Dispatch = <Args extends ReadonlyArray<unknown>>(handler: Ward.Callback<unknown, Args>) => (...args: Args) => void
 
-/** A callback's dispatch (decision 23): a Message sent as it is, a function's result sent unless it's `Option.none()`. */
+/** What sends a callback's Message (decision 23) through `offer`: a Message as it is; a function's answer, an `Option.none()` sending nothing. */
 export const dispatcherOf =
   (offer: (message: unknown) => void): Dispatch =>
-  <A>(handler: Ward.Handler<unknown, A>) =>
-  (value: A) => {
+  <Args extends ReadonlyArray<unknown>>(handler: Ward.Callback<unknown, Args>) =>
+  (...args: Args) => {
     if (Bool.not(Predicate.isFunction(handler))) {
       offer(handler)
       return
     }
-    const out = (handler as (value: A) => unknown)(value)
+    const out = (handler as (...args: Args) => unknown)(...args)
     if (Option.isOption(out)) {
-      Option.map(out, offer)
+      Option.match(out, { onNone: constVoid, onSome: offer })
       return
     }
     offer(out)
   }
 
+/** A `viewport` as dom reads it: Foldkit's, its `root` resolved into an accessor (`viewportRootOf`). */
+export interface ViewportResolved extends Pick<Ward.ViewportOptions, "once" | "margin" | "amount"> {
+  readonly root?: (() => Element | undefined) | undefined
+}
+
 /**
- * The config as the spine reads it: the delivered one, its **Config transition** as its own when it
- * gives none (#434, Motion's `{ ...config, ...props }`), its callback Messages as the spine's
- * functions, and its `OnUpdate` Atom as the sink's `onUpdate`, set to a copy of each frame's values
- * (#791, Q6). Per delivery; the delivered record itself when nothing is added.
+ * An element's config as its spine and its gestures read it: the delivered one, its callbacks as the
+ * spine's functions (`onUpdate` the Atom's setter, the animation and layout callbacks' Messages sent),
+ * and its viewport resolved.
  */
-const spineViewOf = (config: Config, value: WardicConfigValue.WardicConfigValue | undefined, dispatch: Dispatch, registry: AtomRegistry.AtomRegistry): Config => {
-  const configured = WardicConfigValue.withConfigTransition(config, value)
+export type View = Omit<Config, "viewport" | "onUpdate"> &
+  Pick<CoreConfig.SpineConfig, "onUpdate"> &
+  Pick<WardConfig.WardConfig, "onLayoutAnimationStart" | "onLayoutAnimationComplete"> & { readonly viewport?: ViewportResolved | undefined }
+
+/**
+ * `root`'s element for a viewport (#793, Q16): `"parent"`, the element's parent; a selector, resolved
+ * under the `w.Provider()` element, else the document; none, the window. Read as the recognizer starts.
+ */
+const viewportRootOf = (provider: Provider, element: Element, root: string): Element | undefined => {
+  if (root === "parent") return Option.getOrUndefined(Option.fromNullOr(element.parentElement))
+  const under: ParentNode = UndefinedOr.match(provider.root, { onUndefined: (): ParentNode => document, onDefined: identity })
+  return Option.getOrUndefined(Option.fromNullOr(under.querySelector(root)))
+}
+
+const spineViewOf = (config: Config, value: WardicConfigValue.WardicConfigValue | undefined, dispatch: Dispatch, registry: AtomRegistry.AtomRegistry, provider: Provider, element: Element): View => {
+  const { viewport: given, ...configured } = WardicConfigValue.withConfigTransition(config, value)
+  // Its viewport as dom reads it (#793, Q16): the root resolved as the recognizer starts.
+  const viewport = UndefinedOr.match(given, {
+    onUndefined: () => ({}),
+    onDefined: (v): { readonly viewport: ViewportResolved } => ({
+      viewport: { once: v.once, margin: v.margin, amount: v.amount, ...UndefinedOr.match(v.root, { onUndefined: () => ({}), onDefined: (root) => ({ root: () => viewportRootOf(provider, element, root) }) }) },
+    }),
+  })
+  const base: View = { ...configured, ...viewport }
   const start = config.animationStart
   const complete = config.animationComplete
   const update = config.onUpdate
   const layoutStart = config.layoutAnimationStart
   const layoutComplete = config.layoutAnimationComplete
-  if (Predicate.isUndefined(start) && Predicate.isUndefined(complete) && Predicate.isUndefined(update) && Predicate.isUndefined(layoutStart) && Predicate.isUndefined(layoutComplete)) return configured
-  const view: CoreConfig.SpineConfig & Pick<WardConfig.WardConfig, "onLayoutAnimationStart" | "onLayoutAnimationComplete"> = {
-    ...configured,
+  if (Predicate.isUndefined(start) && Predicate.isUndefined(complete) && Predicate.isUndefined(update) && Predicate.isUndefined(layoutStart) && Predicate.isUndefined(layoutComplete)) return base
+  const view: View = {
+    ...base,
     ...UndefinedOr.match(start, { onUndefined: () => ({}), onDefined: (handler) => ({ onAnimationStart: dispatch(handler) }) }),
     ...UndefinedOr.match(complete, { onUndefined: () => ({}), onDefined: (handler) => ({ onAnimationComplete: dispatch(handler) }) }),
     ...UndefinedOr.match(update, { onUndefined: () => ({}), onDefined: (atom) => ({ onUpdate: (latest: Ward.Latest) => registry.set(atom, { ...latest }) }) }),
@@ -169,7 +198,7 @@ const spineViewOf = (config: Config, value: WardicConfigValue.WardicConfigValue 
     ...UndefinedOr.match(layoutStart, { onUndefined: () => ({}), onDefined: (handler) => ({ onLayoutAnimationStart: () => dispatch(handler)(undefined) }) }),
     ...UndefinedOr.match(layoutComplete, { onUndefined: () => ({}), onDefined: (handler) => ({ onLayoutAnimationComplete: () => dispatch(handler)(undefined) }) }),
   }
-  return view as Config
+  return view
 }
 
 /** Follow `config`'s `text` Atom on the element, writing `textContent` outside the patch (decision 16); the stop. */
@@ -196,10 +225,11 @@ const followText = (element: HTMLElement, atom: Config["text"], registry: AtomRe
 export const mountElement = (provider: Provider, state: State, element: HTMLElement, paused: () => boolean, offer: (message: unknown) => void, root: WardicConfigValue.WardicConfigValue | undefined): (() => void) => {
   const tag = element.localName
   // Its callbacks' Messages (decision 23): none under replay (decision 34), whose history they'd change.
-  const dispatch = dispatcherOf((message) => {
+  const send = (message: unknown): void => {
     if (paused()) return
     offer(message)
-  })
+  }
+  const dispatch = dispatcherOf(send)
   // Its place in the tree (decision 21): its node, made by its first child's Mount or here, and the
   // nearest `w.Config` above it (decision 22).
   const node = nodeOf(element)
@@ -209,8 +239,8 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
   const registryNow = (): AtomRegistry.AtomRegistry => registry
   const id = `wardic-foldkit-${ids++}`
   let config = configOf(deliveredTo(element))
-  let view = spineViewOf(config, configValue, dispatch, registry)
-  const configNow = (): Config => view
+  let view = spineViewOf(config, configValue, dispatch, registry, provider, element)
+  const configNow = (): View => view
   // The nearest `w.Presence` above it (decision 29), told its key now, before that presence decides what it shows (#286).
   const presence = nearestPresence(provider, state, element)
   const context = UndefinedOr.map(presence, (p) => p.context)
@@ -286,32 +316,59 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       diagnostics: devDiagnostics(),
     })
     UndefinedOr.map(taken, (seed) => spine.seed(seed))
+    // Its gestures (#793; decision 23): each started as a delivery wants it, its entry in the Override
+    // stack re-resolved as it flips, and its Variant children told through the port's watches (#291).
+    const gestures = gesturesOf({
+      provider,
+      element,
+      config: configNow,
+      dispatch,
+      onChange: () => {
+        retarget()
+        recheck()
+      },
+      id,
+    })
+    node.bindGestures(gestures.states)
     // Its layout (ADR-0009, ADR-0010; decision 30): one projection node for `Layout`, `LayoutId`,
     // `LayoutScroll` or `LayoutRoot`, on the provider's layout, built at the first; and, with a layout
-    // built, its values by element, for a twin's flight to follow (ADR-0012 *Amendment (#137)*).
+    // built, its values by element, for a twin's flight to follow (ADR-0012 *Amendment (#137)*). Each
+    // joined at mount, or as a load brings the Feature (#793, Q15).
+    // Its config as dom's layout code reads it: the layout keys alone.
     const wardConfig = (): WardConfig.WardConfig => view as WardConfig.WardConfig
     const builtProjection = (): ProjectionSystem.Shape | undefined => Keys.projectionIn(provider.registry.built())
-    const layout = Bool.match(Feature.wantsLayoutNode(wardConfig()), { onTrue: () => layoutOf(provider, state), onFalse: () => undefined })
-    const layoutNode = UndefinedOr.map(layout, (made) =>
-      made.projection.register(
-        made.nodes.registrationOf(
-          made.nodes.optionsOf({
-            id,
-            element,
-            config: wardConfig,
-            parent: inherited,
-            snapshot,
-            dragTransition: NO_DRAG_RELEASE,
-            raiseWhileDragged: false,
-            taken,
-            layoutGroup: layoutGroupOf(element),
-            reducedMotion,
-            skipAnimations,
-            heldTransform: ElementSetup.heldTransformFor(snapshot, templateAtMount, () => view.transformTemplate),
-          }),
-        ),
-      ))
-    const unregisterValues = UndefinedOr.match(builtProjection(), { onUndefined: () => constVoid, onDefined: (projection) => projection.registerValues(element, () => snapshot.values) })
+    const layoutNode = MutableRef.make<LayoutNode | undefined>(undefined)
+    const unregisterValues = MutableRef.make<(() => void) | undefined>(undefined)
+    const joinLayout = (): void => {
+      if (Bool.and(Predicate.isUndefined(MutableRef.get(layoutNode)), Feature.wantsLayoutNode(wardConfig()))) {
+        MutableRef.set(layoutNode, UndefinedOr.map(layoutOf(provider, state), (made) =>
+          made.projection.register(
+            made.nodes.registrationOf(
+              made.nodes.optionsOf({
+                id,
+                element,
+                config: wardConfig,
+                parent: inherited,
+                snapshot,
+                dragTransition: NO_DRAG_RELEASE,
+                raiseWhileDragged: false,
+                taken,
+                layoutGroup: layoutGroupOf(element),
+                reducedMotion,
+                skipAnimations,
+                heldTransform: ElementSetup.heldTransformFor(snapshot, templateAtMount, () => view.transformTemplate),
+              }),
+            ),
+          )))
+      }
+      if (Predicate.isUndefined(MutableRef.get(unregisterValues))) MutableRef.set(unregisterValues, UndefinedOr.map(builtProjection(), (projection) => projection.registerValues(element, () => snapshot.values)))
+    }
+    joinLayout()
+    // A load's Features arriving (Q15): what the element wants of them starts then.
+    const stopRechecks = provider.onFeatures(() => {
+      gestures.check()
+      joinLayout()
+    })
     // Its `LayoutDependency`, compared per delivery as Motion's `prevProps.layoutDependency !==` is: a
     // change asks for the node's measure, or, on an element with no node (a group's), the whole tree's.
     let dependency = config.layoutDependency
@@ -320,7 +377,7 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       if (Equal.equals(dependency, next)) return
       dependency = next
       const ask = (): void => {
-        UndefinedOr.match(layoutNode, {
+        UndefinedOr.match(MutableRef.get(layoutNode), {
           onDefined: (node) => node.notify(),
           onUndefined: () => UndefinedOr.map(builtProjection(), (projection) => projection.notify()),
         })
@@ -334,10 +391,11 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       ask()
     }
     // The Override stack resolved (ADR-0007), compared by value (#470): a delivery that resolves the same
-    // targets tells nothing, as a `transition` change alone doesn't in Motion.
+    // targets tells nothing, as a `transition` change alone doesn't in Motion; a gesture's flip
+    // re-resolves it with the entries on now.
     let last: Spine.Resolution | undefined
     const retarget = (): void => {
-      const next = Spine.resolutionOf(view, inherited, start.initialLink, NO_ACTIVE, snapshot, undefined)
+      const next = Spine.resolutionOf(view, inherited, start.initialLink, gestures.active(), snapshot, undefined)
       if (Predicate.isNotUndefined(last) && Spine.sameResolution(last, next)) return
       last = next
       spine.retarget(next)
@@ -348,13 +406,15 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     // and the element stays where it is.
     const uninstall = installSetter(element, (delivered) => {
       config = configOf(delivered)
-      view = spineViewOf(config, configValue, dispatch, registry)
+      view = spineViewOf(config, configValue, dispatch, registry, provider, element)
       exitConfig.current = Spine.exitConfigOf(view, inherited)
       patchTouched()
       hintFrameUnless(provider.loop, paused)
       try {
         live.css(config.style)
         dependencyChanged()
+        // A gesture this render wants starts now (ADR-0047 decision 5): a callback added later starts its recognizer.
+        gestures.check()
         retarget()
       } catch (error) {
         provider.runtime.runFork(Report.failure(RETARGET_FAILED, Cause.die(error)))
@@ -376,11 +436,15 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
     })
     // Its Imperative animations (#433) go through its spine while it's mounted.
     const unregisterAnimatable = Imperative.registerAnimatable(element, spine)
-    // What a Variant child hears without a delivery of its own (P17): the name its ancestor hands down, and
-    // its `when` gate opening, re-checked once a patch and at each settle that changes a gate (decision 17).
+    // What a Variant child hears without a delivery of its own (P17): the name its ancestor hands down and
+    // the gestures it hands on (#291), as one trigger key, and its `when` gate opening, re-checked once a
+    // patch, at each settle that changes a gate (decision 17) and at each gesture flip above it.
     let unwatch: () => void = constVoid
     if (Predicate.isNotUndefined(node.names)) {
-      const unwatchName = UndefinedOr.match(inherited, { onUndefined: () => constVoid, onDefined: (parentContext) => reactivity.watch(parentContext.variant, retarget) })
+      const unwatchName = UndefinedOr.match(inherited, {
+        onUndefined: () => constVoid,
+        onDefined: (parentContext) => reactivity.watch(() => VariantTree.triggerKeyOf(parentContext.variant(), VariantTree.handDownFrom(parentContext), undefined), retarget),
+      })
       const unwatchGate = reactivity.watch(node.canStart, (open) => {
         if (Bool.and(open, Predicate.isNotUndefined(last))) spine.retarget(UndefinedOr.getOrThrow(last))
       })
@@ -389,7 +453,8 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
         unwatchGate()
       }
     }
-    // Its first Retarget, at mount: from `initial` to `animate`.
+    // Its gestures wanted at mount, then its first Retarget: from `initial` to `animate`.
+    gestures.check()
     retarget()
     return () => {
       unwatch()
@@ -397,8 +462,10 @@ export const mountElement = (provider: Provider, state: State, element: HTMLElem
       unfollowTemplate()
       unregisterAnimatable()
       uninstall()
-      UndefinedOr.map(layoutNode, (node) => node.dispose())
-      unregisterValues()
+      stopRechecks()
+      gestures.dispose()
+      UndefinedOr.map(MutableRef.get(layoutNode), (node) => node.dispose())
+      UndefinedOr.map(MutableRef.get(unregisterValues), (unregister) => unregister())
       spine.dispose()
       unregister()
       dropNode(element)

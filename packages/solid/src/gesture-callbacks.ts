@@ -18,91 +18,18 @@ import * as Report from "@wardic/dom/Report"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
-import * as Match from "effect/Match"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
+import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import * as GestureInfo from "@wardic/dom/unstable/GestureInfo"
 import type { WardicRuntime } from "./runtime.ts"
 
-/**
- * Every key the `wants*` below read (#525): an element given none of them, its keys fixed, can never
- * want a gesture, so it starts no computation to watch for one. `gesture-keys.ssr.test.tsx` checks
- * each of them turns its gesture on.
- */
-export const GESTURE_KEYS = [
-  "whileHover",
-  "onHoverStart",
-  "onHoverEnd",
-  "whileTap",
-  "onTap",
-  "onTapStart",
-  "onTapCancel",
-  "onPan",
-  "onPanStart",
-  "onPanSessionStart",
-  "onPanEnd",
-  "whileInView",
-  "onViewportEnter",
-  "onViewportLeave",
-  "whileFocus",
-] as const satisfies ReadonlyArray<keyof WardConfig.WardConfig>
+// The wanted-gesture predicates and the keys they read are dom's (#793): every binding's gesture start reads them.
+export { GESTURE_KEYS, wantsFocus, wantsHover, wantsInView, wantsPan, wantsPress } from "@wardic/dom/unstable/GestureFeatures"
 
-/**
- * Whether `config` runs the hover recognizer (Motion's hover feature). Read at every config change of
- * an element that doesn't run it yet: statement `if`s, no array (ADR-0025).
- */
-export const wantsHover = (config: WardConfig.WardConfig): boolean => {
-  if (Predicate.isNotUndefined(config.whileHover)) return true
-  if (Predicate.isNotUndefined(config.onHoverStart)) return true
-  return Predicate.isNotUndefined(config.onHoverEnd)
-}
-
-/** Whether `config` runs the press recognizer (Motion's tap feature): as {@link wantsHover}. */
-export const wantsPress = (config: WardConfig.WardConfig): boolean => {
-  if (Predicate.isNotUndefined(config.whileTap)) return true
-  if (Predicate.isNotUndefined(config.onTap)) return true
-  if (Predicate.isNotUndefined(config.onTapStart)) return true
-  return Predicate.isNotUndefined(config.onTapCancel)
-}
-
-/** Whether `config` runs the pan recognizer (Motion's pan feature, #273): as {@link wantsHover}. */
-export const wantsPan = (config: WardConfig.WardConfig): boolean => {
-  if (Predicate.isNotUndefined(config.onPan)) return true
-  if (Predicate.isNotUndefined(config.onPanStart)) return true
-  if (Predicate.isNotUndefined(config.onPanSessionStart)) return true
-  return Predicate.isNotUndefined(config.onPanEnd)
-}
-
-/** Whether `config` runs the in-view recognizer (Motion's inView feature, #273): `whileInView` or a viewport callback. */
-export const wantsInView = (config: WardConfig.WardConfig): boolean => {
-  if (Predicate.isNotUndefined(config.whileInView)) return true
-  if (Predicate.isNotUndefined(config.onViewportEnter)) return true
-  return Predicate.isNotUndefined(config.onViewportLeave)
-}
-
-/** Whether `config` runs the focus recognizer (Motion's focus feature, #273): `whileFocus`. */
-export const wantsFocus = (config: WardConfig.WardConfig): boolean => Predicate.isNotUndefined(config.whileFocus)
-
-/** Motion's `amount` as a share of the element: `"some"` any of it, `"all"` all of it. */
-const amountOf = (amount: "some" | "all" | number | undefined): number | undefined =>
-  Match.value(amount).pipe(
-    Match.when("some", () => 0),
-    Match.when("all", () => 1),
-    Match.orElse((share) => share),
-  )
-
-/** Motion's `viewport` as core's in-view options (#273): its root read now, when the recognizer starts. */
-export const inViewOptionsOf = (viewport: WardConfig.WardicViewport | undefined): Recognizer.InViewOptions =>
-  UndefinedOr.match(viewport, {
-    onUndefined: () => ({}),
-    onDefined: (v) => ({
-      once: v.once,
-      margin: v.margin,
-      amount: amountOf(v.amount),
-      ...UndefinedOr.match(v.root, { onUndefined: () => ({}), onDefined: (root) => ({ root: root() }) }),
-    }),
-  })
+/** Motion's `viewport` as core's in-view options (#273): its root read now, when the recognizer starts. dom's, over Solid's accessor root. */
+export const inViewOptionsOf = (viewport: WardConfig.WardicViewport | undefined): Recognizer.InViewOptions => GestureFeatures.inViewOptionsOf(viewport)
 
 /** What tells an element's gestures to its config's callbacks. */
 export interface GestureCallbacks {
@@ -115,9 +42,6 @@ export interface GestureCallbacks {
   /** An in-view edge: `onViewportEnter` or `onViewportLeave`, with the platform's entry. */
   readonly viewed: (edge: Recognizer.ViewEdge) => void
 }
-
-/** Each press phase's callback: a press a drag took over has none (Motion tells neither). */
-const PRESS_CALLBACK = { start: "onTapStart", tap: "onTap", cancel: "onTapCancel", dragged: undefined } as const
 
 /** Each drag phase's callback, `onDrag` aside. */
 const DRAG_CALLBACK = { start: "onDragStart", move: undefined, end: "onDragEnd" } as const
@@ -181,7 +105,7 @@ export const gestureCallbacksOf = (runtime: WardicRuntime, id: string, config: (
       call(name, config()[name], edge.event.raw as PointerEvent, GestureInfo.pointInfoOf(edge.event))
     },
     pressed: (press, element) => {
-      const name = PRESS_CALLBACK[press.phase]
+      const name = GestureFeatures.PRESS_CALLBACK[press.phase]
       if (Predicate.isUndefined(name)) return
       call(name, config()[name], press.event.raw as GestureInfo.WardicPressEvent, GestureInfo.pressInfoOf(press, element))
     },

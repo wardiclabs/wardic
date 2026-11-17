@@ -19,7 +19,7 @@ import { identity } from "effect/Function"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
 import { hintFrameUnless } from "./delivery.ts"
-import { type Provider, type State } from "./services.ts"
+import { missingMessage, type Provider, type State } from "./services.ts"
 import { underWard } from "./tree.ts"
 import { DEV } from "@wardic/foldkit/internal/dev"
 
@@ -47,10 +47,11 @@ const WATCHED: ReadonlyArray<string> = ["class", "hidden"]
 export const layoutOf = (provider: Provider, state: State): Layout | undefined => {
   const known = layouts.get(provider)
   if (Predicate.isNotUndefined(known)) return known
-  const built = provider.registry.build(state.given)
+  const built = provider.features.services()
   const projection = Keys.projectionIn(built)
   if (Predicate.isUndefined(projection)) {
-    if (DEV) provider.registry.warnOnce("layout", Feature.missingMessage("layout", Feature.LAYOUT_PROPS, "@wardic/foldkit"))
+    // Not while a load is on its way (#793, Q15): it may bring the Feature.
+    if (DEV && Bool.not(provider.features.pending())) provider.registry.warnOnce("layout", missingMessage("layout", Feature.LAYOUT_PROPS))
     return undefined
   }
   const made: Layout = { projection, nodes: Keys.projectionNodesIn(built) }

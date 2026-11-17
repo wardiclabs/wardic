@@ -18,6 +18,7 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import { constTrue, constVoid, identity } from "effect/Function"
 import * as Iter from "effect/Iterable"
+import * as MutableRef from "effect/MutableRef"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -92,13 +93,15 @@ export const nearestPresence = (provider: Provider, state: State, element: Eleme
 const presenceOf = (provider: Provider, state: State, element: Element, own: boolean): Presence | undefined => {
   const known = presences.get(element)
   if (Predicate.isNotUndefined(known)) return known
+  // Its Feature may be on its way (#793, Q15): nothing said, and the element's own Mount makes it as it arrives.
+  const pending = provider.features.pending()
   if (Bool.and(Bool.not(own), isMounted(element))) {
-    if (DEV) provider.registry.warnOnce("presence-late", LATE)
+    if (DEV && Bool.not(pending)) provider.registry.warnOnce("presence-late", LATE)
     return undefined
   }
-  const maker = featureIn(provider, state, PresenceMaker)
+  const maker = featureIn(provider, PresenceMaker)
   if (Predicate.isUndefined(maker)) {
-    provider.registry.warnOnce("presence", MISSING)
+    if (Bool.not(pending)) provider.registry.warnOnce("presence", MISSING)
     return undefined
   }
   const made = makePresence(provider, state, maker, element)
@@ -108,11 +111,26 @@ const presenceOf = (provider: Provider, state: State, element: Element, own: boo
 
 /**
  * Run the presence of `element` when it carries `w.Presence` (its own Mount, after `mountElement`):
- * nothing for an element without one. Returns the release.
+ * nothing for an element without one. With its Feature on its way in a load (#793, Q15), made and run
+ * as it arrives: the children mounted before then started with no presence, those after enroll.
+ * Returns the release.
  */
 export const mountPresence = (provider: Provider, state: State, element: Element, paused: () => boolean, offer: (message: unknown) => void): (() => void) => {
   if (Predicate.isUndefined(configOf(deliveredTo(element)).presence)) return constVoid
-  return UndefinedOr.match(presenceOf(provider, state, element, true), { onUndefined: () => constVoid, onDefined: (presence) => presence.mount(paused, offer) })
+  const made = presenceOf(provider, state, element, true)
+  if (Predicate.isNotUndefined(made)) return made.mount(paused, offer)
+  if (Bool.not(provider.features.pending())) return constVoid
+  const release = MutableRef.make<() => void>(constVoid)
+  const stopRechecks = provider.onFeatures(() => {
+    UndefinedOr.map(presenceOf(provider, state, element, true), (presence) => {
+      MutableRef.set(release, presence.mount(paused, offer))
+      stopRechecks()
+    })
+  })
+  return () => {
+    stopRechecks()
+    MutableRef.get(release)()
+  }
 }
 
 /** Put `node` back where Foldkit took it from (P8): before the node after it, if still a child of `parent`; else after the one before; else at the end. */

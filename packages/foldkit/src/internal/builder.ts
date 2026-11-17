@@ -177,5 +177,19 @@ export const builderOf = <Message>(state: State, h: HtmlBuilder<Message>): objec
   w.OnLayoutAnimationComplete = (handler: Ward.Handler<Message, void>) => attribute("layoutAnimationComplete", handler)
   w.OnBeforeLayoutMeasure = (fn: Ward.Config["onBeforeLayoutMeasure"]) => attribute("onBeforeLayoutMeasure", fn)
   w.OnLayoutMeasure = (fn: Ward.Config["onLayoutMeasure"]) => attribute("onLayoutMeasure", fn)
+  // The gestures (#793, PR 1): each `While*` an entry in the Override stack, each callback a Message (decision 23).
+  w.WhileHover = (value: Ward.Config["whileHover"]) => attribute("whileHover", value)
+  w.OnHoverStart = (handler: Ward.GestureHandler<Message, PointerEvent, Ward.PointInfo>) => attribute("onHoverStart", handler)
+  w.OnHoverEnd = (handler: Ward.GestureHandler<Message, PointerEvent, Ward.PointInfo>) => attribute("onHoverEnd", handler)
+  w.WhileTap = (value: Ward.Config["whileTap"]) => attribute("whileTap", value)
+  w.Propagate = (options: Ward.Config["propagate"]) => attribute("propagate", options)
+  w.OnTapStart = (handler: Ward.GestureHandler<Message, Ward.PressEvent, Ward.PressInfo>) => attribute("onTapStart", handler)
+  w.OnTap = (handler: Ward.GestureHandler<Message, Ward.PressEvent, Ward.PressInfo>) => attribute("onTap", handler)
+  w.OnTapCancel = (handler: Ward.GestureHandler<Message, Ward.PressEvent, Ward.PressInfo>) => attribute("onTapCancel", handler)
+  w.WhileFocus = (value: Ward.Config["whileFocus"]) => attribute("whileFocus", value)
+  w.WhileInView = (value: Ward.Config["whileInView"]) => attribute("whileInView", value)
+  w.Viewport = (options: Ward.ViewportOptions) => attribute("viewport", options)
+  w.OnViewportEnter = (handler: Ward.Handler<Message, IntersectionObserverEntry>) => attribute("onViewportEnter", handler)
+  w.OnViewportLeave = (handler: Ward.Handler<Message, IntersectionObserverEntry>) => attribute("onViewportLeave", handler)
   return w
 }

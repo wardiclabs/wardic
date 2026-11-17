@@ -1,6 +1,6 @@
 import { playwright } from "@vitest/browser-playwright"
 import { defineConfig } from "vitest/config"
-import { PREBUNDLED } from "../solid/vitest.browser.config.ts"
+import { BROWSER_COMMANDS, PREBUNDLED } from "../solid/vitest.browser.config.ts"
 import { wardicSource } from "../../scripts/wardic-source.ts"
 
 // Real-browser tests for `@wardic/foldkit` (#791, ADR-0071): Foldkit programs embedded in Chromium,
@@ -27,6 +27,8 @@ export default defineConfig({
       provider: playwright(),
       headless: true,
       instances: [{ browser: "chromium" }],
+      // The real-input commands the gesture fixtures use (#793, Q13): Solid's, registered here too.
+      commands: BROWSER_COMMANDS,
     },
   },
 })

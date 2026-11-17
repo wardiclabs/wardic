@@ -485,10 +485,14 @@ export const wantsLayoutNode = (c: WardConfig.WardConfig): boolean =>
   c.layout === true || Predicate.isString(c.layout) || Predicate.isNotUndefined(c.layoutId) || c.layoutScroll === true || c.layoutRoot === true
 
 /**
- * Development's word on a missing Feature (#511, ADR-0067 decision 7): what needed it, its import from
- * the binding's `entry`, and where to add it. Not a Complete element, which a `strict` section makes
- * an error (#581).
+ * Development's word on a missing Feature (#511, ADR-0067 decision 7): what needed it, and `how` to
+ * add it: by default a Solid provider's `features`, the Feature imported from the binding's `entry`;
+ * a binding with another way (Foldkit's `Wardic.make`) says so. Not a Complete element, which a
+ * `strict` section makes an error (#581).
  */
-export const missingMessage = (feature: string, what: string, entry: string): string =>
-  `wardic: ${what} needs the \`${feature}\` Feature, which no WardicProvider or LazyWardic above this element has. ` +
+export const missingMessage = (feature: string, what: string, entry: string, how: string = providerHow(feature, entry)): string => `wardic: ${what} needs the \`${feature}\` Feature, ${how}`
+
+/** How a Solid app adds a Feature (the default `how`): a provider's `features`, the Feature imported from `entry`. */
+const providerHow = (feature: string, entry: string): string =>
+  `which no WardicProvider or LazyWardic above this element has. ` +
   `Add it: \`import { ${feature} } from "${entry}"\`, then \`<WardicProvider features={[${feature}]}>\` or \`<LazyWardic features={[${feature}]}>\`.`
