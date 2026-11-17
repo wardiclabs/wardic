@@ -43,45 +43,25 @@ export interface GestureCallbacks {
   readonly viewed: (edge: Recognizer.ViewEdge) => void
 }
 
-/** Each drag phase's callback, `onDrag` aside. */
-const DRAG_CALLBACK = { start: "onDragStart", move: undefined, end: "onDragEnd" } as const
-
-/** Each pan phase's callback past its session's start, `onPan` aside. */
-const PAN_CALLBACK = { start: "onPanStart", move: undefined, end: "onPanEnd" } as const
-
 /** A drag's or a pan's start or end callback. */
 type MovementCallback = "onDragStart" | "onDragEnd" | "onPanStart" | "onPanEnd"
 
 /** An element's callers, reading `config` at each call; `id` names it in a report. */
 export const gestureCallbacksOf = (runtime: WardicRuntime, id: string, config: () => WardConfig.WardConfig): GestureCallbacks => {
-  // The per-move callbacks whose last call threw (#257 item 4): a run of throws reports at its
-  // first, so one that throws at every move logs once; a call that returns ends the run.
-  let failing: Set<string> | undefined
-  /** Report the app's `name` threw `defect`. */
-  const report = (name: string, defect: unknown): void => {
+  // The guard around the app's callbacks (#257 item 4; dom's, for both bindings): a throw reported by
+  // name, a per-move run of throws at its first.
+  const guard = GestureFeatures.callbackGuard((name, defect) => {
     runtime.runFork(Report.failure(`wardic.gesture: ${name} failed`, Cause.die(defect)).pipe(Effect.annotateLogs({ id })))
-  }
+  })
   /** Call the app's `name`, reported if it throws. */
   const call = <Args extends ReadonlyArray<unknown>>(name: string, callback: ((...args: Args) => void) | undefined, ...args: Args): void => {
     if (Predicate.isUndefined(callback)) return
-    try {
-      callback(...args)
-    } catch (defect) {
-      report(name, defect)
-    }
+    guard.once(name, () => callback(...args))
   }
   /** Call `onDrag` or `onPan`, at every move: a run of throws is reported at its first. */
   const callPerMove = <Args extends ReadonlyArray<unknown>>(name: string, callback: ((...args: Args) => void) | undefined, ...args: Args): void => {
     if (Predicate.isUndefined(callback)) return
-    try {
-      callback(...args)
-      UndefinedOr.map(failing, (names) => names.delete(name))
-    } catch (defect) {
-      if (Predicate.isUndefined(failing)) failing = new Set()
-      if (failing.has(name)) return
-      failing.add(name)
-      report(name, defect)
-    }
+    guard.perMove(name, () => callback(...args))
   }
   /**
    * A drag's or a pan's sample, past a pan's session's start: its start's or its end's callback
@@ -117,7 +97,7 @@ export const gestureCallbacksOf = (runtime: WardicRuntime, id: string, config: (
         const c = config()
         if (c.dragDirectionLock === true) call("onDirectionLock", c.onDirectionLock, sample.axis as "x" | "y")
       }
-      moved(DRAG_CALLBACK[sample.phase], "onDrag", sample)
+      moved(GestureFeatures.DRAG_CALLBACK[sample.phase], "onDrag", sample)
     },
     released: () => call("onDragTransitionEnd", config().onDragTransitionEnd),
     panned: (sample) => {
@@ -126,7 +106,7 @@ export const gestureCallbacksOf = (runtime: WardicRuntime, id: string, config: (
         call("onPanSessionStart", config().onPanSessionStart, sample.raw as PointerEvent, GestureInfo.pointOfSample(sample))
         return
       }
-      moved(PAN_CALLBACK[sample.phase], "onPan", sample as Drag.Sample)
+      moved(GestureFeatures.PAN_CALLBACK[sample.phase], "onPan", sample as Drag.Sample)
     },
     viewed: (edge) => {
       const name = Bool.match(edge.active, { onTrue: () => "onViewportEnter" as const, onFalse: () => "onViewportLeave" as const })

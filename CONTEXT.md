@@ -279,8 +279,8 @@ An element's hold on the pointer down or the key its press starts from, taken wh
 _Avoid_: stop propagation (the platform's, which stops every listener), tap lock.
 
 **Drag controls**:
-A drag's start from outside its element (#431, Motion's `useDragControls`): controls made apart and given to one element or more, whose `start(event)` begins each one's drag from a pointer that went down elsewhere, a handle or a track, which the drag then follows as if it had pressed the element. `stop()` ends a drag as a release would; `cancel()` ends it where it is. With `dragListener={false}`, an element's own presses start none. A drag the controls start takes its **Drag claim** as any drag does.
-_Avoid_: drag handle (one use of them), drag trigger.
+A drag's start from outside its element (#431, Motion's `useDragControls`): controls made apart and given to one element or more, whose `start(event)` begins each one's drag from a pointer that went down elsewhere, a handle or a track, which the drag then follows as if it had pressed the element. `stop()` ends a drag as a release would; `cancel()` ends it where it is. With `dragListener={false}`, an element's own presses start none. A drag the controls start takes its **Drag claim** as any drag does. On Foldkit, `DragControls.make()` makes them, `w.DragControls(controls)` gives them to an element, and the `StartsDrag` element (`w.StartsDrag(controls, options)`) is the one a press on starts them from.
+_Avoid_: drag handle (one use of them; on Foldkit, a **Handle** is `Wardic.make`'s), drag trigger.
 
 **Reorder group**:
 The items a drag can reorder, and the rules that do it. Core's `Reorder.Group` (built by `Reorder.make`) holds each item's box, read from its projection handle at each drag sample, or, in a **Batch Reorder group**, computed from the item's place, and decides each **Crossover**. `@wardic/dom`'s controller wires it to the items' drags, Auto-scroll and the axis. The binding owns the `values` array, `onReorder`, the elements and JSX. After a reorder it makes no further one until the new order's boxes are known: a Measure pass has measured them, or the Batch has placed them (ADR-0020).

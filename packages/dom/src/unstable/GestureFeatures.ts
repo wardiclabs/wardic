@@ -15,6 +15,8 @@ import * as Context from "effect/Context"
 import * as Match from "effect/Match"
 import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
+import { identity } from "effect/Function"
+import * as MutableRef from "effect/MutableRef"
 import * as UndefinedOr from "effect/UndefinedOr"
 
 /** `key`'s service among `services`, or `undefined` when they hold none: its Feature isn't there. */
@@ -126,6 +128,60 @@ export const wantsFocus = (config: GestureWants): boolean => Predicate.isNotUnde
 
 /** Each press phase's callback (Motion's `onTapStart`, `onTap`, `onTapCancel`): a press a drag took over has none, as Motion tells neither. */
 export const PRESS_CALLBACK = { start: "onTapStart", tap: "onTap", cancel: "onTapCancel", dragged: undefined } as const
+
+/** Each drag phase's callback (Motion's `onDragStart`, `onDragEnd`), `onDrag` aside, which hears the start and each move. */
+// #793 (PR 2): solid's `gesture-callbacks.ts`'s, moved to dom for every binding's drag callbacks.
+export const DRAG_CALLBACK = { start: "onDragStart", move: undefined, end: "onDragEnd" } as const
+
+/** Each pan phase's callback past its session's start (Motion's `onPanStart`, `onPanEnd`), `onPan` aside. */
+export const PAN_CALLBACK = { start: "onPanStart", move: undefined, end: "onPanEnd" } as const
+
+/**
+ * A guard around an element's gesture callbacks, for every binding (#257 item 4): `once` runs `call` and
+ * reports what it throws; `perMove`, for `onDrag` and `onPan`, reports a run of throws at its first, so
+ * one that throws at every move logs once, and a call that returns ends the run. The gesture goes on
+ * either way.
+ */
+export interface CallbackGuard {
+  readonly once: (name: string, call: () => void) => void
+  readonly perMove: (name: string, call: () => void) => void
+}
+
+/** A {@link CallbackGuard} reporting through `report`, told the callback's name and what it threw. */
+// #793 (PR 2): solid's `gesture-callbacks.ts`'s `call` and `callPerMove`, moved to dom for both bindings' callbacks.
+export const callbackGuard = (report: (name: string, defect: unknown) => void): CallbackGuard => {
+  // The per-move callbacks whose last call threw, made at the first throw: most elements never see one.
+  const failing = MutableRef.make<Set<string> | undefined>(undefined)
+  const failingNow = (): Set<string> =>
+    UndefinedOr.match(MutableRef.get(failing), {
+      onUndefined: () => {
+        const made = new Set<string>()
+        MutableRef.set(failing, made)
+        return made
+      },
+      onDefined: identity,
+    })
+  return {
+    once: (name, call) => {
+      try {
+        call()
+      } catch (defect) {
+        report(name, defect)
+      }
+    },
+    perMove: (name, call) => {
+      try {
+        call()
+        UndefinedOr.map(MutableRef.get(failing), (names) => names.delete(name))
+      } catch (defect) {
+        const names = failingNow()
+        if (names.has(name)) return
+        names.add(name)
+        report(name, defect)
+      }
+    },
+  }
+}
 
 /** Motion's `amount` as a share of the element: `"some"` any of it, `"all"` all of it; a number as it is. Built once. */
 export const amountOf: (amount: "some" | "all" | number | undefined) => number | undefined = Match.type<"some" | "all" | number | undefined>().pipe(

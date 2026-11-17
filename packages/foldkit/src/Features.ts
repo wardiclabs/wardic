@@ -25,6 +25,8 @@ export { hover } from "@wardic/dom/unstable/features/Hover"
 export { press } from "@wardic/dom/unstable/features/Press"
 export { focus } from "@wardic/dom/unstable/features/Focus"
 export { inView } from "@wardic/dom/unstable/features/InView"
+export { pan } from "@wardic/dom/unstable/features/Pan"
+export { drag } from "@wardic/dom/unstable/features/Drag"
 export { domAnimation } from "@wardic/dom/unstable/features/DomAnimation"
 export { domMax } from "@wardic/dom/unstable/features/DomMax"
 

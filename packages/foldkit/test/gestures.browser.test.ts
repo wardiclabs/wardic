@@ -38,13 +38,13 @@ import * as Bool from "effect/Boolean"
 import * as Schema from "effect/Schema"
 import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, describe, expect, it } from "vitest"
 import { commands, userEvent } from "vitest/browser"
 import * as Features from "@wardic/foldkit/Features"
 import * as Wardic from "@wardic/foldkit/Wardic"
 import type * as Ward from "@wardic/foldkit/Ward"
 import { raf, until, waitAtMost } from "../../solid/test/browser-helpers.ts"
-import { boxOf, centreOf, embed, type Embedded, embedKeyedList, mouse, opacityOf, PARK, type Pt } from "./harness.ts"
+import { boxOf, capture, centreOf, embed, type Embedded, embedKeyedList, logged, mouse, opacityOf, PARK, type Pt, said } from "./harness.ts"
 
 const Model = Schema.Struct({ on: Schema.Boolean })
 type Model = typeof Model.Type
@@ -110,31 +110,6 @@ const scrollToShow = (top: number, at: number): void => window.scrollTo(0, top -
 
 /** A box 2000 px down its wrapper, which sits 100 px down the page: its top on the page. */
 const FAR = 2100
-
-/** The console captured: every line logged from now until `stop`. */
-const capture = (): { readonly lines: ReadonlyArray<string>; readonly stop: () => void } => {
-  const lines: Array<string> = []
-  const spies = (["log", "info", "warn", "error", "debug"] as const).map((m) =>
-    vi.spyOn(console, m).mockImplementation((...args: Array<unknown>) => {
-      lines.push(args.map(String).join(" "))
-    }),
-  )
-  return { lines, stop: () => spies.forEach((spy) => spy.mockRestore()) }
-}
-
-/** Every line logged while `run` runs. */
-const logged = async (run: () => Promise<void>): Promise<ReadonlyArray<string>> => {
-  const captured = capture()
-  try {
-    await run()
-  } finally {
-    captured.stop()
-  }
-  return captured.lines
-}
-
-/** Whether a logged line says `text`. */
-const said = (lines: ReadonlyArray<string>, text: string): boolean => lines.some((line) => line.includes(text))
 
 /** A Handle with no Features: its `w.*` take the base attributes alone. */
 const bare = Wardic.make({ env: DomLive })

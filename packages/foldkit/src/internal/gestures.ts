@@ -11,14 +11,18 @@
  *
  * @module
  */
+import type * as Drag from "@wardic/core/Drag"
+import type * as DragRecognizer from "@wardic/core/DragRecognizer"
 import type * as InputFeed from "@wardic/core/InputFeed"
 import type * as Recognizer from "@wardic/core/Recognizer"
 import type * as Spine from "@wardic/core/unstable/Spine"
 import * as VariantTree from "@wardic/core/unstable/VariantTree"
+import * as WardicConfigValue from "@wardic/core/unstable/WardicConfigValue"
 import type * as WardicServices from "@wardic/core/unstable/WardicServices"
 import * as Report from "@wardic/dom/Report"
 import * as GestureFeatures from "@wardic/dom/unstable/GestureFeatures"
 import * as GestureInfo from "@wardic/dom/unstable/GestureInfo"
+import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import * as Keys from "@wardic/dom/unstable/features/Keys"
 import * as OwnerScope from "@wardic/dom/unstable/OwnerScope"
 import * as Press from "@wardic/dom/unstable/Press"
@@ -26,6 +30,7 @@ import * as Arr from "effect/Array"
 import * as Bool from "effect/Boolean"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
+import { constUndefined } from "effect/Function"
 import * as Iter from "effect/Iterable"
 import * as MutableRef from "effect/MutableRef"
 import * as Predicate from "effect/Predicate"
@@ -48,22 +53,35 @@ export interface GestureOptions {
   readonly onChange: () => void
   /** The element's id, for a report. */
   readonly id: string
+  /** The nearest `w.Config`'s `transformPagePoint` (Q9), read at each of the pan's downs. */
+  readonly pagePoint: () => WardConfig.WardicTransformPoint | undefined
 }
 
 /** An element's gestures (above). */
 export interface Gestures {
-  /** Which entries of the Override stack are on now; the drag's off until PR 2. */
+  /** Which entries of the Override stack are on now, the drag's among them. */
   readonly active: () => Spine.Active
   /** Which gestures are on, for the names the element's variant node hands down (#291). */
   readonly states: () => VariantTree.GestureStates
+  /** Whether a drag holds `x`/`y` now (ADR-0004): what the spine's follower reads. */
+  readonly dragging: () => boolean
+  /** The drag took `x`/`y`, or handed them back (the track's `setDragging`): its entry flips once each way. */
+  readonly dragHeld: (on: boolean) => void
+  /** A drag's sample, after the track's write: `OnDirectionLock` at a locked start, `OnDragStart`, `OnDrag` at each move, `OnDragEnd`. */
+  readonly dragged: (sample: Drag.Sample) => void
+  /** The drag's release came to rest on its own: `OnDragTransitionEnd`. */
+  readonly released: () => void
   /** Start what the config wants and the Features give, once each: at mount, at each delivery, and as a Feature arrives. */
   readonly check: () => void
   /** Close every recognizer's Scope: at the element's release. */
   readonly dispose: () => void
 }
 
+/** A drag's or a pan's start or end callback. */
+type MovementCallback = "onDragStart" | "onDragEnd" | "onPanStart" | "onPanEnd"
+
 /** A gesture the element may want: its Feature's name. */
-type Gesture = "hover" | "press" | "focus" | "inView"
+type Gesture = "hover" | "press" | "focus" | "inView" | "pan"
 
 /** A gesture's recognizer, as the element starts it: whether its config wants it, and its watch, `undefined` without its Feature. */
 interface Recognizer {
@@ -82,10 +100,12 @@ const END_FAILED = "wardic.gesture: a recognizer's end failed"
 const HANDLER_FAILED = "wardic.gesture: a recognizer's handler failed"
 
 /** An element's gestures (above): nothing started until `check` wants it. */
-export const gesturesOf = ({ provider, element, config, dispatch, onChange, id }: GestureOptions): Gestures => {
+export const gesturesOf = ({ provider, element, config, dispatch, onChange, id, pagePoint }: GestureOptions): Gestures => {
   const started = new Map<Gesture, Scope.Closeable>()
-  // Which gestures are on: the element's entries in the Override stack, the drag's off until PR 2.
+  // Which gestures are on: the element's entries in the Override stack.
   const on = MutableRef.make<VariantTree.GestureStates>(VariantTree.NO_GESTURE_STATES)
+  // Whether the drag holds `x`/`y` (ADR-0004): from its "start" through its release.
+  const dragging = MutableRef.make(false)
   const flip = (change: Partial<VariantTree.GestureStates>): void => {
     MutableRef.set(on, { ...MutableRef.get(on), ...change })
     onChange()
@@ -94,14 +114,11 @@ export const gesturesOf = ({ provider, element, config, dispatch, onChange, id }
     provider.runtime.runFork(Report.failure(label, cause).pipe(Effect.annotateLogs({ id })))
   }
   const onDefect: InputFeed.OnDefect = (cause) => report(HANDLER_FAILED, cause)
-  /** Send the app's `name` its Message, reported if it throws: the gesture goes on, as Solid's does. */
-  const told = (name: string, send: () => void): void => {
-    try {
-      send()
-    } catch (defect) {
-      report(`wardic.gesture: ${name} failed`, Cause.die(defect))
-    }
-  }
+  // The guard around the app's callbacks (#257 item 4; dom's, for both bindings): a throw reported by
+  // name and the gesture goes on; `onDrag`'s and `onPan`'s run of throws reported at its first.
+  const guard = GestureFeatures.callbackGuard((name, defect) => report(`wardic.gesture: ${name} failed`, Cause.die(defect)))
+  /** Send the app's `name` its Message, reported if it throws. */
+  const told = guard.once
   /** Run `watch` in a Scope of the element's own, on the provider, whose services (the Probe, for in view) it has. */
   const run = (watch: Effect.Effect<void, never, Scope.Scope | WardicServices.WardicServices>): Scope.Closeable => {
     const scope = OwnerScope.open(provider.runtime)
@@ -121,6 +138,47 @@ export const gesturesOf = ({ provider, element, config, dispatch, onChange, id }
   /** Whether its presses reach its pressable ancestors (#439): its `propagate`, read at each press's start. */
   const propagates = (): boolean => Press.tapPropagates(config().propagate)
   const focused = (has: boolean): void => flip({ focused: has })
+  /**
+   * A drag's or a pan's sample, past a pan's session's start: its start's or its end's callback
+   * (`named`), then `every`, which hears its start and each move (Motion's pan session runs `onMove` at
+   * the start too). The info is built once, for whichever is set.
+   */
+  const moved = (named: MovementCallback | undefined, every: "onDrag" | "onPan", sample: Drag.Sample): void => {
+    const c = config()
+    const own = UndefinedOr.match(named, { onUndefined: constUndefined, onDefined: (key) => c[key] })
+    const each = Bool.match(sample.phase !== "end", { onTrue: () => c[every], onFalse: constUndefined })
+    if (Bool.and(Predicate.isUndefined(own), Predicate.isUndefined(each))) return
+    const raw = sample.raw as PointerEvent
+    const info = GestureInfo.dragInfoOf(sample)
+    UndefinedOr.map(named, (key) => UndefinedOr.map(own, (handler) => told(key, () => dispatch(handler)(raw, info))))
+    UndefinedOr.map(each, (handler) => guard.perMove(every, () => dispatch(handler)(raw, info)))
+  }
+  const dragged = (sample: Drag.Sample): void => {
+    // A drag its controls cancelled (#431) ends untold, as Motion's `cancel` tells no `onDragEnd`.
+    if (sample.cancelled === true) return
+    // A direction-locked drag's lock, at its start, before `onDragStart` (Motion's order).
+    if (sample.phase === "start") {
+      const c = config()
+      if (c.dragDirectionLock === true) UndefinedOr.map(c.onDirectionLock, (handler) => told("onDirectionLock", () => dispatch(handler)(sample.axis as "x" | "y")))
+    }
+    moved(GestureFeatures.DRAG_CALLBACK[sample.phase], "onDrag", sample)
+  }
+  const released = (): void => {
+    UndefinedOr.map(config().onDragTransitionEnd, (handler) => told("onDragTransitionEnd", () => dispatch(handler)(undefined)))
+  }
+  const panned = (sample: DragRecognizer.PanSample): void => {
+    // Its session's start, at the down: Motion's `onPanSessionStart`, with the point only.
+    if (sample.phase === "session") {
+      UndefinedOr.map(config().onPanSessionStart, (handler) => told("onPanSessionStart", () => dispatch(handler)(sample.raw as PointerEvent, GestureInfo.pointOfSample(sample))))
+      return
+    }
+    moved(GestureFeatures.PAN_CALLBACK[sample.phase], "onPan", sample as Drag.Sample)
+  }
+  const dragHeld = (held: boolean): void => {
+    if (MutableRef.get(dragging) === held) return
+    MutableRef.set(dragging, held)
+    flip({ dragged: held })
+  }
   const viewed = (edge: Recognizer.ViewEdge): void => {
     const name = Bool.match(edge.active, { onTrue: () => "onViewportEnter" as const, onFalse: () => "onViewportLeave" as const })
     UndefinedOr.map(config()[name], (handler) => told(name, () => dispatch(handler)(edge.raw as IntersectionObserverEntry)))
@@ -133,6 +191,8 @@ export const gesturesOf = ({ provider, element, config, dispatch, onChange, id }
     { name: "press", wants: GestureFeatures.wantsPress, start: () => UndefinedOr.map(featureIn(provider, Keys.PressGesture), (press) => run(press.watch(element, { on: pressed, onDefect }, false, propagates))) },
     { name: "focus", wants: GestureFeatures.wantsFocus, start: () => UndefinedOr.map(featureIn(provider, Keys.FocusGesture), (focus) => run(focus.watch(element, VISIBLE_FOCUS, { on: focused, onDefect }))) },
     { name: "inView", wants: GestureFeatures.wantsInView, start: () => UndefinedOr.map(featureIn(provider, Keys.InViewGesture), (inView) => run(inView.watch(element, GestureFeatures.inViewOptionsOf(config().viewport), { on: viewed, onDefect }))) },
+    // A pan (Q9) moves nothing: its samples to the pan callbacks, its points through the nearest `transformPagePoint`.
+    { name: "pan", wants: GestureFeatures.wantsPan, start: () => UndefinedOr.map(featureIn(provider, Keys.PanGesture), (pan) => run(pan.watch(element, { on: panned, onDefect }, { mapPoint: WardicConfigValue.pointMapOptionOf(pagePoint) }))) },
   ]
   /** Development's word on a gesture wanted without its Feature (#511): once per provider, and not while a load is on its way (Q15). */
   const missing = (name: Gesture): void => {
@@ -147,8 +207,12 @@ export const gesturesOf = ({ provider, element, config, dispatch, onChange, id }
     })
   }
   return {
-    active: () => ({ ...MutableRef.get(on), dragging: false }),
+    active: () => ({ ...MutableRef.get(on), dragging: MutableRef.get(dragging) }),
     states: () => MutableRef.get(on),
+    dragging: () => MutableRef.get(dragging),
+    dragHeld,
+    dragged,
+    released,
     check,
     dispose: () => Iter.forEach(started.values(), (scope) => OwnerScope.close(provider.runtime, scope, END_FAILED)),
   }

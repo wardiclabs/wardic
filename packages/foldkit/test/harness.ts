@@ -12,6 +12,7 @@ import type * as Update from "foldkit/update"
 import * as Arr from "effect/Array"
 import * as Schema from "effect/Schema"
 import { defineMessageUnion } from "foldkit/message"
+import { vi } from "vitest"
 import type * as Wardic from "@wardic/foldkit/Wardic"
 import { until } from "../../solid/test/browser-helpers.ts"
 import { type Pt } from "../../solid/test/real-mouse.ts"
@@ -51,6 +52,34 @@ export { centreOf, mouse, type Pt } from "../../solid/test/real-mouse.ts"
 
 /** Where the mouse rests between gestures: off every fixture's elements. */
 export const PARK: Pt = { x: 5, y: 5 }
+
+/** The console captured: every line logged from now until `stop`. */
+export const capture = (): { readonly lines: ReadonlyArray<string>; readonly stop: () => void } => {
+  const lines: Array<string> = []
+  const spies = (["log", "info", "warn", "error", "debug"] as const).map((m) =>
+    vi.spyOn(console, m).mockImplementation((...args: Array<unknown>) => {
+      lines.push(args.map(String).join(" "))
+    }),
+  )
+  return { lines, stop: () => spies.forEach((spy) => spy.mockRestore()) }
+}
+
+/** Every line logged while `run` runs. */
+export const logged = async (run: () => Promise<void>): Promise<ReadonlyArray<string>> => {
+  const captured = capture()
+  try {
+    await run()
+  } finally {
+    captured.stop()
+  }
+  return captured.lines
+}
+
+/** Whether a logged line says `text`. */
+export const said = (lines: ReadonlyArray<string>, text: string): boolean => lines.some((line) => line.includes(text))
+
+/** How many logged lines say `text`. */
+export const saidTimes = (lines: ReadonlyArray<string>, text: string): number => lines.filter((line) => line.includes(text)).length
 
 /** `el`'s inline opacity, as the gate writes it. */
 export const opacityOf = (el: HTMLElement): number => Number(el.style.opacity)
