@@ -3,8 +3,9 @@
  * `html(h)` gives a view the builder `w`. A `w.*` element takes Foldkit's attributes and Wardic's
  * (`w.Initial`, `w.Animate`, `w.Transition`, `w.Style`), animates its `Animate` target from `Initial`
  * as it mounts, Retargets on a render that changes its target and holds through one that doesn't. The
- * `w.*` element at the top of the view carries `w.Provider()`, whose Mount builds Wardic's services on
- * the Handle's `env` for every element under it.
+ * first `w.*` element to mount builds Wardic's services on the Handle's `env`, which every element
+ * shares until the last has left; `w.Provider(options)` on the `w.*` element at the top names the root
+ * the subtree options hang on.
  *
  * @example
  * // src/lib/wardic.ts
@@ -16,7 +17,7 @@
  * // src/view.ts
  * const view = (model: Model, h: HtmlBuilder<Message>): Html => {
  *   const w = wardic.html(h)
- *   return w.div([w.Provider(), h.Class("app")], [
+ *   return w.div([h.Class("app")], [
  *     w.div([h.Class("card"), w.Initial({ opacity: 0, y: 8 }), w.Animate({ opacity: 1, y: 0 }), w.Transition({ duration: 0.3 })], [model.title]),
  *   ])
  * }
@@ -30,7 +31,7 @@ import type { MountAction } from "foldkit/mount"
 import * as Predicate from "effect/Predicate"
 import type * as Ward from "./Ward.ts"
 import { type Attributes, builderOf } from "./internal/builder.ts"
-import { ELEMENT_NAME, mountOf, PROVIDER_NAME } from "./internal/mount.ts"
+import { mountOf } from "./internal/mount.ts"
 import { makeState, type State } from "./internal/services.ts"
 
 /** What {@link make} takes. */
@@ -45,11 +46,8 @@ export interface MakeOptions<F> {
   readonly features?: F | undefined
 }
 
-/** A `w.*` element's child, as `h.div`'s: an element, nothing, or text. */
-export type Child = FoldkitHtml.Html | string
-
 /** A `w.*` element's function: `h.div`'s shape, taking Wardic's attributes too. */
-export type ElementFunction<Message> = (attributes: Attributes<Message>, children?: ReadonlyArray<Child>) => FoldkitHtml.Html
+export type ElementFunction<Message> = (attributes: Attributes<Message>, children?: ReadonlyArray<Ward.Child>) => FoldkitHtml.Html
 
 /** The phantom that carries a Handle's Features on its builder. */
 declare const FEATURES: unique symbol
@@ -62,7 +60,7 @@ declare const FEATURES: unique symbol
 export type Html<Message, F = never> = { readonly [Tag in FoldkitHtml.TagName]: ElementFunction<Message> } & Readonly<{
   readonly [FEATURES]?: F
   /** `w.keyed(tag)(key, attributes, children)`: a keyed `w.*` element, as `h.keyed`'s. */
-  keyed: (tag: FoldkitHtml.TagName) => (key: string, attributes: Attributes<Message>, children?: ReadonlyArray<Child>) => FoldkitHtml.Html
+  keyed: (tag: FoldkitHtml.TagName) => (key: string, attributes: Attributes<Message>, children?: ReadonlyArray<Ward.Child>) => FoldkitHtml.Html
   /**
    * The **Bundle** (ADR-0071, decision 18): a Ward's attributes for any element, `h.div([...w.attributes({ … })])`.
    * It takes the element's own Mount and fuses it with Wardic's, since one element has one `OnMount`.
@@ -70,11 +68,16 @@ export type Html<Message, F = never> = { readonly [Tag in FoldkitHtml.TagName]: 
    */
   attributes: (bundle: Ward.Bundle<Message>) => ReadonlyArray<FoldkitHtml.Attribute<Message> | FoldkitHtml.ChildAttribute>
   /**
-   * The **Provider attribute** (decision 9): on the `w.*` element at the top of the view. Its Mount
-   * builds Wardic's services on the Handle's `env`, which every `w.*` element under it animates with.
+   * The **Provider attribute** (decision 9, *Amendment (#791)*): on the `w.*` element at the top of the
+   * view, when the subtree options (slice 2's) are wanted: that element is the root they hang on. With
+   * none, the first `w.*` element to mount builds Wardic's services, shared until the last has left.
    */
   Provider: (options?: Ward.ProviderOptions) => Ward.Attribute
-  /** Where the element starts: values, or `false` to start at `Animate` (Motion's `initial`). */
+  /**
+   * Where the element starts: values, or `false` to start at `Animate` (Motion's `initial`). Read once,
+   * at mount, as Motion reads it: give the same `Initial` on every render, since a view renders it as
+   * the element's Starting style, and a changed one would be written over what Wardic draws.
+   */
   Initial: (value: Ward.Config["initial"]) => Ward.Attribute
   /** Where the element animates to (Motion's `animate`): a change Retargets it from wherever it is. */
   Animate: (value: Ward.Config["animate"]) => Ward.Attribute
@@ -102,10 +105,10 @@ export interface Handle<F = never> {
 
 /**
  * Makes a Handle on `env`, with `features` (above). One per program, at module scope: a second
- * `w.Provider()` for it while one is live is reported and ignored.
+ * `w.Provider()` for it while the first's element is mounted is reported and ignored.
  */
 export const make = <const F extends Feature.InstanceFeaturesProp = never>(options: MakeOptions<F>): Handle<F> => {
-  const state: State = makeState(options.env)
+  const state: State = makeState(options.env, options.features)
   // Made once per `h` (decision 18): as `===`-stable as `h` is, for `createLazy`.
   const builders = new WeakMap<object, object>()
   const html = <Message>(h: FoldkitHtml.HtmlBuilder<Message>): Html<Message, F> => {
@@ -121,5 +124,3 @@ export const make = <const F extends Feature.InstanceFeaturesProp = never>(optio
     Element: mountOf<never>(state, { provider: undefined, user: undefined }),
   }
 }
-
-export { ELEMENT_NAME, PROVIDER_NAME }

@@ -9,10 +9,12 @@
  */
 import * as Spine from "@wardic/core/unstable/Spine"
 import type * as FlushGate from "@wardic/dom/FlushGate"
+import * as Report from "@wardic/dom/Report"
 import * as Style from "@wardic/dom/Style"
 import * as ElementSetup from "@wardic/dom/unstable/ElementSetup"
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
 import * as Arr from "effect/Array"
+import * as Cause from "effect/Cause"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as UndefinedOr from "effect/UndefinedOr"
@@ -34,7 +36,10 @@ export const configOf = (delivered: unknown): Config => {
   return delivered as Config
 }
 
-/** No gesture is on (slice 3 brings them): every layer of the Override stack off. */
+/** What a Retarget throwing inside the patch is reported as: contained at the binding's edge (decision 13), the element left where it is. */
+const RETARGET_FAILED = "wardic.retarget: a w.* element's Retarget failed; it stays where it is"
+
+/** No gesture is on (slice 3 brings them): every entry of the Override stack but the base off. */
 const NO_ACTIVE: Spine.Active = { inView: false, focused: false, hovered: false, pressed: false, dragged: false, dragging: false }
 
 // Module state (#460, Q7): an id counter, only ever compared for distinctness.
@@ -147,9 +152,15 @@ export const mountElement = (provider: Provider, element: HTMLElement, paused: (
     spine.retarget(next)
   }
   // Its Delivery (decision 20): each render's fresh config, inside the patch, Retargets at once (#791, Q14).
+  // A defect there is Foldkit's patch's otherwise, which would stop the whole app (decision 13): reported,
+  // and the element stays where it is.
   const uninstall = installSetter(element, (delivered) => {
     config = configOf(delivered)
-    retarget()
+    try {
+      retarget()
+    } catch (error) {
+      provider.runtime.runFork(Report.failure(RETARGET_FAILED, Cause.die(error)))
+    }
     patchTouched()
   })
   // Its first Retarget, at mount: from `initial` to `animate`.

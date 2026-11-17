@@ -12,13 +12,13 @@ export const wardic = Wardic.make({ env: DomLive })
 // In the view: `w.*` elements take Foldkit's attributes and Wardic's.
 const view = (model: Model, h: HtmlBuilder<Message>): Html => {
   const w = wardic.html(h)
-  return w.div([w.Provider(), h.Class("app")], [
+  return w.div([h.Class("app")], [
     w.div([h.Class("card"), w.Initial({ opacity: 0, y: 8 }), w.Animate({ opacity: 1, y: 0 }), w.Transition({ duration: 0.3 })], [model.title]),
   ])
 }
 ```
 
-- The `w.*` element at the top of the view carries `w.Provider()`: its Mount builds Wardic's services on the Handle's `env`.
+- The first `w.*` element to mount builds Wardic's services on the Handle's `env`, shared until the last has left. `w.Provider(options)` on the `w.*` element at the top names the root the subtree options hang on.
 - An element animates its `Animate` target from `Initial` as it mounts, Retargets on a render that changes its target, and holds through one that doesn't.
 - `h.div([...w.attributes({ initial, animate, transition, style, mount })])` puts a Ward on an element `w` doesn't make.
 - Scene tests resolve Wardic's Mounts by name: `Scene.Mount.resolve(wardic.Element, Done())`, and `wardic.Provider`.

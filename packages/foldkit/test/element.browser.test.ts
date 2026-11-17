@@ -1,12 +1,13 @@
 // The Foldkit element (#791, PR 1): a `w.*` under a provider animates its `Animate` target from
-// `Initial`, Retargets on a re-render that changes its target and holds through one that doesn't,
-// is recreated where a plain element was (the identity stamp, P2), and lands at once in a replay.
+// `Initial`, Retargets on a render that changes its target and holds through one that doesn't, is
+// recreated where a plain element was (the identity stamp, P2), and lands at once in a replay.
 import { DomLive } from "@wardic/dom"
 import * as Bool from "effect/Boolean"
 import * as Effect from "effect/Effect"
 import * as Schema from "effect/Schema"
 import * as Stream from "effect/Stream"
 import { __setDevToolsOverlay, type DevToolsStore, INIT_INDEX } from "foldkit/devtools-host"
+import type { Html, HtmlBuilder } from "foldkit/html"
 import { defineMessageUnion } from "foldkit/message"
 import type { MountAction } from "foldkit/mount"
 import { afterEach, describe, expect, it } from "vitest"
@@ -23,30 +24,49 @@ const update = (model: Model, message: Message) => Message.match(message, { Set:
 
 const wardic = Wardic.make({ env: DomLive })
 
-let app: Embedded<number> | undefined
-afterEach(() => {
-  app?.dispose()
-  app = undefined
-})
+/** A `#box` that carries the provider and animates its `x` to the Model's, over half a second. */
+const boxAt = (model: Model, h: HtmlBuilder<Message>): Html => {
+  const w = wardic.html(h)
+  return w.div([h.Id("box"), w.Initial({ x: 0 }), w.Animate({ x: model.x }), w.Transition({ duration: 0.5, ease: "linear" }), h.Style({ width: "40px", height: "40px" })])
+}
+
+/** The program `boxAt` is the view of, embedded. */
+const embedBox = (devTools = false): Embedded<number> => embed<Model, Message, number>({ Model, Set: Schema.Number, init: { x: 0 }, update, view: boxAt, toMessage: (x) => Message.Set({ x }), devTools })
 
 /** The box's inline opacity, as the gate writes it. */
 const opacityOf = (el: HTMLElement): number => Number(el.style.opacity)
 
+/** The box's left, inside its app. */
+const xOf = (app: Pick<Embedded<never>, "container">, box: HTMLElement): number => box.getBoundingClientRect().left - app.container.getBoundingClientRect().left
+
+/** The `#box` of `app`, once it renders. */
+const boxOf = async (app: Pick<Embedded<never>, "container">): Promise<HTMLElement> => {
+  await until(() => app.container.querySelector("#box") !== null, 2000, "the box renders")
+  return app.container.querySelector<HTMLElement>("#box")!
+}
+
+let app: Pick<Embedded<never>, "dispose"> | undefined
+afterEach(() => {
+  app?.dispose()
+  app = undefined
+  __setDevToolsOverlay(undefined)
+})
+
 describe("a w.* element", () => {
-  it("animates its Animate target from Initial", async () => {
-    app = embed<Model, Message, number>({
+  it("animates its Animate target from Initial, with no provider attribute", async () => {
+    const held = embed<Model, Message, number>({
       Model,
       Set: Schema.Number,
       init: { x: 0 },
       update,
       view: (_model, h) => {
         const w = wardic.html(h)
-        return w.div([w.Provider(), h.Id("box"), w.Initial({ opacity: 0 }), w.Animate({ opacity: 1 }), w.Transition({ duration: 0.3, ease: "linear" }), h.Style({ width: "40px", height: "40px" })])
+        return w.div([h.Id("box"), w.Initial({ opacity: 0 }), w.Animate({ opacity: 1 }), w.Transition({ duration: 0.3, ease: "linear" }), h.Style({ width: "40px", height: "40px" })])
       },
       toMessage: (x) => Message.Set({ x }),
     })
-    await until(() => app?.container.querySelector("#box") !== null, 2000, "the box renders")
-    const box = app.container.querySelector<HTMLElement>("#box")!
+    app = held
+    const box = await boxOf(held)
     // Its Starting style: the view renders it at `initial`, before any frame.
     expect(box.style.opacity).toBe("0")
     const reads = await over(8, () => opacityOf(box))
@@ -57,25 +77,11 @@ describe("a w.* element", () => {
   })
 })
 
-/** The box's left, inside its app. */
-const xOf = (app: Pick<Embedded<never>, "container">, box: HTMLElement): number => box.getBoundingClientRect().left - app.container.getBoundingClientRect().left
-
-describe("a re-render", () => {
+describe("a render", () => {
   it("Retargets the element when its target changes, and holds through one that doesn't", async () => {
-    app = embed<Model, Message, number>({
-      Model,
-      Set: Schema.Number,
-      init: { x: 0 },
-      update,
-      view: (model, h) => {
-        const w = wardic.html(h)
-        return w.div([w.Provider(), h.Id("box"), w.Initial({ x: 0 }), w.Animate({ x: model.x }), w.Transition({ duration: 0.5, ease: "linear" }), h.Style({ width: "40px", height: "40px" })])
-      },
-      toMessage: (x) => Message.Set({ x }),
-    })
-    const held = app
-    await until(() => held.container.querySelector("#box") !== null, 2000, "the box renders")
-    const box = held.container.querySelector<HTMLElement>("#box")!
+    const held = embedBox()
+    app = held
+    const box = await boxOf(held)
     // A render that changes the target Retargets: 0 → 300.
     held.send(300)
     await until(() => xOf(held, box) > 100, 2000, "it moves past 100")
@@ -98,7 +104,7 @@ describe("the identity stamp", () => {
     type Model = typeof Model.Type
     const Message = defineMessageUnion({ Turn: { on: Schema.Boolean } })
     type Message = typeof Message.Type
-    const app2 = embed<Model, Message, boolean>({
+    const held = embed<Model, Message, boolean>({
       Model,
       Set: Schema.Boolean,
       init: { on: false },
@@ -114,15 +120,12 @@ describe("the identity stamp", () => {
       },
       toMessage: (on) => Message.Turn({ on }),
     })
-    try {
-      await until(() => app2.container.querySelector("#box")?.textContent === "off", 2000, "the plain box renders")
-      app2.send(true)
-      await until(() => app2.container.querySelector("#box")?.textContent === "on", 2000, "the w.div renders")
-      const box = app2.container.querySelector<HTMLElement>("#box")!
-      await until(() => opacityOf(box) === 1, 2000, "it animates to 1")
-    } finally {
-      app2.dispose()
-    }
+    app = held
+    await until(() => held.container.querySelector("#box")?.textContent === "off", 2000, "the plain box renders")
+    held.send(true)
+    await until(() => held.container.querySelector("#box")?.textContent === "on", 2000, "the w.div renders")
+    const box = await boxOf(held)
+    await until(() => opacityOf(box) === 1, 2000, "it animates to 1")
   })
 })
 
@@ -133,7 +136,7 @@ describe("the bundle", () => {
     const Message = defineMessageUnion({ Seen: {}, Nothing: {} })
     type Message = typeof Message.Type
     const seen: MountAction<Message> = { name: "Mine", f: () => Stream.make(Message.Seen()) }
-    const app2 = embed<Model, Message, boolean>({
+    const held = embed<Model, Message, boolean>({
       Model,
       Set: Schema.Boolean,
       init: { seen: false },
@@ -141,19 +144,17 @@ describe("the bundle", () => {
       view: (model, h) => {
         const w = wardic.html(h)
         return w.div([w.Provider()], [
-          h.div([h.Id("box"), ...w.attributes({ initial: { opacity: 0 }, animate: { opacity: 1 }, transition: { duration: 0.3, ease: "linear" }, mount: seen })], [Bool.match(model.seen, { onTrue: () => "seen", onFalse: () => "unseen" })]),
+          h.div([h.Id("box"), ...w.attributes({ initial: { opacity: 0 }, animate: { opacity: 1 }, transition: { duration: 0.3, ease: "linear" }, mount: seen })], [
+            Bool.match(model.seen, { onTrue: () => "seen", onFalse: () => "unseen" }),
+          ]),
         ])
       },
       toMessage: () => Message.Nothing(),
     })
-    try {
-      await until(() => app2.container.querySelector("#box") !== null, 2000, "the box renders")
-      const box = app2.container.querySelector<HTMLElement>("#box")!
-      await until(() => opacityOf(box) === 1, 2000, "it animates to 1")
-      await until(() => box.textContent === "seen", 2000, "the user's Mount ran")
-    } finally {
-      app2.dispose()
-    }
+    app = held
+    const box = await boxOf(held)
+    await until(() => opacityOf(box) === 1, 2000, "it animates to 1")
+    await until(() => box.textContent === "seen", 2000, "the user's Mount ran")
   })
 })
 
@@ -165,21 +166,9 @@ describe("DevTools replay", () => {
         store = s
       }),
     )
-    app = embed<Model, Message, number>({
-      Model,
-      Set: Schema.Number,
-      init: { x: 0 },
-      update,
-      view: (model, h) => {
-        const w = wardic.html(h)
-        return w.div([w.Provider(), h.Id("box"), w.Initial({ x: 0 }), w.Animate({ x: model.x }), w.Transition({ duration: 0.5, ease: "linear" }), h.Style({ width: "40px", height: "40px" })])
-      },
-      toMessage: (x) => Message.Set({ x }),
-      devTools: true,
-    })
-    const held = app
-    await until(() => held.container.querySelector("#box") !== null, 2000, "the box renders")
-    const box = held.container.querySelector<HTMLElement>("#box")!
+    const held = embedBox(true)
+    app = held
+    const box = await boxOf(held)
     await until(() => store !== undefined, 2000, "the DevTools store is there")
     held.send(300)
     await until(() => xOf(held, box) > 100, 2000, "it moves past 100")
@@ -191,6 +180,43 @@ describe("DevTools replay", () => {
     // Resumed: the live target (300) comes back, animated again.
     await Effect.runPromise(store!.resume)
     await until(() => xOf(held, box) === 300, 2000, "it lands at 300")
-    __setDevToolsOverlay(undefined)
+  })
+})
+
+describe("the implicit provider", () => {
+  it("is built by the first element, kept through a patch that swaps every element, and rebuilt after the last has left", async () => {
+    const Model = Schema.Struct({ gen: Schema.Number })
+    type Model = typeof Model.Type
+    const Message = defineMessageUnion({ Gen: { gen: Schema.Number } })
+    type Message = typeof Message.Type
+    const held = embed<Model, Message, number>({
+      Model,
+      Set: Schema.Number,
+      init: { gen: 1 },
+      update: (model, message) => Message.match(message, { Gen: ({ gen }) => ({ model: { ...model, gen } }) }),
+      view: (model, h) => {
+        const w = wardic.html(h)
+        // Generation 0: no w.* element at all. Any other: two keyed by their generation, so a change swaps both in one patch.
+        if (model.gen === 0) return h.div([h.Id("root")], ["none"])
+        return h.div([h.Id("root")], [
+          w.keyed("div")(`a${model.gen}`, [h.Class("box"), w.Initial({ opacity: 0 }), w.Animate({ opacity: 1 }), w.Transition({ duration: 0.2, ease: "linear" })], ["a"]),
+          w.keyed("div")(`b${model.gen}`, [h.Class("box"), w.Initial({ opacity: 0 }), w.Animate({ opacity: 1 }), w.Transition({ duration: 0.2, ease: "linear" })], ["b"]),
+        ])
+      },
+      toMessage: (gen) => Message.Gen({ gen }),
+    })
+    app = held
+    const boxes = (): ReadonlyArray<HTMLElement> => Array.from(held.container.querySelectorAll<HTMLElement>(".box"))
+    const landed = (): boolean => boxes().length === 2 && boxes().every((box) => opacityOf(box) === 1)
+    await until(landed, 2000, "generation 1 animates to 1")
+    // Every element swapped in one patch: the runtime is kept, and the new ones animate on it.
+    held.send(2)
+    await until(() => boxes().length === 2 && boxes().every((box) => opacityOf(box) < 1), 2000, "generation 2 starts from 0")
+    await until(landed, 2000, "generation 2 animates to 1")
+    // Every element gone: the runtime closes; elements mounting after build a fresh one.
+    held.send(0)
+    await until(() => boxes().length === 0, 2000, "no element is left")
+    held.send(3)
+    await until(landed, 2000, "generation 3 animates to 1")
   })
 })

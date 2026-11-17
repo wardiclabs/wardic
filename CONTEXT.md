@@ -534,11 +534,11 @@ One render's config reaching a **Wardic element**, in a binding whose host has n
 _Avoid_: update (Foldkit's `update`), prop write, re-render.
 
 **Handle**:
-What `Wardic.make({ env, features })` returns on Foldkit (ADR-0071, decision 9), made once per program at module scope: the **Wardic instance** that also holds Wardic's one runtime inside Foldkit's. It gives a view its `w` (`wardic.html(h)`), and a Scene test the **Raw Mounts** it resolves. Its runtime is built by its **Provider attribute**'s element, and a second provider mounting while one is live is reported and ignored (#791).
+What `Wardic.make({ env, features })` returns on Foldkit (ADR-0071, decision 9), made once per program at module scope: the **Wardic instance** that also holds Wardic's one runtime inside Foldkit's. It gives a view its `w` (`wardic.html(h)`), and a Scene test the **Raw Mounts** it resolves. Its runtime is built by the first `w.*` element to mount, into a Scope the Handle owns, and closed once the last has left (#791).
 _Avoid_: app (Foldkit's program), context (Solid's), instance (bare).
 
 **Provider attribute**:
-`w.Provider(options)`, on the `w.*` element at the top of a Foldkit view (ADR-0071, decision 9): that element's Mount builds Wardic's Layer on the **Handle**'s `env` into its Scope at insert, and every `w.*` element under it animates with what it built. The counterpart of Solid's `<WardicProvider>`, as an attribute, since Foldkit has no wrapper node.
+`w.Provider(options)`, on the `w.*` element at the top of a Foldkit view (ADR-0071, decision 9, *Amendment (#791)*): names the root the subtree options hang on (slice 2's layout trigger, slice 4's Appear chunk). Optional: with none, the first `w.*` element to mount builds Wardic's Layer on the **Handle**'s `env`, and every `w.*` element shares it. A second one while the first's element is mounted is reported and ignored. The counterpart of Solid's `<WardicProvider>`, as an attribute, since Foldkit has no wrapper node.
 _Avoid_: provider element, root ward, WardicProvider (Solid's component).
 
 **Bundle**:

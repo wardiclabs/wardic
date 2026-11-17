@@ -7,6 +7,7 @@
  * @module
  */
 import type * as WardConfig from "@wardic/dom/unstable/WardConfig"
+import type { Html } from "foldkit/html"
 import type { MountAction } from "foldkit/mount"
 import * as Predicate from "effect/Predicate"
 
@@ -37,8 +38,8 @@ export interface Attribute {
 /** Whether `value` is a Wardic attribute. */
 export const isAttribute = (value: unknown): value is Attribute => Predicate.hasProperty(value, TypeId)
 
-/** A Wardic attribute for `key`. Internal. */
-export const attribute = (key: Attribute[TypeId], value: unknown): Attribute => ({ [TypeId]: key, value })
+/** A `w.*` element's child, as `h.div`'s: an element, nothing, or text. */
+export type Child = Html | string
 
 /**
  * An element's config in slice 1: where it starts, where it animates to, how, and its `style`, whose

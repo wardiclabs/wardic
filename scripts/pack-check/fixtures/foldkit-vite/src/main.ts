@@ -16,7 +16,7 @@ const wardic = Wardic.make({ env: DomLive })
 /** An element that enters, as an app would write it. */
 const view = (_model: Model, h: HtmlBuilder<Message>): Html => {
   const w = wardic.html(h)
-  return w.div([w.Provider()], [
+  return w.div([], [
     w.div([h.Id("enter"), w.Initial({ opacity: 0 }), w.Animate({ opacity: 1 }), w.Transition({ duration: 0.3 }), h.Style({ width: "80px", height: "40px", background: "teal" })]),
   ])
 }

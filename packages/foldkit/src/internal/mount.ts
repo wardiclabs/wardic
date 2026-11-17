@@ -1,7 +1,8 @@
 /**
  * The fused Mount (ADR-0071, decisions 18 and 31): the seam that differs on Foldkit's preview. A `w.*`
- * element runs one Mount: Wardic's part, which mounts the element (and builds the Provider first when
- * the element carries `w.Provider()`), merged with the user's own `OnMount` when there is one. With a
+ * element runs one Mount: Wardic's part, which gets the Handle's Provider (built by the first element
+ * to mount, *Amendment (#791)*) and mounts the element on it, merged with the user's own `OnMount` when
+ * there is one. With a
  * user Mount, the fused one is `{ ...userAction, f }`, so it keeps the user's name and args, and a Scene
  * test resolves the user's Mount as it would; without one, it's named `Wardic.Provider` or
  * `Wardic.Element`, what a Scene test resolves by (#791, Q15; decision 36).
@@ -11,15 +12,13 @@
 import * as Report from "@wardic/dom/Report"
 import * as Cause from "effect/Cause"
 import * as Effect from "effect/Effect"
-import type * as Scope from "effect/Scope"
-import * as UndefinedOr from "effect/UndefinedOr"
 import * as Predicate from "effect/Predicate"
 import * as Stream from "effect/Stream"
 import type { MountAction, ViewState } from "foldkit/mount"
 import type * as Ward from "../Ward.ts"
 import { patchTouched } from "./delivery.ts"
 import { mountElement } from "./element.ts"
-import { awaitProvider, provide, type Provider, type State } from "./services.ts"
+import { joined, providerFor, type State } from "./services.ts"
 
 /** The names a Scene test resolves Wardic's Mounts by (decision 36). */
 export const PROVIDER_NAME = "Wardic.Provider"
@@ -32,10 +31,10 @@ type MountFn<Message> = MountAction<Message>["f"]
 const FAILED = "wardic.mount: a w.* element's mount failed; it stays at its Starting style"
 
 /**
- * Wardic's part of a `w.*` element's Mount: builds the Provider when `provider` is given (the element
- * carries `w.Provider()`), else awaits the Handle's; mounts the element on it; follows the view's state
- * for DevTools replay (decision 34); and holds its Scope until the Mount's destroy, which runs the
- * release before Foldkit removes the element. It never fails: a failure is reported, and the Stream
+ * Wardic's part of a `w.*` element's Mount: gets the Handle's Provider, building it when it's the first
+ * element to mount, and takes the root when the element carries `w.Provider(options)`; mounts the
+ * element on it; follows the view's state for DevTools replay (decision 34); and holds its Scope until
+ * the Mount's destroy, which runs the release before Foldkit removes the element. It never fails: a failure is reported, and the Stream
  * stays open (decision 13). Emits no Message in slice 1's PR 1; PR 2's callbacks come through here.
  */
 const wardicPart =
@@ -47,10 +46,15 @@ const wardicPart =
         yield* Effect.forkScoped(Stream.runForEach(viewStateChanges, (view: ViewState) => Effect.sync(() => {
           paused = view === "Paused"
         })))
-        const mounted: Effect.Effect<Provider, never, Scope.Scope> = UndefinedOr.match(provider, { onUndefined: () => awaitProvider(state), onDefined: () => provide(state, element) })
-        const on = yield* mounted
+        const on = yield* providerFor(state, element, provider)
+        const left = joined(state, on, element)
         const release = mountElement(on, element as HTMLElement, () => paused)
-        yield* Effect.addFinalizer(() => Effect.sync(release))
+        yield* Effect.addFinalizer(() =>
+          Effect.sync(() => {
+            release()
+            left()
+          }),
+        )
         patchTouched()
         return yield* Effect.never
       }).pipe(Effect.catchDefect((defect) => Effect.andThen(Report.failure(FAILED, Cause.die(defect)), Effect.never))),

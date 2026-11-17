@@ -12,7 +12,7 @@
  *
  * @module
  */
-import { CustomElement } from "foldkit"
+import * as CustomElement from "foldkit/customElement"
 import type { Attribute, HtmlBuilder } from "foldkit/html"
 import * as Schema from "effect/Schema"
 import * as Predicate from "effect/Predicate"

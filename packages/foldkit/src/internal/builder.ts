@@ -9,6 +9,7 @@
  * @module
  */
 import * as Arr from "effect/Array"
+import * as Option from "effect/Option"
 import * as Predicate from "effect/Predicate"
 import * as Rec from "effect/Record"
 import * as Str from "effect/String"
@@ -25,11 +26,11 @@ import { DEV } from "@wardic/foldkit/internal/dev"
 /** The one identity every `w.*` element is stamped with (#791, Q8). */
 const IDENTITY = "@wardic/foldkit"
 
-/** A `w.*` element's child, as `h.div`'s. */
-type Child = Html | string
-
 /** What a `w.*` element takes: Foldkit's attributes and Wardic's. */
 export type Attributes<Message> = ReadonlyArray<Attribute<Message> | ChildAttribute | Ward.Attribute>
+
+/** A Wardic attribute for `key`: what `w.Initial(…)` and the rest return. */
+const attribute = (key: Ward.Attribute[Ward.TypeId], value: unknown): Ward.Attribute => ({ [Ward.TypeId]: key, value })
 
 /** An element's attributes, folded: its Wardic config, the user's `h.Style`, the user's Mount, `w.Provider()`'s options, and the rest, Foldkit's. */
 interface Folded<Message> {
@@ -82,7 +83,7 @@ const configOf = (folded: Folded<never>): Config => {
   if (Predicate.isUndefined(own)) return { ...folded.config, style: user } as Config
   if (DEV) {
     const both = Arr.findFirst(Rec.keys(user), (key) => Object.hasOwn(own, key))
-    if (both._tag === "Some") throw new Error(overlapping(both.value))
+    if (Option.isSome(both)) throw new Error(overlapping(both.value))
   }
   return { ...folded.config, style: { ...user, ...(own as object) } } as Config
 }
@@ -103,10 +104,10 @@ const wardAttributes = <Message>(state: State, h: HtmlBuilder<Message>, tag: str
 }
 
 /** Foldkit's element function, as `h.div` and a `h.keyed(tag)(key, …)` share it. */
-type Make = (attributes: ReadonlyArray<Attribute<never> | ChildAttribute>, children?: ReadonlyArray<Child>) => Html
+type Make = (attributes: ReadonlyArray<Attribute<never> | ChildAttribute>, children?: ReadonlyArray<Ward.Child>) => Html
 
 /** A `w.*` element: folded, rendered through Foldkit's `make`, and stamped. */
-const elementOf = <Message>(state: State, h: HtmlBuilder<Message>, tag: string, make: Make, attributes: Attributes<Message>, children: ReadonlyArray<Child> | undefined): Html =>
+const elementOf = <Message>(state: State, h: HtmlBuilder<Message>, tag: string, make: Make, attributes: Attributes<Message>, children: ReadonlyArray<Ward.Child> | undefined): Html =>
   brandViewResult<Html>(make(wardAttributes(state, h, tag, fold(attributes)) as ReadonlyArray<Attribute<never> | ChildAttribute>, children), IDENTITY)
 
 /** Whether `key` names one of `h`'s element factories: a lowercase name, a function, and neither `keyed` nor `submodel`. */
@@ -124,21 +125,21 @@ export const builderOf = <Message>(state: State, h: HtmlBuilder<Message>): objec
   const factories = h as unknown as Record<string, Make>
   Arr.forEach(Arr.filter(Rec.keys(h), (key) => isTag(h, key)), (tag) => {
     const make = factories[tag] as Make
-    w[tag] = (attributes: Attributes<Message>, children?: ReadonlyArray<Child>) => elementOf(state, h, tag, make, attributes, children)
+    w[tag] = (attributes: Attributes<Message>, children?: ReadonlyArray<Ward.Child>) => elementOf(state, h, tag, make, attributes, children)
   })
   w.keyed = (tag: string) => {
-    const keyed = (h.keyed as unknown as (tag: string) => (key: string, attributes: ReadonlyArray<Attribute<never> | ChildAttribute>, children?: ReadonlyArray<Child>) => Html)(tag)
-    return (key: string, attributes: Attributes<Message>, children?: ReadonlyArray<Child>) => elementOf(state, h, tag, (attrs, kids) => keyed(key, attrs, kids), attributes, children)
+    const keyed = (h.keyed as unknown as (tag: string) => (key: string, attributes: ReadonlyArray<Attribute<never> | ChildAttribute>, children?: ReadonlyArray<Ward.Child>) => Html)(tag)
+    return (key: string, attributes: Attributes<Message>, children?: ReadonlyArray<Ward.Child>) => elementOf(state, h, tag, (attrs, kids) => keyed(key, attrs, kids), attributes, children)
   }
   w.attributes = (bundle: Ward.Bundle<Message>) => {
     const { mount, ...config } = bundle
     const folded: Folded<Message> = { config, style: undefined, mount, provider: undefined, rest: [] }
     return wardAttributes(state, h, undefined, folded)
   }
-  w.Provider = (options: Ward.ProviderOptions = {}) => Ward.attribute("provider", options)
-  w.Initial = (value: Ward.Config["initial"]) => Ward.attribute("initial", value)
-  w.Animate = (value: Ward.Config["animate"]) => Ward.attribute("animate", value)
-  w.Transition = (value: Ward.Config["transition"]) => Ward.attribute("transition", value)
-  w.Style = (value: Ward.Config["style"]) => Ward.attribute("style", value)
+  w.Provider = (options: Ward.ProviderOptions = {}) => attribute("provider", options)
+  w.Initial = (value: Ward.Config["initial"]) => attribute("initial", value)
+  w.Animate = (value: Ward.Config["animate"]) => attribute("animate", value)
+  w.Transition = (value: Ward.Config["transition"]) => attribute("transition", value)
+  w.Style = (value: Ward.Config["style"]) => attribute("style", value)
   return w
 }
